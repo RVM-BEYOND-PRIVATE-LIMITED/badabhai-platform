@@ -165,6 +165,22 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
 
+  tests/e2e:
+    dependencies:
+      '@badabhai/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.19.20
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.6(@types/node@22.19.20)(terser@5.48.0)(tsx@4.22.4)
+
 packages:
 
   '@angular-devkit/core@19.2.24':

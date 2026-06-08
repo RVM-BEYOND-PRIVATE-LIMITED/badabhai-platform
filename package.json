@@ -20,6 +20,8 @@
     "db:generate": "pnpm --filter @badabhai/db db:generate",
     "db:migrate": "pnpm --filter @badabhai/db db:migrate",
     "db:studio": "pnpm --filter @badabhai/db db:studio",
+    "db:up": "docker compose up -d postgres redis",
+    "db:down": "docker compose down",
     "clean": "turbo run clean && rimraf node_modules"
   },
   "devDependencies": {

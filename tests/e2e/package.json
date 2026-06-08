@@ -1,0 +1,18 @@
+{
+  "name": "@badabhai/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "End-to-end Phase 1 flow tests (NestJS API + Postgres).",
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@badabhai/db": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.8.3",
+    "vitest": "^3.0.0"
+  }
+}

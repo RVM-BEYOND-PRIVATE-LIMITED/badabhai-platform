@@ -5,6 +5,7 @@ packages:
   - "apps/api"
   - "apps/web"
   - "packages/*"
+  - "tests/e2e"
 # Allow these dependencies to run install/build scripts (pnpm sandboxes the rest).
 # esbuild ships a platform binary that vitest/tsup need at runtime.
 # sharp ships native binaries used by Next.js image optimization.
