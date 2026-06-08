@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { type Database, events } from "@badabhai/db";
+import { desc } from "drizzle-orm";
+import { type Database, events, type EventRow } from "@badabhai/db";
 import type { BadaBhaiEvent } from "@badabhai/event-schema";
 import { DATABASE } from "../database/database.module";
 
@@ -7,6 +8,11 @@ import { DATABASE } from "../database/database.module";
 @Injectable()
 export class EventsRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
+
+  /** Most-recent events first, for the read-only ops console. */
+  async list(limit = 100): Promise<EventRow[]> {
+    return this.db.select().from(events).orderBy(desc(events.occurredAt)).limit(limit);
+  }
 
   async insert(event: BadaBhaiEvent): Promise<void> {
     await this.db.insert(events).values({

@@ -1,9 +1,16 @@
-import { Controller, Get, NotFoundException, Param, ParseUUIDPipe } from "@nestjs/common";
+import { Controller, Get, NotFoundException, Param, ParseUUIDPipe, Query } from "@nestjs/common";
+import { clampLimit } from "../common/pagination";
 import { WorkersRepository } from "./workers.repository";
 
 @Controller("workers")
 export class WorkersController {
   constructor(private readonly workers: WorkersRepository) {}
+
+  /** List workers (newest first) with latest-profile summary. No PII. */
+  @Get()
+  async list(@Query("limit") limit?: string) {
+    return { workers: await this.workers.list(clampLimit(limit)) };
+  }
 
   /** Worker + latest profile + latest generated resume. */
   @Get(":id/profile")
