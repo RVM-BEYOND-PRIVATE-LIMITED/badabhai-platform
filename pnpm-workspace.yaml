@@ -5,3 +5,9 @@ packages:
   - "apps/api"
   - "apps/web"
   - "packages/*"
+# Allow these dependencies to run install/build scripts (pnpm sandboxes the rest).
+# esbuild ships a platform binary that vitest/tsup need at runtime.
+allowBuilds:
+  esbuild: true
+onlyBuiltDependencies:
+  - esbuild

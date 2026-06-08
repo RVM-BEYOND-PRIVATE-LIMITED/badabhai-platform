@@ -1,0 +1,198 @@
+import { describe, it, expect } from "vitest";
+import {
+  validateEvent,
+  createEvent,
+  assertValidEvent,
+  EventValidationException,
+  EVENT_NAMES,
+  EVENT_REGISTRY,
+  isEventName,
+  MAX_VOICE_NOTE_SECONDS,
+} from "./index";
+
+const UUID_A = "11111111-1111-4111-8111-111111111111";
+const UUID_B = "22222222-2222-4222-8222-222222222222";
+const UUID_C = "33333333-3333-4333-8333-333333333333";
+
+/** A minimal valid `worker.created` event used as a base for mutation tests. */
+function workerCreatedEvent(): Record<string, unknown> {
+  return {
+    event_id: UUID_A,
+    event_name: "worker.created",
+    event_version: 1,
+    occurred_at: "2026-06-08T10:00:00.000Z",
+    actor: { actor_type: "system" },
+    subject: { subject_type: "worker", subject_id: UUID_B },
+    source: "api",
+    correlation_id: UUID_C,
+    causation_id: null,
+    payload: { worker_id: UUID_B, phone_hash: "hash_abc123", status: "pending" },
+    metadata: { environment: "test", service: "api" },
+  };
+}
+
+describe("validateEvent", () => {
+  it("passes a valid worker.created event", () => {
+    const result = validateEvent(workerCreatedEvent());
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.event.event_name).toBe("worker.created");
+      // Defaults applied:
+      expect(result.event.actor.actor_id).toBeNull();
+      expect(result.event.metadata.schema_version).toBe("1.0.0");
+    }
+  });
+
+  it("fails on an invalid (unknown) event_name", () => {
+    const evt = { ...workerCreatedEvent(), event_name: "worker.not_a_real_event" };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.stage).toBe("event_name");
+  });
+
+  it("fails when actor is missing", () => {
+    const evt = workerCreatedEvent();
+    delete evt.actor;
+    const result = validateEvent(evt);
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.stage).toBe("envelope");
+  });
+
+  it("fails when the payload is invalid for the event name", () => {
+    const evt = { ...workerCreatedEvent(), payload: { worker_id: "not-a-uuid" } };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.stage).toBe("payload");
+  });
+
+  it("fails on an unsupported event_version", () => {
+    const evt = { ...workerCreatedEvent(), event_version: 99 };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.stage).toBe("version");
+  });
+});
+
+describe("voice_note.uploaded duration guard", () => {
+  function voiceEvent(duration: number): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: "voice_note.uploaded",
+      subject: { subject_type: "voice_note", subject_id: UUID_A },
+      payload: {
+        voice_note_id: UUID_A,
+        worker_id: UUID_B,
+        session_id: UUID_C,
+        duration_seconds: duration,
+        storage_path: "voice/worker/abc.m4a",
+      },
+    };
+  }
+
+  it("accepts a voice note at the 120s limit", () => {
+    expect(validateEvent(voiceEvent(MAX_VOICE_NOTE_SECONDS)).success).toBe(true);
+  });
+
+  it("rejects a voice note longer than 120s", () => {
+    const result = validateEvent(voiceEvent(121));
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.stage).toBe("payload");
+  });
+});
+
+describe("profile extraction events", () => {
+  it("validates profile.extraction_requested", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "profile.extraction_requested",
+      subject: { subject_type: "profile", subject_id: null },
+      payload: { worker_id: UUID_B, session_id: UUID_C, ai_job_id: UUID_A },
+    };
+    expect(validateEvent(evt).success).toBe(true);
+  });
+
+  it("validates profile.extraction_completed with defaults", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "profile.extraction_completed",
+      subject: { subject_type: "profile", subject_id: UUID_A },
+      payload: {
+        worker_id: UUID_B,
+        profile_id: UUID_A,
+        ai_job_id: UUID_C,
+        profile_status: "extracted",
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "profile.extraction_completed") {
+      expect(result.event.payload.field_count).toBe(0);
+    }
+  });
+});
+
+describe("ai.pseudonymization_failed fails closed", () => {
+  it("requires blocked=true", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.pseudonymization_failed",
+      subject: { subject_type: "ai_job", subject_id: UUID_A },
+      payload: { request_id: "req_1", reason: "parser error", blocked: false },
+    };
+    expect(validateEvent(evt).success).toBe(false);
+  });
+});
+
+describe("createEvent", () => {
+  it("builds a valid event with generated ids and timestamp", () => {
+    const event = createEvent({
+      event_name: "worker.otp_requested",
+      actor: { actor_type: "worker" },
+      subject: { subject_type: "worker" },
+      source: "api",
+      metadata: { environment: "test", service: "api" },
+      payload: { phone_hash: "hash_xyz" },
+    });
+    expect(event.event_name).toBe("worker.otp_requested");
+    expect(event.event_version).toBe(1);
+    expect(event.payload.channel).toBe("sms"); // default applied
+    expect(event.event_id).toMatch(/^[0-9a-f-]{36}$/);
+    // The produced event must itself validate.
+    expect(validateEvent(event).success).toBe(true);
+  });
+
+  it("throws EventValidationException on an invalid payload", () => {
+    expect(() =>
+      createEvent({
+        event_name: "worker.created",
+        actor: { actor_type: "system" },
+        subject: { subject_type: "worker" },
+        source: "api",
+        metadata: { environment: "test", service: "api" },
+        // @ts-expect-error intentionally invalid payload for the runtime guard
+        payload: { worker_id: "nope" },
+      }),
+    ).toThrow(EventValidationException);
+  });
+});
+
+describe("assertValidEvent", () => {
+  it("returns the typed event on success", () => {
+    const event = assertValidEvent(workerCreatedEvent());
+    expect(event.event_name).toBe("worker.created");
+  });
+});
+
+describe("registry", () => {
+  it("exposes all 20 Phase-1 event names", () => {
+    expect(EVENT_NAMES).toHaveLength(20);
+    expect(isEventName("resume.generated")).toBe(true);
+    expect(isEventName("nope")).toBe(false);
+  });
+
+  it("every registry entry has version 1 in Phase 1", () => {
+    for (const name of EVENT_NAMES) {
+      expect(EVENT_REGISTRY[name].version).toBe(1);
+    }
+  });
+});
