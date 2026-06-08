@@ -1,9 +1,9 @@
-import { z } from "zod";
+import type { z } from "zod";
 import {
   EnvelopeBaseSchema,
-  ActorSchema,
-  SubjectSchema,
-  MetadataSchema,
+  type ActorSchema,
+  type SubjectSchema,
+  type MetadataSchema,
   type EnvelopeBase,
 } from "./envelope";
 import {

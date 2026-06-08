@@ -36,8 +36,35 @@ importers:
         specifier: ^3.0.0
         version: 3.2.6(@types/node@22.19.20)
 
+  packages/ai-contracts:
+    dependencies:
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+
+  packages/config:
+    dependencies:
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+
   packages/event-schema:
     dependencies:
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+
+  packages/reach-engine: {}
+
+  packages/taxonomy: {}
+
+  packages/types: {}
+
+  packages/validators:
+    dependencies:
+      '@badabhai/types':
+        specifier: workspace:*
+        version: link:../types
       zod:
         specifier: ^3.24.1
         version: 3.25.76

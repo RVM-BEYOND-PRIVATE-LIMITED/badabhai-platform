@@ -1,0 +1,25 @@
+{
+  "name": "@badabhai/ai-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Zod contracts for AI service I/O (profiling, pseudonymization, extraction, resume). Mirrored as Pydantic in apps/ai-service.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rimraf dist .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  }
+}

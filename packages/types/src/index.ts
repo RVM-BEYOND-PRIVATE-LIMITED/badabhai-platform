@@ -1,0 +1,80 @@
+/**
+ * @badabhai/types — shared domain enums and types.
+ *
+ * Framework-agnostic and dependency-free on purpose: anything (Nest, Next,
+ * Drizzle, tests) can import these without pulling in zod or other runtime deps.
+ * Runtime validation lives in @badabhai/validators; event contracts live in
+ * @badabhai/event-schema.
+ */
+
+// ---- Worker lifecycle ----
+export const WORKER_STATUSES = ["pending", "active", "suspended"] as const;
+export type WorkerStatus = (typeof WORKER_STATUSES)[number];
+
+// ---- Profile lifecycle ----
+export const PROFILE_STATUSES = ["draft", "extracting", "extracted", "confirmed"] as const;
+export type ProfileStatus = (typeof PROFILE_STATUSES)[number];
+
+// ---- Consent ----
+export const CONSENT_PURPOSES = [
+  "profiling",
+  "resume_generation",
+  "communication",
+  // "employer_sharing" is intentionally Phase 2+ and not enabled in Phase 1.
+] as const;
+export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
+
+export const CURRENT_CONSENT_VERSION = "2026-06-01" as const;
+
+// ---- Chat ----
+export const CHAT_SESSION_STATUSES = ["active", "ended"] as const;
+export type ChatSessionStatus = (typeof CHAT_SESSION_STATUSES)[number];
+
+export const MESSAGE_DIRECTIONS = ["inbound", "outbound"] as const;
+export type MessageDirection = (typeof MESSAGE_DIRECTIONS)[number];
+
+export const MESSAGE_TYPES = ["text", "voice", "system"] as const;
+export type MessageType = (typeof MESSAGE_TYPES)[number];
+
+// ---- Voice notes ----
+export const VOICE_RETENTION_POLICIES = ["retain_indefinitely", "delete_after_processing"] as const;
+export type VoiceRetentionPolicy = (typeof VOICE_RETENTION_POLICIES)[number];
+
+export const STORAGE_CLASSES = ["hot", "cold"] as const;
+export type StorageClass = (typeof STORAGE_CLASSES)[number];
+
+/** Hard limit for Phase 1 voice notes (seconds). Mirrored in event-schema/validators. */
+export const MAX_VOICE_NOTE_SECONDS = 120;
+
+// ---- AI jobs ----
+export const AI_JOB_TYPES = [
+  "pseudonymization",
+  "transcription",
+  "profile_extraction",
+  "resume_generation",
+] as const;
+export type AiJobType = (typeof AI_JOB_TYPES)[number];
+
+export const AI_JOB_STATUSES = ["queued", "running", "completed", "failed"] as const;
+export type AiJobStatus = (typeof AI_JOB_STATUSES)[number];
+
+// ---- Languages (initial supported set for blue/grey-collar India) ----
+export const LANGUAGE_CODES = [
+  "en",
+  "hi",
+  "bn",
+  "te",
+  "ta",
+  "mr",
+  "gu",
+  "kn",
+  "ml",
+  "pa",
+  "or",
+  "as",
+] as const;
+export type LanguageCode = (typeof LANGUAGE_CODES)[number];
+
+// ---- Branded id helpers (lightweight; not enforced at runtime) ----
+export type Uuid = string;
+export type Iso8601 = string;

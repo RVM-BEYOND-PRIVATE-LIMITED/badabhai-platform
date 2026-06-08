@@ -1,4 +1,4 @@
-import { z } from "zod";
+import type { z } from "zod";
 import type { EventDomain } from "./enums";
 import * as p from "./payloads";
 

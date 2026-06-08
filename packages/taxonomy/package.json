@@ -1,0 +1,22 @@
+{
+  "name": "@badabhai/taxonomy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Canonical placeholder taxonomy (industries, domains, roles, skills, machines) for CNC/VMC manufacturing.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rimraf dist .turbo *.tsbuildinfo"
+  }
+}
