@@ -58,13 +58,13 @@ class _ChatProfilingScreenState extends State<ChatProfilingScreen> {
       _controller.clear();
     });
 
-    final String reply = await _api.sendMessage(
+    final ChatReply reply = await _api.sendMessage(
       sessionId: sessionId,
       workerId: workerId,
       text: text,
     );
     if (!mounted) return;
-    setState(() => _messages.add(_Message(reply, fromWorker: false)));
+    setState(() => _messages.add(_Message(reply.reply, fromWorker: false)));
   }
 
   @override

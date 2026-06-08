@@ -28,14 +28,14 @@ class _ProfilePreviewScreenState extends State<ProfilePreviewScreen> {
       setState(() => _loading = false);
       return;
     }
-    final String profileId = await _api.extractProfile(
+    final ExtractResult result = await _api.extractProfile(
       workerId: workerId,
       sessionId: AppState.instance.sessionId,
     );
-    AppState.instance.setProfile(profileId);
+    AppState.instance.setProfile(result.profileId);
     if (!mounted) return;
     setState(() {
-      _profileId = profileId;
+      _profileId = result.profileId;
       _loading = false;
     });
   }

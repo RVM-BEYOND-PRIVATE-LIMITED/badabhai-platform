@@ -29,10 +29,12 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
       setState(() => _loading = false);
       return;
     }
-    final String resume = await _api.generateResume(workerId: workerId, profileId: profileId);
+    final ResumeResult result =
+        await _api.generateResume(workerId: workerId, profileId: profileId);
+    AppState.instance.setResume(result.resumeId);
     if (!mounted) return;
     setState(() {
-      _resume = resume;
+      _resume = result.resumeText;
       _loading = false;
     });
   }
