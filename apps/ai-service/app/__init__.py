@@ -1,0 +1,1 @@
+"""BadaBhai AI service (FastAPI)."""

@@ -1,0 +1,7 @@
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.32,<1.0
+pydantic>=2.9,<3.0
+pydantic-settings>=2.6,<3.0
+# LiteLLM is intentionally NOT a hard dependency in Phase 1 (real LLM calls are
+# disabled by default). Add it when wiring app/llm.py:
+#   litellm>=1.50,<2.0
