@@ -10,6 +10,14 @@ Drizzle schema, migrations, and client for BadaBhai's **Supabase Postgres**.
 
 Row types are exported for every table (`Worker`/`NewWorker`, etc.).
 
+## Embeddings (pgvector)
+
+`worker_profiles.embedding` is a `vector(768)` column (managed Vertex
+`text-multilingual-embedding-002`) with an **HNSW cosine** index for semantic
+search. Migration `0001` enables the `pgvector` extension. Local dev uses the
+`pgvector/pgvector:pg16` image (see `docker-compose.yml`); Supabase has pgvector
+built in.
+
 ## Privacy model
 
 PII (phone, full name) lives **only in `workers`**. It is never copied into

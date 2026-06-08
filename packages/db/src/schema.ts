@@ -7,6 +7,7 @@ import {
   doublePrecision,
   timestamp,
   jsonb,
+  vector,
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -105,11 +106,21 @@ export const workerProfiles = pgTable(
     locationPreference: jsonb("location_preference").notNull().default(jsonObject),
     availability: jsonb("availability").notNull().default(jsonObject),
     rawProfile: jsonb("raw_profile").notNull().default(jsonObject),
+    // Managed Vertex embedding (text-multilingual-embedding-002, 768-dim) for
+    // semantic similarity. Nullable until the profile is embedded (plan G3).
+    embedding: vector("embedding", { dimensions: 768 }),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("worker_profiles_worker_id_idx").on(t.workerId)],
+  (t) => [
+    index("worker_profiles_worker_id_idx").on(t.workerId),
+    // HNSW index for cosine similarity search over the 768-dim embedding (plan G5).
+    index("worker_profiles_embedding_hnsw").using(
+      "hnsw",
+      t.embedding.op("vector_cosine_ops"),
+    ),
+  ],
 );
 
 // ---------------------------------------------------------------------------

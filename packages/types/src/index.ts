@@ -20,6 +20,9 @@ export const CONSENT_PURPOSES = [
   "profiling",
   "resume_generation",
   "communication",
+  // Lawful basis for the in-house model track. Captured from day one on purpose:
+  // adding it later would require re-consenting every existing worker (plan J1).
+  "model_training",
   // "employer_sharing" is intentionally Phase 2+ and not enabled in Phase 1.
 ] as const;
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
@@ -40,7 +43,9 @@ export type MessageType = (typeof MESSAGE_TYPES)[number];
 export const VOICE_RETENTION_POLICIES = ["retain_indefinitely", "delete_after_processing"] as const;
 export type VoiceRetentionPolicy = (typeof VOICE_RETENTION_POLICIES)[number];
 
-export const STORAGE_CLASSES = ["hot", "cold"] as const;
+// Tiers for the indefinitely-retained voice/transcript corpus (plan J2):
+// hot (active), archive (cheap cold object storage), physical (offline/archival).
+export const STORAGE_CLASSES = ["hot", "archive", "physical"] as const;
 export type StorageClass = (typeof STORAGE_CLASSES)[number];
 
 /** Hard limit for Phase 1 voice notes (seconds). Mirrored in event-schema/validators. */

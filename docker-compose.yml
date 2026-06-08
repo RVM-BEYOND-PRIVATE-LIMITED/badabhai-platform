@@ -8,7 +8,9 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector-enabled Postgres so the worker_profiles.embedding vector(768)
+    # column + HNSW index work locally (matches Supabase, which has pgvector).
+    image: pgvector/pgvector:pg16
     container_name: badabhai-postgres
     restart: unless-stopped
     environment:
