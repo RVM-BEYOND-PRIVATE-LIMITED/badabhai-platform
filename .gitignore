@@ -11,6 +11,8 @@ coverage/
 .next/
 out/
 next-env.d.ts
+# Keep the committed web next-env.d.ts so CI typecheck works without a prior build.
+!apps/web/next-env.d.ts
 
 # ---- Environment & secrets (NEVER commit real values) ----
 .env
