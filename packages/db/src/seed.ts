@@ -18,12 +18,10 @@ async function main(): Promise<void> {
   // TODO(Phase 1): insert synthetic taxonomy-aligned demo data if/when needed.
   void getDb; // keep the import meaningful until seeding is implemented
 
-  // eslint-disable-next-line no-console
   console.log("[seed] No seed data defined yet (Phase 1 placeholder). Nothing inserted.");
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error("[seed] failed:", err);
   process.exit(1);
 });

@@ -7,7 +7,9 @@ packages:
   - "packages/*"
 # Allow these dependencies to run install/build scripts (pnpm sandboxes the rest).
 # esbuild ships a platform binary that vitest/tsup need at runtime.
+# @nestjs/core's postinstall is only a funding message -> not needed.
 allowBuilds:
   esbuild: true
+  '@nestjs/core': false
 onlyBuiltDependencies:
   - esbuild

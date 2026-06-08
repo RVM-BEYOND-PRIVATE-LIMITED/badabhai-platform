@@ -37,4 +37,14 @@ export default tseslint.config(
       "@typescript-eslint/no-explicit-any": "off",
     },
   },
+  {
+    // NestJS relies on runtime class references in constructor parameter types
+    // (emitDecoratorMetadata) for dependency injection. `consistent-type-imports`
+    // would convert injected providers to `import type` and break DI at runtime,
+    // so it is disabled for the API app.
+    files: ["apps/api/**/*.ts"],
+    rules: {
+      "@typescript-eslint/consistent-type-imports": "off",
+    },
+  },
 );
