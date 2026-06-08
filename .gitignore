@@ -1,0 +1,52 @@
+# ---- Node / pnpm / Turborepo ----
+node_modules/
+.pnpm-store/
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+coverage/
+
+# ---- Next.js ----
+.next/
+out/
+next-env.d.ts
+
+# ---- Environment & secrets (NEVER commit real values) ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+service-account*.json
+
+# ---- Python (apps/ai-service) ----
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- Flutter (apps/worker-app) ----
+apps/worker-app/.dart_tool/
+apps/worker-app/.flutter-plugins
+apps/worker-app/.flutter-plugins-dependencies
+apps/worker-app/build/
+apps/worker-app/.idea/
+*.iml
+
+# ---- Supabase local ----
+infra/supabase/.branches/
+infra/supabase/.temp/
+**/supabase/.temp/
+
+# ---- Editor / OS ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log
+logs/

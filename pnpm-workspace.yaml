@@ -1,0 +1,7 @@
+# pnpm workspace definition for the BadaBhai monorepo.
+# Python (apps/ai-service) and Flutter (apps/worker-app) manage their own
+# toolchains and are intentionally NOT part of the pnpm workspace.
+packages:
+  - "apps/api"
+  - "apps/web"
+  - "packages/*"

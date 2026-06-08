@@ -1,0 +1,56 @@
+# Local infrastructure for BadaBhai development.
+# This complements (does NOT replace) the Supabase workflow: use this Postgres
+# for fully-offline local dev, or point DATABASE_URL at Supabase instead.
+#
+#   docker compose up -d         # start postgres + redis (+ adminer)
+#   docker compose down          # stop
+#   docker compose down -v       # stop and DELETE volumes (data loss)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: badabhai-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: badabhai
+      POSTGRES_PASSWORD: badabhai
+      POSTGRES_DB: badabhai
+    ports:
+      - "5432:5432"
+    volumes:
+      - badabhai_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U badabhai -d badabhai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: badabhai-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - badabhai_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Lightweight DB UI. Optional — remove if not needed.
+  adminer:
+    image: adminer:4
+    container_name: badabhai-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  badabhai_pgdata:
+  badabhai_redisdata:
