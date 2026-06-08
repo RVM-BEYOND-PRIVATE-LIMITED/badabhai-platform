@@ -16,3 +16,7 @@ allowBuilds:
 onlyBuiltDependencies:
   - esbuild
   - sharp
+# Standard pnpm key (used by CI): explicitly skip these build scripts without
+# erroring. @nestjs/core's postinstall is only a funding message.
+ignoredBuiltDependencies:
+  - "@nestjs/core"

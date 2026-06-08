@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---- TypeScript monorepo: lint, typecheck, test, build ----
+  node:
+    name: Node (lint / typecheck / test / build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+  # ---- Python AI service: pytest + ruff ----
+  ai-service:
+    name: AI service (pytest / ruff)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/ai-service
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Ruff
+        run: ruff check .
+
+      - name: Pytest
+        run: pytest
+
+  # ---- Flutter worker app: analyze + test ----
+  # Non-blocking for now: the scaffold was authored without a local Flutter SDK,
+  # so this job is informational until validated. TODO: drop continue-on-error
+  # once green, and consider gating to changes under apps/worker-app.
+  worker-app:
+    name: Worker app (analyze / test)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: apps/worker-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
