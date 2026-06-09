@@ -12,11 +12,23 @@ export class AiJobsRepository {
     return this.db.select().from(aiJobs).orderBy(desc(aiJobs.createdAt)).limit(limit);
   }
 
+  async findById(id: string): Promise<AiJob | undefined> {
+    const rows = await this.db.select().from(aiJobs).where(eq(aiJobs.id, id)).limit(1);
+    return rows[0];
+  }
+
   async create(input: NewAiJob): Promise<AiJob> {
     const inserted = await this.db.insert(aiJobs).values(input).returning();
     const row = inserted[0];
     if (!row) throw new Error("Failed to create AI job");
     return row;
+  }
+
+  async markRunning(id: string): Promise<void> {
+    await this.db
+      .update(aiJobs)
+      .set({ status: "running", updatedAt: new Date() })
+      .where(eq(aiJobs.id, id));
   }
 
   async markCompleted(id: string, outputRef: Record<string, unknown>): Promise<void> {

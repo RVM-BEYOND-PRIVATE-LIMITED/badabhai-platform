@@ -75,7 +75,28 @@ class ApiClient {
     return ChatReply.fromJson(json);
   }
 
-  Future<ExtractResult> extractProfile({
+  /// Extracts the worker's profile from their chat answers.
+  ///
+  /// Extraction runs as a background job on the API. This method enqueues the
+  /// job (POST /profile/extract -> 202) and then polls GET /ai-jobs/{id} until
+  /// the job completes, returning the resulting `profile_id`. Callers can treat
+  /// this as a single awaitable that yields a usable profile id.
+  ///
+  /// Throws [ApiException] if the job fails, or [ProfileExtractionTimeout] if it
+  /// does not finish within the bounded poll budget.
+  Future<String> extractProfile({
+    required String workerId,
+    String? sessionId,
+  }) async {
+    final EnqueueResult enqueued = await enqueueProfileExtraction(
+      workerId: workerId,
+      sessionId: sessionId,
+    );
+    return awaitProfileId(enqueued.aiJobId);
+  }
+
+  /// Enqueues a profile-extraction job. Returns the job id to poll.
+  Future<EnqueueResult> enqueueProfileExtraction({
     required String workerId,
     String? sessionId,
   }) async {
@@ -83,7 +104,43 @@ class ApiClient {
       'worker_id': workerId,
       if (sessionId != null) 'session_id': sessionId,
     });
-    return ExtractResult.fromJson(json);
+    return EnqueueResult.fromJson(json);
+  }
+
+  /// Fetches the current state of an async AI job.
+  Future<AiJob> getAiJob(String aiJobId) async {
+    final Map<String, dynamic> json = await _get('/ai-jobs/$aiJobId');
+    return AiJob.fromJson(json);
+  }
+
+  /// Polls [getAiJob] until the job completes and yields a `profile_id`.
+  ///
+  /// Bounded poll: [maxAttempts] tries spaced [pollInterval] apart. Throws
+  /// [ApiException] if the job fails, or [ProfileExtractionTimeout] if the
+  /// budget is exhausted while still queued/running.
+  Future<String> awaitProfileId(
+    String aiJobId, {
+    int maxAttempts = 40,
+    Duration pollInterval = const Duration(milliseconds: 350),
+  }) async {
+    for (int attempt = 0; attempt < maxAttempts; attempt++) {
+      final AiJob job = await getAiJob(aiJobId);
+      if (job.isCompleted) {
+        final String? profileId = job.profileId;
+        if (profileId == null || profileId.isEmpty) {
+          throw ApiException(502, 'profile job completed without a profile id');
+        }
+        return profileId;
+      }
+      if (job.isFailed) {
+        throw ApiException(
+          502,
+          job.errorMessage ?? 'profile extraction failed',
+        );
+      }
+      await Future<void>.delayed(pollInterval);
+    }
+    throw ProfileExtractionTimeout(aiJobId);
   }
 
   Future<void> confirmProfile({
@@ -117,6 +174,21 @@ class ApiClient {
       uri,
       headers: const <String, String>{'content-type': 'application/json'},
       body: jsonEncode(body),
+    );
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw ApiException(res.statusCode, _messageFrom(res.body));
+    }
+    if (res.body.isEmpty) return <String, dynamic>{};
+    final dynamic decoded = jsonDecode(res.body);
+    return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+  }
+
+  /// GET JSON and return the decoded object. Throws [ApiException] on non-2xx.
+  Future<Map<String, dynamic>> _get(String path) async {
+    final Uri uri = Uri.parse('$baseUrl$path');
+    final http.Response res = await _client.get(
+      uri,
+      headers: const <String, String>{'accept': 'application/json'},
     );
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw ApiException(res.statusCode, _messageFrom(res.body));

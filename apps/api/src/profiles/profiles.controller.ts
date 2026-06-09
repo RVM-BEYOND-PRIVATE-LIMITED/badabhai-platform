@@ -13,8 +13,10 @@ import {
 export class ProfilesController {
   constructor(private readonly profiles: ProfilesService) {}
 
+  // Async: enqueues a BullMQ extraction job and returns 202 + ai_job_id. The
+  // client polls GET /ai-jobs/:id until completed, then reads output_ref.profile_id.
   @Post("extract")
-  @HttpCode(201)
+  @HttpCode(202)
   extract(
     @Body(new ZodValidationPipe(ExtractProfileSchema)) dto: ExtractProfileDto,
     @Ctx() ctx: RequestContext,

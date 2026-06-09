@@ -1,0 +1,8 @@
+# Local-only override: the host machine already runs PostgreSQL on 5432
+# (service postgresql-x64-16), which shadows the compose Postgres. Publish the
+# container on 5433 instead so migrate/API/e2e can reach pgvector Postgres.
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d postgres redis
+services:
+  postgres:
+    ports:
+      - "5433:5432"

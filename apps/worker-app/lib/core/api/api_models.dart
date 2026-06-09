@@ -15,6 +15,19 @@ class ApiException implements Exception {
   String toString() => 'ApiException($statusCode): $message';
 }
 
+/// Thrown when an async profile-extraction job does not finish within the
+/// client's bounded poll budget. The job may still complete server-side; the
+/// caller can offer a retry.
+class ProfileExtractionTimeout implements Exception {
+  ProfileExtractionTimeout(this.aiJobId);
+
+  final String aiJobId;
+
+  @override
+  String toString() =>
+      'ProfileExtractionTimeout: job $aiJobId did not complete in time';
+}
+
 /// Result of POST /auth/otp/verify.
 class VerifyOtpResult {
   VerifyOtpResult({
@@ -60,22 +73,61 @@ class ChatReply {
 }
 
 /// Result of POST /profile/extract.
-class ExtractResult {
-  ExtractResult({
-    required this.profileId,
-    required this.profileStatus,
-    required this.isMock,
+///
+/// Profile extraction is now asynchronous: the API enqueues a background job
+/// (BullMQ) and returns 202 with the job id. The client polls GET /ai-jobs/{id}
+/// (see [AiJob]) until the job completes and yields a profile id.
+class EnqueueResult {
+  EnqueueResult({
+    required this.aiJobId,
+    required this.status,
   });
 
-  final String profileId;
-  final String profileStatus;
-  final bool isMock;
+  final String aiJobId;
+  final String status;
 
-  factory ExtractResult.fromJson(Map<String, dynamic> json) => ExtractResult(
-        profileId: json['profile_id'] as String,
-        profileStatus: json['profile_status'] as String? ?? 'extracted',
-        isMock: json['is_mock'] as bool? ?? false,
+  factory EnqueueResult.fromJson(Map<String, dynamic> json) => EnqueueResult(
+        aiJobId: json['ai_job_id'] as String,
+        status: json['status'] as String? ?? 'queued',
       );
+}
+
+/// One async AI job. Result of GET /ai-jobs/{id}.
+///
+/// [status] moves queued -> running -> completed | failed. When completed,
+/// [profileId] (read from `output_ref.profile_id`) is non-null. When failed,
+/// [errorMessage] explains why.
+class AiJob {
+  AiJob({
+    required this.id,
+    required this.jobType,
+    required this.status,
+    required this.profileId,
+    required this.errorMessage,
+  });
+
+  final String id;
+  final String jobType;
+  final String status;
+  final String? profileId;
+  final String? errorMessage;
+
+  bool get isCompleted => status == 'completed';
+  bool get isFailed => status == 'failed';
+
+  factory AiJob.fromJson(Map<String, dynamic> json) {
+    final dynamic outputRef = json['output_ref'];
+    final String? profileId = outputRef is Map<String, dynamic>
+        ? outputRef['profile_id'] as String?
+        : null;
+    return AiJob(
+      id: json['id'] as String? ?? '',
+      jobType: json['job_type'] as String? ?? '',
+      status: json['status'] as String? ?? 'queued',
+      profileId: profileId,
+      errorMessage: json['error_message'] as String?,
+    );
+  }
 }
 
 /// Result of POST /resume/generate.

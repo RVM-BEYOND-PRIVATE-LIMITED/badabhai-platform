@@ -17,7 +17,7 @@ Status legend: ✅ done in this foundation · 🔜 next · ⏳ later
 
 ## Sprint 1 — Contracts, Identity, Consent
 
-- ✅ Event schema (`@badabhai/event-schema`) — envelope, registry, 20 events
+- ✅ Event schema (`@badabhai/event-schema`) — envelope, registry, 22 events
 - ✅ DB schema + migration (`@badabhai/db`) — 10 tables
 - ✅ Worker identity: mock OTP request/verify → `worker.created`/`otp_verified`
 - ✅ Consent capture → `consent.accepted`
@@ -27,10 +27,13 @@ Status legend: ✅ done in this foundation · 🔜 next · ⏳ later
 
 - ✅ Chat profiling backend (`/chat/session`, `/chat/message`) + events
 - ✅ AI gateway (FastAPI): pseudonymization (fail-closed) before any LLM
-- ✅ Profile extraction (`/profile/extract` → draft) + confirm
+- ✅ Profile extraction (`/profile/extract`) + confirm — **now async via BullMQ**
+  (`202` + poll `GET /ai-jobs/:id`); `profile.extraction_failed` event ([ADR-0002](../decisions/0002-async-extraction-and-action-recording.md))
 - ✅ Resume generation (`/resume/generate`, placeholder, name-less to AI)
 - ✅ Voice-note upload placeholder (duration ≤ 120s) + event
-- 🔜 Move extraction/transcription to BullMQ jobs (Redis)
+- ✅ Action recording (`POST /actions`, `/actions/batch`) → `action.recorded`
+  (generic, events-only, behavioural stream for the future Learn layer)
+- 🔜 Move **transcription** to BullMQ jobs (extraction done; STT contract pending)
 - 🔜 Real Sarvam STT; NER/LLM-assisted PII detection; enable real LLM in staging
 
 ## Sprint 3 — Apps

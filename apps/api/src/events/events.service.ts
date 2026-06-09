@@ -58,4 +58,32 @@ export class EventsService {
     );
     return event;
   }
+
+  /**
+   * Emit many events of the SAME event name in a single DB round-trip. Every
+   * event is built + validated first (so one invalid item rejects the whole
+   * batch before any write). Used for batched action recording.
+   */
+  async emitMany<N extends EventName>(list: EmitParams<N>[]): Promise<BadaBhaiEvent<N>[]> {
+    const events = list.map(({ correlationId, causationId, requestId, ...rest }) =>
+      createEvent<N>({
+        ...rest,
+        source: "api",
+        correlation_id: correlationId,
+        causation_id: causationId ?? null,
+        metadata: {
+          environment: this.config.NODE_ENV,
+          service: "api",
+          request_id: requestId ?? null,
+        },
+      }),
+    );
+
+    await this.repo.insertMany(events);
+    const first = events[0];
+    if (first) {
+      this.logger.log(`events=${events.length} event=${first.event_name} (batch)`);
+    }
+    return events;
+  }
 }

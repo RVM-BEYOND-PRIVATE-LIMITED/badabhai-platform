@@ -15,19 +15,29 @@ export class EventsRepository {
   }
 
   async insert(event: BadaBhaiEvent): Promise<void> {
-    await this.db.insert(events).values({
-      id: event.event_id,
-      eventName: event.event_name,
-      eventVersion: event.event_version,
-      occurredAt: new Date(event.occurred_at),
-      actorType: event.actor.actor_type,
-      actorId: event.actor.actor_id,
-      subjectType: event.subject.subject_type,
-      subjectId: event.subject.subject_id,
-      correlationId: event.correlation_id,
-      causationId: event.causation_id,
-      payload: event.payload as Record<string, unknown>,
-      metadata: event.metadata as Record<string, unknown>,
-    });
+    await this.db.insert(events).values(toRow(event));
   }
+
+  /** Bulk insert (one round-trip) — used for batched action recording. */
+  async insertMany(batch: BadaBhaiEvent[]): Promise<void> {
+    if (batch.length === 0) return;
+    await this.db.insert(events).values(batch.map(toRow));
+  }
+}
+
+function toRow(event: BadaBhaiEvent) {
+  return {
+    id: event.event_id,
+    eventName: event.event_name,
+    eventVersion: event.event_version,
+    occurredAt: new Date(event.occurred_at),
+    actorType: event.actor.actor_type,
+    actorId: event.actor.actor_id,
+    subjectType: event.subject.subject_type,
+    subjectId: event.subject.subject_id,
+    correlationId: event.correlation_id,
+    causationId: event.causation_id,
+    payload: event.payload as Record<string, unknown>,
+    metadata: event.metadata as Record<string, unknown>,
+  };
 }

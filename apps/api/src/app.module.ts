@@ -1,6 +1,7 @@
 import { Module, type MiddlewareConsumer, type NestModule } from "@nestjs/common";
 import { AppConfigModule } from "./config/config.module";
 import { DatabaseModule } from "./database/database.module";
+import { QueueModule } from "./queue/queue.module";
 import { EventsModule } from "./events/events.module";
 import { AiModule } from "./ai/ai.module";
 import { WorkersModule } from "./workers/workers.module";
@@ -11,6 +12,7 @@ import { ChatModule } from "./chat/chat.module";
 import { VoiceModule } from "./voice/voice.module";
 import { ProfilesModule } from "./profiles/profiles.module";
 import { ResumeModule } from "./resume/resume.module";
+import { ActionsModule } from "./actions/actions.module";
 import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
 
 @Module({
@@ -18,6 +20,7 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // Global cross-cutting modules:
     AppConfigModule,
     DatabaseModule,
+    QueueModule,
     EventsModule,
     AiModule,
     WorkersModule,
@@ -29,6 +32,7 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     VoiceModule,
     ProfilesModule,
     ResumeModule,
+    ActionsModule,
   ],
 })
 export class AppModule implements NestModule {
