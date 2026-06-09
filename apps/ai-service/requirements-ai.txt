@@ -1,0 +1,6 @@
+# Optional dependencies for REAL AI mode (AI_ENABLE_REAL_CALLS=true).
+# Not installed by default: mock mode runs with requirements.txt only, so local
+# dev and CI never need these. Install with:  pip install -r requirements-ai.txt
+-r requirements.txt
+litellm>=1.50,<2.0
+langfuse>=2.0,<3.0

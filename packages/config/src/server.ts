@@ -29,12 +29,25 @@ export const serverEnvSchema = z.object({
   LITELLM_API_KEY: z.string().min(1).optional(),
   AI_ENABLE_REAL_CALLS: booleanFromString,
 
+  // Model routing. Names are LiteLLM model ids; the AI service selects cheap vs
+  // capable per task. Cost guardrails are in INR per worker profile.
+  DEFAULT_CHEAP_MODEL: z.string().min(1).default("gemini-flash-lite"),
+  DEFAULT_CAPABLE_MODEL: z.string().min(1).default("claude-haiku-or-gemini-flash"),
+  AI_COST_ALERT_PROFILE_INR: z.coerce.number().nonnegative().default(6),
+  AI_TARGET_PROFILE_COST_INR: z.coerce.number().nonnegative().default(4),
+
+  // Google Cloud / Gemini (consumed by LiteLLM in real mode only; backend-only).
+  GOOGLE_CLOUD_PROJECT: z.string().min(1).optional(),
+  GOOGLE_CLOUD_LOCATION: z.string().min(1).optional(),
+  GEMINI_API_KEY: z.string().min(1).optional(),
+
   // STT (Sarvam placeholder)
   SARVAM_API_KEY: z.string().min(1).optional(),
 
   // Observability (Langfuse placeholders)
   LANGFUSE_PUBLIC_KEY: z.string().min(1).optional(),
   LANGFUSE_SECRET_KEY: z.string().min(1).optional(),
+  LANGFUSE_BASE_URL: z.string().url().default("https://cloud.langfuse.com"),
 
   // Service URLs / ports
   API_PORT: portSchema.default(3001),

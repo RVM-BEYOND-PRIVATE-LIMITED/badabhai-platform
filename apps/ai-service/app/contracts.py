@@ -17,6 +17,47 @@ class ConversationMessage(BaseModel):
     text: str
 
 
+# --- AI call metadata (cost / observability) -------------------------------
+class AICallMetadata(BaseModel):
+    """Per-call cost + token accounting, returned to the backend so it can later
+    be persisted on ai_jobs / events. Carries NO PII."""
+
+    ai_call_id: str
+    task_type: str
+    model_name: str
+    provider: str
+    real_call: bool
+    input_tokens: int = 0
+    output_tokens: int = 0
+    estimated_cost_inr: float = 0.0
+    latency_ms: int = 0
+    success: bool = True
+    error_code: str | None = None
+    cost_alert: bool = False
+    above_target: bool = False
+    created_at: str
+
+
+# --- Pseudonymization summary (label-only; safe to return/trace) ------------
+class PseudonymizationMeta(BaseModel):
+    blocked: bool
+    blocked_reason: str | None = None
+    replaced_entities: int = 0
+    placeholder_tokens: list[str] = Field(default_factory=list)
+
+
+# --- Interview conversation state ------------------------------------------
+class ConversationState(BaseModel):
+    """Server-computed interview progress. Holds profile signals only (role,
+    machines, city, etc.) — never identity PII (phone/name/employer)."""
+
+    role_family: str = "cnc_vmc"
+    turn_count: int = 0
+    answered_topics: list[str] = Field(default_factory=list)
+    asked_question_ids: list[str] = Field(default_factory=list)
+    collected: dict = Field(default_factory=dict)
+
+
 # --- Profiling turn --------------------------------------------------------
 class ProfilingTurnInput(BaseModel):
     session_id: str = Field(min_length=1)
@@ -24,6 +65,10 @@ class ProfilingTurnInput(BaseModel):
     language: str | None = None
     message_text: str = Field(min_length=1)
     history: list[ConversationMessage] = Field(default_factory=list)
+    # Phase-1 additions (optional → backward compatible):
+    role_family: str = "cnc_vmc"
+    conversation_state: ConversationState | None = None
+    real_call_allowed: bool = True
 
 
 class ProfilingTurnOutput(BaseModel):
@@ -32,6 +77,12 @@ class ProfilingTurnOutput(BaseModel):
     blocked_reason: str | None = None
     suggested_followups: list[str] = Field(default_factory=list)
     is_mock: bool = True
+    # Phase-1 additions (optional → backward compatible):
+    asked_question_id: str | None = None
+    extraction_ready: bool = False
+    updated_state: ConversationState | None = None
+    ai_metadata: AICallMetadata | None = None
+    pseudonymization_metadata: PseudonymizationMeta | None = None
 
 
 # --- Pseudonymization ------------------------------------------------------
@@ -83,12 +134,50 @@ class DraftProfile(BaseModel):
     confidence: float | None = None
 
 
+# --- Rich worker profile draft (human-readable; richer than DraftProfile) ---
+ExperienceLevel = Literal["fresher", "junior", "experienced", "senior", "unknown"]
+KnowledgeLevel = Literal["none", "basic", "strong", "unknown"]
+
+
+class WorkerProfileDraft(BaseModel):
+    """The clean messy-text → profile output. Uses human-readable labels (e.g.
+    "VMC Operator", "Fanuc") rather than taxonomy ids. `DraftProfile` is derived
+    from this for backward-compatible storage."""
+
+    role_family: str = "cnc_vmc"
+    primary_role: str | None = None
+    secondary_roles: list[str] = Field(default_factory=list)
+    machines: list[str] = Field(default_factory=list)
+    controllers: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
+    experience_years: float | None = None
+    experience_level: ExperienceLevel = "unknown"
+    programming_knowledge: KnowledgeLevel = "unknown"
+    setting_knowledge: KnowledgeLevel = "unknown"
+    operation_knowledge: KnowledgeLevel = "unknown"
+    inspection_tools: list[str] = Field(default_factory=list)
+    materials_handled: list[str] = Field(default_factory=list)
+    drawing_reading: bool | None = None
+    current_city: str | None = None
+    preferred_locations: list[str] = Field(default_factory=list)
+    relocation_willingness: bool | None = None
+    current_salary: int | None = None
+    expected_salary: int | None = None
+    availability: Literal["immediate", "notice_period", "not_looking", "unknown"] = "unknown"
+    education: list[str] = Field(default_factory=list)
+    certifications: list[str] = Field(default_factory=list)
+    confidence_score: float = 0.0
+    missing_fields: list[str] = Field(default_factory=list)
+    clarification_questions: list[str] = Field(default_factory=list)
+
+
 # --- Profile extraction ----------------------------------------------------
 class ProfileExtractionInput(BaseModel):
     worker_ref: str | None = None
     language: str | None = None
     transcript: str | None = None
     messages: list[ConversationMessage] | None = None
+    role_family: str = "cnc_vmc"  # Phase-1 addition (optional → backward compatible)
 
 
 class ProfileExtractionOutput(BaseModel):
@@ -96,6 +185,10 @@ class ProfileExtractionOutput(BaseModel):
     blocked: bool = False
     blocked_reason: str | None = None
     is_mock: bool = True
+    # Phase-1 additions (optional → backward compatible):
+    extraction_status: Literal["completed", "blocked"] = "completed"
+    worker_profile_draft: WorkerProfileDraft | None = None
+    ai_metadata: AICallMetadata | None = None
 
 
 # --- Resume generation -----------------------------------------------------

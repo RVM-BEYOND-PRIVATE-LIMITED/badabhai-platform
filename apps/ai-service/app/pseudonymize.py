@@ -24,9 +24,9 @@ DEFAULT_MAX_LENGTH = 20_000
 
 # --- Gazetteers / patterns -------------------------------------------------
 
-# Known Indian manufacturing-hub cities (lowercased). Longer names first so the
-# alternation prefers multi-word matches.
-_CITIES = sorted(
+# Known Indian manufacturing-hub cities (lowercased). Shared with the profiling
+# signal detectors (app/profiling/signals.py) so there is one city gazetteer.
+KNOWN_CITIES: frozenset[str] = frozenset(
     {
         "new delhi", "navi mumbai", "greater noida",
         "faridabad", "delhi", "mumbai", "pune", "chennai", "bengaluru", "bangalore",
@@ -34,10 +34,10 @@ _CITIES = sorted(
         "rajkot", "ludhiana", "kolkata", "jaipur", "surat", "nashik", "nagpur",
         "indore", "vadodara", "aurangabad", "chandigarh", "kanpur", "lucknow",
         "bhopal", "manesar", "pithampur", "hosur", "peenya", "bawal", "sanand",
-    },
-    key=len,
-    reverse=True,
+    }
 )
+# Longer names first so the regex alternation prefers multi-word matches.
+_CITIES = sorted(KNOWN_CITIES, key=len, reverse=True)
 
 # Words that look like a leading name but are greetings/fillers — do not mask.
 _NAME_STOPLIST = {
