@@ -183,10 +183,51 @@ describe("assertValidEvent", () => {
   });
 });
 
+describe("action.recorded", () => {
+  function actionEvent(payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: "action.recorded",
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload,
+    };
+  }
+
+  it("validates a minimal action and applies defaults", () => {
+    const result = validateEvent(
+      actionEvent({ worker_id: UUID_B, action_type: "resume_downloaded" }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "action.recorded") {
+      expect(result.event.payload.target_type).toBeNull();
+      expect(result.event.payload.source_surface).toBe("worker_app");
+      expect(result.event.payload.context).toEqual({});
+    }
+  });
+
+  it("rejects an unknown action_type", () => {
+    const result = validateEvent(
+      actionEvent({ worker_id: UUID_B, action_type: "definitely_not_an_action" }),
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.stage).toBe("payload");
+  });
+
+  it("rejects a context with too many keys", () => {
+    const context: Record<string, number> = {};
+    for (let i = 0; i < 21; i++) context[`k${i}`] = i;
+    const result = validateEvent(
+      actionEvent({ worker_id: UUID_B, action_type: "app_opened", context }),
+    );
+    expect(result.success).toBe(false);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 20 Phase-1 event names", () => {
-    expect(EVENT_NAMES).toHaveLength(20);
+  it("exposes all 22 Phase-1 event names", () => {
+    expect(EVENT_NAMES).toHaveLength(22);
     expect(isEventName("resume.generated")).toBe(true);
+    expect(isEventName("action.recorded")).toBe(true);
     expect(isEventName("nope")).toBe(false);
   });
 

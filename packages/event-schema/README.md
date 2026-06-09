@@ -63,13 +63,23 @@ pnpm --filter @badabhai/event-schema typecheck  # tsc --noEmit (incl. tests)
 pnpm --filter @badabhai/event-schema test       # vitest
 ```
 
-## Phase-1 event names
+## Phase-1 event names (22)
 
 `worker.created` · `worker.otp_requested` · `worker.otp_verified` ·
 `consent.accepted` · `chat.session_started` · `chat.message_received` ·
 `chat.message_sent` · `voice_note.uploaded` ·
 `voice_note.transcription_requested` · `voice_note.transcription_completed` ·
 `profile.extraction_requested` · `profile.extraction_completed` ·
-`profile.confirmed` · `resume.generated` · `ai.pseudonymization_started` ·
+`profile.extraction_failed` · `profile.confirmed` ·
+`resume.generated` · `action.recorded` · `ai.pseudonymization_started` ·
 `ai.pseudonymization_completed` · `ai.pseudonymization_failed` ·
 `ai.llm_call_requested` · `ai.llm_call_completed` · `ai.llm_call_failed`
+
+### `action.recorded` — the behavioural stream
+
+A single, **extensible** event carries a controlled `action_type` (see
+`ACTION_TYPES` in `payloads.ts`) plus a bounded, non-PII `context`. Adding a new
+worker action is a **data** change (extend `ACTION_TYPES`), never a schema
+rebuild. This is the raw material for the future Learn layer. It is **not** the
+employer/match feedback loop (shortlist/reject/hire/no-show) — that learning
+loop is deferred with matching.

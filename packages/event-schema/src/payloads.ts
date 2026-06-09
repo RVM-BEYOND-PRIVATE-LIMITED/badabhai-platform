@@ -123,6 +123,77 @@ export const ProfileConfirmedPayload = z.object({
   confirmed_at: isoDateTimeSchema,
 });
 
+/** Terminal failure of an async (BullMQ) extraction job — keeps failures in the stream. */
+export const ProfileExtractionFailedPayload = z.object({
+  worker_id: uuidSchema,
+  session_id: uuidSchema.nullable().default(null),
+  ai_job_id: uuidSchema,
+  reason: z.string().min(1).max(256),
+});
+
+// ---------------------------------------------------------------------------
+// action.* — worker-side behavioural actions (the Learn-layer event stream).
+//
+// Generic, extensible recorder: one event name carries a controlled
+// `action_type` so new actions are a DATA change (extend ACTION_TYPES), never a
+// schema rebuild — matching the "taxonomy as data" mandate. PRIVACY: payloads
+// carry ids/enums/short non-PII signals only; the API boundary rejects raw PII.
+// NOTE: employer/match feedback signals (shortlist/reject/hire/no-show) are NOT
+// here — that learning loop is deferred with matching.
+// ---------------------------------------------------------------------------
+export const ACTION_TYPES = [
+  "profile_reviewed", // worker reviewed the extracted profile before confirming (BR-W-05)
+  "profile_edited", // worker corrected/edited a profile field (BR-W-09)
+  "profile_enriched", // worker added/enriched profile detail when prompted
+  "resume_viewed", // worker opened the generated resume
+  "resume_downloaded", // worker downloaded the resume PDF (BR-W-04)
+  "resume_shared", // worker shared the resume
+  "voice_note_played", // worker played back a voice note
+  "onboarding_step_completed", // worker finished an onboarding step (offline-tolerant resume)
+  "app_opened", // engagement signal
+  "language_changed", // worker switched preferred language
+] as const;
+export const ActionType = z.enum(ACTION_TYPES);
+export type ActionType = z.infer<typeof ActionType>;
+
+/** What the action was about (the worker is always the actor + subject). */
+export const ACTION_TARGET_TYPES = [
+  "profile",
+  "resume",
+  "voice_note",
+  "chat_session",
+  "onboarding",
+  "app",
+  "language",
+] as const;
+export const ActionTargetType = z.enum(ACTION_TARGET_TYPES);
+export type ActionTargetType = z.infer<typeof ActionTargetType>;
+
+/** Where the action originated. */
+export const ACTION_SOURCE_SURFACES = ["worker_app", "ops_console", "system"] as const;
+export const ActionSourceSurface = z.enum(ACTION_SOURCE_SURFACES);
+
+/**
+ * Bounded, non-PII context bag. Values are primitives only and strings are
+ * short — this keeps the behavioural stream cheap and makes it hard to smuggle
+ * PII through. The API also rejects phone/email-like strings at capture time.
+ */
+const actionContextValue = z.union([z.string().max(120), z.number(), z.boolean()]);
+export const ActionContextSchema = z
+  .record(z.string().min(1).max(40), actionContextValue)
+  .refine((o) => Object.keys(o).length <= 20, { message: "context may have at most 20 keys" });
+
+export const ActionRecordedPayload = z.object({
+  worker_id: uuidSchema,
+  action_type: ActionType,
+  target_type: ActionTargetType.nullable().default(null),
+  target_id: uuidSchema.nullable().default(null),
+  /** Client-reported time the action happened (supports offline batch flush). */
+  client_occurred_at: isoDateTimeSchema.nullable().default(null),
+  source_surface: ActionSourceSurface.default("worker_app"),
+  context: ActionContextSchema.default({}),
+});
+
 // ---------------------------------------------------------------------------
 // resume.*
 // ---------------------------------------------------------------------------

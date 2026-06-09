@@ -11,6 +11,7 @@ export const EVENT_DOMAINS = [
   "voice_note",
   "profile",
   "resume",
+  "action",
   "ai",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);

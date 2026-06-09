@@ -41,6 +41,27 @@ async function post(path: string, body: unknown): Promise<any> {
   return res.json();
 }
 
+async function get(path: string): Promise<any> {
+  const res = await fetch(`${API_URL}${path}`);
+  if (!res.ok) throw new Error(`GET ${path} -> ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+/** Poll an async extraction job (BullMQ) until it completes; return profile_id. */
+async function pollExtraction(aiJobId: string, attempts = 40, delayMs = 250): Promise<string> {
+  for (let i = 0; i < attempts; i++) {
+    const job = await get(`/ai-jobs/${aiJobId}`);
+    if (job.status === "completed") {
+      const profileId = job.output_ref?.profile_id;
+      if (!profileId) throw new Error("extraction completed without a profile_id");
+      return profileId;
+    }
+    if (job.status === "failed") throw new Error(`extraction failed: ${job.error_message}`);
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  throw new Error(`extraction job ${aiJobId} did not complete within ${attempts * delayMs}ms`);
+}
+
 describe.skipIf(!RUN)("Phase 1 worker-profiling flow (e2e)", () => {
   let client!: DbClient;
   const ids = { workerId: "", sessionId: "", profileId: "", resumeId: "" };
@@ -92,13 +113,15 @@ describe.skipIf(!RUN)("Phase 1 worker-profiling flow (e2e)", () => {
     expect(typeof message.reply).toBe("string");
     expect(message.reply.length).toBeGreaterThan(0);
 
-    // 4. extract profile
+    // 4. extract profile (async: enqueues a BullMQ job; poll until done)
     const extract = await post("/profile/extract", {
       worker_id: ids.workerId,
       session_id: ids.sessionId,
     });
-    expect(extract.profile_id).toBeTruthy();
-    ids.profileId = extract.profile_id;
+    expect(extract.ai_job_id).toBeTruthy();
+    expect(extract.status).toBe("queued");
+    ids.profileId = await pollExtraction(extract.ai_job_id);
+    expect(ids.profileId).toBeTruthy();
 
     // 5. confirm
     const confirm = await post("/profile/confirm", {

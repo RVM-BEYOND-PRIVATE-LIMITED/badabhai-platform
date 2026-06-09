@@ -52,8 +52,15 @@ export const EVENT_REGISTRY = {
     payload: p.ProfileExtractionCompletedPayload,
   },
   "profile.confirmed": { version: 1, domain: "profile", payload: p.ProfileConfirmedPayload },
+  "profile.extraction_failed": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileExtractionFailedPayload,
+  },
 
   "resume.generated": { version: 1, domain: "resume", payload: p.ResumeGeneratedPayload },
+
+  "action.recorded": { version: 1, domain: "action", payload: p.ActionRecordedPayload },
 
   "ai.pseudonymization_started": {
     version: 1,
