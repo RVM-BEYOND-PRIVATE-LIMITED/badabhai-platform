@@ -24,6 +24,46 @@ export const ConversationMessageSchema = z.object({
 export type ConversationMessage = z.infer<typeof ConversationMessageSchema>;
 
 // ---------------------------------------------------------------------------
+// AI call metadata (cost / observability). Carries NO PII.
+// ---------------------------------------------------------------------------
+export const AICallMetadataSchema = z.object({
+  ai_call_id: z.string(),
+  task_type: z.string(),
+  model_name: z.string(),
+  provider: z.string(),
+  real_call: z.boolean(),
+  input_tokens: z.number().int().nonnegative().default(0),
+  output_tokens: z.number().int().nonnegative().default(0),
+  estimated_cost_inr: z.number().nonnegative().default(0),
+  latency_ms: z.number().int().nonnegative().default(0),
+  success: z.boolean().default(true),
+  error_code: z.string().nullable().default(null),
+  cost_alert: z.boolean().default(false),
+  above_target: z.boolean().default(false),
+  created_at: z.string(),
+});
+export type AICallMetadata = z.infer<typeof AICallMetadataSchema>;
+
+// Pseudonymization summary (label-only; safe to return/trace).
+export const PseudonymizationMetaSchema = z.object({
+  blocked: z.boolean(),
+  blocked_reason: z.string().nullable().default(null),
+  replaced_entities: z.number().int().nonnegative().default(0),
+  placeholder_tokens: z.array(z.string()).default([]),
+});
+export type PseudonymizationMeta = z.infer<typeof PseudonymizationMetaSchema>;
+
+// Interview conversation state (profile signals only — never identity PII).
+export const ConversationStateSchema = z.object({
+  role_family: z.string().default("cnc_vmc"),
+  turn_count: z.number().int().nonnegative().default(0),
+  answered_topics: z.array(z.string()).default([]),
+  asked_question_ids: z.array(z.string()).default([]),
+  collected: z.record(z.string(), z.unknown()).default({}),
+});
+export type ConversationState = z.infer<typeof ConversationStateSchema>;
+
+// ---------------------------------------------------------------------------
 // Profiling turn (one back-and-forth in the chat profiling flow)
 // ---------------------------------------------------------------------------
 export const ProfilingTurnInputSchema = z.object({
@@ -33,6 +73,11 @@ export const ProfilingTurnInputSchema = z.object({
   language: languageCode.optional(),
   message_text: z.string().min(1),
   history: z.array(ConversationMessageSchema).default([]),
+  // Phase-1 additions. OPTIONAL (not defaulted) so the inferred input type stays
+  // backward compatible for existing callers; the AI service supplies defaults.
+  role_family: z.string().optional(),
+  conversation_state: ConversationStateSchema.nullable().optional(),
+  real_call_allowed: z.boolean().optional(),
 });
 export type ProfilingTurnInput = z.infer<typeof ProfilingTurnInputSchema>;
 
@@ -43,6 +88,12 @@ export const ProfilingTurnOutputSchema = z.object({
   suggested_followups: z.array(z.string()).default([]),
   /** True when the response came from the mock path (AI_ENABLE_REAL_CALLS=false). */
   is_mock: z.boolean().default(true),
+  // Phase-1 additions (optional → backward compatible):
+  asked_question_id: z.string().nullable().default(null),
+  extraction_ready: z.boolean().default(false),
+  updated_state: ConversationStateSchema.nullable().default(null),
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
+  pseudonymization_metadata: PseudonymizationMetaSchema.nullable().default(null),
 });
 export type ProfilingTurnOutput = z.infer<typeof ProfilingTurnOutputSchema>;
 
@@ -105,6 +156,43 @@ export const DraftProfileSchema = z.object({
 export type DraftProfile = z.infer<typeof DraftProfileSchema>;
 
 // ---------------------------------------------------------------------------
+// Rich worker profile draft (the clean messy-text → profile output). Uses
+// human-readable labels (e.g. "VMC Operator"); DraftProfile (taxonomy ids) is
+// derived from it for backward-compatible storage.
+// ---------------------------------------------------------------------------
+const knowledgeLevel = z.enum(["none", "basic", "strong", "unknown"]);
+const experienceLevel = z.enum(["fresher", "junior", "experienced", "senior", "unknown"]);
+
+export const WorkerProfileDraftSchema = z.object({
+  role_family: z.string().default("cnc_vmc"),
+  primary_role: z.string().nullable().default(null),
+  secondary_roles: z.array(z.string()).default([]),
+  machines: z.array(z.string()).default([]),
+  controllers: z.array(z.string()).default([]),
+  skills: z.array(z.string()).default([]),
+  experience_years: z.number().nonnegative().nullable().default(null),
+  experience_level: experienceLevel.default("unknown"),
+  programming_knowledge: knowledgeLevel.default("unknown"),
+  setting_knowledge: knowledgeLevel.default("unknown"),
+  operation_knowledge: knowledgeLevel.default("unknown"),
+  inspection_tools: z.array(z.string()).default([]),
+  materials_handled: z.array(z.string()).default([]),
+  drawing_reading: z.boolean().nullable().default(null),
+  current_city: z.string().nullable().default(null),
+  preferred_locations: z.array(z.string()).default([]),
+  relocation_willingness: z.boolean().nullable().default(null),
+  current_salary: z.number().int().nonnegative().nullable().default(null),
+  expected_salary: z.number().int().nonnegative().nullable().default(null),
+  availability: z.enum(["immediate", "notice_period", "not_looking", "unknown"]).default("unknown"),
+  education: z.array(z.string()).default([]),
+  certifications: z.array(z.string()).default([]),
+  confidence_score: z.number().min(0).max(1).default(0),
+  missing_fields: z.array(z.string()).default([]),
+  clarification_questions: z.array(z.string()).default([]),
+});
+export type WorkerProfileDraft = z.infer<typeof WorkerProfileDraftSchema>;
+
+// ---------------------------------------------------------------------------
 // Profile extraction
 // ---------------------------------------------------------------------------
 export const ProfileExtractionInputSchema = z
@@ -113,6 +201,7 @@ export const ProfileExtractionInputSchema = z
     language: languageCode.optional(),
     transcript: z.string().min(1).optional(),
     messages: z.array(ConversationMessageSchema).optional(),
+    role_family: z.string().optional(), // Phase-1 addition (AI service defaults it)
   })
   .refine((d) => Boolean(d.transcript) || (d.messages?.length ?? 0) > 0, {
     message: "Provide either `transcript` or a non-empty `messages` array",
@@ -124,6 +213,10 @@ export const ProfileExtractionOutputSchema = z.object({
   blocked: z.boolean().default(false),
   blocked_reason: z.string().nullable().default(null),
   is_mock: z.boolean().default(true),
+  // Phase-1 additions (optional → backward compatible):
+  extraction_status: z.enum(["completed", "blocked"]).default("completed"),
+  worker_profile_draft: WorkerProfileDraftSchema.nullable().default(null),
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
 });
 export type ProfileExtractionOutput = z.infer<typeof ProfileExtractionOutputSchema>;
 
