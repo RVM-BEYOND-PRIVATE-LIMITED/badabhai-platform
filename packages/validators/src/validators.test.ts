@@ -9,7 +9,12 @@ import {
   nonEmptyMessageSchema,
   safeTextSchema,
   consentPurposesSchema,
+  conversationObjectKey,
+  conversationWorkerPrefix,
 } from "./index";
+
+const WORKER_ID = "11111111-1111-4111-8111-111111111111";
+const SESSION_ID = "22222222-2222-4222-8222-222222222222";
 
 describe("e164PhoneSchema", () => {
   it.each(["+919876543210", "+14155552671", "+447911123456"])("accepts %s", (p) => {
@@ -66,6 +71,46 @@ describe("safeTextSchema", () => {
     const schema = safeTextSchema(5);
     expect(schema.safeParse("hello").success).toBe(true);
     expect(schema.safeParse("hello!").success).toBe(false);
+  });
+});
+
+describe("conversationObjectKey", () => {
+  it("builds an opaque <worker>/<session>/v<version>.json key", () => {
+    expect(conversationObjectKey({ workerId: WORKER_ID, sessionId: SESSION_ID, version: 1 })).toBe(
+      `${WORKER_ID}/${SESSION_ID}/v1.json`,
+    );
+  });
+
+  it("always starts with the per-worker prefix (so prefix deletion covers it)", () => {
+    const key = conversationObjectKey({ workerId: WORKER_ID, sessionId: SESSION_ID, version: 3 });
+    expect(key.startsWith(conversationWorkerPrefix(WORKER_ID))).toBe(true);
+  });
+
+  it("fails closed when an id is not a UUID (no PII in a storage path)", () => {
+    expect(() =>
+      conversationObjectKey({ workerId: "+919876543210", sessionId: SESSION_ID, version: 1 }),
+    ).toThrow();
+    expect(() =>
+      conversationObjectKey({ workerId: WORKER_ID, sessionId: "ramesh-kumar", version: 1 }),
+    ).toThrow();
+  });
+
+  it("rejects non-positive / non-integer versions", () => {
+    expect(() =>
+      conversationObjectKey({ workerId: WORKER_ID, sessionId: SESSION_ID, version: 0 }),
+    ).toThrow();
+    expect(() =>
+      conversationObjectKey({ workerId: WORKER_ID, sessionId: SESSION_ID, version: 1.5 }),
+    ).toThrow();
+  });
+});
+
+describe("conversationWorkerPrefix", () => {
+  it("returns <worker_id>/ for a valid uuid", () => {
+    expect(conversationWorkerPrefix(WORKER_ID)).toBe(`${WORKER_ID}/`);
+  });
+  it("fails closed on a non-uuid", () => {
+    expect(() => conversationWorkerPrefix("not-a-uuid")).toThrow();
   });
 });
 

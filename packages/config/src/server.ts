@@ -23,6 +23,11 @@ export const serverEnvSchema = z.object({
   // Supabase (backend only)
   SUPABASE_URL: z.string().url().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
+  // Private Storage bucket holding the full worker-conversation JSON artifact
+  // (transcript + final state snapshot). Backend/service-role access ONLY — never
+  // reachable by web/Flutter. Object keys carry opaque UUIDs only (no PII). See
+  // ADR-0003. Reuses SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (Storage Mode A).
+  CONVERSATIONS_BUCKET: z.string().min(1).default("worker-conversations"),
 
   // AI routing (LiteLLM)
   LITELLM_BASE_URL: z.string().url().default("http://localhost:4000"),

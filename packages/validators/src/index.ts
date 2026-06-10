@@ -57,5 +57,55 @@ export const consentPurposesSchema = z
   .min(1, "At least one consent purpose is required")
   .refine((arr) => new Set(arr).size === arr.length, "Consent purposes must be unique");
 
+// ---------------------------------------------------------------------------
+// Worker-conversation Storage object keys (ADR-0003)
+// ---------------------------------------------------------------------------
+
+/**
+ * Object-key contract for the private `worker-conversations` Storage bucket.
+ *
+ *   <worker_id>/<session_id>/v<version>.json
+ *
+ * The key carries ONLY opaque UUIDs + an integer version — never PII — and is
+ * namespaced by worker so every object for a worker can be listed/deleted by a
+ * single prefix (DPDP erasure on consent revoke). The bucket name itself comes
+ * from `CONVERSATIONS_BUCKET` (server config); these helpers build the key
+ * WITHIN that bucket. They are the frozen path contract the chat-persistence
+ * wiring writes against — see ADR-0003.
+ */
+export interface ConversationObjectKeyParts {
+  workerId: string;
+  sessionId: string;
+  /** Monotonic snapshot version, starting at 1. */
+  version: number;
+}
+
+const conversationVersionSchema = z
+  .number()
+  .int("Conversation version must be an integer")
+  .positive("Conversation version must be >= 1");
+
+/**
+ * Prefix covering every conversation object for one worker — use to list/delete
+ * all of a worker's archived conversations (DPDP erasure). Throws if `workerId`
+ * is not a UUID (fail closed — a non-opaque id must never become a storage path).
+ */
+export function conversationWorkerPrefix(workerId: string): string {
+  return `${uuidSchema.parse(workerId)}/`;
+}
+
+/**
+ * Build the opaque object key for a worker conversation snapshot. Throws if any
+ * id is not a UUID (fail closed — never let PII reach a storage path) or the
+ * version is not a positive integer. The result always starts with
+ * `conversationWorkerPrefix(workerId)`, so prefix deletion covers it.
+ */
+export function conversationObjectKey(parts: ConversationObjectKeyParts): string {
+  const workerId = uuidSchema.parse(parts.workerId);
+  const sessionId = uuidSchema.parse(parts.sessionId);
+  const version = conversationVersionSchema.parse(parts.version);
+  return `${workerId}/${sessionId}/v${version}.json`;
+}
+
 export type E164Phone = z.infer<typeof e164PhoneSchema>;
 export type ConsentPurposes = z.infer<typeof consentPurposesSchema>;
