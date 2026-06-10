@@ -16,6 +16,7 @@ Seeded 2026-06-09 from ADR-0001, the architecture overview, and the Phase-1 plan
 | R6 | **API-first LLM cost/latency at scale unknown**; per-worker AI cost could surprise | Medium | Open | Mock by default; LiteLLM adapter makes provider/model swappable; measure in staging before enabling. | AI + Performance |
 | R7 | **Single point of failure on the AI service** for the profiling flow | Medium | Open | Keep AI path async/queued (BullMQ planned) so API stays up if AI degrades; fail-closed returns safe fallback. | Architect + DevOps |
 | R8 | **Secrets sprawl** as real providers are added (.env across apps) | Medium | Open | Typed config split (server/public) already enforced; add a secrets manager before multi-env. | DevOps + Security |
+| R9 | **Chat history reached LLM input + Langfuse raw** — `/profiling/respond` pseudonymized only the current message, not prior turns | High (Critical if real calls/Langfuse on) | Closed (2026-06-10) | Found in the Phase-1 AI privacy review; fixed via `_pseudonymized_history()` (history gated + dropped fail-closed) with regression test. See [phase-1-ai-privacy-review.md](../../docs/ai/phase-1-ai-privacy-review.md). | AI + Security |
 
 > Add a row the moment a risk is identified. Move to **Mitigated/Closed** with a
 > dated note rather than deleting — the history is the value.
