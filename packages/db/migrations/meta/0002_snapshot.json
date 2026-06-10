@@ -1,5 +1,5 @@
 {
-  "id": "a7acadae-273f-4f1c-ab46-62f9ffbdcac0",
+  "id": "0548bb78-923c-4070-8217-822233197648",
   "prevId": "1c634ed3-4418-41bf-9012-8a5ccd2a1a23",
   "version": "7",
   "dialect": "postgresql",
@@ -338,12 +338,6 @@
           "notNull": true,
           "default": "'active'"
         },
-        "conversation_state": {
-          "name": "conversation_state",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "started_at": {
           "name": "started_at",
           "type": "timestamp with time zone",
@@ -360,6 +354,12 @@
         "last_message_at": {
           "name": "last_message_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "conversation_storage_path": {
+          "name": "conversation_storage_path",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         }

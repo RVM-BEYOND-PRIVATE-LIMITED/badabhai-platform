@@ -1,0 +1,1 @@
+ALTER TABLE "chat_sessions" ADD COLUMN "conversation_storage_path" text;

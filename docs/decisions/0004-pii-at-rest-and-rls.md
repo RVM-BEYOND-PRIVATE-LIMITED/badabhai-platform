@@ -1,8 +1,8 @@
-# ADR-0003: Worker PII hardening — encryption at rest, keyed hashing, and RLS
+# ADR-0004: Worker PII hardening — encryption at rest, keyed hashing, and RLS
 
 - **Status:** Accepted
 - **Date:** 2026-06-10
-- **Supersedes/relates:** schema PII note in `packages/db/src/schema.ts`; pays down **TD3/TD4**; opens **TD20–TD23**
+- **Supersedes/relates:** schema PII note in `packages/db/src/schema.ts`; pays down **TD3/TD4**; opens **TD20–TD23**. Distinct from ADR-0003 (conversation-storage boundary), which shipped concurrently.
 
 ## Context
 
@@ -47,10 +47,16 @@ Three layers, all on `workers`:
 Supporting pieces: `PiiCryptoService` centralizes the secrets; `assertPiiCryptoConfig`
 **fails closed** — the dev defaults (public pepper + all-zero key) are accepted only
 when `NODE_ENV` is *explicitly* `development`/`test` (unset/staging/prod must supply
-real secrets), and an all-zero key is rejected outright. Migrations `0003` (drop index,
-enable RLS, revoke anon/authenticated) and `0004` (FORCE + revoke service_role/PUBLIC).
-`drizzle.config.ts` now loads the repo-root `.env`, and the DB password must be
-URL-encoded (a `@` → `%40`) or `drizzle-kit migrate` mis-parses it.
+real secrets), and an all-zero key is rejected outright. Migrations `0003` (enable RLS +
+drop the plaintext-phone unique index; also carries the interview `conversation_state`
+column) and `0004` (FORCE + revoke all client-facing roles: `anon`, `authenticated`,
+`service_role`, `PUBLIC`). These were regenerated on top of ADR-0003's `0002` storage
+migration during integration, so the numbering follows it; `0003`'s DDL is
+`IF EXISTS`/`IF NOT EXISTS`-guarded so a single `db:migrate` converges a drifted database
+(e.g. the live Supabase mid-integration, which already had RLS + the dropped index but
+was missing `conversation_storage_path`) in one idempotent pass — no manual
+`__drizzle_migrations` edits. `drizzle.config.ts` now loads the repo-root `.env`, and the
+DB password must be URL-encoded (a `@` → `%40`) or `drizzle-kit migrate` mis-parses it.
 
 ## Consequences
 

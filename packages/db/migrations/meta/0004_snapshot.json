@@ -1,6 +1,6 @@
 {
-  "id": "c2589566-8a51-4a06-acc8-8192438167f2",
-  "prevId": "762e0781-453c-4f76-9e9d-629a6401913a",
+  "id": "fb6f215a-ddee-4b28-9c58-fccc2f3684c8",
+  "prevId": "0acfe215-f61b-4654-b30c-02233a4c1073",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -74,9 +74,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {},
@@ -160,9 +160,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {},
@@ -247,9 +247,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "chat_messages_worker_id_idx": {
           "name": "chat_messages_worker_id_idx",
@@ -262,50 +262,50 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "chat_messages_session_id_chat_sessions_id_fk": {
           "name": "chat_messages_session_id_chat_sessions_id_fk",
           "tableFrom": "chat_messages",
-          "tableTo": "chat_sessions",
           "columnsFrom": [
             "session_id"
           ],
+          "tableTo": "chat_sessions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "chat_messages_worker_id_workers_id_fk": {
           "name": "chat_messages_worker_id_workers_id_fk",
           "tableFrom": "chat_messages",
-          "tableTo": "workers",
           "columnsFrom": [
             "worker_id"
           ],
+          "tableTo": "workers",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "chat_messages_voice_note_id_voice_notes_id_fk": {
           "name": "chat_messages_voice_note_id_voice_notes_id_fk",
           "tableFrom": "chat_messages",
-          "tableTo": "voice_notes",
           "columnsFrom": [
             "voice_note_id"
           ],
+          "tableTo": "voice_notes",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "set null"
         }
       },
       "compositePrimaryKeys": {},
@@ -362,6 +362,12 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "conversation_storage_path": {
+          "name": "conversation_storage_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -376,24 +382,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "chat_sessions_worker_id_workers_id_fk": {
           "name": "chat_sessions_worker_id_workers_id_fk",
           "tableFrom": "chat_sessions",
-          "tableTo": "workers",
           "columnsFrom": [
             "worker_id"
           ],
+          "tableTo": "workers",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -501,9 +507,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "events_occurred_at_idx": {
           "name": "events_occurred_at_idx",
@@ -516,9 +522,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "events_correlation_id_idx": {
           "name": "events_correlation_id_idx",
@@ -531,9 +537,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "events_subject_idx": {
           "name": "events_subject_idx",
@@ -552,9 +558,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {},
@@ -627,9 +633,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "generated_resumes_profile_id_idx": {
           "name": "generated_resumes_profile_id_idx",
@@ -642,37 +648,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "generated_resumes_worker_id_workers_id_fk": {
           "name": "generated_resumes_worker_id_workers_id_fk",
           "tableFrom": "generated_resumes",
-          "tableTo": "workers",
           "columnsFrom": [
             "worker_id"
           ],
+          "tableTo": "workers",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "generated_resumes_profile_id_worker_profiles_id_fk": {
           "name": "generated_resumes_profile_id_worker_profiles_id_fk",
           "tableFrom": "generated_resumes",
-          "tableTo": "worker_profiles",
           "columnsFrom": [
             "profile_id"
           ],
+          "tableTo": "worker_profiles",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -762,9 +768,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "voice_notes_session_id_idx": {
           "name": "voice_notes_session_id_idx",
@@ -777,37 +783,37 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "voice_notes_worker_id_workers_id_fk": {
           "name": "voice_notes_worker_id_workers_id_fk",
           "tableFrom": "voice_notes",
-          "tableTo": "workers",
           "columnsFrom": [
             "worker_id"
           ],
+          "tableTo": "workers",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         },
         "voice_notes_session_id_chat_sessions_id_fk": {
           "name": "voice_notes_session_id_chat_sessions_id_fk",
           "tableFrom": "voice_notes",
-          "tableTo": "chat_sessions",
           "columnsFrom": [
             "session_id"
           ],
+          "tableTo": "chat_sessions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -882,24 +888,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "worker_consents_worker_id_workers_id_fk": {
           "name": "worker_consents_worker_id_workers_id_fk",
           "tableFrom": "worker_consents",
-          "tableTo": "workers",
           "columnsFrom": [
             "worker_id"
           ],
+          "tableTo": "workers",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1032,9 +1038,9 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         },
         "worker_profiles_embedding_hnsw": {
           "name": "worker_profiles_embedding_hnsw",
@@ -1048,24 +1054,24 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
+          "with": {},
           "method": "hnsw",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {
         "worker_profiles_worker_id_workers_id_fk": {
           "name": "worker_profiles_worker_id_workers_id_fk",
           "tableFrom": "worker_profiles",
-          "tableTo": "workers",
           "columnsFrom": [
             "worker_id"
           ],
+          "tableTo": "workers",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1143,9 +1149,9 @@
             }
           ],
           "isUnique": true,
-          "concurrently": false,
+          "with": {},
           "method": "btree",
-          "with": {}
+          "concurrently": false
         }
       },
       "foreignKeys": {},
@@ -1158,10 +1164,10 @@
   },
   "enums": {},
   "schemas": {},
+  "views": {},
   "sequences": {},
   "roles": {},
   "policies": {},
-  "views": {},
   "_meta": {
     "columns": {},
     "schemas": {},

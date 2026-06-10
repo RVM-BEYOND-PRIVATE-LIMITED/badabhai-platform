@@ -1,6 +1,6 @@
 {
-  "id": "762e0781-453c-4f76-9e9d-629a6401913a",
-  "prevId": "a7acadae-273f-4f1c-ab46-62f9ffbdcac0",
+  "id": "0acfe215-f61b-4654-b30c-02233a4c1073",
+  "prevId": "0548bb78-923c-4070-8217-822233197648",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -360,6 +360,12 @@
         "last_message_at": {
           "name": "last_message_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "conversation_storage_path": {
+          "name": "conversation_storage_path",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         }
@@ -1153,7 +1159,7 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
+      "isRLSEnabled": true
     }
   },
   "enums": {},
