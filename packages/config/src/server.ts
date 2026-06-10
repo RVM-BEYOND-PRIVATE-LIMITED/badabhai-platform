@@ -13,6 +13,13 @@ import { booleanFromString, portSchema, nodeEnvSchema, formatEnvError } from "./
  * without every secret. Real AI calls are gated separately (see
  * `assertRealAiConfig`) so the system fails closed rather than half-configured.
  */
+/**
+ * Dev-only PII secrets. They keep local boot + tests working without real
+ * secrets; production MUST override both (enforced by assertPiiCryptoConfig).
+ */
+export const DEV_PII_HASH_PEPPER = "dev-insecure-pii-pepper-change-me";
+export const DEV_PII_ENCRYPTION_KEY = Buffer.alloc(32).toString("base64"); // 32 zero bytes
+
 export const serverEnvSchema = z.object({
   NODE_ENV: nodeEnvSchema,
 
@@ -23,6 +30,22 @@ export const serverEnvSchema = z.object({
   // Supabase (backend only)
   SUPABASE_URL: z.string().url().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1).optional(),
+
+  // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
+  // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER
+  // touches the database. Dev defaults keep local boot/tests working; production
+  // MUST override both (assertPiiCryptoConfig fails closed otherwise).
+  PII_HASH_PEPPER: z.string().min(16).default(DEV_PII_HASH_PEPPER),
+  PII_ENCRYPTION_KEY: z
+    .string()
+    .default(DEV_PII_ENCRYPTION_KEY)
+    .refine((v) => {
+      try {
+        return Buffer.from(v, "base64").length === 32;
+      } catch {
+        return false;
+      }
+    }, "PII_ENCRYPTION_KEY must be base64 of exactly 32 bytes"),
 
   // AI routing (LiteLLM)
   LITELLM_BASE_URL: z.string().url().default("http://localhost:4000"),
@@ -85,4 +108,43 @@ export function realAiCallsBlockedReason(config: ServerConfig): string | null {
 
 export function areRealAiCallsEnabled(config: ServerConfig): boolean {
   return realAiCallsBlockedReason(config) === null;
+}
+
+/** True if either PII secret is still the insecure dev default (for a boot warning). */
+export function isUsingDevPiiDefaults(config: ServerConfig): boolean {
+  return (
+    config.PII_HASH_PEPPER === DEV_PII_HASH_PEPPER ||
+    config.PII_ENCRYPTION_KEY === DEV_PII_ENCRYPTION_KEY
+  );
+}
+
+/**
+ * Fail-closed guard for PII crypto. The dev defaults (a public pepper + an
+ * all-zero AES key) are acceptable ONLY when NODE_ENV is EXPLICITLY "development"
+ * or "test". Any other value — including UNSET, "staging", or "production" — must
+ * supply real secrets, so a forgotten NODE_ENV in prod fails closed instead of
+ * silently encrypting under a known-zero key. Call once at boot (main.ts).
+ */
+export function assertPiiCryptoConfig(
+  config: ServerConfig,
+  rawNodeEnv: string | undefined = process.env.NODE_ENV,
+): void {
+  if (rawNodeEnv === "development" || rawNodeEnv === "test") return;
+  const insecure: string[] = [];
+  if (config.PII_HASH_PEPPER === DEV_PII_HASH_PEPPER) insecure.push("PII_HASH_PEPPER");
+  if (config.PII_ENCRYPTION_KEY === DEV_PII_ENCRYPTION_KEY) insecure.push("PII_ENCRYPTION_KEY");
+  // Reject an all-zero AES key however it was supplied (not only the named default).
+  try {
+    const key = Buffer.from(config.PII_ENCRYPTION_KEY, "base64");
+    if (key.length === 32 && key.every((b) => b === 0)) insecure.push("PII_ENCRYPTION_KEY(all-zero)");
+  } catch {
+    /* length/format already validated by the schema .refine */
+  }
+  if (insecure.length > 0) {
+    throw new Error(
+      `Insecure PII secret(s) outside an explicit development/test environment: ${[
+        ...new Set(insecure),
+      ].join(", ")} must be overridden`,
+    );
+  }
 }

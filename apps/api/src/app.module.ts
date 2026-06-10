@@ -1,5 +1,6 @@
 import { Module, type MiddlewareConsumer, type NestModule } from "@nestjs/common";
 import { AppConfigModule } from "./config/config.module";
+import { CryptoModule } from "./common/crypto.module";
 import { DatabaseModule } from "./database/database.module";
 import { QueueModule } from "./queue/queue.module";
 import { EventsModule } from "./events/events.module";
@@ -19,6 +20,7 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
   imports: [
     // Global cross-cutting modules:
     AppConfigModule,
+    CryptoModule,
     DatabaseModule,
     QueueModule,
     EventsModule,

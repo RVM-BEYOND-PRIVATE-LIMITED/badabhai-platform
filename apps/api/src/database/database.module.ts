@@ -12,9 +12,12 @@ export const DB_CLIENT = "DB_CLIENT";
  * Provides the Drizzle database. postgres.js connects lazily, so the app boots
  * even when the DB is unreachable — queries fail at call time, not at startup.
  *
- * Phase 1: the backend connects with the Supabase SERVICE ROLE connection
- * string (DATABASE_URL) and is the only writer to sensitive tables. RLS is
- * planned but not finalized (infra/supabase/rls-plan.md).
+ * The backend connects via DATABASE_URL as the `postgres` role (the Supabase
+ * session-pooler `postgres.<ref>` user) over a DIRECT Postgres connection. That
+ * role has BYPASSRLS and is distinct from the PostgREST `service_role` (Data API).
+ * RLS is now ENABLED + deny-by-default on `workers` (migrations 0003/0004) with
+ * grants revoked from anon/authenticated/service_role — so DATABASE_URL MUST point
+ * at a BYPASSRLS role, or workers reads/writes will be denied (42501).
  */
 @Global()
 @Module({

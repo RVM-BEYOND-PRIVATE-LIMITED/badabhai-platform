@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { RequestContext } from "../common/request-context";
-import { hashIp } from "../common/crypto";
+import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { ConsentRepository } from "./consent.repository";
@@ -12,6 +12,7 @@ export class ConsentService {
     private readonly consents: ConsentRepository,
     private readonly workers: WorkersRepository,
     private readonly events: EventsService,
+    private readonly pii: PiiCryptoService,
   ) {}
 
   async accept(dto: AcceptConsentDto, ip: string | undefined, userAgent: string | undefined, ctx: RequestContext) {
@@ -24,7 +25,7 @@ export class ConsentService {
       consentVersion: dto.consent_version,
       purposes: dto.purposes,
       acceptedAt,
-      ipHash: ip ? hashIp(ip) : null,
+      ipHash: ip ? this.pii.hashIp(ip) : null,
       userAgent: userAgent ?? null,
     });
 

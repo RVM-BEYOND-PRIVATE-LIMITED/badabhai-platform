@@ -5,10 +5,18 @@ import { AuthService } from "./auth.service";
 const ctx = { requestId: "req-1", correlationId: "11111111-1111-4111-8111-111111111111" };
 const PHONE = "+919876543210";
 
+// Stub PII crypto: keyed-hash + encrypt that never echo the raw phone.
+const pii = {
+  hashPhone: (phone: string) => `hmac:${phone.length}`,
+  hashIp: () => "hmac-ip",
+  encrypt: (value: string) => `v1.enc.${value.length}`,
+  decrypt: (token: string) => token,
+} as never;
+
 describe("AuthService (mock OTP)", () => {
   it("requestOtp emits worker.otp_requested and never leaks the raw phone", async () => {
     const emit = vi.fn().mockResolvedValue(undefined);
-    const svc = new AuthService({ emit } as never, {} as never);
+    const svc = new AuthService({ emit } as never, {} as never, pii);
 
     await svc.requestOtp(PHONE, ctx);
 
@@ -24,7 +32,7 @@ describe("AuthService (mock OTP)", () => {
     const emit = vi.fn().mockResolvedValue(undefined);
     const create = vi.fn().mockResolvedValue({ id: "worker-new", status: "active" });
     const workers = { findByPhoneHash: vi.fn().mockResolvedValue(undefined), create };
-    const svc = new AuthService({ emit } as never, workers as never);
+    const svc = new AuthService({ emit } as never, workers as never, pii);
 
     const res = await svc.verifyOtp(PHONE, "123456", ctx);
 
@@ -43,7 +51,7 @@ describe("AuthService (mock OTP)", () => {
       findByPhoneHash: vi.fn().mockResolvedValue({ id: "worker-1", status: "active" }),
       create,
     };
-    const svc = new AuthService({ emit } as never, workers as never);
+    const svc = new AuthService({ emit } as never, workers as never, pii);
 
     const res = await svc.verifyOtp(PHONE, "123456", ctx);
 

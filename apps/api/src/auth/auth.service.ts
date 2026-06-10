@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { RequestContext } from "../common/request-context";
-import { hashPhone } from "../common/crypto";
+import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 
@@ -19,10 +19,11 @@ export class AuthService {
   constructor(
     private readonly events: EventsService,
     private readonly workers: WorkersRepository,
+    private readonly pii: PiiCryptoService,
   ) {}
 
   async requestOtp(phone: string, ctx: RequestContext): Promise<{ success: true; channel: string }> {
-    const phoneHash = hashPhone(phone);
+    const phoneHash = this.pii.hashPhone(phone);
     // NOTE: the raw phone is never logged or put into an event — only its hash.
     await this.events.emit({
       event_name: "worker.otp_requested",
@@ -41,14 +42,15 @@ export class AuthService {
     _otp: string,
     ctx: RequestContext,
   ): Promise<{ worker_id: string; is_new_worker: boolean; status: string }> {
-    const phoneHash = hashPhone(phone);
+    const phoneHash = this.pii.hashPhone(phone);
 
     let worker = await this.workers.findByPhoneHash(phoneHash);
     const isNew = !worker;
 
     if (!worker) {
       worker = await this.workers.create({
-        phoneE164: phone,
+        // Stored encrypted at rest (AES-256-GCM); key lives only in backend config.
+        phoneE164: this.pii.encrypt(phone),
         phoneHash,
         status: "active",
       });

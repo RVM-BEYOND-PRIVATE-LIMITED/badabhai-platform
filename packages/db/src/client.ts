@@ -9,9 +9,11 @@ import * as schema from "./schema";
  * startup (from validated config) and pass it around — see `createDbClient`.
  * `getDb()` is a lazy singleton convenience for scripts/seeds only.
  *
- * NOTE: in Phase 1 the backend connects with the Supabase SERVICE ROLE
- * connection string and is the only writer to sensitive tables. RLS is planned
- * but not finalized (see infra/supabase/rls-plan.md).
+ * NOTE: the backend connects over a DIRECT Postgres connection as the `postgres`
+ * role (Supabase session-pooler `postgres.<ref>` user), which has BYPASSRLS — NOT
+ * the PostgREST `service_role` (Data API). RLS is enabled + deny-by-default on
+ * `workers` (migrations 0003/0004); the `postgres` role bypasses it. The
+ * connection string MUST therefore be a BYPASSRLS role (see infra/supabase/rls-plan.md).
  */
 export interface DbClientOptions {
   /** postgres.js max pool size. */

@@ -47,24 +47,34 @@ const jsonArray = sql`'[]'::jsonb`;
 
 // ---------------------------------------------------------------------------
 // workers — identity (PII lives here only)
+//
+// Hardening (migration 0003): row-level security is enabled and the Supabase
+// anon/authenticated roles are revoked — only the backend service role reads
+// this table. The phone is stored two ways:
+//   - phone_e164: AES-256-GCM CIPHERTEXT (an `encryptPii` token), NOT plaintext.
+//     The key lives only in backend config, never in the DB. Column name kept
+//     for migration safety; it no longer holds a readable number.
+//   - phone_hash: a keyed HMAC-SHA256 (server pepper) — the stable lookup/dedup
+//     key, and the only phone derivative allowed in events. Not brute-forceable.
+// Because the ciphertext is non-deterministic, uniqueness lives on phone_hash.
 // ---------------------------------------------------------------------------
 export const workers = pgTable(
   "workers",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    phoneE164: text("phone_e164").notNull(),
-    phoneHash: text("phone_hash").notNull(),
+    phoneE164: text("phone_e164").notNull(), // AES-256-GCM ciphertext token (see above)
+    phoneHash: text("phone_hash").notNull(), // keyed HMAC-SHA256
+    // NOTE: full_name is also raw PII. It has no write site yet (nullable, unused
+    // in Phase 1). It MUST be encrypted with encryptPii (like phone_e164) before
+    // any code writes a real name here — do not store a name in plaintext.
     fullName: text("full_name"),
     preferredLanguage: text("preferred_language").$type<LanguageCode>(),
     status: text("status").$type<WorkerStatus>().notNull().default("pending"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [
-    uniqueIndex("workers_phone_e164_uq").on(t.phoneE164),
-    uniqueIndex("workers_phone_hash_uq").on(t.phoneHash),
-  ],
-);
+  (t) => [uniqueIndex("workers_phone_hash_uq").on(t.phoneHash)],
+).enableRLS(); // RLS tracked in the model so db:generate keeps it (migration 0003/0004 carry the SQL)
 
 // ---------------------------------------------------------------------------
 // worker_consents — DPDP consent records (append-only; revoke via revoked_at)
