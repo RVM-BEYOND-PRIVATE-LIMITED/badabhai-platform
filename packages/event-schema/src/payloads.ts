@@ -131,6 +131,21 @@ export const ProfileExtractionFailedPayload = z.object({
   reason: z.string().min(1).max(256),
 });
 
+/**
+ * The stateful interview has collected enough to extract a profile — emitted by
+ * the chat turn when the engine flips `extraction_ready`. Lets the backend gate
+ * extraction on a worker signal rather than guessing. PII-free: ids, the
+ * role-family slug, interview topic ids, and counts only.
+ */
+export const ProfileExtractionReadyPayload = z.object({
+  worker_id: uuidSchema,
+  session_id: uuidSchema.nullable().default(null),
+  role_family: z.string().min(1).max(64).default("cnc_vmc"),
+  turn_count: z.number().int().nonnegative().default(0),
+  /** Interview topic ids answered so far (e.g. "role", "machines") — never PII. */
+  answered_topics: z.array(z.string().min(1).max(40)).max(50).default([]),
+});
+
 // ---------------------------------------------------------------------------
 // action.* — worker-side behavioural actions (the Learn-layer event stream).
 //
@@ -247,4 +262,50 @@ export const AiLlmCallFailedPayload = z.object({
   request_id: requestId,
   model: z.string().min(1).max(128).nullable().default(null),
   error: z.string().min(1).max(512),
+});
+
+/** AI task the router executed. Mirrors `TaskType` in app/ai/model_config.py. */
+const aiTaskType = z.enum(["profiling_chat_turn", "profile_extraction", "resume_generation"]);
+
+/** Async AI job type. Mirrors `AI_JOB_TYPES` in @badabhai/types. */
+const aiJobType = z.enum([
+  "pseudonymization",
+  "transcription",
+  "profile_extraction",
+  "resume_generation",
+]);
+
+/**
+ * Cost + token accounting for one AI call (mirrors the AI service's
+ * AICallMetadata). This is the cost/spend spine — guardrail flags travel with
+ * it. PII-free by construction: ids, model name, token counts, INR estimate.
+ */
+export const AiCostRecordedPayload = z.object({
+  ai_call_id: uuidSchema,
+  request_id: requestId.nullable().default(null),
+  ai_job_id: uuidSchema.nullable().default(null),
+  task_type: aiTaskType,
+  model: z.string().min(1).max(128),
+  provider: z.string().min(1).max(64),
+  real_call: z.boolean().default(false),
+  tokens_in: z.number().int().nonnegative().default(0),
+  tokens_out: z.number().int().nonnegative().default(0),
+  estimated_cost_inr: z.number().nonnegative().default(0),
+  latency_ms: z.number().int().nonnegative().default(0),
+  cost_alert: z.boolean().default(false),
+  above_target: z.boolean().default(false),
+});
+
+/**
+ * An async AI job (an `ai_jobs` row) completed successfully — lets the BullMQ
+ * extraction/transcription path keep its lifecycle in the event spine.
+ * (Failures use the domain-specific `*_failed` events.)
+ */
+export const AiJobCompletedPayload = z.object({
+  ai_job_id: uuidSchema,
+  job_type: aiJobType,
+  worker_id: uuidSchema.nullable().default(null),
+  /** The entity the job produced (e.g. profile_id / resume_id), if any. */
+  result_id: uuidSchema.nullable().default(null),
+  latency_ms: z.number().int().nonnegative().nullable().default(null),
 });
