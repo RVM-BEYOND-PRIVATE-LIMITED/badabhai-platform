@@ -54,4 +54,20 @@ export class ChatRepository {
       .set({ lastMessageAt: at })
       .where(eq(chatSessions.id, sessionId));
   }
+
+  /**
+   * Persist the interview ConversationState for a session (and touch
+   * lastMessageAt in the same write). Stored as loose JSONB; the caller owns the
+   * shape (ai-contracts ConversationState). Profile signals only — never PII.
+   */
+  async saveConversationState(
+    sessionId: string,
+    state: Record<string, unknown>,
+    at: Date,
+  ): Promise<void> {
+    await this.db
+      .update(chatSessions)
+      .set({ conversationState: state, lastMessageAt: at })
+      .where(eq(chatSessions.id, sessionId));
+  }
 }

@@ -134,6 +134,12 @@ export const chatSessions = pgTable(
       .notNull()
       .references(() => workers.id, { onDelete: "cascade" }),
     status: text("status").$type<ChatSessionStatus>().notNull().default("active"),
+    // Interview progress carried across turns: the AI service's ConversationState
+    // (role_family, turn_count, answered_topics, asked_question_ids, collected).
+    // Profile signals only — never identity PII; never copied into `events`.
+    // Loose JSONB by design (flexible state); apps/api casts to the ai-contracts
+    // ConversationState at the boundary.
+    conversationState: jsonb("conversation_state").$type<Record<string, unknown>>(),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }),

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createDbClient, events, type DbClient, type EventRow } from "@badabhai/db";
+import { createDbClient, events, chatSessions, type DbClient, type EventRow } from "@badabhai/db";
 
 /**
  * Phase 1 end-to-end flow: login (mock OTP) -> consent -> chat -> profile
@@ -162,5 +162,107 @@ describe.skipIf(!RUN)("Phase 1 worker-profiling flow (e2e)", () => {
     const serialized = JSON.stringify(await myEvents());
     expect(serialized).not.toContain(PHONE);
     expect(serialized).not.toContain(NATIONAL);
+  });
+
+  it("keeps the interview stateful across turns (advances, never repeats Q1)", async () => {
+    // Fresh worker + session so we start the interview from turn 0.
+    const phone = `+9197${String(Date.now()).slice(-8)}`;
+    await post("/auth/otp/request", { phone });
+    const verify = await post("/auth/otp/verify", { phone, otp: "123456" });
+    const workerId = verify.worker_id as string;
+    const session = await post("/chat/session", { worker_id: workerId });
+    const sessionId = session.session_id as string;
+
+    const messages = ["namaste bhai", "VMC operator hoon", "5 saal ka experience"];
+    const asked: (string | null)[] = [];
+    for (const text of messages) {
+      const reply = await post("/chat/message", { session_id: sessionId, worker_id: workerId, text });
+      expect(reply.reply.length).toBeGreaterThan(0); // existing behavior preserved
+      asked.push(reply.asked_question_id ?? null);
+    }
+
+    // DoD: 3 turns advance through the question bank without repeating Q1.
+    expect(asked).toEqual(["role", "machines", "experience"]);
+    expect(new Set(asked).size).toBe(3);
+
+    // The state was actually persisted across turns (not restarted each message).
+    const rows = await client.db.select().from(chatSessions);
+    const row = rows.find((r) => r.id === sessionId);
+    const state = row?.conversationState as
+      | { turn_count?: number; asked_question_ids?: string[] }
+      | null;
+    expect(state?.turn_count).toBe(3);
+    expect(state?.asked_question_ids).toEqual(["role", "machines", "experience"]);
+
+    // Privacy: the persisted interview state must carry topic ids / counts / slugs
+    // ONLY — never the raw worker message text (which lives in chat_messages, not
+    // here, and never in events). Guards the conversation_state JSONB column.
+    const stateJson = JSON.stringify(row?.conversationState ?? {});
+    for (const raw of messages) {
+      expect(stateJson).not.toContain(raw);
+    }
+
+    // Events still emitted for these turns.
+    const evRows = await client.db.select().from(events);
+    const sentForSession = evRows.filter(
+      (e) =>
+        e.eventName === "chat.message_sent" &&
+        (e.payload as { session_id?: string } | null)?.session_id === sessionId,
+    );
+    expect(sentForSession.length).toBe(3);
+  });
+
+  it("emits profile.extraction_ready exactly once, on the turn the interview flips ready", async () => {
+    const phone = `+9196${String(Date.now()).slice(-8)}`;
+    await post("/auth/otp/request", { phone });
+    const verify = await post("/auth/otp/verify", { phone, otp: "123456" });
+    const workerId = verify.worker_id as string;
+    const session = await post("/chat/session", { worker_id: workerId });
+    const sessionId = session.session_id as string;
+
+    // Drive the interview until the engine reports extraction_ready (mock flips
+    // once role/machines/experience/location are covered). Bounded so a stuck
+    // engine fails loudly instead of looping.
+    let readyTurn = -1;
+    for (let i = 0; i < 10 && readyTurn < 0; i++) {
+      const reply = await post("/chat/message", {
+        session_id: sessionId,
+        worker_id: workerId,
+        text: "VMC operator, Fanuc, 5 saal, Pune me ready",
+      });
+      if (reply.extraction_ready === true) readyTurn = i;
+    }
+    expect(readyTurn).toBeGreaterThanOrEqual(0);
+
+    const readyEvents = (rows: EventRow[]) =>
+      rows.filter(
+        (e) =>
+          e.eventName === "profile.extraction_ready" &&
+          (e.payload as { session_id?: string } | null)?.session_id === sessionId,
+      );
+
+    // Emitted on the flip — exactly once.
+    let evRows = await client.db.select().from(events);
+    const ready = readyEvents(evRows);
+    expect(ready.length).toBe(1);
+    const payload = ready[0]!.payload as {
+      worker_id?: string;
+      role_family?: string;
+      answered_topics?: string[];
+    };
+    expect(payload.worker_id).toBe(workerId);
+    expect(payload.role_family).toBe("cnc_vmc");
+    for (const essential of ["role", "machines", "experience", "location"]) {
+      expect(payload.answered_topics).toContain(essential);
+    }
+
+    // Idempotent: a further turn after ready does NOT re-emit.
+    await post("/chat/message", {
+      session_id: sessionId,
+      worker_id: workerId,
+      text: "aur kuch nahi bhai",
+    });
+    evRows = await client.db.select().from(events);
+    expect(readyEvents(evRows).length).toBe(1);
   });
 });

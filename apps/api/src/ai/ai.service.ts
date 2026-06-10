@@ -13,6 +13,7 @@ import {
   type ResumeGenerationOutput,
 } from "@badabhai/ai-contracts";
 import { SERVER_CONFIG } from "../config/config.module";
+import { mockProfilingTurn } from "./mock-interview";
 
 /**
  * Client for the FastAPI AI service.
@@ -29,14 +30,22 @@ export class AiService {
   constructor(@Inject(SERVER_CONFIG) private readonly config: ServerConfig) {}
 
   async profilingRespond(input: ProfilingTurnInput): Promise<ProfilingTurnOutput> {
+    // `input` carries the loaded conversation_state + role_family, so the remote
+    // service progresses the interview statefully.
     const remote = await this.post("/profiling/respond", input, ProfilingTurnOutputSchema);
     if (remote) return remote;
+
+    // Mock fallback: advance the interview locally (stateful) so it does not
+    // restart from Q1 when the AI service is unreachable.
+    const turn = mockProfilingTurn(input.conversation_state ?? null, input.role_family);
     return ProfilingTurnOutputSchema.parse({
-      reply_text:
-        "Bada Bhai here 👋 — tell me about your work: which machines do you run (CNC/VMC/HMC), and how many years of experience do you have?",
+      reply_text: turn.reply_text,
       blocked: false,
-      suggested_followups: ["Which controller — Fanuc or Siemens?", "How many years on VMC?"],
+      suggested_followups: turn.suggested_followups,
       is_mock: true,
+      asked_question_id: turn.asked_question_id,
+      extraction_ready: turn.extraction_ready,
+      updated_state: turn.updated_state,
     });
   }
 
