@@ -69,10 +69,26 @@ Every call returns `AICallMetadata`: `ai_call_id`, `task_type`, `model_name`,
 `created_at`. It is logged as structured JSON and returned to the backend so it
 can later be persisted onto `ai_jobs` / `events`.
 
-Guardrails (INR): `cost_alert=true` when the estimate exceeds
-`AI_COST_ALERT_PROFILE_INR` (default 6); `above_target=true` when it exceeds
-`AI_TARGET_PROFILE_COST_INR` (default 4). Phase 1 only **flags** — no external
-alerting yet.
+Guardrails (INR), three levels:
+
+| Env var | Default | Effect |
+| --- | --- | --- |
+| `AI_TARGET_PROFILE_COST_INR` | 4 | soft target — sets `above_target=true` (flag only) |
+| `AI_COST_ALERT_PROFILE_INR` | 6 | alert — sets `cost_alert=true` (flag only) |
+| `AI_MAX_CALL_COST_INR` | 10 | **hard ceiling** — a real call whose *worst-case* cost (input tokens + the route's max output tokens) exceeds this is **refused**: no model call is made, the deterministic mock is returned, and `error_code="cost_ceiling_exceeded"` is recorded |
+
+The target/alert are flags only (no external alerting in Phase 1). The ceiling is
+an enforced, stateless per-call runaway guard. Per-profile **cumulative** budgets
+(across a worker's turns) need a counter/store and are a deferred enhancement.
+
+**Verified live (2026-06-10, mock + gated real):** `/profiling/respond` and
+`/profile/extract` return populated `ai_metadata` and log structured `ai_call`
+cost lines; with `AI_ENABLE_REAL_CALLS=false` calls are mock (`real_call=false`);
+with it `true` the real path engages (`real_call=true`, falling back safely when
+LiteLLM is absent); and with a near-zero `AI_MAX_CALL_COST_INR` a real call is
+refused (`real_call=false`, `error_code=cost_ceiling_exceeded`). `/health` reports
+`real_calls_enabled`, the **actual** `langfuse_enabled` (keys present *and* package
+installed), and `max_call_cost_inr`.
 
 ## Langfuse
 

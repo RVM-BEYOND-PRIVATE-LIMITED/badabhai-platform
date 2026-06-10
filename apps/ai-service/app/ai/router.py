@@ -35,6 +35,12 @@ class AIRouter:
         self._settings = settings
         self._tracer = tracer or LangfuseTracer(settings)
 
+    @property
+    def langfuse_enabled(self) -> bool:
+        """Whether tracing is ACTUALLY active (keys present AND package installed).
+        Distinct from `settings.langfuse_enabled`, which only reflects config."""
+        return self._tracer.enabled
+
     async def run(
         self,
         task_type: str,
@@ -49,6 +55,27 @@ class AIRouter:
         input_text = "\n".join(m.get("content", "") for m in messages)
         start = time.perf_counter()
 
+        # Hard spend ceiling: refuse a real call whose WORST-CASE cost (input
+        # tokens + the route's max output tokens) would exceed the per-call cap.
+        # Stateless guardrail against a runaway/expensive call; per-profile
+        # cumulative budgets are a deferred enhancement.
+        ceiling_blocked = False
+        if real:
+            worst_case_inr = cost_tracker.estimate_cost_inr(
+                model, cost_tracker.estimate_tokens(input_text), route.max_output_tokens
+            )
+            if worst_case_inr > self._settings.ai_max_call_cost_inr:
+                logger.warning(
+                    "cost ceiling exceeded; skipping real call",
+                    extra={"extra": {
+                        "task": task_type, "model": model,
+                        "worst_case_inr": worst_case_inr,
+                        "ceiling_inr": self._settings.ai_max_call_cost_inr,
+                    }},
+                )
+                real = False
+                ceiling_blocked = True
+
         if not real:
             # Mock path: deterministic, no network. Still logs estimated cost.
             latency = int((time.perf_counter() - start) * 1000)
@@ -57,6 +84,7 @@ class AIRouter:
                 input_tokens=cost_tracker.estimate_tokens(input_text),
                 output_tokens=cost_tracker.estimate_tokens(mock_response),
                 latency_ms=latency, success=True, settings=self._settings,
+                error_code="cost_ceiling_exceeded" if ceiling_blocked else None,
             )
             self._trace(task_type, model, False, input_text, mock_response, meta)
             return mock_response, meta

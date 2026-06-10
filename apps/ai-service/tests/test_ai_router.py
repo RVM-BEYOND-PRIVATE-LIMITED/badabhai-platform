@@ -98,3 +98,32 @@ def test_cost_alert_thresholds():
 def test_provider_inference():
     assert provider_for_model("gemini-flash-lite") == "google"
     assert provider_for_model("claude-haiku") == "anthropic"
+
+
+def test_hard_cost_ceiling_refuses_expensive_real_call():
+    # Real mode enabled, but a near-zero per-call ceiling makes the worst-case
+    # cost exceed it -> the router must NOT make a real call and fall back to mock.
+    settings = Settings(
+        ai_enable_real_calls=True,
+        litellm_api_key="k",
+        ai_max_call_cost_inr=0.00001,
+    )
+    router = AIRouter(settings)
+    content, meta = _run(
+        router.run("profile_extraction", messages=_MESSAGES, mock_response="CEILING_MOCK")
+    )
+    assert content == "CEILING_MOCK"
+    assert meta.real_call is False  # no real call was made
+    assert meta.error_code == "cost_ceiling_exceeded"
+
+
+def test_high_ceiling_allows_real_attempt():
+    # With a generous ceiling, the real path is attempted (and falls back to mock
+    # only because litellm isn't installed) — proving the ceiling didn't block it.
+    settings = Settings(ai_enable_real_calls=True, litellm_api_key="k", ai_max_call_cost_inr=10.0)
+    router = AIRouter(settings)
+    _content, meta = _run(
+        router.run("profiling_chat_turn", messages=_MESSAGES, mock_response="m")
+    )
+    assert meta.real_call is True
+    assert meta.error_code == "llm_call_failed"  # attempted, not ceiling-blocked

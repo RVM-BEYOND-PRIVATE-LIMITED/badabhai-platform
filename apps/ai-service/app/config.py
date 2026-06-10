@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     # Per-profile cost guardrails (INR). Used for alerting only in Phase 1.
     ai_cost_alert_profile_inr: float = 6.0
     ai_target_profile_cost_inr: float = 4.0
+    # Hard per-call spend ceiling (INR). A real call whose worst-case cost would
+    # exceed this is refused (falls back to mock) — a stateless runaway guard.
+    ai_max_call_cost_inr: float = 10.0
 
     sarvam_api_key: str | None = None
 
