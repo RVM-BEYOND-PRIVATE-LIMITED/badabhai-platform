@@ -35,6 +35,9 @@ export const serverEnvSchema = z.object({
   DEFAULT_CAPABLE_MODEL: z.string().min(1).default("claude-haiku-or-gemini-flash"),
   AI_COST_ALERT_PROFILE_INR: z.coerce.number().nonnegative().default(6),
   AI_TARGET_PROFILE_COST_INR: z.coerce.number().nonnegative().default(4),
+  // Hard per-call spend ceiling (INR): a real call whose worst-case cost exceeds
+  // this is refused (falls back to mock).
+  AI_MAX_CALL_COST_INR: z.coerce.number().positive().default(10),
 
   // Google Cloud / Gemini (consumed by LiteLLM in real mode only; backend-only).
   GOOGLE_CLOUD_PROJECT: z.string().min(1).optional(),

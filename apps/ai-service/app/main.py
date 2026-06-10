@@ -69,7 +69,9 @@ def health() -> dict:
         "status": "ok",
         "service": "ai-service",
         "real_calls_enabled": settings.real_calls_enabled,
-        "langfuse_enabled": settings.langfuse_enabled,
+        # Actual tracer state (keys present AND package installed), not just config.
+        "langfuse_enabled": router.langfuse_enabled,
+        "max_call_cost_inr": settings.ai_max_call_cost_inr,
     }
 
 
