@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from .ai.router import AIRouter
 from .config import get_settings
 from .contracts import (
+    ConversationMessage,
     DraftProfile,
     ProfileExtractionInput,
     ProfileExtractionOutput,
@@ -115,7 +116,8 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
 
     # 3. Route through the model (mock vs real); LLM only sees pseudonymized text.
     #    The engine already chose the question; the model only rephrases it warmly.
-    messages = build_chat_messages(body.history, mock_reply, result.text)
+    #    History is pseudonymized too — prior turns must never reach the LLM/trace raw.
+    messages = build_chat_messages(_pseudonymized_history(body.history), mock_reply, result.text)
     reply_text, meta = await router.run(
         "profiling_chat_turn",
         messages=messages,
@@ -204,6 +206,22 @@ async def resume_generate(body: ResumeGenerationInput) -> ResumeGenerationOutput
         format="text",
         is_mock=not meta.real_call,
     )
+
+
+def _pseudonymized_history(history: list[ConversationMessage]) -> list[ConversationMessage]:
+    """Pseudonymize prior turns BEFORE they enter LLM input / Langfuse traces.
+
+    The current message is gated separately; history must be gated too or a prior
+    turn's PII would reach the model in real mode. Any turn that can't be safely
+    pseudonymized is dropped (fail closed) — history is only phrasing context.
+    """
+    safe: list[ConversationMessage] = []
+    for msg in history:
+        result = pseudonymize(msg.text)
+        if result.blocked:
+            continue
+        safe.append(ConversationMessage(role=msg.role, text=result.text))
+    return safe
 
 
 def _schema_hint() -> str:

@@ -77,3 +77,23 @@ def test_resume_generate_builds_text():
     body = res.json()
     assert "WORKER PROFILE" in body["resume_text"]
     assert body["is_mock"] is True
+
+
+def test_conversation_history_is_pseudonymized_before_llm():
+    # Privacy: prior turns must be pseudonymized before they can reach an LLM
+    # (real mode) or a Langfuse trace. A phone in history is masked; a turn that
+    # can't be safely pseudonymized is dropped (fail closed).
+    from app.contracts import ConversationMessage
+    from app.main import _pseudonymized_history
+
+    safe = _pseudonymized_history(
+        [
+            ConversationMessage(role="worker", text="my number is 9876543210"),
+            ConversationMessage(role="worker", text="I run a VMC machine"),
+            ConversationMessage(role="worker", text="ref 12345678"),  # residual digits -> blocked
+        ]
+    )
+    joined = " ".join(m.text for m in safe)
+    assert "9876543210" not in joined  # phone masked
+    assert "12345678" not in joined  # unsafe turn dropped
+    assert any("VMC" in m.text for m in safe)  # safe technical turn kept
