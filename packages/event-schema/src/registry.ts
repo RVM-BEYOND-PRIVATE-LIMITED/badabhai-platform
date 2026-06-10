@@ -57,6 +57,11 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileExtractionFailedPayload,
   },
+  "profile.extraction_ready": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileExtractionReadyPayload,
+  },
 
   "resume.generated": { version: 1, domain: "resume", payload: p.ResumeGeneratedPayload },
 
@@ -80,6 +85,8 @@ export const EVENT_REGISTRY = {
   "ai.llm_call_requested": { version: 1, domain: "ai", payload: p.AiLlmCallRequestedPayload },
   "ai.llm_call_completed": { version: 1, domain: "ai", payload: p.AiLlmCallCompletedPayload },
   "ai.llm_call_failed": { version: 1, domain: "ai", payload: p.AiLlmCallFailedPayload },
+  "ai.cost_recorded": { version: 1, domain: "ai", payload: p.AiCostRecordedPayload },
+  "ai.job_completed": { version: 1, domain: "ai", payload: p.AiJobCompletedPayload },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

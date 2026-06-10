@@ -63,17 +63,27 @@ pnpm --filter @badabhai/event-schema typecheck  # tsc --noEmit (incl. tests)
 pnpm --filter @badabhai/event-schema test       # vitest
 ```
 
-## Phase-1 event names (22)
+## Phase-1 event names (25)
 
 `worker.created` · `worker.otp_requested` · `worker.otp_verified` ·
 `consent.accepted` · `chat.session_started` · `chat.message_received` ·
 `chat.message_sent` · `voice_note.uploaded` ·
 `voice_note.transcription_requested` · `voice_note.transcription_completed` ·
 `profile.extraction_requested` · `profile.extraction_completed` ·
-`profile.extraction_failed` · `profile.confirmed` ·
+`profile.extraction_failed` · `profile.extraction_ready` · `profile.confirmed` ·
 `resume.generated` · `action.recorded` · `ai.pseudonymization_started` ·
 `ai.pseudonymization_completed` · `ai.pseudonymization_failed` ·
-`ai.llm_call_requested` · `ai.llm_call_completed` · `ai.llm_call_failed`
+`ai.llm_call_requested` · `ai.llm_call_completed` · `ai.llm_call_failed` ·
+`ai.cost_recorded` · `ai.job_completed`
+
+### Interview-turn contract (stateful turn + cost + extraction-ready)
+
+`profile.extraction_ready` fires when the interview engine has gathered enough
+for extraction (carries `answered_topics` ids + `turn_count`, no PII).
+`ai.cost_recorded` is the cost/spend spine — it mirrors the AI service's
+`AICallMetadata` (model, tokens, `estimated_cost_inr`, `cost_alert`,
+`above_target`). `ai.job_completed` records async (BullMQ) `ai_jobs` lifecycle
+success. These are the frozen v1 contracts downstream emitters build against.
 
 ### `action.recorded` — the behavioural stream
 

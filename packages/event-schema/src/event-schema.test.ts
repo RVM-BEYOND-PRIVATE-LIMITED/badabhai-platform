@@ -223,11 +223,81 @@ describe("action.recorded", () => {
   });
 });
 
+describe("interview-turn contract (extraction-ready, cost, ai-job)", () => {
+  it("validates profile.extraction_ready and applies defaults", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "profile.extraction_ready",
+      subject: { subject_type: "chat_session", subject_id: UUID_C },
+      payload: { worker_id: UUID_B, session_id: UUID_C, answered_topics: ["role", "machines"] },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "profile.extraction_ready") {
+      expect(result.event.payload.role_family).toBe("cnc_vmc"); // default
+      expect(result.event.payload.turn_count).toBe(0); // default
+    }
+  });
+
+  it("validates ai.cost_recorded with guardrail flags", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.cost_recorded",
+      subject: { subject_type: "ai_job", subject_id: UUID_A },
+      payload: {
+        ai_call_id: UUID_A,
+        task_type: "profile_extraction",
+        model: "claude-haiku-or-gemini-flash",
+        provider: "anthropic",
+        estimated_cost_inr: 5.5,
+        cost_alert: false,
+        above_target: true,
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "ai.cost_recorded") {
+      expect(result.event.payload.real_call).toBe(false); // default
+      expect(result.event.payload.tokens_in).toBe(0); // default
+    }
+  });
+
+  it("rejects ai.cost_recorded with an unknown task_type", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.cost_recorded",
+      subject: { subject_type: "ai_job", subject_id: UUID_A },
+      payload: {
+        ai_call_id: UUID_A,
+        task_type: "not_a_task",
+        model: "m",
+        provider: "p",
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.stage).toBe("payload");
+  });
+
+  it("validates ai.job_completed", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.job_completed",
+      subject: { subject_type: "ai_job", subject_id: UUID_A },
+      payload: { ai_job_id: UUID_A, job_type: "profile_extraction", result_id: UUID_B },
+    };
+    expect(validateEvent(evt).success).toBe(true);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 22 Phase-1 event names", () => {
-    expect(EVENT_NAMES).toHaveLength(22);
+  it("exposes all 25 Phase-1 event names", () => {
+    expect(EVENT_NAMES).toHaveLength(25);
     expect(isEventName("resume.generated")).toBe(true);
     expect(isEventName("action.recorded")).toBe(true);
+    expect(isEventName("profile.extraction_ready")).toBe(true);
+    expect(isEventName("ai.cost_recorded")).toBe(true);
+    expect(isEventName("ai.job_completed")).toBe(true);
     expect(isEventName("nope")).toBe(false);
   });
 
