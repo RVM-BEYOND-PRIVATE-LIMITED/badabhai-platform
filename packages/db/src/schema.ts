@@ -137,6 +137,13 @@ export const chatSessions = pgTable(
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     endedAt: timestamp("ended_at", { withTimezone: true }),
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+    // Opaque object key into the private worker-conversations Storage bucket for
+    // the archived full-conversation JSON (transcript + final state snapshot).
+    // Reference only — Postgres stays the queryable spine. Nullable until the
+    // session is archived. Carries opaque UUIDs only, never PII. See ADR-0003 and
+    // `conversationObjectKey` in @badabhai/validators. (The runtime archival write
+    // lives in the chat-persistence wiring; this is the frozen reference contract.)
+    conversationStoragePath: text("conversation_storage_path"),
   },
   (t) => [index("chat_sessions_worker_id_idx").on(t.workerId)],
 );

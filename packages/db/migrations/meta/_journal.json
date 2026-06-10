@@ -15,6 +15,13 @@
       "when": 1780914997183,
       "tag": "0001_same_xavin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781070858020,
+      "tag": "0002_shocking_shotgun",
+      "breakpoints": true
     }
   ]
 }
