@@ -40,6 +40,11 @@ export const EVENT_REGISTRY = {
     domain: "voice_note",
     payload: p.VoiceNoteTranscriptionCompletedPayload,
   },
+  "voice_note.transcription_failed": {
+    version: 1,
+    domain: "voice_note",
+    payload: p.VoiceNoteTranscriptionFailedPayload,
+  },
 
   "profile.extraction_requested": {
     version: 1,

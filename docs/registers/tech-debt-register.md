@@ -8,12 +8,12 @@ Seeded 2026-06-09 from the Phase-1 sprint plan and ADR-0001.
 
 | ID | Debt | Why it exists | Payback trigger | Status |
 | -- | ---- | ------------- | --------------- | ------ |
-| TD1 | ~~Extraction~~ & **transcription** run inline on the request, not as BullMQ jobs | Phase-1 simplicity | Before enabling real STT/LLM | **Paying down** — extraction moved to BullMQ ([ADR-0002](../decisions/0002-async-extraction-and-action-recording.md)); transcription still inline (no STT contract yet) |
+| TD1 | ~~Extraction & transcription run inline on the request, not as BullMQ jobs~~ | Phase-1 simplicity | Before enabling real STT/LLM | **Paying down** — extraction ([ADR-0002](../decisions/0002-async-extraction-and-action-recording.md)) and now transcription both async via BullMQ (`voice-transcription` queue, `POST /voice/transcribe` → 202 + poll) |
 | TD2 | **Mock OTP** for worker identity | No real provider wired yet | Before onboarding real workers | Open |
 | TD3 | **Pseudonymization is heuristic** (regex + gazetteers), not NER | Fast, safe-by-over-masking start | Before enabling real LLM in production | Open |
 | TD4 | **RLS not enforced platform-wide** (backend connects as the `postgres` role / BYPASSRLS — NOT the PostgREST `service_role`) | RLS plan not finalized | Before any direct client→DB access or multi-tenant exposure | **Paying down** — `workers` locked: RLS enabled + FORCE + grants revoked from anon/authenticated/**service_role**/PUBLIC, and the phone encrypted at rest ([ADR-0004](../decisions/0004-pii-at-rest-and-rls.md), migrations 0003/0004; Data API GET verified HTTP 403). Rest of the spine still open → **TD20** |
 | TD5 | **Resume generation is a placeholder** (name-less, templated) | Phase-1 stub | When real resume output is a product requirement | Open |
-| TD6 | **Sarvam STT is a placeholder**; voice notes upload but aren't transcribed | No STT contract yet | When voice profiling becomes a real flow | Open |
+| TD6 | **Sarvam STT real call is a placeholder** (the adapter is wired but the real provider call is gated off) | Real STT needs a DPDP/spend decision | When voice profiling becomes a real flow | **Paying down** — async transcription end-to-end on the gated, mock-by-default path (`apps/ai-service/app/stt.py`, `POST /voice/transcribe`, BullMQ processor, events). Only the real Sarvam call in `_transcribe_real` remains, fail-closed behind `AI_ENABLE_REAL_CALLS` + `SARVAM_API_KEY` |
 | TD7 | **Flutter CI job is `continue-on-error`** | Scaffold authored without a local SDK | Once the app is validated on a real SDK | Open |
 | TD8 | `@badabhai/reach-engine` is an **empty placeholder package** | Phase 2+ feature | Start of Reach Engine work | Open (intentional) |
 | TD9 | **No coverage threshold** in CI | Suite still young | When the suite is mature enough to set a floor | Open |

@@ -4,6 +4,8 @@ import {
   ProfileExtractionInputSchema,
   ProfileExtractionOutputSchema,
   PseudonymizationOutputSchema,
+  TranscriptionInputSchema,
+  TranscriptionOutputSchema,
 } from "./index";
 
 describe("DraftProfileSchema", () => {
@@ -38,6 +40,30 @@ describe("ProfileExtractionOutputSchema", () => {
     expect(out.is_mock).toBe(true);
     expect(out.blocked).toBe(false);
     expect(out.profile.machines).toEqual([]);
+  });
+});
+
+describe("TranscriptionInputSchema", () => {
+  it("accepts a minimal request with a storage_path", () => {
+    expect(TranscriptionInputSchema.safeParse({ storage_path: "w/s/v1.ogg" }).success).toBe(true);
+  });
+  it("rejects a missing or empty storage_path", () => {
+    expect(TranscriptionInputSchema.safeParse({}).success).toBe(false);
+    expect(TranscriptionInputSchema.safeParse({ storage_path: "" }).success).toBe(false);
+  });
+});
+
+describe("TranscriptionOutputSchema", () => {
+  it("fills defaults (mock, zero confidence, null language)", () => {
+    const out = TranscriptionOutputSchema.parse({ transcript_text: "vmc operator" });
+    expect(out.is_mock).toBe(true);
+    expect(out.confidence).toBe(0);
+    expect(out.language_code).toBeNull();
+  });
+  it("rejects confidence outside 0..1", () => {
+    expect(
+      TranscriptionOutputSchema.safeParse({ transcript_text: "x", confidence: 1.5 }).success,
+    ).toBe(false);
   });
 });
 
