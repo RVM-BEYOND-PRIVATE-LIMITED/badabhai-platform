@@ -100,6 +100,7 @@ export class VoiceService {
         worker_id: note.workerId,
         ai_job_id: job.id,
       },
+      idempotencyKey: `voice_note.transcription_requested:${job.id}`,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
@@ -130,6 +131,10 @@ export class VoiceService {
           ai_job_id: job.id,
           reason,
         },
+        // One terminal failure per job. Shares the key namespace with the
+        // processor's terminal-failure emit: a job fails EITHER at enqueue here OR
+        // in the processor, never both, so at most one row is ever written.
+        idempotencyKey: `voice_note.transcription_failed:${job.id}`,
         correlationId: ctx.correlationId,
         requestId: ctx.requestId,
       });

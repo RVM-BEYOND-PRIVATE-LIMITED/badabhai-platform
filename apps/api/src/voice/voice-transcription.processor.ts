@@ -68,6 +68,9 @@ export class VoiceTranscriptionProcessor extends WorkerHost {
           transcript_confidence: result.confidence,
           transcript_length: result.transcript_text.length,
         },
+        // Exactly one completion per job, even under BullMQ stalled-job
+        // redelivery that races past the early-return idempotency guard above.
+        idempotencyKey: `voice_note.transcription_completed:${aiJobId}`,
         correlationId,
         requestId,
       });
@@ -86,6 +89,9 @@ export class VoiceTranscriptionProcessor extends WorkerHost {
           actor: { actor_type: "system" },
           subject: { subject_type: "ai_job", subject_id: aiJobId },
           payload: { voice_note_id: voiceNoteId, worker_id: workerId, ai_job_id: aiJobId, reason },
+          // One terminal failure per job (final attempt). Shares the key namespace
+          // with the enqueue-failure emit in VoiceService — mutually exclusive.
+          idempotencyKey: `voice_note.transcription_failed:${aiJobId}`,
           correlationId,
           requestId,
         });
