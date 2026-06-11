@@ -299,6 +299,24 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     expect(resumeRow!.resumeText).toBe(resume.body.resume_text);
     expect(resumeRow!.resumeText.length).toBeGreaterThan(0);
 
+    // ──────────── Ops read view: GET /resume/:id round-trips the stored resume ────────────
+    // The last read endpoint the ops console needs (resume; workers/events/ai-jobs already
+    // have one). Must return the resume content + linkage ids, snake_case, and NO raw PII.
+    const fetched = await call("GET", `/resume/${resumeId}`);
+    expect(fetched.status).toBe(200);
+    expect(fetched.body.resume_id).toBe(resumeId);
+    expect(fetched.body.worker_id).toBe(workerId);
+    expect(fetched.body.profile_id).toBe(profileId);
+    expect(fetched.body.version).toBe(1);
+    expect(fetched.body.resume_text).toBe(resume.body.resume_text); // text round-trips
+    expect(fetched.body.generated_at).toBeTruthy();
+    // The raw phone never appears in the ops payload (PII stays in the workers table only).
+    expect(JSON.stringify(fetched.body)).not.toContain(PHONE);
+
+    // Unknown id → 404 (raw fetch: the `call` helper throws on non-2xx).
+    const missing = await fetch(`${API_URL}/resume/00000000-0000-0000-0000-000000000000`);
+    expect(missing.status).toBe(404);
+
     // ──────────────────── Emitted events: names, counts, integrity ────────────────────
     // Every event this worker produced is attributable via payload.worker_id.
     const allEvents = await client.db.select().from(events);
