@@ -50,6 +50,13 @@
       "when": 1781158705965,
       "tag": "0006_normal_roland_deschain",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1781161295819,
+      "tag": "0007_bitter_tyger_tiger",
+      "breakpoints": true
     }
   ]
 }

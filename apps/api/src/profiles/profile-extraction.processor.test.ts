@@ -61,6 +61,9 @@ describe("ProfileExtractionProcessor", () => {
     const res = await proc.process(makeJob());
     expect(res).toEqual({ profile_id: PROFILE });
     expect(profiles.create).toHaveBeenCalledOnce();
+    // The profile is tied to its ai_job so a partial-success retry can't orphan a
+    // duplicate (TD14 — DB-enforced via the unique ai_job_id).
+    expect(profiles.create).toHaveBeenCalledWith(expect.objectContaining({ aiJobId: JOB.aiJobId }));
     // No AI metadata on the mock/AI-down path → usage columns left untouched (undefined),
     // and no ai.cost_recorded event (nothing real to record).
     expect(aiJobs.markCompleted).toHaveBeenCalledWith(JOB.aiJobId, { profile_id: PROFILE }, undefined);

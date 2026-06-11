@@ -57,6 +57,9 @@ export class ProfileExtractionProcessor extends WorkerHost {
 
       const saved = await this.profiles.create({
         workerId,
+        // Ties the profile to this job so a partial-success retry returns the
+        // existing row instead of orphaning a duplicate (TD14).
+        aiJobId,
         profileStatus,
         canonicalTradeId: profile.canonical_trade_id,
         canonicalRoleId: profile.canonical_role_id,

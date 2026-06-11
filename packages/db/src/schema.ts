@@ -107,6 +107,14 @@ export const workerProfiles = pgTable(
     workerId: uuid("worker_id")
       .notNull()
       .references(() => workers.id, { onDelete: "cascade" }),
+    // The extraction job that produced this profile (logical ref to ai_jobs.id;
+    // no FK, kept lean like the rest of the spine). The UNIQUE index below makes
+    // profile creation idempotent per job (TD14): a partial-success retry (the
+    // profile row committed, then markCompleted failed → BullMQ redelivers) finds
+    // the key already taken and re-creates NOTHING, instead of orphaning a second
+    // profile. Nullable — legacy/non-extraction profiles have none, and Postgres
+    // treats NULLs as DISTINCT so they never collide.
+    aiJobId: uuid("ai_job_id"),
     profileStatus: text("profile_status").$type<ProfileStatus>().notNull().default("draft"),
     canonicalTradeId: text("canonical_trade_id"),
     canonicalRoleId: text("canonical_role_id"),
@@ -126,6 +134,9 @@ export const workerProfiles = pgTable(
   },
   (t) => [
     index("worker_profiles_worker_id_idx").on(t.workerId),
+    // Idempotent extraction (TD14): at most one profile per ai_job. Many NULLs
+    // allowed (NULLS DISTINCT — Postgres default). See `aiJobId` above.
+    uniqueIndex("worker_profiles_ai_job_id_uq").on(t.aiJobId),
     // HNSW index for cosine similarity search over the 768-dim embedding (plan G5).
     index("worker_profiles_embedding_hnsw").using(
       "hnsw",
