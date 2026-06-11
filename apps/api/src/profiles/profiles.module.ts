@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { Module, forwardRef } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { ChatModule } from "../chat/chat.module";
 import { ProfilesController } from "./profiles.controller";
@@ -11,11 +11,13 @@ import { PROFILE_EXTRACTION_QUEUE } from "../queue/queue.constants";
 
 @Module({
   imports: [
-    ChatModule, // for ChatRepository (transcript)
+    // forwardRef: ChatService also depends on ProfilesService (auto-trigger
+    // extraction on the readiness flip), so the two modules reference each other.
+    forwardRef(() => ChatModule), // for ChatRepository (transcript)
     BullModule.registerQueue({ name: PROFILE_EXTRACTION_QUEUE }),
   ],
   controllers: [ProfilesController, AiJobsController],
   providers: [ProfilesService, ProfilesRepository, AiJobsRepository, ProfileExtractionProcessor],
-  exports: [ProfilesRepository],
+  exports: [ProfilesRepository, ProfilesService],
 })
 export class ProfilesModule {}

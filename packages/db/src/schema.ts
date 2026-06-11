@@ -5,6 +5,7 @@ import {
   text,
   integer,
   doublePrecision,
+  boolean,
   timestamp,
   jsonb,
   vector,
@@ -260,6 +261,16 @@ export const events = pgTable(
     subjectId: uuid("subject_id"),
     correlationId: uuid("correlation_id").notNull(),
     causationId: uuid("causation_id"),
+    // Delivery-dedup token (TD18). A stable, producer-supplied key for the
+    // logical event (e.g. "profile.extraction_completed:<ai_job_id>"). The unique
+    // index below makes inserts idempotent under at-least-once retry: re-emitting
+    // the same logical event is a no-op (INSERT ... ON CONFLICT DO NOTHING).
+    // NULLABLE on purpose — events with no natural dedup key (legitimately
+    // repeatable: otp_requested resends, action.recorded) leave it null, and
+    // Postgres treats NULLs as DISTINCT, so unkeyed events never collide. This is
+    // a storage-layer concern, deliberately NOT part of the validated event
+    // envelope (the immutable "fact"); it travels on the row, not in the contract.
+    idempotencyKey: text("idempotency_key"),
     payload: jsonb("payload").notNull().default(jsonObject),
     metadata: jsonb("metadata").notNull().default(jsonObject),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -269,6 +280,9 @@ export const events = pgTable(
     index("events_occurred_at_idx").on(t.occurredAt),
     index("events_correlation_id_idx").on(t.correlationId),
     index("events_subject_idx").on(t.subjectType, t.subjectId),
+    // Idempotent emission: non-null keys are unique; many NULLs are allowed
+    // (NULLS DISTINCT — Postgres default). See `idempotencyKey` above.
+    uniqueIndex("events_idempotency_key_uq").on(t.idempotencyKey),
   ],
 );
 
@@ -284,6 +298,16 @@ export const aiJobs = pgTable(
     inputRef: jsonb("input_ref").notNull().default(jsonObject),
     outputRef: jsonb("output_ref"),
     errorMessage: text("error_message"),
+    // --- Operational AI usage/cost metadata (from the AI router's ai_metadata) ---
+    // Populated on completion for observability ("what did this job cost?"). All
+    // nullable: mock/AI-down runs and pre-existing rows carry none. PII-free by
+    // construction — only these typed scalars, never prompts/completions/PII.
+    modelName: text("model_name"),
+    realCall: boolean("real_call"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    totalTokens: integer("total_tokens"),
+    costInr: doublePrecision("cost_inr"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

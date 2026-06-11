@@ -84,15 +84,31 @@ async function call(method: string, path: string, body?: unknown): Promise<Resp>
   return { status: res.status, body: parsed };
 }
 
-/** Poll an async extraction job (BullMQ) until it completes; return the job body. */
-async function pollExtraction(aiJobId: string, attempts = 60, delayMs = 250): Promise<any> {
+/**
+ * Poll until the AUTO-triggered extraction job for this worker completes.
+ * Extraction is fired by the chat service on the readiness flip — there is no
+ * manual POST /profile/extract — so we discover the job from the DB by worker.
+ */
+async function pollAutoExtraction(
+  client: DbClient,
+  workerId: string,
+  attempts = 60,
+  delayMs = 250,
+): Promise<{ aiJobId: string; profileId: string }> {
   for (let i = 0; i < attempts; i++) {
-    const { body } = await call("GET", `/ai-jobs/${aiJobId}`);
-    if (body.status === "completed") return body;
-    if (body.status === "failed") throw new Error(`extraction failed: ${body.error_message}`);
+    const jobs = (await client.db.select().from(aiJobs)).filter(
+      (j) =>
+        j.jobType === "profile_extraction" &&
+        (j.inputRef as { worker_id?: string } | null)?.worker_id === workerId,
+    );
+    const done = jobs.find((j) => j.status === "completed");
+    const profileId = (done?.outputRef as { profile_id?: string } | null)?.profile_id;
+    if (done && profileId) return { aiJobId: done.id, profileId };
+    const failed = jobs.find((j) => j.status === "failed");
+    if (failed) throw new Error(`auto extraction failed: ${failed.errorMessage}`);
     await new Promise((r) => setTimeout(r, delayMs));
   }
-  throw new Error(`extraction job ${aiJobId} did not complete within ${attempts * delayMs}ms`);
+  throw new Error(`auto extraction did not complete for worker ${workerId} in time`);
 }
 
 describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)", () => {
@@ -218,19 +234,11 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     expect(inbound.map((m) => m.bodyText)).toEqual(sentTexts); // worker text stored verbatim (in chat_messages only)
     expect(outbound.every((m) => (m.bodyText ?? "").length > 0)).toBe(true);
 
-    // ──────────────────────── STAGE 4 — Profile extraction ────────────────────────
-    const extract = await call("POST", "/profile/extract", {
-      worker_id: workerId,
-      session_id: sessionId,
-    });
-    expect(extract.status).toBe(202); // accepted (async)
-    expect(extract.body.ai_job_id).toBeTruthy();
-    expect(extract.body.status).toBe("queued"); // state: job starts queued
-    const aiJobId = extract.body.ai_job_id as string;
-
-    const job = await pollExtraction(aiJobId);
-    expect(job.status).toBe("completed"); // state transition: queued → completed
-    const profileId = job.output_ref?.profile_id as string;
+    // ──────────── STAGE 4 — Profile extraction (AUTOMATIC, no manual call) ────────────
+    // Reaching extraction_ready above auto-triggered extraction from the chat
+    // service — there is NO POST /profile/extract. Poll the auto-created job to done.
+    const { aiJobId, profileId } = await pollAutoExtraction(client, workerId);
+    expect(aiJobId).toBeTruthy();
     expect(profileId).toBeTruthy();
 
     // DB: ai_jobs row reflects the completed async work, refs only (no PII).

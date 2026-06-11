@@ -15,13 +15,18 @@ export class AiJobsController {
         id: j.id,
         job_type: j.jobType,
         status: j.status,
+        // Surface cost/model so ops can scan AI spend without opening each job.
+        model_name: j.modelName ?? null,
+        real_call: j.realCall ?? null,
+        total_tokens: j.totalTokens ?? null,
+        cost_inr: j.costInr ?? null,
         created_at: j.createdAt,
         updated_at: j.updatedAt,
       })),
     };
   }
 
-  /** Poll a single job (e.g. profile extraction): status + output_ref (profile_id). */
+  /** Poll a single job (e.g. profile extraction): status + output_ref + AI usage/cost. */
   @Get(":id")
   async get(@Param("id", new ParseUUIDPipe()) id: string) {
     const job = await this.aiJobs.findById(id);
@@ -32,6 +37,15 @@ export class AiJobsController {
       status: job.status,
       output_ref: job.outputRef ?? null,
       error_message: job.errorMessage ?? null,
+      // Operational AI usage/cost metadata (PII-free; null until completed).
+      ai_usage: {
+        model_name: job.modelName ?? null,
+        real_call: job.realCall ?? null,
+        input_tokens: job.inputTokens ?? null,
+        output_tokens: job.outputTokens ?? null,
+        total_tokens: job.totalTokens ?? null,
+        cost_inr: job.costInr ?? null,
+      },
       created_at: job.createdAt,
       updated_at: job.updatedAt,
     };

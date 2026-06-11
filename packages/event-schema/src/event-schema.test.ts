@@ -288,6 +288,27 @@ describe("interview-turn contract (extraction-ready, cost, ai-job)", () => {
     };
     expect(validateEvent(evt).success).toBe(true);
   });
+
+  it("validates ai.cost_recorded with operational usage/cost (the shape the extraction processor emits)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.cost_recorded",
+      subject: { subject_type: "ai_job", subject_id: UUID_A },
+      payload: {
+        ai_call_id: UUID_B,
+        ai_job_id: UUID_A,
+        task_type: "profile_extraction",
+        model: "gpt-4o-mini",
+        provider: "openai",
+        real_call: true,
+        tokens_in: 1200,
+        tokens_out: 300,
+        estimated_cost_inr: 0.42,
+        latency_ms: 850,
+      },
+    };
+    expect(validateEvent(evt).success).toBe(true);
+  });
 });
 
 describe("registry", () => {

@@ -53,6 +53,7 @@ export class ProfilesService {
         session_id: dto.session_id ?? null,
         ai_job_id: job.id,
       },
+      idempotencyKey: `profile.extraction_requested:${job.id}`,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
@@ -80,6 +81,10 @@ export class ProfilesService {
           ai_job_id: job.id,
           reason,
         },
+        // One terminal failure per job. Shares the key namespace with the
+        // processor's terminal-failure emit: a job fails EITHER at enqueue here OR
+        // in the processor, never both, so at most one row is ever written.
+        idempotencyKey: `profile.extraction_failed:${job.id}`,
         correlationId: ctx.correlationId,
         requestId: ctx.requestId,
       });
@@ -108,6 +113,7 @@ export class ProfilesService {
         profile_id: dto.profile_id,
         confirmed_at: confirmedAt.toISOString(),
       },
+      idempotencyKey: `profile.confirmed:${dto.profile_id}`,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import {
@@ -52,11 +53,35 @@ export class AiService {
   async extractProfile(input: ProfileExtractionInput): Promise<ProfileExtractionOutput> {
     const remote = await this.post("/profile/extract", input, ProfileExtractionOutputSchema);
     if (remote) return remote;
+    // Mock fallback (AI service unreachable): still surface operational metadata so
+    // an ai_jobs row records that this job ran on the MOCK path (real_call=false,
+    // zero cost/tokens) instead of leaving cost/usage blank. PII-free.
     return ProfileExtractionOutputSchema.parse({
       profile: DraftProfileSchema.parse({}),
       blocked: false,
       is_mock: true,
+      ai_metadata: this.mockCallMetadata("profile_extraction"),
     });
+  }
+
+  /** Operational AICallMetadata for the local mock path — a real LLM call did NOT happen. */
+  private mockCallMetadata(taskType: string) {
+    return {
+      ai_call_id: randomUUID(),
+      task_type: taskType,
+      model_name: "mock",
+      provider: "mock",
+      real_call: false,
+      input_tokens: 0,
+      output_tokens: 0,
+      estimated_cost_inr: 0,
+      latency_ms: 0,
+      success: true,
+      error_code: null,
+      cost_alert: false,
+      above_target: false,
+      created_at: new Date().toISOString(),
+    };
   }
 
   async generateResume(input: ResumeGenerationInput): Promise<ResumeGenerationOutput> {

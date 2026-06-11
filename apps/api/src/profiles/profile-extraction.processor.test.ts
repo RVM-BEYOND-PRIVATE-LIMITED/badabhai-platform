@@ -22,7 +22,7 @@ function makeJob(over: { attemptsMade?: number; attempts?: number } = {}) {
   } as never;
 }
 
-function make(opts: { findById?: unknown; extractThrows?: boolean } = {}) {
+function make(opts: { findById?: unknown; extractThrows?: boolean; aiMetadata?: unknown } = {}) {
   const draft = DraftProfileSchema.parse({});
   const profiles = { create: vi.fn().mockResolvedValue({ id: PROFILE }) };
   const aiJobs = {
@@ -36,7 +36,14 @@ function make(opts: { findById?: unknown; extractThrows?: boolean } = {}) {
   const ai = {
     extractProfile: opts.extractThrows
       ? vi.fn().mockRejectedValue(new Error("boom"))
-      : vi.fn().mockResolvedValue({ profile: draft, blocked: false, is_mock: true }),
+      : vi
+          .fn()
+          .mockResolvedValue({
+            profile: draft,
+            blocked: false,
+            is_mock: true,
+            ai_metadata: opts.aiMetadata ?? null,
+          }),
   };
   const proc = new ProfileExtractionProcessor(
     profiles as never,
@@ -54,8 +61,61 @@ describe("ProfileExtractionProcessor", () => {
     const res = await proc.process(makeJob());
     expect(res).toEqual({ profile_id: PROFILE });
     expect(profiles.create).toHaveBeenCalledOnce();
-    expect(aiJobs.markCompleted).toHaveBeenCalledWith(JOB.aiJobId, { profile_id: PROFILE });
+    // No AI metadata on the mock/AI-down path → usage columns left untouched (undefined),
+    // and no ai.cost_recorded event (nothing real to record).
+    expect(aiJobs.markCompleted).toHaveBeenCalledWith(JOB.aiJobId, { profile_id: PROFILE }, undefined);
     expect(events.emit.mock.calls[0]![0].event_name).toBe("profile.extraction_completed");
+    const names = events.emit.mock.calls.map((c) => c[0].event_name);
+    expect(names).not.toContain("ai.cost_recorded");
+  });
+
+  it("persists AI usage/cost on completion + emits ai.cost_recorded (operational fields only, no PII)", async () => {
+    const aiMetadata = {
+      ai_call_id: "66666666-6666-4666-8666-666666666666",
+      task_type: "profile_extraction",
+      model_name: "gpt-4o-mini",
+      provider: "openai",
+      real_call: true,
+      input_tokens: 1200,
+      output_tokens: 300,
+      estimated_cost_inr: 0.42,
+      latency_ms: 850,
+      success: true,
+      error_code: null,
+      cost_alert: false,
+      above_target: false,
+      created_at: "2026-06-11T00:00:00.000Z",
+    };
+    const { proc, aiJobs, events } = make({ aiMetadata });
+    await proc.process(makeJob());
+
+    // (1) Operational usage/cost persisted to ai_jobs via markCompleted — total_tokens derived.
+    expect(aiJobs.markCompleted).toHaveBeenCalledWith(
+      JOB.aiJobId,
+      { profile_id: PROFILE },
+      { modelName: "gpt-4o-mini", realCall: true, inputTokens: 1200, outputTokens: 300, totalTokens: 1500, costInr: 0.42 },
+    );
+
+    // (2) ai.cost_recorded emitted with the same metadata (after extraction_completed).
+    const costEvent = events.emit.mock.calls.map((c) => c[0]).find((e) => e.event_name === "ai.cost_recorded");
+    expect(costEvent).toBeDefined();
+    expect(costEvent!.payload).toMatchObject({
+      ai_job_id: JOB.aiJobId,
+      task_type: "profile_extraction",
+      model: "gpt-4o-mini",
+      real_call: true,
+      tokens_in: 1200,
+      tokens_out: 300,
+      estimated_cost_inr: 0.42,
+    });
+
+    // (3) No PII: the persisted usage object exposes ONLY the six operational scalars.
+    const usageArg = aiJobs.markCompleted.mock.calls[0]![2] as Record<string, unknown>;
+    expect(Object.keys(usageArg).sort()).toEqual(
+      ["costInr", "inputTokens", "modelName", "outputTokens", "realCall", "totalTokens"].sort(),
+    );
+    const blob = JSON.stringify(costEvent) + JSON.stringify(usageArg);
+    expect(blob).not.toMatch(/phone|full_name|e164|transcript|\bbody_text\b/i);
   });
 
   it("idempotent: an already-completed job is not reprocessed", async () => {

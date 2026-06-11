@@ -1,4 +1,11 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+  forwardRef,
+} from "@nestjs/common";
 import {
   ConversationStateSchema,
   type ConversationMessage,
@@ -8,6 +15,7 @@ import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { AiService } from "../ai/ai.service";
+import { ProfilesService } from "../profiles/profiles.service";
 import { ChatRepository } from "./chat.repository";
 import type { PostMessageDto } from "./chat.dto";
 
@@ -22,6 +30,9 @@ export class ChatService {
     private readonly workers: WorkersRepository,
     private readonly events: EventsService,
     private readonly ai: AiService,
+    // forwardRef: ProfilesModule imports ChatModule (for the transcript), so the
+    // dependency is circular. Used to auto-trigger extraction on the readiness flip.
+    @Inject(forwardRef(() => ProfilesService)) private readonly profiles: ProfilesService,
   ) {}
 
   async startSession(workerId: string, ctx: RequestContext) {
@@ -34,6 +45,7 @@ export class ChatService {
       actor: { actor_type: "worker", actor_id: workerId },
       subject: { subject_type: "chat_session", subject_id: session.id },
       payload: { session_id: session.id, worker_id: workerId },
+      idempotencyKey: `chat.session_started:${session.id}`,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
@@ -66,6 +78,10 @@ export class ChatService {
         message_type: "text",
         has_voice_note: false,
       },
+      // One received-event per stored inbound message. (A full-turn HTTP retry
+      // creates a NEW message row → new id → distinct event; deduping THAT needs a
+      // client-supplied request key threaded to insertMessage — out of TD18 scope.)
+      idempotencyKey: `chat.message_received:${inbound.id}`,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
@@ -133,6 +149,7 @@ export class ChatService {
         message_id: outbound.id,
         message_type: "text",
       },
+      idempotencyKey: `chat.message_sent:${outbound.id}`,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
@@ -159,6 +176,10 @@ export class ChatService {
           turn_count: st.turn_count,
           answered_topics: st.answered_topics,
         },
+        // Exactly one readiness signal per session, even if the marker-write below
+        // is lost and the same turn is retried (TD18 — DB-enforced, not just the
+        // in-state marker).
+        idempotencyKey: `profile.extraction_ready:${dto.session_id}`,
         correlationId: ctx.correlationId,
         requestId: ctx.requestId,
       });
@@ -166,6 +187,10 @@ export class ChatService {
         `extraction_ready emitted session=${dto.session_id} turn=${st.turn_count} ` +
           `answered=[${st.answered_topics.join(",")}]`,
       );
+
+      // Auto-trigger profile extraction on the flip — no manual /profile/extract
+      // needed. Fires on the SAME once-per-session guard as the event above.
+      await this.autoTriggerExtraction(dto.worker_id, dto.session_id, ctx);
     }
 
     // 6. Persist the UPDATED interview state so the next turn continues from here
@@ -179,10 +204,12 @@ export class ChatService {
         ...(aiResult.updated_state as unknown as Record<string, unknown>),
       };
       // Carry the readiness marker forward once ready so step 5 does not re-emit
-      // on EVERY later turn. NOTE: this does NOT make the emit idempotent under an
-      // at-least-once retry of the *same* turn (emit in step 5 commits before this
-      // marker) — that is the platform-wide event-delivery property shared by all
-      // emit sites (chat.message_sent, etc.), tracked as TD18 for a uniform fix.
+      // on EVERY later turn. The marker is the FAST path (skips work next turn);
+      // it is NOT the correctness guarantee. If this marker-write is lost and the
+      // SAME turn is retried, the readiness emit in step 5 is still exactly-once
+      // because it carries an `idempotencyKey` and the events table enforces
+      // dedup at insert (ON CONFLICT DO NOTHING) — the TD18 fix, now applied
+      // platform-wide at every emit site with a stable key.
       if (aiResult.extraction_ready || priorReadyEmitted) {
         stateToPersist.extraction_ready_emitted = true;
       }
@@ -206,6 +233,49 @@ export class ChatService {
       asked_question_id: aiResult.asked_question_id,
       extraction_ready: aiResult.extraction_ready,
     };
+  }
+
+  /**
+   * Auto-trigger profile extraction once the interview first becomes
+   * extraction-ready, so no manual `POST /profile/extract` is needed.
+   *
+   * Duplicate-extraction protection (three layers):
+   *  1. Called only from the readiness FLIP, which is itself gated by the
+   *     `extraction_ready_emitted` marker → at most once per session across turns.
+   *  2. Skips if the worker already has a profile row (`latestProfile`) → repeated
+   *     signals / re-onboarding never create a second profile.
+   *  3. `ProfilesService.extract` enqueues a BullMQ job whose processor is
+   *     idempotent per `ai_job` (it returns the prior profile_id on redelivery),
+   *     so `profile.extraction_completed` is emitted exactly once.
+   *
+   * Never throws: a failed trigger must not break the chat reply. Enqueue failures
+   * are already recorded by `extract` (ai_job → failed + `profile.extraction_failed`).
+   * (Residual same-instant double-fire on one session is bounded by the single
+   * sequential author assumption; the hard guarantee is the TD14 dedup constraint.)
+   */
+  private async autoTriggerExtraction(
+    workerId: string,
+    sessionId: string,
+    ctx: RequestContext,
+  ): Promise<void> {
+    try {
+      const existing = await this.workers.latestProfile(workerId);
+      if (existing) {
+        this.logger.log(
+          `auto-extract skipped session=${sessionId}: worker already has profile ${existing.id}`,
+        );
+        return;
+      }
+      const { ai_job_id } = await this.profiles.extract(
+        { worker_id: workerId, session_id: sessionId },
+        ctx,
+      );
+      this.logger.log(`auto-extract triggered session=${sessionId} ai_job=${ai_job_id}`);
+    } catch (err) {
+      this.logger.warn(
+        `auto-extract trigger failed session=${sessionId} (non-fatal, chat continues): ${String(err)}`,
+      );
+    }
   }
 
   /** Build conversation history (excluding the just-stored inbound message). */

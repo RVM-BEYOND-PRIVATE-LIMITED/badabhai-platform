@@ -53,6 +53,7 @@ export class ResumeService {
         version,
         format: result.format,
       },
+      idempotencyKey: `resume.generated:${saved.id}`,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });

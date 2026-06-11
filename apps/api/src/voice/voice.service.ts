@@ -51,6 +51,7 @@ export class VoiceService {
         duration_seconds: dto.duration_seconds,
         storage_path: dto.storage_path,
       },
+      idempotencyKey: `voice_note.uploaded:${note.id}`,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });

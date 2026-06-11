@@ -7,11 +7,17 @@ import {
 } from "@badabhai/event-schema";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
-import { EventsRepository } from "./events.repository";
+import { EventsRepository, type EventToInsert } from "./events.repository";
 
 /**
  * Params for emitting an event. `source` and `metadata` are filled by the
  * service; callers provide the domain bits + tracing ids.
+ *
+ * `idempotencyKey` (TD18): an optional stable key for the logical event. When
+ * supplied, re-emitting the same logical event under an at-least-once retry is a
+ * no-op at the DB (`ON CONFLICT DO NOTHING`) — exactly-once in the events table.
+ * Omit it for events that are legitimately repeatable (e.g. otp resends,
+ * behavioural actions), which then always insert.
  */
 export type EmitParams<N extends EventName> = Omit<
   CreateEventInput<N>,
@@ -20,6 +26,7 @@ export type EmitParams<N extends EventName> = Omit<
   correlationId?: string;
   causationId?: string | null;
   requestId?: string;
+  idempotencyKey?: string;
 };
 
 /**
@@ -38,8 +45,59 @@ export class EventsService {
   ) {}
 
   async emit<N extends EventName>(params: EmitParams<N>): Promise<BadaBhaiEvent<N>> {
-    const { correlationId, causationId, requestId, ...rest } = params;
+    const { event, idempotencyKey } = this.build(params);
 
+    const written = await this.repo.insert(event, idempotencyKey);
+    if (written) {
+      this.logger.log(
+        `event=${event.event_name} subject=${event.subject.subject_type}:${event.subject.subject_id ?? "-"} correlation=${event.correlation_id}`,
+      );
+    } else {
+      // Idempotent no-op: an event with this key was already stored (at-least-once
+      // retry). Log at debug-ish level so duplicate deliveries are observable.
+      this.logger.log(
+        `event=${event.event_name} DEDUPED (idempotency_key=${idempotencyKey}) correlation=${event.correlation_id}`,
+      );
+    }
+    return event;
+  }
+
+  /**
+   * Emit many events of the SAME event name in a single DB round-trip. Every
+   * event is built + validated first (so one invalid item rejects the whole
+   * batch before any write). Used for batched action recording. Per-row
+   * `ON CONFLICT DO NOTHING`, so keyed duplicates inside the batch are skipped.
+   *
+   * RETURNS the built+validated events (length == items accepted), NOT the count
+   * actually written — which can differ if a caller passes idempotency keys and a
+   * keyed duplicate is deduped. Today the only batch caller (action.recorded) is
+   * intentionally UNKEYED, so every row inserts and the two counts coincide. A
+   * future keyed batch caller that needs the written count must use the number
+   * returned by `repo.insertMany`, not `result.length`.
+   */
+  async emitMany<N extends EventName>(list: EmitParams<N>[]): Promise<BadaBhaiEvent<N>[]> {
+    const built = list.map((p) => this.build(p));
+    const toInsert: EventToInsert[] = built.map(({ event, idempotencyKey }) => ({
+      event,
+      idempotencyKey,
+    }));
+
+    const written = await this.repo.insertMany(toInsert);
+    const first = built[0]?.event;
+    if (first) {
+      const deduped = built.length - written;
+      this.logger.log(
+        `events=${built.length} written=${written}${deduped > 0 ? ` deduped=${deduped}` : ""} event=${first.event_name} (batch)`,
+      );
+    }
+    return built.map((b) => b.event as BadaBhaiEvent<N>);
+  }
+
+  /** Build + validate the event and separate out its delivery-dedup key. */
+  private build<N extends EventName>(
+    params: EmitParams<N>,
+  ): { event: BadaBhaiEvent<N>; idempotencyKey?: string } {
+    const { correlationId, causationId, requestId, idempotencyKey, ...rest } = params;
     const event = createEvent<N>({
       ...rest,
       source: "api",
@@ -51,39 +109,6 @@ export class EventsService {
         request_id: requestId ?? null,
       },
     });
-
-    await this.repo.insert(event);
-    this.logger.log(
-      `event=${event.event_name} subject=${event.subject.subject_type}:${event.subject.subject_id ?? "-"} correlation=${event.correlation_id}`,
-    );
-    return event;
-  }
-
-  /**
-   * Emit many events of the SAME event name in a single DB round-trip. Every
-   * event is built + validated first (so one invalid item rejects the whole
-   * batch before any write). Used for batched action recording.
-   */
-  async emitMany<N extends EventName>(list: EmitParams<N>[]): Promise<BadaBhaiEvent<N>[]> {
-    const events = list.map(({ correlationId, causationId, requestId, ...rest }) =>
-      createEvent<N>({
-        ...rest,
-        source: "api",
-        correlation_id: correlationId,
-        causation_id: causationId ?? null,
-        metadata: {
-          environment: this.config.NODE_ENV,
-          service: "api",
-          request_id: requestId ?? null,
-        },
-      }),
-    );
-
-    await this.repo.insertMany(events);
-    const first = events[0];
-    if (first) {
-      this.logger.log(`events=${events.length} event=${first.event_name} (batch)`);
-    }
-    return events;
+    return { event, idempotencyKey };
   }
 }
