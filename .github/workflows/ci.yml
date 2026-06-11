@@ -108,7 +108,10 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        # pgvector-enabled pg16 (official image, built on postgres:16): the migration
+        # chain runs `CREATE EXTENSION vector` (0001 — worker_profiles.embedding + HNSW),
+        # which a plain postgres:16 image cannot satisfy ("extension vector is not available").
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -165,7 +168,7 @@ jobs:
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'DO $$ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$; DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$; DO $$ BEGIN CREATE ROLE service_role NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;'
 
-      # Fresh DB → applies the full migration chain (0000..0005) from scratch,
+      # Fresh DB → applies the full migration chain (0000..0008) from scratch,
       # which also validates migrations on every PR. The flow self-seeds (it creates
       # its own worker per run via a unique phone), so no separate seed step.
       - name: Apply migrations
