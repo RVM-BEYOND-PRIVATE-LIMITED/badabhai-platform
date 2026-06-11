@@ -202,3 +202,26 @@ class ResumeGenerationOutput(BaseModel):
     resume_json: dict = Field(default_factory=dict)
     format: Literal["text", "json"] = "text"
     is_mock: bool = True
+
+
+# --- Voice transcription (STT) ---------------------------------------------
+class TranscriptionInput(BaseModel):
+    """Request to transcribe an uploaded voice note. Carries only an opaque
+    storage reference + non-identity metadata — never raw audio bytes here."""
+
+    voice_note_id: str | None = None
+    storage_path: str = Field(min_length=1)
+    duration_seconds: float | None = None
+    language_code: str | None = None
+    real_call_allowed: bool = True
+
+
+class TranscriptionOutput(BaseModel):
+    """Transcription result. `transcript_text` is raw worker free-text (may
+    contain PII) — it is returned ONLY to the trusted backend and must never be
+    logged or placed in events/ai_jobs (those carry length/confidence only)."""
+
+    transcript_text: str
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    language_code: str | None = None
+    is_mock: bool = True

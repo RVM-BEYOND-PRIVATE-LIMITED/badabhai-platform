@@ -236,3 +236,27 @@ export const ResumeGenerationOutputSchema = z.object({
   is_mock: z.boolean().default(true),
 });
 export type ResumeGenerationOutput = z.infer<typeof ResumeGenerationOutputSchema>;
+
+// ---------------------------------------------------------------------------
+// Voice transcription (STT). Input carries only an opaque storage reference;
+// output's transcript_text is raw worker free-text — the backend stores it in
+// voice_notes and keeps it OUT of events/ai_jobs/logs.
+// ---------------------------------------------------------------------------
+export const TranscriptionInputSchema = z.object({
+  voice_note_id: z.string().min(1).optional(),
+  storage_path: z.string().min(1),
+  duration_seconds: z.number().nonnegative().nullable().optional(),
+  language_code: languageCode.optional(),
+  // Optional (AI service defaults to true) → backward compatible input type.
+  real_call_allowed: z.boolean().optional(),
+});
+export type TranscriptionInput = z.infer<typeof TranscriptionInputSchema>;
+
+export const TranscriptionOutputSchema = z.object({
+  transcript_text: z.string(),
+  confidence: z.number().min(0).max(1).default(0),
+  language_code: z.string().nullable().default(null),
+  /** True when the response came from the mock path (AI_ENABLE_REAL_CALLS=false). */
+  is_mock: z.boolean().default(true),
+});
+export type TranscriptionOutput = z.infer<typeof TranscriptionOutputSchema>;

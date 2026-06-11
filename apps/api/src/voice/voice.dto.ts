@@ -9,3 +9,9 @@ export const UploadVoiceNoteSchema = z.object({
   duration_seconds: voiceDurationSecondsSchema, // > 0 and <= 120
 });
 export type UploadVoiceNoteDto = z.infer<typeof UploadVoiceNoteSchema>;
+
+/** Request async transcription of a previously-uploaded voice note. */
+export const TranscribeVoiceNoteSchema = z.object({
+  voice_note_id: uuidSchema,
+});
+export type TranscribeVoiceNoteDto = z.infer<typeof TranscribeVoiceNoteSchema>;
