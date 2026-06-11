@@ -1,0 +1,2 @@
+ALTER TABLE "worker_profiles" ADD COLUMN IF NOT EXISTS "ai_job_id" uuid;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "worker_profiles_ai_job_id_uq" ON "worker_profiles" USING btree ("ai_job_id");

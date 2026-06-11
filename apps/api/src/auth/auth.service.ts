@@ -59,11 +59,14 @@ export class AuthService {
         actor: { actor_type: "worker", actor_id: worker.id },
         subject: { subject_type: "worker", subject_id: worker.id },
         payload: { worker_id: worker.id, phone_hash: phoneHash, status: "active" },
+        idempotencyKey: `worker.created:${worker.id}`,
         correlationId: ctx.correlationId,
         requestId: ctx.requestId,
       });
     }
 
+    // No idempotencyKey: a worker legitimately verifies/logs in many times, so
+    // each otp_verified is a distinct fact (likewise otp_requested resends above).
     await this.events.emit({
       event_name: "worker.otp_verified",
       actor: { actor_type: "worker", actor_id: worker.id },

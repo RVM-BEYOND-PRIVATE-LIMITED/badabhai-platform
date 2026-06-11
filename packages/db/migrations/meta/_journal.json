@@ -36,6 +36,34 @@
       "when": 1781090459414,
       "tag": "0004_workers_force_rls_revoke",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781154834517,
+      "tag": "0005_ai_jobs_usage_metadata",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781158705965,
+      "tag": "0006_normal_roland_deschain",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1781161295819,
+      "tag": "0007_bitter_tyger_tiger",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1781171009640,
+      "tag": "0008_familiar_black_bird",
+      "breakpoints": true
     }
   ]
 }

@@ -3,6 +3,20 @@ import { desc, eq } from "drizzle-orm";
 import { type Database, aiJobs, type AiJob, type NewAiJob } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
+/**
+ * Operational AI usage/cost metadata persisted on an `ai_jobs` row when a job
+ * completes. PII-free by construction — only these typed scalars (never prompts,
+ * completions, transcripts, names, or phone numbers).
+ */
+export interface AiJobUsageMetadata {
+  modelName: string | null;
+  realCall: boolean | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+  costInr: number | null;
+}
+
 @Injectable()
 export class AiJobsRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
@@ -31,10 +45,14 @@ export class AiJobsRepository {
       .where(eq(aiJobs.id, id));
   }
 
-  async markCompleted(id: string, outputRef: Record<string, unknown>): Promise<void> {
+  async markCompleted(
+    id: string,
+    outputRef: Record<string, unknown>,
+    usage?: AiJobUsageMetadata,
+  ): Promise<void> {
     await this.db
       .update(aiJobs)
-      .set({ status: "completed", outputRef, updatedAt: new Date() })
+      .set({ status: "completed", outputRef, ...(usage ?? {}), updatedAt: new Date() })
       .where(eq(aiJobs.id, id));
   }
 

@@ -96,3 +96,103 @@ jobs:
 
       - name: Test
         run: flutter test
+
+  # ---- Phase 1 E2E gate: real Postgres + Redis, migrate, drive the full flow ----
+  # Blocking: a PR FAILS if the end-to-end onboarding journey (login → consent →
+  # multi-turn interview → state persistence → AUTO extraction → extraction_completed
+  # → AI-metadata persistence → no-raw-phone → confirm → resume) regresses.
+  # The FastAPI AI service is intentionally NOT started — the API falls back to its
+  # safe mock (real_call=false), so the flow + its events/metadata complete offline.
+  e2e:
+    name: E2E (Phase 1 onboarding flow)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: badabhai_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      # Service-container Postgres/Redis (no special chars → no URL-encoding needed).
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/badabhai_test
+      REDIS_URL: redis://localhost:6379
+      # test → PII crypto guard permits the dev defaults (no real secrets in CI).
+      NODE_ENV: test
+      API_PORT: "3001"
+      RUN_E2E: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Build only the API and its workspace deps — not the whole monorepo (the
+      # `node` job owns lint/typecheck/unit-test/full-build; we just need a runnable API).
+      - name: Build API (+ workspace deps)
+        run: pnpm --filter "@badabhai/api..." build
+
+      # Migrations 0003/0004 REVOKE grants from Supabase's anon/authenticated/
+      # service_role roles, which don't exist on a plain Postgres image. Pre-create
+      # them (idempotent) so the migration chain applies — and so the RLS regression
+      # test can exercise `SET ROLE anon/...` denials.
+      - name: Create Supabase-compatible roles
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'DO $$ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$; DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$; DO $$ BEGIN CREATE ROLE service_role NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;'
+
+      # Fresh DB → applies the full migration chain (0000..0005) from scratch,
+      # which also validates migrations on every PR. The flow self-seeds (it creates
+      # its own worker per run via a unique phone), so no separate seed step.
+      - name: Apply migrations
+        run: pnpm --filter @badabhai/db db:migrate
+
+      - name: Start API and run the Phase 1 E2E suite
+        run: |
+          node apps/api/dist/main.js > api.log 2>&1 &
+          API_PID=$!
+          echo "API started (pid $API_PID) — waiting for /health…"
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3001/health >/dev/null 2>&1; then
+              echo "API healthy after ${i}s"; break
+            fi
+            if ! kill -0 "$API_PID" 2>/dev/null; then
+              echo "::error::API process exited during startup"; cat api.log; exit 1
+            fi
+            sleep 1
+          done
+          curl -sf http://localhost:3001/health >/dev/null \
+            || { echo "::error::API never became healthy"; cat api.log; exit 1; }
+
+          set +e
+          pnpm --filter @badabhai/e2e test
+          E2E_EXIT=$?
+          set -e
+
+          echo "----- API log (tail) -----"; tail -n 80 api.log || true
+          kill "$API_PID" 2>/dev/null || true
+          exit $E2E_EXIT

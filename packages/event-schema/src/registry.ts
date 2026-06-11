@@ -92,6 +92,20 @@ export const EVENT_REGISTRY = {
   "ai.llm_call_failed": { version: 1, domain: "ai", payload: p.AiLlmCallFailedPayload },
   "ai.cost_recorded": { version: 1, domain: "ai", payload: p.AiCostRecordedPayload },
   "ai.job_completed": { version: 1, domain: "ai", payload: p.AiJobCompletedPayload },
+
+  // Reach foundation (ADR-0005, TD8) — worker-side behavioural record for matching/
+  // LEARN. Defined now; emitted when the Phase-2 feed surface ships. PII-free.
+  "feed.shown": { version: 1, domain: "feed", payload: p.FeedShownPayload },
+  "application.submitted": {
+    version: 1,
+    domain: "application",
+    payload: p.ApplicationSubmittedPayload,
+  },
+  "application.skipped": {
+    version: 1,
+    domain: "application",
+    payload: p.ApplicationSkippedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

@@ -40,6 +40,9 @@ export class ConsentService {
         purposes: dto.purposes,
         accepted_at: acceptedAt.toISOString(),
       },
+      // Keyed on the consent RECORD id (one per acceptance), not the worker — a
+      // legitimate re-consent creates a new record → new key → not blocked.
+      idempotencyKey: `consent.accepted:${consent.id}`,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });

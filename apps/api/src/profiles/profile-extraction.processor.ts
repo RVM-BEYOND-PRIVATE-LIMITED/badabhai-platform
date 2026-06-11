@@ -1,12 +1,12 @@
 import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Logger } from "@nestjs/common";
 import type { Job } from "bullmq";
-import type { DraftProfile } from "@badabhai/ai-contracts";
+import type { DraftProfile, AICallMetadata } from "@badabhai/ai-contracts";
 import { EventsService } from "../events/events.service";
 import { AiService } from "../ai/ai.service";
 import { ChatRepository } from "../chat/chat.repository";
 import { ProfilesRepository } from "./profiles.repository";
-import { AiJobsRepository } from "./ai-jobs.repository";
+import { AiJobsRepository, type AiJobUsageMetadata } from "./ai-jobs.repository";
 import {
   PROFILE_EXTRACTION_QUEUE,
   type ProfileExtractionJobData,
@@ -53,9 +53,13 @@ export class ProfileExtractionProcessor extends WorkerHost {
       const result = await this.ai.extractProfile({ worker_ref: workerId, transcript });
       const profile: DraftProfile = result.profile;
       const profileStatus = result.blocked ? "draft" : "extracted";
+      const aiMeta = result.ai_metadata; // operational usage/cost (null on the mock/AI-down path)
 
       const saved = await this.profiles.create({
         workerId,
+        // Ties the profile to this job so a partial-success retry returns the
+        // existing row instead of orphaning a duplicate (TD14).
+        aiJobId,
         profileStatus,
         canonicalTradeId: profile.canonical_trade_id,
         canonicalRoleId: profile.canonical_role_id,
@@ -68,7 +72,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
         rawProfile: profile,
       });
 
-      await this.aiJobs.markCompleted(aiJobId, { profile_id: saved.id });
+      await this.aiJobs.markCompleted(aiJobId, { profile_id: saved.id }, toAiJobUsage(aiMeta));
 
       await this.events.emit({
         event_name: "profile.extraction_completed",
@@ -81,9 +85,16 @@ export class ProfileExtractionProcessor extends WorkerHost {
           profile_status: profileStatus,
           field_count: this.countFields(profile),
         },
+        // Exactly one completion per job, even under BullMQ stalled-job
+        // redelivery that races past the early-return idempotency guard above.
+        idempotencyKey: `profile.extraction_completed:${aiJobId}`,
         correlationId,
         requestId,
       });
+
+      // Record AI usage/cost on the dedicated observability event. Guarded: an
+      // observability emit must never turn a SUCCESSFUL extraction into a failure.
+      await this.recordAiCost(aiMeta, aiJobId, correlationId, requestId);
 
       return { profile_id: saved.id };
     } catch (err) {
@@ -99,12 +110,58 @@ export class ProfileExtractionProcessor extends WorkerHost {
           actor: { actor_type: "system" },
           subject: { subject_type: "ai_job", subject_id: aiJobId },
           payload: { worker_id: workerId, session_id: sessionId, ai_job_id: aiJobId, reason },
+          // One terminal failure per job (final attempt). Shares the key namespace
+          // with the enqueue-failure emit in ProfilesService — mutually exclusive.
+          idempotencyKey: `profile.extraction_failed:${aiJobId}`,
           correlationId,
           requestId,
         });
       }
       this.logger.warn(`extraction job ${aiJobId} failed (attempt ${job.attemptsMade + 1}): ${reason}`);
       throw err; // rethrow so BullMQ records/retries the failure
+    }
+  }
+
+  /**
+   * Emit the dedicated `ai.cost_recorded` observability event for a completed
+   * job. No-ops on the mock/AI-down path (no metadata = no real call to record),
+   * and swallows any emit/validation error so it can never fail the extraction.
+   * Carries operational fields only — never prompts, completions, or PII.
+   */
+  private async recordAiCost(
+    meta: AICallMetadata | null,
+    aiJobId: string,
+    correlationId: string,
+    requestId: string,
+  ): Promise<void> {
+    if (!meta) return;
+    try {
+      await this.events.emit({
+        event_name: "ai.cost_recorded",
+        actor: { actor_type: "ai_service" },
+        subject: { subject_type: "ai_job", subject_id: aiJobId },
+        payload: {
+          ai_call_id: meta.ai_call_id,
+          ai_job_id: aiJobId,
+          task_type: "profile_extraction",
+          model: meta.model_name || "unknown",
+          provider: meta.provider || "unknown",
+          real_call: meta.real_call,
+          tokens_in: meta.input_tokens,
+          tokens_out: meta.output_tokens,
+          estimated_cost_inr: meta.estimated_cost_inr,
+          latency_ms: meta.latency_ms,
+          cost_alert: meta.cost_alert,
+          above_target: meta.above_target,
+        },
+        // One cost record per job — dedups if a redelivery re-emits after the
+        // completion guard is bypassed.
+        idempotencyKey: `ai.cost_recorded:${aiJobId}`,
+        correlationId,
+        requestId,
+      });
+    } catch (err) {
+      this.logger.warn(`ai.cost_recorded emit failed for job ${aiJobId} (non-fatal): ${String(err)}`);
     }
   }
 
@@ -130,4 +187,21 @@ export class ProfileExtractionProcessor extends WorkerHost {
     if (p.availability.status !== "unknown") n += 1;
     return n;
   }
+}
+
+/**
+ * Map the AI router's `ai_metadata` to the PII-free operational columns stored on
+ * the `ai_jobs` row. Returns `undefined` when there is no metadata (mock/AI-down),
+ * leaving the columns null. Only usage/cost scalars are forwarded.
+ */
+function toAiJobUsage(meta: AICallMetadata | null): AiJobUsageMetadata | undefined {
+  if (!meta) return undefined;
+  return {
+    modelName: meta.model_name || null,
+    realCall: meta.real_call,
+    inputTokens: meta.input_tokens,
+    outputTokens: meta.output_tokens,
+    totalTokens: meta.input_tokens + meta.output_tokens,
+    costInr: meta.estimated_cost_inr,
+  };
 }
