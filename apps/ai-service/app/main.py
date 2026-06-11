@@ -29,6 +29,8 @@ from .contracts import (
     PseudonymizationOutput,
     ResumeGenerationInput,
     ResumeGenerationOutput,
+    TranscriptionInput,
+    TranscriptionOutput,
     WorkerProfileDraft,
 )
 from .extraction import build_resume
@@ -40,11 +42,13 @@ from .profiling.prompts import (
     build_chat_messages,
 )
 from .pseudonymize import PseudonymizationResult, pseudonymize
+from .stt import SttAdapter
 
 configure_logging()
 logger = get_logger("ai-service")
 settings = get_settings()
 router = AIRouter(settings)
+stt_adapter = SttAdapter(settings)
 
 app = FastAPI(title="BadaBhai AI Service", version="0.1.0")
 
@@ -207,6 +211,38 @@ async def resume_generate(body: ResumeGenerationInput) -> ResumeGenerationOutput
         resume_json=data,
         format="text",
         is_mock=not meta.real_call,
+    )
+
+
+@app.post("/voice/transcribe", response_model=TranscriptionOutput)
+async def voice_transcribe(body: TranscriptionInput) -> TranscriptionOutput:
+    # Mock by default; the real Sarvam call is gated behind AI_ENABLE_REAL_CALLS
+    # (+ key) and fails closed. The adapter never sends audio on the mock path.
+    result = await stt_adapter.transcribe(
+        storage_path=body.storage_path,
+        duration_seconds=body.duration_seconds,
+        language_code=body.language_code,
+        real_call_allowed=body.real_call_allowed,
+    )
+    # PRIVACY: never log the transcript text (raw worker free-text). Counts only.
+    logger.info(
+        "voice transcribe",
+        extra={
+            "extra": {
+                "voice_note_id": body.voice_note_id,
+                "is_mock": result.is_mock,
+                "confidence": result.confidence,
+                "char_count": len(result.transcript_text),
+                "language": result.language_code,
+                "error_code": result.error_code,
+            }
+        },
+    )
+    return TranscriptionOutput(
+        transcript_text=result.transcript_text,
+        confidence=result.confidence,
+        language_code=result.language_code,
+        is_mock=result.is_mock,
     )
 
 

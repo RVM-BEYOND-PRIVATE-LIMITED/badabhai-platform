@@ -63,12 +63,13 @@ pnpm --filter @badabhai/event-schema typecheck  # tsc --noEmit (incl. tests)
 pnpm --filter @badabhai/event-schema test       # vitest
 ```
 
-## Phase-1 event names (25)
+## Phase-1 event names (26)
 
 `worker.created` · `worker.otp_requested` · `worker.otp_verified` ·
 `consent.accepted` · `chat.session_started` · `chat.message_received` ·
 `chat.message_sent` · `voice_note.uploaded` ·
 `voice_note.transcription_requested` · `voice_note.transcription_completed` ·
+`voice_note.transcription_failed` ·
 `profile.extraction_requested` · `profile.extraction_completed` ·
 `profile.extraction_failed` · `profile.extraction_ready` · `profile.confirmed` ·
 `resume.generated` · `action.recorded` · `ai.pseudonymization_started` ·

@@ -312,13 +312,14 @@ describe("interview-turn contract (extraction-ready, cost, ai-job)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 25 Phase-1 event names", () => {
-    expect(EVENT_NAMES).toHaveLength(25);
+  it("exposes all 26 Phase-1 event names", () => {
+    expect(EVENT_NAMES).toHaveLength(26);
     expect(isEventName("resume.generated")).toBe(true);
     expect(isEventName("action.recorded")).toBe(true);
     expect(isEventName("profile.extraction_ready")).toBe(true);
     expect(isEventName("ai.cost_recorded")).toBe(true);
     expect(isEventName("ai.job_completed")).toBe(true);
+    expect(isEventName("voice_note.transcription_failed")).toBe(true);
     expect(isEventName("nope")).toBe(false);
   });
 

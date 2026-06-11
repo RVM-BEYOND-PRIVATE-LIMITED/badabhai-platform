@@ -6,12 +6,15 @@ import {
   ProfileExtractionOutputSchema,
   ResumeGenerationOutputSchema,
   DraftProfileSchema,
+  TranscriptionOutputSchema,
   type ProfilingTurnInput,
   type ProfilingTurnOutput,
   type ProfileExtractionInput,
   type ProfileExtractionOutput,
   type ResumeGenerationInput,
   type ResumeGenerationOutput,
+  type TranscriptionInput,
+  type TranscriptionOutput,
 } from "@badabhai/ai-contracts";
 import { SERVER_CONFIG } from "../config/config.module";
 import { mockProfilingTurn } from "./mock-interview";
@@ -100,6 +103,19 @@ export class AiService {
       format: "text",
       is_mock: true,
     });
+  }
+
+  /**
+   * Transcribe a voice note. The AI service pseudonymizes nothing here (STT
+   * input is audio); the real Sarvam call is gated off by default, so the mock
+   * path returns a deterministic transcript. If the AI service is unreachable,
+   * fall back to an EMPTY transcript (never fabricate one) so the processor
+   * records a degraded result rather than inventing words.
+   */
+  async transcribe(input: TranscriptionInput): Promise<TranscriptionOutput> {
+    const remote = await this.post("/voice/transcribe", input, TranscriptionOutputSchema);
+    if (remote) return remote;
+    return TranscriptionOutputSchema.parse({ transcript_text: "", confidence: 0, is_mock: true });
   }
 
   /**

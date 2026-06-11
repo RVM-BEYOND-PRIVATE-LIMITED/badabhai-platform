@@ -79,6 +79,23 @@ def test_resume_generate_builds_text():
     assert body["is_mock"] is True
 
 
+def test_voice_transcribe_returns_mock_when_real_calls_disabled():
+    res = client.post(
+        "/voice/transcribe",
+        json={"voice_note_id": "vn1", "storage_path": "worker/sess/v1.ogg"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["is_mock"] is True
+    assert len(body["transcript_text"]) > 0
+    assert 0.0 <= body["confidence"] <= 1.0
+
+
+def test_voice_transcribe_requires_storage_path():
+    res = client.post("/voice/transcribe", json={"voice_note_id": "vn1"})
+    assert res.status_code == 422  # storage_path is required
+
+
 def test_conversation_history_is_pseudonymized_before_llm():
     # Privacy: prior turns must be pseudonymized before they can reach an LLM
     # (real mode) or a Langfuse trace. A phone in history is masked; a turn that

@@ -98,6 +98,14 @@ export const VoiceNoteTranscriptionCompletedPayload = z.object({
   transcript_length: z.number().int().nonnegative().nullable().default(null),
 });
 
+/** Terminal failure of an async transcription job (mirrors profile.extraction_failed). */
+export const VoiceNoteTranscriptionFailedPayload = z.object({
+  voice_note_id: uuidSchema,
+  worker_id: uuidSchema,
+  ai_job_id: uuidSchema,
+  reason: z.string().min(1).max(256),
+});
+
 // ---------------------------------------------------------------------------
 // profile.*
 // ---------------------------------------------------------------------------
