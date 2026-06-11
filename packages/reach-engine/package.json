@@ -2,7 +2,7 @@
   "name": "@badabhai/reach-engine",
   "version": "0.1.0",
   "private": true,
-  "description": "PLACEHOLDER. Deterministic matching/ranking engine — intentionally NOT implemented in Phase 1.",
+  "description": "Deterministic Reach Engine RANK core — score + order workers for a job (sort-never-block, hot-tag). Pure, dependency-free; Phase-2 surfaces consume it.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

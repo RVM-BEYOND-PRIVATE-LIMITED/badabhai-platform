@@ -317,3 +317,41 @@ export const AiJobCompletedPayload = z.object({
   result_id: uuidSchema.nullable().default(null),
   latency_ms: z.number().int().nonnegative().nullable().default(null),
 });
+
+// ---------------------------------------------------------------------------
+// feed.* / application.* — Reach foundation behavioural record (ADR-0005, TD8).
+//
+// The worker-side signals the matching/LEARN layer reads: which jobs a worker was
+// SHOWN (and at what rank/score), which they APPLY to, and which they SKIP. Defined
+// now; emitted when the Phase-2 feed surface ships. PII-free: worker_id + an opaque
+// job_id + ranking signals only — never employer name, pay, or worker contact.
+// ---------------------------------------------------------------------------
+
+/** A job was surfaced to a worker in their feed (one impression). */
+export const FeedShownPayload = z.object({
+  worker_id: uuidSchema,
+  job_id: uuidSchema,
+  /** 1-based position in the worker's feed. */
+  rank: z.number().int().positive(),
+  /** Relevance score the engine assigned (0..1). */
+  score: z.number().min(0).max(1).default(0),
+  /** Whether it wore the "hot" tag for this worker. */
+  hot: z.boolean().default(false),
+});
+
+/** A worker applied to a job (a tap or a voice note). */
+export const ApplicationSubmittedPayload = z.object({
+  worker_id: uuidSchema,
+  job_id: uuidSchema,
+  /** The feed position it was applied from, if known. */
+  rank: z.number().int().positive().nullable().default(null),
+  source_surface: z.enum(["feed", "search", "share", "other"]).default("feed"),
+});
+
+/** A worker skipped/dismissed a job shown in their feed. */
+export const ApplicationSkippedPayload = z.object({
+  worker_id: uuidSchema,
+  job_id: uuidSchema,
+  /** Coarse, non-PII reason (no free text). */
+  reason: z.enum(["not_interested", "too_far", "low_pay", "wrong_trade", "other"]).default("other"),
+});

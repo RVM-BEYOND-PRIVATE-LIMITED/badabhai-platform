@@ -311,15 +311,76 @@ describe("interview-turn contract (extraction-ready, cost, ai-job)", () => {
   });
 });
 
+describe("reach foundation events (feed.* / application.*)", () => {
+  it("validates feed.shown and applies score/hot defaults", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "feed.shown",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "job", subject_id: UUID_A },
+      payload: { worker_id: UUID_B, job_id: UUID_A, rank: 3 },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "feed.shown") {
+      expect(result.event.payload.score).toBe(0); // default
+      expect(result.event.payload.hot).toBe(false); // default
+    }
+  });
+
+  it("rejects feed.shown with rank <= 0", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "feed.shown",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "job", subject_id: UUID_A },
+      payload: { worker_id: UUID_B, job_id: UUID_A, rank: 0 },
+    };
+    expect(validateEvent(evt).success).toBe(false);
+  });
+
+  it("validates application.submitted (worker actor, job subject)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "application.submitted",
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "job", subject_id: UUID_A },
+      payload: { worker_id: UUID_B, job_id: UUID_A },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "application.submitted") {
+      expect(result.event.payload.source_surface).toBe("feed"); // default
+    }
+  });
+
+  it("validates application.skipped and rejects a free-text reason", () => {
+    const ok = {
+      ...workerCreatedEvent(),
+      event_name: "application.skipped",
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "job", subject_id: UUID_A },
+      payload: { worker_id: UUID_B, job_id: UUID_A, reason: "too_far" },
+    };
+    expect(validateEvent(ok).success).toBe(true);
+
+    const bad = { ...ok, payload: { worker_id: UUID_B, job_id: UUID_A, reason: "9876543210" } };
+    expect(validateEvent(bad).success).toBe(false); // enum-only, no free text → no PII
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 26 Phase-1 event names", () => {
-    expect(EVENT_NAMES).toHaveLength(26);
+  it("exposes all 29 event names (26 Phase-1 + 3 Reach foundation)", () => {
+    expect(EVENT_NAMES).toHaveLength(29);
     expect(isEventName("resume.generated")).toBe(true);
     expect(isEventName("action.recorded")).toBe(true);
     expect(isEventName("profile.extraction_ready")).toBe(true);
     expect(isEventName("ai.cost_recorded")).toBe(true);
     expect(isEventName("ai.job_completed")).toBe(true);
     expect(isEventName("voice_note.transcription_failed")).toBe(true);
+    expect(isEventName("feed.shown")).toBe(true);
+    expect(isEventName("application.submitted")).toBe(true);
+    expect(isEventName("application.skipped")).toBe(true);
     expect(isEventName("nope")).toBe(false);
   });
 

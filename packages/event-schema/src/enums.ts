@@ -13,6 +13,11 @@ export const EVENT_DOMAINS = [
   "resume",
   "action",
   "ai",
+  // Reach foundation (ADR-0005, TD8): the worker-side behavioural record the
+  // matching/LEARN layer reads. Defined now; emitted when the Phase-2 feed surface
+  // ships. PII-free (worker_id + opaque job_id + signals only).
+  "feed",
+  "application",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;
@@ -40,6 +45,9 @@ export const SUBJECT_TYPES = [
   "profile",
   "resume",
   "ai_job",
+  // A job/opening the worker is shown / applies to / skips (Reach foundation). The
+  // job entity itself is Phase-2; the id is an opaque reference here.
+  "job",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;
