@@ -41,10 +41,19 @@ export const serverEnvSchema = z.object({
   // never in the path. MUST be created PRIVATE out-of-band (anon denied); RLS only
   // covers Postgres tables, not Storage object ACLs.
   RESUMES_BUCKET: z.string().min(1).default("worker-resumes"),
+  // Private Storage bucket holding rendered per-trade interview-kit PDFs (TD24, Task 4).
+  // Same Storage Mode A (service-role, backend-only). Object keys are
+  // `interview-kits/{tradeKey}/{contentVersion}/interview-kit.pdf` — fully deterministic,
+  // PII-FREE (no worker identity in the path or the kit; kits are per-TRADE, not per-worker).
+  // MUST be created PRIVATE out-of-band (anon denied).
+  INTERVIEW_KIT_BUCKET: z.string().min(1).default("interview-kits"),
 
   // Resume render worker (TD5).
-  // Master kill-switch for the WeasyPrint render step. When false the renderer
-  // degrades to null (no PDF), so the system runs without the binary in local dev.
+  // Master kill-switch for the WeasyPrint render step (the requested WEASYPRINT_ENABLED
+  // maps onto this — one switch governs BOTH resume and interview-kit rendering, since
+  // they share the WeasyPrint core). When false the renderer degrades to null (no PDF),
+  // so the system runs without the binary in local dev. Default OFF: enable via env in
+  // staging/prod once the binary is present (Dockerfile installs it).
   RESUME_RENDER_ENABLED: booleanFromString,
   // Per-worker generations allowed per UTC day (paid-path abuse cap).
   RESUME_DAILY_CAP: z.coerce.number().int().positive().default(5),
@@ -53,6 +62,15 @@ export const serverEnvSchema = z.object({
   RESUME_GLOBAL_DAILY_CAP: z.coerce.number().int().positive().default(5000),
   // TTL (seconds) for a freshly minted signed download URL.
   RESUME_SIGNED_URL_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+  // Per-IP download caps per ROLLING UTC hour (TD24 abuse backstop, complements the
+  // per-worker/global day caps). The IP is HMAC-hashed before it touches Redis/logs.
+  // Fail-closed: a Redis outage rejects (429) rather than uncapping.
+  RESUME_RATE_LIMIT_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  INTERVIEW_KIT_RATE_LIMIT_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // Interview-kit content version. Part of the render-once identity (tradeKey +
+  // contentVersion). BUMP this whenever any kit copy changes so a fresh PDF is
+  // rendered instead of serving the stale cached file. Never reuse an old value.
+  INTERVIEW_KIT_CONTENT_VERSION: z.coerce.number().int().positive().default(1),
   // Internal SERVICE-to-service secret (NOT user auth) gating the ops/backend-only
   // resume routes that return PII or mint signed URLs (GET /resume/:id, /:id/download,
   // /:id/share, /:id/regenerate). Unset => those routes deny ALL callers (fail closed).

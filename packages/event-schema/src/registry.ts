@@ -74,6 +74,22 @@ export const EVENT_REGISTRY = {
   "resume.regenerated": { version: 1, domain: "resume", payload: p.ResumeRegeneratedPayload },
   "resume.shared": { version: 1, domain: "resume", payload: p.ResumeSharedPayload },
 
+  "interview_kit.render_completed": {
+    version: 1,
+    domain: "interview_kit",
+    payload: p.InterviewKitRenderCompletedPayload,
+  },
+  "interview_kit.render_failed": {
+    version: 1,
+    domain: "interview_kit",
+    payload: p.InterviewKitRenderFailedPayload,
+  },
+  "interview_kit.downloaded": {
+    version: 1,
+    domain: "interview_kit",
+    payload: p.InterviewKitDownloadedPayload,
+  },
+
   "action.recorded": { version: 1, domain: "action", payload: p.ActionRecordedPayload },
 
   "ai.pseudonymization_started": {
