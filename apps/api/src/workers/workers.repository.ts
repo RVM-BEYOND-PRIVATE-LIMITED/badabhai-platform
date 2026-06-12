@@ -88,6 +88,31 @@ export class WorkersRepository {
   }
 
   /**
+   * Atomically insert a worker, or return the existing row when a concurrent
+   * caller already inserted the same `phone_hash`. Closes TD23: the verify-OTP
+   * path was check-then-insert, so two simultaneous first-time logins could both
+   * miss the SELECT and the second INSERT would violate `workers_phone_hash_uq`
+   * (Postgres 23505 → 500). `on conflict do nothing` makes the losing insert a
+   * no-op; we then re-read to hand back the winner's row.
+   *
+   * `created` is true only when THIS call inserted the row — the caller uses it
+   * to gate the one-time `worker.created` event so a race can't double-emit it.
+   */
+  async createOrGetByPhoneHash(input: NewWorker): Promise<{ worker: Worker; created: boolean }> {
+    const inserted = await this.db
+      .insert(workers)
+      .values(input)
+      .onConflictDoNothing({ target: workers.phoneHash })
+      .returning();
+    if (inserted[0]) return { worker: inserted[0], created: true };
+
+    // Lost the insert race — the concurrent winner's row is now committed.
+    const existing = await this.findByPhoneHash(input.phoneHash);
+    if (!existing) throw new Error("worker insert hit a conflict but no row was found");
+    return { worker: existing, created: false };
+  }
+
+  /**
    * Set the worker's full name. The caller passes an ALREADY-ENCRYPTED token
    * (`encryptPii` / `PiiCryptoService.encrypt`) — this repository never stores a
    * plaintext name (see the `full_name` note in schema.ts). Returns the updated
