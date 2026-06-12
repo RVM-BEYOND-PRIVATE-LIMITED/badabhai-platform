@@ -370,14 +370,15 @@ describe("reach foundation events (feed.* / application.*)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 29 event names (26 Phase-1 + 3 Reach foundation)", () => {
-    expect(EVENT_NAMES).toHaveLength(29);
+  it("exposes all 30 event names (26 Phase-1 + worker.name_recorded + 3 Reach foundation)", () => {
+    expect(EVENT_NAMES).toHaveLength(30);
     expect(isEventName("resume.generated")).toBe(true);
     expect(isEventName("action.recorded")).toBe(true);
     expect(isEventName("profile.extraction_ready")).toBe(true);
     expect(isEventName("ai.cost_recorded")).toBe(true);
     expect(isEventName("ai.job_completed")).toBe(true);
     expect(isEventName("voice_note.transcription_failed")).toBe(true);
+    expect(isEventName("worker.name_recorded")).toBe(true);
     expect(isEventName("feed.shown")).toBe(true);
     expect(isEventName("application.submitted")).toBe(true);
     expect(isEventName("application.skipped")).toBe(true);

@@ -276,6 +276,18 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     expect(profileAfterConfirm!.profileStatus).toBe("confirmed");
     expect(profileAfterConfirm!.confirmedAt).toBeTruthy();
 
+    // ──────────────── STAGE 5.5 — Record the worker's real name (TD21) ────────────────
+    const WORKER_NAME = "Asha Kumari";
+    const setName = await call("PUT", `/workers/${workerId}/name`, { full_name: WORKER_NAME });
+    expect(setName.status).toBe(200);
+    expect(setName.body).toEqual({ worker_id: workerId }); // response carries ONLY the id
+
+    // DB: full_name is stored ENCRYPTED at rest (an encryptPii `v1.` token), never plaintext.
+    const workerAfterName = (await client.db.select().from(workers)).find((w) => w.id === workerId);
+    expect(workerAfterName!.fullName).toBeTruthy();
+    expect(workerAfterName!.fullName!.startsWith("v1.")).toBe(true); // ciphertext, not the name
+    expect(workerAfterName!.fullName).not.toContain(WORKER_NAME);
+
     // ──────────────────────── STAGE 6 — Resume generation ────────────────────────
     const resume = await call("POST", "/resume/generate", {
       worker_id: workerId,
@@ -299,9 +311,15 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     expect(resumeRow!.resumeText).toBe(resume.body.resume_text);
     expect(resumeRow!.resumeText.length).toBeGreaterThan(0);
 
+    // TD21: the worker's real name is on their OWN resume — decrypted server-side and
+    // injected AFTER the AI call, so it was never sent to the AI service / LLM.
+    expect(resume.body.resume_text).toContain(WORKER_NAME);
+    expect(resumeRow!.resumeText).toContain(WORKER_NAME);
+
     // ──────────── Ops read view: GET /resume/:id round-trips the stored resume ────────────
     // The last read endpoint the ops console needs (resume; workers/events/ai-jobs already
-    // have one). Must return the resume content + linkage ids, snake_case, and NO raw PII.
+    // have one). The resume legitimately carries the worker's OWN name (TD21) — it is their
+    // document — but the phone never appears, and the table is RLS-locked (TD20).
     const fetched = await call("GET", `/resume/${resumeId}`);
     expect(fetched.status).toBe(200);
     expect(fetched.body.resume_id).toBe(resumeId);
@@ -325,8 +343,14 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     );
     const count = (name: string) => mine.filter((e) => e.eventName === name).length;
 
+    // TD21 privacy guarantee: the raw name lives ONLY in workers.full_name (encrypted)
+    // and on the worker's resume — it must appear in NO event and NO ai_job.
+    expect(JSON.stringify(allEvents)).not.toContain(WORKER_NAME);
+    expect(JSON.stringify(await client.db.select().from(aiJobs))).not.toContain(WORKER_NAME);
+
     expect(count("worker.created")).toBe(1);
     expect(count("worker.otp_verified")).toBe(1);
+    expect(count("worker.name_recorded")).toBe(1); // emitted once on the name write
     expect(count("consent.accepted")).toBe(1);
     expect(count("chat.session_started")).toBe(1);
     expect(count("chat.message_received")).toBe(turns);

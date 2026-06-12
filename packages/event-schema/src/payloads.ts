@@ -33,6 +33,12 @@ export const WorkerOtpVerifiedPayload = z.object({
   is_new_worker: z.boolean(),
 });
 
+// The worker recorded their real name. PII-free: the name itself is encrypted at
+// rest in workers.full_name and NEVER appears here — only the fact that it was set.
+export const WorkerNameRecordedPayload = z.object({
+  worker_id: uuidSchema,
+});
+
 // ---------------------------------------------------------------------------
 // consent.*
 // ---------------------------------------------------------------------------

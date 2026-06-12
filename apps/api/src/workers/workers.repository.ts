@@ -87,6 +87,21 @@ export class WorkersRepository {
     return row;
   }
 
+  /**
+   * Set the worker's full name. The caller passes an ALREADY-ENCRYPTED token
+   * (`encryptPii` / `PiiCryptoService.encrypt`) — this repository never stores a
+   * plaintext name (see the `full_name` note in schema.ts). Returns the updated
+   * row, or undefined if no worker matched.
+   */
+  async updateFullName(id: string, encryptedFullName: string): Promise<Worker | undefined> {
+    const rows = await this.db
+      .update(workers)
+      .set({ fullName: encryptedFullName, updatedAt: new Date() })
+      .where(eq(workers.id, id))
+      .returning();
+    return rows[0];
+  }
+
   async latestProfile(workerId: string): Promise<WorkerProfile | undefined> {
     const rows = await this.db
       .select()
