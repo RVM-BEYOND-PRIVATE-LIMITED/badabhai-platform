@@ -261,6 +261,46 @@ export const ResumeSharedPayload = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// interview_kit.* (per-trade preparation kit — deterministic, render-once)
+//
+// PII-FREE BY CONSTRUCTION: kits are per-TRADE, not per-worker. Payloads carry a
+// trade slug, the content version, and the deterministic kit id only — never a
+// worker id, name, or any free text.
+// ---------------------------------------------------------------------------
+/** Trade slug, e.g. "cnc_operator". Lowercase letters/digits/underscores only. */
+const tradeKeySchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9_]+$/, "trade_key must be a lowercase slug ([a-z0-9_])");
+/** Deterministic kit id `{tradeKey}:v{contentVersion}` — the render-once identity. */
+const kitIdSchema = z.string().min(1).max(96);
+const contentVersionSchema = z.number().int().positive().default(1);
+
+/** A per-trade kit PDF was rendered for the first time (and stored privately). */
+export const InterviewKitRenderCompletedPayload = z.object({
+  trade_key: tradeKeySchema,
+  content_version: contentVersionSchema,
+  kit_id: kitIdSchema,
+});
+
+/** A per-trade kit render attempt failed. `reason` is a short, PII-free code/phrase. */
+export const InterviewKitRenderFailedPayload = z.object({
+  trade_key: tradeKeySchema,
+  content_version: contentVersionSchema,
+  reason: z.string().min(1).max(256),
+});
+
+/** A kit was served/downloaded. `cache_hit` distinguishes a reuse from a first render. */
+export const InterviewKitDownloadedPayload = z.object({
+  trade_key: tradeKeySchema,
+  content_version: contentVersionSchema,
+  kit_id: kitIdSchema,
+  source: z.enum(["worker_app", "web", "ops", "other"]).default("worker_app"),
+  cache_hit: z.boolean().default(true),
+});
+
+// ---------------------------------------------------------------------------
 // ai.* (privacy + LLM lifecycle)
 // ---------------------------------------------------------------------------
 const requestId = z.string().min(1).max(128);

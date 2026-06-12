@@ -1,9 +1,7 @@
-import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { Inject, Injectable, Logger } from "@nestjs/common";
-import type { ServerConfig } from "@badabhai/config";
-import { SERVER_CONFIG } from "../config/config.module";
+import { Injectable } from "@nestjs/common";
+import { PdfRenderer } from "../common/pdf/pdf-renderer.service";
 import { getResumeTemplate } from "./templates/registry";
 
 /**
@@ -34,6 +32,12 @@ export interface ResumeRenderInput {
   controllers: string[];
   education: string[];
   certifications: string[];
+  /**
+   * Role-typical responsibilities for the worker's chosen trade (TD24a, from
+   * `trade-content.ts`). Trade-LEVEL copy (what a recruiter expects for that role),
+   * never a fabricated personal claim. Empty when the trade is unknown.
+   */
+  responsibilities: string[];
 }
 
 /**
@@ -55,13 +59,10 @@ export interface ResumeRenderInput {
  */
 @Injectable()
 export class ResumeRenderer {
-  private readonly logger = new Logger(ResumeRenderer.name);
-  private static readonly RENDER_TIMEOUT_MS = 20_000;
-  private static readonly MAX_PDF_BYTES = 8 * 1024 * 1024; // 8 MiB guard
   // A shipped template file is immutable (registry contract), so cache by filename.
   private static readonly templateCache = new Map<string, string>();
 
-  constructor(@Inject(SERVER_CONFIG) private readonly config: ServerConfig) {}
+  constructor(private readonly pdf: PdfRenderer) {}
 
   /**
    * Resolve the template by id (unknown/empty → fallback, never throws) and bind
@@ -105,6 +106,7 @@ export class ResumeRenderer {
       controllers: input.controllers,
       education: input.education,
       certifications: input.certifications,
+      responsibilities: input.responsibilities,
     };
 
     let out = skeleton;
@@ -126,86 +128,15 @@ export class ResumeRenderer {
 
   /**
    * Render the PDF. Returns null (degraded) when the kill-switch is off, the
-   * binary is missing (ENOENT — e.g. local Windows dev), the process times out,
-   * the buffer guard trips, or it exits non-zero. NEVER logs the HTML or the name.
+   * binary is missing, the process times out, the buffer guard trips, or it exits
+   * non-zero — the shared {@link PdfRenderer} owns that. NEVER logs the HTML/name.
    */
   async renderPdf(input: ResumeRenderInput): Promise<Buffer | null> {
-    if (!this.config.RESUME_RENDER_ENABLED) {
-      return null; // kill-switch off: no PDF this run.
-    }
-
-    const html = this.buildResumeHtml(input);
-    return new Promise<Buffer | null>((resolve) => {
-      // `weasyprint - -`: read HTML from stdin, write PDF to stdout.
-      const child = spawn("weasyprint", ["-", "-"], { stdio: ["pipe", "pipe", "pipe"] });
-
-      const chunks: Buffer[] = [];
-      let total = 0;
-      let settled = false;
-      const finish = (value: Buffer | null): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(value);
-      };
-
-      const timer = setTimeout(() => {
-        this.logger.warn("weasyprint render timed out; degrading to no-PDF");
-        child.kill("SIGKILL");
-        finish(null);
-      }, ResumeRenderer.RENDER_TIMEOUT_MS);
-
-      child.stdout.on("data", (chunk: Buffer) => {
-        total += chunk.length;
-        if (total > ResumeRenderer.MAX_PDF_BYTES) {
-          this.logger.warn("weasyprint output exceeded the size guard; degrading to no-PDF");
-          child.kill("SIGKILL");
-          finish(null);
-          return;
-        }
-        chunks.push(chunk);
-      });
-
-      // Consume stderr but NEVER log it (it can echo the HTML / the name).
-      child.stderr.on("data", () => {
-        /* intentionally swallowed: stderr may contain rendered name/markup */
-      });
-
-      child.on("error", (err: NodeJS.ErrnoException) => {
-        // ENOENT = binary not installed (expected in local dev). Log a generic
-        // warning ONLY — never the HTML, the name, or the full error object.
-        if (err.code === "ENOENT") {
-          this.logger.warn("weasyprint binary not found; degrading to no-PDF (install to enable)");
-        } else {
-          this.logger.warn(`weasyprint failed to spawn (${err.code ?? "unknown"}); degrading to no-PDF`);
-        }
-        finish(null);
-      });
-
-      child.on("close", (code) => {
-        if (code === 0 && total > 0) {
-          finish(Buffer.concat(chunks, total));
-        } else {
-          this.logger.warn(`weasyprint exited with code ${code ?? "null"}; degrading to no-PDF`);
-          finish(null);
-        }
-      });
-
-      // Feed the HTML and close stdin.
-      child.stdin.on("error", () => {
-        /* swallowed: a broken pipe is handled by the close/error handlers */
-      });
-      child.stdin.end(html);
-    });
+    return this.pdf.renderHtmlToPdf(this.buildResumeHtml(input), "resume");
   }
 
   /** Minimal HTML output encoder for user-controlled values. */
   private static escapeHtml(value: string): string {
-    return value
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
+    return PdfRenderer.escapeHtml(value);
   }
 }
