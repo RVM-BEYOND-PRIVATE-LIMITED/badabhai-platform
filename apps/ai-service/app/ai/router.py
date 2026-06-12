@@ -51,7 +51,9 @@ class AIRouter:
     ) -> tuple[str, AICallMetadata]:
         route = get_route(task_type)
         model = resolve_model(task_type, self._settings)
-        real = self._settings.real_calls_enabled and real_call_allowed
+        # Per-task gating: real only if the master flag + key are set AND this
+        # task is allowlisted (empty allowlist = all tasks). Lets ONE role go real.
+        real = self._settings.real_call_enabled_for(task_type) and real_call_allowed
         input_text = "\n".join(m.get("content", "") for m in messages)
         start = time.perf_counter()
 

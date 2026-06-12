@@ -79,6 +79,18 @@ def test_resume_generate_builds_text():
     assert body["is_mock"] is True
 
 
+def test_profile_extract_fails_closed_on_unsafe_input():
+    # Privacy gate for the extraction path we are about to make real: if
+    # pseudonymization blocks, the endpoint returns BEFORE the router/LLM is
+    # reached — extraction_status=blocked, mock, no profile leaked.
+    res = client.post("/profile/extract", json={"transcript": "my reference number is 12345678"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["blocked"] is True
+    assert body["extraction_status"] == "blocked"
+    assert body["is_mock"] is True
+
+
 def test_voice_transcribe_returns_mock_when_real_calls_disabled():
     res = client.post(
         "/voice/transcribe",

@@ -40,6 +40,20 @@ real_calls_enabled = AI_ENABLE_REAL_CALLS == true
                      AND LITELLM_BASE_URL is set
 ```
 
+**Per-task gate (enable ONE role at a time).** `AI_REAL_CALL_TASKS` is an
+optional comma-separated allowlist; a real call also requires the task to be
+allowlisted:
+
+```
+real(task) = real_calls_enabled
+             AND (AI_REAL_CALL_TASKS is empty OR task in AI_REAL_CALL_TASKS)
+```
+
+Empty = all tasks (backward compatible). Set
+`AI_REAL_CALL_TASKS=profile_extraction` to make only canonicalization real while
+chat/resume stay mock — see the staging rollout in
+[enable-real-llm-extraction.md](enable-real-llm-extraction.md).
+
 - **Mock mode** (`false`): the router returns the caller's deterministic
   `mock_response`, logs estimated tokens/cost, and exercises every contract. No
   network, no keys needed.

@@ -127,3 +127,37 @@ def test_high_ceiling_allows_real_attempt():
     )
     assert meta.real_call is True
     assert meta.error_code == "llm_call_failed"  # attempted, not ceiling-blocked
+
+
+def test_per_task_allowlist_enables_only_the_listed_task():
+    # Real enabled for ONE role: profile_extraction goes real (attempts, then
+    # falls back to mock since litellm is absent); profiling_chat_turn stays mock.
+    settings = Settings(
+        ai_enable_real_calls=True,
+        litellm_api_key="k",
+        ai_real_call_tasks="profile_extraction",
+    )
+    assert settings.real_call_enabled_for("profile_extraction") is True
+    assert settings.real_call_enabled_for("profiling_chat_turn") is False
+
+    router = AIRouter(settings)
+    _c, ext = _run(router.run("profile_extraction", messages=_MESSAGES, mock_response="m"))
+    _c, chat = _run(router.run("profiling_chat_turn", messages=_MESSAGES, mock_response="m"))
+    assert ext.real_call is True  # attempted (allowlisted)
+    assert chat.real_call is False  # stayed mock (not allowlisted)
+
+
+def test_empty_allowlist_enables_all_tasks_backcompat():
+    # No allowlist => master flag governs all tasks (existing behavior preserved).
+    settings = Settings(ai_enable_real_calls=True, litellm_api_key="k", ai_real_call_tasks="")
+    assert settings.real_call_enabled_for("profiling_chat_turn") is True
+    assert settings.real_call_enabled_for("profile_extraction") is True
+
+
+def test_allowlist_ignored_when_master_flag_off():
+    # Allowlisting a task does NOT enable real calls without the master flag/key.
+    settings = Settings(ai_enable_real_calls=False, ai_real_call_tasks="profile_extraction")
+    assert settings.real_call_enabled_for("profile_extraction") is False
+    router = AIRouter(settings)
+    _c, meta = _run(router.run("profile_extraction", messages=_MESSAGES, mock_response="m"))
+    assert meta.real_call is False
