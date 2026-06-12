@@ -11,6 +11,9 @@ export const EVENT_DOMAINS = [
   "voice_note",
   "profile",
   "resume",
+  // Per-trade interview preparation kit (TD24, Task 4). Deterministic, render-once,
+  // PII-FREE (kits are per-trade, never per-worker).
+  "interview_kit",
   "action",
   "ai",
   // Reach foundation (ADR-0005, TD8): the worker-side behavioural record the
@@ -44,6 +47,9 @@ export const SUBJECT_TYPES = [
   "voice_note",
   "profile",
   "resume",
+  // A per-trade interview kit. The subject_id is the deterministic kit id
+  // (`{tradeKey}:v{contentVersion}`), NOT a worker — kits carry no PII.
+  "interview_kit",
   "ai_job",
   // A job/opening the worker is shown / applies to / skips (Reach foundation). The
   // job entity itself is Phase-2; the id is an opaque reference here.

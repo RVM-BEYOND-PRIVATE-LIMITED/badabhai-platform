@@ -7,9 +7,15 @@ import type { ResumeService } from "./resume.service";
 import type { ResumeRepository } from "./resume.repository";
 import type { EventsService } from "../events/events.service";
 import type { StorageService } from "../storage/storage.service";
+import type { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import type { RequestContext } from "../common/request-context";
 
 const CTX = { correlationId: "c", requestId: "r" } as RequestContext;
+const IP = "203.0.113.9";
+/** Pass-through IP limiter (its own behaviour is covered in its unit test). */
+const NOOP_IP_LIMIT = {
+  assertWithinHourlyIpCap: async () => undefined,
+} as unknown as IpRateLimit;
 
 const ROW = {
   id: "11111111-1111-1111-1111-111111111111",
@@ -30,6 +36,7 @@ function makeController(findById: () => Promise<typeof ROW | undefined>): Resume
     repo,
     {} as unknown as EventsService,
     {} as unknown as StorageService,
+    NOOP_IP_LIMIT,
     {} as unknown as ServerConfig,
   );
 }
@@ -46,15 +53,20 @@ function makeFullController(row: Record<string, unknown> | undefined) {
   const storage = {
     createSignedUrl: vi.fn(async (_key: string, _ttl: number) => "https://signed.example/url?token=abc"),
   };
-  const config = { RESUME_SIGNED_URL_TTL_SECONDS: 900 } as ServerConfig;
+  const config = {
+    RESUME_SIGNED_URL_TTL_SECONDS: 900,
+    RESUME_RATE_LIMIT_PER_IP_PER_HOUR: 20,
+  } as ServerConfig;
+  const ipRateLimit = { assertWithinHourlyIpCap: vi.fn(async () => undefined) };
   const controller = new ResumeController(
     resume as unknown as ResumeService,
     resumes as unknown as ResumeRepository,
     events as unknown as EventsService,
     storage as unknown as StorageService,
+    ipRateLimit as unknown as IpRateLimit,
     config,
   );
-  return { controller, resumes, resume, events, storage };
+  return { controller, resumes, resume, events, storage, ipRateLimit };
 }
 
 describe("ResumeController.get (ops read view)", () => {
@@ -93,7 +105,7 @@ describe("ResumeController.download (TD5)", () => {
       pdfStorageKey: "resumes/w/r/v2.pdf",
     });
 
-    const res = await controller.download(ROW.id, CTX);
+    const res = await controller.download(ROW.id, IP, CTX);
     expect(res).toEqual({ url: "https://signed.example/url?token=abc", expires_in: 900 });
     expect(storage.createSignedUrl).toHaveBeenCalledWith("resumes/w/r/v2.pdf", 900);
 
@@ -104,16 +116,32 @@ describe("ResumeController.download (TD5)", () => {
     expect(JSON.stringify(call.payload)).not.toContain("token=abc");
   });
 
+  it("enforces the per-IP cap FIRST — a 429 blocks the lookup/sign/emit", async () => {
+    const { controller, resumes, storage, events, ipRateLimit } = makeFullController({
+      ...ROW,
+      renderStatus: "rendered",
+      pdfStorageKey: "resumes/w/r/v2.pdf",
+    });
+    (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ConflictException("cap"), // any throw; real impl throws 429
+    );
+    await expect(controller.download(ROW.id, IP, CTX)).rejects.toBeTruthy();
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("resume_download", IP, 20);
+    expect(resumes.findById).not.toHaveBeenCalled();
+    expect(storage.createSignedUrl).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
   it("409s while still rendering ('pending') and emits nothing", async () => {
     const { controller, events, storage } = makeFullController({ ...ROW, renderStatus: "pending" });
-    await expect(controller.download(ROW.id, CTX)).rejects.toBeInstanceOf(ConflictException);
+    await expect(controller.download(ROW.id, IP, CTX)).rejects.toBeInstanceOf(ConflictException);
     expect(storage.createSignedUrl).not.toHaveBeenCalled();
     expect(events.emit).not.toHaveBeenCalled();
   });
 
   it("409s when the render failed", async () => {
     const { controller } = makeFullController({ ...ROW, renderStatus: "failed" });
-    await expect(controller.download(ROW.id, CTX)).rejects.toBeInstanceOf(ConflictException);
+    await expect(controller.download(ROW.id, IP, CTX)).rejects.toBeInstanceOf(ConflictException);
   });
 
   it("409s when rendered but the storage key is missing (defensive)", async () => {
@@ -122,12 +150,12 @@ describe("ResumeController.download (TD5)", () => {
       renderStatus: "rendered",
       pdfStorageKey: null,
     });
-    await expect(controller.download(ROW.id, CTX)).rejects.toBeInstanceOf(ConflictException);
+    await expect(controller.download(ROW.id, IP, CTX)).rejects.toBeInstanceOf(ConflictException);
   });
 
   it("404s when the resume does not exist", async () => {
     const { controller } = makeFullController(undefined);
-    await expect(controller.download(ROW.id, CTX)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(controller.download(ROW.id, IP, CTX)).rejects.toBeInstanceOf(NotFoundException);
   });
 });
 

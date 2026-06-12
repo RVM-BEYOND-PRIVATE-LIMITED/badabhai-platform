@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Inject,
+  Ip,
   NotFoundException,
   Param,
   ParseUUIDPipe,
@@ -15,6 +16,7 @@ import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { InternalServiceGuard } from "../common/guards/internal-service.guard";
+import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { EventsService } from "../events/events.service";
 import { StorageService } from "../storage/storage.service";
@@ -34,6 +36,7 @@ export class ResumeController {
     private readonly resumes: ResumeRepository,
     private readonly events: EventsService,
     private readonly storage: StorageService,
+    private readonly ipRateLimit: IpRateLimit,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
@@ -94,7 +97,17 @@ export class ResumeController {
    */
   @Get(":id/download")
   @UseGuards(InternalServiceGuard)
-  async download(@Param("id", new ParseUUIDPipe()) id: string, @Ctx() ctx: RequestContext) {
+  async download(
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Ip() ip: string,
+    @Ctx() ctx: RequestContext,
+  ) {
+    // Per-IP hourly cap (TD24) — an abuse backstop on top of the per-worker day cap.
+    await this.ipRateLimit.assertWithinHourlyIpCap(
+      "resume_download",
+      ip,
+      this.config.RESUME_RATE_LIMIT_PER_IP_PER_HOUR,
+    );
     const resume = await this.resumes.findById(id);
     if (!resume) throw new NotFoundException(`Resume ${id} not found`);
 
