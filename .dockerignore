@@ -1,0 +1,18 @@
+# Keep the Docker build context lean — deps are installed fresh + code rebuilt
+# inside the builder stage (see apps/api/Dockerfile).
+**/node_modules
+**/dist
+**/.turbo
+**/*.tsbuildinfo
+.git
+.github
+**/.next
+apps/worker-app/build
+apps/worker-app/.dart_tool
+apps/ai-service/.venv
+**/__pycache__
+**/coverage
+# Never ship local secrets into an image.
+.env
+.env.*
+*.log

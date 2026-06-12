@@ -45,4 +45,5 @@ supabase gen types typescript --project-id <PROJECT_REF> > packages/db/src/supab
 
 - [migration-plan.md](migration-plan.md) — how migrations flow Drizzle ↔ Supabase
 - [rls-plan.md](rls-plan.md) — Row Level Security plan (TODO, not finalized)
+- [storage-buckets.md](storage-buckets.md) — Storage bucket provisioning + privacy (out-of-band; `worker-resumes` etc.)
 - [local-dev.md](local-dev.md) — local development options

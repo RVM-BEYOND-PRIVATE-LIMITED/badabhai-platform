@@ -9,10 +9,12 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  UseGuards,
 } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { Ctx, type RequestContext } from "../common/request-context";
+import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { EventsService } from "../events/events.service";
 import { StorageService } from "../storage/storage.service";
@@ -51,6 +53,7 @@ export class ResumeController {
    * (TD20) + no Data-API consumer; closing the endpoint's authz rides the TD4 gap.
    */
   @Get(":id")
+  @UseGuards(InternalServiceGuard)
   async get(@Param("id", new ParseUUIDPipe()) id: string) {
     const resume = await this.resumes.findById(id);
     if (!resume) throw new NotFoundException(`Resume ${id} not found`);
@@ -73,6 +76,7 @@ export class ResumeController {
    */
   @Post(":id/regenerate")
   @HttpCode(201)
+  @UseGuards(InternalServiceGuard)
   async regenerate(@Param("id", new ParseUUIDPipe()) id: string, @Ctx() ctx: RequestContext) {
     const existing = await this.resumes.findById(id);
     if (!existing) throw new NotFoundException(`Resume ${id} not found`);
@@ -89,6 +93,7 @@ export class ResumeController {
    * The signed URL is NOT logged or emitted (it embeds a token).
    */
   @Get(":id/download")
+  @UseGuards(InternalServiceGuard)
   async download(@Param("id", new ParseUUIDPipe()) id: string, @Ctx() ctx: RequestContext) {
     const resume = await this.resumes.findById(id);
     if (!resume) throw new NotFoundException(`Resume ${id} not found`);
@@ -126,6 +131,7 @@ export class ResumeController {
    */
   @Post(":id/share")
   @HttpCode(201)
+  @UseGuards(InternalServiceGuard)
   async share(
     @Param("id", new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(ShareResumeSchema)) dto: ShareResumeDto,

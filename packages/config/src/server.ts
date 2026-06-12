@@ -53,6 +53,12 @@ export const serverEnvSchema = z.object({
   RESUME_GLOBAL_DAILY_CAP: z.coerce.number().int().positive().default(5000),
   // TTL (seconds) for a freshly minted signed download URL.
   RESUME_SIGNED_URL_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+  // Internal SERVICE-to-service secret (NOT user auth) gating the ops/backend-only
+  // resume routes that return PII or mint signed URLs (GET /resume/:id, /:id/download,
+  // /:id/share, /:id/regenerate). Unset => those routes deny ALL callers (fail closed).
+  // It does NOT establish a per-worker identity — that needs TD4/R1. Treat as a secret
+  // (R8/TD10). The ops console reads resumes via /workers/:id/profile and is unaffected.
+  INTERNAL_SERVICE_TOKEN: z.string().min(1).optional(),
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER
