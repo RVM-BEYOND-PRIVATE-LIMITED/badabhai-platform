@@ -52,6 +52,10 @@ const DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
   process.env.DATABASE_URL ??
   "postgresql://badabhai:badabhai@localhost:5432/badabhai";
+// The ops/backend-only resume routes (e.g. GET /resume/:id) are guarded by
+// InternalServiceGuard. Send the same secret the API was started with. If unset
+// here AND on the API, those routes deny (fail closed) and the round-trip 401s.
+const SERVICE_TOKEN = process.env.INTERNAL_SERVICE_TOKEN ?? "";
 
 // Unique phone per run so we always exercise the new-worker path in isolation.
 const PHONE = `+9194${String(Date.now()).slice(-8)}`;
@@ -66,9 +70,13 @@ interface Resp {
 
 /** Call the API; throw loudly (with body) on any non-2xx so a broken stage fails. */
 async function call(method: string, path: string, body?: unknown): Promise<Resp> {
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["content-type"] = "application/json";
+  // Harmless on open routes; required by the guarded resume routes.
+  if (SERVICE_TOKEN) headers["x-internal-service-token"] = SERVICE_TOKEN;
   const res = await fetch(`${API_URL}${path}`, {
     method,
-    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
@@ -332,7 +340,9 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     expect(JSON.stringify(fetched.body)).not.toContain(PHONE);
 
     // Unknown id → 404 (raw fetch: the `call` helper throws on non-2xx).
-    const missing = await fetch(`${API_URL}/resume/00000000-0000-0000-0000-000000000000`);
+    const missing = await fetch(`${API_URL}/resume/00000000-0000-0000-0000-000000000000`, {
+      headers: SERVICE_TOKEN ? { "x-internal-service-token": SERVICE_TOKEN } : undefined,
+    });
     expect(missing.status).toBe(404);
 
     // ──────────────────── Emitted events: names, counts, integrity ────────────────────

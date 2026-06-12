@@ -41,16 +41,21 @@
 -- (no SELECT/INSERT policies for anon/authenticated => effectively no access)
 ```
 
-## Storage (voice notes) — later
+## Storage buckets
 
-- Private bucket `voice-notes`.
-- Object path namespaced by worker id.
-- Signed URLs issued by the backend; no public read.
+Buckets are provisioned **out-of-band** (not via the Drizzle chain — plain Postgres in
+CI/local has no `storage` schema). See [storage-buckets.md](storage-buckets.md) +
+[storage-buckets.sql](storage-buckets.sql).
+
+- `worker-resumes` — **PRIVATE**, signed-URL-only (TD5 / R13); object path
+  `resumes/<worker_id>/<resume_id>/v<n>.pdf`. Idempotent SQL provided.
+- `worker-conversations` (ADR-0003 / R10) and `voice-notes` (later) — same private model.
+- Signed URLs issued by the backend (service role); no public/anon read.
 
 ## Checklist before enabling direct client access
 
 - [ ] Define worker auth → DB identity mapping (`current_worker_id()`)
 - [ ] Enable RLS on every table and add explicit policies
 - [ ] Verify `events`/`audit_logs`/`ai_jobs` are unreachable by anon/authenticated
-- [ ] Storage bucket policies + signed URL flow
+- [x] Storage bucket policies + signed URL flow — `worker-resumes` private + signed-URL-only ([storage-buckets.md](storage-buckets.md)); `worker-conversations` / `voice-notes` pending
 - [ ] Penetration test the policies

@@ -140,6 +140,10 @@ jobs:
       NODE_ENV: test
       API_PORT: "3001"
       RUN_E2E: "1"
+      # Shared secret for InternalServiceGuard on the ops/backend-only resume routes
+      # (GET /resume/:id, …). Job-level so the API process AND the e2e test both see it;
+      # the test sends it as x-internal-service-token.
+      INTERNAL_SERVICE_TOKEN: e2e-internal-service-token
     steps:
       - uses: actions/checkout@v4
 
