@@ -45,24 +45,33 @@ export class AuthService {
     const phoneHash = this.pii.hashPhone(phone);
 
     let worker = await this.workers.findByPhoneHash(phoneHash);
-    const isNew = !worker;
+    let isNew = false;
 
     if (!worker) {
-      worker = await this.workers.create({
+      // Read-miss → atomic insert-or-get. Two concurrent first-time logins can
+      // both reach here, so a plain insert would 23505 on the unique phone_hash
+      // (TD23). `created` is true only for the request that actually inserted,
+      // so the one-time worker.created event can't be double-emitted on a race.
+      const result = await this.workers.createOrGetByPhoneHash({
         // Stored encrypted at rest (AES-256-GCM); key lives only in backend config.
         phoneE164: this.pii.encrypt(phone),
         phoneHash,
         status: "active",
       });
-      await this.events.emit({
-        event_name: "worker.created",
-        actor: { actor_type: "worker", actor_id: worker.id },
-        subject: { subject_type: "worker", subject_id: worker.id },
-        payload: { worker_id: worker.id, phone_hash: phoneHash, status: "active" },
-        idempotencyKey: `worker.created:${worker.id}`,
-        correlationId: ctx.correlationId,
-        requestId: ctx.requestId,
-      });
+      worker = result.worker;
+      isNew = result.created;
+
+      if (result.created) {
+        await this.events.emit({
+          event_name: "worker.created",
+          actor: { actor_type: "worker", actor_id: worker.id },
+          subject: { subject_type: "worker", subject_id: worker.id },
+          payload: { worker_id: worker.id, phone_hash: phoneHash, status: "active" },
+          idempotencyKey: `worker.created:${worker.id}`,
+          correlationId: ctx.correlationId,
+          requestId: ctx.requestId,
+        });
+      }
     }
 
     // No idempotencyKey: a worker legitimately verifies/logs in many times, so

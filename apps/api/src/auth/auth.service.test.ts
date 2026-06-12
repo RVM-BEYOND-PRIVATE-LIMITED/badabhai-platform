@@ -30,15 +30,20 @@ describe("AuthService (mock OTP)", () => {
 
   it("verifyOtp creates a new worker and emits created + verified", async () => {
     const emit = vi.fn().mockResolvedValue(undefined);
-    const create = vi.fn().mockResolvedValue({ id: "worker-new", status: "active" });
-    const workers = { findByPhoneHash: vi.fn().mockResolvedValue(undefined), create };
+    const createOrGetByPhoneHash = vi
+      .fn()
+      .mockResolvedValue({ worker: { id: "worker-new", status: "active" }, created: true });
+    const workers = {
+      findByPhoneHash: vi.fn().mockResolvedValue(undefined),
+      createOrGetByPhoneHash,
+    };
     const svc = new AuthService({ emit } as never, workers as never, pii);
 
     const res = await svc.verifyOtp(PHONE, "123456", ctx);
 
     expect(res.is_new_worker).toBe(true);
     expect(res.worker_id).toBe("worker-new");
-    expect(create).toHaveBeenCalledOnce();
+    expect(createOrGetByPhoneHash).toHaveBeenCalledOnce();
     const names = emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
     expect(names).toContain("worker.created");
     expect(names).toContain("worker.otp_verified");
@@ -46,17 +51,41 @@ describe("AuthService (mock OTP)", () => {
 
   it("verifyOtp returns an existing worker without creating", async () => {
     const emit = vi.fn().mockResolvedValue(undefined);
-    const create = vi.fn();
+    const createOrGetByPhoneHash = vi.fn();
     const workers = {
       findByPhoneHash: vi.fn().mockResolvedValue({ id: "worker-1", status: "active" }),
-      create,
+      createOrGetByPhoneHash,
     };
     const svc = new AuthService({ emit } as never, workers as never, pii);
 
     const res = await svc.verifyOtp(PHONE, "123456", ctx);
 
     expect(res.is_new_worker).toBe(false);
-    expect(create).not.toHaveBeenCalled();
+    expect(createOrGetByPhoneHash).not.toHaveBeenCalled();
+    const names = emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
+    expect(names).toEqual(["worker.otp_verified"]);
+  });
+
+  // TD23: concurrent first-time logins both miss the SELECT; the loser's INSERT
+  // hits `on conflict do nothing`, so createOrGetByPhoneHash returns the winner's
+  // row with created=false. The loser must NOT 500, must report is_new_worker=false,
+  // and must NOT re-emit worker.created.
+  it("verifyOtp on a lost insert race returns the existing worker without re-emitting created", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const createOrGetByPhoneHash = vi
+      .fn()
+      .mockResolvedValue({ worker: { id: "worker-1", status: "active" }, created: false });
+    const workers = {
+      findByPhoneHash: vi.fn().mockResolvedValue(undefined),
+      createOrGetByPhoneHash,
+    };
+    const svc = new AuthService({ emit } as never, workers as never, pii);
+
+    const res = await svc.verifyOtp(PHONE, "123456", ctx);
+
+    expect(res.is_new_worker).toBe(false);
+    expect(res.worker_id).toBe("worker-1");
+    expect(createOrGetByPhoneHash).toHaveBeenCalledOnce();
     const names = emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
     expect(names).toEqual(["worker.otp_verified"]);
   });
