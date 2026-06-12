@@ -60,11 +60,26 @@ empty allowlist keeps the previous "all tasks" behavior (backward compatible).
 3. **Confirm the gate** at boot: `GET /health` →
    `real_calls_enabled: true`, `langfuse_enabled: true`. Then a chat turn must
    still be `is_mock: true` (only extraction is allowlisted).
-4. **Validate canonicalization ≥ 90%** with the eval harness
-   (`tests/test_canonicalization_eval.py`): point its `extract_fn` at a client
-   that calls `POST /profile/extract` (real) instead of the heuristic, run over
-   `CASES`, and require `evaluate()` accuracy ≥ `THRESHOLD`. Use **fabricated
-   test transcripts only.**
+4. **Validate canonicalization ≥ 90%** — one command, against the running
+   service:
+   ```bash
+   python -m app.profiling.eval_canonicalization --real
+   # custom host:  python -m app.profiling.eval_canonicalization --real --base-url http://localhost:8000
+   ```
+   This POSTs every case in the tiered Hinglish gold set
+   (`app/profiling/canonicalization_gold.py` — the same source of truth the CI
+   test imports) to the LOCAL `POST /profile/extract`, reads back
+   `canonical_role_id`, scores **all tiers** (`core` / `negative` / `hard`), and
+   **exits non-zero if overall accuracy < 90%.** The endpoint pseudonymizes
+   first, so this never bypasses the privacy gate, and it makes **no direct
+   external LLM call** — only the allowlisted real extraction does. The `hard`
+   tier (out-of-vocab spellings, implicit roles, multi-role disambiguation) is
+   the bar the **real LLM** must clear that the deterministic heuristic does not.
+   **Fabricated test transcripts only — no real worker PII.**
+
+   > Offline regression (no server, deterministic heuristic) is the same command
+   > without `--real`; CI runs it via `tests/test_canonicalization_eval.py`,
+   > which gates only `core + negative ≥ 90%` and tracks `hard` as informational.
 5. **Watch cost/profile in Langfuse:** each call traces `task_type`, `model`,
    `real_call`, latency, and the INR estimate — over **pseudonymized text only**.
    Confirm per-profile cost is within target and no `cost_alert` fires.
