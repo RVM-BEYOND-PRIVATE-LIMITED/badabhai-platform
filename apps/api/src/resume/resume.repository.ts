@@ -23,6 +23,38 @@ export class ResumeRepository {
     return row;
   }
 
+  /**
+   * Refresh an existing resume's content IN PLACE (same id + version). Used by the
+   * idempotent initial-resume path: the auto-generate (on profile.confirmed) and a
+   * manual POST /resume/generate converge on one row even though the name may be
+   * recorded after confirm. Content changed → reset render to 'pending' and clear
+   * the stale PDF so the render worker re-runs.
+   */
+  async updateContent(
+    id: string,
+    input: Pick<
+      NewGeneratedResume,
+      "resumeJson" | "resumeText" | "sourceProfileSnapshot" | "templateId"
+    >,
+  ): Promise<GeneratedResume> {
+    const rows = await this.db
+      .update(generatedResumes)
+      .set({
+        resumeJson: input.resumeJson,
+        resumeText: input.resumeText,
+        sourceProfileSnapshot: input.sourceProfileSnapshot,
+        templateId: input.templateId,
+        renderStatus: "pending",
+        pdfStorageKey: null,
+        renderedAt: null,
+      })
+      .where(eq(generatedResumes.id, id))
+      .returning();
+    const row = rows[0];
+    if (!row) throw new Error("Failed to update generated resume");
+    return row;
+  }
+
   /** Read a single generated resume by id (for the ops read view). */
   async findById(id: string): Promise<GeneratedResume | undefined> {
     const rows = await this.db

@@ -79,6 +79,7 @@ export class ResumeController {
     return this.resume.generate(
       { worker_id: existing.workerId, profile_id: existing.profileId },
       ctx,
+      { forceNewVersion: true }, // bump to a new version (don't upsert the current one)
     );
   }
 

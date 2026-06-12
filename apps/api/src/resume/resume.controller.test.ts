@@ -150,12 +150,13 @@ describe("ResumeController.share (TD5)", () => {
 });
 
 describe("ResumeController.regenerate (TD5)", () => {
-  it("loads the source resume then calls generate with its worker/profile", async () => {
+  it("loads the source resume then calls generate (forcing a new version) with its worker/profile", async () => {
     const { controller, resume } = makeFullController({ ...ROW });
     const out = await controller.regenerate(ROW.id, CTX);
     expect(resume.generate).toHaveBeenCalledWith(
       { worker_id: ROW.workerId, profile_id: ROW.profileId },
       CTX,
+      { forceNewVersion: true }, // regenerate bumps, never upserts the current resume
     );
     expect(out).toEqual({ resume_id: "new-res", version: 3 });
   });

@@ -28,7 +28,7 @@ function lastEvents(svc: ResumeService): { emit: ReturnType<typeof vi.fn> } {
 
 function setup(
   fullNameToken: string | null,
-  opts: { previousVersion?: number } = {},
+  opts: { previousVersion?: number; previousProfileId?: string } = {},
 ) {
   const profiles = {
     findById: vi.fn(async () => ({ id: "p-1", workerId: "w-1", rawProfile: {} })),
@@ -45,11 +45,20 @@ function setup(
   const workers = {
     findById: vi.fn(async () => ({ id: "w-1", fullName: fullNameToken })),
     latestResume: vi.fn(async () =>
-      opts.previousVersion != null ? { id: "prev", version: opts.previousVersion } : undefined,
+      opts.previousVersion != null
+        ? { id: "prev", version: opts.previousVersion, profileId: opts.previousProfileId }
+        : undefined,
     ),
   };
   const pii = { decrypt: vi.fn(() => NAME) };
-  const resumes = { create: vi.fn(async (input: Record<string, unknown>) => ({ id: "res-1", ...input })) };
+  const resumes = {
+    create: vi.fn(async (input: Record<string, unknown>) => ({ id: "res-1", ...input })),
+    updateContent: vi.fn(async (id: string, input: Record<string, unknown>) => ({
+      id,
+      version: opts.previousVersion ?? 1,
+      ...input,
+    })),
+  };
   const events = {
     emit: vi.fn(
       async (params: { event_name: string; payload: Record<string, unknown> }) => params,
@@ -179,5 +188,35 @@ describe("ResumeService — TD5 rate-limit, events, and render enqueue", () => {
     renderQueue.add.mockRejectedValue(new Error("redis down"));
     const out = await svc.generate(DTO, CTX); // must NOT throw
     expect(out.resume_id).toBe("res-1");
+  });
+});
+
+describe("ResumeService — idempotent initial resume (TD5)", () => {
+  it("upserts the existing resume IN PLACE (same version) when one exists for the profile", async () => {
+    // The name was recorded after the (name-less) auto-generate; a manual generate
+    // must refresh that same resume, not create a v2.
+    const { svc, resumes } = setup("v1.ciphertext", { previousVersion: 1, previousProfileId: "p-1" });
+    const out = await svc.generate(DTO, CTX);
+    expect(resumes.updateContent).toHaveBeenCalledOnce();
+    expect(resumes.create).not.toHaveBeenCalled();
+    expect(out.version).toBe(1); // unchanged — no duplicate version
+    expect(out.resume_id).toBe("prev");
+    const [, updatedInput] = resumes.updateContent.mock.calls[0]!;
+    expect((updatedInput as { resumeJson: { name?: string } }).resumeJson.name).toBe(NAME);
+  });
+
+  it("forceNewVersion bumps to a new version instead of upserting (regenerate path)", async () => {
+    const { svc, resumes } = setup(null, { previousVersion: 1, previousProfileId: "p-1" });
+    const out = await svc.generate(DTO, CTX, { forceNewVersion: true });
+    expect(resumes.create).toHaveBeenCalledOnce();
+    expect(resumes.updateContent).not.toHaveBeenCalled();
+    expect(out.version).toBe(2);
+  });
+
+  it("does not upsert when the latest resume is for a DIFFERENT profile", async () => {
+    const { svc, resumes } = setup(null, { previousVersion: 1, previousProfileId: "other-profile" });
+    await svc.generate(DTO, CTX);
+    expect(resumes.create).toHaveBeenCalledOnce();
+    expect(resumes.updateContent).not.toHaveBeenCalled();
   });
 });

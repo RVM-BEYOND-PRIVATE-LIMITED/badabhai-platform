@@ -32,7 +32,7 @@ export class ResumeService {
   async generate(
     dto: GenerateResumeDto,
     ctx: RequestContext,
-    opts: { systemInitiated?: boolean } = {},
+    opts: { systemInitiated?: boolean; forceNewVersion?: boolean } = {},
   ) {
     // Enforce the daily cap BEFORE any paid AI/render work; fails closed (429) if
     // Redis is down. The system-initiated auto-generate (on profile.confirmed) is
@@ -75,6 +75,47 @@ export class ResumeService {
     const resumeJson = fullName ? { ...result.resume_json, name: fullName } : result.resume_json;
 
     const previous = await this.workers.latestResume(dto.worker_id);
+
+    // Idempotent initial resume (TD5): the auto-generate on profile.confirmed and a
+    // manual POST /resume/generate must converge on ONE resume — even though the
+    // worker's name can be recorded AFTER confirm (so the auto resume is name-less).
+    // If a resume already exists for THIS profile and this is not an explicit
+    // regenerate, refresh it IN PLACE (same version) with the latest content (the
+    // now-known name) instead of creating a duplicate version. Explicit
+    // /resume/:id/regenerate passes forceNewVersion to bump.
+    if (!opts.forceNewVersion && previous && previous.profileId === dto.profile_id) {
+      const updated = await this.resumes.updateContent(previous.id, {
+        resumeJson,
+        resumeText,
+        sourceProfileSnapshot: draft,
+        templateId: "classic",
+      });
+      // Same idempotencyKey as the first emit → deduped (TD18); the resume_id is stable.
+      await this.events.emit({
+        event_name: "resume.generated",
+        actor: { actor_type: "system" },
+        subject: { subject_type: "resume", subject_id: updated.id },
+        payload: {
+          worker_id: dto.worker_id,
+          profile_id: dto.profile_id,
+          resume_id: updated.id,
+          version: updated.version,
+          format: result.format,
+        },
+        idempotencyKey: `resume.generated:${updated.id}`,
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+      await this.enqueueRender(updated.id, dto.worker_id, ctx);
+      return {
+        resume_id: updated.id,
+        version: updated.version,
+        format: result.format,
+        is_mock: result.is_mock,
+        resume_text: updated.resumeText,
+      };
+    }
+
     const previousVersion = previous?.version ?? null;
     const version = (previous?.version ?? 0) + 1;
 
@@ -127,23 +168,7 @@ export class ResumeService {
       });
     }
 
-    // Enqueue the async PDF render (refs only, no PII). A queue failure must not
-    // fail generation — log a warning and leave render_status 'pending' (a later
-    // regenerate/retry can re-enqueue).
-    try {
-      await this.renderQueue.add("render", {
-        resumeId: saved.id,
-        workerId: dto.worker_id,
-        correlationId: ctx.correlationId,
-        requestId: ctx.requestId,
-      });
-    } catch (err) {
-      this.logger.warn(
-        `could not enqueue resume render for ${saved.id}; leaving render_status pending (reason: ${
-          err instanceof Error ? err.message : String(err)
-        })`,
-      );
-    }
+    await this.enqueueRender(saved.id, dto.worker_id, ctx);
 
     return {
       resume_id: saved.id,
@@ -152,5 +177,31 @@ export class ResumeService {
       is_mock: result.is_mock,
       resume_text: saved.resumeText,
     };
+  }
+
+  /**
+   * Enqueue the async PDF render (refs only, no PII). A queue failure must not
+   * fail generation — log a warning and leave render_status 'pending' (a later
+   * regenerate/retry can re-enqueue).
+   */
+  private async enqueueRender(
+    resumeId: string,
+    workerId: string,
+    ctx: RequestContext,
+  ): Promise<void> {
+    try {
+      await this.renderQueue.add("render", {
+        resumeId,
+        workerId,
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `could not enqueue resume render for ${resumeId}; leaving render_status pending (reason: ${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      );
+    }
   }
 }
