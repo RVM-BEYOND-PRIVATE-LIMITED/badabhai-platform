@@ -34,6 +34,16 @@ const EARTH_RADIUS_KM = 6371;
 const clamp01 = (n: number): number => (Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
 const toRad = (deg: number): number => (deg * Math.PI) / 180;
 
+/**
+ * Is this a usable numeric signal? A `null`/`undefined` (not provided) AND a garbage
+ * `NaN`/`Infinity` (corrupt input) are BOTH treated as "unknown" — the §3 rule is that
+ * a blank/unusable signal gets the neutral default (benefit of the doubt), never a
+ * penalty. So a corrupt value must not score worse than a missing one.
+ */
+const num = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n);
+const isFiniteGeo = (g: GeoPoint | null | undefined): g is GeoPoint =>
+  g != null && num(g.lat) && num(g.lng);
+
 /** Great-circle distance in km between two points. */
 export function haversineKm(a: GeoPoint, b: GeoPoint): number {
   const dLat = toRad(b.lat - a.lat);
@@ -56,11 +66,18 @@ function scoreRole(job: JobSpec, w: WorkerSignals): Part {
 }
 
 function scoreDistance(job: JobSpec, w: WorkerSignals, defaultMaxKm: number): Part {
-  // Guard against a misconfigured/degenerate <=0 radius (would collapse the graded
-  // band so anyone >0km away drops to the floor) — fall back to the default.
-  const requested = job.maxTravelKm ?? w.travelRadiusKm ?? defaultMaxKm;
+  // Guard against a misconfigured/degenerate or non-finite radius (a <=0 / NaN band
+  // would collapse the graded scale so anyone >0km away drops to the floor) — fall
+  // back to the default. A garbage radius behaves like "no radius given".
+  const requested = num(job.maxTravelKm)
+    ? job.maxTravelKm
+    : num(w.travelRadiusKm)
+      ? w.travelRadiusKm
+      : defaultMaxKm;
   const maxKm = requested > 0 ? requested : DEFAULT_MAX_TRAVEL_KM;
-  if (job.location && w.location) {
+  // Only use coordinates when BOTH points are finite — garbage geo (NaN/Infinity lat/lng)
+  // falls through to the city / "location unknown" neutral path, never a distance penalty.
+  if (isFiniteGeo(job.location) && isFiniteGeo(w.location)) {
     const d = haversineKm(job.location, w.location);
     const near = maxKm * 0.5;
     if (d <= near) return { raw: 1, reason: `~${Math.round(d)}km — well within range` };
@@ -78,8 +95,10 @@ function scoreDistance(job: JobSpec, w: WorkerSignals, defaultMaxKm: number): Pa
 }
 
 function scoreExperience(job: JobSpec, w: WorkerSignals): Part {
-  if (w.experienceYears == null) return { raw: 0.5, reason: "experience unknown" };
-  const { minExperienceYears: min, maxExperienceYears: max } = job;
+  if (!num(w.experienceYears)) return { raw: 0.5, reason: "experience unknown" };
+  // A non-finite requirement is treated as "no requirement" (ignore garbage bounds).
+  const min = num(job.minExperienceYears) ? job.minExperienceYears : null;
+  const max = num(job.maxExperienceYears) ? job.maxExperienceYears : null;
   if (min == null && max == null) return { raw: 0.7, reason: "no experience requirement" };
   const y = w.experienceYears;
   if ((min == null || y >= min) && (max == null || y <= max))
@@ -90,12 +109,11 @@ function scoreExperience(job: JobSpec, w: WorkerSignals): Part {
 }
 
 function scorePay(job: JobSpec, w: WorkerSignals): Part {
-  if (w.expectedSalary == null) return { raw: 0.6, reason: "salary expectation unknown" };
-  if (job.payMin == null && job.payMax == null) return { raw: 0.7, reason: "pay not specified" };
-  const offer = job.payMax ?? job.payMin!;
-  // A zero/negative offer (misconfigured posting) is "not specified", not a hard fail —
-  // and avoids a divide-by-zero → Infinity below.
-  if (!(offer > 0)) return { raw: 0.7, reason: "pay not specified" };
+  if (!num(w.expectedSalary)) return { raw: 0.6, reason: "salary expectation unknown" };
+  const offer = num(job.payMax) ? job.payMax : num(job.payMin) ? job.payMin : null;
+  // No usable offer, or a zero/negative one (misconfigured posting), is "not specified" —
+  // not a hard fail — and avoids a divide-by-zero → Infinity below.
+  if (offer == null || offer <= 0) return { raw: 0.7, reason: "pay not specified" };
   if (w.expectedSalary <= offer) return { raw: 1, reason: "expectation within the offer" };
   const over = (w.expectedSalary - offer) / offer;
   return { raw: clamp01(1 - over * 2), reason: `expects ~${Math.round(over * 100)}% above the offer` };
@@ -113,7 +131,7 @@ function scoreAvailability(job: JobSpec, w: WorkerSignals): Part {
 
 function scoreActivity(w: WorkerSignals): Part {
   const d = w.lastActiveDaysAgo;
-  if (d == null) return { raw: 0.3, reason: "no recent activity data" };
+  if (!num(d)) return { raw: 0.3, reason: "no recent activity data" };
   if (d <= 3) return { raw: 1, reason: "active in the last few days" };
   if (d <= 7) return { raw: 0.8, reason: "active this week" };
   if (d <= 30) return { raw: 0.5, reason: "active this month" };
@@ -130,7 +148,10 @@ export function scoreWorkerForJob(
   worker: WorkerSignals,
   opts: RankOptions = {},
 ): WorkerJobScore {
-  const maxKm = opts.defaultMaxTravelKm ?? DEFAULT_MAX_TRAVEL_KM;
+  const maxKm =
+    num(opts.defaultMaxTravelKm) && opts.defaultMaxTravelKm > 0
+      ? opts.defaultMaxTravelKm
+      : DEFAULT_MAX_TRAVEL_KM;
   const parts: Array<{ signal: ScoreComponent["signal"]; weight: number } & Part> = [
     { signal: "role", weight: WEIGHTS.role, ...scoreRole(job, worker) },
     { signal: "distance", weight: WEIGHTS.distance, ...scoreDistance(job, worker, maxKm) },

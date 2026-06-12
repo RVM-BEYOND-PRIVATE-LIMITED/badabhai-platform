@@ -10,6 +10,17 @@ import type { JobSpec, RankedWorker, RankOptions, WorkerJobScore, WorkerSignals 
 const DEFAULT_HOT_FRACTION = 0.12; // ~12% wear the hot tag (§4); a dial (§12)
 const DEFAULT_PUSH_FLOOR = 0.4; // below this a worker still appears, just isn't push-notified (§12)
 
+/**
+ * A dial must be a finite 0..1 fraction. A garbage / NaN / Infinity / out-of-range
+ * dial (caller error or tampering) falls back to the default rather than poisoning
+ * the hot count or push gate — sort-never-block must hold for ANY options.
+ */
+function sane01(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.min(1, value))
+    : fallback;
+}
+
 function activityRaw(s: WorkerJobScore): number {
   return s.components.find((c) => c.signal === "activity")?.raw ?? 0;
 }
@@ -37,8 +48,8 @@ export function rankWorkersForJob(
   workers: WorkerSignals[],
   opts: RankOptions = {},
 ): RankedWorker[] {
-  const hotFraction = opts.hotFraction ?? DEFAULT_HOT_FRACTION;
-  const pushFloor = opts.pushFloor ?? DEFAULT_PUSH_FLOOR;
+  const hotFraction = sane01(opts.hotFraction, DEFAULT_HOT_FRACTION);
+  const pushFloor = sane01(opts.pushFloor, DEFAULT_PUSH_FLOOR);
 
   const scored = workers.map((w) => scoreWorkerForJob(job, w, opts));
   const ordered = scored.sort(
