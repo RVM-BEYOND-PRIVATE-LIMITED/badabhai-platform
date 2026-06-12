@@ -1,0 +1,48 @@
+<!doctype html>
+<!--
+  Resume template — id: "fallback", version: 1  (the GENERIC FALLBACK)
+  Used when no template_id is given or an unknown/unsupported id is requested.
+  Deliberately plain + robust: minimal CSS, single column, degrades gracefully
+  with sparse data. Layer-1 skeleton: PURE MARKUP, no render engine yet. Slots
+  use {{token}}; repeat regions {{#list}}…{{/list}} (see templates/README.md).
+  No PII beyond {{full_name}} (TD21).
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{full_name}} — Resume</title>
+    <style>
+      body { font-family: Arial, sans-serif; color: #000; margin: 0; line-height: 1.5; }
+      .page { max-width: 760px; margin: 0 auto; padding: 32px; }
+      h1 { font-size: 22px; margin: 0 0 2px; }
+      h2 { font-size: 14px; margin: 18px 0 4px; border-bottom: 1px solid #000; }
+      .headline { font-weight: bold; }
+      .meta { font-size: 12px; color: #444; margin-bottom: 8px; }
+      ul { margin: 4px 0; padding-left: 20px; }
+      @page { size: A4; margin: 14mm; }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <h1>{{full_name}}</h1>
+      <div class="headline">{{headline}}</div>
+      <div class="meta">{{location}} · {{experience_years}} yrs · {{availability}}</div>
+
+      <h2>Summary</h2>
+      <p>{{summary}}</p>
+
+      <h2>Machines</h2>
+      <ul>{{#machines}}<li>{{.}}</li>{{/machines}}</ul>
+
+      <h2>Skills</h2>
+      <ul>{{#skills}}<li>{{.}}</li>{{/skills}}</ul>
+
+      <h2>Controllers</h2>
+      <ul>{{#controllers}}<li>{{.}}</li>{{/controllers}}</ul>
+
+      <h2>Education &amp; Certifications</h2>
+      <ul>{{#education}}<li>{{.}}</li>{{/education}}{{#certifications}}<li>{{.}}</li>{{/certifications}}</ul>
+    </main>
+  </body>
+</html>
