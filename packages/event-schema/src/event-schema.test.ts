@@ -369,9 +369,52 @@ describe("reach foundation events (feed.* / application.*)", () => {
   });
 });
 
+describe("interview_kit events (per-trade, PII-free)", () => {
+  it("validates interview_kit.downloaded and applies source/cache_hit defaults", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "interview_kit.downloaded",
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "interview_kit", subject_id: null },
+      payload: { trade_key: "cnc_operator", content_version: 1, kit_id: "cnc_operator:v1" },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "interview_kit.downloaded") {
+      expect(result.event.payload.source).toBe("worker_app"); // default
+      expect(result.event.payload.cache_hit).toBe(true); // default
+    }
+  });
+
+  it("rejects a trade_key that is not a lowercase slug (no free text → no PII)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "interview_kit.downloaded",
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "interview_kit", subject_id: null },
+      payload: { trade_key: "CNC Operator 9876543210", content_version: 1, kit_id: "x:v1" },
+    };
+    expect(validateEvent(evt).success).toBe(false);
+  });
+
+  it("validates interview_kit.render_completed", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "interview_kit.render_completed",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "interview_kit", subject_id: null },
+      payload: { trade_key: "vmc_operator", content_version: 1, kit_id: "vmc_operator:v1" },
+    };
+    expect(validateEvent(evt).success).toBe(true);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 33 event names (26 Phase-1 + worker.name_recorded + 3 Reach foundation + 3 resume render)", () => {
-    expect(EVENT_NAMES).toHaveLength(33);
+  it("exposes all 36 event names (26 Phase-1 + worker.name_recorded + 3 Reach foundation + 3 resume render + 3 interview kit)", () => {
+    expect(EVENT_NAMES).toHaveLength(36);
+    expect(isEventName("interview_kit.downloaded")).toBe(true);
+    expect(isEventName("interview_kit.render_completed")).toBe(true);
+    expect(isEventName("interview_kit.render_failed")).toBe(true);
     expect(isEventName("resume.generated")).toBe(true);
     expect(isEventName("resume.downloaded")).toBe(true);
     expect(isEventName("resume.regenerated")).toBe(true);

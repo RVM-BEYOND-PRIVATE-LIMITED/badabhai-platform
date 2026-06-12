@@ -13,7 +13,10 @@ import { ChatModule } from "./chat/chat.module";
 import { VoiceModule } from "./voice/voice.module";
 import { ProfilesModule } from "./profiles/profiles.module";
 import { ResumeModule } from "./resume/resume.module";
+import { InterviewKitModule } from "./interview-kit/interview-kit.module";
 import { ActionsModule } from "./actions/actions.module";
+import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
+import { PdfModule } from "./common/pdf/pdf.module";
 import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
 
 @Module({
@@ -26,6 +29,8 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     EventsModule,
     AiModule,
     WorkersModule,
+    RateLimitModule,
+    PdfModule,
     // Feature modules:
     HealthModule,
     AuthModule,
@@ -34,6 +39,7 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     VoiceModule,
     ProfilesModule,
     ResumeModule,
+    InterviewKitModule,
     ActionsModule,
   ],
 })

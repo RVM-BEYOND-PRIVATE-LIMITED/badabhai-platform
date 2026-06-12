@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ServerConfig } from "@badabhai/config";
 import { ResumeRenderer, type ResumeRenderInput } from "./resume-renderer.service";
+import { PdfRenderer } from "../common/pdf/pdf-renderer.service";
 
 // Mock the subprocess module so the real WeasyPrint binary is NEVER spawned and
 // we can assert on calls. vi.mock is hoisted; the factory must not close over
@@ -11,7 +12,7 @@ vi.mock("node:child_process", () => ({ spawn: spawnMock }));
 
 function makeRenderer(over: Partial<ServerConfig> = {}): ResumeRenderer {
   const config = { RESUME_RENDER_ENABLED: true, ...over } as ServerConfig;
-  return new ResumeRenderer(config);
+  return new ResumeRenderer(new PdfRenderer(config));
 }
 
 const BASE_INPUT: ResumeRenderInput = {
@@ -27,6 +28,7 @@ const BASE_INPUT: ResumeRenderInput = {
   controllers: [],
   education: [],
   certifications: [],
+  responsibilities: ["Operate VMC to drawing", "First-piece inspection"],
 };
 
 describe("ResumeRenderer.buildResumeHtml — template binding + output encoding (TD5 security)", () => {
@@ -40,6 +42,15 @@ describe("ResumeRenderer.buildResumeHtml — template binding + output encoding 
     expect(html).toContain("VMC Operator");
     expect(html).toContain("<li>VMC</li>");
     expect(html).toContain("<li>Lathe</li>");
+  });
+
+  it("binds the trade responsibilities region (TD24a)", () => {
+    const html = makeRenderer().buildResumeHtml({
+      ...BASE_INPUT,
+      responsibilities: ["Set up and operate VMC machines", "Prove out the first piece"],
+    });
+    expect(html).toContain("<li>Set up and operate VMC machines</li>");
+    expect(html).toContain("<li>Prove out the first piece</li>");
   });
 
   it("HTML-escapes a hostile displayName so no raw <script> reaches the PDF", () => {

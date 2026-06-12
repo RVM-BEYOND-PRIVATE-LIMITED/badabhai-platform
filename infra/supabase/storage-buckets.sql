@@ -25,6 +25,17 @@ on conflict (id) do update
       file_size_limit    = excluded.file_size_limit,
       allowed_mime_types = excluded.allowed_mime_types;
 
+-- interview-kits — rendered per-trade interview-kit PDFs (Task 4). These contain NO
+-- PII (kits are per-trade, never per-worker), but the bucket is still PRIVATE: the
+-- only read path is a short-TTL signed URL minted by the backend. Object keys are
+-- `interview-kits/{tradeKey}/v{contentVersion}/interview-kit.pdf` (render-once).
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('interview-kits', 'interview-kits', false, 10485760, array['application/pdf'])
+on conflict (id) do update
+  set public             = false,                       -- enforce PRIVATE even if it drifted
+      file_size_limit    = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
 -- Access model: a PRIVATE bucket (public = false) has NO public/anon read path.
 -- `storage.objects` is RLS-enabled by Supabase; we add NO permissive policy for the
 -- anon/authenticated roles, so every direct read is denied (deny-by-default). The
