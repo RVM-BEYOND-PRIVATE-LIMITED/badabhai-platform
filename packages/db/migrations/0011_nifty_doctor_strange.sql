@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "generated_resumes_initial_uq" ON "generated_resumes" USING btree ("profile_id") WHERE "generated_resumes"."version" = 1;

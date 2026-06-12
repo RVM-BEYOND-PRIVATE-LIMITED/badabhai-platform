@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   type Database,
   generatedResumes,
@@ -24,34 +24,63 @@ export class ResumeRepository {
   }
 
   /**
-   * Refresh an existing resume's content IN PLACE (same id + version). Used by the
-   * idempotent initial-resume path: the auto-generate (on profile.confirmed) and a
-   * manual POST /resume/generate converge on one row even though the name may be
-   * recorded after confirm. Content changed → reset render to 'pending' and clear
-   * the stale PDF so the render worker re-runs.
+   * Create the INITIAL (version 1) resume for a profile, race-safe via the partial
+   * unique index `generated_resumes_initial_uq` (one v1 per profile). The
+   * auto-generate (on profile.confirmed) and a manual POST /resume/generate can run
+   * concurrently; this guarantees they converge on ONE row.
+   *
+   * - `overwrite: true` (manual generate, authoritative): refresh the content (e.g.
+   *   a name recorded AFTER the auto-generate) on the existing v1, or insert it.
+   * - `overwrite: false` (system auto-generate): insert only if absent — NEVER
+   *   clobber a manual resume; on conflict, return the existing row.
+   *
+   * `input.version` MUST be 1.
    */
-  async updateContent(
-    id: string,
-    input: Pick<
-      NewGeneratedResume,
-      "resumeJson" | "resumeText" | "sourceProfileSnapshot" | "templateId"
-    >,
+  async createInitial(
+    input: NewGeneratedResume,
+    opts: { overwrite: boolean },
   ): Promise<GeneratedResume> {
-    const rows = await this.db
-      .update(generatedResumes)
-      .set({
-        resumeJson: input.resumeJson,
-        resumeText: input.resumeText,
-        sourceProfileSnapshot: input.sourceProfileSnapshot,
-        templateId: input.templateId,
-        renderStatus: "pending",
-        pdfStorageKey: null,
-        renderedAt: null,
+    if (opts.overwrite) {
+      const rows = await this.db
+        .insert(generatedResumes)
+        .values(input)
+        .onConflictDoUpdate({
+          target: generatedResumes.profileId,
+          targetWhere: sql`${generatedResumes.version} = 1`,
+          set: {
+            resumeJson: input.resumeJson,
+            resumeText: input.resumeText,
+            sourceProfileSnapshot: input.sourceProfileSnapshot,
+            templateId: input.templateId,
+            renderStatus: "pending",
+            pdfStorageKey: null,
+            renderedAt: null,
+          },
+        })
+        .returning();
+      const row = rows[0];
+      if (!row) throw new Error("Failed to upsert initial resume");
+      return row;
+    }
+
+    const inserted = await this.db
+      .insert(generatedResumes)
+      .values(input)
+      .onConflictDoNothing({
+        target: generatedResumes.profileId,
+        where: sql`${generatedResumes.version} = 1`,
       })
-      .where(eq(generatedResumes.id, id))
       .returning();
-    const row = rows[0];
-    if (!row) throw new Error("Failed to update generated resume");
+    if (inserted[0]) return inserted[0];
+
+    // Conflict: the initial resume already exists (created concurrently) — return it.
+    const existing = await this.db
+      .select()
+      .from(generatedResumes)
+      .where(and(eq(generatedResumes.profileId, input.profileId), eq(generatedResumes.version, 1)))
+      .limit(1);
+    const row = existing[0];
+    if (!row) throw new Error("Initial resume conflict but no existing row found");
     return row;
   }
 

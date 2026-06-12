@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from "@nes
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { DraftProfileSchema } from "@badabhai/ai-contracts";
+import type { GeneratedResume } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
@@ -74,66 +75,48 @@ export class ResumeService {
     const resumeText = fullName ? `${fullName}\n${result.resume_text}` : result.resume_text;
     const resumeJson = fullName ? { ...result.resume_json, name: fullName } : result.resume_json;
 
-    const previous = await this.workers.latestResume(dto.worker_id);
-
-    // Idempotent initial resume (TD5): the auto-generate on profile.confirmed and a
-    // manual POST /resume/generate must converge on ONE resume — even though the
-    // worker's name can be recorded AFTER confirm (so the auto resume is name-less).
-    // If a resume already exists for THIS profile and this is not an explicit
-    // regenerate, refresh it IN PLACE (same version) with the latest content (the
-    // now-known name) instead of creating a duplicate version. Explicit
-    // /resume/:id/regenerate passes forceNewVersion to bump.
-    if (!opts.forceNewVersion && previous && previous.profileId === dto.profile_id) {
-      const updated = await this.resumes.updateContent(previous.id, {
+    // Resolve the target row. The INITIAL resume (version 1) is idempotent + race-safe
+    // via createInitial (partial unique index `generated_resumes_initial_uq`): the
+    // auto-generate on profile.confirmed and a manual POST /resume/generate converge on
+    // ONE row, even though the worker's name can be recorded AFTER confirm. An explicit
+    // regenerate (forceNewVersion) creates the next version instead.
+    let saved: GeneratedResume;
+    let previousVersion: number | null = null;
+    if (opts.forceNewVersion) {
+      const previous = await this.workers.latestResume(dto.worker_id);
+      previousVersion = previous?.version ?? null;
+      saved = await this.resumes.create({
+        workerId: dto.worker_id,
+        profileId: dto.profile_id,
         resumeJson,
         resumeText,
-        sourceProfileSnapshot: draft,
+        version: (previous?.version ?? 0) + 1,
         templateId: "classic",
+        // NAME-FREE structured draft, so a future renderer can re-render from the
+        // snapshot. The name lives only in resume_json/resume_text (TD21), never here.
+        sourceProfileSnapshot: draft,
       });
-      // Same idempotencyKey as the first emit → deduped (TD18); the resume_id is stable.
-      await this.events.emit({
-        event_name: "resume.generated",
-        actor: { actor_type: "system" },
-        subject: { subject_type: "resume", subject_id: updated.id },
-        payload: {
-          worker_id: dto.worker_id,
-          profile_id: dto.profile_id,
-          resume_id: updated.id,
-          version: updated.version,
-          format: result.format,
+    } else {
+      // Manual generate is authoritative (overwrite content — e.g. a name added after
+      // the auto-generate ran); the system auto-generate only fills if absent, so it
+      // never clobbers a manual resume.
+      saved = await this.resumes.createInitial(
+        {
+          workerId: dto.worker_id,
+          profileId: dto.profile_id,
+          resumeJson,
+          resumeText,
+          version: 1,
+          templateId: "classic",
+          sourceProfileSnapshot: draft,
         },
-        idempotencyKey: `resume.generated:${updated.id}`,
-        correlationId: ctx.correlationId,
-        requestId: ctx.requestId,
-      });
-      await this.enqueueRender(updated.id, dto.worker_id, ctx);
-      return {
-        resume_id: updated.id,
-        version: updated.version,
-        format: result.format,
-        is_mock: result.is_mock,
-        resume_text: updated.resumeText,
-      };
+        { overwrite: !opts.systemInitiated },
+      );
     }
 
-    const previousVersion = previous?.version ?? null;
-    const version = (previous?.version ?? 0) + 1;
-
-    const saved = await this.resumes.create({
-      workerId: dto.worker_id,
-      profileId: dto.profile_id,
-      resumeJson,
-      resumeText,
-      version,
-      templateId: "classic",
-      // NAME-FREE structured draft, so a future renderer can re-render from the
-      // snapshot. The name lives only in resume_json/resume_text (TD21), never here.
-      sourceProfileSnapshot: draft,
-    });
-
-    // A first-ever resume emits `resume.generated`; a re-run (version > 1) emits
-    // `resume.regenerated` with the previous version. Both payloads are IDs + enums.
-    if (version > 1) {
+    // A first/initial resume emits `resume.generated`; a regenerate (version > 1) emits
+    // `resume.regenerated`. Both payloads are IDs + enums; idempotencyKey dedupes re-emits.
+    if (saved.version > 1) {
       await this.events.emit({
         event_name: "resume.regenerated",
         actor: { actor_type: "system" },
@@ -142,7 +125,7 @@ export class ResumeService {
           worker_id: dto.worker_id,
           profile_id: dto.profile_id,
           resume_id: saved.id,
-          version,
+          version: saved.version,
           previous_version: previousVersion,
           format: result.format,
         },
@@ -159,7 +142,7 @@ export class ResumeService {
           worker_id: dto.worker_id,
           profile_id: dto.profile_id,
           resume_id: saved.id,
-          version,
+          version: saved.version,
           format: result.format,
         },
         idempotencyKey: `resume.generated:${saved.id}`,
@@ -172,7 +155,7 @@ export class ResumeService {
 
     return {
       resume_id: saved.id,
-      version,
+      version: saved.version,
       format: result.format,
       is_mock: result.is_mock,
       resume_text: saved.resumeText,

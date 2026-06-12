@@ -52,10 +52,13 @@ function setup(
   };
   const pii = { decrypt: vi.fn(() => NAME) };
   const resumes = {
+    // create() is the regenerate (force) path → version comes from the input.
     create: vi.fn(async (input: Record<string, unknown>) => ({ id: "res-1", ...input })),
-    updateContent: vi.fn(async (id: string, input: Record<string, unknown>) => ({
-      id,
-      version: opts.previousVersion ?? 1,
+    // createInitial() is the idempotent initial path (version 1). The optional
+    // `existing` lets a test simulate a row already present (conflict) for the
+    // insert-if-absent (systemInitiated) case.
+    createInitial: vi.fn(async (input: Record<string, unknown>, _o: { overwrite: boolean }) => ({
+      id: "res-1",
       ...input,
     })),
   };
@@ -95,7 +98,7 @@ describe("ResumeService — TD21 name injection", () => {
     expect(JSON.stringify(aiArg)).not.toMatch(/Asha/i);
 
     expect(pii.decrypt).toHaveBeenCalledWith("v1.ciphertext");
-    const saved = resumes.create.mock.calls[0]![0] as { resumeText: string; resumeJson: { name?: string } };
+    const saved = resumes.createInitial.mock.calls[0]![0] as { resumeText: string; resumeJson: { name?: string } };
     expect(saved.resumeText).toContain(NAME); // name lands on the worker's own resume
     expect(saved.resumeJson.name).toBe(NAME);
   });
@@ -105,7 +108,7 @@ describe("ResumeService — TD21 name injection", () => {
     await svc.generate(DTO, CTX);
 
     expect(pii.decrypt).not.toHaveBeenCalled();
-    const saved = resumes.create.mock.calls[0]![0] as { resumeText: string; resumeJson: { name?: string } };
+    const saved = resumes.createInitial.mock.calls[0]![0] as { resumeText: string; resumeJson: { name?: string } };
     expect(saved.resumeText).toBe("PROFESSIONAL SUMMARY (draft)");
     expect(saved.resumeJson.name).toBeUndefined();
   });
@@ -119,7 +122,7 @@ describe("ResumeService — TD21 name injection", () => {
 
     const out = await svc.generate(DTO, CTX); // must NOT throw
     expect(out.resume_id).toBeTruthy();
-    const saved = resumes.create.mock.calls[0]![0] as { resumeText: string; resumeJson: { name?: string } };
+    const saved = resumes.createInitial.mock.calls[0]![0] as { resumeText: string; resumeJson: { name?: string } };
     expect(saved.resumeText).toBe("PROFESSIONAL SUMMARY (draft)"); // name-less fallback
     expect(saved.resumeJson.name).toBeUndefined();
   });
@@ -158,10 +161,10 @@ describe("ResumeService — TD5 rate-limit, events, and render enqueue", () => {
     expect(call.payload).not.toHaveProperty("previous_version");
   });
 
-  it("emits resume.regenerated with previous_version when version > 1", async () => {
+  it("emits resume.regenerated with previous_version on an explicit regenerate (version > 1)", async () => {
     const { svc } = setup(null, { previousVersion: 2 });
     const events = lastEvents(svc);
-    await svc.generate(DTO, CTX);
+    await svc.generate(DTO, CTX, { forceNewVersion: true });
     const call = events.emit.mock.calls[0]![0];
     expect(call.event_name).toBe("resume.regenerated");
     expect(call.payload.version).toBe(3);
@@ -192,31 +195,33 @@ describe("ResumeService — TD5 rate-limit, events, and render enqueue", () => {
 });
 
 describe("ResumeService — idempotent initial resume (TD5)", () => {
-  it("upserts the existing resume IN PLACE (same version) when one exists for the profile", async () => {
-    // The name was recorded after the (name-less) auto-generate; a manual generate
-    // must refresh that same resume, not create a v2.
-    const { svc, resumes } = setup("v1.ciphertext", { previousVersion: 1, previousProfileId: "p-1" });
-    const out = await svc.generate(DTO, CTX);
-    expect(resumes.updateContent).toHaveBeenCalledOnce();
+  it("manual generate is authoritative: createInitial with overwrite=true (refresh content)", async () => {
+    // The name is recorded after the (name-less) auto-generate; the manual generate
+    // must overwrite the existing v1 with the named content — never create a v2.
+    const { svc, resumes } = setup("v1.ciphertext");
+    const out = await svc.generate(DTO, CTX); // not systemInitiated
+    expect(resumes.createInitial).toHaveBeenCalledOnce();
     expect(resumes.create).not.toHaveBeenCalled();
-    expect(out.version).toBe(1); // unchanged — no duplicate version
-    expect(out.resume_id).toBe("prev");
-    const [, updatedInput] = resumes.updateContent.mock.calls[0]!;
-    expect((updatedInput as { resumeJson: { name?: string } }).resumeJson.name).toBe(NAME);
+    const [input, options] = resumes.createInitial.mock.calls[0]!;
+    expect((options as { overwrite: boolean }).overwrite).toBe(true);
+    expect((input as { version: number }).version).toBe(1);
+    expect((input as { resumeJson: { name?: string } }).resumeJson.name).toBe(NAME);
+    expect(out.version).toBe(1);
   });
 
-  it("forceNewVersion bumps to a new version instead of upserting (regenerate path)", async () => {
-    const { svc, resumes } = setup(null, { previousVersion: 1, previousProfileId: "p-1" });
+  it("system auto-generate inserts-if-absent: createInitial with overwrite=false", async () => {
+    const { svc, resumes } = setup(null);
+    await svc.generate(DTO, CTX, { systemInitiated: true });
+    expect(resumes.createInitial).toHaveBeenCalledOnce();
+    const [, options] = resumes.createInitial.mock.calls[0]!;
+    expect((options as { overwrite: boolean }).overwrite).toBe(false);
+  });
+
+  it("forceNewVersion creates a new version via create() (not the initial path)", async () => {
+    const { svc, resumes } = setup(null, { previousVersion: 1 });
     const out = await svc.generate(DTO, CTX, { forceNewVersion: true });
     expect(resumes.create).toHaveBeenCalledOnce();
-    expect(resumes.updateContent).not.toHaveBeenCalled();
+    expect(resumes.createInitial).not.toHaveBeenCalled();
     expect(out.version).toBe(2);
-  });
-
-  it("does not upsert when the latest resume is for a DIFFERENT profile", async () => {
-    const { svc, resumes } = setup(null, { previousVersion: 1, previousProfileId: "other-profile" });
-    await svc.generate(DTO, CTX);
-    expect(resumes.create).toHaveBeenCalledOnce();
-    expect(resumes.updateContent).not.toHaveBeenCalled();
   });
 });

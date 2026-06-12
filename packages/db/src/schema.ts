@@ -267,6 +267,13 @@ export const generatedResumes = pgTable(
   (t) => [
     index("generated_resumes_worker_id_idx").on(t.workerId),
     index("generated_resumes_profile_id_idx").on(t.profileId),
+    // At most ONE initial (version 1) resume per profile. Makes initial generation
+    // idempotent/race-safe (ON CONFLICT): the auto-generate on profile.confirmed and
+    // a manual POST /resume/generate converge on one row instead of double-creating.
+    // Partial (version = 1) so regenerations (version > 1) are unconstrained.
+    uniqueIndex("generated_resumes_initial_uq")
+      .on(t.profileId)
+      .where(sql`${t.version} = 1`),
   ],
 );
 
