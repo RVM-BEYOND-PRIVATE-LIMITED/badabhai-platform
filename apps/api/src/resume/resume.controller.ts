@@ -32,8 +32,9 @@ export class ResumeController {
 
   /**
    * Read a single generated resume by id (ops read view).
-   * PII-free: the resume is built from the structured profile only (no name/phone),
-   * and this payload carries only resume content + linkage ids — never worker PII.
+   * The resume body contains the worker's OWN name by design (TD21) — it is their
+   * document. The phone never appears. Exposure is bounded by RLS on generated_resumes
+   * (TD20) + no Data-API consumer; closing the endpoint's authz rides the TD4 gap.
    */
   @Get(":id")
   async get(@Param("id", new ParseUUIDPipe()) id: string) {

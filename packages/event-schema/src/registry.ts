@@ -22,6 +22,7 @@ export const EVENT_REGISTRY = {
   "worker.created": { version: 1, domain: "worker", payload: p.WorkerCreatedPayload },
   "worker.otp_requested": { version: 1, domain: "worker", payload: p.WorkerOtpRequestedPayload },
   "worker.otp_verified": { version: 1, domain: "worker", payload: p.WorkerOtpVerifiedPayload },
+  "worker.name_recorded": { version: 1, domain: "worker", payload: p.WorkerNameRecordedPayload },
 
   "consent.accepted": { version: 1, domain: "consent", payload: p.ConsentAcceptedPayload },
 

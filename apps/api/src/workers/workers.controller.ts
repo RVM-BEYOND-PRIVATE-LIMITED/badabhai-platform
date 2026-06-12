@@ -1,10 +1,27 @@
-import { Controller, Get, NotFoundException, Param, ParseUUIDPipe, Query } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  NotFoundException,
+  Param,
+  ParseUUIDPipe,
+  Put,
+  Query,
+} from "@nestjs/common";
 import { clampLimit } from "../common/pagination";
+import { Ctx, type RequestContext } from "../common/request-context";
+import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { WorkersRepository } from "./workers.repository";
+import { WorkersService } from "./workers.service";
+import { SetWorkerNameSchema, type SetWorkerNameDto } from "./workers.dto";
 
 @Controller("workers")
 export class WorkersController {
-  constructor(private readonly workers: WorkersRepository) {}
+  constructor(
+    private readonly workers: WorkersRepository,
+    private readonly workersService: WorkersService,
+  ) {}
 
   /** List workers (newest first) with latest-profile summary. No PII. */
   @Get()
@@ -34,5 +51,20 @@ export class WorkersController {
       profile: profile ?? null,
       resume: resume ?? null,
     };
+  }
+
+  /**
+   * Record the worker's real name (TD21). The name is PII: it is encrypted at
+   * rest and is NEVER returned by this (or any) endpoint — the response carries
+   * only `{ worker_id }`. The name later appears only on the worker's own resume.
+   */
+  @Put(":id/name")
+  @HttpCode(200)
+  async setName(
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Body(new ZodValidationPipe(SetWorkerNameSchema)) dto: SetWorkerNameDto,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.workersService.setFullName(id, dto.full_name, ctx);
   }
 }
