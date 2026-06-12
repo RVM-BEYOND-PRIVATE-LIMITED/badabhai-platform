@@ -1,78 +1,111 @@
-"""Canonicalization eval harness (CNC/VMC).
+"""Canonicalization eval harness (CNC/VMC) — CI regression guard.
 
-Measures how well messy worker text is canonicalized to taxonomy ids
-(`canonical_role_id`, machine ids). Targets >= 90% — the bar for enabling the
+Measures how well messy Hinglish worker text is canonicalized to taxonomy ids
+(`canonical_role_id`, machine ids). The >= 90% bar is THE gate for enabling the
 real LLM extraction path (see docs/ai/enable-real-llm-extraction.md).
 
-In CI this runs against the deterministic heuristics (`profile_extractor.extract`)
-as a regression guard. The SAME `CASES` + `evaluate()` are reused in staging to
-score the REAL LLM path: point `extract_fn` at a client that calls
-`POST /profile/extract` with `AI_REAL_CALL_TASKS=profile_extraction`.
+The gold set + scoring live in ``app.profiling.canonicalization_gold`` — the
+SINGLE source of truth shared with the eval CLI
+(``python -m app.profiling.eval_canonicalization``). This test imports it; it does
+NOT duplicate cases. In CI it scores the deterministic heuristic
+(`profile_extractor.extract`); in staging the CLI's ``--real`` mode scores the
+real ``POST /profile/extract`` path over the SAME gold set.
 
-Test data ONLY — fabricated, no real worker PII.
+Tiers:
+- ``core`` + ``negative`` — the heuristic MUST clear >= 90% (this gate).
+- ``hard`` — stresses the heuristic (out-of-vocab, implicit, multi-role); it is
+  NOT expected to pass. We only assert it is *tracked* (runs + reports), never
+  that the heuristic clears it. That bar is for the REAL LLM in staging.
+
+Test data ONLY — every transcript is fabricated, no real worker PII.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
+from app.profiling import canonicalization_gold as gold
 from app.profiling import profile_extractor
-
-# (messy text, expected canonical_role_id, expected machine ids subset)
-CASES: list[tuple[str, str, list[str]]] = [
-    ("vmc chalata hu 4 saal se fanuc pe", "role_vmc_operator", ["mach_vmc"]),
-    ("cnc lathe operator hu, turning ka kaam", "role_cnc_turner_operator", ["mach_cnc_lathe"]),
-    ("cnc programmer hu, mastercam pe program banata hu", "role_cnc_programmer", []),
-    ("setter operator hu, vmc setting karta hu", "role_cnc_setter_operator", ["mach_vmc"]),
-    ("hmc operator, horizontal machining 5 saal", "role_hmc_operator", ["mach_hmc"]),
-    ("grinding operator, cylindrical grinding", "role_cnc_grinding_operator",
-     ["mach_cylindrical_grinder"]),
-    ("cam programmer hu, fusion 360 use karta hu", "role_cam_programmer", []),
-    ("vmc operator, siemens control, 6 saal experience", "role_vmc_operator", ["mach_vmc"]),
-    ("turner hu, cnc lathe pe 3 saal", "role_cnc_turner_operator", ["mach_cnc_lathe"]),
-    ("vmc pe kaam karta hu, fanuc, gd&t aata hai", "role_vmc_operator", ["mach_vmc"]),
-    ("programmer hu, g code editing karta hu fanuc pe", "role_cnc_programmer", []),
-    ("vmc machine operator, tool offset setting karta hu", "role_vmc_operator", ["mach_vmc"]),
-]
-
-# Threshold for canonicalization accuracy (the >=90% bar from the task brief).
-THRESHOLD = 0.90
-
-# An extractor: text -> the legacy DraftProfile (carries the canonical ids).
-ExtractFn = Callable[[str], object]
-
-
-def _heuristic_extract(text: str):
-    _rich, legacy = profile_extractor.extract(text)
-    return legacy
-
-
-def evaluate(extract_fn: ExtractFn = _heuristic_extract) -> tuple[float, list[str]]:
-    """Return (role_canonicalization_accuracy, list of human-readable misses)."""
-    hits = 0
-    misses: list[str] = []
-    for text, expected_role, _machines in CASES:
-        profile = extract_fn(text)
-        got = getattr(profile, "canonical_role_id", None)
-        if got == expected_role:
-            hits += 1
-        else:
-            misses.append(f"{text!r}: expected {expected_role}, got {got}")
-    return hits / len(CASES), misses
 
 
 def test_role_canonicalization_meets_threshold():
-    accuracy, misses = evaluate()
-    assert accuracy >= THRESHOLD, (
-        f"role canonicalization {accuracy:.0%} < {THRESHOLD:.0%}; misses:\n" + "\n".join(misses)
+    """Heuristic clears >= 90% on the gating tiers (core + negative)."""
+    result = gold.evaluate()
+    assert result.gated_accuracy >= gold.THRESHOLD, (
+        f"role canonicalization (core+negative) {result.gated_accuracy:.0%} "
+        f"< {gold.THRESHOLD:.0%}; misses:\n"
+        + "\n".join(result.by_tier["core"].misses + result.by_tier["negative"].misses)
+    )
+
+
+def test_core_tier_is_fully_canonicalized():
+    """Every core case is realistic in-vocabulary Hinglish the heuristic handles."""
+    result = gold.evaluate(tiers=("core",))
+    core = result.by_tier["core"]
+    assert core.accuracy >= gold.THRESHOLD, (
+        f"core {core.accuracy:.0%} < {gold.THRESHOLD:.0%}; misses:\n"
+        + "\n".join(core.misses)
+    )
+
+
+def test_negative_tier_returns_no_role():
+    """Helper / unrelated / garbage text must canonicalize to None."""
+    for case in gold.GOLD_CASES:
+        if case.tier != "negative":
+            continue
+        _rich, legacy = profile_extractor.extract(case.text)
+        assert legacy.canonical_role_id is None, (
+            f"{case.text!r}: expected None, got {legacy.canonical_role_id}"
+        )
+
+
+def test_hard_tier_is_tracked_but_not_gated():
+    """The hard tier RUNS and REPORTS (so the LLM has a measured bar), but the
+    heuristic is NOT required to clear >= 90% — it is informational only."""
+    result = gold.evaluate(tiers=("hard",))
+    hard = result.by_tier["hard"]
+    assert hard.total >= 12, f"hard tier too small to be a meaningful LLM bar: {hard.total}"
+    # It is tracked: a number is produced and misses are reported.
+    assert 0.0 <= hard.accuracy <= 1.0
+    # We EXPECT the heuristic to miss most of these (that is the whole point);
+    # asserting it does NOT clear the gate documents why the real LLM is needed.
+    assert hard.accuracy < gold.THRESHOLD, (
+        "heuristic unexpectedly cleared the hard tier — re-tier or harden the "
+        "cases so they remain a real stretch for the LLM"
     )
 
 
 def test_machine_canonicalization_is_consistent():
-    # Every expected machine id must be detected (no missing canonical machines).
-    for text, _role, expected_machines in CASES:
-        _rich, legacy = profile_extractor.extract(text)
-        for mid in expected_machines:
+    """Every expected machine id must be detected for core + negative cases
+    (the heuristic-gated tiers). Hard cases may legitimately miss machines."""
+    for case in gold.GOLD_CASES:
+        if case.tier == "hard":
+            continue
+        _rich, legacy = profile_extractor.extract(case.text)
+        for mid in case.expected_machines:
             assert mid in legacy.machines, (
-                f"{text!r}: missing machine id {mid} (got {legacy.machines})"
+                f"{case.text!r}: missing machine id {mid} (got {legacy.machines})"
             )
+
+
+def test_gold_set_is_tiered_and_covers_all_roles():
+    """Structural guard: every launch role has >= 3 core cases; tiers are sized."""
+    counts = gold.tier_counts()
+    assert counts.get("core", 0) >= 24
+    assert counts.get("negative", 0) >= 6
+    assert counts.get("hard", 0) >= 12
+    expected_roles = {
+        "role_cam_programmer",
+        "role_cnc_programmer",
+        "role_cnc_setter_operator",
+        "role_vmc_operator",
+        "role_hmc_operator",
+        "role_cnc_grinding_operator",
+        "role_cnc_turner_operator",
+    }
+    core_by_role: dict[str, int] = {}
+    for case in gold.GOLD_CASES:
+        if case.tier == "core" and case.expected_role:
+            core_by_role[case.expected_role] = core_by_role.get(case.expected_role, 0) + 1
+    for role in expected_roles:
+        assert core_by_role.get(role, 0) >= 3, (
+            f"{role} has only {core_by_role.get(role, 0)} core cases (need >= 3)"
+        )
