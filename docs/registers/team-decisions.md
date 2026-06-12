@@ -32,3 +32,15 @@ Stood up `.claude/agents` (15 roles), `.claude/skills` (16 `bb-*` skills), the
 [quality gates](../engineering-org/quality-gates.md), and these registers as the
 operating model. Skills are `bb-`-prefixed to avoid shadowing Claude Code
 built-ins (`/code-review`, `/security-review`, etc.).
+
+### 2026-06-12 — Reach RANK weights: implemented set is authoritative; Skills + embeddings deferred
+The **implemented** `scoring.ts` weights — Trade .35 / Location .20 / Experience .15 /
+Pay .10 / **Availability .10** / **Activity .10**, **no Skills signal, no embeddings** — are
+the **source of truth**. The master-context ledger's "locked" Σ100 (Trade 35 · Location 20 ·
+**Skills 15** · Experience 15 · Salary 10 · **Availability 5**) and the idea of **Vertex
+embeddings for skills-similarity** are treated as a **draft / Phase-2 direction**, NOT
+day-one: the day-one engine is deterministic, dependency-free, and never calls a model
+(Vertex embeddings serve the *profiling* AI service, not Reach ranking). Ratified in
+[ADR-0006](../decisions/0006-reach-foundation-rank-core.md) ("Ratified scope vs the locked
+weight columns"). Don't re-open from the ledger without a new row here. *(Re-confirms the
+2026-06-12 "leave code as-is; the doc is the draft" call.)*
