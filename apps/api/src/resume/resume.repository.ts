@@ -13,7 +13,11 @@ export class ResumeRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
   async create(input: NewGeneratedResume): Promise<GeneratedResume> {
-    const inserted = await this.db.insert(generatedResumes).values(input).returning();
+    const inserted = await this.db
+      .insert(generatedResumes)
+      // templateId is set by the caller and also has a DB default — no override here.
+      .values(input)
+      .returning();
     const row = inserted[0];
     if (!row) throw new Error("Failed to create generated resume");
     return row;
@@ -27,5 +31,21 @@ export class ResumeRepository {
       .where(eq(generatedResumes.id, id))
       .limit(1);
     return rows[0];
+  }
+
+  /** Flip a row to 'rendered' with its PDF object key + render timestamp. */
+  async markRendered(id: string, pdfStorageKey: string): Promise<void> {
+    await this.db
+      .update(generatedResumes)
+      .set({ renderStatus: "rendered", pdfStorageKey, renderedAt: new Date() })
+      .where(eq(generatedResumes.id, id));
+  }
+
+  /** Flip a row to 'failed' (terminal render failure). */
+  async markRenderFailed(id: string): Promise<void> {
+    await this.db
+      .update(generatedResumes)
+      .set({ renderStatus: "failed" })
+      .where(eq(generatedResumes.id, id));
   }
 }

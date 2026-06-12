@@ -117,7 +117,10 @@ export class WorkersRepository {
       .select()
       .from(generatedResumes)
       .where(eq(generatedResumes.workerId, workerId))
-      .orderBy(desc(generatedResumes.generatedAt))
+      // Order by version (monotonic), not generatedAt (DB-now() granularity): two
+      // near-simultaneous generates must not read the same "previous" and collide
+      // on the next version / the v{n} object key.
+      .orderBy(desc(generatedResumes.version))
       .limit(1);
     return rows[0];
   }

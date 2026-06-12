@@ -251,6 +251,18 @@ export const generatedResumes = pgTable(
     resumeText: text("resume_text").notNull(),
     generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
     version: integer("version").notNull().default(1),
+    // TD5 layer 2 — versioned PDF render artifact (ADR resume-render).
+    // The text/json above is generated synchronously; the PDF is rendered async by the
+    // resume-render worker, which fills pdf_storage_key + flips render_status -> 'rendered'.
+    templateId: text("template_id").notNull().default("fallback"),
+    // Canonical (name-free) structured profile captured at generation time, so a future,
+    // better renderer can re-render a richer PDF from the snapshot. Nullable for legacy rows.
+    sourceProfileSnapshot: jsonb("source_profile_snapshot"),
+    // Opaque object key in the private resumes bucket; null until the PDF is rendered.
+    pdfStorageKey: text("pdf_storage_key"),
+    // 'pending' -> 'rendered' | 'failed'. Plain text (matches ai_jobs.status), validated in code.
+    renderStatus: text("render_status").notNull().default("pending"),
+    renderedAt: timestamp("rendered_at", { withTimezone: true }),
   },
   (t) => [
     index("generated_resumes_worker_id_idx").on(t.workerId),

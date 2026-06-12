@@ -370,9 +370,12 @@ describe("reach foundation events (feed.* / application.*)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 30 event names (26 Phase-1 + worker.name_recorded + 3 Reach foundation)", () => {
-    expect(EVENT_NAMES).toHaveLength(30);
+  it("exposes all 33 event names (26 Phase-1 + worker.name_recorded + 3 Reach foundation + 3 resume render)", () => {
+    expect(EVENT_NAMES).toHaveLength(33);
     expect(isEventName("resume.generated")).toBe(true);
+    expect(isEventName("resume.downloaded")).toBe(true);
+    expect(isEventName("resume.regenerated")).toBe(true);
+    expect(isEventName("resume.shared")).toBe(true);
     expect(isEventName("action.recorded")).toBe(true);
     expect(isEventName("profile.extraction_ready")).toBe(true);
     expect(isEventName("ai.cost_recorded")).toBe(true);

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from "@nestjs/common";
@@ -13,12 +14,16 @@ import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository } from "./ai-jobs.repository";
 import {
   PROFILE_EXTRACTION_QUEUE,
+  RESUME_GENERATE_QUEUE,
   type ProfileExtractionJobData,
+  type ResumeGenerateJobData,
 } from "../queue/queue.constants";
 import type { ExtractProfileDto, ConfirmProfileDto } from "./profiles.dto";
 
 @Injectable()
 export class ProfilesService {
+  private readonly logger = new Logger(ProfilesService.name);
+
   constructor(
     private readonly profiles: ProfilesRepository,
     private readonly aiJobs: AiJobsRepository,
@@ -26,6 +31,8 @@ export class ProfilesService {
     private readonly events: EventsService,
     @InjectQueue(PROFILE_EXTRACTION_QUEUE)
     private readonly extractionQueue: Queue<ProfileExtractionJobData>,
+    @InjectQueue(RESUME_GENERATE_QUEUE)
+    private readonly resumeGenerateQueue: Queue<ResumeGenerateJobData>,
   ) {}
 
   /**
@@ -117,6 +124,24 @@ export class ProfilesService {
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
+
+    // Kick off async resume generation (refs only, no PII). A queue failure must
+    // NEVER break confirmation — the worker can still trigger generation manually
+    // via POST /resume/generate. Log a warning and move on.
+    try {
+      await this.resumeGenerateQueue.add("generate", {
+        workerId: dto.worker_id,
+        profileId: dto.profile_id,
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `could not enqueue resume generation for profile ${dto.profile_id} (reason: ${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      );
+    }
 
     return {
       profile_id: dto.profile_id,

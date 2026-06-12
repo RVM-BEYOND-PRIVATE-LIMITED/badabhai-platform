@@ -70,6 +70,9 @@ export const EVENT_REGISTRY = {
   },
 
   "resume.generated": { version: 1, domain: "resume", payload: p.ResumeGeneratedPayload },
+  "resume.downloaded": { version: 1, domain: "resume", payload: p.ResumeDownloadedPayload },
+  "resume.regenerated": { version: 1, domain: "resume", payload: p.ResumeRegeneratedPayload },
+  "resume.shared": { version: 1, domain: "resume", payload: p.ResumeSharedPayload },
 
   "action.recorded": { version: 1, domain: "action", payload: p.ActionRecordedPayload },
 

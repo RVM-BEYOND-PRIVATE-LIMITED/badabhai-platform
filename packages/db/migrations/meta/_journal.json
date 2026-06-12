@@ -71,6 +71,13 @@
       "when": 1781260000000,
       "tag": "0009_spine_rls_revoke",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1781260000001,
+      "tag": "0010_powerful_warbound",
+      "breakpoints": true
     }
   ]
 }
