@@ -35,6 +35,24 @@ export const serverEnvSchema = z.object({
   // reachable by web/Flutter. Object keys carry opaque UUIDs only (no PII). See
   // ADR-0003. Reuses SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (Storage Mode A).
   CONVERSATIONS_BUCKET: z.string().min(1).default("worker-conversations"),
+  // Private Storage bucket holding rendered resume PDFs (TD5). Backend/service-role
+  // access ONLY — same Storage Mode A as CONVERSATIONS_BUCKET. Object keys are opaque
+  // UUIDs (worker_id/resume_id) only; the worker's name lives INSIDE the PDF bytes,
+  // never in the path. MUST be created PRIVATE out-of-band (anon denied); RLS only
+  // covers Postgres tables, not Storage object ACLs.
+  RESUMES_BUCKET: z.string().min(1).default("worker-resumes"),
+
+  // Resume render worker (TD5).
+  // Master kill-switch for the WeasyPrint render step. When false the renderer
+  // degrades to null (no PDF), so the system runs without the binary in local dev.
+  RESUME_RENDER_ENABLED: booleanFromString,
+  // Per-worker generations allowed per UTC day (paid-path abuse cap).
+  RESUME_DAILY_CAP: z.coerce.number().int().positive().default(5),
+  // Global generations allowed per UTC day — interim backstop until TD4 binds a
+  // request to an authenticated worker (today a caller could rotate worker_id).
+  RESUME_GLOBAL_DAILY_CAP: z.coerce.number().int().positive().default(5000),
+  // TTL (seconds) for a freshly minted signed download URL.
+  RESUME_SIGNED_URL_TTL_SECONDS: z.coerce.number().int().positive().default(900),
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER

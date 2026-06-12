@@ -7,7 +7,7 @@ import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository } from "./ai-jobs.repository";
 import { AiJobsController } from "./ai-jobs.controller";
 import { ProfileExtractionProcessor } from "./profile-extraction.processor";
-import { PROFILE_EXTRACTION_QUEUE } from "../queue/queue.constants";
+import { PROFILE_EXTRACTION_QUEUE, RESUME_GENERATE_QUEUE } from "../queue/queue.constants";
 
 @Module({
   imports: [
@@ -15,6 +15,8 @@ import { PROFILE_EXTRACTION_QUEUE } from "../queue/queue.constants";
     // extraction on the readiness flip), so the two modules reference each other.
     forwardRef(() => ChatModule), // for ChatRepository (transcript)
     BullModule.registerQueue({ name: PROFILE_EXTRACTION_QUEUE }),
+    // Auto-enqueue a resume render once a profile is confirmed (TD5).
+    BullModule.registerQueue({ name: RESUME_GENERATE_QUEUE }),
   ],
   controllers: [ProfilesController, AiJobsController],
   providers: [ProfilesService, ProfilesRepository, AiJobsRepository, ProfileExtractionProcessor],

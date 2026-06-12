@@ -234,6 +234,32 @@ export const ResumeGeneratedPayload = z.object({
   format: z.enum(["text", "json"]).default("text"),
 });
 
+/** A worker downloaded a resume (the PDF, or the raw text/json). IDs + enum only. */
+export const ResumeDownloadedPayload = z.object({
+  worker_id: uuidSchema,
+  resume_id: uuidSchema,
+  version: z.number().int().positive().default(1),
+  format: z.enum(["pdf", "text", "json"]).default("pdf"),
+});
+
+/** A newer resume version was generated for a worker (re-run as the profile grows). */
+export const ResumeRegeneratedPayload = z.object({
+  worker_id: uuidSchema,
+  profile_id: uuidSchema,
+  resume_id: uuidSchema,
+  version: z.number().int().positive().default(1),
+  previous_version: z.number().int().positive().nullable().default(null),
+  format: z.enum(["text", "json"]).default("text"),
+});
+
+/** A worker shared a resume. `channel` is an enum (no free text → no PII / no link leakage). */
+export const ResumeSharedPayload = z.object({
+  worker_id: uuidSchema,
+  resume_id: uuidSchema,
+  version: z.number().int().positive().default(1),
+  channel: z.enum(["whatsapp", "link", "download", "other"]).default("link"),
+});
+
 // ---------------------------------------------------------------------------
 // ai.* (privacy + LLM lifecycle)
 // ---------------------------------------------------------------------------
