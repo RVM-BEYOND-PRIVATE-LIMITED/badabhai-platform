@@ -20,6 +20,16 @@ Two modes, one gold set (``app.profiling.canonicalization_gold``):
     Scores ALL tiers (the real LLM is expected to clear the hard tier too) and
     exits non-zero if OVERALL accuracy < 90%. This is runbook step 4.
 
+MEASUREMENT CORRECTNESS: in ``--per-field --real`` the rig reads each call's
+``ai_metadata.real_call`` + ``ai_metadata.success`` (NOT the top-level
+``is_mock``, which only means "real was attempted"). A case with
+``real_call=true AND success=false`` is a MOCK FALLBACK (the router returned mock
+content after a model failure, e.g. a 429). If ANY scored case fell back the run
+is INVALID — it prints a loud banner and exits non-zero WITHOUT a PASS/FAIL
+aggregate, so a throttled/erroring run can never read as a valid >=90% result.
+Use ``--min-interval SECONDS`` to pace a low-RPM free tier (paid billing is the
+clean path).
+
 PRIVACY: every transcript is fabricated (no PII, no worker data). The ``--real``
 path uses the normal endpoint, which pseudonymizes BEFORE any model call — this
 CLI never bypasses pseudonymization and never makes a direct external LLM call.
@@ -29,11 +39,53 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 
 from app.profiling import canonicalization_gold as gold
 from app.profiling import miss_attribution as attrib
 
 DEFAULT_BASE_URL = "http://localhost:8000"
+
+
+@dataclass
+class RealCallCollector:
+    """Records the ``ai_metadata`` outcome of every real ``/profile/extract`` call.
+
+    The endpoint returns ``ai_metadata.real_call`` (was a real model call
+    attempted) and ``ai_metadata.success`` (did it succeed). A call where
+    ``real_call=True AND success=False`` means the real attempt failed (e.g. a
+    429) and the router silently returned MOCK content as a fallback — so scoring
+    that case would score MOCK output as if it were a real measurement.
+
+    We capture these per call (NOT ``is_mock``, which only reflects "real was
+    attempted") so the runner can reject a contaminated run. The OFFLINE
+    heuristic path never feeds this collector, so a run with no recorded calls is
+    treated as "not a real run" and scored normally.
+    """
+
+    outcomes: list[tuple[bool, bool]] = dc_field(default_factory=list)
+
+    def record(self, *, real_call: bool, success: bool) -> None:
+        self.outcomes.append((real_call, success))
+
+    @property
+    def total(self) -> int:
+        return len(self.outcomes)
+
+    @property
+    def fell_back(self) -> list[tuple[bool, bool]]:
+        """Calls where a real attempt failed -> mock-fallback content was scored."""
+        return [(rc, ok) for (rc, ok) in self.outcomes if rc and not ok]
+
+    @property
+    def real_success(self) -> list[tuple[bool, bool]]:
+        return [(rc, ok) for (rc, ok) in self.outcomes if rc and ok]
+
+    @property
+    def contaminated(self) -> bool:
+        return len(self.fell_back) > 0
 
 
 class _RoleOnly:
@@ -85,20 +137,48 @@ def _make_real_extract_fn(base_url: str, timeout: float = 30.0) -> gold.ExtractF
     return extract_fn
 
 
-def _make_real_field_extract_fn(base_url: str, timeout: float = 30.0) -> gold.FieldExtractFn:
+def _make_real_field_extract_fn(
+    base_url: str,
+    timeout: float = 30.0,
+    *,
+    collector: RealCallCollector | None = None,
+    min_interval: float = 0.0,
+) -> gold.FieldExtractFn:
     """Return a per-field extract_fn that POSTs each text to /profile/extract and
     reads back the FULL profile surface (trade/role/skills/machines/experience).
 
-    Same endpoint, same pseudonymize-first gate; we just read more fields back."""
+    Same endpoint, same pseudonymize-first gate; we just read more fields back.
+
+    ``collector`` (if given) records each call's ``ai_metadata.real_call`` +
+    ``ai_metadata.success`` so the runner can detect mock-fallback contamination
+    (real attempt failed -> the router returned MOCK content). We read
+    ``ai_metadata`` as the source of truth, NOT the top-level ``is_mock`` (which
+    only reflects "real was attempted").
+
+    ``min_interval`` (seconds) sleeps between calls so a low-RPM free tier does
+    not mass-429. Default 0 = no pacing (paid billing is the clean path)."""
     import httpx
 
     url = base_url.rstrip("/") + "/profile/extract"
     client = httpx.Client(timeout=timeout)
+    _last_call_at: list[float] = []  # mutable cell for the closure
 
     def extract_fn(text: str) -> object:
+        if min_interval > 0 and _last_call_at:
+            elapsed = time.monotonic() - _last_call_at[0]
+            if elapsed < min_interval:
+                time.sleep(min_interval - elapsed)
         resp = client.post(url, json={"transcript": text})
+        _last_call_at[:] = [time.monotonic()]
         resp.raise_for_status()
-        profile = (resp.json() or {}).get("profile") or {}
+        data = resp.json() or {}
+        if collector is not None:
+            meta = data.get("ai_metadata") or {}
+            collector.record(
+                real_call=bool(meta.get("real_call", False)),
+                success=bool(meta.get("success", True)),
+            )
+        profile = data.get("profile") or {}
         return _ProfileView(profile)
 
     return extract_fn
@@ -207,20 +287,45 @@ def _print_per_field_report(
                   f"surviving={list(a.surviving)})")
 
 
+def _print_invalid_real_run(collector: RealCallCollector) -> None:
+    """Loud, unmistakable banner for a CONTAMINATED real run. No PASS/FAIL aggregate
+    is emitted alongside this — a throttled/erroring run can never be read as a
+    valid >=90% (or <90%) measurement."""
+    n_fell_back = len(collector.fell_back)
+    print("\n" + "=" * 64)
+    print(f"INVALID REAL RUN: {n_fell_back}/{collector.total} cases fell back to "
+          "mock (provider errors, e.g. 429) — score NOT reported.")
+    print("Detected via ai_metadata: real_call=true AND success=false means the "
+          "real attempt failed and the router returned MOCK content.")
+    print("Enable paid billing or pace the run (--min-interval SECONDS), then retry.")
+    print("=" * 64)
+
+
 def _run_per_field(args) -> int:
     """Per-field eval (+ miss attribution). Heuristic by default; --real hits the
-    live endpoints. Gates on AGGREGATE >= PER_FIELD_THRESHOLD."""
+    live endpoints. Gates on AGGREGATE >= PER_FIELD_THRESHOLD.
+
+    In --real mode the run is INVALID if ANY scored case fell back to mock (a real
+    attempt that 429'd/errored). We then print the INVALID banner and exit
+    non-zero WITHOUT a PASS/FAIL aggregate — measurement correctness over a
+    convenient-but-false number."""
+    collector: RealCallCollector | None = None
     if args.real:
+        collector = RealCallCollector()
         try:
-            extract_fn = _make_real_field_extract_fn(args.base_url)
+            extract_fn = _make_real_field_extract_fn(
+                args.base_url, collector=collector, min_interval=args.min_interval,
+            )
             pseudo_fn = _make_real_pseudonymize_fn(args.base_url)
         except ImportError:
             print("error: --per-field --real needs httpx "
                   "(pip install -r requirements-dev.txt)", file=sys.stderr)
             return 2
         base = args.base_url.rstrip("/")
+        pacing = (f" (pacing {args.min_interval:g}s between cases)"
+                  if args.min_interval > 0 else "")
         print(f"Mode: --per-field --real -> POST {base}/profile/extract "
-              f"+ {base}/profiling/respond + {base}/pseudonymize\n"
+              f"+ {base}/profiling/respond + {base}/pseudonymize{pacing}\n"
               "(both endpoints pseudonymize first; fabricated data only)\n")
         # Touch BOTH real endpoints per the brief; respond is a smoke pass.
         try:
@@ -234,6 +339,15 @@ def _run_per_field(args) -> int:
         print("Mode: --per-field (offline heuristic - no network, no LLM)\n")
         result = gold.evaluate_per_field()
         summary = attrib.attribute_misses(result)
+
+    # Contaminated real run: reject before any aggregate can be misread as valid.
+    if collector is not None and collector.contaminated:
+        _print_invalid_real_run(collector)
+        return 1
+
+    if collector is not None:
+        n_ok = len(collector.real_success)
+        print(f"real calls: {n_ok}/{collector.total} succeeded\n")
 
     _print_per_field_report(result, summary)
     passed = result.aggregate_accuracy >= gold.PER_FIELD_THRESHOLD
@@ -267,6 +381,15 @@ def main(argv: list[str] | None = None) -> int:
         "--base-url",
         default=DEFAULT_BASE_URL,
         help=f"Base URL of the local AI service (default: {DEFAULT_BASE_URL}).",
+    )
+    parser.add_argument(
+        "--min-interval",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        help="Seconds to sleep between cases in --per-field --real mode so a "
+        "low-RPM FREE TIER does not mass-429 (default 0 = no pacing). Paid "
+        "billing is the clean path; this lets a free-tier run complete.",
     )
     args = parser.parse_args(argv)
 
