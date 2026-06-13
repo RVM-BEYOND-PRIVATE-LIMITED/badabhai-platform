@@ -23,13 +23,21 @@ on the mock path. This is the first real-LLM rollout; treat it as an escalation
   resume generation keep running mock while only extraction goes real.
 - **Hard cost ceiling + alerts** are enforced per call (`AI_MAX_CALL_COST_INR`).
 
+## Transport: direct Gemini (no LiteLLM proxy)
+
+The AI service calls **Google AI Studio (Gemini) directly over REST** with
+`httpx` (`app/ai/gemini_client.py`) — there is **no LiteLLM proxy or SDK**. The
+single real-call credential is `GEMINI_FLASH_API_KEY`; the extraction model is
+`gemini-2.5-flash` (`DEFAULT_CAPABLE_MODEL`). Request/response bodies are never
+logged (pseudonymized, but still content) — counts/status only.
+
 ## The per-task gate
 
 `app/config.py` → `real_call_enabled_for(task_type)`:
 
 ```
 real(task) = AI_ENABLE_REAL_CALLS               # master flag
-             AND LITELLM_API_KEY is set          # + base url
+             AND GEMINI_FLASH_API_KEY is set     # direct Gemini key
              AND (AI_REAL_CALL_TASKS is empty OR task in AI_REAL_CALL_TASKS)
 ```
 
@@ -38,14 +46,14 @@ empty allowlist keeps the previous "all tasks" behavior (backward compatible).
 
 ## Staging rollout steps
 
-1. **Install real deps** (adds `openai`, `langfuse`):
+1. **Install real-mode deps** (adds `anthropic` + `langfuse`; `httpx` is already a base dep):
    ```bash
    pip install -r requirements-ai.txt
    ```
-   > The real path uses the lightweight `openai` AsyncOpenAI SDK against an
-   > OpenAI-compatible endpoint — **not** litellm. The env vars keep the
-   > `LITELLM_*` names for now but feed this OpenAI client (TD: rename to
-   > `LLM_*`).
+   > The real path calls Google AI Studio (Gemini) **directly over REST** with
+   > `httpx` — **no** litellm and **no** openai SDK. The Anthropic SDK is only the
+   > fallback provider (Claude Haiku). The single master credential is
+   > `GEMINI_FLASH_API_KEY`; `ANTHROPIC_API_KEY` merely adds the fallback candidate.
 2. **Set staging env** (never commit these). A ready-to-fill, secrets-free
    template lives at
    [`apps/ai-service/.env.staging.example`](../../apps/ai-service/.env.staging.example) —
@@ -53,10 +61,10 @@ empty allowlist keeps the previous "all tasks" behavior (backward compatible).
    ```bash
    AI_ENABLE_REAL_CALLS=true
    AI_REAL_CALL_TASKS=profile_extraction        # ONLY canonicalization goes real
-   # OpenAI-compatible gateway (vars keep LITELLM_* names; feed the openai SDK):
-   LITELLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
-   LITELLM_API_KEY=<your Gemini API key>
-   DEFAULT_CAPABLE_MODEL=gemini-2.0-flash       # extraction tier (bare id, no "openai/" prefix)
+   GEMINI_FLASH_API_KEY=<google ai studio key>  # the single real-call credential
+   ANTHROPIC_API_KEY=<anthropic key>            # OPTIONAL — adds the Claude Haiku fallback
+   DEFAULT_CAPABLE_MODEL=gemini-2.5-flash       # extraction tier (bare model id)
+   DEFAULT_FALLBACK_MODEL=claude-haiku-4-5       # cross-provider fallback (needs ANTHROPIC_API_KEY)
    # Cost guardrails (INR):
    AI_TARGET_PROFILE_COST_INR=4
    AI_COST_ALERT_PROFILE_INR=6

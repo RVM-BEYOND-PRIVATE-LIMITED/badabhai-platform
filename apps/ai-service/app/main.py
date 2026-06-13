@@ -36,6 +36,11 @@ from .contracts import (
 from .extraction import build_resume
 from .logging_config import configure_logging, get_logger
 from .profiling import interview_engine, profile_extractor
+from .profiling.canonical_roles import (
+    ROLE_TRADE,
+    canonicalization_instruction,
+    normalize_role_id,
+)
 from .profiling.prompts import (
     EXTRACTION_SYSTEM_PROMPT,
     RESUME_SYSTEM_PROMPT,
@@ -163,9 +168,13 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
     rich, legacy = profile_extractor.extract(raw, body.role_family)
 
     # 3. Route for cost/tracing + optional real-model extraction. The LLM only
-    #    ever sees the pseudonymized transcript.
+    #    ever sees the pseudonymized transcript. The canonicalization rubric makes
+    #    the model emit a `canonical_role_id` from the closed taxonomy set.
     messages = [
-        {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT + _schema_hint()},
+        {
+            "role": "system",
+            "content": EXTRACTION_SYSTEM_PROMPT + canonicalization_instruction() + _schema_hint(),
+        },
         {"role": "user", "content": result.text},
     ]
     content, meta = await router.run(
@@ -178,6 +187,19 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
     # In real mode, prefer a valid LLM profile but keep locally-read fields
     # (city/salary) since the model only saw masked text.
     if meta.real_call and meta.success:
+        # Canonicalization first, LENIENTLY: pull the role id straight from the raw
+        # JSON and trust it only if it is a known canonical id (reject
+        # hallucinations). This is independent of the strict rich-draft validation
+        # below — the model routinely nulls/loosely-types enrichment fields, and a
+        # correct canonical role id must not be discarded just because (say)
+        # `experience_level` came back null. A valid id overrides the heuristic on
+        # `legacy` — the field the canonicalization eval measures — and derives the
+        # trade id. A null/invalid id keeps the heuristic.
+        role_id = normalize_role_id(_extract_canonical_role_id(content))
+        if role_id is not None:
+            legacy.canonical_role_id = role_id
+            legacy.canonical_trade_id = ROLE_TRADE.get(role_id, legacy.canonical_trade_id)
+        # Best-effort enrichment overlay when the full draft validates.
         parsed = _safe_parse_worker_profile(content)
         if parsed is not None:
             rich = _overlay_local_fields(parsed, rich)
@@ -272,6 +294,18 @@ def _safe_parse_worker_profile(content: str) -> WorkerProfileDraft | None:
         return WorkerProfileDraft.model_validate_json(content)
     except Exception:  # noqa: BLE001 - tolerate any malformed LLM output
         return None
+
+
+def _extract_canonical_role_id(content: str) -> str | None:
+    """Pull `canonical_role_id` from raw LLM JSON, tolerating any other malformed
+    fields. Returns None if the content is not a JSON object or lacks the key —
+    canonicalization must not hinge on the whole enrichment draft validating."""
+    try:
+        data = json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    value = data.get("canonical_role_id") if isinstance(data, dict) else None
+    return value if isinstance(value, str) else None
 
 
 def _overlay_local_fields(

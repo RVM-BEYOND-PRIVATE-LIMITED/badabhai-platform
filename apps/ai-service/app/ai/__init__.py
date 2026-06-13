@@ -1,4 +1,4 @@
-"""AI infrastructure: model routing, cost tracking, Langfuse tracing, LiteLLM.
+"""AI infrastructure: model routing, cost tracking, Langfuse tracing, direct Gemini.
 
 The single public entry point is :class:`app.ai.router.AIRouter`. Domain code
 (profiling/extraction) supplies prompts + a deterministic mock response; the

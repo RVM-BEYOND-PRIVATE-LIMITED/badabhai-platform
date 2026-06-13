@@ -2,6 +2,9 @@ fastapi>=0.115,<1.0
 uvicorn[standard]>=0.32,<1.0
 pydantic>=2.9,<3.0
 pydantic-settings>=2.6,<3.0
-# LiteLLM + Langfuse are intentionally NOT hard dependencies in Phase 1 (real LLM
-# calls are disabled by default). For real mode, install the optional extras:
+# httpx is the transport for the direct Gemini (Google AI Studio) REST call in
+# real mode and for the eval --real CLI. Always installed; the call itself stays
+# gated behind AI_ENABLE_REAL_CALLS + GEMINI_FLASH_API_KEY (mock by default).
+httpx>=0.27,<1.0
+# Langfuse is the only optional real-mode extra (tracing). For real mode install:
 #   pip install -r requirements-ai.txt

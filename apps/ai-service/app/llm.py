@@ -1,9 +1,10 @@
-"""LiteLLM adapter — PLACEHOLDER for Phase 1.
+"""LLM adapter — PLACEHOLDER (unused).
 
-The real adapter will route prompts through LiteLLM. In Phase 1 it is never
-invoked with real traffic: callers check ``can_call()`` and fall back to mock
-responses. Crucially, this adapter is only ever reachable AFTER pseudonymization
-has succeeded (the caller must pass already-pseudonymized text).
+The live model path is ``app.ai.router.AIRouter`` -> ``app.ai.gemini_client``
+(direct Gemini over REST, no LiteLLM). This stub is retained only as the
+``can_call()`` gate example; it is never invoked with real traffic and is only
+ever reachable AFTER pseudonymization has succeeded (callers must pass
+already-pseudonymized text).
 """
 
 from __future__ import annotations
@@ -23,17 +24,12 @@ class LlmAdapter:
         return (reason is None, reason)
 
     async def complete(self, *, prompt: str, purpose: str) -> str:
-        """Run a completion via LiteLLM. Phase 1: not wired — fails closed.
+        """Unused stub — the live path is ``app.ai.gemini_client.acomplete``.
 
         ``prompt`` MUST already be pseudonymized by the caller.
         """
         enabled, reason = self.can_call()
         if not enabled:
             raise RuntimeError(f"LLM calls are disabled: {reason}")
-        # TODO(Phase 2): integrate LiteLLM, e.g.
-        #   import litellm
-        #   resp = await litellm.acompletion(model=..., messages=[...],
-        #       api_base=self._settings.litellm_base_url, api_key=self._settings.litellm_api_key)
-        #   return resp.choices[0].message.content
-        logger.warning("LlmAdapter.complete called but LiteLLM integration is not implemented")
-        raise NotImplementedError("LiteLLM integration is not implemented in Phase 1")
+        logger.warning("LlmAdapter.complete is a stub; use app.ai.router.AIRouter")
+        raise NotImplementedError("LlmAdapter is unused; route via app.ai.router.AIRouter")

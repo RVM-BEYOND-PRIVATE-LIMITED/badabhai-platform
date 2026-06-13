@@ -65,16 +65,32 @@ def resolve_model(task_type: str, settings: Settings) -> str:
 
 # (input_per_1k, output_per_1k) INR estimates. Unknown models fall back to a
 # conservative default. These are deliberately centralized + overridable.
+# Gemini 2.5 Flash list price (~$0.30 in / $2.50 out per 1M tokens) ~=
+# Rs 0.025 in / Rs 0.21 out per 1k at ~Rs 83/USD. We use the bare model id; a
+# legacy ``gemini/``-prefixed alias maps to the same rate (harmless entry).
 _DEFAULT_RATE_INR: tuple[float, float] = (0.05, 0.15)
+_GEMINI_25_FLASH_RATE_INR: tuple[float, float] = (0.025, 0.21)
 _MODEL_RATES_INR: dict[str, tuple[float, float]] = {
     "gemini-flash-lite": (0.006, 0.024),
     "gemini-flash": (0.012, 0.048),
+    "gemini-2.5-flash": _GEMINI_25_FLASH_RATE_INR,
+    "gemini/gemini-2.5-flash": _GEMINI_25_FLASH_RATE_INR,
+    # 2.5 Flash-Lite list price (~$0.10 in / $0.40 out per 1M) ~= Rs 0.008 in /
+    # Rs 0.033 out per 1k at ~Rs 83/USD.
+    "gemini-2.5-flash-lite": (0.008, 0.033),
     "claude-haiku-or-gemini-flash": (0.02, 0.08),
     "claude-haiku": (0.07, 0.35),
+    # Claude Haiku 4.5 (fallback provider): $1/1M in, $5/1M out ~= Rs 0.083 in /
+    # Rs 0.415 out per 1k at ~Rs 83/USD.
+    "claude-haiku-4-5": (0.083, 0.415),
 }
 
 
 def provider_for_model(model: str) -> str:
+    """Coarse provider label used for BOTH cost/observability metadata AND the
+    router's provider dispatch: "google" -> direct Gemini (``gemini_client``),
+    "anthropic" -> Claude via the SDK (``anthropic_client``). Other labels have
+    no live transport and are metadata-only."""
     m = model.lower()
     if "gemini" in m or "vertex" in m:
         return "google"
@@ -82,7 +98,7 @@ def provider_for_model(model: str) -> str:
         return "anthropic"
     if "gpt" in m or "openai" in m:
         return "openai"
-    return "litellm"
+    return "unknown"
 
 
 def rate_inr_per_1k(model: str) -> tuple[float, float]:

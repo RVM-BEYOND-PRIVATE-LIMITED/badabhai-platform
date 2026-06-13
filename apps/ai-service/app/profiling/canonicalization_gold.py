@@ -281,12 +281,18 @@ def evaluate(
     extract_fn: ExtractFn = _heuristic_extract,
     *,
     tiers: tuple[Tier, ...] = ("core", "negative", "hard"),
+    per_tier_limit: int | None = None,
 ) -> EvalResult:
     """Score ``extract_fn`` over the gold set, broken down by tier.
 
     ``extract_fn`` defaults to the deterministic heuristic. In staging the
     eval CLI passes a client that POSTs to the real ``/profile/extract`` and
     reads back ``canonical_role_id`` — same gold set, same scoring.
+
+    ``per_tier_limit`` caps how many cases are scored PER TIER — a stratified
+    subset so a real run fits inside a tight provider quota (e.g. a free-tier
+    20-requests/day cap) while still covering every tier. ``None`` = full set
+    (the CI/heuristic gate always uses the full set).
     """
     by_tier: dict[str, TierResult] = {}
     all_misses: list[str] = []
@@ -294,6 +300,8 @@ def evaluate(
     total_count = 0
     for tier in tiers:
         cases = [c for c in GOLD_CASES if c.tier == tier]
+        if per_tier_limit is not None:
+            cases = cases[:per_tier_limit]
         if not cases:
             continue
         hits, misses = _score(cases, extract_fn)

@@ -1,12 +1,8 @@
 """AI service configuration (env-driven).
 
 Real LLM calls are gated and FAIL CLOSED: they require AI_ENABLE_REAL_CALLS=true
-AND an LLM gateway key. Default is mock-only.
-
-NOTE: ``LITELLM_BASE_URL`` / ``LITELLM_API_KEY`` keep their names for now but now
-feed an OpenAI-compatible client (``openai`` SDK), not litellm. They are generic
-"LLM gateway" config — point them at any OpenAI-protocol endpoint (e.g. Gemini's
-OpenAI-compatible endpoint). TD: rename LITELLM_* -> LLM_* (see tech-debt-register).
+AND a direct Gemini key (GEMINI_FLASH_API_KEY). The real provider is Google AI
+Studio (Gemini) reached over REST — there is NO LiteLLM proxy. Default mock-only.
 """
 
 from __future__ import annotations
@@ -24,15 +20,29 @@ class Settings(BaseSettings):
     # compatible). The master flag + key are still required regardless.
     ai_real_call_tasks: str = ""
 
-    litellm_base_url: str = "http://localhost:4000"
-    litellm_api_key: str | None = None
+    # Direct Google AI Studio (Gemini) API key. The PRIMARY real-call credential
+    # and the master gate for real calls (see real_calls_blocked_reason). The
+    # field name maps to the env var GEMINI_FLASH_API_KEY (pydantic-settings is
+    # case-insensitive). Optional so mock mode boots without it.
+    gemini_flash_api_key: str | None = None
+
+    # Anthropic (Claude) API key — credential for the FALLBACK provider only.
+    # Maps to env ANTHROPIC_API_KEY. Its presence ADDS Claude Haiku to the
+    # router's provider-fallback chain; it is NOT a master gate (Gemini's key
+    # still governs whether real calls happen at all). Optional.
+    anthropic_api_key: str | None = None
 
     # Model routing. Cheap model handles high-volume chat turns; the capable
-    # model handles strict-JSON extraction. Names are BARE OpenAI-protocol model
-    # ids (no "openai/" prefix), e.g. "gemini-2.0-flash" against Gemini's
-    # OpenAI-compatible endpoint.
-    default_cheap_model: str = "gemini-flash-lite"
-    default_capable_model: str = "claude-haiku-or-gemini-flash"
+    # model handles strict-JSON extraction. Bare Gemini model ids (no provider
+    # prefix). Defaults are REAL Gemini ids so the service resolves a valid model
+    # even when .env is absent; .env overrides them per environment.
+    default_cheap_model: str = "gemini-2.5-flash-lite"
+    default_capable_model: str = "gemini-2.5-flash-lite"
+    # Cross-provider FALLBACK model: tried by the router only AFTER the primary
+    # (Gemini) candidate fails, and only when anthropic_api_key is set and this
+    # model's provider differs from the primary's. Claude Haiku 4.5 (no date
+    # suffix per the Anthropic API).
+    default_fallback_model: str = "claude-haiku-4-5"
 
     # Per-profile cost guardrails (INR). Used for alerting only in Phase 1.
     ai_cost_alert_profile_inr: float = 6.0
@@ -49,22 +59,18 @@ class Settings(BaseSettings):
     langfuse_secret_key: str | None = None
     langfuse_base_url: str = "https://cloud.langfuse.com"
 
-    # Google Cloud / Gemini (only consumed by LiteLLM in real mode; never by the
-    # frontend). All optional so mock mode boots without them.
-    google_cloud_project: str | None = None
-    google_cloud_location: str | None = None
-    gemini_api_key: str | None = None
-
     ai_service_port: int = 8000
 
     def real_calls_blocked_reason(self) -> str | None:
-        """Return why real LLM calls are disabled, or None if allowed."""
+        """Return why real LLM calls are disabled, or None if allowed.
+
+        Real calls require the master flag AND a direct Gemini key. With either
+        missing we fail closed (a non-None reason) so the mock path is used.
+        """
         if not self.ai_enable_real_calls:
             return "AI_ENABLE_REAL_CALLS is false"
-        if not self.litellm_api_key:
-            return "LITELLM_API_KEY is not set"
-        if not self.litellm_base_url:
-            return "LITELLM_BASE_URL is not set"
+        if not self.gemini_flash_api_key:
+            return "GEMINI_FLASH_API_KEY is not set"
         return None
 
     @property
