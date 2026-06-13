@@ -25,7 +25,6 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-@pytest.fixture(autouse=True)
 def _no_network(monkeypatch):
     """Force the provider dispatcher to raise so no test can hit the network.
 

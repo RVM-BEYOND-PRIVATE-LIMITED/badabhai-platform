@@ -46,16 +46,25 @@ empty allowlist keeps the previous "all tasks" behavior (backward compatible).
 
 ## Staging rollout steps
 
-1. **Install real-mode deps** (adds `langfuse`; `httpx` is already a base dep):
+1. **Install real-mode deps** (adds `anthropic` + `langfuse`; `httpx` is already a base dep):
    ```bash
    pip install -r requirements-ai.txt
    ```
-2. **Set staging env** (never commit these):
+   > The real path calls Google AI Studio (Gemini) **directly over REST** with
+   > `httpx` — **no** litellm and **no** openai SDK. The Anthropic SDK is only the
+   > fallback provider (Claude Haiku). The single master credential is
+   > `GEMINI_FLASH_API_KEY`; `ANTHROPIC_API_KEY` merely adds the fallback candidate.
+2. **Set staging env** (never commit these). A ready-to-fill, secrets-free
+   template lives at
+   [`apps/ai-service/.env.staging.example`](../../apps/ai-service/.env.staging.example) —
+   copy it into the staging secrets / a staging `.env` and fill the `<...>` placeholders:
    ```bash
    AI_ENABLE_REAL_CALLS=true
    AI_REAL_CALL_TASKS=profile_extraction        # ONLY canonicalization goes real
    GEMINI_FLASH_API_KEY=<google ai studio key>  # the single real-call credential
+   ANTHROPIC_API_KEY=<anthropic key>            # OPTIONAL — adds the Claude Haiku fallback
    DEFAULT_CAPABLE_MODEL=gemini-2.5-flash       # extraction tier (bare model id)
+   DEFAULT_FALLBACK_MODEL=claude-haiku-4-5       # cross-provider fallback (needs ANTHROPIC_API_KEY)
    # Cost guardrails (INR):
    AI_TARGET_PROFILE_COST_INR=4
    AI_COST_ALERT_PROFILE_INR=6
@@ -63,6 +72,9 @@ empty allowlist keeps the previous "all tasks" behavior (backward compatible).
    # Observability (so cost/profile shows in Langfuse over pseudonymized text only):
    LANGFUSE_PUBLIC_KEY=<...>
    LANGFUSE_SECRET_KEY=<...>
+   # Per-field pytest gate target (only the staging pytest run reads this; the
+   # CLI uses --base-url). Unset => the real per-field test is SKIPPED.
+   AI_EVAL_BASE_URL=http://localhost:8000
    ```
 3. **Confirm the gate** at boot: `GET /health` →
    `real_calls_enabled: true`, `langfuse_enabled: true`. Then a chat turn must
@@ -87,6 +99,56 @@ empty allowlist keeps the previous "all tasks" behavior (backward compatible).
    > Offline regression (no server, deterministic heuristic) is the same command
    > without `--real`; CI runs it via `tests/test_canonicalization_eval.py`,
    > which gates only `core + negative ≥ 90%` and tracks `hard` as informational.
+
+4b. **Validate PER-FIELD accuracy ≥ 90% + attribute misses** — same gold set,
+   scores every extracted field (not just role) and classifies each miss:
+   ```bash
+   python -m app.profiling.eval_canonicalization --per-field --real
+   # FREE TIER (low RPM): pace the run so it doesn't mass-429 + fall back to mock:
+   python -m app.profiling.eval_canonicalization --per-field --real --min-interval 6
+   # offline heuristic (no server, no LLM):
+   python -m app.profiling.eval_canonicalization --per-field
+   ```
+   This POSTs each FABRICATED transcript to the LOCAL `POST /profile/extract`
+   (and smoke-tests `POST /profiling/respond` so the rig touches both real
+   endpoints), reads back the full profile, and scores **per field + an
+   aggregate**, exiting non-zero if the aggregate `< 90%`:
+
+   | field             | match semantics                                  |
+   | ----------------- | ------------------------------------------------ |
+   | `trade` / `role`  | exact taxonomy id (derived trade defaults from role) |
+   | `skills`          | subset — all expected skill ids present (extras OK) |
+   | `machines`        | subset — all expected machine ids present (extras OK) |
+   | `experience`      | years within `±0.5` (`None` = assert no experience) |
+
+   **Miss attribution (TD3 over-masking vs extraction error):** for every miss
+   it re-runs the SAME input through `POST /pseudonymize` (the gateway the
+   extraction path uses) and checks whether the answer's anchor term — which was
+   literally present in the source — survived masking. Anchor *removed by the
+   gateway* → **over-masking (TD3)**; anchor *survived but mis-canonicalized*
+   (or never present, i.e. implicit/out-of-vocab phrasing) → **extraction
+   error**. The report prints the split and the dominant cause. It never inspects
+   the original↔token mapping (the endpoint never returns it) and never bypasses
+   pseudonymization.
+
+   > **Mock-fallback contamination (measurement correctness).** The router
+   > **returns mock content on any model failure** (e.g. a free-tier 429), and
+   > `/profile/extract` still reports `is_mock: false` because it reflects "a real
+   > call was *attempted*", not "the content is real". The rig therefore reads
+   > **`ai_metadata.real_call` + `ai_metadata.success`** (NOT `is_mock`): a case
+   > with `real_call=true AND success=false` is a **mock fallback**. If ANY scored
+   > case fell back, the `--real` run is declared **INVALID** — it prints a loud
+   > `INVALID REAL RUN: N/M cases fell back to mock …` banner, exits non-zero, and
+   > **does NOT print a PASS/FAIL aggregate**, so a throttled/erroring run can
+   > never be mistaken for a real ≥90% (or <90%) result. Fix it by enabling **paid
+   > billing** (the clean path) or pacing with **`--min-interval SECONDS`**, then
+   > retry. A clean run prints `real calls: N/N succeeded`.
+   >
+   > CI/local: the same scoring runs as a structural/heuristic test
+   > (`tests/test_per_field_eval.py`) with **no network and no LLM**; the live
+   > `≥ 90%` assertion (`test_per_field_real_meets_threshold`) is **skipped**
+   > unless `real_call_enabled_for("profile_extraction")` is true AND
+   > `AI_EVAL_BASE_URL` is set — so CI never makes a real call.
 5. **Watch cost/profile in Langfuse:** each call traces `task_type`, `model`,
    `real_call`, latency, and the INR estimate — over **pseudonymized text only**.
    Confirm per-profile cost is within target and no `cost_alert` fires.
