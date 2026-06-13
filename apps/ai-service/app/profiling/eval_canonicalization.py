@@ -42,20 +42,37 @@ class _RoleOnly:
         self.canonical_role_id = canonical_role_id
 
 
-def _make_real_extract_fn(base_url: str, timeout: float = 30.0) -> gold.ExtractFn:
+def _make_real_extract_fn(
+    base_url: str, timeout: float = 120.0, delay_seconds: float = 0.0
+) -> gold.ExtractFn:
     """Return an extract_fn that POSTs each text to the LOCAL /profile/extract.
 
     The endpoint pseudonymizes first, then extracts (mock or real per the gate),
     and returns the legacy DraftProfile. We read back ``canonical_role_id`` only.
+
+    ``timeout`` is generous because a real call may back off on a provider rate
+    limit (429) server-side. ``delay_seconds`` paces the (sequential) requests to
+    stay under a free-tier per-minute quota so calls succeed on the first try. A
+    per-case transport error is reported and counted as a miss (None) rather than
+    crashing the whole run.
     """
+    import time
+
     import httpx  # local import: only needed for --real, keeps default path stdlib
 
     url = base_url.rstrip("/") + "/profile/extract"
     client = httpx.Client(timeout=timeout)
 
     def extract_fn(text: str) -> object:
-        resp = client.post(url, json={"transcript": text})
-        resp.raise_for_status()
+        if delay_seconds:
+            time.sleep(delay_seconds)
+        try:
+            resp = client.post(url, json={"transcript": text})
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:  # timeout / non-2xx — count as a miss, keep going
+            print(f"  [warn] request failed ({type(exc).__name__}); scoring as miss",
+                  file=sys.stderr)
+            return _RoleOnly(None)
         data = resp.json()
         profile = data.get("profile") or {}
         return _RoleOnly(profile.get("canonical_role_id"))
@@ -112,19 +129,35 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_BASE_URL,
         help=f"Base URL of the local AI service (default: {DEFAULT_BASE_URL}).",
     )
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=0.0,
+        help="Seconds to pace between --real requests (stay under a free-tier "
+        "per-minute quota, e.g. 4.0). Default 0 (no pacing).",
+    )
+    parser.add_argument(
+        "--per-tier",
+        type=int,
+        default=None,
+        help="Score only the first N cases of EACH tier (stratified subset). Lets "
+        "a real run fit a tight quota (e.g. a free-tier 20/day cap) while still "
+        "covering every tier. Default: the full gold set.",
+    )
     args = parser.parse_args(argv)
 
     if args.real:
         # Real mode: score every tier against the live local endpoint.
         try:
-            extract_fn = _make_real_extract_fn(args.base_url)
+            extract_fn = _make_real_extract_fn(args.base_url, delay_seconds=args.delay)
         except ImportError:
             print("error: --real needs httpx (pip install -r requirements-dev.txt)",
                   file=sys.stderr)
             return 2
         print(f"Mode: --real -> POST {args.base_url.rstrip('/')}/profile/extract "
-              "(pseudonymizes first; fabricated data only)\n")
-        result = gold.evaluate(extract_fn)
+              "(pseudonymizes first; fabricated data only)"
+              + (f"  [per-tier subset: {args.per_tier}]" if args.per_tier else "") + "\n")
+        result = gold.evaluate(extract_fn, per_tier_limit=args.per_tier)
         _print_report(result, gated_only=False)
         passed = result.overall_accuracy >= gold.THRESHOLD
         print(f"\n{'PASS' if passed else 'FAIL'}: overall "

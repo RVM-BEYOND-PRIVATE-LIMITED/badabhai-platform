@@ -1,6 +1,9 @@
 # Optional dependencies for REAL AI mode (AI_ENABLE_REAL_CALLS=true).
-# Not installed by default: mock mode runs with requirements.txt only, so local
-# dev and CI never need these. Install with:  pip install -r requirements-ai.txt
+# The PRIMARY real provider is Google AI Studio (Gemini), called DIRECTLY over
+# REST with httpx (a base runtime dep in requirements.txt) — there is NO LiteLLM
+# proxy/SDK. The FALLBACK provider is Anthropic (Claude Haiku), reached via the
+# official ``anthropic`` SDK. Langfuse is for tracing. Mock mode runs with
+# requirements.txt only. Install with:  pip install -r requirements-ai.txt
 -r requirements.txt
-litellm>=1.50,<2.0
 langfuse>=2.0,<3.0
+anthropic>=0.40,<1.0

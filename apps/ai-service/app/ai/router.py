@@ -19,14 +19,13 @@ import time
 from ..config import Settings
 from ..contracts import AICallMetadata
 from ..logging_config import get_logger
-from . import cost_tracker
+from . import cost_tracker, providers
 from .langfuse_tracing import LangfuseTracer
-from .litellm_client import acomplete
-from .model_config import get_route, resolve_model
+from .model_config import get_route, provider_for_model, resolve_model
 
 logger = get_logger("ai.router")
 
-# A chat message in LiteLLM/OpenAI format.
+# A chat message in OpenAI-style format (mapped to Gemini by the client).
 Message = dict[str, str]
 
 
@@ -50,84 +49,116 @@ class AIRouter:
         real_call_allowed: bool = True,
     ) -> tuple[str, AICallMetadata]:
         route = get_route(task_type)
-        model = resolve_model(task_type, self._settings)
+        primary_model = resolve_model(task_type, self._settings)
         # Per-task gating: real only if the master flag + key are set AND this
         # task is allowlisted (empty allowlist = all tasks). Lets ONE role go real.
         real = self._settings.real_call_enabled_for(task_type) and real_call_allowed
         input_text = "\n".join(m.get("content", "") for m in messages)
         start = time.perf_counter()
 
-        # Hard spend ceiling: refuse a real call whose WORST-CASE cost (input
-        # tokens + the route's max output tokens) would exceed the per-call cap.
-        # Stateless guardrail against a runaway/expensive call; per-profile
+        # Ordered provider-fallback chain: primary (Gemini) first, then the
+        # configured cross-provider fallback (Claude Haiku) IFF its key is set
+        # AND its provider differs from the primary's. Each candidate is tried in
+        # turn; the first success wins. messages are pseudonymized once, upstream,
+        # and reused unchanged for every candidate (privacy invariant intact).
+        candidates = self._candidate_models(primary_model) if real else []
+
+        # Hard spend ceiling: a candidate whose WORST-CASE cost (input tokens +
+        # the route's max output tokens, priced at THAT model's rate) would exceed
+        # the per-call cap is skipped. Stateless runaway guard; per-profile
         # cumulative budgets are a deferred enhancement.
-        ceiling_blocked = False
-        if real:
+        any_attempted = False  # did at least one candidate actually reach the network?
+        ceiling_skipped_any = False
+        for model in candidates:
             worst_case_inr = cost_tracker.estimate_cost_inr(
                 model, cost_tracker.estimate_tokens(input_text), route.max_output_tokens
             )
             if worst_case_inr > self._settings.ai_max_call_cost_inr:
                 logger.warning(
-                    "cost ceiling exceeded; skipping real call",
+                    "cost ceiling exceeded; skipping candidate",
                     extra={"extra": {
                         "task": task_type, "model": model,
                         "worst_case_inr": worst_case_inr,
                         "ceiling_inr": self._settings.ai_max_call_cost_inr,
                     }},
                 )
-                real = False
-                ceiling_blocked = True
+                ceiling_skipped_any = True
+                continue
 
-        if not real:
-            # Mock path: deterministic, no network. Still logs estimated cost.
-            latency = int((time.perf_counter() - start) * 1000)
-            meta = cost_tracker.build_call_metadata(
-                task_type=task_type, model=model, real_call=False,
-                input_tokens=cost_tracker.estimate_tokens(input_text),
-                output_tokens=cost_tracker.estimate_tokens(mock_response),
-                latency_ms=latency, success=True, settings=self._settings,
-                error_code="cost_ceiling_exceeded" if ceiling_blocked else None,
-            )
-            self._trace(task_type, model, False, input_text, mock_response, meta)
-            return mock_response, meta
+            # Attempt this candidate with the route's per-attempt retries.
+            any_attempted = True
+            for attempt in range(route.max_retries + 1):
+                try:
+                    result = await providers.complete(
+                        settings=self._settings, model=model, messages=messages,
+                        max_output_tokens=route.max_output_tokens,
+                        temperature=route.temperature, json_mode=route.json_mode,
+                    )
+                    latency = int((time.perf_counter() - start) * 1000)
+                    in_tok = result.input_tokens or cost_tracker.estimate_tokens(input_text)
+                    out_tok = result.output_tokens or cost_tracker.estimate_tokens(result.content)
+                    meta = cost_tracker.build_call_metadata(
+                        task_type=task_type, model=model, real_call=True,
+                        input_tokens=in_tok, output_tokens=out_tok,
+                        latency_ms=latency, success=True, settings=self._settings,
+                    )
+                    self._trace(task_type, model, True, input_text, result.content, meta)
+                    return result.content, meta
+                except Exception as exc:
+                    # NEVER log the exception body (may echo pseudonymized content)
+                    # — only its type, the attempt, the task, and the model.
+                    logger.warning(
+                        "llm attempt failed",
+                        extra={"extra": {
+                            "attempt": attempt, "task": task_type, "model": model,
+                            "error_type": type(exc).__name__,
+                        }},
+                    )
 
-        # Real path with retries; falls back to mock on failure (never raises).
-        last_error = "unknown"
-        for attempt in range(route.max_retries + 1):
-            try:
-                result = await acomplete(
-                    settings=self._settings, model=model, messages=messages,
-                    max_output_tokens=route.max_output_tokens,
-                    temperature=route.temperature, json_mode=route.json_mode,
-                )
-                latency = int((time.perf_counter() - start) * 1000)
-                in_tok = result.input_tokens or cost_tracker.estimate_tokens(input_text)
-                out_tok = result.output_tokens or cost_tracker.estimate_tokens(result.content)
-                meta = cost_tracker.build_call_metadata(
-                    task_type=task_type, model=model, real_call=True,
-                    input_tokens=in_tok, output_tokens=out_tok,
-                    latency_ms=latency, success=True, settings=self._settings,
-                )
-                self._trace(task_type, model, True, input_text, result.content, meta)
-                return result.content, meta
-            except Exception as exc:
-                last_error = str(exc)
-                logger.warning(
-                    "llm attempt failed",
-                    extra={"extra": {"attempt": attempt, "task": task_type, "error": last_error}},
-                )
+        # No candidate succeeded (or none were allowed). Fall back to the
+        # deterministic mock — the router NEVER raises (fail-safe). Metadata is
+        # reported under the PRIMARY model. Three terminal states:
+        #   - at least one candidate hit the network and all failed -> real_call
+        #     True, success False, error "llm_call_failed".
+        #   - real was allowed but every candidate was ceiling-skipped (none
+        #     attempted) -> real_call False, success True, "cost_ceiling_exceeded".
+        #   - real disabled / opted out / not allowlisted -> plain mock.
+        if any_attempted:
+            real_flag, success, error_code = True, False, "llm_call_failed"
+        elif ceiling_skipped_any:
+            real_flag, success, error_code = False, True, "cost_ceiling_exceeded"
+        else:
+            real_flag, success, error_code = False, True, None
 
-        # All attempts failed -> safe fallback to mock content.
         latency = int((time.perf_counter() - start) * 1000)
         meta = cost_tracker.build_call_metadata(
-            task_type=task_type, model=model, real_call=True,
+            task_type=task_type, model=primary_model, real_call=real_flag,
             input_tokens=cost_tracker.estimate_tokens(input_text),
             output_tokens=cost_tracker.estimate_tokens(mock_response),
-            latency_ms=latency, success=False, settings=self._settings,
-            error_code="llm_call_failed",
+            latency_ms=latency, success=success, settings=self._settings,
+            error_code=error_code,
         )
-        self._trace(task_type, model, True, input_text, mock_response, meta)
+        self._trace(task_type, primary_model, real_flag, input_text, mock_response, meta)
         return mock_response, meta
+
+    def _candidate_models(self, primary_model: str) -> list[str]:
+        """Ordered provider-fallback chain for a real call.
+
+        primary_model (Gemini) first; then ``settings.default_fallback_model``
+        (Claude Haiku) IFF ``settings.anthropic_api_key`` is set AND its provider
+        differs from the primary's. De-duplicated, order preserved. The fallback
+        key is NOT a master gate — Gemini's key already governs whether real calls
+        happen at all (checked upstream via ``real_call_enabled_for``)."""
+        candidates = [primary_model]
+        fallback = self._settings.default_fallback_model
+        if (
+            self._settings.anthropic_api_key
+            and fallback
+            and fallback not in candidates
+            and provider_for_model(fallback) != provider_for_model(primary_model)
+        ):
+            candidates.append(fallback)
+        return candidates
 
     def _trace(
         self, task_type: str, model: str, real: bool, input_text: str, output_text: str,

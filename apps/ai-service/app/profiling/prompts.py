@@ -43,7 +43,7 @@ def build_chat_messages(
     next_question: str,
     pseudonymized_message: str,
 ) -> list[dict[str, str]]:
-    """Build OpenAI/LiteLLM-format messages for one chat turn.
+    """Build OpenAI-style messages for one chat turn (mapped to Gemini downstream).
 
     Every string here is pseudonymized. The engine has already chosen the next
     question; the model only needs to phrase it warmly.

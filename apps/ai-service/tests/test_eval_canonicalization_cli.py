@@ -29,7 +29,9 @@ def test_real_mode_scores_all_tiers_against_stub_endpoint(capsys, monkeypatch):
     stub echoes the heuristic, so overall < 90% -> exit 1 (same as mock staging).
     """
 
-    def fake_extract_fn(base_url: str, timeout: float = 30.0) -> gold.ExtractFn:
+    def fake_extract_fn(
+        base_url: str, timeout: float = 120.0, delay_seconds: float = 0.0
+    ) -> gold.ExtractFn:
         def extract_fn(text: str) -> object:
             # Mimic the endpoint: heuristic over the (locally) extracted text.
             _rich, legacy = gold.profile_extractor.extract(text)

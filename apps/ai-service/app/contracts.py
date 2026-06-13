@@ -146,6 +146,9 @@ class WorkerProfileDraft(BaseModel):
 
     role_family: str = "cnc_vmc"
     primary_role: str | None = None
+    # The model's canonicalized role id (one of canonical_roles.ROLE_IDS or null).
+    # Optional → backward compatible; VALIDATED against the closed set before use.
+    canonical_role_id: str | None = None
     secondary_roles: list[str] = Field(default_factory=list)
     machines: list[str] = Field(default_factory=list)
     controllers: list[str] = Field(default_factory=list)
