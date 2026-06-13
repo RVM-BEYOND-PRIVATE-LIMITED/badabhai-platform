@@ -39,6 +39,7 @@ from .profiling import interview_engine, profile_extractor
 from .profiling.canonical_roles import (
     ROLE_TRADE,
     canonicalization_instruction,
+    extract_canonical_role_id,
     normalize_role_id,
 )
 from .profiling.prompts import (
@@ -195,14 +196,13 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
         # `experience_level` came back null. A valid id overrides the heuristic on
         # `legacy` — the field the canonicalization eval measures — and derives the
         # trade id. A null/invalid id keeps the heuristic.
-        role_id = normalize_role_id(_extract_canonical_role_id(content))
+        role_id = normalize_role_id(extract_canonical_role_id(content))
         if role_id is not None:
             legacy.canonical_role_id = role_id
             legacy.canonical_trade_id = ROLE_TRADE.get(role_id, legacy.canonical_trade_id)
-        # Best-effort enrichment overlay when the full draft validates.
-        parsed = _safe_parse_worker_profile(content)
-        if parsed is not None:
-            rich = _overlay_local_fields(parsed, rich)
+        # Field-by-field enrichment overlay: keep each well-formed model field even
+        # when siblings are malformed (location/salary stay local — masked input).
+        rich = profile_extractor.merge_model_draft(rich, content)
 
     logger.info("profile extracted", extra={"extra": {"is_mock": not meta.real_call}})
     return ProfileExtractionOutput(
@@ -289,33 +289,3 @@ def _schema_hint() -> str:
     return f"Schema keys: {keys}."
 
 
-def _safe_parse_worker_profile(content: str) -> WorkerProfileDraft | None:
-    try:
-        return WorkerProfileDraft.model_validate_json(content)
-    except Exception:  # noqa: BLE001 - tolerate any malformed LLM output
-        return None
-
-
-def _extract_canonical_role_id(content: str) -> str | None:
-    """Pull `canonical_role_id` from raw LLM JSON, tolerating any other malformed
-    fields. Returns None if the content is not a JSON object or lacks the key —
-    canonicalization must not hinge on the whole enrichment draft validating."""
-    try:
-        data = json.loads(content)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    value = data.get("canonical_role_id") if isinstance(data, dict) else None
-    return value if isinstance(value, str) else None
-
-
-def _overlay_local_fields(
-    parsed: WorkerProfileDraft, local: WorkerProfileDraft
-) -> WorkerProfileDraft:
-    """Keep locally-detected location/salary on the LLM-parsed draft (the model
-    only saw pseudonymized text, so it cannot know these)."""
-    parsed.current_city = local.current_city
-    parsed.preferred_locations = local.preferred_locations
-    parsed.relocation_willingness = local.relocation_willingness
-    parsed.current_salary = local.current_salary
-    parsed.expected_salary = local.expected_salary
-    return parsed

@@ -30,10 +30,17 @@ class TaskRoute:
 
 # Routing rules per the Phase-1 spec.
 _ROUTES: dict[str, TaskRoute] = {
-    # High-volume chat: cheap model, short + warm.
+    # High-volume chat: cheap model, short + warm. The persona MUST return strict
+    # JSON ({"message", "ready_to_extract"}), so json_mode is ON — without it the
+    # model writes a chatty prose preamble BEFORE the JSON and intermittently
+    # exhausts the token budget (MAX_TOKENS -> empty/truncated candidate -> the
+    # whole turn fails over to the fallback). json_mode forces a pure JSON object
+    # (the warm reaction lives INSIDE "message"); 512 tokens give a comfortable
+    # margin for a Hinglish line; one retry smooths a transient blip before the
+    # router escalates to the next provider.
     "profiling_chat_turn": TaskRoute(
-        "profiling_chat_turn", "cheap", max_output_tokens=256, temperature=0.6,
-        json_mode=False, max_retries=0,
+        "profiling_chat_turn", "cheap", max_output_tokens=512, temperature=0.6,
+        json_mode=True, max_retries=1,
     ),
     # Extraction: capable model, strict JSON, retries allowed.
     "profile_extraction": TaskRoute(

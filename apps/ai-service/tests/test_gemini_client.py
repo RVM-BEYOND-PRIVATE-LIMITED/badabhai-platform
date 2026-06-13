@@ -14,11 +14,43 @@ from app.ai import gemini_client
 from app.ai.gemini_client import (
     LlmResult,
     _bare_model_id,
+    _is_daily_quota_429,
     _parse_gemini_response,
     _to_gemini_request,
     acomplete,
 )
 from app.config import Settings
+
+
+class _QuotaResponse:
+    """Minimal stand-in for httpx.Response exposing only .json()."""
+
+    def __init__(self, payload: dict) -> None:
+        self._payload = payload
+
+    def json(self) -> dict:
+        return self._payload
+
+
+def test_is_daily_quota_429_detects_per_day_violation():
+    # The free-tier 20/day shape: a QuotaFailure violation with a *PerDay* quotaId.
+    resp = _QuotaResponse(
+        {"error": {"details": [
+            {"violations": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}
+        ]}}
+    )
+    assert _is_daily_quota_429(resp) is True
+
+
+def test_is_daily_quota_429_false_for_per_minute_and_empty():
+    # A transient per-minute (RPM) cap is NOT a daily quota — it should be retried.
+    rpm = _QuotaResponse(
+        {"error": {"details": [
+            {"violations": [{"quotaId": "GenerateRequestsPerMinutePerProjectPerModel"}]}
+        ]}}
+    )
+    assert _is_daily_quota_429(rpm) is False
+    assert _is_daily_quota_429(_QuotaResponse({})) is False
 
 
 def _run(coro):

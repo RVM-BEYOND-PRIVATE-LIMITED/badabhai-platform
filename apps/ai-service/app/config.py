@@ -91,6 +91,17 @@ class Settings(BaseSettings):
         allow = self.real_call_task_allowlist
         return (not allow) or (task_type in allow)
 
+    def has_credential_for(self, provider: str) -> bool:
+        """Whether the API credential for a provider label (as returned by
+        ``provider_for_model``) is configured. Single source of truth shared by the
+        router's fallback-chain gating and the CLI's readiness banner, so the
+        primary/fallback providers can be swapped freely without either drifting."""
+        if provider == "google":
+            return bool(self.gemini_flash_api_key)
+        if provider == "anthropic":
+            return bool(self.anthropic_api_key)
+        return False
+
     @property
     def langfuse_enabled(self) -> bool:
         """Langfuse tracing is enabled only when BOTH keys are present."""

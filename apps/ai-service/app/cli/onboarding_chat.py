@@ -51,10 +51,17 @@ import asyncio
 import json
 import sys
 
+from ..ai.model_config import provider_for_model
 from ..ai.router import AIRouter
 from ..config import get_settings
 from ..contracts import AICallMetadata, WorkerProfileDraft
 from ..profiling import profile_extractor
+from ..profiling.canonical_roles import (
+    ROLE_TRADE,
+    canonicalization_instruction,
+    extract_canonical_role_id,
+    normalize_role_id,
+)
 from ..profiling.prompts import EXTRACTION_SYSTEM_PROMPT
 from ..pseudonymize import pseudonymize
 
@@ -77,21 +84,33 @@ _CHAT_SYSTEM_PROMPT = (
     "You are 'Bada Bhai', a warm, friendly big brother interviewing a blue/grey-"
     "collar CNC/VMC manufacturing worker in India to build their job profile.\n"
     "Style:\n"
-    "- Speak simple, encouraging Hinglish (Hindi + English). Keep it short.\n"
-    "- Ask EXACTLY ONE question at a time and REACT to the previous answer first.\n"
+    "- Ask EXACTLY ONE short question at a time and REACT warmly to the previous "
+    "answer first.\n"
+    "- MATCH THE WORKER'S LANGUAGE: if they write in Hindi, reply in Hindi; in "
+    "English, reply English; in Hinglish, reply Hinglish. Mirror their words.\n"
     "- Never sound like an exam. Never reject, judge, or rank the worker.\n"
-    "Coverage (ask, across the chat, until you have a good picture): role / trade, "
-    "machines worked on, controllers (Fanuc, Siemens, etc.), years of experience, "
-    "skills (setting, programming, drawing reading), current + preferred location, "
-    "current + expected salary, and joining availability.\n"
+    "Coverage — over the chat, try to learn: role / trade, machines worked on, "
+    "controllers (Fanuc, Siemens, etc.), years of experience, skills (setting, "
+    "programming, drawing reading), current + preferred location, current + "
+    "expected salary, and joining availability.\n"
+    "STOP CONDITION — set ready_to_extract=true (and send a short warm closing "
+    "line in the worker's language) as soon as EITHER:\n"
+    "  (a) you have reasonable coverage of the areas above, OR\n"
+    "  (b) the worker signals they are done / disengaging / want a job now (e.g. "
+    "'bas', 'itna hi', 'ho gaya', 'done', 'aur nahi', 'naukri laga do'). Do NOT "
+    "keep asking after that — respect it and wrap up.\n"
+    "NEVER REPEAT a question you already asked. If an answer is vague, ask ONE "
+    "different clarifying question; if it is STILL vague, move on to another area "
+    "or wrap up — never ask the same thing again.\n"
+    "ROLE — the worker may only say a generic 'CNC'. Probe ONCE to disambiguate "
+    "(VMC? CNC lathe/turning? grinding? setter? programmer?). If they still can't "
+    "say, leave it — do not push.\n"
     "HARD RULES — you must NEVER ask for or repeat: phone number, full name, home "
     "address, or company/employer name. The worker's answers may contain "
     "placeholder tokens like [CITY_1] or [PHONE_1]; treat them as already-masked "
     "and never ask for the real value.\n"
-    "When you have enough across the coverage areas, set ready_to_extract true and "
-    "send a short warm wrap-up line.\n"
     "OUTPUT FORMAT — reply with STRICT JSON ONLY, no prose around it, exactly:\n"
-    '{"message": "<one Hinglish line to show the worker>", '
+    '{"message": "<one line to show the worker, in their language>", '
     '"ready_to_extract": <true|false>}'
 )
 
@@ -124,8 +143,12 @@ def _build_resume_json(name: str, rich: WorkerProfileDraft, legacy) -> dict:
     """
     return {
         "name": name,
+        # Taxonomy ids (stay on the DB schema of 7 roles + skill ids); null when
+        # the worker was too vague to pin one of the 7 roles.
         "role": legacy.canonical_role_id,
         "trade": legacy.canonical_trade_id,
+        "skill_ids": legacy.skills,
+        # Human-readable enrichment (for display).
         "primary_role": rich.primary_role,
         "experience_years": rich.experience_years,
         "experience_level": rich.experience_level,
@@ -139,6 +162,43 @@ def _build_resume_json(name: str, rich: WorkerProfileDraft, legacy) -> dict:
         "expected_salary": rich.expected_salary,
         "availability": rich.availability,
     }
+
+
+# Strong, fairly-unambiguous closing phrases (Hindi / Hinglish / English). The
+# MODEL is the primary closer (via its STOP CONDITION); this CLI-side check is a
+# SAFETY NET so an obvious "I'm done" always ends the interview even if the model
+# misses it. Kept to multi-word / unambiguous cues to avoid false positives on
+# words like a bare "bas" inside a substantive answer (e.g. "bas 2 saal kiya").
+_CLOSING_CUES: tuple[str, ...] = (
+    "itna hi", "itni hi", "bas itna", "bas ab", "ab bas", "ho gaya", "ho gya",
+    "hogaya", "khatam", "khatm", "aur nahi", "aur nai", "ab nahi", "kuch aur nahi",
+    "naukri laga", "naukri dila", "job laga", "job dila", "thats all", "that's all",
+    "i am done", "im done", "nothing else", "no more",
+)
+
+
+def _wants_to_close(answer: str) -> bool:
+    """True if the worker's answer is a clear request to finish. Conservative on
+    purpose (see ``_CLOSING_CUES``). The literal 'done' is handled separately."""
+    low = answer.lower()
+    return any(cue in low for cue in _CLOSING_CUES)
+
+
+def _fallback_message(content: str) -> str:
+    """Message to show when ``_parse_chat_json`` finds no ``message`` in the model
+    reply. Prefer the model's OWN words (a conversational model often replies in
+    prose instead of JSON — that prose is a fine thing to show) over a canned line;
+    only when nothing usable is left do we nudge the worker toward finishing. This
+    is what stops the old behaviour of repeating one static question forever."""
+    text = (content or "").strip()
+    if text.startswith("```"):  # strip a ```json ... ``` fence
+        text = text.strip("`").strip()
+        if text[:4].lower() == "json":
+            text = text[4:].strip()
+    # Bare JSON we already failed to read, or nothing -> a closing-oriented nudge.
+    if not text or text.startswith("{") or text.startswith("["):
+        return "Theek hai bhai. Aur kuch batana ho to batao, warna 'done' likh do."
+    return text
 
 
 def _parse_chat_json(content: str) -> dict:
@@ -179,16 +239,63 @@ def _first_json_object(text: str) -> str | None:
     return None
 
 
-def _provider_note(meta: AICallMetadata) -> str | None:
-    """Per-turn visibility note so the worker always knows the provider.
+_PROVIDER_LABELS = {"google": "Gemini", "anthropic": "Claude Haiku"}
 
-    The COST & METADATA panel remains the authoritative breakdown; this is just a
-    friendly inline heads-up. PII-free (reads only ``AICallMetadata`` fields)."""
+
+def _provider_note(meta: AICallMetadata) -> str | None:
+    """Per-turn visibility note: which provider actually served this turn (or that
+    it fell back to the offline mock). Named neutrally — NOT "primary"/"fallback" —
+    because the primary/fallback order is configurable (e.g. Haiku can be primary),
+    so the chain position is not assumed. The COST & METADATA panel remains the
+    authoritative breakdown; this is a friendly inline heads-up. PII-free (reads
+    only ``AICallMetadata`` fields)."""
     if not meta.real_call:
-        return "[note: model unavailable — used offline fallback for this turn]"
-    if meta.provider == "anthropic":
-        return "[note: served by the Claude Haiku fallback this turn]"
-    return None
+        return "[note: model unavailable — used offline fallback (mock) for this turn]"
+    label = _PROVIDER_LABELS.get(meta.provider, meta.provider)
+    return f"[note: this turn served by {label}]"
+
+
+def _startup_status(settings) -> str:
+    """Up-front readiness banner: is the REAL flow on, and which providers serve?
+
+    A silent all-mock run is the single most confusing failure mode — it happens
+    when ``AI_ENABLE_REAL_CALLS``/``GEMINI_FLASH_API_KEY`` resolve empty, OR (the
+    sneaky one) when a SHELL env var of the same name overrides ``.env`` (pydantic
+    reads ``os.environ`` ahead of the file). Printing the resolved state — and the
+    blocking reason when off — turns that mystery into a one-line diagnosis.
+    PII-free (reads only config flags/model ids)."""
+    reason = settings.real_calls_blocked_reason()
+    if reason is not None:
+        return (
+            "[setup] Real LLM calls: OFF — MOCK ONLY (reason: " + reason + ").\n"
+            "        Enable: set AI_ENABLE_REAL_CALLS=true and GEMINI_FLASH_API_KEY in\n"
+            "        apps/ai-service/.env. NOTE: a SHELL env var of the same name OVERRIDES\n"
+            "        .env — clear it (PowerShell: Remove-Item Env:AI_ENABLE_REAL_CALLS) or\n"
+            "        open a fresh terminal, then re-run."
+        )
+    primary_model = settings.default_cheap_model
+    primary = f"{primary_model} ({provider_for_model(primary_model)})"
+    fallback_model = settings.default_fallback_model
+    fallback_provider = provider_for_model(fallback_model)
+    if (
+        fallback_model
+        and fallback_provider != provider_for_model(primary_model)
+        and settings.has_credential_for(fallback_provider)
+    ):
+        fallback = f"{fallback_model} ({fallback_provider})"
+    else:
+        fallback = "none — offline mock if the primary fails"
+    lines = [
+        "[setup] Real LLM calls: ON.",
+        f"        primary : {primary}",
+        f"        fallback: {fallback}",
+    ]
+    if not settings.real_call_enabled_for("profiling_chat_turn"):
+        lines.append(
+            "        WARNING: 'profiling_chat_turn' is NOT in AI_REAL_CALL_TASKS, so CHAT\n"
+            "        turns stay MOCK. Add it (or blank AI_REAL_CALL_TASKS) for a real chat."
+        )
+    return "\n".join(lines)
 
 
 async def _run_chat(
@@ -233,6 +340,7 @@ async def _run_chat(
 
     print_fn("\nBada Bhai: Bhai, sabse pehle batao — aap kya kaam karte ho?")
 
+    last_message: str | None = None  # for the no-repeat guard
     for _turn in range(_MAX_TURNS):
         answer = input_fn("You: ").strip()
         if answer.lower() == "done":
@@ -271,10 +379,11 @@ async def _run_chat(
         )
         calls.append(meta)
 
+        # Prefer the model's parsed message; on a parse miss, show its OWN words
+        # (a conversational model often replies in prose) — NOT a canned line that
+        # would repeat forever.
         data = _parse_chat_json(content)
-        message = (data.get("message") or "").strip() or (
-            "Badhiya bhai. Thoda aur batao apne kaam ke baare me."
-        )
+        message = (data.get("message") or "").strip() or _fallback_message(content)
         history.append({"role": "assistant", "text": message})
         print_fn(f"\nBada Bhai: {message}")
 
@@ -283,8 +392,16 @@ async def _run_chat(
         if note is not None:
             print_fn(note)
 
-        if data.get("ready_to_extract") is True:
+        # END the interview when: the model says it's ready; OR the worker clearly
+        # asked to finish (safety net independent of the model); OR the bot just
+        # repeated its previous line (a stall — don't loop on it).
+        if (
+            data.get("ready_to_extract") is True
+            or _wants_to_close(answer)
+            or message == last_message
+        ):
             break
+        last_message = message
 
     # 3. Extraction (REUSE existing). Pseudonymize the accumulated worker answers
     #    FIRST (fail-closed). The name is injected post-AI in _build_resume_json.
@@ -306,9 +423,13 @@ async def _run_chat(
 
     # Route for cost/tracing + optional real-model extraction. The model only ever
     # sees the PSEUDONYMIZED transcript (``safe.text``) — never the raw text, and
-    # never the name.
+    # never the name. The canonicalization rubric makes the model emit a
+    # `canonical_role_id` from the CLOSED 7-role set (parity with /profile/extract).
     messages = [
-        {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT + _schema_hint()},
+        {
+            "role": "system",
+            "content": EXTRACTION_SYSTEM_PROMPT + canonicalization_instruction() + _schema_hint(),
+        },
         {"role": "user", "content": safe.text},
     ]
     content, meta = await router.run(
@@ -317,18 +438,18 @@ async def _run_chat(
     )
     calls.append(meta)
     if meta.real_call and meta.success:
-        try:
-            parsed = WorkerProfileDraft.model_validate_json(content)
-        except Exception:  # noqa: BLE001 - tolerate malformed LLM output
-            parsed = None
-        if parsed is not None:
-            # Keep locally-read fields (city/salary): the model only saw masked text.
-            parsed.current_city = rich.current_city
-            parsed.preferred_locations = rich.preferred_locations
-            parsed.relocation_willingness = rich.relocation_willingness
-            parsed.current_salary = rich.current_salary
-            parsed.expected_salary = rich.expected_salary
-            rich = parsed
+        # Canonicalization FIRST, leniently: trust the model's role id only if it is
+        # one of the 7 (reject hallucinations); a valid id overrides the heuristic on
+        # `legacy` (role + derived trade). Independent of the full-draft validation
+        # below, so a good role id survives even when enrichment fields are loose.
+        role_id = normalize_role_id(extract_canonical_role_id(content))
+        if role_id is not None:
+            legacy.canonical_role_id = role_id
+            legacy.canonical_trade_id = ROLE_TRADE.get(role_id, legacy.canonical_trade_id)
+        # Overlay the model's well-formed enrichment fields onto the heuristic draft
+        # (keeps experience_years/machines/etc. even when other fields are malformed;
+        # location/salary stay local — the model only saw masked text).
+        rich = profile_extractor.merge_model_draft(rich, content)
 
     return _build_resume_json(name, rich, legacy), calls
 
@@ -406,6 +527,8 @@ def main() -> None:
 
     settings = get_settings()
     router = AIRouter(settings)
+    # Print readiness FIRST so a silent all-mock run can never be a mystery.
+    print(_startup_status(settings))
     resume, calls = asyncio.run(_run_chat(router))
     print("\n=== RESUME (JSON) ===")
     print(json.dumps(resume, indent=2, ensure_ascii=False))

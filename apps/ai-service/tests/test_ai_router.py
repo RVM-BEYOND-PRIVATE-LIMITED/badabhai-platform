@@ -341,3 +341,50 @@ def test_master_flag_off_means_no_candidates(monkeypatch):
     assert content == "MOCK_OFF"
     assert meta.real_call is False
     assert called == []  # dispatcher never invoked
+
+
+def test_haiku_primary_falls_over_to_gemini(monkeypatch):
+    # SWAPPED chain: Claude Haiku primary, Gemini fallback. The fallback is gated
+    # on the GEMINI key (its own provider's credential), not the Anthropic key —
+    # proving primary/fallback can be either provider.
+    def _haiku_fail():
+        raise RuntimeError("haiku boom")
+
+    seen = _stub_dispatcher(
+        monkeypatch,
+        {
+            "claude-haiku-4-5": _haiku_fail,
+            "gemini": LlmResult(content="GEMINI_OK", input_tokens=9, output_tokens=2),
+        },
+    )
+    router = AIRouter(
+        _fallback_settings(
+            default_cheap_model="claude-haiku-4-5",
+            default_capable_model="claude-haiku-4-5",
+            default_fallback_model="gemini-2.5-flash-lite",
+        )
+    )
+    content, meta = _run(
+        router.run("profile_extraction", messages=_MESSAGES, mock_response="m")
+    )
+    assert content == "GEMINI_OK"
+    assert meta.real_call is True
+    assert meta.success is True
+    assert meta.model_name == "gemini-2.5-flash-lite"
+    assert meta.provider == "google"
+    assert seen[0] == "claude-haiku-4-5"  # primary first
+    assert seen[-1] == "gemini-2.5-flash-lite"  # fallback second
+
+
+def test_gemini_fallback_dropped_when_gemini_key_absent():
+    # Haiku primary + Gemini fallback, but no Google credential -> the chain-builder
+    # drops the Gemini fallback (gated on its own provider key). Tested directly
+    # because an absent gemini key also trips the master gate upstream.
+    router = AIRouter(
+        _fallback_settings(
+            default_cheap_model="claude-haiku-4-5",
+            default_fallback_model="gemini-2.5-flash-lite",
+            gemini_flash_api_key="",
+        )
+    )
+    assert router._candidate_models("claude-haiku-4-5") == ["claude-haiku-4-5"]

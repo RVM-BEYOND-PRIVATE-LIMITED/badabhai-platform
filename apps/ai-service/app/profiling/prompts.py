@@ -29,6 +29,20 @@ EXTRACTION_SYSTEM_PROMPT = (
     "The transcript is pseudonymized: tokens like [CITY_1], [PERSON_1], "
     "[EMPLOYER_1], [PHONE_1] are placeholders; never guess the real values behind "
     "them.\n"
+    "Convert Hinglish number-words and durations to numbers: 'aadha'/'adha'=0.5, "
+    "'pauna'/'paune'=0.75, 'sava'=1.25, 'dedh'/'dhedh'=1.5, 'paune do'=1.75, "
+    "'dhai'/'dhaai'=2.5; 'saal'/'sal'/'varsh'=years, 'mahina'/'mahine'/'month'=months "
+    "(convert months to a fraction of a year). Example: 'dedh saal' -> "
+    "experience_years 1.5; '6 mahine' -> 0.5.\n"
+    "CAPTURE what the worker DID say, even if rough — null is only for what they "
+    "genuinely did not mention (this applies to the fields below; for the role, "
+    "follow the canonical-role rules):\n"
+    "- A stated duration of work -> experience_years (even if the work sounds "
+    "basic, e.g. 'button dabate the dedh saal' -> 1.5).\n"
+    "- Operating ANY machine, even generic 'CNC' with no specific type -> add 'CNC' "
+    "to machines (use 'VMC'/'CNC Lathe'/etc. only when the worker names it).\n"
+    "- 'chalata tha'/'operate karta tha'/'button dabata tha' -> operation_knowledge "
+    "at least 'basic'.\n"
 )
 
 RESUME_SYSTEM_PROMPT = (

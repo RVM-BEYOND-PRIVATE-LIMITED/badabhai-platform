@@ -11,6 +11,8 @@ Taxonomy/test data only — no PII.
 
 from __future__ import annotations
 
+import json
+
 from .signals import _ROLES
 
 # role_id -> trade_id, straight from the gazetteer (the taxonomy source of truth).
@@ -68,3 +70,46 @@ def normalize_role_id(value: object) -> str | None:
     hallucinated/empty/typo id) is rejected so it can never reach the profile.
     """
     return value if isinstance(value, str) and value in ROLE_TRADE else None
+
+
+def coerce_json_text(content: str) -> str:
+    """Return the first balanced ``{...}`` JSON object in ``content``, tolerating a
+    ```json ... ``` markdown fence or surrounding prose around it.
+
+    Conversational models (notably Claude, which has no strict JSON mode) routinely
+    wrap JSON in a fence — a raw ``json.loads`` / ``model_validate_json`` then fails
+    and the extraction silently falls back to the empty heuristic. Every place that
+    parses model JSON for a profile MUST go through this first. Falls back to the
+    stripped content when no object is found (so a clean JSON string is unchanged).
+    """
+    text = (content or "").strip()
+    start = text.find("{")
+    if start == -1:
+        return text
+    depth = 0
+    for i in range(start, len(text)):
+        ch = text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return text
+
+
+def extract_canonical_role_id(content: str) -> str | None:
+    """Pull ``canonical_role_id`` from raw LLM JSON, tolerating a markdown fence and
+    any other malformed sibling fields. Returns None if the content is not a JSON
+    object or lacks the key — canonicalization must not hinge on the whole
+    enrichment draft validating.
+
+    Shared by the extraction endpoint and the onboarding CLI so both apply the
+    SAME parse + (via ``normalize_role_id``) the same closed-set trust boundary.
+    """
+    try:
+        data = json.loads(coerce_json_text(content))
+    except (json.JSONDecodeError, TypeError):
+        return None
+    value = data.get("canonical_role_id") if isinstance(data, dict) else None
+    return value if isinstance(value, str) else None

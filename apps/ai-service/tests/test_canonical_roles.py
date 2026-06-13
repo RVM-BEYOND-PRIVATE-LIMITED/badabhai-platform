@@ -42,14 +42,27 @@ def test_canonicalization_instruction_lists_the_closed_set():
 def test_extract_canonical_role_id_survives_malformed_siblings():
     # The model returns a correct role id but nulls strict enrichment fields; the
     # role id must still be recoverable (independent of full-draft validation).
-    from app import main
+    # Lives in canonical_roles now, shared by the endpoint AND the onboarding CLI.
+    from app.profiling.canonical_roles import extract_canonical_role_id
 
     messy = (
         '{"canonical_role_id": "role_cnc_programmer", "experience_level": null, '
         '"programming_knowledge": true, "primary_role": "CNC Programmer"}'
     )
-    assert main._extract_canonical_role_id(messy) == "role_cnc_programmer"
+    assert extract_canonical_role_id(messy) == "role_cnc_programmer"
     # Non-JSON / missing key / non-string -> None (then the heuristic stands).
-    assert main._extract_canonical_role_id("not json") is None
-    assert main._extract_canonical_role_id('{"foo": 1}') is None
-    assert main._extract_canonical_role_id('{"canonical_role_id": 5}') is None
+    assert extract_canonical_role_id("not json") is None
+    assert extract_canonical_role_id('{"foo": 1}') is None
+    assert extract_canonical_role_id('{"canonical_role_id": 5}') is None
+    # A ```json markdown fence (Claude often adds one) must still parse.
+    fenced = '```json\n{"canonical_role_id": "role_vmc_operator"}\n```'
+    assert extract_canonical_role_id(fenced) == "role_vmc_operator"
+
+
+def test_coerce_json_text_strips_fence_and_prose():
+    from app.profiling.canonical_roles import coerce_json_text
+
+    assert coerce_json_text('```json\n{"a": 1}\n```') == '{"a": 1}'
+    assert coerce_json_text('Here you go:\n{"a": 1} thanks') == '{"a": 1}'
+    assert coerce_json_text('{"a": {"b": 2}}') == '{"a": {"b": 2}}'  # balanced/nested
+    assert coerce_json_text("no object here") == "no object here"  # unchanged fallback
