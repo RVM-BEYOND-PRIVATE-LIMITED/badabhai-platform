@@ -96,6 +96,8 @@ empty allowlist keeps the previous "all tasks" behavior (backward compatible).
    scores every extracted field (not just role) and classifies each miss:
    ```bash
    python -m app.profiling.eval_canonicalization --per-field --real
+   # FREE TIER (low RPM): pace the run so it doesn't mass-429 + fall back to mock:
+   python -m app.profiling.eval_canonicalization --per-field --real --min-interval 6
    # offline heuristic (no server, no LLM):
    python -m app.profiling.eval_canonicalization --per-field
    ```
@@ -121,6 +123,19 @@ empty allowlist keeps the previous "all tasks" behavior (backward compatible).
    the original↔token mapping (the endpoint never returns it) and never bypasses
    pseudonymization.
 
+   > **Mock-fallback contamination (measurement correctness).** The router
+   > **returns mock content on any model failure** (e.g. a free-tier 429), and
+   > `/profile/extract` still reports `is_mock: false` because it reflects "a real
+   > call was *attempted*", not "the content is real". The rig therefore reads
+   > **`ai_metadata.real_call` + `ai_metadata.success`** (NOT `is_mock`): a case
+   > with `real_call=true AND success=false` is a **mock fallback**. If ANY scored
+   > case fell back, the `--real` run is declared **INVALID** — it prints a loud
+   > `INVALID REAL RUN: N/M cases fell back to mock …` banner, exits non-zero, and
+   > **does NOT print a PASS/FAIL aggregate**, so a throttled/erroring run can
+   > never be mistaken for a real ≥90% (or <90%) result. Fix it by enabling **paid
+   > billing** (the clean path) or pacing with **`--min-interval SECONDS`**, then
+   > retry. A clean run prints `real calls: N/N succeeded`.
+   >
    > CI/local: the same scoring runs as a structural/heuristic test
    > (`tests/test_per_field_eval.py`) with **no network and no LLM**; the live
    > `≥ 90%` assertion (`test_per_field_real_meets_threshold`) is **skipped**

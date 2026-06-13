@@ -17,11 +17,16 @@ import os
 def _force_mock_only_env() -> None:
     os.environ["AI_ENABLE_REAL_CALLS"] = "false"
     os.environ["AI_REAL_CALL_TASKS"] = ""
-    # Drop the gateway key/eval target so real_calls_enabled is False and the
-    # skip-gated per-field real test (which requires the key + AI_EVAL_BASE_URL)
-    # stays SKIPPED even when a developer .env sets them.
-    for var in ("LITELLM_API_KEY", "AI_EVAL_BASE_URL"):
-        os.environ.pop(var, None)
+    # Blank every real-provider secret so a developer real-call `.env` can't leak
+    # into Settings(). pydantic-settings reads the `.env` FILE, so popping os.environ
+    # is not enough (the dotenv value would still flow in) — an EMPTY env var
+    # outranks the dotenv entry, so set these to "" (falsy → every real gate stays
+    # closed, e.g. the STT/Sarvam "real requires key" branch).
+    for var in ("LITELLM_API_KEY", "SARVAM_API_KEY", "GEMINI_API_KEY"):
+        os.environ[var] = ""
+    # Drop the eval target so the skip-gated per-field real test stays SKIPPED
+    # even when a developer .env sets it.
+    os.environ.pop("AI_EVAL_BASE_URL", None)
 
 
 # Applied at import time (before any test constructs Settings()).
