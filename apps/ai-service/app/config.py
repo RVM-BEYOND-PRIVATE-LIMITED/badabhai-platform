@@ -1,7 +1,12 @@
 """AI service configuration (env-driven).
 
 Real LLM calls are gated and FAIL CLOSED: they require AI_ENABLE_REAL_CALLS=true
-AND a LiteLLM key. Default is mock-only.
+AND an LLM gateway key. Default is mock-only.
+
+NOTE: ``LITELLM_BASE_URL`` / ``LITELLM_API_KEY`` keep their names for now but now
+feed an OpenAI-compatible client (``openai`` SDK), not litellm. They are generic
+"LLM gateway" config — point them at any OpenAI-protocol endpoint (e.g. Gemini's
+OpenAI-compatible endpoint). TD: rename LITELLM_* -> LLM_* (see tech-debt-register).
 """
 
 from __future__ import annotations
@@ -23,7 +28,9 @@ class Settings(BaseSettings):
     litellm_api_key: str | None = None
 
     # Model routing. Cheap model handles high-volume chat turns; the capable
-    # model handles strict-JSON extraction. Names are LiteLLM model ids.
+    # model handles strict-JSON extraction. Names are BARE OpenAI-protocol model
+    # ids (no "openai/" prefix), e.g. "gemini-2.0-flash" against Gemini's
+    # OpenAI-compatible endpoint.
     default_cheap_model: str = "gemini-flash-lite"
     default_capable_model: str = "claude-haiku-or-gemini-flash"
 

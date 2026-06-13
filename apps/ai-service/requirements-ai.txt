@@ -2,5 +2,9 @@
 # Not installed by default: mock mode runs with requirements.txt only, so local
 # dev and CI never need these. Install with:  pip install -r requirements-ai.txt
 -r requirements.txt
-litellm>=1.50,<2.0
+# OpenAI-compatible client for the real LLM path. Replaces the heavy `litellm`
+# dep (16 MB; fails to install on Windows long-paths + Python 3.14). A single
+# OpenAI-protocol provider (e.g. Gemini's OpenAI-compatible endpoint) needs only
+# this SDK. Env vars stay LITELLM_BASE_URL / LITELLM_API_KEY for now (TD: rename).
+openai>=1.40,<3.0
 langfuse>=2.0,<3.0
