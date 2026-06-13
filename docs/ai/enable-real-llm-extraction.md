@@ -38,10 +38,14 @@ empty allowlist keeps the previous "all tasks" behavior (backward compatible).
 
 ## Staging rollout steps
 
-1. **Install real deps** (adds `litellm`, `langfuse`):
+1. **Install real deps** (adds `openai`, `langfuse`):
    ```bash
    pip install -r requirements-ai.txt
    ```
+   > The real path uses the lightweight `openai` AsyncOpenAI SDK against an
+   > OpenAI-compatible endpoint — **not** litellm. The env vars keep the
+   > `LITELLM_*` names for now but feed this OpenAI client (TD: rename to
+   > `LLM_*`).
 2. **Set staging env** (never commit these). A ready-to-fill, secrets-free
    template lives at
    [`apps/ai-service/.env.staging.example`](../../apps/ai-service/.env.staging.example) —
@@ -49,9 +53,10 @@ empty allowlist keeps the previous "all tasks" behavior (backward compatible).
    ```bash
    AI_ENABLE_REAL_CALLS=true
    AI_REAL_CALL_TASKS=profile_extraction        # ONLY canonicalization goes real
-   LITELLM_BASE_URL=<your litellm gateway>
-   LITELLM_API_KEY=<staging key>
-   DEFAULT_CAPABLE_MODEL=<gemini-flash | claude-haiku | ...>   # extraction tier
+   # OpenAI-compatible gateway (vars keep LITELLM_* names; feed the openai SDK):
+   LITELLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+   LITELLM_API_KEY=<your Gemini API key>
+   DEFAULT_CAPABLE_MODEL=gemini-2.0-flash       # extraction tier (bare id, no "openai/" prefix)
    # Cost guardrails (INR):
    AI_TARGET_PROFILE_COST_INR=4
    AI_COST_ALERT_PROFILE_INR=6

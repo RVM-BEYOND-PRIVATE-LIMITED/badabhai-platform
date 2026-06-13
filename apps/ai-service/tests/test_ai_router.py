@@ -1,11 +1,14 @@
 """AI router + cost tracker tests.
 
-Verify mock mode never touches LiteLLM, real mode requires config (and fails
-safe to mock when the dependency/endpoint is unavailable), and cost metadata is
-always returned.
+Verify mock mode never touches the LLM client, real mode requires config (and
+fails safe to mock when the dependency/endpoint is unavailable), and cost
+metadata is always returned.
 """
 
 import asyncio
+import sys
+
+import pytest
 
 from app.ai import cost_tracker
 from app.ai.model_config import get_route, provider_for_model, resolve_model
@@ -19,7 +22,16 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def test_mock_mode_returns_mock_and_never_calls_litellm():
+@pytest.fixture(autouse=True)
+def _no_real_llm_network(monkeypatch):
+    """Guarantee the real path makes ZERO network calls in this suite: force the
+    lazy ``import openai`` inside the client to fail, so any 'real' attempt
+    deterministically falls back to mock (the behavior these tests assert) without
+    touching the network — regardless of whether ``openai`` is installed."""
+    monkeypatch.setitem(sys.modules, "openai", None)
+
+
+def test_mock_mode_returns_mock_and_never_calls_llm():
     # Real calls disabled (default) -> deterministic mock, no network.
     router = AIRouter(Settings(ai_enable_real_calls=False))
     content, meta = _run(
@@ -32,9 +44,9 @@ def test_mock_mode_returns_mock_and_never_calls_litellm():
     assert meta.ai_call_id
 
 
-def test_real_mode_without_litellm_falls_back_to_mock_safely():
-    # Real mode is configured, but litellm isn't installed -> must NOT raise;
-    # falls back to the mock response and records the failure.
+def test_real_mode_without_client_falls_back_to_mock_safely():
+    # Real mode is configured, but the openai client is unavailable -> must NOT
+    # raise; falls back to the mock response and records the failure.
     settings = Settings(
         ai_enable_real_calls=True,
         litellm_api_key="test-key",
@@ -119,7 +131,8 @@ def test_hard_cost_ceiling_refuses_expensive_real_call():
 
 def test_high_ceiling_allows_real_attempt():
     # With a generous ceiling, the real path is attempted (and falls back to mock
-    # only because litellm isn't installed) — proving the ceiling didn't block it.
+    # only because the openai client is forced unavailable) — proving the ceiling
+    # didn't block it.
     settings = Settings(ai_enable_real_calls=True, litellm_api_key="k", ai_max_call_cost_inr=10.0)
     router = AIRouter(settings)
     _content, meta = _run(
@@ -131,7 +144,8 @@ def test_high_ceiling_allows_real_attempt():
 
 def test_per_task_allowlist_enables_only_the_listed_task():
     # Real enabled for ONE role: profile_extraction goes real (attempts, then
-    # falls back to mock since litellm is absent); profiling_chat_turn stays mock.
+    # falls back to mock since the openai client is forced unavailable);
+    # profiling_chat_turn stays mock.
     settings = Settings(
         ai_enable_real_calls=True,
         litellm_api_key="k",
