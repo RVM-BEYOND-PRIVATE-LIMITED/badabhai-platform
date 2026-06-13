@@ -18,6 +18,7 @@ next-env.d.ts
 .env
 .env.*
 !.env.example
+!.env.*.example
 *.pem
 *.key
 service-account*.json

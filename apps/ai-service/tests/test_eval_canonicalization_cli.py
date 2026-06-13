@@ -51,3 +51,49 @@ def test_real_mode_scores_all_tiers_against_stub_endpoint(capsys, monkeypatch):
 def test_role_only_exposes_canonical_role_id():
     obj = cli._RoleOnly("role_vmc_operator")
     assert obj.canonical_role_id == "role_vmc_operator"
+
+
+def test_per_field_offline_reports_fields_and_attribution(capsys):
+    """--per-field (offline) scores every field, prints the aggregate + the
+    TD3/extraction split, and exits 1 (heuristic can't clear the hard tier)."""
+    rc = cli.main(["--per-field"])
+    out = capsys.readouterr().out
+    assert "Per-field" in out
+    for field in ("trade", "role", "skills", "machines", "experience"):
+        assert field in out
+    assert "AGGREGATE" in out
+    assert "Miss attribution" in out
+    assert "over-masking (TD3)" in out
+    # Heuristic misses the hard tier -> aggregate < 90% -> exit 1.
+    assert rc == 1
+    assert "FAIL" in out
+
+
+def test_per_field_real_uses_both_endpoints_via_stubs(capsys, monkeypatch):
+    """--per-field --real wires /profile/extract + /profiling/respond +
+    /pseudonymize. We stub all three so the wiring is covered WITHOUT a live
+    server or any LLM call (fabricated data only)."""
+
+    def fake_field_extract(base_url, timeout=30.0):
+        def extract_fn(text):
+            _rich, legacy = gold.profile_extractor.extract(text)
+            return legacy
+
+        return extract_fn
+
+    def fake_pseudo(base_url, timeout=30.0):
+        from app.pseudonymize import pseudonymize
+
+        return lambda text: pseudonymize(text).text
+
+    monkeypatch.setattr(cli, "_make_real_field_extract_fn", fake_field_extract)
+    monkeypatch.setattr(cli, "_make_real_pseudonymize_fn", fake_pseudo)
+    monkeypatch.setattr(cli, "_smoke_profiling_respond", lambda base_url: True)
+
+    rc = cli.main(["--per-field", "--real", "--base-url", "http://localhost:9999"])
+    out = capsys.readouterr().out
+    assert "--per-field --real" in out
+    assert "profile/extract" in out and "profiling/respond" in out
+    assert "Miss attribution" in out
+    # Heuristic-equivalent stub can't clear the hard tier -> exit 1.
+    assert rc == 1

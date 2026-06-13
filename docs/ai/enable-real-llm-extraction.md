@@ -42,7 +42,10 @@ empty allowlist keeps the previous "all tasks" behavior (backward compatible).
    ```bash
    pip install -r requirements-ai.txt
    ```
-2. **Set staging env** (never commit these):
+2. **Set staging env** (never commit these). A ready-to-fill, secrets-free
+   template lives at
+   [`apps/ai-service/.env.staging.example`](../../apps/ai-service/.env.staging.example) —
+   copy it into the staging secrets / a staging `.env` and fill the `<...>` placeholders:
    ```bash
    AI_ENABLE_REAL_CALLS=true
    AI_REAL_CALL_TASKS=profile_extraction        # ONLY canonicalization goes real
@@ -56,6 +59,9 @@ empty allowlist keeps the previous "all tasks" behavior (backward compatible).
    # Observability (so cost/profile shows in Langfuse over pseudonymized text only):
    LANGFUSE_PUBLIC_KEY=<...>
    LANGFUSE_SECRET_KEY=<...>
+   # Per-field pytest gate target (only the staging pytest run reads this; the
+   # CLI uses --base-url). Unset => the real per-field test is SKIPPED.
+   AI_EVAL_BASE_URL=http://localhost:8000
    ```
 3. **Confirm the gate** at boot: `GET /health` →
    `real_calls_enabled: true`, `langfuse_enabled: true`. Then a chat turn must
@@ -80,6 +86,41 @@ empty allowlist keeps the previous "all tasks" behavior (backward compatible).
    > Offline regression (no server, deterministic heuristic) is the same command
    > without `--real`; CI runs it via `tests/test_canonicalization_eval.py`,
    > which gates only `core + negative ≥ 90%` and tracks `hard` as informational.
+
+4b. **Validate PER-FIELD accuracy ≥ 90% + attribute misses** — same gold set,
+   scores every extracted field (not just role) and classifies each miss:
+   ```bash
+   python -m app.profiling.eval_canonicalization --per-field --real
+   # offline heuristic (no server, no LLM):
+   python -m app.profiling.eval_canonicalization --per-field
+   ```
+   This POSTs each FABRICATED transcript to the LOCAL `POST /profile/extract`
+   (and smoke-tests `POST /profiling/respond` so the rig touches both real
+   endpoints), reads back the full profile, and scores **per field + an
+   aggregate**, exiting non-zero if the aggregate `< 90%`:
+
+   | field             | match semantics                                  |
+   | ----------------- | ------------------------------------------------ |
+   | `trade` / `role`  | exact taxonomy id (derived trade defaults from role) |
+   | `skills`          | subset — all expected skill ids present (extras OK) |
+   | `machines`        | subset — all expected machine ids present (extras OK) |
+   | `experience`      | years within `±0.5` (`None` = assert no experience) |
+
+   **Miss attribution (TD3 over-masking vs extraction error):** for every miss
+   it re-runs the SAME input through `POST /pseudonymize` (the gateway the
+   extraction path uses) and checks whether the answer's anchor term — which was
+   literally present in the source — survived masking. Anchor *removed by the
+   gateway* → **over-masking (TD3)**; anchor *survived but mis-canonicalized*
+   (or never present, i.e. implicit/out-of-vocab phrasing) → **extraction
+   error**. The report prints the split and the dominant cause. It never inspects
+   the original↔token mapping (the endpoint never returns it) and never bypasses
+   pseudonymization.
+
+   > CI/local: the same scoring runs as a structural/heuristic test
+   > (`tests/test_per_field_eval.py`) with **no network and no LLM**; the live
+   > `≥ 90%` assertion (`test_per_field_real_meets_threshold`) is **skipped**
+   > unless `real_call_enabled_for("profile_extraction")` is true AND
+   > `AI_EVAL_BASE_URL` is set — so CI never makes a real call.
 5. **Watch cost/profile in Langfuse:** each call traces `task_type`, `model`,
    `real_call`, latency, and the INR estimate — over **pseudonymized text only**.
    Confirm per-profile cost is within target and no `cost_alert` fires.
