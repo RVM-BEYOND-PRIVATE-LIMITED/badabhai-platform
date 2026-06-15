@@ -32,10 +32,12 @@ answer but must be deliberate, not skipped.
 
 ### ✅ 3. Tests pass
 - `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` green (TS monorepo).
-- `ruff check` + `pytest` green (AI service). Flutter `analyze`/`test` green for
-  worker-app changes (currently non-blocking in CI — see [tech-debt](../registers/tech-debt-register.md)).
+- `ruff check` + `pytest` green (AI service). Flutter `analyze` + `test` green
+  (worker-app) — **blocking** as of 2026-06-15, runs only on PRs touching
+  `apps/worker-app` (TD7 paid).
 - New behavior has new tests. Privacy/event-critical paths have explicit assertions.
-- **Enforced by:** [CI workflow](../../.github/workflows/ci.yml) (blocking on `main`).
+- **Enforced by:** [CI workflow](../../.github/workflows/ci.yml) +
+  [Worker app workflow](../../.github/workflows/worker-app.yml) (both blocking on `main`).
 
 ### ✅ 4. Performance acceptable
 - No new N+1 queries; new query patterns are indexed. Slow work (extraction,
@@ -83,7 +85,5 @@ To stay honest about scope (these are tracked, not enforced):
   [planned](../../infra/supabase/rls-plan.md), tracked in [risks](../registers/risks-register.md).
 - **Coverage thresholds** — we require tests for new behavior, not a global %
   number, until the suite matures.
-- **Flutter CI** — informational (`continue-on-error`) until the scaffold is
-  validated on a real SDK.
 
 When these graduate from "tracked" to "enforced," update this doc and CI together.

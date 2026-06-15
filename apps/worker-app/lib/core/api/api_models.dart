@@ -3,6 +3,7 @@
 /// These mirror the JSON shapes returned by the NestJS API (see apps/api).
 /// JSON is snake_case; Dart fields are camelCase. Parsing is defensive so a
 /// missing optional field can't crash the worker flow.
+library;
 
 /// Thrown when the API returns a non-2xx response.
 class ApiException implements Exception {
