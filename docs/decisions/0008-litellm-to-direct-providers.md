@@ -72,6 +72,58 @@ provider, event, `ai_jobs`, `audit_logs`, or logs.
   change. The `LITELLM_API_KEY` → `GEMINI_FLASH_API_KEY` alias eases env rollback
   for one release.
 
+## Staging → Prod real-call flip threshold (added 2026-06-15)
+
+Real calls run in **staging** behind the TD27 cap (`AI_ENABLE_REAL_CALLS=true`,
+`AI_REAL_CALL_TASKS=profile_extraction` only; Claude Haiku primary). **Prod stays
+OFF** until ALL of the bars below are met. This is the written, numeric gate; the
+flip itself is a separate human-approved action.
+
+**Measured in staging (2026-06-15 gate run — Claude Haiku 4.5 primary, behind the cap):**
+
+| Metric | Measured | Source |
+| --- | --- | --- |
+| Per-field accuracy vs Hinglish gold set | **95%** (151/159) | eval_canonicalization run |
+| Real calls completed (no fallback) | **56/56** → run error rate **0%** | same run |
+| Cost / real call | **₹0.267** (₹14.95 / 56) | cost_tracker / run total |
+| Cost / worker (extraction) | **≈₹0.27**; full journey ≈₹0.5 (TD27) | derived |
+| TD3 over-masking regressions | **0** | run audit |
+| Spend cap + kill-switch fire (block before network) | **15/15 tests pass** | `tests/test_spend_cap.py` |
+| End-to-end latency (p50/p95) | **NOT MEASURED** — must be captured before flip | — (gap) |
+
+**PROD-FLIP THRESHOLD — flip only when ALL hold:**
+
+1. **Accuracy** ≥ **90%** per-field on the Hinglish gold set. *(95% ✅)*
+2. **Cost/worker** ≤ **₹2.0** for the AI path (extraction + chat + resume combined),
+   and the **₹6/user/day** cap is never the binding constraint in normal traffic.
+   *(≈₹0.27–0.5 ✅)*
+3. **Real-call error rate** (provider failure → mock fallback) ≤ **2%** over the
+   qualifying runs. *(0% ✅)*
+4. **Spend cap never breached** and **kill-switch verified firing** — 0 unintended
+   breaches; every cap-block returns the safe mock. *(✅ by tests; re-confirm per run)*
+5. **0 PII leakage / 0 TD3 over-masking** regressions (privacy invariant — never
+   tradeable). *(0 ✅)*
+6. **Latency** p95 end-to-end extraction ≤ **8 s** — ⚠️ **NOT YET MEASURED**; must be
+   captured in the staging burn-in before flip (no invented number here).
+7. **Stability over N runs**: bars 1–5 hold across **≥3 consecutive staging runs /
+   ≥150 cumulative real calls**, **on the model prod will actually run**. *(1 run /
+   56 calls so far → **2 more runs (or a ≥150-call burn-in) required**.)* ⚠️ The
+   2026-06-15 evidence is **Claude-Haiku-4.5-primary**; the staging template default
+   is `gemini-2.5-flash` capable — if prod runs Gemini-primary, the stability bar must
+   be re-measured on Gemini (cost/accuracy/latency can differ by model).
+
+**Hard prod prerequisites (independent of the metrics):**
+- **Keys in a secrets manager**, not `.env` (R8/TD10) — staging-scoped → prod-scoped.
+- **Shared-store (Redis) spend ledger** replacing the per-process singleton, so the
+  cap is global across Uvicorn workers in prod (today caps are per-worker — R6/TD27
+  residual). **Blocks prod**, not staging.
+- A named human approves the flip; `AI_REAL_CALL_TASKS` widened deliberately (start
+  with `profile_extraction` only).
+
+**Status:** accuracy / cost / error-rate / privacy / cap bars **MET** on the 2026-06-15
+run; **NOT yet flippable** — pending (a) latency measurement, (b) ≥2 more staging runs
+for stability, (c) the shared-store ledger + secrets-manager prerequisites.
+
 ## Related
 
 - ADR-0001 (decision #3, superseded by this ADR)
