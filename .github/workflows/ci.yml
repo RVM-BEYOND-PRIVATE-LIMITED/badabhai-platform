@@ -69,33 +69,9 @@ jobs:
       - name: Pytest
         run: pytest
 
-  # ---- Flutter worker app: analyze + test ----
-  # Non-blocking for now: the scaffold was authored without a local Flutter SDK,
-  # so this job is informational until validated. TODO: drop continue-on-error
-  # once green, and consider gating to changes under apps/worker-app.
-  worker-app:
-    name: Worker app (analyze / test)
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    defaults:
-      run:
-        working-directory: apps/worker-app
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-
-      - name: Get dependencies
-        run: flutter pub get
-
-      - name: Analyze
-        run: flutter analyze
-
-      - name: Test
-        run: flutter test
+  # ---- Flutter worker app ----
+  # Moved to its own path-filtered, BLOCKING workflow: .github/workflows/worker-app.yml
+  # (runs only on changes under apps/worker-app; pinned Flutter; no continue-on-error).
 
   # ---- Phase 1 E2E gate: real Postgres + Redis, migrate, drive the full flow ----
   # Blocking: a PR FAILS if the end-to-end onboarding journey (login → consent →

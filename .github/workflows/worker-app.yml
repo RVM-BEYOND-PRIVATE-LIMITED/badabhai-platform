@@ -1,0 +1,54 @@
+name: Worker app
+
+# BLOCKING gate for the Flutter worker app (apps/worker-app). Replaces the old
+# non-blocking `worker-app` job in ci.yml (TD002). Runs ONLY on changes under
+# apps/worker-app (or this workflow), so unrelated PRs don't pay the Flutter cost
+# and don't wait on it. A red check here means: do not merge.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/worker-app/**"
+      - ".github/workflows/worker-app.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/worker-app/**"
+      - ".github/workflows/worker-app.yml"
+
+concurrency:
+  group: worker-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze-test:
+    name: Worker app (analyze / test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/worker-app
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pin the Flutter version so CI is reproducible and the analyzer ruleset
+      # (flutter_lints 5.x, resolved against this SDK's bundled Dart 3.6) is stable.
+      # Bump deliberately, not implicitly via `channel: stable`.
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.27.4"
+          channel: stable
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      # BLOCKING: analyzer findings (error/warning/info) fail the build.
+      - name: Analyze
+        run: flutter analyze
+
+      # BLOCKING: the scaffold ships a runnable widget test (test/widget_test.dart),
+      # so the suite gates too. If/when this grows flaky or needs an emulator,
+      # revisit — do not silently disable.
+      - name: Test
+        run: flutter test
