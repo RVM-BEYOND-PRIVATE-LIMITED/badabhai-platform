@@ -12,7 +12,8 @@ migration ordering, and the Supabase workflow.
 
 **Responsibilities.**
 - Keep CI green and meaningful (`pnpm lint/typecheck/test/build`, `ruff`+`pytest`,
-  Flutter analyze/test). Tighten the Flutter `continue-on-error` job once validated.
+  Flutter analyze/test — the worker-app gate is blocking + path-filtered as of
+  2026-06-15, see [`worker-app.yml`](../../.github/workflows/worker-app.yml)).
 - Apply migrations **before** the code that needs them; ensure env gates
   (`AI_ENABLE_REAL_CALLS`, etc.) default safe.
 - Maintain the server/public env split; keep secrets out of git and the client
