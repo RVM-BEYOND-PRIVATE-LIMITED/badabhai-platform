@@ -13,6 +13,7 @@ write-once. Keeping them current is part of the [Definition of Done](../engineer
 | [open-questions.md](./open-questions.md) | Unknowns blocking or shaping decisions | A question opens or gets answered |
 | [team-decisions.md](./team-decisions.md) | Lightweight decisions not worth a full ADR | A non-architectural call is made |
 | [trade-content-ratification.md](./trade-content-ratification.md) | Per-trade resume/interview-kit content review status (RVM human gate) | Trade content is drafted, edited, or RVM-ratified |
+| [alpha-capstone-fixlist.md](./alpha-capstone-fixlist.md) | Triaged, owned, gated fix-list from the worker-app device-capstone NO-GO | A capstone gap is found, owned, or cleared |
 
 **ADR vs team-decision vs tech-debt:**
 - *Architectural / hard-to-reverse / cross-cutting* → write an [ADR](../decisions/).
