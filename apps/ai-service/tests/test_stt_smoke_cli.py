@@ -13,6 +13,7 @@ from app import stt as stt_module
 from app.cli import stt_smoke
 from app.config import Settings
 from app.stt import MOCK_TRANSCRIPT, SttAdapter
+from app.translate import MOCK_ENGLISH
 
 
 def _real_settings(**overrides) -> Settings:
@@ -36,8 +37,13 @@ class _StubResponse:
 
 
 class _StubAsyncClient:
+    # One stub serves BOTH Sarvam calls the CLI now makes by default (STT, which
+    # POSTs files/data, then translate, which POSTs json). ``post`` takes **kwargs
+    # so either call shape works; the URL picks which armed response to return.
     called = False
-    response = _StubResponse(200, {})
+    translate_called = False
+    stt_response = _StubResponse(200, {})
+    translate_response = _StubResponse(200, {})
 
     def __init__(self, *_a, **_k) -> None:
         pass
@@ -48,14 +54,22 @@ class _StubAsyncClient:
     async def __aexit__(self, *_e):
         return False
 
-    async def post(self, url, *, headers, files, data):
+    async def post(self, url, **_kwargs):
+        if "translate" in url:
+            _StubAsyncClient.translate_called = True
+            return _StubAsyncClient.translate_response
         _StubAsyncClient.called = True
-        return _StubAsyncClient.response
+        return _StubAsyncClient.stt_response
 
 
 def _arm_sarvam(payload: dict, status_code: int = 200) -> None:
     _StubAsyncClient.called = False
-    _StubAsyncClient.response = _StubResponse(status_code, payload)
+    _StubAsyncClient.stt_response = _StubResponse(status_code, payload)
+
+
+def _arm_translate(payload: dict, status_code: int = 200) -> None:
+    _StubAsyncClient.translate_called = False
+    _StubAsyncClient.translate_response = _StubResponse(status_code, payload)
 
 
 # --- banner ----------------------------------------------------------------
@@ -85,6 +99,17 @@ def test_mock_run_prints_mock_transcript_and_exits_zero(capsys):
     assert MOCK_TRANSCRIPT in out
 
 
+def test_mock_translate_prints_english_section_and_exits_zero(capsys):
+    # --mock with no --file uses the dummy path + the (non-empty) mock transcript,
+    # so translation runs in mock too. conftest forces mock-only -> deterministic.
+    rc = stt_smoke.main(["--mock", "--translate"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "=== TRANSLATION (English) ===" in out
+    assert "is_mock:       True" in out
+    assert MOCK_ENGLISH in out
+
+
 def test_real_attempt_with_gate_off_refuses(tmp_path, capsys):
     f = tmp_path / "clip.wav"
     f.write_bytes(b"RIFFfakeaudio")
@@ -97,11 +122,15 @@ def test_real_attempt_with_gate_off_refuses(tmp_path, capsys):
 # --- real --file path (gate forced ON via Settings override, Sarvam stubbed) -
 
 def test_file_mode_real_success(tmp_path, monkeypatch, capsys):
+    # Default flow: transcribe (real, stubbed) THEN translate (real, stubbed).
+    # Patching stt_module.httpx patches the shared httpx module, so translate's
+    # ``httpx.AsyncClient`` is the same stub.
     monkeypatch.setattr(stt_smoke, "Settings", lambda: _real_settings())
     monkeypatch.setattr(stt_module.httpx, "AsyncClient", _StubAsyncClient)
     _arm_sarvam(
         {"transcript": "main vmc operator", "language_code": "hi-IN", "language_probability": 0.96}
     )
+    _arm_translate({"translated_text": "I am a VMC operator", "source_language_code": "hi-IN"})
 
     f = tmp_path / "clip.wav"
     f.write_bytes(b"RIFFfakeaudio")
@@ -112,6 +141,28 @@ def test_file_mode_real_success(tmp_path, monkeypatch, capsys):
     assert "is_mock:       False" in out
     assert "main vmc operator" in out
     assert _StubAsyncClient.called is True
+    # Translation runs by default and prints the English section.
+    assert "=== TRANSLATION (English) ===" in out
+    assert "I am a VMC operator" in out
+    assert _StubAsyncClient.translate_called is True
+
+
+def test_file_mode_no_translate_skips_translation(tmp_path, monkeypatch, capsys):
+    # --no-translate keeps it a pure STT run: no translate call, no English section.
+    monkeypatch.setattr(stt_smoke, "Settings", lambda: _real_settings())
+    monkeypatch.setattr(stt_module.httpx, "AsyncClient", _StubAsyncClient)
+    _arm_sarvam({"transcript": "main vmc operator", "language_code": "hi-IN"})
+    _arm_translate({"translated_text": "unused"})  # resets translate_called -> False
+
+    f = tmp_path / "clip.wav"
+    f.write_bytes(b"RIFFfakeaudio")
+    rc = stt_smoke.main(["--file", str(f), "--language", "hi", "--no-translate"])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "main vmc operator" in out
+    assert "=== TRANSLATION (English) ===" not in out
+    assert _StubAsyncClient.translate_called is False
 
 
 def test_file_mode_over_duration_fails_closed(tmp_path, monkeypatch, capsys):

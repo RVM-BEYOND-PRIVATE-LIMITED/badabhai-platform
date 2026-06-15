@@ -221,6 +221,9 @@ class TranscriptionInput(BaseModel):
     duration_seconds: float | None = None
     language_code: str | None = None
     real_call_allowed: bool = True
+    # When true (default), the AI service ALSO translates the transcript to English
+    # (Sarvam /translate). English-source transcripts skip the call. Backward compatible.
+    translate_to_english: bool = True
 
 
 class TranscriptionOutput(BaseModel):
@@ -232,3 +235,8 @@ class TranscriptionOutput(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     language_code: str | None = None
     is_mock: bool = True
+    # Derived English translation of transcript_text (empty when not translated /
+    # source already English-empty / translation failed-closed). Raw worker text —
+    # the backend stores it in voice_notes.transcript_english and keeps it OUT of
+    # events/ai_jobs/logs, same as transcript_text.
+    english_text: str = ""

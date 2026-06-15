@@ -19,16 +19,17 @@ export class VoiceRepository {
     return rows[0];
   }
 
-  /** Persist a transcription result. `transcriptText` is raw worker free-text;
-   * it lives only on this row, never in events/ai_jobs/logs. */
+  /** Persist a transcription result. `transcriptText` and `englishText` are raw
+   * worker free-text; they live only on this row, never in events/ai_jobs/logs. */
   async setTranscript(
     id: string,
     transcriptText: string,
     confidence: number | null,
+    englishText: string | null,
   ): Promise<void> {
     await this.db
       .update(voiceNotes)
-      .set({ transcriptText, transcriptConfidence: confidence })
+      .set({ transcriptText, transcriptConfidence: confidence, transcriptEnglish: englishText })
       .where(eq(voiceNotes.id, id));
   }
 }

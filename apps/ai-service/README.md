@@ -69,6 +69,32 @@ closed (the duration guard fires before any upload/spend). Batch/chunking for
 >30s clips is future work. Audio bytes, transcripts, and secrets are never logged
 and never appear in any raised error message.
 
+### Translate to English (Sarvam)
+
+An optional step translates the (spoken-language) transcript to English via Sarvam
+`/translate` (`mayura:v1`, code-mixed mode for Hinglish/romanized source). It is
+gated by the **same** `AI_ENABLE_REAL_CALLS` + `SARVAM_API_KEY` as STT, mock by
+default (a deterministic, PII-free English gloss), and **fails closed**: any
+failure yields an empty English string with `error_code=translate_call_failed` —
+never a fabricated translation, never a fall back to the mock text. Optional
+`SARVAM_TRANSLATE_MODEL` (default `mayura:v1`).
+
+- When the source is **already English** the call is **skipped** (no API spend) —
+  the transcript is returned as-is, marked real (not mock).
+- `mayura:v1` caps a single request at **1000 chars**; a longer transcript fails
+  closed (the cap fires before any network call; chunking is future work).
+- The raw transcript may contain PII — this is the same exposure class as the STT
+  call. The input, the translation, and the key are **never logged** and never
+  appear in any raised error message.
+
+Terminal usage (mirrors the STT smoke tool) — translation runs by default, the
+same as the production `/voice/transcribe` flow:
+
+```bash
+python -m app.cli.stt_smoke --file <clip>                 # transcribe, then translate (default)
+python -m app.cli.stt_smoke --file <clip> --no-translate  # transcribe only
+```
+
 ## TODO (later phases)
 
 - Replace heuristic PII detection with NER / LLM-assisted detection.

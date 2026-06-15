@@ -252,6 +252,9 @@ export const TranscriptionInputSchema = z.object({
   language_code: languageCode.optional(),
   // Optional (AI service defaults to true) → backward compatible input type.
   real_call_allowed: z.boolean().optional(),
+  // AI service ALSO translates the transcript to English when true (it defaults to
+  // true server-side). Optional here → backward compatible input type.
+  translate_to_english: z.boolean().optional(),
 });
 export type TranscriptionInput = z.infer<typeof TranscriptionInputSchema>;
 
@@ -261,5 +264,9 @@ export const TranscriptionOutputSchema = z.object({
   language_code: z.string().nullable().default(null),
   /** True when the response came from the mock path (AI_ENABLE_REAL_CALLS=false). */
   is_mock: z.boolean().default(true),
+  // Derived English translation (empty when not translated / source already English /
+  // translation failed-closed). Raw worker text — stored in voice_notes.transcript_english,
+  // kept OUT of events/ai_jobs/logs.
+  english_text: z.string().default(""),
 });
 export type TranscriptionOutput = z.infer<typeof TranscriptionOutputSchema>;
