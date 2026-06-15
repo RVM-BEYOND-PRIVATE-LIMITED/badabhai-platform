@@ -49,6 +49,11 @@ Status legend: ✅ done in this foundation · 🔜 next · ⏳ later
 - ✅ Next.js ops console shell (workers / events / ai-jobs)
 - 🔜 Wire worker app `ApiClient` to the API (real HTTP + models)
 - 🔜 Wire ops console pages to the API (read-only)
+- 🔜 **Alpha device capstone — NO-GO as of 2026-06-15** (deferred, fixing gaps first):
+  app covers login→consent→chat→profile→resume-text only. Gaps before the device
+  run: resume **PDF download** (signed URL), **voice** flow (placeholder today),
+  **interview-kit** screen. **Swipe** is out of Phase-1 (Reach Engine). Tracked as
+  **TD29**; plan + go/no-go in [docs/qa/phase-1-alpha-device-capstone.md](../qa/phase-1-alpha-device-capstone.md).
 
 ---
 
