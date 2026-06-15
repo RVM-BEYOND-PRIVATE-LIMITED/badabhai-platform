@@ -148,11 +148,16 @@ jobs:
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'DO $$ BEGIN CREATE ROLE anon NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$; DO $$ BEGIN CREATE ROLE authenticated NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$; DO $$ BEGIN CREATE ROLE service_role NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;'
 
-      # Fresh DB → applies the full migration chain (0000..0008) from scratch,
-      # which also validates migrations on every PR. The flow self-seeds (it creates
-      # its own worker per run via a unique phone), so no separate seed step.
+      # Fresh DB → applies the full migration chain from scratch, which also
+      # validates migrations on every PR. The onboarding flow self-seeds (it creates
+      # its own worker per run via a unique phone), so no worker seed is needed.
       - name: Apply migrations
         run: pnpm --filter @badabhai/db db:migrate
+
+      # Catalog jobs ARE needed: the alpha swipe-to-apply e2e (ADR-0009) reads a
+      # seeded job source. Idempotent; PII-free; safe to run before every e2e.
+      - name: Seed alpha jobs
+        run: pnpm --filter @badabhai/db db:seed:jobs
 
       - name: Start API and run the Phase 1 E2E suite
         run: |

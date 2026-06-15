@@ -8,6 +8,7 @@ import 'features/chat/chat_profiling_screen.dart';
 import 'features/voice/voice_note_placeholder_screen.dart';
 import 'features/profile/profile_preview_screen.dart';
 import 'features/resume/resume_preview_screen.dart';
+import 'features/swipe/swipe_jobs_screen.dart';
 
 /// Named routes for the Phase 1 worker-profiling flow.
 class Routes {
@@ -19,6 +20,7 @@ class Routes {
   static const String voiceNote = '/voice';
   static const String profilePreview = '/profile';
   static const String resumePreview = '/resume';
+  static const String swipeJobs = '/jobs';
 }
 
 final Map<String, WidgetBuilder> appRoutes = <String, WidgetBuilder>{
@@ -30,4 +32,5 @@ final Map<String, WidgetBuilder> appRoutes = <String, WidgetBuilder>{
   Routes.voiceNote: (_) => const VoiceNotePlaceholderScreen(),
   Routes.profilePreview: (_) => const ProfilePreviewScreen(),
   Routes.resumePreview: (_) => const ResumePreviewScreen(),
+  Routes.swipeJobs: (_) => const SwipeJobsScreen(),
 };

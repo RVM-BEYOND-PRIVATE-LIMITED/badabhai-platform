@@ -54,6 +54,15 @@ Status legend: ✅ done in this foundation · 🔜 next · ⏳ later
   run: resume **PDF download** (signed URL), **voice** flow (placeholder today),
   **interview-kit** screen. **Swipe** is out of Phase-1 (Reach Engine). Tracked as
   **TD29**; plan + go/no-go in [docs/qa/phase-1-alpha-device-capstone.md](../qa/phase-1-alpha-device-capstone.md).
+- ✅ **Alpha swipe-to-apply surface (per [ADR-0009](../decisions/0009-alpha-swipe-to-apply-seeded-jobs.md), 2026-06-15)** — a *scoped alpha activation*, **not** the Phase-2
+  Reach feed: a seeded `jobs` + `applications` producer (additive, PII-free, no event
+  payload version bump), three consent-gated worker routes (feed / apply / skip) emitting
+  the existing ADR-0006 events, two PII-free ops applicant reads, a reusable `ConsentGuard`,
+  and a worker swipe screen. **No ranking** (score=0, rank=seed order), **no** employer
+  console / unlock / payments — those Phase-2 surfaces stay out (the "Swipe is out of
+  Phase-1 / Reach Engine" line above still holds for the *Reach feed*). Closes the capstone
+  "swipe" gap **in code**; device-verification still pending (Jun-25). Two security reviews
+  PASS. Migration not yet applied to a shared DB (needs sign-off, CLAUDE.md §7).
 
 ---
 
