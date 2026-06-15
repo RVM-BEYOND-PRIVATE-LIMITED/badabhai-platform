@@ -298,6 +298,9 @@ class _SwipeJobsScreenState extends State<SwipeJobsScreen> {
       children: <Widget>[
         Expanded(
           child: OutlinedButton.icon(
+            // Keyed for tests: `*.icon` buttons are a private FilledButton/
+            // OutlinedButton subclass, so find.byType(OutlinedButton) misses them.
+            key: const Key('swipeSkipButton'),
             onPressed: _deciding ? null : _skip,
             style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(56),
@@ -309,6 +312,7 @@ class _SwipeJobsScreenState extends State<SwipeJobsScreen> {
         const SizedBox(width: 16),
         Expanded(
           child: FilledButton.icon(
+            key: const Key('swipeApplyButton'),
             onPressed: _deciding ? null : _apply,
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(56),

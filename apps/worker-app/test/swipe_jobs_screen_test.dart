@@ -87,9 +87,10 @@ void main() {
 
     expect(find.text('VMC Operator'), findsOneWidget);
     expect(find.text('Chakan, Pune'), findsOneWidget);
-    // Action affordances present.
-    expect(find.widgetWithText(FilledButton, 'Apply'), findsOneWidget);
-    expect(find.widgetWithText(OutlinedButton, 'Skip'), findsOneWidget);
+    // Action affordances present. Found by key: the `*.icon` buttons are a private
+    // FilledButton/OutlinedButton subclass, so find.byType(...) does not match them.
+    expect(find.byKey(const Key('swipeApplyButton')), findsOneWidget);
+    expect(find.byKey(const Key('swipeSkipButton')), findsOneWidget);
   });
 
   testWidgets('empty feed shows the no-more-jobs state', (
@@ -161,7 +162,7 @@ void main() {
     await tester.pumpWidget(_harness(api));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+    await tester.tap(find.byKey(const Key('swipeApplyButton')));
     await tester.pumpAndSettle();
 
     expect(applyPath, '/applications/job-1/apply');
@@ -204,7 +205,7 @@ void main() {
 
     expect(find.text('First Job'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(OutlinedButton, 'Skip'));
+    await tester.tap(find.byKey(const Key('swipeSkipButton')));
     await tester.pumpAndSettle();
 
     expect(skipPath, '/applications/job-1/skip');
@@ -238,7 +239,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(feedServed, isTrue);
 
-    await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+    await tester.tap(find.byKey(const Key('swipeApplyButton')));
     await tester.pump(); // start the future + run the catch/setState
     await tester.pump(const Duration(milliseconds: 750)); // snackbar entrance
 
