@@ -11,13 +11,32 @@ class AppState extends ChangeNotifier {
 
   String? phoneE164;
   String? workerId;
+
+  /// Bearer session token minted at OTP verify and required by worker-scoped
+  /// API routes (`Authorization: Bearer <token>`). Lives only in memory — it is
+  /// the worker's own short-lived session credential, never persisted to disk
+  /// and never logged.
+  String? sessionToken;
+
   String? sessionId;
   String? profileId;
   String? resumeId;
 
-  void setWorker({required String phone, required String workerId}) {
+  void setWorker({
+    required String phone,
+    required String workerId,
+    String? sessionToken,
+  }) {
     phoneE164 = phone;
     this.workerId = workerId;
+    if (sessionToken != null) this.sessionToken = sessionToken;
+    notifyListeners();
+  }
+
+  /// Replaces the in-memory session token. Used when the API hands back a fresh
+  /// rolling token via the `x-session-token` response header.
+  void setSessionToken(String token) {
+    sessionToken = token;
     notifyListeners();
   }
 

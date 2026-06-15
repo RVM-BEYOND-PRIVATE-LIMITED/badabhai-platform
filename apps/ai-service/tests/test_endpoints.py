@@ -92,6 +92,8 @@ def test_profile_extract_fails_closed_on_unsafe_input():
 
 
 def test_voice_transcribe_returns_mock_when_real_calls_disabled():
+    from app.translate import MOCK_ENGLISH
+
     res = client.post(
         "/voice/transcribe",
         json={"voice_note_id": "vn1", "storage_path": "worker/sess/v1.ogg"},
@@ -101,6 +103,19 @@ def test_voice_transcribe_returns_mock_when_real_calls_disabled():
     assert body["is_mock"] is True
     assert len(body["transcript_text"]) > 0
     assert 0.0 <= body["confidence"] <= 1.0
+    # Translation also runs in mock mode (gate off → TranslateAdapter mock gloss).
+    assert len(body["english_text"]) > 0
+    assert body["english_text"] == MOCK_ENGLISH
+
+
+def test_voice_transcribe_skips_translation_when_disabled():
+    res = client.post(
+        "/voice/transcribe",
+        json={"voice_note_id": "vn1", "storage_path": "x", "translate_to_english": False},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["english_text"] == ""
 
 
 def test_voice_transcribe_requires_storage_path():

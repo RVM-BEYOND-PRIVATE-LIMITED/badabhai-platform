@@ -5,15 +5,20 @@ import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { SmsModule } from "../sms/sms.module";
+import { ConsentModule } from "../consent/consent.module";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
 import { OtpService } from "./otp.service";
 import { SessionService } from "./session.service";
 import { WorkerAuthGuard } from "./worker-auth.guard";
+import { ConsentGuard } from "./consent.guard";
 
 @Module({
   imports: [
     SmsModule,
+    // ConsentGuard reads the worker's latest consent via ConsentRepository.
+    // ConsentModule does NOT import AuthModule, so there is no cycle.
+    ConsentModule,
     // Reuse BullMQ's existing Redis connection for OTP + session keys (registers
     // the queue only to obtain its client — no second connection), exactly like
     // RateLimitModule does.
@@ -32,12 +37,15 @@ import { WorkerAuthGuard } from "./worker-auth.guard";
   ],
   controllers: [AuthController],
   // IpRateLimit is @Global (RateLimitModule) — do not re-provide it.
-  providers: [AuthService, OtpService, SessionService, WorkerAuthGuard],
-  // Export the guard AND its SessionService dependency. When another module
-  // (ResumeModule) applies WorkerAuthGuard via @UseGuards, Nest resolves the
-  // guard's ctor deps in the importing module's injector — so SessionService must
-  // be exported too, else its index-0 dep resolves to null and the app fails to
-  // boot (caught by the e2e, not unit tests). SERVER_CONFIG is @Global.
-  exports: [WorkerAuthGuard, SessionService],
+  providers: [AuthService, OtpService, SessionService, WorkerAuthGuard, ConsentGuard],
+  // Export the guards AND their dependencies. When another module applies a guard
+  // via @UseGuards, Nest resolves the guard's ctor deps in the IMPORTING module's
+  // injector — so each dep must be reachable there, else it resolves to null and
+  // the app fails to BOOT (caught by the boot test, not the plain unit tests).
+  // SERVER_CONFIG is @Global. SessionService (this module) backs WorkerAuthGuard.
+  // ConsentGuard depends on ConsentRepository, which lives in ConsentModule — a
+  // module can only re-export a provider it OWNS, so we re-export the MODULE
+  // (ConsentModule), which propagates its own export (ConsentRepository) onward.
+  exports: [WorkerAuthGuard, ConsentGuard, SessionService, ConsentModule],
 })
 export class AuthModule {}

@@ -17,6 +17,9 @@ What it is / is NOT:
                          Supabase bucket (service-role) and then call Sarvam. This
                          needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.
   ``--mock`` forces the deterministic mock path (no provider call).
+- After transcribing, the transcript is translated to English by default (the
+  same as the production ``/voice/transcribe`` flow, where ``translate_to_english``
+  defaults to true). Pass ``--no-translate`` to transcribe only.
 
 Gating is the SAME as production: a real call needs AI_ENABLE_REAL_CALLS=true AND
 SARVAM_API_KEY; otherwise (or with ``--mock``) the mock transcript is returned.
@@ -38,6 +41,7 @@ from unittest.mock import patch
 
 from ..config import Settings
 from ..stt import SttAdapter, SttResult
+from ..translate import TranslateAdapter, TranslateResult
 
 
 def _stt_status(settings: Settings, adapter: SttAdapter) -> str:
@@ -64,6 +68,12 @@ def _stt_status(settings: Settings, adapter: SttAdapter) -> str:
             else "NOT configured (only --file mode works; --storage-path will fail closed)"
         )
     )
+    # Translate readiness uses the SAME gate (flag + Sarvam key) as STT.
+    tr_reason = TranslateAdapter(settings).real_blocked_reason()
+    if tr_reason is None:
+        lines.append("REAL Sarvam translate: ON")
+    else:
+        lines.append(f"REAL Sarvam translate: OFF ({tr_reason})")
     return "\n".join(lines)
 
 
@@ -99,6 +109,35 @@ async def _transcribe(
             language_code=language_code,
             real_call_allowed=allow_real,
         )
+
+
+async def _translate(
+    adapter: TranslateAdapter,
+    *,
+    text: str,
+    source: str | None,
+    allow_real: bool,
+) -> TranslateResult:
+    """Run the real translate adapter (same gating + fail-closed as production)."""
+    return await adapter.translate(
+        text=text,
+        source_language_code=source,
+        real_call_allowed=allow_real,
+    )
+
+
+def _format_translation(result: TranslateResult, *, show_text: bool) -> str:
+    lines = [
+        "=== TRANSLATION (English) ===",
+        f"is_mock:       {result.is_mock}",
+        f"error_code:    {result.error_code}",
+        f"detected_source:{result.detected_source}",
+        f"english_len:   {len(result.english_text)}",
+    ]
+    if show_text:
+        lines.append("english:")
+        lines.append(result.english_text or "(empty)")
+    return "\n".join(lines)
 
 
 def _format_result(result: SttResult, *, show_transcript: bool) -> str:
@@ -143,6 +182,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "--hide-transcript",
         action="store_true",
         help="do not print the transcript text (PII) — show only length + metadata",
+    )
+    p.add_argument(
+        "--translate",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "translate the transcript to English after transcribing, via Sarvam "
+            "(ON by default, mirroring the production /voice/transcribe flow; "
+            "prints original + English, where the original is the faithful "
+            "spoken-language text and English is derived). Use --no-translate to "
+            "transcribe only."
+        ),
     )
     return p
 
@@ -207,9 +258,32 @@ def main(argv: list[str] | None = None) -> int:
 
     print("\n" + _format_result(result, show_transcript=not args.hide_transcript))
 
+    tr: TranslateResult | None = None
+    if args.translate:
+        if not result.transcript_text:
+            print("\n(no transcript to translate)")
+        else:
+            tr_adapter = TranslateAdapter(settings)
+            tr = asyncio.run(
+                _translate(
+                    tr_adapter,
+                    text=result.transcript_text,
+                    source=result.language_code,
+                    allow_real=not args.mock,
+                )
+            )
+            print("\n" + _format_translation(tr, show_text=not args.hide_transcript))
+
     # Exit non-zero on a real-path failure so the tool is scriptable; mock and
     # successful real runs exit 0.
     if not args.mock and result.error_code == "stt_call_failed":
+        return 1
+    if (
+        args.translate
+        and not args.mock
+        and tr is not None
+        and tr.error_code == "translate_call_failed"
+    ):
         return 1
     return 0
 

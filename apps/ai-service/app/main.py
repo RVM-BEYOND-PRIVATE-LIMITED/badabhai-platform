@@ -50,12 +50,14 @@ from .profiling.prompts import (
 )
 from .pseudonymize import PseudonymizationResult, pseudonymize
 from .stt import SttAdapter
+from .translate import TranslateAdapter
 
 configure_logging()
 logger = get_logger("ai-service")
 settings = get_settings()
 router = AIRouter(settings)
 stt_adapter = SttAdapter(settings)
+translate_adapter = TranslateAdapter(settings)
 
 app = FastAPI(title="BadaBhai AI Service", version="0.1.0")
 
@@ -263,7 +265,17 @@ async def voice_transcribe(body: TranscriptionInput) -> TranscriptionOutput:
         language_code=body.language_code,
         real_call_allowed=body.real_call_allowed,
     )
-    # PRIVACY: never log the transcript text (raw worker free-text). Counts only.
+    # Translate the transcript to English (gated, mock-by-default, fail-closed).
+    # The adapter skips English sources and returns empty english on any failure.
+    english_text = ""
+    if body.translate_to_english and result.transcript_text.strip():
+        translation = await translate_adapter.translate(
+            text=result.transcript_text,
+            source_language_code=result.language_code,
+            real_call_allowed=body.real_call_allowed,
+        )
+        english_text = translation.english_text
+    # PRIVACY: never log transcript or english TEXT (raw worker free-text). Counts only.
     logger.info(
         "voice transcribe",
         extra={
@@ -272,6 +284,7 @@ async def voice_transcribe(body: TranscriptionInput) -> TranscriptionOutput:
                 "is_mock": result.is_mock,
                 "confidence": result.confidence,
                 "char_count": len(result.transcript_text),
+                "english_len": len(english_text),
                 "language": result.language_code,
                 "error_code": result.error_code,
             }
@@ -282,6 +295,7 @@ async def voice_transcribe(body: TranscriptionInput) -> TranscriptionOutput:
         confidence=result.confidence,
         language_code=result.language_code,
         is_mock=result.is_mock,
+        english_text=english_text,
     )
 
 
