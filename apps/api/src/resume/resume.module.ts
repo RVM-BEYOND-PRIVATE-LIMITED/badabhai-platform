@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
+import { AuthModule } from "../auth/auth.module";
 import { ProfilesModule } from "../profiles/profiles.module";
 import { StorageModule } from "../storage/storage.module";
 import {
@@ -25,6 +26,7 @@ import { ResumeRenderProcessor } from "./resume-render.processor";
  */
 @Module({
   imports: [
+    AuthModule, // for WorkerAuthGuard (worker-authenticated PDF download)
     ProfilesModule, // for ProfilesRepository
     StorageModule, // for StorageService (signed URLs + PDF upload)
     BullModule.registerQueue({ name: RESUME_GENERATE_QUEUE }),

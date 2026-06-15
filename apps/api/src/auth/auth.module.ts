@@ -33,5 +33,11 @@ import { WorkerAuthGuard } from "./worker-auth.guard";
   controllers: [AuthController],
   // IpRateLimit is @Global (RateLimitModule) — do not re-provide it.
   providers: [AuthService, OtpService, SessionService, WorkerAuthGuard],
+  // Export the guard AND its SessionService dependency. When another module
+  // (ResumeModule) applies WorkerAuthGuard via @UseGuards, Nest resolves the
+  // guard's ctor deps in the importing module's injector — so SessionService must
+  // be exported too, else its index-0 dep resolves to null and the app fails to
+  // boot (caught by the e2e, not unit tests). SERVER_CONFIG is @Global.
+  exports: [WorkerAuthGuard, SessionService],
 })
 export class AuthModule {}
