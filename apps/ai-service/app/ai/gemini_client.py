@@ -20,9 +20,10 @@ from ..config import Settings
 _GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 _TIMEOUT_SECONDS = 30.0
 # On HTTP 429 (rate limit) we wait and retry IN-CALL so a per-minute (RPM) cap
-# self-heals. A per-DAY cap won't recover — it just exhausts these retries and
-# raises, and the router falls back to mock (fail-safe). Bounded so a hard cap
-# can't hang the request for long.
+# self-heals. A per-DAY cap won't recover within the request — we detect it
+# (``_is_daily_quota_429``) and fail FAST so the router escalates to the next
+# provider (Claude Haiku) immediately instead of burning the backoff budget.
+# Bounded so even an undetected hard cap can't hang the request for long.
 _MAX_RATE_LIMIT_RETRIES = 4
 _MAX_BACKOFF_SECONDS = 20.0
 
@@ -38,6 +39,23 @@ def _retry_after_seconds(resp: httpx.Response, attempt: int) -> float:
     except (ValueError, KeyError, TypeError):
         pass
     return min(2.0**attempt, _MAX_BACKOFF_SECONDS)
+
+
+def _is_daily_quota_429(resp: httpx.Response) -> bool:
+    """True if a 429 is a per-DAY / daily quota that won't self-heal this request
+    (e.g. the free-tier ``GenerateRequestsPerDayPerProjectPerModel-FreeTier`` 20/day
+    cap), as opposed to a transient per-minute (RPM) limit. We retry RPM limits but
+    fail FAST on daily ones so the router can fall over to the next provider without
+    waiting out a quota that only resets at the daily boundary."""
+    try:
+        details = resp.json().get("error", {}).get("details", [])
+    except (ValueError, KeyError, TypeError):
+        return False
+    for detail in details:
+        for violation in detail.get("violations", []) or []:
+            if "PerDay" in (violation.get("quotaId") or ""):
+                return True
+    return False
 
 
 @dataclass
@@ -155,6 +173,10 @@ async def acomplete(
         for attempt in range(_MAX_RATE_LIMIT_RETRIES + 1):
             resp = await client.post(url, headers=headers, json=body)
             if resp.status_code != 429 or attempt == _MAX_RATE_LIMIT_RETRIES:
+                break
+            # A per-day cap won't clear within this request — don't wait it out;
+            # break so the call raises and the router escalates to the fallback.
+            if _is_daily_quota_429(resp):
                 break
             await asyncio.sleep(_retry_after_seconds(resp, attempt))
 

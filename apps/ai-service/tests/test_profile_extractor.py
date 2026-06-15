@@ -60,3 +60,45 @@ def test_empty_text_is_low_confidence_with_missing_fields():
     assert rich.primary_role is None
     assert rich.confidence_score < 0.5
     assert "primary_role" in rich.missing_fields
+
+
+def test_merge_model_draft_keeps_good_fields_despite_malformed_siblings():
+    """The real-world failure: the model returns experience_years + machines
+    correctly but nulls/loose-types other fields (and fences the JSON). Strict
+    validation would discard everything; merge_model_draft keeps the good fields."""
+    base = profile_extractor.extract_worker_profile_draft("", "cnc_vmc")  # all-empty
+    content = (
+        "```json\n"
+        '{"role_family": null, "primary_role": null, "experience_years": 1.5, '
+        '"experience_level": "basic", "machines": ["CNC"], '
+        '"programming_knowledge": null, "operation_knowledge": "basic", '
+        '"availability": null, "education": null}\n'
+        "```"
+    )
+    out = profile_extractor.merge_model_draft(base, content)
+    assert out.experience_years == 1.5              # captured (was lost before)
+    assert out.machines == ["CNC"]                  # captured
+    assert out.operation_knowledge == "basic"       # valid enum kept
+    assert out.experience_level == "junior"         # recomputed from 1.5 (not "basic")
+    assert out.availability == "unknown"            # null ignored -> default kept
+    assert out.education == []                       # null ignored -> default kept
+    assert out.role_family == "cnc_vmc"             # null ignored -> default kept
+
+
+def test_merge_model_draft_ignores_unparseable_content():
+    base = profile_extractor.extract_worker_profile_draft("vmc 4 saal", "cnc_vmc")
+    # Garbage / non-object content -> base returned unchanged.
+    assert profile_extractor.merge_model_draft(base, "not json").machines == base.machines
+    assert profile_extractor.merge_model_draft(base, "[1,2,3]").primary_role == base.primary_role
+
+
+def test_merge_model_draft_does_not_overlay_location_or_salary():
+    # The model only sees masked text; location/salary must stay from the local base.
+    base = profile_extractor.extract_worker_profile_draft(
+        "vmc 4 saal faridabad me 22k", "cnc_vmc"
+    )
+    content = '{"current_city": "[CITY_1]", "current_salary": 99999, "machines": ["VMC"]}'
+    out = profile_extractor.merge_model_draft(base, content)
+    assert out.current_city == base.current_city      # NOT overwritten by the model
+    assert out.current_salary == base.current_salary  # NOT overwritten
+    assert "VMC" in out.machines                       # non-local field still overlaid

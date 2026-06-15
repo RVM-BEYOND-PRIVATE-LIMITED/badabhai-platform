@@ -33,6 +33,14 @@ def _force_mock_only_env() -> None:
         "GEMINI_API_KEY",
     ):
         os.environ[var] = ""
+    # Pin model routing too, so tests that read the DEFAULTS (e.g. the onboarding
+    # readiness banner) are deterministic regardless of which primary/fallback a
+    # developer's `.env` selects (e.g. a local Claude-Haiku-primary swap). Tests
+    # needing a specific routing pass explicit Settings(...) kwargs, which outrank
+    # these. Values mirror the committed defaults: Gemini primary, Haiku fallback.
+    os.environ["DEFAULT_CHEAP_MODEL"] = "gemini-2.5-flash-lite"
+    os.environ["DEFAULT_CAPABLE_MODEL"] = "gemini-2.5-flash-lite"
+    os.environ["DEFAULT_FALLBACK_MODEL"] = "claude-haiku-4-5"
     # Drop the eval target so the skip-gated per-field real test stays SKIPPED
     # even when a developer .env sets it.
     os.environ.pop("AI_EVAL_BASE_URL", None)

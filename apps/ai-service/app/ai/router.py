@@ -144,18 +144,20 @@ class AIRouter:
     def _candidate_models(self, primary_model: str) -> list[str]:
         """Ordered provider-fallback chain for a real call.
 
-        primary_model (Gemini) first; then ``settings.default_fallback_model``
-        (Claude Haiku) IFF ``settings.anthropic_api_key`` is set AND its provider
-        differs from the primary's. De-duplicated, order preserved. The fallback
-        key is NOT a master gate — Gemini's key already governs whether real calls
-        happen at all (checked upstream via ``real_call_enabled_for``)."""
+        ``primary_model`` first; then ``settings.default_fallback_model`` IFF the
+        credential for the FALLBACK's OWN provider is set AND its provider differs
+        from the primary's. De-duplicated, order preserved. Gating on the fallback
+        provider's own key (not a hardcoded one) lets primary/fallback be either
+        provider — e.g. Claude Haiku primary, Gemini fallback — without the chain
+        silently dropping the fallback. The fallback key is NOT a master gate; the
+        master switch is enforced upstream via ``real_call_enabled_for``."""
         candidates = [primary_model]
         fallback = self._settings.default_fallback_model
         if (
-            self._settings.anthropic_api_key
-            and fallback
+            fallback
             and fallback not in candidates
             and provider_for_model(fallback) != provider_for_model(primary_model)
+            and self._settings.has_credential_for(provider_for_model(fallback))
         ):
             candidates.append(fallback)
         return candidates

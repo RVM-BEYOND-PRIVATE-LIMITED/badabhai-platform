@@ -10,6 +10,8 @@ the contract returned here is stable so the backend/Flutter need not change.
 
 from __future__ import annotations
 
+import json
+
 from ..contracts import (
     Availability,
     DraftProfile,
@@ -19,7 +21,15 @@ from ..contracts import (
     WorkerProfileDraft,
 )
 from . import signals
+from .canonical_roles import coerce_json_text
 from .signals import Signals
+
+# Allowed values for the enum-typed draft fields. Used by ``merge_model_draft`` to
+# reject a single loosely-typed value (e.g. experience_level "basic") WITHOUT
+# discarding the rest of the model's good extraction.
+_EXPERIENCE_LEVELS = {"fresher", "junior", "experienced", "senior", "unknown"}
+_KNOWLEDGE_LEVELS = {"none", "basic", "strong", "unknown"}
+_AVAILABILITY = {"immediate", "notice_period", "not_looking", "unknown"}
 
 # missing-field -> Hinglish clarification question.
 _CLARIFY: dict[str, str] = {
@@ -126,6 +136,78 @@ def extract(text: str, role_family: str = "cnc_vmc") -> tuple[WorkerProfileDraft
     """Extract both the rich draft and the legacy DraftProfile in one pass."""
     sig = signals.detect(text)
     return _build_rich(sig, role_family), _build_legacy(sig)
+
+
+def _as_float(value: object) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _as_str_list(value: object) -> list[str] | None:
+    if not isinstance(value, list):
+        return None
+    return [str(x).strip() for x in value if str(x).strip()]
+
+
+def _as_text(value: object) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def merge_model_draft(base: WorkerProfileDraft, content: str) -> WorkerProfileDraft:
+    """Overlay a model's extracted fields onto the heuristic ``base``, keeping each
+    field ONLY when it is individually well-formed.
+
+    Why not ``WorkerProfileDraft.model_validate_json``: a conversational model
+    routinely nulls enum fields or loose-types ONE value (e.g. experience_level
+    "basic", availability null). Strict validation then rejects the WHOLE draft, so
+    genuinely-good fields (experience_years, machines) are lost with the bad ones.
+    Here each field is validated on its own and silently skipped if malformed.
+
+    Location/salary fields are deliberately NOT overlaid: the model only ever sees
+    the PSEUDONYMIZED transcript, so those are trusted only from the local heuristic
+    ``base``. A bad/empty ``content`` returns ``base`` unchanged.
+    """
+    try:
+        data = json.loads(coerce_json_text(content))
+    except (ValueError, TypeError):
+        return base
+    if not isinstance(data, dict):
+        return base
+
+    out = base.model_copy(deep=True)
+
+    if (role := _as_text(data.get("primary_role"))) is not None:
+        out.primary_role = role
+
+    years = _as_float(data.get("experience_years"))
+    if years is not None:
+        out.experience_years = years
+        out.experience_level = _experience_level(years)  # keep level consistent
+    else:
+        lvl = data.get("experience_level")
+        if isinstance(lvl, str) and lvl in _EXPERIENCE_LEVELS:
+            out.experience_level = lvl
+
+    for field in (
+        "machines", "controllers", "skills", "education", "inspection_tools",
+        "materials_handled", "secondary_roles", "certifications",
+    ):
+        values = _as_str_list(data.get(field))
+        if values is not None:
+            setattr(out, field, values)
+
+    for field in ("programming_knowledge", "setting_knowledge", "operation_knowledge"):
+        level = data.get(field)
+        if isinstance(level, str) and level in _KNOWLEDGE_LEVELS:
+            setattr(out, field, level)
+
+    availability = data.get("availability")
+    if isinstance(availability, str) and availability in _AVAILABILITY:
+        out.availability = availability
+
+    if isinstance(data.get("drawing_reading"), bool):
+        out.drawing_reading = data["drawing_reading"]
+
+    return out
 
 
 def extract_worker_profile_draft(text: str, role_family: str = "cnc_vmc") -> WorkerProfileDraft:

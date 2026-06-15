@@ -41,6 +41,86 @@ def _chat_json(message: str, ready: bool) -> str:
     return json.dumps({"message": message, "ready_to_extract": ready}, ensure_ascii=False)
 
 
+# --- _startup_status banner: the up-front readiness diagnosis ----------------
+# Explicit Settings(...) kwargs override conftest's os.environ blanks (pydantic
+# precedence: init kwargs > env > .env), so these pin the exact gate state.
+
+def test_startup_status_off_when_master_flag_false():
+    banner = onboarding_chat._startup_status(Settings(ai_enable_real_calls=False))
+    assert "OFF" in banner
+    assert "AI_ENABLE_REAL_CALLS" in banner
+
+
+def test_startup_status_off_when_no_gemini_key_warns_about_shell_override():
+    # Master flag on but no key -> OFF; the banner must call out the sneaky
+    # shell-env-overrides-.env failure mode that caused the silent all-mock run.
+    banner = onboarding_chat._startup_status(
+        Settings(ai_enable_real_calls=True, gemini_flash_api_key="")
+    )
+    assert "OFF" in banner
+    assert "GEMINI_FLASH_API_KEY" in banner
+    assert "OVERRIDES" in banner  # the shell-env-precedence warning
+
+
+def test_startup_status_on_with_anthropic_fallback():
+    banner = onboarding_chat._startup_status(
+        Settings(
+            ai_enable_real_calls=True,
+            gemini_flash_api_key="k",
+            anthropic_api_key="a",
+            ai_real_call_tasks="profiling_chat_turn,profile_extraction",
+        )
+    )
+    assert "ON" in banner
+    assert "(google)" in banner
+    assert "claude-haiku-4-5 (anthropic)" in banner
+    assert "WARNING" not in banner
+
+
+def test_startup_status_on_without_anthropic_key_shows_no_fallback():
+    banner = onboarding_chat._startup_status(
+        Settings(
+            ai_enable_real_calls=True,
+            gemini_flash_api_key="k",
+            anthropic_api_key="",
+            ai_real_call_tasks="",
+        )
+    )
+    assert "ON" in banner
+    assert "fallback: none" in banner
+
+
+def test_startup_status_haiku_primary_gemini_fallback_labels():
+    # Provider labels are DERIVED from the model ids, so a swapped config (Haiku
+    # primary, Gemini fallback) is labelled correctly — not hardcoded.
+    banner = onboarding_chat._startup_status(
+        Settings(
+            ai_enable_real_calls=True,
+            gemini_flash_api_key="k",
+            anthropic_api_key="a",
+            default_cheap_model="claude-haiku-4-5",
+            default_capable_model="claude-haiku-4-5",
+            default_fallback_model="gemini-2.5-flash-lite",
+            ai_real_call_tasks="profiling_chat_turn,profile_extraction",
+        )
+    )
+    assert "primary : claude-haiku-4-5 (anthropic)" in banner
+    assert "fallback: gemini-2.5-flash-lite (google)" in banner
+
+
+def test_startup_status_on_but_chat_not_allowlisted_warns():
+    banner = onboarding_chat._startup_status(
+        Settings(
+            ai_enable_real_calls=True,
+            gemini_flash_api_key="k",
+            ai_real_call_tasks="profile_extraction",  # chat NOT allowlisted
+        )
+    )
+    assert "ON" in banner
+    assert "WARNING" in banner
+    assert "profiling_chat_turn" in banner
+
+
 class _ScriptedRouter:
     """Stand-in for AIRouter. Records every message handed to it and returns
     scripted chat-turn JSON (in order), and a fixed mock for extraction.
@@ -49,12 +129,18 @@ class _ScriptedRouter:
     consumed one per ``profiling_chat_turn`` call. When exhausted it falls back to
     the caller's ``mock_response`` (so over-running turns still parse)."""
 
-    def __init__(self, chat_scripts=None, *, real_call=False, provider="google"):
+    def __init__(
+        self, chat_scripts=None, *, real_call=False, provider="google",
+        extraction_content=None,
+    ):
         self.calls: list[dict] = []
         self._chat_scripts = list(chat_scripts or [])
         self._chat_idx = 0
         self._real_call = real_call
         self._provider = provider
+        # Optional: a custom profile_extraction payload (e.g. one carrying a
+        # canonical_role_id) returned instead of the caller's mock_response.
+        self._extraction_content = extraction_content
 
     async def run(self, task_type, *, messages, mock_response, real_call_allowed=True):
         self.calls.append({"task_type": task_type, "messages": messages})
@@ -62,6 +148,8 @@ class _ScriptedRouter:
             message, ready = self._chat_scripts[self._chat_idx]
             self._chat_idx += 1
             content = _chat_json(message, ready)
+        elif task_type == "profile_extraction" and self._extraction_content is not None:
+            content = self._extraction_content
         else:
             # Extraction (or chat overrun): return the caller's deterministic mock.
             content = mock_response
@@ -90,6 +178,98 @@ def _scripted_input(answers):
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+def _silent(*_a, **_k):
+    return None
+
+
+def test_wants_to_close_detects_closing_and_ignores_ambiguous():
+    # Clear closing intents -> True.
+    for ans in ["bas itna hi", "ho gaya bhai", "naukri laga do ab", "that's all",
+                "ab aur nahi batana", "I am done"]:
+        assert onboarding_chat._wants_to_close(ans) is True, ans
+    # Ambiguous / substantive answers must NOT trip it (no premature close).
+    for ans in ["abhi kuch nahi karta", "bas 2 saal kiya hai VMC pe",
+                "VMC operator hoon Pune me"]:
+        assert onboarding_chat._wants_to_close(ans) is False, ans
+
+
+def test_fallback_message_uses_model_prose_not_canned():
+    # Prose reply (model ignored JSON) -> show its OWN words, not a canned line.
+    assert onboarding_chat._fallback_message("Aur batao bhai, kaunsi machine?") == (
+        "Aur batao bhai, kaunsi machine?"
+    )
+    # A ```json fenced object with no usable message -> the closing-oriented nudge.
+    nudge = onboarding_chat._fallback_message('```json\n{"foo": 1}\n```')
+    assert "done" in nudge
+    # Empty -> nudge (never an empty line).
+    assert onboarding_chat._fallback_message("") .strip() != ""
+
+
+def test_loop_breaks_when_worker_signals_close():
+    # The MODEL never sets ready, but the worker says "bas itna hi" -> the CLI's
+    # safety net ends the interview (no endless re-asking).
+    router = _ScriptedRouter(
+        chat_scripts=[("Achha, aur kya kaam?", False), ("Theek hai, aur batao?", False)]
+    )
+    answers = ["Suresh", "vmc operator hu", "bas itna hi", "NEVER READ", "done"]
+    _run(onboarding_chat._run_chat(router, input_fn=_scripted_input(answers), print_fn=_silent))
+    assert router.chat_turn_count() == 2  # closed right after the closing answer
+
+
+def test_loop_breaks_on_repeated_question():
+    # If the bot repeats its previous line (a stall), the loop stops instead of
+    # looping on the same question forever.
+    router = _ScriptedRouter(
+        chat_scripts=[("Aur batao bhai.", False), ("Aur batao bhai.", False),
+                      ("Aur batao bhai.", False)]
+    )
+    answers = ["Suresh", "machine chalata hu", "haan", "theek hai", "done"]
+    _run(onboarding_chat._run_chat(router, input_fn=_scripted_input(answers), print_fn=_silent))
+    assert router.chat_turn_count() == 2  # second identical line ends it
+
+
+def test_cli_extraction_canonicalizes_role_to_closed_set():
+    # Parity with the production endpoint: a valid canonical_role_id from the model
+    # maps the resume role/trade onto the closed 7-role taxonomy, even when the
+    # keyword heuristic found nothing (bare "cnc").
+    # Wrapped in a ```json fence on purpose — Claude often does this, and the CLI
+    # must still parse it (regression guard for the silent-empty-resume bug).
+    extraction = "```json\n" + json.dumps({
+        "canonical_role_id": "role_vmc_operator",
+        "primary_role": "VMC Operator",
+        "experience_years": 1.5,
+        "machines": ["VMC"],
+    }) + "\n```"
+    router = _ScriptedRouter(
+        chat_scripts=[("Achha, samajh gaya.", True)],
+        real_call=True, provider="anthropic",
+        extraction_content=extraction,
+    )
+    answers = ["Suresh", "cnc machine chalayi dedh saal", "done"]
+    resume, _calls = _run(
+        onboarding_chat._run_chat(router, input_fn=_scripted_input(answers), print_fn=_silent)
+    )
+    assert resume["role"] == "role_vmc_operator"
+    assert resume["trade"] == "dom_vmc_machining"  # derived from ROLE_TRADE
+    assert resume["experience_years"] == 1.5
+    assert "VMC" in resume["machines"]
+    assert "skill_ids" in resume  # taxonomy skill ids surfaced
+
+
+def test_invalid_canonical_role_id_is_rejected_keeps_heuristic():
+    # A hallucinated role id must NOT reach the resume (trust boundary).
+    extraction = json.dumps({"canonical_role_id": "role_made_up", "primary_role": "X"})
+    router = _ScriptedRouter(
+        chat_scripts=[("ok", True)], real_call=True, provider="anthropic",
+        extraction_content=extraction,
+    )
+    answers = ["Suresh", "kuch khaas nahi", "done"]
+    resume, _calls = _run(
+        onboarding_chat._run_chat(router, input_fn=_scripted_input(answers), print_fn=_silent)
+    )
+    assert resume["role"] != "role_made_up"  # rejected; heuristic (likely null) stands
 
 
 def test_loop_ends_when_model_signals_ready_to_extract():
@@ -277,9 +457,9 @@ def test_offline_fallback_note_printed_when_not_real():
     assert "model unavailable" in joined
 
 
-def test_haiku_fallback_note_printed_when_anthropic():
-    """VISIBILITY: a turn served by the Claude Haiku fallback (provider anthropic)
-    surfaces a clear note to the worker."""
+def test_provider_note_names_claude_haiku_when_anthropic_serves():
+    """VISIBILITY: a turn served by Claude Haiku (provider anthropic) surfaces a
+    clear note. Worded neutrally (not 'fallback'), since Haiku may be the primary."""
     printed: list[str] = []
 
     router = _ScriptedRouter(
@@ -296,7 +476,8 @@ def test_haiku_fallback_note_printed_when_anthropic():
         )
     )
     joined = "\n".join(printed)
-    assert "Claude Haiku fallback" in joined
+    assert "served by Claude Haiku" in joined
+    assert "fallback" not in joined  # Haiku is not labelled a fallback anymore
 
 
 def test_cost_panel_renders_summary_and_per_call_rows_without_pii():
