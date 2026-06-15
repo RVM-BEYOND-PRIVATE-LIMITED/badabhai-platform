@@ -49,9 +49,29 @@ pytest tests/test_pseudonymize.py   # gateway only (stdlib — no fastapi needed
 > dependencies**, so its tests run even if FastAPI/pydantic wheels are
 > unavailable for your Python version.
 
+## Real STT (Sarvam)
+
+`POST /` transcription uses the **mock** transcript by default. The **real**
+Sarvam Speech-to-Text path is wired but gated and **fails closed** (an empty,
+never-fabricated transcript on any failure — it never falls back to mock text).
+
+Real STT requires:
+
+- `AI_ENABLE_REAL_CALLS=true` and `SARVAM_API_KEY` (the flag + key gate the call);
+- `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` — the AI service fetches the
+  uploaded voice audio from a PRIVATE Supabase bucket (Storage Mode A,
+  service-role) before transcribing. Missing storage config fails CLOSED to empty;
+- optional `VOICE_NOTES_BUCKET` (default `worker-voice-notes`) and
+  `SARVAM_STT_MODEL` (default `saarika:v2.5`).
+
+The Sarvam sync endpoint accepts clips **under 30s** only; longer audio fails
+closed (the duration guard fires before any upload/spend). Batch/chunking for
+>30s clips is future work. Audio bytes, transcripts, and secrets are never logged
+and never appear in any raised error message.
+
 ## TODO (later phases)
 
 - Replace heuristic PII detection with NER / LLM-assisted detection.
 - Add a cumulative/daily spend cap + retry budget at the `cost_tracker`/`AIRouter.run`
   seam (TD27); real model calls already go direct to Gemini → Claude ([ADR-0008](../../docs/decisions/0008-litellm-to-direct-providers.md)).
-- Real Sarvam STT for transcription; Langfuse tracing.
+- Batch/chunked STT for clips over the 30s Sarvam sync limit; Langfuse tracing.
