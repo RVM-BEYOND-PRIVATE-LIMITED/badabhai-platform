@@ -34,7 +34,7 @@ export class AuthService {
   async requestOtp(phone: string, ctx: RequestContext): Promise<OtpRequestResponse> {
     // Issue + send first; OtpService throws (cooldown/cap/send-fail/Redis) and we
     // do NOT emit on failure. Only a real, sent code produces the event.
-    const { resendInSeconds } = await this.otp.issueAndSend(phone);
+    const { resendInSeconds, devCode } = await this.otp.issueAndSend(phone);
 
     const phoneHash = this.pii.hashPhone(phone);
     // NOTE: the raw phone is never logged or put into an event — only its hash.
@@ -47,7 +47,13 @@ export class AuthService {
       requestId: ctx.requestId,
     });
     this.logger.log("otp requested");
-    return { success: true, channel: "sms", resend_in_seconds: resendInSeconds };
+    // dev_otp is only ever set in console (dev/test) mode (see OtpService); never staging/prod.
+    return {
+      success: true,
+      channel: "sms",
+      resend_in_seconds: resendInSeconds,
+      ...(devCode ? { dev_otp: devCode } : {}),
+    };
   }
 
   async verifyOtp(phone: string, otp: string, ctx: RequestContext): Promise<LoginResponse> {

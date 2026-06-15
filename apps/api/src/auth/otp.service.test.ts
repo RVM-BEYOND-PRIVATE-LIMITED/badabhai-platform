@@ -103,6 +103,27 @@ describe("OtpService.issueAndSend", () => {
     expect(sent.code).toMatch(/^\d{6}$/);
   });
 
+  it("echoes the code as devCode ONLY when SMS_PROVIDER=console (dev/test seam)", async () => {
+    // console mode → devCode is returned (and equals the sent code) so the e2e
+    // harness / local dev can complete login. assertAuthConfig forbids console
+    // outside dev/test, so this can never leak in staging/prod.
+    const consoleCfg = { ...config, SMS_PROVIDER: "console" } as unknown as ServerConfig;
+    const redis = makeRedis();
+    const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
+    const sms: SmsProvider = { sendOtp: vi.fn().mockResolvedValue(undefined) };
+    const res = await new OtpService(consoleCfg, pii, sms, queue).issueAndSend(PHONE);
+    const sent = (sms.sendOtp as ReturnType<typeof vi.fn>).mock.calls[0]![0] as { code: string };
+    expect(res.devCode).toBe(sent.code);
+
+    // fast2sms (real provider) → devCode is NEVER present.
+    const realCfg = { ...config, SMS_PROVIDER: "fast2sms" } as unknown as ServerConfig;
+    const redis2 = makeRedis();
+    const queue2 = { client: Promise.resolve(redis2.client) } as unknown as Queue;
+    const sms2: SmsProvider = { sendOtp: vi.fn().mockResolvedValue(undefined) };
+    const res2 = await new OtpService(realCfg, pii, sms2, queue2).issueAndSend(PHONE);
+    expect(res2.devCode).toBeUndefined();
+  });
+
   it("stores the HMAC of the code (via pii.hmac), never the plaintext itself", async () => {
     const { svc, redis, sms } = setup();
     await svc.issueAndSend(PHONE);

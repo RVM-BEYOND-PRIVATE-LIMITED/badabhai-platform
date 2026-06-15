@@ -57,7 +57,9 @@ export class OtpService {
    * client must wait before requesting another. Throws 429 (cooldown / hourly
    * cap), 502 (send failed), or 503 (Redis down — fail closed).
    */
-  async issueAndSend(phoneE164: string): Promise<{ resendInSeconds: number }> {
+  async issueAndSend(
+    phoneE164: string,
+  ): Promise<{ resendInSeconds: number; devCode?: string }> {
     const phoneHash = this.pii.hashPhone(phoneE164);
     const hashPrefix = phoneHash.slice(0, 8);
     const redis = await this.client();
@@ -112,7 +114,14 @@ export class OtpService {
       }
 
       this.logger.log(`OTP requested phone_hash=${hashPrefix} status=sent`);
-      return { resendInSeconds: this.config.OTP_RESEND_COOLDOWN_SECONDS };
+      // DEV/TEST ONLY: echo the code back to the caller when the console provider is
+      // active. assertAuthConfig forbids SMS_PROVIDER=console outside development/test
+      // (boot fails otherwise), so this can never leak in staging/prod — and in console
+      // mode the code is already printed to the log by ConsoleSmsProvider, so this adds
+      // no new exposure. Lets the e2e harness complete login without log-scraping.
+      const devCode =
+        this.config.SMS_PROVIDER === "console" ? { devCode: code } : undefined;
+      return { resendInSeconds: this.config.OTP_RESEND_COOLDOWN_SECONDS, ...devCode };
     } catch (err) {
       // Re-raise explicit HTTP decisions (cooldown/cap/send-failure).
       if (err instanceof HttpException) throw err;
