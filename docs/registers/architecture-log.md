@@ -8,6 +8,40 @@ boundary moved).
 
 ---
 
+## 2026-06-15 — Alpha swipe-to-apply surface landed (ADR-0009)
+- **New contract surface: a sanctioned scoped producer for the ADR-0006 events.**
+  The `feed.shown` / `application.submitted` / `application.skipped` v1 events
+  (defined "contract ahead of producer" in ADR-0006) now have a real, honest
+  producer. **No event payload version bump** — alpha passes seed-order `rank` and
+  lets `score`/`hot` take their safe defaults (`0` / `false`), the truthful values
+  for an unranked surface (the AI-never-ranks pillar is untouched, invariant 4).
+- **New data shape: two additive, PII-free tables.** `jobs` (seeded, coarse —
+  `trade_key`/`title`/`city`/`area`/`status`; **no employer name, pay, or contact**)
+  and `applications` (`job_id`/`worker_id` FKs, `action`/`reason`/`source_surface`/
+  `rank`; UNIQUE `(worker_id, job_id)`, last-write-wins upsert; CHECK `reason` only
+  on skip). The only identity reference is `applications.worker_id` → `workers`;
+  **"PII lives only in `workers`" holds.** Migration `0012_nosy_retro_girl.sql`
+  (additive; not yet applied to a shared DB — needs sign-off per CLAUDE.md §7);
+  idempotent seed `packages/db/src/seed-jobs.ts` (17 jobs across all 15 alpha
+  trades). **Table count: 14 → 16.**
+- **New API module + a new shared guard.** `apps/api/src/applications` —
+  `GET /feed`, `POST /applications/:jobId/apply|skip` (worker, consent-gated,
+  idempotent) + `GET /jobs/:jobId/applicants` and `GET /workers/:workerId/applications`
+  (`InternalServiceGuard`, PII-free projections). New reusable `ConsentGuard`
+  (`apps/api/src/auth/consent.guard.ts`) — the first "require active consent before
+  this action" primitive (resolves ADR-0009 OQ-1).
+- **New seam, clients:** read-only ops applicant views in `apps/web`
+  (server-only `INTERNAL_SERVICE_TOKEN`, PII-free) and a worker swipe screen in
+  `apps/worker-app` (`swipe_jobs_screen.dart` + `ApiClient` feed/apply/skip). The
+  worker session bearer token is now plumbed into the `ApiClient` (memory-only,
+  never logged) — the capstone "swipe" flow gap is closed **in code** (device
+  verification still pending).
+- **Phase-2 surfaces remain OUT** (restated, not changed): Reach ranking/scoring,
+  employer console/posting, unlock/contact, payments/payouts/boosts, real matching.
+  Crosses the Phase-1/2 line narrowly + deliberately, human-gated (Accepted
+  2026-06-15, Prakash).
+- See [ADR-0009](../decisions/0009-alpha-swipe-to-apply-seeded-jobs.md).
+
 ## 2026-06-15 — LiteLLM → direct Gemini/Claude providers (ADR-0008)
 - **Seam clarified, not moved.** The provider abstraction is the
   `LlmAdapter`/`AIRouter` boundary; behind it `app/ai/providers.py` dispatches to

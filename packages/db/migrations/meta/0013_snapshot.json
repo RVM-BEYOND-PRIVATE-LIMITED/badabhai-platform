@@ -1,6 +1,6 @@
 {
-  "id": "57469a21-fd49-4f09-a3ea-77c86a3454d2",
-  "prevId": "90814193-8386-4f22-b07e-ff165b744511",
+  "id": "2ffff771-b526-4fb7-8ef0-9650419484c2",
+  "prevId": "57469a21-fd49-4f09-a3ea-77c86a3454d2",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1301,6 +1301,12 @@
         "transcript_confidence": {
           "name": "transcript_confidence",
           "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "transcript_english": {
+          "name": "transcript_english",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },

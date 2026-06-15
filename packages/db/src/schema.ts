@@ -485,6 +485,118 @@ export const workerAnswers = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Alpha swipe-to-apply (ADR-0009) — seeded jobs + apply/skip records.
+//
+// A scoped early activation that sits beside Phase 1: a worker sees a small set
+// of seeded jobs and applies or skips, producing the PII-free `feed.shown` /
+// `application.submitted` / `application.skipped` events defined in ADR-0006.
+// Strictly additive, backward-compatible (CLAUDE.md §2 invariant 8).
+//
+// PRIVACY (ADR-0009 §2): both tables are PII-free. `jobs` carries ZERO PII — no
+// employer name/id, no contact/phone, no exact address/geo, no pay/salary (those
+// are deferred Phase-2 economics, ADR-0009 §6). The ONLY join back to identity is
+// `applications.worker_id` → `workers` (where PII already lives, RLS-locked). This
+// creates no new PII surface.
+// ---------------------------------------------------------------------------
+
+/**
+ * The 15 alpha trade keys (ADR-0009 §2 / OQ-2). These are the SAME stable keys
+ * as `REQUIRED_TRADE_KEYS` in apps/api (`src/resume/trade-content.ts`) and
+ * `REQUIRED_KIT_TRADE_KEYS` (`src/interview-kit/interview-kit-content.ts`) — the
+ * authoritative list. They are mirrored here (not imported) because `@badabhai/db`
+ * must not depend upward on `apps/api`, and the placeholder `@badabhai/taxonomy`
+ * only carries the 7 CNC/VMC role ids, not these 15 trade keys. Keep in sync if
+ * the alpha trade list ever changes.
+ */
+export type TradeKey =
+  | "cnc_operator"
+  | "vmc_operator"
+  | "cnc_vmc_setter"
+  | "cnc_programmer"
+  | "vmc_programmer"
+  | "cad_designer"
+  | "solidworks_designer"
+  | "autocad_draftsman"
+  | "quality_inspector"
+  | "production_engineer"
+  | "maintenance_technician"
+  | "tool_room_technician"
+  | "machine_operator"
+  | "assembly_technician"
+  | "fitter";
+
+/** Job lifecycle — a seed job can be retired without deleting the row. */
+export type JobStatus = "open" | "closed";
+
+/** Apply/skip decision. Mirrors the `applications` event family. */
+export type ApplicationAction = "applied" | "skipped";
+
+/**
+ * Coarse, non-PII skip reason (no free text). Mirrors the `application.skipped`
+ * event payload enum in @badabhai/event-schema (payloads.ts). NULL for applies.
+ */
+export type SkipReason = "not_interested" | "too_far" | "low_pay" | "wrong_trade" | "other";
+
+/**
+ * Where the apply/skip originated. Mirrors the `application.submitted` event
+ * payload `source_surface` enum in @badabhai/event-schema (payloads.ts).
+ */
+export type SourceSurface = "feed" | "search" | "share" | "other";
+
+// jobs — seeded, coarse, NO employer PII. `id` is the opaque job_id in events.
+export const jobs = pgTable("jobs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  // One of the 15 alpha trade keys (taxonomy linkage, ADR-0009 OQ-2). Not a PII
+  // employer reference — a generic trade classification.
+  tradeKey: text("trade_key").$type<TradeKey>().notNull(),
+  // Generic role title authored in the seed (e.g. "CNC Operator — Night Shift").
+  // NEVER an employer name (ADR-0009 §2 privacy line).
+  title: text("title").notNull(),
+  // COARSE location — city only, non-PII (e.g. "Pune"). Never an address.
+  city: text("city").notNull(),
+  // COARSE locality bucket (e.g. "Pimpri-Chinchwad"), NOT an address. Nullable.
+  area: text("area"),
+  status: text("status").$type<JobStatus>().notNull().default("open"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// applications — the apply/skip record, PII-free. One decision per (worker, job).
+export const applications = pgTable(
+  "applications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => jobs.id, { onDelete: "cascade" }),
+    // The ONLY join back to identity; PII stays in `workers` (RLS-locked).
+    workerId: uuid("worker_id")
+      .notNull()
+      .references(() => workers.id, { onDelete: "cascade" }),
+    action: text("action").$type<ApplicationAction>().notNull(),
+    // Populated ONLY when action='skipped' (enforced by the CHECK below); NULL for
+    // applies. Coarse enum — no free text (PII-free).
+    reason: text("reason").$type<SkipReason>(),
+    sourceSurface: text("source_surface").$type<SourceSurface>().notNull().default("feed"),
+    // The seed display position the action was taken from; nullable.
+    rank: integer("rank"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Idempotency / natural key: at most one decision per (worker, job). Makes
+    // apply/skip a safe upsert — last-write-wins via ON CONFLICT (worker_id,
+    // job_id) DO UPDATE (ADR-0009 §2). Also serves worker_id-leading ops lookups
+    // ("decisions per worker"), so no separate worker_id index is needed.
+    uniqueIndex("applications_worker_job_uq").on(t.workerId, t.jobId),
+    // Ops read: applicants per job.
+    index("applications_job_id_idx").on(t.jobId),
+    // `reason` is only valid on a skip (NULL otherwise).
+    check("applications_reason_chk", sql`${t.reason} IS NULL OR ${t.action} = 'skipped'`),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
 // ---------------------------------------------------------------------------
 export type Worker = typeof workers.$inferSelect;
@@ -515,6 +627,10 @@ export type ProfileQuestion = typeof profileQuestions.$inferSelect;
 export type NewProfileQuestion = typeof profileQuestions.$inferInsert;
 export type WorkerAnswer = typeof workerAnswers.$inferSelect;
 export type NewWorkerAnswer = typeof workerAnswers.$inferInsert;
+export type Job = typeof jobs.$inferSelect;
+export type NewJob = typeof jobs.$inferInsert;
+export type Application = typeof applications.$inferSelect;
+export type NewApplication = typeof applications.$inferInsert;
 
 /** All tables, handy for migrations/tests. */
 export const schema = {
@@ -532,4 +648,6 @@ export const schema = {
   questions,
   profileQuestions,
   workerAnswers,
+  jobs,
+  applications,
 };
