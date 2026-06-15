@@ -195,6 +195,10 @@ export const voiceNotes = pgTable(
     durationSeconds: integer("duration_seconds").notNull(),
     transcriptText: text("transcript_text"),
     transcriptConfidence: doublePrecision("transcript_confidence"),
+    // Derived English translation of transcript_text (Sarvam /translate). Same PII
+    // class as transcript_text — lives only on this row, NEVER in events/ai_jobs/logs.
+    // Nullable: null until translated, or when translation is skipped/failed.
+    transcriptEnglish: text("transcript_english"),
     retentionPolicy: text("retention_policy")
       .$type<VoiceRetentionPolicy>()
       .notNull()

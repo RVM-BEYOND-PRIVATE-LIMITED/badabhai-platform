@@ -1,0 +1,1 @@
+ALTER TABLE "voice_notes" ADD COLUMN "transcript_english" text;

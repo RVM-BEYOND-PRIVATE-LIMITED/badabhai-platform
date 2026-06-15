@@ -15,6 +15,7 @@ const JOB = {
 } satisfies VoiceTranscriptionJobData;
 
 const MOCK_TRANSCRIPT = "main vmc operator hoon";
+const MOCK_ENGLISH = "i am a vmc operator";
 
 function makeJob(over: { attemptsMade?: number; attempts?: number } = {}) {
   return {
@@ -38,9 +39,12 @@ function make(opts: { findById?: unknown; transcribeThrows?: boolean } = {}) {
   const ai = {
     transcribe: opts.transcribeThrows
       ? vi.fn().mockRejectedValue(new Error("boom"))
-      : vi
-          .fn()
-          .mockResolvedValue({ transcript_text: MOCK_TRANSCRIPT, confidence: 0.9, is_mock: true }),
+      : vi.fn().mockResolvedValue({
+          transcript_text: MOCK_TRANSCRIPT,
+          confidence: 0.9,
+          english_text: MOCK_ENGLISH,
+          is_mock: true,
+        }),
   };
   const proc = new VoiceTranscriptionProcessor(
     voice as never,
@@ -56,7 +60,12 @@ describe("VoiceTranscriptionProcessor", () => {
     const { proc, voice, aiJobs, events } = make();
     const res = await proc.process(makeJob());
     expect(res).toEqual({ voice_note_id: JOB.voiceNoteId });
-    expect(voice.setTranscript).toHaveBeenCalledWith(JOB.voiceNoteId, MOCK_TRANSCRIPT, 0.9);
+    expect(voice.setTranscript).toHaveBeenCalledWith(
+      JOB.voiceNoteId,
+      MOCK_TRANSCRIPT,
+      0.9,
+      MOCK_ENGLISH,
+    );
     expect(aiJobs.markCompleted).toHaveBeenCalledWith(JOB.aiJobId, {
       voice_note_id: JOB.voiceNoteId,
     });
@@ -68,7 +77,9 @@ describe("VoiceTranscriptionProcessor", () => {
     await proc.process(makeJob());
     const payload = events.emit.mock.calls[0]![0].payload;
     expect(payload.transcript_length).toBe(MOCK_TRANSCRIPT.length);
+    expect(payload.transcript_english_length).toBe(MOCK_ENGLISH.length);
     expect(JSON.stringify(payload)).not.toContain(MOCK_TRANSCRIPT);
+    expect(JSON.stringify(payload)).not.toContain(MOCK_ENGLISH);
   });
 
   it("idempotent: an already-completed job is not reprocessed", async () => {

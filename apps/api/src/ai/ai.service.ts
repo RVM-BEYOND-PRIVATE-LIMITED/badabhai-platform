@@ -115,7 +115,7 @@ export class AiService {
   async transcribe(input: TranscriptionInput): Promise<TranscriptionOutput> {
     const remote = await this.post("/voice/transcribe", input, TranscriptionOutputSchema);
     if (remote) return remote;
-    return TranscriptionOutputSchema.parse({ transcript_text: "", confidence: 0, is_mock: true });
+    return TranscriptionOutputSchema.parse({ transcript_text: "", confidence: 0, english_text: "", is_mock: true });
   }
 
   /**
