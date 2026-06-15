@@ -87,7 +87,7 @@ apps/
   worker-app/  Flutter scaffold — Splash → … → ResumePreview, ApiClient
 packages/
   event-schema/  Artifact #1 — envelope, registry, payloads, validate
-  db/            Drizzle schema + migrations + client (10 tables)
+  db/            Drizzle schema + migrations + client (16 tables)
   config/        Typed env (server vs public split)
   types/ validators/ taxonomy/ ai-contracts/   shared contracts
   reach-engine/  PLACEHOLDER — not implemented in Phase 1
@@ -103,9 +103,10 @@ HTTP only) → `<domain>.service.ts` (business logic, emits events) →
 `<domain>.module.ts` (DI wiring). Do not put data access in controllers or business
 logic in repositories.
 
-**DB tables (10):** `workers` · `worker_consents` · `worker_profiles` ·
-`chat_sessions` · `chat_messages` · `voice_notes` · `generated_resumes` · `events` ·
-`ai_jobs` · `audit_logs`. PII lives **only** in `workers`.
+**DB tables (16):** `workers` · `worker_consents` · `worker_profiles` ·
+`chat_sessions` · `voice_notes` · `chat_messages` · `generated_resumes` · `events` ·
+`ai_jobs` · `audit_logs` · `profiles` · `questions` · `profile_questions` ·
+`worker_answers` · `jobs` · `applications`. PII lives **only** in `workers`.
 
 ---
 

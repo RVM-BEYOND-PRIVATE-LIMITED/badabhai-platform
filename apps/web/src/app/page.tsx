@@ -13,6 +13,10 @@ export default function DashboardPage() {
           <h3>Workers →</h3>
           <p>Browse profiled workers and their generated profiles.</p>
         </Link>
+        <Link className="card" href="/ops/applicants">
+          <h3>Applicants →</h3>
+          <p>Read-only swipe-to-apply decisions, by job or by worker.</p>
+        </Link>
         <Link className="card" href="/ops/events">
           <h3>Events →</h3>
           <p>Read-only stream of the event-first audit log.</p>

@@ -25,7 +25,11 @@ class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   Future<void> _verify(String phone) async {
     setState(() => _loading = true);
     final VerifyOtpResult result = await _api.verifyOtp(phone, _controller.text.trim());
-    AppState.instance.setWorker(phone: phone, workerId: result.workerId);
+    AppState.instance.setWorker(
+      phone: phone,
+      workerId: result.workerId,
+      sessionToken: result.accessToken,
+    );
     if (!mounted) return;
     setState(() => _loading = false);
     Navigator.pushNamed(context, Routes.consent);
