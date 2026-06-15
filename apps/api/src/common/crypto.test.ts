@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hashPhone, hashIp, encryptPii, decryptPii, isEncryptedPii } from "./crypto";
+import { hashPhone, hashIp, hmacValue, encryptPii, decryptPii, isEncryptedPii } from "./crypto";
 
 const KEY = Buffer.alloc(32, 7).toString("base64");
 const PEPPER = "unit-test-pepper-1234567890";
@@ -34,5 +34,14 @@ describe("PII crypto", () => {
 
   it("rejects a non-32-byte key (fail closed)", () => {
     expect(() => encryptPii("x", Buffer.alloc(16).toString("base64"))).toThrow();
+  });
+
+  it("hmacValue: deterministic, peppered, never echoes the code, domain-separated", () => {
+    const CODE = "428913";
+    const a = hmacValue(CODE, PEPPER);
+    expect(hmacValue(CODE, PEPPER)).toBe(a); // stable → constant-time comparable
+    expect(a).not.toContain(CODE); // the plaintext code never appears in the digest
+    expect(hmacValue(CODE, "other-pepper")).not.toBe(a); // pepper actually keys it
+    expect(a).not.toBe(hashPhone(CODE, PEPPER)); // separate domain from phone hashes
   });
 });

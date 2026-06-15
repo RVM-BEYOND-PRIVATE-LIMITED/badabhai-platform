@@ -1,7 +1,13 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
 import { Logger } from "@nestjs/common";
-import { loadServerConfig, assertPiiCryptoConfig, isUsingDevPiiDefaults } from "@badabhai/config";
+import {
+  loadServerConfig,
+  assertPiiCryptoConfig,
+  isUsingDevPiiDefaults,
+  assertAuthConfig,
+  isUsingDevJwtDefault,
+} from "@badabhai/config";
 import { AppModule } from "./app.module";
 import { StructuredLogger } from "./common/logging/structured-logger";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
@@ -9,9 +15,15 @@ import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
 async function bootstrap(): Promise<void> {
   const config = loadServerConfig();
   assertPiiCryptoConfig(config); // fail closed if PII secrets are dev defaults outside dev/test
+  assertAuthConfig(config); // fail closed on dev JWT secret / console SMS / half-set Fast2SMS outside dev/test
   if (isUsingDevPiiDefaults(config)) {
     new Logger("Bootstrap").warn(
       "Using INSECURE default PII secrets (local dev only). Set PII_HASH_PEPPER + PII_ENCRYPTION_KEY.",
+    );
+  }
+  if (isUsingDevJwtDefault(config)) {
+    new Logger("Bootstrap").warn(
+      "Using INSECURE default JWT secret (local dev only). Set JWT_SECRET.",
     );
   }
 

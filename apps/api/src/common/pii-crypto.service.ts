@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
-import { hashPhone, hashIp, encryptPii, decryptPii } from "./crypto";
+import { hashPhone, hashIp, hmacValue, encryptPii, decryptPii } from "./crypto";
 
 /**
  * Single boundary for worker-PII crypto. Holds the server-side pepper + AES key
@@ -25,6 +25,15 @@ export class PiiCryptoService {
 
   hashIp(ip: string): string {
     return hashIp(ip, this.pepper);
+  }
+
+  /**
+   * Keyed HMAC of a short-lived secret (e.g. an OTP code) using the same server
+   * pepper. Lets us store the OTP as a digest only — never plaintext. Compare the
+   * result of two `hmac()` calls with a constant-time check (timingSafeEqual).
+   */
+  hmac(value: string): string {
+    return hmacValue(value, this.pepper);
   }
 
   /** Encrypt PII for storage (e.g. phone_e164). Returns a self-describing token. */

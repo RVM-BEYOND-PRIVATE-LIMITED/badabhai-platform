@@ -43,6 +43,16 @@ export function hashIp(ip: string, pepper: string): string {
   return hmacSha256Hex(pepper, `ip:${ip}`);
 }
 
+/**
+ * Generic peppered keyed-HMAC for a short-lived secret (e.g. an OTP code) so it
+ * is stored as a digest, never plaintext. Domain-separated from phone/IP hashes
+ * by a distinct prefix; uses the SAME server pepper (no new secret is invented).
+ * Verification MUST be constant-time (see `safeEqualHex`).
+ */
+export function hmacValue(value: string, pepper: string): string {
+  return hmacSha256Hex(pepper, `otp:${value}`);
+}
+
 const ENC_VERSION = "v1";
 const IV_BYTES = 12; // 96-bit nonce, the GCM standard
 const KEY_BYTES = 32; // AES-256

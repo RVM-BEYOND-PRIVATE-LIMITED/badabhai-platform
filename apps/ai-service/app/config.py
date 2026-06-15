@@ -74,6 +74,19 @@ class Settings(BaseSettings):
     ai_retry_budget_window_seconds: int = 60
 
     sarvam_api_key: str | None = None
+    # Sarvam STT model id. Config so the future ``saaras:v3`` swap is one line.
+    sarvam_stt_model: str = "saarika:v2.5"
+
+    # Supabase Storage access for the AI service. Read ONLY to fetch voice audio
+    # for real STT (Storage Mode A — REST + service-role key). Backend-only.
+    # Supabase project URL; never used for anything but the storage object GET.
+    supabase_url: str | None = None
+    # Service-role key; backend-only; never logged. Bypasses RLS by design.
+    supabase_service_role_key: str | None = None
+    # PRIVATE bucket holding uploaded voice notes; object key = the request's
+    # ``storage_path``. MUST be created PRIVATE out-of-band (Storage object ACLs
+    # are not covered by RLS/migrations).
+    voice_notes_bucket: str = "worker-voice-notes"
 
     # Observability (Langfuse). Optional — tracing is silently disabled if either
     # key is missing, so local dev never depends on Langfuse being configured.
@@ -128,6 +141,13 @@ class Settings(BaseSettings):
         if provider == "anthropic":
             return bool(self.anthropic_api_key)
         return False
+
+    @property
+    def storage_configured(self) -> bool:
+        """Whether Supabase Storage is reachable (URL + service-role key). Real STT
+        enforces this inside ``_transcribe_real`` so a missing-storage real call
+        fails CLOSED to empty — never to mock."""
+        return bool(self.supabase_url and self.supabase_service_role_key)
 
     @property
     def langfuse_enabled(self) -> bool:

@@ -111,9 +111,10 @@ describe.skipIf(!RUN)("Phase 1 worker-profiling flow (e2e)", () => {
   }
 
   it("login -> consent -> multi-turn interview (state persists) -> AUTO extract -> confirm -> resume", async () => {
-    // 1. login (mock OTP — any 4-6 digits)
-    await post("/auth/otp/request", { phone: PHONE });
-    const verify = await post("/auth/otp/verify", { phone: PHONE, otp: "123456" });
+    // 1. login (real OTP — the console SMS provider echoes the code as dev_otp in
+    //    dev/test only; assertAuthConfig forbids console outside dev/test).
+    const reqOtp = await post("/auth/otp/request", { phone: PHONE });
+    const verify = await post("/auth/otp/verify", { phone: PHONE, otp: reqOtp.dev_otp });
     expect(verify.worker_id).toBeTruthy();
     expect(verify.is_new_worker).toBe(true);
     ids.workerId = verify.worker_id;
@@ -254,8 +255,8 @@ describe.skipIf(!RUN)("Phase 1 worker-profiling flow (e2e)", () => {
   it("keeps the interview stateful across turns (advances, never repeats Q1)", async () => {
     // Fresh worker + session so we start the interview from turn 0.
     const phone = `+9197${String(Date.now()).slice(-8)}`;
-    await post("/auth/otp/request", { phone });
-    const verify = await post("/auth/otp/verify", { phone, otp: "123456" });
+    const reqOtp = await post("/auth/otp/request", { phone });
+    const verify = await post("/auth/otp/verify", { phone, otp: reqOtp.dev_otp });
     const workerId = verify.worker_id as string;
     const session = await post("/chat/session", { worker_id: workerId });
     const sessionId = session.session_id as string;

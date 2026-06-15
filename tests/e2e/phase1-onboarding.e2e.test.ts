@@ -131,12 +131,18 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
   });
 
   it("logs in → consents → chats → extracts → confirms → generates a resume, asserting every stage", async () => {
-    // ───────────────────────── STAGE 1 — Mock OTP login ─────────────────────────
+    // ───────────────────────── STAGE 1 — Real OTP login ─────────────────────────
+    // The console SMS provider (dev/test only — assertAuthConfig forbids it in
+    // staging/prod) echoes the issued code as dev_otp so the harness can log in.
     const reqOtp = await call("POST", "/auth/otp/request", { phone: PHONE });
     expect(reqOtp.status).toBe(200);
     expect(reqOtp.body).toMatchObject({ success: true, channel: "sms" });
+    expect(reqOtp.body.dev_otp).toMatch(/^\d{4,8}$/);
 
-    const verify = await call("POST", "/auth/otp/verify", { phone: PHONE, otp: "123456" });
+    const verify = await call("POST", "/auth/otp/verify", {
+      phone: PHONE,
+      otp: reqOtp.body.dev_otp,
+    });
     expect(verify.status).toBe(200);
     expect(verify.body.worker_id).toBeTruthy();
     expect(verify.body.is_new_worker).toBe(true); // state transition: worker absent → created
