@@ -16,6 +16,11 @@ import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { InternalServiceGuard } from "../common/guards/internal-service.guard";
+import {
+  WorkerAuthGuard,
+  CurrentWorker,
+  type AuthenticatedWorker,
+} from "../auth/worker-auth.guard";
 import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { EventsService } from "../events/events.service";
@@ -94,11 +99,17 @@ export class ResumeController {
    * Mint a short-lived signed download URL for a rendered resume PDF and emit
    * `resume.downloaded`. 409 while still rendering ('pending') or if it failed.
    * The signed URL is NOT logged or emitted (it embeds a token).
+   *
+   * Worker-authenticated + ownership-checked (TD29 / TD4 gate): a worker may only
+   * download their OWN resume. Both not-found AND not-owner return 404 — no
+   * existence oracle, so a worker can never learn another worker's resume id
+   * exists, let alone fetch it.
    */
   @Get(":id/download")
-  @UseGuards(InternalServiceGuard)
+  @UseGuards(WorkerAuthGuard)
   async download(
     @Param("id", new ParseUUIDPipe()) id: string,
+    @CurrentWorker() worker: AuthenticatedWorker,
     @Ip() ip: string,
     @Ctx() ctx: RequestContext,
   ) {
@@ -109,7 +120,10 @@ export class ResumeController {
       this.config.RESUME_RATE_LIMIT_PER_IP_PER_HOUR,
     );
     const resume = await this.resumes.findById(id);
-    if (!resume) throw new NotFoundException(`Resume ${id} not found`);
+    // Ownership: 404 for both not-found and not-owner (no existence oracle).
+    if (!resume || resume.workerId !== worker.id) {
+      throw new NotFoundException(`Resume ${id} not found`);
+    }
 
     if (resume.renderStatus !== "rendered" || !resume.pdfStorageKey) {
       if (resume.renderStatus === "pending") {
@@ -123,10 +137,10 @@ export class ResumeController {
 
     await this.events.emit({
       event_name: "resume.downloaded",
-      actor: { actor_type: "worker", actor_id: resume.workerId },
+      actor: { actor_type: "worker", actor_id: worker.id },
       subject: { subject_type: "resume", subject_id: resume.id },
       payload: {
-        worker_id: resume.workerId,
+        worker_id: worker.id,
         resume_id: resume.id,
         version: resume.version,
         format: "pdf",

@@ -33,5 +33,9 @@ import { WorkerAuthGuard } from "./worker-auth.guard";
   controllers: [AuthController],
   // IpRateLimit is @Global (RateLimitModule) — do not re-provide it.
   providers: [AuthService, OtpService, SessionService, WorkerAuthGuard],
+  // Export the guard so other modules (e.g. ResumeModule) can protect routes with
+  // worker auth. It depends on SessionService (a provider here) + SERVER_CONFIG
+  // (@Global), so exporting the guard + importing AuthModule is sufficient.
+  exports: [WorkerAuthGuard],
 })
 export class AuthModule {}
