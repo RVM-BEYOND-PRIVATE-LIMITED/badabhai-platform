@@ -16,6 +16,13 @@ vouched is accurate* for CNC/VMC and the rest of the alpha trade set.
 Seeded 2026-06-15. Owner of the gate: **RVM (CNC/VMC subject-matter review)**.
 Owner of the drafts: Prakash / engineering.
 
+> **📦 The reviewable artifact RVM signs off is the
+> [Trade Content Ratification Packet](./trade-content-ratification-packet.md)** (added
+> 2026-06-15) — it embeds the full per-trade resume + interview-kit content for the 9
+> drafted trades plus the authoritative PASS/CHANGES checklist. This register stays the
+> high-level tracker; the **packet's checklist is where RVM records the trade-by-trade
+> verdict**.
+
 ---
 
 ## 1. Scope — the 15 alpha trades
