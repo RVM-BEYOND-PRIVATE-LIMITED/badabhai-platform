@@ -279,6 +279,75 @@ describe("interview-turn contract (extraction-ready, cost, ai-job)", () => {
     if (!result.success) expect(result.error.stage).toBe("payload");
   });
 
+  it("validates ai.spend_cap_exceeded and applies real_call/null defaults", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.spend_cap_exceeded",
+      actor: { actor_type: "ai_service" },
+      subject: { subject_type: "ai_job", subject_id: UUID_A },
+      payload: {
+        ai_call_id: UUID_B,
+        ai_job_id: UUID_A,
+        task_type: "profile_extraction",
+        model: "gemini-flash",
+        provider: "google",
+        reason: "daily_cap_exceeded",
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "ai.spend_cap_exceeded") {
+      expect(result.event.payload.real_call).toBe(false); // default
+      expect(result.event.payload.request_id).toBeNull(); // default
+    }
+  });
+
+  it("accepts every TD27 block reason on ai.spend_cap_exceeded", () => {
+    const reasons = [
+      "daily_cap_exceeded",
+      "cumulative_cap_exceeded",
+      "user_daily_cap_exceeded",
+      "kill_switch_engaged",
+      "retry_budget_exhausted",
+      "cost_ceiling_exceeded",
+    ];
+    for (const reason of reasons) {
+      const evt = {
+        ...workerCreatedEvent(),
+        event_name: "ai.spend_cap_exceeded",
+        actor: { actor_type: "ai_service" },
+        subject: { subject_type: "ai_job", subject_id: UUID_A },
+        payload: {
+          ai_call_id: UUID_B,
+          task_type: "profile_extraction",
+          model: "m",
+          provider: "p",
+          reason,
+        },
+      };
+      expect(validateEvent(evt).success).toBe(true);
+    }
+  });
+
+  it("rejects ai.spend_cap_exceeded with an unknown reason (enum-only → no free text)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.spend_cap_exceeded",
+      actor: { actor_type: "ai_service" },
+      subject: { subject_type: "ai_job", subject_id: UUID_A },
+      payload: {
+        ai_call_id: UUID_B,
+        task_type: "profile_extraction",
+        model: "m",
+        provider: "p",
+        reason: "some_other_block_reason",
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.stage).toBe("payload");
+  });
+
   it("validates ai.job_completed", () => {
     const evt = {
       ...workerCreatedEvent(),
@@ -410,8 +479,8 @@ describe("interview_kit events (per-trade, PII-free)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 36 event names (26 Phase-1 + worker.name_recorded + 3 Reach foundation + 3 resume render + 3 interview kit)", () => {
-    expect(EVENT_NAMES).toHaveLength(36);
+  it("exposes all 37 event names (26 Phase-1 + worker.name_recorded + 3 Reach foundation + 3 resume render + 3 interview kit + ai.spend_cap_exceeded)", () => {
+    expect(EVENT_NAMES).toHaveLength(37);
     expect(isEventName("interview_kit.downloaded")).toBe(true);
     expect(isEventName("interview_kit.render_completed")).toBe(true);
     expect(isEventName("interview_kit.render_failed")).toBe(true);
@@ -422,6 +491,7 @@ describe("registry", () => {
     expect(isEventName("action.recorded")).toBe(true);
     expect(isEventName("profile.extraction_ready")).toBe(true);
     expect(isEventName("ai.cost_recorded")).toBe(true);
+    expect(isEventName("ai.spend_cap_exceeded")).toBe(true);
     expect(isEventName("ai.job_completed")).toBe(true);
     expect(isEventName("voice_note.transcription_failed")).toBe(true);
     expect(isEventName("worker.name_recorded")).toBe(true);

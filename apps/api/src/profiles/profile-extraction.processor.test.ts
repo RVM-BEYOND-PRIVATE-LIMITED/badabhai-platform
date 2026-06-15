@@ -121,6 +121,65 @@ describe("ProfileExtractionProcessor", () => {
     expect(blob).not.toMatch(/phone|full_name|e164|transcript|\bbody_text\b/i);
   });
 
+  it("TD27: emits ai.spend_cap_exceeded when the gateway blocks a real call (cap reason), no PII", async () => {
+    const aiMetadata = {
+      ai_call_id: "66666666-6666-4666-8666-666666666666",
+      task_type: "profile_extraction",
+      model_name: "gemini-flash",
+      provider: "google",
+      real_call: false,
+      input_tokens: 0,
+      output_tokens: 0,
+      estimated_cost_inr: 0,
+      latency_ms: 0,
+      success: false,
+      error_code: "daily_cap_exceeded",
+      cost_alert: true,
+      above_target: false,
+      created_at: "2026-06-11T00:00:00.000Z",
+    };
+    const { proc, events } = make({ aiMetadata });
+    await proc.process(makeJob());
+
+    // cost_recorded is still emitted (unchanged), AND the cap event in addition.
+    const names = events.emit.mock.calls.map((c) => c[0].event_name);
+    expect(names).toContain("ai.cost_recorded");
+    const capEvent = events.emit.mock.calls.map((c) => c[0]).find((e) => e.event_name === "ai.spend_cap_exceeded");
+    expect(capEvent).toBeDefined();
+    expect(capEvent!.payload).toMatchObject({
+      ai_job_id: JOB.aiJobId,
+      task_type: "profile_extraction",
+      model: "gemini-flash",
+      provider: "google",
+      reason: "daily_cap_exceeded",
+      real_call: false,
+    });
+    expect(JSON.stringify(capEvent)).not.toMatch(/phone|full_name|e164|transcript|\bbody_text\b/i);
+  });
+
+  it("TD27: does NOT emit ai.spend_cap_exceeded for a non-cap error_code", async () => {
+    const aiMetadata = {
+      ai_call_id: "66666666-6666-4666-8666-666666666666",
+      task_type: "profile_extraction",
+      model_name: "gemini-flash",
+      provider: "google",
+      real_call: true,
+      input_tokens: 10,
+      output_tokens: 5,
+      estimated_cost_inr: 0.01,
+      latency_ms: 100,
+      success: false,
+      error_code: "provider_timeout",
+      cost_alert: false,
+      above_target: false,
+      created_at: "2026-06-11T00:00:00.000Z",
+    };
+    const { proc, events } = make({ aiMetadata });
+    await proc.process(makeJob());
+    const names = events.emit.mock.calls.map((c) => c[0].event_name);
+    expect(names).not.toContain("ai.spend_cap_exceeded");
+  });
+
   it("idempotent: an already-completed job is not reprocessed", async () => {
     const { proc, profiles, aiJobs } = make({
       findById: { status: "completed", outputRef: { profile_id: PROFILE } },

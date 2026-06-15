@@ -226,6 +226,9 @@ export type ProfileExtractionOutput = z.infer<typeof ProfileExtractionOutputSche
 export const ResumeGenerationInputSchema = z.object({
   profile: DraftProfileSchema,
   language: languageCode.optional(),
+  // Opaque worker ref (PII-free) → attributes resume spend to the per-user daily
+  // cap (TD27), so resume + chat + extraction share one per-user/day budget.
+  worker_ref: z.string().min(1).optional(),
 });
 export type ResumeGenerationInput = z.infer<typeof ResumeGenerationInputSchema>;
 

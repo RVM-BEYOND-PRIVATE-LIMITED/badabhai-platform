@@ -94,22 +94,33 @@ export const serverEnvSchema = z.object({
       }
     }, "PII_ENCRYPTION_KEY must be base64 of exactly 32 bytes"),
 
-  // AI routing (LiteLLM)
-  LITELLM_BASE_URL: z.string().url().default("http://localhost:4000"),
+  // AI routing (direct providers — Gemini primary + Claude Haiku fallback; ADR-0008).
+  // The AI service (Python) calls providers DIRECTLY over their own SDKs/REST; the
+  // Node API does NOT make LLM calls (it forwards to the AI service), so these are
+  // declarative/gating only. GEMINI_FLASH_API_KEY is the master gate for real calls
+  // and mirrors the AI service's own credential name.
+  GEMINI_FLASH_API_KEY: z.string().min(1).optional(),
+  // OPTIONAL fallback-provider key — its presence only ADDS Claude Haiku to the AI
+  // service's fallback chain; it is NEVER a master gate.
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  // DEPRECATED (TD28): the pre-ADR-0008 name for the real-call key. Still accepted as
+  // a back-compat ALIAS for GEMINI_FLASH_API_KEY for one release — prefer the new name.
   LITELLM_API_KEY: z.string().min(1).optional(),
   AI_ENABLE_REAL_CALLS: booleanFromString,
 
-  // Model routing. Names are LiteLLM model ids; the AI service selects cheap vs
-  // capable per task. Cost guardrails are in INR per worker profile.
-  DEFAULT_CHEAP_MODEL: z.string().min(1).default("gemini-flash-lite"),
-  DEFAULT_CAPABLE_MODEL: z.string().min(1).default("claude-haiku-or-gemini-flash"),
+  // Model routing. Bare provider model ids (no provider prefix); the AI service
+  // selects cheap vs capable per task. Cost guardrails are in INR per worker profile.
+  DEFAULT_CHEAP_MODEL: z.string().min(1).default("gemini-2.5-flash-lite"),
+  DEFAULT_CAPABLE_MODEL: z.string().min(1).default("gemini-2.5-flash"),
   AI_COST_ALERT_PROFILE_INR: z.coerce.number().nonnegative().default(6),
   AI_TARGET_PROFILE_COST_INR: z.coerce.number().nonnegative().default(4),
   // Hard per-call spend ceiling (INR): a real call whose worst-case cost exceeds
   // this is refused (falls back to mock).
   AI_MAX_CALL_COST_INR: z.coerce.number().positive().default(10),
 
-  // Google Cloud / Gemini (consumed by LiteLLM in real mode only; backend-only).
+  // Google Cloud / Gemini — Node-side declarations only (legacy). The AI service
+  // calls Gemini directly via GEMINI_FLASH_API_KEY above; these are unused by the
+  // Node API and kept optional for back-compat. (ADR-0008)
   GOOGLE_CLOUD_PROJECT: z.string().min(1).optional(),
   GOOGLE_CLOUD_LOCATION: z.string().min(1).optional(),
   GEMINI_API_KEY: z.string().min(1).optional(),
@@ -148,8 +159,11 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
  */
 export function realAiCallsBlockedReason(config: ServerConfig): string | null {
   if (!config.AI_ENABLE_REAL_CALLS) return "AI_ENABLE_REAL_CALLS is false";
-  if (!config.LITELLM_API_KEY) return "LITELLM_API_KEY is not set";
-  if (!config.LITELLM_BASE_URL) return "LITELLM_BASE_URL is not set";
+  // GEMINI_FLASH_API_KEY is the master gate (mirrors the AI service). Accept the
+  // deprecated LITELLM_API_KEY as a back-compat alias for one release (TD28, ADR-0008).
+  if (!config.GEMINI_FLASH_API_KEY && !config.LITELLM_API_KEY) {
+    return "GEMINI_FLASH_API_KEY is not set";
+  }
   return null;
 }
 

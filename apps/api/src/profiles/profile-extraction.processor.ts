@@ -7,10 +7,23 @@ import { AiService } from "../ai/ai.service";
 import { ChatRepository } from "../chat/chat.repository";
 import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository, type AiJobUsageMetadata } from "./ai-jobs.repository";
+import { AI_SPEND_CAP_REASONS, type AiSpendCapReason } from "@badabhai/event-schema";
 import {
   PROFILE_EXTRACTION_QUEUE,
   type ProfileExtractionJobData,
 } from "../queue/queue.constants";
+
+/**
+ * TD27 spend-cap / circuit-breaker block codes the AI gateway returns in
+ * `ai_metadata.error_code` when it REFUSES a real provider call. Mirrors the
+ * `AI_SPEND_CAP_REASONS` enum in @badabhai/event-schema (single source of truth).
+ */
+const SPEND_CAP_REASONS: ReadonlySet<string> = new Set(AI_SPEND_CAP_REASONS);
+
+/** Narrow an arbitrary `error_code` to a known spend-cap reason, or null. */
+function asSpendCapReason(code: string | null | undefined): AiSpendCapReason | null {
+  return code != null && SPEND_CAP_REASONS.has(code) ? (code as AiSpendCapReason) : null;
+}
 
 /**
  * Runs profile extraction off the request path. The AI service pseudonymizes
@@ -96,6 +109,12 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // observability emit must never turn a SUCCESSFUL extraction into a failure.
       await this.recordAiCost(aiMeta, aiJobId, correlationId, requestId);
 
+      // TD27: if the gateway BLOCKED a real call because a spend cap / circuit
+      // breaker tripped, surface it on its own observability event (in addition
+      // to the cost record above, which is unchanged). Same guarded, fire-and-
+      // forget pattern — a cap signal must never fail the extraction.
+      await this.recordSpendCap(aiMeta, aiJobId, correlationId, requestId);
+
       return { profile_id: saved.id };
     } catch (err) {
       const reason = (err instanceof Error ? err.message : String(err)).slice(0, 256);
@@ -162,6 +181,49 @@ export class ProfileExtractionProcessor extends WorkerHost {
       });
     } catch (err) {
       this.logger.warn(`ai.cost_recorded emit failed for job ${aiJobId} (non-fatal): ${String(err)}`);
+    }
+  }
+
+  /**
+   * Emit `ai.spend_cap_exceeded` when the AI gateway refused a real call because
+   * a TD27 cap / circuit breaker tripped (`ai_metadata.error_code` is one of the
+   * five block codes). No-ops on the mock/AI-down path and on any non-cap
+   * error_code, and swallows any emit/validation error so it can never fail the
+   * extraction. Carries operational fields only — never prompts/completions/PII.
+   */
+  private async recordSpendCap(
+    meta: AICallMetadata | null,
+    aiJobId: string,
+    correlationId: string,
+    requestId: string,
+  ): Promise<void> {
+    if (!meta) return;
+    const reason = asSpendCapReason(meta.error_code);
+    if (!reason) return;
+    try {
+      await this.events.emit({
+        event_name: "ai.spend_cap_exceeded",
+        actor: { actor_type: "ai_service" },
+        subject: { subject_type: "ai_job", subject_id: aiJobId },
+        payload: {
+          ai_call_id: meta.ai_call_id,
+          ai_job_id: aiJobId,
+          task_type: "profile_extraction",
+          model: meta.model_name || "unknown",
+          provider: meta.provider || "unknown",
+          reason,
+          real_call: meta.real_call,
+        },
+        // One cap record per job — dedups if a redelivery re-emits after the
+        // completion guard is bypassed (mirrors ai.cost_recorded).
+        idempotencyKey: `ai.spend_cap_exceeded:${aiJobId}`,
+        correlationId,
+        requestId,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `ai.spend_cap_exceeded emit failed for job ${aiJobId} (non-fatal): ${String(err)}`,
+      );
     }
   }
 

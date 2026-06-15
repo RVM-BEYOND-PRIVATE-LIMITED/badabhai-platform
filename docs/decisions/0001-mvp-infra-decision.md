@@ -19,6 +19,9 @@ for the deterministic Reach Engine, employer/unlock, and payments in later phase
 2. **Google Cloud credits are for experiments/staging/AI tests only** — not the
    production system of record in Phase 1. Avoids premature lock-in.
 3. **AI is API-first.** All LLM access is mediated by a LiteLLM adapter.
+   _(Superseded by [ADR-0008](0008-litellm-to-direct-providers.md): the AI service
+   now calls Gemini + Claude directly behind the `LlmAdapter`/`AIRouter` seam; the
+   LiteLLM adapter was never wired. API-first + the swappable seam still hold.)_
 4. **No self-hosted LLM at launch.** Operationally cheaper and faster to iterate;
    revisit only if cost/latency/privacy demands it.
 5. **A pseudonymization gateway is mandatory before every LLM call.** It runs in
@@ -40,8 +43,9 @@ for the deterministic Reach Engine, employer/unlock, and payments in later phase
   the service role; see `infra/supabase/rls-plan.md`); pseudonymization is
   heuristic in Phase 1 (over-masking is the safe direction); mock OTP/STT/LLM
   paths must be replaced before any real launch.
-- **Reversibility:** API-first AI and the LiteLLM adapter make switching model
-  providers cheap. Drizzle schema is portable off Supabase if needed.
+- **Reversibility:** API-first AI and the provider seam (`LlmAdapter`/`AIRouter`;
+  LiteLLM originally, now direct Gemini/Claude per [ADR-0008](0008-litellm-to-direct-providers.md))
+  make switching model providers cheap. Drizzle schema is portable off Supabase if needed.
 
 ## Related
 

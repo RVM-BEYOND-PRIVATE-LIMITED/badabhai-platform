@@ -27,8 +27,8 @@ privacy gate having run on it.
 
 `/profiling/respond` pseudonymized only the **current** message; `body.history`
 (prior turns) was passed **raw** into `build_chat_messages`, which appended each
-turn verbatim into the LLM `messages`. The router forwards those to LiteLLM (real
-mode) and joins them into `input_text` for the Langfuse trace. A prior worker
+turn verbatim into the LLM `messages`. The router forwards those to the LLM
+provider (real mode) and joins them into `input_text` for the Langfuse trace. A prior worker
 turn containing a phone/name/employer would therefore reach the model and the
 trace.
 

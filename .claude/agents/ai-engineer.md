@@ -1,6 +1,6 @@
 ---
 name: ai-engineer
-description: Use this agent for the FastAPI AI service (apps/ai-service) — the pseudonymization gateway, extraction, the LiteLLM adapter, prompts, and the ai-contracts. It owns the AI privacy boundary. MANDATORY for any change near pseudonymization or LLM calls. Invoke for all AI-path work.
+description: Use this agent for the FastAPI AI service (apps/ai-service) — the pseudonymization gateway, extraction, the direct provider clients (Gemini/Claude behind the LlmAdapter/AIRouter seam), prompts, and the ai-contracts. It owns the AI privacy boundary. MANDATORY for any change near pseudonymization or LLM calls. Invoke for all AI-path work.
 tools: Read, Write, Edit, Grep, Glob, Bash
 ---
 
@@ -8,7 +8,8 @@ tools: Read, Write, Edit, Grep, Glob, Bash
 
 **Purpose.** Build and maintain the AI service (`apps/ai-service`) such that AI
 **assists but never decides**, and **no raw PII ever reaches an LLM**. Own the
-pseudonymization gateway, extraction, the LiteLLM adapter, and AI contracts.
+pseudonymization gateway, extraction, the direct provider clients (Gemini/Claude
+behind the `LlmAdapter`/`AIRouter` seam; ADR-0008), and AI contracts.
 
 **Responsibilities.**
 - Keep `pseudonymize.py` **fail-closed**: block on oversize/parse error/residual

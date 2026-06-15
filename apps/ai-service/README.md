@@ -23,8 +23,8 @@ tokens BEFORE any LLM call, and the service **fails closed**.
   the LLM is never called.
 - **Mapping is request-scoped.** The original↔token mapping is never persisted or
   returned — callers only see labels like `[PERSON_1]`.
-- **Real LLM calls are gated.** Disabled unless `AI_ENABLE_REAL_CALLS=true` AND a
-  LiteLLM key is set. Default: mock responses (`is_mock=true`).
+- **Real LLM calls are gated.** Disabled unless `AI_ENABLE_REAL_CALLS=true` AND
+  `GEMINI_FLASH_API_KEY` is set (the master gate). Default: mock responses (`is_mock=true`).
 
 The Pydantic contracts in `app/contracts.py` mirror `@badabhai/ai-contracts`.
 
@@ -52,5 +52,6 @@ pytest tests/test_pseudonymize.py   # gateway only (stdlib — no fastapi needed
 ## TODO (later phases)
 
 - Replace heuristic PII detection with NER / LLM-assisted detection.
-- Wire `app/llm.py` to LiteLLM (only reachable post-pseudonymization).
+- Add a cumulative/daily spend cap + retry budget at the `cost_tracker`/`AIRouter.run`
+  seam (TD27); real model calls already go direct to Gemini → Claude ([ADR-0008](../../docs/decisions/0008-litellm-to-direct-providers.md)).
 - Real Sarvam STT for transcription; Langfuse tracing.
