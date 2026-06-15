@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { booleanFromString, portSchema, nodeEnvSchema, formatEnvError } from "./shared";
+import { booleanFromString, portSchema, nodeEnvSchema, isDevEnv, formatEnvError } from "./shared";
 
 /**
  * Server-side (secret-bearing) configuration.
@@ -220,7 +220,7 @@ export function assertPiiCryptoConfig(
   config: ServerConfig,
   rawNodeEnv: string | undefined = process.env.NODE_ENV,
 ): void {
-  if (rawNodeEnv === "development" || rawNodeEnv === "test") return;
+  if (isDevEnv(rawNodeEnv)) return;
   const insecure: string[] = [];
   if (config.PII_HASH_PEPPER === DEV_PII_HASH_PEPPER) insecure.push("PII_HASH_PEPPER");
   if (config.PII_ENCRYPTION_KEY === DEV_PII_ENCRYPTION_KEY) insecure.push("PII_ENCRYPTION_KEY");
@@ -260,7 +260,7 @@ export function assertAuthConfig(
   config: ServerConfig,
   rawNodeEnv: string | undefined = process.env.NODE_ENV,
 ): void {
-  if (rawNodeEnv === "development" || rawNodeEnv === "test") return;
+  if (isDevEnv(rawNodeEnv)) return;
 
   const problems: string[] = [];
   if (config.JWT_SECRET === DEV_JWT_SECRET) {
