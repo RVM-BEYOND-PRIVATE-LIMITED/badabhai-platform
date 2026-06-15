@@ -8,6 +8,21 @@ boundary moved).
 
 ---
 
+## 2026-06-15 — LiteLLM → direct Gemini/Claude providers (ADR-0008)
+- **Seam clarified, not moved.** The provider abstraction is the
+  `LlmAdapter`/`AIRouter` boundary; behind it `app/ai/providers.py` dispatches to
+  **direct** transports — `gemini_client.py` (REST/httpx, primary) and
+  `anthropic_client.py` (anthropic SDK, fallback) — chained **Gemini → Claude
+  Haiku → deterministic mock**. The never-wired LiteLLM adapter is retired;
+  `app/llm.py` remains only as the named seam example.
+- **No new event, table, or contract surface;** no runtime behaviour change. The
+  pseudonymization gateway still runs fail-closed upstream of every call.
+- **Env unified (TD28):** Node `packages/config` now uses `GEMINI_FLASH_API_KEY`
+  (master) + optional `ANTHROPIC_API_KEY`; `LITELLM_API_KEY` kept as a deprecated alias.
+- **Still open:** no cumulative spend cap (TD27/R6) — the ADR names the
+  `cost_tracker`/`AIRouter.run` hook for it.
+- See [ADR-0008](../decisions/0008-litellm-to-direct-providers.md).
+
 ## 2026-06-09 — Async extraction (BullMQ) + action-recording seam (ADR-0002)
 - **New seam: a BullMQ/Redis queue.** `/profile/extract` is now async — it
   enqueues a `profile-extraction` job (returns `202` + `ai_job_id`); a
@@ -49,7 +64,7 @@ Worker (Flutter) ─┐
                   ├─▶ NestJS API ──emit──▶ events table
 Ops (Next.js)   ─┘      │ HTTP (no raw PII)
                         ▼
-                 FastAPI AI: pseudonymize → mock/LLM ──(gated)──▶ LiteLLM
+                 FastAPI AI: pseudonymize → mock/LLM ──(gated)──▶ Gemini→Claude (direct, ADR-0008)
                         ▼
                  Supabase Postgres (Drizzle)
 ```

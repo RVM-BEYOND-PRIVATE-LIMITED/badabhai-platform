@@ -22,13 +22,16 @@ Two modes, one gold set (``app.profiling.canonicalization_gold``):
 
 MEASUREMENT CORRECTNESS: in ``--per-field --real`` the rig reads each call's
 ``ai_metadata.real_call`` + ``ai_metadata.success`` (NOT the top-level
-``is_mock``, which only means "real was attempted"). A case with
-``real_call=true AND success=false`` is a MOCK FALLBACK (the router returned mock
-content after a model failure, e.g. a 429). If ANY scored case fell back the run
-is INVALID — it prints a loud banner and exits non-zero WITHOUT a PASS/FAIL
-aggregate, so a throttled/erroring run can never read as a valid >=90% result.
-Use ``--min-interval SECONDS`` to pace a low-RPM free tier (paid billing is the
-clean path).
+``is_mock``, which only means "real was attempted"). The ONLY valid per-case
+outcome is a genuine real success (``real_call=true AND success=true``). Two ways
+a case is contaminated: ``real_call=true AND success=false`` is a MOCK FALLBACK
+(the router returned mock content after a model failure, e.g. a 429); and
+``real_call=false`` means NO real call was made at all (a TD27 spend-cap block,
+the kill-switch engaging, or the task not being in ``AI_REAL_CALL_TASKS``). If ANY
+scored case is not a genuine real success the run is INVALID — it prints a loud
+banner and exits non-zero WITHOUT a PASS/FAIL aggregate, so a throttled/erroring/
+spend-capped run can never read as a valid >=90% result. Use ``--min-interval
+SECONDS`` to pace a low-RPM free tier (paid billing is the clean path).
 
 PRIVACY: every transcript is fabricated (no PII, no worker data). The ``--real``
 path uses the normal endpoint, which pseudonymizes BEFORE any model call — this
@@ -54,10 +57,17 @@ class RealCallCollector:
     """Records the ``ai_metadata`` outcome of every real ``/profile/extract`` call.
 
     The endpoint returns ``ai_metadata.real_call`` (was a real model call
-    attempted) and ``ai_metadata.success`` (did it succeed). A call where
-    ``real_call=True AND success=False`` means the real attempt failed (e.g. a
-    429) and the router silently returned MOCK content as a fallback — so scoring
-    that case would score MOCK output as if it were a real measurement.
+    attempted) and ``ai_metadata.success`` (did it succeed). During a --real run
+    the ONLY acceptable outcome is a genuine real success
+    (``real_call=True AND success=True``). Two contamination modes:
+
+      * ``real_call=True AND success=False`` — the real attempt failed (e.g. a
+        429) and the router silently returned MOCK content as a fallback.
+      * ``real_call=False`` — no real call was made at all (TD27 spend cap, the
+        kill-switch, or the task not in ``AI_REAL_CALL_TASKS``).
+
+    Either way, scoring that case would score MOCK output as if it were a real
+    measurement.
 
     We capture these per call (NOT ``is_mock``, which only reflects "real was
     attempted") so the runner can reject a contaminated run. The OFFLINE
@@ -76,16 +86,36 @@ class RealCallCollector:
 
     @property
     def fell_back(self) -> list[tuple[bool, bool]]:
-        """Calls where a real attempt failed -> mock-fallback content was scored."""
+        """Calls where a real attempt failed -> mock-fallback content was scored.
+
+        ``real_call=True AND success=False``: the router attempted a real model
+        call, it failed (e.g. a 429), and MOCK content was returned as a fallback.
+        """
         return [(rc, ok) for (rc, ok) in self.outcomes if rc and not ok]
 
     @property
+    def not_real(self) -> list[tuple[bool, bool]]:
+        """Calls where NO real model call was made during a --real run.
+
+        ``real_call=False``: the router returned MOCK without ever attempting a
+        real call — the TD27 spend cap blocked it, the kill-switch is engaged, or
+        the task is not in ``AI_REAL_CALL_TASKS``. Scoring these would score MOCK
+        output as if it were a real measurement.
+        """
+        return [(rc, ok) for (rc, ok) in self.outcomes if not rc]
+
+    @property
     def real_success(self) -> list[tuple[bool, bool]]:
+        """The ONLY acceptable per-case outcome in a --real run: a genuine real
+        success (``real_call=True AND success=True``)."""
         return [(rc, ok) for (rc, ok) in self.outcomes if rc and ok]
 
     @property
     def contaminated(self) -> bool:
-        return len(self.fell_back) > 0
+        """True if ANY scored case is NOT a genuine real success — covering both a
+        mock fallback (``real_call=True, success=False``) and no real call at all
+        (``real_call=False``)."""
+        return bool(self.fell_back or self.not_real)
 
 
 class _RoleOnly:
@@ -306,15 +336,25 @@ def _print_per_field_report(
 
 def _print_invalid_real_run(collector: RealCallCollector) -> None:
     """Loud, unmistakable banner for a CONTAMINATED real run. No PASS/FAIL aggregate
-    is emitted alongside this — a throttled/erroring run can never be read as a
-    valid >=90% (or <90%) measurement."""
+    is emitted alongside this — a run that fell back to mock OR made no real call at
+    all can never be read as a valid >=90% (or <90%) measurement.
+
+    Reports BOTH contamination modes with distinct wording: a mock fallback after a
+    real attempt failed (e.g. a 429), and no real call at all (spend cap engaged,
+    kill-switch on, or task not allowlisted)."""
+    n = collector.total
     n_fell_back = len(collector.fell_back)
+    n_not_real = len(collector.not_real)
     print("\n" + "=" * 64)
-    print(f"INVALID REAL RUN: {n_fell_back}/{collector.total} cases fell back to "
-          "mock (provider errors, e.g. 429) — score NOT reported.")
-    print("Detected via ai_metadata: real_call=true AND success=false means the "
-          "real attempt failed and the router returned MOCK content.")
-    print("Enable paid billing or pace the run (--min-interval SECONDS), then retry.")
+    print(f"INVALID REAL RUN: {n_fell_back}/{n} cases fell back to mock "
+          f"(provider error), {n_not_real}/{n} made no real call "
+          "(spend cap / kill-switch / not allowlisted) — score NOT reported.")
+    print("Detected via ai_metadata: a valid --real case needs real_call=true AND "
+          "success=true. real_call=true+success=false is a provider-error fallback; "
+          "real_call=false means no real call was made.")
+    print("Hint: check GET /ai/spend (TD27 spend cap / kill-switch) and "
+          "AI_REAL_CALL_TASKS; for provider errors enable paid billing or pace the "
+          "run (--min-interval SECONDS), then retry.")
     print("=" * 64)
 
 
@@ -322,10 +362,12 @@ def _run_per_field(args) -> int:
     """Per-field eval (+ miss attribution). Heuristic by default; --real hits the
     live endpoints. Gates on AGGREGATE >= PER_FIELD_THRESHOLD.
 
-    In --real mode the run is INVALID if ANY scored case fell back to mock (a real
-    attempt that 429'd/errored). We then print the INVALID banner and exit
-    non-zero WITHOUT a PASS/FAIL aggregate — measurement correctness over a
-    convenient-but-false number."""
+    In --real mode the ONLY valid per-case outcome is a genuine real success
+    (real_call=True AND success=True). The run is INVALID if ANY scored case
+    either fell back to mock (a real attempt that 429'd/errored) OR made no real
+    call at all (spend cap / kill-switch / task not allowlisted). We then print the
+    INVALID banner and exit non-zero WITHOUT a PASS/FAIL aggregate — measurement
+    correctness over a convenient-but-false number."""
     collector: RealCallCollector | None = None
     if args.real:
         collector = RealCallCollector()

@@ -32,16 +32,23 @@ describe("realAiCalls gating (fail closed)", () => {
     expect(realAiCallsBlockedReason(config)).toBe("AI_ENABLE_REAL_CALLS is false");
   });
 
-  it("is blocked when enabled but missing the LiteLLM key", () => {
+  it("is blocked when enabled but missing the Gemini key", () => {
     const config = loadServerConfig({ AI_ENABLE_REAL_CALLS: "true" });
-    expect(realAiCallsBlockedReason(config)).toBe("LITELLM_API_KEY is not set");
+    expect(realAiCallsBlockedReason(config)).toBe("GEMINI_FLASH_API_KEY is not set");
   });
 
-  it("is allowed only when enabled AND keys present", () => {
+  it("is allowed when enabled AND the Gemini key is present", () => {
     const config = loadServerConfig({
       AI_ENABLE_REAL_CALLS: "true",
-      LITELLM_API_KEY: "sk-test",
-      LITELLM_BASE_URL: "http://localhost:4000",
+      GEMINI_FLASH_API_KEY: "g-test",
+    });
+    expect(areRealAiCallsEnabled(config)).toBe(true);
+  });
+
+  it("accepts the deprecated LITELLM_API_KEY as a back-compat alias (TD28/ADR-0008)", () => {
+    const config = loadServerConfig({
+      AI_ENABLE_REAL_CALLS: "true",
+      LITELLM_API_KEY: "sk-legacy",
     });
     expect(areRealAiCallsEnabled(config)).toBe(true);
   });

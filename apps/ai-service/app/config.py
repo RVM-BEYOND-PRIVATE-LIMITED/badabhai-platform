@@ -51,6 +51,28 @@ class Settings(BaseSettings):
     # exceed this is refused (falls back to mock) — a stateless runaway guard.
     ai_max_call_cost_inr: float = 10.0
 
+    # --- TD27: cumulative spend cap + retry budget + kill-switch ---------------
+    # Independent HARD kill for real calls (env AI_REAL_CALLS_KILL_SWITCH). When
+    # true it blocks real calls FIRST in real_calls_blocked_reason — before the
+    # flag/key checks — so it disables real calls regardless of
+    # AI_ENABLE_REAL_CALLS. Off by default.
+    ai_real_calls_kill_switch: bool = False
+    # Rolling per-UTC-day spend cap (INR). Real candidates are blocked once the
+    # day's recorded spend + a call's worst-case projected cost would exceed it.
+    ai_max_daily_cost_inr: float = 200.0
+    # Process-lifetime cumulative spend cap (INR). Same check against total spend.
+    ai_max_total_cost_inr: float = 1000.0
+    # PER-USER rolling per-UTC-day spend cap (INR) — the user-facing budget that
+    # bounds ALL real AI spend for one worker per day (profiling chat + extraction
+    # + resume combined), keyed by the opaque ``worker_ref`` (PII-free). Checked
+    # only when a worker_ref is supplied; the process-level caps above remain the
+    # backstop for any call without one. Default Rs 6/user/day.
+    ai_max_user_daily_cost_inr: float = 6.0
+    # Max RETRY attempts (attempt > 0) across ALL requests within a rolling
+    # window — cuts retry multiplication against a failing provider.
+    ai_retry_budget_per_window: int = 20
+    ai_retry_budget_window_seconds: int = 60
+
     sarvam_api_key: str | None = None
 
     # Observability (Langfuse). Optional — tracing is silently disabled if either
@@ -66,7 +88,12 @@ class Settings(BaseSettings):
 
         Real calls require the master flag AND a direct Gemini key. With either
         missing we fail closed (a non-None reason) so the mock path is used.
+
+        The kill-switch is checked FIRST so it hard-disables real calls
+        independently of AI_ENABLE_REAL_CALLS (TD27).
         """
+        if self.ai_real_calls_kill_switch:
+            return "kill switch engaged"
         if not self.ai_enable_real_calls:
             return "AI_ENABLE_REAL_CALLS is false"
         if not self.gemini_flash_api_key:

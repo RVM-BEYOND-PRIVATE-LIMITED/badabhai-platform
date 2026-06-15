@@ -41,7 +41,9 @@ agent and skill is bound by them:
    **never ranks, rejects, or decides matches.** That is the (future) deterministic
    Reach Engine's job.
 4. **API-first AI, gated.** No self-hosted LLM at launch. All model access goes
-   through the LiteLLM adapter, behind `AI_ENABLE_REAL_CALLS` (default `false`).
+   through the `LlmAdapter`/`AIRouter` seam to direct providers (Gemini → Claude
+   Haiku; [ADR-0008](../decisions/0008-litellm-to-direct-providers.md)), behind
+   `AI_ENABLE_REAL_CALLS` (default `false`).
 5. **Typed contracts everywhere.** TypeScript strict + Zod (TS) and Pydantic
    (Python). Runtime validation at every boundary.
 6. **DPDP + worker protection are launch gates,** not afterthoughts.

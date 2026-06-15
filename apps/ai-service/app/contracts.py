@@ -198,6 +198,10 @@ class ProfileExtractionOutput(BaseModel):
 class ResumeGenerationInput(BaseModel):
     profile: DraftProfile
     language: str | None = None
+    # Opaque worker ref (PII-free) → attributes resume spend to the per-user daily
+    # cap, so resume + chat + extraction share one Rs 6/user/day budget. Optional →
+    # backward compatible.
+    worker_ref: str | None = None
 
 
 class ResumeGenerationOutput(BaseModel):

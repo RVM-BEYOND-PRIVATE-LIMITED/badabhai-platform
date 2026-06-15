@@ -47,6 +47,7 @@ class AIRouter:
         messages: list[Message],
         mock_response: str,
         real_call_allowed: bool = True,
+        user_ref: str | None = None,
     ) -> tuple[str, AICallMetadata]:
         route = get_route(task_type)
         primary_model = resolve_model(task_type, self._settings)
@@ -67,12 +68,16 @@ class AIRouter:
         # the route's max output tokens, priced at THAT model's rate) would exceed
         # the per-call cap is skipped. Stateless runaway guard; per-profile
         # cumulative budgets are a deferred enhancement.
+        ledger = cost_tracker.get_ledger()
         any_attempted = False  # did at least one candidate actually reach the network?
         ceiling_skipped_any = False
+        spend_block_reason: str | None = None  # daily/cumulative cap hit (TD27)
+        retry_budget_hit = False  # rolling retry budget exhausted (TD27)
         for model in candidates:
             worst_case_inr = cost_tracker.estimate_cost_inr(
                 model, cost_tracker.estimate_tokens(input_text), route.max_output_tokens
             )
+            # 1. Per-call ceiling: a single call whose worst case is too pricey.
             if worst_case_inr > self._settings.ai_max_call_cost_inr:
                 logger.warning(
                     "cost ceiling exceeded; skipping candidate",
@@ -85,9 +90,37 @@ class AIRouter:
                 ceiling_skipped_any = True
                 continue
 
+            # 2. Cumulative spend caps (TD27): checked BEFORE the call with the
+            # worst-case projected cost. A daily/cumulative breach blocks EVERY
+            # candidate -> mock fallback. Same fail-closed posture as the ceiling.
+            reason = ledger.would_exceed_spend(worst_case_inr, self._settings, user_ref=user_ref)
+            if reason is not None:
+                logger.warning(
+                    "spend cap reached; blocking real call",
+                    extra={"extra": {
+                        "task": task_type, "model": model, "reason": reason,
+                        "worst_case_inr": worst_case_inr,
+                    }},
+                )
+                spend_block_reason = reason
+                continue
+
             # Attempt this candidate with the route's per-attempt retries.
             any_attempted = True
             for attempt in range(route.max_retries + 1):
+                # 3. Retry budget (TD27): a RETRY (attempt > 0) must consume a slot
+                # of the rolling cross-request budget. Exhausted -> stop hammering
+                # this failing provider (break the retry loop).
+                if attempt > 0 and not ledger.try_consume_retry(self._settings):
+                    retry_budget_hit = True
+                    logger.warning(
+                        "retry budget exhausted; stopping retries",
+                        extra={"extra": {
+                            "task": task_type, "model": model, "attempt": attempt,
+                            "budget_per_window": self._settings.ai_retry_budget_per_window,
+                        }},
+                    )
+                    break
                 try:
                     result = await providers.complete(
                         settings=self._settings, model=model, messages=messages,
@@ -102,6 +135,8 @@ class AIRouter:
                         input_tokens=in_tok, output_tokens=out_tok,
                         latency_ms=latency, success=True, settings=self._settings,
                     )
+                    # Record ACTUAL estimated spend (not worst-case) after success.
+                    ledger.record_spend(meta.estimated_cost_inr, user_ref=user_ref)
                     self._trace(task_type, model, True, input_text, result.content, meta)
                     return result.content, meta
                 except Exception as exc:
@@ -114,19 +149,30 @@ class AIRouter:
                             "error_type": type(exc).__name__,
                         }},
                     )
+            if retry_budget_hit:
+                break
 
         # No candidate succeeded (or none were allowed). Fall back to the
         # deterministic mock — the router NEVER raises (fail-safe). Metadata is
-        # reported under the PRIMARY model. Three terminal states:
+        # reported under the PRIMARY model. Terminal states:
         #   - at least one candidate hit the network and all failed -> real_call
-        #     True, success False, error "llm_call_failed".
-        #   - real was allowed but every candidate was ceiling-skipped (none
-        #     attempted) -> real_call False, success True, "cost_ceiling_exceeded".
-        #   - real disabled / opted out / not allowlisted -> plain mock.
+        #     True, success False, "retry_budget_exhausted" if a retry was
+        #     budget-blocked else "llm_call_failed".
+        #   - no candidate attempted but a spend cap blocked them -> real_call
+        #     False, success True, "daily_cap_exceeded"/"cumulative_cap_exceeded".
+        #   - no candidate attempted, only ceiling-skipped -> real_call False,
+        #     success True, "cost_ceiling_exceeded".
+        #   - real disabled/opted-out/not-allowlisted -> "kill_switch_engaged"
+        #     when the kill-switch is on, else plain mock (error_code None).
         if any_attempted:
-            real_flag, success, error_code = True, False, "llm_call_failed"
+            real_flag, success = True, False
+            error_code = "retry_budget_exhausted" if retry_budget_hit else "llm_call_failed"
+        elif spend_block_reason is not None:
+            real_flag, success, error_code = False, True, spend_block_reason
         elif ceiling_skipped_any:
             real_flag, success, error_code = False, True, "cost_ceiling_exceeded"
+        elif self._settings.ai_real_calls_kill_switch:
+            real_flag, success, error_code = False, True, "kill_switch_engaged"
         else:
             real_flag, success, error_code = False, True, None
 

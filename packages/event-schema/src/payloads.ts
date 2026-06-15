@@ -377,6 +377,40 @@ export const AiCostRecordedPayload = z.object({
 });
 
 /**
+ * Spend-cap / circuit-breaker block codes — the terminal `error_code` values the
+ * AI gateway returns when it REFUSES a real provider call (TD27). Mirrors the
+ * block reasons set in apps/ai-service. Enum-only (no free text) → no PII.
+ */
+export const AI_SPEND_CAP_REASONS = [
+  "daily_cap_exceeded",
+  "cumulative_cap_exceeded",
+  "user_daily_cap_exceeded",
+  "kill_switch_engaged",
+  "retry_budget_exhausted",
+  "cost_ceiling_exceeded",
+] as const;
+export const AiSpendCapReason = z.enum(AI_SPEND_CAP_REASONS);
+export type AiSpendCapReason = z.infer<typeof AiSpendCapReason>;
+
+/**
+ * The AI gateway BLOCKED a real provider call because a spend cap / circuit
+ * breaker tripped (TD27). Emitted in addition to `ai.cost_recorded` (which is
+ * left UNCHANGED) so ops can alert on caps without parsing cost rows. PII-free by
+ * construction: ids, model/provider names, the block reason enum, and flags only
+ * — never prompts, completions, transcripts, names, or phone numbers.
+ */
+export const AiSpendCapExceededPayload = z.object({
+  ai_call_id: uuidSchema,
+  request_id: requestId.nullable().default(null),
+  ai_job_id: uuidSchema.nullable().default(null),
+  task_type: aiTaskType,
+  model: z.string().min(1).max(128),
+  provider: z.string().min(1).max(64),
+  reason: AiSpendCapReason,
+  real_call: z.boolean().default(false),
+});
+
+/**
  * An async AI job (an `ai_jobs` row) completed successfully — lets the BullMQ
  * extraction/transcription path keep its lifecycle in the event spine.
  * (Failures use the domain-specific `*_failed` events.)

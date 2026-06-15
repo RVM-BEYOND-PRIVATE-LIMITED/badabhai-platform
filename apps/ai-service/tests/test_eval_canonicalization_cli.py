@@ -142,6 +142,46 @@ def test_per_field_real_invalid_when_cases_fall_back_to_mock(capsys, monkeypatch
     assert rc == 1
     assert "INVALID REAL RUN" in out
     assert "fell back to mock" in out
+    # The banner now reports BOTH contamination counts; here not-real is 0/N.
+    assert "made no real call" in out
+    # The aggregate PASS/FAIL line must NOT be emitted for a contaminated run.
+    assert "PASS: aggregate" not in out
+    assert "FAIL: aggregate" not in out
+
+
+def test_per_field_real_invalid_when_case_made_no_real_call(capsys, monkeypatch):
+    """NEW: if ANY scored case reports ai_metadata real_call=false (no real call
+    was made — TD27 spend cap, kill-switch, or task not allowlisted), the run is
+    INVALID: loud banner, non-zero exit, the "no real call" wording, and NO
+    PASS/FAIL aggregate. A mock output must never be scored as a real measurement.
+    """
+    _patch_respond_and_pseudo(monkeypatch)
+
+    def fake_extract(base_url, timeout=30.0, *, collector=None, min_interval=0.0):
+        # Score every case as if real, but mark ~1/3 as "no real call made".
+        calls = {"n": 0}
+
+        def extract_fn(text):
+            _rich, legacy = gold.profile_extractor.extract(text)
+            if collector is not None:
+                no_real = (calls["n"] % 3 == 0)  # real_call=false (mock, never attempted)
+                collector.record(real_call=not no_real, success=True)
+            calls["n"] += 1
+            return legacy
+
+        return extract_fn
+
+    monkeypatch.setattr(cli, "_make_real_field_extract_fn", fake_extract)
+    rc = cli.main(["--per-field", "--real", "--base-url", "http://localhost:9999"])
+    out = capsys.readouterr().out
+
+    assert rc == 1
+    assert "INVALID REAL RUN" in out
+    assert "made no real call" in out
+    # Distinct wording / hint surfaces the spend-cap + allowlist cause.
+    assert "spend cap" in out and "AI_REAL_CALL_TASKS" in out
+    # No genuine fallbacks here, so the fell-back count is 0/N.
+    assert "fell back to mock" in out
     # The aggregate PASS/FAIL line must NOT be emitted for a contaminated run.
     assert "PASS: aggregate" not in out
     assert "FAIL: aggregate" not in out
@@ -209,14 +249,30 @@ def test_min_interval_flag_paces_real_calls(monkeypatch):
     assert collector.total == 2 and not collector.contaminated
 
 
-def test_collector_flags_only_real_attempt_failures():
-    """RealCallCollector: real_call=true + success=false is a fallback; mock
-    (real_call=false) and real success are NOT contamination."""
+def test_collector_buckets_fallbacks_and_no_real_calls():
+    """RealCallCollector: during a --real run the only valid outcome is a genuine
+    real success (real_call=true, success=true). BOTH a real-attempt failure
+    (real_call=true, success=false) and a no-real-call (real_call=false) are
+    contamination, bucketed distinctly."""
     c = cli.RealCallCollector()
-    c.record(real_call=True, success=True)    # real ok
-    c.record(real_call=False, success=True)   # never attempted real (mock mode)
+    c.record(real_call=True, success=True)    # real ok -> the only valid outcome
+    c.record(real_call=False, success=True)   # no real call (spend cap / kill-switch)
+    c.record(real_call=False, success=False)  # no real call (also counts as not_real)
     c.record(real_call=True, success=False)   # real attempted, failed -> fallback
-    assert c.total == 3
+    assert c.total == 4
     assert len(c.fell_back) == 1
+    assert len(c.not_real) == 2
     assert len(c.real_success) == 1
     assert c.contaminated
+
+
+def test_collector_all_real_success_is_not_contaminated():
+    """A clean --real run (every case real_call=true AND success=true) is NOT
+    contaminated: no fallbacks, no not-real cases."""
+    c = cli.RealCallCollector()
+    c.record(real_call=True, success=True)
+    c.record(real_call=True, success=True)
+    assert c.total == 2
+    assert not c.fell_back and not c.not_real
+    assert len(c.real_success) == 2
+    assert not c.contaminated

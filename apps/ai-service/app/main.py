@@ -15,6 +15,7 @@ import json
 
 from fastapi import FastAPI
 
+from .ai import cost_tracker
 from .ai.router import AIRouter
 from .config import get_settings
 from .contracts import (
@@ -82,7 +83,20 @@ def health() -> dict:
         # Actual tracer state (keys present AND package installed), not just config.
         "langfuse_enabled": router.langfuse_enabled,
         "max_call_cost_inr": settings.ai_max_call_cost_inr,
+        # PII-free cumulative spend / retry-budget usage-vs-cap (TD27).
+        "spend": cost_tracker.get_ledger().snapshot(settings),
     }
+
+
+@app.get("/ai/spend")
+def ai_spend(user_ref: str | None = None) -> dict:
+    """PII-free cumulative spend + retry-budget usage vs. caps (TD27).
+
+    Numbers / model ids / UTC date only — never message content. Pass an opaque
+    ``user_ref`` to also see that worker's spend vs the per-user daily cap. Single-
+    process scope (see SpendLedger); a shared store is the multi-worker follow-up.
+    """
+    return cost_tracker.get_ledger().snapshot(settings, user_ref=user_ref)
 
 
 @app.post("/pseudonymize", response_model=PseudonymizationOutput)
@@ -135,6 +149,7 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
         messages=messages,
         mock_response=mock_reply,
         real_call_allowed=body.real_call_allowed,
+        user_ref=body.worker_ref,
     )
 
     return ProfilingTurnOutput(
@@ -183,6 +198,7 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
         messages=messages,
         mock_response=rich.model_dump_json(),
         real_call_allowed=True,
+        user_ref=body.worker_ref,
     )
 
     # In real mode, prefer a valid LLM profile but keep locally-read fields
@@ -227,6 +243,7 @@ async def resume_generate(body: ResumeGenerationInput) -> ResumeGenerationOutput
         messages=messages,
         mock_response=text,
         real_call_allowed=True,
+        user_ref=body.worker_ref,
     )
     return ResumeGenerationOutput(
         resume_text=resume_text,

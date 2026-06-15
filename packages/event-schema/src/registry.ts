@@ -111,6 +111,11 @@ export const EVENT_REGISTRY = {
   "ai.llm_call_completed": { version: 1, domain: "ai", payload: p.AiLlmCallCompletedPayload },
   "ai.llm_call_failed": { version: 1, domain: "ai", payload: p.AiLlmCallFailedPayload },
   "ai.cost_recorded": { version: 1, domain: "ai", payload: p.AiCostRecordedPayload },
+  "ai.spend_cap_exceeded": {
+    version: 1,
+    domain: "ai",
+    payload: p.AiSpendCapExceededPayload,
+  },
   "ai.job_completed": { version: 1, domain: "ai", payload: p.AiJobCompletedPayload },
 
   // Reach foundation (ADR-0005, TD8) — worker-side behavioural record for matching/

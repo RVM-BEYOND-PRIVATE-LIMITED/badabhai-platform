@@ -14,8 +14,8 @@ matching logic lives here.
   call is ever made; deterministic responses + estimated cost are returned.
 - **Pseudonymization runs first, always.** If it blocks, the LLM is never called
   and a safe fallback is returned (fail closed).
-- **Everything is optional in dev.** No LiteLLM key, no Langfuse key, no Google
-  project required to run and test the service.
+- **Everything is optional in dev.** No Gemini key, no Anthropic key, no Langfuse
+  key required to run and test the service.
 
 ## Components (`apps/ai-service`)
 
@@ -25,20 +25,22 @@ matching logic lives here.
 | Router | `app/ai/router.py` | mock-vs-real gating, retries, returns `(content, AICallMetadata)` |
 | Cost | `app/ai/cost_tracker.py` | token/cost estimate + `cost_alert` / `above_target` flags |
 | Tracing | `app/ai/langfuse_tracing.py` | optional Langfuse; safe no-op when keys/package missing |
-| LiteLLM | `app/ai/litellm_client.py` | real call (lazy import; real mode only) |
+| Providers | `app/ai/providers.py` + `gemini_client.py` + `anthropic_client.py` | direct provider transports (Gemini REST primary, Claude SDK fallback); real mode only (ADR-0008) |
 | Privacy | `app/pseudonymize.py` | mask phone/name/employer/city/IDs; fail-closed |
 | Interview | `app/profiling/interview_engine.py` + `question_bank.py` + `prompts.py` | bada-bhai chat, one question at a time |
 | Extraction | `app/profiling/signals.py` + `profile_extractor.py` | messy text → `WorkerProfileDraft` (+ legacy `DraftProfile`) |
 
 ## `AI_ENABLE_REAL_CALLS` behavior
 
-Real calls require **both** the flag and a LiteLLM key (fail closed):
+Real calls require **both** the flag and the Gemini key (fail closed):
 
 ```
 real_calls_enabled = AI_ENABLE_REAL_CALLS == true
-                     AND LITELLM_API_KEY is set
-                     AND LITELLM_BASE_URL is set
+                     AND GEMINI_FLASH_API_KEY is set   # master gate (ADR-0008)
 ```
+
+(`ANTHROPIC_API_KEY` is optional — its presence only ADDS the Claude Haiku
+fallback candidate; it is never a master gate.)
 
 **Per-task gate (enable ONE role at a time).** `AI_REAL_CALL_TASKS` is an
 optional comma-separated allowlist; a real call also requires the task to be
@@ -57,9 +59,10 @@ chat/resume stay mock — see the staging rollout in
 - **Mock mode** (`false`): the router returns the caller's deterministic
   `mock_response`, logs estimated tokens/cost, and exercises every contract. No
   network, no keys needed.
-- **Real mode** (`true` + key): the router calls LiteLLM with the routed model,
-  captures real token usage, traces to Langfuse (if configured), validates the
-  response, and **falls back to the mock on any failure** (never raises).
+- **Real mode** (`true` + key): the router calls the provider **directly** with the
+  routed model (Gemini primary → Claude Haiku fallback), captures real token usage,
+  traces to Langfuse (if configured), validates the response, and **falls back to
+  the next candidate then the mock on any failure** (never raises).
 
 A single request can also opt out via `real_call_allowed=false`.
 
@@ -71,9 +74,10 @@ A single request can also opt out via `real_call_allowed=false`.
 | `profile_extraction` | capable | `DEFAULT_CAPABLE_MODEL` | strict JSON, 2 retries |
 | `resume_generation` | cheap | `DEFAULT_CHEAP_MODEL` | runs in mock mode too |
 
-Model names are env-driven, so routing changes need no code change. Recommended
-defaults: `DEFAULT_CHEAP_MODEL=gemini-flash-lite`,
-`DEFAULT_CAPABLE_MODEL=claude-haiku-or-gemini-flash`.
+Model names are env-driven, so routing changes need no code change. Defaults:
+`DEFAULT_CHEAP_MODEL=gemini-2.5-flash-lite`,
+`DEFAULT_CAPABLE_MODEL=gemini-2.5-flash`, with `DEFAULT_FALLBACK_MODEL=claude-haiku-4-5`
+(the cross-provider fallback, used only when `ANTHROPIC_API_KEY` is set).
 
 ## Cost tracking
 
@@ -99,7 +103,7 @@ an enforced, stateless per-call runaway guard. Per-profile **cumulative** budget
 `/profile/extract` return populated `ai_metadata` and log structured `ai_call`
 cost lines; with `AI_ENABLE_REAL_CALLS=false` calls are mock (`real_call=false`);
 with it `true` the real path engages (`real_call=true`, falling back safely when
-LiteLLM is absent); and with a near-zero `AI_MAX_CALL_COST_INR` a real call is
+the provider call fails); and with a near-zero `AI_MAX_CALL_COST_INR` a real call is
 refused (`real_call=false`, `error_code=cost_ceiling_exceeded`). `/health` reports
 `real_calls_enabled`, the **actual** `langfuse_enabled` (keys present *and* package
 installed), and `max_call_cost_inr`.
@@ -167,17 +171,19 @@ Use fake worker data only. Phone-like numbers will be masked or will fail closed
 
 ## Enabling real calls later
 
-1. `pip install -r requirements-ai.txt` (adds `litellm`, `langfuse`).
-2. Set `AI_ENABLE_REAL_CALLS=true`, `LITELLM_BASE_URL`, `LITELLM_API_KEY`.
-3. (Optional) Langfuse keys for tracing; Google/Gemini vars for Vertex via LiteLLM.
+1. `pip install -r requirements-ai.txt` (adds `anthropic`, `langfuse`; Gemini is
+   reached over REST with `httpx`, already a base dep — no LiteLLM, no openai SDK).
+2. Set `AI_ENABLE_REAL_CALLS=true` and `GEMINI_FLASH_API_KEY` (the master gate).
+3. (Optional) `ANTHROPIC_API_KEY` to add the Claude Haiku fallback; Langfuse keys
+   for tracing.
 4. Keep keys backend-only — never in web/Flutter or any `NEXT_PUBLIC_*`.
 
-### Adding Gemini / Vertex
+### Choosing models
 
-Point `DEFAULT_CHEAP_MODEL` / `DEFAULT_CAPABLE_MODEL` at LiteLLM Gemini/Vertex
-model ids and set `GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION` (and
-`GEMINI_API_KEY` for the API-key path). LiteLLM handles provider auth; no app
-code change is required.
+Point `DEFAULT_CHEAP_MODEL` / `DEFAULT_CAPABLE_MODEL` at bare Gemini model ids and
+`DEFAULT_FALLBACK_MODEL` at a Claude id; `app/ai/providers.py` dispatches each id to
+its direct transport by `provider_for_model`. No app code change is required.
+Full staging rollout + the ≥90% eval: [enable-real-llm-extraction.md](enable-real-llm-extraction.md).
 
 ## What NOT to send to an LLM
 
