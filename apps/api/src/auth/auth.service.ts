@@ -3,14 +3,21 @@ import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
+import { OtpService } from "./otp.service";
+import { SessionService } from "./session.service";
+import type { LoginResponse, OtpRequestResponse } from "./auth.dto";
 
 /**
- * Mock authentication for Phase 1.
+ * Real OTP login.
  *
- * NO real OTP provider is integrated. `requestOtp` always "succeeds" and
- * `verifyOtp` accepts any well-formed 4-6 digit code. This exists to exercise
- * the worker-identity + event flow end to end. TODO: integrate a real SMS/OTP
- * provider behind this interface in a later phase.
+ * `requestOtp` issues + sends a one-time code (via OtpService → SmsProvider) and
+ * emits `worker.otp_requested`. `verifyOtp` verifies the code FIRST (OtpService
+ * throws on a bad/expired code, so a failed verify never touches the worker
+ * table), then create-or-gets the worker (TD23 race-safe), mints a rolling
+ * session, and emits `worker.created` (once) + `worker.otp_verified`.
+ *
+ * PRIVACY: the raw phone is never logged or put into an event — only its keyed
+ * HASH. The OTP code never appears in any log/event/return value here.
  */
 @Injectable()
 export class AuthService {
@@ -20,9 +27,15 @@ export class AuthService {
     private readonly events: EventsService,
     private readonly workers: WorkersRepository,
     private readonly pii: PiiCryptoService,
+    private readonly otp: OtpService,
+    private readonly sessions: SessionService,
   ) {}
 
-  async requestOtp(phone: string, ctx: RequestContext): Promise<{ success: true; channel: string }> {
+  async requestOtp(phone: string, ctx: RequestContext): Promise<OtpRequestResponse> {
+    // Issue + send first; OtpService throws (cooldown/cap/send-fail/Redis) and we
+    // do NOT emit on failure. Only a real, sent code produces the event.
+    const { resendInSeconds } = await this.otp.issueAndSend(phone);
+
     const phoneHash = this.pii.hashPhone(phone);
     // NOTE: the raw phone is never logged or put into an event — only its hash.
     await this.events.emit({
@@ -33,15 +46,15 @@ export class AuthService {
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
-    this.logger.log("otp requested (mock)");
-    return { success: true, channel: "sms" };
+    this.logger.log("otp requested");
+    return { success: true, channel: "sms", resend_in_seconds: resendInSeconds };
   }
 
-  async verifyOtp(
-    phone: string,
-    _otp: string,
-    ctx: RequestContext,
-  ): Promise<{ worker_id: string; is_new_worker: boolean; status: string }> {
+  async verifyOtp(phone: string, otp: string, ctx: RequestContext): Promise<LoginResponse> {
+    // Verify the code FIRST — throws 401/429 on a bad/expired code or 503 if Redis
+    // is down (fail closed). No worker is created on a failed verify.
+    await this.otp.verify(phone, otp);
+
     const phoneHash = this.pii.hashPhone(phone);
 
     let worker = await this.workers.findByPhoneHash(phoneHash);
@@ -74,6 +87,9 @@ export class AuthService {
       }
     }
 
+    // Mint a rolling session (JWT + Redis session record) for this worker.
+    const session = await this.sessions.create(worker.id);
+
     // No idempotencyKey: a worker legitimately verifies/logs in many times, so
     // each otp_verified is a distinct fact (likewise otp_requested resends above).
     await this.events.emit({
@@ -85,6 +101,13 @@ export class AuthService {
       requestId: ctx.requestId,
     });
 
-    return { worker_id: worker.id, is_new_worker: isNew, status: worker.status };
+    return {
+      access_token: session.token,
+      token_type: "Bearer",
+      expires_in_seconds: session.expiresInSeconds,
+      worker_id: worker.id,
+      is_new_worker: isNew,
+      status: worker.status,
+    };
   }
 }

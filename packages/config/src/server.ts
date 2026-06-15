@@ -20,6 +20,12 @@ import { booleanFromString, portSchema, nodeEnvSchema, formatEnvError } from "./
 export const DEV_PII_HASH_PEPPER = "dev-insecure-pii-pepper-change-me";
 export const DEV_PII_ENCRYPTION_KEY = Buffer.alloc(32).toString("base64"); // 32 zero bytes
 
+/**
+ * Dev-only JWT signing secret. Keeps local boot + tests working without a real
+ * secret; production MUST override it (enforced by assertAuthConfig).
+ */
+export const DEV_JWT_SECRET = "dev-insecure-jwt-secret-change-me";
+
 export const serverEnvSchema = z.object({
   NODE_ENV: nodeEnvSchema,
 
@@ -93,6 +99,30 @@ export const serverEnvSchema = z.object({
         return false;
       }
     }, "PII_ENCRYPTION_KEY must be base64 of exactly 32 bytes"),
+
+  // Worker auth: OTP login + rolling JWT session (BACKEND ONLY).
+  // JWT_SECRET signs the worker session token. Dev default keeps local boot/tests
+  // working; production MUST override it (assertAuthConfig fails closed otherwise).
+  JWT_SECRET: z.string().min(16).default(DEV_JWT_SECRET),
+  // Session lifetime (days). The token + Redis session key share this TTL; an
+  // active client gets it refreshed (rolling/sliding) past the half-life.
+  SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
+  // OTP shape + lifecycle. The code is generated with crypto.randomInt per digit,
+  // stored ONLY as a keyed HMAC, single-use, and rate-limited per phone + per IP.
+  OTP_LENGTH: z.coerce.number().int().min(4).max(8).default(6),
+  OTP_TTL_SECONDS: z.coerce.number().int().positive().default(300),
+  OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(30),
+  OTP_MAX_SENDS_PER_HOUR: z.coerce.number().int().positive().default(5),
+  // SMS delivery. "console" prints the code to the server log for LOCAL dev only
+  // (assertAuthConfig forbids it outside development/test). "fast2sms" sends a real
+  // SMS via the Fast2SMS DLT route; all Fast2SMS specifics live in Fast2SmsProvider.
+  SMS_PROVIDER: z.enum(["console", "fast2sms"]).default("console"),
+  FAST2SMS_API_KEY: z.string().min(1).optional(),
+  FAST2SMS_SENDER_ID: z.string().min(1).optional(),
+  FAST2SMS_DLT_TEMPLATE_ID: z.string().min(1).optional(),
+  FAST2SMS_ENTITY_ID: z.string().min(1).optional(),
+  FAST2SMS_ROUTE: z.string().min(1).default("dlt"),
 
   // AI routing (direct providers — Gemini primary + Claude Haiku fallback; ADR-0008).
   // The AI service (Python) calls providers DIRECTLY over their own SDKs/REST; the
@@ -206,6 +236,52 @@ export function assertPiiCryptoConfig(
       `Insecure PII secret(s) outside an explicit development/test environment: ${[
         ...new Set(insecure),
       ].join(", ")} must be overridden`,
+    );
+  }
+}
+
+/** True if JWT_SECRET is still the insecure dev default (for a boot warning). */
+export function isUsingDevJwtDefault(config: ServerConfig): boolean {
+  return config.JWT_SECRET === DEV_JWT_SECRET;
+}
+
+/**
+ * Fail-closed guard for worker-auth config. Like assertPiiCryptoConfig, the dev
+ * shortcuts are acceptable ONLY when NODE_ENV is EXPLICITLY "development"/"test".
+ * Any other value — including UNSET, "staging", or "production" — must:
+ *   - override JWT_SECRET (the dev default would let anyone forge a session), AND
+ *   - use a real SMS provider (the console provider PRINTS the code to logs, so it
+ *     must never run outside dev), AND
+ *   - when SMS_PROVIDER="fast2sms", supply the required Fast2SMS credentials, so a
+ *     half-configured provider fails at boot rather than silently dropping OTPs.
+ * Call once at boot (main.ts).
+ */
+export function assertAuthConfig(
+  config: ServerConfig,
+  rawNodeEnv: string | undefined = process.env.NODE_ENV,
+): void {
+  if (rawNodeEnv === "development" || rawNodeEnv === "test") return;
+
+  const problems: string[] = [];
+  if (config.JWT_SECRET === DEV_JWT_SECRET) {
+    problems.push("JWT_SECRET must be overridden (the dev default is public)");
+  }
+  if (config.SMS_PROVIDER === "console") {
+    problems.push("SMS_PROVIDER=console prints OTP codes to logs and must not run outside development");
+  }
+  if (config.SMS_PROVIDER === "fast2sms") {
+    const missing: string[] = [];
+    if (!config.FAST2SMS_API_KEY) missing.push("FAST2SMS_API_KEY");
+    if (!config.FAST2SMS_SENDER_ID) missing.push("FAST2SMS_SENDER_ID");
+    if (!config.FAST2SMS_DLT_TEMPLATE_ID) missing.push("FAST2SMS_DLT_TEMPLATE_ID");
+    if (missing.length > 0) {
+      problems.push(`SMS_PROVIDER=fast2sms requires: ${missing.join(", ")}`);
+    }
+  }
+
+  if (problems.length > 0) {
+    throw new Error(
+      `Insecure/incomplete auth config outside an explicit development/test environment: ${problems.join("; ")}`,
     );
   }
 }
