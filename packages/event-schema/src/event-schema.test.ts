@@ -478,9 +478,107 @@ describe("interview_kit events (per-trade, PII-free)", () => {
   });
 });
 
+describe("job lifecycle events (PII-free; opaque payer)", () => {
+  function jobEvent(name: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: name,
+      actor: { actor_type: "payer", actor_id: UUID_A },
+      subject: { subject_type: "job", subject_id: UUID_B },
+      payload,
+    };
+  }
+
+  it("validates job.created and applies the role_ids default", () => {
+    const result = validateEvent(
+      jobEvent("job.created", { job_id: UUID_B, payer_id: UUID_A, vacancy_count: 3 }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "job.created") {
+      expect(result.event.payload.role_ids).toEqual([]); // default
+    }
+  });
+
+  it("rejects job.created with vacancy_count <= 0", () => {
+    const result = validateEvent(
+      jobEvent("job.created", { job_id: UUID_B, payer_id: UUID_A, vacancy_count: 0 }),
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a role_id that is not a lowercase slug (no free text → no PII)", () => {
+    const result = validateEvent(
+      jobEvent("job.created", {
+        job_id: UUID_B,
+        payer_id: UUID_A,
+        vacancy_count: 1,
+        role_ids: ["VMC Operator 9876543210"],
+      }),
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("validates job.activated with stamped quota + null fee/intro defaults", () => {
+    const result = validateEvent(
+      jobEvent("job.activated", {
+        job_id: UUID_B,
+        payer_id: UUID_A,
+        vacancy_count: 3,
+        applicant_quota: 9,
+      }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "job.activated") {
+      expect(result.event.payload.posting_fee_inr).toBeNull(); // default
+      expect(result.event.payload.intro_expires_at).toBeNull(); // default
+    }
+  });
+
+  it("validates job.paused for both reasons and rejects a free-text reason", () => {
+    for (const reason of ["manual", "quota_reached"]) {
+      const result = validateEvent(
+        jobEvent("job.paused", { job_id: UUID_B, payer_id: UUID_A, reason }),
+      );
+      expect(result.success).toBe(true);
+    }
+    const bad = validateEvent(
+      jobEvent("job.paused", { job_id: UUID_B, payer_id: UUID_A, reason: "because" }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("validates job.boosted across tiers and rejects an unknown tier", () => {
+    for (const boost_tier of ["none", "standard", "premium"]) {
+      const result = validateEvent(
+        jobEvent("job.boosted", { job_id: UUID_B, payer_id: UUID_A, boost_tier }),
+      );
+      expect(result.success).toBe(true);
+    }
+    const bad = validateEvent(
+      jobEvent("job.boosted", { job_id: UUID_B, payer_id: UUID_A, boost_tier: "platinum" }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("validates job.closed and job.resumed", () => {
+    expect(
+      validateEvent(jobEvent("job.closed", { job_id: UUID_B, payer_id: UUID_A })).success,
+    ).toBe(true);
+    expect(
+      validateEvent(jobEvent("job.resumed", { job_id: UUID_B, payer_id: UUID_A })).success,
+    ).toBe(true);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 37 event names (26 Phase-1 + worker.name_recorded + 3 Reach foundation + 3 resume render + 3 interview kit + ai.spend_cap_exceeded)", () => {
-    expect(EVENT_NAMES).toHaveLength(37);
+  it("exposes all 43 event names (37 prior + 6 job lifecycle)", () => {
+    expect(EVENT_NAMES).toHaveLength(43);
+    expect(isEventName("job.created")).toBe(true);
+    expect(isEventName("job.activated")).toBe(true);
+    expect(isEventName("job.paused")).toBe(true);
+    expect(isEventName("job.resumed")).toBe(true);
+    expect(isEventName("job.closed")).toBe(true);
+    expect(isEventName("job.boosted")).toBe(true);
     expect(isEventName("interview_kit.downloaded")).toBe(true);
     expect(isEventName("interview_kit.render_completed")).toBe(true);
     expect(isEventName("interview_kit.render_failed")).toBe(true);

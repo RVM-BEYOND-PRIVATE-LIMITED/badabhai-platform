@@ -21,6 +21,10 @@ export const EVENT_DOMAINS = [
   // ships. PII-free (worker_id + opaque job_id + signals only).
   "feed",
   "application",
+  // Phase-2 Job entity lifecycle (the `posting_fee` billable object). Posted by an
+  // opaque payer; payloads carry ids/slugs/counts only — never payer identity or
+  // the free-text job title.
+  "job",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;

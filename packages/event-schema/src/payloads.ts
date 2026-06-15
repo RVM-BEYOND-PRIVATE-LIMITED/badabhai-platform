@@ -461,3 +461,77 @@ export const ApplicationSkippedPayload = z.object({
   /** Coarse, non-PII reason (no free text). */
   reason: z.enum(["not_interested", "too_far", "low_pay", "wrong_trade", "other"]).default("other"),
 });
+
+// ---------------------------------------------------------------------------
+// job.* — Phase-2 Job entity lifecycle (the `posting_fee` billable object).
+//
+// A job is the demand side of a match, posted by an OPAQUE payer (faceless rails;
+// the "Employer entity" is a dead decision). PII-FREE BY CONSTRUCTION: payloads
+// carry the opaque job_id + payer_id, canonical role SLUGS, scalar counts, money
+// scalars, and controlled enums only — NEVER the payer's name/contact or the
+// free-text job title. Lifecycle: created → activated → paused/resumed → closed,
+// plus an auto-pause when applicants reach the stamped quota, and boost changes.
+// ---------------------------------------------------------------------------
+
+/** Canonical role/trade slug a job accepts (e.g. "vmc_operator"). No free text. */
+const jobRoleId = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9_]+$/, "role id must be a lowercase slug ([a-z0-9_])");
+
+/** Boost tier — a paid ranking amplification within the relevance floor (ranking use deferred). */
+const jobBoostTier = z.enum(["none", "standard", "premium"]);
+
+/** A payer posted a new job (status: draft). */
+export const JobCreatedPayload = z.object({
+  job_id: uuidSchema,
+  payer_id: uuidSchema,
+  role_ids: z.array(jobRoleId).max(20).default([]),
+  vacancy_count: z.number().int().positive(),
+});
+
+/** A job went live (draft → active): the applicant quota + intro window are stamped. */
+export const JobActivatedPayload = z.object({
+  job_id: uuidSchema,
+  payer_id: uuidSchema,
+  vacancy_count: z.number().int().positive(),
+  /** Stamped at activation (e.g. vacancy_count × Wave-1 multiplier, or an override). */
+  applicant_quota: z.number().int().nonnegative(),
+  /** Stamped posting fee (INR). Null until a band/price is chosen — NOT a payment. */
+  posting_fee_inr: z.number().nonnegative().nullable().default(null),
+  intro_expires_at: isoDateTimeSchema.nullable().default(null),
+});
+
+/** A job was paused — manually by the payer or automatically when it hit quota. */
+export const JobPausedPayload = z.object({
+  job_id: uuidSchema,
+  payer_id: uuidSchema,
+  reason: z.enum(["manual", "quota_reached"]),
+  applicants_received_count: z.number().int().nonnegative().default(0),
+  applicant_quota: z.number().int().nonnegative().nullable().default(null),
+});
+
+/** A paused job was resumed (paused → active). */
+export const JobResumedPayload = z.object({
+  job_id: uuidSchema,
+  payer_id: uuidSchema,
+  applicants_received_count: z.number().int().nonnegative().default(0),
+  applicant_quota: z.number().int().nonnegative().nullable().default(null),
+});
+
+/** A job was closed. `reason` is a controlled enum (no free text → no PII). */
+export const JobClosedPayload = z.object({
+  job_id: uuidSchema,
+  payer_id: uuidSchema,
+  reason: z.enum(["manual", "expired", "filled", "other"]).default("manual"),
+  applicants_received_count: z.number().int().nonnegative().default(0),
+});
+
+/** A job's boost was set/changed (tier "none" records a boost removal). */
+export const JobBoostedPayload = z.object({
+  job_id: uuidSchema,
+  payer_id: uuidSchema,
+  boost_tier: jobBoostTier,
+  boost_expires_at: isoDateTimeSchema.nullable().default(null),
+});

@@ -131,6 +131,15 @@ export const EVENT_REGISTRY = {
     domain: "application",
     payload: p.ApplicationSkippedPayload,
   },
+
+  // Phase-2 Job entity lifecycle (the `posting_fee` billable object). PII-free:
+  // opaque job_id/payer_id + slugs/counts/enums only.
+  "job.created": { version: 1, domain: "job", payload: p.JobCreatedPayload },
+  "job.activated": { version: 1, domain: "job", payload: p.JobActivatedPayload },
+  "job.paused": { version: 1, domain: "job", payload: p.JobPausedPayload },
+  "job.resumed": { version: 1, domain: "job", payload: p.JobResumedPayload },
+  "job.closed": { version: 1, domain: "job", payload: p.JobClosedPayload },
+  "job.boosted": { version: 1, domain: "job", payload: p.JobBoostedPayload },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

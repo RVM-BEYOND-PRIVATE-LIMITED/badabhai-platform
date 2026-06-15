@@ -481,6 +481,76 @@ export const workerAnswers = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// jobs — Phase-2 Job entity (the `posting_fee` billable object).
+//
+// Posted by an opaque Payer (faceless rails — the "Employer entity" is a dead
+// decision). PRIVACY: this table carries NO raw PII. `payer_id` is an opaque
+// UUID with NO foreign key (there is no `payers` table). `title` is payer
+// free-text and stays OUT of all events. No worker PII lives here.
+//
+// Frozen for Phase-2 use: quota/applicants, posting-fee scalar, intro window,
+// and boost fields are stamped/managed by the (deferred) Reach Engine + billing
+// rails. Status-like columns follow the schema convention (text + $type<…>()).
+// ---------------------------------------------------------------------------
+export const jobs = pgTable(
+  "jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Opaque payer identity — NO FK (faceless rails; no `payers` table exists).
+    payerId: uuid("payer_id").notNull(),
+    // Payer free-text. PRIVACY: never copied into events.
+    title: text("title").notNull(),
+    // Canonical role slugs (e.g. ["vmc_operator"]).
+    roleIds: jsonb("role_ids").$type<string[]>().notNull().default(jsonArray),
+    domainId: text("domain_id"),
+    city: text("city"),
+    // City centroid only — never a precise worker/site location.
+    locationLat: doublePrecision("location_lat"),
+    locationLng: doublePrecision("location_lng"),
+    maxTravelKm: integer("max_travel_km"),
+    minExperienceYears: integer("min_experience_years"),
+    maxExperienceYears: integer("max_experience_years"),
+    // Monthly INR.
+    payMin: integer("pay_min"),
+    payMax: integer("pay_max"),
+    neededBy: text("needed_by").$type<"immediate" | "soon" | "flexible">(),
+    vacancyCount: integer("vacancy_count").notNull().default(1),
+    // STAMPED at activation.
+    applicantQuota: integer("applicant_quota"),
+    applicantsReceivedCount: integer("applicants_received_count").notNull().default(0),
+    // Stamped scalar — NOT a payments feature.
+    postingFeeInr: doublePrecision("posting_fee_inr"),
+    introExpiresAt: timestamp("intro_expires_at", { withTimezone: true }),
+    boostTier: text("boost_tier")
+      .$type<"none" | "standard" | "premium">()
+      .notNull()
+      .default("none"),
+    boostedAt: timestamp("boosted_at", { withTimezone: true }),
+    boostExpiresAt: timestamp("boost_expires_at", { withTimezone: true }),
+    status: text("status")
+      .$type<"draft" | "active" | "paused" | "closed">()
+      .notNull()
+      .default("draft"),
+    pauseReason: text("pause_reason").$type<"manual" | "quota_reached">(),
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("jobs_payer_id_idx").on(t.payerId),
+    index("jobs_status_idx").on(t.status),
+    check("jobs_vacancy_count_positive_chk", sql`${t.vacancyCount} > 0`),
+    check("jobs_applicants_received_nonneg_chk", sql`${t.applicantsReceivedCount} >= 0`),
+    check(
+      "jobs_applicant_quota_nonneg_chk",
+      sql`${t.applicantQuota} IS NULL OR ${t.applicantQuota} >= 0`,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
 // ---------------------------------------------------------------------------
 export type Worker = typeof workers.$inferSelect;
@@ -511,6 +581,8 @@ export type ProfileQuestion = typeof profileQuestions.$inferSelect;
 export type NewProfileQuestion = typeof profileQuestions.$inferInsert;
 export type WorkerAnswer = typeof workerAnswers.$inferSelect;
 export type NewWorkerAnswer = typeof workerAnswers.$inferInsert;
+export type Job = typeof jobs.$inferSelect;
+export type NewJob = typeof jobs.$inferInsert;
 
 /** All tables, handy for migrations/tests. */
 export const schema = {
@@ -528,4 +600,5 @@ export const schema = {
   questions,
   profileQuestions,
   workerAnswers,
+  jobs,
 };

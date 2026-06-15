@@ -27,6 +27,7 @@
 | `events`             | **none**                | **insert only**        | never client-writable or readable  |
 | `ai_jobs`            | **none**                | full                   | internal                           |
 | `audit_logs`         | **none**                | insert only            | internal                           |
+| `jobs`               | **none** (Phase 2+)     | full                   | Phase-2 (ADR-0009); opaque `payer_id`, no PII; per-payer authz = R1/TD4/**R15** before any payer-facing access (TD31) |
 
 ## Sketch (DO NOT enable blindly — review per environment)
 

@@ -1,0 +1,37 @@
+CREATE TABLE "jobs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"payer_id" uuid NOT NULL,
+	"title" text NOT NULL,
+	"role_ids" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"domain_id" text,
+	"city" text,
+	"location_lat" double precision,
+	"location_lng" double precision,
+	"max_travel_km" integer,
+	"min_experience_years" integer,
+	"max_experience_years" integer,
+	"pay_min" integer,
+	"pay_max" integer,
+	"needed_by" text,
+	"vacancy_count" integer DEFAULT 1 NOT NULL,
+	"applicant_quota" integer,
+	"applicants_received_count" integer DEFAULT 0 NOT NULL,
+	"posting_fee_inr" double precision,
+	"intro_expires_at" timestamp with time zone,
+	"boost_tier" text DEFAULT 'none' NOT NULL,
+	"boosted_at" timestamp with time zone,
+	"boost_expires_at" timestamp with time zone,
+	"status" text DEFAULT 'draft' NOT NULL,
+	"pause_reason" text,
+	"activated_at" timestamp with time zone,
+	"paused_at" timestamp with time zone,
+	"closed_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "jobs_vacancy_count_positive_chk" CHECK ("jobs"."vacancy_count" > 0),
+	CONSTRAINT "jobs_applicants_received_nonneg_chk" CHECK ("jobs"."applicants_received_count" >= 0),
+	CONSTRAINT "jobs_applicant_quota_nonneg_chk" CHECK ("jobs"."applicant_quota" IS NULL OR "jobs"."applicant_quota" >= 0)
+);
+--> statement-breakpoint
+CREATE INDEX "jobs_payer_id_idx" ON "jobs" USING btree ("payer_id");--> statement-breakpoint
+CREATE INDEX "jobs_status_idx" ON "jobs" USING btree ("status");
