@@ -30,6 +30,13 @@ Status legend: ✅ done in this foundation · 🔜 next · ⏳ later
 - ✅ Profile extraction (`/profile/extract`) + confirm — **now async via BullMQ**
   (`202` + poll `GET /ai-jobs/:id`); `profile.extraction_failed` event ([ADR-0002](../decisions/0002-async-extraction-and-action-recording.md))
 - ✅ Resume generation (`/resume/generate`, placeholder, name-less to AI)
+- ✅ Per-trade content (deterministic, no-LLM): **resume + interview-kit content now
+  cover all 15 alpha trades** (resume = 15/15; interview-kit = 15/15 after drafting
+  the 9 missing kits, 2026-06-15). ⚠️ **Content is DRAFTED, PENDING RVM
+  ratification** — a human content gate; not "final/approved" until RVM ticks the
+  per-role checklist in
+  [trade-content-ratification.md](../registers/trade-content-ratification.md)
+  (TD24a)
 - ✅ Voice-note upload placeholder (duration ≤ 120s) + event
 - ✅ Action recording (`POST /actions`, `/actions/batch`) → `action.recorded`
   (generic, events-only, behavioural stream for the future Learn layer)
