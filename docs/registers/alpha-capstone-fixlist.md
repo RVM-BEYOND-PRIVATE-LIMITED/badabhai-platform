@@ -1,84 +1,156 @@
-# Alpha Capstone Fix-List — triaged, owned, gated
+# Alpha Capstone Fix-List — single source of truth (sequenced, owned, gated)
 
 > **Triage of the worker-app device-capstone NO-GO** (source:
-> [phase-1-alpha-device-capstone.md](../qa/phase-1-alpha-device-capstone.md), TD29).
-> TRIAGE ONLY — no fixes here. Each item has an **owner** and a **gate label**.
-> Lenses: `bb-testing` (QA verdict) + product cut (Jun-25 split).
+> [phase-1-alpha-device-capstone.md](../qa/phase-1-alpha-device-capstone.md), [TD29](./tech-debt-register.md)).
+> TRIAGE ONLY — no fixes here. Each remaining item has **exactly one owner**, a **dated
+> bucket**, and a **target date**. Closed items are retired with their commit/ADR.
+> Lenses: `bb-testing` (QA verdict, used verbatim) + product cut (Jun-25 split).
 
-Seeded 2026-06-15. QA verdict owner: qa-engineer. Cut-line owner: product-manager.
-
-## Gate labels
-- **BLOCKS-ALPHA-NOW** — must clear before the alpha cut.
-- **JUN-25-DEV-INHERITS** — the incoming Android dev picks it up after alpha (target Jun 25).
-- **OUT-OF-SCOPE** — not a Phase-1 worker-app flow; not an alpha gate.
-- Rule applied: anything touching **PII / consent / privacy boundary / data loss is
-  BLOCKS-NOW by default**. (Here those concerns attach to *how a gap is fixed*, not to a
-  live exposure — nothing unsafe is shipping today because the risky paths aren't built.)
+**Provenance / history:**
+- **Seeded 2026-06-15.** First triage: gate labels (BLOCKS-NOW / JUN-25-DEV-INHERITS /
+  OUT-OF-SCOPE), B1 named THE blocker, G1 backend done, swipe closed-in-code.
+- **Re-issued 2026-06-16** as the **single source of truth** off the qa-engineer's
+  authoritative reconciliation + discrete gap list + GO condition. Severities and
+  "Done when…" acceptance checks are the **qa-engineer's, used verbatim** — this rev adds
+  owners, two **dated** buckets, the enumerated NO-GO→GO condition, and the write-back to
+  TD29. Prior triage retained below (closed-items + history), not discarded.
+- QA verdict owner: **qa-engineer**. Sequencing + ownership + cut-line owner: **product-manager**.
 
 ---
 
 ## HEADLINE VERDICT
 
-**Alpha is NO-GO until the core path is device-verified.** The single thing standing
-between us and an alpha cut is **B1** — a real-device run of
-login → consent → chat → profile → **resume (text preview)** against staging, with the
-PII-in-logs / insecure-storage checks green. Everything else is either out-of-scope
-(swipe) or a polish/added-flow the **Jun-25 dev inherits** (voice, PDF download, kit).
+**Alpha is NO-GO. The ONLY blocker is B1** — a real-handset device run of the core path
+(login → consent → chat → profile → **resume text preview**) against staging, with the
+three evidence artifacts. CI green and emulator runs do **NOT** count.
 
-**Must clear before alpha (BLOCKS-NOW):**
-- **B1** — device-verify the core profiling→resume-text path on a real Android handset.
+Everything else is either **closed in code** (G1a backend worker-auth download, G1b mobile
+bearer-token plumbing, swipe screen) or a **Jun-25-dev-inherits** add-on that does **not**
+block the cut at the current bar (resume **text** preview satisfies CLAUDE.md §1 "get a
+generated resume"): **G1c** in-app PDF download, **G2** voice flow, **G3** interview-kit.
 
-**Jun-25 dev inherits:** J1 resume PDF download (+ its per-worker authz), J2 voice flow,
-J3 interview-kit screen. **Update (2026-06-15):** J1's backend worker-auth path and the
-**mobile-half session-token plumbing are now done in code** ([ADR-0009](../decisions/0009-alpha-swipe-to-apply-seeded-jobs.md) Stream C); the remaining J1 piece is the in-app "Download PDF" action + device run.
-
-**Out of scope:** the **Phase-2 Reach feed** (ranking/unlock/payments — Reach Engine, §8)
-stays out. **Update (2026-06-15):** a narrow **alpha** swipe-to-apply surface (seeded
-jobs; apply/skip/feed; no ranking) was sanctioned + built in code per
-[ADR-0009](../decisions/0009-alpha-swipe-to-apply-seeded-jobs.md) — the swipe capstone gap
-is **closed in code**, device-verification pending (a Jun-25 device step, not an alpha
-blocker; PII-free surface).
-
-> **Cut decision (product):** the alpha bar is **resume TEXT preview**, which satisfies
-> the Phase-1 exit criterion "get a generated resume" (CLAUDE.md §1). The polished
-> **PDF download** is a Jun-25 inherit. **Override trigger:** if product/RVM require the
-> branded PDF in alpha, **J1 promotes to BLOCKS-NOW** — and its per-worker authz becomes
-> mandatory in the same change (PII rule).
+Today is **2026-06-16**; alpha cut target is **2026-06-25**.
 
 ---
 
-## Triage table
+## NO-GO → GO CONDITION (enumerated — this is the complete set)
 
-| ID | Flow | Observed vs expected | Evidence | Severity | Root-cause hypothesis | Owner | Gate + one-line reason |
-| -- | ---- | -------------------- | -------- | -------- | --------------------- | ----- | ---------------------- |
-| **B1** | chat (+ the whole core path) | Built (login→consent→chat→profile→resume-text) but **never run on a device** — 0 functional evidence it works | Code wired ([api_client.dart](../../apps/worker-app/lib/core/api/api_client.dart)); **NO device/log/event evidence** | **Unverified — evidence MISSING** (core path; treat as High until proven) | Environmental: no device/emulator + Flutter not installed in CI, so no run happened. Not a code defect. | **qa-engineer** (run) + **devops** (staging build/access) + **product** (sign-off to point at shared staging) | **BLOCKS-ALPHA-NOW** — it's THE alpha flow; an unverified headline path cannot ship. |
-| **J1** | resume — PDF download | App shows resume **text** only; **no signed-URL PDF download**. Route `GET /resume/:id/download` is `InternalServiceGuard`-only (ops), so the worker app cannot call it at all | [resume_preview_screen.dart](../../apps/worker-app/lib/features/resume/resume_preview_screen.dart) calls only `generateResume`; [resume.controller.ts:98-99](../../apps/api/src/resume/resume.controller.ts#L98) guard. Definitive (code) | **High** (feature) / **the authz sub-part is a privacy item**) | Not built mobile-side; backend route was scoped ops-only — needs a **worker-authenticated** download path | **backend-engineer** (worker-auth download path) + **mobile-engineer** (wire/open PDF); **security-engineer** gates | **JUN-25-DEV-INHERITS** — text preview meets the alpha bar. **BUT when built it MUST add per-worker ownership authz** (PDF carries the worker's real name → PII; closes part of TD4/R11/R13). That authz is blocks-the-download, by the PII rule. **Update (2026-06-15, [ADR-0009](../decisions/0009-alpha-swipe-to-apply-seeded-jobs.md) Stream C):** the backend worker-auth download path is DONE (TD29 G1) **and** the **mobile-half session/bearer-token plumbing is now done in code** (ApiClient carries the worker token, memory-only, never logged) for the swipe flow — so the only remaining J1 piece is the in-app "Download PDF" action + its device run. |
-| **J2** | voice note | Placeholder screen; no record/upload/transcribe; no `/voice/*` call | [voice_note_placeholder_screen.dart](../../apps/worker-app/lib/features/voice/voice_note_placeholder_screen.dart); ApiClient has no voice method. Definitive (code) | **Medium** | Not built (Phase-1 scaffold deferred it). Backend STT is wired + gated (TD6) | **mobile-engineer** (UI + wiring); backend STT already **ai-engineer**-owned & done | **JUN-25-DEV-INHERITS** — chat alone covers profiling input; voice is additive, not on the critical path. **Privacy note for the build:** audio + transcript can carry PII → must upload to the PRIVATE voice bucket + run the pseudonymization gate (already fail-closed) when wired. No live exposure today (not built). |
-| **J3** | interview-kit | No app screen | No feature dir/route/call; backend content drafted ([PR #34], pending RVM). Definitive (code) | **Low–Medium** | Not built; content itself still pending RVM ratification | **mobile-engineer** (screen) + **product-manager** (confirm alpha scope) + RVM (content) | **JUN-25-DEV-INHERITS** — prep value-add, off the core path; PII-free (per-trade). Also blocked on RVM content sign-off. |
-| **—** | swipe | ~~Absent~~ **Now built in code** ([ADR-0009](../decisions/0009-alpha-swipe-to-apply-seeded-jobs.md) Stream C) — a scoped **alpha** swipe-to-apply surface (seeded jobs; apply/skip/feed), **not** the Phase-2 Reach feed | [swipe_jobs_screen.dart](../../apps/worker-app/lib/features/swipe/swipe_jobs_screen.dart) + ApiClient feed/apply/skip; consent-gated; 13 widget/unit tests; **NOT device-verified** | **Unverified — device run pending** (PII-free surface; treat as the Jun-25 device step) | Was out-of-scope as the *Reach* feed; ADR-0009 sanctioned a narrow alpha activation (no ranking/unlock/payments) | **product-manager** (confirm) + **mobile-engineer** (device-verify) | **JUN-25-DEV-INHERITS (device-verify)** — the **Phase-2 Reach feed stays OUT-OF-SCOPE**; only the ADR-0009 alpha producer is built, and it still needs the device run. |
+> **GO when, and ONLY when:** **{ B1 device-verified on a real Android handset against
+> staging, with all three evidence artifacts }**.
+
+"Device-verified" = **real-handset** evidence. **CI green and emulator runs do NOT count.**
+
+B1's three required artifacts (qa-engineer, verbatim):
+1. **(a)** per-screen **screenshots** of login → consent → chat (≥3 turns) → profile-confirm → resume-text.
+2. **(b)** staging **`events` rows** for the run's `worker_id` showing the full validated chain:
+   `otp_requested` → `otp_verified` → `worker.created` → `consent.accepted` →
+   `chat.session_started` → `message_sent` (×N) → `message_received` →
+   `extraction_requested` → `extraction_ready` → `extraction_completed` →
+   `profile.confirmed` → `resume.generated`.
+3. **(c)** **logcat showing NO raw phone / name / OTP**.
+
+That is the COMPLETE GO set. **G1c / G2 / G3 do NOT block the alpha cut.** Swipe
+device-verify folds into the same B1 handset session (non-blocking).
+
+**Override trigger (the one thing that expands the GO set):** if **product / RVM require
+the branded PDF in alpha**, **G1c promotes into the GO set** (→ MUST-LAND-BEFORE-JUN-25),
+and — by the PII rule — it MUST ship over the closed worker-auth route with the signed URL
+never logged, in the same change. Until that call is made, G1c stays a Jun-25 inherit.
 
 ---
 
-## Evidence-missing flags (per the "flag, don't guess" rule)
-- **B1 / core path (chat, resume-text):** code shows it is *built*, but there is **no
-  device evidence it works** — no run was possible from this environment. Its severity
-  is "unverified"; a latent runtime/UX bug cannot be ruled out until the device run.
-  **Not claimed as working.**
-- **J1–J3:** evidence is *code-definitive* (the feature is absent/placeholder),
-  so severity there is not a guess.
-- **swipe:** as of 2026-06-15 it is *code-definitive built* (alpha surface, [ADR-0009](../decisions/0009-alpha-swipe-to-apply-seeded-jobs.md) Stream C, 13 tests) but **not device-verified** — its status is "unverified," same posture as B1; not claimed as working until the device run. The Phase-2 Reach feed remains absent by design.
+## Buckets (gate labels)
+- **MUST-LAND-BEFORE-JUN-25** — the alpha GO set. Must clear before the cut.
+- **ANDROID-DEV-INHERITS-DAY-1** — the incoming Android dev picks it up Jun-25 onward.
+- **CLOSED** — retired in code/commit/ADR (kept visible, not deleted).
+- **OUT-OF-SCOPE** — not a Phase-1 worker-app flow; not an alpha gate.
+
+**PII / consent / privacy / data-loss rule (CLAUDE.md), reconciled honestly with the cut:**
+the rule says anything touching PII/consent/privacy/data-loss is **before-Jun-25 by
+default**. Nothing unsafe ships today **because the risky paths (G1c PDF carrying the real
+name, G2 audio/transcript) are NOT built** — there is no live exposure to pull forward. So
+the PII default attaches to the two things that actually exist:
+1. **It is honored before-Jun-25** via **B1's consent-gate assertion + clean-logcat
+   assertion** (no raw phone/name/OTP) — these ARE in the GO set.
+2. **It binds the future build:** whenever G1c/G2 are built, the privacy control ships in
+   the **SAME change** — G1c over the **closed worker-auth route** with the **signed URL
+   never logged**; G2 to the **PRIVATE voice bucket** with **fail-closed pseudonymization**.
+This is why G1c/G2 can be Jun-25 inherits without silently breaking the PII rule.
+
+---
+
+## MUST-LAND-BEFORE-JUN-25 (alpha GO set)
+
+| ID | Flow | Done when… (qa-engineer, verbatim acceptance) | Severity | PII/consent | Owner | Target |
+| -- | ---- | --------------------------------------------- | -------- | ----------- | ----- | ------ |
+| **B1** | core path — device-verify (login → consent → chat → profile → **resume text**) against staging | Real **handset** (not CI/emulator) pointed at staging completes login → consent → chat (≥3 turns) → profile-confirm → resume-text with evidence = **(a)** per-screen screenshots, **(b)** staging `events` rows for the run's `worker_id` showing the full validated chain `otp_requested→otp_verified→worker.created→consent.accepted→chat.session_started→message_sent(×N)→message_received→extraction_requested→extraction_ready→extraction_completed→profile.confirmed→resume.generated`, **(c)** logcat showing NO raw phone/name/OTP. | **High (blocker)** | **YES** — consent-gate + PII-in-logs assertions | **qa-engineer** (owns the run + verdict; devops supports staging build/access, product signs off — qa is THE owner) | **2026-06-20** (buffer before the Jun-25 cut; re-run window 06-21 if it surfaces a failure) |
+| **Swipe (device-verify)** | feed/apply/skip on a real handset — **folds into the B1 session** | Handset run of feed/apply/skip produces apply/skip evidence + events; folds into B1. | **Low** | NO (PII-free surface) | **qa-engineer** (rides the same B1 handset session) | **2026-06-20** (same session as B1) |
+
+> If the B1 run surfaces a **real failure in the built path**, re-engage
+> **debugging-engineer** (see below) and re-run before the cut.
+
+---
+
+## ANDROID-DEV-INHERITS-DAY-1 (post-cut; do NOT block the alpha)
+
+These do not block the cut at the current bar (resume **text** preview, CLAUDE.md §1).
+Day-1 = Jun-25 onward; the dated targets are in the inheriting dev's first window.
+
+| ID | Flow | Done when… (qa-engineer, verbatim acceptance) | Severity | PII/consent | Owner | Target |
+| -- | ---- | --------------------------------------------- | -------- | ----------- | ----- | ------ |
+| **G1c** | resume — in-app **Download PDF** action over the **closed** worker-auth signed URL | `resume_preview_screen.dart` invokes new `ApiClient.downloadResume(resumeId, authToken)` → `GET /resume/:id/download` with bearer, opens signed URL (launcher dep added), **URL never logged**, `flutter analyze`+`test` pass, AND a handset run shows the PDF opening + a `resume.downloaded` event. | **Medium** — text preview meets the alpha bar; **override → High** if product/RVM demand the branded PDF in alpha (then promotes to MUST-LAND, see GO condition) | **YES** — PDF carries the worker's real name ([TD21](./tech-debt-register.md)); MUST use the closed worker-auth route, never log the URL (privacy control ships in this SAME change) | **mobile-engineer** | **2026-06-27** |
+| **G2** | voice — placeholder → record → upload → transcribe, usable in profiling | Placeholder replaced by record → `POST /voice/transcribe` → poll; audio to **PRIVATE** voice bucket; **fail-closed pseudonymization** runs; `flutter analyze`+`test` pass; AND a handset run shows `voice_note.uploaded → transcription_requested → transcription_completed` (or `_failed → safe empty`), no PII in logs. | **Medium** — additive, off the critical path | **YES** — audio/transcript PII; PRIVATE bucket + pseudonymization ship in this SAME change | **mobile-engineer** | **2026-07-02** |
+| **G3** | interview-kit screen — per-trade kit rendered | New interview-kit screen consumes PR #34 content (or worker-auth signed-URL like G1c), `analyze`+`test` pass, handset renders the kit — **gated on RVM content ratification first**. | **Low–Medium** | NO (per-trade, PII-free) | **mobile-engineer** *(externally gated: RVM content ratification + a product scope confirm before build)* | **2026-07-04** (RVM-gated — slips with RVM content sign-off) |
+
+---
+
+## CLOSED items (retired with citation — visible, not lost)
+
+| ID | What | Closed by |
+| -- | ---- | --------- |
+| **G1a** | Backend worker-auth resume download — `GET /resume/:id/download` is now `WorkerAuthGuard` + ownership check (`resume.workerId === worker.id`), 404/404 no-oracle, emits `resume.downloaded`; closes the download-IDOR of [R11/R13/TD4](./risks-register.md). **Security: PASS.** | **commit 8314dfc** |
+| **G1b** | Mobile session / bearer-token plumbing — `ApiClient` threads `Bearer authToken` (memory-only, never logged). | **[ADR-0009](../decisions/0009-alpha-swipe-to-apply-seeded-jobs.md) Stream C** |
+| **Swipe (code)** | Alpha swipe-to-apply surface (seeded jobs; `getFeed`/`applyToJob`/`skipJob` + 3 Flutter tests); consent-gated. The **Phase-2 Reach feed stays OUT-OF-SCOPE** (ranking/unlock/payments — Reach Engine, §8). | **[ADR-0009](../decisions/0009-alpha-swipe-to-apply-seeded-jobs.md) Stream C** |
+
+> **Original G1** split three ways at the 2026-06-16 reconciliation: **G1a** (backend) +
+> **G1b** (mobile plumbing) → CLOSED above; **G1c** (in-app Download-PDF action) → remains
+> OPEN as a Jun-25 inherit.
+
+---
+
+## OUT-OF-SCOPE (not an alpha gate)
+
+- **Phase-2 Reach feed** — ranking / unlock / payments (Reach Engine, CLAUDE.md §8). Only
+  the ADR-0009 **alpha** swipe producer is built; the Reach feed remains absent by design.
+
+---
 
 ## debugging-engineer assessment
-Not triggered. Every gap's root cause is obvious from code — "not built / not wired /
-ops-guarded / can't-verify-without-a-device" — none is a mysterious runtime defect
-needing root-cause investigation. Re-engage debugging-engineer only if the **B1** device
-run surfaces a real failure in the built path.
 
-## Ownership roll-up
-- **qa-engineer:** B1 (run + verdict).  **devops:** B1 (staging build/access).
-  **product-manager:** B1 sign-off, J1 cut, J3 scope, swipe drop.
-- **backend-engineer:** J1 worker-auth download.  **mobile-engineer:** J1 wire, J2, J3.
-  **security-engineer:** gates J1 (and J2 when built).  **ai-engineer:** STT (J2) — done/gated.
+**Not triggered.** Every remaining gap's cause is obvious from code — "not built / not
+wired / can't-verify-without-a-handset" — none is a mysterious runtime defect.
+**Re-engage only if the B1 run surfaces a real failure** in the built path.
 
-Cross-links: [TD29](./tech-debt-register.md), [R11/R13/TD4](./risks-register.md) (J1 authz),
-[capstone test plan](../qa/phase-1-alpha-device-capstone.md).
+---
+
+## Ownership roll-up (item → owner → bucket → date)
+
+| Item | Owner | Bucket | Target |
+| ---- | ----- | ------ | ------ |
+| **B1** (core-path device-verify) | **qa-engineer** | MUST-LAND-BEFORE-JUN-25 | **2026-06-20** |
+| **Swipe device-verify** | **qa-engineer** (folds into B1 session) | MUST-LAND-BEFORE-JUN-25 | **2026-06-20** |
+| **G1c** (in-app Download PDF) | **mobile-engineer** | ANDROID-DEV-INHERITS-DAY-1 | **2026-06-27** |
+| **G2** (voice flow) | **mobile-engineer** | ANDROID-DEV-INHERITS-DAY-1 | **2026-07-02** |
+| **G3** (interview-kit screen) | **mobile-engineer** (RVM + product gated) | ANDROID-DEV-INHERITS-DAY-1 | **2026-07-04** |
+| G1a backend download | — | CLOSED (8314dfc) | done |
+| G1b mobile bearer plumbing | — | CLOSED (ADR-0009 C) | done |
+| Swipe code | — | CLOSED (ADR-0009 C) | done |
+
+Support roles (not the single owner): **devops-engineer** — B1 staging build/access;
+**product-manager** — B1 sign-off, the G1c branded-PDF override call, G3 scope confirm;
+**security-engineer** — gates the G1c/G2 privacy controls when built; **ai-engineer** —
+STT backend for G2 (done/gated, [TD6](./tech-debt-register.md)).
+
+Cross-links: [TD29](./tech-debt-register.md), [R11/R13/TD4](./risks-register.md) (download authz),
+[capstone test plan](../qa/phase-1-alpha-device-capstone.md),
+[ADR-0009](../decisions/0009-alpha-swipe-to-apply-seeded-jobs.md).
