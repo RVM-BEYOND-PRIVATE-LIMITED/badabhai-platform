@@ -17,6 +17,7 @@ import { InterviewKitModule } from "./interview-kit/interview-kit.module";
 import { ActionsModule } from "./actions/actions.module";
 import { ApplicationsModule } from "./applications/applications.module";
 import { JobPostingsModule } from "./job-postings/job-postings.module";
+import { PricingModule } from "./pricing/pricing.module";
 import { ReachModule } from "./reach/reach.module";
 import { UnlocksModule } from "./unlocks/unlocks.module";
 import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
@@ -47,6 +48,7 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     ActionsModule,
     ApplicationsModule,
     JobPostingsModule,
+    PricingModule,
     ReachModule,
     UnlocksModule,
   ],

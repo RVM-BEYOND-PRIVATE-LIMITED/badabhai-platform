@@ -18,6 +18,7 @@
     "@badabhai/config": "workspace:*",
     "@badabhai/db": "workspace:*",
     "@badabhai/event-schema": "workspace:*",
+    "@badabhai/pricing": "workspace:*",
     "@badabhai/reach-engine": "workspace:*",
     "@badabhai/types": "workspace:*",
     "@badabhai/validators": "workspace:*",

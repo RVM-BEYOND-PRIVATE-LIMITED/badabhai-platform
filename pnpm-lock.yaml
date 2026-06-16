@@ -53,6 +53,9 @@ importers:
       '@badabhai/event-schema':
         specifier: workspace:*
         version: link:../../packages/event-schema
+      '@badabhai/pricing':
+        specifier: workspace:*
+        version: link:../../packages/pricing
       '@badabhai/reach-engine':
         specifier: workspace:*
         version: link:../../packages/reach-engine
