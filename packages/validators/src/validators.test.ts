@@ -12,6 +12,7 @@ import {
   conversationObjectKey,
   conversationWorkerPrefix,
   looksLikePii,
+  bandForCount,
 } from "./index";
 
 const WORKER_ID = "11111111-1111-4111-8111-111111111111";
@@ -141,4 +142,27 @@ describe("looksLikePii", () => {
       expect(looksLikePii(s)).toBe(false);
     },
   );
+});
+
+describe("bandForCount", () => {
+  // Boundary table — every derived value is one of the EXACT shipped
+  // VACANCY_BANDS strings. Note 25 -> "11-25" (25+ is strictly > 25).
+  it.each([
+    [1, "1"],
+    [2, "2-5"],
+    [5, "2-5"],
+    [6, "6-10"],
+    [7, "6-10"],
+    [10, "6-10"],
+    [11, "11-25"],
+    [25, "11-25"],
+    [26, "25+"],
+    [100, "25+"],
+  ] as const)("maps %i -> %s", (n, band) => {
+    expect(bandForCount(n)).toBe(band);
+  });
+
+  it.each([0, -1, 1.5, NaN])("fails closed on non-positive-integer %s", (n) => {
+    expect(() => bandForCount(n)).toThrow();
+  });
 });

@@ -612,9 +612,16 @@ export const jobs = pgTable("jobs", {
   // first owns it, the other consumes it. NEVER resolved to identity in any event
   // or log.
   payerId: uuid("payer_id"),
+  // Denormalized on-row counter of applies received for this job (ADR-0009
+  // swipe-to-apply). Each apply still emits its own `application.submitted` event;
+  // this is just an integer rollup for the feed/UI. PII-FREE (a count, never a name).
+  // Mirrors posting_plans.applicantsViewedCount style.
+  applicantsReceived: integer("applicants_received").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  check("jobs_applicants_received_nonneg_chk", sql`${t.applicantsReceived} >= 0`),
+]);
 
 // applications — the apply/skip record, PII-free. One decision per (worker, job).
 export const applications = pgTable(

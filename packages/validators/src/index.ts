@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { LANGUAGE_CODES, MAX_VOICE_NOTE_SECONDS, CONSENT_PURPOSES } from "@badabhai/types";
+import {
+  LANGUAGE_CODES,
+  MAX_VOICE_NOTE_SECONDS,
+  CONSENT_PURPOSES,
+  type VacancyBand,
+} from "@badabhai/types";
 
 /**
  * @badabhai/validators — reusable Zod schemas shared by API DTOs, AI contracts,
@@ -130,6 +135,39 @@ const PHONE_DIGIT_RUN = /\d{7,}/;
 export function looksLikePii(s: string): boolean {
   if (EMAIL_LIKE.test(s)) return true;
   return PHONE_DIGIT_RUN.test(s.replace(PHONE_SEPARATORS, ""));
+}
+
+// ---------------------------------------------------------------------------
+// Vacancy band derivation (ADR-0012: job_postings is BANDED, not an integer)
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a RAW vacancy count to the existing shipped band (`VACANCY_BANDS`).
+ *
+ * The raw count is INTAKE-ONLY: it is derived to a band at the boundary and the
+ * integer is then discarded — it is NEVER stored on a column and NEVER put in an
+ * event. This keeps ADR-0012 intact (postings stay banded, not counted).
+ *
+ * Boundaries reproduce the EXACT shipped band strings:
+ *   n <= 1        -> "1"
+ *   2 <= n <= 5   -> "2-5"
+ *   6 <= n <= 10  -> "6-10"
+ *   11 <= n <= 25 -> "11-25"
+ *   n >= 26       -> "25+"
+ *
+ * Note the 25/26 boundary: "25+" means STRICTLY GREATER than 25 — 25 itself
+ * falls in "11-25". Defensive guard: a non-positive-integer `n` is invalid (the
+ * DTO already blocks it, but the helper fails closed rather than guessing).
+ */
+export function bandForCount(n: number): VacancyBand {
+  if (!Number.isInteger(n) || n < 1) {
+    throw new RangeError(`vacancy count must be a positive integer, got: ${n}`);
+  }
+  if (n <= 1) return "1";
+  if (n <= 5) return "2-5";
+  if (n <= 10) return "6-10";
+  if (n <= 25) return "11-25";
+  return "25+";
 }
 
 export type E164Phone = z.infer<typeof e164PhoneSchema>;

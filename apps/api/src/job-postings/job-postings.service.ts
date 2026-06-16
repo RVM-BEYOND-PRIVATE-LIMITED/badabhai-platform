@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
+import { bandForCount } from "@badabhai/validators";
 import type { JobPosting } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
@@ -43,6 +44,12 @@ export class JobPostingsService {
   ) {}
 
   async create(dto: CreateJobPostingDto, ctx: RequestContext): Promise<JobPosting> {
+    // Vacancy band: derive from the raw `vacancies` count when supplied (intake
+    // only — the integer is discarded here and NEVER stored/evented), otherwise
+    // use the pre-chosen band. The DTO refine guarantees exactly one is present.
+    const vacancyBand =
+      dto.vacancies !== undefined ? bandForCount(dto.vacancies) : dto.vacancy_band!;
+
     // status is ALWAYS draft on create — any client-supplied status is ignored
     // (the DTO does not even accept one).
     const row = await this.repo.create({
@@ -51,7 +58,7 @@ export class JobPostingsService {
       roleTitle: dto.role_title,
       locationLabel: dto.location_label ?? null,
       description: dto.description ?? null,
-      vacancyBand: dto.vacancy_band,
+      vacancyBand,
       status: "draft",
     });
 
@@ -121,9 +128,15 @@ export class JobPostingsService {
       changedFields.push("description");
     }
 
+    // Resolve the requested band from EITHER the raw `vacancies` count (intake
+    // only — derived then discarded, never stored/evented) OR the pre-chosen
+    // band. The DTO refine guarantees at most one is present.
+    const requestedBand =
+      dto.vacancies !== undefined ? bandForCount(dto.vacancies) : dto.vacancy_band;
+
     let bandChanged = false;
-    if (dto.vacancy_band !== undefined && dto.vacancy_band !== current.vacancyBand) {
-      patch.vacancyBand = dto.vacancy_band;
+    if (requestedBand !== undefined && requestedBand !== current.vacancyBand) {
+      patch.vacancyBand = requestedBand;
       changedFields.push("vacancy_band");
       bandChanged = true;
     }

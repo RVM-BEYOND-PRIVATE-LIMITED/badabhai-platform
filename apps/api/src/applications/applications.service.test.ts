@@ -21,17 +21,37 @@ const JOB_ROW = {
   updatedAt: new Date("2026-06-01T00:00:00Z"),
 };
 
+/**
+ * Test double for the (worker, job) -> row state the DB enforces. Keyed by
+ * `${workerId}:${jobId}` so a repeat upsert on the same key reports `inserted:false`
+ * (mirrors ON CONFLICT DO UPDATE) and a fresh key reports `inserted:true`. This lets
+ * the suite exercise the counter-increment gate the way Postgres `(xmax = 0)` would.
+ */
 function setup(opts: { jobExists?: boolean; openJobs?: Array<Record<string, unknown>> } = {}) {
   const jobExists = opts.jobExists ?? true;
+  const existingRows = new Set<string>();
+  // Per-job applies counter, bumped only by incrementApplicantsReceived.
+  const applicantsReceived = new Map<string, number>();
   const repo = {
     findJobById: vi.fn(async () => (jobExists ? JOB_ROW : undefined)),
     findOpenJobs: vi.fn(async () => opts.openJobs ?? []),
-    upsertDecision: vi.fn(async (input: Record<string, unknown>) => ({
-      id: "app-1",
-      ...input,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })),
+    upsertDecision: vi.fn(async (input: Record<string, unknown>) => {
+      const key = `${String(input.workerId)}:${String(input.jobId)}`;
+      const inserted = !existingRows.has(key);
+      existingRows.add(key);
+      return {
+        id: "app-1",
+        ...input,
+        inserted,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+    }),
+    incrementApplicantsReceived: vi.fn(async (jobId: string) => {
+      const next = (applicantsReceived.get(jobId) ?? 0) + 1;
+      applicantsReceived.set(jobId, next);
+      return next;
+    }),
     findApplicantsByJob: vi.fn(async () => []),
     findApplicationsByWorker: vi.fn(async () => []),
   };
@@ -43,7 +63,9 @@ function setup(opts: { jobExists?: boolean; openJobs?: Array<Record<string, unkn
     repo as unknown as ApplicationsRepository,
     events as unknown as EventsService,
   );
-  return { svc, repo, events };
+  // `countFor` reads the simulated denormalized jobs.applicants_received rollup.
+  const countFor = (jobId: string) => applicantsReceived.get(jobId) ?? 0;
+  return { svc, repo, events, countFor };
 }
 
 describe("ApplicationsService — apply", () => {
@@ -97,6 +119,60 @@ describe("ApplicationsService — apply", () => {
     for (const c of repo.upsertDecision.mock.calls) {
       expect(c[0]).toMatchObject({ workerId: WORKER_ID, jobId: JOB_ID, action: "applied" });
     }
+  });
+});
+
+describe("ApplicationsService — applicants_received counter (ADR-0009 rollup)", () => {
+  const JOB_A = "22222222-2222-2222-2222-222222222222";
+  const WORKER_A = "11111111-1111-1111-1111-111111111111";
+  const WORKER_B = "33333333-3333-3333-3333-333333333333";
+
+  it("(i) first apply increments the job counter to 1", async () => {
+    const { svc, repo, countFor } = setup();
+    await svc.apply(WORKER_A, JOB_A, { rank: 1, source_surface: "feed" }, CTX);
+    expect(repo.incrementApplicantsReceived).toHaveBeenCalledExactlyOnceWith(JOB_A);
+    expect(countFor(JOB_A)).toBe(1);
+  });
+
+  it("(ii) the SAME worker applying twice is idempotent — counter stays at 1 (no double-tap inflation)", async () => {
+    const { svc, repo, countFor } = setup();
+    await svc.apply(WORKER_A, JOB_A, { rank: 1, source_surface: "feed" }, CTX);
+    await svc.apply(WORKER_A, JOB_A, { rank: 1, source_surface: "feed" }, CTX);
+    // Second apply hits ON CONFLICT DO UPDATE (inserted:false) → no increment.
+    expect(repo.incrementApplicantsReceived).toHaveBeenCalledExactlyOnceWith(JOB_A);
+    expect(countFor(JOB_A)).toBe(1);
+  });
+
+  it("(iii) a skip never touches the counter — it stays at 0", async () => {
+    const { svc, repo, countFor } = setup();
+    await svc.skip(WORKER_A, JOB_A, { reason: "too_far" }, CTX);
+    expect(repo.incrementApplicantsReceived).not.toHaveBeenCalled();
+    expect(countFor(JOB_A)).toBe(0);
+  });
+
+  it("(iv) two DIFFERENT workers applying to the same job increments the counter to 2", async () => {
+    const { svc, repo, countFor } = setup();
+    await svc.apply(WORKER_A, JOB_A, { rank: 1, source_surface: "feed" }, CTX);
+    await svc.apply(WORKER_B, JOB_A, { rank: 2, source_surface: "feed" }, CTX);
+    expect(repo.incrementApplicantsReceived).toHaveBeenCalledTimes(2);
+    expect(countFor(JOB_A)).toBe(2);
+  });
+
+  it("ACCEPTED alpha limitation: a skip→apply flip on an existing row does NOT increment", async () => {
+    const { svc, repo, countFor } = setup();
+    await svc.skip(WORKER_A, JOB_A, { reason: "low_pay" }, CTX);
+    // The row already exists from the skip → the apply is an UPDATE (inserted:false),
+    // so the counter is NOT bumped. Documented alpha simplification, not a bug.
+    await svc.apply(WORKER_A, JOB_A, { rank: null, source_surface: "feed" }, CTX);
+    expect(repo.incrementApplicantsReceived).not.toHaveBeenCalled();
+    expect(countFor(JOB_A)).toBe(0);
+  });
+
+  it("monotonic: an apply→skip flip never decrements the counter", async () => {
+    const { svc, countFor } = setup();
+    await svc.apply(WORKER_A, JOB_A, { rank: 1, source_surface: "feed" }, CTX);
+    await svc.skip(WORKER_A, JOB_A, { reason: "other" }, CTX);
+    expect(countFor(JOB_A)).toBe(1);
   });
 });
 
