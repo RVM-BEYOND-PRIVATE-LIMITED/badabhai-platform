@@ -1,13 +1,44 @@
 # ADR-0010: Contact Unlock + Reveal — the routed-disclosure monetization spine (Phase-0 design)
 
-- **Status:** **PROPOSED — REQUIRES HUMAN / RVM SIGN-OFF.** This is a Phase-0 *design
-  artifact only*: an architecture decision + a data/API/event **contract**. **No app
-  code, no migration, and no register edits ship with this ADR.** It deliberately enters
-  the **deferred Phase-2 scope** named in CLAUDE.md §8 (PII disclosure to a payer + real
-  payments), so **every one of the six decisions below is marked "REQUIRES SIGN-OFF — not
-  assumed"** and the document ends in a hard STOP. Nothing here authorizes
-  implementation; a separate security-engineer PII-disclosure threat model is required
-  before any build, and the six maintainer/RVM calls must be confirmed first.
+- **Status:** **ACCEPTED — human/RVM sign-off 2026-06-15 (Prakash).** Build of the
+  non-payment streams (DB → events → API → payer UI) is **authorized to start once the
+  F-1/F-2 build-blocker controls + tests are pinned** (see §Phase-0 security review). The
+  **real-payment-gateway** portion is a **separate human-gated escalation in progress** (see
+  the Sign-off resolutions below) — no real-money code, keys, or spend until the provider +
+  staging-first plan are confirmed. The six decisions were signed off with the refinements
+  recorded in **§Sign-off resolutions (2026-06-15)** immediately below; where a resolution
+  refines a decision section (notably Decision 1 pricing, Decision 4 caps, Decision 5
+  payments), **the resolution is authoritative.**
+
+---
+
+## Sign-off resolutions (2026-06-15) — authoritative over the decision sections where they differ
+
+1. **Pricing / grant model (Decision 1) — REFINED.** Workers/applicants are **never charged**
+   and have **no cap** on how many jobs they apply to. The **payer side is charged** — "payer"
+   = an **employer OR an agent**, whoever performs the unlock. The model is a **credit pack**
+   (NOT subscription, NOT hybrid): **₹1000 → unlock 10 profiles**, **₹2000 → unlock 25 profiles**.
+   Granularity is **per-candidate-profile** (an unlock reveals that candidate's profile + resume
+   + routed contact), **not** per-(worker, job). A **14-day window** applies (pay again to unlock
+   more after it lapses). This **resolves Open-Question Q2.** → The data model's credit unit is a
+   "profile-unlock credit"; packs (10@₹1000, 25@₹2000) are **config-driven**; one credit = one
+   candidate profile unlocked; pack/credit validity = 14 days.
+2. **Payments (Decision 5) — REAL GATEWAY, ESCALATION IN PROGRESS.** The maintainer chose a
+   **real payment gateway** (not mock-only). Per CLAUDE.md §7 and the task's hard rule, this is
+   **human-gated**: provider selection, key handling (staging-first, never committed), and spend
+   guardrails must be confirmed **before any real-money code**. Until then: the `PaymentGateway`
+   seam + `PAYMENTS_ENABLE_REAL=false` **mock credit** path is the code default and is what the
+   non-payment build uses; the real credit-pack purchase flow is built only after the escalation
+   resolves, **staging-first**.
+3. **Worker-protection caps (Decision 4) — CONFIG-DRIVEN, numbers decided at build.** The single
+   fail-closed chokepoint is unchanged; the specific limits are configuration set when the stream
+   is built (not hard-coded), so they can be tuned without a migration.
+4. **Decisions 0 (jobs/payer reconciliation: evolve-not-replace), 2 (in-app relay default;
+   raw reveal NEVER in alpha), 3 (separate `employer_sharing` DPDP consent), 6 (additive
+   PII-free data model + v1 event family) — APPROVED as recommended.**
+5. **Build authorization:** the non-payment streams may start once **F-1 and F-2** controls +
+   their tests are pinned (already folded into this ADR). Real telephony provider, real payment
+   keys/spend, raw-phone reveal, and production DPDP copy remain **hard escalations**.
 - **Date:** 2026-06-15
 - **Phase:** Phase-2 (Contact Unlock + Reveal is BadaBhai's north-star monetization
   event). This ADR draws the contract so the build, when authorized, stays inside the
