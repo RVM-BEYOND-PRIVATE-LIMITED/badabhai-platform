@@ -1,18 +1,28 @@
 # Schema Docs
 
+**Status:** Phase-1 foundation **declared-stable PENDING CEO sign-off**
+([ADR-0014](../decisions/0014-phase-1-schema-foundation-stable.md)). Change policy after
+sign-off: **additive + versioned + ADR for any breaking change** (CLAUDE.md §2 invariant 8).
+This is **not** a hard freeze — Phase-2 additive tables continue.
+
 The database schema is authored in Drizzle and is the source of truth:
 
 - Schema: [`packages/db/src/schema.ts`](../../packages/db/src/schema.ts)
-- Generated SQL migrations: [`packages/db/migrations/`](../../packages/db/migrations/)
+- Generated SQL migrations: [`packages/db/migrations/`](../../packages/db/migrations/) (through `0015`)
 - Migration & RLS plans: [`infra/supabase/`](../../infra/supabase/)
 
-## Tables (Phase 1)
+## Tables (21)
 
-`workers` · `worker_consents` · `worker_profiles` · `chat_sessions` ·
-`chat_messages` · `voice_notes` · `generated_resumes` · `events` · `ai_jobs` ·
-`audit_logs`
+**Phase-1 core (14):** `workers` · `worker_consents` · `worker_profiles` ·
+`chat_sessions` · `voice_notes` · `chat_messages` · `generated_resumes` · `events` ·
+`ai_jobs` · `audit_logs` · `profiles` · `questions` · `profile_questions` ·
+`worker_answers`
 
-PII (phone, full name) lives **only** in `workers`. `events`, `ai_jobs`, and
-`audit_logs` carry ids/hashes only.
+**Phase-2 additive, landed (7):** `job_postings` · `jobs` · `applications` ·
+`unlocks` · `payer_credits` · `credit_ledger` · `unlock_routing`
+
+PII (phone, full name) lives **only** in `workers` (encrypted at rest, ADR-0004).
+`events`, `ai_jobs`, and `audit_logs` carry ids/hashes only. All 21 tables are
+RLS+REVOKE locked (TD20).
 
 > Add ER diagrams / column dictionaries here as the schema stabilizes.
