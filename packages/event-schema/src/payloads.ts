@@ -102,6 +102,10 @@ export const VoiceNoteTranscriptionCompletedPayload = z.object({
   ai_job_id: uuidSchema,
   transcript_confidence: z.number().min(0).max(1).nullable().default(null),
   transcript_length: z.number().int().nonnegative().nullable().default(null),
+  // COUNT only of the derived English translation — never the text itself (raw
+  // worker PII lives only on the voice_notes row). Nullable/defaulted → additive
+  // and backward compatible with already-emitted v1 events.
+  transcript_english_length: z.number().int().nonnegative().nullable().default(null),
 });
 
 /** Terminal failure of an async transcription job (mirrors profile.extraction_failed). */

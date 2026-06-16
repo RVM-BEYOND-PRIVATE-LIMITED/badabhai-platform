@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getJobApplicants, ApiError, type ApplicantList } from "@/lib/api";
+import { getReachJobApplicants, ApiError, type ApplicantList } from "@/lib/api";
 import { formatScore, WhyDetails } from "@/components/reach";
 
 // Live ops data — always fetched fresh from the API at request time.
@@ -23,7 +23,7 @@ export default async function JobApplicantsPage({
   let error: string | null = null;
   let notFound = false;
   try {
-    data = await getJobApplicants(jobId);
+    data = await getReachJobApplicants(jobId);
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) {
       notFound = true;

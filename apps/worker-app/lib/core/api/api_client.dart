@@ -21,7 +21,7 @@ const String kConsentVersion = '2026-06-01';
 /// in the `workers` table and pseudonymizes before any LLM call. This client
 /// never talks to an LLM directly.
 class ApiClient {
-  ApiClient({String? baseUrl, http.Client? client})
+  ApiClient({String? baseUrl, http.Client? client, this.onSessionTokenRefreshed})
       : baseUrl = baseUrl ??
             const String.fromEnvironment(
               'API_BASE_URL',
@@ -31,6 +31,12 @@ class ApiClient {
 
   final String baseUrl;
   final http.Client _client;
+
+  /// Optional callback invoked when a worker-authenticated response hands back a
+  /// fresh rolling token in the `x-session-token` header (see WorkerAuthGuard).
+  /// Lets the caller (e.g. a screen) update the stored session token so the
+  /// session stays alive without a separate refresh call. Never logs the token.
+  final void Function(String freshToken)? onSessionTokenRefreshed;
 
   Future<void> requestOtp(String phoneE164) async {
     await _post('/auth/otp/request', <String, dynamic>{'phone': phoneE164});
@@ -164,32 +170,116 @@ class ApiClient {
     return ResumeResult.fromJson(json);
   }
 
+  /// Fetches the alpha swipe-to-apply feed (ADR-0009): up to [limit] open jobs
+  /// in deterministic seed order. Worker-scoped — requires [authToken] (the
+  /// session token from OTP verify); the API guards this with WorkerAuthGuard +
+  /// ConsentGuard, so a 401 means re-login and a 403 means consent is required.
+  ///
+  /// Returns PII-free coarse job fields only (no employer, no pay).
+  Future<List<FeedItem>> getFeed({
+    required String authToken,
+    int limit = 20,
+  }) async {
+    final Map<String, dynamic> json =
+        await _get('/feed?limit=$limit', authToken: authToken);
+    final List<dynamic> jobs = json['jobs'] as List<dynamic>? ?? <dynamic>[];
+    return jobs
+        .whereType<Map<String, dynamic>>()
+        .map(FeedItem.fromJson)
+        .toList();
+  }
+
+  /// Records an APPLY decision on [jobId] (idempotent server-side). Worker-scoped
+  /// — requires [authToken]. [rank] is the 1-based feed position the apply was
+  /// taken from (nullable); [sourceSurface] mirrors the API enum and defaults to
+  /// "feed".
+  Future<ApplyResult> applyToJob(
+    String jobId, {
+    required String authToken,
+    int? rank,
+    String sourceSurface = 'feed',
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/applications/$jobId/apply',
+      <String, dynamic>{
+        'rank': rank,
+        'source_surface': sourceSurface,
+      },
+      authToken: authToken,
+    );
+    return ApplyResult.fromJson(json);
+  }
+
+  /// Records a SKIP decision on [jobId] (idempotent server-side). Worker-scoped
+  /// — requires [authToken]. [reason] is a coarse, non-PII enum
+  /// ("not_interested" | "too_far" | "low_pay" | "wrong_trade" | "other") and
+  /// defaults to "other".
+  Future<SkipResult> skipJob(
+    String jobId, {
+    required String authToken,
+    String reason = 'other',
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/applications/$jobId/skip',
+      <String, dynamic>{'reason': reason},
+      authToken: authToken,
+    );
+    return SkipResult.fromJson(json);
+  }
+
   /// Closes the underlying HTTP client. Call when the client is no longer used.
   void dispose() => _client.close();
 
   /// POST JSON and return the decoded object. Throws [ApiException] on non-2xx.
-  Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> body) async {
+  ///
+  /// When [authToken] is supplied it is sent as `Authorization: Bearer <token>`
+  /// (required by worker-scoped routes). A null in [body] is encoded as JSON null,
+  /// which the API accepts for nullable fields (e.g. `rank`).
+  Future<Map<String, dynamic>> _post(
+    String path,
+    Map<String, dynamic> body, {
+    String? authToken,
+  }) async {
     final Uri uri = Uri.parse('$baseUrl$path');
     final http.Response res = await _client.post(
       uri,
-      headers: const <String, String>{'content-type': 'application/json'},
+      headers: _headers(contentType: true, authToken: authToken),
       body: jsonEncode(body),
     );
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw ApiException(res.statusCode, _messageFrom(res.body));
-    }
-    if (res.body.isEmpty) return <String, dynamic>{};
-    final dynamic decoded = jsonDecode(res.body);
-    return decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
+    return _decode(res);
   }
 
   /// GET JSON and return the decoded object. Throws [ApiException] on non-2xx.
-  Future<Map<String, dynamic>> _get(String path) async {
+  ///
+  /// When [authToken] is supplied it is sent as `Authorization: Bearer <token>`.
+  Future<Map<String, dynamic>> _get(String path, {String? authToken}) async {
     final Uri uri = Uri.parse('$baseUrl$path');
     final http.Response res = await _client.get(
       uri,
-      headers: const <String, String>{'accept': 'application/json'},
+      headers: _headers(contentType: false, authToken: authToken),
     );
+    return _decode(res);
+  }
+
+  /// Builds request headers, adding the bearer token only when present.
+  Map<String, String> _headers({required bool contentType, String? authToken}) {
+    final Map<String, String> headers = <String, String>{
+      'accept': 'application/json',
+    };
+    if (contentType) headers['content-type'] = 'application/json';
+    if (authToken != null && authToken.isNotEmpty) {
+      headers['authorization'] = 'Bearer $authToken';
+    }
+    return headers;
+  }
+
+  /// Shared response handling: surfaces a rolling refresh token, then decodes or
+  /// throws [ApiException] on non-2xx.
+  Map<String, dynamic> _decode(http.Response res) {
+    final String? fresh = res.headers['x-session-token'];
+    if (fresh != null && fresh.isNotEmpty) {
+      onSessionTokenRefreshed?.call(fresh);
+    }
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw ApiException(res.statusCode, _messageFrom(res.body));
     }

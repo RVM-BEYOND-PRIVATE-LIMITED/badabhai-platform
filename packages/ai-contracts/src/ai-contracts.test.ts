@@ -54,11 +54,12 @@ describe("TranscriptionInputSchema", () => {
 });
 
 describe("TranscriptionOutputSchema", () => {
-  it("fills defaults (mock, zero confidence, null language)", () => {
+  it("fills defaults (mock, zero confidence, null language, empty english)", () => {
     const out = TranscriptionOutputSchema.parse({ transcript_text: "vmc operator" });
     expect(out.is_mock).toBe(true);
     expect(out.confidence).toBe(0);
     expect(out.language_code).toBeNull();
+    expect(out.english_text).toBe("");
   });
   it("rejects confidence outside 0..1", () => {
     expect(

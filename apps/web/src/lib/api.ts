@@ -44,6 +44,52 @@ export interface AiJobListItem {
   updated_at: string;
 }
 
+/** Apply/skip decision recorded by a worker (ADR-0009 alpha swipe-to-apply). */
+export type ApplicationAction = "applied" | "skipped";
+
+/**
+ * One applicant on a job — the PII-FREE ops projection of GET /jobs/:jobId/applicants.
+ * `worker_id` is an opaque UUID; the API never returns a name/phone for it.
+ */
+export interface JobApplicant {
+  worker_id: string;
+  action: ApplicationAction;
+  reason: string | null;
+  source_surface: string;
+  rank: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JobApplicants {
+  job_id: string;
+  applicants: JobApplicant[];
+}
+
+/**
+ * One application by a worker — the ops projection of GET
+ * /workers/:workerId/applications. Carries only COARSE job fields (no employer,
+ * no pay) plus the worker's decision.
+ */
+export interface WorkerApplication {
+  job_id: string;
+  trade_key: string;
+  title: string;
+  city: string;
+  area: string | null;
+  action: ApplicationAction;
+  reason: string | null;
+  source_surface: string;
+  rank: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkerApplications {
+  worker_id: string;
+  applications: WorkerApplication[];
+}
+
 export interface WorkerProfileRow {
   id: string;
   profileStatus: ProfileStatus;
@@ -96,6 +142,38 @@ async function apiGet<T>(path: string): Promise<T> {
   });
   if (!res.ok) {
     throw new ApiError(res.status, `API GET ${path} failed: ${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as T;
+}
+
+/** Header carrying the shared internal-service secret (mirrors the API guard). */
+const INTERNAL_SERVICE_TOKEN_HEADER = "x-internal-service-token";
+
+/**
+ * Server-only GET for ops endpoints behind the API's `InternalServiceGuard`
+ * (e.g. the swipe-to-apply applicants reads). Identical to {@link apiGet} but
+ * also attaches the `INTERNAL_SERVICE_TOKEN` shared secret.
+ *
+ * SECURITY: `INTERNAL_SERVICE_TOKEN` is a SERVER secret — it is read from
+ * `process.env` (NOT `publicConfig`, which only whitelists `NEXT_PUBLIC_*`) and
+ * is therefore never inlined into the client bundle. This module is imported only
+ * by Server Components, so the token never crosses to the browser. If the token
+ * is unset the guard fails closed (401) and the page renders its error state —
+ * the secret is never surfaced.
+ */
+async function apiGetInternal<T>(path: string): Promise<T> {
+  const headers: Record<string, string> = { accept: "application/json" };
+  const token = process.env.INTERNAL_SERVICE_TOKEN;
+  if (token) {
+    headers[INTERNAL_SERVICE_TOKEN_HEADER] = token;
+  }
+  // Ops data must always be fresh; never cache it at the framework level.
+  const res = await fetch(`${publicConfig.NEXT_PUBLIC_API_URL}${path}`, {
+    cache: "no-store",
+    headers,
+  });
+  if (!res.ok) {
+    throw new Error(`API GET ${path} failed: ${res.status} ${res.statusText}`);
   }
   return (await res.json()) as T;
 }
@@ -162,12 +240,32 @@ export interface WorkerFeed {
   feed: FeedJobRow[];
 }
 
-/** View A — GET /reach/jobs/:jobId/applicants. Throws ApiError(404) for an unknown job. */
-export function getJobApplicants(jobId: string): Promise<ApplicantList> {
+/**
+ * Reach View A — GET /reach/jobs/:jobId/applicants (ranked, faceless). Throws
+ * ApiError(404) for an unknown job. Named `getReachJobApplicants` to stay distinct from
+ * the ADR-0009 swipe-to-apply ops read `getJobApplicants` (`/jobs/:id/applicants`) below.
+ */
+export function getReachJobApplicants(jobId: string): Promise<ApplicantList> {
   return apiGet<ApplicantList>(`/reach/jobs/${encodeURIComponent(jobId)}/applicants`);
 }
 
-/** View B — GET /reach/workers/:workerId/feed. Throws ApiError(404) if no profile. */
+/** Reach View B — GET /reach/workers/:workerId/feed. Throws ApiError(404) if no profile. */
 export function getWorkerFeed(workerId: string): Promise<WorkerFeed> {
   return apiGet<WorkerFeed>(`/reach/workers/${encodeURIComponent(workerId)}/feed`);
+}
+
+/**
+ * Applicants on a job — GET /jobs/:jobId/applicants (ops, InternalServiceGuard).
+ * PII-FREE: returns opaque `worker_id`s only. (ADR-0009 swipe-to-apply ops read.)
+ */
+export function getJobApplicants(jobId: string): Promise<JobApplicants> {
+  return apiGetInternal<JobApplicants>(`/jobs/${jobId}/applicants`);
+}
+
+/**
+ * A worker's applications — GET /workers/:workerId/applications (ops,
+ * InternalServiceGuard). Coarse job fields only (no employer, no pay).
+ */
+export function getWorkerApplications(workerId: string): Promise<WorkerApplications> {
+  return apiGetInternal<WorkerApplications>(`/workers/${workerId}/applications`);
 }

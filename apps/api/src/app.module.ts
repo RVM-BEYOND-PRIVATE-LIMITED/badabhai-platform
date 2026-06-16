@@ -15,6 +15,7 @@ import { ProfilesModule } from "./profiles/profiles.module";
 import { ResumeModule } from "./resume/resume.module";
 import { InterviewKitModule } from "./interview-kit/interview-kit.module";
 import { ActionsModule } from "./actions/actions.module";
+import { ApplicationsModule } from "./applications/applications.module";
 import { ReachModule } from "./reach/reach.module";
 import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
 import { PdfModule } from "./common/pdf/pdf.module";
@@ -42,6 +43,7 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     ResumeModule,
     InterviewKitModule,
     ActionsModule,
+    ApplicationsModule,
     ReachModule,
   ],
 })

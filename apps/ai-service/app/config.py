@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     sarvam_api_key: str | None = None
     # Sarvam STT model id. Config so the future ``saaras:v3`` swap is one line.
     sarvam_stt_model: str = "saarika:v2.5"
+    # Sarvam text-translation model. mayura:v1 is required for auto-detect + code-mixed
+    # (the only model that supports Hinglish source + source_language_code="auto").
+    sarvam_translate_model: str = "mayura:v1"
 
     # Supabase Storage access for the AI service. Read ONLY to fetch voice audio
     # for real STT (Storage Mode A — REST + service-role key). Backend-only.

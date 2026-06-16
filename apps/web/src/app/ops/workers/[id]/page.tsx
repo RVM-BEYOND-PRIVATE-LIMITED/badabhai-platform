@@ -30,6 +30,9 @@ export default async function WorkerDetailPage({
         <Link href={`/ops/reach/workers/${id}/feed`}>Reach feed →</Link>
       </p>
       <h1 className="page-title">Worker {id}</h1>
+      <p className="page-sub">
+        <Link href={`/ops/workers/${id}/applications`}>View applications →</Link>
+      </p>
 
       {error ? (
         <p className="page-sub">

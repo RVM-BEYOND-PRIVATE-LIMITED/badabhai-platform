@@ -7,7 +7,8 @@ import { createDbClient, schema, type DbClient } from "@badabhai/db";
  * Proves the platform-wide PII/linkage lock: every application table denies the
  * PostgREST Data-API roles (anon / authenticated / service_role), so `worker_id`,
  * correlation ids, and the encrypted-PII linkage are unreachable with a Supabase
- * client key. `workers` was locked in 0003/0004; the other 13 in 0009.
+ * client key. `workers` was locked in 0003/0004; the next 13 in 0009; `jobs` +
+ * `applications` in 0012 (created and locked in the same migration, ADR-0009).
  *
  * Two things make this a real guarantee (not a SELECT-only smoke test):
  *  1. NO-DRIFT: the static list below is reconciled against the LIVE public schema
@@ -50,6 +51,8 @@ const LOCKED_TABLES = [
   "questions",
   "profile_questions",
   "worker_answers",
+  "jobs",
+  "applications",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

@@ -30,21 +30,105 @@ class ProfileExtractionTimeout implements Exception {
 }
 
 /// Result of POST /auth/otp/verify.
+///
+/// Carries the bearer [accessToken] the API mints for the worker session. The
+/// app stores it (in-memory, in `AppState`) and sends it as
+/// `Authorization: Bearer <token>` on worker-scoped routes (feed / apply /
+/// skip). It is the worker's own session credential — never logged, never
+/// persisted to disk.
 class VerifyOtpResult {
   VerifyOtpResult({
     required this.workerId,
+    required this.accessToken,
     required this.isNewWorker,
     required this.status,
   });
 
   final String workerId;
+  final String accessToken;
   final bool isNewWorker;
   final String status;
 
   factory VerifyOtpResult.fromJson(Map<String, dynamic> json) => VerifyOtpResult(
         workerId: json['worker_id'] as String,
+        accessToken: json['access_token'] as String? ?? '',
         isNewWorker: json['is_new_worker'] as bool? ?? false,
         status: json['status'] as String? ?? 'active',
+      );
+}
+
+/// One job card the worker swipes on. Result item of GET /feed.
+///
+/// PII-free by contract: coarse [tradeKey] / [title] / [city] / [area] only —
+/// the API returns NO employer name and NO pay, so this model carries none.
+/// [rank] is the 1-based seed display position (not a relevance rank).
+class FeedItem {
+  FeedItem({
+    required this.jobId,
+    required this.tradeKey,
+    required this.title,
+    required this.city,
+    required this.area,
+    required this.rank,
+  });
+
+  final String jobId;
+  final String tradeKey;
+  final String title;
+  final String city;
+
+  /// Coarse area/locality bucket. Nullable — not every job has one.
+  final String? area;
+
+  /// 1-based seed display position the card was shown at. Sent back on apply so
+  /// the server can record the position the decision was taken from.
+  final int rank;
+
+  factory FeedItem.fromJson(Map<String, dynamic> json) => FeedItem(
+        jobId: json['job_id'] as String,
+        tradeKey: json['trade_key'] as String? ?? '',
+        title: json['title'] as String? ?? '',
+        city: json['city'] as String? ?? '',
+        area: json['area'] as String?,
+        rank: (json['rank'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// Result of POST /applications/:jobId/apply.
+class ApplyResult {
+  ApplyResult({
+    required this.ok,
+    required this.applicationId,
+    required this.action,
+  });
+
+  final bool ok;
+  final String applicationId;
+  final String action;
+
+  factory ApplyResult.fromJson(Map<String, dynamic> json) => ApplyResult(
+        ok: json['ok'] as bool? ?? false,
+        applicationId: json['application_id'] as String? ?? '',
+        action: json['action'] as String? ?? 'applied',
+      );
+}
+
+/// Result of POST /applications/:jobId/skip.
+class SkipResult {
+  SkipResult({
+    required this.ok,
+    required this.applicationId,
+    required this.action,
+  });
+
+  final bool ok;
+  final String applicationId;
+  final String action;
+
+  factory SkipResult.fromJson(Map<String, dynamic> json) => SkipResult(
+        ok: json['ok'] as bool? ?? false,
+        applicationId: json['application_id'] as String? ?? '',
+        action: json['action'] as String? ?? 'skipped',
       );
 }
 

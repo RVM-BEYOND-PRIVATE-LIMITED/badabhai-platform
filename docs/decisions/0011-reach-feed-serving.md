@@ -5,13 +5,23 @@
 - **Supersedes/relates:** **consumes** [ADR-0006](0006-reach-foundation-rank-core.md)
   (the deterministic RANK core in [`@badabhai/reach-engine`](../../packages/reach-engine))
   and **does not modify it**; builds on [ADR-0005](0005-metadata-driven-multi-profile-profiling.md)
-  (the `worker_profiles` → match-signals projection). **Depends on**
-  [ADR-0010](0010-ops-job-postings-banded-stored-only.md) (the `job_postings` entity) for its real job source —
-  but is **decoupled** from it via a `JobSource` port so it builds and tests against a
-  stub now. Reuses the **existing** `feed.*` / `application.*` contracts in
-  [`@badabhai/event-schema`](../../packages/event-schema) (no new event). Relates to the
-  sibling alpha-gate ADR-0010 (Job Posting) and the reserved ADR-0009 (`jobs` entity,
-  unmerged PR #42).
+  (the `worker_profiles` → match-signals projection). **Depends on** the **ops job-postings
+  ADR** (the `job_postings` entity) for its real job source — but is **decoupled** from it
+  via a `JobSource` port so it builds and tests against a stub now. Reuses the **existing**
+  `feed.*` / `application.*` contracts in
+  [`@badabhai/event-schema`](../../packages/event-schema) (no new event).
+
+> **Numbering & cross-reference note (reconciled post-merge, 2026-06-15).** This ADR was
+> drafted referring to the ops job-postings ADR as "ADR-0010"; on `main`, **0010 was
+> independently assigned to [Contact Unlock + Reveal](0010-contact-unlock-and-reveal.md)**,
+> and **[ADR-0009](0009-alpha-swipe-to-apply-seeded-jobs.md) is now the merged "alpha
+> swipe-to-apply on seeded jobs"** (which ships a `jobs` + `applications` producer and
+> already emits `feed.shown` / `application.*`). Therefore: (1) every "ADR-0010" below means
+> **the ops job-postings ADR** — a *sibling alpha-gate branch, not yet merged*, to be
+> **renumbered (≥0012)** at its own merge; (2) this Reach serving layer **coexists** with the
+> ADR-0009 swipe surface (both legitimately emit `feed.shown` from different surfaces — no
+> conflict, no payload change); (3) the `StubJobSource` → real `JobPostingsJobSource` swap is
+> unaffected by the renumber.
 
 ## Context
 

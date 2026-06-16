@@ -57,7 +57,14 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
                     ),
                   ),
                   const SizedBox(height: 24),
-                  FilledButton(
+                  FilledButton.icon(
+                    onPressed: () =>
+                        Navigator.pushNamed(context, Routes.swipeJobs),
+                    icon: const Icon(Icons.work_outline),
+                    label: const Text('See jobs for you'),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton(
                     onPressed: () => Navigator.pushNamedAndRemoveUntil(
                       context,
                       Routes.splash,

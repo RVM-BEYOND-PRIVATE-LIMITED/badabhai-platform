@@ -1,0 +1,227 @@
+import "reflect-metadata";
+import { describe, it, expect, vi } from "vitest";
+import { NotFoundException } from "@nestjs/common";
+import type { RequestContext } from "../common/request-context";
+import type { EventsService } from "../events/events.service";
+import { ApplicationsService } from "./applications.service";
+import type { ApplicationsRepository } from "./applications.repository";
+
+const CTX = { correlationId: "corr-1", requestId: "req-1" } as RequestContext;
+const WORKER_ID = "11111111-1111-1111-1111-111111111111";
+const JOB_ID = "22222222-2222-2222-2222-222222222222";
+
+const JOB_ROW = {
+  id: JOB_ID,
+  tradeKey: "cnc_operator" as const,
+  title: "CNC Operator — Night Shift",
+  city: "Pune",
+  area: "Pimpri-Chinchwad",
+  status: "open" as const,
+  createdAt: new Date("2026-06-01T00:00:00Z"),
+  updatedAt: new Date("2026-06-01T00:00:00Z"),
+};
+
+function setup(opts: { jobExists?: boolean; openJobs?: Array<Record<string, unknown>> } = {}) {
+  const jobExists = opts.jobExists ?? true;
+  const repo = {
+    findJobById: vi.fn(async () => (jobExists ? JOB_ROW : undefined)),
+    findOpenJobs: vi.fn(async () => opts.openJobs ?? []),
+    upsertDecision: vi.fn(async (input: Record<string, unknown>) => ({
+      id: "app-1",
+      ...input,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })),
+    findApplicantsByJob: vi.fn(async () => []),
+    findApplicationsByWorker: vi.fn(async () => []),
+  };
+  const events = {
+    emit: vi.fn(async (params: Record<string, unknown>) => params),
+    emitMany: vi.fn(async (list: Array<Record<string, unknown>>) => list),
+  };
+  const svc = new ApplicationsService(
+    repo as unknown as ApplicationsRepository,
+    events as unknown as EventsService,
+  );
+  return { svc, repo, events };
+}
+
+describe("ApplicationsService — apply", () => {
+  it("upserts action='applied' (reason null) and emits a PII-free application.submitted", async () => {
+    const { svc, repo, events } = setup();
+    const out = await svc.apply(WORKER_ID, JOB_ID, { rank: 3, source_surface: "feed" }, CTX);
+
+    // Upsert uses the SESSION worker id + the path job id, action applied, no reason.
+    const upsertArg = repo.upsertDecision.mock.calls[0]![0];
+    expect(upsertArg).toMatchObject({
+      workerId: WORKER_ID,
+      jobId: JOB_ID,
+      action: "applied",
+      reason: null,
+      sourceSurface: "feed",
+      rank: 3,
+    });
+
+    const call = events.emit.mock.calls[0]![0];
+    expect(call.event_name).toBe("application.submitted");
+    expect(call.actor).toEqual({ actor_type: "worker", actor_id: WORKER_ID });
+    expect(call.subject).toEqual({ subject_type: "job", subject_id: JOB_ID });
+    expect(call.payload).toEqual({
+      worker_id: WORKER_ID,
+      job_id: JOB_ID,
+      rank: 3,
+      source_surface: "feed",
+    });
+    // Idempotency key per (worker, job) so a double-tap is one logical event.
+    expect(call.idempotencyKey).toBe(`application.submitted:${WORKER_ID}:${JOB_ID}`);
+
+    expect(out).toEqual({ ok: true, application_id: "app-1", action: "applied" });
+  });
+
+  it("404s on an unknown job and emits NOTHING (no oracle, no event)", async () => {
+    const { svc, repo, events } = setup({ jobExists: false });
+    await expect(
+      svc.apply(WORKER_ID, JOB_ID, { rank: null, source_surface: "feed" }, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(repo.upsertDecision).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent: a repeated apply on the same (worker, job) is one upsert (no duplicate row)", async () => {
+    const { svc, repo } = setup();
+    await svc.apply(WORKER_ID, JOB_ID, { rank: 1, source_surface: "feed" }, CTX);
+    await svc.apply(WORKER_ID, JOB_ID, { rank: 1, source_surface: "feed" }, CTX);
+    // Each call upserts the SAME natural key — the DB unique index collapses to one
+    // row; the repo never inserts a second row (it is an ON CONFLICT DO UPDATE).
+    expect(repo.upsertDecision).toHaveBeenCalledTimes(2);
+    for (const c of repo.upsertDecision.mock.calls) {
+      expect(c[0]).toMatchObject({ workerId: WORKER_ID, jobId: JOB_ID, action: "applied" });
+    }
+  });
+});
+
+describe("ApplicationsService — skip", () => {
+  it("upserts action='skipped' with the enum reason and emits a PII-free application.skipped", async () => {
+    const { svc, repo, events } = setup();
+    const out = await svc.skip(WORKER_ID, JOB_ID, { reason: "too_far" }, CTX);
+
+    const upsertArg = repo.upsertDecision.mock.calls[0]![0];
+    expect(upsertArg).toMatchObject({
+      workerId: WORKER_ID,
+      jobId: JOB_ID,
+      action: "skipped",
+      reason: "too_far",
+    });
+
+    const call = events.emit.mock.calls[0]![0];
+    expect(call.event_name).toBe("application.skipped");
+    expect(call.subject).toEqual({ subject_type: "job", subject_id: JOB_ID });
+    expect(call.payload).toEqual({ worker_id: WORKER_ID, job_id: JOB_ID, reason: "too_far" });
+    expect(call.idempotencyKey).toBe(`application.skipped:${WORKER_ID}:${JOB_ID}`);
+
+    expect(out).toEqual({ ok: true, application_id: "app-1", action: "skipped" });
+  });
+
+  it("flips skip -> apply in place (last-write-wins): two upserts on the same key, latest action wins", async () => {
+    const { svc, repo } = setup();
+    await svc.skip(WORKER_ID, JOB_ID, { reason: "low_pay" }, CTX);
+    await svc.apply(WORKER_ID, JOB_ID, { rank: null, source_surface: "feed" }, CTX);
+    expect(repo.upsertDecision).toHaveBeenCalledTimes(2);
+    expect(repo.upsertDecision.mock.calls[0]![0]).toMatchObject({ action: "skipped" });
+    // The re-decision targets the SAME (worker, job) → updates in place, applied wins.
+    expect(repo.upsertDecision.mock.calls[1]![0]).toMatchObject({
+      workerId: WORKER_ID,
+      jobId: JOB_ID,
+      action: "applied",
+    });
+  });
+
+  it("404s on an unknown job and emits nothing", async () => {
+    const { svc, repo, events } = setup({ jobExists: false });
+    await expect(svc.skip(WORKER_ID, JOB_ID, { reason: "other" }, CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(repo.upsertDecision).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+});
+
+describe("ApplicationsService — feed", () => {
+  const OPEN_JOBS = [
+    { id: "a0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC" },
+    { id: "a0000000-0000-0000-0000-000000000002", tradeKey: "fitter", title: "T2", city: "Pune", area: null },
+  ];
+
+  it("returns coarse PII-free items with 1-based rank and emits one feed.shown per item", async () => {
+    const { svc, events } = setup({ openJobs: OPEN_JOBS });
+    const out = await svc.getFeed(WORKER_ID, 20, CTX);
+
+    expect(out.jobs).toEqual([
+      { job_id: OPEN_JOBS[0]!.id, trade_key: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", rank: 1 },
+      { job_id: OPEN_JOBS[1]!.id, trade_key: "fitter", title: "T2", city: "Pune", area: null, rank: 2 },
+    ]);
+
+    // One feed.shown per returned job (per-impression), batched via emitMany.
+    expect(events.emitMany).toHaveBeenCalledOnce();
+    const batch = events.emitMany.mock.calls[0]![0] as Array<Record<string, unknown>>;
+    expect(batch).toHaveLength(2);
+    expect(batch[0]).toMatchObject({
+      event_name: "feed.shown",
+      actor: { actor_type: "worker", actor_id: WORKER_ID },
+      subject: { subject_type: "job", subject_id: OPEN_JOBS[0]!.id },
+      payload: { worker_id: WORKER_ID, job_id: OPEN_JOBS[0]!.id, rank: 1, score: 0, hot: false },
+    });
+    expect(batch[1]).toMatchObject({ payload: { rank: 2, score: 0, hot: false } });
+  });
+
+  it("emits nothing when there are no open jobs", async () => {
+    const { svc, events } = setup({ openJobs: [] });
+    const out = await svc.getFeed(WORKER_ID, 20, CTX);
+    expect(out.jobs).toEqual([]);
+    expect(events.emitMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("ApplicationsService — PII-free guarantees + ownership", () => {
+  it("never puts PII (name/phone/employer/address/pay) in any emitted payload", async () => {
+    const { svc, events } = setup({
+      openJobs: [
+        { id: "a0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC" },
+      ],
+    });
+    await svc.getFeed(WORKER_ID, 5, CTX);
+    await svc.apply(WORKER_ID, JOB_ID, { rank: 1, source_surface: "feed" }, CTX);
+    await svc.skip(WORKER_ID, JOB_ID, { reason: "wrong_trade" }, CTX);
+
+    const emitted = [
+      ...events.emit.mock.calls.map((c) => c[0]),
+      ...events.emitMany.mock.calls.flatMap((c) => c[0] as Array<Record<string, unknown>>),
+    ];
+    // Every payload's keys are a strict subset of the allowed PII-free fields.
+    const ALLOWED = new Set([
+      "worker_id",
+      "job_id",
+      "rank",
+      "score",
+      "hot",
+      "source_surface",
+      "reason",
+    ]);
+    for (const e of emitted) {
+      for (const key of Object.keys(e.payload as Record<string, unknown>)) {
+        expect(ALLOWED.has(key), `unexpected payload key ${key}`).toBe(true);
+      }
+    }
+  });
+
+  it("uses the SESSION worker id for the upsert/event — a body-supplied id would be ignored", async () => {
+    // The service signature takes workerId as its first arg (from @CurrentWorker);
+    // the dto carries NO worker_id, so there is no path for a client to spoof one.
+    const { svc, repo, events } = setup();
+    await svc.apply(WORKER_ID, JOB_ID, { rank: null, source_surface: "share" }, CTX);
+    expect(repo.upsertDecision.mock.calls[0]![0]).toMatchObject({ workerId: WORKER_ID });
+    expect((events.emit.mock.calls[0]![0].payload as { worker_id: string }).worker_id).toBe(
+      WORKER_ID,
+    );
+  });
+});
