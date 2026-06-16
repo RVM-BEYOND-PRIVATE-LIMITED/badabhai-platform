@@ -1,8 +1,11 @@
 # ADR-0013: Employer/Agent Monetization + a config-driven Pricing Engine (Phase-0 design)
 
-- **Status:** **DESIGN-ONLY — PROPOSED. Awaiting human/RVM sign-off.** Nothing here is
-  built or authorized. No app code, no migration, no register edit ships with this ADR.
-  Every major decision below is marked **"REQUIRES HUMAN/RVM SIGN-OFF — not assumed."**
+- **Status:** **ACCEPTED (2026-06-16)** — signed off by the maintainer with resolutions
+  recorded in the **§ SIGN-OFF** block below. Implementation is authorized **behind the
+  gates stated there** (mock-credits only; the resume-download threat-model addendum remains
+  a hard pre-build gate; real Razorpay stays a STOP). The original six decisions are
+  preserved below as the design history; where a resolution conflicts with the body, the
+  resolution wins.
 - **Date:** 2026-06-16
 - **Phase:** **Phase-2** (employer/agent posting, booster, candidate search / resume
   download, and the pricing engine are all in CLAUDE.md §8 "Deferred — do not build in
@@ -42,6 +45,61 @@
     proposes (`pricing`) are the only enum additions; the rest are additive payloads on
     existing domains/subjects.
   - **CLAUDE.md §2 invariants 1, 2, 4, 5, 6, 7, 8; §7 escalation; §8 deferred list.**
+
+---
+
+## SIGN-OFF (2026-06-16) — human/RVM: ACCEPTED with resolutions
+
+> Where a resolution here conflicts with the original proposal body below, **the resolution
+> wins** (the body is preserved as design history). Implementation is authorized behind the
+> gates restated at the end of this block.
+
+- **A — Pricing engine: APPROVED (hybrid).** Build the **entire config builder** — a typed
+  `@badabhai/pricing` Zod schema + the deterministic resolve algorithm, with all values
+  (prices, tiers, applicant-visibility quotas, validity/boost windows, discounts, offers,
+  coupons) stored as **ops-editable DB catalog rows, Zod-validated on load, fail-closed**.
+  The maintainer must be able to change prices/discounts/coupons without a code rewrite.
+  **A-R1** hybrid confirmed; **A-R2** at-most-one-offer + at-most-one-coupon, documented
+  precedence, never negative/free; **A-R3** ops-only edit surface. `credit-packs.ts` is
+  absorbed (A.5).
+- **B — Job-posting monetization: APPROVED.** Paid `posting_plans` (standard ₹1000/14d/10
+  applicants · pro ₹2500/30d/30 views) + `posting_boosts` (₹1200/2d) additively on ADR-0012
+  `job_postings`; applicant-visibility **quota** enforced at a single atomic chokepoint;
+  opaque `payer_id` (employer OR agent); **B-R1** ops-created with opaque payer (b-i);
+  **B-R2** no refunds; **B-R3** reject overlapping active boosts. Prices are **catalog rows**
+  (editable), seeded with these values.
+- **C — Resume download: CHANGED BY MAINTAINER → FREE (not a paid product).** Resume
+  download is **given to the employer from the candidates side at NO charge** — there is
+  **no resume-pack SKU, no credits, no payment** for it. The standalone candidate-search
+  resume packs (₹1000/15, ₹2500/35) from the spec are **DROPPED**. **However, a downloaded
+  resume still carries the worker's NAME (TD21) → it remains a PII DISCLOSURE** and keeps
+  the **full ADR-0010 protection spine**: `employer_sharing` consent gate → per-worker caps
+  → fail-closed ordering → grant → controlled disclosure → PII-free `resume.disclosed`
+  event. **The only removed step is PAYMENT/credit-debit** (step [3] of C.2 becomes a no-op
+  / is skipped). **C-R3 / R-1 — the resume-download threat-model addendum REMAINS A HARD
+  PRE-BUILD GATE** (arguably more important without payment friction throttling volume; the
+  addendum must pin: does swipe-to-apply imply `employer_sharing` consent or is a separate
+  consent still required? default = still gated, fail-closed). **C-R1/C-R2:** caps are a
+  **shared** per-worker disclosure ceiling across unlock + resume.
+- **D — Events: APPROVED with one drop.** Keep `job_posting.purchased`,
+  `job_posting.boosted`, `applicant.viewed`, `resume.disclosed`, `coupon.redeemed`,
+  `pricing.changed`; **DROP `resume_pack.purchased`** (no paid resume packs). All v1,
+  PII-free, version-never-mutate.
+- **E — Payments: APPROVED, mock-only.** One `PaymentGateway` seam, mock credits / direct
+  mock purchases, `PAYMENTS_ENABLE_REAL=false` default. **Razorpay: add the env requirements
+  (config keys) to `.env.example` as documented, NOT-enabled config; do NOT wire or enable
+  real calls.** Flipping real Razorpay (keys/spend/staging-first) stays a **STOP + human
+  escalation** (E-R2). **E-R1:** posting/boost = direct purchase recorded in the ledger;
+  contact-unlock stays credit packs.
+- **F — Worker protection + DPDP: APPROVED, unchanged.** Workers never charged; resume
+  disclosure keeps the full ADR-0010 protection chain (consent + caps + retention/erasure +
+  DPDP copy launch gate) **even though it is now free**.
+
+**Gates still in force for the build:** (1) the **resume-download threat-model addendum**
+must be authored + pass before the resume-disclosure stream ships; (2) **no real
+payment-provider keys/spend** — mock only, Razorpay env documented but disabled; (3)
+additive-only, no PII in events/logs/LLM input, every important write emits a validated
+event; (4) security review (security-engineer + bb-security-review) before merge.
 
 ---
 
