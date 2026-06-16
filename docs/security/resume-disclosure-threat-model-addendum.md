@@ -7,11 +7,38 @@
 > R-1). The base model's methodology, assets, trust boundaries, non-tradeable invariants,
 > and F-1…F-7 controls apply **verbatim** unless overridden here.
 
+## DECISION (2026-06-16) — employer-facing resume is IDENTITY-MASKED
+
+Two consumers, two views:
+
+- **Worker's own copy** (worker-app `ResumePreview` / the worker's own export) keeps the
+  worker's **real name** — TD21 stays, unchanged. This is the worker's own resume.
+- **Employer-facing disclosure** (the new stream) is **identity-MASKED**: the name is
+  reduced to **masked initials** (`Ramesh Kumar → "R***** K."`) and **no phone** appears
+  (phone is already never on the resume; the contact channel is the **separate paid
+  Contact-Unlock** step). The employer evaluates the trade profile **anonymously**; identity
+  is revealed only by paying for the unlock — so the FREE masked resume *protects*, not
+  undercuts, the unlock's value.
+
+**Implementation seam:** the masked employer resume is rendered from the **name-free**
+`sourceProfileSnapshot` (already stored, no PII) with `displayName = maskInitials(realName)`
+computed **server-side at disclosure time** (reuse `ResumeRenderer`). The real name is read
+once to derive the masked string, **never logged, never evented** (F-5 holds). Masked
+initials are still personal data under DPDP (a partial-name fragment) — accepted by product
+decision; do not expand the mask without a fresh consent tier + a threat-model revision.
+
+This **reverses §0 delta #1 below** (the disclosed asset is no longer the real name) and
+**resolves RT4 by construction**. Net effect: the employer disclosure is a trade-profile +
+masked-initials artifact — far smaller blast radius than the base model assumed.
+
 ## 0. What's different from Contact Unlock (the deltas this addendum exists for)
 
-1. **Bigger disclosed asset.** A resume carries the worker's **real name (TD21)** plus full
-   work history / trade detail — far more identifying than a single routed channel. The blast
-   radius of one leak is larger.
+1. ~~**Bigger disclosed asset.** A resume carries the worker's **real name (TD21)** plus full
+   work history / trade detail — far more identifying than a single routed channel.~~
+   **REVERSED by the 2026-06-16 decision above:** the employer-facing resume is
+   **identity-masked** (masked initials, no phone), so the disclosed asset is a trade profile
+   plus a masked-initials fragment — *smaller* than a routed contact channel, not larger. The
+   real name stays on the worker's OWN copy only.
 2. **It is FREE (ADR-0013 §SIGN-OFF C).** There is **no payment step** — so payment is *not*
    a throttle. **Caps + no-oracle + no-bulk become the PRIMARY anti-harvest controls**, not
    secondary. This is the single most important consequence: remove the money friction and
@@ -45,9 +72,12 @@ payer authz (InternalServiceGuard interim; PayerAuthGuard = launch gate, base T7
 [4] GRANT — record `resume_disclosures` (status granted→disclosed; idempotent per
         payer,worker,posting).
         ↓
-[5] CONTROLLED DISCLOSURE — serve the resume via a SHORT-TTL signed URL minted server-side
-        (reuse TD24/R13 discipline): non-reversible, expiring, single-grant-scoped, never
-        logged, never in an event. Worker name is read ONLY to compose the document, server-side.
+[5] CONTROLLED DISCLOSURE — render the MASKED employer resume from the name-free
+        `sourceProfileSnapshot` with `displayName = maskInitials(realName)` (per the
+        2026-06-16 decision), then serve via a SHORT-TTL signed URL minted server-side (reuse
+        TD24/R13 discipline): non-reversible, expiring, single-grant-scoped, never logged,
+        never in an event. The real name is read ONCE only to derive the masked initials,
+        server-side; the full name never lands on the employer artifact, a log, or an event.
         ↓
 emit resume.disclosed — the FACT ONLY (disclosure_id, payer_id, worker_id, job_posting_id?,
         resume_ref). NEVER the bytes, the name, or the signed URL (base F-5).
@@ -80,12 +110,13 @@ default): NO — applying does NOT authorize a resume disclosure.** A separate, 
 (treating an application as scoped consent for *that* employer) is a **product + legal call**,
 not an engineering default — flagged as an open question, default stays gated.
 
-### RT4 — Over-disclosure (the doc carries more than consent authorized)
-The resume could contain fields beyond what `employer_sharing` covers. **Control:** the
-disclosed document is the existing `generated_resumes` artifact whose contents are already
-bounded (name + trade profile, no raw phone unless a separate higher-tier consent — base LC-6).
-The addendum **forbids** adding raw phone/address to the resume artifact without a fresh consent
-tier + a threat-model revision.
+### RT4 — Over-disclosure (the doc carries more than consent authorized) — RESOLVED BY MASKING
+**Resolved by the 2026-06-16 decision:** the employer artifact is rendered from the name-free
+`sourceProfileSnapshot` with only **masked initials** for identity and **no phone** — so it
+cannot carry the real name or contact even by accident. The full name is never bound into the
+employer document. The addendum **forbids** adding the real name, raw phone, or address to the
+**employer-facing** artifact without a fresh consent tier + a threat-model revision. (RT1's
+scrape value drops accordingly: there is effectively no PII on the masked resume to harvest.)
 
 ### RT5 — Disclosure link as an oracle / reuse / replay
 The signed URL must be **non-reversible, expiring, single-grant-scoped, and never logged**
@@ -120,6 +151,10 @@ residual window — kept to one short TTL).
 - B-D: signed-URL discipline — short TTL, server-minted, never logged, never evented.
 - B-E: `resume.disclosed` carries the FACT only (no bytes/name/link); PII-free test asserts it.
 - B-F: no bulk/list disclosure endpoint exists.
+- B-G: the employer artifact is **identity-masked** — rendered from `sourceProfileSnapshot`
+  with masked initials, **no full name, no phone**; the real name is read once to derive the
+  mask and never logged/evented/bound into the document (2026-06-16 decision). Tested: a
+  golden render asserts the full name does NOT appear and the masked form DOES.
 
 **MUST clear at LAUNCH (human-gated):**
 - LC-A: `PayerAuthGuard` + horizontal-authz test (base LC-1) before a real payer surface.
@@ -131,8 +166,11 @@ residual window — kept to one short TTL).
 ## 5. Verdict
 
 With the controls in §1–§3 **mandated and tested**, the resume-disclosure stream may be built
-in alpha as a **FREE, consented, capped, no-oracle, fact-only** disclosure reusing the
-Contact-Unlock spine. The wider asset + the removal of payment friction make **caps + no-oracle
-+ no-bulk** the load-bearing controls — they are non-tradeable here. Raw-phone-in-resume and
-any real payer surface remain human-gated (LC-A…LC-D). **This addendum is the C-R3 pre-build
-gate; a `bb-security-review` PASS against the built endpoint is required before merge.**
+in alpha as a **FREE, consented, capped, no-oracle, fact-only, identity-MASKED** disclosure
+reusing the Contact-Unlock spine. The 2026-06-16 decision makes the employer artifact carry
+**masked initials + no phone** (real name only on the worker's own copy), which *shrinks* the
+disclosed asset and resolves RT4; **caps + no-oracle + no-bulk + masking (B-G)** are the
+load-bearing controls and are non-tradeable here. Putting the real name/phone on the
+**employer** artifact and any real payer surface remain human-gated (LC-A…LC-D). **This
+addendum is the C-R3 pre-build gate; a `bb-security-review` PASS against the built endpoint is
+required before merge.**
