@@ -3,8 +3,48 @@ import {
   loadServerConfig,
   realAiCallsBlockedReason,
   areRealAiCallsEnabled,
+  realPaymentsBlockedReason,
+  areRealPaymentsEnabled,
+  assertPaymentsConfig,
 } from "./server";
 import { loadPublicConfig } from "./public";
+
+describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () => {
+  it("defaults to mock: PAYMENTS_ENABLE_REAL false and real payments blocked", () => {
+    const config = loadServerConfig({});
+    expect(config.PAYMENTS_ENABLE_REAL).toBe(false);
+    expect(areRealPaymentsEnabled(config)).toBe(false);
+    expect(realPaymentsBlockedReason(config)).toBe("PAYMENTS_ENABLE_REAL is false");
+  });
+
+  it("exposes config-driven cap defaults (not hard-coded)", () => {
+    const config = loadServerConfig({});
+    expect(config.UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY).toBe(5);
+    expect(config.UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK).toBe(10);
+    expect(config.UNLOCK_MAX_ATTEMPTS_PER_UNLOCK).toBe(3);
+    const tuned = loadServerConfig({ UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY: "2" });
+    expect(tuned.UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY).toBe(2);
+  });
+
+  it("assertPaymentsConfig is a no-op in the alpha mock default", () => {
+    expect(() => assertPaymentsConfig(loadServerConfig({}))).not.toThrow();
+  });
+
+  it("assertPaymentsConfig THROWS when real is enabled without a provider key (fail closed)", () => {
+    const config = loadServerConfig({ PAYMENTS_ENABLE_REAL: "true" });
+    expect(() => assertPaymentsConfig(config)).toThrow(/PAYMENTS_PROVIDER_KEY/);
+  });
+
+  it("real payments are allowed only with both the flag AND a key", () => {
+    const config = loadServerConfig({
+      PAYMENTS_ENABLE_REAL: "true",
+      PAYMENTS_PROVIDER_KEY: "rzp_test_xxx",
+    });
+    expect(realPaymentsBlockedReason(config)).toBeNull();
+    expect(areRealPaymentsEnabled(config)).toBe(true);
+    expect(() => assertPaymentsConfig(config)).not.toThrow();
+  });
+});
 
 describe("loadServerConfig", () => {
   it("boots with safe defaults when optional secrets are absent", () => {
