@@ -820,6 +820,146 @@ export const unlockRouting = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Monetization + Pricing Engine (ADR-0013) — additive, PII-FREE. The pricing
+// catalog VALUES live here (ops-editable, Zod-validated on load by
+// @badabhai/pricing, fail-closed). Entitlement tables record paid posting plans /
+// boosters and (FREE) resume disclosures. NO raw PII: payer_id is opaque
+// faceless-rails (no FK), and the only identity join is *_disclosures.worker_id →
+// workers (RLS-locked). Resume bytes / names / download links never live here.
+// ---------------------------------------------------------------------------
+
+/** Paid posting plan tier (mirrors @badabhai/pricing PostingTier; kept local to avoid an upward dep). */
+export type PostingPlanTier = "standard" | "pro";
+/** Posting plan lifecycle (orthogonal to the ADR-0012 job_posting content lifecycle). */
+export type PostingPlanStatus = "draft" | "active" | "expired";
+/** Booster tier (single tier today; extensible via the catalog). */
+export type BoostTier = "all_candidates";
+/** Booster lifecycle. */
+export type BoostStatus = "active" | "expired";
+/** Resume-disclosure lifecycle (ADR-0013 C.3). Resume download is FREE — no payment state. */
+export type DisclosureStatus = "requested" | "granted" | "disclosed" | "denied" | "expired";
+/** INTERNAL-only deny reason (never returned — no-oracle, ADR-0010 F-3). No "payment_required" (free). */
+export type DisclosureDenyReason = "no_consent" | "capped" | "unknown_worker";
+
+// pricing_catalog — the config-builder store (ADR-0013 Decision A). One ACTIVE row
+// holds the whole validated catalog as JSON; prior rows are kept as history. The
+// engine loads the active row and Zod-validates it (fail-closed to the typed
+// default). PII-FREE: codes + integer ₹ amounts + percentages only.
+export const pricingCatalog = pgTable(
+  "pricing_catalog",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The full catalog payload (products/offers/coupons). Validated by
+    // @badabhai/pricing `safeParseCatalog` on load — never trusted unvalidated.
+    catalog: jsonb("catalog").notNull(),
+    // Monotonic catalog revision (bumped on each ops edit).
+    revision: integer("revision").notNull().default(1),
+    // Exactly one active row (partial unique index below).
+    isActive: boolean("is_active").notNull().default(true),
+    // Opaque ops actor who wrote this revision (no PII). Mirrors job_postings.created_by.
+    updatedBy: uuid("updated_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // At most one active catalog row at a time.
+    uniqueIndex("pricing_catalog_active_uq").on(t.isActive).where(sql`${t.isActive}`),
+  ],
+);
+
+// posting_plans — a paid plan attached to a job_posting (ADR-0013 B.2). Price/quota/
+// window are STAMPED from the catalog at purchase (the row is the receipt). PII-FREE.
+export const postingPlans = pgTable(
+  "posting_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    jobPostingId: uuid("job_posting_id")
+      .notNull()
+      .references(() => jobPostings.id, { onDelete: "cascade" }),
+    // Opaque payer (employer OR agent) — faceless rails, NO FK, NO PII.
+    payerId: uuid("payer_id").notNull(),
+    tier: text("tier").$type<PostingPlanTier>().notNull(),
+    // Stamped from the catalog at purchase (10 / 30); the cap on applicant views.
+    applicantVisibilityQuota: integer("applicant_visibility_quota").notNull(),
+    // Atomic check-and-increment at the single view chokepoint (ADR-0010 F-2 discipline).
+    applicantsViewedCount: integer("applicants_viewed_count").notNull().default(0),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    status: text("status").$type<PostingPlanStatus>().notNull().default("draft"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("posting_plans_job_posting_id_idx").on(t.jobPostingId),
+    index("posting_plans_payer_id_idx").on(t.payerId),
+    check("posting_plans_tier_chk", sql`${t.tier} IN ('standard', 'pro')`),
+    check("posting_plans_status_chk", sql`${t.status} IN ('draft', 'active', 'expired')`),
+    check("posting_plans_viewed_nonneg_chk", sql`${t.applicantsViewedCount} >= 0`),
+  ],
+);
+
+// posting_boosts — a booster on a job_posting (ADR-0013 B.2). PII-FREE.
+export const postingBoosts = pgTable(
+  "posting_boosts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    jobPostingId: uuid("job_posting_id")
+      .notNull()
+      .references(() => jobPostings.id, { onDelete: "cascade" }),
+    payerId: uuid("payer_id").notNull(),
+    tier: text("tier").$type<BoostTier>().notNull().default("all_candidates"),
+    boostStartsAt: timestamp("boost_starts_at", { withTimezone: true }),
+    boostEndsAt: timestamp("boost_ends_at", { withTimezone: true }),
+    status: text("status").$type<BoostStatus>().notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("posting_boosts_job_posting_id_idx").on(t.jobPostingId),
+    index("posting_boosts_payer_id_idx").on(t.payerId),
+    check("posting_boosts_tier_chk", sql`${t.tier} IN ('all_candidates')`),
+    check("posting_boosts_status_chk", sql`${t.status} IN ('active', 'expired')`),
+  ],
+);
+
+// resume_disclosures — one resume-download GRANT (ADR-0013 C.3). Resume download is
+// FREE but is a PII DISCLOSURE — it rides the ADR-0010 consent+caps spine. PII-FREE
+// by construction: the resume bytes / name / download link are NEVER here. `resume_ref`
+// is an opaque pointer into generated_resumes; worker_id is the only identity join.
+export const resumeDisclosures = pgTable(
+  "resume_disclosures",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    payerId: uuid("payer_id").notNull(),
+    workerId: uuid("worker_id")
+      .notNull()
+      .references(() => workers.id, { onDelete: "cascade" }),
+    // Scope to a posting if downloaded from a candidates page; null for pure search.
+    jobPostingId: uuid("job_posting_id").references(() => jobPostings.id, { onDelete: "set null" }),
+    // Which resume artifact was disclosed (a pointer, NOT the bytes).
+    resumeRef: uuid("resume_ref").references(() => generatedResumes.id, { onDelete: "set null" }),
+    status: text("status").$type<DisclosureStatus>().notNull().default("requested"),
+    // INTERNAL only — NEVER returned (no-oracle). Null unless status='denied'.
+    denyReason: text("deny_reason").$type<DisclosureDenyReason>(),
+    disclosedAt: timestamp("disclosed_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Idempotent grant per (payer, worker, posting) — mirrors `unlocks` (NULLS DISTINCT
+    // means pure-search disclosures with a null posting never collide).
+    uniqueIndex("resume_disclosures_payer_worker_posting_uq").on(t.payerId, t.workerId, t.jobPostingId),
+    index("resume_disclosures_worker_id_idx").on(t.workerId),
+    index("resume_disclosures_payer_id_idx").on(t.payerId),
+    check(
+      "resume_disclosures_deny_reason_chk",
+      sql`${t.denyReason} IS NULL OR ${t.status} = 'denied'`,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
 // ---------------------------------------------------------------------------
 export type Worker = typeof workers.$inferSelect;
@@ -864,6 +1004,14 @@ export type CreditLedger = typeof creditLedger.$inferSelect;
 export type NewCreditLedger = typeof creditLedger.$inferInsert;
 export type UnlockRouting = typeof unlockRouting.$inferSelect;
 export type NewUnlockRouting = typeof unlockRouting.$inferInsert;
+export type PricingCatalogRow = typeof pricingCatalog.$inferSelect;
+export type NewPricingCatalogRow = typeof pricingCatalog.$inferInsert;
+export type PostingPlan = typeof postingPlans.$inferSelect;
+export type NewPostingPlan = typeof postingPlans.$inferInsert;
+export type PostingBoost = typeof postingBoosts.$inferSelect;
+export type NewPostingBoost = typeof postingBoosts.$inferInsert;
+export type ResumeDisclosure = typeof resumeDisclosures.$inferSelect;
+export type NewResumeDisclosure = typeof resumeDisclosures.$inferInsert;
 
 /** All tables, handy for migrations/tests. */
 export const schema = {
@@ -888,4 +1036,8 @@ export const schema = {
   payerCredits,
   creditLedger,
   unlockRouting,
+  pricingCatalog,
+  postingPlans,
+  postingBoosts,
+  resumeDisclosures,
 };
