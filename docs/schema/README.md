@@ -8,21 +8,22 @@ This is **not** a hard freeze — Phase-2 additive tables continue.
 The database schema is authored in Drizzle and is the source of truth:
 
 - Schema: [`packages/db/src/schema.ts`](../../packages/db/src/schema.ts)
-- Generated SQL migrations: [`packages/db/migrations/`](../../packages/db/migrations/) (through `0015`)
+- Generated SQL migrations: [`packages/db/migrations/`](../../packages/db/migrations/) (through `0016`)
 - Migration & RLS plans: [`infra/supabase/`](../../infra/supabase/)
 
-## Tables (21)
+## Tables (25)
 
 **Phase-1 core (14):** `workers` · `worker_consents` · `worker_profiles` ·
 `chat_sessions` · `voice_notes` · `chat_messages` · `generated_resumes` · `events` ·
 `ai_jobs` · `audit_logs` · `profiles` · `questions` · `profile_questions` ·
 `worker_answers`
 
-**Phase-2 additive, landed (7):** `job_postings` · `jobs` · `applications` ·
-`unlocks` · `payer_credits` · `credit_ledger` · `unlock_routing`
+**Phase-2 additive, landed (11):** `job_postings` · `jobs` · `applications` ·
+`unlocks` · `payer_credits` · `credit_ledger` · `unlock_routing` ·
+`pricing_catalog` · `posting_plans` · `posting_boosts` · `resume_disclosures`
 
 PII (phone, full name) lives **only** in `workers` (encrypted at rest, ADR-0004).
-`events`, `ai_jobs`, and `audit_logs` carry ids/hashes only. All 21 tables are
+`events`, `ai_jobs`, and `audit_logs` carry ids/hashes only. All 25 tables are
 RLS+REVOKE locked (TD20).
 
 > Add ER diagrams / column dictionaries here as the schema stabilizes.
