@@ -26,6 +26,20 @@ type UnlockOutcome = UnlockGrantedResponse | NeutralUnavailableResponse;
 type RevealOutcome = ContactRevealedResponse | NeutralUnavailableResponse;
 
 /**
+ * A deferred event emission: a zero-arg thunk that closes over already-computed,
+ * PII-FREE values (ids/enums/counts only) and calls `this.events.emit(...)`. We
+ * collect these INSIDE the locked transaction but FIRE them only AFTER the
+ * transaction commits — see {@link UnlockService} class doc (deadlock fix).
+ */
+type DeferredEmit = () => Promise<void>;
+
+/** What a transaction step returns: the HTTP body + the events to emit post-commit. */
+interface TxResult<R> {
+  response: R;
+  events: DeferredEmit[];
+}
+
+/**
  * UnlockService — the SINGLE fail-closed disclosure chokepoint (ADR-0010 §D4; the
  * {@link UnlockGuardService} of the contract). It is the ONLY writer of `unlocks` /
  * `unlock_routing` and the ONLY resolver of routing tokens (structural F-2/F-5/T5-b:
@@ -45,6 +59,24 @@ type RevealOutcome = ContactRevealedResponse | NeutralUnavailableResponse;
  *         idempotent, balance never negative).
  *
  * Every state change emits a validated PII-FREE event (invariant 1). NO LLM anywhere.
+ *
+ * CONCURRENCY / DEADLOCK FIX (F-2 e2e): the DB state changes run inside
+ * {@link UnlocksRepository.withTransaction}, which holds a per-worker
+ * `pg_advisory_xact_lock` AND one postgres-js pool connection (pool max=10). Event
+ * emission, however, uses the GLOBAL db pool (a SEPARATE connection), not `tx`. If
+ * we emitted WHILE the locked transaction were held, N concurrent same-worker
+ * requests would each hold a connection + queue on the advisory lock, and the
+ * lock-holder would need an (N+1)th connection to emit — exhausting the pool and
+ * deadlocking until timeout. So the transaction NEVER emits: it returns a list of
+ * deferred, PII-free emit thunks ({@link DeferredEmit}), and we fire them ONLY
+ * AFTER the tx commits (connection + advisory lock released). This bounds each
+ * request to ONE pool connection while it holds the lock.
+ *
+ * POST-COMMIT TRADE-OFF: because emission moves after COMMIT, an emit that fails
+ * cannot roll back the (already-committed) state. The committed DB state is the
+ * source of truth; the event is the audit record. On emit failure we LOG (id +
+ * event class, NO PII) and STILL return the committed result. This is the accepted
+ * trade-off — the alternative (emit-in-tx) reintroduces the pool-vs-lock deadlock.
  */
 @Injectable()
 export class UnlockService {
@@ -90,86 +122,98 @@ export class UnlockService {
 
     // From here, ALL deny branches return the same neutral body (F-3). The single
     // atomic transaction holds the advisory lock so caps cannot be raced (F-2) and the
-    // debit+grant are both-or-neither (F-6).
-    return this.repo.withTransaction(async (tx) => {
-      // Serialize all grants/reveals for this worker (F-2 atomicity).
-      await this.repo.lockWorker(tx, workerId);
+    // debit+grant are both-or-neither (F-6). The transaction does ALL the DB work and
+    // returns WHICH events to emit — but it does NOT emit (deadlock fix; see class doc):
+    // emission happens AFTER commit, below.
+    const { response, events: deferred } = await this.repo.withTransaction<TxResult<UnlockOutcome>>(
+      async (tx): Promise<TxResult<UnlockOutcome>> => {
+        const events: DeferredEmit[] = [];
 
-      // Idempotency: a live grant for (payer, worker) → return it, no second debit (F-6).
-      const existing = await this.repo.findByPayerWorker(tx, payerId, workerId);
-      if (existing && (existing.status === "granted" || existing.status === "revealed")) {
-        if (existing.expiresAt && existing.expiresAt.getTime() > Date.now()) {
-          return this.grantedResponse(existing.id, existing.expiresAt);
+        // Serialize all grants/reveals for this worker (F-2 atomicity).
+        await this.repo.lockWorker(tx, workerId);
+
+        // Idempotency: a live grant for (payer, worker) → return it, no second debit (F-6).
+        const existing = await this.repo.findByPayerWorker(tx, payerId, workerId);
+        if (existing && (existing.status === "granted" || existing.status === "revealed")) {
+          if (existing.expiresAt && existing.expiresAt.getTime() > Date.now()) {
+            return { response: this.grantedResponse(existing.id, existing.expiresAt), events };
+          }
+          // else: expired — fall through to re-grant (a fresh window) below.
         }
-        // else: expired — fall through to re-grant (a fresh window) below.
-      }
 
-      // ---- [1] employer_sharing CONSENT gate (fail closed) ------------------
-      const consented = await this.isConsentedForSharing(workerId);
-      if (!consented) {
-        // unknown_worker and no_consent BOTH return the same neutral body — the consent
-        // read returns false for a worker with no consent row at all, so existence is not
-        // distinguishable from non-consent at the HTTP layer.
-        const workerPresent = await this.workerExists(workerId);
-        const reason: UnlockDenyReason = workerPresent ? "no_consent" : "unknown_worker";
-        if (workerPresent) {
-          const row = await this.repo.recordDeny(tx, { payerId, workerId, jobId, denyReason: reason });
-          await this.emitDenied(row.id, payerId, workerId, jobId, reason, ctx);
-        } else {
-          // F-A (no-oracle): a non-existent worker_id would violate the
-          // unlocks.worker_id FK on INSERT and surface as a 500 — distinguishable from
-          // the 200 neutral body, i.e. a worker-enumeration oracle. Do NOT write a row
-          // for an unknown worker; emit the internal audit event WITHOUT one (unlock_id
-          // null, subject = worker) and return the identical neutral body.
-          await this.emitDenied(null, payerId, workerId, jobId, reason, ctx);
+        // ---- [1] employer_sharing CONSENT gate (fail closed) ------------------
+        const consented = await this.isConsentedForSharing(workerId);
+        if (!consented) {
+          // unknown_worker and no_consent BOTH return the same neutral body — the consent
+          // read returns false for a worker with no consent row at all, so existence is not
+          // distinguishable from non-consent at the HTTP layer.
+          const workerPresent = await this.workerExists(workerId);
+          const reason: UnlockDenyReason = workerPresent ? "no_consent" : "unknown_worker";
+          if (workerPresent) {
+            const row = await this.repo.recordDeny(tx, { payerId, workerId, jobId, denyReason: reason });
+            events.push(() => this.emitDenied(row.id, payerId, workerId, jobId, reason, ctx));
+          } else {
+            // F-A (no-oracle): a non-existent worker_id would violate the
+            // unlocks.worker_id FK on INSERT and surface as a 500 — distinguishable from
+            // the 200 neutral body, i.e. a worker-enumeration oracle. Do NOT write a row
+            // for an unknown worker; emit the internal audit event WITHOUT one (unlock_id
+            // null, subject = worker) and return the identical neutral body.
+            events.push(() => this.emitDenied(null, payerId, workerId, jobId, reason, ctx));
+          }
+          return { response: neutralUnavailable(), events };
         }
-        return neutralUnavailable();
-      }
 
-      // ---- [2] worker CAPS (atomic, before payment) -------------------------
-      const cap = await this.checkCaps(tx, workerId);
-      if (cap) {
-        await this.emitCapExceeded(payerId, workerId, cap, ctx);
-        const row = await this.repo.recordDeny(tx, { payerId, workerId, jobId, denyReason: "capped" });
-        await this.emitDenied(row.id, payerId, workerId, jobId, "capped", ctx);
-        return neutralUnavailable();
-      }
+        // ---- [2] worker CAPS (atomic, before payment) -------------------------
+        const cap = await this.checkCaps(tx, workerId);
+        if (cap) {
+          const row = await this.repo.recordDeny(tx, { payerId, workerId, jobId, denyReason: "capped" });
+          // Order preserved: cap_exceeded THEN denied (unchanged from emit-in-tx).
+          events.push(() => this.emitCapExceeded(payerId, workerId, cap, ctx));
+          events.push(() => this.emitDenied(row.id, payerId, workerId, jobId, "capped", ctx));
+          return { response: neutralUnavailable(), events };
+        }
 
-      // ---- [3] PAYMENT / credit debit (atomic with [4] grant; F-6) ----------
-      const debit = await this.payments.debitOneCreditWithinTx(tx, payerId);
-      if (!debit.ok) {
-        // Lost a concurrent debit race after the precondition — collapse to neutral
-        // (still no worker-state oracle; consent already passed but the BODY is neutral).
-        await this.emitPaymentFailed(null, payerId, "insufficient_credits", ctx);
-        return neutralUnavailable();
-      }
+        // ---- [3] PAYMENT / credit debit (atomic with [4] grant; F-6) ----------
+        const debit = await this.payments.debitOneCreditWithinTx(tx, payerId);
+        if (!debit.ok) {
+          // Lost a concurrent debit race after the precondition — collapse to neutral
+          // (still no worker-state oracle; consent already passed but the BODY is neutral).
+          events.push(() => this.emitPaymentFailed(null, payerId, "insufficient_credits", ctx));
+          return { response: neutralUnavailable(), events };
+        }
 
-      // ---- [4] GRANT (same tx) ----------------------------------------------
-      const now = new Date();
-      const expiresAt = new Date(now.getTime() + UNLOCK_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-      const routingTokenRef = randomUUID(); // 122-bit, server-internal only (F-4)
-      const granted = await this.repo.upsertGrant(tx, {
-        payerId,
-        workerId,
-        jobId,
-        routingTokenRef,
-        grantedAt: now,
-        expiresAt,
-      });
-      // Ledger debit in the SAME tx (balance + ledger never drift; F-6).
-      await this.repo.appendLedger(tx, {
-        payerId,
-        delta: -1,
-        reason: "unlock_debit",
-        unlockId: granted.id,
-      });
+        // ---- [4] GRANT (same tx) ----------------------------------------------
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + UNLOCK_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+        const routingTokenRef = randomUUID(); // 122-bit, server-internal only (F-4)
+        const granted = await this.repo.upsertGrant(tx, {
+          payerId,
+          workerId,
+          jobId,
+          routingTokenRef,
+          grantedAt: now,
+          expiresAt,
+        });
+        // Ledger debit in the SAME tx (balance + ledger never drift; F-6).
+        await this.repo.appendLedger(tx, {
+          payerId,
+          delta: -1,
+          reason: "unlock_debit",
+          unlockId: granted.id,
+        });
 
-      await this.emitPaymentAuthorized(granted.id, payerId, ctx);
-      await this.emitPaymentCaptured(granted.id, payerId, ctx);
-      await this.emitGranted(granted.id, payerId, workerId, jobId, expiresAt, ctx);
+        // Order preserved: payment.authorized → payment.captured → unlock.granted.
+        events.push(() => this.emitPaymentAuthorized(granted.id, payerId, ctx));
+        events.push(() => this.emitPaymentCaptured(granted.id, payerId, ctx));
+        events.push(() => this.emitGranted(granted.id, payerId, workerId, jobId, expiresAt, ctx));
 
-      return this.grantedResponse(granted.id, expiresAt);
-    });
+        return { response: this.grantedResponse(granted.id, expiresAt), events };
+      },
+    );
+
+    // COMMITTED — connection + advisory lock released. Now emit the audit events.
+    await this.flushEvents(deferred);
+    return response;
   }
 
   // ===========================================================================
@@ -177,67 +221,103 @@ export class UnlockService {
   // ===========================================================================
   async reveal(unlockId: string, ctx: RequestContext): Promise<RevealOutcome> {
     // F-3: unknown/expired/over-cap/revoked all return the NEUTRAL body (not a 404).
-    return this.repo.withTransaction(async (tx) => {
-      const unlock = await this.repo.findByIdForUpdate(tx, unlockId);
-      if (!unlock) return neutralUnavailable();
+    // The transaction does ALL the DB work + returns WHICH events to emit; it does NOT
+    // emit (same deadlock fix as requestUnlock — contact.revealed/cap_exceeded used the
+    // GLOBAL pool while this tx held the advisory lock + a connection). Emit post-commit.
+    const { response, events: deferred } = await this.repo.withTransaction<TxResult<RevealOutcome>>(
+      async (tx): Promise<TxResult<RevealOutcome>> => {
+        const events: DeferredEmit[] = [];
 
-      // Serialize reveals for this worker (per-attempt cap atomicity; F-2).
-      await this.repo.lockWorker(tx, unlock.workerId);
+        const unlock = await this.repo.findByIdForUpdate(tx, unlockId);
+        if (!unlock) return { response: neutralUnavailable(), events };
 
-      // Re-read under the worker lock to see this txn's view consistently.
-      const fresh = await this.repo.findByIdForUpdate(tx, unlockId);
-      if (!fresh) return neutralUnavailable();
+        // Serialize reveals for this worker (per-attempt cap atomicity; F-2).
+        await this.repo.lockWorker(tx, unlock.workerId);
 
-      // Must be a live grant: granted/revealed, not expired.
-      const live =
-        (fresh.status === "granted" || fresh.status === "revealed") &&
-        fresh.expiresAt !== null &&
-        fresh.expiresAt.getTime() > Date.now() &&
-        fresh.routingTokenRef !== null;
-      if (!live) return neutralUnavailable();
+        // Re-read under the worker lock to see this txn's view consistently.
+        const fresh = await this.repo.findByIdForUpdate(tx, unlockId);
+        if (!fresh) return { response: neutralUnavailable(), events };
 
-      // Per-unlock attempt cap (F-2 atomic; under the worker lock).
-      if (fresh.revealCount >= this.config.UNLOCK_MAX_ATTEMPTS_PER_UNLOCK) {
-        await this.emitCapExceeded(fresh.payerId, fresh.workerId, "attempts_per_unlock", ctx);
-        return neutralUnavailable();
-      }
+        // Must be a live grant: granted/revealed, not expired.
+        const live =
+          (fresh.status === "granted" || fresh.status === "revealed") &&
+          fresh.expiresAt !== null &&
+          fresh.expiresAt.getTime() > Date.now() &&
+          fresh.routingTokenRef !== null;
+        if (!live) return { response: neutralUnavailable(), events };
 
-      // RE-CHECK consent as the LAST gate before decrypt (revocation is immediate; T4).
-      const consented = await this.isConsentedForSharing(fresh.workerId);
-      if (!consented) return neutralUnavailable();
+        // Per-unlock attempt cap (F-2 atomic; under the worker lock).
+        if (fresh.revealCount >= this.config.UNLOCK_MAX_ATTEMPTS_PER_UNLOCK) {
+          events.push(() => this.emitCapExceeded(fresh.payerId, fresh.workerId, "attempts_per_unlock", ctx));
+          return { response: neutralUnavailable(), events };
+        }
 
-      // ---- [5] ROUTED REVEAL — the ONLY place the raw phone is decrypted ------
-      // It is read transiently to wire the in-app relay, then DISCARDED. It is NEVER
-      // returned, evented, logged, stored, or placed in an exception (F-5). ALL
-      // failures map to the neutral path (fail closed).
-      const channel: RoutingChannel = "in_app_relay"; // alpha: discloses no number
-      let relayHandle: string;
+        // RE-CHECK consent as the LAST gate before decrypt (revocation is immediate; T4).
+        const consented = await this.isConsentedForSharing(fresh.workerId);
+        if (!consented) return { response: neutralUnavailable(), events };
+
+        // ---- [5] ROUTED REVEAL — the ONLY place the raw phone is decrypted ------
+        // It is read transiently to wire the in-app relay, then DISCARDED. It is NEVER
+        // returned, evented, logged, stored, or placed in an exception (F-5). ALL
+        // failures map to the neutral path (fail closed).
+        const channel: RoutingChannel = "in_app_relay"; // alpha: discloses no number
+        let relayHandle: string;
+        try {
+          relayHandle = await this.wireInAppRelay(fresh.workerId, fresh.id);
+        } catch {
+          // Do NOT surface the error (it could embed the phone). Log id + class only.
+          this.logger.warn(`reveal failed for unlock=${fresh.id}: relay_wire_error`);
+          return { response: neutralUnavailable(), events };
+        }
+
+        const revealExpiry = fresh.expiresAt!; // handle expires with the unlock window
+        await this.repo.createRouting(tx, {
+          unlockId: fresh.id,
+          routingToken: fresh.routingTokenRef!, // server-internal; NEVER returned (F-4)
+          channel,
+          relayHandle,
+          expiresAt: revealExpiry,
+        });
+        const revealCount = await this.repo.incrementReveal(tx, fresh.id);
+
+        events.push(() => this.emitRevealed(fresh.id, fresh.payerId, fresh.workerId, channel, revealCount, ctx));
+
+        return {
+          response: {
+            relay_handle: relayHandle, // opaque, non-reversible, expiring — NOT a phone
+            channel,
+            expires_at: revealExpiry.toISOString(),
+          },
+          events,
+        };
+      },
+    );
+
+    // COMMITTED — connection + advisory lock released. Now emit the audit events.
+    await this.flushEvents(deferred);
+    return response;
+  }
+
+  /**
+   * Fire the deferred, PII-free event emits AFTER the transaction has committed (so
+   * we hold NO advisory lock and NO pool connection while emitting — the deadlock
+   * fix). The committed DB state is the source of truth; an event is the audit
+   * record. POST-COMMIT TRADE-OFF: if an emit fails we CANNOT roll back the
+   * already-committed state, so we LOG (event class only, NO PII) and continue —
+   * still returning the committed result. We do NOT abort the remaining emits.
+   */
+  private async flushEvents(deferred: DeferredEmit[]): Promise<void> {
+    for (const emit of deferred) {
       try {
-        relayHandle = await this.wireInAppRelay(fresh.workerId, fresh.id);
-      } catch {
-        // Do NOT surface the error (it could embed the phone). Log id + class only.
-        this.logger.warn(`reveal failed for unlock=${fresh.id}: relay_wire_error`);
-        return neutralUnavailable();
+        await emit();
+      } catch (err) {
+        // No PII: only the error class/message (event payloads are ids/enums, but the
+        // emit thunk itself never carries a phone/name — keep this to class + message).
+        const cls = err instanceof Error ? err.name : "UnknownError";
+        const msg = err instanceof Error ? err.message : "unknown";
+        this.logger.error(`post-commit event emit failed: ${cls}: ${msg}`);
       }
-
-      const revealExpiry = fresh.expiresAt!; // handle expires with the unlock window
-      await this.repo.createRouting(tx, {
-        unlockId: fresh.id,
-        routingToken: fresh.routingTokenRef!, // server-internal; NEVER returned (F-4)
-        channel,
-        relayHandle,
-        expiresAt: revealExpiry,
-      });
-      const revealCount = await this.repo.incrementReveal(tx, fresh.id);
-
-      await this.emitRevealed(fresh.id, fresh.payerId, fresh.workerId, channel, revealCount, ctx);
-
-      return {
-        relay_handle: relayHandle, // opaque, non-reversible, expiring — NOT a phone
-        channel,
-        expires_at: revealExpiry.toISOString(),
-      };
-    });
+    }
   }
 
   // ===========================================================================
