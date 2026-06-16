@@ -1,6 +1,13 @@
 import Link from "next/link";
-import { getReachJobApplicants, ApiError, type ApplicantList } from "@/lib/api";
+import {
+  getReachJobApplicants,
+  listJobPostings,
+  ApiError,
+  type ApplicantList,
+  type JobPostingRow,
+} from "@/lib/api";
 import { formatScore, WhyDetails } from "@/components/reach";
+import { StatusBadge } from "@/components/status-badge";
 
 // Live ops data — always fetched fresh from the API at request time.
 export const dynamic = "force-dynamic";
@@ -25,6 +32,17 @@ export default async function ReachApplicantsPage({
   const { jobId: rawJobId } = await searchParams;
   const jobId = rawJobId?.trim() ?? "";
 
+  // Job-posting picker (entry point of the ops employer workflow). Independent
+  // of the paste-jobId fallback below: a posting-list outage must not hide the
+  // manual form, so its error/empty state is tracked separately.
+  let postings: JobPostingRow[] = [];
+  let postingsError: string | null = null;
+  try {
+    postings = await listJobPostings();
+  } catch (e) {
+    postingsError = e instanceof Error ? e.message : String(e);
+  }
+
   let data: ApplicantList | null = null;
   let error: string | null = null;
   let notFound = false;
@@ -47,10 +65,64 @@ export default async function ReachApplicantsPage({
         The ranked applicant pool for one job — faceless rows over the deterministic RANK core.
       </p>
 
+      <h2 className="page-sub">Pick a job posting</h2>
+      <p className="note">
+        Pick an ops-created posting to open its ranked, faceless applicant pool. Org/role/location
+        text below is ops-entered (internal register) — the faceless rule applies to the applicant
+        feed, not to this picker.
+      </p>
+      <p className="note">
+        Heads-up: ranked applicants only appear once a posting is wired into Reach. That binding is
+        still pending, so a real posting may currently return an{" "}
+        <span className="badge">Unknown job</span> on its applicant page — that&apos;s expected, not
+        an outage.
+      </p>
+
+      {postingsError ? (
+        <p className="page-sub">
+          <span className="badge">API unavailable</span> {postingsError}
+        </p>
+      ) : postings.length === 0 ? (
+        <div className="empty">
+          No job postings yet. Create one under{" "}
+          <Link href="/ops/job-postings">Job Postings</Link>, or paste a jobId below.
+        </div>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Role title</th>
+              <th>Org</th>
+              <th>Location</th>
+              <th>Vacancy band</th>
+              <th>Status</th>
+              <th>Applicants</th>
+            </tr>
+          </thead>
+          <tbody>
+            {postings.map((p) => (
+              <tr key={p.id}>
+                <td>{p.roleTitle}</td>
+                <td>{p.orgLabel}</td>
+                <td>{p.locationLabel ?? "—"}</td>
+                <td>{p.vacancyBand}</td>
+                <td>
+                  <StatusBadge status={p.status} />
+                </td>
+                <td>
+                  <Link href={`/ops/reach/jobs/${p.id}/applicants`}>View applicants →</Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <h2 className="page-sub">Or paste a jobId</h2>
       <p className="note">
         Paste a <strong>jobId</strong> (a UUID — e.g. one copied from a worker&apos;s{" "}
-        <strong>Reach feed</strong>). Job postings have no ops UI in this alpha, so a worker
-        feed is the natural source of jobIds.
+        <strong>Reach feed</strong>). This is the fallback for ids that aren&apos;t in the posting
+        picker above.
       </p>
 
       <form className="inline-form" method="get" action="/ops/reach">
