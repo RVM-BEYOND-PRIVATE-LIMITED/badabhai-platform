@@ -53,8 +53,14 @@ export class VoiceTranscriptionProcessor extends WorkerHost {
         language_code: languageCode ?? undefined,
       });
 
-      // Persist the transcript ONLY on the voice_notes row (never in events/jobs).
-      await this.voice.setTranscript(voiceNoteId, result.transcript_text, result.confidence);
+      // Persist the transcript + English translation ONLY on the voice_notes row
+      // (never in events/jobs).
+      await this.voice.setTranscript(
+        voiceNoteId,
+        result.transcript_text,
+        result.confidence,
+        result.english_text ?? "",
+      );
       await this.aiJobs.markCompleted(aiJobId, { voice_note_id: voiceNoteId });
 
       await this.events.emit({
@@ -67,6 +73,7 @@ export class VoiceTranscriptionProcessor extends WorkerHost {
           ai_job_id: aiJobId,
           transcript_confidence: result.confidence,
           transcript_length: result.transcript_text.length,
+          transcript_english_length: (result.english_text ?? "").length,
         },
         // Exactly one completion per job, even under BullMQ stalled-job
         // redelivery that races past the early-return idempotency guard above.

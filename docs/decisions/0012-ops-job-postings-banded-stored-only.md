@@ -1,15 +1,26 @@
-# ADR-0010: Ops-created, vacancy-banded, stored-only Job Postings
+# ADR-0012: Ops-created, vacancy-banded, stored-only Job Postings
 
 - **Status:** Accepted — approved as an alpha-gate feature. This ADR is the architecture
   gate; it records the design before any code, schema, or migration is written.
 - **Date:** 2026-06-15
 - **Phase:** 1 (alpha-gate). Strictly additive; no Phase-2 scope is started.
 - **Supersedes/relates:** Adds to the governed event contract (`@badabhai/event-schema`).
-  **Coexists with — does not supersede — the `jobs` entity in the unmerged PR #42**
-  (`ADR-0009`, `job.*`, opaque payer, integer `vacancy_count`). Upholds the dead-decision
-  "**No Employer entity**" (master-context ledger) and CLAUDE.md §2 invariants 1, 2, 7.
-  Numbering note: **0009 is reserved** by PR #42 (`0009-job-entity-and-lifecycle.md`); this
-  is **0010** to avoid a clash on merge.
+  A **distinct entity** from the merged [ADR-0009](0009-alpha-swipe-to-apply-seeded-jobs.md)
+  swipe `jobs`/`applications` (coexists, no bridge — see the reconciliation note below).
+  Upholds the dead-decision "**No Employer entity**" (master-context ledger) and CLAUDE.md
+  §2 invariants 1, 2, 7.
+
+> **Numbering & cross-reference reconciliation note (post-merge, 2026-06-15).** This ADR was
+> drafted as "ADR-0010" referencing an *unmerged "PR #42 jobs entity" (then-`ADR-0009`, with
+> `job.*` events + an integer `vacancy_count`)*. At merge, `main` had independently assigned
+> **0010 to [Contact Unlock + Reveal](0010-contact-unlock-and-reveal.md)**, and **ADR-0009 to
+> the merged "alpha swipe-to-apply on seeded jobs"** — a *different* `jobs` table (seeded,
+> coarse `trade_key`/`title`/`city`, **no** `vacancy_count`; emits `application.*`, not
+> `job.*`). Therefore: (1) this ADR is **renumbered to 0012**; (2) every "PR #42 / `ADR-0009`
+> / `job.*` / `vacancy_count`" reference below should be read as **"the parallel ADR-0009
+> swipe `jobs` entity"** — the two remain **distinct** entities and the D2 "keep separate, no
+> bridge" decision holds unchanged; (3) the migration was regenerated against `main` as
+> **`0014`**, and the slice's tech-debt/risk rows are **TD34 / R17**.
 
 ## Context
 
