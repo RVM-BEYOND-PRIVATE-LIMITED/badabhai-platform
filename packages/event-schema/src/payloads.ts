@@ -662,3 +662,100 @@ export const PaymentFailedPayload = z.object({
   reason: PaymentFailureReason,
   real_call: z.boolean().default(false),
 });
+
+// ---------------------------------------------------------------------------
+// Monetization + Pricing Engine (ADR-0013) — PII-FREE: ids + CODES + enums +
+// integer ₹ amounts + counts ONLY. Never a payer name, a worker identity beyond
+// the opaque `worker_id`/`payer_id` uuid, resume bytes, a download link, or
+// old/new catalog VALUES (changed events carry field KEYS only).
+// ---------------------------------------------------------------------------
+
+/** Paid posting tier (catalog-resolved). */
+const PostingTierEnum = z.enum(["standard", "pro"]);
+/** Booster tier (single tier today; extensible via the catalog). */
+const BoostTierEnum = z.enum(["all_candidates"]);
+/** Which catalog entity a `pricing.changed` event is about. */
+const PricingChangeTypeEnum = z.enum(["plan", "discount", "coupon"]);
+/** Stable catalog product/tier/coupon code (lowercase machine code). */
+const catalogCode = z.string().min(1).max(64);
+
+/**
+ * A payer bought a paid job-posting plan (ADR-0013 Decision B). Price/quota/window
+ * are STAMPED from the pricing catalog at purchase (the row is the receipt). `real_call`
+ * is the mock-honesty flag (false until a real gateway ships, human-gated).
+ */
+export const JobPostingPurchasedPayload = z.object({
+  plan_id: uuidSchema,
+  job_posting_id: uuidSchema,
+  payer_id: uuidSchema,
+  tier: PostingTierEnum,
+  applicant_visibility_quota: z.number().int().positive(),
+  validity_days: z.number().int().positive(),
+  price_inr: z.number().int().nonnegative(),
+  discount_inr: z.number().int().nonnegative().default(0),
+  coupon_applied: z.boolean().default(false),
+  real_call: z.boolean().default(false),
+});
+
+/** A payer bought a booster for a posting (ADR-0013 Decision B). Ids + amounts only. */
+export const JobPostingBoostedPayload = z.object({
+  boost_id: uuidSchema,
+  job_posting_id: uuidSchema,
+  payer_id: uuidSchema,
+  tier: BoostTierEnum.default("all_candidates"),
+  boost_days: z.number().int().positive(),
+  price_inr: z.number().int().nonnegative(),
+  real_call: z.boolean().default(false),
+});
+
+/**
+ * A payer viewed an applicant against a posting plan's visibility quota (ADR-0013 B.3).
+ * A quota-consuming FACELESS view — `worker_id` is the opaque candidate ref; NO name /
+ * contact / resume appears here. PII disclosure (name/resume) is a separate event.
+ */
+export const ApplicantViewedPayload = z.object({
+  plan_id: uuidSchema,
+  job_posting_id: uuidSchema,
+  payer_id: uuidSchema,
+  worker_id: uuidSchema,
+  viewed_count: z.number().int().nonnegative(),
+  quota: z.number().int().positive(),
+});
+
+/**
+ * A worker's resume was disclosed to a payer (ADR-0013 Decision C). Resume download is
+ * FREE (no price) but is still a PII DISCLOSURE riding the ADR-0010 consent+caps spine —
+ * this records ONLY THE FACT. The resume bytes, the worker's name, and the download link
+ * NEVER appear here (`resume_ref` is an opaque pointer to `generated_resumes`).
+ */
+export const ResumeDisclosedPayload = z.object({
+  disclosure_id: uuidSchema,
+  payer_id: uuidSchema,
+  worker_id: uuidSchema,
+  job_posting_id: uuidSchema.nullable().default(null),
+  resume_ref: uuidSchema.nullable().default(null),
+});
+
+/**
+ * A coupon was redeemed at purchase (ADR-0013 Decision D). Code + amount + opaque payer
+ * only — no coupon-holder identity beyond `payer_id`.
+ */
+export const CouponRedeemedPayload = z.object({
+  coupon_code: catalogCode,
+  payer_id: uuidSchema,
+  product: catalogCode,
+  tier: catalogCode,
+  discount_inr: z.number().int().nonnegative(),
+});
+
+/**
+ * Ops edited the pricing catalog (ADR-0013 Decision D, the config builder audit). Field
+ * KEYS only — NEVER the old/new VALUES (mirrors `job_posting.updated`). `changed_by` is
+ * the opaque ops actor.
+ */
+export const PricingChangedPayload = z.object({
+  change_type: PricingChangeTypeEnum,
+  entity_code: catalogCode,
+  changed_fields: z.array(z.string().min(1).max(64)),
+  changed_by: uuidSchema,
+});

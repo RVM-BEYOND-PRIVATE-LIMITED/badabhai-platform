@@ -33,6 +33,10 @@ export const EVENT_DOMAINS = [
   "unlock",
   "contact",
   "payment",
+  // Config-driven Pricing Engine (ADR-0013) — catalog/coupon changes + redemptions.
+  // PII-FREE: product/tier/coupon CODES + integer ₹ amounts + percentages ONLY; never
+  // a payer name, a worker identity, or old/new VALUES (field KEYS only on changes).
+  "pricing",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;
@@ -72,6 +76,9 @@ export const SUBJECT_TYPES = [
   // A routed-contact unlock grant (ADR-0010). The subject_id is the opaque unlock_id;
   // it carries NO PII (the only identity join is worker_id, inside the payload).
   "unlock",
+  // A pricing catalog entity (ADR-0013) — a plan/discount/coupon row. The subject_id
+  // is the opaque catalog row id; carries no PII (codes + amounts only).
+  "pricing_plan",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;

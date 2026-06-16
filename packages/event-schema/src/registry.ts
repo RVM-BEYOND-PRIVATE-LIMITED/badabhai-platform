@@ -161,6 +161,21 @@ export const EVENT_REGISTRY = {
   "payment.authorized": { version: 1, domain: "payment", payload: p.PaymentAuthorizedPayload },
   "payment.captured": { version: 1, domain: "payment", payload: p.PaymentCapturedPayload },
   "payment.failed": { version: 1, domain: "payment", payload: p.PaymentFailedPayload },
+
+  // Monetization + Pricing Engine (ADR-0013) — PII-FREE: ids + codes + enums + integer
+  // ₹ amounts + counts only. `payment.*` above is reused for the money movement of every
+  // paid product; these add the product-specific facts. Resume disclosure is FREE but
+  // still recorded as a PII-disclosure FACT (no bytes/name/link). All v1.
+  "job_posting.purchased": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingPurchasedPayload,
+  },
+  "job_posting.boosted": { version: 1, domain: "job_posting", payload: p.JobPostingBoostedPayload },
+  "applicant.viewed": { version: 1, domain: "job_posting", payload: p.ApplicantViewedPayload },
+  "resume.disclosed": { version: 1, domain: "resume", payload: p.ResumeDisclosedPayload },
+  "coupon.redeemed": { version: 1, domain: "pricing", payload: p.CouponRedeemedPayload },
+  "pricing.changed": { version: 1, domain: "pricing", payload: p.PricingChangedPayload },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */
