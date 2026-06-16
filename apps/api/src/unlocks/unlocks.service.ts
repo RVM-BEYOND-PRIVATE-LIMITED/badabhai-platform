@@ -1,0 +1,564 @@
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import type { ServerConfig } from "@badabhai/config";
+import { UNLOCK_WINDOW_DAYS, type UnlockDenyReason, type RoutingChannel } from "@badabhai/db";
+import { randomUUID } from "node:crypto";
+import type { PayloadInputOf } from "@badabhai/event-schema";
+import type { RequestContext } from "../common/request-context";
+import { SERVER_CONFIG } from "../config/config.module";
+import { EventsService } from "../events/events.service";
+import { ConsentRepository } from "../consent/consent.repository";
+import { WorkersRepository } from "../workers/workers.repository";
+import { PiiCryptoService } from "../common/pii-crypto.service";
+import { UnlocksRepository, type Tx, type UnlockProjection } from "./unlocks.repository";
+import { PaymentGateway } from "./payment-gateway";
+import {
+  neutralUnavailable,
+  type NeutralUnavailableResponse,
+  type UnlockGrantedResponse,
+  type ContactRevealedResponse,
+} from "./unlock-response";
+
+/** The disclosure consent purpose this gate keys on (DISTINCT from profiling). */
+const EMPLOYER_SHARING = "employer_sharing";
+
+/** Either the one distinguishable success, or the byte-identical neutral body (F-3). */
+type UnlockOutcome = UnlockGrantedResponse | NeutralUnavailableResponse;
+type RevealOutcome = ContactRevealedResponse | NeutralUnavailableResponse;
+
+/**
+ * UnlockService — the SINGLE fail-closed disclosure chokepoint (ADR-0010 §D4; the
+ * {@link UnlockGuardService} of the contract). It is the ONLY writer of `unlocks` /
+ * `unlock_routing` and the ONLY resolver of routing tokens (structural F-2/F-5/T5-b:
+ * no other module imports {@link UnlocksRepository}). The raw phone is read here at
+ * EXACTLY ONE step (reveal), transiently, and is NEVER returned, evented, logged, or
+ * stored (F-5, CLAUDE.md invariant 2).
+ *
+ * FAIL-CLOSED ORDERING for POST /unlocks (every gate denies + discloses nothing on
+ * failure):
+ *   [F-1] credit precondition (worker-state INDEPENDENT) FIRST — a zero-credit payer
+ *         gets the SAME neutral body regardless of any worker's state (closes the
+ *         payment_required consent oracle, BC-1).
+ *   [1]   employer_sharing CONSENT gate (fail closed; no/revoked → neutral).
+ *   [2]   worker CAPS — atomic check-and-write under an advisory lock on worker_id
+ *         (F-2: N concurrent requests can never exceed the cap). caps precede payment.
+ *   [3]   PAYMENT/credit debit + [4] GRANT in ONE transaction (F-6: both-or-neither,
+ *         idempotent, balance never negative).
+ *
+ * Every state change emits a validated PII-FREE event (invariant 1). NO LLM anywhere.
+ */
+@Injectable()
+export class UnlockService {
+  private readonly logger = new Logger(UnlockService.name);
+
+  constructor(
+    private readonly repo: UnlocksRepository,
+    private readonly consents: ConsentRepository,
+    private readonly workers: WorkersRepository,
+    private readonly pii: PiiCryptoService,
+    private readonly payments: PaymentGateway,
+    private readonly events: EventsService,
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+  ) {}
+
+  // ===========================================================================
+  // POST /unlocks  —  request an unlock (F-1 → [4])
+  // ===========================================================================
+  async requestUnlock(
+    input: { payerId: string; workerId: string; jobId: string | null },
+    ctx: RequestContext,
+  ): Promise<UnlockOutcome> {
+    const { payerId, workerId, jobId } = input;
+
+    // Audit the attempt at entry (PII-free). We do NOT yet have an unlock_id, so this
+    // is keyed on (payer, worker) so a retry is one logical request in the spine. The
+    // *granted* row id (if any) is carried by unlock.granted below.
+    await this.emitRequested(payerId, workerId, jobId, ctx);
+
+    // ---- [F-1] worker-state-INDEPENDENT credit precondition (BC-1) -----------
+    // Checked BEFORE consent/caps/worker existence. A zero-balance payer can never
+    // distinguish a consented-uncapped worker from a non-consented/unknown one: every
+    // branch from here that ends in "no contact" returns the IDENTICAL neutral body.
+    const balance = await this.repo.getBalance(payerId);
+    if (balance < 1) {
+      // INSUFFICIENT CREDITS collapses into the neutral response (F-1 option (a)).
+      // No worker state was consulted → no oracle. We do NOT record a per-worker deny
+      // row (that would itself be a probe signal); we emit an internal payment.failed
+      // for ops audit only.
+      await this.emitPaymentFailed(null, payerId, "insufficient_credits", ctx);
+      return neutralUnavailable();
+    }
+
+    // From here, ALL deny branches return the same neutral body (F-3). The single
+    // atomic transaction holds the advisory lock so caps cannot be raced (F-2) and the
+    // debit+grant are both-or-neither (F-6).
+    return this.repo.withTransaction(async (tx) => {
+      // Serialize all grants/reveals for this worker (F-2 atomicity).
+      await this.repo.lockWorker(tx, workerId);
+
+      // Idempotency: a live grant for (payer, worker) → return it, no second debit (F-6).
+      const existing = await this.repo.findByPayerWorker(tx, payerId, workerId);
+      if (existing && (existing.status === "granted" || existing.status === "revealed")) {
+        if (existing.expiresAt && existing.expiresAt.getTime() > Date.now()) {
+          return this.grantedResponse(existing.id, existing.expiresAt);
+        }
+        // else: expired — fall through to re-grant (a fresh window) below.
+      }
+
+      // ---- [1] employer_sharing CONSENT gate (fail closed) ------------------
+      const consented = await this.isConsentedForSharing(workerId);
+      if (!consented) {
+        // unknown_worker and no_consent BOTH return the same neutral body — the consent
+        // read returns false for a worker with no consent row at all, so existence is not
+        // distinguishable from non-consent at the HTTP layer.
+        const workerPresent = await this.workerExists(workerId);
+        const reason: UnlockDenyReason = workerPresent ? "no_consent" : "unknown_worker";
+        if (workerPresent) {
+          const row = await this.repo.recordDeny(tx, { payerId, workerId, jobId, denyReason: reason });
+          await this.emitDenied(row.id, payerId, workerId, jobId, reason, ctx);
+        } else {
+          // F-A (no-oracle): a non-existent worker_id would violate the
+          // unlocks.worker_id FK on INSERT and surface as a 500 — distinguishable from
+          // the 200 neutral body, i.e. a worker-enumeration oracle. Do NOT write a row
+          // for an unknown worker; emit the internal audit event WITHOUT one (unlock_id
+          // null, subject = worker) and return the identical neutral body.
+          await this.emitDenied(null, payerId, workerId, jobId, reason, ctx);
+        }
+        return neutralUnavailable();
+      }
+
+      // ---- [2] worker CAPS (atomic, before payment) -------------------------
+      const cap = await this.checkCaps(tx, workerId);
+      if (cap) {
+        await this.emitCapExceeded(payerId, workerId, cap, ctx);
+        const row = await this.repo.recordDeny(tx, { payerId, workerId, jobId, denyReason: "capped" });
+        await this.emitDenied(row.id, payerId, workerId, jobId, "capped", ctx);
+        return neutralUnavailable();
+      }
+
+      // ---- [3] PAYMENT / credit debit (atomic with [4] grant; F-6) ----------
+      const debit = await this.payments.debitOneCreditWithinTx(tx, payerId);
+      if (!debit.ok) {
+        // Lost a concurrent debit race after the precondition — collapse to neutral
+        // (still no worker-state oracle; consent already passed but the BODY is neutral).
+        await this.emitPaymentFailed(null, payerId, "insufficient_credits", ctx);
+        return neutralUnavailable();
+      }
+
+      // ---- [4] GRANT (same tx) ----------------------------------------------
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + UNLOCK_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+      const routingTokenRef = randomUUID(); // 122-bit, server-internal only (F-4)
+      const granted = await this.repo.upsertGrant(tx, {
+        payerId,
+        workerId,
+        jobId,
+        routingTokenRef,
+        grantedAt: now,
+        expiresAt,
+      });
+      // Ledger debit in the SAME tx (balance + ledger never drift; F-6).
+      await this.repo.appendLedger(tx, {
+        payerId,
+        delta: -1,
+        reason: "unlock_debit",
+        unlockId: granted.id,
+      });
+
+      await this.emitPaymentAuthorized(granted.id, payerId, ctx);
+      await this.emitPaymentCaptured(granted.id, payerId, ctx);
+      await this.emitGranted(granted.id, payerId, workerId, jobId, expiresAt, ctx);
+
+      return this.grantedResponse(granted.id, expiresAt);
+    });
+  }
+
+  // ===========================================================================
+  // POST /unlocks/:id/reveal  —  routed reveal (step [5]); the ONLY decrypt site
+  // ===========================================================================
+  async reveal(unlockId: string, ctx: RequestContext): Promise<RevealOutcome> {
+    // F-3: unknown/expired/over-cap/revoked all return the NEUTRAL body (not a 404).
+    return this.repo.withTransaction(async (tx) => {
+      const unlock = await this.repo.findByIdForUpdate(tx, unlockId);
+      if (!unlock) return neutralUnavailable();
+
+      // Serialize reveals for this worker (per-attempt cap atomicity; F-2).
+      await this.repo.lockWorker(tx, unlock.workerId);
+
+      // Re-read under the worker lock to see this txn's view consistently.
+      const fresh = await this.repo.findByIdForUpdate(tx, unlockId);
+      if (!fresh) return neutralUnavailable();
+
+      // Must be a live grant: granted/revealed, not expired.
+      const live =
+        (fresh.status === "granted" || fresh.status === "revealed") &&
+        fresh.expiresAt !== null &&
+        fresh.expiresAt.getTime() > Date.now() &&
+        fresh.routingTokenRef !== null;
+      if (!live) return neutralUnavailable();
+
+      // Per-unlock attempt cap (F-2 atomic; under the worker lock).
+      if (fresh.revealCount >= this.config.UNLOCK_MAX_ATTEMPTS_PER_UNLOCK) {
+        await this.emitCapExceeded(fresh.payerId, fresh.workerId, "attempts_per_unlock", ctx);
+        return neutralUnavailable();
+      }
+
+      // RE-CHECK consent as the LAST gate before decrypt (revocation is immediate; T4).
+      const consented = await this.isConsentedForSharing(fresh.workerId);
+      if (!consented) return neutralUnavailable();
+
+      // ---- [5] ROUTED REVEAL — the ONLY place the raw phone is decrypted ------
+      // It is read transiently to wire the in-app relay, then DISCARDED. It is NEVER
+      // returned, evented, logged, stored, or placed in an exception (F-5). ALL
+      // failures map to the neutral path (fail closed).
+      const channel: RoutingChannel = "in_app_relay"; // alpha: discloses no number
+      let relayHandle: string;
+      try {
+        relayHandle = await this.wireInAppRelay(fresh.workerId, fresh.id);
+      } catch {
+        // Do NOT surface the error (it could embed the phone). Log id + class only.
+        this.logger.warn(`reveal failed for unlock=${fresh.id}: relay_wire_error`);
+        return neutralUnavailable();
+      }
+
+      const revealExpiry = fresh.expiresAt!; // handle expires with the unlock window
+      await this.repo.createRouting(tx, {
+        unlockId: fresh.id,
+        routingToken: fresh.routingTokenRef!, // server-internal; NEVER returned (F-4)
+        channel,
+        relayHandle,
+        expiresAt: revealExpiry,
+      });
+      const revealCount = await this.repo.incrementReveal(tx, fresh.id);
+
+      await this.emitRevealed(fresh.id, fresh.payerId, fresh.workerId, channel, revealCount, ctx);
+
+      return {
+        relay_handle: relayHandle, // opaque, non-reversible, expiring — NOT a phone
+        channel,
+        expires_at: revealExpiry.toISOString(),
+      };
+    });
+  }
+
+  // ===========================================================================
+  // Ops reads (PII-free projections)
+  // ===========================================================================
+  async listByPayer(payerId: string): Promise<{ unlocks: UnlockProjection[] }> {
+    return { unlocks: await this.repo.listByPayer(payerId) };
+  }
+
+  async getOne(unlockId: string): Promise<UnlockProjection | undefined> {
+    return this.repo.getProjection(unlockId);
+  }
+
+  async getCredits(payerId: string): Promise<{ payer_id: string; balance: number }> {
+    return { payer_id: payerId, balance: await this.repo.getBalance(payerId) };
+  }
+
+  // ===========================================================================
+  // Credits (MOCK pack purchase — alpha; real Razorpay is a later human-gated stream)
+  // ===========================================================================
+  async purchaseCredits(
+    payerId: string,
+    packCode: string,
+    ctx: RequestContext,
+  ): Promise<{ payer_id: string; balance: number; credits: number; pack_code: string } | null> {
+    const pack = this.payments.resolvePack(packCode);
+    if (!pack) return null; // unknown pack → 404 (this is NOT the unlock no-oracle path)
+
+    const result = await this.payments.purchasePackMock(payerId, pack);
+    // Mock purchase audit: authorized + captured, real_call:false (mock honesty, F-6).
+    await this.emitPaymentAuthorized(null, payerId, ctx, {
+      packCode: pack.code,
+      amountInr: result.priceInr,
+      amountCredits: result.credits,
+    });
+    await this.emitPaymentCaptured(null, payerId, ctx, {
+      packCode: pack.code,
+      amountInr: result.priceInr,
+      amountCredits: result.credits,
+    });
+    return { payer_id: payerId, balance: result.balanceAfter, credits: pack.credits, pack_code: pack.code };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Fail-closed disclosure-consent read (ADR-0010 §D3): the worker's LATEST
+   * worker_consents row must exist, be unrevoked, AND carry the exact
+   * `employer_sharing` purpose. Profiling consent does NOT substitute. Any error →
+   * false (fail closed).
+   */
+  private async isConsentedForSharing(workerId: string): Promise<boolean> {
+    try {
+      const latest = await this.consents.findLatestByWorker(workerId);
+      if (!latest || latest.revokedAt !== null) return false;
+      const purposes = (latest.purposes ?? []) as string[];
+      return purposes.includes(EMPLOYER_SHARING);
+    } catch {
+      return false; // fail closed
+    }
+  }
+
+  private async workerExists(workerId: string): Promise<boolean> {
+    try {
+      return (await this.workers.findById(workerId)) !== undefined;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Worker-protection caps (ADR-0010 §D4, CONFIG-DRIVEN). Returns the exceeded cap
+   * kind, or null if within all caps. Reads are tx-scoped + under the advisory lock so
+   * the check-and-write is atomic (F-2). Counts are derived from `unlocks`/grants, not
+   * a side counter (no drift).
+   */
+  private async checkCaps(
+    tx: Tx,
+    workerId: string,
+  ): Promise<"daily_reveals" | "weekly_payers" | null> {
+    const now = Date.now();
+    const dayAgo = new Date(now - 24 * 60 * 60 * 1000);
+    const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+
+    const reveals = await this.repo.countRevealsSince(tx, workerId, dayAgo);
+    if (reveals >= this.config.UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY) return "daily_reveals";
+
+    const payers = await this.repo.countDistinctPayersSince(tx, workerId, weekAgo);
+    if (payers >= this.config.UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK) return "weekly_payers";
+
+    return null;
+  }
+
+  /**
+   * Wire the in-app relay (alpha): the raw phone is decrypted HERE, transiently, used
+   * to open the relay, and discarded. In alpha the "relay" is BadaBhai-mediated, so NO
+   * number leaves the system — we return only an opaque, non-reversible relay handle.
+   *
+   * F-5: the decrypted phone is assigned to a narrowly-scoped local, never returned,
+   * evented, logged, or put in an exception. The returned handle is derived WITHOUT
+   * the phone (a fresh random uuid bound to the unlock), so it is not reversible to it.
+   */
+  private async wireInAppRelay(workerId: string, unlockId: string): Promise<string> {
+    const worker = await this.workers.findById(workerId);
+    if (!worker) throw new Error("worker_not_found"); // mapped to neutral by caller
+
+    // THE ONLY decrypt on this path. Narrowly scoped; never logged/returned/evented.
+    const phone = this.pii.decrypt(worker.phoneE164);
+    // In a real in-app relay this would register a server-side relay session keyed to
+    // `phone`. Alpha: we only need to PROVE the relay can be opened without disclosing
+    // the number. We deliberately do nothing reversible with `phone`.
+    void phone.length; // touch the value (relay-open stand-in); do NOT log/return it.
+
+    // The payer-facing handle is a fresh opaque uuid — NOT derived from the phone, so
+    // it cannot be reversed to it (F-4). It expires with the unlock window.
+    return `relay_${unlockId}_${randomUUID()}`;
+  }
+
+  private grantedResponse(unlockId: string, expiresAt: Date): UnlockGrantedResponse {
+    return { ok: true, unlock_id: unlockId, status: "granted", expires_at: expiresAt.toISOString() };
+  }
+
+  // ---- Event emitters (all PII-free; ids + enums + counts only) -------------
+
+  private async emitRequested(
+    payerId: string,
+    workerId: string,
+    jobId: string | null,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const payload: PayloadInputOf<"unlock.requested"> = {
+      unlock_id: randomUUID(), // a request id placeholder (no row yet); not the grant id
+      payer_id: payerId,
+      worker_id: workerId,
+      job_id: jobId,
+    };
+    await this.events.emit({
+      event_name: "unlock.requested",
+      actor: { actor_type: "payer", actor_id: payerId },
+      subject: { subject_type: "unlock", subject_id: payload.unlock_id },
+      payload,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+  }
+
+  private async emitGranted(
+    unlockId: string,
+    payerId: string,
+    workerId: string,
+    jobId: string | null,
+    expiresAt: Date,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const payload: PayloadInputOf<"unlock.granted"> = {
+      unlock_id: unlockId,
+      payer_id: payerId,
+      worker_id: workerId,
+      job_id: jobId,
+      expires_at: expiresAt.toISOString(),
+    };
+    await this.events.emit({
+      event_name: "unlock.granted",
+      actor: { actor_type: "payer", actor_id: payerId },
+      subject: { subject_type: "unlock", subject_id: unlockId },
+      payload,
+      idempotencyKey: `unlock.granted:${unlockId}`, // once-only
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+  }
+
+  private async emitDenied(
+    unlockId: string | null,
+    payerId: string,
+    workerId: string,
+    jobId: string | null,
+    reason: UnlockDenyReason,
+    ctx: RequestContext,
+  ): Promise<void> {
+    // unlockId is null for the unknown-worker deny (no row is written — see F-A); the
+    // payload's unlock_id is nullable and the subject falls back to the worker, matching
+    // unlock.cap_exceeded's worker subject.
+    const payload: PayloadInputOf<"unlock.denied"> = {
+      unlock_id: unlockId,
+      payer_id: payerId,
+      worker_id: workerId,
+      job_id: jobId,
+      reason, // INTERNAL audit only — NEVER echoed to the payer (F-3)
+    };
+    await this.events.emit({
+      event_name: "unlock.denied",
+      actor: { actor_type: "payer", actor_id: payerId },
+      subject: unlockId
+        ? { subject_type: "unlock", subject_id: unlockId }
+        : { subject_type: "worker", subject_id: workerId },
+      payload,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+  }
+
+  private async emitCapExceeded(
+    payerId: string,
+    workerId: string,
+    cap: "daily_reveals" | "weekly_payers" | "attempts_per_unlock",
+    ctx: RequestContext,
+  ): Promise<void> {
+    const window = cap === "daily_reveals" ? "day" : cap === "weekly_payers" ? "week" : "unlock";
+    const payload: PayloadInputOf<"unlock.cap_exceeded"> = {
+      payer_id: payerId,
+      worker_id: workerId,
+      cap,
+      window,
+    };
+    await this.events.emit({
+      event_name: "unlock.cap_exceeded",
+      actor: { actor_type: "payer", actor_id: payerId },
+      subject: { subject_type: "worker", subject_id: workerId },
+      payload,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+  }
+
+  private async emitRevealed(
+    unlockId: string,
+    payerId: string,
+    workerId: string,
+    channel: RoutingChannel,
+    revealCount: number,
+    ctx: RequestContext,
+  ): Promise<void> {
+    const payload: PayloadInputOf<"contact.revealed"> = {
+      unlock_id: unlockId,
+      payer_id: payerId,
+      worker_id: workerId,
+      channel, // KIND only — NEVER the number/handle/destination (F-5)
+      reveal_count: revealCount,
+    };
+    await this.events.emit({
+      event_name: "contact.revealed",
+      actor: { actor_type: "payer", actor_id: payerId },
+      subject: { subject_type: "unlock", subject_id: unlockId },
+      payload,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+  }
+
+  private async emitPaymentAuthorized(
+    unlockId: string | null,
+    payerId: string,
+    ctx: RequestContext,
+    extra?: { packCode?: string; amountInr?: number; amountCredits?: number },
+  ): Promise<void> {
+    const payload: PayloadInputOf<"payment.authorized"> = {
+      unlock_id: unlockId,
+      payer_id: payerId,
+      pack_code: extra?.packCode ?? null,
+      amount_inr: extra?.amountInr ?? null,
+      amount_credits: extra?.amountCredits ?? 1,
+      real_call: this.payments.realCall, // honest mock flag (false in alpha)
+    };
+    await this.events.emit({
+      event_name: "payment.authorized",
+      actor: { actor_type: "payer", actor_id: payerId },
+      subject: { subject_type: "unlock", subject_id: unlockId },
+      payload,
+      ...(unlockId ? { idempotencyKey: `payment.authorized:${unlockId}` } : {}),
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+  }
+
+  private async emitPaymentCaptured(
+    unlockId: string | null,
+    payerId: string,
+    ctx: RequestContext,
+    extra?: { packCode?: string; amountInr?: number; amountCredits?: number },
+  ): Promise<void> {
+    const payload: PayloadInputOf<"payment.captured"> = {
+      unlock_id: unlockId,
+      payer_id: payerId,
+      pack_code: extra?.packCode ?? null,
+      amount_inr: extra?.amountInr ?? null,
+      amount_credits: extra?.amountCredits ?? 1,
+      real_call: this.payments.realCall,
+    };
+    await this.events.emit({
+      event_name: "payment.captured",
+      actor: { actor_type: "payer", actor_id: payerId },
+      subject: { subject_type: "unlock", subject_id: unlockId },
+      payload,
+      ...(unlockId ? { idempotencyKey: `payment.captured:${unlockId}` } : {}),
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+  }
+
+  private async emitPaymentFailed(
+    unlockId: string | null,
+    payerId: string,
+    reason: "insufficient_credits" | "gateway_error",
+    ctx: RequestContext,
+  ): Promise<void> {
+    const payload: PayloadInputOf<"payment.failed"> = {
+      unlock_id: unlockId,
+      payer_id: payerId,
+      reason,
+      real_call: this.payments.realCall,
+    };
+    await this.events.emit({
+      event_name: "payment.failed",
+      actor: { actor_type: "payer", actor_id: payerId },
+      subject: { subject_type: "unlock", subject_id: unlockId },
+      payload,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+  }
+}

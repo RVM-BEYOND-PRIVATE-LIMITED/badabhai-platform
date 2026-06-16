@@ -21,6 +21,14 @@ export const EVENT_DOMAINS = [
   // ships. PII-free (worker_id + opaque job_id + signals only).
   "feed",
   "application",
+  // Contact Unlock + Reveal (ADR-0010, Stream A) — the routed-disclosure monetization
+  // spine. PII-FREE by construction: ids + enums + counts ONLY. The revealed contact /
+  // proxy number / relay destination NEVER appears in any payload (CLAUDE.md invariant 2,
+  // ADR-0010 §6.2 / Phase-0 F-5). `payment` is the MOCK credit ledger in alpha
+  // (real_call:false on every event); a real gateway is a later human-gated stream.
+  "unlock",
+  "contact",
+  "payment",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;
@@ -54,6 +62,9 @@ export const SUBJECT_TYPES = [
   // A job/opening the worker is shown / applies to / skips (Reach foundation). The
   // job entity itself is Phase-2; the id is an opaque reference here.
   "job",
+  // A routed-contact unlock grant (ADR-0010). The subject_id is the opaque unlock_id;
+  // it carries NO PII (the only identity join is worker_id, inside the payload).
+  "unlock",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;

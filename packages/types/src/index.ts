@@ -23,7 +23,13 @@ export const CONSENT_PURPOSES = [
   // Lawful basis for the in-house model track. Captured from day one on purpose:
   // adding it later would require re-consenting every existing worker (plan J1).
   "model_training",
-  // "employer_sharing" is intentionally Phase 2+ and not enabled in Phase 1.
+  // Phase-2 Contact Unlock + Reveal (ADR-0010 §D3). A SEPARATE, explicit DPDP
+  // disclosure purpose: it gates whether a worker's routed contact may be disclosed
+  // to a paying party. It is DISTINCT from `profiling` — a worker may have profiling
+  // consent but NOT this, and is then undiscoverable for unlock (neutral "unavailable").
+  // The fail-closed gate keys on this exact string. Production DPDP notice copy +
+  // lawful-basis wording remain a human/legal launch gate (CLAUDE.md §8).
+  "employer_sharing",
 ] as const;
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
 
