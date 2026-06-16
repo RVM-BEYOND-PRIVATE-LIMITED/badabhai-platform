@@ -565,7 +565,7 @@ describe("job_posting events (ops-created, vacancy-banded, PII-free)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 40 event names (37 prior + 3 job_posting: created/updated/closed, ADR-0010)", () => {
+  it("exposes all 40 event names (37 prior + 3 job_posting: created/updated/closed, ADR-0012)", () => {
     expect(EVENT_NAMES).toHaveLength(40);
     expect(isEventName("job_posting.created")).toBe(true);
     expect(isEventName("job_posting.updated")).toBe(true);

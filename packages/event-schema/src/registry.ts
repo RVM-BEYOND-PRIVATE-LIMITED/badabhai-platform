@@ -132,7 +132,7 @@ export const EVENT_REGISTRY = {
     payload: p.ApplicationSkippedPayload,
   },
 
-  // Ops-created job postings (ADR-0010) — vacancy-banded, stored-only. PII-free:
+  // Ops-created job postings (ADR-0012) — vacancy-banded, stored-only. PII-free:
   // ids/enums/booleans/field-key arrays only (org/role/location/description never
   // appear in a payload).
   "job_posting.created": {

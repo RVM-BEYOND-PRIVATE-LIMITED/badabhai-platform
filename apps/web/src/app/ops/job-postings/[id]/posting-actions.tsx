@@ -19,7 +19,7 @@ import {
 /**
  * Edit / Publish / Close controls for one posting.
  *
- * Lifecycle (ADR-0010):
+ * Lifecycle (ADR-0012):
  *   - draft: editable; can Publish (draft -> open); can Close.
  *   - open:  editable; can Close.
  *   - closed: TERMINAL — read-only, no controls rendered at all.

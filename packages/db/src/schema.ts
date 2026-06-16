@@ -487,7 +487,7 @@ export const workerAnswers = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// job_postings (ADR-0010) — ops-created, vacancy-banded, stored-only postings.
+// job_postings (ADR-0012) — ops-created, vacancy-banded, stored-only postings.
 //
 // Phase 1 scope: this is a STORED-ONLY record an ops actor creates. It does NOT
 // feed ranking/matching (Reach Engine is deferred) and has NO worker linkage.

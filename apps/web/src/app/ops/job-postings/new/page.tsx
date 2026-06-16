@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { PostingCreateForm } from "./posting-create-form";
 
-/** Create a new job posting (ADR-0010). Always created as `draft`. */
+/** Create a new job posting (ADR-0012). Always created as `draft`. */
 export default function NewJobPostingPage() {
   return (
     <>

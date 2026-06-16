@@ -16,7 +16,7 @@ import type {
 } from "./job-postings.dto";
 
 /**
- * Ops-created, vacancy-banded, stored-only job postings (ADR-0010). Each write
+ * Ops-created, vacancy-banded, stored-only job postings (ADR-0012). Each write
  * emits a registry-validated `job_posting.*` event whose payload carries ONLY
  * ids, enums, booleans, and changed-field KEYS — never the free-text values
  * (org_label / role_title / location_label / description). The free text lives

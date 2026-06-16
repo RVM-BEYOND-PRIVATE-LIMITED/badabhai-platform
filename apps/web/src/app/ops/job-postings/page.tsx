@@ -11,7 +11,7 @@ const VALID_STATUSES: JobPostingStatus[] = ["draft", "open", "closed"];
 
 /**
  * Job postings list — wired to GET /job-postings (newest first), with an
- * optional `?status=` filter. ADR-0010: ops-created, vacancy-banded,
+ * optional `?status=` filter. ADR-0012: ops-created, vacancy-banded,
  * stored-only. Org/role/location text shown here was typed by ops and lives only
  * on the row — that's distinct from the PII rule (events/logs) and the faceless
  * Reach feed.

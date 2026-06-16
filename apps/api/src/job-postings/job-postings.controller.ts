@@ -22,7 +22,7 @@ import {
 } from "./job-postings.dto";
 
 /**
- * Ops-created, vacancy-banded, stored-only job postings (ADR-0010). Thin HTTP
+ * Ops-created, vacancy-banded, stored-only job postings (ADR-0012). Thin HTTP
  * layer: validation via ZodValidationPipe, all logic + events in the service.
  * No ops auth in alpha — `created_by` is supplied on the create body.
  */

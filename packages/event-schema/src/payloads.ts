@@ -468,7 +468,7 @@ export const ApplicationSkippedPayload = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// job_posting.* — ops-created, vacancy-banded, stored-only job postings (ADR-0010).
+// job_posting.* — ops-created, vacancy-banded, stored-only job postings (ADR-0012).
 //
 // PII-FREE BY CONSTRUCTION: these record the FACT of a posting's lifecycle, never
 // its values. The org label, role title, location label, and description live ONLY

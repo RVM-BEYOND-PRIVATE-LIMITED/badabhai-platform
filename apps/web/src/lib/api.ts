@@ -186,7 +186,7 @@ export async function listAiJobs(): Promise<AiJobListItem[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Job postings (ADR-0010 — ops-created, vacancy-banded, stored-only).
+// Job postings (ADR-0012 — ops-created, vacancy-banded, stored-only).
 //
 // IMPORTANT: this endpoint returns the raw Drizzle row, so the wire shape is
 // camelCase (orgLabel, vacancyBand, createdAt, …) — NOT snake_case like the

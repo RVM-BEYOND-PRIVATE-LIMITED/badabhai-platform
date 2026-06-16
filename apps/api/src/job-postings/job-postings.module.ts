@@ -4,7 +4,7 @@ import { JobPostingsService } from "./job-postings.service";
 import { JobPostingsRepository } from "./job-postings.repository";
 
 /**
- * Ops-created job postings (ADR-0010). EventsService (global, via EventsModule)
+ * Ops-created job postings (ADR-0012). EventsService (global, via EventsModule)
  * is the only external dep; the repository talks to the global DATABASE provider.
  */
 @Module({

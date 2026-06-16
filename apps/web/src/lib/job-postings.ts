@@ -1,7 +1,7 @@
 import { VACANCY_BANDS, type VacancyBand } from "@badabhai/types";
 
 /**
- * Job-postings ops helpers (ADR-0010). No data access here — just the stub
+ * Job-postings ops helpers (ADR-0012). No data access here — just the stub
  * ops-actor id, the band list for the create/edit selects, and the client-side
  * mirror of the server's description-only PII reject.
  */
