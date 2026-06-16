@@ -65,7 +65,10 @@ function setup(opts: SetupOpts = {}) {
     withTransaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work(txMethods)),
     getBalance: vi.fn(async () => balance),
     listByPayer: vi.fn(async () => []),
-    getProjection: vi.fn(async () => undefined),
+    // reveal() reads the projection (tx-external) BEFORE the lock to run the consent
+    // gate; return a worker_id-bearing projection whenever an unlock exists so that
+    // pre-lock consent check fires in the reveal tests.
+    getProjection: vi.fn(async () => (opts.existingUnlock ? { worker_id: WORKER } : undefined)),
     ...txMethods,
   };
 

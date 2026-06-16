@@ -120,6 +120,19 @@ export class UnlockService {
       return neutralUnavailable();
     }
 
+    // ---- [1] employer_sharing CONSENT gate — read BEFORE the advisory lock ----
+    // These are tx-EXTERNAL reads (ConsentRepository / WorkersRepository use the global
+    // pool). Doing them INSIDE the advisory-locked transaction would need a 2nd pool
+    // connection while N concurrent requests hold theirs blocked on the lock → pool-vs-
+    // lock DEADLOCK (the F-2 failure). So resolve them here, before the lock; the tx below
+    // only ever uses its own connection. SAFE: the reveal step re-checks consent as the
+    // last gate before any disclosure, so a grant-time pre-lock consent read cannot leak a
+    // contact even if consent is revoked between here and the grant (the grant is not the
+    // disclosure). unknown_worker vs no_consent both return the IDENTICAL neutral body;
+    // workerExists only picks the internal audit reason (consented ⇒ worker exists).
+    const consented = await this.isConsentedForSharing(workerId);
+    const workerPresent = consented || (await this.workerExists(workerId));
+
     // From here, ALL deny branches return the same neutral body (F-3). The single
     // atomic transaction holds the advisory lock so caps cannot be raced (F-2) and the
     // debit+grant are both-or-neither (F-6). The transaction does ALL the DB work and
@@ -142,12 +155,11 @@ export class UnlockService {
         }
 
         // ---- [1] employer_sharing CONSENT gate (fail closed) ------------------
-        const consented = await this.isConsentedForSharing(workerId);
+        // `consented`/`workerPresent` were resolved BEFORE the lock (deadlock fix above).
         if (!consented) {
           // unknown_worker and no_consent BOTH return the same neutral body — the consent
           // read returns false for a worker with no consent row at all, so existence is not
           // distinguishable from non-consent at the HTTP layer.
-          const workerPresent = await this.workerExists(workerId);
           const reason: UnlockDenyReason = workerPresent ? "no_consent" : "unknown_worker";
           if (workerPresent) {
             const row = await this.repo.recordDeny(tx, { payerId, workerId, jobId, denyReason: reason });
@@ -220,6 +232,17 @@ export class UnlockService {
   // POST /unlocks/:id/reveal  —  routed reveal (step [5]); the ONLY decrypt site
   // ===========================================================================
   async reveal(unlockId: string, ctx: RequestContext): Promise<RevealOutcome> {
+    // Consent re-check BEFORE the advisory lock (same pool-vs-lock deadlock fix as
+    // requestUnlock): a tx-external consent read inside the locked tx would need a 2nd
+    // pool connection while concurrent reveals on this worker hold theirs → deadlock.
+    // Resolve the unlock's worker via a tx-external projection read and check consent
+    // here. RR-3: the revoke-vs-reveal TOCTOU is irreducible; the window stays minimal
+    // (lock-acquire + the in-tx validations) and the threat model already accepts it —
+    // eliminating the deadlock outweighs the marginal widening. A missing/own-by-other
+    // unlock falls through to the tx, which returns the IDENTICAL neutral body (F-3).
+    const pre = await this.repo.getProjection(unlockId);
+    if (pre && !(await this.isConsentedForSharing(pre.worker_id))) return neutralUnavailable();
+
     // F-3: unknown/expired/over-cap/revoked all return the NEUTRAL body (not a 404).
     // The transaction does ALL the DB work + returns WHICH events to emit; it does NOT
     // emit (same deadlock fix as requestUnlock — contact.revealed/cap_exceeded used the
@@ -252,9 +275,9 @@ export class UnlockService {
           return { response: neutralUnavailable(), events };
         }
 
-        // RE-CHECK consent as the LAST gate before decrypt (revocation is immediate; T4).
-        const consented = await this.isConsentedForSharing(fresh.workerId);
-        if (!consented) return { response: neutralUnavailable(), events };
+        // Consent was re-checked just above, BEFORE the lock (deadlock fix). Per RR-3
+        // the revoke-vs-reveal TOCTOU is irreducible; the remaining window is the
+        // lock-acquire + the validations below, which is accepted.
 
         // ---- [5] ROUTED REVEAL — the ONLY place the raw phone is decrypted ------
         // It is read transiently to wire the in-app relay, then DISCARDED. It is NEVER
