@@ -180,6 +180,42 @@ async function apiGetInternal<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+/**
+ * Server-only POST for ops endpoints behind the API's `InternalServiceGuard`
+ * (the contact unlock + reveal writes — ADR-0010). Mirrors {@link apiGetInternal}:
+ * attaches the `INTERNAL_SERVICE_TOKEN` shared secret read from `process.env`.
+ *
+ * SECURITY: `INTERNAL_SERVICE_TOKEN` is a SERVER secret. It is read from
+ * `process.env` (NEVER `publicConfig` / `NEXT_PUBLIC_*`) so it is never inlined
+ * into the client bundle. This function MUST only ever be invoked from a Server
+ * Action / Server Component — never from client code. If the token is unset the
+ * guard fails closed (401) and the caller renders its honest error state; the
+ * secret is never surfaced.
+ */
+async function apiPostInternal<T>(path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = { accept: "application/json" };
+  const token = process.env.INTERNAL_SERVICE_TOKEN;
+  if (token) {
+    headers[INTERNAL_SERVICE_TOKEN_HEADER] = token;
+  }
+  if (body !== undefined) {
+    headers["content-type"] = "application/json";
+  }
+  const res = await fetch(`${publicConfig.NEXT_PUBLIC_API_URL}${path}`, {
+    method: "POST",
+    cache: "no-store",
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    throw new ApiError(
+      res.status,
+      `API POST ${path} failed: ${res.status} ${res.statusText}`,
+    );
+  }
+  return (await res.json()) as T;
+}
+
 export async function listWorkers(): Promise<WorkerListItem[]> {
   const { workers } = await apiGet<{ workers: WorkerListItem[] }>("/workers");
   return workers;
@@ -386,4 +422,97 @@ export function getJobApplicants(jobId: string): Promise<JobApplicants> {
  */
 export function getWorkerApplications(workerId: string): Promise<WorkerApplications> {
   return apiGetInternal<WorkerApplications>(`/workers/${workerId}/applications`);
+}
+
+/* ── Contact unlock + reveal (ADR-0010, Stream A) ───────────────────────────────
+ * THE MOST SECURITY-SENSITIVE SURFACE. All three endpoints are behind the API's
+ * `InternalServiceGuard` and MUST be called server-side only (the shared secret
+ * never reaches the browser) — they go through `apiPostInternal` / `apiGetInternal`.
+ *
+ * NO-ORACLE (F-1/F-3): `POST /unlocks` collapses no-consent / capped /
+ * unknown-worker / already-unlocked-by-another / insufficient-credits into ONE
+ * byte-identical `{ status: "unavailable" }`, HTTP 200. The console MUST treat the
+ * neutral branch as a single opaque state and NEVER infer the cause. The only
+ * legitimately-knowable signal is the payer's OWN credit balance (GET .../credits).
+ */
+
+/** Granted unlock — `POST /unlocks` success branch. PII-free routing record. */
+export interface UnlockGranted {
+  ok: true;
+  unlock_id: string;
+  status: "granted";
+  expires_at: string;
+}
+
+/**
+ * The neutral, no-oracle response shared by `POST /unlocks` and
+ * `POST /unlocks/:id/reveal`. Carries NOTHING beyond the status — by design it is
+ * indistinguishable across every failure cause. Do not add fields here.
+ */
+export interface UnlockUnavailable {
+  status: "unavailable";
+}
+
+export type UnlockResult = UnlockGranted | UnlockUnavailable;
+
+/**
+ * Reveal success — the ROUTED RELAY HANDLE only. `relay_handle` is an opaque
+ * routing token, NOT a phone number; there is no phone anywhere in this response.
+ */
+export interface RevealHandle {
+  relay_handle: string;
+  channel: "in_app_relay" | "proxy_number";
+  expires_at: string;
+}
+
+export type RevealResult = RevealHandle | UnlockUnavailable;
+
+/** A payer's own credit balance — the one legitimately-knowable signal. */
+export interface PayerCredits {
+  payer_id: string;
+  balance: number;
+}
+
+export interface CreateUnlockBody {
+  payer_id: string;
+  worker_id: string;
+  job_id?: string | null;
+}
+
+/** Type guard: did `POST /unlocks` grant the unlock? */
+export function isUnlockGranted(r: UnlockResult): r is UnlockGranted {
+  return "ok" in r && r.ok === true;
+}
+
+/** Type guard: did `POST /unlocks/:id/reveal` return a routed handle? */
+export function isRevealHandle(r: RevealResult): r is RevealHandle {
+  return "relay_handle" in r;
+}
+
+/**
+ * `POST /unlocks` (InternalServiceGuard). Returns the granted record OR the
+ * neutral `{ status: "unavailable" }`. Server-side only.
+ */
+export function createUnlock(body: CreateUnlockBody): Promise<UnlockResult> {
+  return apiPostInternal<UnlockResult>("/unlocks", body);
+}
+
+/**
+ * `POST /unlocks/:unlockId/reveal` (InternalServiceGuard). Returns the routed
+ * relay handle OR the neutral `{ status: "unavailable" }`. Server-side only.
+ */
+export function revealUnlock(unlockId: string): Promise<RevealResult> {
+  return apiPostInternal<RevealResult>(
+    `/unlocks/${encodeURIComponent(unlockId)}/reveal`,
+  );
+}
+
+/**
+ * `GET /payers/:payerId/credits` (InternalServiceGuard). The payer's own balance
+ * — the only legitimately-knowable signal on this surface. Server-side only.
+ */
+export function getPayerCredits(payerId: string): Promise<PayerCredits> {
+  return apiGetInternal<PayerCredits>(
+    `/payers/${encodeURIComponent(payerId)}/credits`,
+  );
 }

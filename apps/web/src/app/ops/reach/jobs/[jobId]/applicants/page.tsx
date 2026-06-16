@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getReachJobApplicants, ApiError, type ApplicantList } from "@/lib/api";
-import { formatScore, WhyDetails } from "@/components/reach";
+import { UnlockActions } from "./unlock-actions";
 
 // Live ops data — always fetched fresh from the API at request time.
 export const dynamic = "force-dynamic";
@@ -66,42 +66,19 @@ export default async function JobApplicantsPage({
           {data.applicants.length === 0 ? (
             <div className="empty">The worker pool is empty.</div>
           ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Rank</th>
-                  <th>Worker ID</th>
-                  <th>Score</th>
-                  <th>Flags</th>
-                  <th>Why</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.applicants.map((a) => (
-                  <tr key={a.workerId}>
-                    <td>{a.rank}</td>
-                    <td className="mono">{a.workerId}</td>
-                    <td>{formatScore(a.score)}</td>
-                    <td>
-                      {a.hot ? <span className="badge badge-hot">HOT</span> : null}
-                      {a.hot && a.pushEligible ? " " : null}
-                      {a.pushEligible ? <span className="badge badge-push">PUSH</span> : null}
-                      {!a.hot && !a.pushEligible ? "—" : null}
-                    </td>
-                    <td>
-                      <WhyDetails components={a.components} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            // Faceless applicants (opaque worker ids only) are passed into the
+            // client component, which drives the server-action-backed unlock +
+            // reveal flow. Data-fetching stays here on the server.
+            <UnlockActions jobId={jobId} applicants={data.applicants} />
           )}
         </>
       ) : null}
 
       <div className="footer">
         Faceless surface: opaque worker ids, ranking signals, and the explainable &ldquo;why&rdquo;
-        only. No phone/name/employer is returned by the API or shown here.
+        only. No phone/name/employer is returned by the API. Unlock reveals a{" "}
+        <strong>routed relay handle</strong> — never a phone number — and an
+        &ldquo;unavailable&rdquo; result never discloses its cause (no-oracle).
       </div>
     </>
   );
