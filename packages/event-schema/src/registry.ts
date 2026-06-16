@@ -131,6 +131,25 @@ export const EVENT_REGISTRY = {
     domain: "application",
     payload: p.ApplicationSkippedPayload,
   },
+
+  // Ops-created job postings (ADR-0010) — vacancy-banded, stored-only. PII-free:
+  // ids/enums/booleans/field-key arrays only (org/role/location/description never
+  // appear in a payload).
+  "job_posting.created": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingCreatedPayload,
+  },
+  "job_posting.updated": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingUpdatedPayload,
+  },
+  "job_posting.closed": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingClosedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

@@ -26,6 +26,8 @@ import type {
   AiJobType,
   AiJobStatus,
   LanguageCode,
+  VacancyBand,
+  JobPostingStatus,
 } from "@badabhai/types";
 
 /**
@@ -481,6 +483,52 @@ export const workerAnswers = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// job_postings (ADR-0010) — ops-created, vacancy-banded, stored-only postings.
+//
+// Phase 1 scope: this is a STORED-ONLY record an ops actor creates. It does NOT
+// feed ranking/matching (Reach Engine is deferred) and has NO worker linkage.
+//
+// PRIVACY: org_label / role_title / location_label / description are NON-PII
+// free text by contract — ops must not type a worker's phone/name/etc. into
+// them. That boundary is enforced in the API/event layer; the table just stores
+// the strings. `created_by` is an OPAQUE ops-actor id (no FK to anything).
+// `id` is the subject_id for all job_posting.* events.
+//
+// `vacancy_band` is BANDED text (not an integer count) on purpose — distinct
+// from any vacancy_count column. CHECK constraints pin both unions at the DB
+// (mirrors VACANCY_BANDS / JOB_POSTING_STATUSES in @badabhai/types).
+// ---------------------------------------------------------------------------
+export const jobPostings = pgTable(
+  "job_postings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Opaque ops-actor id — deliberately NO foreign key to any table.
+    createdBy: uuid("created_by").notNull(),
+    orgLabel: text("org_label").notNull(),
+    roleTitle: text("role_title").notNull(),
+    locationLabel: text("location_label"),
+    description: text("description"),
+    vacancyBand: text("vacancy_band").$type<VacancyBand>().notNull(),
+    status: text("status").$type<JobPostingStatus>().notNull().default("draft"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+  },
+  (t) => [
+    // Pin the banded vacancy to the 5 allowed values (mirrors VACANCY_BANDS).
+    check(
+      "job_postings_vacancy_band_chk",
+      sql`${t.vacancyBand} IN ('1', '2-5', '6-10', '11-25', '25+')`,
+    ),
+    // Pin the lifecycle to the 3 allowed values (mirrors JOB_POSTING_STATUSES).
+    check(
+      "job_postings_status_chk",
+      sql`${t.status} IN ('draft', 'open', 'closed')`,
+    ),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
 // ---------------------------------------------------------------------------
 export type Worker = typeof workers.$inferSelect;
@@ -511,6 +559,8 @@ export type ProfileQuestion = typeof profileQuestions.$inferSelect;
 export type NewProfileQuestion = typeof profileQuestions.$inferInsert;
 export type WorkerAnswer = typeof workerAnswers.$inferSelect;
 export type NewWorkerAnswer = typeof workerAnswers.$inferInsert;
+export type JobPosting = typeof jobPostings.$inferSelect;
+export type NewJobPosting = typeof jobPostings.$inferInsert;
 
 /** All tables, handy for migrations/tests. */
 export const schema = {
@@ -528,4 +578,5 @@ export const schema = {
   questions,
   profileQuestions,
   workerAnswers,
+  jobPostings,
 };

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
+import { looksLikePii } from "@badabhai/validators";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
@@ -70,18 +71,6 @@ export class ActionsService {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
   }
-}
-
-const EMAIL_LIKE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
-// Separators commonly used inside phone numbers; stripped before counting digits
-// so spaced/punctuated forms ("98765 43210", "+91-98765-43210") are still caught.
-const PHONE_SEPARATORS = /[\s().+-]/g;
-const PHONE_DIGIT_RUN = /\d{7,}/;
-
-/** True if a string looks like a phone number or email address. */
-function looksLikePii(s: string): boolean {
-  if (EMAIL_LIKE.test(s)) return true;
-  return PHONE_DIGIT_RUN.test(s.replace(PHONE_SEPARATORS, ""));
 }
 
 /**

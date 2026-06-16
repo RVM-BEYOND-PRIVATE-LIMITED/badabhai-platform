@@ -21,6 +21,10 @@ export const EVENT_DOMAINS = [
   // ships. PII-free (worker_id + opaque job_id + signals only).
   "feed",
   "application",
+  // Ops-created job postings (ADR-0010): vacancy-banded, stored-only. Created/
+  // updated/closed by ops; PII-FREE (ids/enums/booleans/key-arrays only — never
+  // org/role/location/description free text).
+  "job_posting",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;
@@ -54,6 +58,9 @@ export const SUBJECT_TYPES = [
   // A job/opening the worker is shown / applies to / skips (Reach foundation). The
   // job entity itself is Phase-2; the id is an opaque reference here.
   "job",
+  // An ops-created job posting (ADR-0010). The subject_id is the job_postings row
+  // id — carries no PII (org/role/location/description never appear in events).
+  "job_posting",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;

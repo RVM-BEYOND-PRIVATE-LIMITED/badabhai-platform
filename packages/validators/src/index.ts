@@ -107,5 +107,30 @@ export function conversationObjectKey(parts: ConversationObjectKeyParts): string
   return `${workerId}/${sessionId}/v${version}.json`;
 }
 
+// ---------------------------------------------------------------------------
+// Best-effort PII shape detection (capture-boundary guard)
+// ---------------------------------------------------------------------------
+
+const EMAIL_LIKE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+// Separators commonly used inside phone numbers; stripped before counting digits
+// so spaced/punctuated forms ("98765 43210", "+91-98765-43210") are still caught.
+const PHONE_SEPARATORS = /[\s().+-]/g;
+const PHONE_DIGIT_RUN = /\d{7,}/;
+
+/**
+ * Best-effort heuristic: true if a string looks like an OBVIOUS phone number or
+ * email address. Used at capture boundaries (e.g. the actions context bag) to
+ * fail closed on raw PII before it reaches the events table.
+ *
+ * NOT a PII classifier: it only catches email-shaped strings and long digit runs
+ * (after stripping common phone separators). It will NOT catch names, addresses,
+ * employer names, or other PII — callers must still keep free text out of fields
+ * that flow into events/logs.
+ */
+export function looksLikePii(s: string): boolean {
+  if (EMAIL_LIKE.test(s)) return true;
+  return PHONE_DIGIT_RUN.test(s.replace(PHONE_SEPARATORS, ""));
+}
+
 export type E164Phone = z.infer<typeof e164PhoneSchema>;
 export type ConsentPurposes = z.infer<typeof consentPurposesSchema>;

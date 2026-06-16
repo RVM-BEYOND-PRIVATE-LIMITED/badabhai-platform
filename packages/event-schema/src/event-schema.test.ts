@@ -478,9 +478,98 @@ describe("interview_kit events (per-trade, PII-free)", () => {
   });
 });
 
+describe("job_posting events (ops-created, vacancy-banded, PII-free)", () => {
+  it("validates job_posting.created (ops actor, job_posting subject)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "job_posting.created",
+      actor: { actor_type: "ops", actor_id: UUID_C },
+      subject: { subject_type: "job_posting", subject_id: UUID_A },
+      payload: {
+        job_posting_id: UUID_A,
+        vacancy_band: "2-5",
+        status: "draft",
+        created_by: UUID_C,
+        has_location: true,
+        has_description: false,
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "job_posting.created") {
+      expect(result.event.payload.vacancy_band).toBe("2-5");
+      expect(result.event.payload.status).toBe("draft");
+    }
+  });
+
+  it("rejects job_posting.created with an unknown vacancy band (enum-only → no free text)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "job_posting.created",
+      actor: { actor_type: "ops", actor_id: UUID_C },
+      subject: { subject_type: "job_posting", subject_id: UUID_A },
+      payload: {
+        job_posting_id: UUID_A,
+        vacancy_band: "lots",
+        status: "draft",
+        created_by: UUID_C,
+        has_location: true,
+        has_description: false,
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.stage).toBe("payload");
+  });
+
+  it("validates job_posting.updated with changed field KEYS and a nullable band", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "job_posting.updated",
+      actor: { actor_type: "ops", actor_id: UUID_C },
+      subject: { subject_type: "job_posting", subject_id: UUID_A },
+      payload: {
+        job_posting_id: UUID_A,
+        changed_fields: ["role_title", "vacancy_band"],
+        status: "open",
+        vacancy_band: "6-10",
+      },
+    };
+    expect(validateEvent(evt).success).toBe(true);
+
+    const noBandChange = {
+      ...evt,
+      payload: {
+        job_posting_id: UUID_A,
+        changed_fields: ["role_title"],
+        status: "open",
+        vacancy_band: null,
+      },
+    };
+    expect(validateEvent(noBandChange).success).toBe(true);
+  });
+
+  it("validates job_posting.closed and pins status to the literal 'closed'", () => {
+    const ok = {
+      ...workerCreatedEvent(),
+      event_name: "job_posting.closed",
+      actor: { actor_type: "ops", actor_id: UUID_C },
+      subject: { subject_type: "job_posting", subject_id: UUID_A },
+      payload: { job_posting_id: UUID_A, previous_status: "open", status: "closed" },
+    };
+    expect(validateEvent(ok).success).toBe(true);
+
+    const wrongStatus = { ...ok, payload: { ...ok.payload, status: "open" } };
+    expect(validateEvent(wrongStatus).success).toBe(false);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 37 event names (26 Phase-1 + worker.name_recorded + 3 Reach foundation + 3 resume render + 3 interview kit + ai.spend_cap_exceeded)", () => {
-    expect(EVENT_NAMES).toHaveLength(37);
+  it("exposes all 40 event names (37 prior + 3 job_posting: created/updated/closed, ADR-0010)", () => {
+    expect(EVENT_NAMES).toHaveLength(40);
+    expect(isEventName("job_posting.created")).toBe(true);
+    expect(isEventName("job_posting.updated")).toBe(true);
+    expect(isEventName("job_posting.closed")).toBe(true);
     expect(isEventName("interview_kit.downloaded")).toBe(true);
     expect(isEventName("interview_kit.render_completed")).toBe(true);
     expect(isEventName("interview_kit.render_failed")).toBe(true);

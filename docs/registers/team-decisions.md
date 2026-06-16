@@ -44,3 +44,29 @@ day-one: the day-one engine is deterministic, dependency-free, and never calls a
 [ADR-0006](../decisions/0006-reach-foundation-rank-core.md) ("Ratified scope vs the locked
 weight columns"). Don't re-open from the ledger without a new row here. *(Re-confirms the
 2026-06-12 "leave code as-is; the doc is the draft" call.)*
+
+### 2026-06-15 — Alpha gate: ops Job Posting flow (banded, stored-only) — APPROVED
+A new, **strictly additive** Job Posting flow is approved for the alpha gate. An
+**ops actor** (not an employer) creates internal job postings via the web ops console;
+each posting is **stored only** — no matching, no ranking, no Reach Engine, no payments,
+no employer/payer self-serve. **Decisions logged (not re-litigated):**
+- **Vacancy is banded**, exactly one of `"1" | "2-5" | "6-10" | "11-25" | "25+"` — a
+  constrained enum, **not** a free integer and **not** salary bands.
+- **No Employer entity** (dead decision). The row stores an **opaque `created_by`** (the
+  ops actor id) + **NON-PII** org/role free text. No `employers` table.
+- New module `apps/api/src/job-postings`, new `job_postings` table, new `job_posting.*`
+  v1 event(s) (`actor_type = "ops"`), new ops-console route (list + banded form,
+  internal, read-no-PII), plus unavoidable wiring (root module import, event-registry +
+  domain/subject enum entry, nav link). **No existing table/column/event-payload/module
+  is mutated.**
+- Endpoints: **create / list / get / update / close** — each important endpoint emits a
+  validated `job_posting.*` event. CLAUDE.md §2 invariants hold: event-first; **no PII**
+  in events/`ai_jobs`/`audit_logs`/logs.
+- **Lifecycle (minimal):** `draft → open → closed` (close is terminal).
+*Coexistence flag (for the ADR stop point):* this is **distinct from the `jobs` entity
+in open PR #42** (`feat/jobs-entity-lifecycle`) — that one is Reach-Engine-facing
+(opaque **payer**, **integer** `vacancy_count`, applicant quota/lifecycle/boost,
+`job.*` events). Recommendation: **keep them as two separate additive concerns** per the
+requester's decision, but the human should confirm at the ADR that the overlap is
+intentional and naming stays unambiguous (`job_posting.*` vs `job.*`). Scope brief handed
+to system-architect for the ADR (no ADR written here).

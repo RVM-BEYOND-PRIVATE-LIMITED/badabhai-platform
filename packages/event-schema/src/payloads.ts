@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { VACANCY_BANDS, JOB_POSTING_STATUSES } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
 /**
@@ -461,3 +462,71 @@ export const ApplicationSkippedPayload = z.object({
   /** Coarse, non-PII reason (no free text). */
   reason: z.enum(["not_interested", "too_far", "low_pay", "wrong_trade", "other"]).default("other"),
 });
+
+// ---------------------------------------------------------------------------
+// job_posting.* — ops-created, vacancy-banded, stored-only job postings (ADR-0010).
+//
+// PII-FREE BY CONSTRUCTION: these record the FACT of a posting's lifecycle, never
+// its values. The org label, role title, location label, and description live ONLY
+// on the job_postings row and NEVER appear in a payload. Fields here are ids,
+// enums (vacancy band / status), booleans, and field-KEY arrays only — exactly the
+// "record the fact, not the value" convention used by the events above.
+//
+// VACANCY_BANDS / JOB_POSTING_STATUSES are the single source of truth in
+// @badabhai/types (mirrored by the job_postings table) — reused, never re-declared.
+// ---------------------------------------------------------------------------
+const vacancyBand = z.enum(VACANCY_BANDS);
+const jobPostingStatus = z.enum(JOB_POSTING_STATUSES);
+
+// The only field KEYS an update may report as changed. Pinned as an enum (not a
+// free `z.string()`) so the registry STRUCTURALLY guarantees changed_fields can
+// never carry a free-text value — defense-in-depth on the §2.2 PII boundary.
+const JOB_POSTING_CHANGED_FIELDS = [
+  "org_label",
+  "role_title",
+  "location_label",
+  "description",
+  "vacancy_band",
+  "status",
+] as const;
+
+/**
+ * An ops user created a job posting. Carries the opaque posting id, the creator's
+ * id, the (banded) vacancy, the created status, and booleans for whether optional
+ * location/description were provided — NO free text (org_label/role_title/
+ * location_label/description never appear).
+ */
+export const JobPostingCreatedPayload = z.object({
+  job_posting_id: uuidSchema,
+  vacancy_band: vacancyBand,
+  status: jobPostingStatus,
+  created_by: uuidSchema,
+  has_location: z.boolean(),
+  has_description: z.boolean(),
+});
+export type JobPostingCreatedPayload = z.infer<typeof JobPostingCreatedPayload>;
+
+/**
+ * An ops user updated a job posting. `changed_fields` is the list of field KEYS
+ * that changed (e.g. "role_title", "vacancy_band") — KEYS ONLY, never the values
+ * (so no org/role/location/description text ever leaks). `vacancy_band` is the
+ * post-update band if it changed, else null.
+ */
+export const JobPostingUpdatedPayload = z.object({
+  job_posting_id: uuidSchema,
+  changed_fields: z.array(z.enum(JOB_POSTING_CHANGED_FIELDS)).max(JOB_POSTING_CHANGED_FIELDS.length),
+  status: jobPostingStatus,
+  vacancy_band: vacancyBand.nullable(),
+});
+export type JobPostingUpdatedPayload = z.infer<typeof JobPostingUpdatedPayload>;
+
+/**
+ * An ops user closed a job posting. Records the transition only: the previous
+ * (open/draft) status and the terminal "closed" status. PII-free (id + enums).
+ */
+export const JobPostingClosedPayload = z.object({
+  job_posting_id: uuidSchema,
+  previous_status: z.enum(["draft", "open"]),
+  status: z.literal("closed"),
+});
+export type JobPostingClosedPayload = z.infer<typeof JobPostingClosedPayload>;

@@ -11,6 +11,7 @@ import {
   consentPurposesSchema,
   conversationObjectKey,
   conversationWorkerPrefix,
+  looksLikePii,
 } from "./index";
 
 const WORKER_ID = "11111111-1111-4111-8111-111111111111";
@@ -124,4 +125,20 @@ describe("consentPurposesSchema", () => {
     expect(consentPurposesSchema.safeParse(["profiling", "profiling"]).success).toBe(false);
     expect(consentPurposesSchema.safeParse(["hacking"]).success).toBe(false);
   });
+});
+
+describe("looksLikePii", () => {
+  it.each(["98765 43210", "+91-98765-43210", "9876543210", "(98765) 43210", "a@b.co"])(
+    "flags %s as PII-shaped",
+    (s) => {
+      expect(looksLikePii(s)).toBe(true);
+    },
+  );
+
+  it.each(["CNC operator", "2-5", "draft", "v1", "123456", "role_title"])(
+    "does not flag %s",
+    (s) => {
+      expect(looksLikePii(s)).toBe(false);
+    },
+  );
 });
