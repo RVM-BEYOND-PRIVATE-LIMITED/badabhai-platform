@@ -15,6 +15,7 @@ indexes both so there is one timeline.
 | 2026-06-09 | **Async profile extraction (BullMQ)** + **generic events-only action recorder** (`action.recorded`); `/profile/extract` → `202` + poll | ADR | [0002-async-extraction-and-action-recording.md](../decisions/0002-async-extraction-and-action-recording.md) |
 | 2026-06-12 | **Reach foundation — deterministic RANK core + behavioural event contracts** ratified (Proposed→Accepted). Implemented weights are authoritative; the locked "Skills 15" + Vertex skills-similarity is deferred to Phase 2/LEARN | ADR | [0006-reach-foundation-rank-core.md](../decisions/0006-reach-foundation-rank-core.md) |
 | 2026-06-15 | **LiteLLM → direct Gemini/Claude provider calls** — ratifies the shipped direct-provider stack (Gemini primary + Claude Haiku fallback behind the `LlmAdapter`/`AIRouter` seam); supersedes ADR-0001 §3. Closes TD28 (env unify on `GEMINI_FLASH_API_KEY`); names the TD27 spend-cap hook | ADR | [0008-litellm-to-direct-providers.md](../decisions/0008-litellm-to-direct-providers.md) |
+| 2026-06-15 | **Reach feed serving** (alpha-gate) — strictly-additive `apps/api/src/reach` serving layer over the unchanged `@badabhai/reach-engine`: View A payer applicant list (`rankWorkersForJob`) + View B worker job feed (`scoreWorkerForJob`), faceless, read-only ops. `JobSource` port + `StubJobSource` (swaps to `job_postings`). Reuses `feed.shown` (emitted **UNKEYED** per the review's D7 flip). Amended per the principal-engineer review (D4-D8) | ADR | [0011-reach-feed-serving.md](../decisions/0011-reach-feed-serving.md) |
 
 ## How to add a decision
 
@@ -31,3 +32,4 @@ indexes both so there is one timeline.
 - [0002 — Async Profile Extraction (BullMQ) + Generic Action Recording](../decisions/0002-async-extraction-and-action-recording.md) — *Accepted*
 - [0006 — Reach foundation: deterministic RANK core + behavioural event contracts](../decisions/0006-reach-foundation-rank-core.md) — *Accepted (ratified 2026-06-12)*
 - [0008 — LiteLLM → direct Gemini/Claude provider calls](../decisions/0008-litellm-to-direct-providers.md) — *Accepted (supersedes ADR-0001 §3)*
+- [0011 — Reach feed serving (applicant list + worker feed over the RANK core)](../decisions/0011-reach-feed-serving.md) — *Accepted (alpha-gate, 2026-06-15)*
