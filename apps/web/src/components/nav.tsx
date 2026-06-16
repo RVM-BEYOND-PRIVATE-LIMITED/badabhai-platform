@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/ops/events", label: "Events" },
   { href: "/ops/ai-jobs", label: "AI Jobs" },
   { href: "/ops/job-postings", label: "Job Postings" },
+  { href: "/ops/pricing", label: "Pricing" },
 ];
 
 export function Nav() {

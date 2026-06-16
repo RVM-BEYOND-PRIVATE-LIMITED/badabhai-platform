@@ -305,7 +305,7 @@ export function getJobPosting(id: string): Promise<JobPostingRow> {
  */
 async function apiWrite<T>(
   path: string,
-  method: "POST" | "PATCH",
+  method: "POST" | "PATCH" | "PUT",
   body?: unknown,
 ): Promise<T> {
   const res = await fetch(`${publicConfig.NEXT_PUBLIC_API_URL}${path}`, {
@@ -515,4 +515,143 @@ export function getPayerCredits(payerId: string): Promise<PayerCredits> {
   return apiGetInternal<PayerCredits>(
     `/payers/${encodeURIComponent(payerId)}/credits`,
   );
+}
+
+/**
+ * MOCK credit-pack top-up — `POST /payers/:payerId/credits` (InternalServiceGuard).
+ * ALPHA, NO REAL MONEY: grants the pack's credits and returns the new balance.
+ * Server-side only (the shared secret never reaches the browser). 404 on an
+ * unknown pack_code — surfaced as an honest error by the caller's server action.
+ */
+export interface MockTopUpResult {
+  payer_id: string;
+  balance: number;
+  credits: number;
+  pack_code: string;
+}
+
+export function purchaseCredits(
+  payerId: string,
+  packCode: string,
+): Promise<MockTopUpResult> {
+  return apiPostInternal<MockTopUpResult>(
+    `/payers/${encodeURIComponent(payerId)}/credits`,
+    { pack_code: packCode },
+  );
+}
+
+/* ── Pricing catalog (ADR-0013, config-driven Pricing Engine) ──────────────────
+ * PUBLIC endpoints — `/pricing` has NO guard, so these use the plain (no-secret)
+ * `apiGet` / `apiPut`. The catalog is PII-free by construction (codes + integer ₹
+ * only — never a payer name or worker identity).
+ *
+ * We deliberately keep the raw `catalog` as an OPAQUE, validated passthrough for
+ * the PUT (the server's `@badabhai/pricing` `catalogSchema` is the source of truth
+ * and rejects an invalid catalog with a verbatim 400). The console only needs a
+ * MINIMAL STRUCTURAL view of the fields it RENDERS — defined below — so the web
+ * app does not pull the pricing package's `zod` graph into the browser bundle.
+ */
+
+/** A posting plan tier (rendered fields only). */
+export interface PostingTierView {
+  code: string;
+  priceInr: number;
+  validityDays: number;
+  applicantVisibilityQuota: number;
+}
+
+/** A boost tier (rendered fields only). */
+export interface BoostTierView {
+  code: string;
+  priceInr: number;
+  boostDays: number;
+}
+
+/** A credit-pack tier (rendered fields only) — the unlock flow's credit packs. */
+export interface CreditPackTierView {
+  code: string;
+  priceInr: number;
+  credits: number;
+  windowDays: number;
+}
+
+/** A product = a code + a kind + its tiers (discriminated on `kind`). */
+export type ProductView =
+  | { kind: "posting"; code: string; tiers: PostingTierView[] }
+  | { kind: "boost"; code: string; tiers: BoostTierView[] }
+  | { kind: "credit_pack"; code: string; tiers: CreditPackTierView[] };
+
+/** An automatic, time-boxed offer (rendered fields only). */
+export interface OfferView {
+  code: string;
+  scope: { productCode: string; tierCode?: string };
+  kind: "percent" | "flat";
+  value: number;
+  from: string;
+  until: string;
+}
+
+/** A code-redeemed coupon (rendered fields only). */
+export interface CouponView {
+  code: string;
+  scope: { productCode: string; tierCode?: string };
+  kind: "percent" | "flat";
+  value: number;
+  from: string;
+  until: string;
+  totalUsageCap: number;
+  perPayerLimit: number;
+}
+
+/**
+ * The minimal structural catalog the console RENDERS. The full server catalog is
+ * a superset (it also carries `version` / `floorPriceInr`); we keep the raw value
+ * intact in {@link ActiveCatalog.catalog} for the PUT passthrough.
+ */
+export interface CatalogView {
+  floorPriceInr?: number;
+  products: ProductView[];
+  offers: OfferView[];
+  coupons: CouponView[];
+}
+
+/**
+ * `GET /pricing/catalog` — the active, validated catalog + provenance.
+ * `source: "default"` means a stored row was rejected (fail-closed) OR none
+ * exists — the console surfaces it as a warning so ops know the DEFAULT is served.
+ * `catalog` is typed against the rendered view but carries the full server object.
+ */
+export interface ActiveCatalog {
+  catalog: CatalogView;
+  revision: number;
+  source: "db" | "default";
+}
+
+export function getPricingCatalog(): Promise<ActiveCatalog> {
+  return apiGet<ActiveCatalog>("/pricing/catalog");
+}
+
+/** Audit descriptor required by the catalog PUT (field KEYS only — never values). */
+export interface PricingChange {
+  change_type: "plan" | "discount" | "coupon";
+  entity_code: string;
+  changed_fields: string[];
+}
+
+/** Body accepted by `PUT /pricing/catalog`. `catalog` is the FULL catalog object. */
+export interface UpdatePricingCatalogBody {
+  updated_by: string;
+  catalog: unknown;
+  change: PricingChange;
+}
+
+/**
+ * `PUT /pricing/catalog` — publish a new revision. PUBLIC (no guard, no secret).
+ * On an invalid catalog the server returns a 400 whose message is surfaced
+ * VERBATIM via {@link extractApiError}; the invalid catalog is never stored.
+ */
+export function updatePricingCatalog(
+  body: UpdatePricingCatalogBody,
+): Promise<ActiveCatalog> {
+  return apiWrite<ActiveCatalog>("/pricing/catalog", "PUT", body);
 }

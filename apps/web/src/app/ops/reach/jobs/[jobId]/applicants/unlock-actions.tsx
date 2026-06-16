@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import type { ApplicantRow } from "@/lib/api";
 import { isUuid, type UnlockView, type RevealView } from "@/lib/unlock-view";
 import { formatScore, WhyDetails } from "@/components/reach";
@@ -165,9 +166,9 @@ export function UnlockActions({
           oracle. It is the one legitimately-knowable signal (constraint 3). */}
       {activePayer && balance === 0 ? (
         <p className="note">
-          <strong>This payer has 0 credits.</strong> Top up before unlocking (top-up is
-          on the Pricing screen). This is the payer&rsquo;s own balance, not a signal
-          about any candidate.
+          <strong>This payer has 0 credits.</strong> Top up before unlocking (
+          <Link href="/ops/pricing">top up on the Pricing screen</Link>). This is the
+          payer&rsquo;s own balance, not a signal about any candidate.
         </p>
       ) : null}
 
