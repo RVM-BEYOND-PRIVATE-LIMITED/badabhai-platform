@@ -69,6 +69,14 @@ export type AiJobType = (typeof AI_JOB_TYPES)[number];
 export const AI_JOB_STATUSES = ["queued", "running", "completed", "failed"] as const;
 export type AiJobStatus = (typeof AI_JOB_STATUSES)[number];
 
+// ---- Job postings (ADR-0012: ops-created, vacancy-banded, stored-only) ----
+// Vacancy is captured as a BAND (text), deliberately not an integer count.
+export const VACANCY_BANDS = ["1", "2-5", "6-10", "11-25", "25+"] as const;
+export type VacancyBand = (typeof VACANCY_BANDS)[number];
+
+export const JOB_POSTING_STATUSES = ["draft", "open", "closed"] as const;
+export type JobPostingStatus = (typeof JOB_POSTING_STATUSES)[number];
+
 // ---- Languages (initial supported set for blue/grey-collar India) ----
 export const LANGUAGE_CODES = [
   "en",

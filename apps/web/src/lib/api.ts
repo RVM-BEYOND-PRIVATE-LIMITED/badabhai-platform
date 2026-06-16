@@ -4,6 +4,8 @@ import type {
   LanguageCode,
   AiJobType,
   AiJobStatus,
+  VacancyBand,
+  JobPostingStatus,
 } from "@badabhai/types";
 import { publicConfig } from "./config";
 
@@ -195,6 +197,122 @@ export async function listEvents(): Promise<EventListItem[]> {
 export async function listAiJobs(): Promise<AiJobListItem[]> {
   const { ai_jobs } = await apiGet<{ ai_jobs: AiJobListItem[] }>("/ai-jobs");
   return ai_jobs;
+}
+
+// ---------------------------------------------------------------------------
+// Job postings (ADR-0012 — ops-created, vacancy-banded, stored-only).
+//
+// IMPORTANT: this endpoint returns the raw Drizzle row, so the wire shape is
+// camelCase (orgLabel, vacancyBand, createdAt, …) — NOT snake_case like the
+// /workers endpoint, which maps its fields by hand. Do not "fix" these to
+// snake_case; they mirror packages/db JobPosting exactly.
+//
+// Unlike the read-only workers/events/ai-jobs views, these postings carry
+// org/role/location text an OPS ACTOR typed and must see here. The FACELESS rule
+// (Reach feed) and the PII rule (events/ai_jobs/logs) do not restrict this
+// internal register view — the free text lives only on the row.
+// ---------------------------------------------------------------------------
+
+export interface JobPostingRow {
+  id: string;
+  createdBy: string;
+  orgLabel: string;
+  roleTitle: string;
+  locationLabel: string | null;
+  description: string | null;
+  vacancyBand: VacancyBand;
+  status: JobPostingStatus;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+}
+
+/** Body accepted by POST /job-postings. `created_by` is the stub ops-actor id. */
+export interface CreateJobPostingBody {
+  created_by: string;
+  org_label: string;
+  role_title: string;
+  location_label?: string;
+  description?: string;
+  vacancy_band: VacancyBand;
+}
+
+/**
+ * Body accepted by PATCH /job-postings/:id. Any subset of the free-text fields
+ * and the band; `status` may ONLY be "open" (publish a draft) — closing uses the
+ * dedicated close endpoint.
+ */
+export interface UpdateJobPostingBody {
+  org_label?: string;
+  role_title?: string;
+  location_label?: string;
+  description?: string;
+  vacancy_band?: VacancyBand;
+  status?: "open";
+}
+
+export async function listJobPostings(
+  status?: JobPostingStatus,
+): Promise<JobPostingRow[]> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  return apiGet<JobPostingRow[]>(`/job-postings${qs}`);
+}
+
+export function getJobPosting(id: string): Promise<JobPostingRow> {
+  return apiGet<JobPostingRow>(`/job-postings/${id}`);
+}
+
+/**
+ * Surfaces the server's own error message (e.g. the 422 description PII reject,
+ * or a 409 lifecycle conflict) so mutation UIs can show it verbatim instead of a
+ * generic status line. Falls back to a status-text message when there is no body.
+ */
+async function apiWrite<T>(
+  path: string,
+  method: "POST" | "PATCH",
+  body?: unknown,
+): Promise<T> {
+  const res = await fetch(`${publicConfig.NEXT_PUBLIC_API_URL}${path}`, {
+    method,
+    cache: "no-store",
+    headers: {
+      accept: "application/json",
+      ...(body !== undefined ? { "content-type": "application/json" } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    throw new Error(await extractApiError(res, `${method} ${path}`));
+  }
+  return (await res.json()) as T;
+}
+
+/** Pull a human-readable message out of a NestJS/Zod error body, if present. */
+async function extractApiError(res: Response, label: string): Promise<string> {
+  try {
+    const data = (await res.json()) as { message?: unknown };
+    const { message } = data;
+    if (Array.isArray(message)) return message.join("; ");
+    if (typeof message === "string" && message.length > 0) return message;
+  } catch {
+    // No/!JSON body — fall through to the status-text message.
+  }
+  return `${label} failed: ${res.status} ${res.statusText}`;
+}
+
+export function createJobPosting(body: CreateJobPostingBody): Promise<JobPostingRow> {
+  return apiWrite<JobPostingRow>("/job-postings", "POST", body);
+}
+
+export function updateJobPosting(
+  id: string,
+  body: UpdateJobPostingBody,
+): Promise<JobPostingRow> {
+  return apiWrite<JobPostingRow>(`/job-postings/${id}`, "PATCH", body);
+}
+
+export function closeJobPosting(id: string): Promise<JobPostingRow> {
+  return apiWrite<JobPostingRow>(`/job-postings/${id}/close`, "POST");
 }
 
 /* ── Reach feed serving (ADR-0011) ─────────────────────────────────────────────

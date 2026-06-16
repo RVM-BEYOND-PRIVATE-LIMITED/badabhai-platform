@@ -132,6 +132,24 @@ export const EVENT_REGISTRY = {
     payload: p.ApplicationSkippedPayload,
   },
 
+  // Ops-created job postings (ADR-0012) — vacancy-banded, stored-only. PII-free:
+  // ids/enums/booleans/field-key arrays only (org/role/location/description never
+  // appear in a payload).
+  "job_posting.created": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingCreatedPayload,
+  },
+  "job_posting.updated": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingUpdatedPayload,
+  },
+  "job_posting.closed": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingClosedPayload,
+  },
   // Contact Unlock + Reveal (ADR-0010, Stream A) — PII-FREE, ids/enums/counts only.
   // The revealed contact / proxy number / relay destination NEVER appears in any
   // payload (CLAUDE.md invariant 2; threat-model F-5). All v1.
