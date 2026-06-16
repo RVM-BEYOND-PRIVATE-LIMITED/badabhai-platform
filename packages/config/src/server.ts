@@ -138,6 +138,23 @@ export const serverEnvSchema = z.object({
   LITELLM_API_KEY: z.string().min(1).optional(),
   AI_ENABLE_REAL_CALLS: booleanFromString,
 
+  // Contact Unlock + Reveal payments (ADR-0010 §D5 / Phase-0 F-6). MOCK CREDITS in
+  // alpha — there is NO real money movement. PAYMENTS_ENABLE_REAL is the master gate
+  // (mirrors AI_ENABLE_REAL_CALLS) and DEFAULTS FALSE; flipping it true requires a
+  // real gateway key AND is human-gated + staging-first (CLAUDE.md §7). A real-enabled
+  // flag without the key fails CLOSED at boot via assertPaymentsConfig.
+  PAYMENTS_ENABLE_REAL: booleanFromString,
+  // OPAQUE real-gateway key (e.g. Razorpay). NEVER committed; only ever supplied in
+  // staging-first behind PAYMENTS_ENABLE_REAL. Unused in alpha (mock ledger).
+  PAYMENTS_PROVIDER_KEY: z.string().min(1).optional(),
+
+  // Contact Unlock worker-protection caps (ADR-0010 §D4 — CONFIG-DRIVEN, not
+  // hard-coded; tunable without a migration). The chokepoint reads these. Numbers are
+  // the ADR's recommended alpha starting caps (OQ-F: a trust-and-safety call to tune).
+  UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY: z.coerce.number().int().positive().default(5),
+  UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK: z.coerce.number().int().positive().default(10),
+  UNLOCK_MAX_ATTEMPTS_PER_UNLOCK: z.coerce.number().int().positive().default(3),
+
   // Model routing. Bare provider model ids (no provider prefix); the AI service
   // selects cheap vs capable per task. Cost guardrails are in INR per worker profile.
   DEFAULT_CHEAP_MODEL: z.string().min(1).default("gemini-2.5-flash-lite"),
@@ -243,6 +260,39 @@ export function assertPiiCryptoConfig(
 /** True if JWT_SECRET is still the insecure dev default (for a boot warning). */
 export function isUsingDevJwtDefault(config: ServerConfig): boolean {
   return config.JWT_SECRET === DEV_JWT_SECRET;
+}
+
+/**
+ * Guard for the "real payments" path (ADR-0010 §D5 / Phase-0 F-6) — the direct
+ * analogue of `realAiCallsBlockedReason`. The system fails CLOSED: real charges are
+ * only permitted when explicitly enabled AND a provider key exists. Returns the
+ * reason real payments are disabled, or null when they are allowed. In alpha this
+ * always returns a reason (mock credits only).
+ */
+export function realPaymentsBlockedReason(config: ServerConfig): string | null {
+  if (!config.PAYMENTS_ENABLE_REAL) return "PAYMENTS_ENABLE_REAL is false";
+  if (!config.PAYMENTS_PROVIDER_KEY) return "PAYMENTS_PROVIDER_KEY is not set";
+  return null;
+}
+
+export function areRealPaymentsEnabled(config: ServerConfig): boolean {
+  return realPaymentsBlockedReason(config) === null;
+}
+
+/**
+ * Fail-closed boot guard for the payments config (ADR-0010 Phase-0 F-6; mirrors
+ * `assertPiiCryptoConfig`). If real payments are ENABLED but no provider key is set,
+ * a half-configured gateway must NOT run silently as mock — throw at boot so the
+ * mis-configuration is loud. (Alpha default: PAYMENTS_ENABLE_REAL=false → no-op.)
+ * Real payments are additionally a HUMAN-GATED, staging-first escalation (CLAUDE.md
+ * §7) — this guard only enforces the config invariant, not the human approval.
+ */
+export function assertPaymentsConfig(config: ServerConfig): void {
+  if (config.PAYMENTS_ENABLE_REAL && !config.PAYMENTS_PROVIDER_KEY) {
+    throw new Error(
+      "PAYMENTS_ENABLE_REAL is true but PAYMENTS_PROVIDER_KEY is not set — refusing to boot a half-configured real payments gateway (ADR-0010 F-6, fail closed)",
+    );
+  }
 }
 
 /**

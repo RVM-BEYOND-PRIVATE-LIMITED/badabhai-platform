@@ -99,6 +99,13 @@
       "when": 1781526404258,
       "tag": "0013_wise_star_brand",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1781587043419,
+      "tag": "0014_perfect_mandarin",
+      "breakpoints": true
     }
   ]
 }
