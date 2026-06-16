@@ -31,6 +31,18 @@ generated resume"): **G1c** in-app PDF download, **G2** voice flow, **G3** inter
 
 Today is **2026-06-16**; alpha cut target is **2026-06-25**.
 
+> **Update (2026-06-16) — Phase-1 turnkey prep DONE; verdict UNCHANGED (still NO-GO).** A
+> copy-paste runbook + evidence pipeline (build/install commands, the validated-chain SQL +
+> a dry-run seed script, the logcat PII grep, the screenshot checklist, the consent-gate
+> assertion, swipe fold-in, and the validation table) is ready:
+> [b1-device-capstone-runbook.md](../qa/b1-device-capstone-runbook.md). **Two prerequisites
+> gate the actual run and are NOT yet met:** (1) **DevOps must deploy staging + provide the
+> concrete `API_BASE_URL`** — every staging reference today is a `<staging-api>` placeholder
+> (app defaults to `localhost:3001`); (2) the **handset run is a human step** (not CI/emulator,
+> not runnable from the build env). B1 flips to CLOSED / GO only after the human run yields the
+> three artifacts (Phase 3 of the runbook). Schema note baked into the query: `events` has **no
+> `worker_id` column** — the chain links via `payload->>'worker_id'`.
+
 ---
 
 ## NO-GO → GO CONDITION (enumerated — this is the complete set)
