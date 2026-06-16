@@ -675,9 +675,136 @@ describe("unlock/contact/payment events (ADR-0010 — PII-free, ids/enums/counts
   });
 });
 
+describe("monetization + pricing events (ADR-0013 — PII-free, ids/codes/enums/amounts only)", () => {
+  function payerEvent(
+    name: string,
+    payload: Record<string, unknown>,
+    subjectType = "job_posting",
+  ): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: name,
+      actor: { actor_type: "payer", actor_id: UUID_A },
+      subject: { subject_type: subjectType, subject_id: UUID_A },
+      payload,
+    };
+  }
+
+  it("validates job_posting.purchased and defaults discount/coupon/real_call", () => {
+    const result = validateEvent(
+      payerEvent("job_posting.purchased", {
+        plan_id: UUID_A,
+        job_posting_id: UUID_B,
+        payer_id: UUID_C,
+        tier: "standard",
+        applicant_visibility_quota: 10,
+        validity_days: 14,
+        price_inr: 1000,
+      }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "job_posting.purchased") {
+      expect(result.event.payload.discount_inr).toBe(0);
+      expect(result.event.payload.coupon_applied).toBe(false);
+      expect(result.event.payload.real_call).toBe(false);
+    }
+  });
+
+  it("rejects a job_posting.purchased tier outside the enum", () => {
+    const bad = validateEvent(
+      payerEvent("job_posting.purchased", {
+        plan_id: UUID_A,
+        job_posting_id: UUID_B,
+        payer_id: UUID_C,
+        tier: "platinum",
+        applicant_visibility_quota: 10,
+        validity_days: 14,
+        price_inr: 1000,
+      }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("validates job_posting.boosted and applicant.viewed (faceless quota view)", () => {
+    expect(
+      validateEvent(
+        payerEvent("job_posting.boosted", {
+          boost_id: UUID_A,
+          job_posting_id: UUID_B,
+          payer_id: UUID_C,
+          boost_days: 2,
+          price_inr: 1200,
+        }),
+      ).success,
+    ).toBe(true);
+    const viewed = validateEvent(
+      payerEvent(
+        "applicant.viewed",
+        { plan_id: UUID_A, job_posting_id: UUID_B, payer_id: UUID_C, worker_id: UUID_A, viewed_count: 1, quota: 10 },
+        "worker",
+      ),
+    );
+    expect(viewed.success).toBe(true);
+  });
+
+  it("validates resume.disclosed as a FACT only (no bytes/name/link fields)", () => {
+    const result = validateEvent(
+      payerEvent(
+        "resume.disclosed",
+        { disclosure_id: UUID_A, payer_id: UUID_B, worker_id: UUID_C },
+        "resume",
+      ),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "resume.disclosed") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["disclosure_id", "job_posting_id", "payer_id", "resume_ref", "worker_id"].sort(),
+      );
+      expect(result.event.payload.job_posting_id).toBeNull();
+      expect(result.event.payload.resume_ref).toBeNull();
+    }
+  });
+
+  it("validates coupon.redeemed + pricing.changed (codes/keys only, no values)", () => {
+    expect(
+      validateEvent(
+        payerEvent(
+          "coupon.redeemed",
+          { coupon_code: "launch20", payer_id: UUID_B, product: "job_posting", tier: "standard", discount_inr: 200 },
+          "pricing_plan",
+        ),
+      ).success,
+    ).toBe(true);
+    const changed = validateEvent(
+      payerEvent(
+        "pricing.changed",
+        { change_type: "plan", entity_code: "job_posting", changed_fields: ["priceInr"], changed_by: UUID_A },
+        "pricing_plan",
+      ),
+    );
+    expect(changed.success).toBe(true);
+    // field KEYS only — a values-bearing change_type outside the enum is rejected
+    expect(
+      validateEvent(
+        payerEvent(
+          "pricing.changed",
+          { change_type: "secret_values", entity_code: "x", changed_fields: [], changed_by: UUID_A },
+          "pricing_plan",
+        ),
+      ).success,
+    ).toBe(false);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 48 event names (37 prior + 3 job_posting + 8 ADR-0010 unlock/contact/payment)", () => {
-    expect(EVENT_NAMES).toHaveLength(48);
+  it("exposes all 54 event names (48 prior + 6 ADR-0013 monetization/pricing)", () => {
+    expect(EVENT_NAMES).toHaveLength(54);
+    expect(isEventName("job_posting.purchased")).toBe(true);
+    expect(isEventName("job_posting.boosted")).toBe(true);
+    expect(isEventName("applicant.viewed")).toBe(true);
+    expect(isEventName("resume.disclosed")).toBe(true);
+    expect(isEventName("coupon.redeemed")).toBe(true);
+    expect(isEventName("pricing.changed")).toBe(true);
     expect(isEventName("job_posting.created")).toBe(true);
     expect(isEventName("job_posting.updated")).toBe(true);
     expect(isEventName("job_posting.closed")).toBe(true);
