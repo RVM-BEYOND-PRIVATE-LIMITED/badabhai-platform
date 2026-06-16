@@ -26,7 +26,8 @@ export default async function WorkerDetailPage({
   return (
     <>
       <p className="page-sub">
-        <Link href="/ops/workers">← Workers</Link>
+        <Link href="/ops/workers">← Workers</Link> ·{" "}
+        <Link href={`/ops/reach/workers/${id}/feed`}>Reach feed →</Link>
       </p>
       <h1 className="page-title">Worker {id}</h1>
       <p className="page-sub">
