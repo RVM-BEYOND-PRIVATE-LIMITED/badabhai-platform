@@ -150,6 +150,17 @@ export const EVENT_REGISTRY = {
     domain: "job_posting",
     payload: p.JobPostingClosedPayload,
   },
+  // Contact Unlock + Reveal (ADR-0010, Stream A) — PII-FREE, ids/enums/counts only.
+  // The revealed contact / proxy number / relay destination NEVER appears in any
+  // payload (CLAUDE.md invariant 2; threat-model F-5). All v1.
+  "unlock.requested": { version: 1, domain: "unlock", payload: p.UnlockRequestedPayload },
+  "unlock.granted": { version: 1, domain: "unlock", payload: p.UnlockGrantedPayload },
+  "unlock.denied": { version: 1, domain: "unlock", payload: p.UnlockDeniedPayload },
+  "unlock.cap_exceeded": { version: 1, domain: "unlock", payload: p.UnlockCapExceededPayload },
+  "contact.revealed": { version: 1, domain: "contact", payload: p.ContactRevealedPayload },
+  "payment.authorized": { version: 1, domain: "payment", payload: p.PaymentAuthorizedPayload },
+  "payment.captured": { version: 1, domain: "payment", payload: p.PaymentCapturedPayload },
+  "payment.failed": { version: 1, domain: "payment", payload: p.PaymentFailedPayload },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

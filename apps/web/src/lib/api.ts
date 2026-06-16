@@ -122,6 +122,20 @@ export interface WorkerProfileDetail {
   resume: GeneratedResumeRow | null;
 }
 
+/**
+ * Error thrown by `apiGet` when the API responds with a non-2xx status. Carries the
+ * HTTP `status` so pages can distinguish an expected 404 (unknown job / no profile)
+ * from a genuine backend outage.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function apiGet<T>(path: string): Promise<T> {
   // Ops data must always be fresh; never cache it at the framework level.
   const res = await fetch(`${publicConfig.NEXT_PUBLIC_API_URL}${path}`, {
@@ -129,7 +143,7 @@ async function apiGet<T>(path: string): Promise<T> {
     headers: { accept: "application/json" },
   });
   if (!res.ok) {
-    throw new Error(`API GET ${path} failed: ${res.status} ${res.statusText}`);
+    throw new ApiError(res.status, `API GET ${path} failed: ${res.status} ${res.statusText}`);
   }
   return (await res.json()) as T;
 }
@@ -301,9 +315,66 @@ export function closeJobPosting(id: string): Promise<JobPostingRow> {
   return apiWrite<JobPostingRow>(`/job-postings/${id}/close`, "POST");
 }
 
+/* ── Reach feed serving (ADR-0011) ─────────────────────────────────────────────
+ * Read-only views over the deterministic RANK core. Every shape here is FACELESS:
+ * opaque `workerId`/`jobId`, numeric `score`, booleans, and the engine's explainable
+ * `components[]` — and nothing else. The API returns no contact/name/employer data on
+ * this path, and the console never fetches or joins any. Responses are camelCase.
+ */
+
+/** One explainable signal contribution — the "why" behind a row's score. */
+export interface ScoreComponent {
+  signal: string;
+  raw: number;
+  weight: number;
+  reason: string;
+}
+
+/** View A row — one ranked applicant for a job (keeps the core's hot / pushEligible). */
+export interface ApplicantRow {
+  workerId: string;
+  rank: number;
+  score: number;
+  hot: boolean;
+  pushEligible: boolean;
+  components: ScoreComponent[];
+}
+
+export interface ApplicantList {
+  jobId: string;
+  applicants: ApplicantRow[];
+}
+
+/** View B row — one ranked job in a worker's feed (NO hot / pushEligible, per ADR D4). */
+export interface FeedJobRow {
+  jobId: string;
+  rank: number;
+  score: number;
+  components: ScoreComponent[];
+}
+
+export interface WorkerFeed {
+  workerId: string;
+  feed: FeedJobRow[];
+}
+
+/**
+ * Reach View A — GET /reach/jobs/:jobId/applicants (ranked, faceless). Throws
+ * ApiError(404) for an unknown job. Named `getReachJobApplicants` to stay distinct from
+ * the ADR-0009 swipe-to-apply ops read `getJobApplicants` (`/jobs/:id/applicants`) below.
+ */
+export function getReachJobApplicants(jobId: string): Promise<ApplicantList> {
+  return apiGet<ApplicantList>(`/reach/jobs/${encodeURIComponent(jobId)}/applicants`);
+}
+
+/** Reach View B — GET /reach/workers/:workerId/feed. Throws ApiError(404) if no profile. */
+export function getWorkerFeed(workerId: string): Promise<WorkerFeed> {
+  return apiGet<WorkerFeed>(`/reach/workers/${encodeURIComponent(workerId)}/feed`);
+}
+
 /**
  * Applicants on a job — GET /jobs/:jobId/applicants (ops, InternalServiceGuard).
- * PII-FREE: returns opaque `worker_id`s only.
+ * PII-FREE: returns opaque `worker_id`s only. (ADR-0009 swipe-to-apply ops read.)
  */
 export function getJobApplicants(jobId: string): Promise<JobApplicants> {
   return apiGetInternal<JobApplicants>(`/jobs/${jobId}/applicants`);

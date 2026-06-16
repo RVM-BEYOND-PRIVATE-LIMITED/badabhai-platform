@@ -8,6 +8,54 @@ boundary moved).
 
 ---
 
+## 2026-06-15 — Contact Unlock + Reveal Stream A backend landed (ADR-0010)
+- **New contract surface: the routed-disclosure monetization spine.** Contact
+  Unlock is the one feature that deliberately discloses a worker's contact channel
+  to a paying party — the highest-risk PII path in the product. Stream A (backend
+  core) landed behind a written, human-gated contract; **ADR-0010 Accepted
+  (2026-06-15, Prakash)** with the F-1..F-7 controls folded in, and the build was
+  authorized only post-sign-off + after the [PII-disclosure threat model](../security/contact-unlock-threat-model.md)
+  passed (bb-security-review = **PASS**; the one High finding **F-A** — an
+  unknown-worker FK-500 oracle — was fixed + has a CI regression test).
+- **New data shape: four additive, PII-FREE tables + one additive column.**
+  `unlocks` (one routed-contact grant — `payer_id` opaque/no-FK, `worker_id` → the
+  only identity join, `status`/`routing_token_ref`/`reveal_count`/`expires_at`),
+  `payer_credits` (mock balance), `credit_ledger` (append-only credit movements),
+  `unlock_routing` (token → `worker_id` + channel enum + expiry, **schema-proven
+  phone-free**), plus `jobs.payer_id` (opaque, nullable). **No phone, name, proxy
+  number, or contact string in any column** — "PII lives only in `workers`" holds.
+  Migration `0014` (additive; RLS-locked via REVOKE per TD20). **Table count:
+  16 → 20.**
+- **New event family: 8 additive v1 events, PII-FREE (ids/enums/counts only).**
+  `unlock.requested|granted|denied|cap_exceeded`, `contact.revealed`
+  (**channel KIND only** — `in_app_relay`/`proxy_number`, never the destination),
+  `payment.authorized|captured|failed` (every one `real_call: false` in alpha).
+  New event domains `unlock`/`contact`/`payment` + the `unlock` subject; the
+  `payer` actor already existed. **No ADR-0006/0009 payload mutated** (invariant 8).
+- **New consent purpose + a fail-closed disclosure gate.** `employer_sharing`
+  added to `CONSENT_PURPOSES` (the enum already reserved it); a purpose-scoped
+  sibling of `ConsentGuard` gates every reveal, fails closed, and is revocable —
+  disclosure to a payer is a *distinct* DPDP purpose from profiling.
+- **New seam: a single fail-closed chokepoint.** `UnlockGuardService` is the only
+  writer of `unlocks` and the only resolver of `routing_token_ref`; the ordering is
+  **consent → caps → payment → grant → routed-reveal**, each gate denying and
+  disclosing nothing on failure (no-oracle neutral response). The raw phone is read
+  (`PiiCryptoService.decrypt`) **only** at the routed-reveal step, server-side, once,
+  handed to the in-app relay, and discarded — never in an event/log/response.
+- **Alpha posture (interim, flagged):** payer routes ride `InternalServiceGuard`
+  (no per-payer auth yet — `PayerAuthGuard` is a launch gate, [TD33](./tech-debt-register.md)/[R16](./risks-register.md));
+  reveal is **in-app relay only** (no telephony provider, no raw number leaves
+  BadaBhai — [R18](./risks-register.md)); payments are a **mock credit ledger**
+  (`PAYMENTS_ENABLE_REAL=false` — [TD34](./tech-debt-register.md)/[R17](./risks-register.md)).
+  **226 API tests + e2e green.**
+- **Next, gated streams:** payer UI (Stream B), real Razorpay credit-pack purchase
+  ([TD34](./tech-debt-register.md)), and `PayerAuthGuard` ([TD33](./tech-debt-register.md))
+  — each a separate gated step. DPDP `employer_sharing` notice copy + a
+  retention/erasure policy ([R19](./risks-register.md)/[TD35](./tech-debt-register.md))
+  must land before any non-mock disclosure.
+- See [ADR-0010](../decisions/0010-contact-unlock-and-reveal.md) and the
+  [threat model](../security/contact-unlock-threat-model.md).
+
 ## 2026-06-15 — Alpha swipe-to-apply surface landed (ADR-0009)
 - **New contract surface: a sanctioned scoped producer for the ADR-0006 events.**
   The `feed.shown` / `application.submitted` / `application.skipped` v1 events

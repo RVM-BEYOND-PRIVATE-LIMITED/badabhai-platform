@@ -70,3 +70,28 @@ in open PR #42** (`feat/jobs-entity-lifecycle`) — that one is Reach-Engine-fac
 requester's decision, but the human should confirm at the ADR that the overlap is
 intentional and naming stays unambiguous (`job_posting.*` vs `job.*`). Scope brief handed
 to system-architect for the ADR (no ADR written here).
+### 2026-06-15 — Alpha-gate: Reach **feed serving** approved (RANK only; faceless, ops-only)
+Approved building the **serving layer** on top of the already-implemented deterministic
+`@badabhai/reach-engine` RANK core — surfaced in the **internal ops console (read-only)**
+as two views: a worker-facing ranked **job feed** and a payer-facing ranked **applicant
+list**. There is no payer/worker app or auth yet, so the alpha surface is ops-only.
+- **Applicant list** reuses `rankWorkersForJob(job, workers[])` over the `worker_profiles`
+  pool. **Worker job feed** reuses `scoreWorkerForJob` per candidate job and orders jobs
+  best-first (the core does NOT provide jobs-for-a-worker; derive it, do not reimplement
+  ranking math or fork the package). **`@badabhai/reach-engine` stays untouched.**
+- **Faceless output only:** opaque `worker_id`/`job_id` + explainable score `components`
+  + `hot`/`pushEligible`. NO worker contact info, NO employer name — consistent with the
+  existing PII-free `feed.*` / `application.*` payloads.
+- **Event-first:** reuse the already-defined `feed.shown` (emitted per impression).
+  `application.submitted` / `application.skipped` endpoints are **deferred** out of this
+  alpha slice (no worker app to apply from yet).
+- **Job source** for the worker feed = the `job_postings` entity (ADR-0010, ops-created
+  banded postings), which is **NOT merged yet** → architect must gate/stub it behind a
+  **clean seam**; do NOT invent a parallel job store. Hard dependency, flagged.
+- **SORT-NEVER-BLOCK preserved at the serving boundary:** the serving layer must not
+  filter — count in == count out; `hot`/`pushEligible`/order change order, never hide.
+- **Out of scope (Phase-2 fences):** PACE (release waves), PROTECT (contact caps /
+  scraper blocking), LEARN (behavioural re-ranking), unlock/contact/payments, and any
+  change to the reach-engine package itself. No LLM enters the rank/serve path.
+- Hands to **system-architect** for an ADR. Supersedes nothing; opens the first
+  Reach-consuming surface within the alpha gate.

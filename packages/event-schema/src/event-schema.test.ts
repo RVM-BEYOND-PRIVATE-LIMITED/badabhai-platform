@@ -564,12 +564,131 @@ describe("job_posting events (ops-created, vacancy-banded, PII-free)", () => {
   });
 });
 
+describe("unlock/contact/payment events (ADR-0010 — PII-free, ids/enums/counts only)", () => {
+  function unlockEvent(name: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: name,
+      actor: { actor_type: "payer", actor_id: UUID_A },
+      subject: { subject_type: "unlock", subject_id: UUID_A },
+      payload,
+    };
+  }
+
+  it("validates unlock.requested and defaults job_id to null", () => {
+    const result = validateEvent(
+      unlockEvent("unlock.requested", { unlock_id: UUID_A, payer_id: UUID_B, worker_id: UUID_C }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "unlock.requested") {
+      expect(result.event.payload.job_id).toBeNull();
+    }
+  });
+
+  it("validates unlock.granted with an expiry timestamp", () => {
+    const result = validateEvent(
+      unlockEvent("unlock.granted", {
+        unlock_id: UUID_A,
+        payer_id: UUID_B,
+        worker_id: UUID_C,
+        expires_at: "2026-07-01T00:00:00.000Z",
+      }),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it("validates unlock.denied with an internal deny enum and rejects free text", () => {
+    const ok = validateEvent(
+      unlockEvent("unlock.denied", { payer_id: UUID_B, worker_id: UUID_C, reason: "no_consent" }),
+    );
+    expect(ok.success).toBe(true);
+    const bad = validateEvent(
+      unlockEvent("unlock.denied", { payer_id: UUID_B, worker_id: UUID_C, reason: "9876543210" }),
+    );
+    expect(bad.success).toBe(false); // enum-only → no PII / no oracle leak
+  });
+
+  it("validates unlock.cap_exceeded with cap + window enums", () => {
+    const result = validateEvent(
+      unlockEvent("unlock.cap_exceeded", {
+        payer_id: UUID_B,
+        worker_id: UUID_C,
+        cap: "daily_reveals",
+        window: "day",
+      }),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it("validates contact.revealed (channel KIND only) and rejects a number-shaped channel", () => {
+    const ok = validateEvent(
+      unlockEvent("contact.revealed", {
+        unlock_id: UUID_A,
+        payer_id: UUID_B,
+        worker_id: UUID_C,
+        channel: "in_app_relay",
+        reveal_count: 1,
+      }),
+    );
+    expect(ok.success).toBe(true);
+    if (ok.success && ok.event.event_name === "contact.revealed") {
+      // The payload schema has NO field that could hold a number/handle/destination.
+      expect(Object.keys(ok.event.payload).sort()).toEqual(
+        ["channel", "payer_id", "reveal_count", "unlock_id", "worker_id"].sort(),
+      );
+    }
+    const bad = validateEvent(
+      unlockEvent("contact.revealed", {
+        unlock_id: UUID_A,
+        payer_id: UUID_B,
+        worker_id: UUID_C,
+        channel: "+919876543210", // a raw number is NOT a valid channel kind
+      }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("defaults real_call to false on every payment.* event (mock-honesty, F-6)", () => {
+    for (const name of ["payment.authorized", "payment.captured"] as const) {
+      const result = validateEvent(
+        unlockEvent(name, { payer_id: UUID_B, amount_credits: 1 }),
+      );
+      expect(result.success).toBe(true);
+      if (result.success && (result.event.event_name === "payment.authorized" || result.event.event_name === "payment.captured")) {
+        expect(result.event.payload.real_call).toBe(false);
+      }
+    }
+    const failed = validateEvent(
+      unlockEvent("payment.failed", { payer_id: UUID_B, reason: "insufficient_credits" }),
+    );
+    expect(failed.success).toBe(true);
+    if (failed.success && failed.event.event_name === "payment.failed") {
+      expect(failed.event.payload.real_call).toBe(false);
+    }
+  });
+
+  it("rejects an unknown payment.failed reason (enum-only → no free text)", () => {
+    const result = validateEvent(
+      unlockEvent("payment.failed", { payer_id: UUID_B, reason: "card_declined_by_bank_xyz" }),
+    );
+    expect(result.success).toBe(false);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 40 event names (37 prior + 3 job_posting: created/updated/closed, ADR-0012)", () => {
-    expect(EVENT_NAMES).toHaveLength(40);
+  it("exposes all 48 event names (37 prior + 3 job_posting + 8 ADR-0010 unlock/contact/payment)", () => {
+    expect(EVENT_NAMES).toHaveLength(48);
     expect(isEventName("job_posting.created")).toBe(true);
     expect(isEventName("job_posting.updated")).toBe(true);
     expect(isEventName("job_posting.closed")).toBe(true);
+    expect(isEventName("unlock.requested")).toBe(true);
+    expect(isEventName("unlock.granted")).toBe(true);
+    expect(isEventName("unlock.denied")).toBe(true);
+    expect(isEventName("unlock.cap_exceeded")).toBe(true);
+    expect(isEventName("contact.revealed")).toBe(true);
+    expect(isEventName("payment.authorized")).toBe(true);
+    expect(isEventName("payment.captured")).toBe(true);
+    expect(isEventName("payment.failed")).toBe(true);
     expect(isEventName("interview_kit.downloaded")).toBe(true);
     expect(isEventName("interview_kit.render_completed")).toBe(true);
     expect(isEventName("interview_kit.render_failed")).toBe(true);

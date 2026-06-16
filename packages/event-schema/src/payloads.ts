@@ -534,3 +534,131 @@ export const JobPostingClosedPayload = z.object({
   status: z.literal("closed"),
 });
 export type JobPostingClosedPayload = z.infer<typeof JobPostingClosedPayload>;
+// unlock.* / contact.* / payment.* — Contact Unlock + Reveal (ADR-0010, Stream A).
+//
+// The single highest-risk PII path in the product — and therefore the family with
+// the STRICTEST privacy contract: every payload below carries IDS + ENUMS + COUNTS
+// ONLY. The revealed phone / proxy number / relay destination / routing token NEVER
+// appears in ANY payload, ever (CLAUDE.md invariant 2; ADR-0010 §6.2; threat-model
+// T1/F-5). The only identity reference is `worker_id`/`payer_id` — opaque UUIDs.
+// `payer_id` is the "faceless-rails" opaque payer ref (employer OR agent), NEVER an
+// employer name. `contact.revealed.channel` is the channel KIND only — never the
+// destination. Every reason is an ENUM (no free text), exactly like
+// `application.skipped.reason`. Alpha is mock credits → `payment.*.real_call` is the
+// honest `false` (mirrors `AiCostRecordedPayload.real_call`).
+// ---------------------------------------------------------------------------
+
+/**
+ * INTERNAL-ONLY deny reason (ADR-0010 §D4/§6.2 no-oracle rule). It is recorded on
+ * the `unlock.denied` audit event for ops, but it is NEVER echoed to the payer (the
+ * payer only ever sees a byte-identical neutral response — F-3). Enum-only → no PII.
+ */
+export const UNLOCK_DENY_REASONS = [
+  "no_consent",
+  "capped",
+  "payment_required",
+  "unknown_worker",
+] as const;
+export const UnlockDenyReasonEnum = z.enum(UNLOCK_DENY_REASONS);
+export type UnlockDenyReasonEnum = z.infer<typeof UnlockDenyReasonEnum>;
+
+/** Which worker-protection cap was exceeded (ADR-0010 §D4). Enum-only → no PII. */
+export const UNLOCK_CAP_KINDS = ["daily_reveals", "weekly_payers", "attempts_per_unlock"] as const;
+export const UnlockCapKind = z.enum(UNLOCK_CAP_KINDS);
+export type UnlockCapKind = z.infer<typeof UnlockCapKind>;
+
+/** The window the exceeded cap is measured over (ADR-0010 §D4). Enum-only → no PII. */
+export const UNLOCK_CAP_WINDOWS = ["day", "week", "unlock"] as const;
+export const UnlockCapWindow = z.enum(UNLOCK_CAP_WINDOWS);
+export type UnlockCapWindow = z.infer<typeof UnlockCapWindow>;
+
+/**
+ * The routed-channel KIND (ADR-0010 §D2). Alpha ships `in_app_relay` only (discloses
+ * NO number). `proxy_number` is the production human-gated channel. KIND ONLY — the
+ * number / handle / destination NEVER travels in `contact.revealed` (F-5).
+ */
+export const UNLOCK_ROUTING_CHANNELS = ["in_app_relay", "proxy_number"] as const;
+export const UnlockRoutingChannel = z.enum(UNLOCK_ROUTING_CHANNELS);
+export type UnlockRoutingChannel = z.infer<typeof UnlockRoutingChannel>;
+
+/** Why a mock payment/credit step failed (ADR-0010 §6.2). Enum-only → no PII. */
+export const PAYMENT_FAILURE_REASONS = ["insufficient_credits", "gateway_error"] as const;
+export const PaymentFailureReason = z.enum(PAYMENT_FAILURE_REASONS);
+export type PaymentFailureReason = z.infer<typeof PaymentFailureReason>;
+
+/** A payer requested to unlock a worker's routed contact (logged at entry). */
+export const UnlockRequestedPayload = z.object({
+  unlock_id: uuidSchema,
+  payer_id: uuidSchema,
+  worker_id: uuidSchema,
+  job_id: uuidSchema.nullable().default(null),
+});
+
+/** An unlock was granted — ids + the access-window expiry ONLY. */
+export const UnlockGrantedPayload = z.object({
+  unlock_id: uuidSchema,
+  payer_id: uuidSchema,
+  worker_id: uuidSchema,
+  job_id: uuidSchema.nullable().default(null),
+  expires_at: isoDateTimeSchema,
+});
+
+/**
+ * An unlock attempt was denied — INTERNAL AUDIT ONLY. `reason` is the internal deny
+ * enum (NEVER echoed to the payer; F-3). Ids + enum only.
+ */
+export const UnlockDeniedPayload = z.object({
+  unlock_id: uuidSchema.nullable().default(null),
+  payer_id: uuidSchema,
+  worker_id: uuidSchema,
+  job_id: uuidSchema.nullable().default(null),
+  reason: UnlockDenyReasonEnum,
+});
+
+/** A worker-protection cap was exceeded — ids + which cap/window only. */
+export const UnlockCapExceededPayload = z.object({
+  payer_id: uuidSchema,
+  worker_id: uuidSchema,
+  cap: UnlockCapKind,
+  window: UnlockCapWindow.default("day"),
+});
+
+/**
+ * A routed contact was revealed — channel KIND + counts ONLY. The number / handle /
+ * relay destination / routing token NEVER appears here (F-5, non-tradeable #2).
+ */
+export const ContactRevealedPayload = z.object({
+  unlock_id: uuidSchema,
+  payer_id: uuidSchema,
+  worker_id: uuidSchema,
+  channel: UnlockRoutingChannel.default("in_app_relay"),
+  reveal_count: z.number().int().nonnegative().default(0),
+});
+
+/** A (mock) credit hold was authorized. `real_call:false` in alpha (mock honesty). */
+export const PaymentAuthorizedPayload = z.object({
+  unlock_id: uuidSchema.nullable().default(null),
+  payer_id: uuidSchema,
+  pack_code: z.string().min(1).max(64).nullable().default(null),
+  amount_inr: z.number().int().nonnegative().nullable().default(null),
+  amount_credits: z.number().int().nonnegative().default(0),
+  real_call: z.boolean().default(false),
+});
+
+/** A (mock) credit movement was captured (ledger debit / pack purchase). */
+export const PaymentCapturedPayload = z.object({
+  unlock_id: uuidSchema.nullable().default(null),
+  payer_id: uuidSchema,
+  pack_code: z.string().min(1).max(64).nullable().default(null),
+  amount_inr: z.number().int().nonnegative().nullable().default(null),
+  amount_credits: z.number().int().nonnegative().default(0),
+  real_call: z.boolean().default(false),
+});
+
+/** A (mock) payment/credit step failed — ids + enum reason only. */
+export const PaymentFailedPayload = z.object({
+  unlock_id: uuidSchema.nullable().default(null),
+  payer_id: uuidSchema,
+  reason: PaymentFailureReason,
+  real_call: z.boolean().default(false),
+});

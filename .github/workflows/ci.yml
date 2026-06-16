@@ -116,6 +116,12 @@ jobs:
       NODE_ENV: test
       API_PORT: "3001"
       RUN_E2E: "1"
+      # The per-IP OTP cap (OTP_MAX_SENDS_PER_HOUR, default 5) is also applied per
+      # egress IP. Every e2e test logs in via mock OTP from the SAME CI IP, so the whole
+      # suite shares one hourly budget — raise it here so the cap (a production abuse
+      # backstop, meaningless for a single shared CI IP) doesn't 429 the suite. Real
+      # deployments keep the default; this only affects the CI e2e job.
+      OTP_MAX_SENDS_PER_HOUR: "1000"
       # Shared secret for InternalServiceGuard on the ops/backend-only resume routes
       # (GET /resume/:id, …). Job-level so the API process AND the e2e test both see it;
       # the test sends it as x-internal-service-token.

@@ -81,3 +81,12 @@ Status legend: ✅ done in this foundation · 🔜 next · ⏳ later
 Reach Engine (reach → rank → pace → protect → learn), employer posting + unlock,
 payments + payouts, boosts, advanced matching, production legal/DPDP flows,
 finalized RLS, real provider integrations.
+
+> **Note (2026-06-15, [ADR-0010](../decisions/0010-contact-unlock-and-reveal.md)):** Contact
+> Unlock + Reveal **Stream A** (backend core) has landed **behind mock payments**
+> (`PAYMENTS_ENABLE_REAL=false`, in-app relay only, interim `InternalServiceGuard`) — a gated
+> Phase-2 monetization start, not a Phase-1 scope change. Real Razorpay purchase, payer UI, and
+> `PayerAuthGuard` remain gated next streams; the production DPDP `employer_sharing` copy +
+> retention policy are launch gates. See [TD33–TD35](../registers/tech-debt-register.md),
+> [R16–R21](../registers/risks-register.md), and the
+> [architecture log](../registers/architecture-log.md).

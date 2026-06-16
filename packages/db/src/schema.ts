@@ -604,6 +604,14 @@ export const jobs = pgTable("jobs", {
   // COARSE locality bucket (e.g. "Pimpri-Chinchwad"), NOT an address. Nullable.
   area: text("area"),
   status: text("status").$type<JobStatus>().notNull().default("open"),
+  // ADR-0010 §Decision 0 (evolve-not-replace): the opaque "faceless-rails" SELLER
+  // id — the payer (employer OR agent) who posted this job. ADDITIVE, NULLABLE, NO
+  // FK, NO `payers` identity table, and NEVER an employer name or any employer PII.
+  // It only ties a job to a billable payer for the unlock spine (ADR-0010 §D6);
+  // PR #42 introduces the same column on its richer jobs entity — whichever lands
+  // first owns it, the other consumes it. NEVER resolved to identity in any event
+  // or log.
+  payerId: uuid("payer_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -644,6 +652,174 @@ export const applications = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Contact Unlock + Reveal (ADR-0010, Stream A) — the routed-disclosure spine.
+//
+// All four tables are STRICTLY ADDITIVE and PII-FREE: ids + enums + counts +
+// opaque tokens ONLY. The ONLY join back to identity is `unlocks.worker_id` →
+// `workers` (where PII already lives, RLS-locked) — exactly like `applications`.
+// `payer_id` is the opaque "faceless-rails" payer ref (NO FK, NO `payers` table,
+// NO employer PII; ADR-0010 §Decision 0). The raw phone is read transiently from
+// `workers` ONLY at reveal time and is NEVER written into ANY of these tables, any
+// event payload, `ai_jobs`, `audit_logs`, or any log line (CLAUDE.md invariant 2;
+// ADR-0010 §D2 / Phase-0 F-4/F-5). No table below has a phone/name/contact column.
+//
+// Alpha is MOCK CREDITS ONLY (no real money) and IN-APP RELAY ONLY (no telephony
+// provider) — real payment/telephony keys remain hard human-gated escalations
+// (ADR-0010 §EXPLICITLY OUT, CLAUDE.md §7). These tables join the RLS backlog
+// (TD20) and are ENABLE+FORCE RLS + REVOKE-ALL locked in migration 0014, in the
+// same migration that creates them (the proven 0012 pattern).
+// ---------------------------------------------------------------------------
+
+/**
+ * Unlock lifecycle (ADR-0010 §D6.1). `requested` at entry → `granted` once
+ * consent+caps+credit pass → `revealed` after a routed contact attempt → `expired`
+ * when the 14-day window lapses → `denied` on any fail-closed gate. Default
+ * `requested`.
+ */
+export type UnlockStatus = "requested" | "granted" | "revealed" | "expired" | "denied";
+
+/**
+ * INTERNAL-ONLY deny reason (ADR-0010 §D4 no-oracle rule). Recorded for the audit
+ * spine; it is NEVER echoed to a payer (the payer only ever sees a neutral
+ * "unavailable" / "payment_required"). Null unless `status='denied'`.
+ */
+export type UnlockDenyReason = "no_consent" | "capped" | "payment_required" | "unknown_worker";
+
+/**
+ * Append-only credit-ledger movement reason (ADR-0010 §D5). `pack_purchase` =
+ * a payer bought a credit pack (mock in alpha, see credit-packs.ts); `unlock_debit`
+ * = one credit spent to grant an unlock; `refund` = a credit returned; `grant` =
+ * an ops/internal top-up (no real money). No currency/PAN/UPI is ever stored —
+ * `payment_ref` is an OPAQUE external order id only, never card/PII data.
+ */
+export type CreditReason = "pack_purchase" | "unlock_debit" | "refund" | "grant";
+
+/**
+ * Routed-channel kind (ADR-0010 §D2). Alpha ships `in_app_relay` ONLY — it
+ * discloses NO number and needs NO external provider. `proxy_number` is the
+ * production routed channel and is human-gated (real telephony key + spend).
+ */
+export type RoutingChannel = "in_app_relay" | "proxy_number";
+
+// unlocks — one routed-contact GRANT (per payer per candidate profile). PII-FREE.
+// Natural key (payer_id, worker_id): per-profile granularity (§Sign-off resolutions)
+// — one idempotent unlock per payer per candidate; a retried request converges on
+// the same row (last-state-wins; per-attempt audit lives in events). `job_id` is
+// OPTIONAL context (granularity is per-profile, not per-(worker, job)).
+export const unlocks = pgTable(
+  "unlocks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Opaque payer ref (employer OR agent) — faceless rails, NO FK, NO PII.
+    payerId: uuid("payer_id").notNull(),
+    // The ONLY join back to identity; PII stays in `workers` (RLS-locked).
+    workerId: uuid("worker_id")
+      .notNull()
+      .references(() => workers.id, { onDelete: "cascade" }),
+    // Optional job context (per-profile granularity, so nullable). FK to jobs.
+    jobId: uuid("job_id").references(() => jobs.id, { onDelete: "set null" }),
+    status: text("status").$type<UnlockStatus>().notNull().default("requested"),
+    // INTERNAL audit only — NEVER returned to a payer (no-oracle, §D4). Null unless
+    // status='denied' (enforced by the CHECK below).
+    denyReason: text("deny_reason").$type<UnlockDenyReason>(),
+    // Opaque pointer into `unlock_routing` (server-internal). NOT a contact, NOT a
+    // phone. Null until granted. The token itself never leaves the server (F-4).
+    routingTokenRef: uuid("routing_token_ref"),
+    // Routed contact attempts used (cap enforced in the service chokepoint, §D4).
+    revealCount: integer("reveal_count").notNull().default(0),
+    grantedAt: timestamp("granted_at", { withTimezone: true }),
+    // 14-day access window end (§Sign-off resolutions / §D1). Null until granted.
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Per-profile idempotency: at most one unlock per (payer, candidate).
+    uniqueIndex("unlocks_payer_worker_uq").on(t.payerId, t.workerId),
+    // Ops read: unlocks per worker (also feeds the per-worker cap reads).
+    index("unlocks_worker_id_idx").on(t.workerId),
+    // Ops/cap read: unlocks per payer.
+    index("unlocks_payer_id_idx").on(t.payerId),
+    // deny_reason is only valid on a deny (NULL otherwise).
+    check("unlocks_deny_reason_chk", sql`${t.denyReason} IS NULL OR ${t.status} = 'denied'`),
+  ],
+);
+
+// payer_credits — mock credit balance, one row per payer. Amounts + ids ONLY.
+// NO real money in alpha (§D5). balance is a materialization of `credit_ledger`.
+export const payerCredits = pgTable(
+  "payer_credits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Opaque payer ref (no FK, no PII). One balance row per payer.
+    payerId: uuid("payer_id").notNull(),
+    // Unlock credits available. Phase-0 F-6: must never go negative.
+    balance: integer("balance").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("payer_credits_payer_id_uq").on(t.payerId),
+    // F-6: balance is never negative (a debit below zero must fail closed).
+    check("payer_credits_balance_nonneg_chk", sql`${t.balance} >= 0`),
+  ],
+);
+
+// credit_ledger — APPEND-ONLY credit movements (the source of truth; balance is a
+// materialization of it). Amounts + ids ONLY. NO currency/PAN/UPI — `payment_ref`
+// is an OPAQUE external payment/order id only, NEVER card/PII data (§D5).
+export const creditLedger = pgTable(
+  "credit_ledger",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    payerId: uuid("payer_id").notNull(),
+    // +grant / -debit. Signed credit movement.
+    delta: integer("delta").notNull(),
+    reason: text("reason").$type<CreditReason>().notNull(),
+    // Set for unlock_debit / refund (which unlock spent/returned the credit).
+    unlockId: uuid("unlock_id").references(() => unlocks.id, { onDelete: "set null" }),
+    // For pack_purchase: the pack code bought (e.g. 'pack_10' | 'pack_25'). Null otherwise.
+    packCode: text("pack_code"),
+    // OPAQUE external payment/order ref ONLY (e.g. a gateway order id) — NEVER card
+    // number, UPI handle, or any PII. Null for ops grants / mock debits.
+    paymentRef: text("payment_ref"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("credit_ledger_payer_id_idx").on(t.payerId)],
+);
+
+// unlock_routing — SERVER-SIDE-ONLY routing mapping (ADR-0010 §D2 / Phase-0 F-4/F-5).
+// PII-FREE BY CONSTRUCTION: it maps an opaque routing token → a channel + an
+// expiring, NON-reversible payer-facing handle. There is ABSOLUTELY NO phone / name
+// / contact / proxy-number column here. The raw phone is read transiently from
+// `workers.phoneE164` (PiiCryptoService) ONLY inside the reveal handler, handed to
+// the relay/provider, and DISCARDED — it is NEVER stored on this row. The
+// `routing_token` is the 122-bit server-internal token and NEVER appears in any
+// response, event payload, or log (F-4).
+export const unlockRouting = pgTable(
+  "unlock_routing",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    unlockId: uuid("unlock_id")
+      .notNull()
+      .references(() => unlocks.id, { onDelete: "cascade" }),
+    // 122-bit server-internal token (UUIDv4). NEVER returned/evented (F-4).
+    routingToken: uuid("routing_token").notNull(),
+    channel: text("channel").$type<RoutingChannel>().notNull(),
+    // The payer-facing, NON-reversible, expiring handle for the routed channel —
+    // NOT a phone, NOT reversible to one. Alpha: an in-app relay handle.
+    relayHandle: text("relay_handle").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The token is the server-internal lookup key; it must be unique.
+    uniqueIndex("unlock_routing_routing_token_uq").on(t.routingToken),
+    index("unlock_routing_unlock_id_idx").on(t.unlockId),
+  ],
+);
+
+// ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
 // ---------------------------------------------------------------------------
 export type Worker = typeof workers.$inferSelect;
@@ -680,6 +856,14 @@ export type Job = typeof jobs.$inferSelect;
 export type NewJob = typeof jobs.$inferInsert;
 export type Application = typeof applications.$inferSelect;
 export type NewApplication = typeof applications.$inferInsert;
+export type Unlock = typeof unlocks.$inferSelect;
+export type NewUnlock = typeof unlocks.$inferInsert;
+export type PayerCredit = typeof payerCredits.$inferSelect;
+export type NewPayerCredit = typeof payerCredits.$inferInsert;
+export type CreditLedger = typeof creditLedger.$inferSelect;
+export type NewCreditLedger = typeof creditLedger.$inferInsert;
+export type UnlockRouting = typeof unlockRouting.$inferSelect;
+export type NewUnlockRouting = typeof unlockRouting.$inferInsert;
 
 /** All tables, handy for migrations/tests. */
 export const schema = {
@@ -700,4 +884,8 @@ export const schema = {
   jobPostings,
   jobs,
   applications,
+  unlocks,
+  payerCredits,
+  creditLedger,
+  unlockRouting,
 };
