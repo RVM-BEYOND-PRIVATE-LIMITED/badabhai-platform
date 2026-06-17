@@ -664,7 +664,16 @@ are legal calls; CLAUDE.md §8 launch gate).
 - **No Reach ranking change.** The candidates page reuses the ADR-0011 serving layer +
   unchanged RANK core; the pricing engine does **no** ranking and the booster does **no**
   re-ranking (it broadcasts a faceless job; PACE/PROTECT/LEARN remain Phase-2, ADR-0011
-  OUT).
+  OUT). **This deferral is now TEST-GUARDED (2026-06-17, [TD42](../registers/tech-debt-register.md)):**
+  the boost↔floor invariant is pinned by executable tests — **BOOST-INERT** (boost is
+  data-only; the `jobs` source has no boost column and nothing maps boost into a `JobSpec` /
+  the RANK core) in [`reach.job-source.test.ts`](../../apps/api/src/reach/reach.job-source.test.ts),
+  and the **FLOOR-INVARIANCE CONTRACT** (the spec any FUTURE boost reorder MUST satisfy —
+  reorder-within-the-above-floor-band only, off-trade never hot, scores immutable,
+  deterministic — with a floor-violating negative control that proves the guard has teeth) in
+  [`reach-engine.property.test.ts`](../../packages/reach-engine/src/reach-engine.property.test.ts).
+  Boost RANKING stays **deferred pending its own ADR** (it must keep these tests green); cross-ref
+  [ADR-0006](0006-reach-foundation-rank-core.md) (the floor) + [ADR-0011](0011-reach-feed-serving.md).
 - **No LLM anywhere on this path.** Pricing is deterministic arithmetic; posting/boost/
   resume/payment are CRUD + events + the disclosure chokepoint. (invariants 3, 4 trivially
   held; none may be added.)
