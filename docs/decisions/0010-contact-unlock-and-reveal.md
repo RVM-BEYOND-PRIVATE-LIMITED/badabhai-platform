@@ -21,7 +21,7 @@
   (TD35/LC-3), real telephony + raw-phone reveal + production DPDP copy + timing-normalization
   (LC-4/LC-6/LC-2/LC-7). The two threat-model §6 *static* regression guards (BC-8 sole-writer
   test, BC-5 single-decrypt-site test) are runtime/convention-covered today and logged as
-  **TD39**. Real money / real provider / per-payer auth / production legal copy remain
+  **TD41**. Real money / real provider / per-payer auth / production legal copy remain
   **human-gated** (§STOP).
 
 ---
