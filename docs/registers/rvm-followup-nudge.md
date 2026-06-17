@@ -1,30 +1,36 @@
 # RVM 9-trade ratification — follow-up nudge + go-live readiness
 
-- **Date:** 2026-06-16 · **Status:** ready to send; awaiting RVM's trade-by-trade PASS (a
-  human gate — engineering cannot grant it).
+- **Date:** 2026-06-16 · **Status:** ✅ **RESOLVED — CEO-approved 2026-06-17.** The 9-trade
+  content ratification is **approved by the CEO**; the RVM trade-by-trade chase is **closed —
+  do NOT send the nudge below.** All 9 trades are ratified (record gate satisfied). The drafted
+  nudge + bounce-prep below are retained as history only.
+- **What this means mechanically:** content was already live as the provisional Phase-1 default
+  (no per-trade `ratified` flag exists — see "Go-live readiness"), so approval is a **record
+  gate**, now satisfied. No code flip. If any copy edits are later requested, bump
+  `INTERVIEW_KIT_CONTENT_VERSION` then; otherwise touch no code.
 - **Packet RVM signs:** [trade-content-ratification-packet.md](trade-content-ratification-packet.md)
   (§4 per-trade checklist — all verdict cells empty).
 - **Companion register:** [trade-content-ratification.md](trade-content-ratification.md).
 - **Content source of truth:** resume [`trade-content.ts`](../../apps/api/src/resume/trade-content.ts),
   interview-kit [`interview-kit-content.ts`](../../apps/api/src/interview-kit/interview-kit-content.ts).
 
-**Our side is COMPLETE for all 9 trades** (content authored, `REQUIRED_KIT_TRADE_KEYS`
-lists them, tests green for presence/shape). The only outstanding item per trade is **RVM's
-human PASS**.
+**All 9 trades are COMPLETE and CEO-APPROVED** (content authored, `REQUIRED_KIT_TRADE_KEYS`
+lists them, tests green for presence/shape; CEO ratification granted 2026-06-17). No
+outstanding item remains.
 
-## The 9 trades + one-liner status
+## The 9 trades + one-liner status (all CEO-approved 2026-06-17)
 
 | # | Trade | Status |
 |---|-------|--------|
-| 1 | cnc_vmc_setter | Our side complete — awaiting RVM PASS |
-| 2 | cnc_programmer | Complete — RVM to confirm CAM tool names + "CMM (basic awareness)" |
-| 3 | vmc_programmer | Complete — same CAM-naming confirmation |
-| 4 | solidworks_designer | Complete — RVM to accept the desk-role "workstation discipline" safety framing |
-| 5 | autocad_draftsman | Complete — awaiting PASS **+ spelling decision** (Draftsman vs Draughtsman) |
-| 6 | tool_room_technician | Complete — awaiting RVM PASS |
-| 7 | machine_operator | Complete — awaiting PASS **+ confirm generic/machine-agnostic framing is OK** |
-| 8 | assembly_technician | Complete — awaiting RVM PASS |
-| 9 | fitter | Complete — awaiting RVM PASS |
+| 1 | cnc_vmc_setter | ✅ CEO-approved |
+| 2 | cnc_programmer | ✅ CEO-approved |
+| 3 | vmc_programmer | ✅ CEO-approved |
+| 4 | solidworks_designer | ✅ CEO-approved |
+| 5 | autocad_draftsman | ✅ CEO-approved |
+| 6 | tool_room_technician | ✅ CEO-approved |
+| 7 | machine_operator | ✅ CEO-approved |
+| 8 | assembly_technician | ✅ CEO-approved |
+| 9 | fitter | ✅ CEO-approved |
 
 ## Go-live readiness — IMPORTANT: there is no code flip to stage
 

@@ -1,10 +1,11 @@
 # ADR-0014: Phase-1 schema foundation — declared STABLE, additive-only going forward
 
-- **Status:** **DRAFT — awaiting CEO sign-off.** This is the artifact the CEO signs to
-  close the long-open "item-10 / schema foundation" gate. The structure here is a working
-  default; the maintainer + CEO will reverify and fine-tune the checklist contents and the
-  exact wording before/at sign-off. Nothing here changes code or data.
-- **Date:** 2026-06-16
+- **Status:** **ACCEPTED — CEO-signed 2026-06-17.** The Phase-1 schema foundation is
+  **declared STABLE** under the additive-only + versioned + ADR change policy below; the
+  long-open "item-10 / schema foundation" gate is **closed**. This locks the contract — the
+  25 tables and their shipped event payloads will not change shape without an ADR + a
+  versioned migration. (Additive Phase-2 growth continues; this is a guardrail, not a freeze.)
+- **Date:** 2026-06-16 (drafted) · **Accepted:** 2026-06-17 (CEO sign-off)
 - **Decision owners:** database-architect (technical facts) · product (framing) · **CEO
   (the sign-off gate — human, cannot be granted by engineering).**
 - **Supersedes the informal "freeze item-10":** we are **NOT hard-freezing** the schema.
@@ -60,7 +61,8 @@ Declare the **Phase-1 schema foundation STABLE** as of CEO sign-off, and adopt t
 `posting_plans` · `posting_boosts` · `resume_disclosures`.
 
 (Source of truth: [`packages/db/src/schema.ts`](../../packages/db/src/schema.ts), migrations
-`0000`–`0016`.)
+`0000`–`0017`. Migration `0017` is an additive column on `jobs` — `applicants_received` —
+so the table count stays 25.)
 
 ## Readiness checklist (the "items" — what must be true to declare stable)
 
@@ -70,7 +72,7 @@ Declare the **Phase-1 schema foundation STABLE** as of CEO sign-off, and adopt t
 | # | Item | State | Note |
 |---|------|-------|------|
 | 1 | Schema authored in Drizzle as the single source of truth | ✅ | `schema.ts` |
-| 2 | All migrations `0000`–`0016` generated with rollback notes | ✅ | `packages/db/migrations/` |
+| 2 | All migrations `0000`–`0017` generated with rollback notes | ✅ | `packages/db/migrations/` |
 | 3 | PII isolated to `workers`, encrypted at rest | ✅ | ADR-0004 |
 | 4 | Spine-wide RLS + REVOKE lock on all 25 tables, no-drift test | ✅ | TD20, `rls-spine.e2e.test.ts` |
 | 5 | Events/ai_jobs/audit_logs are PII-free (ids/hashes only) | ✅ | invariant 2 |
@@ -78,14 +80,14 @@ Declare the **Phase-1 schema foundation STABLE** as of CEO sign-off, and adopt t
 | 7 | Schema doc reconciled to reality (25 tables) | ✅ | `docs/schema/README.md` (this PR) |
 | 8 | Change policy (additive + versioned + ADR) written + agreed | ✅ | this ADR |
 | 9 | Backward-compatibility / rollback discipline documented | ✅ | `safe-db-migration` skill |
-| 10 | **CEO declares the Phase-1 foundation stable** | ⏳ | **this sign-off** |
+| 10 | **CEO declares the Phase-1 foundation stable** | ✅ | **CEO-signed 2026-06-17** |
 | — | Migrations applied to a shared/staging DB | ⏳ | needs ops sign-off (separate gate, not a blocker to *declaring* the contract) |
 | — | Finalized RLS auth-identity model (Q5/Q11) | ⏳ | deferred-by-decision (service-role today); additive when it lands |
 | — | Embeddings/model-training first use (Q8) | ⏳ | Phase-2 AI roadmap; additive |
 
-**Item-10 is the CEO declaration itself.** Items 1–9 are closed; the open ⏳ rows are
-explicitly *out of scope for the declaration* (they're additive/operational and tracked in
-the registers), which is exactly what the CEO is being asked to accept.
+**Item-10 is the CEO declaration itself — DONE (CEO-signed 2026-06-17).** Items 1–10 are
+closed; the remaining ⏳ rows were explicitly *out of scope for the declaration* (additive/
+operational, tracked in the registers) and the CEO accepted them as such.
 
 ## What signing commits us to / what it blocks if unsigned
 
@@ -138,12 +140,10 @@ the registers), which is exactly what the CEO is being asked to accept.
 
 ## SIGN-OFF
 
-_(To be completed by the CEO. Until then this ADR stays DRAFT and the foundation is
-"declared-pending," not stable.)_
-
-- **CEO decision:** ____________________  **Date:** ____________
-- On YES: flip Status → **Accepted**, set `docs/schema/README.md` Status → **Stable
-  (ADR-0014)**, and add the dated row to the decisions-log timeline.
+- **CEO decision:** ✅ **YES — Phase-1 schema foundation declared STABLE.**  **Date:** 2026-06-17
+- Done on YES: Status → **Accepted** (above); `docs/schema/README.md` Status → **Stable
+  (ADR-0014)**; decisions-log timeline row updated to ACCEPTED. The additive-only + versioned
+  + ADR change policy is now the binding contract for downstream teams.
 
 ## Related
 

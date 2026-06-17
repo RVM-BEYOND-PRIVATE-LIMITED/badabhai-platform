@@ -1,14 +1,14 @@
 # Schema Docs
 
-**Status:** Phase-1 foundation **declared-stable PENDING CEO sign-off**
-([ADR-0014](../decisions/0014-phase-1-schema-foundation-stable.md)). Change policy after
-sign-off: **additive + versioned + ADR for any breaking change** (CLAUDE.md §2 invariant 8).
+**Status:** Phase-1 foundation **STABLE (ADR-0014, CEO-signed 2026-06-17)**
+([ADR-0014](../decisions/0014-phase-1-schema-foundation-stable.md)). Change policy:
+**additive + versioned + ADR for any breaking change** (CLAUDE.md §2 invariant 8).
 This is **not** a hard freeze — Phase-2 additive tables continue.
 
 The database schema is authored in Drizzle and is the source of truth:
 
 - Schema: [`packages/db/src/schema.ts`](../../packages/db/src/schema.ts)
-- Generated SQL migrations: [`packages/db/migrations/`](../../packages/db/migrations/) (through `0016`)
+- Generated SQL migrations: [`packages/db/migrations/`](../../packages/db/migrations/) (through `0017`)
 - Migration & RLS plans: [`infra/supabase/`](../../infra/supabase/)
 
 ## Tables (25)
