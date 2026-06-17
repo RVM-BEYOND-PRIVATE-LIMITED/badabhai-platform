@@ -26,7 +26,7 @@
 | **Service token stays server-side** | ✅ **PASS (code-verified)** | `process.env` only, in `"use server"` actions |
 | **Applicant feed is faceless** | ✅ **PASS (code-verified)** | mappers read opaque `workerId` + signals only |
 | **The end-to-end UI loop actually works** | ⏳ **UNVERIFIED** | needs staging + a human click-loop (Phase 2) |
-| **API boots + feed resolves in staging** | ✅ **FIXED (code)** · ⏳ run pending | **BUG-1 RESOLVED** — `JobPostingsJobSource` implemented + env-bound; needs a live staging run to confirm |
+| **API boots + feed resolves in staging** | ✅ **FIXED (code)** · ⏳ run pending | **BUG-1 RESOLVED** via divyuuu's `JobsTableJobSource` (ADR-0015, supersedes the interim #67 `JobPostingsJobSource`); needs a live staging run to confirm |
 | **Employer-facing resume is masked** | ➖ **N/A — not built** | no employer resume surface exists; masking is build-gate **B-G** ([addendum](../security/resume-disclosure-threat-model-addendum.md)) |
 
 **Bottom line:** the security-critical guarantees (no raw-phone leak, no real money, no-oracle)
@@ -40,13 +40,14 @@ boot in staging). Clear BUG-1 + deploy staging, then run Phase 2 with a human.
 
 ### 1.0 Prerequisite gates (must be true or the run is invalid)
 
-1. ✅ **BUG-1 FIXED (2026-06-17).** `apps/api/src/reach/reach.module.ts` now binds `JOB_SOURCE`
-   environment-dependently: dev/test → `StubJobSource` (unchanged), **staging/production →
-   `JobPostingsJobSource`** ([reach.job-postings-source.ts](../../apps/api/src/reach/reach.job-postings-source.ts)),
-   which reads the real `job_postings` table and maps rows → `JobSpec` (faceless; `roleTitle`
-   canonicalized via `@badabhai/taxonomy`; demand signals the stored-only posting lacks are omitted
-   → engine neutral-defaults). The API now boots in staging and the feed resolves a real posting.
-   Covered by `reach.job-postings-source.test.ts` (11 tests) + the existing D6-gate test; full API
+1. ✅ **BUG-1 FIXED (2026-06-17).** `apps/api/src/reach/reach.module.ts` binds `JOB_SOURCE` to a
+   real source replacing the dev-only `StubJobSource`. **Superseded note:** the interim
+   `JobPostingsJobSource` (reading `job_postings`) from #67 was **replaced by divyuuu's
+   `JobsTableJobSource`** ([ADR-0015](../decisions/0015-reach-feed-on-real-jobs.md), PR #69),
+   which serves the live ADR-0009 `jobs` entity via a faceless `JobSignalRow` projection +
+   pure `jobSignalRowToJobSpec` mapper (the no-PII boundary, asserted by a projection test).
+   The API now boots in staging and the feed resolves a real `jobs` row. Covered by
+   ADR-0015's JobsTableJobSource tests + the existing D6-gate test; full API
    suite 326/326, typecheck/lint/build green. **Still requires a live staging run to confirm at runtime.**
 2. **Staging must be deployed** with a concrete HTTPS URL (same blocker as B1 — see
    [b1-device-capstone-runbook.md](b1-device-capstone-runbook.md) prereq #1). Until then the run
@@ -180,7 +181,7 @@ absent in code and must be re-confirmed on the live trace by the human at steps 
 
 | ID | Sev | What | Where | Owner |
 | -- | --- | ---- | ----- | ----- |
-| **BUG-1** | ~~High (blocks the run)~~ → ✅ **FIXED 2026-06-17** | `JobPostingsJobSource` implemented + env-bound (dev/test stub unchanged; staging/prod reads `job_postings` → `JobSpec`, faceless, taxonomy-canonicalized role). API boots in staging; feed resolves a real posting. Tests + typecheck + lint + build green. Live staging run still pending. | [reach.job-postings-source.ts](../../apps/api/src/reach/reach.job-postings-source.ts), [reach.module.ts](../../apps/api/src/reach/reach.module.ts) | backend-engineer (done) |
+| **BUG-1** | ~~High (blocks the run)~~ → ✅ **FIXED 2026-06-17** | Real `JobSource` replaces the dev-only stub binding so the API boots in staging and the feed resolves a real job. The interim #67 `JobPostingsJobSource` was **superseded by divyuuu's `JobsTableJobSource`** ([ADR-0015](../decisions/0015-reach-feed-on-real-jobs.md), PR #69) reading the live `jobs` entity (faceless projection + mapper, no-PII test). Live staging run still pending. | [reach.module.ts](../../apps/api/src/reach/reach.module.ts), [reach.job-source.ts](../../apps/api/src/reach/reach.job-source.ts) | backend-engineer (done) |
 | **OBS-2** | Med (launch gate, known) | Payer identity is **unauthenticated** — all unlock/reveal/credits routes are behind `InternalServiceGuard`; `payer_id` is trusted from the request body. Any ops actor can act as any payer. Acceptable for alpha **ops-run** only; a real `PayerAuthGuard` + horizontal-authz test is a hard launch gate. | [unlocks.controller.ts:26-42](../../apps/api/src/unlocks/unlocks.controller.ts#L26) (TD33) | security + backend |
 | **OBS-3** | Med (build gate) | No employer-facing **masked** resume surface exists; `maskInitials` is doc-only. Before ANY employer resume surface ships, build gate **B-G** (masked initials, no phone, golden-render test) must land in the same change. | [addendum](../security/resume-disclosure-threat-model-addendum.md) / [resume-renderer.service.ts](../../apps/api/src/resume/resume-renderer.service.ts) | frontend + security |
 | **OBS-4** | Low | Ops console has **no auth gate** (`apps/web` has no middleware/login) — relies on network-internal deployment. Confirm it is not publicly reachable in staging. | `apps/web/src/app/**` (no `middleware.ts`) | devops |
