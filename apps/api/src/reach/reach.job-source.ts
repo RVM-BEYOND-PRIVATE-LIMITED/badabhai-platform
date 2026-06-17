@@ -1,12 +1,15 @@
 import { Injectable } from "@nestjs/common";
 import { isDevEnv } from "@badabhai/config";
 import type { JobSpec } from "@badabhai/reach-engine";
+import { ReachRepository, type JobSignalRow } from "./reach.repository";
+import { roleIdsForTradeKey } from "../resume/trade-content";
 
 /**
- * The `JobSource` port (ADR-0011 §4) — the seam over the not-yet-merged
- * `job_postings` entity (ADR-0010). The serving layer depends on THIS interface,
- * never on the `job_postings` Drizzle types, so the real read drops in as a single
- * provider swap with zero change to `reach.service.ts` / `reach.controller.ts`.
+ * The `JobSource` port (ADR-0011 §4) — the seam over the real job entity. The
+ * serving layer depends on THIS interface, never on the Drizzle types, so the real
+ * read is a single provider swap with zero change to `reach.service.ts` /
+ * `reach.controller.ts`. PRODUCTION binding: `JobsTableJobSource` over the live
+ * ADR-0009 `jobs` table (see below). `StubJobSource` is retained for tests only.
  *
  * The port returns engine-typed `JobSpec`s only — opaque ids + demand-side signals.
  * It carries NO employer name or contact (faceless by construction, §invariants).
@@ -98,10 +101,58 @@ export class StubJobSource implements JobSource {
 export function createStubJobSourceOrThrow(): StubJobSource {
   if (!isDevEnv()) {
     throw new Error(
-      "StubJobSource is dev/test-only (ADR-0011 D6): bind JobPostingsJobSource to " +
+      "StubJobSource is dev/test-only (ADR-0011 D6): bind JobsTableJobSource to " +
         "JOB_SOURCE for non-dev environments — the alpha stub must never serve " +
         "fixtures in staging/production.",
     );
   }
   return new StubJobSource();
+}
+
+/**
+ * Pure row→`JobSpec` mapper — the FACELESS BOUNDARY (ADR-0011 swap point / TD36c).
+ * Takes only the demand-side signal projection (`JobSignalRow`) and emits engine
+ * types. It NEVER receives or returns `title` / `area` / `payer_id` (the repository
+ * projection already drops them), so an employer-y free-text or a billing linkage
+ * can never reach a `JobSpec`, a `feed.shown` event, or a log.
+ *
+ *  - `roleIds` ← the trade→role bridge (`roleIdsForTradeKey`), so the RANK core's
+ *    Role factor exact-matches a worker's `canonical_role_id`. A non-machining trade
+ *    yields `[]` (no Phase-1 worker role) → role scores low, worker still shown.
+ *  - `city` ← the coarse slug; the engine's Distance factor uses the city-slug
+ *    fallback (no coordinates are stored or needed).
+ *  - pay / experience / neededBy ← null becomes `undefined`, which the engine
+ *    neutral-defaults (a blank never drops or penalizes anyone).
+ */
+export function jobSignalRowToJobSpec(row: JobSignalRow): JobSpec {
+  return {
+    jobId: row.jobId,
+    roleIds: roleIdsForTradeKey(row.tradeKey),
+    city: row.city,
+    minExperienceYears: row.minExperienceYears ?? undefined,
+    maxExperienceYears: row.maxExperienceYears ?? undefined,
+    payMin: row.payMin ?? undefined,
+    payMax: row.payMax ?? undefined,
+    neededBy: row.neededBy ?? undefined,
+  };
+}
+
+/**
+ * The real `JobSource` (ADR-0011 §4 swap executed) — serves the live ADR-0009
+ * `jobs` entity via the faceless `ReachRepository` projection. Replaces the alpha
+ * `StubJobSource` in `reach.module.ts`. Controller/service are untouched.
+ */
+@Injectable()
+export class JobsTableJobSource implements JobSource {
+  constructor(private readonly repo: ReachRepository) {}
+
+  async getJobSpec(jobId: string): Promise<JobSpec | null> {
+    const row = await this.repo.findJobSignalRowById(jobId);
+    return row ? jobSignalRowToJobSpec(row) : null;
+  }
+
+  async listOpenJobSpecs(): Promise<JobSpec[]> {
+    const rows = await this.repo.listOpenJobSignalRows();
+    return rows.map(jobSignalRowToJobSpec);
+  }
 }

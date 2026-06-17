@@ -43,3 +43,4 @@ indexes both so there is one timeline.
 - [0011 — Reach feed serving (applicant list + worker feed over the RANK core)](../decisions/0011-reach-feed-serving.md) — *Accepted (alpha-gate, 2026-06-15)*
 - [0013 — Employer/agent monetization + config-driven Pricing Engine](../decisions/0013-monetization-and-config-driven-pricing-engine.md) — *Accepted (2026-06-16; resume download free; Razorpay disabled; threat-model addendum gated)*
 - [0014 — Phase-1 schema foundation: declared stable, additive-only](../decisions/0014-phase-1-schema-foundation-stable.md) — *ACCEPTED (CEO-signed 2026-06-17)*
+- [0015 — Reach feed serving on the real `jobs` entity](../decisions/0015-reach-feed-on-real-jobs.md) — *Accepted (2026-06-17; executes the ADR-0011 §4 JobSource swap; additive demand-signal columns; RANK core unchanged; pays down TD36c)*
