@@ -21,7 +21,7 @@ Engine), and production legal flows are **out of scope for Phase 1**. See
 > **Phase-2 alpha-gate streams have since landed additively, each by its own ADR and behind
 > launch gates — they do NOT relax the §2 invariants:** swipe-to-apply
 > ([ADR-0009](docs/decisions/0009-alpha-swipe-to-apply-seeded-jobs.md)), Reach feed serving
-> ([ADR-0011](docs/decisions/0011-reach-feed-serving.md) / [ADR-0015](docs/decisions/0015-reach-feed-on-real-jobs.md)),
+> ([ADR-0011](docs/decisions/0011-reach-feed-serving.md)),
 > ops job postings ([ADR-0012](docs/decisions/0012-ops-job-postings-banded-stored-only.md)),
 > monetization + config-driven pricing ([ADR-0013](docs/decisions/0013-monetization-and-config-driven-pricing-engine.md)),
 > and **Contact Unlock + Reveal — "Stream A"** ([ADR-0010](docs/decisions/0010-contact-unlock-and-reveal.md):
