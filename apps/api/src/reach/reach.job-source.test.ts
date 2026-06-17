@@ -9,6 +9,9 @@ import {
 } from "./reach.job-source";
 import { roleIdsForTradeKey } from "../resume/trade-content";
 import type { JobSignalRow, ReachRepository } from "./reach.repository";
+import { rankWorkersForJob, type WorkerSignals } from "@badabhai/reach-engine";
+import { getTableColumns } from "drizzle-orm";
+import { jobs } from "@badabhai/db";
 
 describe("StubJobSource fixtures", () => {
   const source: JobSource = new StubJobSource();
@@ -190,5 +193,83 @@ describe("JobsTableJobSource — serves the real jobs table via the faceless pro
     expect(found?.jobId).toBe(JID);
     expect(found?.roleIds).toContain("role_vmc_operator");
     expect(await source.getJobSpec("00000000-0000-4000-8000-000000000000")).toBeNull();
+  });
+});
+
+// ============================================================================
+// BOOST-INERT — posting boost is DATA-ONLY and never enters ranking.
+//
+// ADR-0013 ("pricing/boost never rank"); ADR-0011/0012 defer boost ranking. Boost
+// lives ONLY in `posting_boosts` (on `job_postings`) + the `job_posting.boosted`
+// event — never on the `jobs` demand-side source, never in the `JobSignalRow`
+// projection, never in `jobSignalRowToJobSpec`. These tests LOCK that a posting's
+// boost can change NEITHER the rank vector NOR floor membership (hot/pushEligible),
+// because there is no channel for it to reach the engine. This is the deferral
+// guard — it does NOT implement boost ranking.
+// ============================================================================
+describe("BOOST-INERT — posting boost never reaches the RANK core (ADR-0013 deferral lock)", () => {
+  it("the demand-side `jobs` table has NO boost column (boost cannot enter JobSignalRow)", () => {
+    // The faceless JobSignalRow projects from `jobs`; if `jobs` grew a boost column a
+    // future projection could leak it into a JobSpec. Lock it at the source: `jobs`
+    // carries no boost field at all (boost lives on its OWN table, `posting_boosts`).
+    const cols = Object.values(getTableColumns(jobs)).map((c) => c.name.toLowerCase());
+    for (const c of cols) {
+      expect(c, `jobs.${c} must not be a boost signal`).not.toContain("boost");
+    }
+  });
+
+  it("the row→JobSpec mapper ignores any boost-ish fields (no boost channel exists)", () => {
+    const plain = jobSignalRowToJobSpec(makeRow({ tradeKey: "vmc_operator" }));
+    // Even if a row were somehow handed boost fields, the mapper reads only the
+    // projected demand signals — so the JobSpec is byte-identical and carries no boost.
+    const withBoost = jobSignalRowToJobSpec({
+      ...makeRow({ tradeKey: "vmc_operator" }),
+      boost_tier: "all_candidates",
+      boosted: true,
+      boost_ends_at: "2026-12-31T00:00:00Z",
+    } as unknown as JobSignalRow);
+    expect(withBoost).toEqual(plain);
+    for (const k of Object.keys(withBoost)) {
+      expect(k.toLowerCase(), `JobSpec.${k} must not be a boost field`).not.toContain("boost");
+    }
+  });
+
+  it("toggling a posting's boost changes NEITHER the rank vector NOR floor membership", () => {
+    // A fixed, mixed pool: on-trade above-floor, on-trade weaker, and an off-trade
+    // worker (role_* form; jobs map trade_key → role_* via roleIdsForTradeKey).
+    const pool: WorkerSignals[] = [
+      {
+        workerId: "w-on-strong",
+        roleId: "role_vmc_operator",
+        city: "Rajkot",
+        lastActiveDaysAgo: 1,
+        availability: "immediate",
+        experienceYears: 4,
+        expectedSalary: 18000,
+      },
+      { workerId: "w-on-weak", roleId: "role_vmc_operator", city: "Mumbai", lastActiveDaysAgo: 45 },
+      {
+        workerId: "w-off",
+        roleId: "role_unrelated_trade",
+        city: "Mumbai",
+        lastActiveDaysAgo: 90,
+        availability: "not_looking",
+        expectedSalary: 999999,
+      },
+    ];
+    const baseSpec = jobSignalRowToJobSpec(makeRow({ tradeKey: "vmc_operator", city: "Rajkot" }));
+    const boostedSpec = jobSignalRowToJobSpec({
+      ...makeRow({ tradeKey: "vmc_operator", city: "Rajkot" }),
+      boost_tier: "all_candidates",
+      boosted: true,
+    } as unknown as JobSignalRow);
+
+    const a = rankWorkersForJob(baseSpec, pool);
+    const b = rankWorkersForJob(boostedSpec, pool);
+    // Identical rank vector (order) …
+    expect(b.map((r) => r.workerId)).toEqual(a.map((r) => r.workerId));
+    // … and identical floor membership (the hot + pushEligible sets are unchanged).
+    expect(b.map((r) => r.hot)).toEqual(a.map((r) => r.hot));
+    expect(b.map((r) => r.pushEligible)).toEqual(a.map((r) => r.pushEligible));
   });
 });
