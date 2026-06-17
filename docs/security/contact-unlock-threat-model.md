@@ -47,7 +47,7 @@ fresh bb-security-review returned **PASS (alpha posture), no must-fix**:
 
 **Residuals / launch gates unchanged:** RR-1…RR-4 and LC-1…LC-7 remain open and tracked
 (TD33 PayerAuthGuard / TD34 mock payments / TD35 retention-erasure + the LC items). Two §6
-*static* regression guards are not yet present and are logged as **TD39** (BC-8 structural
+*static* regression guards are not yet present and are logged as **TD41** (BC-8 structural
 sole-writer assertion; BC-5 single-decrypt-site assertion) — the runtime/behavioural guarantees
 they back ARE covered (sentinel-phone-absent, decrypt-called-once, module non-export + verified
 grep showing no outside importer), so these are tracked tech-debt, **not** build-blockers.
