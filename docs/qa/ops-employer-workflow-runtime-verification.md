@@ -25,14 +25,54 @@
 | **No-oracle (unlock/reveal states honest)** | ✅ **PASS (code-verified)** | single neutral body + pure mapper, no cause branch |
 | **Service token stays server-side** | ✅ **PASS (code-verified)** | `process.env` only, in `"use server"` actions |
 | **Applicant feed is faceless** | ✅ **PASS (code-verified)** | mappers read opaque `workerId` + signals only |
-| **The end-to-end UI loop actually works** | ⏳ **UNVERIFIED** | needs staging + a human click-loop (Phase 2) |
+| **The end-to-end loop actually works** | ⛔ **NOT-RUN** | runtime probe (2026-06-17): employer schema **un-deployed** in the only reachable DB → 0 unlock/contact/payment events ever; needs a seeded staging target + human |
 | **API boots + feed resolves in staging** | ✅ **FIXED (code)** · ⏳ run pending | **BUG-1 RESOLVED** via divyuuu's `JobsTableJobSource` (ADR-0015, supersedes the interim #67 `JobPostingsJobSource`); needs a live staging run to confirm |
+| **Employer/unlock schema deployed** | ⛔ **NO** | **BUG-2** — reachable DB is **9 migrations behind**; `jobs`/`applications`/`unlocks`/`payer_credits`/`credit_ledger`/`job_postings` all absent |
 | **Employer-facing resume is masked** | ➖ **N/A — not built** | no employer resume surface exists; masking is build-gate **B-G** ([addendum](../security/resume-disclosure-threat-model-addendum.md)) |
 
 **Bottom line:** the security-critical guarantees (no raw-phone leak, no real money, no-oracle)
-**hold in code**. The workflow **cannot be runtime-verified yet** — it is blocked on (a) staging
-not deployed and (b) **BUG-1** (the reach feed still serves the dev-only stub, which refuses to
-boot in staging). Clear BUG-1 + deploy staging, then run Phase 2 with a human.
+**hold in code**. The workflow is **still NOT runtime-verified**, and a 2026-06-17 runtime probe
+(below) shows *why*, with hard evidence: **the employer/unlock schema is not deployed to any
+reachable environment.** BUG-1 (stub feed source) is fixed in code; the live blocker is now
+**BUG-2 — migrations not applied** (the reach/unlock tables don't exist in the only DB this repo's
+`.env` reaches). Deploy a staging target with the full schema + seed, then run Phase 2 with a human;
+driving the mutating loop against a **shared/real DB** (it decrypts a real worker's phone at reveal)
+is a **CLAUDE.md §7 human-gated action** and must target a disposable non-prod DB.
+
+---
+
+## Runtime probe (2026-06-17) — what was actually checked at runtime
+
+> The strict bar for "finished" is **evidence, not code-reading**: the loop driven + the matching
+> `events` rows present. This probe is the maximum runtime check executable from this environment
+> **read-only** — it does not (and must not) drive writes against the reachable DB (see §boundary).
+
+**Environment reachable from this repo:** `DATABASE_URL` → a hosted Supabase Postgres
+(`aws-1-ap-south-1.pooler.supabase.com`), `NODE_ENV=development`, `REDIS_URL=localhost:6379`
+(not running), **no Docker installed** (can't stand up a fresh full stack), no browser (no
+screenshots possible).
+
+| Probe (read-only SQL / config) | Result | What it proves |
+| ------------------------------ | ------ | -------------- |
+| `events` total / distinct names | **140 rows, 13 names** — all Phase-1 (chat/otp/profile/resume/consent/ai.cost) | the DB is live and exercised, but only for **worker profiling** |
+| `events` where name `~ '^(unlock\|contact\|payment)\.'` | **0 rows** | the employer monetization loop has **never run** here — not one unlock/reveal/payment event exists |
+| Tables present (`information_schema`) | 14 Phase-1 tables; **`jobs`, `applications`, `job_postings`, `unlocks`, `payer_credits`, `credit_ledger`, `unlock_routing` ALL ABSENT** | the loop **cannot** run here — its tables don't exist |
+| `drizzle.__drizzle_migrations` | **10 applied**; repo has **19** | the reachable DB is **9 migrations behind** — incl. ADR-0009 (jobs/applications) + ADR-0010/0012/0015 (unlock/job_postings/reach) → **BUG-2** |
+| `NODE_ENV` | `development` | a local API boot would bind the **`StubJobSource`**, not the real `JobsTableJobSource` (staging/prod only) — so even a local run wouldn't exercise the real feed |
+| `PAYMENTS_ENABLE_REAL` (.env) | absent → default **false** | the payment kill-switch is at its safe default in this env (consistent with the code-verified no-real-gateway finding) |
+
+**Conclusion of the probe:** "CI-green ≠ works" is confirmed in the strongest form — the employer
+surface is not merely un-clicked, it is **un-deployed**: there is no environment reachable from
+this repo where a single mutating step could land its event. The per-step report below is therefore
+**NOT-RUN (environment cannot host the loop)**, not "pending a click."
+
+### §Boundary — why the loop was not driven from here (and must not be, autonomously)
+Driving `POST /unlocks` → `/reveal` → top-up requires (a) the schema deployed and (b) writing
+`unlocks`/`credit_ledger` rows and, at **reveal, decrypting a real worker's `phoneE164`** — the
+single highest-risk PII path in the product (ADR-0010 §Context). Doing that against the **shared,
+real** Supabase DB is a **CLAUDE.md §7 escalation** (touches production data + real PII) and was
+**not performed**. The correct target is a **disposable non-prod DB** with migrations applied + a
+**synthetic** consented worker, where a reveal decrypts a fixture phone — never a real worker's.
 
 ---
 
@@ -116,7 +156,13 @@ charge, `real_call:true`) → STOP, flag TD34 (human-gated).
 
 ## Phase 2 — per-step PASS/FAIL report
 
-**Legend:** ✅ code-verified here · ⏳ PENDING-HUMAN (needs the staging click-loop) · ⛔ blocked.
+> **Runtime status (2026-06-17): every mutating step is ⛔ NOT-RUN.** The probe above shows the
+> employer/unlock schema is un-deployed in the only reachable DB (BUG-2) and the loop was not driven
+> against a real shared DB (§Boundary). So each step's positive marks below are **code-verified only**;
+> none has been confirmed by a landed `events` row. The drive becomes possible once BUG-2 is cleared
+> on a seeded non-prod target.
+
+**Legend:** ✅ code-verified here · ⏳ PENDING-HUMAN (needs the staging click-loop) · ⛔ NOT-RUN/blocked.
 
 ### Step 1 — POST JOB (other dev's surface — verify, file bugs, don't fix)
 - ⏳ **PENDING-HUMAN.** Posting creation + `applicants_received` counter render is the other dev's
@@ -171,17 +217,23 @@ charge, `real_call:true`) → STOP, flag TD34 (human-gated).
 
 ## Phase 3 — verdict + filed bugs
 
-**Verdict:** the alpha employer surface is **security-sound in code** — no raw-phone reveal path,
-no reachable real-payment path, no-oracle preserved, faceless feed, server-only secret. It is
-**NOT yet runtime-verified**, and is **currently un-runnable in staging** until BUG-1 is fixed and
-staging is deployed. No release blocker (raw-phone leak / real gateway) was found; both are verified
-absent in code and must be re-confirmed on the live trace by the human at steps 4–5.
+**Verdict (2026-06-17, after the runtime probe):** the alpha employer surface is **security-sound in
+code** — no raw-phone reveal path, no reachable real-payment path, no-oracle preserved, faceless
+feed, server-only secret. It is **NOT runtime-verified**, and the runtime probe upgrades the reason
+from "staging not deployed" to a concrete, evidenced blocker: **the employer/unlock schema is not
+applied to any reachable environment (BUG-2)** — every mutating step is **NOT-RUN**, with **0**
+unlock/contact/payment events ever emitted. The two release-blockers (raw-phone reveal, real
+gateway) remain **code-verified absent**; they **cannot be runtime-confirmed** until the loop is
+driven against a seeded non-prod target — which is a **§7 human-gated** action because reveal
+decrypts real PII (see §Boundary). No release blocker was found; both must be re-confirmed on a live
+trace at steps 4–5 once a proper target exists.
 
 ### Filed bugs / observations
 
 | ID | Sev | What | Where | Owner |
 | -- | --- | ---- | ----- | ----- |
 | **BUG-1** | ~~High (blocks the run)~~ → ✅ **FIXED 2026-06-17** | Real `JobSource` replaces the dev-only stub binding so the API boots in staging and the feed resolves a real job. The interim #67 `JobPostingsJobSource` was **superseded by divyuuu's `JobsTableJobSource`** ([ADR-0015](../decisions/0015-reach-feed-on-real-jobs.md), PR #69) reading the live `jobs` entity (faceless projection + mapper, no-PII test). Live staging run still pending. | [reach.module.ts](../../apps/api/src/reach/reach.module.ts), [reach.job-source.ts](../../apps/api/src/reach/reach.job-source.ts) | backend-engineer (done) |
+| **BUG-2** | **High (blocks the run)** — found by the 2026-06-17 runtime probe | **The employer/unlock schema is not deployed.** The DB this repo's `.env` reaches has only the 14 Phase-1 worker-profiling tables; `jobs`/`applications`/`job_postings`/`unlocks`/`payer_credits`/`credit_ledger`/`unlock_routing` are **absent** and the journal is **9 migrations behind** (10 applied vs 19 in repo). No environment reachable from here can host a single mutating step (0 unlock/contact/payment events ever). **Fix:** stand up a staging/non-prod DB, `pnpm db:migrate` to head, seed (jobs + a synthetic `employer_sharing`-consented worker + payer credits), point the API at it with `NODE_ENV=staging` (so the real `JobsTableJobSource` binds). | `packages/db/migrations/*` (0009/0010/0012/0014/0015 unapplied) + deploy target | devops + database-architect |
 | **OBS-2** | Med (launch gate, known) | Payer identity is **unauthenticated** — all unlock/reveal/credits routes are behind `InternalServiceGuard`; `payer_id` is trusted from the request body. Any ops actor can act as any payer. Acceptable for alpha **ops-run** only; a real `PayerAuthGuard` + horizontal-authz test is a hard launch gate. | [unlocks.controller.ts:26-42](../../apps/api/src/unlocks/unlocks.controller.ts#L26) (TD33) | security + backend |
 | **OBS-3** | Med (build gate) | No employer-facing **masked** resume surface exists; `maskInitials` is doc-only. Before ANY employer resume surface ships, build gate **B-G** (masked initials, no phone, golden-render test) must land in the same change. | [addendum](../security/resume-disclosure-threat-model-addendum.md) / [resume-renderer.service.ts](../../apps/api/src/resume/resume-renderer.service.ts) | frontend + security |
 | **OBS-4** | Low | Ops console has **no auth gate** (`apps/web` has no middleware/login) — relies on network-internal deployment. Confirm it is not publicly reachable in staging. | `apps/web/src/app/**` (no `middleware.ts`) | devops |
