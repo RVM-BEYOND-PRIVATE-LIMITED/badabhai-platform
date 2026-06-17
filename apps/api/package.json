@@ -20,7 +20,6 @@
     "@badabhai/event-schema": "workspace:*",
     "@badabhai/pricing": "workspace:*",
     "@badabhai/reach-engine": "workspace:*",
-    "@badabhai/taxonomy": "workspace:*",
     "@badabhai/types": "workspace:*",
     "@badabhai/validators": "workspace:*",
     "@nestjs/bullmq": "^11.0.4",

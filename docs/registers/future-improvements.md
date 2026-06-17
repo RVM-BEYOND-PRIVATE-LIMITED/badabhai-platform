@@ -32,4 +32,27 @@ this expands on them.
 - Employer-facing surface (beyond the internal ops console).
 - Expansion beyond CNC/VMC to adjacent blue/grey-collar verticals.
 
+## Parked Phase-2 fast-follows (captured 2026-06-17 — ready to schedule, NOT built)
+
+Deliberately deferred (CLAUDE.md §8). Each has a spec stub + an UN-DEFER TRIGGER; **alpha
+ships WITHOUT both.**
+
+- **Agency Referral Funnel + Payouts** — agencies refer candidates; a conversion inside a
+  **90-day** attribution window earns a payout (**25%** share / **₹500**, **KYC required**).
+  New PII surface (agency KYC) + **real outbound money** → human + legal gated. **Depends on**
+  the unlock/credit ledger ([ADR-0010](../decisions/0010-contact-unlock-and-reveal.md)),
+  real payments ([TD34](./tech-debt-register.md)), and real payer/agency identity
+  ([TD33](./tech-debt-register.md)). Stub:
+  [phase-2-agency-referral-payouts.md](../sprint-plans/phase-2-agency-referral-payouts.md) ·
+  register: [TD39](./tech-debt-register.md).
+  **UN-DEFER TRIGGER:** TD34 + TD33 closed · product ratifies the attribution/payout model ·
+  legal+DPDP sign-off on KYC · human authorizes real payouts.
+- **Seeding / Credit Grants** — grant credits without a purchase (promo/trial/assisted-hiring).
+  The `credit_ledger` `grant` reason already exists; the grant **flow/authz/policy/audit** do
+  not. **Assisted-hiring is a STUB in alpha** (only the manual ops MOCK top-up, TD34, exists).
+  Stub: [phase-2-seeding-credit-grants.md](../sprint-plans/phase-2-seeding-credit-grants.md) ·
+  register: [TD40](./tech-debt-register.md).
+  **UN-DEFER TRIGGER:** TD33 closed (real grantor identity/authz) · product+security define
+  grant policy + abuse/audit controls · a concrete promo/assisted-hiring program is greenlit.
+
 > When an item here is picked up, move it into a sprint plan / ADR and link back.

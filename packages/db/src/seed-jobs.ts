@@ -15,7 +15,10 @@
  * PRIVACY (ADR-0009 §2): every job is coarse and PII-free.
  *  - `title` is a GENERIC role string — NEVER an employer name.
  *  - `city`/`area` are coarse location buckets — NEVER an address or geo.
- *  - NO employer name/id, NO contact/phone, NO pay/salary (Phase-2 economics).
+ *  - NO employer name/id, NO contact/phone.
+ *  - Coarse demand-side ranking signals (pay band / experience window / timing)
+ *    are present for Reach-on-real-jobs (ADR-0011): non-PII job attributes, never
+ *    an identity. They feed the RANK core's Pay/Experience/Availability factors.
  *
  * STABLE IDs: each job's `id` is a hardcoded UUID so the same `job_id` exists across
  * environments and reseeds (the events spine carries this id; it must be stable).
@@ -25,7 +28,7 @@
  */
 import { config } from "dotenv";
 import { createDbClient } from "./client";
-import { jobs, type TradeKey } from "./schema";
+import { jobs, type TradeKey, type JobNeededBy } from "./schema";
 
 // Load the repo-root .env (CWD is packages/db when run via the package script).
 config({ path: "../../.env" });
@@ -36,6 +39,12 @@ type SeedJob = {
   title: string; // generic role title, never an employer name
   city: string; // coarse city only
   area: string | null; // coarse locality bucket, not an address
+  // Coarse demand-side ranking signals (ADR-0011). Non-PII; feed Reach RANK.
+  payMin: number; // monthly INR (whole rupees)
+  payMax: number;
+  minExperienceYears: number;
+  maxExperienceYears: number;
+  neededBy: JobNeededBy;
 };
 
 // ~17 jobs spread across all 15 alpha trades (every trade_key appears at least
@@ -48,6 +57,11 @@ const JOBS: SeedJob[] = [
     title: "CNC Operator — Night Shift",
     city: "Pune",
     area: "Chakan",
+    payMin: 16000,
+    payMax: 26000,
+    minExperienceYears: 1,
+    maxExperienceYears: 4,
+    neededBy: "immediate",
   },
   {
     id: "a1f0c0de-0002-4a00-8000-000000000002",
@@ -55,6 +69,11 @@ const JOBS: SeedJob[] = [
     title: "CNC Lathe Operator — Day Shift",
     city: "Coimbatore",
     area: "Peelamedu",
+    payMin: 17000,
+    payMax: 28000,
+    minExperienceYears: 2,
+    maxExperienceYears: 5,
+    neededBy: "soon",
   },
   {
     id: "a1f0c0de-0003-4a00-8000-000000000003",
@@ -62,6 +81,11 @@ const JOBS: SeedJob[] = [
     title: "VMC Operator — Rotational Shift",
     city: "Rajkot",
     area: "Aji GIDC",
+    payMin: 18000,
+    payMax: 28000,
+    minExperienceYears: 2,
+    maxExperienceYears: 5,
+    neededBy: "immediate",
   },
   {
     id: "a1f0c0de-0004-4a00-8000-000000000004",
@@ -69,6 +93,11 @@ const JOBS: SeedJob[] = [
     title: "VMC Operator — General Shift",
     city: "Pune",
     area: "Pimpri-Chinchwad",
+    payMin: 17000,
+    payMax: 27000,
+    minExperienceYears: 1,
+    maxExperienceYears: 4,
+    neededBy: "flexible",
   },
   {
     id: "a1f0c0de-0005-4a00-8000-000000000005",
@@ -76,6 +105,11 @@ const JOBS: SeedJob[] = [
     title: "CNC/VMC Setter — General Shift",
     city: "Ludhiana",
     area: "Focal Point",
+    payMin: 22000,
+    payMax: 34000,
+    minExperienceYears: 3,
+    maxExperienceYears: 7,
+    neededBy: "soon",
   },
   {
     id: "a1f0c0de-0006-4a00-8000-000000000006",
@@ -83,6 +117,11 @@ const JOBS: SeedJob[] = [
     title: "CNC Programmer (Fanuc)",
     city: "Bengaluru",
     area: "Peenya",
+    payMin: 30000,
+    payMax: 48000,
+    minExperienceYears: 3,
+    maxExperienceYears: 8,
+    neededBy: "immediate",
   },
   {
     id: "a1f0c0de-0007-4a00-8000-000000000007",
@@ -90,6 +129,11 @@ const JOBS: SeedJob[] = [
     title: "VMC Programmer — Production",
     city: "Pune",
     area: "Bhosari",
+    payMin: 28000,
+    payMax: 45000,
+    minExperienceYears: 3,
+    maxExperienceYears: 7,
+    neededBy: "soon",
   },
   {
     id: "a1f0c0de-0008-4a00-8000-000000000008",
@@ -97,6 +141,11 @@ const JOBS: SeedJob[] = [
     title: "CAD Designer — Tooling",
     city: "Ahmedabad",
     area: "Vatva GIDC",
+    payMin: 24000,
+    payMax: 40000,
+    minExperienceYears: 2,
+    maxExperienceYears: 6,
+    neededBy: "flexible",
   },
   {
     id: "a1f0c0de-0009-4a00-8000-000000000009",
@@ -104,6 +153,11 @@ const JOBS: SeedJob[] = [
     title: "SolidWorks Designer — Sheet Metal",
     city: "Chennai",
     area: "Ambattur",
+    payMin: 26000,
+    payMax: 42000,
+    minExperienceYears: 2,
+    maxExperienceYears: 6,
+    neededBy: "soon",
   },
   {
     id: "a1f0c0de-000a-4a00-8000-00000000000a",
@@ -111,6 +165,11 @@ const JOBS: SeedJob[] = [
     title: "AutoCAD Draftsman — Mechanical",
     city: "Faridabad",
     area: "Sector 24",
+    payMin: 20000,
+    payMax: 34000,
+    minExperienceYears: 1,
+    maxExperienceYears: 5,
+    neededBy: "flexible",
   },
   {
     id: "a1f0c0de-000b-4a00-8000-00000000000b",
@@ -118,6 +177,11 @@ const JOBS: SeedJob[] = [
     title: "Quality Inspector — CMM",
     city: "Coimbatore",
     area: "SIDCO Industrial Estate",
+    payMin: 22000,
+    payMax: 36000,
+    minExperienceYears: 2,
+    maxExperienceYears: 6,
+    neededBy: "immediate",
   },
   {
     id: "a1f0c0de-000c-4a00-8000-00000000000c",
@@ -125,6 +189,11 @@ const JOBS: SeedJob[] = [
     title: "Production Engineer — Machine Shop",
     city: "Pune",
     area: "Ranjangaon",
+    payMin: 30000,
+    payMax: 50000,
+    minExperienceYears: 3,
+    maxExperienceYears: 8,
+    neededBy: "soon",
   },
   {
     id: "a1f0c0de-000d-4a00-8000-00000000000d",
@@ -132,6 +201,11 @@ const JOBS: SeedJob[] = [
     title: "Maintenance Technician — CNC Machines",
     city: "Rajkot",
     area: "Shapar-Veraval",
+    payMin: 22000,
+    payMax: 36000,
+    minExperienceYears: 2,
+    maxExperienceYears: 6,
+    neededBy: "immediate",
   },
   {
     id: "a1f0c0de-000e-4a00-8000-00000000000e",
@@ -139,6 +213,11 @@ const JOBS: SeedJob[] = [
     title: "Tool Room Technician — Die & Mould",
     city: "Ludhiana",
     area: "Industrial Area A",
+    payMin: 24000,
+    payMax: 40000,
+    minExperienceYears: 3,
+    maxExperienceYears: 7,
+    neededBy: "soon",
   },
   {
     id: "a1f0c0de-000f-4a00-8000-00000000000f",
@@ -146,6 +225,11 @@ const JOBS: SeedJob[] = [
     title: "Machine Operator — General Shift",
     city: "Nashik",
     area: "Satpur MIDC",
+    payMin: 15000,
+    payMax: 24000,
+    minExperienceYears: 0,
+    maxExperienceYears: 3,
+    neededBy: "immediate",
   },
   {
     id: "a1f0c0de-0010-4a00-8000-000000000010",
@@ -153,6 +237,11 @@ const JOBS: SeedJob[] = [
     title: "Assembly Technician — Sub-Assembly Line",
     city: "Aurangabad",
     area: "Waluj MIDC",
+    payMin: 16000,
+    payMax: 26000,
+    minExperienceYears: 1,
+    maxExperienceYears: 4,
+    neededBy: "flexible",
   },
   {
     id: "a1f0c0de-0011-4a00-8000-000000000011",
@@ -160,6 +249,11 @@ const JOBS: SeedJob[] = [
     title: "Fitter — Mechanical",
     city: "Surat",
     area: "Sachin GIDC",
+    payMin: 18000,
+    payMax: 30000,
+    minExperienceYears: 2,
+    maxExperienceYears: 5,
+    neededBy: "soon",
   },
 ];
 
@@ -180,6 +274,11 @@ async function main(): Promise<void> {
           city: j.city,
           area: j.area,
           status: "open",
+          payMin: j.payMin,
+          payMax: j.payMax,
+          minExperienceYears: j.minExperienceYears,
+          maxExperienceYears: j.maxExperienceYears,
+          neededBy: j.neededBy,
         })
         .onConflictDoNothing({ target: jobs.id });
     }
