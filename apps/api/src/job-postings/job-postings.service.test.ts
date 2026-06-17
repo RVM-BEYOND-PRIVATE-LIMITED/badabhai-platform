@@ -126,6 +126,66 @@ describe("JobPostingsService.create", () => {
     expect(arg.payload.has_description).toBe(false);
     assertNoFreeText(arg.payload);
   });
+
+  it("derives the band from a raw vacancies count and stores/events ONLY the band", async () => {
+    const { svc, emit, create } = make();
+    await svc.create(
+      { created_by: CREATED_BY, org_label: ORG, role_title: ROLE, vacancies: 7 },
+      CTX as never,
+    );
+
+    // 7 -> "6-10" persisted; the raw integer is never written.
+    const storeArg = create.mock.calls[0]![0];
+    expect(storeArg.vacancyBand).toBe("6-10");
+    expect("vacancies" in storeArg).toBe(false);
+
+    // ...and only the derived band is evented — never the raw count.
+    const arg = emit.mock.calls[0]![0];
+    expect(arg.payload.vacancy_band).toBe("6-10");
+    expect(JSON.stringify(arg.payload)).not.toContain("vacancies");
+    expect(JSON.stringify(arg.payload)).not.toContain(":7");
+    assertNoFreeText(arg.payload);
+  });
+});
+
+describe("CreateJobPostingSchema vacancy intake (band XOR raw count)", () => {
+  const base = { created_by: CREATED_BY, org_label: ORG, role_title: ROLE };
+
+  it("accepts a pre-chosen vacancy_band (existing callers unchanged)", () => {
+    expect(CreateJobPostingSchema.safeParse({ ...base, vacancy_band: "6-10" }).success).toBe(true);
+  });
+
+  it("accepts a raw vacancies count", () => {
+    expect(CreateJobPostingSchema.safeParse({ ...base, vacancies: 7 }).success).toBe(true);
+  });
+
+  it("rejects neither vacancy_band nor vacancies", () => {
+    expect(CreateJobPostingSchema.safeParse({ ...base }).success).toBe(false);
+  });
+
+  it("rejects BOTH vacancy_band and vacancies", () => {
+    expect(
+      CreateJobPostingSchema.safeParse({ ...base, vacancy_band: "6-10", vacancies: 7 }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a non-positive / non-integer vacancies", () => {
+    expect(CreateJobPostingSchema.safeParse({ ...base, vacancies: 0 }).success).toBe(false);
+    expect(CreateJobPostingSchema.safeParse({ ...base, vacancies: -3 }).success).toBe(false);
+    expect(CreateJobPostingSchema.safeParse({ ...base, vacancies: 2.5 }).success).toBe(false);
+  });
+});
+
+describe("UpdateJobPostingSchema vacancy intake", () => {
+  it("accepts a raw vacancies count on update", () => {
+    expect(UpdateJobPostingSchema.safeParse({ vacancies: 12 }).success).toBe(true);
+  });
+
+  it("rejects BOTH vacancy_band and vacancies on update", () => {
+    expect(UpdateJobPostingSchema.safeParse({ vacancy_band: "11-25", vacancies: 12 }).success).toBe(
+      false,
+    );
+  });
 });
 
 describe("JobPostingsService.update", () => {
@@ -143,6 +203,21 @@ describe("JobPostingsService.update", () => {
     // KEYS only — never the new values.
     assertNoFreeText(arg.payload);
     expect(arg.payload.changed_fields).not.toContain("CNC Operator");
+  });
+
+  it("derives the band from a raw vacancies count on update (stores/events band only)", async () => {
+    const { svc, emit, update } = make(row({ status: "draft", vacancyBand: "2-5" }));
+    await svc.update(POSTING_ID, { vacancies: 7 }, CTX as never);
+
+    // 7 -> "6-10" patched; never the raw integer.
+    const patch = update.mock.calls[0]![1];
+    expect(patch.vacancyBand).toBe("6-10");
+    expect("vacancies" in patch).toBe(false);
+
+    const arg = emit.mock.calls[0]![0];
+    expect(arg.payload.changed_fields).toEqual(["vacancy_band"]);
+    expect(arg.payload.vacancy_band).toBe("6-10");
+    expect(JSON.stringify(arg.payload)).not.toContain(":7");
   });
 
   it("publishes draft -> open via status, with vacancy_band null when band unchanged", async () => {

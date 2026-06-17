@@ -86,8 +86,14 @@ export class ApplicationsRepository {
    * (apply↔skip) therefore lands on a SINGLE row reflecting the latest intent; no
    * duplicate row is ever created. The audit history of every tap still lives in
    * the events spine.
+   *
+   * Returns the row plus `inserted`: TRUE only when this call created a NEW row,
+   * FALSE when it hit ON CONFLICT DO UPDATE. We read this off the Postgres `xmax`
+   * system column — `(xmax = 0)` is TRUE for a fresh INSERT and FALSE for a row
+   * touched by the conflict UPDATE — so the caller can count genuine first applies
+   * without a separate read (race-safe, single round-trip). PII-free: a boolean.
    */
-  async upsertDecision(input: UpsertApplicationInput): Promise<Application> {
+  async upsertDecision(input: UpsertApplicationInput): Promise<Application & { inserted: boolean }> {
     const rows = await this.db
       .insert(applications)
       .values({
@@ -108,10 +114,44 @@ export class ApplicationsRepository {
           updatedAt: sql`now()`,
         },
       })
-      .returning();
+      .returning({
+        id: applications.id,
+        jobId: applications.jobId,
+        workerId: applications.workerId,
+        action: applications.action,
+        reason: applications.reason,
+        sourceSurface: applications.sourceSurface,
+        rank: applications.rank,
+        createdAt: applications.createdAt,
+        updatedAt: applications.updatedAt,
+        // `(xmax = 0)` ⇒ this RETURNING row came from the INSERT, not the UPDATE.
+        inserted: sql<boolean>`(xmax = 0)`,
+      });
     const row = rows[0];
     if (!row) throw new Error("Failed to upsert application");
     return row;
+  }
+
+  /**
+   * Atomically bump a job's denormalized applies counter by exactly 1 (ADR-0009
+   * swipe-to-apply rollup). Single in-SQL UPDATE — no read-modify-write in app
+   * code, so it is race-safe under concurrent applies with no transaction or
+   * advisory lock needed (modeled on `unlocks.incrementReveal`). The caller gates
+   * this to genuine first-time applies; the CHECK (applicants_received >= 0) holds
+   * trivially since we only ever add. PII-free: an integer count.
+   */
+  async incrementApplicantsReceived(jobId: string): Promise<number> {
+    const rows = await this.db
+      .update(jobs)
+      .set({
+        applicantsReceived: sql`${jobs.applicantsReceived} + 1`,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(jobs.id, jobId))
+      .returning({ applicantsReceived: jobs.applicantsReceived });
+    const count = rows[0]?.applicantsReceived;
+    if (count === undefined) throw new Error("Failed to increment applicants_received");
+    return count;
   }
 
   /**

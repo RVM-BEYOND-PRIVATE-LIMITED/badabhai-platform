@@ -95,6 +95,21 @@ export class ApplicationsService {
       rank: dto.rank,
     });
 
+    // Bump the job's denormalized applies counter ONLY on a genuine first apply
+    // (a brand-new row, action='applied'). This is idempotent: a double-tap hits
+    // ON CONFLICT DO UPDATE (`inserted === false`) and never double-counts. NO new
+    // event — `application.submitted` (emitted below) remains the audit record; the
+    // counter is just a denormalized rollup.
+    //
+    // ACCEPTED alpha limitation: a skip→apply FLIP on an existing row is an UPDATE
+    // (`inserted === false`), so it will NOT increment the counter — the row already
+    // existed from the skip. Likewise an apply→skip flip never DECREMENTS (the
+    // counter is a monotonic count of received applies). This is a deliberate alpha
+    // simplification, not a bug.
+    if (saved.inserted) {
+      await this.repo.incrementApplicantsReceived(jobId);
+    }
+
     const payload: PayloadInputOf<"application.submitted"> = {
       worker_id: workerId,
       job_id: jobId,
