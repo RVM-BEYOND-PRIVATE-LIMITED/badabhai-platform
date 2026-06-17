@@ -55,6 +55,24 @@ machinery never needed re-architecting — only the clean accuracy evidence, whi
    keys with `AI_ENABLE_REAL_CALLS=true`** on a dev laptop — gitignored (not committed, no
    leak) but against the runbook's "real keys never on a dev laptop." **Rotate both keys and
    remove them from the dev box;** keep real keys only in staging/prod secret stores.
+4. **⚠️ Validation-model ≠ flip-model — the gating reconciliation (2026-06-17 audit).** The
+   ≥90% gold-set evidence (TD27 / [Q3](../registers/open-questions.md): per-field **95% = 151/159**,
+   **56/56** clean over the full 56-case `GOLD_CASES`) was measured with **Claude Haiku as
+   PRIMARY**. But the runbook/architecture pin **Gemini `gemini-2.5-flash`** as the extraction
+   primary, and the committed `default_capable_model` is **`gemini-2.5-flash-lite`**
+   ([`app/config.py`](../../apps/ai-service/app/config.py)) — **three different extraction
+   models.** With Finding 1 (Haiku fails 100% locally), the model that will actually serve prod
+   is **not** the one the 95% was measured on. **Before the flip: pin ONE extraction model and
+   confirm a clean 56/56 gold-set run (role ≥90% + per-field ≥90%) on THAT exact model.** Owner:
+   **ai-engineer**. *Also unmet per Q3:* latency not yet measured · ≥2 more staging runs ·
+   shared-store (Redis) spend ledger · secrets manager.
+
+> **Audit note (2026-06-17).** The GO verdict is **evidence-backed** (a clean full-gold-set run
+> exists — not a bare override), so the GO stands. But the flip is **NOT yet executable**: it is
+> human-gated (CLAUDE.md §7), **no staging is deployed** to apply/verify the env diff against,
+> and **Finding 4 (model reconciliation)** must close first. Next action is owned by ai-engineer
+> (pin + re-validate the model) + devops (deploy staging, rotate keys); the env flip itself stays
+> the maintainer's manual step.
 
 ## When the flip IS authorized (for the maintainer)
 
