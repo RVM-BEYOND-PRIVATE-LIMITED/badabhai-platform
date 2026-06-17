@@ -575,6 +575,12 @@ export type TradeKey =
 /** Job lifecycle — a seed job can be retired without deleting the row. */
 export type JobStatus = "open" | "closed";
 
+/**
+ * When the job needs someone — the demand-side availability signal the Reach RANK
+ * core's `neededBy` consumes (ADR-0011; mirrors JobSpec.neededBy). Non-PII.
+ */
+export type JobNeededBy = "immediate" | "soon" | "flexible";
+
 /** Apply/skip decision. Mirrors the `applications` event family. */
 export type ApplicationAction = "applied" | "skipped";
 
@@ -617,10 +623,45 @@ export const jobs = pgTable("jobs", {
   // this is just an integer rollup for the feed/UI. PII-FREE (a count, never a name).
   // Mirrors posting_plans.applicantsViewedCount style.
   applicantsReceived: integer("applicants_received").notNull().default(0),
+  // ── Demand-side ranking signals (ADR-0011 Reach-on-real-jobs) ──────────────
+  // Feed the RANK core's Pay/Experience/Availability factors when Reach serves
+  // this job. ALL NULLABLE + additive (the engine neutral-defaults a null — a
+  // blank never drops or penalizes anyone). PII-FREE: pay bands / year counts /
+  // a coarse timing enum — never an employer or a worker identity. Role (trade_key)
+  // and Distance (city) are already present above, so no column is needed for them.
+  // Monthly pay band offered (INR, whole rupees — never paise).
+  payMin: integer("pay_min"),
+  payMax: integer("pay_max"),
+  // Experience window the job targets (years).
+  minExperienceYears: integer("min_experience_years"),
+  maxExperienceYears: integer("max_experience_years"),
+  // When the job needs someone (coarse enum).
+  neededBy: text("needed_by").$type<JobNeededBy>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   check("jobs_applicants_received_nonneg_chk", sql`${t.applicantsReceived} >= 0`),
+  // Pay/experience are non-negative when present, and the max is not below the min.
+  check(
+    "jobs_pay_nonneg_chk",
+    sql`(${t.payMin} IS NULL OR ${t.payMin} >= 0) AND (${t.payMax} IS NULL OR ${t.payMax} >= 0)`,
+  ),
+  check(
+    "jobs_pay_order_chk",
+    sql`${t.payMin} IS NULL OR ${t.payMax} IS NULL OR ${t.payMax} >= ${t.payMin}`,
+  ),
+  check(
+    "jobs_experience_nonneg_chk",
+    sql`(${t.minExperienceYears} IS NULL OR ${t.minExperienceYears} >= 0) AND (${t.maxExperienceYears} IS NULL OR ${t.maxExperienceYears} >= 0)`,
+  ),
+  check(
+    "jobs_experience_order_chk",
+    sql`${t.minExperienceYears} IS NULL OR ${t.maxExperienceYears} IS NULL OR ${t.maxExperienceYears} >= ${t.minExperienceYears}`,
+  ),
+  check(
+    "jobs_needed_by_chk",
+    sql`${t.neededBy} IS NULL OR ${t.neededBy} IN ('immediate', 'soon', 'flexible')`,
+  ),
 ]);
 
 // applications — the apply/skip record, PII-free. One decision per (worker, job).

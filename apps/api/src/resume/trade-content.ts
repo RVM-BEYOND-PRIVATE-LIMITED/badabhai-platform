@@ -636,6 +636,21 @@ export function getTradeContent(tradeKey: string): TradeContent | undefined {
 }
 
 /**
+ * The canonical taxonomy role ids a job's `trade_key` maps onto (the authored
+ * `taxonomy_role_ids`), or `[]` when the trade has no role-set equivalent (the
+ * non-machining trades — there are no profiled workers for them in the Phase-1
+ * 7-role set, so an empty list is correct: no worker matches them on role).
+ *
+ * This is the trade→role BRIDGE the Reach `JobSource` uses to build `JobSpec.roleIds`
+ * so the RANK core's Role factor (the biggest, 35%) can exact-match a worker's
+ * `canonical_role_id` (e.g. `role_vmc_operator`). Reusing this single authored map
+ * keeps trade↔role in ONE place rather than duplicating it for Reach.
+ */
+export function roleIdsForTradeKey(tradeKey: string): string[] {
+  return [...(getTradeContent(tradeKey)?.taxonomy_role_ids ?? [])];
+}
+
+/**
  * Resolve trade content from a profile's canonical ids. Tries the taxonomy
  * role-id mapping first, then a direct trade_key match (canonical_trade_id may
  * already be a trade_key). Returns undefined when nothing matches — the renderer
