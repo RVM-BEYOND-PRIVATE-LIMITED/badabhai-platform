@@ -17,29 +17,61 @@ import { randomUUID } from "node:crypto";
  * TRUE advisory-lock race (pg_advisory_xact_lock + DERIVED active-vacancy count, one
  * transaction) is only verifiable here, against a real Postgres.
  *
+ * ENFORCEMENT POSTURE (ADR-0016 posture B, D5 — CAPACITY_ENFORCEMENT_ENABLED):
+ *   The API DEFAULTS to enforcement OFF (shadow). The flag flips whether an over-cap
+ *   buyPlan ACTUALLY pauses. The two postures CONTRADICT on the same running config, so
+ *   this suite SPLITS the cases by what the running API must have been started with:
+ *
+ *   - ENFORCEMENT cases (ATOMICITY / pause-at-limit / auto-resume) assert plans REALLY
+ *     pause → they REQUIRE the API started with CAPACITY_ENFORCEMENT_ENABLED=true. They
+ *     are GUARDED on E2E_CAPACITY_ENFORCED=1 and SKIP otherwise (so a default-started API
+ *     does not red-fail them; you OPT IN once the API is started enforced).
+ *   - SHADOW case (the new DEFAULT posture) asserts an over-cap buyPlan stays 'active'
+ *     with paused=false + wouldPause=true and emits NO posting_plan.paused. It runs only
+ *     when E2E_CAPACITY_ENFORCED is NOT set (i.e. against a default/shadow-started API).
+ *
+ *   You therefore run the suite TWICE to cover both postures (once per API posture):
+ *     A) default-started API (flag OFF) → RUN_E2E=1 ...           → shadow case runs.
+ *     B) API started CAPACITY_ENFORCEMENT_ENABLED=true            → enforcement cases run
+ *        → RUN_E2E=1 E2E_CAPACITY_ENFORCED=1 ...                     (set BOTH env + flag).
+ *   The faceless/no-PII + capacity.purchased/payment.* cases are posture-agnostic (they
+ *   never assert a pause) and run in BOTH.
+ *
  * Cases:
- *   - ATOMICITY: set a payer's allowance to N, fire M>N concurrent buyPlan (distinct
- *     job_postings) at that ONE payer; assert AT MOST N plans land status='active' and
- *     the rest 'paused' — the cap is NEVER exceeded under concurrency (the lock proof).
- *   - pause-at-limit: a buyPlan that would exceed the cap returns paused=true + emits
- *     posting_plan.paused (reason capacity_exceeded).
- *   - auto-resume: buying MORE capacity (buyCapacity raising the cap) flips the OLDEST
- *     paused plans active up to the new headroom, oldest-paid-first, emitting
+ *   - ATOMICITY [enforced]: set a payer's allowance to N, fire M>N concurrent buyPlan
+ *     (distinct job_postings) at that ONE payer; assert AT MOST N plans land status=
+ *     'active' and the rest 'paused' — the cap is NEVER exceeded under concurrency.
+ *   - pause-at-limit [enforced]: a buyPlan that would exceed the cap returns paused=true
+ *     + emits posting_plan.paused (reason capacity_exceeded).
+ *   - auto-resume [enforced]: buying MORE capacity (buyCapacity raising the cap) flips the
+ *     OLDEST paused plans active up to the new headroom, oldest-paid-first, emitting
  *     posting_plan.resumed (reason capacity_restored).
- *   - faceless / no-PII: the PII sentinel + the PII key set never appear in
+ *   - SHADOW [default]: an over-cap buyPlan returns 201 with paused=false + wouldPause=true,
+ *     persists status='active', and emits NO posting_plan.paused for it.
+ *   - faceless / no-PII [any posture]: the PII sentinel + the PII key set never appear in
  *     payer_capacity / posting_plans rows or in any capacity.* / posting_plan.* /
  *     payment.* event payload (the contact-unlock.e2e PII_KEYS sweep).
- *   - events: capacity.purchased + payment.* on purchase; real_call:false on payment.*.
+ *   - events [any posture]: capacity.purchased + payment.* on purchase; real_call:false.
  *
  * Opt-in (same harness as contact-unlock.e2e.test.ts):
  *   1. docker compose up -d postgres redis     # or point at Supabase
  *   2. pnpm db:migrate
- *   3. INTERNAL_SERVICE_TOKEN=<token> pnpm --filter @badabhai/api start  (another terminal)
- *   4. RUN_E2E=1 INTERNAL_SERVICE_TOKEN=<token> pnpm --filter @badabhai/e2e test
+ *   3a. SHADOW (default posture):
+ *       INTERNAL_SERVICE_TOKEN=<token> pnpm --filter @badabhai/api start  (another terminal)
+ *       RUN_E2E=1 INTERNAL_SERVICE_TOKEN=<token> pnpm --filter @badabhai/e2e test
+ *   3b. ENFORCEMENT posture (start the API ENFORCED, then opt the enforced cases in):
+ *       CAPACITY_ENFORCEMENT_ENABLED=true INTERNAL_SERVICE_TOKEN=<token> \
+ *         pnpm --filter @badabhai/api start  (another terminal)
+ *       RUN_E2E=1 E2E_CAPACITY_ENFORCED=1 INTERNAL_SERVICE_TOKEN=<token> \
+ *         pnpm --filter @badabhai/e2e test
  * The AI service is NOT required (this surface never calls an LLM).
  */
 
 const RUN = process.env.RUN_E2E === "1";
+// Set to 1 ONLY when the running API was started with CAPACITY_ENFORCEMENT_ENABLED=true.
+// Gates the enforcement cases (which assert real pauses) vs the shadow case (default
+// posture) so the two never contradict on the same running config (ADR-0016 D5).
+const ENFORCED = process.env.E2E_CAPACITY_ENFORCED === "1";
 const API_URL = process.env.E2E_API_URL ?? "http://localhost:3001";
 const OPS_TOKEN = process.env.INTERNAL_SERVICE_TOKEN ?? "";
 const DATABASE_URL =
@@ -101,7 +133,9 @@ describe.skipIf(!RUN)("Per-payer hiring capacity (e2e, ADR-0016)", () => {
     return client.db.select().from(events);
   }
 
-  it("ATOMICITY: M>N concurrent buyPlan for ONE payer never exceed the cap (advisory-lock proof)", async () => {
+  // ENFORCED-ONLY: these assert plans REALLY pause, so they require the API started with
+  // CAPACITY_ENFORCEMENT_ENABLED=true. They SKIP against a default/shadow API (E2E_CAPACITY_ENFORCED unset).
+  it.skipIf(!ENFORCED)("ATOMICITY: M>N concurrent buyPlan for ONE payer never exceed the cap (advisory-lock proof)", async () => {
     const payer = randomUUID();
     const N = 3;
     // M is deliberately > the postgres.js pool max (default 10, client.ts) AND > N. The
@@ -136,7 +170,7 @@ describe.skipIf(!RUN)("Per-payer hiring capacity (e2e, ADR-0016)", () => {
     expect(apiPaused).toBe(M - N);
   });
 
-  it("pause-at-limit: a buyPlan over the cap returns paused=true and emits posting_plan.paused", async () => {
+  it.skipIf(!ENFORCED)("pause-at-limit: a buyPlan over the cap returns paused=true and emits posting_plan.paused", async () => {
     const payer = randomUUID();
     await setCapacity(payer, 1);
     const first = await req("POST", `/job-postings/${await seedPosting()}/plan`, {
@@ -159,7 +193,7 @@ describe.skipIf(!RUN)("Per-payer hiring capacity (e2e, ADR-0016)", () => {
     expect((pausedEvents[0]!.payload as { reason?: string }).reason).toBe("capacity_exceeded");
   });
 
-  it("auto-resume: buying more capacity flips the oldest paused plans active (oldest-paid-first) and emits posting_plan.resumed", async () => {
+  it.skipIf(!ENFORCED)("auto-resume: buying more capacity flips the oldest paused plans active (oldest-paid-first) and emits posting_plan.resumed", async () => {
     const payer = randomUUID();
     await setCapacity(payer, 1);
 
@@ -192,6 +226,56 @@ describe.skipIf(!RUN)("Per-payer hiring capacity (e2e, ADR-0016)", () => {
     );
     expect(resumedForPayer.length).toBe(2);
     for (const e of resumedForPayer) expect((e.payload as { reason?: string }).reason).toBe("capacity_restored");
+  });
+
+  // SHADOW-ONLY (the new DEFAULT posture, ADR-0016 D5): runs against a default-started API
+  // (E2E_CAPACITY_ENFORCED unset). An over-cap buyPlan does NOT pause — it persists 'active'
+  // with paused=false + wouldPause=true, and emits NO posting_plan.paused. This is the
+  // counterpart to pause-at-limit; the two are mutually gated so they never contradict on
+  // one running config.
+  it.skipIf(ENFORCED)("SHADOW (enforcement OFF, default): over-cap buyPlan stays active (paused=false, wouldPause=true) and emits no posting_plan.paused", async () => {
+    const payer = randomUUID();
+    await setCapacity(payer, 1);
+
+    // First plan: within cap (0+1 ≤ 1) → active, not a would-pause.
+    const first = await req("POST", `/job-postings/${await seedPosting()}/plan`, {
+      ops: true,
+      body: { payer_id: payer, tier: "standard" },
+    });
+    expect(first.status).toBe(201);
+    expect(first.json.paused).toBe(false);
+    expect(first.json.wouldPause).toBe(false);
+
+    // Second plan: over cap (1+1 > 1). In shadow mode it is NOT paused: 201, paused=false,
+    // but the would-pause decision is surfaced (wouldPause=true).
+    const second = await req("POST", `/job-postings/${await seedPosting()}/plan`, {
+      ops: true,
+      body: { payer_id: payer, tier: "standard" },
+    });
+    expect(second.status).toBe(201);
+    expect(second.json.paused).toBe(false); // nothing actually paused in shadow
+    expect(second.json.wouldPause).toBe(true); // but the over-cap decision is surfaced
+    const overCapPlanId = second.json.plan.id as string;
+
+    // The plan PERSISTS as status='active' in the DB (shadow does not pause).
+    const plans = await plansForPayer(payer);
+    expect(plans.length).toBe(2);
+    expect(plans.every((p) => p.status === "active")).toBe(true);
+    const overCapPlan = plans.find((p) => p.id === overCapPlanId);
+    expect(overCapPlan?.status).toBe("active");
+
+    // NO posting_plan.paused was emitted for the over-cap plan (pausing nothing must not
+    // emit a pause — event↔state honesty; the would-pause is a PII-free LOG line only).
+    const pausedForPlan = (await allEvents()).filter(
+      (e) => e.eventName === "posting_plan.paused" && (e.payload as { plan_id?: string }).plan_id === overCapPlanId,
+    );
+    expect(pausedForPlan.length).toBe(0);
+
+    // The receipt is still real: both plans emit payment.* + job_posting.purchased.
+    const purchased = (await allEvents()).filter(
+      (e) => e.eventName === "job_posting.purchased" && (e.payload as { plan_id?: string }).plan_id === overCapPlanId,
+    );
+    expect(purchased.length).toBe(1);
   });
 
   it("emits capacity.purchased + payment.* on purchase; payment.* carry real_call:false (mock payments)", async () => {

@@ -161,6 +161,14 @@ export const serverEnvSchema = z.object({
   // intentional (0 = a brand-new payer can hold ZERO active plans until they buy
   // capacity); the small default keeps alpha conservative without a migration to tune.
   CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES: z.coerce.number().int().min(0).default(1),
+  // Master switch for capacity ENFORCEMENT (ADR-0016, posture B). Default OFF =
+  // inert/shadow: the chokepoint still counts and computes the decision but never
+  // pauses a plan — it records a PII-free "would-pause" log line + a wouldPause flag.
+  // The cap is ADVISORY until PayerAuthGuard/LC-1 lands; flip true to enforce.
+  // Uses booleanFromString (NOT z.coerce.boolean, whose "false"/"0" coerce to true)
+  // so a falsey string stays OFF — fail-safe to inert, consistent with the other
+  // boolean flags above (AI_ENABLE_REAL_CALLS / PAYMENTS_ENABLE_REAL).
+  CAPACITY_ENFORCEMENT_ENABLED: booleanFromString,
 
   // Model routing. Bare provider model ids (no provider prefix); the AI service
   // selects cheap vs capable per task. Cost guardrails are in INR per worker profile.
@@ -284,6 +292,17 @@ export function realPaymentsBlockedReason(config: ServerConfig): string | null {
 
 export function areRealPaymentsEnabled(config: ServerConfig): boolean {
   return realPaymentsBlockedReason(config) === null;
+}
+
+/**
+ * Guard for the per-payer capacity ENFORCEMENT path (ADR-0016, posture B) — the
+ * direct analogue of `areRealPaymentsEnabled`. Default OFF (fail-safe = inert):
+ * when false the chokepoint runs in SHADOW — it computes the over-cap decision but
+ * never pauses, recording a PII-free would-pause log line instead. Flip true to
+ * enforce. The cap is advisory until PayerAuthGuard/LC-1 (CLAUDE.md §8).
+ */
+export function isCapacityEnforcementEnabled(config: ServerConfig): boolean {
+  return config.CAPACITY_ENFORCEMENT_ENABLED;
 }
 
 /**

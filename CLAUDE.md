@@ -24,6 +24,8 @@ Engine), and production legal flows are **out of scope for Phase 1**. See
 > ([ADR-0011](docs/decisions/0011-reach-feed-serving.md) / [ADR-0015](docs/decisions/0015-reach-feed-on-real-jobs.md)),
 > ops job postings ([ADR-0012](docs/decisions/0012-ops-job-postings-banded-stored-only.md)),
 > monetization + config-driven pricing ([ADR-0013](docs/decisions/0013-monetization-and-config-driven-pricing-engine.md)),
+> per-payer hiring capacity ([ADR-0016](docs/decisions/0016-payer-hiring-capacity.md):
+> faceless concurrent-active-vacancy cap, mock payments, **enforcement INERT by default**),
 > and **Contact Unlock + Reveal — "Stream A"** ([ADR-0010](docs/decisions/0010-contact-unlock-and-reveal.md):
 > mock credits + in-app relay, built + verified 2026-06-17). The **real-money / real-provider /
 > per-payer-auth / production-legal** portions of these remain **deferred / launch-gated** (§8).
@@ -201,10 +203,12 @@ role today — see [infra/supabase/rls-plan.md](infra/supabase/rls-plan.md)), Bu
 real OTP/STT/LLM/payment providers, real telephony/proxy + raw-phone reveal, per-payer
 `PayerAuthGuard`, production DPDP legal copy. **Note:** the *alpha-gate* forms of employer
 postings, contact unlock (mock credits + in-app relay, [ADR-0010](docs/decisions/0010-contact-unlock-and-reveal.md)
-Stream A), Reach feed serving, and config-driven pricing/boosts have **landed additively behind
-launch gates** (§1) — it is their **real-money / real-provider / per-payer-auth /
-production-legal** portions (tracked: TD33/TD34/TD35 + the threat-model LC items) that remain
-deferred here. **Org expansion (next):**
+Stream A), Reach feed serving, config-driven pricing/boosts, and **per-payer hiring capacity**
+([ADR-0016](docs/decisions/0016-payer-hiring-capacity.md): faceless concurrent-active-vacancy
+cap, mock payments, **enforcement INERT by default** behind `CAPACITY_ENFORCEMENT_ENABLED`)
+have **landed additively behind launch gates** (§1) — it is their **real-money / real-provider /
+per-payer-auth / production-legal** portions (tracked: TD33/TD34/TD35/TD43 + the threat-model LC
+items) that remain deferred here. **Org expansion (next):**
 system-architect, devops, performance, qa, product-manager, technical-writer,
 refactoring, debugging agents; cost/DR/monitoring strategy docs.
 

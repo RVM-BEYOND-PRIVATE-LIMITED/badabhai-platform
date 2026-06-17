@@ -18,6 +18,7 @@ function make(
     capacity?: { maxActiveVacancies: number } | null; // null/undefined → no row (config default)
     activeCount?: number; // currently-active plans for the payer
     capacityDefault?: number; // config default allowance
+    enforceCapacity?: boolean; // ADR-0016 posture B flag (default OFF = shadow)
     pausedPlans?: { id: string; jobPostingId: string; expiresAt: Date | null }[];
   } = {},
 ) {
@@ -54,7 +55,11 @@ function make(
     } as never,
     { emit } as never,
     { getActiveCatalog } as never,
-    { PAYMENTS_ENABLE_REAL: false, CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES: opts.capacityDefault ?? 1 } as never,
+    {
+      PAYMENTS_ENABLE_REAL: false,
+      CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES: opts.capacityDefault ?? 1,
+      CAPACITY_ENFORCEMENT_ENABLED: opts.enforceCapacity ?? false,
+    } as never,
   );
   const names = () => emit.mock.calls.map((c) => c[0].event_name);
   return { service, emit, names, insertPlan, insertBoost, couponUsage, upsertCapacity, setPlanStatus, lockPayer, withTransaction };
@@ -130,28 +135,43 @@ describe("PostingPlansService.buyPlan", () => {
 describe("PostingPlansService.buyPlan — per-payer capacity chokepoint (ADR-0016)", () => {
   it("writes status='active' when the payer stays within their allowance (no pause event)", async () => {
     const { service, names, insertPlan } = make({ activeCount: 0, capacityDefault: 1 });
-    const { paused } = await service.buyPlan(POSTING, { payer_id: PAYER, tier: "standard" }, CTX);
+    const { paused, wouldPause } = await service.buyPlan(POSTING, { payer_id: PAYER, tier: "standard" }, CTX);
     expect(paused).toBe(false);
+    expect(wouldPause).toBe(false);
     expect(insertPlan).toHaveBeenCalledWith(expect.objectContaining({ status: "active" }), expect.anything());
     expect(names()).not.toContain("posting_plan.paused");
   });
 
-  it("writes status='paused' + emits posting_plan.paused when over the config default", async () => {
-    // default allowance 1, already 1 active → this purchase (1+1 > 1) is paused.
-    const { service, names, insertPlan } = make({ activeCount: 1, capacityDefault: 1 });
-    const { paused } = await service.buyPlan(POSTING, { payer_id: PAYER, tier: "standard" }, CTX);
+  it("ENFORCEMENT ON: writes status='paused' + emits posting_plan.paused when over the config default", async () => {
+    // default allowance 1, already 1 active → this purchase (1+1 > 1) is paused (enforced).
+    const { service, names, insertPlan } = make({ activeCount: 1, capacityDefault: 1, enforceCapacity: true });
+    const { paused, wouldPause } = await service.buyPlan(POSTING, { payer_id: PAYER, tier: "standard" }, CTX);
     expect(paused).toBe(true);
+    expect(wouldPause).toBe(true);
     expect(insertPlan).toHaveBeenCalledWith(expect.objectContaining({ status: "paused" }), expect.anything());
     expect(names()).toContain("posting_plan.paused");
     // payment + purchase still emitted (the receipt is real; a paused plan just does not serve).
     expect(names()).toEqual(["payment.authorized", "payment.captured", "job_posting.purchased", "posting_plan.paused"]);
   });
 
+  it("ENFORCEMENT OFF (default/shadow): over-cap writes status='active', emits NO pause event, returns wouldPause=true", async () => {
+    // Same over-cap inputs as the enforced case, but enforcement is OFF (the default).
+    const { service, names, insertPlan } = make({ activeCount: 1, capacityDefault: 1 });
+    const { paused, wouldPause } = await service.buyPlan(POSTING, { payer_id: PAYER, tier: "standard" }, CTX);
+    expect(paused).toBe(false); // nothing actually paused in shadow mode
+    expect(wouldPause).toBe(true); // but the would-pause decision is surfaced
+    expect(insertPlan).toHaveBeenCalledWith(expect.objectContaining({ status: "active" }), expect.anything());
+    // NO posting_plan.paused — pausing nothing must not emit a pause (event↔state honesty).
+    expect(names()).not.toContain("posting_plan.paused");
+    expect(names()).toEqual(["payment.authorized", "payment.captured", "job_posting.purchased"]);
+  });
+
   it("uses the payer's own capacity row over the config default", async () => {
     // payer row allows 3; 2 already active → 2+1 = 3 ≤ 3 → active.
     const { service, insertPlan } = make({ activeCount: 2, capacity: { maxActiveVacancies: 3 }, capacityDefault: 1 });
-    const { paused } = await service.buyPlan(POSTING, { payer_id: PAYER, tier: "standard" }, CTX);
+    const { paused, wouldPause } = await service.buyPlan(POSTING, { payer_id: PAYER, tier: "standard" }, CTX);
     expect(paused).toBe(false);
+    expect(wouldPause).toBe(false);
     expect(insertPlan).toHaveBeenCalledWith(expect.objectContaining({ status: "active" }), expect.anything());
   });
 
@@ -221,6 +241,47 @@ describe("PostingPlansService.buyCapacity (ADR-0016 — purchase + auto-resume)"
   it("400s for an unknown capacity tier (fail-closed pricing)", async () => {
     const { service } = make();
     await expect(service.buyCapacity(PAYER, { tier: "cap_999" }, CTX)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("UPGRADE (cap_5 → cap_15, D4): raises the allowance to 15 and auto-resumes against the higher headroom", async () => {
+    // D4 + GREATEST guard (ADR-0016): a payer already on cap_5 (allowance 5) upgrades to
+    // cap_15 (allowance 15). The service upserts the catalog grant (15) — the GREATEST
+    // guard is the DB-side onConflict (raises, never lowers); the e2e proves the SQL, the
+    // unit proves the service passes the RAISED grant through AND resumes against it.
+    //
+    // Set the scene so resume headroom is what distinguishes 5 from 15: 5 already active
+    // (i.e. AT the old cap_5 ceiling → zero headroom under cap_5) + many paused plans.
+    // Under cap_15 the headroom is 15 − 5 = 10, so up to 10 paused plans resume.
+    const paused = Array.from({ length: 12 }, (_, i) => ({
+      id: `paused-${String(i).padStart(2, "0")}`,
+      jobPostingId: `jp-${i}`,
+      expiresAt: null,
+    }));
+    const { service, upsertCapacity, setPlanStatus, names } = make({ activeCount: 5, pausedPlans: paused });
+
+    const res = await service.buyCapacity(PAYER, { tier: "cap_15" }, CTX);
+
+    // The allowance after the upgrade is the cap_15 grant (15) — the service stamps the
+    // raised grant; it does not re-read its own in-tx write (see service comment).
+    expect(res.max_active_vacancies).toBe(15);
+    expect(res.source_tier).toBe("cap_15");
+    expect(upsertCapacity).toHaveBeenCalledWith(
+      expect.objectContaining({ payerId: PAYER, maxActiveVacancies: 15, sourceTier: "cap_15" }),
+      expect.anything(),
+    );
+
+    // Resume runs against the RAISED headroom (15 − 5 = 10), NOT the old cap_5 (which gave
+    // zero headroom). Exactly 10 paused plans flip active, oldest-first, deterministically.
+    expect(res.resumed_plan_ids).toHaveLength(10);
+    expect(res.resumed_plan_ids).toEqual(paused.slice(0, 10).map((p) => p.id));
+    expect(setPlanStatus).toHaveBeenCalledTimes(10);
+    expect(setPlanStatus).toHaveBeenCalledWith(expect.anything(), "paused-00", "active");
+    expect(setPlanStatus).toHaveBeenCalledWith(expect.anything(), "paused-09", "active");
+    expect(setPlanStatus).not.toHaveBeenCalledWith(expect.anything(), "paused-10", "active");
+
+    // One posting_plan.resumed per resumed plan + the capacity/payment spine events.
+    expect(names().filter((n) => n === "posting_plan.resumed")).toHaveLength(10);
+    expect(names()).toContain("capacity.purchased");
   });
 });
 

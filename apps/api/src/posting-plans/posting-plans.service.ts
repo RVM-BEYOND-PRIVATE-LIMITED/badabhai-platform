@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { resolvePrice, type Quote } from "@badabhai/pricing";
-import { areRealPaymentsEnabled, type ServerConfig } from "@badabhai/config";
+import { areRealPaymentsEnabled, isCapacityEnforcementEnabled, type ServerConfig } from "@badabhai/config";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { PostingPlan, PostingBoost } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
@@ -35,8 +35,14 @@ type DeferredEmit = () => Promise<void>;
 export interface BuyPlanResult {
   plan: PostingPlan;
   quote: Quote;
-  /** true when the plan was written 'paused' because the payer is over capacity (ADR-0016). */
+  /** true when the plan was ACTUALLY written 'paused' (only ever when enforcement is ON). */
   paused: boolean;
+  /**
+   * true when the payer was over capacity, REGARDLESS of enforcement (ADR-0016, posture B).
+   * In shadow mode (enforcement OFF) `wouldPause` can be true while `paused` is false: the
+   * decision was computed and logged but no plan was paused.
+   */
+  wouldPause: boolean;
 }
 
 export interface BuyCapacityResult {
@@ -63,6 +69,13 @@ export interface BuyCapacityResult {
  * it writes status='paused'. The count-and-write is ONE transaction under a per-payer
  * `pg_advisory_xact_lock` so N concurrent buys can never each read "under cap" and all
  * activate (NEVER read-then-write across statements).
+ *
+ * ENFORCEMENT FLAG (ADR-0016, posture B — CAPACITY_ENFORCEMENT_ENABLED, default OFF):
+ * the over-cap decision is ALWAYS computed under the lock, but it only pauses when
+ * enforcement is ON. Default OFF = SHADOW: nothing is paused; an over-cap purchase
+ * stays 'active', records a PII-free would-pause LOG line (no spine event — pausing
+ * nothing must not emit posting_plan.paused), and returns wouldPause=true. ON = enforce:
+ * the plan is written 'paused' and posting_plan.paused is emitted, as before.
  *
  * DEADLOCK AVOIDANCE (mirrors UnlockService): EventsService.emit uses the GLOBAL db pool
  * (a SEPARATE connection). Emitting WHILE the advisory-locked transaction is held would,
@@ -98,12 +111,15 @@ export class PostingPlansService {
     }
     const grants = quote.grants;
     const realCall = areRealPaymentsEnabled(this.config);
+    // ADR-0016 posture B: when OFF (default) the over-cap decision is computed + logged
+    // but never pauses (shadow). When ON the plan is paused + posting_plan.paused emitted.
+    const enforce = isCapacityEnforcementEnabled(this.config);
     const now = new Date();
 
     // The whole [count active vacancies → decide status → insertPlan] is ONE transaction
     // holding the per-payer advisory lock (ADR-0016 / F-2: count-and-write atomic, never
     // read-then-write). It does NOT emit (deadlock fix) — it returns deferred thunks.
-    const { plan, paused, deferred } = await this.repo.withTransaction(async (tx) => {
+    const { plan, paused, wouldPause, deferred } = await this.repo.withTransaction(async (tx) => {
       const deferred: DeferredEmit[] = [];
       await this.repo.lockPayer(tx, dto.payer_id);
 
@@ -113,8 +129,10 @@ export class PostingPlansService {
       const capacityRow = await this.repo.getCapacity(dto.payer_id, tx);
       const allowed = capacityRow?.maxActiveVacancies ?? this.config.CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES;
       const activeNow = await this.repo.countActivePlansForPayer(tx, dto.payer_id, now);
+      // Decision computed the SAME way under the lock for accuracy; whether it PAUSES
+      // depends on the enforcement flag (posture B). A real pause only when enforce && over.
       const overCapacity = activeNow + 1 > allowed;
-      const status = overCapacity ? "paused" : "active";
+      const status = enforce && overCapacity ? "paused" : "active";
 
       const plan = await this.repo.insertPlan(
         {
@@ -134,10 +152,19 @@ export class PostingPlansService {
       deferred.push(() => this.emitPayment("payment.authorized", jobPostingId, dto.payer_id, quote.finalInr, realCall, ctx));
       deferred.push(() => this.emitPayment("payment.captured", jobPostingId, dto.payer_id, quote.finalInr, realCall, ctx));
       deferred.push(() => this.emitPurchased(plan.id, jobPostingId, dto, grants, quote, realCall, ctx));
-      if (overCapacity) {
+      if (enforce && overCapacity) {
+        // ENFORCING + over cap → a REAL pause: emit the spine event (event↔state honest).
         deferred.push(() => this.emitPlanPaused(plan.id, jobPostingId, dto.payer_id, ctx));
+      } else if (overCapacity) {
+        // SHADOW + over cap → nothing paused, so NO posting_plan.paused (that would assert
+        // a pause that did not happen). Record a PII-free would-pause log line instead:
+        // opaque ids + counts only — never a name/phone (faceless invariant).
+        this.logger.log(
+          `capacity shadow: plan WOULD pause under enforcement — payer_id=${dto.payer_id} plan_id=${plan.id} ` +
+            `job_posting_id=${jobPostingId} activeNow=${activeNow} allowed=${allowed}`,
+        );
       }
-      return { plan, paused: overCapacity, deferred };
+      return { plan, paused: enforce && overCapacity, wouldPause: overCapacity, deferred };
     });
 
     // COMMITTED — advisory lock + connection released. Emit the audit events now, then
@@ -145,7 +172,7 @@ export class PostingPlansService {
     await this.flushEvents(deferred);
     await this.emitCouponIfApplied(quote, dto.payer_id, "job_posting", dto.tier, ctx);
 
-    return { plan, quote, paused };
+    return { plan, quote, paused, wouldPause };
   }
 
   async buyBoost(jobPostingId: string, dto: BuyBoostDto, ctx: RequestContext): Promise<{ boost: PostingBoost; quote: Quote }> {
