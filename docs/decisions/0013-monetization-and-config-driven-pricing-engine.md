@@ -781,6 +781,7 @@ pricing-engine, posting-plan, booster, or resume-download code, migration, or re
 
 ## Related
 
+- **Extended by → [ADR-0016 — Per-payer hiring capacity](0016-payer-hiring-capacity.md)** (adds a `hiring_capacity` product to this engine + a per-payer concurrent-active-vacancy chokepoint on Decision B `posting_plans`; additive, faceless, mock payments; **enforcement INERT by default**)
 - ADR-0010 (Contact Unlock + Reveal — the disclosure spine this REUSES for resume download) + [contact-unlock threat model](../security/contact-unlock-threat-model.md)
 - ADR-0012 (ops-created banded `job_postings` — the entity this adds a paid plan to, additively)
 - ADR-0011 (Reach feed serving — the faceless candidates page / applicant list this consumes; `JobSource` port)

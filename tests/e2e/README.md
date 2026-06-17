@@ -45,3 +45,14 @@ $env:RUN_E2E=1; pnpm --filter @badabhai/e2e test
 | `RUN_E2E`          | _(unset → skipped)_                                      | Set to `1` to actually run.      |
 | `E2E_API_URL`      | `http://localhost:3001`                                  | Base URL of the running API.     |
 | `E2E_DATABASE_URL` | `DATABASE_URL` or `postgresql://badabhai:badabhai@localhost:5432/badabhai` | DB to read `events` from. |
+| `E2E_CAPACITY_ENFORCED` | _(unset → shadow)_                                  | Capacity e2e (ADR-0016 D5) only. Set to `1` ONLY when the API was started with `CAPACITY_ENFORCEMENT_ENABLED=true`. Gates the enforcement cases (real pauses) vs the default shadow case so they never contradict on one running config. |
+
+> **Capacity enforcement posture (ADR-0016 D5).** The API defaults to
+> `CAPACITY_ENFORCEMENT_ENABLED=false` (shadow: over-cap plans stay active). Run
+> `payer-capacity.e2e.test.ts` in TWO passes to cover both postures:
+> - **Shadow (default):** start the API normally → `RUN_E2E=1 … test` runs the shadow case
+>   (over-cap → active, `wouldPause=true`, no pause event); enforcement cases skip.
+> - **Enforced:** start the API with `CAPACITY_ENFORCEMENT_ENABLED=true` →
+>   `RUN_E2E=1 E2E_CAPACITY_ENFORCED=1 … test` runs the atomicity / pause-at-limit /
+>   auto-resume cases (real pauses); the shadow case skips.
+> The faceless/no-PII + `capacity.purchased`/`payment.*` cases run in both.
