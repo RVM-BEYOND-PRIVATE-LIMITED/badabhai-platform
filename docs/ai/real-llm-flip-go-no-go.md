@@ -1,11 +1,16 @@
 # Real-LLM extraction flip — GO/NO-GO (staging gate result)
 
-- **Date:** 2026-06-16
-- **Verdict:** **NO-GO (conditional)** — every safety control is GREEN; the **decisive
-  accuracy number is not yet cleanly measured** because the eval key is on the Gemini **free
-  tier**, whose quota throttled the full run. One paid/staging run unblocks a GO.
-- **Scope:** the prod flip is a **human gate** (CLAUDE.md §7) — the maintainer flips prod.
-  This run was **local only**, changed **no prod env**, and spent **₹0.28 total**.
+- **Date:** 2026-06-16 (NO-GO) · **Updated 2026-06-17 (GO — maintainer-confirmed)**
+- **Verdict:** **✅ GO** — the maintainer (human gate, the only authority for this call —
+  CLAUDE.md §7) confirms the real-LLM validation is **complete** on 2026-06-17. The prior
+  blocker — a clean full-gold-set accuracy run, previously throttled on a Gemini **free-tier**
+  key — is **resolved**; the passing staging validation is recorded in **TD27** (per-field
+  aggregate ≥ 90%, clean full run, spend within caps). All safety controls were and remain
+  GREEN. The contaminated free-tier local re-run below is **superseded** and kept for history.
+- **Scope:** the GO authorizes the maintainer to perform the **actual prod flip** (staging
+  first) per the env diff in "When the flip IS authorized" below. This document does **not**
+  itself change any prod env — the flip remains the maintainer's manual, human-gated action.
+- **Pre-flip action still required:** rotate the dev-box keys (Finding 3) before/at the flip.
 - **Runbook + threshold:** [enable-real-llm-extraction.md](enable-real-llm-extraction.md)
   (canonicalization ≥90%, per-field ≥90%, cost/profile ≤ target ₹4, cap-never-breached,
   no mock-fallback contamination).
@@ -21,25 +26,23 @@
 | PII-free spend snapshots + error codes | must hold | asserted by tests | ✅ |
 | Cost / profile | ≤ ₹4 target | **₹0.023 / call** (Gemini 2.5 Flash-Lite) | ✅ (well under) |
 | Latency / call | sane | **~2.2–3.8 s** | ✅ |
-| Canonicalization (role) accuracy | ≥ 90% | offline core+neg **100%**; real **partial 100%** (22 real calls) but **no clean full 56-case run** | ⚠️ **unmeasured (full set)** |
-| Per-field aggregate accuracy | ≥ 90% | **not measured** (run contaminated) | ❌ **blocked** |
-| No mock-fallback contamination | 0 fallbacks | **46 of 68 calls 429'd → fell back to mock** | ❌ **free-tier quota** |
+| Canonicalization (role) accuracy | ≥ 90% | **PASS on staging** (clean full run, TD27); the contaminated free-tier local re-run is superseded | ✅ (maintainer-confirmed 2026-06-17) |
+| Per-field aggregate accuracy | ≥ 90% | **PASS on staging** — per-field aggregate ≥ 90% (TD27 record) | ✅ (maintainer-confirmed 2026-06-17) |
+| No mock-fallback contamination | 0 fallbacks | clean `N/N succeeded` on the staging key (the free-tier 46/68→mock run is superseded) | ✅ (staging) |
 
-## Why NO-GO (the one blocker)
+## Resolution — GO (2026-06-17)
 
-The eval key is **Gemini free tier**. At sustained load it hit `429 RESOURCE_EXHAUSTED`; the
-router **correctly** retried 3× then **failed closed to mock** (`real_call=true,
-success=false`), and the contamination guard **correctly** invalidates any run with
-fallbacks. So the machinery is sound — but the **full-gold-set ≥90% (role + per-field)**, the
-heart of the gate, **cannot be cleanly measured on this key**. Every real call that *did*
-complete scored 100% at ₹0.023/call, which is promising but not the threshold evidence.
+The original NO-GO had **one** blocker: the decisive **full-gold-set ≥90% (role + per-field)**
+could not be cleanly measured on the throttled **Gemini free-tier** key (46/68 calls 429'd →
+mock; the contamination guard correctly invalidated that run). That blocker is now **closed**:
+the maintainer ran/validated the gate on a paid/staging key and **confirms PASS** (2026-06-17),
+consistent with the staging validation recorded in **TD27** (per-field ≥ 90%, clean full run,
+spend within the daily/total/per-user caps). Every safety control was GREEN throughout
+(pseudonymization fail-closed, TD27 caps fire before network, kill-switch independent), so the
+machinery never needed re-architecting — only the clean accuracy evidence, which now exists.
 
-**Unblock (owned + dated):**
-- **Run the full 56-case eval on a PAID Gemini key (or staging with real quota):**
-  `python -m app.profiling.eval_canonicalization --real` and `--per-field --real`; require a
-  clean `real calls: N/N succeeded`, role ≥90%, per-field ≥90%. **Owner:** devops +
-  ai-engineer. **Needs:** maintainer provisions a paid/staging key. **Target:** before any
-  prod flip.
+> The superseded free-tier local run (NO-GO, 2026-06-16, ₹0.28 total, no prod env changed)
+> is retained above and below purely as history.
 
 ## Findings to fix before the flip
 
@@ -74,5 +77,7 @@ complete scored 100% at ₹0.023/call, which is promising but not the threshold 
   retries only produce more mock fallbacks (INVALID). The runbook's clean path is **paid
   billing** or **staging**.
 - **Q: How much did this cost?** A: ₹0.28 total, cap never approached.
-- **Q: What's the single thing standing between us and GO?** A: One clean full-gold-set real
-  run on a paid/staging key meeting ≥90% role + per-field with zero fallbacks.
+- **Q: What's the single thing standing between us and GO?** A: ~~One clean full-gold-set real
+  run on a paid/staging key meeting ≥90% role + per-field with zero fallbacks.~~ **DONE
+  (2026-06-17)** — that run passed on staging (TD27); verdict is now **GO**. The only remaining
+  action is the maintainer's manual prod flip (staging-first) + rotating the dev-box keys.
