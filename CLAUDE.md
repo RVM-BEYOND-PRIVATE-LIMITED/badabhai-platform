@@ -192,3 +192,54 @@ matching, finalized RLS (backend uses the service role today — see
 OTP/STT/LLM/payment providers, production DPDP legal copy. **Org expansion (next):**
 system-architect, devops, performance, qa, product-manager, technical-writer,
 refactoring, debugging agents; cost/DR/monitoring strategy docs.
+
+## 9. Claude Efficiency Rules
+
+Before repository exploration:
+
+1. Read `.claude/project-memory.md`
+2. Read `.claude/team-memory.md`
+
+Treat both as authoritative.
+
+Do not rediscover architecture, ownership, business rules, or active workstreams already documented there.
+
+Search code only when:
+- implementation details are needed
+- memory files are outdated
+- information is missing
+
+### Evidence-Based Work
+
+Never invent:
+- architecture
+- APIs
+- database schema
+- event types
+- business rules
+
+When information is missing:
+
+1. Check memory files
+2. Search the repository
+
+If still unknown:
+- mark it as UNKNOWN
+- ask for clarification
+- do not assume
+
+### Response Style
+
+Assume experienced backend engineers.
+
+Preferred format:
+- Status
+- Files Changed
+- Issues
+- Next Steps
+
+Keep responses concise.
+Prefer bullets over paragraphs.
+Avoid tutorials, framework explanations, and unnecessary reasoning.
+
+Update memory files when project knowledge, ownership, or workstreams change.

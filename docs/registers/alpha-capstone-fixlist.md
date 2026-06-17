@@ -108,6 +108,13 @@ This is why G1c/G2 can be Jun-25 inherits without silently breaking the PII rule
 These do not block the cut at the current bar (resume **text** preview, CLAUDE.md §1).
 Day-1 = Jun-25 onward; the dated targets are in the inheriting dev's first window.
 
+> **Day-1 execution doc (for the incoming Android dev):**
+> [android-dev-onboarding-punchlist.md](../qa/android-dev-onboarding-punchlist.md) — turns this
+> triage into a top-down punch-list (Day-1 setup with pinned Flutter **3.27.4** + per-gap cards
+> G1c/G2/G3 with exact files, repro, and acceptance tied to the B1 runbook). Note: **G3's RVM
+> content gate is now CLEARED** (CEO-approved 2026-06-17, [rvm-followup-nudge.md](./rvm-followup-nudge.md));
+> only a product scope-confirm remains.
+
 | ID | Flow | Done when… (qa-engineer, verbatim acceptance) | Severity | PII/consent | Owner | Target |
 | -- | ---- | --------------------------------------------- | -------- | ----------- | ----- | ------ |
 | **G1c** | resume — in-app **Download PDF** action over the **closed** worker-auth signed URL | `resume_preview_screen.dart` invokes new `ApiClient.downloadResume(resumeId, authToken)` → `GET /resume/:id/download` with bearer, opens signed URL (launcher dep added), **URL never logged**, `flutter analyze`+`test` pass, AND a handset run shows the PDF opening + a `resume.downloaded` event. | **Medium** — text preview meets the alpha bar; **override → High** if product/RVM demand the branded PDF in alpha (then promotes to MUST-LAND, see GO condition) | **YES** — PDF carries the worker's real name ([TD21](./tech-debt-register.md)); MUST use the closed worker-auth route, never log the URL (privacy control ships in this SAME change) | **mobile-engineer** | **2026-06-27** |
