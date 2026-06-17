@@ -18,6 +18,16 @@ Employer posting, unlock, payments, payouts, boosts, ranking/matching (the Reach
 Engine), and production legal flows are **out of scope for Phase 1**. See
 [docs/sprint-plans/phase-1-worker-profiling.md](docs/sprint-plans/phase-1-worker-profiling.md).
 
+> **Phase-2 alpha-gate streams have since landed additively, each by its own ADR and behind
+> launch gates — they do NOT relax the §2 invariants:** swipe-to-apply
+> ([ADR-0009](docs/decisions/0009-alpha-swipe-to-apply-seeded-jobs.md)), Reach feed serving
+> ([ADR-0011](docs/decisions/0011-reach-feed-serving.md) / [ADR-0015](docs/decisions/0015-reach-feed-on-real-jobs.md)),
+> ops job postings ([ADR-0012](docs/decisions/0012-ops-job-postings-banded-stored-only.md)),
+> monetization + config-driven pricing ([ADR-0013](docs/decisions/0013-monetization-and-config-driven-pricing-engine.md)),
+> and **Contact Unlock + Reveal — "Stream A"** ([ADR-0010](docs/decisions/0010-contact-unlock-and-reveal.md):
+> mock credits + in-app relay, built + verified 2026-06-17). The **real-money / real-provider /
+> per-payer-auth / production-legal** portions of these remain **deferred / launch-gated** (§8).
+
 **Phase 1 exit criteria (what we are optimizing for right now):**
 A worker can log in (mock OTP) → give consent → chat → get an extracted, confirmed
 profile → get a generated resume — with **every step emitting a validated event** and
@@ -186,10 +196,15 @@ register in the same PR as the change that motivated it. Decisions of record are
 
 ## 8. Deferred (do not build in Phase 1 without an explicit decision)
 
-Reach Engine ranking, employer posting/unlock, payments/payouts, boosts, advanced
-matching, finalized RLS (backend uses the service role today — see
-[infra/supabase/rls-plan.md](infra/supabase/rls-plan.md)), BullMQ job queues, real
-OTP/STT/LLM/payment providers, production DPDP legal copy. **Org expansion (next):**
+Reach Engine **learned** ranking, advanced matching, finalized RLS (backend uses the service
+role today — see [infra/supabase/rls-plan.md](infra/supabase/rls-plan.md)), BullMQ job queues,
+real OTP/STT/LLM/payment providers, real telephony/proxy + raw-phone reveal, per-payer
+`PayerAuthGuard`, production DPDP legal copy. **Note:** the *alpha-gate* forms of employer
+postings, contact unlock (mock credits + in-app relay, [ADR-0010](docs/decisions/0010-contact-unlock-and-reveal.md)
+Stream A), Reach feed serving, and config-driven pricing/boosts have **landed additively behind
+launch gates** (§1) — it is their **real-money / real-provider / per-payer-auth /
+production-legal** portions (tracked: TD33/TD34/TD35 + the threat-model LC items) that remain
+deferred here. **Org expansion (next):**
 system-architect, devops, performance, qa, product-manager, technical-writer,
 refactoring, debugging agents; cost/DR/monitoring strategy docs.
 

@@ -38,7 +38,7 @@ indexes both so there is one timeline.
 - [0006 — Reach foundation: deterministic RANK core + behavioural event contracts](../decisions/0006-reach-foundation-rank-core.md) — *Accepted (ratified 2026-06-12)*
 - [0008 — LiteLLM → direct Gemini/Claude provider calls](../decisions/0008-litellm-to-direct-providers.md) — *Accepted (supersedes ADR-0001 §3)*
 - [0009 — Alpha swipe-to-apply on seeded jobs](../decisions/0009-alpha-swipe-to-apply-seeded-jobs.md) — *Accepted (2026-06-15; scoped alpha producer for the ADR-0006 events)*
-- [0010 — Contact Unlock + Reveal (routed-disclosure monetization spine)](../decisions/0010-contact-unlock-and-reveal.md) — *Accepted (2026-06-15; payer credit-pack pricing, real-gateway escalation in progress, build authorized after F-1/F-2)*
+- [0010 — Contact Unlock + Reveal (routed-disclosure monetization spine)](../decisions/0010-contact-unlock-and-reveal.md) — *Accepted (2026-06-15; payer credit-pack pricing, real-gateway escalation in progress, build authorized after F-1/F-2). **Stream A built + verified 2026-06-17** (mock credits + in-app relay; security re-review PASS; launch gates LC-1…LC-7 open — TD33/TD34/TD35/TD39)*
 - [0012 — Ops-created, vacancy-banded, stored-only Job Postings](../decisions/0012-ops-job-postings-banded-stored-only.md) — *Accepted (alpha-gate, 2026-06-15)*
 - [0011 — Reach feed serving (applicant list + worker feed over the RANK core)](../decisions/0011-reach-feed-serving.md) — *Accepted (alpha-gate, 2026-06-15)*
 - [0013 — Employer/agent monetization + config-driven Pricing Engine](../decisions/0013-monetization-and-config-driven-pricing-engine.md) — *Accepted (2026-06-16; resume download free; Razorpay disabled; threat-model addendum gated)*

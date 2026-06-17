@@ -26,6 +26,34 @@
 
 ---
 
+## Build verification (2026-06-17) — Stream A BUILT + re-verified PASS
+
+This design-time threat model has since been **built and independently re-verified** against
+the merged code (`apps/api/src/unlocks/*`, the web ops/payer unlock UI, `packages/config`). A
+fresh bb-security-review returned **PASS (alpha posture), no must-fix**:
+
+- All **9 non-tradeable invariants** (§5) are upheld in code, each mapped to a test.
+- All **BUILD conditions BC-1…BC-8** (§6) and the build-blockers **F-1/F-2** have a present,
+  correctly-asserting test (unit + schema + boot + config, plus the opt-in `RUN_E2E=1`
+  `tests/e2e/contact-unlock.e2e.test.ts` for the live-DB concurrency / idempotency / no-PII proofs).
+- **T2-a (already_unlocked) — STRUCTURALLY CLOSED.** The model is per-`(payer_id, worker_id)`
+  with a unique index; `findByPayerWorker` is scoped to the requesting payer, so a payer can
+  only ever observe its **own** row — a grant held by another payer is invisible and collapses
+  to the identical neutral body (the weekly-distinct-payers cap also denies via the neutral path).
+- **T2-c (timing) — confirmed an OFF LAUNCH GATE (RR-4 / LC-7).** The body+status oracle is
+  closed (every neutral branch is HTTP 200 `{status:"unavailable"}`; reveal returns the neutral
+  body, **not** a classifiable 404). Latency-normalization remains deferred to before any real
+  per-payer surface.
+
+**Residuals / launch gates unchanged:** RR-1…RR-4 and LC-1…LC-7 remain open and tracked
+(TD33 PayerAuthGuard / TD34 mock payments / TD35 retention-erasure + the LC items). Two §6
+*static* regression guards are not yet present and are logged as **TD39** (BC-8 structural
+sole-writer assertion; BC-5 single-decrypt-site assertion) — the runtime/behavioural guarantees
+they back ARE covered (sentinel-phone-absent, decrypt-called-once, module non-export + verified
+grep showing no outside importer), so these are tracked tech-debt, **not** build-blockers.
+
+---
+
 ## 1. Methodology
 
 Each threat below is enumerated, rated for **severity** (Critical / High / Medium / Low —
