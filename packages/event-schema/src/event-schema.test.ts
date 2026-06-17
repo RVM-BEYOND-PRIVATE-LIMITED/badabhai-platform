@@ -796,9 +796,62 @@ describe("monetization + pricing events (ADR-0013 — PII-free, ids/codes/enums/
   });
 });
 
+describe("capacity / posting_plan lifecycle events (ADR-0016 — PII-free, ids/codes/enums only)", () => {
+  it("validates capacity.purchased on the payer-scoped pricing_plan subject and defaults real_call", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "capacity.purchased",
+      actor: { actor_type: "payer", actor_id: UUID_A },
+      subject: { subject_type: "pricing_plan", subject_id: UUID_A },
+      payload: { payer_id: UUID_A, tier: "cap_5", max_active_vacancies: 5, price_inr: 5000 },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "capacity.purchased") {
+      expect(result.event.payload.real_call).toBe(false); // mock-honesty default
+      expect(result.event.payload.max_active_vacancies).toBe(5);
+    }
+  });
+
+  it("validates posting_plan.paused / .resumed on the posting_plan subject with enum reasons", () => {
+    const paused = validateEvent({
+      ...workerCreatedEvent(),
+      event_name: "posting_plan.paused",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "posting_plan", subject_id: UUID_A },
+      payload: { plan_id: UUID_A, job_posting_id: UUID_B, payer_id: UUID_C, reason: "capacity_exceeded" },
+    });
+    expect(paused.success).toBe(true);
+
+    const resumed = validateEvent({
+      ...workerCreatedEvent(),
+      event_name: "posting_plan.resumed",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "posting_plan", subject_id: UUID_A },
+      payload: { plan_id: UUID_A, job_posting_id: UUID_B, payer_id: UUID_C, reason: "capacity_restored" },
+    });
+    expect(resumed.success).toBe(true);
+  });
+
+  it("rejects a free-text pause/resume reason (enum-only → no PII)", () => {
+    const bad = validateEvent({
+      ...workerCreatedEvent(),
+      event_name: "posting_plan.paused",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "posting_plan", subject_id: UUID_A },
+      payload: { plan_id: UUID_A, job_posting_id: UUID_B, payer_id: UUID_C, reason: "owner_requested" },
+    });
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 54 event names (48 prior + 6 ADR-0013 monetization/pricing)", () => {
-    expect(EVENT_NAMES).toHaveLength(54);
+  it("exposes all 57 event names (54 prior + 3 ADR-0016 capacity/posting_plan)", () => {
+    expect(EVENT_NAMES).toHaveLength(57);
+    expect(isEventName("capacity.purchased")).toBe(true);
+    expect(isEventName("posting_plan.paused")).toBe(true);
+    expect(isEventName("posting_plan.resumed")).toBe(true);
     expect(isEventName("job_posting.purchased")).toBe(true);
     expect(isEventName("job_posting.boosted")).toBe(true);
     expect(isEventName("applicant.viewed")).toBe(true);

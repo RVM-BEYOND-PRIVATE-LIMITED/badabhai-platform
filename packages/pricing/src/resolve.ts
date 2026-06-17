@@ -16,7 +16,8 @@ import type { Catalog, Coupon, DiscountScope, Offer, Product } from "./types";
 export type Grants =
   | { kind: "posting"; validityDays: number; applicantVisibilityQuota: number }
   | { kind: "boost"; boostDays: number }
-  | { kind: "credit_pack"; credits: number; windowDays: number };
+  | { kind: "credit_pack"; credits: number; windowDays: number }
+  | { kind: "capacity"; maxActiveVacancies: number; validityDays: number };
 
 /** A resolved, ready-to-charge price quote. PII-FREE (codes + integer ₹ only). */
 export interface Quote {
@@ -82,6 +83,14 @@ function findGrants(product: Product, tierCode: string): { basePriceInr: number;
     const tier = product.tiers.find((t) => t.code === tierCode);
     if (!tier) return null;
     return { basePriceInr: tier.priceInr, grants: { kind: "boost", boostDays: tier.boostDays } };
+  }
+  if (product.kind === "capacity") {
+    const tier = product.tiers.find((t) => t.code === tierCode);
+    if (!tier) return null;
+    return {
+      basePriceInr: tier.priceInr,
+      grants: { kind: "capacity", maxActiveVacancies: tier.maxActiveVacancies, validityDays: tier.validityDays },
+    };
   }
   const tier = product.tiers.find((t) => t.code === tierCode);
   if (!tier) return null;

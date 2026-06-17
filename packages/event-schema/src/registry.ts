@@ -176,6 +176,14 @@ export const EVENT_REGISTRY = {
   "resume.disclosed": { version: 1, domain: "resume", payload: p.ResumeDisclosedPayload },
   "coupon.redeemed": { version: 1, domain: "pricing", payload: p.CouponRedeemedPayload },
   "pricing.changed": { version: 1, domain: "pricing", payload: p.PricingChangedPayload },
+
+  // Per-payer hiring capacity (ADR-0016) — PII-FREE & faceless (opaque payer_id, no FK).
+  // `capacity.purchased` rides the payer-scoped `pricing_plan` subject (subject_id =
+  // payer_id), matching the `coupon.redeemed` precedent. `posting_plan.paused/resumed`
+  // are the plan serving-state machine (subject = the posting_plans row). All v1.
+  "capacity.purchased": { version: 1, domain: "capacity", payload: p.CapacityPurchasedPayload },
+  "posting_plan.paused": { version: 1, domain: "posting_plan", payload: p.PostingPlanPausedPayload },
+  "posting_plan.resumed": { version: 1, domain: "posting_plan", payload: p.PostingPlanResumedPayload },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

@@ -134,6 +134,13 @@
       "when": 1781674664478,
       "tag": "0018_damp_the_hood",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1781691882350,
+      "tag": "0019_goofy_mentor",
+      "breakpoints": true
     }
   ]
 }

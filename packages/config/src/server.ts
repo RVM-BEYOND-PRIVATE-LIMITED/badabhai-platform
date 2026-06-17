@@ -155,6 +155,13 @@ export const serverEnvSchema = z.object({
   UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK: z.coerce.number().int().positive().default(10),
   UNLOCK_MAX_ATTEMPTS_PER_UNLOCK: z.coerce.number().int().positive().default(3),
 
+  // Per-payer hiring capacity (ADR-0016 D4 — CONFIG-DRIVEN, fail-closed). The default
+  // concurrent-active-vacancy allowance for a payer with NO payer_capacity row. The
+  // chokepoint reads this; NO number is hard-coded in the service logic. min(0) is
+  // intentional (0 = a brand-new payer can hold ZERO active plans until they buy
+  // capacity); the small default keeps alpha conservative without a migration to tune.
+  CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES: z.coerce.number().int().min(0).default(1),
+
   // Model routing. Bare provider model ids (no provider prefix); the AI service
   // selects cheap vs capable per task. Cost guardrails are in INR per worker profile.
   DEFAULT_CHEAP_MODEL: z.string().min(1).default("gemini-2.5-flash-lite"),

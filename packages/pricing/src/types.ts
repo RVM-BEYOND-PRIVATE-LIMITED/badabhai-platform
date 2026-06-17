@@ -72,8 +72,23 @@ export const creditPackTierSchema = z.object({
 });
 export type CreditPackTier = z.infer<typeof creditPackTierSchema>;
 
-/** The three priced product kinds. */
-export const productKindSchema = z.enum(["posting", "boost", "credit_pack"]);
+/**
+ * A per-payer hiring-capacity tier (ADR-0016). Buying it RAISES how many posting
+ * plans a payer may hold in status='active' concurrently (the rest are 'paused'
+ * until capacity frees up). PII-FREE: a stable code + integer ₹ + counts/days only.
+ */
+export const capacityTierSchema = z.object({
+  code: codeSchema,
+  priceInr: priceInrSchema,
+  /** The concurrent active-vacancy allowance this tier grants the payer. */
+  maxActiveVacancies: positiveIntSchema,
+  /** Days the granted allowance stays valid after purchase. */
+  validityDays: positiveIntSchema,
+});
+export type CapacityTier = z.infer<typeof capacityTierSchema>;
+
+/** The four priced product kinds. */
+export const productKindSchema = z.enum(["posting", "boost", "credit_pack", "capacity"]);
 export type ProductKind = z.infer<typeof productKindSchema>;
 
 /**
@@ -96,6 +111,11 @@ export const productSchema = z.discriminatedUnion("kind", [
     kind: z.literal("credit_pack"),
     code: codeSchema,
     tiers: z.array(creditPackTierSchema).min(1),
+  }),
+  z.object({
+    kind: z.literal("capacity"),
+    code: codeSchema,
+    tiers: z.array(capacityTierSchema).min(1),
   }),
 ]);
 export type Product = z.infer<typeof productSchema>;
