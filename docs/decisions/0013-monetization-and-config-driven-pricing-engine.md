@@ -6,6 +6,11 @@
   a hard pre-build gate; real Razorpay stays a STOP). The original six decisions are
   preserved below as the design history; where a resolution conflicts with the body, the
   resolution wins.
+- **Extended by:** [ADR-0016](0016-payer-hiring-capacity.md) (2026-06-17) — adds a `capacity`
+  product kind + a per-payer active-vacancy **capacity entitlement** (cap → auto-pause → auto-resume),
+  additively. ADR-0016 is a **capacity ADD-ON, not a subscription**, so the ADR-0010 §Decision-1
+  subscription deferral stays **kept, not reopened**; this ADR's catalog/`resolvePrice` contract is
+  unchanged.
 - **Date:** 2026-06-16
 - **Phase:** **Phase-2** (employer/agent posting, booster, candidate search / resume
   download, and the pricing engine are all in CLAUDE.md §8 "Deferred — do not build in
