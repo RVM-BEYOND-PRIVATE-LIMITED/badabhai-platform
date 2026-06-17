@@ -26,6 +26,15 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     expect(tuned.UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY).toBe(2);
   });
 
+  it("exposes the per-payer capacity default (ADR-0016 — config-driven, tunable)", () => {
+    const config = loadServerConfig({});
+    expect(config.CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES).toBe(1);
+    const tuned = loadServerConfig({ CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES: "3" });
+    expect(tuned.CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES).toBe(3);
+    // 0 is a valid allowance (a fresh payer holds zero active plans until they buy).
+    expect(loadServerConfig({ CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES: "0" }).CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES).toBe(0);
+  });
+
   it("assertPaymentsConfig is a no-op in the alpha mock default", () => {
     expect(() => assertPaymentsConfig(loadServerConfig({}))).not.toThrow();
   });

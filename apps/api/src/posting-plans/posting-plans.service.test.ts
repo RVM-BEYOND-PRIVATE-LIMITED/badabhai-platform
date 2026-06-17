@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { ConflictException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import { DEFAULT_CATALOG, parseCatalog, type Catalog } from "@badabhai/pricing";
 import { PostingPlansService } from "./posting-plans.service";
 
@@ -8,22 +8,56 @@ const POSTING = "33333333-3333-4333-8333-333333333333";
 const PAYER = "44444444-4444-4444-8444-444444444444";
 const CTX = { correlationId: "22222222-2222-4222-8222-222222222222", requestId: "req-1" };
 
-function make(opts: { catalog?: Catalog; activeBoost?: boolean; couponUsage?: { total: number; perPayer: number }; postingExists?: boolean } = {}) {
+function make(
+  opts: {
+    catalog?: Catalog;
+    activeBoost?: boolean;
+    couponUsage?: { total: number; perPayer: number };
+    postingExists?: boolean;
+    // Capacity-chokepoint knobs (ADR-0016):
+    capacity?: { maxActiveVacancies: number } | null; // null/undefined → no row (config default)
+    activeCount?: number; // currently-active plans for the payer
+    capacityDefault?: number; // config default allowance
+    pausedPlans?: { id: string; jobPostingId: string; expiresAt: Date | null }[];
+  } = {},
+) {
   const emit = vi.fn().mockResolvedValue(undefined);
   const postingExists = vi.fn().mockResolvedValue(opts.postingExists ?? true);
   const insertPlan = vi.fn().mockImplementation(async (input: Record<string, unknown>) => ({ id: "p-1", ...input }));
   const insertBoost = vi.fn().mockImplementation(async (input: Record<string, unknown>) => ({ id: "b-1", ...input }));
   const findActiveBoost = vi.fn().mockResolvedValue(opts.activeBoost ? { id: "b-old" } : undefined);
   const couponUsage = vi.fn().mockResolvedValue(opts.couponUsage ?? { total: 0, perPayer: 0 });
+  // The transaction simply runs its callback with a sentinel tx (the repo methods below
+  // are all mocked, so the sentinel is never really used by Drizzle).
+  const withTransaction = vi.fn().mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => work({}));
+  const lockPayer = vi.fn().mockResolvedValue(undefined);
+  const getCapacity = vi.fn().mockResolvedValue(opts.capacity ?? undefined);
+  const countActivePlansForPayer = vi.fn().mockResolvedValue(opts.activeCount ?? 0);
+  const upsertCapacity = vi.fn().mockImplementation(async (input: Record<string, unknown>) => ({ id: "cap-1", ...input }));
+  const listPausedPlansForPayer = vi.fn().mockResolvedValue(opts.pausedPlans ?? []);
+  const setPlanStatus = vi.fn().mockResolvedValue(undefined);
   const getActiveCatalog = vi.fn().mockResolvedValue({ catalog: opts.catalog ?? DEFAULT_CATALOG, revision: 1, source: "db" });
   const service = new PostingPlansService(
-    { postingExists, insertPlan, insertBoost, findActiveBoost, couponUsage } as never,
+    {
+      postingExists,
+      insertPlan,
+      insertBoost,
+      findActiveBoost,
+      couponUsage,
+      withTransaction,
+      lockPayer,
+      getCapacity,
+      countActivePlansForPayer,
+      upsertCapacity,
+      listPausedPlansForPayer,
+      setPlanStatus,
+    } as never,
     { emit } as never,
     { getActiveCatalog } as never,
-    { PAYMENTS_ENABLE_REAL: false } as never,
+    { PAYMENTS_ENABLE_REAL: false, CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES: opts.capacityDefault ?? 1 } as never,
   );
   const names = () => emit.mock.calls.map((c) => c[0].event_name);
-  return { service, emit, names, insertPlan, insertBoost, couponUsage };
+  return { service, emit, names, insertPlan, insertBoost, couponUsage, upsertCapacity, setPlanStatus, lockPayer, withTransaction };
 }
 
 describe("PostingPlansService.buyPlan", () => {
@@ -33,6 +67,7 @@ describe("PostingPlansService.buyPlan", () => {
     expect(quote.finalInr).toBe(1000);
     expect(insertPlan).toHaveBeenCalledWith(
       expect.objectContaining({ jobPostingId: POSTING, payerId: PAYER, tier: "standard", applicantVisibilityQuota: 10, status: "active" }),
+      expect.anything(),
     );
     expect(plan.id).toBe("p-1");
     expect(names()).toEqual(["payment.authorized", "payment.captured", "job_posting.purchased"]);
@@ -89,6 +124,103 @@ describe("PostingPlansService.buyPlan", () => {
     expect(quote.finalInr).toBe(1000);
     expect(quote.couponApplied).toBeNull();
     expect(names()).not.toContain("coupon.redeemed");
+  });
+});
+
+describe("PostingPlansService.buyPlan — per-payer capacity chokepoint (ADR-0016)", () => {
+  it("writes status='active' when the payer stays within their allowance (no pause event)", async () => {
+    const { service, names, insertPlan } = make({ activeCount: 0, capacityDefault: 1 });
+    const { paused } = await service.buyPlan(POSTING, { payer_id: PAYER, tier: "standard" }, CTX);
+    expect(paused).toBe(false);
+    expect(insertPlan).toHaveBeenCalledWith(expect.objectContaining({ status: "active" }), expect.anything());
+    expect(names()).not.toContain("posting_plan.paused");
+  });
+
+  it("writes status='paused' + emits posting_plan.paused when over the config default", async () => {
+    // default allowance 1, already 1 active → this purchase (1+1 > 1) is paused.
+    const { service, names, insertPlan } = make({ activeCount: 1, capacityDefault: 1 });
+    const { paused } = await service.buyPlan(POSTING, { payer_id: PAYER, tier: "standard" }, CTX);
+    expect(paused).toBe(true);
+    expect(insertPlan).toHaveBeenCalledWith(expect.objectContaining({ status: "paused" }), expect.anything());
+    expect(names()).toContain("posting_plan.paused");
+    // payment + purchase still emitted (the receipt is real; a paused plan just does not serve).
+    expect(names()).toEqual(["payment.authorized", "payment.captured", "job_posting.purchased", "posting_plan.paused"]);
+  });
+
+  it("uses the payer's own capacity row over the config default", async () => {
+    // payer row allows 3; 2 already active → 2+1 = 3 ≤ 3 → active.
+    const { service, insertPlan } = make({ activeCount: 2, capacity: { maxActiveVacancies: 3 }, capacityDefault: 1 });
+    const { paused } = await service.buyPlan(POSTING, { payer_id: PAYER, tier: "standard" }, CTX);
+    expect(paused).toBe(false);
+    expect(insertPlan).toHaveBeenCalledWith(expect.objectContaining({ status: "active" }), expect.anything());
+  });
+
+  it("count-and-write runs inside the per-payer advisory-locked transaction", async () => {
+    const { service, lockPayer, withTransaction } = make();
+    await service.buyPlan(POSTING, { payer_id: PAYER, tier: "standard" }, CTX);
+    expect(withTransaction).toHaveBeenCalledTimes(1);
+    expect(lockPayer).toHaveBeenCalledWith(expect.anything(), PAYER);
+  });
+});
+
+describe("PostingPlansService.buyCapacity (ADR-0016 — purchase + auto-resume)", () => {
+  it("resolves the capacity tier, upserts the allowance, and emits capacity.purchased + payment.*", async () => {
+    const { service, names, upsertCapacity } = make();
+    const res = await service.buyCapacity(PAYER, { tier: "cap_5" }, CTX);
+    expect(res.max_active_vacancies).toBe(5);
+    expect(res.quote.finalInr).toBe(5000);
+    expect(upsertCapacity).toHaveBeenCalledWith(
+      expect.objectContaining({ payerId: PAYER, maxActiveVacancies: 5, sourceTier: "cap_5" }),
+      expect.anything(),
+    );
+    expect(names()).toEqual(["payment.authorized", "payment.captured", "capacity.purchased"]);
+  });
+
+  it("auto-resumes paused plans oldest-first up to the new headroom and emits posting_plan.resumed", async () => {
+    // new allowance 5, 0 active now → headroom 5; two paused plans both resume.
+    const paused = [
+      { id: "old-1", jobPostingId: "jp-1", expiresAt: new Date(Date.now() + 86_400_000) },
+      { id: "old-2", jobPostingId: "jp-2", expiresAt: null },
+    ];
+    const { service, names, setPlanStatus } = make({ activeCount: 0, pausedPlans: paused });
+    const res = await service.buyCapacity(PAYER, { tier: "cap_5" }, CTX);
+    expect(res.resumed_plan_ids).toEqual(["old-1", "old-2"]);
+    expect(setPlanStatus).toHaveBeenCalledWith(expect.anything(), "old-1", "active");
+    expect(setPlanStatus).toHaveBeenCalledWith(expect.anything(), "old-2", "active");
+    const resumedCount = names().filter((n) => n === "posting_plan.resumed").length;
+    expect(resumedCount).toBe(2);
+  });
+
+  it("resumes only up to the available headroom (allowed − active)", async () => {
+    // allowance 5, already 4 active → headroom 1 → only the oldest paused plan resumes.
+    const paused = [
+      { id: "old-1", jobPostingId: "jp-1", expiresAt: null },
+      { id: "old-2", jobPostingId: "jp-2", expiresAt: null },
+    ];
+    const { service, setPlanStatus } = make({ activeCount: 4, pausedPlans: paused });
+    const res = await service.buyCapacity(PAYER, { tier: "cap_5" }, CTX);
+    expect(res.resumed_plan_ids).toEqual(["old-1"]);
+    expect(setPlanStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not resume an expired paused plan", async () => {
+    const paused = [{ id: "stale", jobPostingId: "jp-x", expiresAt: new Date(Date.now() - 86_400_000) }];
+    const { service, setPlanStatus } = make({ activeCount: 0, pausedPlans: paused });
+    const res = await service.buyCapacity(PAYER, { tier: "cap_5" }, CTX);
+    expect(res.resumed_plan_ids).toEqual([]);
+    expect(setPlanStatus).not.toHaveBeenCalled();
+  });
+
+  it("auto-resume runs under the per-payer advisory lock", async () => {
+    const { service, lockPayer, withTransaction } = make();
+    await service.buyCapacity(PAYER, { tier: "cap_5" }, CTX);
+    expect(withTransaction).toHaveBeenCalledTimes(1);
+    expect(lockPayer).toHaveBeenCalledWith(expect.anything(), PAYER);
+  });
+
+  it("400s for an unknown capacity tier (fail-closed pricing)", async () => {
+    const { service } = make();
+    await expect(service.buyCapacity(PAYER, { tier: "cap_999" }, CTX)).rejects.toBeInstanceOf(BadRequestException);
   });
 });
 

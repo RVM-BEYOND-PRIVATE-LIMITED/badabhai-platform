@@ -37,6 +37,16 @@ export const EVENT_DOMAINS = [
   // PII-FREE: product/tier/coupon CODES + integer ₹ amounts + percentages ONLY; never
   // a payer name, a worker identity, or old/new VALUES (field KEYS only on changes).
   "pricing",
+  // Per-payer hiring capacity (ADR-0016) — the payer's concurrent-active-vacancy
+  // ALLOWANCE purchase. PII-FREE & faceless: opaque payer_id + tier CODE + integer
+  // ₹/counts ONLY (`real_call:false` in alpha — mock payments). Distinct from
+  // `pricing` (catalog edits) — this is the entitlement-GRANT money movement.
+  "capacity",
+  // Posting-plan LIFECYCLE transitions (ADR-0016 D3) — a plan moved paused↔active as
+  // the payer's capacity is exceeded/restored. DISTINCT from `job_posting.*` (posting
+  // content/purchase): this domain is the plan's serving-state machine. PII-FREE:
+  // ids + an enum reason ONLY.
+  "posting_plan",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;
@@ -79,6 +89,10 @@ export const SUBJECT_TYPES = [
   // A pricing catalog entity (ADR-0013) — a plan/discount/coupon row. The subject_id
   // is the opaque catalog row id; carries no PII (codes + amounts only).
   "pricing_plan",
+  // A paid posting PLAN row (ADR-0016) — the subject of `posting_plan.paused/resumed`.
+  // The subject_id is the opaque posting_plans row id; carries no PII (the job_posting
+  // and payer ids live in the payload, both opaque/faceless).
+  "posting_plan",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;

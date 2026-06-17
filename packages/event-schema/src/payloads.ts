@@ -759,3 +759,50 @@ export const PricingChangedPayload = z.object({
   changed_fields: z.array(z.string().min(1).max(64)),
   changed_by: uuidSchema,
 });
+
+// ---------------------------------------------------------------------------
+// Per-payer hiring capacity (ADR-0016) — PII-FREE & FACELESS: opaque `payer_id`,
+// tier CODE, integer counts + ₹ ONLY. `real_call:false` in alpha (mock payments).
+// `posting_plan.paused/resumed` carry ONLY ids + an enum reason — no quota/price/PII.
+// ---------------------------------------------------------------------------
+
+/** Why a posting plan was paused (ADR-0016 D3) — enum only, no free text. */
+const PostingPlanPauseReasonEnum = z.enum(["capacity_exceeded"]);
+/** Why a posting plan was resumed (ADR-0016) — enum only, no free text. */
+const PostingPlanResumeReasonEnum = z.enum(["capacity_restored"]);
+
+/**
+ * A payer bought (or upgraded) their concurrent-active-vacancy ALLOWANCE (ADR-0016).
+ * `max_active_vacancies` is the allowance the purchase set; `tier` is the catalog code.
+ * FACELESS: `payer_id` is the only identity ref (opaque, no FK). `real_call` is the
+ * mock-honesty flag (false until a real gateway ships, human-gated).
+ */
+export const CapacityPurchasedPayload = z.object({
+  payer_id: uuidSchema,
+  tier: catalogCode,
+  max_active_vacancies: z.number().int().nonnegative(),
+  price_inr: z.number().int().nonnegative(),
+  real_call: z.boolean().default(false),
+});
+
+/**
+ * A posting plan was PAUSED because its payer was over capacity (ADR-0016 D3). A paused
+ * plan is NOT an active vacancy and does NOT serve. Ids + enum reason ONLY (no PII).
+ */
+export const PostingPlanPausedPayload = z.object({
+  plan_id: uuidSchema,
+  job_posting_id: uuidSchema,
+  payer_id: uuidSchema,
+  reason: PostingPlanPauseReasonEnum,
+});
+
+/**
+ * A previously-paused posting plan was RESUMED to active because capacity freed up
+ * (ADR-0016 — e.g. after a capacity upgrade). Ids + enum reason ONLY (no PII).
+ */
+export const PostingPlanResumedPayload = z.object({
+  plan_id: uuidSchema,
+  job_posting_id: uuidSchema,
+  payer_id: uuidSchema,
+  reason: PostingPlanResumeReasonEnum,
+});

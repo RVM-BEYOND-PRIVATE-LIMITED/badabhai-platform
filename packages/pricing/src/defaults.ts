@@ -9,6 +9,10 @@
  *  - contact_unlock: pack_10 ₹1000/10, pack_25 ₹2000/25, 14-day window
  *    (absorbed EXACTLY from packages/db/src/credit-packs.ts — same codes/values, so
  *    existing credit_ledger.pack_code references stay valid; invariant 8).
+ *  - hiring_capacity (ADR-0016): cap_5 ₹5000 / 5 active vacancies / 30d;
+ *    cap_15 ₹12000 / 15 / 30d. Buying RAISES the payer's concurrent-active-vacancy
+ *    allowance (over-cap plans are 'paused'). Ops-editable; the service logic reads
+ *    the grant — it never hardcodes these numbers.
  *
  * Resume download is FREE → it has NO catalog entry (ADR-0013 §SIGN-OFF C).
  * No offers or coupons are seeded by default — ops add those via the config builder.
@@ -39,6 +43,14 @@ export const DEFAULT_CATALOG: Catalog = catalogSchema.parse({
       tiers: [
         { code: "pack_10", priceInr: 1000, credits: 10, windowDays: 14 },
         { code: "pack_25", priceInr: 2000, credits: 25, windowDays: 14 },
+      ],
+    },
+    {
+      kind: "capacity",
+      code: "hiring_capacity",
+      tiers: [
+        { code: "cap_5", priceInr: 5000, maxActiveVacancies: 5, validityDays: 30 },
+        { code: "cap_15", priceInr: 12000, maxActiveVacancies: 15, validityDays: 30 },
       ],
     },
   ],

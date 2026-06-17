@@ -878,8 +878,13 @@ export const unlockRouting = pgTable(
 
 /** Paid posting plan tier (mirrors @badabhai/pricing PostingTier; kept local to avoid an upward dep). */
 export type PostingPlanTier = "standard" | "pro";
-/** Posting plan lifecycle (orthogonal to the ADR-0012 job_posting content lifecycle). */
-export type PostingPlanStatus = "draft" | "active" | "expired";
+/**
+ * Posting plan lifecycle (orthogonal to the ADR-0012 job_posting content lifecycle).
+ * 'paused' (ADR-0016 D3): a plan whose payer is over their active-vacancy capacity —
+ * it is NOT counted as an active vacancy and does NOT serve. Additive enum-widening:
+ * the prior three values stay valid (backward-compatible, CLAUDE.md §2 #8 / ADR-0014).
+ */
+export type PostingPlanStatus = "draft" | "active" | "expired" | "paused";
 /** Booster tier (single tier today; extensible via the catalog). */
 export type BoostTier = "all_candidates";
 /** Booster lifecycle. */
@@ -941,7 +946,7 @@ export const postingPlans = pgTable(
     index("posting_plans_job_posting_id_idx").on(t.jobPostingId),
     index("posting_plans_payer_id_idx").on(t.payerId),
     check("posting_plans_tier_chk", sql`${t.tier} IN ('standard', 'pro')`),
-    check("posting_plans_status_chk", sql`${t.status} IN ('draft', 'active', 'expired')`),
+    check("posting_plans_status_chk", sql`${t.status} IN ('draft', 'active', 'expired', 'paused')`),
     check("posting_plans_viewed_nonneg_chk", sql`${t.applicantsViewedCount} >= 0`),
   ],
 );
@@ -1007,6 +1012,38 @@ export const resumeDisclosures = pgTable(
   ],
 );
 
+// payer_capacity — the per-payer ALLOWANCE of concurrently-active vacancies (ADR-0016
+// D4, signed PHASE-0 2026-06-17). FACELESS & PII-FREE by construction: `payer_id` is
+// the same OPAQUE rail as posting_plans.payer_id — NO FK, NO identity, NO "employer
+// entity" (a dead decision). One row per payer caps how many posting_plans they may hold
+// in status='active' at once; over-cap plans are 'paused' (ADR-0016 D3) and do not serve.
+// The CURRENT active-vacancy count is NOT stored here — it is DERIVED by COUNT over
+// posting_plans (status='active') grouped by payer_id (no drift-prone side counter,
+// ADR-0010 F-2 discipline). This table holds only the allowance + its validity window.
+export const payerCapacity = pgTable(
+  "payer_capacity",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Opaque payer (employer OR agent) — faceless rails, NO FK, NO PII.
+    payerId: uuid("payer_id").notNull(),
+    // How many posting_plans this payer may hold in status='active' concurrently.
+    maxActiveVacancies: integer("max_active_vacancies").notNull(),
+    // The capacity-catalog tier code that granted this allowance (a stable code, NOT
+    // PII). Nullable: a manually-granted/seeded allowance need not cite a tier.
+    sourceTier: text("source_tier"),
+    // Optional validity window — null = no expiry.
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One capacity row per payer (this unique index also serves payer_id lookups —
+    // no separate payer_id index needed).
+    uniqueIndex("payer_capacity_payer_id_uq").on(t.payerId),
+    check("payer_capacity_max_nonneg_chk", sql`${t.maxActiveVacancies} >= 0`),
+  ],
+);
+
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
 // ---------------------------------------------------------------------------
@@ -1060,6 +1097,8 @@ export type PostingBoost = typeof postingBoosts.$inferSelect;
 export type NewPostingBoost = typeof postingBoosts.$inferInsert;
 export type ResumeDisclosure = typeof resumeDisclosures.$inferSelect;
 export type NewResumeDisclosure = typeof resumeDisclosures.$inferInsert;
+export type PayerCapacity = typeof payerCapacity.$inferSelect;
+export type NewPayerCapacity = typeof payerCapacity.$inferInsert;
 
 /** All tables, handy for migrations/tests. */
 export const schema = {
@@ -1088,4 +1127,5 @@ export const schema = {
   postingPlans,
   postingBoosts,
   resumeDisclosures,
+  payerCapacity,
 };

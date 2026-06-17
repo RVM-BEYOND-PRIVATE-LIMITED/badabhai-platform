@@ -62,6 +62,7 @@ const LOCKED_TABLES = [
   "posting_plans",
   "posting_boosts",
   "resume_disclosures",
+  "payer_capacity",
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.
