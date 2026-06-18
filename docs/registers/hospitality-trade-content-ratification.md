@@ -1,14 +1,16 @@
-# Hospitality Trade Content Ratification — packet SHELL (PENDING content + RVM)
+# Hospitality Trade Content Ratification — DRAFTED, PENDING RVM
 
-> **SHELL ONLY — content NOT yet authored.** This mirrors the manufacturing
+> **CONTENT DRAFTED — PENDING RVM. NOT LIVE.** This mirrors the manufacturing
 > [trade-content-ratification.md](./trade-content-ratification.md) gate for the **hospitality
-> vertical**. It ships with the [hospitality PRD](../sprint-plans/hospitality-vertical-prd.md)
-> so the gate exists *before* authoring. **No per-trade content is written here yet** — the
-> §3 content sections are placeholders to be filled **after product signs off the PRD**, then
-> ratified trade-by-trade by RVM. Nothing hospitality is live until per-trade **RVM PASS**.
+> vertical**. Following product sign-off (PRD) + CEO approval (2026-06-18), all 9 trades are
+> **authored** (resume `TradeContent` + interview-kit `InterviewKitContent`, exact structure
+> parity, no adjacency map) and the per-trade content is transcribed verbatim in the companion
+> [ratification packet](./hospitality-trade-content-ratification-packet.md). **Nothing
+> hospitality renders live** — it is not wired into the live resolver and has no profiling/job
+> surface; each trade flips to production-ready only on a named-reviewer **RVM PASS** (§4).
 
-- **Status:** **SHELL — pending PRD sign-off → authoring → RVM.**
-- **Date:** 2026-06-17 · Gate owner: **RVM (hospitality subject-matter review)** · Drafts (later): ai-engineer/technical-writer.
+- **Status:** **DRAFTED — pending RVM (per-trade PASS). Not live.**
+- **Date:** 2026-06-17 (shell) · 2026-06-18 (content drafted) · Gate owner: **RVM (hospitality subject-matter review)** · Drafts: ai-engineer/technical-writer/engineering.
 
 ---
 
@@ -16,15 +18,17 @@
 
 | # | Display name | `trade_key` | Resume content | Interview-kit content |
 | - | ------------ | ----------- | -------------- | --------------------- |
-| 1 | Steward / Waiter | `hosp_steward_waiter` | ⏳ to draft | ⏳ to draft |
-| 2 | Commis Chef / Cook | `hosp_commis_cook` | ⏳ to draft | ⏳ to draft |
-| 3 | Room Attendant (Housekeeping) | `hosp_room_attendant` | ⏳ to draft | ⏳ to draft |
-| 4 | Front Office Associate | `hosp_front_office` | ⏳ to draft | ⏳ to draft |
-| 5 | F&B Captain | `hosp_fnb_captain` | ⏳ to draft | ⏳ to draft |
-| 6 | Bartender | `hosp_bartender` | ⏳ to draft | ⏳ to draft |
-| 7 | Kitchen Steward (Utility) | `hosp_kitchen_steward` | ⏳ to draft | ⏳ to draft |
-| 8 | Banquet Server | `hosp_banquet_server` | ⏳ to draft | ⏳ to draft |
-| 9 | Barista | `hosp_barista` | ⏳ to draft | ⏳ to draft |
+| 1 | Steward / Waiter | `hosp_steward_waiter` | ✅ drafted | ✅ drafted |
+| 2 | Commis Chef / Cook | `hosp_commis_cook` | ✅ drafted | ✅ drafted |
+| 3 | Room Attendant (Housekeeping) | `hosp_room_attendant` | ✅ drafted | ✅ drafted |
+| 4 | Front Office Associate | `hosp_front_office` | ✅ drafted | ✅ drafted |
+| 5 | F&B Captain | `hosp_fnb_captain` | ✅ drafted | ✅ drafted |
+| 6 | Bartender | `hosp_bartender` | ✅ drafted | ✅ drafted |
+| 7 | Kitchen Steward (Utility) | `hosp_kitchen_steward` | ✅ drafted | ✅ drafted |
+| 8 | Banquet Server | `hosp_banquet_server` | ✅ drafted | ✅ drafted |
+| 9 | Barista | `hosp_barista` | ✅ drafted | ✅ drafted |
+
+> ✅ drafted = authored in source + transcribed in the [packet](./hospitality-trade-content-ratification-packet.md); **pending RVM PASS** (§4). Drafted ≠ approved ≠ live.
 
 Structure = **exact parity** with manufacturing `TradeContent` + `InterviewKitContent` (no new
 fields; no adjacency map — PRD §5). Source files (once authored):
@@ -39,11 +43,12 @@ vocabulary, realistic questions, natural Hinglish, no fabricated specifics, corr
 accurate resume copy. **CHANGES** keeps a trade provisional; partial (trade-by-trade) ratification
 is allowed.
 
-## 3. Per-trade content (×9) — TO BE FILLED AFTER PRD SIGN-OFF
+## 3. Per-trade content (×9) — DRAFTED (in the companion packet)
 
-> Placeholder. After sign-off, each trade gets a **Resume content** subsection (from
-> `TRADE_CONTENT`) and an **Interview kit** subsection (from `INTERVIEW_KITS`), transcribed
-> verbatim from the source files exactly like the manufacturing packet. **Empty until authored.**
+The full per-trade content (resume `TradeContent` + interview-kit `InterviewKitContent`) for
+all 9 trades is transcribed verbatim — generated directly from the source files — in the
+companion [hospitality-trade-content-ratification-packet.md](./hospitality-trade-content-ratification-packet.md),
+exactly like the manufacturing packet. Review the content there; record verdicts in §4 here.
 
 ## 4. Ratification checklist — one row per trade (verdicts START EMPTY)
 

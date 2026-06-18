@@ -554,8 +554,18 @@ export const jobPostings = pgTable(
  * must not depend upward on `apps/api`, and the placeholder `@badabhai/taxonomy`
  * only carries the 7 CNC/VMC role ids, not these 15 trade keys. Keep in sync if
  * the alpha trade list ever changes.
+ *
+ * HOSPITALITY (second vertical) — the 9 `hosp_*` keys below are the MIRROR half of
+ * the PRD §6 "mirror-and-sync" wiring (sources of truth: `REQUIRED_HOSP_TRADE_KEYS`
+ * in apps/api `src/resume/hospitality-trade-content.ts` + `REQUIRED_HOSP_KIT_TRADE_KEYS`
+ * in `src/interview-kit/hospitality-interview-kit-content.ts`). Additive + backward-
+ * compatible: manufacturing keys are unchanged. The content is **DRAFTED, pending RVM
+ * — NOT live** (docs/registers/hospitality-trade-content-ratification.md); these keys
+ * are typed so jobs CAN reference them once a trade is RVM-ratified, but no live
+ * surface serves hospitality content yet. TD31 (shared taxonomy package) stays deferred.
  */
 export type TradeKey =
+  // --- Manufacturing (15, alpha; ADR-0009 §2 / OQ-2) ---
   | "cnc_operator"
   | "vmc_operator"
   | "cnc_vmc_setter"
@@ -570,7 +580,17 @@ export type TradeKey =
   | "tool_room_technician"
   | "machine_operator"
   | "assembly_technician"
-  | "fitter";
+  | "fitter"
+  // --- Hospitality (9, second vertical; DRAFTED, pending RVM — not live) ---
+  | "hosp_steward_waiter"
+  | "hosp_commis_cook"
+  | "hosp_room_attendant"
+  | "hosp_front_office"
+  | "hosp_fnb_captain"
+  | "hosp_bartender"
+  | "hosp_kitchen_steward"
+  | "hosp_banquet_server"
+  | "hosp_barista";
 
 /** Job lifecycle — a seed job can be retired without deleting the row. */
 export type JobStatus = "open" | "closed";
