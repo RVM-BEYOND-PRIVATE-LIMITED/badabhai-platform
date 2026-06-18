@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { asc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import {
   type Database,
   chatSessions,
@@ -9,6 +9,16 @@ import {
   type NewChatMessage,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+
+/**
+ * Safety bound for the per-session message-history read (the chat loop +
+ * extraction transcript). Well above any realistic interview length, so a normal
+ * session is returned in full; it only caps a pathological/abusive session so the
+ * hot-path read can never load an unbounded result set. When capped, the MOST
+ * RECENT messages are kept (recency matters for LLM context), still returned in
+ * chronological order.
+ */
+export const CHAT_HISTORY_MAX = 500;
 
 @Injectable()
 export class ChatRepository {
@@ -41,11 +51,16 @@ export class ChatRepository {
   }
 
   async listMessages(sessionId: string): Promise<ChatMessage[]> {
-    return this.db
+    // Bounded hot-path read: take the most recent CHAT_HISTORY_MAX, then return
+    // them in chronological order. A realistic interview is well under the cap, so
+    // this is byte-identical to the old unbounded `asc` read for normal sessions.
+    const rows = await this.db
       .select()
       .from(chatMessages)
       .where(eq(chatMessages.sessionId, sessionId))
-      .orderBy(asc(chatMessages.createdAt));
+      .orderBy(desc(chatMessages.createdAt))
+      .limit(CHAT_HISTORY_MAX);
+    return rows.reverse();
   }
 
   async touchSession(sessionId: string, at: Date): Promise<void> {

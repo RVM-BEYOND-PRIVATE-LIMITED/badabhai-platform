@@ -112,3 +112,26 @@ describe("ChatService — auto-trigger extraction on the readiness flip", () => 
     expect(res.extraction_ready).toBe(true);
   });
 });
+
+describe("ChatService.postMessage — query-count / N+1 guard (per turn)", () => {
+  it("issues a BOUNDED, constant set of repo reads/writes per message (no N+1)", async () => {
+    const { svc, chat } = make({ extractionReady: false });
+    await svc.postMessage(WORKER, DTO as never, CTX);
+    // Exactly one history read per turn — not one-per-prior-message.
+    expect(chat.listMessages).toHaveBeenCalledTimes(1);
+    // One session lookup, two message inserts (inbound + outbound), one state persist.
+    expect(chat.findSession).toHaveBeenCalledTimes(1);
+    expect(chat.insertMessage).toHaveBeenCalledTimes(2);
+    expect(chat.saveConversationState).toHaveBeenCalledTimes(1);
+  });
+
+  it("history read stays O(1) regardless of prior transcript length", async () => {
+    const { svc, chat } = make({ extractionReady: false });
+    // Simulate a long prior transcript; the service must still read it ONCE.
+    chat.listMessages.mockResolvedValueOnce(
+      Array.from({ length: 200 }, (_, i) => ({ id: `m${i}`, direction: "inbound", bodyText: "x" })),
+    );
+    await svc.postMessage(WORKER, DTO as never, CTX);
+    expect(chat.listMessages).toHaveBeenCalledTimes(1);
+  });
+});
