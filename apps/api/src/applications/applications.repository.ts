@@ -11,6 +11,7 @@ import {
   jobs,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import { OPS_LIST_CAP } from "../common/pagination";
 
 /** Coarse, PII-free job fields surfaced in the feed + ops reads. */
 export interface FeedJob {
@@ -163,7 +164,8 @@ export class ApplicationsRepository {
       .select()
       .from(applications)
       .where(eq(applications.jobId, jobId))
-      .orderBy(asc(applications.createdAt));
+      .orderBy(asc(applications.createdAt))
+      .limit(OPS_LIST_CAP); // bound an otherwise-unbounded ops read
   }
 
   /**
@@ -188,7 +190,8 @@ export class ApplicationsRepository {
       .from(applications)
       .innerJoin(jobs, eq(applications.jobId, jobs.id))
       .where(eq(applications.workerId, workerId))
-      .orderBy(asc(applications.createdAt));
+      .orderBy(asc(applications.createdAt))
+      .limit(OPS_LIST_CAP); // bound an otherwise-unbounded ops read
   }
 
   /**

@@ -1,0 +1,2 @@
+CREATE INDEX "job_postings_status_created_at_idx" ON "job_postings" USING btree ("status","created_at");--> statement-breakpoint
+CREATE INDEX "jobs_status_created_at_idx" ON "jobs" USING btree ("status","created_at");
