@@ -1,11 +1,21 @@
 # ADR-0018: In-house model-training track — consent-scoped, de-identified voice/transcript corpus → fine-tune
 
-- **Status:** **PROPOSED — STOP, pending human/RVM + MANDATORY security sign-off.** Design artifact
-  only. **Nothing is built or authorized.** **OFFLINE only.** **Full training compute (GPU spend)
-  is a hard human gate** (CLAUDE.md §7). The corpus pipeline, the de-identifier, and any fine-tune
-  run are handed to the engineer agents **only after this ADR + its security review are signed off**.
-  No real voice/transcript PII is read or copied by this document.
-- **Date:** 2026-06-17
+- **Status:** **ACCEPTED — OFFLINE privacy core BUILT (CEO sign-off 2026-06-18).** D1–D6 are
+  approved; the human/RVM design gate is cleared. **Built** in
+  [`apps/ai-service/app/corpus/`](../../apps/ai-service/app/corpus/): the fail-closed
+  `CorpusConsentGate` (D1), the corpus-grade de-identifier with exclude-on-doubt (D2), PII-free
+  corpus assembly (D3/D4 in-memory model), and a small-sample **dry-run** fine-tune + canary
+  PII-leakage eval harness (D5) — with the **§D2 build-blocker proof tests green** (consent
+  fail-closed, sentinel-PII, residual-scan, schema contract; 22 tests). **OFFLINE only — no real
+  worker data read, no network, no compute.**
+  **STILL SEPARATELY HUMAN-GATED — NOT authorized by this sign-off:** (a) **full training compute /
+  GPU spend** (`run_full_training()` refuses by design — CLAUDE.md §7); (b) the **additive PII-free
+  corpus DB tables** `training_corpus_items`/`_versions` (§D4 — database-architect stream, joins the
+  RLS backlog); (c) **real multilingual NER hardening (TD3)** — `profile="ner"` raises, so a REAL
+  (non-sample) corpus is blocked until NER is pinned + security-signed-off; (d) **any live serving**
+  of a fine-tuned model. A MANDATORY security-engineer re-review on the realized code remains owed
+  before the corpus is run on real transcripts.
+- **Date:** 2026-06-17 (proposed) · 2026-06-18 (offline core accepted + built)
 - **Phase:** **Phase-2 moat — NOT alpha-gate.** Does not block or alter the alpha. The live
   profiling/AI path is untouched; this is an offline corpus + training track.
 - **Author:** **ai-engineer (owns the AI/PII boundary — MANDATORY)** + system-architect (ADR) +
