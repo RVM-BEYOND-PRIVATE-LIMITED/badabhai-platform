@@ -179,6 +179,12 @@ importers:
 
   packages/reach-engine: {}
 
+  packages/reach-learn:
+    dependencies:
+      '@badabhai/reach-engine':
+        specifier: workspace:*
+        version: link:../reach-engine
+
   packages/taxonomy: {}
 
   packages/types: {}
