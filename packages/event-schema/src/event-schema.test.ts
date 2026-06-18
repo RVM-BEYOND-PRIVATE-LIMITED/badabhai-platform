@@ -847,8 +847,15 @@ describe("capacity / posting_plan lifecycle events (ADR-0016 — PII-free, ids/c
 });
 
 describe("registry", () => {
-  it("exposes all 57 event names (54 prior + 3 ADR-0016 capacity/posting_plan)", () => {
-    expect(EVENT_NAMES).toHaveLength(57);
+  it("exposes all 64 event names (57 prior + 7 ADR-0020 invite/messaging)", () => {
+    expect(EVENT_NAMES).toHaveLength(64);
+    expect(isEventName("invite.created")).toBe(true);
+    expect(isEventName("invite.clicked")).toBe(true);
+    expect(isEventName("invite.accepted")).toBe(true);
+    expect(isEventName("messaging.requested")).toBe(true);
+    expect(isEventName("messaging.sent")).toBe(true);
+    expect(isEventName("messaging.suppressed")).toBe(true);
+    expect(isEventName("messaging.failed")).toBe(true);
     expect(isEventName("capacity.purchased")).toBe(true);
     expect(isEventName("posting_plan.paused")).toBe(true);
     expect(isEventName("posting_plan.resumed")).toBe(true);

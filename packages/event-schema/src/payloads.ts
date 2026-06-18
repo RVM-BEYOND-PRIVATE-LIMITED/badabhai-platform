@@ -806,3 +806,75 @@ export const PostingPlanResumedPayload = z.object({
   payer_id: uuidSchema,
   reason: PostingPlanResumeReasonEnum,
 });
+
+// ---------------------------------------------------------------------------
+// WhatsApp invite funnel + re-engagement (ADR-0020). PII-FREE: ids + enums +
+// the template id ONLY. The phone, the message body, and template VARIABLES
+// NEVER appear in a payload — the phone touches the WhatsApp provider only, at
+// send time (the SmsProvider rule). Mock provider in alpha (real_call:false).
+// ---------------------------------------------------------------------------
+
+/** The channel a message/invite is delivered over. Extensible; whatsapp in v1. */
+export const MessageChannelEnum = z.enum(["whatsapp"]);
+
+/** Why a send was suppressed BEFORE reaching the provider (no-PII, internal audit). */
+export const MessagingSuppressReasonEnum = z.enum(["no_consent", "unknown_worker"]);
+
+/** Why a send FAILED at/after the provider (no-PII). */
+export const MessagingFailReasonEnum = z.enum(["provider_error", "real_send_blocked"]);
+
+/** An inviter created a referral deep-link. inviter is an opaque worker id. */
+export const InviteCreatedPayload = z.object({
+  invite_id: uuidSchema,
+  inviter_worker_id: uuidSchema,
+  channel: MessageChannelEnum,
+  campaign: z.string().min(1).max(64).optional(),
+});
+
+/** A referral deep-link was opened (attribution; PII-free — code resolved to ids). */
+export const InviteClickedPayload = z.object({
+  invite_id: uuidSchema,
+  channel: MessageChannelEnum,
+});
+
+/** An invited person became a worker — the attribution link (both ids opaque). */
+export const InviteAcceptedPayload = z.object({
+  invite_id: uuidSchema,
+  inviter_worker_id: uuidSchema,
+  invited_worker_id: uuidSchema,
+});
+
+/** A re-engagement/invite message was REQUESTED (consent already checked upstream). */
+export const MessagingRequestedPayload = z.object({
+  message_id: uuidSchema,
+  worker_id: uuidSchema,
+  template: z.string().min(1).max(64), // a pre-approved template ID, NOT the body
+  channel: MessageChannelEnum,
+  real_call: z.boolean().default(false),
+});
+
+/** The provider accepted the message (mock in alpha). PII-free. */
+export const MessagingSentPayload = z.object({
+  message_id: uuidSchema,
+  worker_id: uuidSchema,
+  template: z.string().min(1).max(64),
+  channel: MessageChannelEnum,
+  real_call: z.boolean().default(false),
+});
+
+/** A send was SUPPRESSED before the provider (e.g. no whatsapp_messaging consent). */
+export const MessagingSuppressedPayload = z.object({
+  worker_id: uuidSchema,
+  template: z.string().min(1).max(64),
+  reason: MessagingSuppressReasonEnum,
+});
+
+/** A send FAILED at/after the provider. PII-free. */
+export const MessagingFailedPayload = z.object({
+  message_id: uuidSchema,
+  worker_id: uuidSchema,
+  template: z.string().min(1).max(64),
+  channel: MessageChannelEnum,
+  reason: MessagingFailReasonEnum,
+  real_call: z.boolean().default(false),
+});

@@ -30,6 +30,13 @@ export const CONSENT_PURPOSES = [
   // The fail-closed gate keys on this exact string. Production DPDP notice copy +
   // lawful-basis wording remain a human/legal launch gate (CLAUDE.md §8).
   "employer_sharing",
+  // Phase-2 WhatsApp invite funnel + re-engagement (ADR-0020). A SEPARATE, explicit
+  // DPDP basis for messaging a worker over WhatsApp — the worker's phone leaves to a
+  // third party (Meta), so this is DISTINCT from transactional `communication` (OTP).
+  // A worker may have `communication` but NOT this, and is then never messaged
+  // (fail-closed `MessagingConsentService`; recorded as `messaging.suppressed`).
+  // Production WhatsApp opt-in / DPDP copy remains a human/legal launch gate.
+  "whatsapp_messaging",
 ] as const;
 export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
 
