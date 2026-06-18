@@ -39,11 +39,15 @@ describe("ConsentService.accept", () => {
   });
 
   it("records consent + emits consent.accepted (hashed ip, no raw PII)", async () => {
-    const { svc, workers, events, pii } = setup();
+    const { svc, consents, workers, events, pii } = setup();
     workers.findById.mockResolvedValueOnce({ id: WORKER });
     const res = await svc.accept(DTO, "1.2.3.4", "ua", CTX);
     expect(res.consent_id).toBe("consent-1");
     expect(pii.hashIp).toHaveBeenCalledWith("1.2.3.4"); // ip is hashed, never stored raw
+    // The boundary where the ip actually travels: the row gets the HASH, not the raw ip.
+    const created = consents.create.mock.calls[0]![0];
+    expect(created.ipHash).toBe("iphash");
+    expect(JSON.stringify(created)).not.toContain("1.2.3.4");
     const call = events.emit.mock.calls[0]![0];
     expect(call.event_name).toBe("consent.accepted");
     expect(call.payload.purposes).toEqual(["profiling", "resume_generation"]);
