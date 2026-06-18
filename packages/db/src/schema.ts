@@ -82,6 +82,46 @@ export const workers = pgTable(
 ).enableRLS(); // RLS tracked in the model so db:generate keeps it (migration 0003/0004 carry the SQL)
 
 // ---------------------------------------------------------------------------
+// payers — the account behind the opaque `payer_id` (ADR-0019 Decision B).
+//
+// Self-serve makes `payer_id` (today an opaque "faceless-rails" UUID on
+// unlocks/payer_credits/posting_plans/resume_disclosures/payer_capacity, NO FK)
+// a REAL authenticated account. This table is ADDITIVE: those columns stay opaque
+// UUIDs (no FK retrofit here, backward-compatible); a `payers.id` is now a valid
+// value for them. `payers` holds payer/employer **B2B contact PII — a NEW PII
+// class** (ADR-0019 B-R2, the accepted invariant-#2 extension). Same at-rest
+// discipline as `workers` (ADR-0004): contact fields are AES-256-GCM CIPHERTEXT
+// (`encryptPii` tokens, key never in the DB); the login email also carries a keyed
+// HMAC (`email_hash`) as the brute-force-resistant lookup/dedup key (the only
+// email derivative allowed anywhere outside this table). Payer PII NEVER enters
+// events/ai_jobs/audit_logs/logs/LLM input — `payer_id` stays the only token.
+// RLS-enabled (REVOKE carried by the migration, like workers 0003/0004).
+// ---------------------------------------------------------------------------
+export type PayerRole = "employer" | "agent";
+export type PayerStatus = "pending" | "active" | "suspended";
+
+export const payers = pgTable(
+  "payers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    role: text("role").$type<PayerRole>().notNull(),
+    // Login email: AES ciphertext at rest + keyed HMAC for lookup/dedup (mirrors
+    // workers.phone_e164 / phone_hash). The hash is the unique key.
+    emailEnc: text("email_enc").notNull(), // AES-256-GCM ciphertext token
+    emailHash: text("email_hash").notNull(), // keyed HMAC-SHA256 (lookup/dedup)
+    // Optional contact phone, same two-column pattern (nullable).
+    phoneEnc: text("phone_enc"), // AES ciphertext token
+    phoneHash: text("phone_hash"), // keyed HMAC-SHA256
+    // Business display name — B2B PII; ciphertext at rest (no lookup hash needed).
+    orgNameEnc: text("org_name_enc").notNull(), // AES ciphertext token
+    status: text("status").$type<PayerStatus>().notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("payers_email_hash_uq").on(t.emailHash)],
+).enableRLS(); // RLS tracked in the model; REVOKE carried by the migration (ADR-0004 posture)
+
+// ---------------------------------------------------------------------------
 // worker_consents — DPDP consent records (append-only; revoke via revoked_at)
 // ---------------------------------------------------------------------------
 export const workerConsents = pgTable(
@@ -1069,6 +1109,8 @@ export const payerCapacity = pgTable(
 // ---------------------------------------------------------------------------
 export type Worker = typeof workers.$inferSelect;
 export type NewWorker = typeof workers.$inferInsert;
+export type Payer = typeof payers.$inferSelect;
+export type NewPayer = typeof payers.$inferInsert;
 export type WorkerConsent = typeof workerConsents.$inferSelect;
 export type NewWorkerConsent = typeof workerConsents.$inferInsert;
 export type WorkerProfile = typeof workerProfiles.$inferSelect;
@@ -1124,6 +1166,7 @@ export type NewPayerCapacity = typeof payerCapacity.$inferInsert;
 export const schema = {
   workers,
   workerConsents,
+  payers,
   workerProfiles,
   chatSessions,
   voiceNotes,
