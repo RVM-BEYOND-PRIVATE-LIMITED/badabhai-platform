@@ -1,12 +1,46 @@
 # ADR-0019: Self-serve payer portal — ops-run → EXTERNAL self-serve (Phase-0 design)
 
-- **Status:** **PROPOSED — STOP, pending human/RVM + MANDATORY security-engineer sign-off.**
-  Design artifact only. **No feature code, no new app, no enum/schema change, no real payment
-  provider is built or enabled by this document.** This ADR draws the contract for the move
-  from *ops-run, faceless `payer_id`* to *external, authenticated, self-serve payers* so that,
-  when authorized, the build stays inside the §2 invariants and the ADR-0010/0013 disclosure
-  spine. **Phase-2 — NOT alpha-gate.**
+- **Status:** **ACCEPTED (maintainer sign-off 2026-06-18) — Phase-0 design signed; PHASE 1
+  AUTHORIZED.** Decisions A–E and the **invariant-#2 payer-PII extension (B-R2)** are accepted
+  (see § SIGN-OFF below). The Phase-0 STOP is cleared. **Still binding:** Phase 1 is **mock +
+  staging-only** (no real payments, no open external); a **`bb-security-review` PASS on the
+  realized code** is required before any payer-facing surface merges; **real Razorpay
+  keys/spend (D / E-R2) and open external GA (Phase 4) remain separate HUMAN gates.** This ADR
+  draws the contract for the move from *ops-run, faceless `payer_id`* to *external,
+  authenticated, self-serve payers*. **Phase-2 — NOT alpha-gate.**
 - **Date:** 2026-06-18
+
+## SIGN-OFF (2026-06-18) — maintainer: ACCEPTED
+
+> The maintainer accepted decisions A–E and the phased plan. Recorded here as the Phase-0
+> sign-off (mirrors the ADR-0013 § SIGN-OFF pattern). Where a resolution conflicts with the
+> body, the resolution wins.
+
+- **A — Surface: ACCEPTED.** Build a **new external app `apps/payer-web`** (Next.js, public
+  origin); do **not** add external auth to the internal `apps/web` ops console.
+- **B — Identity/Auth: ACCEPTED.** Net-new `payers` account + `PayerAuthGuard` (builds the
+  deferred LC-1/TD33); three distinct principals (worker/payer/ops). **B-R2 ACCEPTED — the
+  invariant-#2 extension stands:** payer/employer B2B contact PII is a new class, stored in
+  `payers` under the **ADR-0004 at-rest discipline** (encryption at rest + keyed-hash lookup +
+  RLS/REVOKE) and **never** in events/`ai_jobs`/`audit_logs`/logs/LLM input; `payer_id` stays
+  the only token in events.
+- **C — Tenancy/RLS: ACCEPTED.** Two-axis isolation; app-layer tenant chokepoint + a
+  horizontal-authz build-blocker test first; **DB-enforced RLS is the open-GA launch gate**
+  (resolves the payer half of Q5; coordinate with ADR-0004). External access stays
+  staging/closed-beta until DB RLS lands.
+- **D — Real payments: ACCEPTED as designed, default MOCK.** Razorpay hosted-checkout + signed
+  webhook + server-side amount + idempotent capture behind `PAYMENTS_ENABLE_REAL=false`. **Real
+  keys/spend remain a HARD human gate (E-R2 / LC-5 / TD34)** — NOT cleared by this sign-off.
+- **E — External disclosure: ACCEPTED.** The
+  [external-disclosure addendum](../security/payer-portal-external-disclosure-threat-model-addendum.md)
+  is the pre-build gate; its XB-A…XB-H controls are build-blockers; a `bb-security-review` PASS
+  on the built surface is required before merge.
+
+**What this sign-off authorizes:** the **Phase 1** streams (`payers` model + `PayerAuthGuard` +
+app-layer tenant chokepoint + horizontal-authz tests + `apps/payer-web` skeleton + the
+addendum's disclosure controls), **mock payments, staging-only**, each behind the
+security-review gate. **What it does NOT authorize:** real payment keys/spend (Phase 3), DB-RLS
+sign-off specifics (land with ADR-0004), or open external GA (Phase 4) — all separate gates.
 - **Author:** system-architect (architecture + contract) + **security-engineer (MANDATORY —
   this opens an external, untrusted trust boundary)** + product-manager (surface + onboarding).
   backend-engineer / database-architect / frontend-engineer **consulted** (build streams, after
