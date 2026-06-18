@@ -38,6 +38,7 @@ const DATABASE_URL =
 // The "no drift vs the live schema" test below makes this list self-policing.
 const LOCKED_TABLES = [
   "workers",
+  "payers", // ADR-0019: payer/employer B2B PII (new class); RLS+FORCE+REVOKE in migration 0020
   "worker_consents",
   "worker_profiles",
   "chat_sessions",
