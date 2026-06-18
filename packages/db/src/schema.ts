@@ -1105,12 +1105,53 @@ export const payerCapacity = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// invites — WhatsApp invite/referral funnel (ADR-0020). PII-FREE.
+//
+// An invite is a shareable deep-link (`/i/<code>`). The `code` is an opaque
+// token; `inviter_worker_id` / `invited_worker_id` are opaque worker UUIDs — NO
+// phone, NO name, NO message body ever lands here (the phone touches the WhatsApp
+// provider only, at send time). This is the upstream attribution signal the
+// deferred agency-referral payout will consume. RLS-enabled (REVOKE in the
+// migration, spine posture). `invited_worker_id` is set on signup-acceptance.
+// ---------------------------------------------------------------------------
+export type InviteChannel = "whatsapp";
+export type InviteStatus = "created" | "clicked" | "accepted";
+
+export const invites = pgTable(
+  "invites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The opaque deep-link token (the only thing shared). Unique.
+    code: text("code").notNull(),
+    inviterWorkerId: uuid("inviter_worker_id")
+      .notNull()
+      .references(() => workers.id, { onDelete: "cascade" }),
+    // Set when an invited person becomes a worker (attribution). Nullable until then.
+    invitedWorkerId: uuid("invited_worker_id").references(() => workers.id, {
+      onDelete: "set null",
+    }),
+    channel: text("channel").$type<InviteChannel>().notNull().default("whatsapp"),
+    status: text("status").$type<InviteStatus>().notNull().default("created"),
+    // Optional non-PII campaign tag (a stable code, never free-form PII).
+    campaign: text("campaign"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("invites_code_uq").on(t.code),
+    index("invites_inviter_worker_id_idx").on(t.inviterWorkerId),
+  ],
+).enableRLS(); // RLS tracked in the model; REVOKE carried by the migration (spine posture)
+
+// ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
 // ---------------------------------------------------------------------------
 export type Worker = typeof workers.$inferSelect;
 export type NewWorker = typeof workers.$inferInsert;
 export type Payer = typeof payers.$inferSelect;
 export type NewPayer = typeof payers.$inferInsert;
+export type Invite = typeof invites.$inferSelect;
+export type NewInvite = typeof invites.$inferInsert;
 export type WorkerConsent = typeof workerConsents.$inferSelect;
 export type NewWorkerConsent = typeof workerConsents.$inferInsert;
 export type WorkerProfile = typeof workerProfiles.$inferSelect;
@@ -1191,4 +1232,5 @@ export const schema = {
   postingBoosts,
   resumeDisclosures,
   payerCapacity,
+  invites,
 };

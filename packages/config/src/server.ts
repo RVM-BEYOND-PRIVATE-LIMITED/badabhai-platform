@@ -148,6 +148,18 @@ export const serverEnvSchema = z.object({
   // staging-first behind PAYMENTS_ENABLE_REAL. Unused in alpha (mock ledger).
   PAYMENTS_PROVIDER_KEY: z.string().min(1).optional(),
 
+  // WhatsApp invite funnel + re-engagement (ADR-0020). MOCK provider in alpha — no
+  // real message is sent and the worker's phone never leaves to Meta. MESSAGING_ENABLE_REAL
+  // is the master gate (mirrors AI_ENABLE_REAL_CALLS / PAYMENTS_ENABLE_REAL) and DEFAULTS
+  // FALSE; flipping it true requires the WhatsApp keys AND is human-gated + staging-first
+  // (CLAUDE.md §7). A real-enabled flag without the keys fails CLOSED at boot via
+  // assertMessagingConfig. booleanFromString so a falsey string stays OFF.
+  MESSAGING_ENABLE_REAL: booleanFromString,
+  // OPAQUE Meta WhatsApp Cloud API credentials. NEVER committed; supplied only in
+  // staging-first behind MESSAGING_ENABLE_REAL. Unused in alpha (mock provider).
+  WHATSAPP_API_KEY: z.string().min(1).optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().min(1).optional(),
+
   // Contact Unlock worker-protection caps (ADR-0010 §D4 — CONFIG-DRIVEN, not
   // hard-coded; tunable without a migration). The chokepoint reads these. Numbers are
   // the ADR's recommended alpha starting caps (OQ-F: a trust-and-safety call to tune).
@@ -292,6 +304,24 @@ export function realPaymentsBlockedReason(config: ServerConfig): string | null {
 
 export function areRealPaymentsEnabled(config: ServerConfig): boolean {
   return realPaymentsBlockedReason(config) === null;
+}
+
+/**
+ * Guard for the "real WhatsApp send" path (ADR-0020 Decision 1) — the direct
+ * analogue of `realPaymentsBlockedReason`. Fails CLOSED: a real message is only
+ * permitted when explicitly enabled AND the Meta WhatsApp credentials exist.
+ * Returns the reason real sends are disabled, or null when allowed. In alpha this
+ * always returns a reason (mock provider — the phone never leaves to a third party).
+ */
+export function realMessagingBlockedReason(config: ServerConfig): string | null {
+  if (!config.MESSAGING_ENABLE_REAL) return "MESSAGING_ENABLE_REAL is false";
+  if (!config.WHATSAPP_API_KEY) return "WHATSAPP_API_KEY is not set";
+  if (!config.WHATSAPP_PHONE_NUMBER_ID) return "WHATSAPP_PHONE_NUMBER_ID is not set";
+  return null;
+}
+
+export function areRealMessagesEnabled(config: ServerConfig): boolean {
+  return realMessagingBlockedReason(config) === null;
 }
 
 /**

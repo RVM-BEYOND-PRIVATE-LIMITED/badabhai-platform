@@ -184,6 +184,15 @@ export const EVENT_REGISTRY = {
   "capacity.purchased": { version: 1, domain: "capacity", payload: p.CapacityPurchasedPayload },
   "posting_plan.paused": { version: 1, domain: "posting_plan", payload: p.PostingPlanPausedPayload },
   "posting_plan.resumed": { version: 1, domain: "posting_plan", payload: p.PostingPlanResumedPayload },
+
+  // WhatsApp invite funnel + re-engagement (ADR-0020). PII-FREE; mock provider in alpha.
+  "invite.created": { version: 1, domain: "invite", payload: p.InviteCreatedPayload },
+  "invite.clicked": { version: 1, domain: "invite", payload: p.InviteClickedPayload },
+  "invite.accepted": { version: 1, domain: "invite", payload: p.InviteAcceptedPayload },
+  "messaging.requested": { version: 1, domain: "messaging", payload: p.MessagingRequestedPayload },
+  "messaging.sent": { version: 1, domain: "messaging", payload: p.MessagingSentPayload },
+  "messaging.suppressed": { version: 1, domain: "messaging", payload: p.MessagingSuppressedPayload },
+  "messaging.failed": { version: 1, domain: "messaging", payload: p.MessagingFailedPayload },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

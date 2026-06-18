@@ -64,6 +64,7 @@ const LOCKED_TABLES = [
   "posting_boosts",
   "resume_disclosures",
   "payer_capacity",
+  "invites", // ADR-0020: WhatsApp invite funnel (PII-free); RLS+FORCE+REVOKE in migration 0021
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

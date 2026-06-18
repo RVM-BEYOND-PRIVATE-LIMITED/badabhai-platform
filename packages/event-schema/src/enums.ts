@@ -47,6 +47,15 @@ export const EVENT_DOMAINS = [
   // content/purchase): this domain is the plan's serving-state machine. PII-FREE:
   // ids + an enum reason ONLY.
   "posting_plan",
+  // WhatsApp invite funnel (ADR-0020) — referral deep-link create/click/accept +
+  // PII-FREE attribution. ids/enums ONLY (opaque invite_id + worker ids); never a
+  // phone, name, or the shared link's downstream PII.
+  "invite",
+  // Worker re-engagement messaging (ADR-0020) — the consent-gated send lifecycle
+  // (requested/sent/suppressed/failed) over the WhatsApp provider. PII-FREE: the
+  // phone/template-body NEVER appears; only ids + the template id + enums +
+  // real_call. Mock provider in alpha (real_call:false).
+  "messaging",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;
@@ -93,6 +102,9 @@ export const SUBJECT_TYPES = [
   // The subject_id is the opaque posting_plans row id; carries no PII (the job_posting
   // and payer ids live in the payload, both opaque/faceless).
   "posting_plan",
+  // A referral invite (ADR-0020). The subject_id is the opaque invites row id; carries
+  // no PII (inviter/invited worker ids live in the payload, both opaque).
+  "invite",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;
