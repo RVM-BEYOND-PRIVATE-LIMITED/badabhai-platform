@@ -36,8 +36,16 @@ class Settings(BaseSettings):
     # model handles strict-JSON extraction. Bare Gemini model ids (no provider
     # prefix). Defaults are REAL Gemini ids so the service resolves a valid model
     # even when .env is absent; .env overrides them per environment.
+    #
+    # PINNED PROD EXTRACTION MODEL = gemini-2.5-flash (ADR-0008 "capable" tier +
+    # docs/ai/enable-real-llm-extraction.md). This default now MATCHES the runbook so
+    # the model that ships in prod == the model the gold set is validated on (resolves
+    # GO/NO-GO Finding 4 / Q3: validation-model must equal flip-model). Real calls stay
+    # OFF by default (AI_ENABLE_REAL_CALLS=false); this only fixes WHICH model is used
+    # when extraction is turned real. The clean 56-case re-validation + p95 on this
+    # exact model is the remaining (human-gated) gate before any flip.
     default_cheap_model: str = "gemini-2.5-flash-lite"
-    default_capable_model: str = "gemini-2.5-flash-lite"
+    default_capable_model: str = "gemini-2.5-flash"
     # Cross-provider FALLBACK model: tried by the router only AFTER the primary
     # (Gemini) candidate fails, and only when anthropic_api_key is set and this
     # model's provider differs from the primary's. Claude Haiku 4.5 (no date
