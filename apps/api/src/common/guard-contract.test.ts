@@ -151,4 +151,20 @@ describe("API authz contract — guards on every controller route", () => {
       }
     }
   });
+
+  // The consent-gated worker-AI controllers MUST run WorkerAuthGuard BEFORE
+  // ConsentGuard (ConsentGuard reads req.worker, which WorkerAuthGuard attaches).
+  // `effectiveGuards` sorts, so it can't see order — assert it here against the raw
+  // (unsorted) class metadata.
+  describe("consent-gated worker-AI guard ORDER (auth before consent)", () => {
+    for (const { name, ctor } of [
+      { name: "Chat", ctor: ChatController },
+      { name: "Profiles", ctor: ProfilesController },
+      { name: "Voice", ctor: VoiceController },
+    ]) {
+      it(`${name}Controller runs [WorkerAuthGuard, ConsentGuard] in order`, () => {
+        expect(guardNames(ctor)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);
+      });
+    }
+  });
 });
