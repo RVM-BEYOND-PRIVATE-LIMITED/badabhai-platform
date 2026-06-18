@@ -24,8 +24,8 @@ class _ProfilePreviewScreenState extends State<ProfilePreviewScreen> {
   }
 
   Future<void> _extract() async {
-    final String? workerId = AppState.instance.workerId;
-    if (workerId == null) {
+    final String? token = AppState.instance.sessionToken;
+    if (token == null) {
       setState(() => _loading = false);
       return;
     }
@@ -37,7 +37,7 @@ class _ProfilePreviewScreenState extends State<ProfilePreviewScreen> {
       // Extraction runs as a background job on the API; this awaits the job
       // and returns the ready profile id. Can take a few seconds.
       final String profileId = await _api.extractProfile(
-        workerId: workerId,
+        authToken: token,
         sessionId: AppState.instance.sessionId,
       );
       AppState.instance.setProfile(profileId);
@@ -58,10 +58,10 @@ class _ProfilePreviewScreenState extends State<ProfilePreviewScreen> {
   }
 
   Future<void> _confirmAndGenerate() async {
-    final String? workerId = AppState.instance.workerId;
+    final String? token = AppState.instance.sessionToken;
     final String? profileId = _profileId;
-    if (workerId == null || profileId == null) return;
-    await _api.confirmProfile(workerId: workerId, profileId: profileId);
+    if (token == null || profileId == null) return;
+    await _api.confirmProfile(authToken: token, profileId: profileId);
     if (!mounted) return;
     Navigator.pushNamed(context, Routes.resumePreview);
   }

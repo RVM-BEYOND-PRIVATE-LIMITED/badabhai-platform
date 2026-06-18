@@ -69,11 +69,14 @@ interface Resp {
 }
 
 /** Call the API; throw loudly (with body) on any non-2xx so a broken stage fails. */
-async function call(method: string, path: string, body?: unknown): Promise<Resp> {
+async function call(method: string, path: string, body?: unknown, token?: string): Promise<Resp> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["content-type"] = "application/json";
   // Harmless on open routes; required by the guarded resume routes.
   if (SERVICE_TOKEN) headers["x-internal-service-token"] = SERVICE_TOKEN;
+  // Bearer session token: required by the worker-authenticated chat/profile/voice
+  // routes (P0 auth+consent gate). The worker comes from this token, not the body.
+  if (token) headers["authorization"] = `Bearer ${token}`;
   const res = await fetch(`${API_URL}${path}`, {
     method,
     headers: Object.keys(headers).length > 0 ? headers : undefined,
@@ -148,6 +151,9 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     expect(verify.body.is_new_worker).toBe(true); // state transition: worker absent → created
     expect(verify.body.status).toBe("active");
     const workerId = verify.body.worker_id as string;
+    // Bearer token minted at OTP verify — required by the worker AI routes below.
+    const token = verify.body.access_token as string;
+    expect(token).toBeTruthy();
 
     // DB: the worker row exists; PII (the phone) lives ONLY in this table, and
     // even here it is hardened at rest — phone_e164 is AES-256-GCM ciphertext (an
@@ -183,7 +189,7 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     expect(consentRows[0]!.acceptedAt).toBeTruthy();
 
     // ───────────────────────── STAGE 3 — Chat profiling ─────────────────────────
-    const session = await call("POST", "/chat/session", { worker_id: workerId });
+    const session = await call("POST", "/chat/session", {}, token);
     expect(session.status).toBe(201);
     expect(session.body.session_id).toBeTruthy();
     expect(session.body.status).toBe("active");
@@ -206,11 +212,15 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     let ready = false;
     for (let i = 0; i < 12 && !ready; i++) {
       const text = scriptedMessages[i] ?? "haan bhai, theek hai";
-      const msg = await call("POST", "/chat/message", {
-        session_id: sessionId,
-        worker_id: workerId,
-        text,
-      });
+      const msg = await call(
+        "POST",
+        "/chat/message",
+        {
+          session_id: sessionId,
+          text,
+        },
+        token,
+      );
       expect(msg.status).toBe(201);
       expect(typeof msg.body.reply).toBe("string");
       expect(msg.body.reply.length).toBeGreaterThan(0); // an assistant reply each turn
@@ -275,10 +285,14 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     expect(profileAfterExtract!.rawProfile).toBeTruthy();
 
     // ──────────────────────── STAGE 5 — Profile confirmation ────────────────────────
-    const confirm = await call("POST", "/profile/confirm", {
-      worker_id: workerId,
-      profile_id: profileId,
-    });
+    const confirm = await call(
+      "POST",
+      "/profile/confirm",
+      {
+        profile_id: profileId,
+      },
+      token,
+    );
     expect(confirm.status).toBe(200);
     expect(confirm.body.profile_status).toBe("confirmed");
     expect(confirm.body.confirmed_at).toBeTruthy();

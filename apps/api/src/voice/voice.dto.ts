@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { uuidSchema, voiceDurationSecondsSchema, safeTextSchema } from "@badabhai/validators";
 
+/**
+ * Request DTOs carry NO worker_id: the acting worker is taken from the
+ * authenticated session (WorkerAuthGuard), never trusted from the body.
+ */
 export const UploadVoiceNoteSchema = z.object({
-  worker_id: uuidSchema,
   session_id: uuidSchema,
   // Phase 1 placeholder: the client provides the already-uploaded storage path.
   storage_path: safeTextSchema(512),

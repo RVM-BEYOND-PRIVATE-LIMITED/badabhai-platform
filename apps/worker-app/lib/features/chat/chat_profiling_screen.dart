@@ -33,8 +33,9 @@ class _ChatProfilingScreenState extends State<ChatProfilingScreen> {
 
   Future<void> _ensureSession() async {
     final String? workerId = AppState.instance.workerId;
-    if (workerId != null && AppState.instance.sessionId == null) {
-      final String sessionId = await _api.startSession(workerId);
+    final String? token = AppState.instance.sessionToken;
+    if (workerId != null && token != null && AppState.instance.sessionId == null) {
+      final String sessionId = await _api.startSession(authToken: token);
       AppState.instance.setSession(sessionId);
     }
     if (mounted) setState(() => _ensuringSession = false);
@@ -49,9 +50,9 @@ class _ChatProfilingScreenState extends State<ChatProfilingScreen> {
   Future<void> _send() async {
     final String text = _controller.text.trim();
     if (text.isEmpty) return;
-    final String? workerId = AppState.instance.workerId;
     final String? sessionId = AppState.instance.sessionId;
-    if (workerId == null || sessionId == null) return;
+    final String? token = AppState.instance.sessionToken;
+    if (sessionId == null || token == null) return;
 
     setState(() {
       _messages.add(_Message(text, fromWorker: true));
@@ -60,7 +61,7 @@ class _ChatProfilingScreenState extends State<ChatProfilingScreen> {
 
     final ChatReply reply = await _api.sendMessage(
       sessionId: sessionId,
-      workerId: workerId,
+      authToken: token,
       text: text,
     );
     if (!mounted) return;

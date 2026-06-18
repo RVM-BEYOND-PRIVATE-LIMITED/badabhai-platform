@@ -1,11 +1,4 @@
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  Logger,
-  NotFoundException,
-  forwardRef,
-} from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
 import {
   ConversationStateSchema,
   type ConversationMessage,
@@ -52,28 +45,29 @@ export class ChatService {
     return { session_id: session.id, status: session.status, started_at: session.startedAt };
   }
 
-  async postMessage(dto: PostMessageDto, ctx: RequestContext) {
+  async postMessage(workerId: string, dto: PostMessageDto, ctx: RequestContext) {
     const session = await this.chat.findSession(dto.session_id);
-    if (!session) throw new NotFoundException(`Session ${dto.session_id} not found`);
-    if (session.workerId !== dto.worker_id) {
-      throw new BadRequestException("worker_id does not match the session owner");
+    // Ownership: a worker may only post to their OWN session. 404 (not 403) so a
+    // session id is never an existence oracle for another worker's session.
+    if (!session || session.workerId !== workerId) {
+      throw new NotFoundException(`Session ${dto.session_id} not found`);
     }
 
     // 1. Store inbound message + emit.
     const inbound = await this.chat.insertMessage({
       sessionId: dto.session_id,
-      workerId: dto.worker_id,
+      workerId: workerId,
       direction: "inbound",
       messageType: "text",
       bodyText: dto.text,
     });
     await this.events.emit({
       event_name: "chat.message_received",
-      actor: { actor_type: "worker", actor_id: dto.worker_id },
+      actor: { actor_type: "worker", actor_id: workerId },
       subject: { subject_type: "chat_message", subject_id: inbound.id },
       payload: {
         session_id: dto.session_id,
-        worker_id: dto.worker_id,
+        worker_id: workerId,
         message_id: inbound.id,
         message_type: "text",
         has_voice_note: false,
@@ -119,7 +113,7 @@ export class ChatService {
     );
     const aiResult = await this.ai.profilingRespond({
       session_id: dto.session_id,
-      worker_ref: dto.worker_id,
+      worker_ref: workerId,
       message_text: dto.text,
       history,
       conversation_state: priorState,
@@ -133,7 +127,7 @@ export class ChatService {
     // 4. Store outbound message + emit. (unchanged — events keep flowing)
     const outbound = await this.chat.insertMessage({
       sessionId: dto.session_id,
-      workerId: dto.worker_id,
+      workerId: workerId,
       direction: "outbound",
       messageType: "text",
       bodyText: aiResult.reply_text,
@@ -145,7 +139,7 @@ export class ChatService {
       subject: { subject_type: "chat_message", subject_id: outbound.id },
       payload: {
         session_id: dto.session_id,
-        worker_id: dto.worker_id,
+        worker_id: workerId,
         message_id: outbound.id,
         message_type: "text",
       },
@@ -167,10 +161,10 @@ export class ChatService {
     if (becameReady && st) {
       await this.events.emit({
         event_name: "profile.extraction_ready",
-        actor: { actor_type: "worker", actor_id: dto.worker_id },
+        actor: { actor_type: "worker", actor_id: workerId },
         subject: { subject_type: "chat_session", subject_id: dto.session_id },
         payload: {
-          worker_id: dto.worker_id,
+          worker_id: workerId,
           session_id: dto.session_id,
           role_family: st.role_family,
           turn_count: st.turn_count,
@@ -190,7 +184,7 @@ export class ChatService {
 
       // Auto-trigger profile extraction on the flip — no manual /profile/extract
       // needed. Fires on the SAME once-per-session guard as the event above.
-      await this.autoTriggerExtraction(dto.worker_id, dto.session_id, ctx);
+      await this.autoTriggerExtraction(workerId, dto.session_id, ctx);
     }
 
     // 6. Persist the UPDATED interview state so the next turn continues from here
