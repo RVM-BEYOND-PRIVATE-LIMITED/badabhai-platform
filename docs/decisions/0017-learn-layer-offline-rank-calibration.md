@@ -1,9 +1,12 @@
 # ADR-0017: LEARN layer — offline learning-to-rank that calibrates the deterministic RANK core
 
-- **Status:** **PROPOSED — STOP, pending human/RVM sign-off.** This is a design artifact only.
-  **Nothing in it is built or authorized.** Per the task's gate and CLAUDE.md §7, the feature
-  pipeline, the model, the eval harness, and the shadow run are **handed to the engineer agents
-  only after this ADR is signed off.** No live ranking is touched by this document.
+- **Status:** **ACCEPTED for the OFFLINE build (human-authorized 2026-06-17) — LIVE promotion
+  remains a SEPARATE human gate.** The offline layer is **built**: `@badabhai/reach-learn`
+  (feature pipeline + baseline model + eval harness + shadow harness, 24 tests green), results in
+  [learn-layer-eval-results.md](../reach/learn-layer-eval-results.md). Per Decision 6 **no live
+  ranking is touched** — the RANK core (`@badabhai/reach-engine`) is **unchanged**, the layer is
+  **off by default**, and **promoting any `WeightProfile` to live ranking is a distinct,
+  human-gated decision** (its own sign-off), NOT authorized here.
 - **Date:** 2026-06-17
 - **Phase:** **Phase-2 moat work — explicitly NOT alpha-gate.** Does not displace or block the
   alpha. The RANK core (ADR-0006) is unchanged; LEARN is purely additive and **off by default**.
