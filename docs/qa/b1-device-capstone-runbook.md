@@ -23,6 +23,28 @@ prep alone.
 
 ---
 
+## Phase 1 pre-flight — VERIFIED 2026-06-17 (turnkey status; B1 still NO-GO)
+
+What was checked **today** so the handset session can't stall, and what still blocks:
+
+| Pre-flight item | Status | Detail |
+| --------------- | ------ | ------ |
+| App staging wiring | ✅ verified | `ApiClient` reads `String.fromEnvironment('API_BASE_URL', defaultValue:'http://localhost:3001')` — `--dart-define=API_BASE_URL=https://<staging-api>` is the (only) correct switch. |
+| Evidence query (b.2/b.3/b.4) | ✅ **validated on real data** | Ran the chain query **read-only** against the live Supabase DB for an existing completed worker chain: all **11 events present + non-decreasing**, `chat.message_sent`≥3, and **consent ≤ first-AI** (gate holds). The query shape is proven on the real schema — it will return the chain in the handset session. |
+| `events` timestamp column | ✅ confirmed | Table has **both** `occurred_at` and `created_at`; the queries here use `occurred_at` (valid). |
+| psql var gotcha | ⚠️ note | `:'wid'` interpolation can fail via `-c` on some shells — if so, **inline the UUID** directly into the SQL string (what was done to validate). |
+| logcat no-PII grep + screenshot checklist | ✅ ready | See §2(c)/§2(a) below — copy-paste ready. |
+| **Staging API deployed** | ⛔ **BLOCKER (prereq #1)** | `NEXT_PUBLIC_API_URL=http://localhost:3001`, `NEXT_PUBLIC_ENVIRONMENT=development` — **no HTTPS staging API exists**. DevOps must deploy it; the handset has nothing to point at until then. |
+| Flutter build in this env | ⛔ n/a | Flutter is **not installed** in the prep environment — the APK build (§1) is the **mobile-engineer** step on a machine with the Flutter+Android toolchain. |
+| Real Android handset run | ⛔ BLOCKER (prereq #2) | The one human step; cannot be done from CI/this env. |
+
+**Net:** the evidence pipeline is **de-risked and proven**; B1 remains **NO-GO** on two unchanged
+hard prerequisites — **(1) staging API not deployed** and **(2) the human handset run**. Deliver #1,
+run #2, capture the 3 artifacts, then flip per Phase 3. *(The read-only validation above used a
+pre-existing worker chain to prove the query — it is NOT a handset run and is NOT B1 evidence.)*
+
+---
+
 ## Phase 1 — turnkey (do all before touching the phone)
 
 ### 1. Build + install (copy-paste)
