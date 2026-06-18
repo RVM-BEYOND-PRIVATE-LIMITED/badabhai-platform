@@ -21,6 +21,32 @@
 Goal: clone → build → run `apps/worker-app` on a real handset against **staging** → run the
 device-capstone runbook once as a smoke test. If you finish this section, you are productive.
 
+### 1.0 The merge gate is BLOCKING + green — confirmed
+
+Before anything: the Flutter gate is **real**, not advisory. CLAUDE.md §5 still annotates it
+"currently non-blocking" — **that note is stale; trust this section + the workflow file.**
+
+- **CI is blocking.** [`.github/workflows/worker-app.yml`](../../.github/workflows/worker-app.yml)
+  is a dedicated **BLOCKING** check (it replaced the old non-blocking `worker-app` job in
+  `ci.yml`, TD002). The file says it plainly: *"A red check here means: do not merge."* Both
+  steps gate — `flutter analyze` (any error/warning/info fails) **and** `flutter test`.
+- **It runs only on worker-app changes.** Triggers on `apps/worker-app/**` (or the workflow
+  itself) for `push`/`pull_request` to `main` — unrelated PRs neither pay the Flutter cost nor
+  wait on it, so your card PRs are the ones it gates.
+- **It is green today.** The gate exercises the scaffold's runnable suite
+  ([`test/widget_test.dart`](../../apps/worker-app/test/widget_test.dart) +
+  `api_client_feed_test.dart` + `swipe_jobs_screen_test.dart`); `main` is green under it. Your
+  job is to **keep it green** — every card below ends in `flutter analyze && flutter test` for
+  exactly this reason.
+- **The local run that mirrors CI (run from `apps/worker-app`):**
+  ```bash
+  flutter --version                # MUST report 3.27.4 (the pinned CI SDK) — not the pubspec floor
+  flutter pub get
+  flutter analyze && flutter test  # byte-for-byte the two CI steps; green here ⇒ green on the gate
+  ```
+  Same SDK + same two commands as the workflow → if it's green locally on **3.27.4**, the merge
+  gate is green. (Version drift is the only way the two diverge — see §1.1.)
+
 ### 1.1 Prerequisites (install once)
 
 | Tool | Pinned version | Why exactly this |
@@ -251,3 +277,31 @@ bucket with fail-closed pseudonymization, verified by the `voice_note.*` event c
 logcat. **G3 (interview-kit)** follows once a product scope-confirm lands (RVM content gate is
 already cleared). Throughout, the GO line is unchanged: it's **B1**, owned by qa-engineer — your
 job is to unblock and support it, then ship G1c → G2 → G3 in that order.
+
+---
+
+## Stranger-can-execute confirmation
+
+This punch-list is **self-contained for someone with zero prior context.** A new Android dev can,
+without asking anyone:
+
+- **Set up in <1hr** (§1): pinned tool versions (Flutter **3.27.4**, not the pubspec floor),
+  copy-paste clone/build/run commands, the staging `--dart-define` wiring, and the one gate that
+  can still block them (DevOps staging URL + `GET /health` → escalate, don't work around).
+- **Know the gate is real** (§1.0): CI is **blocking + green**, with the exact local commands that
+  mirror it — no guessing whether a red check matters.
+- **Execute each card mechanically** (§2): every G1c/G2/G3 card names the **exact files** (verified
+  to exist — `resume_preview_screen.dart`, `api_client.dart`, `voice_note_placeholder_screen.dart`,
+  `pubspec.yaml`), the repro, the acceptance **tied to a concrete B1-runbook check**, and the
+  privacy control that ships **in the same change** — never a follow-up.
+- **Never have to decide priority** (§3): the order is fixed G1c → G2 → G3 with the rationale, and
+  §3 forbids reordering G2 ahead of G1c.
+- **Not overreach** (§4): the closed/out-of-scope table says exactly what NOT to rebuild or touch.
+- **Know when they're done** (§5): the GO line is one sentence with three named artifacts, and the
+  single override (RVM/product demand the branded PDF → G1c promotes) is spelled out.
+
+**Two human gates remain — flagged, not hidden:** (1) **DevOps must deploy staging** and hand over
+the real `API_BASE_URL` (every reference is a `<staging-api>` placeholder today); (2) **G3 needs a
+product scope-confirm** (the RVM *content* gate is already cleared, CEO-approved 2026-06-17). Both
+are escalations, not work the incoming dev can unblock alone — which is why they're called out
+rather than buried. Everything else is execute-top-down.
