@@ -1,5 +1,6 @@
 import { Module, forwardRef } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
+import { AuthModule } from "../auth/auth.module";
 import { ChatModule } from "../chat/chat.module";
 import { ProfilesController } from "./profiles.controller";
 import { ProfilesService } from "./profiles.service";
@@ -14,6 +15,7 @@ import { PROFILE_EXTRACTION_QUEUE, RESUME_GENERATE_QUEUE } from "../queue/queue.
     // forwardRef: ChatService also depends on ProfilesService (auto-trigger
     // extraction on the readiness flip), so the two modules reference each other.
     forwardRef(() => ChatModule), // for ChatRepository (transcript)
+    AuthModule, // WorkerAuthGuard + ConsentGuard for the worker AI routes (inv. 4/6)
     BullModule.registerQueue({ name: PROFILE_EXTRACTION_QUEUE }),
     // Auto-enqueue a resume render once a profile is confirmed (TD5).
     BullModule.registerQueue({ name: RESUME_GENERATE_QUEUE }),

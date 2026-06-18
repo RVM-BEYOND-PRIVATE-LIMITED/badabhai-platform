@@ -73,7 +73,7 @@ const emittedNames = (events: { emit: ReturnType<typeof vi.fn> }): string[] =>
 describe("ChatService — auto-trigger extraction on the readiness flip", () => {
   it("triggers extraction exactly once on the flip (no manual /profile/extract)", async () => {
     const { svc, profiles, events } = make({ extractionReady: true });
-    const res = await svc.postMessage(DTO as never, CTX);
+    const res = await svc.postMessage(WORKER, DTO as never, CTX);
     expect(res.extraction_ready).toBe(true);
     expect(emittedNames(events)).toContain("profile.extraction_ready");
     expect(profiles.extract).toHaveBeenCalledOnce();
@@ -82,7 +82,7 @@ describe("ChatService — auto-trigger extraction on the readiness flip", () => 
 
   it("does not trigger while the interview is not yet ready", async () => {
     const { svc, profiles, events } = make({ extractionReady: false });
-    await svc.postMessage(DTO as never, CTX);
+    await svc.postMessage(WORKER, DTO as never, CTX);
     expect(emittedNames(events)).not.toContain("profile.extraction_ready");
     expect(profiles.extract).not.toHaveBeenCalled();
   });
@@ -92,21 +92,21 @@ describe("ChatService — auto-trigger extraction on the readiness flip", () => 
       extractionReady: true,
       conversationState: { ...READY_STATE, extraction_ready_emitted: true },
     });
-    await svc.postMessage(DTO as never, CTX);
+    await svc.postMessage(WORKER, DTO as never, CTX);
     expect(emittedNames(events)).not.toContain("profile.extraction_ready");
     expect(profiles.extract).not.toHaveBeenCalled();
   });
 
   it("skips extraction if the worker already has a profile (no duplicate)", async () => {
     const { svc, profiles, events } = make({ extractionReady: true, latestProfile: { id: "profile-1" } });
-    await svc.postMessage(DTO as never, CTX);
+    await svc.postMessage(WORKER, DTO as never, CTX);
     expect(emittedNames(events)).toContain("profile.extraction_ready"); // signal still emitted
     expect(profiles.extract).not.toHaveBeenCalled(); // but no second extraction
   });
 
   it("never breaks the chat reply if the extraction trigger throws", async () => {
     const { svc, profiles } = make({ extractionReady: true, extractThrows: true });
-    const res = await svc.postMessage(DTO as never, CTX);
+    const res = await svc.postMessage(WORKER, DTO as never, CTX);
     expect(profiles.extract).toHaveBeenCalledOnce();
     expect(res.reply).toBe("Thanks!"); // chat still returns normally
     expect(res.extraction_ready).toBe(true);

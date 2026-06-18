@@ -62,22 +62,32 @@ class ApiClient {
     });
   }
 
-  Future<String> startSession(String workerId) async {
-    final Map<String, dynamic> json =
-        await _post('/chat/session', <String, dynamic>{'worker_id': workerId});
+  /// Starts a chat session. Worker-scoped — requires [authToken]; the worker is
+  /// taken from the token (WorkerAuthGuard + ConsentGuard), never from the body.
+  Future<String> startSession({required String authToken}) async {
+    final Map<String, dynamic> json = await _post(
+      '/chat/session',
+      <String, dynamic>{},
+      authToken: authToken,
+    );
     return json['session_id'] as String;
   }
 
+  /// Posts a worker message. Worker-scoped — requires [authToken]; the worker is
+  /// taken from the token, never from the body.
   Future<ChatReply> sendMessage({
     required String sessionId,
-    required String workerId,
+    required String authToken,
     required String text,
   }) async {
-    final Map<String, dynamic> json = await _post('/chat/message', <String, dynamic>{
-      'session_id': sessionId,
-      'worker_id': workerId,
-      'text': text,
-    });
+    final Map<String, dynamic> json = await _post(
+      '/chat/message',
+      <String, dynamic>{
+        'session_id': sessionId,
+        'text': text,
+      },
+      authToken: authToken,
+    );
     return ChatReply.fromJson(json);
   }
 
@@ -91,25 +101,29 @@ class ApiClient {
   /// Throws [ApiException] if the job fails, or [ProfileExtractionTimeout] if it
   /// does not finish within the bounded poll budget.
   Future<String> extractProfile({
-    required String workerId,
+    required String authToken,
     String? sessionId,
   }) async {
     final EnqueueResult enqueued = await enqueueProfileExtraction(
-      workerId: workerId,
+      authToken: authToken,
       sessionId: sessionId,
     );
     return awaitProfileId(enqueued.aiJobId);
   }
 
-  /// Enqueues a profile-extraction job. Returns the job id to poll.
+  /// Enqueues a profile-extraction job. Returns the job id to poll. Worker-scoped
+  /// — requires [authToken]; the worker is taken from the token, not the body.
   Future<EnqueueResult> enqueueProfileExtraction({
-    required String workerId,
+    required String authToken,
     String? sessionId,
   }) async {
-    final Map<String, dynamic> json = await _post('/profile/extract', <String, dynamic>{
-      'worker_id': workerId,
-      if (sessionId != null) 'session_id': sessionId,
-    });
+    final Map<String, dynamic> json = await _post(
+      '/profile/extract',
+      <String, dynamic>{
+        if (sessionId != null) 'session_id': sessionId,
+      },
+      authToken: authToken,
+    );
     return EnqueueResult.fromJson(json);
   }
 
@@ -149,14 +163,19 @@ class ApiClient {
     throw ProfileExtractionTimeout(aiJobId);
   }
 
+  /// Confirms a profile. Worker-scoped — requires [authToken]; the worker is
+  /// taken from the token, never from the body.
   Future<void> confirmProfile({
-    required String workerId,
+    required String authToken,
     required String profileId,
   }) async {
-    await _post('/profile/confirm', <String, dynamic>{
-      'worker_id': workerId,
-      'profile_id': profileId,
-    });
+    await _post(
+      '/profile/confirm',
+      <String, dynamic>{
+        'profile_id': profileId,
+      },
+      authToken: authToken,
+    );
   }
 
   Future<ResumeResult> generateResume({
