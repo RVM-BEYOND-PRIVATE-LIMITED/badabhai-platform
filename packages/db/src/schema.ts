@@ -559,6 +559,8 @@ export const jobPostings = pgTable(
     closedAt: timestamp("closed_at", { withTimezone: true }),
   },
   (t) => [
+    // Backs the ops list endpoint: filter by `status`, order by `created_at desc`.
+    index("job_postings_status_created_at_idx").on(t.status, t.createdAt),
     // Pin the banded vacancy to the 5 allowed values (mirrors VACANCY_BANDS).
     check(
       "job_postings_vacancy_band_chk",
@@ -700,6 +702,9 @@ export const jobs = pgTable("jobs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
+  // Backs the worker feed + reach open-jobs queries: filter `status='open'`,
+  // order by `created_at` (id tiebreak via the PK). Also serves the status filter.
+  index("jobs_status_created_at_idx").on(t.status, t.createdAt),
   check("jobs_applicants_received_nonneg_chk", sql`${t.applicantsReceived} >= 0`),
   // Pay/experience are non-negative when present, and the max is not below the min.
   check(

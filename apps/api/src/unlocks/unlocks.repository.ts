@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
 import {
   type Database,
   type Unlock,
@@ -15,6 +15,7 @@ import {
   creditLedger,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
+import { OPS_LIST_CAP } from "../common/pagination";
 
 /**
  * A Drizzle transaction handle. The chokepoint ({@link UnlockService}) opens ONE
@@ -351,7 +352,9 @@ export class UnlocksRepository {
     const rows = await this.db
       .select()
       .from(unlocks)
-      .where(eq(unlocks.payerId, payerId));
+      .where(eq(unlocks.payerId, payerId))
+      .orderBy(desc(unlocks.createdAt)) // deterministic newest-first under the cap
+      .limit(OPS_LIST_CAP); // bound an otherwise-unbounded ops read
     return rows.map((u) => this.project(u));
   }
 
