@@ -45,6 +45,31 @@ pre-existing worker chain to prove the query — it is NOT a handset run and is 
 
 ---
 
+## Phase 1 RE-VERIFICATION — 2026-06-19 (against current `main` @ d0eaad8; B1 still NO-GO)
+
+Four PRs merged since the 2026-06-17 pre-flight (#91 P0 auth+consent on chat/profile/voice,
+#92 thin resume controller, #95 controller tests, #96 chat-history cap). **The device
+happy-path was re-traced against current `main` to confirm none of them broke or stalled the
+B1 flow — and one materially STRENGTHENS the consent evidence.**
+
+| Re-check (post-merge) | Status | Detail (current `main`) |
+| --------------------- | ------ | ----------------------- |
+| App staging wiring (line ref refresh) | ✅ still correct | `ApiClient` base URL = `String.fromEnvironment('API_BASE_URL', defaultValue:'http://localhost:3001')` now at [api_client.dart:26-28](../../apps/worker-app/lib/core/api/api_client.dart#L26) (was 24-32). `--dart-define=API_BASE_URL=https://<staging-api>` unchanged as the only switch. |
+| **P0 auth+consent (#91) didn't break the device path** | ✅ verified | The worker AI routes now require a **bearer token + prior consent** server-side. The app already satisfies both: OTP-verify captures `access_token` → `AppState.sessionToken` ([otp_verify_screen.dart:31](../../apps/worker-app/lib/features/auth/otp_verify_screen.dart#L31)); the **consent screen POSTs `/consent/accept` BEFORE navigating to chat** ([consent_screen.dart:23-29](../../apps/worker-app/lib/features/consent/consent_screen.dart#L23)); chat/profile/voice calls now send the token (#91). Router order splash→login→otp→**consent→chat**→profile→resume is intact. So the handset flow still completes — a missing token would 401 and missing consent would 403, neither of which the happy-path hits. |
+| Consent-gate evidence (b.4) is now SERVER-ENFORCED | ✅ stronger | `ConsentGuard` now blocks chat/profile/voice until `consent.accepted` exists (#91) — b.4 ("consent strictly precedes first AI") is enforced at the API, not just asserted post-hoc. A consent-after-chat ordering is now structurally impossible on-device. |
+| Chat-history cap (#96) | ✅ transparent | `ChatRepository.listMessages` is bounded (`CHAT_HISTORY_MAX=500`, recency-preserving) — a ≥3-turn interview is far under the cap, so the chain + reply behaviour is byte-identical. No effect on B1. |
+| Resume-text path (#92) | ✅ unchanged | `POST /resume/generate` (the app's resume-text source) is unchanged; the #92 refactor moved only the ops read/download/share logic into the service. Resume-text preview still renders. |
+| Event chain names | ✅ unchanged | No event was renamed/versioned by the four PRs — the §2(b) validated chain (`otp_verified`…`resume.generated`) is current. |
+| **Staging API deployed** | ⛔ **BLOCKER (unchanged)** | Still no HTTPS staging URL; app defaults to `localhost:3001`. **DevOps action — the critical path to the Jun-20 target.** |
+| Real Android handset run | ⛔ **BLOCKER (unchanged)** | The one human step. |
+
+**Net (2026-06-19):** turnkey prep is current and re-confirmed against `main`; the recent auth
+work is correctly wired in the app (and improves the consent evidence). **B1 stays NO-GO on
+the two unchanged hard blockers.** ⚠️ **Jun-20 target is at RISK** until DevOps deploys staging
+and hands over the concrete `API_BASE_URL` — nothing downstream can start without it.
+
+---
+
 ## Phase 1 — turnkey (do all before touching the phone)
 
 ### 1. Build + install (copy-paste)

@@ -43,6 +43,17 @@ Today is **2026-06-16**; alpha cut target is **2026-06-25**.
 > three artifacts (Phase 3 of the runbook). Schema note baked into the query: `events` has **no
 > `worker_id` column** — the chain links via `payload->>'worker_id'`.
 
+> **Update (2026-06-19) — Phase-1 RE-VERIFIED against current `main`; verdict UNCHANGED (still
+> NO-GO).** Re-traced the device happy-path after four merges since the 06-17 pre-flight (#91 P0
+> auth+consent, #92, #95, #96). Findings: the runbook is **current** and the recent auth work is
+> **correctly wired in the app** (OTP-verify → token; **consent POSTed before chat**; chat sends
+> the bearer) — so the handset flow still completes, and #91 now makes the **consent-gate
+> server-enforced** (`ConsentGuard`), *strengthening* B1's b.4 evidence. The two hard
+> prerequisites are **unchanged and still unmet:** (1) **DevOps must deploy staging + provide
+> `API_BASE_URL`** (the critical path), (2) the **human handset run**. ⚠️ **The 2026-06-20 target
+> is AT RISK** until staging is deployed — that is the gating action. Detail:
+> [b1-device-capstone-runbook.md](../qa/b1-device-capstone-runbook.md) "Phase 1 RE-VERIFICATION — 2026-06-19".
+
 ---
 
 ## NO-GO → GO CONDITION (enumerated — this is the complete set)
