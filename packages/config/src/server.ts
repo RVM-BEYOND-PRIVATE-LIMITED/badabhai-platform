@@ -182,6 +182,28 @@ export const serverEnvSchema = z.object({
   // boolean flags above (AI_ENABLE_REAL_CALLS / PAYMENTS_ENABLE_REAL).
   CAPACITY_ENFORCEMENT_ENABLED: booleanFromString,
 
+  // PACE supply-widening (ADR-0021 — CONFIG-DRIVEN, deterministic, no LLM). The widen
+  // DECISION is a pure function of these rules; nothing is hard-coded in the service.
+  // Master switch — default OFF (inert/additive): PACE only runs when explicitly
+  // enabled. booleanFromString so a falsey string stays OFF (fail-safe to inert),
+  // consistent with the other boolean gates above.
+  PACE_ENABLED: booleanFromString,
+  // A job with FEWER than this many above-floor (on-trade) good-fit candidates is
+  // "thin supply" → PACE widens. The count uses the SAME floor the boost-integrity
+  // guard locks; never hides/drops anyone.
+  PACE_THIN_SUPPLY_MIN: z.coerce.number().int().positive().default(3),
+  // Each AREA-widen wave raises the travel band by this many km, up to the ceiling.
+  PACE_AREA_STEP_KM: z.coerce.number().positive().default(15),
+  PACE_MAX_AREA_KM: z.coerce.number().positive().default(75),
+  // Wave cadence within the 6–24h window: hours between successive widen waves, and
+  // the elapsed-hours threshold after which thin supply raises an OPS ALERT.
+  PACE_WAVE_INTERVAL_HOURS: z.coerce.number().positive().default(6),
+  PACE_OPS_ALERT_AFTER_HOURS: z.coerce.number().positive().default(24),
+  // ADJACENT-TRADE leg gate — default OFF and BLOCKED until a RATIFIED adjacency map
+  // exists (ADR-0021; no ratified ADJACENT_ROLES map today). MUST stay false until a
+  // ratified map is wired — flipping it true without one is a no-op (the map is empty).
+  PACE_ADJACENCY_ENABLED: booleanFromString,
+
   // Model routing. Bare provider model ids (no provider prefix); the AI service
   // selects cheap vs capable per task. Cost guardrails are in INR per worker profile.
   DEFAULT_CHEAP_MODEL: z.string().min(1).default("gemini-2.5-flash-lite"),
@@ -333,6 +355,25 @@ export function areRealMessagesEnabled(config: ServerConfig): boolean {
  */
 export function isCapacityEnforcementEnabled(config: ServerConfig): boolean {
   return config.CAPACITY_ENFORCEMENT_ENABLED;
+}
+
+/**
+ * Master gate for PACE supply-widening (ADR-0021). Default OFF (additive/inert): PACE
+ * waves + ops alerts only run when explicitly enabled. The widen DECISION itself is a
+ * pure config-driven rule (no LLM, invariant 4).
+ */
+export function isPaceEnabled(config: ServerConfig): boolean {
+  return config.PACE_ENABLED;
+}
+
+/**
+ * Gate for the PACE ADJACENT-TRADE widen leg (ADR-0021). Default OFF and BLOCKED on a
+ * ratified adjacency map — there is NO ratified ADJACENT_ROLES map today, so the area
+ * leg ships first and this stays false. Enabling it without a ratified map is a no-op
+ * (the adjacency lookup returns no related roles).
+ */
+export function isPaceAdjacencyEnabled(config: ServerConfig): boolean {
+  return config.PACE_ADJACENCY_ENABLED;
 }
 
 /**

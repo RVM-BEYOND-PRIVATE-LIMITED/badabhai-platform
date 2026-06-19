@@ -20,6 +20,7 @@ import { JobPostingsModule } from "./job-postings/job-postings.module";
 import { PricingModule } from "./pricing/pricing.module";
 import { PostingPlansModule } from "./posting-plans/posting-plans.module";
 import { ReachModule } from "./reach/reach.module";
+import { PaceModule } from "./pace/pace.module";
 import { UnlocksModule } from "./unlocks/unlocks.module";
 import { MessagingModule } from "./messaging/messaging.module";
 import { ResumeDisclosureModule } from "./disclosures/resume-disclosure.module";
@@ -57,6 +58,7 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     UnlocksModule,
     MessagingModule,
     ResumeDisclosureModule,
+    PaceModule,
   ],
 })
 export class AppModule implements NestModule {
