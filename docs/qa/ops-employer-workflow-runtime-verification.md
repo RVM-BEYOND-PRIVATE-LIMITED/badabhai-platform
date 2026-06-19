@@ -106,6 +106,7 @@ pnpm build                       # build @badabhai/* first (Turbo order)
 pnpm db:migrate
 pnpm --filter @badabhai/db exec tsx src/seed.ts             # base seed
 pnpm --filter @badabhai/db exec tsx src/seed-jobs.ts        # seeded jobs/applicants (ADR-0009)
+pnpm db:seed:demand                                         # BUG-2: synthetic DEMAND fixture (worker+profile+employer_sharing consent, open job_posting, credited payer)
 # (seed-questionnaire.ts is available if you need profile questions too)
 
 # API (point at the staging DB/Redis via apps/api env; NODE_ENV=staging|production):
@@ -119,6 +120,27 @@ pnpm --filter @badabhai/web dev      # or `build && start` for a prod-like run
 > The **employer feed** (`/ops/reach/jobs/[jobId]/applicants`) reads via `JOB_SOURCE` — which, once
 > BUG-1 is fixed, is the **`job_postings`** entity (a *different* table). So you also need a real
 > **job posting** (the other dev's surface, step 1 below) plus worker profiles that rank for it.
+
+### 1.1a One-command demand seed + verify (BUG-2 reproducer)
+
+`db:seed:demand` removes the manual-fixture step: it builds the whole synthetic, faceless demand-side
+fixture in one **idempotent**, **prod-guarded** (`NODE_ENV !== "production"`) command and prints the ids.
+`db:verify:demand` then drives the loop through the **real HTTP API** and asserts the events spine — so
+"does the employer/unlock loop work?" becomes one command instead of a manual click-path.
+
+```bash
+# After db:migrate + db:seed:jobs, with the API running against the SAME DB and the
+# SAME PII_ENCRYPTION_KEY / PII_HASH_PEPPER the seed used:
+pnpm db:seed:demand        # prints worker_id / payer_id / job_posting_id (prefix NODE_ENV=staging if the box defaults to production)
+API_BASE_URL=https://<staging-api> INTERNAL_SERVICE_TOKEN=<token> pnpm db:verify:demand
+```
+
+`db:verify:demand` runs **plan → applicants → unlock → reveal** and PASSES only when the `events` table
+recorded all six: `feed.shown`, `job_posting.purchased`, `payment.authorized`, `payment.captured`,
+`unlock.granted`, `contact.revealed`. MOCK payments only (`PAYMENTS_ENABLE_REAL=false`); the synthetic
+worker's phone is encrypted via the **shared crypto** so the reveal-path decrypt matches. Neither script
+applies migrations — `db:migrate` against staging stays the **§7 human-credentialed** step.
+Sources: [seed-demand.ts](../../packages/db/src/seed-demand.ts) · [verify-demand.ts](../../packages/db/src/verify-demand.ts).
 
 ### 1.2 Confirm health, console reachability, seed presence
 
@@ -233,7 +255,7 @@ trace at steps 4–5 once a proper target exists.
 | ID | Sev | What | Where | Owner |
 | -- | --- | ---- | ----- | ----- |
 | **BUG-1** | ~~High (blocks the run)~~ → ✅ **FIXED 2026-06-17** | Real `JobSource` replaces the dev-only stub binding so the API boots in staging and the feed resolves a real job. The interim #67 `JobPostingsJobSource` was **superseded by divyuuu's `JobsTableJobSource`** ([ADR-0015](../decisions/0015-reach-feed-on-real-jobs.md), PR #69) reading the live `jobs` entity (faceless projection + mapper, no-PII test). Live staging run still pending. | [reach.module.ts](../../apps/api/src/reach/reach.module.ts), [reach.job-source.ts](../../apps/api/src/reach/reach.job-source.ts) | backend-engineer (done) |
-| **BUG-2** | **High (blocks the run)** — found by the 2026-06-17 runtime probe | **The employer/unlock schema is not deployed.** The DB this repo's `.env` reaches has only the 14 Phase-1 worker-profiling tables; `jobs`/`applications`/`job_postings`/`unlocks`/`payer_credits`/`credit_ledger`/`unlock_routing` are **absent** and the journal is **9 migrations behind** (10 applied vs 19 in repo). No environment reachable from here can host a single mutating step (0 unlock/contact/payment events ever). **Fix:** stand up a staging/non-prod DB, `pnpm db:migrate` to head, seed (jobs + a synthetic `employer_sharing`-consented worker + payer credits), point the API at it with `NODE_ENV=staging` (so the real `JobsTableJobSource` binds). | `packages/db/migrations/*` (0009/0010/0012/0014/0015 unapplied) + deploy target | devops + database-architect |
+| **BUG-2** | **High (blocks the run)** — found by the 2026-06-17 runtime probe | **The employer/unlock schema is not deployed.** The DB this repo's `.env` reaches has only the 14 Phase-1 worker-profiling tables; `jobs`/`applications`/`job_postings`/`unlocks`/`payer_credits`/`credit_ledger`/`unlock_routing` are **absent** and the journal is **9 migrations behind** (10 applied vs 19 in repo). No environment reachable from here can host a single mutating step (0 unlock/contact/payment events ever). **Fix:** stand up a staging/non-prod DB, `pnpm db:migrate` to head, then seed in one command — `pnpm db:seed:jobs` + `pnpm db:seed:demand` (the synthetic `employer_sharing`-consented worker + open job_posting + credited payer; idempotent, prod-guarded), point the API at it with `NODE_ENV=staging` (so the real `JobsTableJobSource` binds), and run `pnpm db:verify:demand` to drive the loop and assert the events. See §1.1a. | `packages/db/migrations/*` (0009/0010/0012/0014/0015 unapplied) + deploy target | devops + database-architect |
 | **OBS-2** | Med (launch gate, known) | Payer identity is **unauthenticated** — all unlock/reveal/credits routes are behind `InternalServiceGuard`; `payer_id` is trusted from the request body. Any ops actor can act as any payer. Acceptable for alpha **ops-run** only; a real `PayerAuthGuard` + horizontal-authz test is a hard launch gate. | [unlocks.controller.ts:26-42](../../apps/api/src/unlocks/unlocks.controller.ts#L26) (TD33) | security + backend |
 | **OBS-3** | Med (build gate) | No employer-facing **masked** resume surface exists; `maskInitials` is doc-only. Before ANY employer resume surface ships, build gate **B-G** (masked initials, no phone, golden-render test) must land in the same change. | [addendum](../security/resume-disclosure-threat-model-addendum.md) / [resume-renderer.service.ts](../../apps/api/src/resume/resume-renderer.service.ts) | frontend + security |
 | **OBS-4** | Low | Ops console has **no auth gate** (`apps/web` has no middleware/login) — relies on network-internal deployment. Confirm it is not publicly reachable in staging. | `apps/web/src/app/**` (no `middleware.ts`) | devops |
