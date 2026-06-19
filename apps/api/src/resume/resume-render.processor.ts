@@ -1,15 +1,14 @@
 import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Inject, Logger } from "@nestjs/common";
 import type { Job } from "bullmq";
-import { DraftProfileSchema } from "@badabhai/ai-contracts";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { StorageService } from "../storage/storage.service";
 import { ResumeRepository } from "./resume.repository";
-import { ResumeRenderer, type ResumeRenderInput } from "./resume-renderer.service";
-import { resolveTradeContent, type TradeContent } from "./trade-content";
+import { ResumeRenderer } from "./resume-renderer.service";
+import { buildResumeRenderInput } from "./resume-render-input";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 
 /**
@@ -71,7 +70,7 @@ export class ResumeRenderProcessor extends WorkerHost {
       }
     }
 
-    const input = this.buildRenderInput(resume.sourceProfileSnapshot, displayName, resume.templateId);
+    const input = buildResumeRenderInput(resume.sourceProfileSnapshot, displayName, resume.templateId);
 
     let pdf: Buffer | null = null;
     try {
@@ -126,79 +125,5 @@ export class ResumeRenderProcessor extends WorkerHost {
   private isFinalAttempt(job: Job<ResumeRenderJobData>): boolean {
     const maxAttempts = job.opts.attempts ?? 1;
     return job.attemptsMade + 1 >= maxAttempts;
-  }
-
-  /**
-   * Build the renderer input from the NAME-FREE snapshot + the decrypted name.
-   * The snapshot is the stored DraftProfile; re-validate its shape.
-   *
-   * TD24a: when the worker's canonical role maps to a known trade, fill the
-   * headline + a DETERMINISTIC trade summary + role-typical responsibilities from
-   * `trade-content.ts` (static, reviewed copy — NO LLM). The worker's OWN summary
-   * (if they gave one) always wins. Skills/machines remain ONLY what the worker
-   * selected — trade content never asserts a skill the worker didn't choose.
-   */
-  private buildRenderInput(
-    snapshot: unknown,
-    displayName: string | null,
-    templateId: string | null,
-  ): ResumeRenderInput {
-    const draft = DraftProfileSchema.parse(snapshot ?? {});
-    const trade = resolveTradeContent(draft.canonical_role_id, draft.canonical_trade_id);
-    return {
-      templateId,
-      displayName,
-      // Prefer the recruiter-readable trade title over a raw taxonomy id.
-      canonicalRole: trade?.display_name ?? draft.canonical_role_id,
-      location: draft.location_preference.preferred_cities[0] ?? null,
-      experienceYears: draft.experience.total_years,
-      availability: ResumeRenderProcessor.humanizeAvailability(draft.availability.status),
-      summary: ResumeRenderProcessor.buildSummary(draft, trade),
-      skills: draft.skills,
-      machines: draft.machines,
-      // Controllers/education/certifications aren't in the DraftProfile snapshot;
-      // they stay empty (no fabrication). Responsibilities are TRADE-level copy.
-      controllers: [],
-      education: [],
-      certifications: [],
-      responsibilities: trade ? [...trade.responsibilities] : [],
-    };
-  }
-
-  /**
-   * Deterministic resume summary (NO LLM):
-   *  1. the worker's OWN summary, if present (their words win); else
-   *  2. the trade's experienced template filled with profile facts (years/role/
-   *     primary machine) when they have experience; else
-   *  3. the trade's fresher phrase; else
-   *  4. null (unknown trade + no summary → generic resume, nothing fabricated).
-   */
-  private static buildSummary(
-    draft: ReturnType<typeof DraftProfileSchema.parse>,
-    trade: TradeContent | undefined,
-  ): string | null {
-    if (draft.experience.summary) return draft.experience.summary;
-    if (!trade) return null;
-    const years = draft.experience.total_years;
-    if (years && years > 0) {
-      const primaryMachine = draft.machines[0] ?? "CNC/VMC machines";
-      return trade.summary_template
-        .replace(/\{\{\s*role\s*\}\}/g, trade.display_name)
-        .replace(/\{\{\s*years\s*\}\}/g, `${years} year${years === 1 ? "" : "s"}`)
-        .replace(/\{\{\s*primary_machine\s*\}\}/g, primaryMachine);
-    }
-    return trade.fresher_phrases[0] ?? null;
-  }
-
-  /** Map the availability enum to a short human-readable phrase (or omit). */
-  private static humanizeAvailability(status: string): string | null {
-    switch (status) {
-      case "immediate":
-        return "Available immediately";
-      case "notice_period":
-        return "On notice period";
-      default:
-        return null; // not_looking / unknown → omit
-    }
   }
 }
