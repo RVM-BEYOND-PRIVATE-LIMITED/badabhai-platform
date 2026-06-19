@@ -5,10 +5,16 @@
  *
  * Values mirror the maintainer-ratified spec (2026-06-16):
  *  - job_posting: standard ₹1000 / 14d / 10 applicants; pro ₹2500 / 30d / 30 views
+ *    ⚠️ §3A says posting is "free-through-launch (verification-gated)". The catalog
+ *    schema forbids a ₹0 price (priceInrSchema = min(1)), so "free posting" CANNOT be
+ *    modelled as a price here — it needs a launch-phase waiver/verification mechanism
+ *    (ESCALATED, ADR-0013). These paid tiers are left for post-launch; the portal
+ *    treats base posting as free-through-launch at the surface.
  *  - job_boost:   all_candidates ₹1200 / 2d
- *  - contact_unlock: pack_10 ₹1000/10, pack_25 ₹2000/25, 14-day window
- *    (absorbed EXACTLY from packages/db/src/credit-packs.ts — same codes/values, so
- *    existing credit_ledger.pack_code references stay valid; invariant 8).
+ *  - contact_unlock (§3A 2026-06-19): offered packs pack_50 ₹2000/50, pack_200 ₹8000/200,
+ *    pack_1000 ₹40000/1000 (per-unlock unit ₹40; the 1000-pack DISCOUNT figure is pending
+ *    — priced linearly for now). Legacy pack_10/pack_25 are retained as RESOLVABLE in
+ *    credit-packs.ts for credit_ledger history (invariant 8) but are no longer OFFERED.
  *  - hiring_capacity (ADR-0016): cap_5 ₹5000 / 5 active vacancies / 30d;
  *    cap_15 ₹12000 / 15 / 30d. Buying RAISES the payer's concurrent-active-vacancy
  *    allowance (over-cap plans are 'paused'). Ops-editable; the service logic reads
@@ -38,11 +44,17 @@ export const DEFAULT_CATALOG: Catalog = catalogSchema.parse({
       tiers: [{ code: "all_candidates", priceInr: 1200, boostDays: 2 }],
     },
     {
+      // §3A pricing locks (2026-06-19): per-unlock unit ₹40; offered packs 50/200/1000.
+      // Priced at the ₹40/credit anchor; the 1000-pack discount figure is PENDING (not in
+      // repo) so it is currently linear ₹40,000 — see packages/db/src/credit-packs.ts.
+      // Legacy pack_10/pack_25 are RETAINED (resolvable) for credit_ledger history but are
+      // no longer OFFERED, so they are not listed in this catalog.
       kind: "credit_pack",
       code: "contact_unlock",
       tiers: [
-        { code: "pack_10", priceInr: 1000, credits: 10, windowDays: 14 },
-        { code: "pack_25", priceInr: 2000, credits: 25, windowDays: 14 },
+        { code: "pack_50", priceInr: 2000, credits: 50, windowDays: 14 },
+        { code: "pack_200", priceInr: 8000, credits: 200, windowDays: 14 },
+        { code: "pack_1000", priceInr: 40000, credits: 1000, windowDays: 14 },
       ],
     },
     {
