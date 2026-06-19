@@ -72,8 +72,21 @@ machinery never needed re-architecting — only the clean accuracy evidence, whi
    fallback). Turnkey command + p95 method: see §"Re-validation on the pinned model" in
    [enable-real-llm-extraction.md](enable-real-llm-extraction.md). **If <90% on `gemini-2.5-flash`,
    STOP — do not ship a model the numbers don't cover.** Owner: **ai-engineer + devops**.
-   *Also unmet per Q3:* p95 latency on the pinned model · ≥2 more staging runs · shared-store (Redis)
-   spend ledger · secrets manager.
+   *Also per Q3:* p95 latency on the pinned model · ≥2 more staging runs · ~~shared-store (Redis)
+   spend ledger~~ **✅ MET (2026-06-19)** · secrets manager.
+
+5. **✅ Shared-store (Redis) spend ledger — MET (2026-06-19, TD27 final sub-item).** The spend
+   caps (daily / cumulative / per-user ₹6) now enforce **GLOBALLY across all Uvicorn workers** via
+   a Redis-backed ledger with an **atomic reserve → reconcile → refund** (closes the prior
+   per-worker-caps gap and the documented check-then-act overshoot). **Deploy precondition for the
+   flip:** PROVISION Redis and set **`REDIS_URL`** in staging/prod **BEFORE** `AI_ENABLE_REAL_CALLS=true`
+   — with `REDIS_URL` unset the service falls back to the **in-process** backend (per-worker caps),
+   which under multiple workers lets total spend reach `N × cap`. **Fail-closed:** `REDIS_URL` set
+   but Redis unreachable ⇒ real calls are blocked → mock (never an unbounded spend). Ops liveness:
+   `GET /health` reports `spend_store` (`redis`/`in_process`). See [TD27](../registers/tech-debt-register.md)
+   / [R6](../registers/risks-register.md) and the [architecture log](../registers/architecture-log.md)
+   (2026-06-19). The AI service is **host-run** today (not a docker-compose service); the host reaches
+   the compose `redis` at `redis://localhost:6379/0`.
 
 > **Audit note (2026-06-17).** The GO verdict is **evidence-backed** (a clean full-gold-set run
 > exists — not a bare override), so the GO stands. But the flip is **NOT yet executable**: it is

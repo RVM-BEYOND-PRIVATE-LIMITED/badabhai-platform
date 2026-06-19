@@ -90,10 +90,15 @@ class AIRouter:
                 ceiling_skipped_any = True
                 continue
 
-            # 2. Cumulative spend caps (TD27): checked BEFORE the call with the
-            # worst-case projected cost. A daily/cumulative breach blocks EVERY
-            # candidate -> mock fallback. Same fail-closed posture as the ceiling.
-            reason = ledger.would_exceed_spend(worst_case_inr, self._settings, user_ref=user_ref)
+            # 2. Cumulative spend caps (TD27): an atomic check-AND-RESERVE of the
+            # worst-case projected cost, BEFORE the call. A breach reserves nothing
+            # and blocks EVERY candidate -> mock fallback (same fail-closed posture
+            # as the ceiling). spend_store_unavailable (Redis unreachable) flows
+            # through here too. On success the reservation MUST be reconciled (on a
+            # real success) or refunded (on every non-success path) exactly once.
+            reason = await ledger.would_exceed_spend(
+                worst_case_inr, self._settings, user_ref=user_ref
+            )
             if reason is not None:
                 logger.warning(
                     "spend cap reached; blocking real call",
@@ -105,50 +110,69 @@ class AIRouter:
                 spend_block_reason = reason
                 continue
 
-            # Attempt this candidate with the route's per-attempt retries.
+            # A reservation is now outstanding for THIS candidate. ``reconciled``
+            # guards the refund-on-failure: it is set True only by a real success
+            # (which reconciles reserved->actual). Any other exit from this
+            # candidate (all attempts failed, or the retry budget broke the loop)
+            # falls through to the full refund below.
+            reconciled = False
             any_attempted = True
-            for attempt in range(route.max_retries + 1):
-                # 3. Retry budget (TD27): a RETRY (attempt > 0) must consume a slot
-                # of the rolling cross-request budget. Exhausted -> stop hammering
-                # this failing provider (break the retry loop).
-                if attempt > 0 and not ledger.try_consume_retry(self._settings):
-                    retry_budget_hit = True
-                    logger.warning(
-                        "retry budget exhausted; stopping retries",
-                        extra={"extra": {
-                            "task": task_type, "model": model, "attempt": attempt,
-                            "budget_per_window": self._settings.ai_retry_budget_per_window,
-                        }},
-                    )
-                    break
-                try:
-                    result = await providers.complete(
-                        settings=self._settings, model=model, messages=messages,
-                        max_output_tokens=route.max_output_tokens,
-                        temperature=route.temperature, json_mode=route.json_mode,
-                    )
-                    latency = int((time.perf_counter() - start) * 1000)
-                    in_tok = result.input_tokens or cost_tracker.estimate_tokens(input_text)
-                    out_tok = result.output_tokens or cost_tracker.estimate_tokens(result.content)
-                    meta = cost_tracker.build_call_metadata(
-                        task_type=task_type, model=model, real_call=True,
-                        input_tokens=in_tok, output_tokens=out_tok,
-                        latency_ms=latency, success=True, settings=self._settings,
-                    )
-                    # Record ACTUAL estimated spend (not worst-case) after success.
-                    ledger.record_spend(meta.estimated_cost_inr, user_ref=user_ref)
-                    self._trace(task_type, model, True, input_text, result.content, meta)
-                    return result.content, meta
-                except Exception as exc:
-                    # NEVER log the exception body (may echo pseudonymized content)
-                    # — only its type, the attempt, the task, and the model.
-                    logger.warning(
-                        "llm attempt failed",
-                        extra={"extra": {
-                            "attempt": attempt, "task": task_type, "model": model,
-                            "error_type": type(exc).__name__,
-                        }},
-                    )
+            try:
+                for attempt in range(route.max_retries + 1):
+                    # 3. Retry budget (TD27): a RETRY (attempt > 0) must consume a
+                    # slot of the rolling cross-request budget. Exhausted -> stop
+                    # hammering this failing provider (break the retry loop).
+                    if attempt > 0 and not ledger.try_consume_retry(self._settings):
+                        retry_budget_hit = True
+                        logger.warning(
+                            "retry budget exhausted; stopping retries",
+                            extra={"extra": {
+                                "task": task_type, "model": model, "attempt": attempt,
+                                "budget_per_window": self._settings.ai_retry_budget_per_window,
+                            }},
+                        )
+                        break
+                    try:
+                        result = await providers.complete(
+                            settings=self._settings, model=model, messages=messages,
+                            max_output_tokens=route.max_output_tokens,
+                            temperature=route.temperature, json_mode=route.json_mode,
+                        )
+                        latency = int((time.perf_counter() - start) * 1000)
+                        in_tok = result.input_tokens or cost_tracker.estimate_tokens(input_text)
+                        out_tok = result.output_tokens or cost_tracker.estimate_tokens(
+                            result.content
+                        )
+                        meta = cost_tracker.build_call_metadata(
+                            task_type=task_type, model=model, real_call=True,
+                            input_tokens=in_tok, output_tokens=out_tok,
+                            latency_ms=latency, success=True, settings=self._settings,
+                        )
+                        # Reconcile the reservation: refund worst_case - actual so
+                        # the net recorded spend is the ACTUAL estimated cost.
+                        await ledger.record_spend(
+                            worst_case_inr, meta.estimated_cost_inr, user_ref=user_ref
+                        )
+                        reconciled = True
+                        self._trace(task_type, model, True, input_text, result.content, meta)
+                        return result.content, meta
+                    except Exception as exc:
+                        # NEVER log the exception body (may echo pseudonymized
+                        # content) — only its type, the attempt, task, and model.
+                        logger.warning(
+                            "llm attempt failed",
+                            extra={"extra": {
+                                "attempt": attempt, "task": task_type, "model": model,
+                                "error_type": type(exc).__name__,
+                            }},
+                        )
+            finally:
+                # Leak fix: if this candidate's reservation was not reconciled by a
+                # real success, fully refund it (actual=0.0) before moving on. This
+                # runs on EVERY non-success exit from the candidate — all attempts
+                # failed, the retry-budget break, or the outer break below.
+                if not reconciled:
+                    await ledger.record_spend(worst_case_inr, 0.0, user_ref=user_ref)
             if retry_budget_hit:
                 break
 
