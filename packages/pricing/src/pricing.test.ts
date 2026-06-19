@@ -63,14 +63,20 @@ describe("DEFAULT_CATALOG (the seed = absorbed credit-packs.ts + spec prices)", 
     expect(pro.grants).toEqual({ kind: "posting", validityDays: 30, applicantVisibilityQuota: 30 });
   });
 
-  it("boost is ₹1200 / 2 days; packs match credit-packs.ts exactly", () => {
+  it("boost is ₹1200 / 2 days; offered packs are the §3A 50/200/1000 (₹40/credit anchor)", () => {
     const boost = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "job_boost", tierCode: "all_candidates", now: NOW }));
     expect(boost.finalInr).toBe(1200);
     expect(boost.grants).toEqual({ kind: "boost", boostDays: 2 });
-    const p10 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "contact_unlock", tierCode: "pack_10", now: NOW }));
-    expect(p10).toMatchObject({ finalInr: 1000, grants: { kind: "credit_pack", credits: 10, windowDays: 14 } });
-    const p25 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "contact_unlock", tierCode: "pack_25", now: NOW }));
-    expect(p25).toMatchObject({ finalInr: 2000, grants: { kind: "credit_pack", credits: 25, windowDays: 14 } });
+    const p50 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "contact_unlock", tierCode: "pack_50", now: NOW }));
+    expect(p50).toMatchObject({ finalInr: 2000, grants: { kind: "credit_pack", credits: 50, windowDays: 14 } });
+    const p200 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "contact_unlock", tierCode: "pack_200", now: NOW }));
+    expect(p200).toMatchObject({ finalInr: 8000, grants: { kind: "credit_pack", credits: 200, windowDays: 14 } });
+    // 1000-pack: linear ₹40/credit for now — the §3A discount figure is pending (not in repo).
+    const p1000 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "contact_unlock", tierCode: "pack_1000", now: NOW }));
+    expect(p1000).toMatchObject({ finalInr: 40000, grants: { kind: "credit_pack", credits: 1000, windowDays: 14 } });
+    // §3A unit anchor: each offered pack (except the pending-discount 1000) is ₹40/credit.
+    expect(p50.finalInr / 50).toBe(40);
+    expect(p200.finalInr / 200).toBe(40);
   });
 
   it("hiring_capacity tiers carry the maxActiveVacancies + validityDays grant (ADR-0016)", () => {
