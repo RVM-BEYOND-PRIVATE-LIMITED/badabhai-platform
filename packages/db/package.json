@@ -27,6 +27,8 @@
     "db:seed": "tsx src/seed.ts",
     "db:seed:questionnaire": "tsx src/seed-questionnaire.ts",
     "db:seed:jobs": "tsx src/seed-jobs.ts",
+    "db:seed:demand": "tsx src/seed-demand.ts",
+    "db:verify:demand": "tsx src/verify-demand.ts",
     "clean": "rimraf dist .turbo *.tsbuildinfo"
   },
   "dependencies": {
