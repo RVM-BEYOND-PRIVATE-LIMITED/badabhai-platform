@@ -26,5 +26,9 @@ import { JOB_SOURCE, JobsTableJobSource } from "./reach.job-source";
       useClass: JobsTableJobSource,
     },
   ],
+  // Export the RANK reuse so additive consumers (PACE — ADR-0021) can measure
+  // above-floor supply via the SAME repository + job source, never reimplementing
+  // ranking. Faceless: both surface opaque ids + signals only.
+  exports: [ReachRepository, JOB_SOURCE],
 })
 export class ReachModule {}

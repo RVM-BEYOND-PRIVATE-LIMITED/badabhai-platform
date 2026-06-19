@@ -1149,6 +1149,50 @@ export const invites = pgTable(
 ).enableRLS(); // RLS tracked in the model; REVOKE carried by the migration (spine posture)
 
 // ---------------------------------------------------------------------------
+// pace_states — per-job PACE supply-widening run state (ADR-0021). PII-FREE.
+//
+// One row per job under PACE. Tracks the current widen stage + area band, when the
+// run began (the clock for the 6–24h window; elapsed is derived), the last observed
+// above-floor good-fit supply count, and whether the ops alert has fired (idempotency).
+// FACELESS: the only reference is the opaque job_id (the faceless `jobs` row) — NO
+// worker/employer/location ever lands here. The widen decision that mutates this is a
+// PURE config-driven rule (no LLM, invariant 4). RLS-enabled (REVOKE carried by the
+// migration, spine posture).
+// ---------------------------------------------------------------------------
+export type PaceStage = "base" | "area" | "adjacent_trade" | "ops_alert";
+
+export const paceStates = pgTable(
+  "pace_states",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The opaque job this PACE run widens (faceless `jobs` row; cascade on delete).
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => jobs.id, { onDelete: "cascade" }),
+    // Escalation stage: base → area → [adjacent_trade, gated] → ops_alert.
+    stage: text("stage").$type<PaceStage>().notNull().default("base"),
+    // Wave index (0 = base; increments each widen wave). Non-negative.
+    wave: integer("wave").notNull().default(0),
+    // Current AREA travel band (km) PACE has widened to; null until the first widen.
+    currentAreaKm: integer("current_area_km"),
+    // Last observed count of above-floor (on-trade) good-fit candidates. Non-negative.
+    lastSupplyCount: integer("last_supply_count").notNull().default(0),
+    // Whether the ops alert has been raised (idempotency — never raise twice).
+    opsAlertRaised: boolean("ops_alert_raised").notNull().default(false),
+    // When this PACE run began — the clock for the 6–24h window (elapsed derived).
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One PACE run per job (also serves job_id lookups — no separate index needed).
+    uniqueIndex("pace_states_job_id_uq").on(t.jobId),
+    check("pace_states_wave_nonneg_chk", sql`${t.wave} >= 0`),
+    check("pace_states_supply_nonneg_chk", sql`${t.lastSupplyCount} >= 0`),
+  ],
+).enableRLS();
+
+// ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
 // ---------------------------------------------------------------------------
 export type Worker = typeof workers.$inferSelect;
@@ -1207,6 +1251,8 @@ export type ResumeDisclosure = typeof resumeDisclosures.$inferSelect;
 export type NewResumeDisclosure = typeof resumeDisclosures.$inferInsert;
 export type PayerCapacity = typeof payerCapacity.$inferSelect;
 export type NewPayerCapacity = typeof payerCapacity.$inferInsert;
+export type PaceState = typeof paceStates.$inferSelect;
+export type NewPaceState = typeof paceStates.$inferInsert;
 
 /** All tables, handy for migrations/tests. */
 export const schema = {
@@ -1238,4 +1284,5 @@ export const schema = {
   resumeDisclosures,
   payerCapacity,
   invites,
+  paceStates,
 };

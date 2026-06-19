@@ -193,6 +193,12 @@ export const EVENT_REGISTRY = {
   "messaging.sent": { version: 1, domain: "messaging", payload: p.MessagingSentPayload },
   "messaging.suppressed": { version: 1, domain: "messaging", payload: p.MessagingSuppressedPayload },
   "messaging.failed": { version: 1, domain: "messaging", payload: p.MessagingFailedPayload },
+
+  // PACE supply-widening (ADR-0021) — deterministic widen waves + ops alert (the
+  // "release waves" slice of ADR-0011's PACE triad). PII-FREE & faceless: opaque
+  // job_id + widen-stage enum + supply counts + elapsed hours only; no LLM. v1.
+  "pace.wave_widened": { version: 1, domain: "pace", payload: p.PaceWaveWidenedPayload },
+  "pace.ops_alert_raised": { version: 1, domain: "pace", payload: p.PaceOpsAlertRaisedPayload },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

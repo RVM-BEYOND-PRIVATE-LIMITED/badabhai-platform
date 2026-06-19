@@ -846,9 +846,74 @@ describe("capacity / posting_plan lifecycle events (ADR-0016 — PII-free, ids/c
   });
 });
 
+describe("pace supply-widening events (ADR-0021 — PII-free, faceless, no-LLM)", () => {
+  function paceEvent(name: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: name,
+      actor: { actor_type: "system" },
+      subject: { subject_type: "job", subject_id: UUID_A },
+      payload,
+    };
+  }
+
+  it("validates pace.wave_widened for each widen stage (area / adjacent_trade)", () => {
+    for (const stage of ["area", "adjacent_trade"] as const) {
+      const result = validateEvent(
+        paceEvent("pace.wave_widened", {
+          job_id: UUID_A,
+          stage,
+          supply_count: 2,
+          elapsed_hours: 6,
+        }),
+      );
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it("rejects pace.wave_widened with an unknown stage (enum-only → no free text)", () => {
+    const result = validateEvent(
+      paceEvent("pace.wave_widened", {
+        job_id: UUID_A,
+        stage: "widen_everything",
+        supply_count: 0,
+        elapsed_hours: 0,
+      }),
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.stage).toBe("payload");
+  });
+
+  it("validates pace.ops_alert_raised and carries only faceless fields", () => {
+    const result = validateEvent(
+      paceEvent("pace.ops_alert_raised", {
+        job_id: UUID_A,
+        supply_count: 0,
+        elapsed_hours: 24,
+      }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "pace.ops_alert_raised") {
+      // No field could carry a worker/employer/location — opaque job_id + counts only.
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["elapsed_hours", "job_id", "supply_count"].sort(),
+      );
+    }
+  });
+
+  it("rejects a negative supply_count (counts are non-negative integers)", () => {
+    const result = validateEvent(
+      paceEvent("pace.ops_alert_raised", { job_id: UUID_A, supply_count: -1, elapsed_hours: 1 }),
+    );
+    expect(result.success).toBe(false);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 64 event names (57 prior + 7 ADR-0020 invite/messaging)", () => {
-    expect(EVENT_NAMES).toHaveLength(64);
+  it("exposes all 66 event names (64 prior + 2 ADR-0021 pace)", () => {
+    expect(EVENT_NAMES).toHaveLength(66);
+    expect(isEventName("pace.wave_widened")).toBe(true);
+    expect(isEventName("pace.ops_alert_raised")).toBe(true);
     expect(isEventName("invite.created")).toBe(true);
     expect(isEventName("invite.clicked")).toBe(true);
     expect(isEventName("invite.accepted")).toBe(true);

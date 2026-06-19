@@ -878,3 +878,34 @@ export const MessagingFailedPayload = z.object({
   reason: MessagingFailReasonEnum,
   real_call: z.boolean().default(false),
 });
+
+// ---------------------------------------------------------------------------
+// PACE supply-widening (ADR-0021) — the deterministic "release waves" slice of
+// ADR-0011's PACE triad. PII-FREE & FACELESS: an opaque job_id + the widen-stage
+// enum + supply COUNTS + elapsed hours ONLY. A worker, employer, location, or any
+// PII NEVER appears. No LLM decides anything on this path (invariant 4) — the widen
+// decision is a pure config-driven rule. All v1 (version-never-mutate).
+// ---------------------------------------------------------------------------
+
+/** Which supply-widening lever a wave applied. `area` raises the travel band;
+ * `adjacent_trade` adds related-trade matches at the lower secondary weight (gated
+ * on a ratified adjacency map — see ADR-0021). Enum-only → no free text. */
+const PaceWidenStageEnum = z.enum(["area", "adjacent_trade"]);
+
+/** A PACE wave widened a job's good-fit supply one step. `supply_count` is the count
+ * of above-floor (on-trade) good-fit candidates AT widen time; `elapsed_hours` is
+ * hours since the job's PACE run began. Faceless: opaque job_id + enum + counts only. */
+export const PaceWaveWidenedPayload = z.object({
+  job_id: uuidSchema,
+  stage: PaceWidenStageEnum,
+  supply_count: z.number().int().nonnegative(),
+  elapsed_hours: z.number().nonnegative(),
+});
+
+/** Supply stayed thin past the configured window → an ops alert was raised for human
+ * intervention. Faceless: opaque job_id + the thin supply count + elapsed hours only. */
+export const PaceOpsAlertRaisedPayload = z.object({
+  job_id: uuidSchema,
+  supply_count: z.number().int().nonnegative(),
+  elapsed_hours: z.number().nonnegative(),
+});

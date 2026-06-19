@@ -56,6 +56,11 @@ export const EVENT_DOMAINS = [
   // phone/template-body NEVER appears; only ids + the template id + enums +
   // real_call. Mock provider in alpha (real_call:false).
   "messaging",
+  // PACE supply-widening (ADR-0021) — deterministic supply-widening waves + ops
+  // alert (the "release waves" slice of ADR-0011's PACE triad). PII-FREE & faceless:
+  // opaque job_id + the widen-stage enum + supply COUNT + elapsed hours ONLY; never
+  // a worker, employer, or location. No LLM on this path (invariant 4).
+  "pace",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;
