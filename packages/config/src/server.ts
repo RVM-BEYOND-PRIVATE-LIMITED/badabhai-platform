@@ -352,6 +352,29 @@ export function assertPaymentsConfig(config: ServerConfig): void {
 }
 
 /**
+ * Fail-closed boot guard for the WhatsApp messaging config (ADR-0020; mirrors
+ * `assertPaymentsConfig`). If real messaging is ENABLED but the Meta credentials
+ * are not fully set, a half-configured provider must NOT run silently as mock —
+ * throw at boot so the mis-configuration is loud. (Alpha default:
+ * MESSAGING_ENABLE_REAL=false → no-op.) Real sends are additionally a HUMAN-GATED,
+ * staging-first escalation (CLAUDE.md §7); this guard only enforces the config
+ * invariant, not the human approval.
+ */
+export function assertMessagingConfig(config: ServerConfig): void {
+  if (!config.MESSAGING_ENABLE_REAL) return;
+  const missing: string[] = [];
+  if (!config.WHATSAPP_API_KEY) missing.push("WHATSAPP_API_KEY");
+  if (!config.WHATSAPP_PHONE_NUMBER_ID) missing.push("WHATSAPP_PHONE_NUMBER_ID");
+  if (missing.length > 0) {
+    throw new Error(
+      `MESSAGING_ENABLE_REAL is true but ${missing.join(" + ")} ${
+        missing.length > 1 ? "are" : "is"
+      } not set — refusing to boot a half-configured real WhatsApp provider (ADR-0020, fail closed)`,
+    );
+  }
+}
+
+/**
  * Fail-closed guard for worker-auth config. Like assertPiiCryptoConfig, the dev
  * shortcuts are acceptable ONLY when NODE_ENV is EXPLICITLY "development"/"test".
  * Any other value — including UNSET, "staging", or "production" — must:
