@@ -44,7 +44,7 @@ const JOB_SPEC: JobSpec = { jobId: JOB, roleIds: ["vmc_operator"], city: "pune",
  * driven deterministically (the engine itself is proven in the reach suite). */
 class TestPaceService extends PaceService {
   public supply = 0;
-  protected async countAboveFloorSupply(): Promise<number> {
+  protected override async countAboveFloorSupply(): Promise<number> {
     return this.supply;
   }
 }
@@ -58,7 +58,15 @@ function makeDeps(config: ServerConfig, current?: PaceState | undefined) {
     applyWiden: vi.fn(async () => {}),
     raiseOpsAlert: vi.fn(async () => {}),
   };
-  const events = { emit: vi.fn(async () => {}), emitMany: vi.fn(async () => {}) };
+  const events = {
+    // Typed param so `emit.mock.calls[0]` carries the asserted fields under strict TS
+    // (the deps object is cast to the real EventsService, so this does not constrain
+    // the service's actual emit() call — it only types the test's mock.calls access).
+    emit: vi.fn(
+      async (_p: { event_name: string; payload: Record<string, unknown>; idempotencyKey?: string }) => {},
+    ),
+    emitMany: vi.fn(async () => {}),
+  };
   const reachRepo = { listSignalRows: vi.fn(async () => []) };
   const jobs = { getJobSpec: vi.fn(async () => JOB_SPEC), listOpenJobSpecs: vi.fn(async () => []) };
   const queue = { add: vi.fn(async () => {}) };
