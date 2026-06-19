@@ -30,10 +30,14 @@ def _run(coro):
 
 @pytest.fixture(autouse=True)
 def _reset_ledger():
-    """Reset the singleton ledger before each test (state must not leak)."""
-    cost_tracker.get_ledger().reset()
+    """Force a fresh, deterministic IN-PROCESS ledger before each test. These
+    tests prove the in-process backend (the Redis backend has its own suite), so
+    rebuild the singleton ignoring any ambient REDIS_URL / .env — otherwise a dev
+    box whose root .env sets REDIS_URL would build a RedisSpendBackend that fails
+    closed against an unreachable Redis. Also guarantees no cross-test state leak."""
+    cost_tracker._ledger = cost_tracker.SpendLedger(Settings(_env_file=None, redis_url=None))
     yield
-    cost_tracker.get_ledger().reset()
+    cost_tracker._ledger = None
 
 
 def _stub(monkeypatch, action):
@@ -63,7 +67,8 @@ def test_daily_cap_blocks_before_network(monkeypatch):
     seen = _stub(monkeypatch, lambda: LlmResult("SHOULD_NOT_RUN", 1, 1))
     settings = _real_settings(ai_max_daily_cost_inr=1.0, ai_max_total_cost_inr=1_000_000.0)
     # Pre-load daily spend right up to the cap so any projected cost exceeds it.
-    cost_tracker.get_ledger().record_spend(1.0)
+    # With the reserve->reconcile model, "pre-loading" spend = RESERVING it.
+    assert _run(cost_tracker.get_ledger().would_exceed_spend(1.0, settings)) is None
 
     router = AIRouter(settings)
     content, meta = _run(
@@ -82,7 +87,7 @@ def test_cumulative_cap_blocks_before_network(monkeypatch):
     seen = _stub(monkeypatch, lambda: LlmResult("SHOULD_NOT_RUN", 1, 1))
     # Daily cap generous; cumulative cap is the binding one.
     settings = _real_settings(ai_max_daily_cost_inr=1_000_000.0, ai_max_total_cost_inr=1.0)
-    cost_tracker.get_ledger().record_spend(1.0)
+    assert _run(cost_tracker.get_ledger().would_exceed_spend(1.0, settings)) is None
 
     router = AIRouter(settings)
     content, meta = _run(
@@ -178,7 +183,7 @@ def test_spend_recorded_on_successful_real_call(monkeypatch):
         ai_max_daily_cost_inr=1_000_000.0, ai_max_total_cost_inr=1_000_000.0
     )
     ledger = cost_tracker.get_ledger()
-    assert ledger.snapshot(settings)["daily_spend_inr"] == 0.0
+    assert _run(ledger.snapshot(settings))["daily_spend_inr"] == 0.0
 
     router = AIRouter(settings)
     _content, meta = _run(
@@ -186,7 +191,7 @@ def test_spend_recorded_on_successful_real_call(monkeypatch):
     )
     assert meta.real_call is True
     assert meta.success is True
-    snap = ledger.snapshot(settings)
+    snap = _run(ledger.snapshot(settings))
     assert snap["daily_spend_inr"] == pytest.approx(meta.estimated_cost_inr)
     assert snap["total_spend_inr"] == pytest.approx(meta.estimated_cost_inr)
 
@@ -213,7 +218,7 @@ def test_real_call_proceeds_well_under_caps(monkeypatch):
 
 def test_snapshot_is_pii_free():
     settings = Settings()
-    snap = cost_tracker.get_ledger().snapshot(settings)
+    snap = _run(cost_tracker.get_ledger().snapshot(settings))
     assert set(snap.keys()) == {
         "daily_spend_inr", "daily_cap_inr", "total_spend_inr", "total_cap_inr",
         "user_daily_cap_inr", "tracked_users",
@@ -232,7 +237,7 @@ def test_per_user_snapshot_is_pii_free():
     # A worker_ref is an OPAQUE id (no phone/name); the snapshot echoes it + the
     # user's spend number only. No message content.
     settings = Settings()
-    snap = cost_tracker.get_ledger().snapshot(settings, user_ref="worker-uuid-1")
+    snap = _run(cost_tracker.get_ledger().snapshot(settings, user_ref="worker-uuid-1"))
     assert snap["user_ref"] == "worker-uuid-1"
     assert snap["user_daily_spend_inr"] == 0.0
     assert isinstance(snap["user_daily_cap_inr"], (int, float))
@@ -258,7 +263,9 @@ def test_per_user_cap_blocks_before_network(monkeypatch):
         ai_max_daily_cost_inr=1_000_000.0,
         ai_max_total_cost_inr=1_000_000.0,
     )
-    cost_tracker.get_ledger().record_spend(6.0, user_ref="worker-1")
+    assert _run(
+        cost_tracker.get_ledger().would_exceed_spend(6.0, settings, user_ref="worker-1")
+    ) is None
 
     router = AIRouter(settings)
     content, meta = _run(
@@ -282,7 +289,9 @@ def test_per_user_cap_is_isolated_between_users(monkeypatch):
         ai_max_daily_cost_inr=1_000_000.0,
         ai_max_total_cost_inr=1_000_000.0,
     )
-    cost_tracker.get_ledger().record_spend(6.0, user_ref="worker-1")
+    assert _run(
+        cost_tracker.get_ledger().would_exceed_spend(6.0, settings, user_ref="worker-1")
+    ) is None
 
     router = AIRouter(settings)
     # worker-1 blocked
@@ -308,7 +317,9 @@ def test_per_user_cap_covers_all_tasks(monkeypatch):
         ai_max_total_cost_inr=1_000_000.0,
     )
     # Pre-load the user just under the cap so the next call's worst-case exceeds it.
-    cost_tracker.get_ledger().record_spend(5.99, user_ref="worker-9")
+    assert _run(
+        cost_tracker.get_ledger().would_exceed_spend(5.99, settings, user_ref="worker-9")
+    ) is None
     router = AIRouter(settings)
     _c, meta = _run(router.run(
         "resume_generation", messages=_MESSAGES, mock_response="m", user_ref="worker-9",
@@ -345,7 +356,9 @@ def test_per_user_spend_recorded_against_user_budget(monkeypatch):
     _c, meta = _run(router.run(
         "profile_extraction", messages=_MESSAGES, mock_response="m", user_ref="worker-7",
     ))
-    snap = ledger.snapshot(settings, user_ref="worker-7")
+    snap = _run(ledger.snapshot(settings, user_ref="worker-7"))
     assert snap["user_daily_spend_inr"] == pytest.approx(meta.estimated_cost_inr)
     # A different user has no spend.
-    assert ledger.snapshot(settings, user_ref="worker-other")["user_daily_spend_inr"] == 0.0
+    assert _run(
+        ledger.snapshot(settings, user_ref="worker-other")
+    )["user_daily_spend_inr"] == 0.0

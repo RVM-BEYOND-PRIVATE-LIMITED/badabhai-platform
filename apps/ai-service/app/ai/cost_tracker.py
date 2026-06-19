@@ -3,6 +3,18 @@
 Records per-call metadata and computes an INR cost estimate plus simple
 guardrail flags (cost_alert / above_target). Phase-1 persistence is a structured
 log + returned metadata; the shape is designed to later map onto ai_jobs/events.
+
+The spend ledger (TD27) is a name-stable ``SpendLedger`` facade over a pluggable
+``SpendStore`` backend:
+
+- ``InProcessSpendBackend`` — ``threading.Lock`` counters; the default when
+  ``REDIS_URL`` is unset (local dev + CI run with NO Redis). Caps are per-process.
+- ``RedisSpendBackend`` — ``redis.asyncio`` + Lua; caps enforce GLOBALLY across
+  Uvicorn workers. Fails CLOSED (an unverifiable cap never permits a real spend).
+
+Keys AND values are PII-free everywhere: INR amounts, counts, the UTC date, and
+the OPAQUE ``worker_ref`` only — never message content, tokens-of-a-specific-user,
+or any worker-identifying id.
 """
 
 from __future__ import annotations
@@ -10,7 +22,8 @@ from __future__ import annotations
 import threading
 import time
 import uuid
-from datetime import UTC, date, datetime
+from abc import ABC, abstractmethod
+from datetime import UTC, date, datetime, timedelta
 
 from ..config import Settings
 from ..contracts import AICallMetadata
@@ -70,22 +83,60 @@ def build_call_metadata(
     return meta
 
 
-class SpendLedger:
-    """Process-level rolling spend + retry-budget ledger (TD27).
+def _utc_date_str() -> str:
+    """UTC calendar date as ``YYYY-MM-DD``. Used in Redis key names so UTC-day
+    rollover is structural (a new day => a new key)."""
+    return datetime.now(UTC).date().isoformat()
 
-    Tracks recorded INR spend for the current UTC day and for the process
-    lifetime, plus a rolling window of retry timestamps. Used by the router to
-    block real candidates before the network call (worst-case projected cost vs.
-    daily/cumulative caps) and to bound retry multiplication against a failing
-    provider. Holds ONLY PII-free numbers (INR, counts, the UTC date) — never
-    message content, tokens-of-a-specific-user, or ids that identify a worker.
 
-    Thread/async-safe via a ``threading.Lock`` so concurrent FastAPI requests do
-    not corrupt the counters.
+def _seconds_to_next_utc_midnight() -> int:
+    """Seconds until the next UTC midnight, + a 1h buffer. Used as the TTL for the
+    daily / per-user keys so they expire shortly after the day they belong to."""
+    now = datetime.now(UTC)
+    tomorrow = (now + timedelta(days=1)).date()
+    midnight = datetime(tomorrow.year, tomorrow.month, tomorrow.day, tzinfo=UTC)
+    return int((midnight - now).total_seconds()) + 3600
 
-    SCOPE: single process only. With multiple Uvicorn workers each holds its own
-    ledger, so caps are per-worker, not global. The follow-up is a shared store
-    (e.g. Redis) keyed by UTC day so the cap is enforced across all workers.
+
+# --- pluggable backend protocol ---------------------------------------------
+
+
+class SpendStore(ABC):
+    """Backend contract for the spend ledger. All store-touching methods are
+    coroutines (router.run is async; a sync Redis client would block the loop).
+    The per-process retry budget is NOT part of this contract — it stays on the
+    facade (a per-worker circuit-breaker, ratified)."""
+
+    @abstractmethod
+    async def reserve(
+        self, projected_inr: float, settings: Settings, *, user_ref: str | None
+    ) -> str | None:
+        """Atomic check-AND-reserve. Returns a block reason (and reserves NOTHING)
+        or None (and has reserved ``projected_inr`` on every counter)."""
+
+    @abstractmethod
+    async def refund(
+        self, reserved_inr: float, actual_inr: float, *, user_ref: str | None
+    ) -> None:
+        """Reconcile: refund ``reserved_inr - actual_inr`` on every counter,
+        floored at 0. ``actual_inr=0.0`` => full refund (failure/abort path)."""
+
+    @abstractmethod
+    async def snapshot(self, settings: Settings, *, user_ref: str | None) -> dict:
+        """PII-free counters-vs-caps snapshot (numbers / ids / dates only)."""
+
+    @abstractmethod
+    async def reset(self) -> None:
+        """Clear all spend state. For tests."""
+
+
+class InProcessSpendBackend(SpendStore):
+    """Today's logic: daily / total / per-user dicts under a ``threading.Lock``.
+    The default when ``REDIS_URL`` is unset (single-process caps; CI Redis-free).
+
+    reserve = check-all-then-increment-all (atomic within the process);
+    refund   = decrement, floored at 0. Net effect: success leaves +actual; a
+    blocked call leaves nothing; a failed call leaves +reserved then -reserved = 0.
     """
 
     def __init__(self) -> None:
@@ -93,9 +144,7 @@ class SpendLedger:
         self._day: date = datetime.now(UTC).date()
         self._daily_spend_inr: float = 0.0
         self._total_spend_inr: float = 0.0
-        self._retry_times: list[float] = []
         # Per-user rolling daily spend, keyed by the opaque worker_ref (PII-free).
-        # Reset with the daily counter on UTC-day roll-over.
         self._user_daily_inr: dict[str, float] = {}
 
     def _roll_over_locked(self) -> None:
@@ -107,16 +156,12 @@ class SpendLedger:
             self._daily_spend_inr = 0.0
             self._user_daily_inr = {}
 
-    def would_exceed_spend(
-        self, projected_inr: float, settings: Settings, *, user_ref: str | None = None
+    async def reserve(
+        self, projected_inr: float, settings: Settings, *, user_ref: str | None
     ) -> str | None:
-        """Whether recording ``projected_inr`` would breach a cap. Checked BEFORE
-        a call using the worst-case projected cost. Returns the blocking reason or
-        None if allowed. The PER-USER daily cap (the tightest, user-facing budget)
-        is checked FIRST when a ``user_ref`` is supplied; then the process-level
-        daily + cumulative caps (the backstop for any call without a user_ref)."""
         with self._lock:
             self._roll_over_locked()
+            # Check order: per-user (tightest) -> daily -> cumulative.
             if user_ref is not None:
                 user_spent = self._user_daily_inr.get(user_ref, 0.0)
                 if user_spent + projected_inr > settings.ai_max_user_daily_cost_inr:
@@ -125,22 +170,357 @@ class SpendLedger:
                 return "daily_cap_exceeded"
             if self._total_spend_inr + projected_inr > settings.ai_max_total_cost_inr:
                 return "cumulative_cap_exceeded"
+            # All checks passed -> RESERVE on every counter.
+            self._daily_spend_inr += projected_inr
+            self._total_spend_inr += projected_inr
+            if user_ref is not None:
+                self._user_daily_inr[user_ref] = (
+                    self._user_daily_inr.get(user_ref, 0.0) + projected_inr
+                )
             return None
 
-    def record_spend(self, inr: float, *, user_ref: str | None = None) -> None:
-        """Add an ACTUAL estimated INR cost. Call AFTER a successful real call.
-        Attributes the spend to ``user_ref``'s per-user daily budget when given."""
+    async def refund(
+        self, reserved_inr: float, actual_inr: float, *, user_ref: str | None
+    ) -> None:
+        delta = reserved_inr - actual_inr
+        if delta == 0.0:
+            return
         with self._lock:
             self._roll_over_locked()
-            self._daily_spend_inr += inr
-            self._total_spend_inr += inr
+            self._daily_spend_inr = max(0.0, self._daily_spend_inr - delta)
+            self._total_spend_inr = max(0.0, self._total_spend_inr - delta)
+            if user_ref is not None and user_ref in self._user_daily_inr:
+                self._user_daily_inr[user_ref] = max(
+                    0.0, self._user_daily_inr[user_ref] - delta
+                )
+
+    async def snapshot(self, settings: Settings, *, user_ref: str | None) -> dict:
+        with self._lock:
+            self._roll_over_locked()
+            snap = {
+                "daily_spend_inr": round(self._daily_spend_inr, 4),
+                "daily_cap_inr": settings.ai_max_daily_cost_inr,
+                "total_spend_inr": round(self._total_spend_inr, 4),
+                "total_cap_inr": settings.ai_max_total_cost_inr,
+                "user_daily_cap_inr": settings.ai_max_user_daily_cost_inr,
+                "tracked_users": len(self._user_daily_inr),
+                "day": self._day.isoformat(),
+            }
             if user_ref is not None:
-                self._user_daily_inr[user_ref] = self._user_daily_inr.get(user_ref, 0.0) + inr
+                snap["user_ref"] = user_ref
+                snap["user_daily_spend_inr"] = round(
+                    self._user_daily_inr.get(user_ref, 0.0), 4
+                )
+            return snap
+
+    async def reset(self) -> None:
+        with self._lock:
+            self._day = datetime.now(UTC).date()
+            self._daily_spend_inr = 0.0
+            self._total_spend_inr = 0.0
+            self._user_daily_inr = {}
+
+
+# --- Lua scripts (atomic in Redis: single-threaded => the whole script runs) -
+
+# RESERVE: check per-user -> daily -> cumulative, then INCRBYFLOAT all + SADD the
+# user to the per-day set, only if all checks pass. Returns a block-reason string
+# or "OK". TTLs are set on the daily/user keys + user set only when they have none
+# (TTL == -1), so a reservation never resets a live day's expiry.
+#   KEYS[1] = daily key      KEYS[2] = total key
+#   KEYS[3] = user key       KEYS[4] = users-set key
+#   ARGV[1] = projected_inr  ARGV[2] = user_cap   ARGV[3] = daily_cap
+#   ARGV[4] = total_cap      ARGV[5] = ttl_seconds
+#   ARGV[6] = has_user ("1"/"0")   ARGV[7] = user_ref (opaque; "" when absent)
+_RESERVE_LUA = """
+local projected = tonumber(ARGV[1])
+local has_user = ARGV[6] == "1"
+
+if has_user then
+  local user_cap = tonumber(ARGV[2])
+  local user_spent = tonumber(redis.call("GET", KEYS[3]) or "0")
+  if user_spent + projected > user_cap then
+    return "user_daily_cap_exceeded"
+  end
+end
+
+local daily_cap = tonumber(ARGV[3])
+local daily_spent = tonumber(redis.call("GET", KEYS[1]) or "0")
+if daily_spent + projected > daily_cap then
+  return "daily_cap_exceeded"
+end
+
+local total_cap = tonumber(ARGV[4])
+local total_spent = tonumber(redis.call("GET", KEYS[2]) or "0")
+if total_spent + projected > total_cap then
+  return "cumulative_cap_exceeded"
+end
+
+redis.call("INCRBYFLOAT", KEYS[1], projected)
+redis.call("INCRBYFLOAT", KEYS[2], projected)
+if redis.call("TTL", KEYS[1]) == -1 then
+  redis.call("EXPIRE", KEYS[1], tonumber(ARGV[5]))
+end
+
+if has_user then
+  redis.call("INCRBYFLOAT", KEYS[3], projected)
+  if redis.call("TTL", KEYS[3]) == -1 then
+    redis.call("EXPIRE", KEYS[3], tonumber(ARGV[5]))
+  end
+  redis.call("SADD", KEYS[4], ARGV[7])
+  if redis.call("TTL", KEYS[4]) == -1 then
+    redis.call("EXPIRE", KEYS[4], tonumber(ARGV[5]))
+  end
+end
+
+return "OK"
+"""
+
+# REFUND/RECONCILE: subtract delta = reserved - actual from each counter, clamped
+# at 0 (guards float drift / double-refund). Decrements are commutative; no
+# re-check needed. The total key has no TTL; daily/user keys keep theirs.
+#   KEYS[1] = daily key   KEYS[2] = total key   KEYS[3] = user key
+#   ARGV[1] = delta       ARGV[2] = has_user ("1"/"0")
+_REFUND_LUA = """
+local delta = tonumber(ARGV[1])
+local has_user = ARGV[2] == "1"
+
+local function refund(key)
+  local cur = tonumber(redis.call("GET", key) or "0")
+  local new = cur - delta
+  if new < 0 then new = 0 end
+  redis.call("SET", key, tostring(new))
+end
+
+refund(KEYS[1])
+refund(KEYS[2])
+if has_user then
+  refund(KEYS[3])
+end
+return "OK"
+"""
+
+
+class RedisSpendBackend(SpendStore):
+    """``redis.asyncio`` + Lua backend — caps enforce GLOBALLY across Uvicorn
+    workers. FAILS CLOSED: any Redis error on reserve returns the block reason
+    ``spend_store_unavailable`` (an unverifiable cap never permits a real spend).
+    refund/snapshot never raise (the router must never crash on a ledger error).
+
+    Key layout (PII-free):
+      aispend:daily:{UTC_DATE}            INR, TTL to next UTC midnight + 1h
+      aispend:total                       INR, NO TTL
+      aispend:user:{UTC_DATE}:{worker_ref}  INR, TTL like daily
+      aispend:users:{UTC_DATE}            SET of opaque worker_refs, TTL like daily
+    """
+
+    _PREFIX = "aispend"
+
+    def __init__(self, redis_url: str) -> None:
+        # Lazy import so a missing redis lib never breaks mock-only boot.
+        import redis.asyncio as aioredis
+
+        self._redis_url = redis_url
+        # decode_responses=True so GET/SCARD return str/int, not bytes.
+        self._client = aioredis.from_url(redis_url, decode_responses=True)
+
+    def _daily_key(self, day: str) -> str:
+        return f"{self._PREFIX}:daily:{day}"
+
+    def _total_key(self) -> str:
+        return f"{self._PREFIX}:total"
+
+    def _user_key(self, day: str, user_ref: str) -> str:
+        return f"{self._PREFIX}:user:{day}:{user_ref}"
+
+    def _users_set_key(self, day: str) -> str:
+        return f"{self._PREFIX}:users:{day}"
+
+    async def reserve(
+        self, projected_inr: float, settings: Settings, *, user_ref: str | None
+    ) -> str | None:
+        day = _utc_date_str()
+        has_user = user_ref is not None
+        keys = [
+            self._daily_key(day),
+            self._total_key(),
+            self._user_key(day, user_ref) if has_user else f"{self._PREFIX}:user:_none",
+            self._users_set_key(day),
+        ]
+        args = [
+            projected_inr,
+            settings.ai_max_user_daily_cost_inr,
+            settings.ai_max_daily_cost_inr,
+            settings.ai_max_total_cost_inr,
+            _seconds_to_next_utc_midnight(),
+            "1" if has_user else "0",
+            user_ref if has_user else "",
+        ]
+        try:
+            result = await self._client.eval(_RESERVE_LUA, len(keys), *keys, *args)
+        except Exception as exc:
+            # Fail CLOSED: an unverifiable cap NEVER permits a real spend.
+            # PII-free log (reason + amount only); the router blocks -> mock.
+            logger.warning(
+                "spend store unavailable on reserve; blocking real call",
+                extra={"extra": {
+                    "reason": "spend_store_unavailable",
+                    "projected_inr": projected_inr,
+                    "error_type": type(exc).__name__,
+                }},
+            )
+            return "spend_store_unavailable"
+        if result == "OK":
+            return None
+        # A block reason string from the Lua script.
+        return result if isinstance(result, str) else "spend_store_unavailable"
+
+    async def refund(
+        self, reserved_inr: float, actual_inr: float, *, user_ref: str | None
+    ) -> None:
+        delta = reserved_inr - actual_inr
+        if delta == 0.0:
+            return
+        day = _utc_date_str()
+        has_user = user_ref is not None
+        keys = [
+            self._daily_key(day),
+            self._total_key(),
+            self._user_key(day, user_ref) if has_user else f"{self._PREFIX}:user:_none",
+        ]
+        try:
+            await self._client.eval(
+                _REFUND_LUA, len(keys), *keys, delta, "1" if has_user else "0"
+            )
+        except Exception as exc:
+            # CANNOT safely refund -> leave the worst-case RESERVED (stricter).
+            # Never raise: the router must never crash on a ledger error.
+            logger.warning(
+                "spend store unavailable on refund; leaving reservation in place",
+                extra={"extra": {
+                    "reason": "spend_store_unavailable",
+                    "reserved_inr": reserved_inr,
+                    "actual_inr": actual_inr,
+                    "error_type": type(exc).__name__,
+                }},
+            )
+
+    async def snapshot(self, settings: Settings, *, user_ref: str | None) -> dict:
+        day = _utc_date_str()
+        snap = {
+            "daily_spend_inr": None,
+            "daily_cap_inr": settings.ai_max_daily_cost_inr,
+            "total_spend_inr": None,
+            "total_cap_inr": settings.ai_max_total_cost_inr,
+            "user_daily_cap_inr": settings.ai_max_user_daily_cost_inr,
+            "tracked_users": None,
+            "day": day,
+        }
+        try:
+            daily = await self._client.get(self._daily_key(day))
+            total = await self._client.get(self._total_key())
+            tracked = await self._client.scard(self._users_set_key(day))
+            snap["daily_spend_inr"] = round(float(daily or 0.0), 4)
+            snap["total_spend_inr"] = round(float(total or 0.0), 4)
+            snap["tracked_users"] = int(tracked or 0)
+            if user_ref is not None:
+                user_spent = await self._client.get(self._user_key(day, user_ref))
+                snap["user_ref"] = user_ref
+                snap["user_daily_spend_inr"] = round(float(user_spent or 0.0), 4)
+        except Exception as exc:
+            # Degraded PII-free snapshot (sentinels for the values we can't read).
+            logger.warning(
+                "spend store unavailable on snapshot; returning degraded view",
+                extra={"extra": {
+                    "reason": "spend_store_unavailable",
+                    "error_type": type(exc).__name__,
+                }},
+            )
+            if user_ref is not None:
+                snap["user_ref"] = user_ref
+                snap["user_daily_spend_inr"] = None
+        return snap
+
+    async def reset(self) -> None:
+        """Delete all aispend:* keys. For tests against the Redis backend."""
+        try:
+            keys = [k async for k in self._client.scan_iter(f"{self._PREFIX}:*")]
+            if keys:
+                await self._client.delete(*keys)
+        except Exception as exc:
+            logger.warning(
+                "spend store unavailable on reset",
+                extra={"extra": {
+                    "reason": "spend_store_unavailable",
+                    "error_type": type(exc).__name__,
+                }},
+            )
+
+
+class SpendLedger:
+    """Process-level rolling spend + retry-budget ledger (TD27).
+
+    Name-stable facade over a pluggable ``SpendStore`` backend, selected by
+    ``settings.redis_url``: unset => ``InProcessSpendBackend`` (single-process
+    caps; the dev/test/CI default); set => ``RedisSpendBackend`` (caps enforce
+    GLOBALLY across Uvicorn workers, fails closed if Redis is unreachable).
+
+    Holds ONLY PII-free numbers (INR, counts, the UTC date) and the OPAQUE
+    ``worker_ref`` — never message content, tokens-of-a-specific-user, or any id
+    that identifies a worker.
+
+    The spend caps are atomic reserve -> reconcile -> refund:
+    ``would_exceed_spend`` RESERVES the worst-case cost; the router later
+    ``record_spend(reserved, actual)`` to refund the difference (full refund when
+    ``actual=0.0`` on the failure/abort path) so no path leaks a reservation.
+
+    The retry budget is per-process (a per-worker circuit-breaker, ratified) and
+    stays on the facade — it does NOT move to Redis.
+    """
+
+    def __init__(self, settings: Settings) -> None:
+        self._lock = threading.Lock()
+        self._retry_times: list[float] = []
+        if settings.redis_url:
+            self._store: SpendStore = RedisSpendBackend(settings.redis_url)
+        else:
+            self._store = InProcessSpendBackend()
+
+    @property
+    def backend_name(self) -> str:
+        """Which backend is active ("redis" or "in_process") — for the health
+        hook. PII-free; does not touch the store (no network)."""
+        return "redis" if isinstance(self._store, RedisSpendBackend) else "in_process"
+
+    async def would_exceed_spend(
+        self, projected_inr: float, settings: Settings, *, user_ref: str | None = None
+    ) -> str | None:
+        """Atomic check-AND-reserve of ``projected_inr`` (the worst-case projected
+        cost), checked BEFORE a real call. Returns the blocking reason (and
+        reserves nothing) or None (and has reserved on every counter). The PER-USER
+        daily cap is checked FIRST when a ``user_ref`` is supplied; then the
+        process-level daily + cumulative caps (the backstop for a call without a
+        user_ref). With Redis unreachable returns ``spend_store_unavailable``
+        (fail closed)."""
+        return await self._store.reserve(projected_inr, settings, user_ref=user_ref)
+
+    async def record_spend(
+        self, reserved_inr: float, actual_inr: float, *, user_ref: str | None = None
+    ) -> None:
+        """Reconcile a reservation: refund ``reserved_inr - actual_inr`` on every
+        counter (floored at 0). Call AFTER a real attempt resolves:
+        - success => ``record_spend(reserved, actual)`` leaves +actual recorded.
+        - failure/abort => ``record_spend(reserved, 0.0)`` fully refunds the
+          reservation so the mock-fallback path leaks nothing.
+        Attributes to ``user_ref``'s per-user daily budget when given. Never
+        raises (the router must never crash on a ledger error)."""
+        await self._store.refund(reserved_inr, actual_inr, user_ref=user_ref)
 
     def try_consume_retry(self, settings: Settings) -> bool:
         """Consume one slot of the rolling retry budget. Prunes timestamps older
         than the window; returns False if the budget is exhausted (do NOT retry),
-        else records 'now' and returns True."""
+        else records 'now' and returns True. SYNC + per-process by design — a
+        per-worker circuit-breaker, not a money guardrail (ratified)."""
         with self._lock:
             now = time.monotonic()
             window = settings.ai_retry_budget_window_seconds
@@ -150,46 +530,41 @@ class SpendLedger:
             self._retry_times.append(now)
             return True
 
-    def snapshot(self, settings: Settings, *, user_ref: str | None = None) -> dict:
-        """PII-free usage-vs-cap snapshot (numbers / ids / dates only). When a
+    async def snapshot(self, settings: Settings, *, user_ref: str | None = None) -> dict:
+        """PII-free usage-vs-cap snapshot (numbers / ids / dates only). Merges the
+        per-process retry-budget view onto the backend's spend view. When a
         ``user_ref`` is given, also reports THAT user's spend vs the per-user cap.
         Never dumps the full per-user map (only a count of tracked users)."""
+        snap = await self._store.snapshot(settings, user_ref=user_ref)
         with self._lock:
-            self._roll_over_locked()
             now = time.monotonic()
             window = settings.ai_retry_budget_window_seconds
             retry_count = len([t for t in self._retry_times if now - t < window])
-            snap = {
-                "daily_spend_inr": round(self._daily_spend_inr, 4),
-                "daily_cap_inr": settings.ai_max_daily_cost_inr,
-                "total_spend_inr": round(self._total_spend_inr, 4),
-                "total_cap_inr": settings.ai_max_total_cost_inr,
-                "user_daily_cap_inr": settings.ai_max_user_daily_cost_inr,
-                "tracked_users": len(self._user_daily_inr),
-                "retry_window_count": retry_count,
-                "retry_budget_per_window": settings.ai_retry_budget_per_window,
-                "kill_switch_engaged": settings.ai_real_calls_kill_switch,
-                "window_seconds": window,
-                "day": self._day.isoformat(),
-            }
-            if user_ref is not None:
-                snap["user_ref"] = user_ref
-                snap["user_daily_spend_inr"] = round(self._user_daily_inr.get(user_ref, 0.0), 4)
-            return snap
+        snap["retry_window_count"] = retry_count
+        snap["retry_budget_per_window"] = settings.ai_retry_budget_per_window
+        snap["kill_switch_engaged"] = settings.ai_real_calls_kill_switch
+        snap["window_seconds"] = window
+        return snap
 
-    def reset(self) -> None:
-        """Clear all state. For tests — the singleton must not leak across tests."""
+    async def reset(self) -> None:
+        """Clear all state (spend backend + retry budget). For tests — the
+        singleton must not leak across tests."""
+        await self._store.reset()
         with self._lock:
-            self._day = datetime.now(UTC).date()
-            self._daily_spend_inr = 0.0
-            self._total_spend_inr = 0.0
             self._retry_times = []
-            self._user_daily_inr = {}
 
 
-# Module-level singleton: one ledger per process (see SpendLedger docstring).
-ledger = SpendLedger()
+# Module-level singleton, built LAZILY from get_settings() so import stays cheap
+# and no Redis client is constructed at import time (mock-only boot never needs
+# redis installed when REDIS_URL is unset).
+_ledger: SpendLedger | None = None
 
 
 def get_ledger() -> SpendLedger:
-    return ledger
+    """Return the process singleton (built once from get_settings())."""
+    global _ledger
+    if _ledger is None:
+        from ..config import get_settings
+
+        _ledger = SpendLedger(get_settings())
+    return _ledger

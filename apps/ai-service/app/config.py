@@ -81,6 +81,18 @@ class Settings(BaseSettings):
     ai_retry_budget_per_window: int = 20
     ai_retry_budget_window_seconds: int = 60
 
+    # Shared spend-ledger store (env REDIS_URL). When UNSET the spend ledger uses
+    # the in-process backend: daily / cumulative / per-user INR caps are enforced
+    # PER PROCESS (with N Uvicorn workers each holds its own counters). This is the
+    # deliberate dev / test / single-process default — NOT a failure.
+    # When SET it uses the Redis backend (CLAUDE.md §3 locked stack — activating the
+    # deferred wiring, not a new datastore): the SAME caps enforce GLOBALLY across
+    # all workers, keyed by UTC day. The Redis store FAILS CLOSED — if Redis is
+    # unreachable a real call is blocked (mock fallback); an unverifiable cap never
+    # permits a real spend. Only PII-free data is stored (INR, counts, the UTC date,
+    # and the opaque worker_ref). The retry budget stays per-process regardless.
+    redis_url: str | None = None
+
     sarvam_api_key: str | None = None
     # Sarvam STT model id. Config so the future ``saaras:v3`` swap is one line.
     sarvam_stt_model: str = "saarika:v2.5"
