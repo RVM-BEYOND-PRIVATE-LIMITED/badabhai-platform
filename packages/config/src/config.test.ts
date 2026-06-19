@@ -6,6 +6,9 @@ import {
   realPaymentsBlockedReason,
   areRealPaymentsEnabled,
   assertPaymentsConfig,
+  realMessagingBlockedReason,
+  areRealMessagesEnabled,
+  assertMessagingConfig,
   isCapacityEnforcementEnabled,
 } from "./server";
 import { loadPublicConfig } from "./public";
@@ -67,6 +70,44 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     expect(realPaymentsBlockedReason(config)).toBeNull();
     expect(areRealPaymentsEnabled(config)).toBe(true);
     expect(() => assertPaymentsConfig(config)).not.toThrow();
+  });
+});
+
+describe("messaging config (ADR-0020 — mock WhatsApp in alpha, fail-closed boot)", () => {
+  it("defaults to mock: MESSAGING_ENABLE_REAL false and real messaging blocked", () => {
+    const config = loadServerConfig({});
+    expect(config.MESSAGING_ENABLE_REAL).toBe(false);
+    expect(areRealMessagesEnabled(config)).toBe(false);
+    expect(realMessagingBlockedReason(config)).toBe("MESSAGING_ENABLE_REAL is false");
+  });
+
+  it("assertMessagingConfig is a no-op in the alpha mock default", () => {
+    expect(() => assertMessagingConfig(loadServerConfig({}))).not.toThrow();
+  });
+
+  it("assertMessagingConfig THROWS when real is enabled without the Meta credentials (fail closed)", () => {
+    const config = loadServerConfig({ MESSAGING_ENABLE_REAL: "true" });
+    expect(() => assertMessagingConfig(config)).toThrow(/WHATSAPP_API_KEY/);
+    expect(() => assertMessagingConfig(config)).toThrow(/WHATSAPP_PHONE_NUMBER_ID/);
+  });
+
+  it("assertMessagingConfig THROWS when only one credential is set (still half-configured)", () => {
+    const config = loadServerConfig({
+      MESSAGING_ENABLE_REAL: "true",
+      WHATSAPP_API_KEY: "k",
+    });
+    expect(() => assertMessagingConfig(config)).toThrow(/WHATSAPP_PHONE_NUMBER_ID/);
+  });
+
+  it("real messaging is allowed only with the flag AND both credentials", () => {
+    const config = loadServerConfig({
+      MESSAGING_ENABLE_REAL: "true",
+      WHATSAPP_API_KEY: "k",
+      WHATSAPP_PHONE_NUMBER_ID: "p",
+    });
+    expect(realMessagingBlockedReason(config)).toBeNull();
+    expect(areRealMessagesEnabled(config)).toBe(true);
+    expect(() => assertMessagingConfig(config)).not.toThrow();
   });
 });
 
