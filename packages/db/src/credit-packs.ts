@@ -52,16 +52,17 @@ export const PACK_200: CreditPack = {
 } as const;
 
 /**
- * 1,000 profile-unlocks — the §3A "1,000-pack discount" tier.
+ * 1,000 profile-unlocks — the §3A "1,000-pack" tier.
  *
- * ⚠️ DISCOUNT FIGURE PENDING (escalation): §3A specifies a discount on this pack but
- * the exact figure is NOT in the repo (the 2026-06-19 Latest Context doc is not
- * checked in). Priced LINEARLY at the ₹40/credit anchor here (₹40,000) — NO invented
- * discount. UPDATE `priceInr` once product/RVM confirm the locked discount (ADR-0013).
+ * DECISION (2026-06-20, maintainer): priced at the STRICT ₹40/credit anchor (₹40,000),
+ * **no discount applied** — the §3A discount intent has no locked figure and we do not
+ * invent prices. This is the deliberate current price, not a placeholder. A discount can
+ * be set later by updating `priceInr` (a config value, runtime-modifiable); a first-class
+ * ops "modify pricing" control is a tracked follow-up (see the tech-debt register).
  */
 export const PACK_1000: CreditPack = {
   code: "pack_1000",
-  priceInr: 40000, // TODO(§3A): apply the locked 1000-pack discount once provided.
+  priceInr: 40000, // §3A ₹40/credit anchor, no discount (2026-06-20 decision).
   credits: 1000,
 } as const;
 
