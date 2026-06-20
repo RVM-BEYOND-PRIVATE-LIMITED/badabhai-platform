@@ -1,0 +1,76 @@
+# CODEOWNERS — BadaBhai
+#
+# Maps repo paths to the engineer(s) who must review changes there.
+# Source of truth for ownership: ../.claude/team-memory.md (Developer A / B sections).
+#
+# ENFORCEMENT: This file is ADDITIVE and harmless on its own. It only enforces
+# required review once a GitHub branch-protection rule on `main` enables
+# "Require review from Code Owners". Until then it documents intent + auto-requests
+# the right reviewer on PRs. Setting up branch protection is a repo-admin action
+# (Settings → Branches) and is out of scope for this file.
+#
+# RULES (GitHub CODEOWNERS semantics): the LAST matching pattern wins. The
+# catch-all is first; more specific paths below override it. A line with no owner
+# clears ownership for that path. Handles must have access to the repo or they are
+# ignored silently.
+#
+# Owners:
+#   @prakashkantumutchu — Prakash (core Phase-1 backend, infra, web, worker-app)
+#   @divyuuu            — Divyanshu (AI service, Reach/job-postings/pricing/unlocks)
+
+# ---------------------------------------------------------------------------
+# Catch-all — both engineers own anything not matched by a rule below.
+# ---------------------------------------------------------------------------
+*                                   @prakashkantumutchu @divyuuu
+
+# ---------------------------------------------------------------------------
+# Prakash — core Phase-1 backend (auth, consent, chat, profiles, workers,
+# events, voice, ai-bridge, health, interview-kit, storage).
+# ---------------------------------------------------------------------------
+/apps/api/src/auth/                 @prakashkantumutchu
+/apps/api/src/consent/              @prakashkantumutchu
+/apps/api/src/chat/                 @prakashkantumutchu
+/apps/api/src/profiles/             @prakashkantumutchu
+/apps/api/src/workers/              @prakashkantumutchu
+/apps/api/src/events/               @prakashkantumutchu
+/apps/api/src/voice/                @prakashkantumutchu
+/apps/api/src/ai/                   @prakashkantumutchu
+/apps/api/src/health/               @prakashkantumutchu
+/apps/api/src/interview-kit/        @prakashkantumutchu
+/apps/api/src/storage/              @prakashkantumutchu
+
+# Prakash — clients, config, CI, infra, cross-cutting tests.
+/apps/web/                          @prakashkantumutchu
+/apps/worker-app/                   @prakashkantumutchu
+/packages/config/                   @prakashkantumutchu
+/.github/                           @prakashkantumutchu
+/tests/                             @prakashkantumutchu
+
+# ---------------------------------------------------------------------------
+# Divyanshu — AI service + Reach Engine / commercial surfaces
+# (Reach, job-postings, posting-plans, pricing, unlocks).
+# ---------------------------------------------------------------------------
+/apps/ai-service/                   @divyuuu
+/apps/api/src/reach/                @divyuuu
+/apps/api/src/job-postings/         @divyuuu
+/apps/api/src/posting-plans/        @divyuuu
+/apps/api/src/pricing/              @divyuuu
+/apps/api/src/unlocks/              @divyuuu
+/packages/reach-engine/             @divyuuu
+/packages/pricing/                  @divyuuu
+
+# ---------------------------------------------------------------------------
+# Shared packages — BOTH must review. Event payloads must be versioned (never
+# mutated); ai-contracts Zod<->Pydantic parity; db migration numbers must not
+# collide. See ../.claude/team-memory.md "Shared packages" + CLAUDE.md §2.
+# ---------------------------------------------------------------------------
+/packages/db/                       @prakashkantumutchu @divyuuu
+/packages/event-schema/             @prakashkantumutchu @divyuuu
+/packages/ai-contracts/             @prakashkantumutchu @divyuuu
+
+# ---------------------------------------------------------------------------
+# Resume module — OVERLAP. Download authz (WorkerAuthGuard, TD29-G1a) is
+# Prakash; async PDF render worker / private bucket (ADR-0007) is Divyanshu.
+# Whole dir requires BOTH so neither half regresses without the other's review.
+# ---------------------------------------------------------------------------
+/apps/api/src/resume/               @prakashkantumutchu @divyuuu

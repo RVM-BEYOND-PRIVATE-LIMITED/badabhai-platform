@@ -1,0 +1,188 @@
+name: Supabase checks
+
+# DB-discipline guards that need NO production database. They protect the
+# Drizzle-is-source-of-truth invariant (packages/db/src/schema.ts → generated
+# migrations in packages/db/migrations) without ever touching a real Supabase
+# project, secrets, or PII. See infra/supabase/migration-plan.md and
+# infra/supabase/README.md for the workflow these jobs enforce.
+#
+# Relationship to existing CI:
+#   - .github/workflows/ci.yml `e2e` job already APPLIES the migration chain from
+#     scratch (drizzle-kit migrate) against a throwaway pgvector Postgres — that
+#     proves the migrations RUN. This workflow is the complement: it proves the
+#     migrations are IN SYNC with schema.ts and are well-ordered, with no DB at all.
+#   - Do not duplicate or weaken ci.yml — these are additive, schema-only checks.
+#
+# NON-BLOCKING for now (continue-on-error on the assertion steps). Flip to blocking
+# (drop the `continue-on-error: true` lines) once a clean baseline has held for a
+# few PRs — same rollout pattern used for other new gates in this repo.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/db/**"
+      - ".github/workflows/supabase-checks.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/db/**"
+      - ".github/workflows/supabase-checks.yml"
+
+concurrency:
+  group: supabase-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---- (a) Migration drift: schema.ts changed but the migration wasn't committed ----
+  # `drizzle-kit generate` is a pure schema DIFF — it reads packages/db/src/schema.ts
+  # and the existing migration snapshot (packages/db/migrations/meta/*) and writes any
+  # new SQL. It does NOT connect to a database (drizzle.config.ts only needs a URL for
+  # `migrate`/`studio`), so this is safe to run with no DB and no secrets.
+  #
+  # If `generate` produces a new/changed file, the author edited schema.ts without
+  # committing the generated migration → `git diff --exit-code` fails the step.
+  migration-drift:
+    name: Migration drift (schema.ts vs committed migrations)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        # No `version:` — packageManager (pnpm@11.5.2) in package.json is the source,
+        # matching .github/workflows/ci.yml.
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # drizzle-kit reads compiled workspace deps in some setups; build @badabhai/db
+      # and its upstream workspace deps so `generate` resolves cleanly. Cheap and
+      # scoped — it does NOT rebuild the whole monorepo (ci.yml owns the full build).
+      - name: Build @badabhai/db (+ workspace deps)
+        run: pnpm --filter "@badabhai/db..." build
+
+      # `generate` is normally non-interactive: it only prompts when it CANNOT decide
+      # between a column rename and a drop+add. We run with </dev/null so any such
+      # prompt fails fast (EOF) instead of hanging the runner.
+      # > TODO(verify): if a future ambiguous-rename diff makes `generate` block here,
+      # >   switch to an explicit `--name`/non-interactive flow or split the migration
+      # >   manually. As of the 0000..0017 chain it has been fully non-interactive.
+      - name: Generate migrations from schema.ts
+        run: pnpm --filter @badabhai/db db:generate </dev/null
+
+      # A non-empty diff under packages/db/migrations means schema.ts diverged from the
+      # committed migrations. Fail with a clear remedy. Covers new SQL files AND the
+      # regenerated meta snapshot (meta/_journal.json + meta/*_snapshot.json).
+      - name: Assert no uncommitted migration drift
+        continue-on-error: true # NON-BLOCKING — flip to blocking after a clean baseline.
+        run: |
+          if ! git diff --exit-code -- packages/db/migrations; then
+            echo "::error title=Migration drift::schema.ts changed but the generated migration is not committed."
+            echo "Run \`pnpm db:generate\`, review the new SQL in packages/db/migrations/, and commit it."
+            echo "See infra/supabase/migration-plan.md."
+            exit 1
+          fi
+          echo "No migration drift — schema.ts matches committed migrations."
+
+  # ---- (b) Migration sequence: filenames uniquely + contiguously numbered, journal in sync ----
+  # Purely static (no install, no DB). Enforces that packages/db/migrations holds
+  # exactly one file per NNNN prefix, the prefixes are 0..N contiguous with no gaps or
+  # duplicates, and each file is registered (by tag) in meta/_journal.json at the right
+  # idx. This is the ordering guarantee behind "migrations never run after the code that
+  # assumes them" — a duplicate/out-of-order prefix is caught here, not in production.
+  migration-sequence:
+    name: Migration sequence (unique, contiguous, journal-consistent)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate migration numbering against meta/_journal.json
+        continue-on-error: true # NON-BLOCKING — flip to blocking after a clean baseline.
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+
+          const dir = "packages/db/migrations";
+          const journalPath = path.join(dir, "meta", "_journal.json");
+
+          const files = fs
+            .readdirSync(dir)
+            .filter((f) => f.endsWith(".sql"))
+            .sort();
+
+          const errors = [];
+
+          // Each file must be NNNN_<tag>.sql. Capture prefix + tag (filename stem).
+          const byPrefix = new Map();
+          const tags = [];
+          for (const file of files) {
+            const m = /^(\d{4})_(.+)\.sql$/.exec(file);
+            if (!m) {
+              errors.push(`Bad migration filename (expected NNNN_<tag>.sql): ${file}`);
+              continue;
+            }
+            const prefix = m[1];
+            const tag = `${m[1]}_${m[2]}`;
+            if (byPrefix.has(prefix)) {
+              errors.push(`Duplicate NNNN prefix ${prefix}: ${byPrefix.get(prefix)} and ${file}`);
+            } else {
+              byPrefix.set(prefix, file);
+            }
+            tags.push({ idx: Number(prefix), tag });
+          }
+
+          // Prefixes must be contiguous 0..N with no gaps.
+          const prefixes = [...byPrefix.keys()].map(Number).sort((a, b) => a - b);
+          prefixes.forEach((n, i) => {
+            if (n !== i) {
+              errors.push(`Non-contiguous migration prefix: expected ${String(i).padStart(4, "0")}, found ${String(n).padStart(4, "0")}`);
+            }
+          });
+
+          // Cross-check meta/_journal.json: one entry per file, tag + idx aligned.
+          let journal;
+          try {
+            journal = JSON.parse(fs.readFileSync(journalPath, "utf8"));
+          } catch (e) {
+            errors.push(`Cannot read/parse ${journalPath}: ${e.message}`);
+          }
+          if (journal) {
+            const entries = journal.entries ?? [];
+            if (entries.length !== tags.length) {
+              errors.push(`Journal entry count (${entries.length}) != migration file count (${tags.length}).`);
+            }
+            const journalTags = new Map(entries.map((e) => [e.idx, e.tag]));
+            for (const { idx, tag } of tags) {
+              if (!journalTags.has(idx)) {
+                errors.push(`Migration ${tag} (idx ${idx}) is not registered in _journal.json.`);
+              } else if (journalTags.get(idx) !== tag) {
+                errors.push(`Journal idx ${idx} tag mismatch: file=${tag} journal=${journalTags.get(idx)}.`);
+              }
+            }
+            for (const e of entries) {
+              if (!tags.some((t) => t.idx === e.idx && t.tag === e.tag)) {
+                errors.push(`Journal entry idx ${e.idx} tag ${e.tag} has no matching .sql file.`);
+              }
+            }
+          }
+
+          if (errors.length) {
+            for (const err of errors) console.log(`::error title=Migration sequence::${err}`);
+            console.log(`\n${errors.length} migration-sequence problem(s). See infra/supabase/migration-plan.md.`);
+            process.exit(1);
+          }
+          console.log(`OK — ${tags.length} migrations: unique, contiguous, and journal-consistent.`);
+          NODE

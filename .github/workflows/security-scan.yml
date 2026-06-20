@@ -1,0 +1,141 @@
+name: Security scan
+
+# Advisory security scanners (Phase 4 hardening). Every job here is NON-BLOCKING
+# today (continue-on-error: true) so it surfaces findings on the PR without ever
+# red-X'ing the merge. It is deliberately ADDITIVE to .github/workflows/ci.yml —
+# it does NOT duplicate or weaken the existing blocking gates (node lint/typecheck/
+# test/build, ai-service ruff/pytest, e2e onboarding flow, worker-app analyze/test).
+#
+# Three jobs, all license-free (no paid GitHub-Org action, no SaaS token):
+#   (a) secret-scan      — gitleaks (official Docker image), full git history.
+#   (b) sast             — semgrep OSS (`semgrep scan`, OSS rulesets, no token).
+#   (c) dependency-audit — `pnpm audit --audit-level high`.
+#
+# WHY non-blocking first: these are unsuppressed scanners run against a repo that
+# has never been gated by them. Until each has a clean baseline (or an explicit,
+# reviewed ignore set), a fresh false-positive must not block the 2026-06-25 alpha
+# cut or any unrelated PR.
+#
+# FLIP-TO-BLOCKING criteria (remove `continue-on-error` per job once met):
+#   - secret-scan: zero findings on a full-history run, OR a committed .gitleaks.toml
+#     allowlist for every justified hit (e.g. .env.example placeholders). This is the
+#     CI-side complement to the local harness guard (.claude/hooks/guard-secrets.mjs)
+#     and CLAUDE.md §2 invariant 2 (no raw PII / secret leaves its boundary). FLIP FIRST.
+#   - sast: triage p/default + p/typescript + p/python + p/secrets to zero (fix or a
+#     committed .semgrepignore / inline `# nosem` with justification). Owners:
+#     @prakashkantumutchu (apps/api, apps/web, apps/worker-app, packages/config),
+#     @divyuuu (apps/ai-service, reach/job-postings/unlocks).
+#   - dependency-audit: zero `high`/`critical` advisories, OR a tracked exception in
+#     docs/registers/ with a remediation date.
+#
+# Tooling choices (license-free, intentional):
+#   - gitleaks via its official Docker image `zricethezav/gitleaks` — NOT
+#     `gitleaks/gitleaks-action`, whose v2 requires a paid GitHub-Org licence key.
+#   - semgrep via `semgrep scan` with OSS `p/*` --config rulesets and NO
+#     SEMGREP_APP_TOKEN — fully open-source, no Semgrep Cloud account.
+#   - pnpm audit — built into the pinned pnpm@11.5.2 (package.json packageManager).
+# No GitHub Enterprise-only features (no required-reviewer environment gates).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only token: these jobs scan source, they never write to the repo or
+# packages. Narrow the default GITHUB_TOKEN scope explicitly.
+permissions:
+  contents: read
+
+jobs:
+  # ---- (a) Secret scan: gitleaks, full git history ----
+  # NON-BLOCKING (continue-on-error) — flips to blocking FIRST (see header).
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so gitleaks can scan every commit, not just the tip —
+          # a secret committed and later removed still lives in the object graph.
+          fetch-depth: 0
+
+      # Official gitleaks Docker image (license-free). We mount the checkout and
+      # run `gitleaks detect` over the full history. `--redact` keeps any matched
+      # value out of the CI log; `--exit-code 1` makes a finding fail the STEP,
+      # but `continue-on-error` on the job keeps it advisory for now.
+      # No config file yet → gitleaks uses its built-in default ruleset. When we
+      # flip to blocking, add a committed `.gitleaks.toml` allowlist for the
+      # known-safe placeholders in `.env.example` (and any *.example templates).
+      - name: Run gitleaks (full history)
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/repo" \
+            zricethezav/gitleaks:latest \
+            detect \
+              --source="/repo" \
+              --redact \
+              --verbose \
+              --exit-code 1
+
+  # ---- (b) SAST: semgrep OSS ----
+  # NON-BLOCKING (continue-on-error) — OSS rulesets only, NO SEMGREP_APP_TOKEN.
+  sast:
+    name: SAST (semgrep OSS)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    # Official semgrep OSS image — pulls the `semgrep` CLI without any Cloud
+    # account. Registry `p/*` rulesets are fetched anonymously at scan time.
+    # Image is `semgrep/semgrep` (the current org; `returntocorp/*` is the legacy
+    # name and is no longer the canonical push target).
+    container:
+      image: semgrep/semgrep:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `semgrep scan` (the OSS subcommand) with open-source rulesets. `--error`
+      # makes findings exit non-zero so the STEP reflects them; `continue-on-error`
+      # on the job keeps the gate advisory until triaged to a clean baseline.
+      # Explicitly NO SEMGREP_APP_TOKEN / no `semgrep ci` (that path needs Cloud).
+      - name: Run semgrep (OSS rulesets)
+        run: |
+          semgrep scan \
+            --config p/default \
+            --config p/typescript \
+            --config p/python \
+            --config p/secrets \
+            --error
+
+  # ---- (c) Dependency audit: pnpm audit ----
+  # NON-BLOCKING (continue-on-error) — surfaces high/critical advisories.
+  dependency-audit:
+    name: Dependency audit (pnpm)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        # No `version:` — `packageManager: pnpm@11.5.2` in package.json is the
+        # single source of truth (same convention as ci.yml's node job).
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # Frozen lockfile so the audit reflects exactly what CI/prod resolves.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Reports `high` (and `critical`) advisories. Advisory now; flips to blocking
+      # once the tree is clean or exceptions are tracked in docs/registers/.
+      - name: Audit dependencies (high+)
+        run: pnpm audit --audit-level high
