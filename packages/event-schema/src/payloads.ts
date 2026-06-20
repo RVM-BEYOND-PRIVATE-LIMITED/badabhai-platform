@@ -909,3 +909,64 @@ export const PaceOpsAlertRaisedPayload = z.object({
   supply_count: z.number().int().nonnegative(),
   elapsed_hours: z.number().nonnegative(),
 });
+// payer.* — Self-serve payer account auth (ADR-0019 Decision B; closes R16/LC-1/TD33).
+//
+// The payer is the THIRD principal (worker / payer / ops). These events record the
+// payer auth lifecycle (signup → login-requested → session-started) for the audit
+// spine — the payer analogue of `worker.created` / `worker.otp_requested` /
+// `worker.otp_verified`.
+//
+// FACELESS / PII-FREE (CLAUDE.md invariant #2 + the ADR-0019 B-R2 extension): the
+// payer's email, phone, and org/display name are a NEW PII class that lives ONLY in
+// the `payers` table (encrypted at rest, keyed-hash lookup). They MUST NEVER appear
+// here. The ONLY identity reference is the opaque `payer_id` (== `payers.id`); the
+// rest is the role enum, the login-method enum, and booleans. No email hash either —
+// the spine carries the resolved account id, not a contactable token.
+// ---------------------------------------------------------------------------
+
+/** The payer's account role (mirrors `db.PayerRole`). Enum-only → no PII. */
+export const PayerRoleEnum = z.enum(["employer", "agent"]);
+export type PayerRoleEnum = z.infer<typeof PayerRoleEnum>;
+
+/**
+ * The login mechanism a payer authenticated through (ADR-0019 B-R1). `email_otp` is
+ * the alpha mock default; `whatsapp` rides the ADR-0020 mock provider; `supabase` is
+ * the config-gated adapter (inert without keys). Enum-only → no PII.
+ */
+export const PayerLoginMethodEnum = z.enum(["email_otp", "whatsapp", "supabase"]);
+export type PayerLoginMethodEnum = z.infer<typeof PayerLoginMethodEnum>;
+
+/**
+ * A new payer account was created (signup). `payer_id` is the opaque account id; the
+ * email/phone/org-name that came with the signup are NOT here (they live encrypted in
+ * `payers`). Role + method enums only.
+ */
+export const PayerCreatedPayload = z.object({
+  payer_id: uuidSchema,
+  role: PayerRoleEnum,
+  method: PayerLoginMethodEnum,
+});
+export type PayerCreatedPayload = z.infer<typeof PayerCreatedPayload>;
+
+/**
+ * A login code was issued for an EXISTING payer account (the no-account branch emits
+ * nothing — the HTTP response is identical either way, so this asymmetry is not a
+ * caller-observable enumeration oracle; XB-H). Resolved `payer_id` + method only —
+ * never the email/phone the request carried.
+ */
+export const PayerLoginRequestedPayload = z.object({
+  payer_id: uuidSchema,
+  method: PayerLoginMethodEnum,
+});
+export type PayerLoginRequestedPayload = z.infer<typeof PayerLoginRequestedPayload>;
+
+/**
+ * A payer session was minted (successful login-verify). `is_new_payer` echoes whether
+ * the account was created in the same flow. ids + enums + boolean only.
+ */
+export const PayerSessionStartedPayload = z.object({
+  payer_id: uuidSchema,
+  method: PayerLoginMethodEnum,
+  is_new_payer: z.boolean().default(false),
+});
+export type PayerSessionStartedPayload = z.infer<typeof PayerSessionStartedPayload>;

@@ -199,6 +199,13 @@ export const EVENT_REGISTRY = {
   // job_id + widen-stage enum + supply counts + elapsed hours only; no LLM. v1.
   "pace.wave_widened": { version: 1, domain: "pace", payload: p.PaceWaveWidenedPayload },
   "pace.ops_alert_raised": { version: 1, domain: "pace", payload: p.PaceOpsAlertRaisedPayload },
+  // Self-serve payer account auth (ADR-0019 Decision B — closes R16/LC-1/TD33). PII-FREE
+  // & FACELESS: opaque payer_id + role/method enums + booleans ONLY (the payer's
+  // email/phone/org-name live encrypted in `payers`, never in an event). The payer
+  // analogue of the `worker.*` auth events. All v1.
+  "payer.created": { version: 1, domain: "payer", payload: p.PayerCreatedPayload },
+  "payer.login_requested": { version: 1, domain: "payer", payload: p.PayerLoginRequestedPayload },
+  "payer.session_started": { version: 1, domain: "payer", payload: p.PayerSessionStartedPayload },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

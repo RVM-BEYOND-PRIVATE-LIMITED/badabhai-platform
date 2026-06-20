@@ -22,5 +22,9 @@ import { PaymentGateway } from "./payment-gateway";
   imports: [ConsentModule],
   controllers: [UnlocksController],
   providers: [UnlockService, UnlocksRepository, PaymentGateway],
+  // Export ONLY the service (the fail-closed chokepoint) so the payer-portal route
+  // group (ADR-0019) can reuse the exact same disclosure logic. UnlocksRepository
+  // stays unexported — it remains the structural single-writer (F-2/F-5/T5-b).
+  exports: [UnlockService],
 })
 export class UnlocksModule {}
