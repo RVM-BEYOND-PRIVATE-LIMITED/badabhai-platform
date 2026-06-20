@@ -1,4 +1,4 @@
-import type { MaskedResumeResult, UnlockResult } from "./contracts";
+import type { MaskedResumeResult, RevealResult, UnlockResult } from "./contracts";
 
 /**
  * PURE response → view-state mapping for the unlock + masked-reveal UI (mirrors
@@ -12,9 +12,41 @@ import type { MaskedResumeResult, UnlockResult } from "./contracts";
 export const NEUTRAL_UNLOCK_MESSAGE =
   "Unavailable — this candidate can't be unlocked right now. The reason is intentionally not disclosed (no consent, capped, no credits, and already-unlocked all look identical).";
 
-/** The single neutral masked-reveal message. */
+/** The single neutral routed-contact-reveal message. */
+export const NEUTRAL_CONTACT_MESSAGE =
+  "Unavailable — a routed contact can't be opened for this candidate right now. The reason is intentionally not disclosed (no consent, expired, capped all look identical).";
+
+/** The single neutral masked-reveal message (WAITING masked-resume shim). */
 export const NEUTRAL_REVEAL_MESSAGE =
   "Unavailable — this candidate's masked resume can't be shown right now. The reason is intentionally not disclosed.";
+
+/**
+ * The LIVE reveal view — a ROUTED contact handle ONLY. There is deliberately NO
+ * phone/number/name field on this type, so a raw phone is a COMPILE error here, not
+ * a review miss (the no-raw-phone guarantee is structural, ADR-0010 F-4 / XB-E).
+ */
+export type ContactView =
+  | {
+      kind: "routed";
+      /** Opaque, non-reversible, expiring relay handle — NEVER a phone. */
+      relayHandle: string;
+      channel: "in_app_relay" | "proxy_number";
+      expiresAt: string;
+    }
+  | { kind: "unavailable"; message: string };
+
+/** Routed → routed view; EVERY neutral reveal response → the SAME unavailable view. */
+export function mapContactResult(result: RevealResult): ContactView {
+  if ("relay_handle" in result) {
+    return {
+      kind: "routed",
+      relayHandle: result.relay_handle,
+      channel: result.channel,
+      expiresAt: result.expires_at,
+    };
+  }
+  return { kind: "unavailable", message: NEUTRAL_CONTACT_MESSAGE };
+}
 
 export type UnlockView =
   | { kind: "granted"; unlockId: string; expiresAt: string }

@@ -54,10 +54,10 @@ export default async function ApplicantsPage({
             <span className="badge">Balance: {dashboard.credits.balance}</span>
           </p>
           <div className="note">
-            Applicants are <strong>faceless</strong> — only an opaque id, trade, banded experience,
-            coarse city, and skills. No name, phone, or employer is shown. Unlocking spends 1 credit
-            and grants a <strong>routed</strong> contact + a <strong>masked</strong> resume (no
-            phone). An &ldquo;unavailable&rdquo; result never discloses its cause.
+            Applicants are <strong>faceless</strong> — an opaque id plus deterministic relevance
+            (rank / score / signals). No name, phone, or employer is shown. Unlocking spends 1
+            credit and grants a <strong>routed</strong> contact (an opaque relay — never a phone).
+            An &ldquo;unavailable&rdquo; result never discloses its cause.
           </div>
 
           {feed.applicants.length === 0 ? (

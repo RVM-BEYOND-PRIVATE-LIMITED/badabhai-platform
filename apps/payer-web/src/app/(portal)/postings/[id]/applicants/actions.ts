@@ -1,24 +1,26 @@
 "use server";
 
 import { z } from "zod";
-import { requestUnlock, revealMaskedResume } from "../../../../../lib/payer-api";
+import { requestUnlock, reveal, revealMaskedResume } from "../../../../../lib/payer-api";
 import {
+  mapContactResult,
   mapRevealResult,
   mapUnlockResult,
+  type ContactView,
   type RevealView,
   type UnlockView,
 } from "../../../../../lib/unlock-view";
 
 /**
- * Server Actions for the unlock + masked-reveal flow (ADR-0010 / resume-disclosure
- * addendum, re-run for the external payer in ADR-0019 Decision E).
+ * Server Actions for the unlock + reveal flow (ADR-0010 / ADR-0019 Decision E).
  *
  * SECURITY:
- *  - XB-A: the payer is resolved from the SERVER-HELD session inside the data seam;
- *    the client supplies only a postingId + opaque workerId, never a payer id.
+ *  - XB-A: the payer is resolved from the SERVER-HELD session inside the data seam
+ *    (the payer JWT). The client supplies only a postingId + opaque workerId, never
+ *    a payer id.
  *  - XB-C (no-oracle): the mappers collapse every deny cause to ONE neutral view;
  *    no branch here infers the cause; nothing is logged.
- *  - XB-E: the reveal returns masked initials + a masked-PDF link + NO phone.
+ *  - REVEAL = ROUTED contact handle ONLY (no phone/number anywhere) — LIVE endpoint.
  *  - XB-D: there is NO bulk endpoint — one (posting, worker) per call.
  */
 
@@ -43,14 +45,38 @@ export async function unlockAction(input: {
   }
 }
 
+/** LIVE: reveal the ROUTED contact handle for a granted unlock the caller owns. */
+export type ContactActionResult =
+  | { ok: true; view: ContactView }
+  | { ok: false; error: string };
+
+export async function revealContactAction(input: {
+  unlockId: string;
+}): Promise<ContactActionResult> {
+  if (!uuid.safeParse(input.unlockId).success) {
+    return { ok: false, error: "Invalid request." };
+  }
+  try {
+    const result = await reveal(input);
+    return { ok: true, view: mapContactResult(result) };
+  } catch {
+    return { ok: false, error: "Reveal failed (service unavailable). Please retry." };
+  }
+}
+
+/**
+ * WAITING (mock shim): the MASKED resume. No payer-authed disclosure endpoint exists
+ * (resume-disclosures is InternalServiceGuard) — this is a clearly-flagged mock.
+ */
 export type RevealActionResult =
   | { ok: true; view: RevealView }
   | { ok: false; error: string };
 
-export async function revealAction(input: {
+export async function maskedResumeAction(input: {
   unlockId: string;
+  workerId: string;
 }): Promise<RevealActionResult> {
-  if (!uuid.safeParse(input.unlockId).success) {
+  if (!uuid.safeParse(input.unlockId).success || !uuid.safeParse(input.workerId).success) {
     return { ok: false, error: "Invalid request." };
   }
   try {

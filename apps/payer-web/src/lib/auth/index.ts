@@ -3,23 +3,25 @@ import { redirect } from "next/navigation";
 import { payerServerConfig } from "../server-config";
 import type { PayerAuthProvider, PayerSession } from "./types";
 import { mockPayerAuthProvider } from "./mock-provider";
+import { httpPayerAuthProvider } from "./http-provider";
 
 /**
  * PayerAuth seam entry point (ADR-0019 Decision B).
  *
  * The rest of the app imports {@link payerAuth} / {@link requirePayer} and never
- * touches a concrete provider. Phase 1 resolves ONLY the mock provider (B-R1 is
- * OPEN); `payerServerConfig()` fails closed if `PAYER_AUTH_MODE` is anything else.
- * Swapping in a real IdP is: implement {@link PayerAuthProvider}, add a branch
- * here behind a new authorized mode — nothing else changes.
+ * touches a concrete provider. Phase 1 LIVE login is the `api` provider (the
+ * backend payer-auth routes — R16/LC-1); `mock` is the local/test fallback.
+ * `payerServerConfig()` fail-closes on any other mode (a third-party IdP is B-R1).
  */
 export function payerAuth(): PayerAuthProvider {
   const { authMode } = payerServerConfig();
   switch (authMode) {
+    case "api":
+      return httpPayerAuthProvider;
     case "mock":
       return mockPayerAuthProvider;
     default:
-      // Unreachable: payerServerConfig() already fail-closes on a non-mock mode.
+      // Unreachable: payerServerConfig() already fail-closes on an unknown mode.
       throw new Error(`Unsupported PAYER_AUTH_MODE: ${authMode as string}`);
   }
 }
