@@ -27,6 +27,29 @@
 | `events`             | **none**                | **insert only**        | never client-writable or readable  |
 | `ai_jobs`            | **none**                | full                   | internal                           |
 | `audit_logs`         | **none**                | insert only            | internal                           |
+| `payers`             | **none** (B2B PII)      | full                   | payer **own** account only (Phase 2 payer-RLS); migration 0020 already `ENABLE`+`FORCE ROW LEVEL SECURITY`+`REVOKE ALL` so it is deny-by-default today |
+
+## Payer tenancy axis (ADR-0019 Decision C — added 2026-06-20)
+
+The self-serve payer portal (ADR-0019, PR `feat/r16-payer-auth-wiring`) introduces a **second
+principal with durable PII** (`payers` B2B contact data — the B-R2 class) and a **two-axis
+isolation** requirement:
+
+- **payer ↔ payer** — a payer may read/act on **only their own** `payer_id`-scoped rows
+  (`posting_plans` / `posting_boosts` / `payer_credits` / `credit_ledger` / `unlocks` /
+  `resume_disclosures` / `payer_capacity`). **Phase-1 enforcement is the APP-LAYER chokepoint**
+  (`PayerAuthGuard` session identity + `payer-scope.ts` + the `UnlockService` ownership check,
+  XB-A) — proven by the horizontal-authz tests. **DB-enforced per-payer RLS is the open-GA
+  launch gate (XL-A)**, not built here: it needs either a least-privilege payer
+  connection/role or a request-scoped `SET LOCAL app.payer_id` policy (land WITH the worker
+  `current_worker_id()` mapping below; ADR-0019 C-R1 / Q5).
+- **payer ↔ worker** — a payer **never** reads `workers` or any raw worker PII; worker identity
+  reaches a payer ONLY via the masked, consented, capped disclosure chokepoint. `workers` stays
+  FORCE-RLS + REVOKE (ADR-0004), unchanged.
+
+> **Until DB-enforced payer RLS lands, external payer access stays STAGING / CLOSED-BETA only**
+> (app-layer chokepoint is the enforced control). `payers` is already `ENABLE`+`FORCE`+`REVOKE`
+> (migration 0020) so the service-role backend is the only reader today.
 
 ## Sketch (DO NOT enable blindly — review per environment)
 
@@ -55,6 +78,7 @@ CI/local has no `storage` schema). See [storage-buckets.md](storage-buckets.md) 
 ## Checklist before enabling direct client access
 
 - [ ] Define worker auth → DB identity mapping (`current_worker_id()`)
+- [ ] Define payer auth → DB identity mapping (`current_payer_id()`) + per-payer policies on the payer-owned tables (ADR-0019 C / XL-A launch gate — app-layer chokepoint enforced in Phase 1)
 - [ ] Enable RLS on every table and add explicit policies
 - [ ] Verify `events`/`audit_logs`/`ai_jobs` are unreachable by anon/authenticated
 - [x] Storage bucket policies + signed URL flow — `worker-resumes` private + signed-URL-only ([storage-buckets.md](storage-buckets.md)); `worker-conversations` / `voice-notes` pending
