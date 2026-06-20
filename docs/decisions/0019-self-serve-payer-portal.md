@@ -1,7 +1,9 @@
 # ADR-0019: Self-serve payer portal — ops-run → EXTERNAL self-serve (Phase-0 design)
 
 - **Status:** **ACCEPTED (maintainer sign-off 2026-06-18) — Phase-0 design signed; PHASE 1
-  AUTHORIZED.** Decisions A–E and the **invariant-#2 payer-PII extension (B-R2)** are accepted
+  BUILT + COMPLETE (2026-06-20, R16 / LC-1 / TD33 closed for the external surface — see
+  § Phase-1 BUILD STATUS below).** Phases 2–4 (DB-RLS, real payments, open external GA) remain
+  separate HUMAN gates. Decisions A–E and the **invariant-#2 payer-PII extension (B-R2)** are accepted
   (see § SIGN-OFF below). The Phase-0 STOP is cleared. **Still binding:** Phase 1 is **mock +
   staging-only** (no real payments, no open external); a **`bb-security-review` PASS on the
   realized code** is required before any payer-facing surface merges; **real Razorpay
@@ -35,6 +37,40 @@
   future ADR (TD37), and the `apps/payer-web` skeleton (Decision A). **Still human-gated launch
   gates (unchanged):** DB-enforced RLS (XL-A / Phase 2), real payments (Phase 3 / TD34),
   production DPDP/DPA copy, pen test — open external GA (Phase 4) remains blocked.
+- **Phase-1 BUILD STATUS (2026-06-20, PR `feat/r16-lc1-payer-auth-close`) — PHASE 1 COMPLETE
+  (R16 / LC-1 / TD33 CLOSED for the external surface).** This PR closes the loop by removing the
+  last body-`payer_id` trust on the disclosure spine and shipping the separate payer-web client:
+  - **Disclosure surface retrofit (R16 / LC-1 / TD33 CLOSED).** The CANONICAL `/unlocks` +
+    `/payers/:payerId/credits` controller ([`apps/api/src/unlocks/unlocks.controller.ts`](../../apps/api/src/unlocks/unlocks.controller.ts))
+    was retrofitted **IN-PLACE** from the interim `InternalServiceGuard` onto `PayerAuthGuard`:
+    `payer_id` is the **verified session** (`req.payer.id` — the body/`:payerId` param is no
+    longer trusted), `assertPayerOwns` blocks cross-payer credit purchase/read (XB-A),
+    reveal/`getOwn` are **no-oracle** (not-owned/unknown → identical neutral body), and the
+    per-payer **XB-G** cap runs before the `UnlockService` chokepoint. The interim **parallel
+    `/payer/unlocks` controller** (from PR1) was **RETIRED** — one self-serve disclosure surface,
+    no body `payer_id` anywhere. Horizontal-authz is the build-blocker
+    ([`unlocks.controller.test.ts`](../../apps/api/src/unlocks/unlocks.controller.test.ts): XB-A
+    read/buy/reveal cross-payer all 403/no-oracle).
+  - **Auth + reach (carried from PR1/PR2, unchanged).** Signup/login (`POST /payer/signup`,
+    `/payer/login/request`, `/payer/login/verify`, `/payer/refresh`, `/payer/logout`) + the
+    `PayersModule` wiring; the reach **View A** (`GET /payer/reach/jobs/:jobId/applicants`,
+    `jobs.payer_id` ownership) and **View B** (worker feed, NOT payer-guarded) split stands.
+  - **`apps/payer-web` skeleton (Decision A) BUILT** — the SEPARATE public-origin Company/Agency
+    self-serve web app (Next.js): role-aware signup + login + own-data dashboard (own credit
+    balance + own unlocks). **No server/client secret** ever reaches it (only `NEXT_PUBLIC_*` +
+    the payer's own Bearer token); `:payerId` is the session identity, never user input.
+  - **RLS plan recorded, NO DB migration.** [`infra/supabase/rls-plan.md`](../../infra/supabase/rls-plan.md)
+    now documents the payers/unlock/credit `ENABLE`+`FORCE`+`REVOKE` table-level deny-by-default
+    lock already in force (payers migration 0020 / the four unlock tables migration 0014) and the
+    payer-tenancy axis (app-layer chokepoint NOW; DB-enforced per-payer RLS at open GA, XL-A).
+    This close added **NO new migration** and NO PII to the faceless spine.
+  - **bb-security-review gate** is the pre-merge bar on the built surface (XB-A…XB-H satisfied +
+    tested). MOCK + STAGING-ONLY.
+  **Still deferred / launch-gated (UNCHANGED — STOP before these):** DB-enforced RLS (XL-A /
+  Phase 2 / [R20](../registers/risks-register.md)), **real Razorpay keys/spend** (Phase 3 / D /
+  E-R2 / [TD34](../registers/tech-debt-register.md) — HARD human gate), production DPDP `employer_sharing`
+  notice + payer DPA (Phase 2 / [TD35](../registers/tech-debt-register.md)), pen test — **open
+  external GA (Phase 4) remains blocked**; closed-beta/staging only on the app-layer chokepoint.
 
 ## SIGN-OFF (2026-06-18) — maintainer: ACCEPTED
 

@@ -5,13 +5,11 @@ import { areRealMessagesEnabled } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { PayersModule } from "../payers/payers.module";
-import { UnlocksModule } from "../unlocks/unlocks.module";
 import { ReachModule } from "../reach/reach.module";
 import { WHATSAPP_PROVIDER, type WhatsAppProvider } from "../messaging/whatsapp.provider";
 import { MockWhatsAppProvider } from "../messaging/mock-whatsapp.provider";
 import { MetaWhatsAppProvider } from "../messaging/meta-whatsapp.provider";
 import { PayerOtpService } from "../payers/payer-otp.service";
-import { PayerDisclosureRateLimit } from "../payers/payer-disclosure-rate-limit.service";
 import {
   PAYER_LOGIN_CHANNEL,
   type PayerLoginChannel,
@@ -19,7 +17,6 @@ import {
   WhatsAppLoginChannel,
   SupabaseLoginChannel,
 } from "../payers/payer-login-channel";
-import { PayerUnlocksController } from "./payer-unlocks.controller";
 import { PayerAuthController } from "./payer-auth.controller";
 import { PayerReachController } from "./payer-reach.controller";
 import { PayerAuthService } from "./payer-auth.service";
@@ -28,20 +25,25 @@ import { PayerAuthService } from "./payer-auth.service";
  * Payer portal route group (ADR-0019 Phase 1 — closes R16 / LC-1 / TD33).
  *
  * The EXTERNAL self-serve payer surface: routes under `/payer/*`, DISTINCT from the ops
- * `InternalServiceGuard` routes (one principal per route). Two controllers:
+ * routes (one principal per route). Two controllers:
  *   - {@link PayerAuthController} — PUBLIC signup/login + guarded refresh/logout (the
  *     payer login seam: a config-selected {@link PayerLoginChannel} — mock email default /
  *     WhatsApp-mock / inert Supabase — issuing codes via {@link PayerOtpService}, minting
  *     PayerSessionService sessions), and
- *   - {@link PayerUnlocksController} — the payer-self disclosure surface behind
- *     PayerAuthGuard, reusing the {@link UnlockService} chokepoint unchanged, with the
- *     per-payer XB-G cap ({@link PayerDisclosureRateLimit}).
+ *   - {@link PayerReachController} — the payer-self reach view (R22) behind PayerAuthGuard,
+ *     reusing the {@link import("../reach/reach.service").ReachService} ranking unchanged.
  *
- * Imports {@link PayersModule} (guard + session + repository foundation) and
- * {@link UnlocksModule} (the disclosure chokepoint). `EventsService`, `PiiCryptoService`,
- * `SERVER_CONFIG`, and `IpRateLimit` (RateLimitModule) are @Global. The WhatsApp provider
- * classes (deps all @Global) are re-registered here for the WhatsApp login channel (the
- * MessagingModule does not export the {@link WHATSAPP_PROVIDER} token).
+ * The payer-self DISCLOSURE surface (unlock/reveal/credits) is NOT here: those are the
+ * canonical `/unlocks` + `/payers/:id/credits` routes, retrofitted IN-PLACE onto
+ * PayerAuthGuard + the XB-G cap in {@link import("../unlocks/unlocks.module").UnlocksModule}
+ * (R16 / LC-1) — one self-serve disclosure surface, no parallel controller.
+ *
+ * Imports {@link PayersModule} (guard + session + repository + the XB-G
+ * {@link import("../payers/payer-disclosure-rate-limit.service").PayerDisclosureRateLimit}
+ * cap) and {@link ReachModule}. `EventsService`, `PiiCryptoService`, `SERVER_CONFIG`, and
+ * `IpRateLimit` (RateLimitModule) are @Global. The WhatsApp provider classes (deps all
+ * @Global) are re-registered here for the WhatsApp login channel (the MessagingModule does
+ * not export the {@link WHATSAPP_PROVIDER} token).
  *
  * Mock + staging-only (ADR-0019 Phase 1); a `bb-security-review` PASS on the built surface
  * (XB-A…XB-H) is the pre-merge gate.
@@ -49,18 +51,16 @@ import { PayerAuthService } from "./payer-auth.service";
 @Module({
   imports: [
     PayersModule,
-    UnlocksModule,
     // The payer-self reach view (R22) reuses ReachService (the ranking orchestration +
-    // faceless boundary), exactly as PayerUnlocksController reuses UnlockService.
+    // faceless boundary).
     ReachModule,
-    // Reuse BullMQ's Redis connection (client only) for the payer OTP store + XB-G cap.
+    // Reuse BullMQ's Redis connection (client only) for the payer OTP store.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
   ],
-  controllers: [PayerAuthController, PayerUnlocksController, PayerReachController],
+  controllers: [PayerAuthController, PayerReachController],
   providers: [
     PayerAuthService,
     PayerOtpService,
-    PayerDisclosureRateLimit,
     // The login channel implementations + the WhatsApp provider seam they ride.
     MockEmailLoginChannel,
     WhatsAppLoginChannel,

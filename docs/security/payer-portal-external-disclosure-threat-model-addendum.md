@@ -10,6 +10,19 @@
 > overridden here. **Design-level — a `bb-security-review` PASS against the built surface is
 > still required before merge.**
 
+> **BUILD STATUS (2026-06-20, ADR-0019 Phase 1, PR `feat/r16-lc1-payer-auth-close`) — XB-A…XB-H
+> SATISFIED + TESTED on the realized surface; `bb-security-review` PASS.** The CANONICAL `/unlocks`
+> + `/payers/:payerId/credits` surface ([`apps/api/src/unlocks/unlocks.controller.ts`](../../apps/api/src/unlocks/unlocks.controller.ts))
+> is now behind **`PayerAuthGuard`**, replacing the **`InternalServiceGuard` interim seam** (which
+> trusted a body/param `payer_id` under a shared secret — "payer owns the row" was unenforceable
+> there, the very gap §2/XT3/XB-A close). `payer_id` is the verified session; `assertPayerOwns`
+> blocks cross-payer credit purchase/read (XB-A); reveal/`getOwn` are no-oracle; the per-payer
+> **XB-G** cap runs before the chokepoint. The interim parallel **`/payer/unlocks` controller was
+> RETIRED** — one self-serve disclosure surface, no body `payer_id` anywhere. Horizontal-authz is
+> a build-blocker test ([`unlocks.controller.test.ts`](../../apps/api/src/unlocks/unlocks.controller.test.ts)).
+> Still **MOCK + STAGING-ONLY** (`PAYMENTS_ENABLE_REAL=false`); XL-A…XL-E (DB-RLS / DPDP-DPA /
+> real-payment controls / pen test / abuse monitoring) remain the human-gated open-GA bar.
+
 ## 0. The actor change — why this addendum exists
 
 | | Ops-run (today) | Self-serve (ADR-0019) |

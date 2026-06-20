@@ -24,7 +24,6 @@ import { UnlocksController } from "../unlocks/unlocks.controller";
 import { VoiceController } from "../voice/voice.controller";
 import { WorkersController } from "../workers/workers.controller";
 import { PayerAuthController } from "../payer-portal/payer-auth.controller";
-import { PayerUnlocksController } from "../payer-portal/payer-unlocks.controller";
 import { PayerReachController } from "../payer-portal/payer-reach.controller";
 
 /**
@@ -113,17 +112,13 @@ const CONTRACT: ControllerContract[] = [
   { name: "Profiles", ctor: ProfilesController, routes: { extract: [C, W], confirm: [C, W] } },
   { name: "Reach", ctor: ReachController, routes: { applicants: [], feed: [] } },
   // Self-serve PAYER surface (ADR-0019). signup/login are PUBLIC (external boundary);
-  // refresh/logout + every unlock/reach route bind to the payer session (PayerAuthGuard).
-  // The ops `/reach/*` + `/unlocks*` rows above stay their own principal (one per route).
+  // refresh/logout + the reach route bind to the payer session (PayerAuthGuard). The
+  // payer-self DISCLOSURE surface is the canonical `Unlocks` controller below, now
+  // retrofitted onto PayerAuthGuard (R16 / LC-1) — one principal per route.
   {
     name: "PayerAuth",
     ctor: PayerAuthController,
     routes: { signup: [], requestLogin: [], verifyLogin: [], refresh: [P], logout: [P] },
-  },
-  {
-    name: "PayerUnlocks",
-    ctor: PayerUnlocksController,
-    routes: { requestUnlock: [P], reveal: [P], listOwn: [P], ownCredits: [P] },
   },
   { name: "PayerReach", ctor: PayerReachController, routes: { applicants: [P] } },
   {
@@ -131,16 +126,20 @@ const CONTRACT: ControllerContract[] = [
     ctor: ResumeController,
     routes: { generate: [], get: [I], regenerate: [I], download: [W], share: [I] },
   },
+  // Self-serve payer DISCLOSURE surface (R16 / LC-1, ADR-0019): the canonical `/unlocks`
+  // + `/payers/:id/credits` routes retrofitted IN-PLACE from the interim InternalServiceGuard
+  // onto PayerAuthGuard. payer_id is the session payer (never body/param-trusted); the
+  // `/payers/:payerId/credits` param is asserted == session (assertPayerOwns, XB-A).
   {
     name: "Unlocks",
     ctor: UnlocksController,
     routes: {
-      requestUnlock: [I],
-      reveal: [I],
-      listUnlocks: [I],
-      getUnlock: [I],
-      getCredits: [I],
-      purchaseCredits: [I],
+      requestUnlock: [P],
+      reveal: [P],
+      listOwn: [P],
+      getOwn: [P],
+      ownCredits: [P],
+      purchaseCredits: [P],
     },
   },
   // P0 fix (PR #91).

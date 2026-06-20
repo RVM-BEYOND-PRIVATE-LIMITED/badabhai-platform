@@ -20,8 +20,9 @@ payer`). The ONLY deltas from the ops `/reach/*` View A are **ownership scoping*
 
 - It is **information-only** (ADR-0011/0019): **no quota consumption, no credit debit, no
   payment, no `applicantsViewedCount` touch**. The billable / identity path stays the SEPARATE
-  fail-closed `UnlockService` disclosure chokepoint under `/payer/unlocks` (a payer reaches an
-  actual worker identity only there — masked, consented, capped).
+  fail-closed `UnlockService` disclosure chokepoint under `/unlocks` (the canonical payer-self
+  unlock surface, PayerAuthGuard — a payer reaches an actual worker identity only there —
+  masked, consented, capped).
 - It serves **faceless rows ONLY** — opaque `worker_id` + ranking signals + the engine's
   explainable `components[]`. **No name / phone / address / employer / worker PII** anywhere.
 - It is **NOT** bound to `job_postings` / `posting_plans` (ADR-0012's "no bridge" stands); the

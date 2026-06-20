@@ -28,6 +28,10 @@
 | `ai_jobs`            | **none**                | full                   | internal                           |
 | `audit_logs`         | **none**                | insert only            | internal                           |
 | `payers`             | **none** (B2B PII)      | full                   | payer **own** account only (Phase 2 payer-RLS); migration 0020 already `ENABLE`+`FORCE ROW LEVEL SECURITY`+`REVOKE ALL` so it is deny-by-default today |
+| `unlocks`            | payer reads own `payer_id` (Phase 2) | full      | migration 0014 `ENABLE`+`FORCE`+`REVOKE ALL`; `worker_id` FK → RLS-locked `workers` |
+| `payer_credits`      | payer reads own `payer_id` (Phase 2) | full      | migration 0014 `ENABLE`+`FORCE`+`REVOKE ALL`                    |
+| `credit_ledger`      | payer reads own `payer_id` (Phase 2) | full      | migration 0014 `ENABLE`+`FORCE`+`REVOKE ALL`; append-only      |
+| `unlock_routing`     | **none**                | full                   | migration 0014 `ENABLE`+`FORCE`+`REVOKE ALL`; server-internal routing only |
 
 ## Payer tenancy axis (ADR-0019 Decision C — added 2026-06-20)
 
@@ -50,6 +54,61 @@ isolation** requirement:
 > **Until DB-enforced payer RLS lands, external payer access stays STAGING / CLOSED-BETA only**
 > (app-layer chokepoint is the enforced control). `payers` is already `ENABLE`+`FORCE`+`REVOKE`
 > (migration 0020) so the service-role backend is the only reader today.
+
+### R16 / LC-1 self-serve close-out — table-level lock (added 2026-06-20)
+
+Closing R16 / LC-1 (ADR-0019 Phase 1) retrofits the unlock + credit surface
+(`/unlocks`, `/payers/:payerId/credits`) onto the **verified payer session**
+(`PayerAuthGuard`) — so an EXTERNAL payer principal can now reach `payer_id`-scoped rows
+where before only the service-role backend could. The two-axis isolation above is
+unchanged; this records the **table-level deny-by-default lock** already in force for
+every table that retrofit exposes, and pins what the OPEN-GA launch gate (XL-A / R20)
+must add on top.
+
+**What ships NOW (Phase 1) — the enforced control:** app-layer tenancy. `PayerAuthGuard`
+binds `payer_id` from the verified session (JWT `sub` + revocable Redis `payer_session:<sid>`;
+NO DB column), and every payer-owned read/write passes through the `payer-scope.ts`
+chokepoint (`assertPayerOwns` / `assertOwnedRows` / `readOwnedById`) — a cross-tenant
+access is a flat no-oracle 403. `UnlockService` adds the per-row ownership check on the
+unlock spine. This is the control proven by the horizontal-authz tests (XB-A: payer A can
+never read/buy against payer B's id).
+
+**What DB-enforced RLS adds at OPEN GA (XL-A / R20) — defense in depth, NOT a replacement:**
+per-payer row policies (a least-privilege payer connection/role or a request-scoped
+`SET LOCAL app.payer_id`), landed WITH the worker `current_worker_id()` mapping. Until then
+the backend connects directly as the `BYPASSRLS` `postgres` role, so these policies do not
+affect Phase-1 service-role reads.
+
+**Table-level lock already in force (the posting_plans pattern, migration 0016, mirrored):**
+each table below ships `ENABLE ROW LEVEL SECURITY` + `FORCE ROW LEVEL SECURITY` +
+`REVOKE ALL ... FROM PUBLIC, anon, authenticated, service_role` in the SAME migration that
+created it — so it is deny-by-default and never reachable via the PostgREST Data API even
+briefly (the rls-spine no-drift + REVOKE-ALL regression covers it):
+
+| Table            | Lock migration | Faceless-spine note                                                                 |
+| ---------------- | -------------- | ----------------------------------------------------------------------------------- |
+| `payers`         | 0020           | the ONLY payer-PII table; contact fields AES-256-GCM at rest + `email_hash` HMAC (ADR-0004 posture) |
+| `unlocks`        | 0014           | `payer_id` opaque rail (no FK); `worker_id` FK → RLS-locked `workers`; no PII column |
+| `payer_credits`  | 0014           | amounts + opaque `payer_id` only                                                     |
+| `credit_ledger`  | 0014           | append-only; amounts + opaque `payer_id`; `payment_ref` opaque order id, never card/UPI |
+| `unlock_routing` | 0014           | server-internal token → relay handle; raw phone read transiently at reveal, never stored |
+
+```sql
+-- The deny-by-default lock every payer-owned table already carries (posting_plans 0016 /
+-- payers 0020 pattern). Applied in the table's CREATE migration — DO NOT re-apply blindly.
+-- ALTER TABLE "payers" ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE "payers" FORCE ROW LEVEL SECURITY;
+-- REVOKE ALL ON TABLE "payers" FROM PUBLIC;
+-- REVOKE ALL ON TABLE "payers" FROM anon;
+-- REVOKE ALL ON TABLE "payers" FROM authenticated;
+-- REVOKE ALL ON TABLE "payers" FROM service_role;
+-- (identical block for unlocks / payer_credits / credit_ledger / unlock_routing)
+```
+
+> **Faceless spine (unchanged).** Payer PII lives ONLY in `payers`, encrypted at rest
+> (ADR-0019 B-R2 / ADR-0004). `events`, `ai_jobs`, `audit_logs`, and logs carry the opaque
+> `payer_id` only — never the email/phone/org-name. The R16/LC-1 retrofit added NO PII to
+> any other table (it is session-only: Redis OTP + JWT/Redis session, no new DB column).
 
 ## Sketch (DO NOT enable blindly — review per environment)
 
@@ -79,6 +138,7 @@ CI/local has no `storage` schema). See [storage-buckets.md](storage-buckets.md) 
 
 - [ ] Define worker auth → DB identity mapping (`current_worker_id()`)
 - [ ] Define payer auth → DB identity mapping (`current_payer_id()`) + per-payer policies on the payer-owned tables (ADR-0019 C / XL-A launch gate — app-layer chokepoint enforced in Phase 1)
+- [x] Table-level deny-by-default lock on the payer-owned tables — `payers` (0020) + `unlocks`/`payer_credits`/`credit_ledger`/`unlock_routing` (0014) all `ENABLE`+`FORCE`+`REVOKE ALL` (PUBLIC/anon/authenticated/service_role); only the per-payer policies above remain for OPEN GA
 - [ ] Enable RLS on every table and add explicit policies
 - [ ] Verify `events`/`audit_logs`/`ai_jobs` are unreachable by anon/authenticated
 - [x] Storage bucket policies + signed URL flow — `worker-resumes` private + signed-URL-only ([storage-buckets.md](storage-buckets.md)); `worker-conversations` / `voice-notes` pending

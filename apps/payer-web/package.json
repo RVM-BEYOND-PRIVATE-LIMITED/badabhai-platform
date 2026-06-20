@@ -1,0 +1,23 @@
+{
+  "name": "@badabhai/payer-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BadaBhai self-serve Company/Agency payer web app (Next.js, public origin — ADR-0019 Decision A).",
+  "scripts": {
+    "dev": "next dev -p 3002",
+    "build": "next build",
+    "start": "next start -p 3002",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rimraf .next .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "next": "^15.1.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0"
+  }
+}

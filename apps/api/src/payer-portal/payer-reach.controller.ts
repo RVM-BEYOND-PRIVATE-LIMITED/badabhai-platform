@@ -25,7 +25,8 @@ import { JobIdParamSchema } from "../reach/reach.dto";
  *
  * SCRAPE BOUND: a per-PAYER hourly cap on this read (the reach analogue of XB-G; fail
  * closed). Reach is INFORMATION-ONLY — no quota consumption, no credit debit, no payment
- * (the disclosure/billing path stays the separate `/payer/unlocks` chokepoint).
+ * (the disclosure/billing path stays the separate `/unlocks` chokepoint — the canonical
+ * payer-self unlock surface under PayerAuthGuard, R16 / LC-1).
  *
  * SECURITY GATE: external untrusted boundary — a `bb-security-review` PASS (+ the reach
  * threat-model addendum) is required before merge. Mock + staging-only (ADR-0019 Phase 1).
