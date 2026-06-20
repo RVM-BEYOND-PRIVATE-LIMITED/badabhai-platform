@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decodeSession, encodeSession } from "./session-token";
-import { matchMockAccount } from "./fixtures";
+import { matchMockAccountByEmail } from "./fixtures";
 import type { PayerSession } from "./types";
 
 const session: PayerSession = {
@@ -28,9 +28,7 @@ describe("session-token codec (XB-H tamper resistance)", () => {
   });
 
   it("rejects a session with a bad role enum", () => {
-    const bad = Buffer.from(
-      JSON.stringify({ ...session, role: "ops" }),
-    ).toString("base64url");
+    const bad = Buffer.from(JSON.stringify({ ...session, role: "ops" })).toString("base64url");
     // Re-sign so the MAC matches but the shape is invalid → still rejected.
     const reSigned = encodeSession({ ...session, role: "employer" });
     const [, mac] = reSigned.split(".");
@@ -38,13 +36,12 @@ describe("session-token codec (XB-H tamper resistance)", () => {
   });
 });
 
-describe("mock fixtures (no-oracle login)", () => {
-  it("matches a known demo account", () => {
-    expect(matchMockAccount("demo@acme-tools.example", "demo-payer-1")).not.toBeNull();
+describe("mock fixtures (OTP-flow email lookup)", () => {
+  it("matches a known demo account by email (case-insensitive)", () => {
+    expect(matchMockAccountByEmail("DEMO@acme-tools.example")).not.toBeNull();
   });
 
-  it("returns null for a wrong password and an unknown email alike (caller maps to one error)", () => {
-    expect(matchMockAccount("demo@acme-tools.example", "wrong")).toBeNull();
-    expect(matchMockAccount("nobody@example.com", "demo-payer-1")).toBeNull();
+  it("returns null for an unknown email", () => {
+    expect(matchMockAccountByEmail("nobody@example.com")).toBeNull();
   });
 });

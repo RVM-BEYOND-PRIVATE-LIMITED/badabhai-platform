@@ -47,6 +47,10 @@ function seedApplicants(): FacelessApplicant[] {
   return [
     {
       workerId: "aaaa1111-0000-4000-8000-000000000001",
+      rank: 1,
+      score: 0.92,
+      hot: true,
+      signals: ["trade match", "city match", "recent activity"],
       experienceBand: "3-5 yrs",
       tradeLabel: "CNC Machinist",
       cityLabel: "Pune",
@@ -54,6 +58,10 @@ function seedApplicants(): FacelessApplicant[] {
     },
     {
       workerId: "aaaa1111-0000-4000-8000-000000000002",
+      rank: 2,
+      score: 0.81,
+      hot: false,
+      signals: ["trade match", "city match"],
       experienceBand: "6-10 yrs",
       tradeLabel: "VMC Operator",
       cityLabel: "Pune",
@@ -61,6 +69,10 @@ function seedApplicants(): FacelessApplicant[] {
     },
     {
       workerId: "aaaa1111-0000-4000-8000-000000000003",
+      rank: 3,
+      score: 0.64,
+      hot: false,
+      signals: ["adjacent trade"],
       experienceBand: "1-2 yrs",
       tradeLabel: "CNC Trainee",
       cityLabel: "Nashik",

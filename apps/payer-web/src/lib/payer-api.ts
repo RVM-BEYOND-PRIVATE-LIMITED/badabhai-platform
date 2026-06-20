@@ -2,54 +2,185 @@ import "server-only";
 import { requirePayer } from "./auth";
 import {
   applicantFeedSchema,
-  dashboardSchema,
+  creditsWireSchema,
   maskedResumeResultSchema,
+  reachApplicantListWireSchema,
   topUpResultSchema,
   unlockResultSchema,
+  unlockResultWireSchema,
+  unlocksListWireSchema,
   type ApplicantFeed,
   type CreatePostingInput,
+  type CreditBalance,
   type Dashboard,
+  type FacelessApplicant,
   type MaskedResumeResult,
   type PostingSummary,
+  type RevealResult,
   type TopUpResult,
+  type UnlockHistoryItem,
   type UnlockResult,
 } from "./contracts";
+import { revealResultSchema } from "./contracts";
 import * as store from "./mock-store";
+import { payerFetch } from "./payer-http";
 import { findCreditPack } from "./pricing-config";
 
 /**
- * The PAYER DATA SEAM (ADR-0019 Phase 1 — mock + staging-only).
+ * The PAYER DATA SEAM (ADR-0019 Phase 1).
  *
- * Every function here is the SINGLE boundary the pages/actions call. Each one:
- *  1. resolves the payer from the SERVER-HELD session (`requirePayer`) — the
- *     payerId is NEVER a client param (XB-A: an action is bound to the caller's
- *     own payer_id; a payer can never act on another's id);
- *  2. reads/writes only that payer's rows via the mock store's payer-scoped API;
- *  3. validates the result against the Zod contract (invariant #7, no `any`).
+ * The SINGLE boundary the pages/actions call. Each function either:
+ *  - LIVE: calls a payer-AUTHED backend endpoint via {@link payerFetch} (the payer
+ *    JWT carries the tenant identity; NO client `payer_id` is ever sent — XB-A), or
+ *  - WAITING (clearly flagged): serves from the mock store because NO payer-authed
+ *    endpoint exists yet — see the per-function notes + the REPORT escalation list.
  *
- * SWAP TO REAL API: replace each store call with a `PayerAuthGuard`-scoped fetch
- * (Bearer payer JWT). The contract is already the wire shape, so callers don't
- * change. Until then, server-side calls to the existing `InternalServiceGuard`
- * endpoints (if ever used) MUST pass the session payerId, never a client value.
+ * Tenancy (XB-A): the payer is ALWAYS the server-held session. LIVE calls derive it
+ * from the Bearer token; mock calls pass the session `payerId` (never a client value).
+ * PII (invariant #2): no raw worker/payer PII crosses this boundary; reveal returns a
+ * ROUTED handle only (never a phone), and applicants are faceless.
  */
 
+/* ────────────────────────────────────────────────────────────────────────────
+ * LIVE — payer-authed endpoints (mock path REMOVED for these surfaces).
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** GET /payer/credits — the caller's OWN balance (the one knowable signal). */
+export async function getCredits(): Promise<CreditBalance> {
+  const wire = await payerFetch("/payer/credits", { schema: creditsWireSchema });
+  return { payerId: wire.payer_id, balance: wire.balance };
+}
+
+/** GET /payer/unlocks — the caller's OWN unlock history (PII-free projection). */
+export async function getUnlocks(): Promise<UnlockHistoryItem[]> {
+  const wire = await payerFetch("/payer/unlocks", { schema: unlocksListWireSchema });
+  return wire.unlocks.map((u) => ({
+    unlockId: u.unlock_id,
+    workerId: u.worker_id,
+    // The UI history shows granted vs expired; a revealed/revoked grant maps to its
+    // nearest user-facing state (no-oracle: cause is never surfaced beyond this).
+    status: u.status === "granted" || u.status === "revealed" ? "granted" : "expired",
+    createdAt: u.created_at,
+    expiresAt: u.expires_at ?? u.created_at,
+  }));
+}
+
+/**
+ * Dashboard = LIVE credits + LIVE unlocks + (WAITING) mock postings. Postings stay
+ * mock until a payer-authed job-postings endpoint lands (ESCALATE: posting-plans is
+ * InternalServiceGuard). The two LIVE reads are fetched concurrently.
+ */
 export async function getDashboard(): Promise<Dashboard> {
   const { payerId } = await requirePayer();
-  return dashboardSchema.parse({
-    credits: store.getBalance(payerId),
-    postings: store.getPostings(payerId),
-    unlocks: store.getUnlockHistory(payerId),
+  const [credits, unlocks] = await Promise.all([getCredits(), getUnlocks()]);
+  return {
+    credits,
+    unlocks,
+    postings: store.getPostings(payerId), // WAITING — mock (no payer-authed endpoint).
+  };
+}
+
+/**
+ * GET /payer/reach/jobs/:jobId/applicants — the FACELESS ranked candidate list for a
+ * job the caller OWNS (LIVE). A job that isn't the payer's returns the SAME neutral
+ * 404 as an unknown one (no-oracle) → we map that to `null` and the page renders a
+ * neutral not-found. The payer-authed reach projection returns RANKING signals only
+ * (rank/score/hot/components) — the banded taxonomy labels (trade/city/experience/
+ * skills) are NOT yet in this projection (ESCALATE). PII-free either way (XB-C).
+ */
+export async function getApplicantFeed(jobId: string): Promise<ApplicantFeed | null> {
+  let wire: ReturnType<typeof reachApplicantListWireSchema.parse>;
+  try {
+    wire = await payerFetch(`/payer/reach/jobs/${jobId}/applicants`, {
+      schema: reachApplicantListWireSchema,
+    });
+  } catch (e) {
+    // A neutral 404 (unknown OR not-owned job) is the no-oracle not-found, NOT an
+    // error state. The backend returns 404 for both, so treat 404 as null.
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
+  const applicants: FacelessApplicant[] = wire.applicants.map((a) => ({
+    workerId: a.workerId,
+    rank: a.rank,
+    score: a.score,
+    hot: a.hot,
+    // Score-component reasons as faceless relevance chips (PII-free). The reach DTO's
+    // components are explainable signal reasons; surface only their `reason` strings.
+    signals: a.components
+      .map((c) => (typeof c === "object" && c && "reason" in c ? String((c as { reason: unknown }).reason) : ""))
+      .filter((s): s is string => s.length > 0)
+      .slice(0, 8),
+  }));
+  return applicantFeedSchema.parse({
+    postingId: wire.jobId,
+    // The reach endpoint does not return a role title; the page falls back to a label.
+    roleTitle: "Ranked candidates",
+    applicants,
   });
 }
 
+/**
+ * POST /payer/unlocks — spend a credit to unlock a candidate (LIVE). The body carries
+ * ONLY `worker_id` (+ optional `job_id`); the payer is the session token (XB-A — there
+ * is nowhere to put a payer_id). Every deny cause (no credits / no consent / capped /
+ * already-unlocked) returns the SAME neutral body (no-oracle, F-3) → mapped to the one
+ * neutral UnlockResult.
+ */
+export async function requestUnlock(input: {
+  postingId: string;
+  workerId: string;
+}): Promise<UnlockResult> {
+  const wire = await payerFetch("/payer/unlocks", {
+    method: "POST",
+    body: { worker_id: input.workerId, job_id: input.postingId },
+    schema: unlockResultWireSchema,
+  });
+  if ("ok" in wire && wire.ok) {
+    return unlockResultSchema.parse({
+      ok: true,
+      unlockId: wire.unlock_id,
+      status: "granted",
+      expiresAt: wire.expires_at,
+    });
+  }
+  return unlockResultSchema.parse({ status: "unavailable" });
+}
+
+/**
+ * POST /payer/unlocks/:unlockId/reveal — reveal a granted unlock the caller OWNS (LIVE).
+ *
+ * Returns a ROUTED contact handle ONLY: `{ relay_handle, channel, expires_at }` — an
+ * opaque, non-reversible, expiring relay. There is NO phone/number anywhere in this
+ * path (ADR-0010 F-4 / the pinned contract). A not-owned / unknown / expired / capped
+ * unlock returns the IDENTICAL neutral body (no-oracle) → mapped to one neutral result.
+ */
+export async function reveal(input: { unlockId: string }): Promise<RevealResult> {
+  return payerFetch(`/payer/unlocks/${input.unlockId}/reveal`, {
+    method: "POST",
+    body: {},
+    schema: revealResultSchema,
+  });
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * WAITING — clearly-seamed MOCK shims. NO payer-authed endpoint exists yet.
+ * ESCALATE to backend (see REPORT). Tenancy still server-held (XB-A).
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** WAITING (mock): payer-authed job-postings list. ESCALATE: GET /payer/job-postings. */
 export async function getPostings(): Promise<PostingSummary[]> {
   const { payerId } = await requirePayer();
   return store.getPostings(payerId).map((p) => p);
 }
 
+/**
+ * WAITING (mock): job CREATE. `posting-plans.controller` is InternalServiceGuard
+ * ("No PayerAuthGuard in alpha") — there is NO payer-authed create endpoint.
+ * ESCALATE: backend needs payer-authed POST /payer/job-postings.
+ */
 export async function createPosting(input: CreatePostingInput): Promise<PostingSummary> {
   const { payerId } = await requirePayer();
-  // Free-through-launch: no charge here (the free flag is surfaced at the page).
   return store.createPosting(payerId, {
     roleTitle: input.roleTitle,
     locationLabel: input.locationLabel,
@@ -58,86 +189,11 @@ export async function createPosting(input: CreatePostingInput): Promise<PostingS
 }
 
 /**
- * Faceless applicant feed for ONE of the payer's own postings. Returns null if the
- * posting is not the payer's — the caller renders a NEUTRAL not-found (no oracle on
- * existence). NO raw worker PII in the result (XB-C / invariant #2).
- */
-export async function getApplicantFeed(postingId: string): Promise<ApplicantFeed | null> {
-  const { payerId } = await requirePayer();
-  const found = store.getApplicants(payerId, postingId);
-  if (!found) return null;
-  return applicantFeedSchema.parse({
-    postingId,
-    roleTitle: found.posting.roleTitle,
-    applicants: found.applicants,
-  });
-}
-
-/**
- * Spend a mock credit to unlock a candidate. Returns the granted record OR the
- * single neutral `{ status: "unavailable" }` — every deny cause (no credits,
- * already-unlocked, worker not in the payer's pool) collapses to ONE response
- * (XB-C / no-oracle). The worker must belong to one of the payer's postings; a
- * worker outside the payer's pool yields the SAME neutral body (no cross-tenant
- * existence oracle).
- */
-export async function requestUnlock(input: {
-  postingId: string;
-  workerId: string;
-}): Promise<UnlockResult> {
-  const { payerId } = await requirePayer();
-  // Tenant + pool check folded into the neutral path: not the payer's posting, or
-  // the worker isn't in it ⇒ neutral unavailable (no distinguishable branch).
-  const feed = store.getApplicants(payerId, input.postingId);
-  const inPool = feed?.applicants.some((a) => a.workerId === input.workerId) ?? false;
-  if (!feed || !inPool) {
-    return unlockResultSchema.parse({ status: "unavailable" });
-  }
-  const granted = store.trySpendUnlock(payerId, input.workerId);
-  if (!granted) return unlockResultSchema.parse({ status: "unavailable" });
-  return unlockResultSchema.parse({
-    ok: true,
-    unlockId: granted.unlockId,
-    status: "granted",
-    expiresAt: granted.expiresAt,
-  });
-}
-
-/**
- * Reveal the MASKED employer resume for a granted unlock (resume-disclosure
- * addendum / XB-E). Returns masked initials ("R***** K.") + a short-TTL signed
- * URL to the masked PDF + NO phone, or the single neutral body. The masked
- * initials here are MOCK-derived from the opaque worker id (no real name is ever
- * read client-side or in this app — the real masking happens server-side in the
- * backend `ResumeDisclosureService`, B-G).
- */
-export async function revealMaskedResume(input: {
-  unlockId: string;
-}): Promise<MaskedResumeResult> {
-  const { payerId } = await requirePayer();
-  const unlock = store.findOwnedUnlock(payerId, input.unlockId);
-  if (!unlock || unlock.status !== "granted") {
-    return maskedResumeResultSchema.parse({ status: "unavailable" });
-  }
-  // MOCK masked artifact. Real backend renders the masked PDF from the name-free
-  // snapshot; here we synthesise PII-free masked initials from the opaque id.
-  const initials = mockMaskedInitials(unlock.workerId);
-  return maskedResumeResultSchema.parse({
-    ok: true,
-    disclosureId: unlock.unlockId,
-    status: "disclosed",
-    displayInitials: initials,
-    // A non-resolvable placeholder masked-PDF URL (mock). No phone, no name in it.
-    resumeUrl: `https://staging.badabhai.example/masked-resume/${unlock.unlockId}.pdf`,
-    expiresAt: unlock.expiresAt,
-  });
-}
-
-/**
- * MOCK credit top-up (XT5 / E-R2 — MOCK ledger only, real_call:false). The pack is
- * resolved from CONFIG by code (never a client-supplied amount: server-side amount,
- * XT5); credits granted = the config'd pack's credits. Returns null for an unknown
- * pack (honest error, NOT the unlock no-oracle path).
+ * WAITING (mock): credit pack PURCHASE / top-up. Only `POST /payers/:payerId/credits`
+ * (InternalServiceGuard) exists; the payer side has `GET /payer/credits` (read) only.
+ * MOCK ledger only (R17 / XT5): the pack is resolved from CONFIG by code (never a
+ * client amount); `realCall` is always false; there is NO Razorpay code.
+ * ESCALATE: backend needs a payer-authed buy-pack endpoint.
  */
 export async function topUp(input: { packCode: string }): Promise<TopUpResult | null> {
   const { payerId } = await requirePayer();
@@ -154,9 +210,33 @@ export async function topUp(input: { packCode: string }): Promise<TopUpResult | 
 }
 
 /**
- * Deterministic PII-FREE mock masked initials from an opaque id. Produces a shape
- * like "R***** K." — never a real name (there is none in this app). Used only to
- * demonstrate the masked-reveal surface honestly.
+ * WAITING (mock): MASKED resume disclosure. The backend `resume-disclosures` route is
+ * InternalServiceGuard (NO payer-authed disclosure endpoint), so this stays a mock
+ * shim. The LIVE reveal above already returns the routed CONTACT handle; the masked
+ * RESUME is a separate surface. ESCALATE: payer-authed POST /payer/resume-disclosures.
+ *
+ * The masked initials are MOCK-derived from the opaque worker id (no real name is read
+ * anywhere in this app). No phone, no full name in the artifact.
+ */
+export async function revealMaskedResume(input: {
+  unlockId: string;
+  workerId: string;
+}): Promise<MaskedResumeResult> {
+  await requirePayer();
+  const initials = mockMaskedInitials(input.workerId);
+  return maskedResumeResultSchema.parse({
+    ok: true,
+    disclosureId: input.unlockId,
+    status: "disclosed",
+    displayInitials: initials,
+    resumeUrl: `https://staging.badabhai.example/masked-resume/${input.unlockId}.pdf`,
+    expiresAt: new Date(Date.now() + 14 * 86400_000).toISOString(),
+  });
+}
+
+/**
+ * Deterministic PII-FREE mock masked initials from an opaque id ("R***** K.") — never
+ * a real name (there is none in this app). Used only by the WAITING masked-resume shim.
  */
 function mockMaskedInitials(workerId: string): string {
   const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";

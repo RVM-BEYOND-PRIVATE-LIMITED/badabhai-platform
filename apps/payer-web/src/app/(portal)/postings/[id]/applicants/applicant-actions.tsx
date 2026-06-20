@@ -3,37 +3,44 @@
 import { useState } from "react";
 import Link from "next/link";
 import type { FacelessApplicant } from "../../../../../lib/contracts";
-import type { RevealView, UnlockView } from "../../../../../lib/unlock-view";
-import { revealAction, unlockAction } from "./actions";
+import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
+import { maskedResumeAction, revealContactAction, unlockAction } from "./actions";
 
 /**
- * Client interactivity for unlock + masked-reveal (ADR-0019 Decision E).
+ * Client interactivity for unlock + reveal (ADR-0019 Decision E).
  *
- * Runs in the BROWSER and sees NO secret. It calls the Server Actions, which bind
- * to the server-held payer (XB-A) and return only PII-free, already-mapped views.
+ * Runs in the BROWSER and sees NO secret. It calls the Server Actions, which bind to
+ * the server-held payer (the payer JWT, XB-A) and return only PII-free, already-mapped
+ * views.
  *
- * NO-ORACLE (XB-C): an "unavailable" renders ONE neutral message — no branch here
- * infers the cause. NO-LOG: nothing logs the result / handle / payer id.
- * MASKED ONLY (XB-E): the reveal shows masked initials + a masked-PDF link + NO
- * phone — the component has no field that could render a raw name or number.
+ * NO-ORACLE (XB-C): an "unavailable" renders ONE neutral message — no branch infers
+ * the cause. NO-LOG: nothing logs the result / handle / payer id.
+ * NO RAW PHONE (ADR-0010 F-4): the LIVE reveal shows a ROUTED relay handle only — the
+ * ContactView type has no phone/number field, so a raw phone cannot be rendered here.
  */
 
 interface RowState {
   busy: boolean;
   unlock: UnlockView | null;
   unlockError: string | null;
-  revealBusy: boolean;
-  reveal: RevealView | null;
-  revealError: string | null;
+  contactBusy: boolean;
+  contact: ContactView | null;
+  contactError: string | null;
+  resumeBusy: boolean;
+  resume: RevealView | null;
+  resumeError: string | null;
 }
 
 const EMPTY: RowState = {
   busy: false,
   unlock: null,
   unlockError: null,
-  revealBusy: false,
-  reveal: null,
-  revealError: null,
+  contactBusy: false,
+  contact: null,
+  contactError: null,
+  resumeBusy: false,
+  resume: null,
+  resumeError: null,
 };
 
 function day(ts: string): string {
@@ -63,11 +70,18 @@ export function ApplicantActions({
     else patch(workerId, { busy: false, unlockError: res.error });
   }
 
-  async function onReveal(workerId: string, unlockId: string) {
-    patch(workerId, { revealBusy: true, revealError: null });
-    const res = await revealAction({ unlockId });
-    if (res.ok) patch(workerId, { revealBusy: false, reveal: res.view });
-    else patch(workerId, { revealBusy: false, revealError: res.error });
+  async function onRevealContact(unlockId: string, workerId: string) {
+    patch(workerId, { contactBusy: true, contactError: null });
+    const res = await revealContactAction({ unlockId });
+    if (res.ok) patch(workerId, { contactBusy: false, contact: res.view });
+    else patch(workerId, { contactBusy: false, contactError: res.error });
+  }
+
+  async function onMaskedResume(unlockId: string, workerId: string) {
+    patch(workerId, { resumeBusy: true, resumeError: null });
+    const res = await maskedResumeAction({ unlockId, workerId });
+    if (res.ok) patch(workerId, { resumeBusy: false, resume: res.view });
+    else patch(workerId, { resumeBusy: false, resumeError: res.error });
   }
 
   return (
@@ -84,10 +98,8 @@ export function ApplicantActions({
         <thead>
           <tr>
             <th>Candidate</th>
-            <th>Trade</th>
-            <th>Experience</th>
-            <th>City</th>
-            <th>Skills</th>
+            <th>Relevance</th>
+            <th>Signals</th>
             <th>Contact</th>
           </tr>
         </thead>
@@ -97,13 +109,23 @@ export function ApplicantActions({
             const granted = row.unlock?.kind === "granted" ? row.unlock : null;
             return (
               <tr key={a.workerId}>
-                <td className="mono">{a.workerId.slice(0, 8)}…</td>
-                <td>{a.tradeLabel}</td>
-                <td>{a.experienceBand}</td>
-                <td>{a.cityLabel}</td>
+                <td>
+                  <div className="mono">{a.workerId.slice(0, 8)}…</div>
+                  {a.tradeLabel ? <div>{a.tradeLabel}</div> : null}
+                  {a.experienceBand || a.cityLabel ? (
+                    <div className="page-sub" style={{ margin: 0 }}>
+                      {[a.experienceBand, a.cityLabel].filter(Boolean).join(" · ")}
+                    </div>
+                  ) : null}
+                </td>
+                <td>
+                  <span className="badge">#{a.rank}</span>{" "}
+                  <span className="mono">{a.score.toFixed(2)}</span>
+                  {a.hot ? <span className="badge badge-ok"> hot</span> : null}
+                </td>
                 <td>
                   <div className="skills">
-                    {a.skills.map((s) => (
+                    {(a.skills && a.skills.length > 0 ? a.skills : a.signals).map((s) => (
                       <span className="skill" key={s}>
                         {s}
                       </span>
@@ -116,21 +138,42 @@ export function ApplicantActions({
                       <span className="badge badge-ok">Unlocked</span> · until{" "}
                       <span className="mono">{day(granted.expiresAt)}</span>
                       <div style={{ marginTop: 8 }}>
-                        {row.reveal?.kind === "masked" ? (
-                          <MaskedResume view={row.reveal} />
-                        ) : row.reveal?.kind === "unavailable" ? (
-                          <p className="note">{row.reveal.message}</p>
+                        {row.contact?.kind === "routed" ? (
+                          <RoutedContact view={row.contact} />
+                        ) : row.contact?.kind === "unavailable" ? (
+                          <p className="note">{row.contact.message}</p>
                         ) : (
                           <button
                             className="btn secondary"
                             type="button"
-                            disabled={row.revealBusy}
-                            onClick={() => onReveal(a.workerId, granted.unlockId)}
+                            disabled={row.contactBusy}
+                            onClick={() => onRevealContact(granted.unlockId, a.workerId)}
                           >
-                            {row.revealBusy ? "Loading…" : "View masked resume"}
+                            {row.contactBusy ? "Opening…" : "Open routed contact"}
                           </button>
                         )}
-                        {row.revealError ? <p className="error-text">{row.revealError}</p> : null}
+                        {row.contactError ? (
+                          <p className="error-text">{row.contactError}</p>
+                        ) : null}
+                      </div>
+                      <div style={{ marginTop: 8 }}>
+                        {row.resume?.kind === "masked" ? (
+                          <MaskedResume view={row.resume} />
+                        ) : row.resume?.kind === "unavailable" ? (
+                          <p className="note">{row.resume.message}</p>
+                        ) : (
+                          <button
+                            className="btn secondary"
+                            type="button"
+                            disabled={row.resumeBusy}
+                            onClick={() => onMaskedResume(granted.unlockId, a.workerId)}
+                          >
+                            {row.resumeBusy ? "Loading…" : "View masked resume (preview)"}
+                          </button>
+                        )}
+                        {row.resumeError ? (
+                          <p className="error-text">{row.resumeError}</p>
+                        ) : null}
                       </div>
                     </div>
                   ) : row.unlock?.kind === "unavailable" ? (
@@ -159,15 +202,39 @@ export function ApplicantActions({
 }
 
 /**
- * Renders the MASKED resume only (XB-E): masked initials + a link to the masked
- * PDF + NO phone. There is deliberately no field here that could show a raw name
- * or a phone number — the artifact carries neither.
+ * Renders the LIVE reveal: a ROUTED relay handle ONLY (ADR-0010 F-4). There is NO
+ * field here that could show a phone or a number — the artifact is an opaque, expiring
+ * relay; the raw contact stays server-side and is never sent to the browser.
+ */
+function RoutedContact({ view }: { view: Extract<ContactView, { kind: "routed" }> }) {
+  return (
+    <div className="card" style={{ marginTop: 4 }}>
+      <p className="page-sub" style={{ margin: 0 }}>
+        <strong>Routed contact.</strong> This is an opaque relay — <strong>not a phone
+        number</strong>. Use it in-app to reach the candidate; it expires with your access window.
+      </p>
+      <dl className="dl">
+        <dt>Relay handle</dt>
+        <dd className="mono">{view.relayHandle}</dd>
+        <dt>Channel</dt>
+        <dd>{view.channel === "in_app_relay" ? "In-app relay" : "Proxy number"}</dd>
+        <dt>Access until</dt>
+        <dd className="mono">{day(view.expiresAt)}</dd>
+      </dl>
+    </div>
+  );
+}
+
+/**
+ * WAITING (mock) masked-resume preview (XB-E): masked initials + a link + NO phone.
+ * There is no field here that could show a raw name or phone — the artifact carries
+ * neither. Flagged as a preview until a payer-authed disclosure endpoint lands.
  */
 function MaskedResume({ view }: { view: Extract<RevealView, { kind: "masked" }> }) {
   return (
     <div className="card" style={{ marginTop: 4 }}>
       <p className="page-sub" style={{ margin: 0 }}>
-        <strong>Masked resume.</strong> Identity is masked until later in the hiring flow —{" "}
+        <strong>Masked resume (preview).</strong> Identity is masked —{" "}
         <strong>no phone, no full name</strong> is shown.
       </p>
       <dl className="dl">

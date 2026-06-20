@@ -74,14 +74,27 @@ export type CreatePostingInput = z.infer<typeof createPostingInputSchema>;
  */
 export const facelessApplicantSchema = z.object({
   workerId: z.string().uuid(),
-  /** Banded experience (e.g. "3-5 yrs") — coarse, never an exact figure. */
-  experienceBand: z.string(),
-  /** Canonical trade/role labels (taxonomy, not free-text employer names). */
-  tradeLabel: z.string(),
-  /** Coarse city only — never an exact address. */
-  cityLabel: z.string(),
-  /** Top canonical skills (taxonomy tokens), capped. */
-  skills: z.array(z.string()).max(8),
+  /** Deterministic relevance rank from the RANK core (LIVE: payer reach view). */
+  rank: z.number().int().nonnegative(),
+  /** Relevance score (LLM-never-decides; deterministic). */
+  score: z.number(),
+  /** Whether the RANK core flags this candidate hot (LIVE). */
+  hot: z.boolean(),
+  /**
+   * Coarse, PII-free signal reasons (the engine's score-component reasons) — used
+   * as faceless relevance chips. Capped. Never employer names / free-text PII.
+   */
+  signals: z.array(z.string()).max(8),
+  /**
+   * The banded TAXONOMY labels (trade / experience / city / skills) are NOT in the
+   * payer-authed reach projection yet (it returns ranking signals only). They are
+   * OPTIONAL here: the mock shim fills them; the LIVE endpoint omits them until the
+   * backend adds a faceless taxonomy projection (ESCALATE). PII-free either way.
+   */
+  experienceBand: z.string().optional(),
+  tradeLabel: z.string().optional(),
+  cityLabel: z.string().optional(),
+  skills: z.array(z.string()).max(8).optional(),
 });
 export type FacelessApplicant = z.infer<typeof facelessApplicantSchema>;
 
@@ -108,7 +121,28 @@ export const unlockNeutralSchema = z.object({ status: z.literal("unavailable") }
 export const unlockResultSchema = z.union([unlockGrantedSchema, unlockNeutralSchema]);
 export type UnlockResult = z.infer<typeof unlockResultSchema>;
 
-/* ── Masked resume reveal ───────────────────────────────────────────────────── */
+/* ── Reveal → ROUTED contact handle (LIVE: POST /payer/unlocks/:id/reveal) ─────── */
+
+/**
+ * The reveal success body — mirrors the backend `ContactRevealedResponse` exactly:
+ * an OPAQUE, non-reversible, expiring relay handle ONLY. There is NO phone, NO
+ * number, NO name field on this type, so a raw phone is a COMPILE error, not a
+ * review miss (ADR-0010 F-4 / the pinned reveal contract: NEVER a raw phone).
+ */
+export const revealRoutedSchema = z.object({
+  relay_handle: z.string(),
+  channel: z.enum(["in_app_relay", "proxy_number"]),
+  expires_at: z.string(),
+});
+
+/** The byte-identical neutral reveal body (no-oracle, F-3) — same as the unlock one. */
+export const revealNeutralSchema = z.object({ status: z.literal("unavailable") });
+
+export const revealResultSchema = z.union([revealRoutedSchema, revealNeutralSchema]);
+export type RevealResult = z.infer<typeof revealResultSchema>;
+
+/* ── Masked resume reveal (WAITING — no payer-authed endpoint; resume-disclosure
+ *    is InternalServiceGuard, ESCALATE). Kept for the clearly-seamed shim. ───────── */
 
 /**
  * The masked employer-facing resume (resume-disclosure addendum B-G / XB-E):
@@ -153,3 +187,70 @@ export const topUpResultSchema = z.object({
   realCall: z.literal(false),
 });
 export type TopUpResult = z.infer<typeof topUpResultSchema>;
+
+/* ── REAL backend wire shapes (LIVE payer-authed endpoints) ─────────────────────
+ *
+ * These mirror the EXACT JSON the NestJS payer-authed controllers return (read off
+ * their DTOs). The backend uses snake_case for the unlock/credits/reach group and
+ * camelCase for GET /payer/me. The data seam (`payer-api.ts`) parses with THESE,
+ * then maps onto the UI contracts above so pages stay decoupled from the wire.
+ * NONE of these carry raw worker/payer PII (invariant #2 / B-R2).
+ */
+
+/** GET /payer/me — the payer's OWN account (their own org label; never eventized). */
+export const payerMeWireSchema = z.object({
+  id: z.string().uuid(),
+  role: z.enum(["employer", "agent"]),
+  status: z.enum(["pending", "active", "suspended"]),
+  orgName: z.string(),
+});
+export type PayerMeWire = z.infer<typeof payerMeWireSchema>;
+
+/** GET /payer/credits — `{ payer_id, balance }`. */
+export const creditsWireSchema = z.object({
+  payer_id: z.string().uuid(),
+  balance: z.number().int().nonnegative(),
+});
+
+/** GET /payer/unlocks — `{ unlocks: UnlockProjection[] }` (PII-free projection). */
+export const unlockProjectionWireSchema = z.object({
+  unlock_id: z.string().uuid(),
+  payer_id: z.string().uuid(),
+  worker_id: z.string().uuid(),
+  job_id: z.string().uuid().nullable(),
+  status: z.enum(["granted", "revealed", "expired", "revoked"]),
+  reveal_count: z.number().int().nonnegative(),
+  granted_at: z.string().nullable(),
+  expires_at: z.string().nullable(),
+  created_at: z.string(),
+});
+export const unlocksListWireSchema = z.object({
+  unlocks: z.array(unlockProjectionWireSchema),
+});
+
+/** POST /payer/unlocks — the ONE distinguishable success, snake_case. */
+export const unlockGrantedWireSchema = z.object({
+  ok: z.literal(true),
+  unlock_id: z.string().uuid(),
+  status: z.literal("granted"),
+  expires_at: z.string(),
+});
+export const neutralWireSchema = z.object({ status: z.literal("unavailable") });
+export const unlockResultWireSchema = z.union([
+  unlockGrantedWireSchema,
+  neutralWireSchema,
+]);
+
+/** GET /payer/reach/jobs/:jobId/applicants — faceless ranked rows (no PII). */
+export const reachApplicantWireSchema = z.object({
+  workerId: z.string().uuid(),
+  rank: z.number().int(),
+  score: z.number(),
+  hot: z.boolean(),
+  pushEligible: z.boolean(),
+  components: z.array(z.unknown()),
+});
+export const reachApplicantListWireSchema = z.object({
+  jobId: z.string().uuid(),
+  applicants: z.array(reachApplicantWireSchema),
+});

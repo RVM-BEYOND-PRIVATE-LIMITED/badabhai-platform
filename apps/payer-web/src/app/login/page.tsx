@@ -29,13 +29,15 @@ export default async function LoginPage() {
         <LoginForm />
         {showDemo ? (
           <div className="note" style={{ marginTop: 16 }}>
-            <strong>Staging demo logins (mock auth):</strong>
+            <strong>Staging login (email + code):</strong>
             <br />
-            <span className="mono">demo@acme-tools.example / demo-payer-1</span>
+            Enter your payer email, then the code (dev/staging echoes a dev code to
+            prefill). LIVE auth is the backend payer-auth OTP routes.
             <br />
-            <span className="mono">demo@hire-fast.example / demo-payer-2</span>
+            <span className="mono">demo@acme-tools.example</span> /{" "}
+            <span className="mono">demo@hire-fast.example</span> (mock fallback)
             <br />
-            Real login (IdP, MFA) is a Phase-2 human gate (ADR-0019 B-R1).
+            A third-party IdP / MFA is a separate human gate (ADR-0019 B-R1).
           </div>
         ) : null}
       </div>

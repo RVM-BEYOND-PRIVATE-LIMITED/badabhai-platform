@@ -15,15 +15,12 @@ import type { PayerSession } from "./types";
 
 export interface MockAccount {
   readonly email: string;
-  /** Dev-only password (plaintext compare). Replaced by a real IdP at B-R1. */
-  readonly password: string;
   readonly session: PayerSession;
 }
 
 export const MOCK_ACCOUNTS: readonly MockAccount[] = [
   {
     email: "demo@acme-tools.example",
-    password: "demo-payer-1",
     session: {
       payerId: "11111111-1111-4111-8111-111111111111",
       displayLabel: "Acme Tools (mock)",
@@ -32,7 +29,6 @@ export const MOCK_ACCOUNTS: readonly MockAccount[] = [
   },
   {
     email: "demo@hire-fast.example",
-    password: "demo-payer-2",
     session: {
       payerId: "22222222-2222-4222-8222-222222222222",
       displayLabel: "HireFast Agency (mock)",
@@ -41,10 +37,8 @@ export const MOCK_ACCOUNTS: readonly MockAccount[] = [
   },
 ];
 
-/** Find a mock account by a case-insensitive email + exact password (no-oracle caller). */
-export function matchMockAccount(email: string, password: string): MockAccount | null {
+/** Find a mock account by a case-insensitive email (the OTP-flow lookup key). */
+export function matchMockAccountByEmail(email: string): MockAccount | null {
   const norm = email.trim().toLowerCase();
-  return (
-    MOCK_ACCOUNTS.find((a) => a.email === norm && a.password === password) ?? null
-  );
+  return MOCK_ACCOUNTS.find((a) => a.email === norm) ?? null;
 }

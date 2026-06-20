@@ -4,31 +4,44 @@ import { z } from "zod";
 import { payerAuth } from "../../lib/auth";
 
 /**
- * Login Server Action (ADR-0019 Decision B / XB-H).
+ * Login Server Actions (ADR-0019 Decision B / XB-H) — TWO-STEP OTP.
  *
- * Runs SERVER-SIDE only: the mock seam sets an httpOnly signed cookie; no secret
- * or session token ever reaches the client. Returns ONE neutral error for any
- * failure (bad email OR password OR unknown account) — no user-enumeration oracle.
- * Nothing about the attempt is logged.
+ * Runs SERVER-SIDE only. Step 1 requests a code (no-enumeration response). Step 2
+ * verifies it and the seam sets an httpOnly session cookie — no secret or token ever
+ * reaches the client. Verify returns ONE neutral error for any failure (bad code OR
+ * unknown email OR service error) — no user-enumeration oracle. Nothing is logged.
  */
 
-const loginInputSchema = z.object({
-  email: z.string().min(1).max(254),
-  password: z.string().min(1).max(200),
-});
+const emailSchema = z.string().trim().toLowerCase().email().max(254);
+const codeSchema = z.string().trim().regex(/^\d{4,8}$/);
 
-export type LoginActionResult = { ok: true } | { ok: false; error: string };
+export type RequestCodeActionResult =
+  | { ok: true; resendInSeconds: number; devOtp?: string }
+  | { ok: false; error: string };
 
-export async function loginAction(input: {
+export async function requestCodeAction(input: {
   email: string;
-  password: string;
-}): Promise<LoginActionResult> {
-  const parsed = loginInputSchema.safeParse(input);
-  if (!parsed.success) {
-    // Same neutral copy as a credential mismatch — no enumeration via validation.
-    return { ok: false, error: "Invalid email or password." };
+}): Promise<RequestCodeActionResult> {
+  const parsed = emailSchema.safeParse(input.email);
+  if (!parsed.success) return { ok: false, error: "Enter a valid email." };
+  const res = await payerAuth().requestCode({ email: parsed.data });
+  if (!res.ok) return { ok: false, error: res.error };
+  return { ok: true, resendInSeconds: res.resendInSeconds, devOtp: res.devOtp };
+}
+
+export type VerifyCodeActionResult = { ok: true } | { ok: false; error: string };
+
+export async function verifyCodeAction(input: {
+  email: string;
+  code: string;
+}): Promise<VerifyCodeActionResult> {
+  const email = emailSchema.safeParse(input.email);
+  const code = codeSchema.safeParse(input.code);
+  if (!email.success || !code.success) {
+    // Same neutral copy as a code mismatch — no enumeration via validation.
+    return { ok: false, error: "Invalid or expired code." };
   }
-  const result = await payerAuth().login(parsed.data);
-  if (!result.ok) return { ok: false, error: result.error };
+  const res = await payerAuth().verifyCode({ email: email.data, code: code.data });
+  if (!res.ok) return { ok: false, error: res.error };
   return { ok: true };
 }
