@@ -2,14 +2,17 @@ import "server-only";
 import { requirePayer } from "./auth";
 import {
   applicantFeedSchema,
+  capacitySchema,
   creditsWireSchema,
   maskedResumeResultSchema,
+  postingSummarySchema,
   reachApplicantListWireSchema,
   topUpResultSchema,
   unlockResultSchema,
   unlockResultWireSchema,
   unlocksListWireSchema,
   type ApplicantFeed,
+  type Capacity,
   type CreatePostingInput,
   type CreditBalance,
   type Dashboard,
@@ -24,7 +27,7 @@ import {
 import { revealResultSchema } from "./contracts";
 import * as store from "./mock-store";
 import { payerFetch } from "./payer-http";
-import { findCreditPack } from "./pricing-config";
+import { baselineActiveVacancyAllowance, findCreditPack } from "./pricing-config";
 
 /**
  * The PAYER DATA SEAM (ADR-0019 Phase 1).
@@ -108,7 +111,11 @@ export async function getApplicantFeed(jobId: string): Promise<ApplicantFeed | n
     // Score-component reasons as faceless relevance chips (PII-free). The reach DTO's
     // components are explainable signal reasons; surface only their `reason` strings.
     signals: a.components
-      .map((c) => (typeof c === "object" && c && "reason" in c ? String((c as { reason: unknown }).reason) : ""))
+      .map((c) =>
+        typeof c === "object" && c && "reason" in c
+          ? String((c as { reason: unknown }).reason)
+          : "",
+      )
       .filter((s): s is string => s.length > 0)
       .slice(0, 8),
   }));
@@ -231,6 +238,80 @@ export async function revealMaskedResume(input: {
     displayInitials: initials,
     resumeUrl: `https://staging.badabhai.example/masked-resume/${input.unlockId}.pdf`,
     expiresAt: new Date(Date.now() + 14 * 86400_000).toISOString(),
+  });
+}
+
+/**
+ * WAITING (mock): PAUSE one of the payer's OWN postings. `posting-plans.controller`
+ * is InternalServiceGuard ("No PayerAuthGuard in alpha"), so there is NO payer-authed
+ * lifecycle endpoint. ESCALATE: backend needs payer-authed
+ * `PATCH /payer/job-postings/:id` (or `POST /payer/job-postings/:id/pause`).
+ * Tenancy (XB-A): the payerId is the SERVER-HELD session, never client input. A
+ * posting that isn't the caller's returns null ⇒ a NEUTRAL not-found.
+ */
+export async function pausePosting(input: { postingId: string }): Promise<PostingSummary | null> {
+  const { payerId } = await requirePayer();
+  const updated = store.pausePosting(payerId, input.postingId);
+  return updated ? postingSummarySchema.parse(updated) : null;
+}
+
+/**
+ * WAITING (mock): RESUME one of the payer's OWN postings. Same missing endpoint as
+ * pause. ESCALATE: payer-authed `PATCH /payer/job-postings/:id` (or
+ * `POST /payer/job-postings/:id/resume`). Tenancy server-held (XB-A); not-owned → null.
+ */
+export async function resumePosting(input: { postingId: string }): Promise<PostingSummary | null> {
+  const { payerId } = await requirePayer();
+  const updated = store.resumePosting(payerId, input.postingId);
+  return updated ? postingSummarySchema.parse(updated) : null;
+}
+
+/**
+ * WAITING (mock): TOP-UP a posting's applicant quota by ONE CONFIG'd step (catalog
+ * posting-quota tier; never a client/hardcoded amount — "view more → pay more"). The
+ * `resume-disclosures` / `posting-plans` controllers are InternalServiceGuard, so no
+ * payer-authed quota endpoint exists. ESCALATE: payer-authed
+ * `POST /payer/job-postings/:id/quota-top-up`. Tenancy server-held (XB-A); the step
+ * is resolved by code from config (XT5-style server-side amount), not a client value.
+ */
+export async function topUpPostingQuota(input: {
+  postingId: string;
+}): Promise<PostingSummary | null> {
+  const { payerId } = await requirePayer();
+  const updated = store.topUpPostingQuota(payerId, input.postingId);
+  return updated ? postingSummarySchema.parse(updated) : null;
+}
+
+/**
+ * WAITING (mock): the payer's CAPACITY usage (concurrent active-vacancy allowance +
+ * per-posting applicant-quota usage). `capacity.controller` is InternalServiceGuard
+ * (the `payers/:payerId/capacity` route takes payer_id from the path, not a payer
+ * JWT), so there is NO payer-authed capacity endpoint. ESCALATE: backend needs a
+ * payer-authed `GET /payer/capacity`.
+ *
+ * Tenancy (XB-A): derived ONLY from the server-held session's postings. The allowance
+ * is config-derived (baseline catalog capacity tier), never a hardcoded headcount. All
+ * counts; NO raw worker/payer PII.
+ */
+export async function getCapacity(): Promise<Capacity> {
+  const { payerId } = await requirePayer();
+  const postings = store.getPostings(payerId);
+  const rows = postings.map((p) => ({
+    postingId: p.id,
+    roleTitle: p.roleTitle,
+    status: p.status,
+    vacancyBand: p.vacancyBand,
+    applicantsUsed: p.applicantCount,
+    applicantQuota: p.applicantQuota ?? 0,
+  }));
+  const activeVacancies = postings.filter((p) => p.status === "open").length;
+  return capacitySchema.parse({
+    payerId,
+    activeVacancies,
+    activeVacancyAllowance: baselineActiveVacancyAllowance() ?? 0,
+    applicantQuotaTotal: rows.reduce((sum, r) => sum + r.applicantQuota, 0),
+    applicantQuotaUsed: rows.reduce((sum, r) => sum + r.applicantsUsed, 0),
+    postings: rows,
   });
 }
 

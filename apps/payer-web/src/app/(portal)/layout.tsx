@@ -29,13 +29,13 @@ export default async function PortalLayout({ children }: { children: ReactNode }
       <header className="topbar">
         <div className="brand">
           {isAgency ? "BadaBhai for Agencies" : "BadaBhai for Employers"}
-          <small>
-            {isAgency ? "Agency hiring desk" : "Self-serve hiring"} · staging (mock)
-          </small>
+          <small>{isAgency ? "Agency hiring desk" : "Self-serve hiring"} · staging (mock)</small>
         </div>
         <nav className="topnav">
           <Link href="/dashboard">Dashboard</Link>
           <Link href="/postings/new">{isAgency ? "Post a vacancy" : "Post a job"}</Link>
+          <Link href="/postings">{isAgency ? "Manage vacancies" : "Manage postings"}</Link>
+          <Link href="/capacity">Capacity</Link>
           <Link href="/credits">Credits</Link>
           {isAgency ? <Link href="/agency/referrals">Referrals &amp; payouts</Link> : null}
         </nav>
