@@ -11,7 +11,7 @@ import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { ReachRepository } from "./reach.repository";
 import { workerProfileRowToSignals } from "./reach.mappers";
-import { JOB_SOURCE, type JobSource } from "./reach.job-source";
+import { JOB_SOURCE, type JobSource, jobSignalRowToJobSpec } from "./reach.job-source";
 import type {
   ApplicantListResponseDto,
   ApplicantRowDto,
@@ -82,6 +82,60 @@ export class ReachService {
   }
 
   /**
+   * PAYER-SELF View A (`GET /payer/reach/jobs/:jobId/applicants`, ADR-0019 R22 / PR2).
+   * IDENTICAL faceless ranking to {@link applicantsForJob} — the deltas are exactly two:
+   *  (1) OWNERSHIP: the job is resolved via the payer-scoped, no-oracle ownership read
+   *      (`findOwnedJobSignalRowById`) — a not-found job and another payer's job both
+   *      resolve to the SAME neutral 404, so a payer cannot enumerate jobs they do not
+   *      own (XB-A horizontal authz + F-3 no-oracle). `payer_id` is consumed only in the
+   *      ownership WHERE and NEVER enters the JobSpec/response/event.
+   *  (2) ACTOR: each `feed.shown` carries `{actor_type:"payer", actor_id: payerId}` (bound
+   *      to the verified session — never the body), vs the ops path's `system` actor.
+   * The RANK core, the faceless worker projection, and the response shape are UNCHANGED
+   * (no new scoring, no LLM, sort-never-block, count-in==count-out).
+   */
+  async applicantsForOwnedJob(
+    jobId: string,
+    payerId: string,
+    ctx: RequestContext,
+  ): Promise<ApplicantListResponseDto> {
+    const ownedRow = await this.repo.findOwnedJobSignalRowById(jobId, payerId);
+    // Not-found AND not-owned both land here with the IDENTICAL body (no-oracle, F-3).
+    if (!ownedRow) throw new NotFoundException("Job not found");
+    const jobSpec = jobSignalRowToJobSpec(ownedRow);
+
+    // Full pool, signal columns only, NO relevance WHERE (sort-never-block, D8).
+    const rows = await this.repo.listSignalRows();
+    const now = new Date();
+    const signals: WorkerSignals[] = rows.map((r) => workerProfileRowToSignals(r, now));
+
+    const ranked: RankedWorker[] = rankWorkersForJob(jobSpec, signals);
+
+    const applicants: ApplicantRowDto[] = ranked.map((r) => ({
+      workerId: r.workerId,
+      rank: r.rank,
+      score: r.score,
+      hot: r.hot,
+      pushEligible: r.pushEligible,
+      components: r.components,
+    }));
+
+    // One feed.shown per row, UNKEYED (D7), with the PAYER as the actor (actor_id is the
+    // verified session payer — never the route/body). payer_id stays opaque in the event.
+    await this.events.emitMany(
+      ranked.map((r) =>
+        this.feedShownParams(
+          { worker_id: r.workerId, job_id: jobSpec.jobId, rank: r.rank, score: r.score, hot: r.hot },
+          ctx,
+          { actor_type: "payer", actor_id: payerId },
+        ),
+      ),
+    );
+
+    return { jobId: jobSpec.jobId, applicants };
+  }
+
+  /**
    * View B — worker job feed (`GET /reach/workers/:workerId/feed`). Reuses the core's
    * per-pair `scoreWorkerForJob` (NOT a reimplementation) to derive jobs-for-a-worker,
    * then orders best-first deterministically. D4: `hot` is not surfaced per-job and
@@ -129,11 +183,14 @@ export class ReachService {
   private feedShownParams(
     payload: PayloadInputOf<"feed.shown">,
     ctx: RequestContext,
+    // The ops views (default) have no authenticated actor → `system`. The payer-self
+    // view passes its VERIFIED session payer; payer_id rides actor_id (an opaque uuid),
+    // never the payload (which has no payer field), so the event stays PII-free.
+    actor: EmitParams<"feed.shown">["actor"] = { actor_type: "system" },
   ): EmitParams<"feed.shown"> {
     return {
       event_name: "feed.shown",
-      // Read-only ops console: no authenticated actor on this path.
-      actor: { actor_type: "system" },
+      actor,
       // The impression is about the worker (worker_id is the subject across both views).
       subject: { subject_type: "worker", subject_id: payload.worker_id },
       payload,

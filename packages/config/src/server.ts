@@ -146,6 +146,12 @@ export const serverEnvSchema = z.object({
   // Per-IP hourly cap on the UNAUTHENTICATED payer auth endpoints (signup / login
   // request / verify) — an account-farming + credential-stuffing backstop (XB-H / XT2).
   PAYER_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // Per-PAYER hourly cap on the self-serve REACH read (ADR-0019 R22 / PR2). The reach
+  // view returns the full faceless ranked pool for a payer's OWNED job, so repeated
+  // loads are the scrape / worker-de-anonymization surface (the reach analogue of XB-G).
+  // Fail-closed (a Redis outage rejects). Higher than the disclosure cap — reach is an
+  // information-only refreshable read, not a billable disclosure.
+  PAYER_REACH_MAX_PER_HOUR: z.coerce.number().int().positive().default(60),
 
   // AI routing (direct providers — Gemini primary + Claude Haiku fallback; ADR-0008).
   // The AI service (Python) calls providers DIRECTLY over their own SDKs/REST; the

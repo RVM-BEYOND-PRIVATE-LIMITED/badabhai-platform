@@ -36,15 +36,22 @@ export class PayerDisclosureRateLimit {
   ) {}
 
   /**
-   * Throw 429 if `payerId` has exceeded `PAYER_DISCLOSURE_MAX_PER_HOUR` disclosure
-   * requests in the current UTC hour. Called BEFORE the UnlockService chokepoint on the
-   * payer-self disclosure endpoints, so a throttled payer never reaches the grant path.
+   * Throw 429 if `payerId` has exceeded its hourly cap for `scope` in the current UTC
+   * hour. Default scope is the disclosure (unlock) cap (`PAYER_DISCLOSURE_MAX_PER_HOUR`,
+   * XB-G) — called BEFORE the UnlockService chokepoint so a throttled payer never reaches
+   * the grant path. The payer-self REACH read (ADR-0019 R22 / PR2) passes
+   * `{scope:"payer_reach", cap: PAYER_REACH_MAX_PER_HOUR}` to bound scraping on its own
+   * bucket. Each `(scope, payer, hour)` is an independent counter; both fail closed.
    */
-  async assertWithinHourlyCap(payerId: string): Promise<void> {
+  async assertWithinHourlyCap(
+    payerId: string,
+    opts?: { scope?: string; cap?: number },
+  ): Promise<void> {
+    const scope = opts?.scope ?? "payer_disclosure";
+    const cap = opts?.cap ?? this.config.PAYER_DISCLOSURE_MAX_PER_HOUR;
     const hour = PayerDisclosureRateLimit.utcHourStamp();
-    const key = `ratelimit:payer_disclosure:${payerId}:${hour}`;
+    const key = `ratelimit:${scope}:${payerId}:${hour}`;
     const ttl = PayerDisclosureRateLimit.secondsUntilEndOfUtcHour();
-    const cap = this.config.PAYER_DISCLOSURE_MAX_PER_HOUR;
 
     let count: number;
     try {

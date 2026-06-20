@@ -23,6 +23,9 @@ import { ResumeController } from "../resume/resume.controller";
 import { UnlocksController } from "../unlocks/unlocks.controller";
 import { VoiceController } from "../voice/voice.controller";
 import { WorkersController } from "../workers/workers.controller";
+import { PayerAuthController } from "../payer-portal/payer-auth.controller";
+import { PayerUnlocksController } from "../payer-portal/payer-unlocks.controller";
+import { PayerReachController } from "../payer-portal/payer-reach.controller";
 
 /**
  * AUTHZ CONTRACT — the single source of truth for which guards protect every
@@ -62,6 +65,7 @@ interface ControllerContract {
 const W = "WorkerAuthGuard";
 const C = "ConsentGuard";
 const I = "InternalServiceGuard";
+const P = "PayerAuthGuard";
 
 const CONTRACT: ControllerContract[] = [
   { name: "Actions", ctor: ActionsController, routes: { record: [], recordBatch: [] } },
@@ -108,6 +112,20 @@ const CONTRACT: ControllerContract[] = [
   // P0 fix (PR #91).
   { name: "Profiles", ctor: ProfilesController, routes: { extract: [C, W], confirm: [C, W] } },
   { name: "Reach", ctor: ReachController, routes: { applicants: [], feed: [] } },
+  // Self-serve PAYER surface (ADR-0019). signup/login are PUBLIC (external boundary);
+  // refresh/logout + every unlock/reach route bind to the payer session (PayerAuthGuard).
+  // The ops `/reach/*` + `/unlocks*` rows above stay their own principal (one per route).
+  {
+    name: "PayerAuth",
+    ctor: PayerAuthController,
+    routes: { signup: [], requestLogin: [], verifyLogin: [], refresh: [P], logout: [P] },
+  },
+  {
+    name: "PayerUnlocks",
+    ctor: PayerUnlocksController,
+    routes: { requestUnlock: [P], reveal: [P], listOwn: [P], ownCredits: [P] },
+  },
+  { name: "PayerReach", ctor: PayerReachController, routes: { applicants: [P] } },
   {
     name: "Resume",
     ctor: ResumeController,
