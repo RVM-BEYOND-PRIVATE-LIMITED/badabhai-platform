@@ -26,9 +26,12 @@ import { JOB_SOURCE, JobsTableJobSource } from "./reach.job-source";
       useClass: JobsTableJobSource,
     },
   ],
-  // Export the RANK reuse so additive consumers (PACE — ADR-0021) can measure
-  // above-floor supply via the SAME repository + job source, never reimplementing
-  // ranking. Faceless: both surface opaque ids + signals only.
-  exports: [ReachRepository, JOB_SOURCE],
+  // Exports serve two additive consumers (union):
+  //  - PACE (ADR-0021) measures above-floor supply via the SAME ReachRepository +
+  //    JOB_SOURCE, never reimplementing ranking;
+  //  - the payer-portal (ADR-0019 R22) reuses ReachService for the payer-self reach
+  //    view, exactly as it reuses UnlockService — the controller never re-implements
+  //    ranking. Faceless: all surface opaque ids + signals only.
+  exports: [ReachRepository, JOB_SOURCE, ReachService],
 })
 export class ReachModule {}

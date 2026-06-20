@@ -19,11 +19,22 @@
   (no user-enumeration, per-IP + per-account caps, signed/revocable/rolling session,
   `assertPayerAuthConfig` fail-closed boot); and the PII-free `payer.*` event domain
   ([R16](../registers/risks-register.md) LC-1 satisfied for the payer-self surface;
-  [TD33](../registers/tech-debt-register.md) paying down). **Deferred to follow-up PRs:** the
-  reach payer-view (R22, after resolving the `jobs`↔`job_postings` entity mismatch) and the
-  `apps/payer-web` skeleton. **Still human-gated launch gates (unchanged):** DB-enforced RLS
-  (XL-A / Phase 2), real payments (Phase 3 / TD34), production DPDP/DPA copy, pen test —
-  open external GA (Phase 4) remains blocked.
+  [TD33](../registers/tech-debt-register.md) paying down).
+- **Phase-1 BUILD STATUS (2026-06-20, PR2 `feat/r22-payer-reach-view`):** the **payer-self
+  REACH view** is built + security-reviewed (bb-security-review + independent authz-review PASS;
+  [reach threat-model addendum](../security/payer-reach-view-threat-model-addendum.md)). The
+  `jobs`↔`job_postings` fork was resolved (decision-ready synthesis): the reach view serves the
+  payer's OWNED seeded `jobs` (`jobs.payer_id`, the only payer-owned + reach-rankable +
+  applicant-bearing entity) via a NEW guarded `GET /payer/reach/jobs/:jobId/applicants` —
+  additive, **NO** `jobs`↔`job_postings` bridge (ADR-0012's "no bridge" stands), reusing the
+  `ReachService` ranking + the faceless projection + the existing `feed.shown` event (payer
+  actor). Ownership is a no-oracle identical-404 read; reach stays **information-only** (no
+  quota/credit/payment); scrape-bounded by a per-payer reach cap. Closes [R22](../registers/risks-register.md)
+  for the EXTERNAL surface (the ops `/reach/*` unauth posture is unchanged, one-principal-per-route).
+  **Deferred:** the **monetization↔reach bridge** (`job_postings`/quota → reach) is a SEPARATE
+  future ADR (TD37), and the `apps/payer-web` skeleton (Decision A). **Still human-gated launch
+  gates (unchanged):** DB-enforced RLS (XL-A / Phase 2), real payments (Phase 3 / TD34),
+  production DPDP/DPA copy, pen test — open external GA (Phase 4) remains blocked.
 
 ## SIGN-OFF (2026-06-18) — maintainer: ACCEPTED
 

@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import { PayerPortalModule } from "./payer-portal.module";
 import { PayerAuthController } from "./payer-auth.controller";
 import { PayerUnlocksController } from "./payer-unlocks.controller";
+import { PayerReachController } from "./payer-reach.controller";
 import { PayersModule } from "../payers/payers.module";
 import { UnlocksModule } from "../unlocks/unlocks.module";
+import { ReachModule } from "../reach/reach.module";
 import { PayerAuthGuard } from "../payers/payer-auth.guard";
 import { PAYER_LOGIN_CHANNEL } from "../payers/payer-login-channel";
 import { WHATSAPP_PROVIDER } from "../messaging/whatsapp.provider";
@@ -24,16 +26,18 @@ const providerTokens = (): unknown[] =>
   );
 
 describe("PayerPortalModule wiring (cross-module DI regression guard)", () => {
-  it("imports PayersModule (guard/session/repo) + UnlocksModule (disclosure chokepoint)", () => {
+  it("imports PayersModule + UnlocksModule + ReachModule (the reused chokepoints)", () => {
     const imports = getMeta("imports", PayerPortalModule);
     expect(imports).toContain(PayersModule);
     expect(imports).toContain(UnlocksModule);
+    expect(imports).toContain(ReachModule); // R22 reach-view reuse
   });
 
-  it("declares BOTH the auth + unlocks payer controllers", () => {
+  it("declares the auth + unlocks + reach payer controllers", () => {
     const controllers = getMeta("controllers", PayerPortalModule);
     expect(controllers).toContain(PayerAuthController);
     expect(controllers).toContain(PayerUnlocksController);
+    expect(controllers).toContain(PayerReachController);
   });
 
   it("provides the auth service, OTP store, XB-G cap, and all three login channels", () => {
@@ -52,9 +56,10 @@ describe("PayerPortalModule wiring (cross-module DI regression guard)", () => {
     expect(tokens).toContain(WHATSAPP_PROVIDER);
   });
 
-  it("the disclosure controller is class-guarded by PayerAuthGuard; the auth controller is PUBLIC", () => {
-    // PayerUnlocksController: every route requires a payer session.
+  it("the disclosure + reach controllers are class-guarded by PayerAuthGuard; auth is PUBLIC", () => {
+    // PayerUnlocksController + PayerReachController: every route requires a payer session.
     expect(getMeta("__guards__", PayerUnlocksController)).toContain(PayerAuthGuard);
+    expect(getMeta("__guards__", PayerReachController)).toContain(PayerAuthGuard);
     // PayerAuthController: NO class-level guard (signup/login are public; refresh/logout
     // are guarded per-method, so the class metadata must be empty).
     expect(getMeta("__guards__", PayerAuthController)).toHaveLength(0);
