@@ -11,6 +11,7 @@
       "Read(**/.env.production)",
       "Read(**/.env.staging)",
       "Read(**/.env.test)",
+      "Read(**/.env.ci)",
       "Read(**/*.pem)",
       "Read(**/*.key)",
       "Read(**/*.p12)",
@@ -18,8 +19,11 @@
       "Read(**/*.keystore)",
       "Read(**/*.jks)",
       "Read(**/service-account*.json)",
+      "Read(**/*serviceAccount*.json)",
       "Read(**/*credentials*.json)",
       "Read(**/id_rsa*)",
+      "Read(**/id_ed25519)",
+      "Read(**/id_ecdsa)",
       "Edit(.env)",
       "Edit(./.env)",
       "Edit(**/.env)",
@@ -29,6 +33,7 @@
       "Edit(**/.env.production)",
       "Edit(**/.env.staging)",
       "Edit(**/.env.test)",
+      "Edit(**/.env.ci)",
       "Edit(**/*.pem)",
       "Edit(**/*.key)",
       "Edit(**/*.p12)",
@@ -36,14 +41,21 @@
       "Edit(**/*.keystore)",
       "Edit(**/*.jks)",
       "Edit(**/service-account*.json)",
+      "Edit(**/*serviceAccount*.json)",
       "Edit(**/*credentials*.json)",
       "Edit(**/id_rsa*)",
+      "Edit(**/id_ed25519)",
+      "Edit(**/id_ecdsa)",
       "Write(**/.env)",
+      "Write(**/.env.ci)",
       "Write(**/*.pem)",
       "Write(**/*.key)",
       "Write(**/service-account*.json)",
+      "Write(**/*serviceAccount*.json)",
       "Write(**/*credentials*.json)",
       "Write(**/id_rsa*)",
+      "Write(**/id_ed25519)",
+      "Write(**/id_ecdsa)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
       "Bash(supabase db reset:*)",
@@ -73,11 +85,17 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|PowerShell|Read|Edit|Write|NotebookEdit",
+        "matcher": "Bash|PowerShell|Read|Edit|Write|NotebookEdit|Grep",
         "hooks": [
           {
             "type": "command",
             "command": "node .claude/hooks/guard.mjs"
+          },
+          {
+            "type": "command",
+            "command": "node .claude/hooks/guard-secrets.mjs",
+            "timeout": 10,
+            "statusMessage": "Guarding secrets & dangerous commands…"
           }
         ]
       }
