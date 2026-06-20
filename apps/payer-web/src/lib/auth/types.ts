@@ -11,6 +11,13 @@
  * or reaches the client — `payer_id` is the only token, per invariant #2 / B-R2.
  */
 
+/**
+ * Payer role — mirrors the backend `PayerRole` (`payers.role`): an `employer` is a
+ * company; an `agent` is an agency. SUPPLY (referral payouts) is PARKED — `agent`
+ * in Phase 1 means an agency using the SAME DEMAND loop as a company.
+ */
+export type PayerRole = "employer" | "agent";
+
 /** A logged-in payer principal, as the seam exposes it to the app. */
 export interface PayerSession {
   /** The opaque payer id — the ONLY tenant token the rest of the app may use. */
@@ -18,7 +25,7 @@ export interface PayerSession {
   /** Non-PII display label for the header (e.g. "Acme Tools (mock)"). */
   readonly displayLabel: string;
   /** Role, for UI affordances only — never an authz decision on the client. */
-  readonly role: "employer" | "agent";
+  readonly role: PayerRole;
 }
 
 /** Result of a login attempt. NO-ORACLE on failure (XB-H): a single neutral error. */

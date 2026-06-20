@@ -1,15 +1,22 @@
 import Link from "next/link";
 import { getDashboard } from "../../../lib/payer-api";
+import { requirePayer } from "../../../lib/auth";
 import type { Dashboard } from "../../../lib/contracts";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Payer dashboard (ADR-0019 Phase 1). Shows the payer's OWN postings, credit
- * balance, and unlock history — payer-scoped only (XB-A: the data seam binds to
- * the server-held session id). No raw worker/payer PII anywhere.
+ * Payer dashboard (ADR-0019 Phase 1) — SHARED by both roles. Shows the payer's OWN
+ * postings, credit balance, and unlock history — payer-scoped only (XB-A: the data
+ * seam binds to the server-held session id). No raw worker/payer PII anywhere.
+ *
+ * The DEMAND logic is identical for `employer` and `agent`; the role only adjusts
+ * user-facing LABELS (job vs vacancy), never the data path or the authz.
  */
 export default async function DashboardPage() {
+  const session = await requirePayer();
+  const isAgency = session.role === "agent";
+
   let data: Dashboard | null = null;
   let error: string | null = null;
   try {
@@ -34,7 +41,9 @@ export default async function DashboardPage() {
   return (
     <>
       <h1 className="page-title">Dashboard</h1>
-      <p className="page-sub">Your postings, credits, and unlock history.</p>
+      <p className="page-sub">
+        Your {isAgency ? "vacancies" : "postings"}, credits, and unlock history.
+      </p>
 
       <div className="cards">
         <div className="card">
@@ -45,10 +54,10 @@ export default async function DashboardPage() {
           </p>
         </div>
         <div className="card">
-          <h3>Open postings</h3>
+          <h3>Open {isAgency ? "vacancies" : "postings"}</h3>
           <div className="big">{data.postings.filter((p) => p.status === "open").length}</div>
           <p>
-            <Link href="/postings/new">Post a job →</Link>
+            <Link href="/postings/new">{isAgency ? "Post a vacancy →" : "Post a job →"}</Link>
           </p>
         </div>
         <div className="card">
@@ -59,10 +68,13 @@ export default async function DashboardPage() {
       </div>
 
       <section className="section">
-        <h2>Your job postings</h2>
+        <h2>Your {isAgency ? "vacancies" : "job postings"}</h2>
         {data.postings.length === 0 ? (
           <div className="empty">
-            You haven&rsquo;t posted a job yet. <Link href="/postings/new">Post your first job</Link>{" "}
+            You haven&rsquo;t posted {isAgency ? "a vacancy" : "a job"} yet.{" "}
+            <Link href="/postings/new">
+              {isAgency ? "Post your first vacancy" : "Post your first job"}
+            </Link>{" "}
             — free through launch.
           </div>
         ) : (
