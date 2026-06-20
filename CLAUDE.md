@@ -70,16 +70,16 @@ compiles and tests pass. If a task requires breaking one, **stop and escalate** 
 
 ## 3. Locked tech stack
 
-| Layer           | Tech                             | Location                             |
-| --------------- | -------------------------------- | ------------------------------------ |
-| Monorepo        | pnpm + Turborepo                 | root                                 |
-| Backend API     | NestJS (TS strict)               | [`apps/api`](apps/api)               |
-| AI service      | Python FastAPI                   | [`apps/ai-service`](apps/ai-service) |
-| Web ops console | Next.js (internal only)          | [`apps/web`](apps/web)               |
-| Worker app      | Flutter (Android-first)          | [`apps/worker-app`](apps/worker-app) |
-| Database        | Supabase Postgres + Drizzle      | [`packages/db`](packages/db)         |
-| Queue/cache     | Redis + BullMQ (deferred wiring) | [`infra/redis`](infra/redis)         |
-| AI routing      | Direct Gemini + Claude ([ADR-0008](docs/decisions/0008-litellm-to-direct-providers.md)) | `apps/ai-service/app/ai/router.py` |
+| Layer           | Tech                                                                                    | Location                             |
+| --------------- | --------------------------------------------------------------------------------------- | ------------------------------------ |
+| Monorepo        | pnpm + Turborepo                                                                        | root                                 |
+| Backend API     | NestJS (TS strict)                                                                      | [`apps/api`](apps/api)               |
+| AI service      | Python FastAPI                                                                          | [`apps/ai-service`](apps/ai-service) |
+| Web ops console | Next.js (internal only)                                                                 | [`apps/web`](apps/web)               |
+| Worker app      | Flutter (Android-first)                                                                 | [`apps/worker-app`](apps/worker-app) |
+| Database        | Supabase Postgres + Drizzle                                                             | [`packages/db`](packages/db)         |
+| Queue/cache     | Redis + BullMQ (deferred wiring)                                                        | [`infra/redis`](infra/redis)         |
+| AI routing      | Direct Gemini + Claude ([ADR-0008](docs/decisions/0008-litellm-to-direct-providers.md)) | `apps/ai-service/app/ai/router.py`   |
 
 Stack is **locked** for Phase 1 (see [ADR-0001](docs/decisions/0001-mvp-infra-decision.md),
 [ADR-0008](docs/decisions/0008-litellm-to-direct-providers.md)). The AI service calls
@@ -174,14 +174,14 @@ Idea → Requirements → Architecture (ADR if structural) → DB → API/Events
 
 **Engineering org** — invoke the specialist for the layer you're in:
 
-| Agent                                                                    | Owns                                   | Use the Task tool with subagent |
-| ------------------------------------------------------------------------ | -------------------------------------- | ------------------------------- |
-| [backend-engineer](.claude/agents/backend-engineer.md)                   | NestJS API, events                     | `backend-engineer`              |
-| [ai-engineer](.claude/agents/ai-engineer.md)                             | FastAPI, privacy gateway, AI contracts | `ai-engineer`                   |
-| [database-architect](.claude/agents/database-architect.md)               | Drizzle schema + migrations            | `database-architect`            |
-| [frontend-engineer](.claude/agents/frontend-engineer.md)                 | Next.js ops console                    | `frontend-engineer`             |
-| [mobile-engineer](.claude/agents/mobile-engineer.md)                     | Flutter worker app                     | `mobile-engineer`               |
-| [security-privacy-reviewer](.claude/agents/security-privacy-reviewer.md) | PII/event/DPDP gate                    | `security-privacy-reviewer`     |
+| Agent                                                      | Owns                                   | Use the Task tool with subagent |
+| ---------------------------------------------------------- | -------------------------------------- | ------------------------------- |
+| [backend-engineer](.claude/agents/backend-engineer.md)     | NestJS API, events                     | `backend-engineer`              |
+| [ai-engineer](.claude/agents/ai-engineer.md)               | FastAPI, privacy gateway, AI contracts | `ai-engineer`                   |
+| [database-architect](.claude/agents/database-architect.md) | Drizzle schema + migrations            | `database-architect`            |
+| [frontend-engineer](.claude/agents/frontend-engineer.md)   | Next.js ops console                    | `frontend-engineer`             |
+| [mobile-engineer](.claude/agents/mobile-engineer.md)       | Flutter worker app                     | `mobile-engineer`               |
+| [security-engineer](.claude/agents/security-engineer.md)   | PII/event/DPDP gate                    | `security-engineer`             |
 
 Skills (run with the Skill tool): `add-api-endpoint` · `event-schema-change` ·
 `safe-db-migration` · `privacy-review` · `feature-quality-gate` · `wire-client-to-api`.
@@ -201,7 +201,7 @@ register in the same PR as the change that motivated it. Decisions of record are
 Reach Engine **learned** ranking, advanced matching, finalized RLS (backend uses the service
 role today — see [infra/supabase/rls-plan.md](infra/supabase/rls-plan.md)), BullMQ job queues,
 real OTP/STT/LLM/payment providers, real telephony/proxy + raw-phone reveal, per-payer
-`PayerAuthGuard`, production DPDP legal copy. **Note:** the *alpha-gate* forms of employer
+`PayerAuthGuard`, production DPDP legal copy. **Note:** the _alpha-gate_ forms of employer
 postings, contact unlock (mock credits + in-app relay, [ADR-0010](docs/decisions/0010-contact-unlock-and-reveal.md)
 Stream A), Reach feed serving, config-driven pricing/boosts, and **per-payer hiring capacity**
 ([ADR-0016](docs/decisions/0016-payer-hiring-capacity.md): faceless concurrent-active-vacancy
@@ -218,12 +218,16 @@ Before repository exploration:
 
 1. Read `.claude/project-memory.md`
 2. Read `.claude/team-memory.md`
+3. Read [`docs/claude-working-guide.md`](docs/claude-working-guide.md) — the working protocol + guardrails
 
-Treat both as authoritative.
+Treat all three as authoritative. `.claude/settings.json` enforces hard guardrails — no reading
+secret files, no destructive shell — via permission rules + a `PreToolUse` hook
+(`.claude/hooks/guard.mjs`, self-test `node .claude/hooks/guard.selftest.mjs`).
 
 Do not rediscover architecture, ownership, business rules, or active workstreams already documented there.
 
 Search code only when:
+
 - implementation details are needed
 - memory files are outdated
 - information is missing
@@ -231,6 +235,7 @@ Search code only when:
 ### Evidence-Based Work
 
 Never invent:
+
 - architecture
 - APIs
 - database schema
@@ -243,6 +248,7 @@ When information is missing:
 2. Search the repository
 
 If still unknown:
+
 - mark it as UNKNOWN
 - ask for clarification
 - do not assume
@@ -252,6 +258,7 @@ If still unknown:
 Assume experienced backend engineers.
 
 Preferred format:
+
 - Status
 - Files Changed
 - Issues

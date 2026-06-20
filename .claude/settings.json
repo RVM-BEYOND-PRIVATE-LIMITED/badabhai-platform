@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(.env)",
+      "Read(./.env)",
+      "Read(**/.env)",
+      "Read(**/.env.local)",
+      "Read(**/.env.*.local)",
+      "Read(**/.env.development)",
+      "Read(**/.env.production)",
+      "Read(**/.env.staging)",
+      "Read(**/.env.test)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(**/*.p12)",
+      "Read(**/*.pfx)",
+      "Read(**/*.keystore)",
+      "Read(**/*.jks)",
+      "Read(**/service-account*.json)",
+      "Read(**/*credentials*.json)",
+      "Read(**/id_rsa*)",
+      "Edit(.env)",
+      "Edit(./.env)",
+      "Edit(**/.env)",
+      "Edit(**/.env.local)",
+      "Edit(**/.env.*.local)",
+      "Edit(**/.env.development)",
+      "Edit(**/.env.production)",
+      "Edit(**/.env.staging)",
+      "Edit(**/.env.test)",
+      "Edit(**/*.pem)",
+      "Edit(**/*.key)",
+      "Edit(**/*.p12)",
+      "Edit(**/*.pfx)",
+      "Edit(**/*.keystore)",
+      "Edit(**/*.jks)",
+      "Edit(**/service-account*.json)",
+      "Edit(**/*credentials*.json)",
+      "Edit(**/id_rsa*)",
+      "Write(**/.env)",
+      "Write(**/*.pem)",
+      "Write(**/*.key)",
+      "Write(**/service-account*.json)",
+      "Write(**/*credentials*.json)",
+      "Write(**/id_rsa*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(supabase db reset:*)",
+      "Bash(rm -rf /:*)",
+      "Bash(rm -rf ~:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(supabase db push:*)",
+      "Bash(supabase link:*)",
+      "Bash(pnpm db:migrate:*)"
+    ],
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)",
+      "Bash(git show:*)",
+      "Bash(pnpm lint:*)",
+      "Bash(pnpm typecheck:*)",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm build:*)",
+      "Bash(pnpm format:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell|Read|Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/guard.mjs"
+          }
+        ]
+      }
+    ]
+  }
+}
