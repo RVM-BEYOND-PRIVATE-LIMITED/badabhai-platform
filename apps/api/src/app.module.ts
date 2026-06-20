@@ -24,6 +24,7 @@ import { PaceModule } from "./pace/pace.module";
 import { UnlocksModule } from "./unlocks/unlocks.module";
 import { MessagingModule } from "./messaging/messaging.module";
 import { ResumeDisclosureModule } from "./disclosures/resume-disclosure.module";
+import { PayersModule } from "./payers/payers.module";
 import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
 import { PdfModule } from "./common/pdf/pdf.module";
 import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
@@ -59,6 +60,7 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     MessagingModule,
     ResumeDisclosureModule,
     PaceModule,
+    PayersModule,
   ],
 })
 export class AppModule implements NestModule {
