@@ -26,5 +26,10 @@ import { JOB_SOURCE, JobsTableJobSource } from "./reach.job-source";
       useClass: JobsTableJobSource,
     },
   ],
+  // Export ONLY the service (the ranking orchestration + faceless boundary). The
+  // payer-portal reuses it for the payer-self reach view (ADR-0019 R22), exactly as it
+  // reuses UnlockService — the controller never re-implements ranking. ReachRepository
+  // stays unexported (the projection-discipline owner; reached only via the service).
+  exports: [ReachService],
 })
 export class ReachModule {}

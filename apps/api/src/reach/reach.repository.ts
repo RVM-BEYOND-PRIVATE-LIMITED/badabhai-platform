@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { type Database, workerProfiles, jobs, type JobNeededBy } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import type { WorkerProfileSignalRow } from "./reach.mappers";
@@ -105,6 +105,31 @@ export class ReachRepository {
       .select(ReachRepository.JOB_SIGNAL_COLUMNS)
       .from(jobs)
       .where(eq(jobs.id, jobId))
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
+   * PAYER-SCOPED ownership read (ADR-0019 R22 / PR2). Returns the FACELESS signal row
+   * ONLY when the job exists AND `jobs.payer_id == payerId` — otherwise `undefined`.
+   *
+   * NO-ORACLE (F-3): a not-found job and an other-payer's job both resolve to
+   * `undefined`, so the caller maps both to the SAME neutral response (a payer cannot
+   * tell whether a job UUID exists or merely belongs to someone else).
+   *
+   * PII BOUNDARY (CLAUDE.md inv #2): `payer_id` is consumed ONLY in the WHERE predicate
+   * (the ownership filter); the SELECT is the same faceless `JOB_SIGNAL_COLUMNS`
+   * projection — `payer_id` (and title/area) NEVER enter the returned row, a `JobSpec`,
+   * a `feed.shown` payload, or a log.
+   */
+  async findOwnedJobSignalRowById(
+    jobId: string,
+    payerId: string,
+  ): Promise<JobSignalRow | undefined> {
+    const rows = await this.db
+      .select(ReachRepository.JOB_SIGNAL_COLUMNS)
+      .from(jobs)
+      .where(and(eq(jobs.id, jobId), eq(jobs.payerId, payerId)))
       .limit(1);
     return rows[0];
   }

@@ -4,6 +4,7 @@ import { NotFoundException } from "@nestjs/common";
 import type { JobSpec } from "@badabhai/reach-engine";
 import { ReachService } from "./reach.service";
 import type { JobSource } from "./reach.job-source";
+import type { JobSignalRow } from "./reach.repository";
 import type { WorkerProfileSignalRow } from "./reach.mappers";
 
 const CTX = { correlationId: "22222222-2222-4222-8222-222222222222", requestId: "req-1" };
@@ -68,6 +69,10 @@ function make(rows: WorkerProfileSignalRow[], jobs: JobSpec[]) {
   const repo = {
     listSignalRows: vi.fn().mockResolvedValue(rows),
     findSignalRowByWorkerId: vi.fn(async (id: string) => rows.find((r) => r.workerId === id)),
+    // Payer-scoped ownership read (PR2). Default: NOT owned (undefined) — the no-oracle
+    // resolution that maps absent AND other-payer to the same neutral 404. Tests that
+    // exercise ownership override it with mockResolvedValue(ownedRow(...)).
+    findOwnedJobSignalRowById: vi.fn(async () => undefined as JobSignalRow | undefined),
   };
   const jobSource = makeJobSource(jobs);
   const svc = new ReachService(repo as never, { emit, emitMany } as never, jobSource);
@@ -154,6 +159,78 @@ describe("ReachService — View A (applicants for a job)", () => {
       expect(p.rank).toBe(a.rank);
       expect(p.score).toBe(a.score);
       expect(p.hot).toBe(a.hot);
+    }
+  });
+});
+
+describe("ReachService — Payer-self View A (applicantsForOwnedJob, ADR-0019 R22)", () => {
+  const PAYER = "aaaaaaaa-0000-4000-8000-000000000001";
+
+  /** A faceless owned job signal row (the repo's payer-scoped read result). */
+  function ownedRow(jobId: string): JobSignalRow {
+    return {
+      jobId,
+      tradeKey: "cnc_milling",
+      city: "pune",
+      payMin: 18000,
+      payMax: 30000,
+      minExperienceYears: 1,
+      maxExperienceYears: 8,
+      neededBy: "immediate",
+    };
+  }
+
+  it("resolves the job via the PAYER-SCOPED ownership read (jobId + session payer)", async () => {
+    const { svc, repo } = make([row(1)], []);
+    repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
+    await svc.applicantsForOwnedJob(JOB_A, PAYER, CTX as never);
+    expect(repo.findOwnedJobSignalRowById).toHaveBeenCalledWith(JOB_A, PAYER);
+  });
+
+  it("an unknown OR not-owned job → IDENTICAL neutral 404, emits nothing (XB-A + no-oracle)", async () => {
+    const { svc, emit, emitMany, repo } = make([row(1), row(2)], []);
+    repo.findOwnedJobSignalRowById.mockResolvedValue(undefined); // absent OR other-payer
+    await expect(svc.applicantsForOwnedJob(JOB_A, PAYER, CTX as never)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(emit).not.toHaveBeenCalled();
+    expect(emitMany).not.toHaveBeenCalled();
+  });
+
+  it("count in == count out + faceless rows, identical to the ops View A shape", async () => {
+    const pool = [row(1), blankRow(2), offTradeRow(3), row(4)];
+    const { svc, emitted, repo } = make(pool, []);
+    repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
+
+    const res = await svc.applicantsForOwnedJob(JOB_A, PAYER, CTX as never);
+
+    expect(res.jobId).toBe(JOB_A);
+    expect(res.applicants.length).toBe(pool.length); // sort-never-block
+    for (const a of res.applicants) {
+      expect(Object.keys(a).sort()).toEqual(
+        ["components", "hot", "pushEligible", "rank", "score", "workerId"].sort(),
+      );
+    }
+    expect(emitted().length).toBe(pool.length);
+  });
+
+  it("emits feed.shown with the PAYER actor (actor_id == session payer), payload PII-free + payer-free", async () => {
+    const { svc, emitted, repo } = make([row(1), row(2), row(3)], []);
+    repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
+
+    await svc.applicantsForOwnedJob(JOB_A, PAYER, CTX as never);
+
+    const params = emitted();
+    expect(params.length).toBe(3);
+    for (const param of params) {
+      // Reuses the same UNKEYED, PII-free feed.shown contract as the ops path.
+      assertFeedShownEmit(param);
+      // Actor is the verified session payer — payer_id rides actor_id (opaque), never the payload.
+      expect(param.actor).toEqual({ actor_type: "payer", actor_id: PAYER });
+      // The payer_id MUST NOT appear in the payload (the impression is faceless about the worker).
+      expect(JSON.stringify(param.payload)).not.toContain(PAYER);
+      const payload = param.payload as Record<string, unknown>;
+      expect(payload).not.toHaveProperty("payer_id");
     }
   });
 });
