@@ -8,6 +8,7 @@ import {
   assertAuthConfig,
   isUsingDevJwtDefault,
   assertPaymentsConfig,
+  assertPayerAuthConfig,
 } from "@badabhai/config";
 import { AppModule } from "./app.module";
 import { StructuredLogger } from "./common/logging/structured-logger";
@@ -18,6 +19,7 @@ async function bootstrap(): Promise<void> {
   assertPiiCryptoConfig(config); // fail closed if PII secrets are dev defaults outside dev/test
   assertAuthConfig(config); // fail closed on dev JWT secret / console SMS / half-set Fast2SMS outside dev/test
   assertPaymentsConfig(config); // fail closed if real payments enabled without a provider key (ADR-0010 F-6)
+  assertPayerAuthConfig(config); // fail closed on a half-configured payer login method / dev JWT (ADR-0019 B)
   if (isUsingDevPiiDefaults(config)) {
     new Logger("Bootstrap").warn(
       "Using INSECURE default PII secrets (local dev only). Set PII_HASH_PEPPER + PII_ENCRYPTION_KEY.",

@@ -58,6 +58,44 @@ export class PayersRepository {
     return { id: row!.id };
   }
 
+  /**
+   * Idempotent, race-safe create-or-get keyed on the login email's keyed HMAC — the
+   * payer analogue of `WorkersRepository.createOrGetByPhoneHash` (TD23). Two concurrent
+   * first-time signups for the same email both reach here; a plain insert would 23505 on
+   * `payers_email_hash_uq`. `created` is true ONLY for the request that actually inserted.
+   *
+   * SECURITY (XB-H no-enumeration): an existing email returns `{created:false}` WITHOUT
+   * a duplicate row, an error, or any overwrite of the stored role/org-name — so signup
+   * for a known email is indistinguishable (same neutral HTTP response, no 500-vs-200
+   * oracle) from signup for a new one. The existing account is never mutated here.
+   */
+  async createOrGet(input: CreatePayerInput): Promise<{ id: string; created: boolean }> {
+    const normEmail = PayersRepository.normEmail(input.email);
+    const emailHash = this.pii.hmac(normEmail);
+    const inserted = await this.db
+      .insert(payers)
+      .values({
+        role: input.role,
+        emailEnc: this.pii.encrypt(normEmail),
+        emailHash,
+        orgNameEnc: this.pii.encrypt(input.orgName),
+        phoneEnc: input.phone ? this.pii.encrypt(input.phone) : null,
+        phoneHash: input.phone ? this.pii.hashPhone(input.phone) : null,
+      })
+      .onConflictDoNothing({ target: payers.emailHash })
+      .returning({ id: payers.id });
+    if (inserted[0]) return { id: inserted[0].id, created: true };
+
+    // Lost the insert race (or the account already existed) — resolve by the keyed hash.
+    const [existing] = await this.db
+      .select({ id: payers.id })
+      .from(payers)
+      .where(eq(payers.emailHash, emailHash))
+      .limit(1);
+    if (!existing) throw new Error("payer insert hit a conflict but no row was found");
+    return { id: existing.id, created: false };
+  }
+
   /** Fetch the raw row by id (ciphertext fields; decrypt only via {@link decryptContact}). */
   async findById(id: string): Promise<Payer | undefined> {
     const [row] = await this.db.select().from(payers).where(eq(payers.id, id)).limit(1);

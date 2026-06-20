@@ -124,6 +124,29 @@ export const serverEnvSchema = z.object({
   FAST2SMS_ENTITY_ID: z.string().min(1).optional(),
   FAST2SMS_ROUTE: z.string().min(1).default("dlt"),
 
+  // Self-serve PAYER auth (ADR-0019 Decision B — closes R16/LC-1/TD33). The payer is
+  // the THIRD principal (worker/payer/ops). The session mechanism reuses JWT_SECRET +
+  // SESSION_TTL_DAYS (PayerSessionService) and the login OTP reuses the OTP_* knobs
+  // above (one set of OTP shape/lifecycle for both principals).
+  //
+  // PAYER_LOGIN_METHOD selects the login channel (ADR-0019 B-R1):
+  //   "email_otp" — alpha MOCK default: a one-time code is delivered over a console/mock
+  //                 channel (the SmsProvider="console" analogue; dev/test echo only).
+  //   "whatsapp"  — rides the ADR-0020 WhatsApp MOCK provider (no real send in alpha);
+  //                 the payer's phone is required on the account.
+  //   "supabase"  — config-gated adapter (locked stack). INERT WITHOUT KEYS: selecting it
+  //                 without SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY fails CLOSED at boot
+  //                 (assertPayerAuthConfig). No real provider is enabled by default.
+  PAYER_LOGIN_METHOD: z.enum(["email_otp", "whatsapp", "supabase"]).default("email_otp"),
+  // XB-G (ADR-0019 external-disclosure addendum): a per-PAYER cap on the disclosure
+  // (unlock) endpoint over a rolling UTC hour, enforced against the real PayerAuthGuard
+  // identity. Complements the per-WORKER shared cap (XB-B, the payer-independent
+  // backstop) and the per-IP cap. Fail-closed (a Redis outage rejects, never uncaps).
+  PAYER_DISCLOSURE_MAX_PER_HOUR: z.coerce.number().int().positive().default(30),
+  // Per-IP hourly cap on the UNAUTHENTICATED payer auth endpoints (signup / login
+  // request / verify) — an account-farming + credential-stuffing backstop (XB-H / XT2).
+  PAYER_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+
   // AI routing (direct providers — Gemini primary + Claude Haiku fallback; ADR-0008).
   // The AI service (Python) calls providers DIRECTLY over their own SDKs/REST; the
   // Node API does NOT make LLM calls (it forwards to the AI service), so these are
@@ -389,5 +412,53 @@ export function assertAuthConfig(
     throw new Error(
       `Insecure/incomplete auth config outside an explicit development/test environment: ${problems.join("; ")}`,
     );
+  }
+}
+
+/**
+ * Reason the SELECTED payer login method cannot run, or null when it is satisfiable
+ * (ADR-0019 Decision B — the analogue of `realAiCallsBlockedReason`). The `supabase`
+ * adapter is the locked-stack identity provider but is **inert without keys**:
+ * selecting it without the Supabase service credentials returns a reason (so boot can
+ * fail closed) rather than silently running a half-configured external IdP. The mock
+ * channels (`email_otp` / `whatsapp`) are always satisfiable (no real provider/spend).
+ */
+export function payerLoginMethodBlockedReason(config: ServerConfig): string | null {
+  if (config.PAYER_LOGIN_METHOD === "supabase") {
+    const missing: string[] = [];
+    if (!config.SUPABASE_URL) missing.push("SUPABASE_URL");
+    if (!config.SUPABASE_SERVICE_ROLE_KEY) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+    if (missing.length > 0) {
+      return `PAYER_LOGIN_METHOD=supabase requires: ${missing.join(", ")}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Fail-closed boot guard for the self-serve payer auth surface (ADR-0019 Decision B;
+ * mirrors `assertAuthConfig` / `assertPaymentsConfig`). Two invariants:
+ *   - the chosen login method must be runnable — the `supabase` adapter must NOT boot
+ *     half-configured (inert-without-keys → throw, never silently degrade), AND
+ *   - outside an explicit development/test environment JWT_SECRET must be overridden
+ *     (the payer session is signed with the SAME JWT_SECRET as the worker session; the
+ *     dev default would let anyone forge a payer session — XB-H secure-session).
+ * Call once at boot (main.ts), after `assertAuthConfig`.
+ */
+export function assertPayerAuthConfig(
+  config: ServerConfig,
+  rawNodeEnv: string | undefined = process.env.NODE_ENV,
+): void {
+  const problems: string[] = [];
+
+  const blocked = payerLoginMethodBlockedReason(config);
+  if (blocked) problems.push(blocked);
+
+  if (!isDevEnv(rawNodeEnv) && config.JWT_SECRET === DEV_JWT_SECRET) {
+    problems.push("JWT_SECRET must be overridden (the payer session is signed with it)");
+  }
+
+  if (problems.length > 0) {
+    throw new Error(`Invalid payer-auth config (ADR-0019, fail closed): ${problems.join("; ")}`);
   }
 }

@@ -68,7 +68,7 @@ function setup(opts: SetupOpts = {}) {
     // reveal() reads the projection (tx-external) BEFORE the lock to run the consent
     // gate; return a worker_id-bearing projection whenever an unlock exists so that
     // pre-lock consent check fires in the reveal tests.
-    getProjection: vi.fn(async () => (opts.existingUnlock ? { worker_id: WORKER } : undefined)),
+    getProjection: vi.fn(async () => (opts.existingUnlock ? { worker_id: WORKER, payer_id: PAYER } : undefined)),
     ...txMethods,
   };
 
@@ -407,5 +407,55 @@ describe("UnlockService — no PII anywhere in emitted events", () => {
     for (const k of ["phone", "phone_e164", "full_name", "relay_handle", SENTINEL_PHONE]) {
       expect(allEvents).not.toContain(k);
     }
+  });
+});
+
+describe("UnlockService — reveal ownership (XB-A: payer-self path, ADR-0019)", () => {
+  const OWNER = PAYER;
+  const OTHER_PAYER = "99999999-9999-4999-8999-999999999999";
+
+  function grantedOwnedByOwner() {
+    return {
+      id: "unlock-1",
+      payerId: OWNER,
+      workerId: WORKER,
+      status: "granted",
+      routingTokenRef: "44444444-4444-4444-4444-444444444444",
+      revealCount: 0,
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+  }
+
+  it("a payer revealing ANOTHER payer's unlock gets the IDENTICAL neutral body (no 403, no routing, no contact.revealed)", async () => {
+    const r = setup({ consentPurposes: ["employer_sharing"], existingUnlock: grantedOwnedByOwner() });
+    // The projection (pre-lock read) reports the TRUE owner; the caller is someone else.
+    r.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: OWNER });
+    const out = await r.svc.reveal("unlock-1", CTX, OTHER_PAYER);
+    expect(out).toEqual({ status: "unavailable" }); // byte-identical neutral (no-oracle)
+    expect(r.txMethods.createRouting).not.toHaveBeenCalled();
+    expect(emitted(r.events)).not.toContain("contact.revealed");
+  });
+
+  it("the OWNER revealing their OWN unlock succeeds (expectedPayerId matches)", async () => {
+    const r = setup({ consentPurposes: ["employer_sharing"], existingUnlock: grantedOwnedByOwner() });
+    r.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: OWNER });
+    const out = await r.svc.reveal("unlock-1", CTX, OWNER);
+    expect(out).toMatchObject({ channel: "in_app_relay" });
+    expect(emitted(r.events)).toContain("contact.revealed");
+  });
+
+  it("an unknown unlock returns neutral for a payer too (no existence oracle) and never reaches the tx", async () => {
+    const r = setup({ existingUnlock: undefined });
+    const out = await r.svc.reveal("33333333-3333-4333-8333-333333333333", CTX, OTHER_PAYER);
+    expect(out).toEqual({ status: "unavailable" });
+    expect(r.txMethods.createRouting).not.toHaveBeenCalled();
+  });
+
+  it("OPS reveal (no expectedPayerId) is UNAFFECTED by the ownership gate (backward-compat)", async () => {
+    const r = setup({ consentPurposes: ["employer_sharing"], existingUnlock: grantedOwnedByOwner() });
+    r.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: OWNER });
+    const out = await r.svc.reveal("unlock-1", CTX); // ops path — no expectedPayerId
+    expect(out).toMatchObject({ channel: "in_app_relay" });
+    expect(emitted(r.events)).toContain("contact.revealed");
   });
 });

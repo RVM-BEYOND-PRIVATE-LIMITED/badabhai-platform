@@ -22,6 +22,8 @@ import { PostingPlansModule } from "./posting-plans/posting-plans.module";
 import { ReachModule } from "./reach/reach.module";
 import { UnlocksModule } from "./unlocks/unlocks.module";
 import { MessagingModule } from "./messaging/messaging.module";
+import { PayersModule } from "./payers/payers.module";
+import { PayerPortalModule } from "./payer-portal/payer-portal.module";
 import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
 import { PdfModule } from "./common/pdf/pdf.module";
 import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
@@ -55,6 +57,10 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     ReachModule,
     UnlocksModule,
     MessagingModule,
+    // Payer portal (ADR-0019 Phase 1 — closes R16/LC-1): the previously un-wired
+    // identity/tenancy foundation + the external self-serve `/payer/*` route group.
+    PayersModule,
+    PayerPortalModule,
   ],
 })
 export class AppModule implements NestModule {

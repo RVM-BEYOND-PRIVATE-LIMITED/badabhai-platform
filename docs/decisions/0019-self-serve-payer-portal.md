@@ -9,6 +9,21 @@
   draws the contract for the move from *ops-run, faceless `payer_id`* to *external,
   authenticated, self-serve payers*. **Phase-2 — NOT alpha-gate.**
 - **Date:** 2026-06-18
+- **Phase-1 BUILD STATUS (2026-06-20, PR `feat/r16-payer-auth-wiring`):** the Decision-B
+  identity slice is **built + security-reviewed (bb-security-review + independent
+  security-engineer PASS on XB-A…XB-H)**, MOCK + STAGING-ONLY. Shipped: `PayerAuthGuard`
+  wired into `AppModule`; a NEW `/payer/*` route group (signup + login [email-OTP default /
+  WhatsApp-mock / inert-Supabase channel seam, `PayerSessionService`] + refresh/logout +
+  the payer-self disclosure routes reusing the `UnlockService` chokepoint with session-
+  derived `payer_id`, XB-A); the **XB-G** per-payer disclosure cap; **XB-H** auth hardening
+  (no user-enumeration, per-IP + per-account caps, signed/revocable/rolling session,
+  `assertPayerAuthConfig` fail-closed boot); and the PII-free `payer.*` event domain
+  ([R16](../registers/risks-register.md) LC-1 satisfied for the payer-self surface;
+  [TD33](../registers/tech-debt-register.md) paying down). **Deferred to follow-up PRs:** the
+  reach payer-view (R22, after resolving the `jobs`↔`job_postings` entity mismatch) and the
+  `apps/payer-web` skeleton. **Still human-gated launch gates (unchanged):** DB-enforced RLS
+  (XL-A / Phase 2), real payments (Phase 3 / TD34), production DPDP/DPA copy, pen test —
+  open external GA (Phase 4) remains blocked.
 
 ## SIGN-OFF (2026-06-18) — maintainer: ACCEPTED
 

@@ -846,9 +846,60 @@ describe("capacity / posting_plan lifecycle events (ADR-0016 — PII-free, ids/c
   });
 });
 
+describe("payer auth events (ADR-0019 Decision B — FACELESS, ids/role/method enums only)", () => {
+  function payerAuthEvent(name: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: name,
+      actor: { actor_type: "payer", actor_id: UUID_A },
+      subject: { subject_type: "payer", subject_id: UUID_A },
+      payload,
+    };
+  }
+
+  it("validates payer.created with role + method enums and NO contact-PII fields", () => {
+    const result = validateEvent(
+      payerAuthEvent("payer.created", { payer_id: UUID_A, role: "employer", method: "email_otp" }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "payer.created") {
+      // The payload schema has NO field that could hold an email/phone/org-name — only
+      // the opaque id + two enums (the B-R2 contact PII lives encrypted in `payers`).
+      expect(Object.keys(result.event.payload).sort()).toEqual(["method", "payer_id", "role"].sort());
+    }
+  });
+
+  it("rejects a payer.created role outside the {employer,agent} enum (no free text)", () => {
+    const bad = validateEvent(
+      payerAuthEvent("payer.created", { payer_id: UUID_A, role: "Acme Pvt Ltd", method: "email_otp" }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("rejects a login method outside the enum (e.g. an email-shaped value → no PII)", () => {
+    const bad = validateEvent(
+      payerAuthEvent("payer.login_requested", { payer_id: UUID_A, method: "boss@acme.com" }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("validates payer.session_started and defaults is_new_payer to false", () => {
+    const result = validateEvent(
+      payerAuthEvent("payer.session_started", { payer_id: UUID_A, method: "whatsapp" }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "payer.session_started") {
+      expect(result.event.payload.is_new_payer).toBe(false);
+    }
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 64 event names (57 prior + 7 ADR-0020 invite/messaging)", () => {
-    expect(EVENT_NAMES).toHaveLength(64);
+  it("exposes all 67 event names (64 prior + 3 ADR-0019 payer auth)", () => {
+    expect(EVENT_NAMES).toHaveLength(67);
+    expect(isEventName("payer.created")).toBe(true);
+    expect(isEventName("payer.login_requested")).toBe(true);
+    expect(isEventName("payer.session_started")).toBe(true);
     expect(isEventName("invite.created")).toBe(true);
     expect(isEventName("invite.clicked")).toBe(true);
     expect(isEventName("invite.accepted")).toBe(true);

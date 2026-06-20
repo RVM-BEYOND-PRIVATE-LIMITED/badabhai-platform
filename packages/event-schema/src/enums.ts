@@ -56,6 +56,12 @@ export const EVENT_DOMAINS = [
   // phone/template-body NEVER appears; only ids + the template id + enums +
   // real_call. Mock provider in alpha (real_call:false).
   "messaging",
+  // Self-serve payer account auth (ADR-0019 Decision B — closes R16/LC-1/TD33). The
+  // payer signup/login/session lifecycle behind PayerAuthGuard. PII-FREE & FACELESS:
+  // the payer's email/phone/org-name NEVER appears (those are the new B-R2 PII class,
+  // stored ONLY in `payers`, encrypted) — only the opaque `payer_id` + role + the
+  // login-method enum + booleans. Mirrors `worker.*` auth events for the payer principal.
+  "payer",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;
@@ -105,6 +111,11 @@ export const SUBJECT_TYPES = [
   // A referral invite (ADR-0020). The subject_id is the opaque invites row id; carries
   // no PII (inviter/invited worker ids live in the payload, both opaque).
   "invite",
+  // A self-serve payer account (ADR-0019 Decision B). The subject_id is the opaque
+  // `payers.id` (== the faceless `payer_id`); carries NO PII (the payer's email/phone/
+  // org-name live ONLY in `payers`, encrypted — never in an event). The subject of the
+  // `payer.*` auth lifecycle events.
+  "payer",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;
