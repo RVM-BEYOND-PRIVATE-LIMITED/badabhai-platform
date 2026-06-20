@@ -1,0 +1,83 @@
+// Self-test for guard.mjs — feeds UTF-8 stdin via child_process (mirrors Claude Code).
+// Run: node .claude/hooks/guard.selftest.mjs   (expect "TOTAL FAILURES: 0")
+import { spawn } from "node:child_process";
+
+const cmd = (c) => ({ tool_name: "Bash", tool_input: { command: c } });
+const ps = (c) => ({ tool_name: "PowerShell", tool_input: { command: c } });
+const file = (tool, p) => ({ tool_name: tool, tool_input: { file_path: p } });
+
+const cases = [
+  // --- ordinary commands: allow ---
+  { n: "git status", p: cmd("git status"), e: 0 },
+  { n: "rm -rf node_modules", p: cmd("rm -rf node_modules"), e: 0 },
+  { n: "Remove ./dist", p: ps("Remove-Item -Recurse -Force ./dist"), e: 0 },
+  { n: "drizzle migrate", p: ps("corepack pnpm --filter @badabhai/db db:migrate"), e: 0 },
+  {
+    n: "prettier write",
+    p: ps('corepack pnpm exec prettier --write ".claude/settings.json"'),
+    e: 0,
+  },
+  { n: "git push --force-with-lease", p: cmd("git push --force-with-lease origin feat"), e: 0 },
+  // --- false-positive fixes: allow ---
+  { n: "echo mentions api_key", p: cmd("echo updating the api_key docs"), e: 0 },
+  {
+    n: "write drop-table SQL to file",
+    p: cmd('echo "-- drop table old_temp" >> migration.sql'),
+    e: 0,
+  },
+  { n: "grep for DATABASE_URL in src", p: cmd('grep -r "DATABASE_URL" apps/'), e: 0 },
+  // --- legit .env load (assignment / pipe, no exposure): allow ---
+  {
+    n: "load .env into var",
+    p: ps(
+      '$line = Get-Content .env | Where-Object { $_ -match "^DATABASE_URL=" } | Select-Object -First 1; $env:DATABASE_URL = ($line -replace "^DATABASE_URL=","")',
+    ),
+    e: 0,
+  },
+  // --- secret file exfiltration via shell: block ---
+  { n: "cat .env", p: cmd("cat .env"), e: 2 },
+  { n: "cp .env out", p: cmd("cp .env /tmp/public/leak.txt"), e: 2 },
+  { n: "Copy-Item .env out", p: ps("Copy-Item .env C:\\temp\\leak.txt"), e: 2 },
+  {
+    n: "Get-Content .env | Out-File",
+    p: ps("Get-Content .env | Out-File C:\\temp\\leak.txt"),
+    e: 2,
+  },
+  { n: "node -e read .env", p: cmd("node -e \"require('fs').readFileSync('.env','utf8')\""), e: 2 },
+  { n: "xxd .env", p: cmd("xxd .env"), e: 2 },
+  { n: "awk on .env", p: cmd("awk 1 .env"), e: 2 },
+  { n: "cat id_rsa", p: cmd("cat ~/.ssh/id_rsa"), e: 2 },
+  { n: "cat cert.pem", p: cmd("cat certs/cert.pem"), e: 2 },
+  { n: "echo $DATABASE_URL", p: cmd("echo $DATABASE_URL"), e: 2 },
+  { n: "echo $env:SERVICE_ROLE", p: ps("Write-Output $env:SUPABASE_SERVICE_ROLE_KEY"), e: 2 },
+  // --- catastrophic: block ---
+  { n: "rm -rf /", p: cmd("rm -rf /"), e: 2 },
+  { n: "Remove C:\\", p: ps("Remove-Item -Recurse -Force C:\\"), e: 2 },
+  { n: "git push --force", p: cmd("git push --force origin main"), e: 2 },
+  { n: "supabase db reset", p: ps("corepack pnpm exec supabase db reset"), e: 2 },
+  { n: "psql DROP TABLE", p: cmd('psql "$DATABASE_URL" -c "DROP TABLE workers"'), e: 2 },
+  { n: "dropdb", p: cmd("dropdb badabhai"), e: 2 },
+  // --- file tools ---
+  { n: "Read .env", p: file("Read", ".env"), e: 2 },
+  { n: "Read .env.example", p: file("Read", ".env.example"), e: 0 },
+  { n: "Read src/main.ts", p: file("Read", "apps/api/src/main.ts"), e: 0 },
+  { n: "Edit ai-svc .env", p: file("Edit", "apps/ai-service/.env"), e: 2 },
+  { n: "Read service-account.json", p: file("Read", "infra/service-account.json"), e: 2 },
+  { n: "Read cert.pem", p: file("Read", "certs/cert.pem"), e: 2 },
+];
+
+let fail = 0;
+for (const c of cases) {
+  const code = await new Promise((res) => {
+    const proc = spawn(process.execPath, [".claude/hooks/guard.mjs"], {
+      stdio: ["pipe", "ignore", "ignore"],
+    });
+    proc.on("close", res);
+    proc.stdin.end(JSON.stringify(c.p));
+  });
+  const ok = code === c.e;
+  if (!ok) fail++;
+  console.log(`${ok ? "PASS" : "FAIL"}  expect=${c.e} got=${code}  ${c.n}`);
+}
+console.log(`\nTOTAL FAILURES: ${fail}`);
+process.exit(fail === 0 ? 0 : 1);

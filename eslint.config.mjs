@@ -15,6 +15,8 @@ export default tseslint.config(
       // Non-pnpm workspaces have their own toolchains:
       "apps/ai-service/**",
       "apps/worker-app/**",
+      // Claude Code harness (hooks/config/docs) — not application source.
+      ".claude/**",
     ],
   },
   js.configs.recommended,
