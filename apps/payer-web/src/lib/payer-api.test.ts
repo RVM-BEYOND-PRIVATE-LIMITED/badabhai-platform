@@ -109,9 +109,7 @@ describe("reveal — NO RAW PHONE (F-4): routed relay handle only", () => {
     expect(JSON.stringify(res)).not.toMatch(/\+?\d{7,}/);
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(
-      "http://api.test/payer/unlocks/22222222-2222-4222-8222-222222222222/reveal",
-    );
+    expect(url).toBe("http://api.test/payer/unlocks/22222222-2222-4222-8222-222222222222/reveal");
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
     expect(body).not.toHaveProperty("payer_id");
   });
@@ -119,9 +117,7 @@ describe("reveal — NO RAW PHONE (F-4): routed relay handle only", () => {
   it("a phone-bearing wire body fails to parse (raw phone can never surface)", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ phone: "+919876543210" }));
     const { reveal } = await import("./payer-api");
-    await expect(
-      reveal({ unlockId: "22222222-2222-4222-8222-222222222222" }),
-    ).rejects.toThrow();
+    await expect(reveal({ unlockId: "22222222-2222-4222-8222-222222222222" })).rejects.toThrow();
   });
 });
 
@@ -138,5 +134,61 @@ describe("getCredits — reads the session-scoped balance (no client payer_id)",
     expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
     // A GET carries no body, hence no place for a client payer_id.
     expect(init.body).toBeUndefined();
+  });
+});
+
+/**
+ * WAITING-mock seam: job management + capacity. These bind to the SERVER-HELD session
+ * payer (the mocked `requirePayer` above → PAYER_A) and never accept a client payer id.
+ * They serve from the in-memory mock store, so they do NOT hit fetch.
+ */
+describe("job-management seam — server-held payer, config-driven (WAITING mock)", () => {
+  const PAYER_A = "11111111-1111-4111-8111-111111111111";
+
+  it("pause/resume/top-up operate only on the session payer's own postings", async () => {
+    const store = await import("./mock-store");
+    store.__resetForTest(PAYER_A, true);
+    const { pausePosting, resumePosting, topUpPostingQuota, getPostings } =
+      await import("./payer-api");
+
+    const postings = await getPostings();
+    const id = postings[0]!.id;
+
+    const paused = await pausePosting({ postingId: id });
+    expect(paused?.status).toBe("paused");
+    const resumed = await resumePosting({ postingId: id });
+    expect(resumed?.status).toBe("open");
+
+    const beforeQuota = postings[0]!.applicantQuota ?? 0;
+    const topped = await topUpPostingQuota({ postingId: id });
+    expect(topped!.applicantQuota!).toBeGreaterThan(beforeQuota);
+
+    // None of these touched fetch (they are mock-store shims, not LIVE calls).
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns null (neutral not-found) for a posting id the session payer doesn't own", async () => {
+    const store = await import("./mock-store");
+    store.__resetForTest(PAYER_A, true);
+    const { pausePosting } = await import("./payer-api");
+    const res = await pausePosting({ postingId: "99999999-9999-4999-8999-999999999999" });
+    expect(res).toBeNull();
+  });
+});
+
+describe("getCapacity seam — derived from the session payer's postings (WAITING mock)", () => {
+  const PAYER_A = "11111111-1111-4111-8111-111111111111";
+
+  it("returns config-derived allowance + per-posting quota usage, no fetch", async () => {
+    const store = await import("./mock-store");
+    store.__resetForTest(PAYER_A, true);
+    const { getCapacity } = await import("./payer-api");
+    const cap = await getCapacity();
+
+    expect(cap.payerId).toBe(PAYER_A);
+    expect(cap.activeVacancyAllowance).toBeGreaterThan(0); // from the pricing config
+    expect(cap.postings.length).toBeGreaterThan(0);
+    expect(cap.applicantQuotaTotal).toBeGreaterThanOrEqual(cap.applicantQuotaUsed);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

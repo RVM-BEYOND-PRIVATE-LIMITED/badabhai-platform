@@ -1,5 +1,6 @@
 import { DEFAULT_CATALOG } from "@badabhai/pricing";
 import type { CreditPack } from "./contracts";
+import { VACANCY_BANDS, type VacancyBand } from "./contracts";
 
 /**
  * Pricing sourced FROM CONFIG ONLY (§HARD CONSTRAINTS — no invented/hardcoded
@@ -51,9 +52,7 @@ export function unlockUnitPriceInr(): number | null {
  * read them for transparency but the surface charges nothing while the flag is on.
  */
 export function postingIsFreeThroughLaunch(): boolean {
-  const flag = (process.env.PAYER_POSTING_FREE_THROUGH_LAUNCH ?? "true")
-    .trim()
-    .toLowerCase();
+  const flag = (process.env.PAYER_POSTING_FREE_THROUGH_LAUNCH ?? "true").trim().toLowerCase();
   return flag !== "false";
 }
 
@@ -68,4 +67,70 @@ export function postingPaidTiers(): { code: string; priceInr: number; validityDa
     priceInr: t.priceInr,
     validityDays: t.validityDays,
   }));
+}
+
+/* ── Applicant-quota config (job management + capacity) ──────────────────────────
+ *
+ * Applicant quota per posting is "view more → pay more" (catalog posting tiers'
+ * `applicantVisibilityQuota`). The base quota a fresh posting starts with is the
+ * SMALLEST posting tier's quota; a TOP-UP raises it by the same config step. The
+ * vacancy band only scales the BASE allowance (a bigger hire warrants seeing more
+ * candidates) — every number below is read from the catalog, NONE is hardcoded.
+ */
+
+/** The ascending applicant-quota steps from the catalog posting tiers (e.g. [10, 30]). */
+function applicantQuotaSteps(): number[] {
+  const product = DEFAULT_CATALOG.products.find(
+    (p) => p.kind === "posting" && p.code === "job_posting",
+  );
+  if (!product || product.kind !== "posting") return [];
+  return product.tiers.map((t) => t.applicantVisibilityQuota).sort((a, b) => a - b);
+}
+
+/** The smallest config'd applicant-quota step — the increment one TOP-UP grants. */
+export function applicantQuotaStep(): number | null {
+  const steps = applicantQuotaSteps();
+  return steps.length > 0 ? steps[0]! : null;
+}
+
+/**
+ * The BASE applicant quota a posting in a given vacancy band starts with. Derived
+ * from the catalog quota steps scaled by the band's index (band 0 → smallest step,
+ * higher bands → proportionally more). Config-driven: no literal quota in pages.
+ * Returns null if the catalog carries no posting-quota tiers (fail-closed display).
+ */
+export function baseApplicantQuotaForBand(band: VacancyBand): number | null {
+  const step = applicantQuotaStep();
+  if (step === null) return null;
+  const bandIndex = VACANCY_BANDS.indexOf(band);
+  const multiplier = bandIndex < 0 ? 1 : bandIndex + 1;
+  return step * multiplier;
+}
+
+/* ── Hiring-capacity config (capacity view) ──────────────────────────────────────
+ *
+ * The per-payer concurrent active-vacancy allowance (ADR-0016 capacity tiers). The
+ * BASELINE allowance (with no capacity pack bought) is the smallest tier's
+ * `maxActiveVacancies` — config-driven, never a hardcoded headcount.
+ */
+
+/** The ascending hiring-capacity tiers from the catalog (allowance + price). */
+export function hiringCapacityTiers(): {
+  code: string;
+  priceInr: number;
+  maxActiveVacancies: number;
+}[] {
+  const product = DEFAULT_CATALOG.products.find(
+    (p) => p.kind === "capacity" && p.code === "hiring_capacity",
+  );
+  if (!product || product.kind !== "capacity") return [];
+  return product.tiers
+    .map((t) => ({ code: t.code, priceInr: t.priceInr, maxActiveVacancies: t.maxActiveVacancies }))
+    .sort((a, b) => a.maxActiveVacancies - b.maxActiveVacancies);
+}
+
+/** The baseline concurrent active-vacancy allowance (smallest capacity tier). */
+export function baselineActiveVacancyAllowance(): number | null {
+  const tiers = hiringCapacityTiers();
+  return tiers.length > 0 ? tiers[0]!.maxActiveVacancies : null;
 }

@@ -21,8 +21,14 @@ export const postingSummarySchema = z.object({
   roleTitle: z.string(),
   locationLabel: z.string().nullable(),
   vacancyBand: z.string(),
-  status: z.enum(["draft", "open", "closed"]),
+  status: z.enum(["draft", "open", "closed", "paused"]),
   applicantCount: z.number().int().nonnegative(),
+  /**
+   * How many applicant profiles this posting may disclose ("view more → pay more").
+   * Config-derived (catalog posting-quota tiers, never a hardcoded literal); raised
+   * by a TOP-UP. Optional for backward-compat with already-shipped mock rows.
+   */
+  applicantQuota: z.number().int().nonnegative().optional(),
   createdAt: z.string(),
 });
 export type PostingSummary = z.infer<typeof postingSummarySchema>;
@@ -56,6 +62,7 @@ export type Dashboard = z.infer<typeof dashboardSchema>;
 /** Vacancy bands mirror packages/db (banded, never a raw headcount). */
 export const VACANCY_BANDS = ["1-5", "6-20", "21-50", "50+"] as const;
 export const vacancyBandSchema = z.enum(VACANCY_BANDS);
+export type VacancyBand = z.infer<typeof vacancyBandSchema>;
 
 export const createPostingInputSchema = z.object({
   roleTitle: z.string().min(2).max(120),
@@ -162,10 +169,7 @@ export const maskedResumeSchema = z.object({
 
 export const maskedResumeNeutralSchema = z.object({ status: z.literal("unavailable") });
 
-export const maskedResumeResultSchema = z.union([
-  maskedResumeSchema,
-  maskedResumeNeutralSchema,
-]);
+export const maskedResumeResultSchema = z.union([maskedResumeSchema, maskedResumeNeutralSchema]);
 export type MaskedResumeResult = z.infer<typeof maskedResumeResultSchema>;
 
 /* ── Credit top-up (MOCK ledger) ────────────────────────────────────────────── */
@@ -187,6 +191,41 @@ export const topUpResultSchema = z.object({
   realCall: z.literal(false),
 });
 export type TopUpResult = z.infer<typeof topUpResultSchema>;
+
+/* ── Capacity view (WAITING — no payer-authed endpoint; capacity.controller is
+ *    InternalServiceGuard, ESCALATE GET /payer/capacity). PII-free counts only. ──── */
+
+/** One posting's applicant-quota usage row (quota purchased vs profiles disclosed). */
+export const postingCapacityRowSchema = z.object({
+  postingId: z.string().uuid(),
+  roleTitle: z.string(),
+  status: z.enum(["draft", "open", "closed", "paused"]),
+  vacancyBand: z.string(),
+  /** Applicant profiles disclosed so far (config-bounded by quota). */
+  applicantsUsed: z.number().int().nonnegative(),
+  /** The posting's current applicant quota (config-derived; raised by top-up). */
+  applicantQuota: z.number().int().nonnegative(),
+});
+export type PostingCapacityRow = z.infer<typeof postingCapacityRowSchema>;
+
+/**
+ * The payer's CAPACITY usage — concurrent active-vacancy allowance (ADR-0016) plus
+ * per-posting applicant-quota usage. All counts; NO raw PII. `activeVacancyAllowance`
+ * is config-derived (catalog capacity tier), never a hardcoded headcount.
+ */
+export const capacitySchema = z.object({
+  payerId: z.string().uuid(),
+  /** Postings currently in an active (non-closed/paused) state. */
+  activeVacancies: z.number().int().nonnegative(),
+  /** Config-derived concurrent active-vacancy allowance (baseline capacity tier). */
+  activeVacancyAllowance: z.number().int().nonnegative(),
+  /** Total applicant quota purchased across all postings (sum of per-posting quota). */
+  applicantQuotaTotal: z.number().int().nonnegative(),
+  /** Total applicant profiles disclosed across all postings. */
+  applicantQuotaUsed: z.number().int().nonnegative(),
+  postings: z.array(postingCapacityRowSchema),
+});
+export type Capacity = z.infer<typeof capacitySchema>;
 
 /* ── REAL backend wire shapes (LIVE payer-authed endpoints) ─────────────────────
  *
@@ -236,10 +275,7 @@ export const unlockGrantedWireSchema = z.object({
   expires_at: z.string(),
 });
 export const neutralWireSchema = z.object({ status: z.literal("unavailable") });
-export const unlockResultWireSchema = z.union([
-  unlockGrantedWireSchema,
-  neutralWireSchema,
-]);
+export const unlockResultWireSchema = z.union([unlockGrantedWireSchema, neutralWireSchema]);
 
 /** GET /payer/reach/jobs/:jobId/applicants — faceless ranked rows (no PII). */
 export const reachApplicantWireSchema = z.object({

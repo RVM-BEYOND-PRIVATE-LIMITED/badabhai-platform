@@ -1,11 +1,13 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import type {
-  CreditBalance,
-  FacelessApplicant,
-  PostingSummary,
-  UnlockHistoryItem,
+import {
+  VACANCY_BANDS,
+  type CreditBalance,
+  type FacelessApplicant,
+  type PostingSummary,
+  type UnlockHistoryItem,
 } from "./contracts";
+import { applicantQuotaStep, baseApplicantQuotaForBand } from "./pricing-config";
 
 /**
  * In-memory MOCK data store (ADR-0019 Phase 1 — mock + staging-only).
@@ -97,6 +99,8 @@ function freshState(seed: { withData: boolean }): PayerState {
         vacancyBand: "6-20",
         status: "open",
         applicantCount: applicants.length,
+        // Config-derived base quota for the seed band (never a hardcoded literal).
+        applicantQuota: baseApplicantQuotaForBand("6-20") ?? applicants.length,
         createdAt: iso(-3),
       },
     ],
@@ -168,11 +172,21 @@ export function createPosting(
     vacancyBand: input.vacancyBand,
     status: "open",
     applicantCount: 0,
+    // Base applicant quota from CONFIG for this band (never a hardcoded literal);
+    // an unknown band fail-closes to undefined (the page renders it as "—").
+    applicantQuota: quotaForBand(input.vacancyBand),
     createdAt: new Date().toISOString(),
   };
   s.postings = [posting, ...s.postings];
   s.applicantsByPosting.set(posting.id, []);
   return { ...posting };
+}
+
+/** Config-derived base quota for a band string (fail-closed to undefined). */
+function quotaForBand(band: string): number | undefined {
+  const known = VACANCY_BANDS.find((b) => b === band);
+  if (!known) return undefined;
+  return baseApplicantQuotaForBand(known) ?? undefined;
 }
 
 /** Add credits to the payer's mock ledger. Returns the new balance. */
@@ -188,10 +202,7 @@ export function addCredits(payerId: string, credits: number): number {
  * already unlocked, unknown worker) — the caller maps that single null to the
  * neutral no-oracle response (XB-C). No cause is ever surfaced.
  */
-export function trySpendUnlock(
-  payerId: string,
-  workerId: string,
-): UnlockHistoryItem | null {
+export function trySpendUnlock(payerId: string, workerId: string): UnlockHistoryItem | null {
   const s = stateFor(payerId);
   if (s.balance < 1) return null; // no-credits → neutral
   const existing = s.unlocks.find((u) => u.workerId === workerId && u.status === "granted");
@@ -209,11 +220,47 @@ export function trySpendUnlock(
 }
 
 /** A granted unlock owned by this payer, by unlock id, or null (neutral on miss). */
-export function findOwnedUnlock(
-  payerId: string,
-  unlockId: string,
-): UnlockHistoryItem | null {
+export function findOwnedUnlock(payerId: string, unlockId: string): UnlockHistoryItem | null {
   return stateFor(payerId).unlocks.find((u) => u.unlockId === unlockId) ?? null;
+}
+
+/**
+ * PAUSE one of the payer's OWN postings (open → paused). Returns the updated row, or
+ * null if the posting isn't this payer's (neutral not-found, XB-A). Idempotent.
+ */
+export function pausePosting(payerId: string, postingId: string): PostingSummary | null {
+  const s = stateFor(payerId);
+  const posting = s.postings.find((p) => p.id === postingId);
+  if (!posting) return null; // Not this payer's posting ⇒ neutral not-found.
+  if (posting.status === "open") posting.status = "paused";
+  return { ...posting };
+}
+
+/**
+ * RESUME one of the payer's OWN postings (paused → open). Returns the updated row, or
+ * null if the posting isn't this payer's (neutral not-found, XB-A). Idempotent.
+ */
+export function resumePosting(payerId: string, postingId: string): PostingSummary | null {
+  const s = stateFor(payerId);
+  const posting = s.postings.find((p) => p.id === postingId);
+  if (!posting) return null; // Not this payer's posting ⇒ neutral not-found.
+  if (posting.status === "paused") posting.status = "open";
+  return { ...posting };
+}
+
+/**
+ * TOP-UP a posting's applicant quota by ONE config'd step. The step is read from the
+ * catalog (`applicantQuotaStep`) — never a client-supplied or hardcoded amount.
+ * Returns the updated row, or null if the posting isn't this payer's / no config step.
+ */
+export function topUpPostingQuota(payerId: string, postingId: string): PostingSummary | null {
+  const s = stateFor(payerId);
+  const posting = s.postings.find((p) => p.id === postingId);
+  if (!posting) return null; // Not this payer's posting ⇒ neutral not-found.
+  const step = applicantQuotaStep();
+  if (step === null) return null; // No config'd quota step ⇒ nothing to grant.
+  posting.applicantQuota = (posting.applicantQuota ?? 0) + step;
+  return { ...posting };
 }
 
 /** TEST-ONLY: reset a payer's tenant to a known seed (no production caller). */
