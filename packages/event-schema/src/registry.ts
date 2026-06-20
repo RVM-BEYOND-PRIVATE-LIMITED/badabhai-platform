@@ -176,6 +176,36 @@ export const EVENT_REGISTRY = {
   "resume.disclosed": { version: 1, domain: "resume", payload: p.ResumeDisclosedPayload },
   "coupon.redeemed": { version: 1, domain: "pricing", payload: p.CouponRedeemedPayload },
   "pricing.changed": { version: 1, domain: "pricing", payload: p.PricingChangedPayload },
+
+  // Per-payer hiring capacity (ADR-0016) — PII-FREE & faceless (opaque payer_id, no FK).
+  // `capacity.purchased` rides the payer-scoped `pricing_plan` subject (subject_id =
+  // payer_id), matching the `coupon.redeemed` precedent. `posting_plan.paused/resumed`
+  // are the plan serving-state machine (subject = the posting_plans row). All v1.
+  "capacity.purchased": { version: 1, domain: "capacity", payload: p.CapacityPurchasedPayload },
+  "posting_plan.paused": { version: 1, domain: "posting_plan", payload: p.PostingPlanPausedPayload },
+  "posting_plan.resumed": { version: 1, domain: "posting_plan", payload: p.PostingPlanResumedPayload },
+
+  // WhatsApp invite funnel + re-engagement (ADR-0020). PII-FREE; mock provider in alpha.
+  "invite.created": { version: 1, domain: "invite", payload: p.InviteCreatedPayload },
+  "invite.clicked": { version: 1, domain: "invite", payload: p.InviteClickedPayload },
+  "invite.accepted": { version: 1, domain: "invite", payload: p.InviteAcceptedPayload },
+  "messaging.requested": { version: 1, domain: "messaging", payload: p.MessagingRequestedPayload },
+  "messaging.sent": { version: 1, domain: "messaging", payload: p.MessagingSentPayload },
+  "messaging.suppressed": { version: 1, domain: "messaging", payload: p.MessagingSuppressedPayload },
+  "messaging.failed": { version: 1, domain: "messaging", payload: p.MessagingFailedPayload },
+
+  // PACE supply-widening (ADR-0021) — deterministic widen waves + ops alert (the
+  // "release waves" slice of ADR-0011's PACE triad). PII-FREE & faceless: opaque
+  // job_id + widen-stage enum + supply counts + elapsed hours only; no LLM. v1.
+  "pace.wave_widened": { version: 1, domain: "pace", payload: p.PaceWaveWidenedPayload },
+  "pace.ops_alert_raised": { version: 1, domain: "pace", payload: p.PaceOpsAlertRaisedPayload },
+  // Self-serve payer account auth (ADR-0019 Decision B — closes R16/LC-1/TD33). PII-FREE
+  // & FACELESS: opaque payer_id + role/method enums + booleans ONLY (the payer's
+  // email/phone/org-name live encrypted in `payers`, never in an event). The payer
+  // analogue of the `worker.*` auth events. All v1.
+  "payer.created": { version: 1, domain: "payer", payload: p.PayerCreatedPayload },
+  "payer.login_requested": { version: 1, domain: "payer", payload: p.PayerLoginRequestedPayload },
+  "payer.session_started": { version: 1, domain: "payer", payload: p.PayerSessionStartedPayload },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

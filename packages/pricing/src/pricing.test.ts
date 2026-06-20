@@ -33,6 +33,14 @@ const baseCatalog: Catalog = parseCatalog({
         { code: "pack_25", priceInr: 2000, credits: 25, windowDays: 14 },
       ],
     },
+    {
+      kind: "capacity",
+      code: "hiring_capacity",
+      tiers: [
+        { code: "cap_5", priceInr: 5000, maxActiveVacancies: 5, validityDays: 30 },
+        { code: "cap_15", priceInr: 12000, maxActiveVacancies: 15, validityDays: 30 },
+      ],
+    },
   ],
   offers: [],
   coupons: [],
@@ -55,14 +63,59 @@ describe("DEFAULT_CATALOG (the seed = absorbed credit-packs.ts + spec prices)", 
     expect(pro.grants).toEqual({ kind: "posting", validityDays: 30, applicantVisibilityQuota: 30 });
   });
 
-  it("boost is ₹1200 / 2 days; packs match credit-packs.ts exactly", () => {
+  it("boost is ₹1200 / 2 days; offered packs are the §3A 50/200/1000 (₹40/credit anchor)", () => {
     const boost = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "job_boost", tierCode: "all_candidates", now: NOW }));
     expect(boost.finalInr).toBe(1200);
     expect(boost.grants).toEqual({ kind: "boost", boostDays: 2 });
-    const p10 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "contact_unlock", tierCode: "pack_10", now: NOW }));
-    expect(p10).toMatchObject({ finalInr: 1000, grants: { kind: "credit_pack", credits: 10, windowDays: 14 } });
-    const p25 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "contact_unlock", tierCode: "pack_25", now: NOW }));
-    expect(p25).toMatchObject({ finalInr: 2000, grants: { kind: "credit_pack", credits: 25, windowDays: 14 } });
+    const p50 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "contact_unlock", tierCode: "pack_50", now: NOW }));
+    expect(p50).toMatchObject({ finalInr: 2000, grants: { kind: "credit_pack", credits: 50, windowDays: 14 } });
+    const p200 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "contact_unlock", tierCode: "pack_200", now: NOW }));
+    expect(p200).toMatchObject({ finalInr: 8000, grants: { kind: "credit_pack", credits: 200, windowDays: 14 } });
+    // 1000-pack: linear ₹40/credit for now — the §3A discount figure is pending (not in repo).
+    const p1000 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "contact_unlock", tierCode: "pack_1000", now: NOW }));
+    expect(p1000).toMatchObject({ finalInr: 40000, grants: { kind: "credit_pack", credits: 1000, windowDays: 14 } });
+    // §3A unit anchor: each offered pack (except the pending-discount 1000) is ₹40/credit.
+    expect(p50.finalInr / 50).toBe(40);
+    expect(p200.finalInr / 200).toBe(40);
+  });
+
+  it("hiring_capacity tiers carry the maxActiveVacancies + validityDays grant (ADR-0016)", () => {
+    const capacity = DEFAULT_CATALOG.products.find((p) => p.code === "hiring_capacity");
+    expect(capacity?.kind).toBe("capacity");
+    const cap5 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "hiring_capacity", tierCode: "cap_5", now: NOW }));
+    expect(cap5).toMatchObject({ finalInr: 5000, kind: "capacity", grants: { kind: "capacity", maxActiveVacancies: 5, validityDays: 30 } });
+    const cap15 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "hiring_capacity", tierCode: "cap_15", now: NOW }));
+    expect(cap15).toMatchObject({ finalInr: 12000, grants: { kind: "capacity", maxActiveVacancies: 15, validityDays: 30 } });
+  });
+});
+
+describe("capacity product (ADR-0016) — discount + fail-closed parity with the other kinds", () => {
+  it("unknown capacity tier → unavailable (fail-closed, never a 0 price)", () => {
+    expect(resolvePrice(baseCatalog, { productCode: "hiring_capacity", tierCode: "nope", now: NOW })).toEqual({
+      ok: false,
+      reason: "unavailable",
+    });
+  });
+
+  it("applies a coupon to a capacity tier and still returns the capacity grant", () => {
+    const cat = parseCatalog({
+      ...baseCatalog,
+      coupons: [
+        {
+          code: "capsave",
+          scope: { productCode: "hiring_capacity", tierCode: "cap_5" },
+          kind: "percent",
+          value: 20,
+          totalUsageCap: 100,
+          perPayerLimit: 5,
+          ...WINDOW,
+        },
+      ],
+    });
+    const q = ok(resolvePrice(cat, { productCode: "hiring_capacity", tierCode: "cap_5", couponCode: "capsave", now: NOW }));
+    expect(q.finalInr).toBe(4000); // 5000 − 20%
+    expect(q.couponApplied).toBe("capsave");
+    expect(q.grants).toEqual({ kind: "capacity", maxActiveVacancies: 5, validityDays: 30 });
   });
 });
 
@@ -214,7 +267,7 @@ describe("safeParseCatalog — fail-closed gate", () => {
   it("valid raw → ok:true with the parsed catalog", () => {
     const res = safeParseCatalog(baseCatalog);
     expect(res.ok).toBe(true);
-    expect(res.catalog.products.length).toBe(3);
+    expect(res.catalog.products.length).toBe(4);
   });
 
   it("a negative price is rejected → falls back to DEFAULT, ok:false", () => {

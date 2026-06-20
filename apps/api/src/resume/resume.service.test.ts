@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { HttpException, HttpStatus } from "@nestjs/common";
+import { ConflictException, HttpException, HttpStatus, NotFoundException } from "@nestjs/common";
+import type { ServerConfig } from "@badabhai/config";
 import type { Queue } from "bullmq";
 import { ResumeService } from "./resume.service";
 import type { ResumeRepository } from "./resume.repository";
@@ -10,6 +11,7 @@ import type { WorkersRepository } from "../workers/workers.repository";
 import type { EventsService } from "../events/events.service";
 import type { AiService } from "../ai/ai.service";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
+import type { StorageService } from "../storage/storage.service";
 import type { ResumeRenderJobData } from "../queue/queue.constants";
 import type { RequestContext } from "../common/request-context";
 import type { GenerateResumeDto } from "./resume.dto";
@@ -61,6 +63,8 @@ function setup(
       id: "res-1",
       ...input,
     })),
+    // findById backs getById/download/regenerate/recordShare; tests override it.
+    findById: vi.fn(async (_id: string) => undefined as Record<string, unknown> | undefined),
   };
   const events = {
     emit: vi.fn(
@@ -73,6 +77,13 @@ function setup(
   const renderQueue = {
     add: vi.fn(async (_name: string, _data: Record<string, unknown>) => undefined),
   };
+  const storage = {
+    createSignedUrl: vi.fn(async (_key: string, _ttl: number) => "https://signed.example/url?token=abc"),
+  };
+  const config = {
+    RESUME_SIGNED_URL_TTL_SECONDS: 900,
+    RESUME_RATE_LIMIT_PER_IP_PER_HOUR: 20,
+  } as ServerConfig;
 
   const svc = new ResumeService(
     resumes as unknown as ResumeRepository,
@@ -82,10 +93,12 @@ function setup(
     ai as unknown as AiService,
     pii as unknown as PiiCryptoService,
     rateLimit as unknown as ResumeRateLimit,
+    storage as unknown as StorageService,
+    config,
     renderQueue as unknown as Queue<ResumeRenderJobData>,
   );
   EVENTS.set(svc, events);
-  return { svc, ai, pii, resumes, rateLimit, renderQueue, events };
+  return { svc, ai, pii, resumes, rateLimit, renderQueue, events, storage, config };
 }
 
 describe("ResumeService — TD21 name injection", () => {
@@ -223,5 +236,143 @@ describe("ResumeService — idempotent initial resume (TD5)", () => {
     expect(resumes.create).toHaveBeenCalledOnce();
     expect(resumes.createInitial).not.toHaveBeenCalled();
     expect(out.version).toBe(2);
+  });
+});
+
+const RES_ID = "11111111-1111-1111-1111-111111111111";
+// Align with the generate-path mocks in setup(): profile/worker are "w-1"/"p-1".
+const OWNER = "w-1";
+const OTHER = "99999999-9999-9999-9999-999999999999";
+const ROW = {
+  id: RES_ID,
+  workerId: OWNER,
+  profileId: "p-1",
+  resumeJson: { summary: "CNC/VMC operator" },
+  resumeText: "Experienced CNC/VMC operator.",
+  generatedAt: new Date("2026-06-11T00:00:00.000Z"),
+  version: 2,
+  renderStatus: "pending" as string,
+  pdfStorageKey: null as string | null,
+};
+
+describe("ResumeService.getById (ops read view)", () => {
+  it("returns the resume shaped snake_case and PII-free", async () => {
+    const { svc, resumes } = setup(null);
+    resumes.findById.mockResolvedValueOnce(ROW);
+    const res = await svc.getById(RES_ID);
+    expect(res).toEqual({
+      resume_id: RES_ID,
+      worker_id: OWNER,
+      profile_id: ROW.profileId,
+      version: 2,
+      resume_text: ROW.resumeText,
+      resume_json: ROW.resumeJson,
+      render_status: "pending",
+      generated_at: ROW.generatedAt,
+    });
+    expect(JSON.stringify(res)).not.toMatch(/phone|full_?name/i);
+  });
+
+  it("404s when the resume does not exist", async () => {
+    const { svc } = setup(null);
+    await expect(svc.getById(RES_ID)).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe("ResumeService.download (TD5 / TD29 worker-authed + ownership)", () => {
+  it("mints a signed URL + emits resume.downloaded (actor=worker) for the OWNER of a rendered PDF", async () => {
+    const { svc, resumes, storage, events } = setup(null);
+    resumes.findById.mockResolvedValueOnce({
+      ...ROW,
+      renderStatus: "rendered",
+      pdfStorageKey: "resumes/w/r/v2.pdf",
+    });
+    const res = await svc.download(OWNER, RES_ID, CTX);
+    expect(res).toEqual({ url: "https://signed.example/url?token=abc", expires_in: 900 });
+    expect(storage.createSignedUrl).toHaveBeenCalledWith("resumes/w/r/v2.pdf", 900);
+    const call = events.emit.mock.calls[0]![0] as {
+      event_name: string;
+      actor: { actor_type: string; actor_id: string };
+      payload: Record<string, unknown>;
+    };
+    expect(call.event_name).toBe("resume.downloaded");
+    expect(call.payload.format).toBe("pdf");
+    expect(call.actor).toEqual({ actor_type: "worker", actor_id: OWNER });
+    expect(call.payload.worker_id).toBe(OWNER);
+    // The signed URL (token) must NEVER ride the event payload.
+    expect(JSON.stringify(call.payload)).not.toContain("token=abc");
+  });
+
+  it("404s for a NON-OWNER (no existence oracle) and mints/emits nothing", async () => {
+    const { svc, resumes, storage, events } = setup(null);
+    resumes.findById.mockResolvedValueOnce({
+      ...ROW,
+      renderStatus: "rendered",
+      pdfStorageKey: "resumes/w/r/v2.pdf",
+    });
+    await expect(svc.download(OTHER, RES_ID, CTX)).rejects.toBeInstanceOf(NotFoundException);
+    expect(storage.createSignedUrl).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("409s while still rendering ('pending') and emits nothing", async () => {
+    const { svc, resumes, storage, events } = setup(null);
+    resumes.findById.mockResolvedValueOnce({ ...ROW, renderStatus: "pending" });
+    await expect(svc.download(OWNER, RES_ID, CTX)).rejects.toBeInstanceOf(ConflictException);
+    expect(storage.createSignedUrl).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("409s when the render failed", async () => {
+    const { svc, resumes } = setup(null);
+    resumes.findById.mockResolvedValueOnce({ ...ROW, renderStatus: "failed" });
+    await expect(svc.download(OWNER, RES_ID, CTX)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("409s when rendered but the storage key is missing (defensive)", async () => {
+    const { svc, resumes } = setup(null);
+    resumes.findById.mockResolvedValueOnce({ ...ROW, renderStatus: "rendered", pdfStorageKey: null });
+    await expect(svc.download(OWNER, RES_ID, CTX)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("404s when the resume does not exist", async () => {
+    const { svc } = setup(null);
+    await expect(svc.download(OWNER, RES_ID, CTX)).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe("ResumeService.recordShare (TD5)", () => {
+  it("emits resume.shared with the closed-enum channel and no free text", async () => {
+    const { svc, resumes, events } = setup(null);
+    resumes.findById.mockResolvedValueOnce(ROW);
+    const res = await svc.recordShare(RES_ID, { channel: "whatsapp" }, CTX);
+    expect(res).toEqual({ ok: true });
+    const call = events.emit.mock.calls[0]![0] as { event_name: string; payload: { channel: string } };
+    expect(call.event_name).toBe("resume.shared");
+    expect(call.payload.channel).toBe("whatsapp");
+  });
+
+  it("404s when the resume does not exist", async () => {
+    const { svc } = setup(null);
+    await expect(svc.recordShare(RES_ID, { channel: "link" }, CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+});
+
+describe("ResumeService.regenerate (TD5)", () => {
+  it("loads the source resume then calls generate (forcing a new version)", async () => {
+    const { svc, resumes } = setup(null, { previousVersion: 2, previousProfileId: ROW.profileId });
+    resumes.findById.mockResolvedValueOnce(ROW);
+    const out = await svc.regenerate(RES_ID, CTX);
+    // generate() ran the force path (create, not createInitial) → version bumped.
+    expect(resumes.create).toHaveBeenCalledOnce();
+    expect(out.version).toBe(3);
+  });
+
+  it("404s when the source resume does not exist", async () => {
+    const { svc, resumes } = setup(null);
+    await expect(svc.regenerate(RES_ID, CTX)).rejects.toBeInstanceOf(NotFoundException);
+    expect(resumes.create).not.toHaveBeenCalled();
   });
 });

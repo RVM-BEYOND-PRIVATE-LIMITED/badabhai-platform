@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
@@ -18,7 +17,7 @@ import {
   type ProfileExtractionJobData,
   type ResumeGenerateJobData,
 } from "../queue/queue.constants";
-import type { ExtractProfileDto, ConfirmProfileDto } from "./profiles.dto";
+import type { ExtractProfileInput, ConfirmProfileInput } from "./profiles.dto";
 
 @Injectable()
 export class ProfilesService {
@@ -41,23 +40,23 @@ export class ProfilesService {
    * then reads `output_ref.profile_id`. The work itself runs in
    * ProfileExtractionProcessor (which emits extraction_completed/failed).
    */
-  async extract(dto: ExtractProfileDto, ctx: RequestContext) {
-    const worker = await this.workers.findById(dto.worker_id);
-    if (!worker) throw new NotFoundException(`Worker ${dto.worker_id} not found`);
+  async extract(input: ExtractProfileInput, ctx: RequestContext) {
+    const worker = await this.workers.findById(input.worker_id);
+    if (!worker) throw new NotFoundException(`Worker ${input.worker_id} not found`);
 
     const job = await this.aiJobs.create({
       jobType: "profile_extraction",
       status: "queued",
-      inputRef: { worker_id: dto.worker_id, session_id: dto.session_id ?? null },
+      inputRef: { worker_id: input.worker_id, session_id: input.session_id ?? null },
     });
 
     await this.events.emit({
       event_name: "profile.extraction_requested",
-      actor: { actor_type: "worker", actor_id: dto.worker_id },
+      actor: { actor_type: "worker", actor_id: input.worker_id },
       subject: { subject_type: "ai_job", subject_id: job.id },
       payload: {
-        worker_id: dto.worker_id,
-        session_id: dto.session_id ?? null,
+        worker_id: input.worker_id,
+        session_id: input.session_id ?? null,
         ai_job_id: job.id,
       },
       idempotencyKey: `profile.extraction_requested:${job.id}`,
@@ -69,8 +68,8 @@ export class ProfilesService {
     // not orphaned in "queued" and the requested event is balanced by a failed.
     try {
       await this.extractionQueue.add("extract", {
-        workerId: dto.worker_id,
-        sessionId: dto.session_id ?? null,
+        workerId: input.worker_id,
+        sessionId: input.session_id ?? null,
         aiJobId: job.id,
         correlationId: ctx.correlationId,
         requestId: ctx.requestId,
@@ -83,8 +82,8 @@ export class ProfilesService {
         actor: { actor_type: "system" },
         subject: { subject_type: "ai_job", subject_id: job.id },
         payload: {
-          worker_id: dto.worker_id,
-          session_id: dto.session_id ?? null,
+          worker_id: input.worker_id,
+          session_id: input.session_id ?? null,
           ai_job_id: job.id,
           reason,
         },
@@ -101,26 +100,27 @@ export class ProfilesService {
     return { ai_job_id: job.id, status: "queued" as const };
   }
 
-  async confirm(dto: ConfirmProfileDto, ctx: RequestContext) {
-    const profile = await this.profiles.findById(dto.profile_id);
-    if (!profile) throw new NotFoundException(`Profile ${dto.profile_id} not found`);
-    if (profile.workerId !== dto.worker_id) {
-      throw new BadRequestException("worker_id does not match the profile owner");
+  async confirm(input: ConfirmProfileInput, ctx: RequestContext) {
+    const profile = await this.profiles.findById(input.profile_id);
+    // Ownership: a worker may only confirm their OWN profile. 404 for both
+    // not-found and not-owner (no existence oracle for another worker's profile).
+    if (!profile || profile.workerId !== input.worker_id) {
+      throw new NotFoundException(`Profile ${input.profile_id} not found`);
     }
 
     const confirmedAt = new Date();
-    await this.profiles.confirm(dto.profile_id, confirmedAt);
+    await this.profiles.confirm(input.profile_id, confirmedAt);
 
     await this.events.emit({
       event_name: "profile.confirmed",
-      actor: { actor_type: "worker", actor_id: dto.worker_id },
-      subject: { subject_type: "profile", subject_id: dto.profile_id },
+      actor: { actor_type: "worker", actor_id: input.worker_id },
+      subject: { subject_type: "profile", subject_id: input.profile_id },
       payload: {
-        worker_id: dto.worker_id,
-        profile_id: dto.profile_id,
+        worker_id: input.worker_id,
+        profile_id: input.profile_id,
         confirmed_at: confirmedAt.toISOString(),
       },
-      idempotencyKey: `profile.confirmed:${dto.profile_id}`,
+      idempotencyKey: `profile.confirmed:${input.profile_id}`,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
@@ -130,21 +130,21 @@ export class ProfilesService {
     // via POST /resume/generate. Log a warning and move on.
     try {
       await this.resumeGenerateQueue.add("generate", {
-        workerId: dto.worker_id,
-        profileId: dto.profile_id,
+        workerId: input.worker_id,
+        profileId: input.profile_id,
         correlationId: ctx.correlationId,
         requestId: ctx.requestId,
       });
     } catch (err) {
       this.logger.warn(
-        `could not enqueue resume generation for profile ${dto.profile_id} (reason: ${
+        `could not enqueue resume generation for profile ${input.profile_id} (reason: ${
           err instanceof Error ? err.message : String(err)
         })`,
       );
     }
 
     return {
-      profile_id: dto.profile_id,
+      profile_id: input.profile_id,
       profile_status: "confirmed",
       confirmed_at: confirmedAt.toISOString(),
     };

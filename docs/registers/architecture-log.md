@@ -8,6 +8,55 @@ boundary moved).
 
 ---
 
+## 2026-06-19 — AI spend ledger moved to a shared Redis store (TD27 final sub-item)
+- **Redis activated for the AI service — stack-locked, no new ADR.** CLAUDE.md §3
+  already names Redis as the locked cache with deferred wiring; this entry records
+  the *activation* of that wiring for the AI-service spend ledger, not a new
+  datastore decision. The seam is unchanged — the `LlmAdapter`/`AIRouter` boundary
+  and the pseudonymization gateway are untouched; only the **backing store** of
+  `cost_tracker.SpendLedger` changes.
+- **Why: caps must enforce GLOBALLY across Uvicorn workers.** The per-process
+  singleton ([`cost_tracker.py`](../../apps/ai-service/app/ai/cost_tracker.py)) made
+  daily / cumulative / per-user INR caps *per-worker* — N workers could each spend up
+  to the cap. This is the last open [TD27](./tech-debt-register.md) sub-item and a
+  hard prereq for the (separate, human-gated) real-LLM prod flip. Cross-link
+  [R6](./risks-register.md).
+- **New seam: a `SpendStore` backend behind the name-stable `SpendLedger` facade.**
+  Two impls selected by whether `REDIS_URL` is set: `InProcessSpendBackend` (today's
+  `threading.Lock` logic — the dev/test/no-`REDIS_URL` default, keeps CI Redis-free)
+  and `RedisSpendBackend` (`redis.asyncio`). Public method names are preserved
+  (`would_exceed_spend`/`record_spend`/`try_consume_retry`/`snapshot`/`reset`/
+  `get_ledger`); they become **async** (router.run is async — a sync client would
+  block the event loop).
+- **Decision: atomic reserve → reconcile → refund (closes the documented overshoot).**
+  `would_exceed_spend` changes from check-only to an **atomic check-AND-reserve** (a
+  single Lua script: check per-user→daily→cumulative, then INCRBYFLOAT all counters by
+  the worst-case projected cost, only if all pass). This closes the bounded
+  check-then-act overshoot flagged by the security review. After the call the router
+  **reconciles**: `record_spend(reserved, actual)` refunds `reserved − actual` on
+  success and the **whole** reserve (`actual=0.0`) on failure/abort — so the
+  mock-fallback path no longer leaks a reservation. (Modeled with the existing two
+  methods + one new failure-path `record_spend(reserved, 0.0)` call — no new public
+  method.)
+- **Fail-closed posture (mirrors `AI_ENABLE_REAL_CALLS`/`PAYMENTS_ENABLE_REAL`).**
+  `REDIS_URL` unset ⇒ deliberately in-process (NOT a failure). With Redis configured
+  but **unreachable**: reserve returns a block reason (`spend_store_unavailable`) ⇒
+  real call blocked ⇒ mock fallback (an unverifiable cap never permits a real spend);
+  reconcile/refund errors leave the worst-case **reserved** (stricter) and log
+  PII-free — the request still returns (router never raises).
+- **Decision: retry budget stays per-process.** It is a per-worker circuit-breaker
+  against a failing provider, not a money guardrail; the spend exposure of retries is
+  already bounded by the now-global atomic spend reserve (at most one billable success
+  per candidate). Only the **spend** caps move to Redis.
+- **PII-free keys + values.** `aispend:daily:{UTC_DATE}` (TTL to next UTC midnight),
+  `aispend:total` (no TTL), `aispend:user:{UTC_DATE}:{worker_ref}` (TTL like daily) —
+  INR amounts, counts, the UTC date, and the **opaque** `worker_ref` only; never
+  content, tokens, or a worker-identifying id. UTC-day rollover is structural via the
+  date in the key name. **No `ai.*` / `ai.spend_cap_exceeded` payload changed**
+  (invariant 8); `AI_ENABLE_REAL_CALLS` stays OFF (separate human gate).
+- See [TD27](./tech-debt-register.md), [R6](./risks-register.md), and the real-LLM
+  [go/no-go](../ai/real-llm-flip-go-no-go.md).
+
 ## 2026-06-15 — Contact Unlock + Reveal Stream A backend landed (ADR-0010)
 - **New contract surface: the routed-disclosure monetization spine.** Contact
   Unlock is the one feature that deliberately discloses a worker's contact channel

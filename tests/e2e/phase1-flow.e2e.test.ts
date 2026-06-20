@@ -46,10 +46,14 @@ const PHONE = `+9198${String(Date.now()).slice(-8)}`;
 const NATIONAL = PHONE.slice(1); // digits only, no leading "+"
 const CONSENT_VERSION = "2026-06-01";
 
-async function post(path: string, body: unknown): Promise<any> {
+async function post(path: string, body: unknown, token?: string): Promise<any> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  // Bearer session token: required by the worker-authenticated chat/profile/voice
+  // routes (P0 auth+consent gate). The worker comes from this token, not the body.
+  if (token) headers["authorization"] = `Bearer ${token}`;
   const res = await fetch(`${API_URL}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`POST ${path} -> ${res.status}: ${await res.text()}`);
@@ -118,6 +122,8 @@ describe.skipIf(!RUN)("Phase 1 worker-profiling flow (e2e)", () => {
     expect(verify.worker_id).toBeTruthy();
     expect(verify.is_new_worker).toBe(true);
     ids.workerId = verify.worker_id;
+    const token = verify.access_token as string;
+    expect(token).toBeTruthy();
 
     // 2. consent
     const consent = await post("/consent/accept", {
@@ -128,7 +134,7 @@ describe.skipIf(!RUN)("Phase 1 worker-profiling flow (e2e)", () => {
     expect(consent.consent_id).toBeTruthy();
 
     // 3. chat session + multi-turn interview until it flips extraction_ready.
-    const session = await post("/chat/session", { worker_id: ids.workerId });
+    const session = await post("/chat/session", {}, token);
     ids.sessionId = session.session_id;
     expect(ids.sessionId).toBeTruthy();
 
@@ -143,7 +149,7 @@ describe.skipIf(!RUN)("Phase 1 worker-profiling flow (e2e)", () => {
     const asked: (string | null)[] = [];
     let ready = false;
     for (const text of turns) {
-      const r = await post("/chat/message", { session_id: ids.sessionId, worker_id: ids.workerId, text });
+      const r = await post("/chat/message", { session_id: ids.sessionId, text }, token);
       expect(typeof r.reply).toBe("string");
       expect(r.reply.length).toBeGreaterThan(0);
       asked.push(r.asked_question_id ?? null);
@@ -170,7 +176,7 @@ describe.skipIf(!RUN)("Phase 1 worker-profiling flow (e2e)", () => {
     expect(profRow?.profileStatus).toBe("extracted");
 
     // 6. confirm
-    const confirm = await post("/profile/confirm", { worker_id: ids.workerId, profile_id: ids.profileId });
+    const confirm = await post("/profile/confirm", { profile_id: ids.profileId }, token);
     expect(confirm.profile_status).toBe("confirmed");
 
     // 7. resume
@@ -258,13 +264,20 @@ describe.skipIf(!RUN)("Phase 1 worker-profiling flow (e2e)", () => {
     const reqOtp = await post("/auth/otp/request", { phone });
     const verify = await post("/auth/otp/verify", { phone, otp: reqOtp.dev_otp });
     const workerId = verify.worker_id as string;
-    const session = await post("/chat/session", { worker_id: workerId });
+    const token = verify.access_token as string;
+    // Consent is the gate (invariant 6): chat is blocked until it is accepted.
+    await post("/consent/accept", {
+      worker_id: workerId,
+      consent_version: CONSENT_VERSION,
+      purposes: ["profiling", "resume_generation"],
+    });
+    const session = await post("/chat/session", {}, token);
     const sessionId = session.session_id as string;
 
     const messages = ["namaste bhai", "VMC operator hoon", "5 saal ka experience"];
     const asked: (string | null)[] = [];
     for (const text of messages) {
-      const reply = await post("/chat/message", { session_id: sessionId, worker_id: workerId, text });
+      const reply = await post("/chat/message", { session_id: sessionId, text }, token);
       expect(reply.reply.length).toBeGreaterThan(0);
       asked.push(reply.asked_question_id ?? null);
     }

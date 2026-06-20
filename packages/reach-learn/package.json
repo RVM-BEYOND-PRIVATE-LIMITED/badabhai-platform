@@ -1,0 +1,25 @@
+{
+  "name": "@badabhai/reach-learn",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LEARN layer (ADR-0017) — OFFLINE-FIRST classical learning-to-rank over the PII-free events stream. Calibrates the deterministic RANK dials into a bounded WeightProfile; the model ASSISTS, the engine DECIDES. No LLM. No live ranking influence (offline/shadow only).",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rimraf dist .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@badabhai/reach-engine": "workspace:*"
+  }
+}

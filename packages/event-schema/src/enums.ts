@@ -37,6 +37,36 @@ export const EVENT_DOMAINS = [
   // PII-FREE: product/tier/coupon CODES + integer ₹ amounts + percentages ONLY; never
   // a payer name, a worker identity, or old/new VALUES (field KEYS only on changes).
   "pricing",
+  // Per-payer hiring capacity (ADR-0016) — the payer's concurrent-active-vacancy
+  // ALLOWANCE purchase. PII-FREE & faceless: opaque payer_id + tier CODE + integer
+  // ₹/counts ONLY (`real_call:false` in alpha — mock payments). Distinct from
+  // `pricing` (catalog edits) — this is the entitlement-GRANT money movement.
+  "capacity",
+  // Posting-plan LIFECYCLE transitions (ADR-0016 D3) — a plan moved paused↔active as
+  // the payer's capacity is exceeded/restored. DISTINCT from `job_posting.*` (posting
+  // content/purchase): this domain is the plan's serving-state machine. PII-FREE:
+  // ids + an enum reason ONLY.
+  "posting_plan",
+  // WhatsApp invite funnel (ADR-0020) — referral deep-link create/click/accept +
+  // PII-FREE attribution. ids/enums ONLY (opaque invite_id + worker ids); never a
+  // phone, name, or the shared link's downstream PII.
+  "invite",
+  // Worker re-engagement messaging (ADR-0020) — the consent-gated send lifecycle
+  // (requested/sent/suppressed/failed) over the WhatsApp provider. PII-FREE: the
+  // phone/template-body NEVER appears; only ids + the template id + enums +
+  // real_call. Mock provider in alpha (real_call:false).
+  "messaging",
+  // PACE supply-widening (ADR-0021) — deterministic supply-widening waves + ops
+  // alert (the "release waves" slice of ADR-0011's PACE triad). PII-FREE & faceless:
+  // opaque job_id + the widen-stage enum + supply COUNT + elapsed hours ONLY; never
+  // a worker, employer, or location. No LLM on this path (invariant 4).
+  "pace",
+  // Self-serve payer account auth (ADR-0019 Decision B — closes R16/LC-1/TD33). The
+  // payer signup/login/session lifecycle behind PayerAuthGuard. PII-FREE & FACELESS:
+  // the payer's email/phone/org-name NEVER appears (those are the new B-R2 PII class,
+  // stored ONLY in `payers`, encrypted) — only the opaque `payer_id` + role + the
+  // login-method enum + booleans. Mirrors `worker.*` auth events for the payer principal.
+  "payer",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;
@@ -79,6 +109,18 @@ export const SUBJECT_TYPES = [
   // A pricing catalog entity (ADR-0013) — a plan/discount/coupon row. The subject_id
   // is the opaque catalog row id; carries no PII (codes + amounts only).
   "pricing_plan",
+  // A paid posting PLAN row (ADR-0016) — the subject of `posting_plan.paused/resumed`.
+  // The subject_id is the opaque posting_plans row id; carries no PII (the job_posting
+  // and payer ids live in the payload, both opaque/faceless).
+  "posting_plan",
+  // A referral invite (ADR-0020). The subject_id is the opaque invites row id; carries
+  // no PII (inviter/invited worker ids live in the payload, both opaque).
+  "invite",
+  // A self-serve payer account (ADR-0019 Decision B). The subject_id is the opaque
+  // `payers.id` (== the faceless `payer_id`); carries NO PII (the payer's email/phone/
+  // org-name live ONLY in `payers`, encrypted — never in an event). The subject of the
+  // `payer.*` auth lifecycle events.
+  "payer",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;

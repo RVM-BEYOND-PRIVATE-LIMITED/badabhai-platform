@@ -1,14 +1,8 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-  ServiceUnavailableException,
-} from "@nestjs/common";
+import { Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
-import { WorkersRepository } from "../workers/workers.repository";
 import { ChatRepository } from "../chat/chat.repository";
 import { AiJobsRepository } from "../profiles/ai-jobs.repository";
 import {
@@ -31,7 +25,6 @@ import type { UploadVoiceNoteDto, TranscribeVoiceNoteDto } from "./voice.dto";
 export class VoiceService {
   constructor(
     private readonly voice: VoiceRepository,
-    private readonly workers: WorkersRepository,
     private readonly chat: ChatRepository,
     private readonly events: EventsService,
     private readonly aiJobs: AiJobsRepository,
@@ -39,18 +32,17 @@ export class VoiceService {
     private readonly transcriptionQueue: Queue<VoiceTranscriptionJobData>,
   ) {}
 
-  async upload(dto: UploadVoiceNoteDto, ctx: RequestContext) {
-    const worker = await this.workers.findById(dto.worker_id);
-    if (!worker) throw new NotFoundException(`Worker ${dto.worker_id} not found`);
-
+  async upload(workerId: string, dto: UploadVoiceNoteDto, ctx: RequestContext) {
+    // The worker is authenticated (WorkerAuthGuard); ownership is what matters.
+    // A worker may only attach a note to their OWN session. 404 for both
+    // not-found and not-owner (no existence oracle for another worker's session).
     const session = await this.chat.findSession(dto.session_id);
-    if (!session) throw new NotFoundException(`Session ${dto.session_id} not found`);
-    if (session.workerId !== dto.worker_id) {
-      throw new BadRequestException("worker_id does not match the session owner");
+    if (!session || session.workerId !== workerId) {
+      throw new NotFoundException(`Session ${dto.session_id} not found`);
     }
 
     const note = await this.voice.create({
-      workerId: dto.worker_id,
+      workerId: workerId,
       sessionId: dto.session_id,
       storagePath: dto.storage_path,
       durationSeconds: Math.round(dto.duration_seconds),
@@ -59,11 +51,11 @@ export class VoiceService {
 
     await this.events.emit({
       event_name: "voice_note.uploaded",
-      actor: { actor_type: "worker", actor_id: dto.worker_id },
+      actor: { actor_type: "worker", actor_id: workerId },
       subject: { subject_type: "voice_note", subject_id: note.id },
       payload: {
         voice_note_id: note.id,
-        worker_id: dto.worker_id,
+        worker_id: workerId,
         session_id: dto.session_id,
         duration_seconds: dto.duration_seconds,
         storage_path: dto.storage_path,
@@ -81,9 +73,17 @@ export class VoiceService {
    * the ai_job_id; the client polls `GET /ai-jobs/:id` until completed. The work
    * runs in VoiceTranscriptionProcessor (emits transcription_completed/failed).
    */
-  async requestTranscription(dto: TranscribeVoiceNoteDto, ctx: RequestContext) {
+  async requestTranscription(
+    workerId: string,
+    dto: TranscribeVoiceNoteDto,
+    ctx: RequestContext,
+  ) {
     const note = await this.voice.findById(dto.voice_note_id);
-    if (!note) throw new NotFoundException(`Voice note ${dto.voice_note_id} not found`);
+    // Ownership: a worker may only transcribe their OWN note. 404 for both
+    // not-found and not-owner (no existence oracle for another worker's note).
+    if (!note || note.workerId !== workerId) {
+      throw new NotFoundException(`Voice note ${dto.voice_note_id} not found`);
+    }
 
     const job = await this.aiJobs.create({
       jobType: "transcription",

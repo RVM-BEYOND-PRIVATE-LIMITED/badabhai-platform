@@ -6,5 +6,10 @@ pydantic-settings>=2.6,<3.0
 # real mode and for the eval --real CLI. Always installed; the call itself stays
 # gated behind AI_ENABLE_REAL_CALLS + GEMINI_FLASH_API_KEY (mock by default).
 httpx>=0.27,<1.0
+# Redis backs the GLOBAL (cross-Uvicorn-worker) AI spend ledger (TD27). The
+# modern `redis` package ships `redis.asyncio`. CLAUDE.md §3 locked-stack wiring
+# being activated (not a new datastore). Imported LAZILY only when REDIS_URL is
+# set, so mock-only / no-REDIS_URL boot never needs a running Redis.
+redis>=5.0,<6.0
 # Langfuse is the only optional real-mode extra (tracing). For real mode install:
 #   pip install -r requirements-ai.txt

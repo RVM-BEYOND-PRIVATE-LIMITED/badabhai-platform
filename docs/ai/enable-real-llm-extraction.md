@@ -153,6 +153,42 @@ empty allowlist keeps the previous "all tasks" behavior (backward compatible).
    `real_call`, latency, and the INR estimate — over **pseudonymized text only**.
    Confirm per-profile cost is within target and no `cost_alert` fires.
 
+## Re-validation on the pinned model (GO/NO-GO Finding 4 — DO THIS before the flip)
+
+**The prod extraction model is PINNED to `gemini-2.5-flash`** (`DEFAULT_CAPABLE_MODEL`,
+`app/config.py` default now matches this runbook). The ≥90% gold-set evidence on record was
+measured on **Claude Haiku**, and the cost/latency on **flash-lite** — **neither is the pinned
+model.** Before the flip, re-validate **on `gemini-2.5-flash`** (human-gated: real paid calls, §7):
+
+1. **Use a FUNDED staging key**, not the dev-box free-tier key (Finding 3 — rotate that; free-tier
+   429s fall back to mock and **INVALIDATE** the run). Set in the staging AI-service env:
+   ```bash
+   AI_ENABLE_REAL_CALLS=true
+   AI_REAL_CALL_TASKS=profile_extraction
+   DEFAULT_CAPABLE_MODEL=gemini-2.5-flash      # the PINNED model — validate exactly this
+   GEMINI_FLASH_API_KEY=<funded staging key>
+   ```
+2. **Clean 56-case gold-set run on the pinned model** (role + per-field, both must be ≥90%, and the
+   rig must print `real calls: N/N succeeded` with **zero mock fallback** or it is INVALID):
+   ```bash
+   cd apps/ai-service
+   python -m app.profiling.eval_canonicalization --real              # role/canonicalization ≥90%
+   python -m app.profiling.eval_canonicalization --per-field --real  # per-field aggregate ≥90%
+   ```
+3. **p95 latency on the pinned model:** each real call traces `model` + `latency` (Langfuse, over
+   pseudonymized text only). Measure p95 across the 56-case run (repeat ≥1× for ≥112 samples, or run
+   a small concurrent batch for "realistic load"), then **record the p95 number vs target**.
+   - Target: extraction is **async (BullMQ `ai_jobs`, off the request hot path)**, so the bar is
+     cost/throughput, not interactive latency — **recommend p95 ≤ ~5 s/call** (tune at sign-off).
+4. **Record results** in [real-llm-flip-go-no-go.md](real-llm-flip-go-no-go.md) Finding 4: the model
+   (`gemini-2.5-flash`), role %, per-field %, `N/N succeeded`, the p95 number, and cost/call.
+   **If <90% on `gemini-2.5-flash` → STOP**, do not ship; re-open the model choice (don't silently
+   fall back to the Haiku/flash-lite numbers — they don't cover this model).
+
+> Offline pre-check (no key, no spend): `python -m app.profiling.eval_canonicalization --per-field`
+> runs the heuristic scorer (core+negative) — confirms the rig + the 56 cases load, but is **NOT**
+> the pinned-model validation (the hard tier + the real ≥90% bar need the real calls above).
+
 ## Rollback (instant, no deploy)
 
 Set either `AI_ENABLE_REAL_CALLS=false` **or** clear `AI_REAL_CALL_TASKS` →

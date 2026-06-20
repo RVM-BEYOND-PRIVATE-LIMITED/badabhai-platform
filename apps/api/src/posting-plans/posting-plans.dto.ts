@@ -21,3 +21,17 @@ export const BuyBoostSchema = z.object({
   coupon: z.string().min(1).max(64).optional(),
 });
 export type BuyBoostDto = z.infer<typeof BuyBoostSchema>;
+
+/**
+ * Buy/upgrade per-payer hiring capacity (ADR-0016). RAISES how many posting plans the
+ * payer may hold in status='active' concurrently, then auto-resumes paused plans up to
+ * the new allowance. `tier` is a capacity-catalog tier CODE (validated fail-closed by
+ * the engine). The `payerId` comes from the route param — ADVISORY in alpha (no per-
+ * payer auth; guarded only by InternalServiceGuard, PayerAuthGuard is LC-1, see service).
+ * An optional coupon is validated fail-closed by the engine. PII-free.
+ */
+export const BuyCapacitySchema = z.object({
+  tier: z.string().min(1).max(64),
+  coupon: z.string().min(1).max(64).optional(),
+});
+export type BuyCapacityDto = z.infer<typeof BuyCapacitySchema>;

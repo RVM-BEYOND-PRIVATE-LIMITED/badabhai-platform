@@ -5,6 +5,7 @@ const LINKS = [
   { href: "/ops/workers", label: "Workers" },
   { href: "/ops/applicants", label: "Applicants" },
   { href: "/ops/reach", label: "Reach" },
+  { href: "/ops/pace", label: "PACE" },
   { href: "/ops/events", label: "Events" },
   { href: "/ops/ai-jobs", label: "AI Jobs" },
   { href: "/ops/job-postings", label: "Job Postings" },

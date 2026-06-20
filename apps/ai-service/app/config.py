@@ -36,8 +36,16 @@ class Settings(BaseSettings):
     # model handles strict-JSON extraction. Bare Gemini model ids (no provider
     # prefix). Defaults are REAL Gemini ids so the service resolves a valid model
     # even when .env is absent; .env overrides them per environment.
+    #
+    # PINNED PROD EXTRACTION MODEL = gemini-2.5-flash (ADR-0008 "capable" tier +
+    # docs/ai/enable-real-llm-extraction.md). This default now MATCHES the runbook so
+    # the model that ships in prod == the model the gold set is validated on (resolves
+    # GO/NO-GO Finding 4 / Q3: validation-model must equal flip-model). Real calls stay
+    # OFF by default (AI_ENABLE_REAL_CALLS=false); this only fixes WHICH model is used
+    # when extraction is turned real. The clean 56-case re-validation + p95 on this
+    # exact model is the remaining (human-gated) gate before any flip.
     default_cheap_model: str = "gemini-2.5-flash-lite"
-    default_capable_model: str = "gemini-2.5-flash-lite"
+    default_capable_model: str = "gemini-2.5-flash"
     # Cross-provider FALLBACK model: tried by the router only AFTER the primary
     # (Gemini) candidate fails, and only when anthropic_api_key is set and this
     # model's provider differs from the primary's. Claude Haiku 4.5 (no date
@@ -72,6 +80,18 @@ class Settings(BaseSettings):
     # window — cuts retry multiplication against a failing provider.
     ai_retry_budget_per_window: int = 20
     ai_retry_budget_window_seconds: int = 60
+
+    # Shared spend-ledger store (env REDIS_URL). When UNSET the spend ledger uses
+    # the in-process backend: daily / cumulative / per-user INR caps are enforced
+    # PER PROCESS (with N Uvicorn workers each holds its own counters). This is the
+    # deliberate dev / test / single-process default — NOT a failure.
+    # When SET it uses the Redis backend (CLAUDE.md §3 locked stack — activating the
+    # deferred wiring, not a new datastore): the SAME caps enforce GLOBALLY across
+    # all workers, keyed by UTC day. The Redis store FAILS CLOSED — if Redis is
+    # unreachable a real call is blocked (mock fallback); an unverifiable cap never
+    # permits a real spend. Only PII-free data is stored (INR, counts, the UTC date,
+    # and the opaque worker_ref). The retry budget stays per-process regardless.
+    redis_url: str | None = None
 
     sarvam_api_key: str | None = None
     # Sarvam STT model id. Config so the future ``saaras:v3`` swap is one line.

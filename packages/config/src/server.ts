@@ -124,6 +124,35 @@ export const serverEnvSchema = z.object({
   FAST2SMS_ENTITY_ID: z.string().min(1).optional(),
   FAST2SMS_ROUTE: z.string().min(1).default("dlt"),
 
+  // Self-serve PAYER auth (ADR-0019 Decision B — closes R16/LC-1/TD33). The payer is
+  // the THIRD principal (worker/payer/ops). The session mechanism reuses JWT_SECRET +
+  // SESSION_TTL_DAYS (PayerSessionService) and the login OTP reuses the OTP_* knobs
+  // above (one set of OTP shape/lifecycle for both principals).
+  //
+  // PAYER_LOGIN_METHOD selects the login channel (ADR-0019 B-R1):
+  //   "email_otp" — alpha MOCK default: a one-time code is delivered over a console/mock
+  //                 channel (the SmsProvider="console" analogue; dev/test echo only).
+  //   "whatsapp"  — rides the ADR-0020 WhatsApp MOCK provider (no real send in alpha);
+  //                 the payer's phone is required on the account.
+  //   "supabase"  — config-gated adapter (locked stack). INERT WITHOUT KEYS: selecting it
+  //                 without SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY fails CLOSED at boot
+  //                 (assertPayerAuthConfig). No real provider is enabled by default.
+  PAYER_LOGIN_METHOD: z.enum(["email_otp", "whatsapp", "supabase"]).default("email_otp"),
+  // XB-G (ADR-0019 external-disclosure addendum): a per-PAYER cap on the disclosure
+  // (unlock) endpoint over a rolling UTC hour, enforced against the real PayerAuthGuard
+  // identity. Complements the per-WORKER shared cap (XB-B, the payer-independent
+  // backstop) and the per-IP cap. Fail-closed (a Redis outage rejects, never uncaps).
+  PAYER_DISCLOSURE_MAX_PER_HOUR: z.coerce.number().int().positive().default(30),
+  // Per-IP hourly cap on the UNAUTHENTICATED payer auth endpoints (signup / login
+  // request / verify) — an account-farming + credential-stuffing backstop (XB-H / XT2).
+  PAYER_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // Per-PAYER hourly cap on the self-serve REACH read (ADR-0019 R22 / PR2). The reach
+  // view returns the full faceless ranked pool for a payer's OWNED job, so repeated
+  // loads are the scrape / worker-de-anonymization surface (the reach analogue of XB-G).
+  // Fail-closed (a Redis outage rejects). Higher than the disclosure cap — reach is an
+  // information-only refreshable read, not a billable disclosure.
+  PAYER_REACH_MAX_PER_HOUR: z.coerce.number().int().positive().default(60),
+
   // AI routing (direct providers — Gemini primary + Claude Haiku fallback; ADR-0008).
   // The AI service (Python) calls providers DIRECTLY over their own SDKs/REST; the
   // Node API does NOT make LLM calls (it forwards to the AI service), so these are
@@ -148,12 +177,61 @@ export const serverEnvSchema = z.object({
   // staging-first behind PAYMENTS_ENABLE_REAL. Unused in alpha (mock ledger).
   PAYMENTS_PROVIDER_KEY: z.string().min(1).optional(),
 
+  // WhatsApp invite funnel + re-engagement (ADR-0020). MOCK provider in alpha — no
+  // real message is sent and the worker's phone never leaves to Meta. MESSAGING_ENABLE_REAL
+  // is the master gate (mirrors AI_ENABLE_REAL_CALLS / PAYMENTS_ENABLE_REAL) and DEFAULTS
+  // FALSE; flipping it true requires the WhatsApp keys AND is human-gated + staging-first
+  // (CLAUDE.md §7). A real-enabled flag without the keys fails CLOSED at boot via
+  // assertMessagingConfig. booleanFromString so a falsey string stays OFF.
+  MESSAGING_ENABLE_REAL: booleanFromString,
+  // OPAQUE Meta WhatsApp Cloud API credentials. NEVER committed; supplied only in
+  // staging-first behind MESSAGING_ENABLE_REAL. Unused in alpha (mock provider).
+  WHATSAPP_API_KEY: z.string().min(1).optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().min(1).optional(),
+
   // Contact Unlock worker-protection caps (ADR-0010 §D4 — CONFIG-DRIVEN, not
   // hard-coded; tunable without a migration). The chokepoint reads these. Numbers are
   // the ADR's recommended alpha starting caps (OQ-F: a trust-and-safety call to tune).
   UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY: z.coerce.number().int().positive().default(5),
   UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK: z.coerce.number().int().positive().default(10),
   UNLOCK_MAX_ATTEMPTS_PER_UNLOCK: z.coerce.number().int().positive().default(3),
+
+  // Per-payer hiring capacity (ADR-0016 D4 — CONFIG-DRIVEN, fail-closed). The default
+  // concurrent-active-vacancy allowance for a payer with NO payer_capacity row. The
+  // chokepoint reads this; NO number is hard-coded in the service logic. min(0) is
+  // intentional (0 = a brand-new payer can hold ZERO active plans until they buy
+  // capacity); the small default keeps alpha conservative without a migration to tune.
+  CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES: z.coerce.number().int().min(0).default(1),
+  // Master switch for capacity ENFORCEMENT (ADR-0016, posture B). Default OFF =
+  // inert/shadow: the chokepoint still counts and computes the decision but never
+  // pauses a plan — it records a PII-free "would-pause" log line + a wouldPause flag.
+  // The cap is ADVISORY until PayerAuthGuard/LC-1 lands; flip true to enforce.
+  // Uses booleanFromString (NOT z.coerce.boolean, whose "false"/"0" coerce to true)
+  // so a falsey string stays OFF — fail-safe to inert, consistent with the other
+  // boolean flags above (AI_ENABLE_REAL_CALLS / PAYMENTS_ENABLE_REAL).
+  CAPACITY_ENFORCEMENT_ENABLED: booleanFromString,
+
+  // PACE supply-widening (ADR-0021 — CONFIG-DRIVEN, deterministic, no LLM). The widen
+  // DECISION is a pure function of these rules; nothing is hard-coded in the service.
+  // Master switch — default OFF (inert/additive): PACE only runs when explicitly
+  // enabled. booleanFromString so a falsey string stays OFF (fail-safe to inert),
+  // consistent with the other boolean gates above.
+  PACE_ENABLED: booleanFromString,
+  // A job with FEWER than this many above-floor (on-trade) good-fit candidates is
+  // "thin supply" → PACE widens. The count uses the SAME floor the boost-integrity
+  // guard locks; never hides/drops anyone.
+  PACE_THIN_SUPPLY_MIN: z.coerce.number().int().positive().default(3),
+  // Each AREA-widen wave raises the travel band by this many km, up to the ceiling.
+  PACE_AREA_STEP_KM: z.coerce.number().positive().default(15),
+  PACE_MAX_AREA_KM: z.coerce.number().positive().default(75),
+  // Wave cadence within the 6–24h window: hours between successive widen waves, and
+  // the elapsed-hours threshold after which thin supply raises an OPS ALERT.
+  PACE_WAVE_INTERVAL_HOURS: z.coerce.number().positive().default(6),
+  PACE_OPS_ALERT_AFTER_HOURS: z.coerce.number().positive().default(24),
+  // ADJACENT-TRADE leg gate — default OFF and BLOCKED until a RATIFIED adjacency map
+  // exists (ADR-0021; no ratified ADJACENT_ROLES map today). MUST stay false until a
+  // ratified map is wired — flipping it true without one is a no-op (the map is empty).
+  PACE_ADJACENCY_ENABLED: booleanFromString,
 
   // Model routing. Bare provider model ids (no provider prefix); the AI service
   // selects cheap vs capable per task. Cost guardrails are in INR per worker profile.
@@ -280,6 +358,54 @@ export function areRealPaymentsEnabled(config: ServerConfig): boolean {
 }
 
 /**
+ * Guard for the "real WhatsApp send" path (ADR-0020 Decision 1) — the direct
+ * analogue of `realPaymentsBlockedReason`. Fails CLOSED: a real message is only
+ * permitted when explicitly enabled AND the Meta WhatsApp credentials exist.
+ * Returns the reason real sends are disabled, or null when allowed. In alpha this
+ * always returns a reason (mock provider — the phone never leaves to a third party).
+ */
+export function realMessagingBlockedReason(config: ServerConfig): string | null {
+  if (!config.MESSAGING_ENABLE_REAL) return "MESSAGING_ENABLE_REAL is false";
+  if (!config.WHATSAPP_API_KEY) return "WHATSAPP_API_KEY is not set";
+  if (!config.WHATSAPP_PHONE_NUMBER_ID) return "WHATSAPP_PHONE_NUMBER_ID is not set";
+  return null;
+}
+
+export function areRealMessagesEnabled(config: ServerConfig): boolean {
+  return realMessagingBlockedReason(config) === null;
+}
+
+/**
+ * Guard for the per-payer capacity ENFORCEMENT path (ADR-0016, posture B) — the
+ * direct analogue of `areRealPaymentsEnabled`. Default OFF (fail-safe = inert):
+ * when false the chokepoint runs in SHADOW — it computes the over-cap decision but
+ * never pauses, recording a PII-free would-pause log line instead. Flip true to
+ * enforce. The cap is advisory until PayerAuthGuard/LC-1 (CLAUDE.md §8).
+ */
+export function isCapacityEnforcementEnabled(config: ServerConfig): boolean {
+  return config.CAPACITY_ENFORCEMENT_ENABLED;
+}
+
+/**
+ * Master gate for PACE supply-widening (ADR-0021). Default OFF (additive/inert): PACE
+ * waves + ops alerts only run when explicitly enabled. The widen DECISION itself is a
+ * pure config-driven rule (no LLM, invariant 4).
+ */
+export function isPaceEnabled(config: ServerConfig): boolean {
+  return config.PACE_ENABLED;
+}
+
+/**
+ * Gate for the PACE ADJACENT-TRADE widen leg (ADR-0021). Default OFF and BLOCKED on a
+ * ratified adjacency map — there is NO ratified ADJACENT_ROLES map today, so the area
+ * leg ships first and this stays false. Enabling it without a ratified map is a no-op
+ * (the adjacency lookup returns no related roles).
+ */
+export function isPaceAdjacencyEnabled(config: ServerConfig): boolean {
+  return config.PACE_ADJACENCY_ENABLED;
+}
+
+/**
  * Fail-closed boot guard for the payments config (ADR-0010 Phase-0 F-6; mirrors
  * `assertPiiCryptoConfig`). If real payments are ENABLED but no provider key is set,
  * a half-configured gateway must NOT run silently as mock — throw at boot so the
@@ -291,6 +417,29 @@ export function assertPaymentsConfig(config: ServerConfig): void {
   if (config.PAYMENTS_ENABLE_REAL && !config.PAYMENTS_PROVIDER_KEY) {
     throw new Error(
       "PAYMENTS_ENABLE_REAL is true but PAYMENTS_PROVIDER_KEY is not set — refusing to boot a half-configured real payments gateway (ADR-0010 F-6, fail closed)",
+    );
+  }
+}
+
+/**
+ * Fail-closed boot guard for the WhatsApp messaging config (ADR-0020; mirrors
+ * `assertPaymentsConfig`). If real messaging is ENABLED but the Meta credentials
+ * are not fully set, a half-configured provider must NOT run silently as mock —
+ * throw at boot so the mis-configuration is loud. (Alpha default:
+ * MESSAGING_ENABLE_REAL=false → no-op.) Real sends are additionally a HUMAN-GATED,
+ * staging-first escalation (CLAUDE.md §7); this guard only enforces the config
+ * invariant, not the human approval.
+ */
+export function assertMessagingConfig(config: ServerConfig): void {
+  if (!config.MESSAGING_ENABLE_REAL) return;
+  const missing: string[] = [];
+  if (!config.WHATSAPP_API_KEY) missing.push("WHATSAPP_API_KEY");
+  if (!config.WHATSAPP_PHONE_NUMBER_ID) missing.push("WHATSAPP_PHONE_NUMBER_ID");
+  if (missing.length > 0) {
+    throw new Error(
+      `MESSAGING_ENABLE_REAL is true but ${missing.join(" + ")} ${
+        missing.length > 1 ? "are" : "is"
+      } not set — refusing to boot a half-configured real WhatsApp provider (ADR-0020, fail closed)`,
     );
   }
 }
@@ -333,5 +482,53 @@ export function assertAuthConfig(
     throw new Error(
       `Insecure/incomplete auth config outside an explicit development/test environment: ${problems.join("; ")}`,
     );
+  }
+}
+
+/**
+ * Reason the SELECTED payer login method cannot run, or null when it is satisfiable
+ * (ADR-0019 Decision B — the analogue of `realAiCallsBlockedReason`). The `supabase`
+ * adapter is the locked-stack identity provider but is **inert without keys**:
+ * selecting it without the Supabase service credentials returns a reason (so boot can
+ * fail closed) rather than silently running a half-configured external IdP. The mock
+ * channels (`email_otp` / `whatsapp`) are always satisfiable (no real provider/spend).
+ */
+export function payerLoginMethodBlockedReason(config: ServerConfig): string | null {
+  if (config.PAYER_LOGIN_METHOD === "supabase") {
+    const missing: string[] = [];
+    if (!config.SUPABASE_URL) missing.push("SUPABASE_URL");
+    if (!config.SUPABASE_SERVICE_ROLE_KEY) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+    if (missing.length > 0) {
+      return `PAYER_LOGIN_METHOD=supabase requires: ${missing.join(", ")}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Fail-closed boot guard for the self-serve payer auth surface (ADR-0019 Decision B;
+ * mirrors `assertAuthConfig` / `assertPaymentsConfig`). Two invariants:
+ *   - the chosen login method must be runnable — the `supabase` adapter must NOT boot
+ *     half-configured (inert-without-keys → throw, never silently degrade), AND
+ *   - outside an explicit development/test environment JWT_SECRET must be overridden
+ *     (the payer session is signed with the SAME JWT_SECRET as the worker session; the
+ *     dev default would let anyone forge a payer session — XB-H secure-session).
+ * Call once at boot (main.ts), after `assertAuthConfig`.
+ */
+export function assertPayerAuthConfig(
+  config: ServerConfig,
+  rawNodeEnv: string | undefined = process.env.NODE_ENV,
+): void {
+  const problems: string[] = [];
+
+  const blocked = payerLoginMethodBlockedReason(config);
+  if (blocked) problems.push(blocked);
+
+  if (!isDevEnv(rawNodeEnv) && config.JWT_SECRET === DEV_JWT_SECRET) {
+    problems.push("JWT_SECRET must be overridden (the payer session is signed with it)");
+  }
+
+  if (problems.length > 0) {
+    throw new Error(`Invalid payer-auth config (ADR-0019, fail closed): ${problems.join("; ")}`);
   }
 }

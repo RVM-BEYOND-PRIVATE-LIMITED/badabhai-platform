@@ -77,7 +77,7 @@ def _pseudonymization_meta(result: PseudonymizationResult) -> PseudonymizationMe
 
 
 @app.get("/health")
-def health() -> dict:
+async def health() -> dict:
     return {
         "status": "ok",
         "service": "ai-service",
@@ -85,20 +85,25 @@ def health() -> dict:
         # Actual tracer state (keys present AND package installed), not just config.
         "langfuse_enabled": router.langfuse_enabled,
         "max_call_cost_inr": settings.ai_max_call_cost_inr,
-        # PII-free cumulative spend / retry-budget usage-vs-cap (TD27).
-        "spend": cost_tracker.get_ledger().snapshot(settings),
+        # Which spend-ledger backend is active (redis = global caps; in_process =
+        # per-worker). PII-free; no store round-trip.
+        "spend_store": cost_tracker.get_ledger().backend_name,
+        # PII-free cumulative spend / retry-budget usage-vs-cap (TD27). snapshot is
+        # async (it may touch the Redis backend); await it.
+        "spend": await cost_tracker.get_ledger().snapshot(settings),
     }
 
 
 @app.get("/ai/spend")
-def ai_spend(user_ref: str | None = None) -> dict:
+async def ai_spend(user_ref: str | None = None) -> dict:
     """PII-free cumulative spend + retry-budget usage vs. caps (TD27).
 
     Numbers / model ids / UTC date only — never message content. Pass an opaque
-    ``user_ref`` to also see that worker's spend vs the per-user daily cap. Single-
-    process scope (see SpendLedger); a shared store is the multi-worker follow-up.
+    ``user_ref`` to also see that worker's spend vs the per-user daily cap. Scope is
+    per-process with the in-process backend; GLOBAL across workers with Redis
+    (REDIS_URL set). snapshot is async (may touch Redis); await it.
     """
-    return cost_tracker.get_ledger().snapshot(settings, user_ref=user_ref)
+    return await cost_tracker.get_ledger().snapshot(settings, user_ref=user_ref)
 
 
 @app.post("/pseudonymize", response_model=PseudonymizationOutput)

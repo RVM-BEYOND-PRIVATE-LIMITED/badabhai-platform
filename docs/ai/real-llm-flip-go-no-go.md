@@ -55,17 +55,38 @@ machinery never needed re-architecting — only the clean accuracy evidence, whi
    keys with `AI_ENABLE_REAL_CALLS=true`** on a dev laptop — gitignored (not committed, no
    leak) but against the runbook's "real keys never on a dev laptop." **Rotate both keys and
    remove them from the dev box;** keep real keys only in staging/prod secret stores.
-4. **⚠️ Validation-model ≠ flip-model — the gating reconciliation (2026-06-17 audit).** The
-   ≥90% gold-set evidence (TD27 / [Q3](../registers/open-questions.md): per-field **95% = 151/159**,
-   **56/56** clean over the full 56-case `GOLD_CASES`) was measured with **Claude Haiku as
-   PRIMARY**. But the runbook/architecture pin **Gemini `gemini-2.5-flash`** as the extraction
-   primary, and the committed `default_capable_model` is **`gemini-2.5-flash-lite`**
-   ([`app/config.py`](../../apps/ai-service/app/config.py)) — **three different extraction
-   models.** With Finding 1 (Haiku fails 100% locally), the model that will actually serve prod
-   is **not** the one the 95% was measured on. **Before the flip: pin ONE extraction model and
-   confirm a clean 56/56 gold-set run (role ≥90% + per-field ≥90%) on THAT exact model.** Owner:
-   **ai-engineer**. *Also unmet per Q3:* latency not yet measured · ≥2 more staging runs ·
-   shared-store (Redis) spend ledger · secrets manager.
+4. **⚠️ Validation-model ≠ flip-model — CONFIG PINNED 2026-06-17; re-validation on it still owed.**
+   The ≥90% gold-set evidence (TD27 / [Q3](../registers/open-questions.md): per-field **95% = 151/159**,
+   **56/56** over the full 56-case `GOLD_CASES`) was measured with **Claude Haiku as PRIMARY** — not
+   the prod model. **RESOLVED (config half):** the prod extraction model is now **PINNED to
+   `gemini-2.5-flash`** — `default_capable_model` in
+   [`app/config.py`](../../apps/ai-service/app/config.py) changed `gemini-2.5-flash-lite →
+   gemini-2.5-flash` to MATCH the runbook (`DEFAULT_CAPABLE_MODEL=gemini-2.5-flash`) + ADR-0008's
+   "capable" tier (`AI_REAL_CALL_TASKS=profile_extraction` at flip). The **three models collapse to
+   one**: validation-model must now equal flip-model = **`gemini-2.5-flash`**.
+   **STILL OWED before the flip (human-gated — real paid calls, §7):** a clean **56/56 gold-set run
+   on `gemini-2.5-flash`** (role ≥90% + per-field ≥90%, zero mock-fallback) **+ a p95 latency number
+   on that model**. Neither the Haiku 95% nor the flash-lite cost/latency in the table above covers
+   `gemini-2.5-flash`, so **both accuracy AND p95 must be re-measured on it**. Run on a **funded
+   staging key** (NOT the dev-box free-tier key — Finding 3; free-tier 429s contaminate with mock
+   fallback). Turnkey command + p95 method: see §"Re-validation on the pinned model" in
+   [enable-real-llm-extraction.md](enable-real-llm-extraction.md). **If <90% on `gemini-2.5-flash`,
+   STOP — do not ship a model the numbers don't cover.** Owner: **ai-engineer + devops**.
+   *Also per Q3:* p95 latency on the pinned model · ≥2 more staging runs · ~~shared-store (Redis)
+   spend ledger~~ **✅ MET (2026-06-19)** · secrets manager.
+
+5. **✅ Shared-store (Redis) spend ledger — MET (2026-06-19, TD27 final sub-item).** The spend
+   caps (daily / cumulative / per-user ₹6) now enforce **GLOBALLY across all Uvicorn workers** via
+   a Redis-backed ledger with an **atomic reserve → reconcile → refund** (closes the prior
+   per-worker-caps gap and the documented check-then-act overshoot). **Deploy precondition for the
+   flip:** PROVISION Redis and set **`REDIS_URL`** in staging/prod **BEFORE** `AI_ENABLE_REAL_CALLS=true`
+   — with `REDIS_URL` unset the service falls back to the **in-process** backend (per-worker caps),
+   which under multiple workers lets total spend reach `N × cap`. **Fail-closed:** `REDIS_URL` set
+   but Redis unreachable ⇒ real calls are blocked → mock (never an unbounded spend). Ops liveness:
+   `GET /health` reports `spend_store` (`redis`/`in_process`). See [TD27](../registers/tech-debt-register.md)
+   / [R6](../registers/risks-register.md) and the [architecture log](../registers/architecture-log.md)
+   (2026-06-19). The AI service is **host-run** today (not a docker-compose service); the host reaches
+   the compose `redis` at `redis://localhost:6379/0`.
 
 > **Audit note (2026-06-17).** The GO verdict is **evidence-backed** (a clean full-gold-set run
 > exists — not a bare override), so the GO stands. But the flip is **NOT yet executable**: it is

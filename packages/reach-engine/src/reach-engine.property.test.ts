@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { scoreWorkerForJob, rankWorkersForJob } from "./index";
-import type { JobSpec, RankOptions, WorkerJobScore, WorkerSignals } from "./index";
+import type { JobSpec, RankOptions, RankedWorker, WorkerJobScore, WorkerSignals } from "./index";
 
 /**
  * Property / invariant tests for the Reach RANK core.
@@ -241,5 +241,265 @@ describe("rankWorkersForJob — invariants over random fleets", () => {
     expect(a.map((r) => r.rank)).toEqual(Array.from({ length: 5000 }, (_, i) => i + 1));
     const b = rankWorkersForJob(job, [...workers].reverse());
     expect(b.map((r) => r.workerId)).toEqual(a.map((r) => r.workerId));
+  });
+});
+
+// ============================================================================
+// FLOOR-INVARIANCE CONTRACT — the spec a FUTURE boost-aware reorder MUST satisfy.
+//
+// Boost ranking is DEFERRED (ADR-0013 "pricing/boost never rank"; ADR-0011/0012
+// defer it; ADR-0006 defines the floor). There is NO boost field on the engine
+// today — WorkerJobScore / RankOptions carry none — so the invariant currently
+// holds VACUOUSLY. This block does NOT implement boost. It LOCKS the contract any
+// eventual `applyBoost` MUST honour, via a TEST-LOCAL pluggable hook (signature
+// defined here; nothing new imported). The NEGATIVE CONTROLS prove the checker has
+// teeth: a deliberately floor-violating hook MUST be caught.
+//
+// The floor (ADR-0006 / ranking.ts):
+//   - hot       ⇒ roleRaw > 0      (off-trade is NEVER hot, even at rank 1)
+//   - pushEligible ⇔ score >= pushFloor   (score-based; boost reorders, never rescoring)
+// Invariant: boost may permute order ONLY within the above-floor band; it may never
+// lift a below-floor candidate above an above-floor one, change a score / its
+// pushEligible flag, or make an off-trade worker hot. Determinism is preserved.
+// ============================================================================
+
+const HOT_FRACTION = 0.12; // engine default (ranking.ts DEFAULT_HOT_FRACTION)
+
+/** The signature a future boost-aware reorder MUST satisfy: reorder + re-flag an
+ *  engine ranking given the boosted ids — and NEVER rescore. */
+type ApplyBoost = (
+  baseline: RankedWorker[],
+  boostedIds: ReadonlySet<string>,
+  opts: { hotFraction: number },
+) => RankedWorker[];
+
+/** Re-rank a reordered list, re-applying the role/hot floor; pushEligible (score-based) is kept. */
+function reRank(workers: RankedWorker[], hotFraction: number): RankedWorker[] {
+  const n = workers.length;
+  const hotCount = n === 0 ? 0 : Math.min(n, Math.max(1, Math.round(n * hotFraction)));
+  return workers.map((w, i) => ({
+    ...w,
+    rank: i + 1,
+    hot: i < hotCount && roleRawOf(w) > 0, // off-trade never hot, even boosted to rank 1
+    pushEligible: w.pushEligible, // score-based — boost reorders, never rescoring
+  }));
+}
+
+/** COMPLIANT hook: moves boosted workers to the front ONLY WITHIN their floor band
+ *  (above-floor band vs below-floor band) — never across the floor. */
+const compliantBoost: ApplyBoost = (baseline, boostedIds, opts) => {
+  const toFront = (rows: RankedWorker[]): RankedWorker[] => [
+    ...rows.filter((w) => boostedIds.has(w.workerId)),
+    ...rows.filter((w) => !boostedIds.has(w.workerId)),
+  ];
+  const above = toFront(baseline.filter((w) => w.pushEligible));
+  const below = toFront(baseline.filter((w) => !w.pushEligible));
+  return reRank([...above, ...below], opts.hotFraction);
+};
+
+/** VIOLATING hook (negative control): moves boosted workers to the ABSOLUTE front,
+ *  ignoring the floor — a boosted below-floor worker jumps above above-floor ones. */
+const floorViolatingBoost: ApplyBoost = (baseline, boostedIds, opts) =>
+  reRank(
+    [
+      ...baseline.filter((w) => boostedIds.has(w.workerId)),
+      ...baseline.filter((w) => !boostedIds.has(w.workerId)),
+    ],
+    opts.hotFraction,
+  );
+
+/** VIOLATING hook #2: force-flags a boosted OFF-TRADE worker hot (role-floor breach). */
+const offTradeHotBoost: ApplyBoost = (baseline, boostedIds, opts) =>
+  reRank(baseline, opts.hotFraction).map((w) =>
+    boostedIds.has(w.workerId) ? { ...w, hot: true } : w,
+  );
+
+/** The contract checker — returns the list of floor violations (empty ⇒ compliant). */
+function findFloorViolations(baseline: RankedWorker[], boosted: RankedWorker[]): string[] {
+  const v: string[] = [];
+  // (1) permutation: count + id-set preserved (sort-never-block — nobody dropped/added).
+  if (boosted.length !== baseline.length) v.push(`count ${baseline.length}->${boosted.length}`);
+  const baseIds = new Set(baseline.map((w) => w.workerId));
+  for (const w of boosted) if (!baseIds.has(w.workerId)) v.push(`alien id ${w.workerId}`);
+  if (new Set(boosted.map((w) => w.workerId)).size !== boosted.length) v.push("duplicate id");
+  // (2) scores immutable ⇒ pushEligible integrity (boost reorders, never rescoring).
+  const baseScore = new Map(baseline.map((w) => [w.workerId, w.score]));
+  const basePush = new Map(baseline.map((w) => [w.workerId, w.pushEligible]));
+  for (const w of boosted) {
+    const s = baseScore.get(w.workerId);
+    if (s !== undefined && Math.abs(s - w.score) > 1e-12) v.push(`rescored ${w.workerId}`);
+    if (basePush.get(w.workerId) !== w.pushEligible) v.push(`pushEligible flipped ${w.workerId}`);
+  }
+  // (3) push-floor band integrity: no below-floor worker may precede an above-floor one.
+  let seenBelow = false;
+  for (const w of boosted) {
+    const above = basePush.get(w.workerId) === true;
+    if (above && seenBelow) v.push(`floor breach: below-floor precedes above-floor at ${w.workerId}`);
+    if (!above) seenBelow = true;
+  }
+  // (4) role/hot floor: hot ⇒ roleRaw > 0 (off-trade never hot, even boosted to rank 1).
+  for (const w of boosted) if (w.hot && roleRawOf(w) <= 0) v.push(`off-trade hot ${w.workerId}`);
+  return v;
+}
+
+function randomBoostSet(rng: () => number, workers: RankedWorker[]): Set<string> {
+  // One independent PRNG draw per worker → each is boosted with ~40% probability
+  // (deterministic for a fixed seed; the predicate ignores the element by design).
+  return new Set(workers.filter(() => rng() < 0.4).map((w) => w.workerId));
+}
+
+describe("FLOOR-INVARIANCE CONTRACT — the spec a future boost reorder MUST satisfy", () => {
+  it("a COMPLIANT boost (reorder within the floor band) never violates the floor — random pools", () => {
+    const rng = mulberry32(0xb0057);
+    for (let trial = 0; trial < 400; trial++) {
+      const job = genJob(rng);
+      const n = Math.floor(rng() * 30);
+      const workers = Array.from({ length: n }, (_, i) => genWorker(rng, i));
+      const baseline = rankWorkersForJob(job, workers);
+      const boostedIds = randomBoostSet(rng, baseline);
+      const boosted = compliantBoost(baseline, boostedIds, { hotFraction: HOT_FRACTION });
+      const violations = findFloorViolations(baseline, boosted);
+      if (violations.length) {
+        fail(`compliant boost violated the floor: ${violations.join("; ")}`, {
+          trial,
+          boostedIds: [...boostedIds],
+        });
+      }
+    }
+  });
+
+  it("NEGATIVE CONTROL: a floor-violating boost (ignore the band) IS caught (teeth)", () => {
+    // A deterministic pool that straddles the floor: a strong on-trade worker (above)
+    // and a weak off-trade worker (below). Boosting the below-floor one to the front
+    // MUST be caught — otherwise the contract would be vacuously green.
+    const job: JobSpec = {
+      jobId: "job",
+      roleIds: ["vmc_operator"],
+      city: "pune",
+      payMin: 20000,
+      payMax: 30000,
+    };
+    const workers: WorkerSignals[] = [
+      {
+        workerId: "on-trade-strong",
+        roleId: "vmc_operator",
+        city: "pune",
+        lastActiveDaysAgo: 1,
+        availability: "immediate",
+        experienceYears: 5,
+        expectedSalary: 20000,
+      },
+      {
+        workerId: "off-trade-weak",
+        roleId: "packer",
+        city: "mumbai",
+        lastActiveDaysAgo: 90,
+        availability: "not_looking",
+        expectedSalary: 999999,
+      },
+    ];
+    const baseline = rankWorkersForJob(job, workers);
+    // Sanity: the two genuinely straddle the push floor.
+    expect(baseline.find((w) => w.workerId === "on-trade-strong")!.pushEligible).toBe(true);
+    expect(baseline.find((w) => w.workerId === "off-trade-weak")!.pushEligible).toBe(false);
+
+    const boostedIds = new Set(["off-trade-weak"]);
+    // The compliant hook keeps the floor → zero violations …
+    expect(
+      findFloorViolations(baseline, compliantBoost(baseline, boostedIds, { hotFraction: HOT_FRACTION })),
+    ).toHaveLength(0);
+    // … the violating hook breaches it → the checker MUST report a floor breach (teeth).
+    const badV = findFloorViolations(
+      baseline,
+      floorViolatingBoost(baseline, boostedIds, { hotFraction: HOT_FRACTION }),
+    );
+    expect(badV.length).toBeGreaterThan(0);
+    expect(badV.some((m) => m.includes("floor breach"))).toBe(true);
+  });
+
+  it("NEGATIVE CONTROL: force-flagging a boosted OFF-TRADE worker hot IS caught (role floor)", () => {
+    const job: JobSpec = { jobId: "job", roleIds: ["vmc_operator"], city: "pune" };
+    const workers: WorkerSignals[] = [
+      { workerId: "off-1", roleId: "packer", city: "pune", lastActiveDaysAgo: 1 },
+      { workerId: "off-2", roleId: "welder", city: "pune", lastActiveDaysAgo: 1 },
+    ];
+    const baseline = rankWorkersForJob(job, workers);
+    const badV = findFloorViolations(
+      baseline,
+      offTradeHotBoost(baseline, new Set(["off-1"]), { hotFraction: HOT_FRACTION }),
+    );
+    expect(badV.some((m) => m.includes("off-trade hot"))).toBe(true);
+  });
+
+  it("DETERMINISM: the same compliant boost over the same inputs yields the same order", () => {
+    const rng = mulberry32(0xd00d);
+    const job = genJob(rng);
+    const workers = Array.from({ length: 25 }, (_, i) => genWorker(rng, i));
+    const baseline = rankWorkersForJob(job, workers);
+    const boostedIds = new Set(baseline.filter((_, i) => i % 3 === 0).map((w) => w.workerId));
+    const a = compliantBoost(baseline, boostedIds, { hotFraction: HOT_FRACTION }).map((w) => w.workerId);
+    const b = compliantBoost(baseline, boostedIds, { hotFraction: HOT_FRACTION }).map((w) => w.workerId);
+    expect(a).toEqual(b);
+  });
+
+  it("EDGE: an all-off-trade pool has zero hot — with OR without boost", () => {
+    const job: JobSpec = { jobId: "job", roleIds: ["vmc_operator"], city: "pune" };
+    const workers: WorkerSignals[] = Array.from({ length: 8 }, (_, i) => ({
+      workerId: `off-${i}`,
+      roleId: "packer",
+      city: "pune",
+      lastActiveDaysAgo: 1,
+      availability: "immediate",
+    }));
+    const baseline = rankWorkersForJob(job, workers);
+    expect(baseline.filter((w) => w.hot)).toHaveLength(0); // engine: off-trade never hot
+    const boosted = compliantBoost(baseline, new Set(workers.map((w) => w.workerId)), {
+      hotFraction: HOT_FRACTION,
+    });
+    expect(boosted.filter((w) => w.hot)).toHaveLength(0); // boost can't manufacture a hot off-trade
+    expect(findFloorViolations(baseline, boosted)).toHaveLength(0);
+  });
+
+  it("EDGE: a boosted off-trade candidate never becomes hot or push-eligible", () => {
+    const job: JobSpec = {
+      jobId: "job",
+      roleIds: ["vmc_operator"],
+      city: "pune",
+      payMin: 20000,
+      payMax: 30000,
+    };
+    const workers: WorkerSignals[] = [
+      {
+        workerId: "on",
+        roleId: "vmc_operator",
+        city: "pune",
+        lastActiveDaysAgo: 1,
+        availability: "immediate",
+        experienceYears: 5,
+        expectedSalary: 20000,
+      },
+      {
+        workerId: "off",
+        roleId: "packer",
+        city: "mumbai",
+        lastActiveDaysAgo: 90,
+        availability: "not_looking",
+        expectedSalary: 999999,
+      },
+    ];
+    const baseline = rankWorkersForJob(job, workers);
+    const boosted = compliantBoost(baseline, new Set(["off"]), { hotFraction: HOT_FRACTION });
+    const off = boosted.find((w) => w.workerId === "off")!;
+    expect(off.hot).toBe(false);
+    expect(off.pushEligible).toBe(false);
+    expect(findFloorViolations(baseline, boosted)).toHaveLength(0);
+  });
+
+  it("EDGE: empty pool — boost is a no-op, no violations", () => {
+    const job: JobSpec = { jobId: "job", roleIds: ["vmc_operator"] };
+    const baseline = rankWorkersForJob(job, []);
+    const boosted = compliantBoost(baseline, new Set(), { hotFraction: HOT_FRACTION });
+    expect(boosted).toHaveLength(0);
+    expect(findFloorViolations(baseline, boosted)).toHaveLength(0);
   });
 });

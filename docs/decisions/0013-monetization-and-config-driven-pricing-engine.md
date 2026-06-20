@@ -6,6 +6,11 @@
   a hard pre-build gate; real Razorpay stays a STOP). The original six decisions are
   preserved below as the design history; where a resolution conflicts with the body, the
   resolution wins.
+- **Extended by:** [ADR-0016](0016-payer-hiring-capacity.md) (2026-06-17) — adds a `capacity`
+  product kind + a per-payer active-vacancy **capacity entitlement** (cap → auto-pause → auto-resume),
+  additively. ADR-0016 is a **capacity ADD-ON, not a subscription**, so the ADR-0010 §Decision-1
+  subscription deferral stays **kept, not reopened**; this ADR's catalog/`resolvePrice` contract is
+  unchanged.
 - **Date:** 2026-06-16
 - **Phase:** **Phase-2** (employer/agent posting, booster, candidate search / resume
   download, and the pricing engine are all in CLAUDE.md §8 "Deferred — do not build in
@@ -664,7 +669,16 @@ are legal calls; CLAUDE.md §8 launch gate).
 - **No Reach ranking change.** The candidates page reuses the ADR-0011 serving layer +
   unchanged RANK core; the pricing engine does **no** ranking and the booster does **no**
   re-ranking (it broadcasts a faceless job; PACE/PROTECT/LEARN remain Phase-2, ADR-0011
-  OUT).
+  OUT). **This deferral is now TEST-GUARDED (2026-06-17, [TD42](../registers/tech-debt-register.md)):**
+  the boost↔floor invariant is pinned by executable tests — **BOOST-INERT** (boost is
+  data-only; the `jobs` source has no boost column and nothing maps boost into a `JobSpec` /
+  the RANK core) in [`reach.job-source.test.ts`](../../apps/api/src/reach/reach.job-source.test.ts),
+  and the **FLOOR-INVARIANCE CONTRACT** (the spec any FUTURE boost reorder MUST satisfy —
+  reorder-within-the-above-floor-band only, off-trade never hot, scores immutable,
+  deterministic — with a floor-violating negative control that proves the guard has teeth) in
+  [`reach-engine.property.test.ts`](../../packages/reach-engine/src/reach-engine.property.test.ts).
+  Boost RANKING stays **deferred pending its own ADR** (it must keep these tests green); cross-ref
+  [ADR-0006](0006-reach-foundation-rank-core.md) (the floor) + [ADR-0011](0011-reach-feed-serving.md).
 - **No LLM anywhere on this path.** Pricing is deterministic arithmetic; posting/boost/
   resume/payment are CRUD + events + the disclosure chokepoint. (invariants 3, 4 trivially
   held; none may be added.)
@@ -767,6 +781,7 @@ pricing-engine, posting-plan, booster, or resume-download code, migration, or re
 
 ## Related
 
+- **Extended by → [ADR-0016 — Per-payer hiring capacity](0016-payer-hiring-capacity.md)** (adds a `hiring_capacity` product to this engine + a per-payer concurrent-active-vacancy chokepoint on Decision B `posting_plans`; additive, faceless, mock payments; **enforcement INERT by default**)
 - ADR-0010 (Contact Unlock + Reveal — the disclosure spine this REUSES for resume download) + [contact-unlock threat model](../security/contact-unlock-threat-model.md)
 - ADR-0012 (ops-created banded `job_postings` — the entity this adds a paid plan to, additively)
 - ADR-0011 (Reach feed serving — the faceless candidates page / applicant list this consumes; `JobSource` port)

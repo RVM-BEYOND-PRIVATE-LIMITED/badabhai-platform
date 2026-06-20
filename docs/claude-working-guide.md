@@ -25,14 +25,25 @@ migration number" drift — verify against [packages/db/migrations/](../packages
 so a session **cannot** leak secrets or fire a catastrophic command:
 
 - **Declarative `permissions.deny`** — blocks Read/Edit/Write of real env files
-  (`.env`, `.env.local`, `.env.production`, …) and key material (`*.pem`, `*.key`,
-  `id_rsa`, `*serviceAccount*.json`). `.env.example` / `.env.staging.example` stay
-  readable. This layer holds even if the hook process never runs.
-- **PreToolUse hook** — [.claude/hooks/guard-secrets.mjs](../.claude/hooks/guard-secrets.mjs)
-  (pure Node, cross-platform) additionally blocks shell commands that print a `.env`,
-  `rm -rf` of root/home/cwd, force-push to `main`/`master` (—`force-with-lease` is fine),
-  and `DROP`/`TRUNCATE` DDL from the shell. Spec: [guard-secrets.test.mjs](../.claude/hooks/guard-secrets.test.mjs)
-  (`node .claude/hooks/guard-secrets.test.mjs`).
+  (`.env`, `.env.local`, `.env.production`, `.env.ci`, …) and key material (`*.pem`,
+  `*.key`, `*.p12`/`*.pfx`/`*.keystore`/`*.jks`, `id_rsa*`, `id_ed25519`, `id_ecdsa`,
+  `*serviceAccount*.json`, `*credentials*.json`). `.env.example` / `.env.*.example` stay
+  readable. This layer holds even if the hook process never runs. `ask` gates `git push`,
+  `pnpm db:migrate`, and `supabase push`/`link`.
+- **Two PreToolUse hooks** (defense-in-depth — either can block a call):
+  - [.claude/hooks/guard.mjs](../.claude/hooks/guard.mjs) — the comprehensive layer
+    (**fail-open**): an inverted secret-file model (ANY reference to a secret file is
+    suspect, except the one narrow `.env`-load pattern), echo-of-secret-value detection,
+    and the full catastrophic-shell set (`rm -rf` root/home, fork bomb, `mkfs`, `dd
+    of=/dev/…`, `format`, `Remove-Item -Recurse -Force` on root/home, `dropdb`, `supabase
+    db reset`, destructive DDL via a DB client, force-push). Self-test:
+    `node .claude/hooks/guard.selftest.mjs` (expect 0 failures).
+  - [.claude/hooks/guard-secrets.mjs](../.claude/hooks/guard-secrets.mjs) — a pure,
+    unit-tested `decide()` layer that additionally covers the **Grep** tool and emits a
+    structured `permissionDecision: "deny"`. Spec:
+    [guard-secrets.test.mjs](../.claude/hooks/guard-secrets.test.mjs)
+    (`node --test .claude/hooks/guard-secrets.test.mjs`).
+  - To temporarily disable the hooks: remove the `hooks` block from `.claude/settings.json`.
 
 These are guardrails, not a substitute for judgment. The §2 invariants in
 [CLAUDE.md](../CLAUDE.md) still bind every change.

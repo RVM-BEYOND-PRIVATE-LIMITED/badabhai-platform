@@ -231,7 +231,11 @@ export class UnlockService {
   // ===========================================================================
   // POST /unlocks/:id/reveal  —  routed reveal (step [5]); the ONLY decrypt site
   // ===========================================================================
-  async reveal(unlockId: string, ctx: RequestContext): Promise<RevealOutcome> {
+  async reveal(
+    unlockId: string,
+    ctx: RequestContext,
+    expectedPayerId?: string,
+  ): Promise<RevealOutcome> {
     // Consent re-check BEFORE the advisory lock (same pool-vs-lock deadlock fix as
     // requestUnlock): a tx-external consent read inside the locked tx would need a 2nd
     // pool connection while concurrent reveals on this worker hold theirs → deadlock.
@@ -241,6 +245,13 @@ export class UnlockService {
     // eliminating the deadlock outweighs the marginal widening. A missing/own-by-other
     // unlock falls through to the tx, which returns the IDENTICAL neutral body (F-3).
     const pre = await this.repo.getProjection(unlockId);
+    // XB-A (payer-self path, ADR-0019): a payer may reveal ONLY their own unlock. A
+    // not-owned (or unknown) unlock returns the IDENTICAL neutral body — never a 403 —
+    // so a payer learns nothing about other tenants' unlocks (no-oracle, mirrors F-3).
+    // Ops callers (InternalServiceGuard) pass no expectedPayerId and are UNAFFECTED.
+    if (pre && expectedPayerId !== undefined && pre.payer_id !== expectedPayerId) {
+      return neutralUnavailable();
+    }
     if (pre && !(await this.isConsentedForSharing(pre.worker_id))) return neutralUnavailable();
 
     // F-3: unknown/expired/over-cap/revoked all return the NEUTRAL body (not a 404).

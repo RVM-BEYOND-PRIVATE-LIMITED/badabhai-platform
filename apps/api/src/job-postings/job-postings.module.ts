@@ -10,8 +10,5 @@ import { JobPostingsRepository } from "./job-postings.repository";
 @Module({
   controllers: [JobPostingsController],
   providers: [JobPostingsService, JobPostingsRepository],
-  // Exported so the Reach serving layer (ADR-0011 JobSource swap point) can read
-  // postings → JobSpec without re-providing the repo. Read-only consumer.
-  exports: [JobPostingsRepository],
 })
 export class JobPostingsModule {}

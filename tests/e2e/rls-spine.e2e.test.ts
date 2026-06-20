@@ -38,6 +38,7 @@ const DATABASE_URL =
 // The "no drift vs the live schema" test below makes this list self-policing.
 const LOCKED_TABLES = [
   "workers",
+  "payers", // ADR-0019: payer/employer B2B PII (new class); RLS+FORCE+REVOKE in migration 0020
   "worker_consents",
   "worker_profiles",
   "chat_sessions",
@@ -62,6 +63,9 @@ const LOCKED_TABLES = [
   "posting_plans",
   "posting_boosts",
   "resume_disclosures",
+  "payer_capacity",
+  "invites", // ADR-0020: WhatsApp invite funnel (PII-free); RLS+FORCE+REVOKE in migration 0021
+  "pace_states", // ADR-0021: pace supply-widening state (PII-free); RLS+FORCE+REVOKE in migration 0023
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

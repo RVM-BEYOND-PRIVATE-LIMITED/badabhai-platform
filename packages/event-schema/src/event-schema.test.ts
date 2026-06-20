@@ -796,9 +796,185 @@ describe("monetization + pricing events (ADR-0013 — PII-free, ids/codes/enums/
   });
 });
 
+describe("capacity / posting_plan lifecycle events (ADR-0016 — PII-free, ids/codes/enums only)", () => {
+  it("validates capacity.purchased on the payer-scoped pricing_plan subject and defaults real_call", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "capacity.purchased",
+      actor: { actor_type: "payer", actor_id: UUID_A },
+      subject: { subject_type: "pricing_plan", subject_id: UUID_A },
+      payload: { payer_id: UUID_A, tier: "cap_5", max_active_vacancies: 5, price_inr: 5000 },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "capacity.purchased") {
+      expect(result.event.payload.real_call).toBe(false); // mock-honesty default
+      expect(result.event.payload.max_active_vacancies).toBe(5);
+    }
+  });
+
+  it("validates posting_plan.paused / .resumed on the posting_plan subject with enum reasons", () => {
+    const paused = validateEvent({
+      ...workerCreatedEvent(),
+      event_name: "posting_plan.paused",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "posting_plan", subject_id: UUID_A },
+      payload: { plan_id: UUID_A, job_posting_id: UUID_B, payer_id: UUID_C, reason: "capacity_exceeded" },
+    });
+    expect(paused.success).toBe(true);
+
+    const resumed = validateEvent({
+      ...workerCreatedEvent(),
+      event_name: "posting_plan.resumed",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "posting_plan", subject_id: UUID_A },
+      payload: { plan_id: UUID_A, job_posting_id: UUID_B, payer_id: UUID_C, reason: "capacity_restored" },
+    });
+    expect(resumed.success).toBe(true);
+  });
+
+  it("rejects a free-text pause/resume reason (enum-only → no PII)", () => {
+    const bad = validateEvent({
+      ...workerCreatedEvent(),
+      event_name: "posting_plan.paused",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "posting_plan", subject_id: UUID_A },
+      payload: { plan_id: UUID_A, job_posting_id: UUID_B, payer_id: UUID_C, reason: "owner_requested" },
+    });
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+});
+
+describe("pace supply-widening events (ADR-0021 — PII-free, faceless, no-LLM)", () => {
+  function paceEvent(name: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: name,
+      actor: { actor_type: "system" },
+      subject: { subject_type: "job", subject_id: UUID_A },
+      payload,
+    };
+  }
+
+  it("validates pace.wave_widened for each widen stage (area / adjacent_trade)", () => {
+    for (const stage of ["area", "adjacent_trade"] as const) {
+      const result = validateEvent(
+        paceEvent("pace.wave_widened", {
+          job_id: UUID_A,
+          stage,
+          supply_count: 2,
+          elapsed_hours: 6,
+        }),
+      );
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it("rejects pace.wave_widened with an unknown stage (enum-only → no free text)", () => {
+    const result = validateEvent(
+      paceEvent("pace.wave_widened", {
+        job_id: UUID_A,
+        stage: "widen_everything",
+        supply_count: 0,
+        elapsed_hours: 0,
+      }),
+    );
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.stage).toBe("payload");
+  });
+
+  it("validates pace.ops_alert_raised and carries only faceless fields", () => {
+    const result = validateEvent(
+      paceEvent("pace.ops_alert_raised", {
+        job_id: UUID_A,
+        supply_count: 0,
+        elapsed_hours: 24,
+      }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "pace.ops_alert_raised") {
+      // No field could carry a worker/employer/location — opaque job_id + counts only.
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["elapsed_hours", "job_id", "supply_count"].sort(),
+      );
+    }
+  });
+
+  it("rejects a negative supply_count (counts are non-negative integers)", () => {
+    const result = validateEvent(
+      paceEvent("pace.ops_alert_raised", { job_id: UUID_A, supply_count: -1, elapsed_hours: 1 }),
+    );
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("payer auth events (ADR-0019 Decision B — FACELESS, ids/role/method enums only)", () => {
+  function payerAuthEvent(name: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: name,
+      actor: { actor_type: "payer", actor_id: UUID_A },
+      subject: { subject_type: "payer", subject_id: UUID_A },
+      payload,
+    };
+  }
+
+  it("validates payer.created with role + method enums and NO contact-PII fields", () => {
+    const result = validateEvent(
+      payerAuthEvent("payer.created", { payer_id: UUID_A, role: "employer", method: "email_otp" }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "payer.created") {
+      // The payload schema has NO field that could hold an email/phone/org-name — only
+      // the opaque id + two enums (the B-R2 contact PII lives encrypted in `payers`).
+      expect(Object.keys(result.event.payload).sort()).toEqual(["method", "payer_id", "role"].sort());
+    }
+  });
+
+  it("rejects a payer.created role outside the {employer,agent} enum (no free text)", () => {
+    const bad = validateEvent(
+      payerAuthEvent("payer.created", { payer_id: UUID_A, role: "Acme Pvt Ltd", method: "email_otp" }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("rejects a login method outside the enum (e.g. an email-shaped value → no PII)", () => {
+    const bad = validateEvent(
+      payerAuthEvent("payer.login_requested", { payer_id: UUID_A, method: "boss@acme.com" }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("validates payer.session_started and defaults is_new_payer to false", () => {
+    const result = validateEvent(
+      payerAuthEvent("payer.session_started", { payer_id: UUID_A, method: "whatsapp" }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "payer.session_started") {
+      expect(result.event.payload.is_new_payer).toBe(false);
+    }
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 54 event names (48 prior + 6 ADR-0013 monetization/pricing)", () => {
-    expect(EVENT_NAMES).toHaveLength(54);
+  it("exposes all 69 event names (64 prior + 2 ADR-0021 pace + 3 ADR-0019 payer auth)", () => {
+    expect(EVENT_NAMES).toHaveLength(69);
+    expect(isEventName("pace.wave_widened")).toBe(true);
+    expect(isEventName("pace.ops_alert_raised")).toBe(true);
+    expect(isEventName("payer.created")).toBe(true);
+    expect(isEventName("payer.login_requested")).toBe(true);
+    expect(isEventName("payer.session_started")).toBe(true);
+    expect(isEventName("invite.created")).toBe(true);
+    expect(isEventName("invite.clicked")).toBe(true);
+    expect(isEventName("invite.accepted")).toBe(true);
+    expect(isEventName("messaging.requested")).toBe(true);
+    expect(isEventName("messaging.sent")).toBe(true);
+    expect(isEventName("messaging.suppressed")).toBe(true);
+    expect(isEventName("messaging.failed")).toBe(true);
+    expect(isEventName("capacity.purchased")).toBe(true);
+    expect(isEventName("posting_plan.paused")).toBe(true);
+    expect(isEventName("posting_plan.resumed")).toBe(true);
     expect(isEventName("job_posting.purchased")).toBe(true);
     expect(isEventName("job_posting.boosted")).toBe(true);
     expect(isEventName("applicant.viewed")).toBe(true);

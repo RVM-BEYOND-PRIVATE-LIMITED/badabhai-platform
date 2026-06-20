@@ -82,6 +82,46 @@ export const workers = pgTable(
 ).enableRLS(); // RLS tracked in the model so db:generate keeps it (migration 0003/0004 carry the SQL)
 
 // ---------------------------------------------------------------------------
+// payers — the account behind the opaque `payer_id` (ADR-0019 Decision B).
+//
+// Self-serve makes `payer_id` (today an opaque "faceless-rails" UUID on
+// unlocks/payer_credits/posting_plans/resume_disclosures/payer_capacity, NO FK)
+// a REAL authenticated account. This table is ADDITIVE: those columns stay opaque
+// UUIDs (no FK retrofit here, backward-compatible); a `payers.id` is now a valid
+// value for them. `payers` holds payer/employer **B2B contact PII — a NEW PII
+// class** (ADR-0019 B-R2, the accepted invariant-#2 extension). Same at-rest
+// discipline as `workers` (ADR-0004): contact fields are AES-256-GCM CIPHERTEXT
+// (`encryptPii` tokens, key never in the DB); the login email also carries a keyed
+// HMAC (`email_hash`) as the brute-force-resistant lookup/dedup key (the only
+// email derivative allowed anywhere outside this table). Payer PII NEVER enters
+// events/ai_jobs/audit_logs/logs/LLM input — `payer_id` stays the only token.
+// RLS-enabled (REVOKE carried by the migration, like workers 0003/0004).
+// ---------------------------------------------------------------------------
+export type PayerRole = "employer" | "agent";
+export type PayerStatus = "pending" | "active" | "suspended";
+
+export const payers = pgTable(
+  "payers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    role: text("role").$type<PayerRole>().notNull(),
+    // Login email: AES ciphertext at rest + keyed HMAC for lookup/dedup (mirrors
+    // workers.phone_e164 / phone_hash). The hash is the unique key.
+    emailEnc: text("email_enc").notNull(), // AES-256-GCM ciphertext token
+    emailHash: text("email_hash").notNull(), // keyed HMAC-SHA256 (lookup/dedup)
+    // Optional contact phone, same two-column pattern (nullable).
+    phoneEnc: text("phone_enc"), // AES ciphertext token
+    phoneHash: text("phone_hash"), // keyed HMAC-SHA256
+    // Business display name — B2B PII; ciphertext at rest (no lookup hash needed).
+    orgNameEnc: text("org_name_enc").notNull(), // AES ciphertext token
+    status: text("status").$type<PayerStatus>().notNull().default("pending"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("payers_email_hash_uq").on(t.emailHash)],
+).enableRLS(); // RLS tracked in the model; REVOKE carried by the migration (ADR-0004 posture)
+
+// ---------------------------------------------------------------------------
 // worker_consents — DPDP consent records (append-only; revoke via revoked_at)
 // ---------------------------------------------------------------------------
 export const workerConsents = pgTable(
@@ -519,6 +559,8 @@ export const jobPostings = pgTable(
     closedAt: timestamp("closed_at", { withTimezone: true }),
   },
   (t) => [
+    // Backs the ops list endpoint: filter by `status`, order by `created_at desc`.
+    index("job_postings_status_created_at_idx").on(t.status, t.createdAt),
     // Pin the banded vacancy to the 5 allowed values (mirrors VACANCY_BANDS).
     check(
       "job_postings_vacancy_band_chk",
@@ -554,8 +596,18 @@ export const jobPostings = pgTable(
  * must not depend upward on `apps/api`, and the placeholder `@badabhai/taxonomy`
  * only carries the 7 CNC/VMC role ids, not these 15 trade keys. Keep in sync if
  * the alpha trade list ever changes.
+ *
+ * HOSPITALITY (second vertical) — the 9 `hosp_*` keys below are the MIRROR half of
+ * the PRD §6 "mirror-and-sync" wiring (sources of truth: `REQUIRED_HOSP_TRADE_KEYS`
+ * in apps/api `src/resume/hospitality-trade-content.ts` + `REQUIRED_HOSP_KIT_TRADE_KEYS`
+ * in `src/interview-kit/hospitality-interview-kit-content.ts`). Additive + backward-
+ * compatible: manufacturing keys are unchanged. The content is **DRAFTED, pending RVM
+ * — NOT live** (docs/registers/hospitality-trade-content-ratification.md); these keys
+ * are typed so jobs CAN reference them once a trade is RVM-ratified, but no live
+ * surface serves hospitality content yet. TD31 (shared taxonomy package) stays deferred.
  */
 export type TradeKey =
+  // --- Manufacturing (15, alpha; ADR-0009 §2 / OQ-2) ---
   | "cnc_operator"
   | "vmc_operator"
   | "cnc_vmc_setter"
@@ -570,10 +622,26 @@ export type TradeKey =
   | "tool_room_technician"
   | "machine_operator"
   | "assembly_technician"
-  | "fitter";
+  | "fitter"
+  // --- Hospitality (9, second vertical; DRAFTED, pending RVM — not live) ---
+  | "hosp_steward_waiter"
+  | "hosp_commis_cook"
+  | "hosp_room_attendant"
+  | "hosp_front_office"
+  | "hosp_fnb_captain"
+  | "hosp_bartender"
+  | "hosp_kitchen_steward"
+  | "hosp_banquet_server"
+  | "hosp_barista";
 
 /** Job lifecycle — a seed job can be retired without deleting the row. */
 export type JobStatus = "open" | "closed";
+
+/**
+ * When the job needs someone — the demand-side availability signal the Reach RANK
+ * core's `neededBy` consumes (ADR-0011; mirrors JobSpec.neededBy). Non-PII.
+ */
+export type JobNeededBy = "immediate" | "soon" | "flexible";
 
 /** Apply/skip decision. Mirrors the `applications` event family. */
 export type ApplicationAction = "applied" | "skipped";
@@ -617,10 +685,48 @@ export const jobs = pgTable("jobs", {
   // this is just an integer rollup for the feed/UI. PII-FREE (a count, never a name).
   // Mirrors posting_plans.applicantsViewedCount style.
   applicantsReceived: integer("applicants_received").notNull().default(0),
+  // ── Demand-side ranking signals (ADR-0011 Reach-on-real-jobs) ──────────────
+  // Feed the RANK core's Pay/Experience/Availability factors when Reach serves
+  // this job. ALL NULLABLE + additive (the engine neutral-defaults a null — a
+  // blank never drops or penalizes anyone). PII-FREE: pay bands / year counts /
+  // a coarse timing enum — never an employer or a worker identity. Role (trade_key)
+  // and Distance (city) are already present above, so no column is needed for them.
+  // Monthly pay band offered (INR, whole rupees — never paise).
+  payMin: integer("pay_min"),
+  payMax: integer("pay_max"),
+  // Experience window the job targets (years).
+  minExperienceYears: integer("min_experience_years"),
+  maxExperienceYears: integer("max_experience_years"),
+  // When the job needs someone (coarse enum).
+  neededBy: text("needed_by").$type<JobNeededBy>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
+  // Backs the worker feed + reach open-jobs queries: filter `status='open'`,
+  // order by `created_at` (id tiebreak via the PK). Also serves the status filter.
+  index("jobs_status_created_at_idx").on(t.status, t.createdAt),
   check("jobs_applicants_received_nonneg_chk", sql`${t.applicantsReceived} >= 0`),
+  // Pay/experience are non-negative when present, and the max is not below the min.
+  check(
+    "jobs_pay_nonneg_chk",
+    sql`(${t.payMin} IS NULL OR ${t.payMin} >= 0) AND (${t.payMax} IS NULL OR ${t.payMax} >= 0)`,
+  ),
+  check(
+    "jobs_pay_order_chk",
+    sql`${t.payMin} IS NULL OR ${t.payMax} IS NULL OR ${t.payMax} >= ${t.payMin}`,
+  ),
+  check(
+    "jobs_experience_nonneg_chk",
+    sql`(${t.minExperienceYears} IS NULL OR ${t.minExperienceYears} >= 0) AND (${t.maxExperienceYears} IS NULL OR ${t.maxExperienceYears} >= 0)`,
+  ),
+  check(
+    "jobs_experience_order_chk",
+    sql`${t.minExperienceYears} IS NULL OR ${t.maxExperienceYears} IS NULL OR ${t.maxExperienceYears} >= ${t.minExperienceYears}`,
+  ),
+  check(
+    "jobs_needed_by_chk",
+    sql`${t.neededBy} IS NULL OR ${t.neededBy} IN ('immediate', 'soon', 'flexible')`,
+  ),
 ]);
 
 // applications — the apply/skip record, PII-free. One decision per (worker, job).
@@ -837,8 +943,13 @@ export const unlockRouting = pgTable(
 
 /** Paid posting plan tier (mirrors @badabhai/pricing PostingTier; kept local to avoid an upward dep). */
 export type PostingPlanTier = "standard" | "pro";
-/** Posting plan lifecycle (orthogonal to the ADR-0012 job_posting content lifecycle). */
-export type PostingPlanStatus = "draft" | "active" | "expired";
+/**
+ * Posting plan lifecycle (orthogonal to the ADR-0012 job_posting content lifecycle).
+ * 'paused' (ADR-0016 D3): a plan whose payer is over their active-vacancy capacity —
+ * it is NOT counted as an active vacancy and does NOT serve. Additive enum-widening:
+ * the prior three values stay valid (backward-compatible, CLAUDE.md §2 #8 / ADR-0014).
+ */
+export type PostingPlanStatus = "draft" | "active" | "expired" | "paused";
 /** Booster tier (single tier today; extensible via the catalog). */
 export type BoostTier = "all_candidates";
 /** Booster lifecycle. */
@@ -900,7 +1011,7 @@ export const postingPlans = pgTable(
     index("posting_plans_job_posting_id_idx").on(t.jobPostingId),
     index("posting_plans_payer_id_idx").on(t.payerId),
     check("posting_plans_tier_chk", sql`${t.tier} IN ('standard', 'pro')`),
-    check("posting_plans_status_chk", sql`${t.status} IN ('draft', 'active', 'expired')`),
+    check("posting_plans_status_chk", sql`${t.status} IN ('draft', 'active', 'expired', 'paused')`),
     check("posting_plans_viewed_nonneg_chk", sql`${t.applicantsViewedCount} >= 0`),
   ],
 );
@@ -966,11 +1077,130 @@ export const resumeDisclosures = pgTable(
   ],
 );
 
+// payer_capacity — the per-payer ALLOWANCE of concurrently-active vacancies (ADR-0016
+// D4, signed PHASE-0 2026-06-17). FACELESS & PII-FREE by construction: `payer_id` is
+// the same OPAQUE rail as posting_plans.payer_id — NO FK, NO identity, NO "employer
+// entity" (a dead decision). One row per payer caps how many posting_plans they may hold
+// in status='active' at once; over-cap plans are 'paused' (ADR-0016 D3) and do not serve.
+// The CURRENT active-vacancy count is NOT stored here — it is DERIVED by COUNT over
+// posting_plans (status='active') grouped by payer_id (no drift-prone side counter,
+// ADR-0010 F-2 discipline). This table holds only the allowance + its validity window.
+export const payerCapacity = pgTable(
+  "payer_capacity",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Opaque payer (employer OR agent) — faceless rails, NO FK, NO PII.
+    payerId: uuid("payer_id").notNull(),
+    // How many posting_plans this payer may hold in status='active' concurrently.
+    maxActiveVacancies: integer("max_active_vacancies").notNull(),
+    // The capacity-catalog tier code that granted this allowance (a stable code, NOT
+    // PII). Nullable: a manually-granted/seeded allowance need not cite a tier.
+    sourceTier: text("source_tier"),
+    // Optional validity window — null = no expiry.
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One capacity row per payer (this unique index also serves payer_id lookups —
+    // no separate payer_id index needed).
+    uniqueIndex("payer_capacity_payer_id_uq").on(t.payerId),
+    check("payer_capacity_max_nonneg_chk", sql`${t.maxActiveVacancies} >= 0`),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// invites — WhatsApp invite/referral funnel (ADR-0020). PII-FREE.
+//
+// An invite is a shareable deep-link (`/i/<code>`). The `code` is an opaque
+// token; `inviter_worker_id` / `invited_worker_id` are opaque worker UUIDs — NO
+// phone, NO name, NO message body ever lands here (the phone touches the WhatsApp
+// provider only, at send time). This is the upstream attribution signal the
+// deferred agency-referral payout will consume. RLS-enabled (REVOKE in the
+// migration, spine posture). `invited_worker_id` is set on signup-acceptance.
+// ---------------------------------------------------------------------------
+export type InviteChannel = "whatsapp";
+export type InviteStatus = "created" | "clicked" | "accepted";
+
+export const invites = pgTable(
+  "invites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The opaque deep-link token (the only thing shared). Unique.
+    code: text("code").notNull(),
+    inviterWorkerId: uuid("inviter_worker_id")
+      .notNull()
+      .references(() => workers.id, { onDelete: "cascade" }),
+    // Set when an invited person becomes a worker (attribution). Nullable until then.
+    invitedWorkerId: uuid("invited_worker_id").references(() => workers.id, {
+      onDelete: "set null",
+    }),
+    channel: text("channel").$type<InviteChannel>().notNull().default("whatsapp"),
+    status: text("status").$type<InviteStatus>().notNull().default("created"),
+    // Optional non-PII campaign tag (a stable code, never free-form PII).
+    campaign: text("campaign"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("invites_code_uq").on(t.code),
+    index("invites_inviter_worker_id_idx").on(t.inviterWorkerId),
+  ],
+).enableRLS(); // RLS tracked in the model; REVOKE carried by the migration (spine posture)
+
+// ---------------------------------------------------------------------------
+// pace_states — per-job PACE supply-widening run state (ADR-0021). PII-FREE.
+//
+// One row per job under PACE. Tracks the current widen stage + area band, when the
+// run began (the clock for the 6–24h window; elapsed is derived), the last observed
+// above-floor good-fit supply count, and whether the ops alert has fired (idempotency).
+// FACELESS: the only reference is the opaque job_id (the faceless `jobs` row) — NO
+// worker/employer/location ever lands here. The widen decision that mutates this is a
+// PURE config-driven rule (no LLM, invariant 4). RLS-enabled (REVOKE carried by the
+// migration, spine posture).
+// ---------------------------------------------------------------------------
+export type PaceStage = "base" | "area" | "adjacent_trade" | "ops_alert";
+
+export const paceStates = pgTable(
+  "pace_states",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The opaque job this PACE run widens (faceless `jobs` row; cascade on delete).
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => jobs.id, { onDelete: "cascade" }),
+    // Escalation stage: base → area → [adjacent_trade, gated] → ops_alert.
+    stage: text("stage").$type<PaceStage>().notNull().default("base"),
+    // Wave index (0 = base; increments each widen wave). Non-negative.
+    wave: integer("wave").notNull().default(0),
+    // Current AREA travel band (km) PACE has widened to; null until the first widen.
+    currentAreaKm: integer("current_area_km"),
+    // Last observed count of above-floor (on-trade) good-fit candidates. Non-negative.
+    lastSupplyCount: integer("last_supply_count").notNull().default(0),
+    // Whether the ops alert has been raised (idempotency — never raise twice).
+    opsAlertRaised: boolean("ops_alert_raised").notNull().default(false),
+    // When this PACE run began — the clock for the 6–24h window (elapsed derived).
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One PACE run per job (also serves job_id lookups — no separate index needed).
+    uniqueIndex("pace_states_job_id_uq").on(t.jobId),
+    check("pace_states_wave_nonneg_chk", sql`${t.wave} >= 0`),
+    check("pace_states_supply_nonneg_chk", sql`${t.lastSupplyCount} >= 0`),
+  ],
+).enableRLS();
+
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
 // ---------------------------------------------------------------------------
 export type Worker = typeof workers.$inferSelect;
 export type NewWorker = typeof workers.$inferInsert;
+export type Payer = typeof payers.$inferSelect;
+export type NewPayer = typeof payers.$inferInsert;
+export type Invite = typeof invites.$inferSelect;
+export type NewInvite = typeof invites.$inferInsert;
 export type WorkerConsent = typeof workerConsents.$inferSelect;
 export type NewWorkerConsent = typeof workerConsents.$inferInsert;
 export type WorkerProfile = typeof workerProfiles.$inferSelect;
@@ -1019,11 +1249,16 @@ export type PostingBoost = typeof postingBoosts.$inferSelect;
 export type NewPostingBoost = typeof postingBoosts.$inferInsert;
 export type ResumeDisclosure = typeof resumeDisclosures.$inferSelect;
 export type NewResumeDisclosure = typeof resumeDisclosures.$inferInsert;
+export type PayerCapacity = typeof payerCapacity.$inferSelect;
+export type NewPayerCapacity = typeof payerCapacity.$inferInsert;
+export type PaceState = typeof paceStates.$inferSelect;
+export type NewPaceState = typeof paceStates.$inferInsert;
 
 /** All tables, handy for migrations/tests. */
 export const schema = {
   workers,
   workerConsents,
+  payers,
   workerProfiles,
   chatSessions,
   voiceNotes,
@@ -1047,4 +1282,7 @@ export const schema = {
   postingPlans,
   postingBoosts,
   resumeDisclosures,
+  payerCapacity,
+  invites,
+  paceStates,
 };

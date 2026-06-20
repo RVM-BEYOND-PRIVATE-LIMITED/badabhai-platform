@@ -2,3 +2,8 @@
 pytest>=8.3,<9.0
 httpx>=0.27,<1.0
 ruff>=0.8,<1.0
+# In-memory Redis for the spend-ledger concurrency / fail-closed tests against the
+# RedisSpendBackend. The [lua] extra pulls `lupa` so fakeredis can run the atomic
+# reserve/refund Lua scripts (plain fakeredis raises `unknown command 'eval'`).
+# asyncio (fakeredis.aioredis) supported. No real Redis in CI.
+fakeredis[lua]>=2.20,<3.0

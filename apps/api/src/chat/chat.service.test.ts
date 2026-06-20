@@ -73,7 +73,7 @@ const emittedNames = (events: { emit: ReturnType<typeof vi.fn> }): string[] =>
 describe("ChatService — auto-trigger extraction on the readiness flip", () => {
   it("triggers extraction exactly once on the flip (no manual /profile/extract)", async () => {
     const { svc, profiles, events } = make({ extractionReady: true });
-    const res = await svc.postMessage(DTO as never, CTX);
+    const res = await svc.postMessage(WORKER, DTO as never, CTX);
     expect(res.extraction_ready).toBe(true);
     expect(emittedNames(events)).toContain("profile.extraction_ready");
     expect(profiles.extract).toHaveBeenCalledOnce();
@@ -82,7 +82,7 @@ describe("ChatService — auto-trigger extraction on the readiness flip", () => 
 
   it("does not trigger while the interview is not yet ready", async () => {
     const { svc, profiles, events } = make({ extractionReady: false });
-    await svc.postMessage(DTO as never, CTX);
+    await svc.postMessage(WORKER, DTO as never, CTX);
     expect(emittedNames(events)).not.toContain("profile.extraction_ready");
     expect(profiles.extract).not.toHaveBeenCalled();
   });
@@ -92,23 +92,46 @@ describe("ChatService — auto-trigger extraction on the readiness flip", () => 
       extractionReady: true,
       conversationState: { ...READY_STATE, extraction_ready_emitted: true },
     });
-    await svc.postMessage(DTO as never, CTX);
+    await svc.postMessage(WORKER, DTO as never, CTX);
     expect(emittedNames(events)).not.toContain("profile.extraction_ready");
     expect(profiles.extract).not.toHaveBeenCalled();
   });
 
   it("skips extraction if the worker already has a profile (no duplicate)", async () => {
     const { svc, profiles, events } = make({ extractionReady: true, latestProfile: { id: "profile-1" } });
-    await svc.postMessage(DTO as never, CTX);
+    await svc.postMessage(WORKER, DTO as never, CTX);
     expect(emittedNames(events)).toContain("profile.extraction_ready"); // signal still emitted
     expect(profiles.extract).not.toHaveBeenCalled(); // but no second extraction
   });
 
   it("never breaks the chat reply if the extraction trigger throws", async () => {
     const { svc, profiles } = make({ extractionReady: true, extractThrows: true });
-    const res = await svc.postMessage(DTO as never, CTX);
+    const res = await svc.postMessage(WORKER, DTO as never, CTX);
     expect(profiles.extract).toHaveBeenCalledOnce();
     expect(res.reply).toBe("Thanks!"); // chat still returns normally
     expect(res.extraction_ready).toBe(true);
+  });
+});
+
+describe("ChatService.postMessage — query-count / N+1 guard (per turn)", () => {
+  it("issues a BOUNDED, constant set of repo reads/writes per message (no N+1)", async () => {
+    const { svc, chat } = make({ extractionReady: false });
+    await svc.postMessage(WORKER, DTO as never, CTX);
+    // Exactly one history read per turn — not one-per-prior-message.
+    expect(chat.listMessages).toHaveBeenCalledTimes(1);
+    // One session lookup, two message inserts (inbound + outbound), one state persist.
+    expect(chat.findSession).toHaveBeenCalledTimes(1);
+    expect(chat.insertMessage).toHaveBeenCalledTimes(2);
+    expect(chat.saveConversationState).toHaveBeenCalledTimes(1);
+  });
+
+  it("history read stays O(1) regardless of prior transcript length", async () => {
+    const { svc, chat } = make({ extractionReady: false });
+    // Simulate a long prior transcript; the service must still read it ONCE.
+    chat.listMessages.mockResolvedValueOnce(
+      Array.from({ length: 200 }, (_, i) => ({ id: `m${i}`, direction: "inbound", bodyText: "x" })),
+    );
+    await svc.postMessage(WORKER, DTO as never, CTX);
+    expect(chat.listMessages).toHaveBeenCalledTimes(1);
   });
 });

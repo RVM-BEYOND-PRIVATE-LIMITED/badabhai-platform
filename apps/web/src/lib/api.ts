@@ -655,3 +655,29 @@ export function updatePricingCatalog(
 ): Promise<ActiveCatalog> {
   return apiWrite<ActiveCatalog>("/pricing/catalog", "PUT", body);
 }
+
+/**
+ * One job whose PACE supply-widening run raised an ops alert (ADR-0021) — the
+ * PII-FREE ops projection of `GET /pace/alerts`. `jobId` is opaque; the API never
+ * returns a name/employer/location. `supplyCount` is the above-floor good-fit count
+ * at the time supply stayed thin past the window.
+ */
+export interface PaceAlertRow {
+  jobId: string;
+  stage: string;
+  supplyCount: number;
+  startedAt: string;
+  updatedAt: string;
+}
+
+export interface PaceAlerts {
+  alerts: PaceAlertRow[];
+}
+
+/**
+ * `GET /pace/alerts` — jobs whose PACE run raised an ops alert (thin supply past the
+ * window). PUBLIC ops surface (no guard/secret — same posture as Reach). Faceless.
+ */
+export function getPaceAlerts(): Promise<PaceAlerts> {
+  return apiGet<PaceAlerts>("/pace/alerts");
+}

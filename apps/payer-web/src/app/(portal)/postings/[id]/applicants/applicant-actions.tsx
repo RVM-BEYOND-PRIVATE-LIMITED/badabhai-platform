@@ -1,0 +1,254 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import type { FacelessApplicant } from "../../../../../lib/contracts";
+import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
+import { maskedResumeAction, revealContactAction, unlockAction } from "./actions";
+
+/**
+ * Client interactivity for unlock + reveal (ADR-0019 Decision E).
+ *
+ * Runs in the BROWSER and sees NO secret. It calls the Server Actions, which bind to
+ * the server-held payer (the payer JWT, XB-A) and return only PII-free, already-mapped
+ * views.
+ *
+ * NO-ORACLE (XB-C): an "unavailable" renders ONE neutral message — no branch infers
+ * the cause. NO-LOG: nothing logs the result / handle / payer id.
+ * NO RAW PHONE (ADR-0010 F-4): the LIVE reveal shows a ROUTED relay handle only — the
+ * ContactView type has no phone/number field, so a raw phone cannot be rendered here.
+ */
+
+interface RowState {
+  busy: boolean;
+  unlock: UnlockView | null;
+  unlockError: string | null;
+  contactBusy: boolean;
+  contact: ContactView | null;
+  contactError: string | null;
+  resumeBusy: boolean;
+  resume: RevealView | null;
+  resumeError: string | null;
+}
+
+const EMPTY: RowState = {
+  busy: false,
+  unlock: null,
+  unlockError: null,
+  contactBusy: false,
+  contact: null,
+  contactError: null,
+  resumeBusy: false,
+  resume: null,
+  resumeError: null,
+};
+
+function day(ts: string): string {
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? ts : d.toISOString().slice(0, 10);
+}
+
+export function ApplicantActions({
+  postingId,
+  applicants,
+  balance,
+}: {
+  postingId: string;
+  applicants: FacelessApplicant[];
+  balance: number;
+}) {
+  const [rows, setRows] = useState<Record<string, RowState>>({});
+
+  function patch(workerId: string, p: Partial<RowState>) {
+    setRows((prev) => ({ ...prev, [workerId]: { ...(prev[workerId] ?? EMPTY), ...p } }));
+  }
+
+  async function onUnlock(workerId: string) {
+    patch(workerId, { busy: true, unlockError: null });
+    const res = await unlockAction({ postingId, workerId });
+    if (res.ok) patch(workerId, { busy: false, unlock: res.view });
+    else patch(workerId, { busy: false, unlockError: res.error });
+  }
+
+  async function onRevealContact(unlockId: string, workerId: string) {
+    patch(workerId, { contactBusy: true, contactError: null });
+    const res = await revealContactAction({ unlockId });
+    if (res.ok) patch(workerId, { contactBusy: false, contact: res.view });
+    else patch(workerId, { contactBusy: false, contactError: res.error });
+  }
+
+  async function onMaskedResume(unlockId: string, workerId: string) {
+    patch(workerId, { resumeBusy: true, resumeError: null });
+    const res = await maskedResumeAction({ unlockId, workerId });
+    if (res.ok) patch(workerId, { resumeBusy: false, resume: res.view });
+    else patch(workerId, { resumeBusy: false, resumeError: res.error });
+  }
+
+  return (
+    <>
+      {balance === 0 ? (
+        <div className="note warn">
+          <strong>You have 0 credits.</strong> <Link href="/credits">Top up</Link> to unlock a
+          candidate&rsquo;s routed contact. This is your own balance — not a signal about any
+          candidate.
+        </div>
+      ) : null}
+
+      <table>
+        <thead>
+          <tr>
+            <th>Candidate</th>
+            <th>Relevance</th>
+            <th>Signals</th>
+            <th>Contact</th>
+          </tr>
+        </thead>
+        <tbody>
+          {applicants.map((a) => {
+            const row = rows[a.workerId] ?? EMPTY;
+            const granted = row.unlock?.kind === "granted" ? row.unlock : null;
+            return (
+              <tr key={a.workerId}>
+                <td>
+                  <div className="mono">{a.workerId.slice(0, 8)}…</div>
+                  {a.tradeLabel ? <div>{a.tradeLabel}</div> : null}
+                  {a.experienceBand || a.cityLabel ? (
+                    <div className="page-sub" style={{ margin: 0 }}>
+                      {[a.experienceBand, a.cityLabel].filter(Boolean).join(" · ")}
+                    </div>
+                  ) : null}
+                </td>
+                <td>
+                  <span className="badge">#{a.rank}</span>{" "}
+                  <span className="mono">{a.score.toFixed(2)}</span>
+                  {a.hot ? <span className="badge badge-ok"> hot</span> : null}
+                </td>
+                <td>
+                  <div className="skills">
+                    {(a.skills && a.skills.length > 0 ? a.skills : a.signals).map((s) => (
+                      <span className="skill" key={s}>
+                        {s}
+                      </span>
+                    ))}
+                  </div>
+                </td>
+                <td>
+                  {granted ? (
+                    <div>
+                      <span className="badge badge-ok">Unlocked</span> · until{" "}
+                      <span className="mono">{day(granted.expiresAt)}</span>
+                      <div style={{ marginTop: 8 }}>
+                        {row.contact?.kind === "routed" ? (
+                          <RoutedContact view={row.contact} />
+                        ) : row.contact?.kind === "unavailable" ? (
+                          <p className="note">{row.contact.message}</p>
+                        ) : (
+                          <button
+                            className="btn secondary"
+                            type="button"
+                            disabled={row.contactBusy}
+                            onClick={() => onRevealContact(granted.unlockId, a.workerId)}
+                          >
+                            {row.contactBusy ? "Opening…" : "Open routed contact"}
+                          </button>
+                        )}
+                        {row.contactError ? (
+                          <p className="error-text">{row.contactError}</p>
+                        ) : null}
+                      </div>
+                      <div style={{ marginTop: 8 }}>
+                        {row.resume?.kind === "masked" ? (
+                          <MaskedResume view={row.resume} />
+                        ) : row.resume?.kind === "unavailable" ? (
+                          <p className="note">{row.resume.message}</p>
+                        ) : (
+                          <button
+                            className="btn secondary"
+                            type="button"
+                            disabled={row.resumeBusy}
+                            onClick={() => onMaskedResume(granted.unlockId, a.workerId)}
+                          >
+                            {row.resumeBusy ? "Loading…" : "View masked resume (preview)"}
+                          </button>
+                        )}
+                        {row.resumeError ? (
+                          <p className="error-text">{row.resumeError}</p>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : row.unlock?.kind === "unavailable" ? (
+                    <p className="note">{row.unlock.message}</p>
+                  ) : (
+                    <>
+                      <button
+                        className="btn"
+                        type="button"
+                        disabled={row.busy}
+                        onClick={() => onUnlock(a.workerId)}
+                      >
+                        {row.busy ? "Unlocking…" : "Unlock contact (1 credit)"}
+                      </button>
+                      {row.unlockError ? <p className="error-text">{row.unlockError}</p> : null}
+                    </>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+/**
+ * Renders the LIVE reveal: a ROUTED relay handle ONLY (ADR-0010 F-4). There is NO
+ * field here that could show a phone or a number — the artifact is an opaque, expiring
+ * relay; the raw contact stays server-side and is never sent to the browser.
+ */
+function RoutedContact({ view }: { view: Extract<ContactView, { kind: "routed" }> }) {
+  return (
+    <div className="card" style={{ marginTop: 4 }}>
+      <p className="page-sub" style={{ margin: 0 }}>
+        <strong>Routed contact.</strong> This is an opaque relay — <strong>not a phone
+        number</strong>. Use it in-app to reach the candidate; it expires with your access window.
+      </p>
+      <dl className="dl">
+        <dt>Relay handle</dt>
+        <dd className="mono">{view.relayHandle}</dd>
+        <dt>Channel</dt>
+        <dd>{view.channel === "in_app_relay" ? "In-app relay" : "Proxy number"}</dd>
+        <dt>Access until</dt>
+        <dd className="mono">{day(view.expiresAt)}</dd>
+      </dl>
+    </div>
+  );
+}
+
+/**
+ * WAITING (mock) masked-resume preview (XB-E): masked initials + a link + NO phone.
+ * There is no field here that could show a raw name or phone — the artifact carries
+ * neither. Flagged as a preview until a payer-authed disclosure endpoint lands.
+ */
+function MaskedResume({ view }: { view: Extract<RevealView, { kind: "masked" }> }) {
+  return (
+    <div className="card" style={{ marginTop: 4 }}>
+      <p className="page-sub" style={{ margin: 0 }}>
+        <strong>Masked resume (preview).</strong> Identity is masked —{" "}
+        <strong>no phone, no full name</strong> is shown.
+      </p>
+      <dl className="dl">
+        <dt>Candidate</dt>
+        <dd className="mono">{view.displayInitials}</dd>
+        <dt>Resume</dt>
+        <dd>
+          <a href={view.resumeUrl} target="_blank" rel="noopener noreferrer">
+            Open masked resume (PDF) →
+          </a>
+        </dd>
+        <dt>Access until</dt>
+        <dd className="mono">{day(view.expiresAt)}</dd>
+      </dl>
+    </div>
+  );
+}

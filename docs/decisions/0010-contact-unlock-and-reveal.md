@@ -9,6 +9,20 @@
   recorded in **§Sign-off resolutions (2026-06-15)** immediately below; where a resolution
   refines a decision section (notably Decision 1 pricing, Decision 4 caps, Decision 5
   payments), **the resolution is authoritative.**
+- **Build status (2026-06-17): Stream A is BUILT, end-to-end wired, and VERIFIED.** The
+  DB → events → API → ops/payer UI streams are merged (`c41bf60` + the F-2 deadlock fixes
+  `a110fdc`/`1bf0dec`; web unlock/reveal UI + pricing top-up `8f23fe6`/`754e79d`). An
+  independent bb-security-review returned **PASS (alpha posture), no must-fix**: all 9
+  non-tradeable invariants upheld; F-1/F-2 + BC-1…BC-8 controls present with tests; **T2-a**
+  structurally closed by the per-`(payer_id, worker_id)` unique index (a payer only ever sees
+  its own row); **T2-c** timing confirmed an OFF launch gate (reveal returns the neutral body,
+  not a 404). `lint`/`typecheck`/`test`/`build` green. **All launch gates remain OFF and
+  tracked:** `PayerAuthGuard` (TD33/LC-1), real payments (TD34/LC-5), retention/erasure
+  (TD35/LC-3), real telephony + raw-phone reveal + production DPDP copy + timing-normalization
+  (LC-4/LC-6/LC-2/LC-7). The two threat-model §6 *static* regression guards (BC-8 sole-writer
+  test, BC-5 single-decrypt-site test) are runtime/convention-covered today and logged as
+  **TD41**. Real money / real provider / per-payer auth / production legal copy remain
+  **human-gated** (§STOP).
 
 ---
 

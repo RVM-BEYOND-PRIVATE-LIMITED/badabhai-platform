@@ -6,6 +6,10 @@ import {
   realPaymentsBlockedReason,
   areRealPaymentsEnabled,
   assertPaymentsConfig,
+  realMessagingBlockedReason,
+  areRealMessagesEnabled,
+  assertMessagingConfig,
+  isCapacityEnforcementEnabled,
 } from "./server";
 import { loadPublicConfig } from "./public";
 
@@ -26,6 +30,29 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     expect(tuned.UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY).toBe(2);
   });
 
+  it("exposes the per-payer capacity default (ADR-0016 — config-driven, tunable)", () => {
+    const config = loadServerConfig({});
+    expect(config.CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES).toBe(1);
+    const tuned = loadServerConfig({ CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES: "3" });
+    expect(tuned.CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES).toBe(3);
+    // 0 is a valid allowance (a fresh payer holds zero active plans until they buy).
+    expect(loadServerConfig({ CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES: "0" }).CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES).toBe(0);
+  });
+
+  it("capacity enforcement defaults OFF (shadow/inert; fail-safe default)", () => {
+    const config = loadServerConfig({});
+    expect(config.CAPACITY_ENFORCEMENT_ENABLED).toBe(false);
+    expect(isCapacityEnforcementEnabled(config)).toBe(false);
+  });
+
+  it("capacity enforcement is tunable to ON (coerced from 'true'/'1')", () => {
+    expect(isCapacityEnforcementEnabled(loadServerConfig({ CAPACITY_ENFORCEMENT_ENABLED: "true" }))).toBe(true);
+    expect(isCapacityEnforcementEnabled(loadServerConfig({ CAPACITY_ENFORCEMENT_ENABLED: "1" }))).toBe(true);
+    // and stays OFF for the falsey forms
+    expect(isCapacityEnforcementEnabled(loadServerConfig({ CAPACITY_ENFORCEMENT_ENABLED: "false" }))).toBe(false);
+    expect(isCapacityEnforcementEnabled(loadServerConfig({ CAPACITY_ENFORCEMENT_ENABLED: "0" }))).toBe(false);
+  });
+
   it("assertPaymentsConfig is a no-op in the alpha mock default", () => {
     expect(() => assertPaymentsConfig(loadServerConfig({}))).not.toThrow();
   });
@@ -43,6 +70,44 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     expect(realPaymentsBlockedReason(config)).toBeNull();
     expect(areRealPaymentsEnabled(config)).toBe(true);
     expect(() => assertPaymentsConfig(config)).not.toThrow();
+  });
+});
+
+describe("messaging config (ADR-0020 — mock WhatsApp in alpha, fail-closed boot)", () => {
+  it("defaults to mock: MESSAGING_ENABLE_REAL false and real messaging blocked", () => {
+    const config = loadServerConfig({});
+    expect(config.MESSAGING_ENABLE_REAL).toBe(false);
+    expect(areRealMessagesEnabled(config)).toBe(false);
+    expect(realMessagingBlockedReason(config)).toBe("MESSAGING_ENABLE_REAL is false");
+  });
+
+  it("assertMessagingConfig is a no-op in the alpha mock default", () => {
+    expect(() => assertMessagingConfig(loadServerConfig({}))).not.toThrow();
+  });
+
+  it("assertMessagingConfig THROWS when real is enabled without the Meta credentials (fail closed)", () => {
+    const config = loadServerConfig({ MESSAGING_ENABLE_REAL: "true" });
+    expect(() => assertMessagingConfig(config)).toThrow(/WHATSAPP_API_KEY/);
+    expect(() => assertMessagingConfig(config)).toThrow(/WHATSAPP_PHONE_NUMBER_ID/);
+  });
+
+  it("assertMessagingConfig THROWS when only one credential is set (still half-configured)", () => {
+    const config = loadServerConfig({
+      MESSAGING_ENABLE_REAL: "true",
+      WHATSAPP_API_KEY: "k",
+    });
+    expect(() => assertMessagingConfig(config)).toThrow(/WHATSAPP_PHONE_NUMBER_ID/);
+  });
+
+  it("real messaging is allowed only with the flag AND both credentials", () => {
+    const config = loadServerConfig({
+      MESSAGING_ENABLE_REAL: "true",
+      WHATSAPP_API_KEY: "k",
+      WHATSAPP_PHONE_NUMBER_ID: "p",
+    });
+    expect(realMessagingBlockedReason(config)).toBeNull();
+    expect(areRealMessagesEnabled(config)).toBe(true);
+    expect(() => assertMessagingConfig(config)).not.toThrow();
   });
 });
 

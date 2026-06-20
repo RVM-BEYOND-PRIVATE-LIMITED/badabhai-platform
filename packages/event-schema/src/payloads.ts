@@ -759,3 +759,214 @@ export const PricingChangedPayload = z.object({
   changed_fields: z.array(z.string().min(1).max(64)),
   changed_by: uuidSchema,
 });
+
+// ---------------------------------------------------------------------------
+// Per-payer hiring capacity (ADR-0016) — PII-FREE & FACELESS: opaque `payer_id`,
+// tier CODE, integer counts + ₹ ONLY. `real_call:false` in alpha (mock payments).
+// `posting_plan.paused/resumed` carry ONLY ids + an enum reason — no quota/price/PII.
+// ---------------------------------------------------------------------------
+
+/** Why a posting plan was paused (ADR-0016 D3) — enum only, no free text. */
+const PostingPlanPauseReasonEnum = z.enum(["capacity_exceeded"]);
+/** Why a posting plan was resumed (ADR-0016) — enum only, no free text. */
+const PostingPlanResumeReasonEnum = z.enum(["capacity_restored"]);
+
+/**
+ * A payer bought (or upgraded) their concurrent-active-vacancy ALLOWANCE (ADR-0016).
+ * `max_active_vacancies` is the allowance the purchase set; `tier` is the catalog code.
+ * FACELESS: `payer_id` is the only identity ref (opaque, no FK). `real_call` is the
+ * mock-honesty flag (false until a real gateway ships, human-gated).
+ */
+export const CapacityPurchasedPayload = z.object({
+  payer_id: uuidSchema,
+  tier: catalogCode,
+  max_active_vacancies: z.number().int().nonnegative(),
+  price_inr: z.number().int().nonnegative(),
+  real_call: z.boolean().default(false),
+});
+
+/**
+ * A posting plan was PAUSED because its payer was over capacity (ADR-0016 D3). A paused
+ * plan is NOT an active vacancy and does NOT serve. Ids + enum reason ONLY (no PII).
+ */
+export const PostingPlanPausedPayload = z.object({
+  plan_id: uuidSchema,
+  job_posting_id: uuidSchema,
+  payer_id: uuidSchema,
+  reason: PostingPlanPauseReasonEnum,
+});
+
+/**
+ * A previously-paused posting plan was RESUMED to active because capacity freed up
+ * (ADR-0016 — e.g. after a capacity upgrade). Ids + enum reason ONLY (no PII).
+ */
+export const PostingPlanResumedPayload = z.object({
+  plan_id: uuidSchema,
+  job_posting_id: uuidSchema,
+  payer_id: uuidSchema,
+  reason: PostingPlanResumeReasonEnum,
+});
+
+// ---------------------------------------------------------------------------
+// WhatsApp invite funnel + re-engagement (ADR-0020). PII-FREE: ids + enums +
+// the template id ONLY. The phone, the message body, and template VARIABLES
+// NEVER appear in a payload — the phone touches the WhatsApp provider only, at
+// send time (the SmsProvider rule). Mock provider in alpha (real_call:false).
+// ---------------------------------------------------------------------------
+
+/** The channel a message/invite is delivered over. Extensible; whatsapp in v1. */
+export const MessageChannelEnum = z.enum(["whatsapp"]);
+
+/** Why a send was suppressed BEFORE reaching the provider (no-PII, internal audit). */
+export const MessagingSuppressReasonEnum = z.enum(["no_consent", "unknown_worker"]);
+
+/** Why a send FAILED at/after the provider (no-PII). */
+export const MessagingFailReasonEnum = z.enum(["provider_error", "real_send_blocked"]);
+
+/** An inviter created a referral deep-link. inviter is an opaque worker id. */
+export const InviteCreatedPayload = z.object({
+  invite_id: uuidSchema,
+  inviter_worker_id: uuidSchema,
+  channel: MessageChannelEnum,
+  campaign: z.string().min(1).max(64).optional(),
+});
+
+/** A referral deep-link was opened (attribution; PII-free — code resolved to ids). */
+export const InviteClickedPayload = z.object({
+  invite_id: uuidSchema,
+  channel: MessageChannelEnum,
+});
+
+/** An invited person became a worker — the attribution link (both ids opaque). */
+export const InviteAcceptedPayload = z.object({
+  invite_id: uuidSchema,
+  inviter_worker_id: uuidSchema,
+  invited_worker_id: uuidSchema,
+});
+
+/** A re-engagement/invite message was REQUESTED (consent already checked upstream). */
+export const MessagingRequestedPayload = z.object({
+  message_id: uuidSchema,
+  worker_id: uuidSchema,
+  template: z.string().min(1).max(64), // a pre-approved template ID, NOT the body
+  channel: MessageChannelEnum,
+  real_call: z.boolean().default(false),
+});
+
+/** The provider accepted the message (mock in alpha). PII-free. */
+export const MessagingSentPayload = z.object({
+  message_id: uuidSchema,
+  worker_id: uuidSchema,
+  template: z.string().min(1).max(64),
+  channel: MessageChannelEnum,
+  real_call: z.boolean().default(false),
+});
+
+/** A send was SUPPRESSED before the provider (e.g. no whatsapp_messaging consent). */
+export const MessagingSuppressedPayload = z.object({
+  worker_id: uuidSchema,
+  template: z.string().min(1).max(64),
+  reason: MessagingSuppressReasonEnum,
+});
+
+/** A send FAILED at/after the provider. PII-free. */
+export const MessagingFailedPayload = z.object({
+  message_id: uuidSchema,
+  worker_id: uuidSchema,
+  template: z.string().min(1).max(64),
+  channel: MessageChannelEnum,
+  reason: MessagingFailReasonEnum,
+  real_call: z.boolean().default(false),
+});
+
+// ---------------------------------------------------------------------------
+// PACE supply-widening (ADR-0021) — the deterministic "release waves" slice of
+// ADR-0011's PACE triad. PII-FREE & FACELESS: an opaque job_id + the widen-stage
+// enum + supply COUNTS + elapsed hours ONLY. A worker, employer, location, or any
+// PII NEVER appears. No LLM decides anything on this path (invariant 4) — the widen
+// decision is a pure config-driven rule. All v1 (version-never-mutate).
+// ---------------------------------------------------------------------------
+
+/** Which supply-widening lever a wave applied. `area` raises the travel band;
+ * `adjacent_trade` adds related-trade matches at the lower secondary weight (gated
+ * on a ratified adjacency map — see ADR-0021). Enum-only → no free text. */
+const PaceWidenStageEnum = z.enum(["area", "adjacent_trade"]);
+
+/** A PACE wave widened a job's good-fit supply one step. `supply_count` is the count
+ * of above-floor (on-trade) good-fit candidates AT widen time; `elapsed_hours` is
+ * hours since the job's PACE run began. Faceless: opaque job_id + enum + counts only. */
+export const PaceWaveWidenedPayload = z.object({
+  job_id: uuidSchema,
+  stage: PaceWidenStageEnum,
+  supply_count: z.number().int().nonnegative(),
+  elapsed_hours: z.number().nonnegative(),
+});
+
+/** Supply stayed thin past the configured window → an ops alert was raised for human
+ * intervention. Faceless: opaque job_id + the thin supply count + elapsed hours only. */
+export const PaceOpsAlertRaisedPayload = z.object({
+  job_id: uuidSchema,
+  supply_count: z.number().int().nonnegative(),
+  elapsed_hours: z.number().nonnegative(),
+});
+// payer.* — Self-serve payer account auth (ADR-0019 Decision B; closes R16/LC-1/TD33).
+//
+// The payer is the THIRD principal (worker / payer / ops). These events record the
+// payer auth lifecycle (signup → login-requested → session-started) for the audit
+// spine — the payer analogue of `worker.created` / `worker.otp_requested` /
+// `worker.otp_verified`.
+//
+// FACELESS / PII-FREE (CLAUDE.md invariant #2 + the ADR-0019 B-R2 extension): the
+// payer's email, phone, and org/display name are a NEW PII class that lives ONLY in
+// the `payers` table (encrypted at rest, keyed-hash lookup). They MUST NEVER appear
+// here. The ONLY identity reference is the opaque `payer_id` (== `payers.id`); the
+// rest is the role enum, the login-method enum, and booleans. No email hash either —
+// the spine carries the resolved account id, not a contactable token.
+// ---------------------------------------------------------------------------
+
+/** The payer's account role (mirrors `db.PayerRole`). Enum-only → no PII. */
+export const PayerRoleEnum = z.enum(["employer", "agent"]);
+export type PayerRoleEnum = z.infer<typeof PayerRoleEnum>;
+
+/**
+ * The login mechanism a payer authenticated through (ADR-0019 B-R1). `email_otp` is
+ * the alpha mock default; `whatsapp` rides the ADR-0020 mock provider; `supabase` is
+ * the config-gated adapter (inert without keys). Enum-only → no PII.
+ */
+export const PayerLoginMethodEnum = z.enum(["email_otp", "whatsapp", "supabase"]);
+export type PayerLoginMethodEnum = z.infer<typeof PayerLoginMethodEnum>;
+
+/**
+ * A new payer account was created (signup). `payer_id` is the opaque account id; the
+ * email/phone/org-name that came with the signup are NOT here (they live encrypted in
+ * `payers`). Role + method enums only.
+ */
+export const PayerCreatedPayload = z.object({
+  payer_id: uuidSchema,
+  role: PayerRoleEnum,
+  method: PayerLoginMethodEnum,
+});
+export type PayerCreatedPayload = z.infer<typeof PayerCreatedPayload>;
+
+/**
+ * A login code was issued for an EXISTING payer account (the no-account branch emits
+ * nothing — the HTTP response is identical either way, so this asymmetry is not a
+ * caller-observable enumeration oracle; XB-H). Resolved `payer_id` + method only —
+ * never the email/phone the request carried.
+ */
+export const PayerLoginRequestedPayload = z.object({
+  payer_id: uuidSchema,
+  method: PayerLoginMethodEnum,
+});
+export type PayerLoginRequestedPayload = z.infer<typeof PayerLoginRequestedPayload>;
+
+/**
+ * A payer session was minted (successful login-verify). `is_new_payer` echoes whether
+ * the account was created in the same flow. ids + enums + boolean only.
+ */
+export const PayerSessionStartedPayload = z.object({
+  payer_id: uuidSchema,
+  method: PayerLoginMethodEnum,
+  is_new_payer: z.boolean().default(false),
+});
+export type PayerSessionStartedPayload = z.infer<typeof PayerSessionStartedPayload>;

@@ -1,18 +1,28 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { DraftProfileSchema } from "@badabhai/ai-contracts";
 import type { GeneratedResume } from "@badabhai/db";
+import type { ServerConfig } from "@badabhai/config";
+import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { ProfilesRepository } from "../profiles/profiles.repository";
 import { AiService } from "../ai/ai.service";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { StorageService } from "../storage/storage.service";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { ResumeRepository } from "./resume.repository";
 import { ResumeRateLimit } from "./resume-rate-limit.service";
-import type { GenerateResumeDto } from "./resume.dto";
+import type { GenerateResumeDto, ShareResumeDto } from "./resume.dto";
 
 @Injectable()
 export class ResumeService {
@@ -26,6 +36,8 @@ export class ResumeService {
     private readonly ai: AiService,
     private readonly pii: PiiCryptoService,
     private readonly rateLimit: ResumeRateLimit,
+    private readonly storage: StorageService,
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     @InjectQueue(RESUME_RENDER_QUEUE)
     private readonly renderQueue: Queue<ResumeRenderJobData>,
   ) {}
@@ -186,5 +198,101 @@ export class ResumeService {
         })`,
       );
     }
+  }
+
+  /** Ops read view of a single resume (404 if missing). The body carries the
+   * worker's OWN name by design (TD21); the phone never appears. */
+  async getById(resumeId: string) {
+    const resume = await this.resumes.findById(resumeId);
+    if (!resume) throw new NotFoundException(`Resume ${resumeId} not found`);
+    return {
+      resume_id: resume.id,
+      worker_id: resume.workerId,
+      profile_id: resume.profileId,
+      version: resume.version,
+      resume_text: resume.resumeText,
+      resume_json: resume.resumeJson,
+      render_status: resume.renderStatus,
+      generated_at: resume.generatedAt,
+    };
+  }
+
+  /** Re-run generation for an existing resume (bumps the version). 404 if missing. */
+  async regenerate(resumeId: string, ctx: RequestContext) {
+    const existing = await this.resumes.findById(resumeId);
+    if (!existing) throw new NotFoundException(`Resume ${resumeId} not found`);
+    return this.generate(
+      { worker_id: existing.workerId, profile_id: existing.profileId },
+      ctx,
+      { forceNewVersion: true },
+    );
+  }
+
+  /**
+   * Mint a short-lived signed download URL for a rendered resume PDF and emit
+   * `resume.downloaded`. Worker-authenticated + ownership-checked: both not-found
+   * AND not-owner return 404 (no existence oracle). 409 while still rendering /
+   * if it failed. The signed URL is NOT logged or emitted (it embeds a token).
+   */
+  async download(
+    workerId: string,
+    resumeId: string,
+    ctx: RequestContext,
+  ): Promise<{ url: string; expires_in: number }> {
+    const resume = await this.resumes.findById(resumeId);
+    if (!resume || resume.workerId !== workerId) {
+      throw new NotFoundException(`Resume ${resumeId} not found`);
+    }
+
+    if (resume.renderStatus !== "rendered" || !resume.pdfStorageKey) {
+      if (resume.renderStatus === "pending") {
+        throw new ConflictException("Resume PDF is still being rendered; please retry shortly");
+      }
+      throw new ConflictException("Resume PDF is not available for download");
+    }
+
+    const ttl = this.config.RESUME_SIGNED_URL_TTL_SECONDS;
+    const url = await this.storage.createSignedUrl(resume.pdfStorageKey, ttl);
+
+    await this.events.emit({
+      event_name: "resume.downloaded",
+      actor: { actor_type: "worker", actor_id: workerId },
+      subject: { subject_type: "resume", subject_id: resume.id },
+      payload: {
+        worker_id: workerId,
+        resume_id: resume.id,
+        version: resume.version,
+        format: "pdf",
+      },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+
+    return { url, expires_in: ttl };
+  }
+
+  /**
+   * Record that a worker shared a resume. `channel` is a closed enum, so no link
+   * or PII enters the `resume.shared` event. 404 if the resume is missing.
+   */
+  async recordShare(resumeId: string, dto: ShareResumeDto, ctx: RequestContext) {
+    const resume = await this.resumes.findById(resumeId);
+    if (!resume) throw new NotFoundException(`Resume ${resumeId} not found`);
+
+    await this.events.emit({
+      event_name: "resume.shared",
+      actor: { actor_type: "worker", actor_id: resume.workerId },
+      subject: { subject_type: "resume", subject_id: resume.id },
+      payload: {
+        worker_id: resume.workerId,
+        resume_id: resume.id,
+        version: resume.version,
+        channel: dto.channel,
+      },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+
+    return { ok: true };
   }
 }
