@@ -10,7 +10,12 @@ import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { ReachRepository } from "./reach.repository";
-import { workerProfileRowToSignals } from "./reach.mappers";
+import {
+  workerProfileRowToSignals,
+  workerProfileRowToBands,
+  type WorkerBands,
+  type WorkerProfileSignalRow,
+} from "./reach.mappers";
 import { JOB_SOURCE, type JobSource, jobSignalRowToJobSpec } from "./reach.job-source";
 import type {
   ApplicantListResponseDto,
@@ -52,18 +57,13 @@ export class ReachService {
     const rows = await this.repo.listSignalRows();
     const now = new Date();
     const signals: WorkerSignals[] = rows.map((r) => workerProfileRowToSignals(r, now));
+    // Faceless banded chips, keyed by the same opaque workerId (count in == count out).
+    const bandsByWorker = ReachService.bandsByWorker(rows);
 
     // The core orders + flags; the serving layer never reimplements scoring/ordering.
     const ranked: RankedWorker[] = rankWorkersForJob(jobSpec, signals);
 
-    const applicants: ApplicantRowDto[] = ranked.map((r) => ({
-      workerId: r.workerId,
-      rank: r.rank,
-      score: r.score,
-      hot: r.hot,
-      pushEligible: r.pushEligible,
-      components: r.components,
-    }));
+    const applicants = ReachService.toApplicantRows(ranked, bandsByWorker);
 
     // One feed.shown per rendered row, UNKEYED (D7), as ONE all-or-nothing batch
     // (emitMany: build+validate all, single round-trip — matches actions.recordBatch;
@@ -72,7 +72,13 @@ export class ReachService {
     await this.events.emitMany(
       ranked.map((r) =>
         this.feedShownParams(
-          { worker_id: r.workerId, job_id: jobSpec.jobId, rank: r.rank, score: r.score, hot: r.hot },
+          {
+            worker_id: r.workerId,
+            job_id: jobSpec.jobId,
+            rank: r.rank,
+            score: r.score,
+            hot: r.hot,
+          },
           ctx,
         ),
       ),
@@ -108,24 +114,24 @@ export class ReachService {
     const rows = await this.repo.listSignalRows();
     const now = new Date();
     const signals: WorkerSignals[] = rows.map((r) => workerProfileRowToSignals(r, now));
+    const bandsByWorker = ReachService.bandsByWorker(rows);
 
     const ranked: RankedWorker[] = rankWorkersForJob(jobSpec, signals);
 
-    const applicants: ApplicantRowDto[] = ranked.map((r) => ({
-      workerId: r.workerId,
-      rank: r.rank,
-      score: r.score,
-      hot: r.hot,
-      pushEligible: r.pushEligible,
-      components: r.components,
-    }));
+    const applicants = ReachService.toApplicantRows(ranked, bandsByWorker);
 
     // One feed.shown per row, UNKEYED (D7), with the PAYER as the actor (actor_id is the
     // verified session payer — never the route/body). payer_id stays opaque in the event.
     await this.events.emitMany(
       ranked.map((r) =>
         this.feedShownParams(
-          { worker_id: r.workerId, job_id: jobSpec.jobId, rank: r.rank, score: r.score, hot: r.hot },
+          {
+            worker_id: r.workerId,
+            job_id: jobSpec.jobId,
+            rank: r.rank,
+            score: r.score,
+            hot: r.hot,
+          },
           ctx,
           { actor_type: "payer", actor_id: payerId },
         ),
@@ -198,6 +204,41 @@ export class ReachService {
       requestId: ctx.requestId,
       // NO idempotencyKey — feed.shown is UNKEYED (D7).
     };
+  }
+
+  /**
+   * Map the projected signal rows → faceless bands, keyed by opaque workerId. Pure +
+   * faceless (delegates to {@link workerProfileRowToBands}); built once per view and
+   * looked up by the ranked rows (every ranked worker is in the pool — count in == out).
+   */
+  private static bandsByWorker(rows: WorkerProfileSignalRow[]): Map<string, WorkerBands> {
+    return new Map(rows.map((r) => [r.workerId, workerProfileRowToBands(r)]));
+  }
+
+  /**
+   * Ranked core rows → faceless {@link ApplicantRowDto} rows, grafting the per-worker
+   * bands. The engine's `score`/`rank`/`hot`/`pushEligible`/`components` are passed
+   * through UNCHANGED (the serving layer never re-scores); bands default to `null` when
+   * a worker has no projected signal row (never drops the row — sort-never-block).
+   */
+  private static toApplicantRows(
+    ranked: RankedWorker[],
+    bandsByWorker: Map<string, WorkerBands>,
+  ): ApplicantRowDto[] {
+    return ranked.map((r) => {
+      const bands = bandsByWorker.get(r.workerId);
+      return {
+        workerId: r.workerId,
+        rank: r.rank,
+        score: r.score,
+        hot: r.hot,
+        pushEligible: r.pushEligible,
+        components: r.components,
+        experienceBand: bands?.experienceBand ?? null,
+        tradeLabel: bands?.tradeLabel ?? null,
+        cityLabel: bands?.cityLabel ?? null,
+      };
+    });
   }
 }
 

@@ -101,9 +101,9 @@ function assertFeedShownEmit(arg: Record<string, unknown>) {
 describe("ReachService — View A (applicants for a job)", () => {
   it("404s for an unknown job and emits nothing", async () => {
     const { svc, emit, emitMany } = make([row(1)], []);
-    await expect(svc.applicantsForJob("00000000-0000-4000-8000-000000000000", CTX as never)).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      svc.applicantsForJob("00000000-0000-4000-8000-000000000000", CTX as never),
+    ).rejects.toBeInstanceOf(NotFoundException);
     expect(emit).not.toHaveBeenCalled();
     expect(emitMany).not.toHaveBeenCalled();
   });
@@ -122,15 +122,65 @@ describe("ReachService — View A (applicants for a job)", () => {
     expect(emitted().length).toBe(pool.length);
   });
 
-  it("renders faceless rows: workerId/rank/score/hot/pushEligible/components only", async () => {
+  it("renders faceless rows: ranking fields + faceless bands only (no PII keys)", async () => {
     const { svc } = make([row(1), row(2)], [jobSpec(JOB_A, ["vmc_operator"])]);
     const res = await svc.applicantsForJob(JOB_A, CTX as never);
     for (const a of res.applicants) {
       expect(Object.keys(a).sort()).toEqual(
-        ["components", "hot", "pushEligible", "rank", "score", "workerId"].sort(),
+        [
+          "cityLabel",
+          "components",
+          "experienceBand",
+          "hot",
+          "pushEligible",
+          "rank",
+          "score",
+          "tradeLabel",
+          "workerId",
+        ].sort(),
       );
     }
     expect(JSON.stringify(res)).not.toMatch(/full_name|phone|address|employer/);
+  });
+
+  it("grafts faceless bands derived from the worker's projected signals (View A)", async () => {
+    // canonicalRoleId resolves to a taxonomy name; total_years -> coarse band; city slug.
+    const r = row(1, {
+      canonicalRoleId: "role_vmc_operator",
+      experience: { total_years: 7 },
+      locationPreference: { preferred_cities: ["pune"] },
+    });
+    const { svc } = make([r], [jobSpec(JOB_A, ["role_vmc_operator"])]);
+    const res = await svc.applicantsForJob(JOB_A, CTX as never);
+    const a = res.applicants.find((x) => x.workerId === r.workerId)!;
+    expect(a.tradeLabel).toBe("VMC Operator"); // taxonomy name, not the raw id
+    expect(a.experienceBand).toBe("6-10 yrs");
+    expect(a.cityLabel).toBe("pune");
+  });
+
+  it("bands are response-only — they never leak into a feed.shown payload", async () => {
+    const { svc, emitted } = make(
+      [row(1, { canonicalRoleId: "role_vmc_operator", experience: { total_years: 7 } })],
+      [jobSpec(JOB_A, ["role_vmc_operator"])],
+    );
+    await svc.applicantsForJob(JOB_A, CTX as never);
+    for (const param of emitted()) {
+      const payload = param.payload as Record<string, unknown>;
+      expect(Object.keys(payload).sort()).toEqual(["hot", "job_id", "rank", "score", "worker_id"]);
+      expect(payload).not.toHaveProperty("tradeLabel");
+      expect(payload).not.toHaveProperty("experienceBand");
+      expect(payload).not.toHaveProperty("cityLabel");
+    }
+  });
+
+  it("a blank worker still appears with all-null bands (sort-never-block)", async () => {
+    const { svc } = make([blankRow(9)], [jobSpec(JOB_A, ["role_vmc_operator"])]);
+    const res = await svc.applicantsForJob(JOB_A, CTX as never);
+    const a = res.applicants.find((x) => x.workerId === uuid(9))!;
+    expect(a).toBeDefined();
+    expect(a.experienceBand).toBeNull();
+    expect(a.tradeLabel).toBeNull();
+    expect(a.cityLabel).toBeNull();
   });
 
   it("emits UNKEYED, PII-free feed.shown with no pushEligible field in the payload", async () => {
@@ -208,7 +258,17 @@ describe("ReachService — Payer-self View A (applicantsForOwnedJob, ADR-0019 R2
     expect(res.applicants.length).toBe(pool.length); // sort-never-block
     for (const a of res.applicants) {
       expect(Object.keys(a).sort()).toEqual(
-        ["components", "hot", "pushEligible", "rank", "score", "workerId"].sort(),
+        [
+          "cityLabel",
+          "components",
+          "experienceBand",
+          "hot",
+          "pushEligible",
+          "rank",
+          "score",
+          "tradeLabel",
+          "workerId",
+        ].sort(),
       );
     }
     expect(emitted().length).toBe(pool.length);
@@ -238,7 +298,9 @@ describe("ReachService — Payer-self View A (applicantsForOwnedJob, ADR-0019 R2
 describe("ReachService — View B (job feed for a worker)", () => {
   it("404s when the worker has no profile and emits nothing", async () => {
     const { svc, emit, emitMany } = make([], [jobSpec(JOB_A, ["vmc_operator"])]);
-    await expect(svc.feedForWorker(uuid(99), CTX as never)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(svc.feedForWorker(uuid(99), CTX as never)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
     expect(emit).not.toHaveBeenCalled();
     expect(emitMany).not.toHaveBeenCalled();
   });

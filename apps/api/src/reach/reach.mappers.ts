@@ -1,4 +1,5 @@
 import type { GeoPoint, WorkerSignals } from "@badabhai/reach-engine";
+import { getRole, getDomain } from "@badabhai/taxonomy";
 
 /**
  * Boundary mappers (ADR-0011 §mapping table) — PURE functions, unit-testable in
@@ -158,7 +159,10 @@ function readAvailability(availability: unknown): Availability | null {
  * `updated_at` is missing/unparseable or in the future (clock skew) → the engine
  * neutral-defaults recency. Floored to whole days; never negative.
  */
-export function lastActiveDaysAgoFrom(updatedAt: Date | string | null, now: Date = new Date()): number | null {
+export function lastActiveDaysAgoFrom(
+  updatedAt: Date | string | null,
+  now: Date = new Date(),
+): number | null {
   if (updatedAt == null) return null;
   const then = updatedAt instanceof Date ? updatedAt : new Date(updatedAt);
   const ms = then.getTime();
@@ -194,5 +198,62 @@ export function workerProfileRowToSignals(
     travelRadiusKm: readTravelRadiusKm(row.locationPreference),
     availability: readAvailability(row.availability),
     lastActiveDaysAgo: lastActiveDaysAgoFrom(row.updatedAt, now),
+  };
+}
+
+/**
+ * The FACELESS banded taxonomy chips a payer may browse for a ranked applicant
+ * (ADR-0019 R22 / the reach faceless boundary, CLAUDE.md inv #2). PII-FREE by
+ * construction — every field is a coarse band, an enum, or a canonical taxonomy
+ * LABEL; NONE is a name / phone / address / employer / free text. Response-only
+ * (never enters a `feed.shown` payload or a log). All fields are `null` when the
+ * underlying signal is missing (sort-never-block: bands never gate inclusion).
+ */
+export interface WorkerBands {
+  /** Coarse experience band derived from total years; `null` when unknown. */
+  experienceBand: string | null;
+  /** Canonical role/trade LABEL (taxonomy name, e.g. "VMC Operator"); `null` when unknown. */
+  tradeLabel: string | null;
+  /** Coarse preferred city slug (no sub-locality / address / coordinates); `null` when unknown. */
+  cityLabel: string | null;
+}
+
+/**
+ * `experience.total_years` → a COARSE display band, matching the payer surface's
+ * established year-range vocabulary ("1-2 yrs" / "3-5 yrs" / "6-10 yrs"). This is a
+ * display-only discretization to keep the faceless surface coarse — NOT a ranking input
+ * or a business rule (the engine ranks on the raw years). `null` (unknown) for a
+ * missing / non-finite / negative value; never throws, never invents.
+ */
+export function experienceBandFromYears(years: number | null): string | null {
+  if (years == null || !Number.isFinite(years) || years < 0) return null;
+  if (years < 1) return "<1 yr";
+  if (years < 3) return "1-2 yrs";
+  if (years < 6) return "3-5 yrs";
+  if (years <= 10) return "6-10 yrs";
+  return "10+ yrs";
+}
+
+/**
+ * `worker_profiles` signal row → faceless {@link WorkerBands}. Pure, faceless, null
+ * pass-through — the band analogue of {@link workerProfileRowToSignals}, reading the
+ * SAME projected columns (no new PII surface). The trade label resolves the canonical
+ * ROLE id to its taxonomy name, falling back to the DOMAIN (trade) name, then to the
+ * raw canonical id (a faceless taxonomy token), then `null` — so the chip is populated
+ * whenever any trade signal exists yet never leaks PII.
+ */
+export function workerProfileRowToBands(row: WorkerProfileSignalRow): WorkerBands {
+  const roleId = nonBlankStringOrNull(row.canonicalRoleId);
+  const tradeId = nonBlankStringOrNull(row.canonicalTradeId);
+  const tradeLabel =
+    (roleId ? getRole(roleId)?.name : undefined) ??
+    (tradeId ? getDomain(tradeId)?.name : undefined) ??
+    roleId ??
+    tradeId ??
+    null;
+  return {
+    experienceBand: experienceBandFromYears(readExperienceYears(row.experience)),
+    tradeLabel,
+    cityLabel: readCity(row.locationPreference),
   };
 }
