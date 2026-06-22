@@ -970,3 +970,123 @@ export const PayerSessionStartedPayload = z.object({
   is_new_payer: z.boolean().default(false),
 });
 export type PayerSessionStartedPayload = z.infer<typeof PayerSessionStartedPayload>;
+
+// ---------------------------------------------------------------------------
+// job.* — the `jobs` ENTITY lifecycle (ADR-0022 Agency Supply Portal demand slice).
+//
+// DISTINCT from `job_posting.*` (ADR-0012, the ops vacancy register, a DIFFERENT
+// entity/table). These events record create/update/close on the faceless `jobs` row
+// (the Reach-facing demand entity, `jobs.payer_id` = the owning payer). The PAYER is
+// the actor; `subject` is the `job` entity.
+//
+// FACELESS / PII-FREE by construction: opaque ids (`job_id`, `payer_id`) + COARSE
+// non-PII bands ONLY (trade slug, city label, integer ₹ pay bands, year counts) — the
+// EXACT, already-non-PII subset of the `jobs` columns. NEVER an employer name, an
+// address, a worker identity, or any free text beyond the coarse city label. `payer_id`
+// is the opaque faceless-rails owner ref (employer OR agent), NEVER resolved to identity
+// in any event/log. All v1 (version-never-mutate).
+// ---------------------------------------------------------------------------
+
+/** `jobs` lifecycle status (mirrors db.JobStatus — open|closed only). Enum → no PII. */
+export const JobStatusEnum = z.enum(["open", "closed"]);
+export type JobStatusEnum = z.infer<typeof JobStatusEnum>;
+
+/** Coarse city label (e.g. "Pune") — NOT an address. Short, non-PII bound. */
+const cityLabelSchema = z.string().min(1).max(120);
+
+/**
+ * A `jobs` row was created (demand posted). Carries the opaque job + owning payer ids,
+ * the (open) status, and the COARSE bands the row already holds (trade slug + city) —
+ * never an employer name or any free text. Pay/experience bands are optional bands.
+ */
+export const JobCreatedPayload = z.object({
+  job_id: uuidSchema,
+  payer_id: uuidSchema,
+  status: JobStatusEnum,
+  trade_key: tradeKeySchema,
+  city: cityLabelSchema,
+  pay_min: z.number().int().nonnegative().nullable().default(null),
+  pay_max: z.number().int().nonnegative().nullable().default(null),
+  min_experience_years: z.number().int().nonnegative().nullable().default(null),
+  max_experience_years: z.number().int().nonnegative().nullable().default(null),
+});
+export type JobCreatedPayload = z.infer<typeof JobCreatedPayload>;
+
+/** The KEYS of the `jobs` fields an update may touch — KEYS ONLY (never the values). */
+export const JOB_CHANGED_FIELDS = [
+  "trade_key",
+  "title",
+  "city",
+  "area",
+  "pay_min",
+  "pay_max",
+  "min_experience_years",
+  "max_experience_years",
+  "needed_by",
+  "status",
+] as const;
+
+/**
+ * A `jobs` row was updated. `changed_fields` is the list of field KEYS that changed —
+ * KEYS ONLY, never the values (so no free text ever leaks). `status` is the post-update
+ * status. Used for both edits and the pause==close transition (ADR-0022 Phase-1).
+ */
+export const JobUpdatedPayload = z.object({
+  job_id: uuidSchema,
+  payer_id: uuidSchema,
+  status: JobStatusEnum,
+  changed_fields: z.array(z.enum(JOB_CHANGED_FIELDS)).max(JOB_CHANGED_FIELDS.length),
+});
+export type JobUpdatedPayload = z.infer<typeof JobUpdatedPayload>;
+
+/**
+ * A `jobs` row was closed (terminal). Records the transition: the previous status and
+ * the terminal "closed" status. PII-free (ids + enums only).
+ */
+export const JobClosedPayload = z.object({
+  job_id: uuidSchema,
+  payer_id: uuidSchema,
+  previous_status: JobStatusEnum,
+  status: z.literal("closed"),
+});
+export type JobClosedPayload = z.infer<typeof JobClosedPayload>;
+
+// ---------------------------------------------------------------------------
+// agency_invite.* — AGENCY supply-attribution funnel (ADR-0022). FACELESS, ids/enums.
+//
+// The SIBLING of `invite.*` (the worker→worker funnel) on the PAYER axis: here the
+// inviter is an agency (a `payers` row, role='agent'). DISTINCT domain — the inviter is
+// a different principal on a different identity axis (payer, not worker).
+//
+// PII-FREE by construction: opaque `agency_invite_id`, opaque `inviter_payer_id`, the
+// channel enum, and an OPTIONAL non-PII campaign tag (a stable code, never free-form
+// PII). NO phone, NO name, NO email, NO message body EVER. `agency_invite.accepted`
+// adds the opaque `invited_worker_id` — emitted ONLY after `consent.accepted` (DPDP gate,
+// invariant #6). All v1.
+// ---------------------------------------------------------------------------
+
+/**
+ * An agency minted a referral deep-link (`/i/<code>`). `inviter_payer_id` is the opaque
+ * owning agency; the opaque `code` itself is NOT carried (it is a shareable secret).
+ * Optional non-PII campaign tag only.
+ */
+export const AgencyInviteCreatedPayload = z.object({
+  agency_invite_id: uuidSchema,
+  inviter_payer_id: uuidSchema,
+  channel: MessageChannelEnum,
+  campaign: z.string().min(1).max(64).optional(),
+});
+export type AgencyInviteCreatedPayload = z.infer<typeof AgencyInviteCreatedPayload>;
+
+/**
+ * An invited person became a worker AND has an ACTIVE consent (invariant #6) — the
+ * attribution link. Both ids opaque. This is the ONLY agency_invite event that carries a
+ * worker handle, and it is emitted EXCLUSIVELY from the consent-gated internal seam (never
+ * an agency-supplied worker id).
+ */
+export const AgencyInviteAcceptedPayload = z.object({
+  agency_invite_id: uuidSchema,
+  inviter_payer_id: uuidSchema,
+  invited_worker_id: uuidSchema,
+});
+export type AgencyInviteAcceptedPayload = z.infer<typeof AgencyInviteAcceptedPayload>;

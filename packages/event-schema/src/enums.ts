@@ -67,6 +67,17 @@ export const EVENT_DOMAINS = [
   // stored ONLY in `payers`, encrypted) — only the opaque `payer_id` + role + the
   // login-method enum + booleans. Mirrors `worker.*` auth events for the payer principal.
   "payer",
+  // The `jobs` ENTITY lifecycle (ADR-0022 Agency Supply Portal demand slice) — DISTINCT
+  // from `job_posting` (ADR-0012, the ops vacancy register, a different entity). The
+  // faceless demand row create/update/close, owned by `jobs.payer_id`. PII-FREE: opaque
+  // ids + coarse non-PII bands (trade slug / city / pay / experience) ONLY; never an
+  // employer name, address, or worker identity.
+  "job",
+  // AGENCY supply-attribution funnel (ADR-0022) — the payer-axis sibling of `invite.*`
+  // (the worker→worker funnel). PII-FREE: opaque agency_invite_id + opaque payer/worker
+  // ids + the channel enum + an optional non-PII campaign tag ONLY; never a phone, name,
+  // email, or message body. `agency_invite.accepted` is emitted ONLY after consent (#6).
+  "agency_invite",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;
@@ -121,6 +132,11 @@ export const SUBJECT_TYPES = [
   // org-name live ONLY in `payers`, encrypted — never in an event). The subject of the
   // `payer.*` auth lifecycle events.
   "payer",
+  // An agency referral invite (ADR-0022). The subject_id is the opaque `agency_invites`
+  // row id; carries NO PII (inviter payer + invited worker ids live in the payload, both
+  // opaque). The subject of the `agency_invite.*` funnel events. (The `job` subject above
+  // already serves the `job.*` lifecycle events — no new subject is needed for those.)
+  "agency_invite",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;
