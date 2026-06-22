@@ -23,5 +23,9 @@ import { ResumeRenderer } from "../resume/resume-renderer.service";
   imports: [ConsentModule, StorageModule],
   controllers: [ResumeDisclosureController],
   providers: [ResumeDisclosureService, ResumeDisclosureRepository, ResumeRenderer],
+  // Exported so the payer portal can mount a PayerAuthGuard'd disclosure surface
+  // (PayerDisclosureController) over the SAME chokepoint, exactly as ReachModule exports
+  // ReachService for PayerReachController. The InternalServiceGuard ops route is unchanged.
+  exports: [ResumeDisclosureService],
 })
 export class ResumeDisclosureModule {}
