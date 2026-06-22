@@ -10,5 +10,10 @@ import { JobPostingsRepository } from "./job-postings.repository";
 @Module({
   controllers: [JobPostingsController],
   providers: [JobPostingsService, JobPostingsRepository],
+  // Exported so the payer portal can mount a PayerAuthGuard'd self-serve posting
+  // surface (PayerJobPostingsController) over the SAME service/repo chokepoint —
+  // exactly as ReachModule/ResumeDisclosureModule export their services. The ops
+  // InternalServiceGuard-free /job-postings routes are unchanged (one principal per route).
+  exports: [JobPostingsService],
 })
 export class JobPostingsModule {}
