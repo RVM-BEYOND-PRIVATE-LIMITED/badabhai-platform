@@ -24,7 +24,11 @@ const baseCatalog: Catalog = parseCatalog({
         { code: "pro", priceInr: 2500, validityDays: 30, applicantVisibilityQuota: 30 },
       ],
     },
-    { kind: "boost", code: "job_boost", tiers: [{ code: "all_candidates", priceInr: 1200, boostDays: 2 }] },
+    {
+      kind: "boost",
+      code: "job_boost",
+      tiers: [{ code: "all_candidates", priceInr: 1200, boostDays: 2 }],
+    },
     {
       kind: "credit_pack",
       code: "contact_unlock",
@@ -55,43 +59,103 @@ describe("DEFAULT_CATALOG (the seed = absorbed credit-packs.ts + spec prices)", 
   it("validates and carries the maintainer-ratified prices", () => {
     const posting = DEFAULT_CATALOG.products.find((p) => p.code === "job_posting");
     expect(posting?.kind).toBe("posting");
-    const std = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "job_posting", tierCode: "standard", now: NOW }));
+    const std = ok(
+      resolvePrice(DEFAULT_CATALOG, { productCode: "job_posting", tierCode: "standard", now: NOW }),
+    );
     expect(std.finalInr).toBe(1000);
     expect(std.grants).toEqual({ kind: "posting", validityDays: 14, applicantVisibilityQuota: 10 });
-    const pro = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "job_posting", tierCode: "pro", now: NOW }));
+    const pro = ok(
+      resolvePrice(DEFAULT_CATALOG, { productCode: "job_posting", tierCode: "pro", now: NOW }),
+    );
     expect(pro.finalInr).toBe(2500);
     expect(pro.grants).toEqual({ kind: "posting", validityDays: 30, applicantVisibilityQuota: 30 });
   });
 
   it("boost is ₹1200 / 2 days; offered packs are the §3A 50/200/1000 (₹40/credit anchor)", () => {
-    const boost = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "job_boost", tierCode: "all_candidates", now: NOW }));
+    const boost = ok(
+      resolvePrice(DEFAULT_CATALOG, {
+        productCode: "job_boost",
+        tierCode: "all_candidates",
+        now: NOW,
+      }),
+    );
     expect(boost.finalInr).toBe(1200);
     expect(boost.grants).toEqual({ kind: "boost", boostDays: 2 });
-    const p50 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "contact_unlock", tierCode: "pack_50", now: NOW }));
-    expect(p50).toMatchObject({ finalInr: 2000, grants: { kind: "credit_pack", credits: 50, windowDays: 14 } });
-    const p200 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "contact_unlock", tierCode: "pack_200", now: NOW }));
-    expect(p200).toMatchObject({ finalInr: 8000, grants: { kind: "credit_pack", credits: 200, windowDays: 14 } });
-    // 1000-pack: linear ₹40/credit for now — the §3A discount figure is pending (not in repo).
-    const p1000 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "contact_unlock", tierCode: "pack_1000", now: NOW }));
-    expect(p1000).toMatchObject({ finalInr: 40000, grants: { kind: "credit_pack", credits: 1000, windowDays: 14 } });
-    // §3A unit anchor: each offered pack (except the pending-discount 1000) is ₹40/credit.
+    const p50 = ok(
+      resolvePrice(DEFAULT_CATALOG, {
+        productCode: "contact_unlock",
+        tierCode: "pack_50",
+        now: NOW,
+      }),
+    );
+    expect(p50).toMatchObject({
+      finalInr: 2000,
+      grants: { kind: "credit_pack", credits: 50, windowDays: 14 },
+    });
+    const p200 = ok(
+      resolvePrice(DEFAULT_CATALOG, {
+        productCode: "contact_unlock",
+        tierCode: "pack_200",
+        now: NOW,
+      }),
+    );
+    expect(p200).toMatchObject({
+      finalInr: 8000,
+      grants: { kind: "credit_pack", credits: 200, windowDays: 14 },
+    });
+    // 1000-pack: REAL 20% volume discount → ₹32,000 (₹32/credit), CEO-FINAL 2026-06-22.
+    const p1000 = ok(
+      resolvePrice(DEFAULT_CATALOG, {
+        productCode: "contact_unlock",
+        tierCode: "pack_1000",
+        now: NOW,
+      }),
+    );
+    expect(p1000).toMatchObject({
+      finalInr: 32000,
+      grants: { kind: "credit_pack", credits: 1000, windowDays: 14 },
+    });
+    // §3A unit anchor: the 50- and 200-packs are flat ₹40/credit; the 1000-pack is discounted.
     expect(p50.finalInr / 50).toBe(40);
     expect(p200.finalInr / 200).toBe(40);
+    expect(p1000.finalInr / 1000).toBe(32); // 20% off the ₹40 anchor
+    expect(p1000.finalInr / 1000).toBeLessThan(40); // a REAL discount, not flat
   });
 
   it("hiring_capacity tiers carry the maxActiveVacancies + validityDays grant (ADR-0016)", () => {
     const capacity = DEFAULT_CATALOG.products.find((p) => p.code === "hiring_capacity");
     expect(capacity?.kind).toBe("capacity");
-    const cap5 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "hiring_capacity", tierCode: "cap_5", now: NOW }));
-    expect(cap5).toMatchObject({ finalInr: 5000, kind: "capacity", grants: { kind: "capacity", maxActiveVacancies: 5, validityDays: 30 } });
-    const cap15 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "hiring_capacity", tierCode: "cap_15", now: NOW }));
-    expect(cap15).toMatchObject({ finalInr: 12000, grants: { kind: "capacity", maxActiveVacancies: 15, validityDays: 30 } });
+    const cap5 = ok(
+      resolvePrice(DEFAULT_CATALOG, {
+        productCode: "hiring_capacity",
+        tierCode: "cap_5",
+        now: NOW,
+      }),
+    );
+    expect(cap5).toMatchObject({
+      finalInr: 5000,
+      kind: "capacity",
+      grants: { kind: "capacity", maxActiveVacancies: 5, validityDays: 30 },
+    });
+    const cap15 = ok(
+      resolvePrice(DEFAULT_CATALOG, {
+        productCode: "hiring_capacity",
+        tierCode: "cap_15",
+        now: NOW,
+      }),
+    );
+    expect(cap15).toMatchObject({
+      finalInr: 12000,
+      grants: { kind: "capacity", maxActiveVacancies: 15, validityDays: 30 },
+    });
   });
 });
 
 describe("capacity product (ADR-0016) — discount + fail-closed parity with the other kinds", () => {
   it("unknown capacity tier → unavailable (fail-closed, never a 0 price)", () => {
-    expect(resolvePrice(baseCatalog, { productCode: "hiring_capacity", tierCode: "nope", now: NOW })).toEqual({
+    expect(
+      resolvePrice(baseCatalog, { productCode: "hiring_capacity", tierCode: "nope", now: NOW }),
+    ).toEqual({
       ok: false,
       reason: "unavailable",
     });
@@ -112,7 +176,14 @@ describe("capacity product (ADR-0016) — discount + fail-closed parity with the
         },
       ],
     });
-    const q = ok(resolvePrice(cat, { productCode: "hiring_capacity", tierCode: "cap_5", couponCode: "capsave", now: NOW }));
+    const q = ok(
+      resolvePrice(cat, {
+        productCode: "hiring_capacity",
+        tierCode: "cap_5",
+        couponCode: "capsave",
+        now: NOW,
+      }),
+    );
     expect(q.finalInr).toBe(4000); // 5000 − 20%
     expect(q.couponApplied).toBe("capsave");
     expect(q.grants).toEqual({ kind: "capacity", maxActiveVacancies: 5, validityDays: 30 });
@@ -121,13 +192,17 @@ describe("capacity product (ADR-0016) — discount + fail-closed parity with the
 
 describe("resolvePrice — unavailable (fail-closed, never a 0 price)", () => {
   it("unknown product → unavailable", () => {
-    expect(resolvePrice(baseCatalog, { productCode: "nope", tierCode: "standard", now: NOW })).toEqual({
+    expect(
+      resolvePrice(baseCatalog, { productCode: "nope", tierCode: "standard", now: NOW }),
+    ).toEqual({
       ok: false,
       reason: "unavailable",
     });
   });
   it("unknown tier → unavailable", () => {
-    expect(resolvePrice(baseCatalog, { productCode: "job_posting", tierCode: "nope", now: NOW })).toEqual({
+    expect(
+      resolvePrice(baseCatalog, { productCode: "job_posting", tierCode: "nope", now: NOW }),
+    ).toEqual({
       ok: false,
       reason: "unavailable",
     });
@@ -135,11 +210,16 @@ describe("resolvePrice — unavailable (fail-closed, never a 0 price)", () => {
 });
 
 describe("offers (automatic, time-boxed)", () => {
-  const withOffer = (offer: object): Catalog =>
-    parseCatalog({ ...baseCatalog, offers: [offer] });
+  const withOffer = (offer: object): Catalog => parseCatalog({ ...baseCatalog, offers: [offer] });
 
   it("applies an in-window percent offer", () => {
-    const cat = withOffer({ code: "launch20", scope: { productCode: "job_posting", tierCode: "standard" }, kind: "percent", value: 20, ...WINDOW });
+    const cat = withOffer({
+      code: "launch20",
+      scope: { productCode: "job_posting", tierCode: "standard" },
+      kind: "percent",
+      value: 20,
+      ...WINDOW,
+    });
     const q = ok(resolvePrice(cat, { productCode: "job_posting", tierCode: "standard", now: NOW }));
     expect(q.finalInr).toBe(800);
     expect(q.discountInr).toBe(200);
@@ -147,21 +227,39 @@ describe("offers (automatic, time-boxed)", () => {
   });
 
   it("applies an in-window flat offer", () => {
-    const cat = withOffer({ code: "flat300", scope: { productCode: "job_posting", tierCode: "pro" }, kind: "flat", value: 300, ...WINDOW });
+    const cat = withOffer({
+      code: "flat300",
+      scope: { productCode: "job_posting", tierCode: "pro" },
+      kind: "flat",
+      value: 300,
+      ...WINDOW,
+    });
     const q = ok(resolvePrice(cat, { productCode: "job_posting", tierCode: "pro", now: NOW }));
     expect(q.finalInr).toBe(2200);
     expect(q.offerApplied).toBe("flat300");
   });
 
   it("ignores an expired offer (full price, no offer)", () => {
-    const cat = withOffer({ code: "old", scope: { productCode: "job_posting", tierCode: "standard" }, kind: "percent", value: 50, ...EXPIRED });
+    const cat = withOffer({
+      code: "old",
+      scope: { productCode: "job_posting", tierCode: "standard" },
+      kind: "percent",
+      value: 50,
+      ...EXPIRED,
+    });
     const q = ok(resolvePrice(cat, { productCode: "job_posting", tierCode: "standard", now: NOW }));
     expect(q.finalInr).toBe(1000);
     expect(q.offerApplied).toBeNull();
   });
 
   it("ignores an out-of-scope offer", () => {
-    const cat = withOffer({ code: "boostonly", scope: { productCode: "job_boost" }, kind: "percent", value: 50, ...WINDOW });
+    const cat = withOffer({
+      code: "boostonly",
+      scope: { productCode: "job_boost" },
+      kind: "percent",
+      value: 50,
+      ...WINDOW,
+    });
     const q = ok(resolvePrice(cat, { productCode: "job_posting", tierCode: "standard", now: NOW }));
     expect(q.finalInr).toBe(1000);
     expect(q.offerApplied).toBeNull();
@@ -171,8 +269,20 @@ describe("offers (automatic, time-boxed)", () => {
     const cat = parseCatalog({
       ...baseCatalog,
       offers: [
-        { code: "a_small", scope: { productCode: "job_posting" }, kind: "percent", value: 10, ...WINDOW },
-        { code: "b_big", scope: { productCode: "job_posting" }, kind: "percent", value: 30, ...WINDOW },
+        {
+          code: "a_small",
+          scope: { productCode: "job_posting" },
+          kind: "percent",
+          value: 10,
+          ...WINDOW,
+        },
+        {
+          code: "b_big",
+          scope: { productCode: "job_posting" },
+          kind: "percent",
+          value: 30,
+          ...WINDOW,
+        },
       ],
     });
     const q = ok(resolvePrice(cat, { productCode: "job_posting", tierCode: "standard", now: NOW }));
@@ -182,38 +292,80 @@ describe("offers (automatic, time-boxed)", () => {
 });
 
 describe("coupons (code-redeemed, fail-closed)", () => {
-  const couponCat = (coupon: object): Catalog => parseCatalog({ ...baseCatalog, coupons: [coupon] });
-  const SAVE = { code: "save15", scope: { productCode: "job_posting", tierCode: "standard" }, kind: "percent", value: 15, totalUsageCap: 100, perPayerLimit: 1, ...WINDOW };
+  const couponCat = (coupon: object): Catalog =>
+    parseCatalog({ ...baseCatalog, coupons: [coupon] });
+  const SAVE = {
+    code: "save15",
+    scope: { productCode: "job_posting", tierCode: "standard" },
+    kind: "percent",
+    value: 15,
+    totalUsageCap: 100,
+    perPayerLimit: 1,
+    ...WINDOW,
+  };
 
   it("applies a valid coupon", () => {
-    const q = ok(resolvePrice(couponCat(SAVE), { productCode: "job_posting", tierCode: "standard", couponCode: "save15", now: NOW }));
+    const q = ok(
+      resolvePrice(couponCat(SAVE), {
+        productCode: "job_posting",
+        tierCode: "standard",
+        couponCode: "save15",
+        now: NOW,
+      }),
+    );
     expect(q.finalInr).toBe(850);
     expect(q.couponApplied).toBe("save15");
   });
 
   it("ignores an unknown coupon code (full price, no error)", () => {
-    const q = ok(resolvePrice(couponCat(SAVE), { productCode: "job_posting", tierCode: "standard", couponCode: "ghost", now: NOW }));
+    const q = ok(
+      resolvePrice(couponCat(SAVE), {
+        productCode: "job_posting",
+        tierCode: "standard",
+        couponCode: "ghost",
+        now: NOW,
+      }),
+    );
     expect(q.finalInr).toBe(1000);
     expect(q.couponApplied).toBeNull();
   });
 
   it("ignores a coupon over its total usage cap", () => {
-    const q = ok(resolvePrice(couponCat({ ...SAVE, totalUsageCap: 5 }), {
-      productCode: "job_posting", tierCode: "standard", couponCode: "save15", now: NOW, couponUsage: { total: 5, perPayer: 0 },
-    }));
+    const q = ok(
+      resolvePrice(couponCat({ ...SAVE, totalUsageCap: 5 }), {
+        productCode: "job_posting",
+        tierCode: "standard",
+        couponCode: "save15",
+        now: NOW,
+        couponUsage: { total: 5, perPayer: 0 },
+      }),
+    );
     expect(q.couponApplied).toBeNull();
     expect(q.finalInr).toBe(1000);
   });
 
   it("ignores a coupon over the per-payer limit", () => {
-    const q = ok(resolvePrice(couponCat(SAVE), {
-      productCode: "job_posting", tierCode: "standard", couponCode: "save15", now: NOW, couponUsage: { total: 1, perPayer: 1 },
-    }));
+    const q = ok(
+      resolvePrice(couponCat(SAVE), {
+        productCode: "job_posting",
+        tierCode: "standard",
+        couponCode: "save15",
+        now: NOW,
+        couponUsage: { total: 1, perPayer: 1 },
+      }),
+    );
     expect(q.couponApplied).toBeNull();
   });
 
   it("ignores an expired coupon", () => {
-    const q = ok(resolvePrice(couponCat({ ...SAVE, ...EXPIRED }), { productCode: "job_posting", tierCode: "standard", couponCode: "save15", now: NOW }));
+    const q = ok(
+      resolvePrice(couponCat({ ...SAVE, ...EXPIRED }), {
+        productCode: "job_posting",
+        tierCode: "standard",
+        couponCode: "save15",
+        now: NOW,
+      }),
+    );
     expect(q.couponApplied).toBeNull();
   });
 });
@@ -222,10 +374,35 @@ describe("offer + coupon stack (at most one each, offer-then-coupon)", () => {
   it("applies offer first, then coupon on the running price", () => {
     const cat = parseCatalog({
       ...baseCatalog,
-      offers: [{ code: "off20", scope: { productCode: "job_posting", tierCode: "standard" }, kind: "percent", value: 20, ...WINDOW }],
-      coupons: [{ code: "cpn10", scope: { productCode: "job_posting", tierCode: "standard" }, kind: "percent", value: 10, totalUsageCap: 100, perPayerLimit: 5, ...WINDOW }],
+      offers: [
+        {
+          code: "off20",
+          scope: { productCode: "job_posting", tierCode: "standard" },
+          kind: "percent",
+          value: 20,
+          ...WINDOW,
+        },
+      ],
+      coupons: [
+        {
+          code: "cpn10",
+          scope: { productCode: "job_posting", tierCode: "standard" },
+          kind: "percent",
+          value: 10,
+          totalUsageCap: 100,
+          perPayerLimit: 5,
+          ...WINDOW,
+        },
+      ],
     });
-    const q = ok(resolvePrice(cat, { productCode: "job_posting", tierCode: "standard", couponCode: "cpn10", now: NOW }));
+    const q = ok(
+      resolvePrice(cat, {
+        productCode: "job_posting",
+        tierCode: "standard",
+        couponCode: "cpn10",
+        now: NOW,
+      }),
+    );
     // 1000 → −20% = 800 → −10% = 720
     expect(q.finalInr).toBe(720);
     expect(q.offerApplied).toBe("off20");
@@ -238,9 +415,13 @@ describe("floor clamp — never negative", () => {
   it("a flat discount larger than base clamps to the floor (0), never negative", () => {
     const cat = parseCatalog({
       ...baseCatalog,
-      offers: [{ code: "huge", scope: { productCode: "job_boost" }, kind: "flat", value: 5000, ...WINDOW }],
+      offers: [
+        { code: "huge", scope: { productCode: "job_boost" }, kind: "flat", value: 5000, ...WINDOW },
+      ],
     });
-    const q = ok(resolvePrice(cat, { productCode: "job_boost", tierCode: "all_candidates", now: NOW }));
+    const q = ok(
+      resolvePrice(cat, { productCode: "job_boost", tierCode: "all_candidates", now: NOW }),
+    );
     expect(q.finalInr).toBe(0);
     expect(q.finalInr).toBeGreaterThanOrEqual(0);
   });
@@ -249,9 +430,13 @@ describe("floor clamp — never negative", () => {
     const cat = parseCatalog({
       ...baseCatalog,
       floorPriceInr: 500,
-      offers: [{ code: "huge", scope: { productCode: "job_boost" }, kind: "flat", value: 5000, ...WINDOW }],
+      offers: [
+        { code: "huge", scope: { productCode: "job_boost" }, kind: "flat", value: 5000, ...WINDOW },
+      ],
     });
-    const q = ok(resolvePrice(cat, { productCode: "job_boost", tierCode: "all_candidates", now: NOW }));
+    const q = ok(
+      resolvePrice(cat, { productCode: "job_boost", tierCode: "all_candidates", now: NOW }),
+    );
     expect(q.finalInr).toBe(500);
   });
 });
@@ -271,7 +456,12 @@ describe("safeParseCatalog — fail-closed gate", () => {
   });
 
   it("a negative price is rejected → falls back to DEFAULT, ok:false", () => {
-    const bad = { ...baseCatalog, products: [{ kind: "boost", code: "job_boost", tiers: [{ code: "x", priceInr: -5, boostDays: 2 }] }] };
+    const bad = {
+      ...baseCatalog,
+      products: [
+        { kind: "boost", code: "job_boost", tiers: [{ code: "x", priceInr: -5, boostDays: 2 }] },
+      ],
+    };
     const res = safeParseCatalog(bad);
     expect(res.ok).toBe(false);
     expect(res.catalog).toBe(DEFAULT_CATALOG);
@@ -285,7 +475,20 @@ describe("safeParseCatalog — fail-closed gate", () => {
   });
 
   it("a coupon scope that does not resolve is rejected", () => {
-    const bad = { ...baseCatalog, coupons: [{ code: "x", scope: { productCode: "ghost" }, kind: "flat", value: 10, totalUsageCap: 1, perPayerLimit: 1, ...WINDOW }] };
+    const bad = {
+      ...baseCatalog,
+      coupons: [
+        {
+          code: "x",
+          scope: { productCode: "ghost" },
+          kind: "flat",
+          value: 10,
+          totalUsageCap: 1,
+          perPayerLimit: 1,
+          ...WINDOW,
+        },
+      ],
+    };
     expect(safeParseCatalog(bad).ok).toBe(false);
   });
 
