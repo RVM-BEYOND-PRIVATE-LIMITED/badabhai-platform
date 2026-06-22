@@ -1,10 +1,25 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  NotFoundException,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  UseGuards,
+} from "@nestjs/common";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers/payer-auth.guard";
 import { PayerDisclosureRateLimit } from "../payers/payer-disclosure-rate-limit.service";
 import { UnlockService } from "../unlocks/unlocks.service";
-import { PayerRequestUnlockSchema, type PayerRequestUnlockDto } from "./payer-unlocks.dto";
+import {
+  PayerBuyPackSchema,
+  type PayerBuyPackDto,
+  PayerRequestUnlockSchema,
+  type PayerRequestUnlockDto,
+} from "./payer-unlocks.dto";
 
 /**
  * Payer-SELF disclosure surface (ADR-0019 Phase 1 — closes R16 / LC-1 / TD33).
@@ -76,5 +91,27 @@ export class PayerUnlocksController {
   @Get("credits")
   ownCredits(@CurrentPayer() payer: AuthenticatedPayer) {
     return this.unlocks.getCredits(payer.id);
+  }
+
+  /**
+   * Buy a credit pack for the caller. The `payer_id` is the SESSION payer — never a
+   * body value (XB-A); the body carries only the pack CODE. The pack (price + credits)
+   * is resolved from config by {@link UnlockService.purchaseCredits}, which mock-
+   * purchases (real_call:false) and emits payment.authorized + payment.captured.
+   *
+   * An UNKNOWN pack returns a real 404 (NestJS NotFoundException) — this is NOT the
+   * unlock no-oracle path: a pack code is a public catalog item, not a per-tenant
+   * resource, so a 404 leaks nothing about another payer.
+   */
+  @Post("credits")
+  @HttpCode(201)
+  async buyPack(
+    @Body(new ZodValidationPipe(PayerBuyPackSchema)) dto: PayerBuyPackDto,
+    @CurrentPayer() payer: AuthenticatedPayer,
+    @Ctx() ctx: RequestContext,
+  ) {
+    const result = await this.unlocks.purchaseCredits(payer.id, dto.pack_code, ctx);
+    if (!result) throw new NotFoundException(`Unknown credit pack: ${dto.pack_code}`);
+    return result;
   }
 }

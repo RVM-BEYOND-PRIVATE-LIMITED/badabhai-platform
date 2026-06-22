@@ -297,6 +297,26 @@ export class PostingPlansService {
     };
   }
 
+  /**
+   * The payer's current hiring-capacity allowance (ADR-0016) — a PII-free read for the
+   * payer-self portal. Returns the catalog grant + window only (opaque payer_id, codes,
+   * counts; no name/phone). When the payer has no row yet, reports the config default
+   * allowance so the portal always shows a coherent capacity (no NULL hole).
+   */
+  async getCapacity(
+    payerId: string,
+  ): Promise<{ payer_id: string; max_active_vacancies: number; source_tier: string | null; expires_at: string | null }> {
+    const row = await this.repo.getCapacity(payerId);
+    const maxActiveVacancies =
+      row?.maxActiveVacancies ?? this.config.CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES;
+    return {
+      payer_id: payerId,
+      max_active_vacancies: maxActiveVacancies,
+      source_tier: row?.sourceTier ?? null,
+      expires_at: row?.expiresAt ? row.expiresAt.toISOString() : null,
+    };
+  }
+
   /** Resolve a price through the one engine, failing closed to an "unavailable" 400. */
   private async resolve(product: string, tier: string, coupon: string | undefined, payerId: string): Promise<Quote> {
     const { catalog } = await this.pricing.getActiveCatalog();
