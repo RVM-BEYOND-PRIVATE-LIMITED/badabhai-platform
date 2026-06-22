@@ -59,6 +59,9 @@ importers:
       '@badabhai/reach-engine':
         specifier: workspace:*
         version: link:../../packages/reach-engine
+      '@badabhai/taxonomy':
+        specifier: workspace:*
+        version: link:../../packages/taxonomy
       '@badabhai/types':
         specifier: workspace:*
         version: link:../../packages/types

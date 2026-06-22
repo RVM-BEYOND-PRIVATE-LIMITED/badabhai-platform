@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   workerProfileRowToSignals,
+  workerProfileRowToBands,
+  experienceBandFromYears,
   lastActiveDaysAgoFrom,
   type WorkerProfileSignalRow,
 } from "./reach.mappers";
@@ -117,10 +119,7 @@ describe("workerProfileRowToSignals — NULL / BLANK PASS-THROUGH (never drop, n
   });
 
   it("an unrecognised availability status maps to null (neutral), not the raw value", () => {
-    const s = workerProfileRowToSignals(
-      fullRow({ availability: { status: "on_holiday" } }),
-      NOW,
-    );
+    const s = workerProfileRowToSignals(fullRow({ availability: { status: "on_holiday" } }), NOW);
     expect(s.availability).toBeNull();
   });
 
@@ -171,6 +170,89 @@ describe("workerProfileRowToSignals — FACELESS (no PII ever crosses the mapper
         "workerId",
       ].sort(),
     );
+  });
+});
+
+describe("experienceBandFromYears — coarse, display-only discretization", () => {
+  it("maps years to the established year-range vocabulary", () => {
+    expect(experienceBandFromYears(0)).toBe("<1 yr");
+    expect(experienceBandFromYears(0.5)).toBe("<1 yr");
+    expect(experienceBandFromYears(1)).toBe("1-2 yrs");
+    expect(experienceBandFromYears(2)).toBe("1-2 yrs");
+    expect(experienceBandFromYears(3)).toBe("3-5 yrs");
+    expect(experienceBandFromYears(5)).toBe("3-5 yrs");
+    expect(experienceBandFromYears(6)).toBe("6-10 yrs");
+    expect(experienceBandFromYears(10)).toBe("6-10 yrs");
+    expect(experienceBandFromYears(11)).toBe("10+ yrs");
+  });
+
+  it("returns null (unknown) for missing / non-finite / negative years — never throws", () => {
+    expect(experienceBandFromYears(null)).toBeNull();
+    expect(experienceBandFromYears(Number.NaN)).toBeNull();
+    expect(experienceBandFromYears(Number.POSITIVE_INFINITY)).toBeNull();
+    expect(experienceBandFromYears(-3)).toBeNull();
+  });
+});
+
+describe("workerProfileRowToBands — faceless banded taxonomy chips", () => {
+  it("resolves the canonical role id to a taxonomy name + coarse experience band + city", () => {
+    const b = workerProfileRowToBands(
+      fullRow({
+        canonicalRoleId: "role_vmc_operator",
+        experience: { total_years: 7 },
+        locationPreference: { preferred_cities: ["pune", "mumbai"] },
+      }),
+    );
+    expect(b.tradeLabel).toBe("VMC Operator");
+    expect(b.experienceBand).toBe("6-10 yrs");
+    expect(b.cityLabel).toBe("pune");
+  });
+
+  it("falls back to the DOMAIN (trade) name when only the trade id is canonical", () => {
+    const b = workerProfileRowToBands(
+      fullRow({ canonicalRoleId: null, canonicalTradeId: "dom_vmc_machining" }),
+    );
+    expect(b.tradeLabel).toBe("VMC Machining");
+  });
+
+  it("falls back to the raw canonical id (a faceless token) when it does not resolve", () => {
+    const b = workerProfileRowToBands(
+      fullRow({ canonicalRoleId: "vmc_operator", canonicalTradeId: "cnc_vmc" }),
+    );
+    expect(b.tradeLabel).toBe("vmc_operator"); // raw id passthrough, never PII
+  });
+
+  it("an entirely-blank row yields all-null bands (never throws, never drops)", () => {
+    const b = workerProfileRowToBands({
+      workerId: WORKER,
+      canonicalRoleId: null,
+      canonicalTradeId: null,
+      experience: {},
+      salaryExpectation: {},
+      locationPreference: {},
+      availability: {},
+      updatedAt: null,
+    });
+    expect(b).toEqual({ experienceBand: null, tradeLabel: null, cityLabel: null });
+  });
+
+  it("is FACELESS: ignores stray PII-shaped JSONB keys, surfaces only bands", () => {
+    const b = workerProfileRowToBands(
+      fullRow({
+        canonicalRoleId: "role_vmc_operator",
+        locationPreference: {
+          preferred_cities: ["pune"],
+          full_name: "Ramesh Kumar",
+          phone: "9876543210",
+          address: "12 MG Road",
+        } as unknown,
+      }),
+    );
+    const serialized = JSON.stringify(b);
+    expect(serialized).not.toContain("Ramesh");
+    expect(serialized).not.toContain("9876543210");
+    expect(serialized).not.toContain("MG Road");
+    expect(Object.keys(b).sort()).toEqual(["cityLabel", "experienceBand", "tradeLabel"]);
   });
 });
 

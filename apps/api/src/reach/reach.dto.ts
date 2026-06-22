@@ -34,6 +34,15 @@ export interface ApplicantRowDto {
   hot: boolean;
   pushEligible: boolean;
   components: ScoreComponentDto[];
+  /**
+   * FACELESS banded taxonomy chips (PII-free): coarse experience band, canonical
+   * trade/role label, coarse city. `null` when the signal is unknown. Response-only —
+   * these never enter a `feed.shown` payload (the event keeps the same PII-free shape).
+   * See {@link workerProfileRowToBands}.
+   */
+  experienceBand: string | null;
+  tradeLabel: string | null;
+  cityLabel: string | null;
 }
 
 export interface ApplicantListResponseDto {
