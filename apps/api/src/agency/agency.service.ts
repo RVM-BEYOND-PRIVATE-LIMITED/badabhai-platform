@@ -335,9 +335,11 @@ export class AgencyService {
   /**
    * INTERNAL service method (ADR-0022 security condition C.1 #1 — the build-blocker). The
    * ONLY path that sets `agency_invites.invited_worker_id`/status='accepted' and emits
-   * `agency_invite.accepted`. It is invoked from the worker onboarding/consent path when an
-   * invite code is present — NOT by the agency, and the agency NEVER supplies a worker id
-   * (there is deliberately no agency-facing endpoint that accepts one).
+   * `agency_invite.accepted`. It is INTENDED to be invoked from the worker onboarding/consent
+   * path when an invite code is present — NOT by the agency, and the agency NEVER supplies a
+   * worker id (there is deliberately no agency-facing endpoint that accepts one). That call
+   * site is a tracked fast-follow; until it is wired this exported method has no caller, so
+   * no attribution occurs (fail-safe — inert until wired).
    *
    * CONSENT GATE (fail-closed): attribution proceeds ONLY if the worker has an ACTIVE
    * consent row (latest consent exists AND `revokedAt IS NULL`). Otherwise it is a NO-OP

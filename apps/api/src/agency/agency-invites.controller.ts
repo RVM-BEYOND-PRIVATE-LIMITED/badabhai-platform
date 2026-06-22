@@ -22,7 +22,9 @@ import {
  * FACELESS: mint takes NO phone/name/email/worker-id (only an optional non-PII campaign
  * tag) and returns an opaque code only. There is deliberately NO agency-facing endpoint
  * that accepts a worker id — attribution is the consent-gated INTERNAL seam
- * ({@link AgencyService.attributeWorkerToInvite}), invoked from the worker consent path.
+ * ({@link AgencyService.attributeWorkerToInvite}), INTENDED to be invoked from the worker
+ * consent path. That wiring is a tracked fast-follow; until it lands the seam has no
+ * caller, so no attribution occurs (fail-safe — it is exported but inert).
  *
  * The summary is AGGREGATE-ONLY with a k-anon floor (no consent oracle). Mock + staging-
  * only (ADR-0022 Phase 1).
@@ -57,9 +59,12 @@ export class AgencyInvitesController {
   }
 
   /**
-   * Record an attribution CLICK on an invite link (created -> clicked). Neutral/no-op on an
-   * unknown code (no-oracle). Carries no PII and leaks nothing about the agency. Does NOT
-   * attribute a worker (that is the consent-gated internal seam).
+   * Agency-scoped MOCK recording of an attribution click (created -> clicked). This is
+   * agent-only (the class guards apply) — it is the agency's own funnel-state stub, NOT the
+   * public invitee-facing click. The real invitee click funnel is the existing PUBLIC
+   * ADR-0020 endpoint `POST /invites/:code/click` (messaging.controller). Neutral/no-op on an
+   * unknown code (no-oracle); carries no PII; does NOT attribute a worker (that is the
+   * consent-gated internal seam).
    */
   @Post("invites/:code/click")
   @HttpCode(200)
