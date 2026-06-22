@@ -12,12 +12,15 @@ import { applicantQuotaStep, baseApplicantQuotaForBand } from "./pricing-config"
 /**
  * In-memory MOCK data store (ADR-0019 Phase 1 — mock + staging-only).
  *
- * WHY THIS EXISTS: the backend has NO payer-scoped route group bound to
- * `PayerAuthGuard` yet (the existing unlock/disclosure/posting-plan controllers
- * sit behind `InternalServiceGuard` and take `payer_id` from the body; the
- * `PayersModule` is not even imported into `AppModule`). So the demand-loop data
- * is served from THIS store until those endpoints land. The swap is `payer-api.ts`:
- * replace each store call with a payer-scoped fetch — the contracts already match.
+ * WHY THIS EXISTS: a SUBSET of the demand loop still has NO payer-authed endpoint.
+ * `PayersModule` + `PayerPortalModule` ARE now imported into `AppModule`, and the
+ * payer-authed group (PayerAuthGuard) exists — credits read/buy, capacity, unlocks,
+ * reveal, and the reach applicant feed are all LIVE. What remains MOCK here is the
+ * JOB-POSTINGS lifecycle (create / list / pause / resume / quota top-up) and the
+ * masked-resume disclosure: those still sit behind `InternalServiceGuard` (no payer-
+ * authed route). So THIS store backs only those surfaces until their endpoints land.
+ * The swap is `payer-api.ts`: replace each store call with a payer-scoped fetch — the
+ * contracts already match.
  *
  * TENANCY (XB-A): every accessor REQUIRES the authenticated payerId and only ever
  * returns/mutates rows under THAT key. There is no cross-payer read path: the store

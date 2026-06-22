@@ -37,6 +37,7 @@ export default async function PortalLayout({ children }: { children: ReactNode }
           <Link href="/postings">{isAgency ? "Manage vacancies" : "Manage postings"}</Link>
           <Link href="/capacity">Capacity</Link>
           <Link href="/credits">Credits</Link>
+          {isAgency ? <Link href="/agency/dashboard">Agency dashboard</Link> : null}
           {isAgency ? <Link href="/agency/referrals">Referrals &amp; payouts</Link> : null}
         </nav>
         <div className="session-chip">

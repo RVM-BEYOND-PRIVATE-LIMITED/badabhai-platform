@@ -152,9 +152,7 @@ export function ApplicantActions({
                             {row.contactBusy ? "Opening…" : "Open routed contact"}
                           </button>
                         )}
-                        {row.contactError ? (
-                          <p className="error-text">{row.contactError}</p>
-                        ) : null}
+                        {row.contactError ? <p className="error-text">{row.contactError}</p> : null}
                       </div>
                       <div style={{ marginTop: 8 }}>
                         {row.resume?.kind === "masked" ? (
@@ -171,9 +169,7 @@ export function ApplicantActions({
                             {row.resumeBusy ? "Loading…" : "View masked resume (preview)"}
                           </button>
                         )}
-                        {row.resumeError ? (
-                          <p className="error-text">{row.resumeError}</p>
-                        ) : null}
+                        {row.resumeError ? <p className="error-text">{row.resumeError}</p> : null}
                       </div>
                     </div>
                   ) : row.unlock?.kind === "unavailable" ? (
@@ -183,11 +179,18 @@ export function ApplicantActions({
                       <button
                         className="btn"
                         type="button"
-                        disabled={row.busy}
+                        disabled={row.busy || balance === 0}
+                        title={balance === 0 ? "Top up to unlock" : undefined}
                         onClick={() => onUnlock(a.workerId)}
                       >
                         {row.busy ? "Unlocking…" : "Unlock contact (1 credit)"}
                       </button>
+                      {balance === 0 ? (
+                        <p className="note" style={{ margin: "6px 0 0" }}>
+                          <Link href="/credits">Top up to unlock</Link>. Guidance only — this is
+                          your own balance, never a signal about this candidate.
+                        </p>
+                      ) : null}
                       {row.unlockError ? <p className="error-text">{row.unlockError}</p> : null}
                     </>
                   )}
@@ -210,8 +213,9 @@ function RoutedContact({ view }: { view: Extract<ContactView, { kind: "routed" }
   return (
     <div className="card" style={{ marginTop: 4 }}>
       <p className="page-sub" style={{ margin: 0 }}>
-        <strong>Routed contact.</strong> This is an opaque relay — <strong>not a phone
-        number</strong>. Use it in-app to reach the candidate; it expires with your access window.
+        <strong>Routed contact.</strong> This is an opaque relay —{" "}
+        <strong>not a phone number</strong>. Use it in-app to reach the candidate; it expires with
+        your access window.
       </p>
       <dl className="dl">
         <dt>Relay handle</dt>

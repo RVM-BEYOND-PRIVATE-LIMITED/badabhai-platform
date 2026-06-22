@@ -1,4 +1,5 @@
 import { requireAgent } from "../../../../lib/auth/roles";
+import { payerServerConfig } from "../../../../lib/server-config";
 
 export const dynamic = "force-dynamic";
 
@@ -21,12 +22,18 @@ export default async function AgencyReferralsPage() {
   // Server-enforced: an `employer` session 404s here (no oracle, no client hide).
   await requireAgent();
 
+  // Supply is fail-closed OFF by default (D2). This flag ONLY drives the parked label;
+  // there is NO referral/payout/KYC code gated behind it.
+  const { agencySupplyEnabled } = payerServerConfig();
+
   return (
     <>
       <h1 className="page-title">Referrals &amp; payouts</h1>
       <p className="page-sub">
-        <span className="badge badge-warn">Phase 2 — parked</span> Agency referral payouts
-        are not part of this preview.
+        <span className="badge badge-warn">Parked — Phase 2 (CEO-gated)</span>{" "}
+        {agencySupplyEnabled
+          ? "Agency referral payouts are flagged on but still unbuilt — no functionality ships in this preview."
+          : "Agency referral payouts are not part of this preview."}
       </p>
 
       <div className="note warn">

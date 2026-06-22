@@ -55,6 +55,18 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
     });
   }
 
+  function onPause(id: string) {
+    // Confirm step (C3): pausing hides the posting from new applicants. Already-granted
+    // unlocks/contacts are unaffected; quota top-up still works while paused.
+    const ok = window.confirm(
+      "Pause this posting? It stops receiving new applicants until you resume it. " +
+        "Contacts you've already unlocked are unaffected, and you can still top up its " +
+        "applicant quota while it's paused.",
+    );
+    if (!ok) return;
+    run(id, () => pausePostingAction({ postingId: id }));
+  }
+
   if (rows.length === 0) {
     return (
       <div className="empty">
@@ -65,82 +77,92 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
   }
 
   return (
-    <table>
-      <thead>
-        <tr>
-          <th>Role</th>
-          <th>Location</th>
-          <th>Vacancies</th>
-          <th>Status</th>
-          <th>Applicants / quota</th>
-          <th>Posted</th>
-          <th>Manage</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((p) => {
-          const busy = busyId === p.id;
-          const err = errorById[p.id] ?? null;
-          return (
-            <tr key={p.id}>
-              <td>
-                <Link href={`/postings/${p.id}/applicants`}>{p.roleTitle}</Link>
-              </td>
-              <td>{p.locationLabel ?? ZERO}</td>
-              <td>{p.vacancyBand}</td>
-              <td>
-                <span
-                  className={
-                    p.status === "open"
-                      ? "badge badge-ok"
-                      : p.status === "paused"
-                        ? "badge badge-warn"
-                        : "badge"
-                  }
-                >
-                  {p.status}
-                </span>
-              </td>
-              <td className="mono">
-                {p.applicantCount} / {p.applicantQuota ?? ZERO}
-              </td>
-              <td className="mono">{day(p.createdAt)}</td>
-              <td>
-                <div className="btn-row" style={{ flexWrap: "wrap", gap: 6 }}>
-                  {p.status === "paused" ? (
-                    <button
-                      className="btn secondary"
-                      type="button"
-                      disabled={busy}
-                      onClick={() => run(p.id, () => resumePostingAction({ postingId: p.id }))}
-                    >
-                      {busy ? "Working…" : "Resume"}
-                    </button>
-                  ) : p.status === "open" ? (
-                    <button
-                      className="btn secondary"
-                      type="button"
-                      disabled={busy}
-                      onClick={() => run(p.id, () => pausePostingAction({ postingId: p.id }))}
-                    >
-                      {busy ? "Working…" : "Pause"}
-                    </button>
-                  ) : null}
-                  <button
-                    className="btn secondary"
-                    type="button"
-                    disabled={busy}
-                    onClick={() => run(p.id, () => topUpQuotaAction({ postingId: p.id }))}
+    <>
+      <div className="note">
+        <strong>Applicant quota controls visibility.</strong> Each posting can disclose up to its
+        applicant quota; once that quota is exhausted, further applicants stay hidden until you{" "}
+        <strong>top up</strong> (view more → pay more). Top up works even on a{" "}
+        <strong>paused</strong> posting — pausing only stops new applicants arriving; it
+        doesn&rsquo;t change a candidate&rsquo;s eligibility, and you may still want to see more of
+        the ones already in.
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Role</th>
+            <th>Location</th>
+            <th>Vacancies</th>
+            <th>Status</th>
+            <th>Applicants / quota</th>
+            <th>Posted</th>
+            <th>Manage</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((p) => {
+            const busy = busyId === p.id;
+            const err = errorById[p.id] ?? null;
+            return (
+              <tr key={p.id}>
+                <td>
+                  <Link href={`/postings/${p.id}/applicants`}>{p.roleTitle}</Link>
+                </td>
+                <td>{p.locationLabel ?? ZERO}</td>
+                <td>{p.vacancyBand}</td>
+                <td>
+                  <span
+                    className={
+                      p.status === "open"
+                        ? "badge badge-ok"
+                        : p.status === "paused"
+                          ? "badge badge-warn"
+                          : "badge"
+                    }
                   >
-                    {busy ? "Working…" : "Top up applicant quota"}
-                  </button>
-                </div>
-                {err ? <p className="error-text">{err}</p> : null}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+                    {p.status}
+                  </span>
+                </td>
+                <td className="mono">
+                  {p.applicantCount} / {p.applicantQuota ?? ZERO}
+                </td>
+                <td className="mono">{day(p.createdAt)}</td>
+                <td>
+                  <div className="btn-row" style={{ flexWrap: "wrap", gap: 6 }}>
+                    {p.status === "paused" ? (
+                      <button
+                        className="btn secondary"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => run(p.id, () => resumePostingAction({ postingId: p.id }))}
+                      >
+                        {busy ? "Working…" : "Resume"}
+                      </button>
+                    ) : p.status === "open" ? (
+                      <button
+                        className="btn secondary"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => onPause(p.id)}
+                      >
+                        {busy ? "Working…" : "Pause"}
+                      </button>
+                    ) : null}
+                    <button
+                      className="btn secondary"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => run(p.id, () => topUpQuotaAction({ postingId: p.id }))}
+                    >
+                      {busy ? "Working…" : "Top up applicant quota"}
+                    </button>
+                  </div>
+                  {err ? <p className="error-text">{err}</p> : null}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </>
   );
 }

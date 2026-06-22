@@ -6,14 +6,13 @@ import type { Capacity } from "../../../lib/contracts";
 export const dynamic = "force-dynamic";
 
 /**
- * Capacity view (ADR-0019 Phase 1 — WAITING mock, READ-ONLY).
+ * Capacity view (ADR-0019 Phase 1 — READ-ONLY).
  *
- * Shows the payer's concurrent active-vacancy allowance (ADR-0016, config-derived)
- * and per-posting applicant-quota usage (quota purchased vs profiles disclosed). All
- * counts; NO raw worker/payer PII. XB-A: the seam derives everything from the
- * server-held session's postings — the client never supplies a payer id. The
- * `capacity.controller` is InternalServiceGuard, so this is a mock shim until a
- * payer-authed `GET /payer/capacity` lands (see payer-api.ts ESCALATE note).
+ * The concurrent active-vacancy ALLOWANCE is LIVE from the payer-authed
+ * `GET /payer/capacity` (XB-A: Bearer only, no payer_id). The per-posting
+ * applicant-quota ROWS are still backend-seeded MOCK (no payer-authed create-posting /
+ * quota endpoint yet) — see the page note + the payer-api.ts seam note. All counts; NO
+ * raw worker/payer PII. The client never supplies a payer id.
  */
 export default async function CapacityPage() {
   const session = await requirePayer();
@@ -66,6 +65,12 @@ export default async function CapacityPage() {
 
           <section className="section">
             <h2>Per {isAgency ? "vacancy" : "posting"}</h2>
+            <div className="note">
+              Your concurrent allowance above is <strong>live</strong> from the backend. The per-
+              {isAgency ? "vacancy" : "posting"} rows below reflect{" "}
+              <strong>backend-seeded plans only</strong> for now — they will become live once the
+              create-posting backend endpoint lands.
+            </div>
             {capacity.postings.length === 0 ? (
               <div className="empty">
                 You haven&rsquo;t posted {isAgency ? "a vacancy" : "a job"} yet.{" "}
