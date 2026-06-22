@@ -10,6 +10,7 @@ import {
 
 const POSTING_ID = "33333333-3333-4333-8333-333333333333";
 const CREATED_BY = "44444444-4444-4444-8444-444444444444";
+const PAYER_ID = "55555555-5555-4555-8555-555555555555";
 const CTX = { correlationId: "22222222-2222-4222-8222-222222222222", requestId: "req-1" };
 
 // Free-text values used in tests — NONE of these may ever appear in an emitted
@@ -66,11 +67,47 @@ function make(existing?: Row) {
       Promise.resolve(row({ ...existing, id, status: "closed", closedAt })),
     );
   const list = vi.fn().mockResolvedValue([]);
+  // Payer owner-scoped repo methods (default: the row IS owned; tests override
+  // findByIdAndPayer with undefined to exercise the not-owned / no-oracle path).
+  const findByIdAndPayer = vi.fn().mockResolvedValue(existing);
+  const listByPayer = vi.fn().mockResolvedValue([]);
+  const updateOwned = vi
+    .fn()
+    .mockImplementation((id: string, _payerId: string, patch: Partial<Row>) =>
+      Promise.resolve(row({ ...existing, ...patch, id })),
+    );
+  const closeOwned = vi
+    .fn()
+    .mockImplementation((id: string, _payerId: string, _prev: "draft" | "open", closedAt: Date) =>
+      Promise.resolve(row({ ...existing, id, status: "closed", closedAt })),
+    );
   const svc = new JobPostingsService(
-    { create, findById, update, close, list } as never,
+    {
+      create,
+      findById,
+      update,
+      close,
+      list,
+      findByIdAndPayer,
+      listByPayer,
+      updateOwned,
+      closeOwned,
+    } as never,
     { emit } as never,
   );
-  return { svc, emit, create, findById, update, close, list };
+  return {
+    svc,
+    emit,
+    create,
+    findById,
+    update,
+    close,
+    list,
+    findByIdAndPayer,
+    listByPayer,
+    updateOwned,
+    closeOwned,
+  };
 }
 
 /** Deep-scan any emitted payload for forbidden free-text values. */
@@ -191,7 +228,11 @@ describe("UpdateJobPostingSchema vacancy intake", () => {
 describe("JobPostingsService.update", () => {
   it("emits job_posting.updated with changed_fields KEYS only (no free-text values)", async () => {
     const { svc, emit } = make(row({ status: "draft", vacancyBand: "2-5" }));
-    await svc.update(POSTING_ID, { role_title: "CNC Operator", vacancy_band: "11-25" }, CTX as never);
+    await svc.update(
+      POSTING_ID,
+      { role_title: "CNC Operator", vacancy_band: "11-25" },
+      CTX as never,
+    );
 
     const arg = emit.mock.calls[0]![0];
     expect(arg.event_name).toBe("job_posting.updated");
@@ -232,17 +273,17 @@ describe("JobPostingsService.update", () => {
 
   it("404s when the posting is missing and does not emit", async () => {
     const { svc, emit } = make(undefined);
-    await expect(
-      svc.update(POSTING_ID, { role_title: "X" }, CTX as never),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(svc.update(POSTING_ID, { role_title: "X" }, CTX as never)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
     expect(emit).not.toHaveBeenCalled();
   });
 
   it("409s on any edit to a closed posting (terminal) and does not emit", async () => {
     const { svc, emit } = make(row({ status: "closed" }));
-    await expect(
-      svc.update(POSTING_ID, { role_title: "X" }, CTX as never),
-    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(svc.update(POSTING_ID, { role_title: "X" }, CTX as never)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
     expect(emit).not.toHaveBeenCalled();
   });
 
@@ -250,17 +291,17 @@ describe("JobPostingsService.update", () => {
     // status="open" on an already-open posting is not a valid transition (only
     // draft->open is allowed via PATCH).
     const { svc, emit } = make(row({ status: "open" }));
-    await expect(
-      svc.update(POSTING_ID, { status: "open" }, CTX as never),
-    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(svc.update(POSTING_ID, { status: "open" }, CTX as never)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
     expect(emit).not.toHaveBeenCalled();
   });
 
   it("rejects a no-op edit (no effective changes) without emitting", async () => {
     const { svc, emit } = make(row({ status: "draft", roleTitle: ROLE }));
-    await expect(
-      svc.update(POSTING_ID, { role_title: ROLE }, CTX as never),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.update(POSTING_ID, { role_title: ROLE }, CTX as never)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
     expect(emit).not.toHaveBeenCalled();
   });
 });
@@ -370,7 +411,10 @@ describe("CreateJobPostingSchema PII + length guards", () => {
   });
 
   it("ignores a client-supplied status (not part of the create schema)", () => {
-    const parsed = CreateJobPostingSchema.parse({ ...base, status: "open" } as unknown as CreateJobPostingDto);
+    const parsed = CreateJobPostingSchema.parse({
+      ...base,
+      status: "open",
+    } as unknown as CreateJobPostingDto);
     expect("status" in parsed).toBe(false);
   });
 });
@@ -394,5 +438,111 @@ describe("UpdateJobPostingSchema status guard", () => {
   it("rejects an empty patch", () => {
     const r = UpdateJobPostingSchema.safeParse({});
     expect(r.success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PAYER self-serve surface (ADR-0019 / ADR-0022 module 9) — owner-scoped CRUD,
+// session payer stamped as owner, payer event actor, no-oracle 404.
+// ---------------------------------------------------------------------------
+describe("JobPostingsService — payer self-serve (*ForPayer)", () => {
+  it("createForPayer stamps the SESSION payer as owner AND created_by, status=draft", async () => {
+    const { svc, create } = make();
+    await svc.createForPayer(
+      PAYER_ID,
+      { org_label: ORG, role_title: ROLE, vacancy_band: "2-5" },
+      CTX as never,
+    );
+    // The row is created with payerId = createdBy = the session payer; status draft.
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ payerId: PAYER_ID, createdBy: PAYER_ID, status: "draft" }),
+    );
+  });
+
+  it("createForPayer emits job_posting.created with the PAYER actor, payload PII-free + payer-free", async () => {
+    const { svc, emit } = make();
+    await svc.createForPayer(
+      PAYER_ID,
+      { org_label: ORG, role_title: ROLE, location_label: LOCATION, vacancies: 7 },
+      CTX as never,
+    );
+    const arg = emit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(arg.event_name).toBe("job_posting.created");
+    expect(arg.actor).toEqual({ actor_type: "payer", actor_id: PAYER_ID });
+    const payload = arg.payload as Record<string, unknown>;
+    // created_by carries the opaque payer id; there is NO payer_id payload key.
+    expect(payload.created_by).toBe(PAYER_ID);
+    expect(payload).not.toHaveProperty("payer_id");
+    assertNoFreeText(payload); // org/role/location free text never leaves the row
+  });
+
+  it("listForPayer + getOneForPayer scope to the session payer", async () => {
+    const { svc, listByPayer, findByIdAndPayer } = make(row({ payerId: PAYER_ID } as Partial<Row>));
+    await svc.listForPayer(PAYER_ID, { status: "open" });
+    expect(listByPayer).toHaveBeenCalledWith(PAYER_ID, "open");
+    await svc.getOneForPayer(POSTING_ID, PAYER_ID);
+    expect(findByIdAndPayer).toHaveBeenCalledWith(POSTING_ID, PAYER_ID);
+  });
+
+  it("getOneForPayer 404s (no-oracle) for an unknown OR another payer's posting", async () => {
+    const { svc, findByIdAndPayer } = make();
+    findByIdAndPayer.mockResolvedValueOnce(undefined); // not found OR not owned — same result
+    await expect(svc.getOneForPayer(POSTING_ID, PAYER_ID)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  it("updateForPayer reads + writes owner-scoped and emits the PAYER actor", async () => {
+    const existing = row({ status: "draft", payerId: PAYER_ID } as Partial<Row>);
+    const { svc, emit, findByIdAndPayer, updateOwned, update } = make(existing);
+    await svc.updateForPayer(POSTING_ID, PAYER_ID, { role_title: "CNC Operator" }, CTX as never);
+    expect(findByIdAndPayer).toHaveBeenCalledWith(POSTING_ID, PAYER_ID);
+    expect(updateOwned).toHaveBeenCalledWith(
+      POSTING_ID,
+      PAYER_ID,
+      expect.objectContaining({ roleTitle: "CNC Operator" }),
+    );
+    // The ops (unscoped) update path is NEVER used by the payer surface.
+    expect(update).not.toHaveBeenCalled();
+    const arg = emit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(arg.actor).toEqual({ actor_type: "payer", actor_id: PAYER_ID });
+  });
+
+  it("updateForPayer 404s (no-oracle) for a not-owned posting BEFORE any write", async () => {
+    const { svc, findByIdAndPayer, updateOwned } = make();
+    findByIdAndPayer.mockResolvedValueOnce(undefined);
+    await expect(
+      svc.updateForPayer(POSTING_ID, PAYER_ID, { role_title: "X" }, CTX as never),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(updateOwned).not.toHaveBeenCalled();
+  });
+
+  it("closeForPayer reads + closes owner-scoped and emits the PAYER actor", async () => {
+    const existing = row({ status: "open", payerId: PAYER_ID } as Partial<Row>);
+    const { svc, emit, closeOwned, close } = make(existing);
+    await svc.closeForPayer(POSTING_ID, PAYER_ID, CTX as never);
+    expect(closeOwned).toHaveBeenCalledWith(POSTING_ID, PAYER_ID, "open", expect.any(Date));
+    expect(close).not.toHaveBeenCalled(); // never the ops (unscoped) close
+    const arg = emit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(arg.event_name).toBe("job_posting.closed");
+    expect(arg.actor).toEqual({ actor_type: "payer", actor_id: PAYER_ID });
+  });
+
+  it("closeForPayer 404s (no-oracle) for a not-owned posting BEFORE any write", async () => {
+    const { svc, findByIdAndPayer, closeOwned } = make();
+    findByIdAndPayer.mockResolvedValueOnce(undefined);
+    await expect(svc.closeForPayer(POSTING_ID, PAYER_ID, CTX as never)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(closeOwned).not.toHaveBeenCalled();
+  });
+
+  it("closeForPayer 409s when the owned row was already closed (concurrent close)", async () => {
+    const existing = row({ status: "open", payerId: PAYER_ID } as Partial<Row>);
+    const { svc, closeOwned } = make(existing);
+    closeOwned.mockResolvedValueOnce(undefined); // guarded update found nothing to close
+    await expect(svc.closeForPayer(POSTING_ID, PAYER_ID, CTX as never)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
   });
 });

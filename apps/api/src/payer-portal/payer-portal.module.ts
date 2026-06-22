@@ -9,6 +9,7 @@ import { UnlocksModule } from "../unlocks/unlocks.module";
 import { PostingPlansModule } from "../posting-plans/posting-plans.module";
 import { ReachModule } from "../reach/reach.module";
 import { ResumeDisclosureModule } from "../disclosures/resume-disclosure.module";
+import { JobPostingsModule } from "../job-postings/job-postings.module";
 import { WHATSAPP_PROVIDER, type WhatsAppProvider } from "../messaging/whatsapp.provider";
 import { MockWhatsAppProvider } from "../messaging/mock-whatsapp.provider";
 import { MetaWhatsAppProvider } from "../messaging/meta-whatsapp.provider";
@@ -26,6 +27,7 @@ import { PayerCapacityController } from "./payer-capacity.controller";
 import { PayerAuthController } from "./payer-auth.controller";
 import { PayerReachController } from "./payer-reach.controller";
 import { PayerDisclosureController } from "./payer-disclosure.controller";
+import { PayerJobPostingsController } from "./payer-job-postings.controller";
 import { PayerAuthService } from "./payer-auth.service";
 
 /**
@@ -64,6 +66,9 @@ import { PayerAuthService } from "./payer-auth.service";
     // consent → shared-cap → grant → single-decrypt chokepoint) unchanged, behind
     // PayerAuthGuard — exactly as the reach/unlock payer views reuse their services.
     ResumeDisclosureModule,
+    // The payer-self job-posting CRUD (ADR-0022 module 9) reuses JobPostingsService
+    // unchanged in its lifecycle rules, behind PayerAuthGuard + owner-scoping.
+    JobPostingsModule,
     // Reuse BullMQ's Redis connection (client only) for the payer OTP store + XB-G cap.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
   ],
@@ -73,6 +78,7 @@ import { PayerAuthService } from "./payer-auth.service";
     PayerCapacityController,
     PayerReachController,
     PayerDisclosureController,
+    PayerJobPostingsController,
   ],
   providers: [
     PayerAuthService,

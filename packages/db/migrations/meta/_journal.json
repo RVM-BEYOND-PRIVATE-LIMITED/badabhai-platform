@@ -169,6 +169,13 @@
       "when": 1781852655699,
       "tag": "0023_pace_states",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1782125124222,
+      "tag": "0024_square_manta",
+      "breakpoints": true
     }
   ]
 }

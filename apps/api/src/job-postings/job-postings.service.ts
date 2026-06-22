@@ -13,23 +13,42 @@ import { JobPostingsRepository, type JobPostingUpdate } from "./job-postings.rep
 import type {
   CreateJobPostingDto,
   ListJobPostingsQueryDto,
+  PayerCreateJobPostingDto,
   UpdateJobPostingDto,
 } from "./job-postings.dto";
 
+/** The acting identity on a job_posting.* event — ops (the creator) or a payer (the owner). */
+type JobPostingActor = { actor_type: "ops" | "payer"; actor_id: string };
+
+type JobPostingEventName = "job_posting.created" | "job_posting.updated" | "job_posting.closed";
+
+/** The validated PATCH the service derived from an edit DTO (column patch + changed KEYS). */
+interface PreparedUpdate {
+  patch: JobPostingUpdate;
+  changedFields: PayloadInputOf<"job_posting.updated">["changed_fields"];
+  bandChanged: boolean;
+}
+
 /**
- * Ops-created, vacancy-banded, stored-only job postings (ADR-0012). Each write
- * emits a registry-validated `job_posting.*` event whose payload carries ONLY
- * ids, enums, booleans, and changed-field KEYS — never the free-text values
- * (org_label / role_title / location_label / description). The free text lives
- * only on the job_postings row; the events record the FACT, not the value.
+ * Ops-created, vacancy-banded, stored-only job postings (ADR-0012), plus the payer
+ * self-serve surface (ADR-0019 / ADR-0022 module 9). Each write emits a
+ * registry-validated `job_posting.*` event whose payload carries ONLY ids, enums,
+ * booleans, and changed-field KEYS — never the free-text values (org_label /
+ * role_title / location_label / description). The free text lives only on the
+ * job_postings row; the events record the FACT, not the value.
  *
- * There is NO ops auth in alpha: `created_by` arrives on the create DTO as an
- * opaque ops-actor uuid and is used for the column, the created payload, AND the
- * `actor.actor_id` on every job_posting.* event (the posting's creator is the
- * only ops identity we have). Resolving it from an authenticated ops session is
- * deferred to Phase 2.
+ * TWO SURFACES OVER ONE CHOKEPOINT (one principal per route):
+ *   - OPS path (`create`/`list`/`getOne`/`update`/`close`) — no ops auth in alpha;
+ *     `created_by` arrives on the DTO as an opaque ops-actor uuid, `payer_id` stays
+ *     NULL, and the events carry the OPS actor. Behaviour is unchanged.
+ *   - PAYER path (`*ForPayer`) — behind PayerAuthGuard; the SESSION `payer_id` is
+ *     stamped on the row and used as BOTH the `created_by` and the event ACTOR
+ *     (actor_type:"payer"). Every read/write is owner-scoped (payer_id in the WHERE,
+ *     no-oracle 404 for an unknown OR foreign id — XB-A horizontal authz). `payer_id`
+ *     is consumed only as the ownership key + the opaque actor_id; it never enters a
+ *     payload (the event stays PII-free, no schema change).
  *
- * Lifecycle (ADR open-item b), enforced here:
+ * Lifecycle (ADR open-item b), enforced for both surfaces:
  *   draft -> open    (via PATCH status="open")
  *   draft -> closed  (via close endpoint)
  *   open  -> closed  (via close endpoint)
@@ -43,38 +62,22 @@ export class JobPostingsService {
     private readonly events: EventsService,
   ) {}
 
+  // ----- OPS surface (ADR-0012, unchanged) ----------------------------------
+
   async create(dto: CreateJobPostingDto, ctx: RequestContext): Promise<JobPosting> {
-    // Vacancy band: derive from the raw `vacancies` count when supplied (intake
-    // only — the integer is discarded here and NEVER stored/evented), otherwise
-    // use the pre-chosen band. The DTO refine guarantees exactly one is present.
-    const vacancyBand =
-      dto.vacancies !== undefined ? bandForCount(dto.vacancies) : dto.vacancy_band!;
-
-    // status is ALWAYS draft on create — any client-supplied status is ignored
-    // (the DTO does not even accept one).
-    const row = await this.repo.create({
-      createdBy: dto.created_by,
-      orgLabel: dto.org_label,
-      roleTitle: dto.role_title,
-      locationLabel: dto.location_label ?? null,
-      description: dto.description ?? null,
-      vacancyBand,
-      status: "draft",
-    });
-
-    const payload: PayloadInputOf<"job_posting.created"> = {
-      job_posting_id: row.id,
-      vacancy_band: row.vacancyBand,
-      status: "draft",
-      created_by: row.createdBy,
-      has_location: row.locationLabel != null,
-      has_description: row.description != null,
-    };
-    await this.events.emit(
-      this.emitParams("job_posting.created", row.id, row.createdBy, payload, ctx),
+    return this.insertAndEmit(
+      {
+        createdBy: dto.created_by,
+        payerId: null,
+        orgLabel: dto.org_label,
+        roleTitle: dto.role_title,
+        locationLabel: dto.location_label ?? null,
+        description: dto.description ?? null,
+        vacancyBand: resolveCreateBand(dto),
+      },
+      { actor_type: "ops", actor_id: dto.created_by },
+      ctx,
     );
-
-    return row;
   }
 
   list(query: ListJobPostingsQueryDto): Promise<JobPosting[]> {
@@ -87,29 +90,148 @@ export class JobPostingsService {
     return row;
   }
 
-  async update(
+  async update(id: string, dto: UpdateJobPostingDto, ctx: RequestContext): Promise<JobPosting> {
+    const current = await this.getOne(id);
+    const prepared = this.prepareUpdate(current, dto);
+
+    const updated = await this.repo.update(id, prepared.patch);
+    if (!updated) throw new NotFoundException(`Job posting ${id} not found`);
+
+    await this.emitUpdated(
+      updated,
+      { actor_type: "ops", actor_id: updated.createdBy },
+      prepared,
+      ctx,
+    );
+    return updated;
+  }
+
+  async close(id: string, ctx: RequestContext): Promise<JobPosting> {
+    const current = await this.getOne(id);
+    const previousStatus = assertCloseable(current);
+
+    const closed = await this.repo.close(id, previousStatus, new Date());
+    if (!closed) throw new ConflictException("Job posting is already closed");
+
+    await this.emitClosed(
+      closed,
+      { actor_type: "ops", actor_id: closed.createdBy },
+      previousStatus,
+      ctx,
+    );
+    return closed;
+  }
+
+  // ----- PAYER self-serve surface (ADR-0019 / ADR-0022 module 9) -------------
+  // Identity is the SESSION payer (XB-A); the body never carries payer_id/created_by.
+
+  async createForPayer(
+    payerId: string,
+    dto: PayerCreateJobPostingDto,
+    ctx: RequestContext,
+  ): Promise<JobPosting> {
+    return this.insertAndEmit(
+      {
+        // The payer is BOTH the owner and the (only) creator identity we have.
+        createdBy: payerId,
+        payerId,
+        orgLabel: dto.org_label,
+        roleTitle: dto.role_title,
+        locationLabel: dto.location_label ?? null,
+        description: dto.description ?? null,
+        vacancyBand: resolveCreateBand(dto),
+      },
+      { actor_type: "payer", actor_id: payerId },
+      ctx,
+    );
+  }
+
+  listForPayer(payerId: string, query: ListJobPostingsQueryDto): Promise<JobPosting[]> {
+    return this.repo.listByPayer(payerId, query.status);
+  }
+
+  /** One of the caller's OWN postings; no-oracle 404 for an unknown OR foreign id. */
+  async getOneForPayer(id: string, payerId: string): Promise<JobPosting> {
+    const row = await this.repo.findByIdAndPayer(id, payerId);
+    if (!row) throw new NotFoundException("Job posting not found");
+    return row;
+  }
+
+  async updateForPayer(
     id: string,
+    payerId: string,
     dto: UpdateJobPostingDto,
     ctx: RequestContext,
   ): Promise<JobPosting> {
-    const current = await this.getOne(id);
+    const current = await this.getOneForPayer(id, payerId); // no-oracle 404
+    const prepared = this.prepareUpdate(current, dto);
+
+    const updated = await this.repo.updateOwned(id, payerId, prepared.patch);
+    if (!updated) throw new NotFoundException("Job posting not found");
+
+    await this.emitUpdated(updated, { actor_type: "payer", actor_id: payerId }, prepared, ctx);
+    return updated;
+  }
+
+  async closeForPayer(id: string, payerId: string, ctx: RequestContext): Promise<JobPosting> {
+    const current = await this.getOneForPayer(id, payerId); // no-oracle 404
+    const previousStatus = assertCloseable(current);
+
+    const closed = await this.repo.closeOwned(id, payerId, previousStatus, new Date());
+    if (!closed) throw new ConflictException("Job posting is already closed");
+
+    await this.emitClosed(closed, { actor_type: "payer", actor_id: payerId }, previousStatus, ctx);
+    return closed;
+  }
+
+  // ----- shared internals (one chokepoint for both surfaces) -----------------
+
+  /** Insert a posting (always status=draft) and emit the created event for the actor. */
+  private async insertAndEmit(
+    input: {
+      createdBy: string;
+      payerId: string | null;
+      orgLabel: string;
+      roleTitle: string;
+      locationLabel: string | null;
+      description: string | null;
+      vacancyBand: JobPosting["vacancyBand"];
+    },
+    actor: JobPostingActor,
+    ctx: RequestContext,
+  ): Promise<JobPosting> {
+    // status is ALWAYS draft on create — any client-supplied status is ignored.
+    const row = await this.repo.create({ ...input, status: "draft" });
+
+    const payload: PayloadInputOf<"job_posting.created"> = {
+      job_posting_id: row.id,
+      vacancy_band: row.vacancyBand,
+      status: "draft",
+      created_by: row.createdBy,
+      has_location: row.locationLabel != null,
+      has_description: row.description != null,
+    };
+    await this.events.emit(this.emitParams("job_posting.created", row.id, actor, payload, ctx));
+    return row;
+  }
+
+  /**
+   * Validate an edit against the current row and build the column patch + the
+   * changed-field KEY list in lockstep (KEYS only, never the values — no free text
+   * leaves this method). Throws the lifecycle/no-op errors. Shared by both surfaces.
+   */
+  private prepareUpdate(current: JobPosting, dto: UpdateJobPostingDto): PreparedUpdate {
     // closed is terminal: no edits, no status changes.
     if (current.status === "closed") {
       throw new ConflictException("Job posting is closed and cannot be edited");
     }
-
     // The only status transition allowed via PATCH is publish (draft -> open).
     if (dto.status === "open" && current.status !== "draft") {
-      throw new ConflictException(
-        `Cannot transition job posting from ${current.status} to open`,
-      );
+      throw new ConflictException(`Cannot transition job posting from ${current.status} to open`);
     }
 
-    // Build the column patch and the changed-field KEY list in lockstep, so the
-    // event's changed_fields exactly mirrors what we write — KEYS only, never the
-    // values (no free text leaves this method).
     const patch: JobPostingUpdate = { updatedAt: new Date() };
-    const changedFields: PayloadInputOf<"job_posting.updated">["changed_fields"] = [];
+    const changedFields: PreparedUpdate["changedFields"] = [];
 
     if (dto.org_label !== undefined && dto.org_label !== current.orgLabel) {
       patch.orgLabel = dto.org_label;
@@ -128,9 +250,8 @@ export class JobPostingsService {
       changedFields.push("description");
     }
 
-    // Resolve the requested band from EITHER the raw `vacancies` count (intake
-    // only — derived then discarded, never stored/evented) OR the pre-chosen
-    // band. The DTO refine guarantees at most one is present.
+    // Resolve the requested band from EITHER the raw `vacancies` count (intake only —
+    // derived then discarded, never stored/evented) OR the pre-chosen band.
     const requestedBand =
       dto.vacancies !== undefined ? bandForCount(dto.vacancies) : dto.vacancy_band;
 
@@ -151,71 +272,79 @@ export class JobPostingsService {
       throw new BadRequestException("no effective changes to apply");
     }
 
-    const updated = await this.repo.update(id, patch);
-    if (!updated) throw new NotFoundException(`Job posting ${id} not found`);
-
-    const payload: PayloadInputOf<"job_posting.updated"> = {
-      job_posting_id: updated.id,
-      changed_fields: changedFields,
-      status: updated.status,
-      // Only carry the band when it actually changed; otherwise null.
-      vacancy_band: bandChanged ? updated.vacancyBand : null,
-    };
-    await this.events.emit(
-      this.emitParams("job_posting.updated", updated.id, updated.createdBy, payload, ctx),
-    );
-
-    return updated;
+    return { patch, changedFields, bandChanged };
   }
 
-  async close(id: string, ctx: RequestContext): Promise<JobPosting> {
-    const current = await this.getOne(id);
-    if (current.status === "closed") {
-      throw new ConflictException("Job posting is already closed");
-    }
-    // current.status is now narrowed to draft | open (the two closeable states).
-    const previousStatus: "draft" | "open" = current.status;
+  private emitUpdated(
+    updated: JobPosting,
+    actor: JobPostingActor,
+    prepared: PreparedUpdate,
+    ctx: RequestContext,
+  ): Promise<unknown> {
+    const payload: PayloadInputOf<"job_posting.updated"> = {
+      job_posting_id: updated.id,
+      changed_fields: prepared.changedFields,
+      status: updated.status,
+      // Only carry the band when it actually changed; otherwise null.
+      vacancy_band: prepared.bandChanged ? updated.vacancyBand : null,
+    };
+    return this.events.emit(
+      this.emitParams("job_posting.updated", updated.id, actor, payload, ctx),
+    );
+  }
 
-    const closed = await this.repo.close(id, previousStatus, new Date());
-    if (!closed) {
-      // The row was closed concurrently between our read and the guarded update.
-      throw new ConflictException("Job posting is already closed");
-    }
-
+  private emitClosed(
+    closed: JobPosting,
+    actor: JobPostingActor,
+    previousStatus: "draft" | "open",
+    ctx: RequestContext,
+  ): Promise<unknown> {
     const payload: PayloadInputOf<"job_posting.closed"> = {
       job_posting_id: closed.id,
       previous_status: previousStatus,
       status: "closed",
     };
-    await this.events.emit(
-      this.emitParams("job_posting.closed", closed.id, closed.createdBy, payload, ctx),
-    );
-
-    return closed;
+    return this.events.emit(this.emitParams("job_posting.closed", closed.id, actor, payload, ctx));
   }
 
   /**
-   * Common emit params: ops actor, job_posting subject, tracing ids. There is no
-   * ops auth in alpha, so the acting ops identity is the posting's `created_by`
-   * (an opaque ops-actor uuid) — resolving it from an authenticated ops session
-   * is deferred to Phase 2.
+   * Common emit params: the acting identity (ops creator OR session payer), the
+   * job_posting subject, and tracing ids. `payer_id` is NEVER a payload field — when
+   * a payer acts, it rides `actor.actor_id` (opaque), keeping the event PII-free.
    */
-  private emitParams<
-    N extends "job_posting.created" | "job_posting.updated" | "job_posting.closed",
-  >(
+  private emitParams<N extends JobPostingEventName>(
     event_name: N,
     jobPostingId: string,
-    actorId: string,
+    actor: JobPostingActor,
     payload: PayloadInputOf<N>,
     ctx: RequestContext,
   ): EmitParams<N> {
     return {
       event_name,
-      actor: { actor_type: "ops", actor_id: actorId },
+      actor,
       subject: { subject_type: "job_posting", subject_id: jobPostingId },
       payload,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     } as EmitParams<N>;
   }
+}
+
+/**
+ * The create band: derive from the raw `vacancies` count when supplied (intake only —
+ * the integer is discarded here and NEVER stored/evented), otherwise use the
+ * pre-chosen band. Both DTOs' refines guarantee exactly one is present.
+ */
+function resolveCreateBand(
+  dto: CreateJobPostingDto | PayerCreateJobPostingDto,
+): JobPosting["vacancyBand"] {
+  return dto.vacancies !== undefined ? bandForCount(dto.vacancies) : dto.vacancy_band!;
+}
+
+/** Assert a posting is closeable and narrow its status to the two closeable states. */
+function assertCloseable(current: JobPosting): "draft" | "open" {
+  if (current.status === "closed") {
+    throw new ConflictException("Job posting is already closed");
+  }
+  return current.status;
 }
