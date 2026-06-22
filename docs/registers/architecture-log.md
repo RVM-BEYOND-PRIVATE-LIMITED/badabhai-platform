@@ -8,6 +8,29 @@ boundary moved).
 
 ---
 
+## 2026-06-22 — CORS is now env-driven + fail-closed (TD30, not an ADR)
+- **Boundary tightened, not moved.** The browser-facing API's CORS policy went from
+  unconditionally open (`app.enableCors()` in every env) to an env-driven origin
+  allow-list. [`main.ts`](../../apps/api/src/main.ts) now applies
+  `enableCors(corsOptions(config))` ([`packages/config/src/server.ts`](../../packages/config/src/server.ts)),
+  gated by a new fail-closed `assertCorsConfig(config)` boot guard sitting next to
+  `assertPiiCryptoConfig`/`assertAuthConfig`/`assertPaymentsConfig`/`assertPayerAuthConfig`.
+- **Per-env origin model.** New `CORS_ALLOWED_ORIGINS` env (CSV → trimmed `string[]`);
+  `assertCorsConfig` throws at boot when the list is empty outside an explicit
+  development/test env (keyed off the canonical [`isDevEnv()`](../../packages/config/src/shared.ts) /
+  RAW `NODE_ENV` — the R14 fail-closed rule, never the fail-open parsed value). Dev
+  reflects any origin; staging/prod use the exact list and MUST include BOTH the ops
+  console ([`apps/web`](../../apps/web), which fetches the API client-side) and
+  payer-web origins. `credentials:false` (Bearer-header auth, not cookies);
+  `exposedHeaders` carries `x-session-token` so cross-origin payer-web can read the
+  rolling payer session.
+- **Transport-only — faceless spine untouched.** No schema, event, or PII change; no
+  new component or contract surface. **Not an ADR** — the per-env origin model is
+  uncontested. Backward-compatible: dev boot unchanged; staging/prod now require the
+  allow-list (intended fail-closed).
+- Closes [TD30](./tech-debt-register.md) (R14's split-out CORS gap; cross-link
+  [R14](./risks-register.md)).
+
 ## 2026-06-15 — Contact Unlock + Reveal Stream A backend landed (ADR-0010)
 - **New contract surface: the routed-disclosure monetization spine.** Contact
   Unlock is the one feature that deliberately discloses a worker's contact channel

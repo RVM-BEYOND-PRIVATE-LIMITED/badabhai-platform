@@ -9,6 +9,8 @@ import {
   isUsingDevJwtDefault,
   assertPaymentsConfig,
   assertPayerAuthConfig,
+  assertCorsConfig,
+  corsOptions,
 } from "@badabhai/config";
 import { AppModule } from "./app.module";
 import { StructuredLogger } from "./common/logging/structured-logger";
@@ -20,6 +22,7 @@ async function bootstrap(): Promise<void> {
   assertAuthConfig(config); // fail closed on dev JWT secret / console SMS / half-set Fast2SMS outside dev/test
   assertPaymentsConfig(config); // fail closed if real payments enabled without a provider key (ADR-0010 F-6)
   assertPayerAuthConfig(config); // fail closed on a half-configured payer login method / dev JWT (ADR-0019 B)
+  assertCorsConfig(config); // fail closed if the CORS allow-list is empty outside dev/test (TD30)
   if (isUsingDevPiiDefaults(config)) {
     new Logger("Bootstrap").warn(
       "Using INSECURE default PII secrets (local dev only). Set PII_HASH_PEPPER + PII_ENCRYPTION_KEY.",
@@ -36,7 +39,12 @@ async function bootstrap(): Promise<void> {
   });
 
   app.useGlobalFilters(new AllExceptionsFilter());
-  app.enableCors(); // TODO: lock down origins per environment before production
+  // TD30: env-driven origin allow-list (fail-closed outside dev/test via assertCorsConfig
+  // above). Reflects any origin ONLY in an explicit development/test env; staging/prod use
+  // the exact CORS_ALLOWED_ORIGINS list. credentials:false (Bearer-header auth, not cookies);
+  // exposedHeaders carries x-session-token so apps/payer-web (separate origin) can read the
+  // rolling payer-session refresh.
+  app.enableCors(corsOptions(config));
   app.enableShutdownHooks(); // ensures DatabaseModule.onModuleDestroy runs
 
   await app.listen(config.API_PORT);

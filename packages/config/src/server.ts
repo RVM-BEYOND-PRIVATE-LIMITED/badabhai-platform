@@ -29,6 +29,22 @@ export const DEV_JWT_SECRET = "dev-insecure-jwt-secret-change-me";
 export const serverEnvSchema = z.object({
   NODE_ENV: nodeEnvSchema,
 
+  // CORS origin allow-list (TD30 — R14's split-out CORS gap). CSV of EXACT browser
+  // origins (scheme+host[+port], e.g. "https://ops.badabhai.in,https://app.badabhai.in")
+  // permitted to call this browser-facing API. Empty/unset is the FAIL-CLOSED default:
+  // `assertCorsConfig` throws at boot OUTSIDE an explicit development/test env, while in
+  // dev `isDevEnv()` reflects any origin. Parsed to a trimmed, de-blanked string[].
+  // Transport config only — NOT PII, no schema/event impact.
+  CORS_ALLOWED_ORIGINS: z
+    .string()
+    .default("")
+    .transform((csv) =>
+      csv
+        .split(",")
+        .map((o) => o.trim())
+        .filter((o) => o.length > 0),
+    ),
+
   // Core datastores
   DATABASE_URL: z.string().url().default("postgresql://badabhai:badabhai@localhost:5432/badabhai"),
   REDIS_URL: z.string().url().default("redis://localhost:6379"),
@@ -466,5 +482,65 @@ export function assertPayerAuthConfig(
 
   if (problems.length > 0) {
     throw new Error(`Invalid payer-auth config (ADR-0019, fail closed): ${problems.join("; ")}`);
+  }
+}
+
+/** The CORS policy applied at boot (TD30). Shape matches NestJS `enableCors` options. */
+export interface CorsOptions {
+  /** `true` reflects any origin (dev only); otherwise the exact allow-list. */
+  origin: true | string[];
+  credentials: boolean;
+  exposedHeaders: string[];
+  allowedHeaders: string[];
+}
+
+/**
+ * THE effective CORS policy (TD30 — R14's split-out CORS gap). Centralized + testable
+ * so the open→locked transition can't silently regress: `main.ts` just applies what
+ * this returns.
+ *
+ * - `origin`: in an EXPLICIT development/test env (`isDevEnv`, RAW NODE_ENV — never the
+ *   fail-open parsed value, the R14 footgun) it is `true` (reflect any origin, local
+ *   convenience); otherwise it is the configured allow-list (exact origins only —
+ *   `assertCorsConfig` guarantees that list is non-empty outside dev/test).
+ * - `credentials: false`: the API authenticates via the `Authorization` Bearer header,
+ *   NOT cookies — so we MUST NEVER pair a reflected/wildcard origin with credentials.
+ * - `exposedHeaders` includes `x-session-token` so a cross-origin browser client
+ *   (`apps/payer-web`, a separate origin) can read the rolling payer-session refresh the
+ *   `PayerAuthGuard` sets — without it the payer session silently breaks cross-origin.
+ * - `allowedHeaders`: the standard browser request headers our clients send. The
+ *   internal-service token is deliberately ABSENT — it is only ever attached server-side
+ *   (read from a non-public env var), never from a browser, so it needs no CORS grant.
+ */
+export function corsOptions(
+  config: ServerConfig,
+  rawNodeEnv: string | undefined = process.env.NODE_ENV,
+): CorsOptions {
+  return {
+    origin: isDevEnv(rawNodeEnv) ? true : config.CORS_ALLOWED_ORIGINS,
+    credentials: false,
+    exposedHeaders: ["x-session-token"],
+    allowedHeaders: ["Authorization", "Content-Type", "Accept", "x-request-id", "x-correlation-id"],
+  };
+}
+
+/**
+ * Fail-closed boot guard for CORS (TD30; mirrors `assertAuthConfig` / `assertPayerAuthConfig`).
+ * A browser-facing API must NOT run with an unconstrained/empty origin policy in a real
+ * environment. The empty allow-list is acceptable ONLY when NODE_ENV is EXPLICITLY
+ * "development"/"test" (`isDevEnv` → reflect any origin for local work). Any other value —
+ * UNSET, "staging", "production", or a typo — with an empty `CORS_ALLOWED_ORIGINS` throws at
+ * boot, so a forgotten allow-list FAILS CLOSED instead of silently allowing every origin
+ * (the old `app.enableCors()` default). Call once at boot (main.ts).
+ */
+export function assertCorsConfig(
+  config: ServerConfig,
+  rawNodeEnv: string | undefined = process.env.NODE_ENV,
+): void {
+  if (isDevEnv(rawNodeEnv)) return;
+  if (config.CORS_ALLOWED_ORIGINS.length === 0) {
+    throw new Error(
+      "CORS_ALLOWED_ORIGINS is empty outside an explicit development/test environment — refusing to boot a browser-facing API with no origin allow-list (TD30, fail closed). Set it to the ops-console (apps/web) + payer-web (apps/payer-web) origins.",
+    );
   }
 }
