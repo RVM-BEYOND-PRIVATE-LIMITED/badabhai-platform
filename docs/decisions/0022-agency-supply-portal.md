@@ -1,6 +1,6 @@
 # ADR-0022: Agency Supply Portal — additive demand slice on the payer account (Phase-0 design)
 
-- **Status:** **PROPOSED.** Design artifact only. NOTHING in this ADR is built this phase. It draws the contract for an **Agency Supply Portal** that an agency (`payers.role = 'agent'`) uses, and decides which of its candidate modules are BUILD-NOW (additive demand slice), which are PARKED behind named gates, which are LEGAL_MONEY_GATE, and which are DEAD. The BUILD-NOW slice is **design-only** here; implementation is handed to the engineer agents only after sign-off.
+- **Status:** **ACCEPTED (2026-06-22, human sign-off).** Phase-1 build authorized for the BUILD-NOW demand slice only, with the Appendix-C security conditions pinned-with-tests. The PARKED / LEGAL_MONEY_GATE / DEAD modules remain out of scope behind their named gates. This ADR draws the contract for an **Agency Supply Portal** that an agency (`payers.role = 'agent'`) uses, and classifies its candidate modules into BUILD-NOW (additive demand slice) / PARKED / LEGAL_MONEY_GATE / DEAD.
 - **Date:** 2026-06-22
 - **Phase:** Phase-2 fast-follow (web-app lock confirmed: demand loop = alpha, agency supply dashboard = fast-follow). **NOT a §2 invariant relaxation** — additive only, behind the same gates as ADR-0010/0019/0020.
 - **Author:** system-architect (architecture + contract). Security-engineer MANDATORY before any build (this rides the external untrusted payer boundary ADR-0019 opened). Product-manager owns the parked attribution/payout params. Human/legal owns KYC + real money.
@@ -13,6 +13,18 @@
   - **CLAUDE.md** §2 invariants #1 (event-first), #2 (no raw PII outside `workers`), #4 (LLMs never rank/decide), #6 (consent gate), #8 (additive/backcompat); §7 escalation; §8 deferred scope.
   - **packages/db/src/schema.ts** — `payers` (~L103, `role 'employer'|'agent'`), `invites` (~L1125, `inviter_worker_id` NOT NULL → worker→worker), `worker_consents` (~L127, append-only), `jobs` (~L662, opaque nullable `payer_id`, no FK), `job_postings` (~L545, opaque `created_by`, no `payer_id`).
   - **packages/event-schema/src/{registry,payloads}.ts** — the shipped `feed.shown` / `consent.accepted` / `unlock.*` / `payment.*` / `invite.*` / `job_posting.*` contracts. **Reused, never re-versioned.**
+
+---
+
+## Sign-off (2026-06-22)
+
+Human sign-off obtained on the Phase-0 package. Decisions ratified:
+
+1. **Plan APPROVED** — build the BUILD-NOW demand slice only (modules 5, 8, 9). PARKED (3), LEGAL_MONEY_GATE (1, 7), and DEAD (2, 4, 6) stay out of scope behind their named gates.
+2. **Role model = "Agent-Only" (option (b) from Appendix C.2 #1).** A real role gate is added: `payers.role` is carried on the authenticated principal (role claim on the payer session / loaded from the `payers` row) and a `PayerRoleGuard`/`@PayerRoles('agent')` restricts the new agency routes — an `employer` token is **rejected** on agent-only routes (vertical authz), in addition to the existing `assertPayerOwns` tenant isolation (horizontal authz). Both are build-blocker tests.
+3. **Security build-blockers ACCEPTED as pinned-with-tests** (Appendix C): consent-gated attribution write; aggregate-only / k-anonymous referrals summary (no per-invitee consent oracle); RLS/REVOKE-lock the new `invited_worker_id`; per-payer invite-mint cap; sibling `agency_invites` table (option i) as the default.
+
+Mock + staging-only stays in force (`MESSAGING_ENABLE_REAL=false`, `PAYMENTS_ENABLE_REAL=false`). A `bb-security-review` PASS on the built surface remains the pre-merge gate. STOP + escalate before any KYC, attribution→payout, real comms/payments, matching/outcome, or agency handling of raw worker PII.
 
 ---
 
