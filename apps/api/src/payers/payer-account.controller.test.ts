@@ -77,12 +77,15 @@ function makeGuardCtx(authHeader?: string) {
 /** A guard whose session validates ANY bearer token to the given payer id. */
 function guardFor(payerId: string | null) {
   const session = {
+    // role:null → exercises the ADR-0022 fallback (resolve role from the payers row).
     validateAndTouch: vi.fn(async () =>
-      payerId ? { payerId, sid: "sid", remainingSeconds: FULL_TTL } : null,
+      payerId ? { payerId, sid: "sid", remainingSeconds: FULL_TTL, role: null } : null,
     ),
     mint: vi.fn(async () => ({ token: "fresh", expiresInSeconds: FULL_TTL })),
   } as unknown as PayerSessionService;
-  return new PayerAuthGuard(session, config);
+  // The guard's role fallback reads payers.findById; reuse the same per-id repo stub.
+  const { repo } = makeRepo();
+  return new PayerAuthGuard(session, config, repo);
 }
 
 /**
@@ -101,7 +104,8 @@ describe("PayerAccountController — horizontal-authz / IDOR (ADR-0019 C / LC-1)
     const guard = guardFor(PAYER_A);
     const { ctx, req } = makeGuardCtx("Bearer payerA.token");
     await expect(guard.canActivate(ctx)).resolves.toBe(true);
-    expect(req.payer).toEqual({ id: PAYER_A, sid: "sid" });
+    // role resolves via the ADR-0022 fallback from the (employer) payers row.
+    expect(req.payer).toEqual({ id: PAYER_A, sid: "sid", role: "employer" });
 
     const { repo, findById } = makeRepo();
     const controller = new PayerAccountController(new PayerAccountService(repo));

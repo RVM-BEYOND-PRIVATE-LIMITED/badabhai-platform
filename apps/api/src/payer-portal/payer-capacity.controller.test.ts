@@ -5,7 +5,7 @@ import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import type { RequestContext } from "../common/request-context";
 import type { BuyCapacityDto } from "../posting-plans/posting-plans.dto";
 
-const PAYER_A: AuthenticatedPayer = { id: "aaaaaaaa-0000-4000-8000-000000000001", sid: "sid-a" };
+const PAYER_A: AuthenticatedPayer = { id: "aaaaaaaa-0000-4000-8000-000000000001", sid: "sid-a", role: "employer" };
 const CTX: RequestContext = {
   correlationId: "11111111-1111-4111-8111-111111111111",
   requestId: "req-1",

@@ -7,7 +7,7 @@ import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import { PayerAuthController } from "./payer-auth.controller";
 
 const CTX: RequestContext = { correlationId: "11111111-1111-4111-8111-111111111111", requestId: "req-1" };
-const PAYER: AuthenticatedPayer = { id: "aaaaaaaa-0000-4000-8000-000000000001", sid: "sid-a" };
+const PAYER: AuthenticatedPayer = { id: "aaaaaaaa-0000-4000-8000-000000000001", sid: "sid-a", role: "employer" };
 const req = { ip: "203.0.113.7" } as unknown as Request;
 
 function makeCtrl() {

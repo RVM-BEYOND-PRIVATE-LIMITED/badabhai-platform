@@ -5,7 +5,7 @@ import type { RequestContext } from "../common/request-context";
 import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import { PayerReachController } from "./payer-reach.controller";
 
-const PAYER_A: AuthenticatedPayer = { id: "aaaaaaaa-0000-4000-8000-000000000001", sid: "sid-a" };
+const PAYER_A: AuthenticatedPayer = { id: "aaaaaaaa-0000-4000-8000-000000000001", sid: "sid-a", role: "employer" };
 const CTX: RequestContext = { correlationId: "22222222-2222-4222-8222-222222222222", requestId: "req-1" };
 const JOB = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 
