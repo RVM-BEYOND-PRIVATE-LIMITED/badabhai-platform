@@ -6,6 +6,7 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { PayersModule } from "../payers/payers.module";
 import { UnlocksModule } from "../unlocks/unlocks.module";
+import { PostingPlansModule } from "../posting-plans/posting-plans.module";
 import { ReachModule } from "../reach/reach.module";
 import { WHATSAPP_PROVIDER, type WhatsAppProvider } from "../messaging/whatsapp.provider";
 import { MockWhatsAppProvider } from "../messaging/mock-whatsapp.provider";
@@ -20,6 +21,7 @@ import {
   SupabaseLoginChannel,
 } from "../payers/payer-login-channel";
 import { PayerUnlocksController } from "./payer-unlocks.controller";
+import { PayerCapacityController } from "./payer-capacity.controller";
 import { PayerAuthController } from "./payer-auth.controller";
 import { PayerReachController } from "./payer-reach.controller";
 import { PayerAuthService } from "./payer-auth.service";
@@ -50,13 +52,21 @@ import { PayerAuthService } from "./payer-auth.service";
   imports: [
     PayersModule,
     UnlocksModule,
+    // The payer-self capacity view/buy (ADR-0016) reuses PostingPlansService unchanged,
+    // exactly as PayerUnlocksController reuses UnlockService.
+    PostingPlansModule,
     // The payer-self reach view (R22) reuses ReachService (the ranking orchestration +
     // faceless boundary), exactly as PayerUnlocksController reuses UnlockService.
     ReachModule,
     // Reuse BullMQ's Redis connection (client only) for the payer OTP store + XB-G cap.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
   ],
-  controllers: [PayerAuthController, PayerUnlocksController, PayerReachController],
+  controllers: [
+    PayerAuthController,
+    PayerUnlocksController,
+    PayerCapacityController,
+    PayerReachController,
+  ],
   providers: [
     PayerAuthService,
     PayerOtpService,

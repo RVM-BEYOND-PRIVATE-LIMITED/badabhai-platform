@@ -14,3 +14,14 @@ export const PayerRequestUnlockSchema = z.object({
   job_id: z.string().uuid().nullable().default(null),
 });
 export type PayerRequestUnlockDto = z.infer<typeof PayerRequestUnlockSchema>;
+
+/**
+ * POST /payer/credits body — buy a credit pack. Same XB-A discipline as above: the
+ * payer is the AUTHENTICATED session payer (`req.payer.id`), so this body carries NO
+ * `payer_id`. Only the opaque pack CODE is supplied; the pack (price + credits) is
+ * resolved from config by the service — amounts are never client-supplied.
+ */
+export const PayerBuyPackSchema = z.object({
+  pack_code: z.string().min(1).max(64),
+});
+export type PayerBuyPackDto = z.infer<typeof PayerBuyPackSchema>;

@@ -25,6 +25,7 @@ import { VoiceController } from "../voice/voice.controller";
 import { WorkersController } from "../workers/workers.controller";
 import { PayerAuthController } from "../payer-portal/payer-auth.controller";
 import { PayerUnlocksController } from "../payer-portal/payer-unlocks.controller";
+import { PayerCapacityController } from "../payer-portal/payer-capacity.controller";
 import { PayerReachController } from "../payer-portal/payer-reach.controller";
 
 /**
@@ -123,7 +124,13 @@ const CONTRACT: ControllerContract[] = [
   {
     name: "PayerUnlocks",
     ctor: PayerUnlocksController,
-    routes: { requestUnlock: [P], reveal: [P], listOwn: [P], ownCredits: [P] },
+    routes: { requestUnlock: [P], reveal: [P], listOwn: [P], ownCredits: [P], buyPack: [P] },
+  },
+  // Payer-self capacity view/buy (ADR-0019 + ADR-0016): session-bound, NO :payerId param.
+  {
+    name: "PayerCapacity",
+    ctor: PayerCapacityController,
+    routes: { ownCapacity: [P], buyCapacity: [P] },
   },
   { name: "PayerReach", ctor: PayerReachController, routes: { applicants: [P] } },
   {

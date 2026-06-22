@@ -1,11 +1,15 @@
 import "reflect-metadata";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { NotFoundException } from "@nestjs/common";
 import { PayerUnlocksController } from "./payer-unlocks.controller";
 import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import type { RequestContext } from "../common/request-context";
 
 const PAYER_A: AuthenticatedPayer = { id: "aaaaaaaa-0000-4000-8000-000000000001", sid: "sid-a" };
-const CTX: RequestContext = { correlationId: "11111111-1111-4111-8111-111111111111", requestId: "req-1" };
+const CTX: RequestContext = {
+  correlationId: "11111111-1111-4111-8111-111111111111",
+  requestId: "req-1",
+};
 const WORKER = "cccccccc-0000-4000-8000-000000000003";
 const UNLOCK = "dddddddd-0000-4000-8000-000000000004";
 
@@ -15,6 +19,12 @@ function makeCtrl() {
     reveal: vi.fn(async () => ({ channel: "in_app_relay" })),
     listByPayer: vi.fn(async () => ({ unlocks: [] })),
     getCredits: vi.fn(async () => ({ payer_id: PAYER_A.id, balance: 0 })),
+    purchaseCredits: vi.fn(async () => ({
+      payer_id: PAYER_A.id,
+      balance: 50,
+      credits: 50,
+      pack_code: "starter",
+    })),
   };
   const disclosureRate = { assertWithinHourlyCap: vi.fn(async () => undefined) };
   const ctrl = new PayerUnlocksController(unlocks as never, disclosureRate as never);
@@ -62,7 +72,22 @@ describe("PayerUnlocksController — identity from the session, never the body (
 
   it("a tripped per-payer cap (XB-G) blocks the chokepoint (request never reaches UnlockService)", async () => {
     d.disclosureRate.assertWithinHourlyCap.mockRejectedValueOnce(new Error("429"));
-    await expect(d.ctrl.requestUnlock({ worker_id: WORKER, job_id: null }, PAYER_A, CTX)).rejects.toThrow();
+    await expect(
+      d.ctrl.requestUnlock({ worker_id: WORKER, job_id: null }, PAYER_A, CTX),
+    ).rejects.toThrow();
     expect(d.unlocks.requestUnlock).not.toHaveBeenCalled();
+  });
+
+  it("buyPack binds payer_id to the SESSION payer (the body carries only pack_code)", async () => {
+    const out = await d.ctrl.buyPack({ pack_code: "starter" }, PAYER_A, CTX);
+    expect(d.unlocks.purchaseCredits).toHaveBeenCalledWith(PAYER_A.id, "starter", CTX);
+    expect(out).toEqual({ payer_id: PAYER_A.id, balance: 50, credits: 50, pack_code: "starter" });
+  });
+
+  it("buyPack on an UNKNOWN pack (service → null) throws a real 404 (NotFoundException)", async () => {
+    d.unlocks.purchaseCredits.mockResolvedValueOnce(null as never);
+    await expect(d.ctrl.buyPack({ pack_code: "nope" }, PAYER_A, CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 });

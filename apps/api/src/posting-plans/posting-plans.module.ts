@@ -16,5 +16,9 @@ import { PostingPlansRepository } from "./posting-plans.repository";
   imports: [PricingModule],
   controllers: [PostingPlansController, CapacityController],
   providers: [PostingPlansService, PostingPlansRepository],
+  // Export ONLY the service so the payer-portal route group (ADR-0019) can reuse the exact
+  // same capacity buy/read logic. PostingPlansRepository stays unexported (single-writer),
+  // mirroring how UnlocksModule exports only UnlockService.
+  exports: [PostingPlansService],
 })
 export class PostingPlansModule {}
