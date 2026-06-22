@@ -82,8 +82,9 @@ describe("PayerRoleGuard (ADR-0022 vertical authz)", () => {
 
   it("@PayerRoles attaches the allowed-role set as reflector metadata", () => {
     class C {
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
-      handler() {}
+      handler() {
+        /* no-op route handler — only its reflector metadata matters */
+      }
     }
     PayerRoles("agent")(C.prototype, "handler", Object.getOwnPropertyDescriptor(C.prototype, "handler")!);
     const meta = new Reflector().get<PayerRole[]>(PAYER_ROLES_KEY, C.prototype.handler);
