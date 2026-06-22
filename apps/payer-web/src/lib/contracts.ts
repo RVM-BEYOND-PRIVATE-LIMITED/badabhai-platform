@@ -245,6 +245,18 @@ export const payerMeWireSchema = z.object({
 });
 export type PayerMeWire = z.infer<typeof payerMeWireSchema>;
 
+/**
+ * The agency's OWN account identity for the dashboard identity card (mapped from
+ * GET /payer/me). Carries ONLY the agency's own non-PII fields — role, account
+ * status, and the org's own display label. NEVER a worker name/phone (faceless).
+ */
+export const agencyAccountSchema = z.object({
+  role: z.enum(["employer", "agent"]),
+  status: z.enum(["pending", "active", "suspended"]),
+  displayLabel: z.string(),
+});
+export type AgencyAccount = z.infer<typeof agencyAccountSchema>;
+
 /** GET /payer/credits — `{ payer_id, balance }`. */
 export const creditsWireSchema = z.object({
   payer_id: z.string().uuid(),
@@ -277,6 +289,34 @@ export const unlockGrantedWireSchema = z.object({
 export const neutralWireSchema = z.object({ status: z.literal("unavailable") });
 export const unlockResultWireSchema = z.union([unlockGrantedWireSchema, neutralWireSchema]);
 
+/**
+ * POST /payer/credits — buy a credit pack (LIVE, @HttpCode(201)). The request body
+ * carries ONLY the pack CODE (XB-A: no payer_id, no price, no credits — the server
+ * resolves price + credits from config). The response mirrors
+ * {@link import("../../api/src/unlocks/unlocks.service").UnlockService.purchaseCredits}:
+ * `{ payer_id, balance, credits, pack_code }`. Money is MOCK (real_call:false; there is
+ * NO Razorpay) — an unknown pack is a real 404 (catalog item, not a tenant oracle).
+ */
+export const buyPackResultWireSchema = z.object({
+  payer_id: z.string().uuid(),
+  balance: z.number().int().nonnegative(),
+  credits: z.number().int().positive(),
+  pack_code: z.string(),
+});
+
+/**
+ * GET /payer/capacity — the caller's OWN hiring-capacity allowance (LIVE, Bearer only).
+ * Mirrors {@link import("../../api/src/posting-plans/posting-plans.service").PostingPlansService.getCapacity}:
+ * `{ payer_id, max_active_vacancies, source_tier, expires_at }`. Counts/codes only; NO
+ * raw worker/payer PII. `source_tier`/`expires_at` are null until a capacity pack is bought.
+ */
+export const payerCapacityWireSchema = z.object({
+  payer_id: z.string().uuid(),
+  max_active_vacancies: z.number().int().nonnegative(),
+  source_tier: z.string().nullable(),
+  expires_at: z.string().nullable(),
+});
+
 /** GET /payer/reach/jobs/:jobId/applicants — faceless ranked rows (no PII). */
 export const reachApplicantWireSchema = z.object({
   workerId: z.string().uuid(),
@@ -290,3 +330,34 @@ export const reachApplicantListWireSchema = z.object({
   jobId: z.string().uuid(),
   applicants: z.array(reachApplicantWireSchema),
 });
+
+/* ── @parked Phase-2 SUPPLY contract shells (TYPE-ONLY) ──────────────────────────
+ *
+ * @parked Phase-2 — agency SUPPLY (referrals / payouts / KYC) is CEO-gated and NOT
+ * built in Phase 1 (CLAUDE.md §8 deferred; D2/D3). These are TYPE shells ONLY: there
+ * is NO seam fn, NO endpoint, NO mock data, and NO function that returns them. They
+ * exist so the eventual build pins shapes in one place. KYC is a HIGH-sensitivity PII
+ * surface — building anything here pulls a parked, backend-heavy slice forward.
+ */
+
+/** @parked Phase-2 — an agency referral link. No seam fn, no endpoint. */
+export interface ReferralLink {
+  referralId: string;
+  code: string;
+  createdAt: string;
+  status: "active" | "disabled";
+}
+
+/** @parked Phase-2 — one payout-ledger row (real money out). No seam fn, no endpoint. */
+export interface PayoutLedgerRow {
+  payoutId: string;
+  amountInr: number;
+  status: "pending" | "approved" | "paid" | "rejected";
+  createdAt: string;
+}
+
+/** @parked Phase-2 — agency KYC status (HIGH-sensitivity PII). No seam fn, no endpoint. */
+export interface KycStatus {
+  state: "not_started" | "submitted" | "verified" | "rejected";
+  updatedAt: string | null;
+}

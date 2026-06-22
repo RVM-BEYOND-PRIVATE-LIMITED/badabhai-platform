@@ -137,6 +137,84 @@ describe("getCredits — reads the session-scoped balance (no client payer_id)",
   });
 });
 
+describe("topUp — buy-pack wiring (LIVE): POSTs ONLY { pack_code } + Bearer", () => {
+  it("posts pack_code only (no payer_id, no price, no credits) and maps the balance", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        {
+          payer_id: "11111111-1111-4111-8111-111111111111",
+          balance: 57,
+          credits: 50,
+          pack_code: "pack_50",
+        },
+        201,
+      ),
+    );
+    const { topUp } = await import("./payer-api");
+    const res = await topUp({ packCode: "pack_50" });
+
+    // Money is MOCK — realCall stays false; the balance/credits map off the wire.
+    expect(res).toMatchObject({
+      balance: 57,
+      creditsAdded: 50,
+      packCode: "pack_50",
+      realCall: false,
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/payer/credits");
+    expect(init.method).toBe("POST");
+    const headers = init.headers as Record<string, string>;
+    expect(headers.authorization).toBe(`Bearer ${TOKEN}`);
+
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    // The ONLY key is pack_code — no payer_id, no price, no credits (XB-A).
+    expect(Object.keys(body)).toEqual(["pack_code"]);
+    expect(body).not.toHaveProperty("payer_id");
+    expect(body).not.toHaveProperty("price");
+    expect(body).not.toHaveProperty("credits");
+    expect(JSON.stringify(body)).not.toMatch(/payer_id/);
+  });
+
+  it("maps an unknown-pack 404 to a neutral null (catalog item, not a tenant oracle)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ message: "Unknown credit pack" }, 404));
+    const { topUp } = await import("./payer-api");
+    const res = await topUp({ packCode: "does_not_exist" });
+    expect(res).toBeNull();
+  });
+});
+
+describe("getCapacity — capacity wiring (LIVE): GETs /payer/capacity with Bearer, no payer_id", () => {
+  const PAYER_A = "11111111-1111-4111-8111-111111111111";
+
+  it("GETs /payer/capacity (Bearer, no body) and maps max_active_vacancies to the allowance", async () => {
+    const store = await import("./mock-store");
+    store.__resetForTest(PAYER_A, true); // seed the WAITING-mock per-posting rows
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        payer_id: PAYER_A,
+        max_active_vacancies: 9,
+        source_tier: null,
+        expires_at: null,
+      }),
+    );
+    const { getCapacity } = await import("./payer-api");
+    const cap = await getCapacity();
+
+    expect(cap.payerId).toBe(PAYER_A);
+    // The allowance comes from the LIVE endpoint, not the config baseline.
+    expect(cap.activeVacancyAllowance).toBe(9);
+    // Per-posting rows are still the (WAITING-mock) seeded plans.
+    expect(cap.postings.length).toBeGreaterThan(0);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/payer/capacity");
+    expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
+    // A GET carries no body, hence no place for a client payer_id.
+    expect(init.body).toBeUndefined();
+  });
+});
+
 /**
  * WAITING-mock seam: job management + capacity. These bind to the SERVER-HELD session
  * payer (the mocked `requirePayer` above → PAYER_A) and never accept a client payer id.
@@ -173,22 +251,5 @@ describe("job-management seam — server-held payer, config-driven (WAITING mock
     const { pausePosting } = await import("./payer-api");
     const res = await pausePosting({ postingId: "99999999-9999-4999-8999-999999999999" });
     expect(res).toBeNull();
-  });
-});
-
-describe("getCapacity seam — derived from the session payer's postings (WAITING mock)", () => {
-  const PAYER_A = "11111111-1111-4111-8111-111111111111";
-
-  it("returns config-derived allowance + per-posting quota usage, no fetch", async () => {
-    const store = await import("./mock-store");
-    store.__resetForTest(PAYER_A, true);
-    const { getCapacity } = await import("./payer-api");
-    const cap = await getCapacity();
-
-    expect(cap.payerId).toBe(PAYER_A);
-    expect(cap.activeVacancyAllowance).toBeGreaterThan(0); // from the pricing config
-    expect(cap.postings.length).toBeGreaterThan(0);
-    expect(cap.applicantQuotaTotal).toBeGreaterThanOrEqual(cap.applicantQuotaUsed);
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

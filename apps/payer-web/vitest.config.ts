@@ -1,6 +1,10 @@
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  // Use the automatic JSX runtime so .tsx tests render elements without `React` in
+  // scope (the app uses `jsx: preserve` + Next's SWC transform; this only affects the
+  // vitest/esbuild test transform, never Next's production build).
+  esbuild: { jsx: "automatic" },
   test: {
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     environment: "node",

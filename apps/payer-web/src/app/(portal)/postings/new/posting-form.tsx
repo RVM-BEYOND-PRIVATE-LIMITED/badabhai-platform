@@ -13,14 +13,31 @@ export function PostingForm() {
   const [description, setDescription] = useState("");
   const [vacancyBand, setVacancyBand] = useState<string>(VACANCY_BANDS[0]);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ roleTitle?: string; vacancyBand?: string }>({});
   const [pending, startTransition] = useTransition();
+
+  /** Client-side field validation (mirrors createPostingInputSchema; inline per-field). */
+  function validate(): { roleTitle?: string; vacancyBand?: string } {
+    const errs: { roleTitle?: string; vacancyBand?: string } = {};
+    const trimmed = roleTitle.trim();
+    if (trimmed.length < 2 || trimmed.length > 120) {
+      errs.roleTitle = "Role title must be 2–120 characters.";
+    }
+    if (!VACANCY_BANDS.includes(vacancyBand as (typeof VACANCY_BANDS)[number])) {
+      errs.vacancyBand = "Select a vacancy band.";
+    }
+    return errs;
+  }
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    const errs = validate();
+    setFieldErrors(errs);
+    if (Object.keys(errs).length > 0) return;
     startTransition(async () => {
       const res = await createPostingAction({
-        roleTitle,
+        roleTitle: roleTitle.trim(),
         locationLabel,
         description,
         vacancyBand,
@@ -45,8 +62,18 @@ export function PostingForm() {
           className="input"
           placeholder="CNC Machinist"
           value={roleTitle}
-          onChange={(e) => setRoleTitle(e.target.value)}
+          aria-invalid={fieldErrors.roleTitle ? true : undefined}
+          aria-describedby={fieldErrors.roleTitle ? "roleTitle-error" : undefined}
+          onChange={(e) => {
+            setRoleTitle(e.target.value);
+            if (fieldErrors.roleTitle) setFieldErrors((p) => ({ ...p, roleTitle: undefined }));
+          }}
         />
+        {fieldErrors.roleTitle ? (
+          <p className="error-text" id="roleTitle-error">
+            {fieldErrors.roleTitle}
+          </p>
+        ) : null}
       </div>
       <div className="field">
         <label htmlFor="locationLabel">Location</label>
@@ -66,7 +93,12 @@ export function PostingForm() {
           id="vacancyBand"
           className="input"
           value={vacancyBand}
-          onChange={(e) => setVacancyBand(e.target.value)}
+          aria-invalid={fieldErrors.vacancyBand ? true : undefined}
+          aria-describedby={fieldErrors.vacancyBand ? "vacancyBand-error" : undefined}
+          onChange={(e) => {
+            setVacancyBand(e.target.value);
+            if (fieldErrors.vacancyBand) setFieldErrors((p) => ({ ...p, vacancyBand: undefined }));
+          }}
         >
           {VACANCY_BANDS.map((b) => (
             <option key={b} value={b}>
@@ -74,6 +106,11 @@ export function PostingForm() {
             </option>
           ))}
         </select>
+        {fieldErrors.vacancyBand ? (
+          <p className="error-text" id="vacancyBand-error">
+            {fieldErrors.vacancyBand}
+          </p>
+        ) : null}
       </div>
       <div className="field">
         <label htmlFor="description">Description</label>

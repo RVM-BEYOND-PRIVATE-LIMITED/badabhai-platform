@@ -15,7 +15,7 @@ ops console's privileged data access.
    mint a payer JWT stored in an httpOnly server cookie. `mock` stays as a local/test
    fallback. A third-party IdP/MFA is B-R1 (a separate human gate).
 2. **Dashboard** — LIVE credits (`GET /payer/credits`) + LIVE unlocks (`GET
-   /payer/unlocks`); postings are still **WAITING** (mock — no payer-authed endpoint).
+/payer/unlocks`); postings are still **WAITING** (mock — no payer-authed endpoint).
 3. **Post a job (WAITING)** — mock; `posting-plans` is `InternalServiceGuard`. ESCALATE.
 4. **Applicant feed (LIVE)** — `GET /payer/reach/jobs/:jobId/applicants`: faceless ranked
    rows (opaque id + rank/score/hot + signal reasons). No name/phone/employer. (The
@@ -42,16 +42,21 @@ ops console's privileged data access.
 
 ## Env
 
-| Var | Where | Default | Notes |
-|-----|-------|---------|-------|
-| `NEXT_PUBLIC_API_URL` | client | `http://localhost:3001` | public, safe to ship |
-| `NEXT_PUBLIC_ENVIRONMENT` | client | `development` | public |
-| `PAYER_AUTH_MODE` | server | `api` | `api` (LIVE backend payer-auth) or `mock` (local fallback); other = B-R1 gate |
-| `PAYER_API_URL` | server | `http://localhost:3001` | server-side API base |
-| `PAYER_SESSION_SECRET` | server | dev fallback | HMAC key for the mock session cookie |
-| `INTERNAL_SERVICE_TOKEN` | server | unset | interim guard secret (server-only) |
-| `PAYMENTS_ENABLE_REAL` | server | `false` | **must be false** — boot fails closed if true |
-| `PAYER_POSTING_FREE_THROUGH_LAUNCH` | server | `true` | free-posting launch flag |
+| Var                                          | Where  | Default                 | Notes                                                                         |
+| -------------------------------------------- | ------ | ----------------------- | ----------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_API_URL`                        | client | `http://localhost:3001` | public, safe to ship                                                          |
+| `NEXT_PUBLIC_ENVIRONMENT`                    | client | `development`           | public                                                                        |
+| `NEXT_PUBLIC_ENABLE_AGENCY_PORTAL`           | client | `true`                  | public flag; gates the agency DEMAND surface (set `false` to roll back)       |
+| `NEXT_PUBLIC_ENABLE_AGENCY_SUPPLY`           | client | `false`                 | public flag; parked supply-side shell (off)                                   |
+| `NEXT_PUBLIC_ENABLE_AGENCY_KYC`              | client | `false`                 | public flag; parked (off)                                                     |
+| `NEXT_PUBLIC_ENABLE_AGENCY_PAYOUTS`          | client | `false`                 | public flag; parked (off)                                                     |
+| `NEXT_PUBLIC_ENABLE_AGENCY_BULK_UPLOAD`      | client | `false`                 | public flag; parked (off)                                                     |
+| `NEXT_PUBLIC_ENABLE_AGENCY_OUTCOME_TRACKING` | client | `false`                 | public flag; parked (off)                                                     |
+| `PAYER_AUTH_MODE`                            | server | `api`                   | `api` (LIVE backend payer-auth) or `mock` (local fallback); other = B-R1 gate |
+| `PAYER_API_URL`                              | server | `http://localhost:3001` | server-side API base                                                          |
+| `PAYER_SESSION_SECRET`                       | server | dev fallback            | HMAC key for the mock session cookie                                          |
+| `PAYMENTS_ENABLE_REAL`                       | server | `false`                 | **must be false** — boot fails closed if true                                 |
+| `PAYER_POSTING_FREE_THROUGH_LAUNCH`          | server | `true`                  | free-posting launch flag                                                      |
 
 No server secret is ever read in a Client Component (`src/lib/server-config.ts` imports
 `server-only`).

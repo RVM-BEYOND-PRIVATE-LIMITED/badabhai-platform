@@ -2,15 +2,19 @@ import "server-only";
 import { requirePayer } from "./auth";
 import {
   applicantFeedSchema,
+  buyPackResultWireSchema,
   capacitySchema,
   creditsWireSchema,
   maskedResumeResultSchema,
+  payerCapacityWireSchema,
+  payerMeWireSchema,
   postingSummarySchema,
   reachApplicantListWireSchema,
   topUpResultSchema,
   unlockResultSchema,
   unlockResultWireSchema,
   unlocksListWireSchema,
+  type AgencyAccount,
   type ApplicantFeed,
   type Capacity,
   type CreatePostingInput,
@@ -27,7 +31,6 @@ import {
 import { revealResultSchema } from "./contracts";
 import * as store from "./mock-store";
 import { payerFetch } from "./payer-http";
-import { baselineActiveVacancyAllowance, findCreditPack } from "./pricing-config";
 
 /**
  * The PAYER DATA SEAM (ADR-0019 Phase 1).
@@ -47,6 +50,21 @@ import { baselineActiveVacancyAllowance, findCreditPack } from "./pricing-config
 /* ────────────────────────────────────────────────────────────────────────────
  * LIVE — payer-authed endpoints (mock path REMOVED for these surfaces).
  * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * GET /payer/me — the caller's OWN account (LIVE). Returns ONLY the agency's own
+ * non-PII identity: role, account status, and the agency's own org label. There is
+ * NO worker PII here — this is the payer's own data (the org label they registered),
+ * never a worker name/phone. Bearer-only (XB-A): the session token is the identity.
+ */
+export async function getAgencyAccount(): Promise<AgencyAccount> {
+  const me = await payerFetch("/payer/me", { schema: payerMeWireSchema });
+  return {
+    role: me.role,
+    status: me.status,
+    displayLabel: me.orgName.trim() || (me.role === "agent" ? "Your agency" : "Your company"),
+  };
+}
 
 /** GET /payer/credits — the caller's OWN balance (the one knowable signal). */
 export async function getCredits(): Promise<CreditBalance> {
@@ -170,9 +188,84 @@ export async function reveal(input: { unlockId: string }): Promise<RevealResult>
   });
 }
 
+/**
+ * POST /payer/credits — buy a credit pack for the caller (LIVE). The body carries ONLY
+ * `{ pack_code }`; the payer is the session token and the server resolves price +
+ * credits from config (XB-A — NO payer_id, NO price, NO credits is ever sent). The
+ * backend (`PayerUnlocksController.buyPack`, @HttpCode(201)) returns
+ * `{ payer_id, balance, credits, pack_code }`, mapped onto {@link TopUpResult}.
+ *
+ * MONEY IS MOCK: `realCall` stays false — the backend mock-purchases (real_call:false);
+ * there is NO Razorpay anywhere in this app. An UNKNOWN pack is a real backend 404 (a
+ * public catalog item, not a tenant oracle) → surfaced as a neutral `null` not-found.
+ */
+export async function topUp(input: { packCode: string }): Promise<TopUpResult | null> {
+  let wire: ReturnType<typeof buyPackResultWireSchema.parse>;
+  try {
+    wire = await payerFetch("/payer/credits", {
+      method: "POST",
+      body: { pack_code: input.packCode }, // XB-A: pack CODE ONLY — no payer_id/price/credits.
+      schema: buyPackResultWireSchema,
+    });
+  } catch (e) {
+    // An unknown pack returns a real 404 (catalog item, not a per-tenant resource) →
+    // a neutral not-found, NOT an error state. Anything else propagates.
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
+  return topUpResultSchema.parse({
+    payerId: wire.payer_id,
+    balance: wire.balance,
+    creditsAdded: wire.credits,
+    packCode: wire.pack_code,
+    realCall: false, // MOCK money — the backend mock-purchases; there is NO Razorpay.
+  });
+}
+
+/**
+ * GET /payer/capacity — the caller's OWN concurrent active-vacancy ALLOWANCE (LIVE,
+ * Bearer only — XB-A: no payer_id, no :payerId param). The backend
+ * (`PayerCapacityController`) returns `{ payer_id, max_active_vacancies, source_tier,
+ * expires_at }`; `max_active_vacancies` is the authoritative, config-resolved allowance.
+ *
+ * The per-posting applicant-quota ROWS are NOT in this LIVE projection (and there is no
+ * payer-authed create-posting endpoint yet), so they remain backend-seeded MOCK rows
+ * from the session-scoped store until the create-posting backend lands (the capacity
+ * page carries a note saying so). `activeVacancies` is counted off those mock rows.
+ * All counts/codes; NO raw worker/payer PII.
+ */
+export async function getCapacity(): Promise<Capacity> {
+  const { payerId } = await requirePayer();
+  const wire = await payerFetch("/payer/capacity", { schema: payerCapacityWireSchema });
+
+  // Per-posting rows are WAITING-mock (no payer-authed create-posting / quota endpoint).
+  const postings = store.getPostings(payerId);
+  const rows = postings.map((p) => ({
+    postingId: p.id,
+    roleTitle: p.roleTitle,
+    status: p.status,
+    vacancyBand: p.vacancyBand,
+    applicantsUsed: p.applicantCount,
+    applicantQuota: p.applicantQuota ?? 0,
+  }));
+  const activeVacancies = postings.filter((p) => p.status === "open").length;
+  return capacitySchema.parse({
+    payerId: wire.payer_id,
+    activeVacancies,
+    // LIVE allowance from the payer-authed capacity endpoint (config-resolved server-side).
+    activeVacancyAllowance: wire.max_active_vacancies,
+    applicantQuotaTotal: rows.reduce((sum, r) => sum + r.applicantQuota, 0),
+    applicantQuotaUsed: rows.reduce((sum, r) => sum + r.applicantsUsed, 0),
+    postings: rows,
+  });
+}
+
 /* ────────────────────────────────────────────────────────────────────────────
  * WAITING — clearly-seamed MOCK shims. NO payer-authed endpoint exists yet.
  * ESCALATE to backend (see REPORT). Tenancy still server-held (XB-A).
+ * These are createPosting / getPostings / pausePosting / resumePosting /
+ * topUpPostingQuota / revealMaskedResume — kept MOCK on purpose (no payer-authed
+ * endpoint). topUp + getCapacity are now LIVE (above).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** WAITING (mock): payer-authed job-postings list. ESCALATE: GET /payer/job-postings. */
@@ -192,27 +285,6 @@ export async function createPosting(input: CreatePostingInput): Promise<PostingS
     roleTitle: input.roleTitle,
     locationLabel: input.locationLabel,
     vacancyBand: input.vacancyBand,
-  });
-}
-
-/**
- * WAITING (mock): credit pack PURCHASE / top-up. Only `POST /payers/:payerId/credits`
- * (InternalServiceGuard) exists; the payer side has `GET /payer/credits` (read) only.
- * MOCK ledger only (R17 / XT5): the pack is resolved from CONFIG by code (never a
- * client amount); `realCall` is always false; there is NO Razorpay code.
- * ESCALATE: backend needs a payer-authed buy-pack endpoint.
- */
-export async function topUp(input: { packCode: string }): Promise<TopUpResult | null> {
-  const { payerId } = await requirePayer();
-  const pack = findCreditPack(input.packCode);
-  if (!pack) return null;
-  const balance = store.addCredits(payerId, pack.credits);
-  return topUpResultSchema.parse({
-    payerId,
-    balance,
-    creditsAdded: pack.credits,
-    packCode: pack.code,
-    realCall: false,
   });
 }
 
@@ -280,39 +352,6 @@ export async function topUpPostingQuota(input: {
   const { payerId } = await requirePayer();
   const updated = store.topUpPostingQuota(payerId, input.postingId);
   return updated ? postingSummarySchema.parse(updated) : null;
-}
-
-/**
- * WAITING (mock): the payer's CAPACITY usage (concurrent active-vacancy allowance +
- * per-posting applicant-quota usage). `capacity.controller` is InternalServiceGuard
- * (the `payers/:payerId/capacity` route takes payer_id from the path, not a payer
- * JWT), so there is NO payer-authed capacity endpoint. ESCALATE: backend needs a
- * payer-authed `GET /payer/capacity`.
- *
- * Tenancy (XB-A): derived ONLY from the server-held session's postings. The allowance
- * is config-derived (baseline catalog capacity tier), never a hardcoded headcount. All
- * counts; NO raw worker/payer PII.
- */
-export async function getCapacity(): Promise<Capacity> {
-  const { payerId } = await requirePayer();
-  const postings = store.getPostings(payerId);
-  const rows = postings.map((p) => ({
-    postingId: p.id,
-    roleTitle: p.roleTitle,
-    status: p.status,
-    vacancyBand: p.vacancyBand,
-    applicantsUsed: p.applicantCount,
-    applicantQuota: p.applicantQuota ?? 0,
-  }));
-  const activeVacancies = postings.filter((p) => p.status === "open").length;
-  return capacitySchema.parse({
-    payerId,
-    activeVacancies,
-    activeVacancyAllowance: baselineActiveVacancyAllowance() ?? 0,
-    applicantQuotaTotal: rows.reduce((sum, r) => sum + r.applicantQuota, 0),
-    applicantQuotaUsed: rows.reduce((sum, r) => sum + r.applicantsUsed, 0),
-    postings: rows,
-  });
 }
 
 /**

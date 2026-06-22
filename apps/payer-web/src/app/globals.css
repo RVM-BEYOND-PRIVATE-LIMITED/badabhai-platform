@@ -25,7 +25,14 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
   font-size: 14px;
 }
 
@@ -318,4 +325,65 @@ textarea.input {
   align-items: center;
   justify-content: center;
   padding: 24px;
+}
+
+/* Visually-hidden but screen-reader-available (a11y for aria-live / labels). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Neutral loading skeleton (route-level loading.tsx). No data, no PII. */
+.skeleton {
+  background: var(--panel-2);
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: skeleton-shimmer 1.3s infinite;
+}
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+.skeleton-title {
+  height: 24px;
+  width: 220px;
+  margin: 0 0 16px;
+}
+.skeleton-line {
+  height: 14px;
+  width: 100%;
+  margin: 0 0 10px;
+}
+.skeleton-line.short {
+  width: 40%;
+}
+.skeleton-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+.skeleton-card {
+  height: 120px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
 }
