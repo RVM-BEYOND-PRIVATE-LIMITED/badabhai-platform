@@ -5,10 +5,12 @@ import { PayerAuthController } from "./payer-auth.controller";
 import { PayerUnlocksController } from "./payer-unlocks.controller";
 import { PayerReachController } from "./payer-reach.controller";
 import { PayerDisclosureController } from "./payer-disclosure.controller";
+import { PayerJobPostingsController } from "./payer-job-postings.controller";
 import { PayersModule } from "../payers/payers.module";
 import { UnlocksModule } from "../unlocks/unlocks.module";
 import { ReachModule } from "../reach/reach.module";
 import { ResumeDisclosureModule } from "../disclosures/resume-disclosure.module";
+import { JobPostingsModule } from "../job-postings/job-postings.module";
 import { PayerAuthGuard } from "../payers/payer-auth.guard";
 import { PAYER_LOGIN_CHANNEL } from "../payers/payer-login-channel";
 import { WHATSAPP_PROVIDER } from "../messaging/whatsapp.provider";
@@ -34,14 +36,16 @@ describe("PayerPortalModule wiring (cross-module DI regression guard)", () => {
     expect(imports).toContain(UnlocksModule);
     expect(imports).toContain(ReachModule); // R22 reach-view reuse
     expect(imports).toContain(ResumeDisclosureModule); // payer masked-resume view reuse
+    expect(imports).toContain(JobPostingsModule); // payer self-serve posting reuse
   });
 
-  it("declares the auth + unlocks + reach + disclosure payer controllers", () => {
+  it("declares the auth + unlocks + reach + disclosure + job-postings payer controllers", () => {
     const controllers = getMeta("controllers", PayerPortalModule);
     expect(controllers).toContain(PayerAuthController);
     expect(controllers).toContain(PayerUnlocksController);
     expect(controllers).toContain(PayerReachController);
     expect(controllers).toContain(PayerDisclosureController);
+    expect(controllers).toContain(PayerJobPostingsController);
   });
 
   it("provides the auth service, OTP store, XB-G cap, and all three login channels", () => {
@@ -66,6 +70,7 @@ describe("PayerPortalModule wiring (cross-module DI regression guard)", () => {
     expect(getMeta("__guards__", PayerUnlocksController)).toContain(PayerAuthGuard);
     expect(getMeta("__guards__", PayerReachController)).toContain(PayerAuthGuard);
     expect(getMeta("__guards__", PayerDisclosureController)).toContain(PayerAuthGuard);
+    expect(getMeta("__guards__", PayerJobPostingsController)).toContain(PayerAuthGuard);
     // PayerAuthController: NO class-level guard (signup/login are public; refresh/logout
     // are guarded per-method, so the class metadata must be empty).
     expect(getMeta("__guards__", PayerAuthController)).toHaveLength(0);

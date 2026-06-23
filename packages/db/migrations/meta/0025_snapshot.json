@@ -1,9 +1,154 @@
 {
-  "id": "bb07b4a9-ae29-470d-9a64-65f4ff9f2b6b",
-  "prevId": "36050f59-ce81-4a7d-a52e-0f89e0876871",
+  "id": "d355be03-2cd7-4b1a-8221-465cc6976e29",
+  "prevId": "bb07b4a9-ae29-470d-9a64-65f4ff9f2b6b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "public.agency_invites": {
+      "name": "agency_invites",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "inviter_payer_id": {
+          "name": "inviter_payer_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code": {
+          "name": "code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "invited_worker_id": {
+          "name": "invited_worker_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "channel": {
+          "name": "channel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'whatsapp'"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'created'"
+        },
+        "campaign": {
+          "name": "campaign",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "agency_invites_code_uq": {
+          "name": "agency_invites_code_uq",
+          "columns": [
+            {
+              "expression": "code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "agency_invites_inviter_payer_id_idx": {
+          "name": "agency_invites_inviter_payer_id_idx",
+          "columns": [
+            {
+              "expression": "inviter_payer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "agency_invites_invited_worker_id_idx": {
+          "name": "agency_invites_invited_worker_id_idx",
+          "columns": [
+            {
+              "expression": "invited_worker_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "agency_invites_inviter_payer_id_payers_id_fk": {
+          "name": "agency_invites_inviter_payer_id_payers_id_fk",
+          "tableFrom": "agency_invites",
+          "tableTo": "payers",
+          "columnsFrom": [
+            "inviter_payer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "agency_invites_invited_worker_id_workers_id_fk": {
+          "name": "agency_invites_invited_worker_id_workers_id_fk",
+          "tableFrom": "agency_invites",
+          "tableTo": "workers",
+          "columnsFrom": [
+            "invited_worker_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
     "public.ai_jobs": {
       "name": "ai_jobs",
       "schema": "",

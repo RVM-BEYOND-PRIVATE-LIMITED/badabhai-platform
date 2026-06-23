@@ -68,6 +68,27 @@ export const CreateJobPostingSchema = z
 export type CreateJobPostingDto = z.infer<typeof CreateJobPostingSchema>;
 
 /**
+ * Payer self-serve create (ADR-0019 / ADR-0022 module 9). IDENTICAL to
+ * {@link CreateJobPostingSchema} EXCEPT it has NO `created_by`: the owner/creator is
+ * the verified SESSION payer (`req.payer.id`), stamped by the service — never a body
+ * value (XB-A). Same "exactly one of vacancy_band | vacancies" intake rule.
+ */
+export const PayerCreateJobPostingSchema = z
+  .object({
+    org_label: orgLabel,
+    role_title: roleTitle,
+    location_label: locationLabel.optional(),
+    description: description.optional(),
+    vacancy_band: z.enum(VACANCY_BANDS).optional(),
+    vacancies: vacancies.optional(),
+  })
+  .refine((o) => (o.vacancy_band !== undefined) !== (o.vacancies !== undefined), {
+    message: "provide exactly one of vacancy_band or vacancies",
+    path: ["vacancy_band"],
+  });
+export type PayerCreateJobPostingDto = z.infer<typeof PayerCreateJobPostingSchema>;
+
+/**
  * Edit a job posting and/or publish it (`draft -> open`). All free-text fields
  * and the vacancy band are optional; `status`, if present, may ONLY be `"open"`
  * (publish). Closing is a separate endpoint; any other status value is rejected

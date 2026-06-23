@@ -1,11 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq } from "drizzle-orm";
-import {
-  type Database,
-  jobPostings,
-  type JobPosting,
-  type NewJobPosting,
-} from "@badabhai/db";
+import { type Database, jobPostings, type JobPosting, type NewJobPosting } from "@badabhai/db";
 import type { JobPostingStatus } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
 
@@ -29,11 +24,7 @@ export class JobPostingsRepository {
   }
 
   async findById(id: string): Promise<JobPosting | undefined> {
-    const rows = await this.db
-      .select()
-      .from(jobPostings)
-      .where(eq(jobPostings.id, id))
-      .limit(1);
+    const rows = await this.db.select().from(jobPostings).where(eq(jobPostings.id, id)).limit(1);
     return rows[0];
   }
 
@@ -80,6 +71,87 @@ export class JobPostingsRepository {
       .update(jobPostings)
       .set({ status: "closed", closedAt, updatedAt: closedAt })
       .where(and(eq(jobPostings.id, id), eq(jobPostings.status, previousStatus)))
+      .returning();
+    return rows[0];
+  }
+
+  // ---------------------------------------------------------------------------
+  // PAYER self-serve scope (ADR-0019 / ADR-0022 module 9). Every read/write is
+  // guarded on `payer_id` IN THE QUERY, so tenancy is enforced at the data layer
+  // (XB-A horizontal authz), not just the service. `payer_id` is the SESSION payer
+  // the controller passes — never a body/route value.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Owner-scoped read (NO-ORACLE, F-3): the row ONLY if it exists AND belongs to
+   * `payerId`. A not-found id and another payer's id BOTH resolve to `undefined`, so
+   * the service maps both to the SAME neutral 404 (a payer cannot probe foreign ids).
+   */
+  async findByIdAndPayer(id: string, payerId: string): Promise<JobPosting | undefined> {
+    const rows = await this.db
+      .select()
+      .from(jobPostings)
+      .where(and(eq(jobPostings.id, id), eq(jobPostings.payerId, payerId)))
+      .limit(1);
+    return rows[0];
+  }
+
+  /** A payer's OWN postings newest first, optionally filtered by status. */
+  async listByPayer(
+    payerId: string,
+    status?: JobPostingStatus,
+    limit = 100,
+  ): Promise<JobPosting[]> {
+    const where = status
+      ? and(eq(jobPostings.payerId, payerId), eq(jobPostings.status, status))
+      : eq(jobPostings.payerId, payerId);
+    return this.db
+      .select()
+      .from(jobPostings)
+      .where(where)
+      .orderBy(desc(jobPostings.createdAt))
+      .limit(limit);
+  }
+
+  /**
+   * Owner-scoped field/status update: guarded on `id` AND `payer_id`, so a payer can
+   * only mutate its OWN row (the ownership lives in the WHERE — no TOCTOU window
+   * between an ownership read and the write). Returns undefined if gone or not-owned.
+   */
+  async updateOwned(
+    id: string,
+    payerId: string,
+    patch: JobPostingUpdate,
+  ): Promise<JobPosting | undefined> {
+    const rows = await this.db
+      .update(jobPostings)
+      .set(patch)
+      .where(and(eq(jobPostings.id, id), eq(jobPostings.payerId, payerId)))
+      .returning();
+    return rows[0];
+  }
+
+  /**
+   * Owner-scoped close: guarded on `id` AND `payer_id` AND the current status, so an
+   * already-closed, gone, or not-owned row is a DB no-op → undefined (service maps to
+   * 409/404 — without leaking which).
+   */
+  async closeOwned(
+    id: string,
+    payerId: string,
+    previousStatus: "draft" | "open",
+    closedAt: Date,
+  ): Promise<JobPosting | undefined> {
+    const rows = await this.db
+      .update(jobPostings)
+      .set({ status: "closed", closedAt, updatedAt: closedAt })
+      .where(
+        and(
+          eq(jobPostings.id, id),
+          eq(jobPostings.payerId, payerId),
+          eq(jobPostings.status, previousStatus),
+        ),
+      )
       .returning();
     return rows[0];
   }

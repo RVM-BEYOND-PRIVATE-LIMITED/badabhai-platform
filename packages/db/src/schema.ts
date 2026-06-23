@@ -182,10 +182,7 @@ export const workerProfiles = pgTable(
     // allowed (NULLS DISTINCT — Postgres default). See `aiJobId` above.
     uniqueIndex("worker_profiles_ai_job_id_uq").on(t.aiJobId),
     // HNSW index for cosine similarity search over the 768-dim embedding (plan G5).
-    index("worker_profiles_embedding_hnsw").using(
-      "hnsw",
-      t.embedding.op("vector_cosine_ops"),
-    ),
+    index("worker_profiles_embedding_hnsw").using("hnsw", t.embedding.op("vector_cosine_ops")),
   ],
 );
 
@@ -548,6 +545,13 @@ export const jobPostings = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     // Opaque ops-actor id — deliberately NO foreign key to any table.
     createdBy: uuid("created_by").notNull(),
+    // Opaque OWNER payer ref (ADR-0019/ADR-0022 module 9 — payer self-serve posting).
+    // NULLABLE + NO foreign key (the "faceless-rails" pattern, mirroring jobs.payer_id):
+    // ops-created postings leave it NULL (the existing surface is unchanged); a payer-
+    // created posting stamps the SESSION payer here, and the payer routes scope every
+    // read/write by it (tenancy). Never enters an event payload — the event ACTOR
+    // (actor_type:"payer", actor_id) carries the payer id, opaque, instead.
+    payerId: uuid("payer_id"),
     orgLabel: text("org_label").notNull(),
     roleTitle: text("role_title").notNull(),
     locationLabel: text("location_label"),
@@ -561,16 +565,15 @@ export const jobPostings = pgTable(
   (t) => [
     // Backs the ops list endpoint: filter by `status`, order by `created_at desc`.
     index("job_postings_status_created_at_idx").on(t.status, t.createdAt),
+    // Backs the payer self-serve list (own postings, newest first): WHERE payer_id, status.
+    index("job_postings_payer_id_idx").on(t.payerId, t.createdAt),
     // Pin the banded vacancy to the 5 allowed values (mirrors VACANCY_BANDS).
     check(
       "job_postings_vacancy_band_chk",
       sql`${t.vacancyBand} IN ('1', '2-5', '6-10', '11-25', '25+')`,
     ),
     // Pin the lifecycle to the 3 allowed values (mirrors JOB_POSTING_STATUSES).
-    check(
-      "job_postings_status_chk",
-      sql`${t.status} IN ('draft', 'open', 'closed')`,
-    ),
+    check("job_postings_status_chk", sql`${t.status} IN ('draft', 'open', 'closed')`),
   ],
 );
 
@@ -659,75 +662,79 @@ export type SkipReason = "not_interested" | "too_far" | "low_pay" | "wrong_trade
 export type SourceSurface = "feed" | "search" | "share" | "other";
 
 // jobs — seeded, coarse, NO employer PII. `id` is the opaque job_id in events.
-export const jobs = pgTable("jobs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  // One of the 15 alpha trade keys (taxonomy linkage, ADR-0009 OQ-2). Not a PII
-  // employer reference — a generic trade classification.
-  tradeKey: text("trade_key").$type<TradeKey>().notNull(),
-  // Generic role title authored in the seed (e.g. "CNC Operator — Night Shift").
-  // NEVER an employer name (ADR-0009 §2 privacy line).
-  title: text("title").notNull(),
-  // COARSE location — city only, non-PII (e.g. "Pune"). Never an address.
-  city: text("city").notNull(),
-  // COARSE locality bucket (e.g. "Pimpri-Chinchwad"), NOT an address. Nullable.
-  area: text("area"),
-  status: text("status").$type<JobStatus>().notNull().default("open"),
-  // ADR-0010 §Decision 0 (evolve-not-replace): the opaque "faceless-rails" SELLER
-  // id — the payer (employer OR agent) who posted this job. ADDITIVE, NULLABLE, NO
-  // FK, NO `payers` identity table, and NEVER an employer name or any employer PII.
-  // It only ties a job to a billable payer for the unlock spine (ADR-0010 §D6);
-  // PR #42 introduces the same column on its richer jobs entity — whichever lands
-  // first owns it, the other consumes it. NEVER resolved to identity in any event
-  // or log.
-  payerId: uuid("payer_id"),
-  // Denormalized on-row counter of applies received for this job (ADR-0009
-  // swipe-to-apply). Each apply still emits its own `application.submitted` event;
-  // this is just an integer rollup for the feed/UI. PII-FREE (a count, never a name).
-  // Mirrors posting_plans.applicantsViewedCount style.
-  applicantsReceived: integer("applicants_received").notNull().default(0),
-  // ── Demand-side ranking signals (ADR-0011 Reach-on-real-jobs) ──────────────
-  // Feed the RANK core's Pay/Experience/Availability factors when Reach serves
-  // this job. ALL NULLABLE + additive (the engine neutral-defaults a null — a
-  // blank never drops or penalizes anyone). PII-FREE: pay bands / year counts /
-  // a coarse timing enum — never an employer or a worker identity. Role (trade_key)
-  // and Distance (city) are already present above, so no column is needed for them.
-  // Monthly pay band offered (INR, whole rupees — never paise).
-  payMin: integer("pay_min"),
-  payMax: integer("pay_max"),
-  // Experience window the job targets (years).
-  minExperienceYears: integer("min_experience_years"),
-  maxExperienceYears: integer("max_experience_years"),
-  // When the job needs someone (coarse enum).
-  neededBy: text("needed_by").$type<JobNeededBy>(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (t) => [
-  // Backs the worker feed + reach open-jobs queries: filter `status='open'`,
-  // order by `created_at` (id tiebreak via the PK). Also serves the status filter.
-  index("jobs_status_created_at_idx").on(t.status, t.createdAt),
-  check("jobs_applicants_received_nonneg_chk", sql`${t.applicantsReceived} >= 0`),
-  // Pay/experience are non-negative when present, and the max is not below the min.
-  check(
-    "jobs_pay_nonneg_chk",
-    sql`(${t.payMin} IS NULL OR ${t.payMin} >= 0) AND (${t.payMax} IS NULL OR ${t.payMax} >= 0)`,
-  ),
-  check(
-    "jobs_pay_order_chk",
-    sql`${t.payMin} IS NULL OR ${t.payMax} IS NULL OR ${t.payMax} >= ${t.payMin}`,
-  ),
-  check(
-    "jobs_experience_nonneg_chk",
-    sql`(${t.minExperienceYears} IS NULL OR ${t.minExperienceYears} >= 0) AND (${t.maxExperienceYears} IS NULL OR ${t.maxExperienceYears} >= 0)`,
-  ),
-  check(
-    "jobs_experience_order_chk",
-    sql`${t.minExperienceYears} IS NULL OR ${t.maxExperienceYears} IS NULL OR ${t.maxExperienceYears} >= ${t.minExperienceYears}`,
-  ),
-  check(
-    "jobs_needed_by_chk",
-    sql`${t.neededBy} IS NULL OR ${t.neededBy} IN ('immediate', 'soon', 'flexible')`,
-  ),
-]);
+export const jobs = pgTable(
+  "jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // One of the 15 alpha trade keys (taxonomy linkage, ADR-0009 OQ-2). Not a PII
+    // employer reference — a generic trade classification.
+    tradeKey: text("trade_key").$type<TradeKey>().notNull(),
+    // Generic role title authored in the seed (e.g. "CNC Operator — Night Shift").
+    // NEVER an employer name (ADR-0009 §2 privacy line).
+    title: text("title").notNull(),
+    // COARSE location — city only, non-PII (e.g. "Pune"). Never an address.
+    city: text("city").notNull(),
+    // COARSE locality bucket (e.g. "Pimpri-Chinchwad"), NOT an address. Nullable.
+    area: text("area"),
+    status: text("status").$type<JobStatus>().notNull().default("open"),
+    // ADR-0010 §Decision 0 (evolve-not-replace): the opaque "faceless-rails" SELLER
+    // id — the payer (employer OR agent) who posted this job. ADDITIVE, NULLABLE, NO
+    // FK, NO `payers` identity table, and NEVER an employer name or any employer PII.
+    // It only ties a job to a billable payer for the unlock spine (ADR-0010 §D6);
+    // PR #42 introduces the same column on its richer jobs entity — whichever lands
+    // first owns it, the other consumes it. NEVER resolved to identity in any event
+    // or log.
+    payerId: uuid("payer_id"),
+    // Denormalized on-row counter of applies received for this job (ADR-0009
+    // swipe-to-apply). Each apply still emits its own `application.submitted` event;
+    // this is just an integer rollup for the feed/UI. PII-FREE (a count, never a name).
+    // Mirrors posting_plans.applicantsViewedCount style.
+    applicantsReceived: integer("applicants_received").notNull().default(0),
+    // ── Demand-side ranking signals (ADR-0011 Reach-on-real-jobs) ──────────────
+    // Feed the RANK core's Pay/Experience/Availability factors when Reach serves
+    // this job. ALL NULLABLE + additive (the engine neutral-defaults a null — a
+    // blank never drops or penalizes anyone). PII-FREE: pay bands / year counts /
+    // a coarse timing enum — never an employer or a worker identity. Role (trade_key)
+    // and Distance (city) are already present above, so no column is needed for them.
+    // Monthly pay band offered (INR, whole rupees — never paise).
+    payMin: integer("pay_min"),
+    payMax: integer("pay_max"),
+    // Experience window the job targets (years).
+    minExperienceYears: integer("min_experience_years"),
+    maxExperienceYears: integer("max_experience_years"),
+    // When the job needs someone (coarse enum).
+    neededBy: text("needed_by").$type<JobNeededBy>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Backs the worker feed + reach open-jobs queries: filter `status='open'`,
+    // order by `created_at` (id tiebreak via the PK). Also serves the status filter.
+    index("jobs_status_created_at_idx").on(t.status, t.createdAt),
+    check("jobs_applicants_received_nonneg_chk", sql`${t.applicantsReceived} >= 0`),
+    // Pay/experience are non-negative when present, and the max is not below the min.
+    check(
+      "jobs_pay_nonneg_chk",
+      sql`(${t.payMin} IS NULL OR ${t.payMin} >= 0) AND (${t.payMax} IS NULL OR ${t.payMax} >= 0)`,
+    ),
+    check(
+      "jobs_pay_order_chk",
+      sql`${t.payMin} IS NULL OR ${t.payMax} IS NULL OR ${t.payMax} >= ${t.payMin}`,
+    ),
+    check(
+      "jobs_experience_nonneg_chk",
+      sql`(${t.minExperienceYears} IS NULL OR ${t.minExperienceYears} >= 0) AND (${t.maxExperienceYears} IS NULL OR ${t.maxExperienceYears} >= 0)`,
+    ),
+    check(
+      "jobs_experience_order_chk",
+      sql`${t.minExperienceYears} IS NULL OR ${t.maxExperienceYears} IS NULL OR ${t.maxExperienceYears} >= ${t.minExperienceYears}`,
+    ),
+    check(
+      "jobs_needed_by_chk",
+      sql`${t.neededBy} IS NULL OR ${t.neededBy} IN ('immediate', 'soon', 'flexible')`,
+    ),
+  ],
+);
 
 // applications — the apply/skip record, PII-free. One decision per (worker, job).
 export const applications = pgTable(
@@ -981,7 +988,9 @@ export const pricingCatalog = pgTable(
   },
   (t) => [
     // At most one active catalog row at a time.
-    uniqueIndex("pricing_catalog_active_uq").on(t.isActive).where(sql`${t.isActive}`),
+    uniqueIndex("pricing_catalog_active_uq")
+      .on(t.isActive)
+      .where(sql`${t.isActive}`),
   ],
 );
 
@@ -1067,7 +1076,11 @@ export const resumeDisclosures = pgTable(
   (t) => [
     // Idempotent grant per (payer, worker, posting) — mirrors `unlocks` (NULLS DISTINCT
     // means pure-search disclosures with a null posting never collide).
-    uniqueIndex("resume_disclosures_payer_worker_posting_uq").on(t.payerId, t.workerId, t.jobPostingId),
+    uniqueIndex("resume_disclosures_payer_worker_posting_uq").on(
+      t.payerId,
+      t.workerId,
+      t.jobPostingId,
+    ),
     index("resume_disclosures_worker_id_idx").on(t.workerId),
     index("resume_disclosures_payer_id_idx").on(t.payerId),
     check(
