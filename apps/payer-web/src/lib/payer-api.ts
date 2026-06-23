@@ -1,6 +1,10 @@
 import "server-only";
 import { requirePayer } from "./auth";
 import {
+  agencyInviteWireSchema,
+  agencyJobListWireSchema,
+  agencyJobWireSchema,
+  agencyReferralsSummaryWireSchema,
   applicantFeedSchema,
   buyPackResultWireSchema,
   capacitySchema,
@@ -15,6 +19,9 @@ import {
   unlockResultWireSchema,
   unlocksListWireSchema,
   type AgencyAccount,
+  type AgencyJob,
+  type AgencyJobInput,
+  type AgencyReferralsSummary,
   type ApplicantFeed,
   type Capacity,
   type CreatePostingInput,
@@ -29,6 +36,7 @@ import {
   type UnlockResult,
 } from "./contracts";
 import { revealResultSchema } from "./contracts";
+import { assertNoAgencyPII } from "./assert-no-agency-pii";
 import * as store from "./mock-store";
 import { payerFetch } from "./payer-http";
 
@@ -258,6 +266,158 @@ export async function getCapacity(): Promise<Capacity> {
     applicantQuotaUsed: rows.reduce((sum, r) => sum + r.applicantsUsed, 0),
     postings: rows,
   });
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * LIVE — Agency Supply Portal DEMAND (ADR-0022, #127). All are payer-authed +
+ * role-gated server-side (`PayerAuthGuard` + `PayerRoleGuard @PayerRoles('agent')`);
+ * the role VIEW is additionally gated in the page (`requireAgent()`). Tenancy is the
+ * SESSION (XB-A): the agency NEVER sends a payer_id — the JWT carries it. Every payload
+ * is faceless/coarse and crosses {@link assertNoAgencyPII} (defence-in-depth) before it
+ * reaches a page. Unknown-or-not-owned → the backend's IDENTICAL neutral 404 → `null`
+ * (no-oracle). These are the AGENCY `jobs.payer_id` entity — distinct from the EMPLOYER
+ * `posting_plans` WAITING mock below (that stays escalated, untouched).
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** Map the camelCase UI input to the backend's snake_case agency-job body. */
+function toAgencyJobBody(input: AgencyJobInput): Record<string, unknown> {
+  return {
+    trade_key: input.tradeKey,
+    title: input.title,
+    city: input.city,
+    area: input.area,
+    pay_min: input.payMin,
+    pay_max: input.payMax,
+    min_experience_years: input.minExperienceYears,
+    max_experience_years: input.maxExperienceYears,
+    needed_by: input.neededBy,
+  };
+}
+
+/** GET /payer/agency/jobs — the caller's OWN jobs (faceless: ids/status/counts/bands). */
+export async function listAgencyJobs(): Promise<AgencyJob[]> {
+  const wire = await payerFetch("/payer/agency/jobs", { schema: agencyJobListWireSchema });
+  return assertNoAgencyPII(wire, "payer/agency/jobs");
+}
+
+/**
+ * GET /payer/agency/jobs/:jobId — one OWN job. An unknown-or-not-owned job returns the
+ * SAME neutral 404 (no-oracle) → mapped to `null` so the page renders a neutral not-found.
+ */
+export async function getAgencyJob(jobId: string): Promise<AgencyJob | null> {
+  try {
+    const wire = await payerFetch(`/payer/agency/jobs/${jobId}`, { schema: agencyJobWireSchema });
+    return assertNoAgencyPII(wire, "payer/agency/jobs/:id");
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
+}
+
+/** POST /payer/agency/jobs — create an OWNED job (payer_id = session, status='open'). */
+export async function createAgencyJob(input: AgencyJobInput): Promise<AgencyJob> {
+  const wire = await payerFetch("/payer/agency/jobs", {
+    method: "POST",
+    body: toAgencyJobBody(input),
+    schema: agencyJobWireSchema,
+  });
+  return assertNoAgencyPII(wire, "payer/agency/jobs (create)");
+}
+
+/** PATCH /payer/agency/jobs/:jobId — edit an OWNED job. Neutral 404 → null. */
+export async function updateAgencyJob(
+  jobId: string,
+  input: AgencyJobInput,
+): Promise<AgencyJob | null> {
+  try {
+    const wire = await payerFetch(`/payer/agency/jobs/${jobId}`, {
+      method: "PATCH",
+      body: toAgencyJobBody(input),
+      schema: agencyJobWireSchema,
+    });
+    return assertNoAgencyPII(wire, "payer/agency/jobs/:id (update)");
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
+}
+
+/** POST /payer/agency/jobs/:jobId/pause — pause an OWN job (== close in Phase 1). Neutral 404 → null. */
+export async function pauseAgencyJob(jobId: string): Promise<AgencyJob | null> {
+  try {
+    const wire = await payerFetch(`/payer/agency/jobs/${jobId}/pause`, {
+      method: "POST",
+      body: {},
+      schema: agencyJobWireSchema,
+    });
+    return assertNoAgencyPII(wire, "payer/agency/jobs/:id/pause");
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
+}
+
+/** POST /payer/agency/jobs/:jobId/close — close an OWN job (terminal). Neutral 404 → null. */
+export async function closeAgencyJob(jobId: string): Promise<AgencyJob | null> {
+  try {
+    const wire = await payerFetch(`/payer/agency/jobs/${jobId}/close`, {
+      method: "POST",
+      body: {},
+      schema: agencyJobWireSchema,
+    });
+    return assertNoAgencyPII(wire, "payer/agency/jobs/:id/close");
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
+}
+
+/**
+ * GET /payer/agency/referrals/summary — the agency's OWN funnel, AGGREGATE-ONLY with the
+ * k-anon floor ALREADY applied server-side. Rendered as-is; `minBucket` is echoed so the
+ * UI can show a suppressed 0 as "<minBucket" (not literally zero) — no single-invitee
+ * oracle. NEVER reconstruct per-invitee data from these counts.
+ */
+export async function getAgencyReferralsSummary(): Promise<AgencyReferralsSummary> {
+  const wire = await payerFetch("/payer/agency/referrals/summary", {
+    schema: agencyReferralsSummaryWireSchema,
+  });
+  return assertNoAgencyPII(wire, "payer/agency/referrals/summary");
+}
+
+/** The seam result of an invite mint — an opaque code on success, or a NEUTRAL failure. */
+export type CreateAgencyInviteResult =
+  | { ok: true; code: string; link: string }
+  | { ok: false };
+
+/**
+ * POST /payer/agency/invites — mint an OWNED opaque invite code. FACELESS: the body
+ * carries NO phone/name/email/worker-id — only an optional non-PII campaign tag; the
+ * response is an OPAQUE code/link only. The per-payer hourly mint cap AND a Redis outage
+ * BOTH return the SAME backend 429 (fail-closed, no leaked reason) → surfaced as a single
+ * NEUTRAL failure (`{ ok: false }`), never a fake success. Other transient failures
+ * propagate to the caller's action, which also neutralizes them.
+ */
+export async function createAgencyInvite(input: {
+  campaign?: string;
+}): Promise<CreateAgencyInviteResult> {
+  const body: Record<string, unknown> = {};
+  if (input.campaign) body.campaign = input.campaign;
+  try {
+    const wire = assertNoAgencyPII(
+      await payerFetch("/payer/agency/invites", {
+        method: "POST",
+        body,
+        schema: agencyInviteWireSchema,
+      }),
+      "payer/agency/invites",
+    );
+    return { ok: true, code: wire.code, link: wire.link };
+  } catch (e) {
+    // 429 = mint cap reached OR Redis fail-closed (identical 429, no leaked reason).
+    if (e instanceof Error && /returned 429/.test(e.message)) return { ok: false };
+    throw e;
+  }
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

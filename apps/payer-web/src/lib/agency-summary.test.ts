@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { summarizeJobStatuses, JOB_STATUSES } from "./agency-summary";
-import type { PostingSummary } from "./contracts";
+import { summarizeAgencyJobs, summarizeJobStatuses, JOB_STATUSES } from "./agency-summary";
+import type { AgencyJob, PostingSummary } from "./contracts";
 
 /**
  * Job-status map test. Jobs are OPEN / CLOSED / PAUSED / DRAFT only (HARD LOCK: NO
@@ -53,5 +53,49 @@ describe("summarizeJobStatuses", () => {
     expect(JOB_STATUSES).not.toContain("hired");
     expect(JOB_STATUSES).not.toContain("interview");
     expect(JOB_STATUSES).not.toContain("selected");
+  });
+});
+
+function agencyJob(status: AgencyJob["status"], i: number, applicantsReceived: number): AgencyJob {
+  return {
+    id: `0000000${i}-0000-4000-8000-00000000000${i}`,
+    status,
+    tradeKey: "cnc_operator",
+    title: "CNC Operator",
+    city: "Pune",
+    area: null,
+    payMin: null,
+    payMax: null,
+    minExperienceYears: null,
+    maxExperienceYears: null,
+    neededBy: null,
+    applicantsReceived,
+    createdAt: "2026-06-22T00:00:00.000Z",
+    updatedAt: "2026-06-22T00:00:00.000Z",
+  };
+}
+
+describe("summarizeAgencyJobs (LIVE agency jobs — open|closed only)", () => {
+  it("splits open/closed, sums applicants, and counts the total", () => {
+    const jobs = [
+      agencyJob("open", 1, 3),
+      agencyJob("open", 2, 2),
+      agencyJob("closed", 3, 5),
+    ];
+    expect(summarizeAgencyJobs(jobs)).toEqual({
+      total: 3,
+      open: 2,
+      closed: 1,
+      applicantsReceived: 10,
+    });
+  });
+
+  it("returns all-zero for an empty list", () => {
+    expect(summarizeAgencyJobs([])).toEqual({
+      total: 0,
+      open: 0,
+      closed: 0,
+      applicantsReceived: 0,
+    });
   });
 });
