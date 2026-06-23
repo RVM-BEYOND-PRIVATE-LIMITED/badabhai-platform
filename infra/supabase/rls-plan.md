@@ -28,7 +28,7 @@
 | `ai_jobs`            | **none**                | full                   | internal                           |
 | `audit_logs`         | **none**                | insert only            | internal                           |
 | `payers`             | **none** (B2B PII)      | full                   | payer **own** account only (Phase 2 payer-RLS); migration 0020 already `ENABLE`+`FORCE ROW LEVEL SECURITY`+`REVOKE ALL` so it is deny-by-default today |
-| `agency_invites`     | **none**                | full                   | faceless agency supply-attribution INTENT (ADR-0022); `invited_worker_id` is a payer→worker handle, so migration 0024 ships `ENABLE`+`FORCE ROW LEVEL SECURITY`+`REVOKE ALL` (deny-by-default today). Phase-1 isolation = app-layer `assertPayerOwns(inviter_payer_id)`; per-payer DB-RLS is the open-GA gate (payer tenancy axis below) |
+| `agency_invites`     | **none**                | full                   | faceless agency supply-attribution INTENT (ADR-0022); `invited_worker_id` is a payer→worker handle, so migration 0025 ships `ENABLE`+`FORCE ROW LEVEL SECURITY`+`REVOKE ALL` (deny-by-default today). Phase-1 isolation = app-layer `assertPayerOwns(inviter_payer_id)`; per-payer DB-RLS is the open-GA gate (payer tenancy axis below) |
 
 ## Payer tenancy axis (ADR-0019 Decision C — added 2026-06-20)
 

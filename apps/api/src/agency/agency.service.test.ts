@@ -56,16 +56,20 @@ function jobRow(overrides: Partial<JobRow> = {}): JobRow {
 
 function make(opts?: {
   ownedJob?: JobRow | undefined;
-  invite?: { id: string; inviterPayerId: string; invitedWorkerId: string | null; status: string } | undefined;
+  invite?:
+    | { id: string; inviterPayerId: string; invitedWorkerId: string | null; status: string }
+    | undefined;
   consent?: { revokedAt: Date | null } | undefined;
   stageCounts?: { created: number; clicked: number; accepted: number };
 }) {
   const emit = vi.fn().mockResolvedValue(undefined);
 
   const jobsRepo = {
-    create: vi.fn().mockImplementation((input: Partial<JobRow>, status: "open" | "closed") =>
-      Promise.resolve(jobRow({ ...input, status })),
-    ),
+    create: vi
+      .fn()
+      .mockImplementation((input: Partial<JobRow>, status: "open" | "closed") =>
+        Promise.resolve(jobRow({ ...input, status })),
+      ),
     findOwnedById: vi.fn().mockResolvedValue(opts?.ownedJob),
     listOwned: vi.fn().mockResolvedValue(opts?.ownedJob ? [opts.ownedJob] : []),
     updateOwned: vi
@@ -130,7 +134,11 @@ function assertNoPiiStrings(payload: Record<string, unknown>): void {
 describe("AgencyService.createJob", () => {
   it("creates an OWNED open job and emits job.created with the session payer as actor", async () => {
     const { svc, emit } = make();
-    const dto = CreateAgencyJobSchema.parse({ trade_key: "cnc_operator", title: TITLE, city: CITY });
+    const dto = CreateAgencyJobSchema.parse({
+      trade_key: "cnc_operator",
+      title: TITLE,
+      city: CITY,
+    });
     const view = await svc.createJob(PAYER_A, dto, CTX);
 
     expect(view.status).toBe("open");
@@ -157,7 +165,9 @@ describe("AgencyService — no-oracle on owned reads/edits", () => {
   it("updateJob throws the SAME neutral 404 for unknown-or-not-owned", async () => {
     const { svc } = make({ ownedJob: undefined });
     const dto = UpdateAgencyJobSchema.parse({ title: "New Title" });
-    await expect(svc.updateJob(PAYER_A, JOB_ID, dto, CTX)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(svc.updateJob(PAYER_A, JOB_ID, dto, CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it("readOwnedById throws 403 if the repo ever returns a row owned by another payer", async () => {
@@ -171,7 +181,11 @@ describe("AgencyService — no-oracle on owned reads/edits", () => {
 describe("AgencyService.updateJob", () => {
   it("emits job.updated with changed field KEYS only (never the values)", async () => {
     const { svc, emit } = make({ ownedJob: jobRow() });
-    const dto = UpdateAgencyJobSchema.parse({ title: "Updated Role Title", pay_min: 20000, pay_max: 30000 });
+    const dto = UpdateAgencyJobSchema.parse({
+      title: "Updated Role Title",
+      pay_min: 20000,
+      pay_max: 30000,
+    });
     await svc.updateJob(PAYER_A, JOB_ID, dto, CTX);
 
     const evt = firstEmit(emit);
@@ -184,7 +198,9 @@ describe("AgencyService.updateJob", () => {
   it("rejects an edit on a closed job", async () => {
     const { svc } = make({ ownedJob: jobRow({ status: "closed" }) });
     const dto = UpdateAgencyJobSchema.parse({ title: "X" });
-    await expect(svc.updateJob(PAYER_A, JOB_ID, dto, CTX)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.updateJob(PAYER_A, JOB_ID, dto, CTX)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
   });
 });
 
@@ -288,7 +304,12 @@ describe("AgencyService.attributeWorkerToInvite (consent-gated, internal seam)",
     expect(unknown.emit).not.toHaveBeenCalled();
 
     const attributed = make({
-      invite: { id: INVITE_ID, inviterPayerId: PAYER_A, invitedWorkerId: "someone", status: "accepted" },
+      invite: {
+        id: INVITE_ID,
+        inviterPayerId: PAYER_A,
+        invitedWorkerId: "someone",
+        status: "accepted",
+      },
       consent: { revokedAt: null },
     });
     expect(await attributed.svc.attributeWorkerToInvite("x", WORKER_ID)).toEqual({
@@ -313,5 +334,35 @@ describe("AgencyService.referralsSummary (k-anon floor, no consent oracle)", () 
     const { svc } = make({ stageCounts: { created: 20, clicked: 10, accepted: 5 } });
     const summary = await svc.referralsSummary(PAYER_A);
     expect(summary).toEqual({ created: 20, clicked: 10, accepted: 5, minBucket: 5 });
+  });
+
+  // ADR-0022 Appendix C.2 #2 — horizontal authz on the invite/summary path: an agent can
+  // only summarize its OWN invites (the count query is keyed on the SESSION inviter_payer_id,
+  // never a foreign payer), so agent A cannot read agent B's agency_invites.
+  it("scopes the summary to the SESSION payer (agent A cannot summarize agent B's invites)", async () => {
+    const { svc, invitesRepo } = make({ stageCounts: { created: 20, clicked: 10, accepted: 5 } });
+    await svc.referralsSummary(PAYER_A);
+    expect(invitesRepo.stageCountsForOwner).toHaveBeenCalledWith(PAYER_A);
+    expect(invitesRepo.stageCountsForOwner).not.toHaveBeenCalledWith(PAYER_B);
+  });
+});
+
+describe("AgencyService.createInvite — mint binds to the SESSION payer (XB-A)", () => {
+  it("stamps inviter_payer_id = the session payer on the row AND the event (never a body value)", async () => {
+    const { svc, emit, invitesRepo } = make({});
+    await svc.createInvite(PAYER_A, "spring_drive", CTX as never);
+    // The row is created under the session payer, not PAYER_B.
+    expect(invitesRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ inviterPayerId: PAYER_A }),
+    );
+    expect(invitesRepo.create).not.toHaveBeenCalledWith(
+      expect.objectContaining({ inviterPayerId: PAYER_B }),
+    );
+    // The agency_invite.created event carries the session payer (opaque), PII-free.
+    const arg = emit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(arg.event_name).toBe("agency_invite.created");
+    const payload = arg.payload as Record<string, unknown>;
+    expect(payload.inviter_payer_id).toBe(PAYER_A);
+    expect(JSON.stringify(payload)).not.toMatch(/phone|name|email|address/i);
   });
 });
