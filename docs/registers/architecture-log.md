@@ -45,7 +45,8 @@ boundary moved).
   - **Applicants REUSE the shipped `/payer/reach/jobs/:jobId/applicants`** (the faceless
     ranked reach feed) — no new applicant endpoint, no new disclosure path.
 - **New data shape: a faceless `agency_invites` table** (migration
-  `0024_agency_invites.sql` — no number collision; `main`'s latest was 0023). Columns:
+  `0025_first_black_bolt.sql` — renumbered from 0024 at merge, since #126 had taken
+  0024; regenerated against the cumulative schema). Columns:
   `id`, `inviter_payer_id` (FK `payers` cascade), `code` (unique), `invited_worker_id`
   (FK `workers` set null, nullable), `channel`/`status` enums, optional `campaign`,
   timestamps. **NO KYC/money columns.** FORCE RLS + REVOKE ALL
