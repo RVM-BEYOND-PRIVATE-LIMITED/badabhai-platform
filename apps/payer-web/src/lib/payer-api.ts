@@ -105,9 +105,10 @@ export async function getDashboard(): Promise<Dashboard> {
  * GET /payer/reach/jobs/:jobId/applicants — the FACELESS ranked candidate list for a
  * job the caller OWNS (LIVE). A job that isn't the payer's returns the SAME neutral
  * 404 as an unknown one (no-oracle) → we map that to `null` and the page renders a
- * neutral not-found. The payer-authed reach projection returns RANKING signals only
- * (rank/score/hot/components) — the banded taxonomy labels (trade/city/experience/
- * skills) are NOT yet in this projection (ESCALATE). PII-free either way (XB-C).
+ * neutral not-found. The payer-authed reach projection returns RANKING signals
+ * (rank/score/hot/components) PLUS coarse, PII-free banded taxonomy chips
+ * (experience/trade/city) which we surface as faceless relevance labels. `skills` is
+ * not in the projection yet (stays unset). PII-free either way (XB-C).
  */
 export async function getApplicantFeed(jobId: string): Promise<ApplicantFeed | null> {
   let wire: ReturnType<typeof reachApplicantListWireSchema.parse>;
@@ -136,6 +137,11 @@ export async function getApplicantFeed(jobId: string): Promise<ApplicantFeed | n
       )
       .filter((s): s is string => s.length > 0)
       .slice(0, 8),
+    // Coarse faceless taxonomy bands (PII-free). Backend may send `null` (no signal);
+    // map to `undefined` so the optional UI fields stay clean.
+    experienceBand: a.experienceBand ?? undefined,
+    tradeLabel: a.tradeLabel ?? undefined,
+    cityLabel: a.cityLabel ?? undefined,
   }));
   return applicantFeedSchema.parse({
     postingId: wire.jobId,

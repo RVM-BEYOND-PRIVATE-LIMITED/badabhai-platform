@@ -317,7 +317,17 @@ export const payerCapacityWireSchema = z.object({
   expires_at: z.string().nullable(),
 });
 
-/** GET /payer/reach/jobs/:jobId/applicants — faceless ranked rows (no PII). */
+/**
+ * GET /payer/reach/jobs/:jobId/applicants — faceless ranked rows (no PII).
+ *
+ * The backend reach projection (ApplicantRowDto) now also returns coarse, PII-free
+ * banded taxonomy chips (`experienceBand` / `tradeLabel` / `cityLabel`) derived from
+ * the worker's signal columns — opaque labels/bands only, never a name/phone/employer/
+ * exact location. They are nullable+optional here so an older backend (or a worker with
+ * no signal) parses fine; the seam maps `null -> undefined` onto the optional
+ * {@link facelessApplicantSchema} band fields. `skills` is intentionally not in this
+ * projection yet (stays optional on the UI type).
+ */
 export const reachApplicantWireSchema = z.object({
   workerId: z.string().uuid(),
   rank: z.number().int(),
@@ -325,6 +335,9 @@ export const reachApplicantWireSchema = z.object({
   hot: z.boolean(),
   pushEligible: z.boolean(),
   components: z.array(z.unknown()),
+  experienceBand: z.string().nullable().optional(),
+  tradeLabel: z.string().nullable().optional(),
+  cityLabel: z.string().nullable().optional(),
 });
 export const reachApplicantListWireSchema = z.object({
   jobId: z.string().uuid(),
