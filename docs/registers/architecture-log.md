@@ -8,6 +8,32 @@ boundary moved).
 
 ---
 
+## 2026-06-23 — BUG-2 staging demand-loop deploy SCAFFOLDING landed (BUG-2 stays OPEN)
+- **What landed (ADDITIVE, deploy-side only):** a copy-paste **deploy runbook**
+  ([bug2-staging-demand-deploy-runbook.md](../ops/bug2-staging-demand-deploy-runbook.md)) —
+  provision → secrets → migrate → seed → start → verify → rollback, with an env-var table
+  and a 4-row failure-triage table — plus a **manual-only, guarded/inert CD workflow**
+  ([staging-demand-verify.yml](../../.github/workflows/staging-demand-verify.yml),
+  `workflow_dispatch` against a `staging` GitHub environment, runs migrate→seed→start→verify
+  once a human wires it). Both cross-link the existing verdict doc
+  ([ops-employer-workflow-runtime-verification.md](../qa/ops-employer-workflow-runtime-verification.md)).
+- **What did NOT change:** the seed/verify **tooling** itself
+  (`packages/db/src/{seed-demand.ts,verify-demand.ts,crypto.ts}` + the
+  `db:seed:demand` / `db:verify:demand` scripts) is **already on main** (PR #105) — this
+  scaffolding only makes the §7 human run **turnkey**; it does not add tooling and does not
+  execute staging. MOCK-only is unchanged (`PAYMENTS_ENABLE_REAL` / `AI_ENABLE_REAL_CALLS` /
+  `MESSAGING_ENABLE_REAL` all `false`; flipping any is a separate CLAUDE.md §7 gate).
+- **BUG-2 stays OPEN.** It closes ONLY when a human reports a staging PASS = a green
+  `db:verify:demand` (the six events `feed.shown`, `job_posting.purchased`,
+  `payment.authorized`, `payment.captured`, `unlock.granted`, `contact.revealed`) AND the
+  §1.3 human click-path, both against a **disposable non-prod** DB. Provisioning infra +
+  holding secrets + running the loop remain a human CLAUDE.md §7 action (touches infra +
+  real PII at reveal). Detail / current status:
+  [ops-employer-workflow-runtime-verification.md](../qa/ops-employer-workflow-runtime-verification.md)
+  (TL;DR + §1.1a on-deploy sequence). Cross-link the deferred real-money / real-provider /
+  per-payer-auth residuals: [R16](./risks-register.md)–[R21](./risks-register.md),
+  [TD33](./tech-debt-register.md)/[TD34](./tech-debt-register.md)/[TD35](./tech-debt-register.md).
+
 ## 2026-06-22 — Agency Supply Portal backend landed (ADR-0022)
 - **New principal DIMENSION: a vertical-authz seam layered on the tenant guard.**
   Until now payer authz had one axis — `PayerAuthGuard` proves *which* payer

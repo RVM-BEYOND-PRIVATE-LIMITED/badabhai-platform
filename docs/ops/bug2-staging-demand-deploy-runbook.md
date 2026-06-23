@@ -1,0 +1,263 @@
+# BUG-2 — Staging demand-loop deploy runbook (provision → migrate → seed → verify → rollback)
+
+> **Why this exists:** the employer/unlock demand loop is **built and CI-green but
+> un-deployed** — BUG-2 is the gap that no reachable environment has the employer/unlock
+> schema, so the loop has never recorded a single event
+> ([ops-employer-workflow-runtime-verification.md](../qa/ops-employer-workflow-runtime-verification.md)).
+> This runbook is the **deploy-side checklist** that turns "stand up staging and prove the
+> loop" into a copy-paste exercise. It does **not** duplicate the click-path / SQL asserts /
+> PASS-FAIL report — those live in the cross-linked QA doc; this is provision → secrets →
+> migrate → seed → start → verify → rollback + a consolidated failure-triage table.
+>
+> **Read first:** [CLAUDE.md](../../CLAUDE.md) §7 (escalation) ·
+> [ops-employer-workflow-runtime-verification.md](../qa/ops-employer-workflow-runtime-verification.md)
+> (the detailed click-path §1.3 / SQL §1.4 / PASS-FAIL report — **the verdict doc**) ·
+> [b1-device-capstone-runbook.md](../qa/b1-device-capstone-runbook.md) (the staging-prereq pattern) ·
+> [ADR-0010](../decisions/0010-contact-unlock-and-reveal.md) (unlock→reveal spine) ·
+> [ADR-0013](../decisions/0013-monetization-and-config-driven-pricing-engine.md) (pricing/credits, mock payments).
+>
+> **MOCK-only, non-negotiable:** `PAYMENTS_ENABLE_REAL=false`, `AI_ENABLE_REAL_CALLS=false`,
+> `MESSAGING_ENABLE_REAL=false`. Flipping any provider is a separate **CLAUDE.md §7** gate and is
+> **out of scope** here.
+
+---
+
+## Purpose + scope
+
+| | |
+| --- | --- |
+| **Goal** | Make the staging demand-loop **proof** a turnkey checklist so a human can clear **BUG-2**. |
+| **In scope** | The deploy sequence (provision → secrets → migrate → seed → start → verify → rollback) + failure triage. |
+| **Out of scope** | Provisioning the actual Supabase project, **holding any secret**, and **running** the loop — all three are a **human CLAUDE.md §7 action** (touches infra + real PII at reveal). Flipping any provider gate to real. |
+| **Target** | A **disposable, non-prod staging DB**. Driving reveal/disclosure decrypts real PII; doing that against a shared/real DB is a §7 escalation — **never** run this against prod. |
+| **Done bar** | `db:verify:demand` prints its PASS line (all six events) **and** a human completes the §1.3 click-path in the cross-linked doc. **BUG-2 stays OPEN until a human reports a staging PASS.** |
+
+---
+
+## Prerequisites — the §7 human gate (cannot be automated)
+
+These are **human/devops** preconditions. This runbook (and the companion CD workflow) is
+**inert** until they are satisfied.
+
+1. **Provision a Supabase STAGING project** (separate from prod) and capture its connection
+   string. Standing up infra + holding its secrets is a **CLAUDE.md §7** action — Claude cannot
+   do it.
+2. **Hold the staging secrets** (DB URL + PII keys + service token) in a secrets store / the
+   filled-in env files below. **No secret value belongs in git** (placeholders only here).
+3. **CI is green** on the commit being deployed: `pnpm lint && pnpm typecheck && pnpm test &&
+   pnpm build` plus the AI service `ruff check .` + `pytest`. CI-green ≠ works — that is exactly
+   why this runbook exists — but a red CI must not be deployed.
+4. **Confirm the target is disposable + non-prod.** The seed is synthetic, but the loop
+   **decrypts a fixture phone at reveal**; only ever point it at a throwaway staging DB.
+
+---
+
+## Ordered deploy steps
+
+Run from the **repo root** unless noted. Steps **5 vs 6/7/8 scoping matters** — see the
+script-scoping note under the env table.
+
+```bash
+# (1) PROVISION — human §7. Stand up a disposable, non-prod Supabase staging project and
+#     capture its session-pooler connection string as DATABASE_URL (sslmode=require).
+#     Nothing to run here; this is the human infra step.
+
+# (2) SET SECRETS — fill the canonical env templates (do NOT commit them). See the env table
+#     below for every required var. The fill-in files already exist on main:
+#       apps/api/.env.staging.example          -> apps/api/.env.staging        (or your secret store)
+#       apps/ai-service/.env.staging.example   -> apps/ai-service/.env.staging (mock gates stay false)
+#     The PII_ENCRYPTION_KEY / PII_HASH_PEPPER you set here MUST be reused verbatim in steps 6 & 7.
+
+# (3) INSTALL + BUILD (Turbo dependency order builds @badabhai/* first).
+pnpm install
+pnpm build
+
+# (4) MIGRATE to head — apply the full chain to the staging DB. §7 human-credentialed.
+DATABASE_URL=<staging-db> pnpm db:migrate
+
+# (5) SEED THE SWIPE JOBS (ADR-0009 `jobs` table) — package-scoped script.
+#     The /reach applicant feed ranks against this table, so feed.shown needs it.
+DATABASE_URL=<staging-db> pnpm --filter @badabhai/db db:seed:jobs
+
+# (6) SEED THE DEMAND FIXTURE — synthetic faceless worker + profile + employer_sharing
+#     consent + one OPEN job_posting + a credited payer (25 credits). Idempotent +
+#     prod-guarded (refuses NODE_ENV=production). The PII keys MUST be byte-identical to
+#     the ones the API uses in step 7 (any valid values — they just must match).
+#     This is "Mode A" (NODE_ENV=development) — see the two run modes below.
+DATABASE_URL=<staging-db> \
+PII_ENCRYPTION_KEY=<key> \
+PII_HASH_PEPPER=<pepper> \
+NODE_ENV=development \
+pnpm db:seed:demand
+
+# (7) START THE API against the same DB. The reach feed binds JobsTableJobSource
+#     UNCONDITIONALLY (apps/api/src/reach/reach.module.ts), so NODE_ENV does NOT gate
+#     feed.shown — NODE_ENV only controls the SECRETS posture. For a pure demand-loop
+#     proof use NODE_ENV=development (Mode A): it boots mock-only with no JWT_SECRET /
+#     SMS provider. The PII keys MUST be byte-identical to step 6, or reveal's decrypt
+#     fails closed (see the #1 failure mode in the triage table).
+NODE_ENV=development \
+DATABASE_URL=<staging-db> \
+PII_ENCRYPTION_KEY=<key> \
+PII_HASH_PEPPER=<pepper> \
+INTERNAL_SERVICE_TOKEN=<token> \
+PAYMENTS_ENABLE_REAL=false \
+AI_ENABLE_REAL_CALLS=false \
+MESSAGING_ENABLE_REAL=false \
+pnpm --filter @badabhai/api start
+# Wait for: GET <staging-api>/health -> 200 {"status":"ok"}
+
+# (8) VERIFY — drive plan → applicants → unlock → reveal through the real HTTP API and
+#     assert the events spine. INTERNAL_SERVICE_TOKEN must be the SAME as step 7; set
+#     API_BASE_URL to the running API (see the port gotcha in the env table).
+API_BASE_URL=<staging-api> \
+INTERNAL_SERVICE_TOKEN=<token> \
+DATABASE_URL=<staging-db> \
+pnpm db:verify:demand
+```
+
+> **Script-scoping note:** `db:migrate`, `db:seed:demand`, `db:verify:demand` are **root**
+> scripts (run from root). `db:seed:jobs` is **package-scoped** → it must be run as
+> `pnpm --filter @badabhai/db db:seed:jobs` (or from `packages/db`).
+
+> **NODE_ENV does NOT gate the feed.** `apps/api/src/reach/reach.module.ts` binds
+> `JOB_SOURCE` to `JobsTableJobSource` **unconditionally** (the old dev-only `StubJobSource` +
+> its `isDevEnv` gate were removed), so the real `jobs` feed serves `feed.shown` in
+> `NODE_ENV=development` too. `NODE_ENV` here controls only the **secrets posture** (the boot
+> asserts in `packages/config/src/server.ts`), not the feed. The seed (step 6) only needs
+> `NODE_ENV` to be **anything but `production`** (its prod guard).
+
+### Two run modes (pick one)
+
+| | **Mode A — disposable demand-loop proof** (RECOMMENDED) | **Mode B — full staging-service posture** |
+| --- | --- | --- |
+| **`NODE_ENV`** | `development` | `staging` |
+| **Used by** | the proof itself, the CI workflow (`staging-demand-verify.yml`), and a local run | a real staging service stand-up |
+| **Boot secrets** | mock-only: no `JWT_SECRET`, no SMS provider needed (`SMS_PROVIDER=console` allowed) | **fails closed unless** you also set a real `JWT_SECRET`, a non-`console` `SMS_PROVIDER` (`fast2sms` + `FAST2SMS_API_KEY` / `FAST2SMS_SENDER_ID` / `FAST2SMS_DLT_TEMPLATE_ID`), AND real (non-default) PII keys — per the full `apps/api/.env.staging.example` |
+| **PII keys** | any valid values, but the **same** for `db:seed:demand` and the API (so reveal decrypts) | real, non-default keys (also required by the boot assert), still the **same** seed ↔ API |
+| **Mock gates** | `PAYMENTS_ENABLE_REAL` / `AI_ENABLE_REAL_CALLS` / `MESSAGING_ENABLE_REAL` = `false` | same — `false` |
+| **`feed.shown`** | works (feed binds unconditionally) | works |
+
+> **Why Mode A for the proof:** the demand loop does **not** exercise OTP, but in Mode B the
+> boot assert (`assertAuthConfig` / `assertPayerAuthConfig`) still **requires a real SMS provider
+> + `JWT_SECRET`** just to boot — none of which the loop uses. So for a pure demand-loop proof,
+> prefer **Mode A**; reserve Mode B for standing up the full staging service. Either way the PII
+> keys for `db:seed:demand` and the API must match.
+
+---
+
+## Env vars — the `.env.staging.example` substitute (placeholders only)
+
+These are the variables a human fills into the **canonical templates** — do not paste real
+values here or anywhere in git. Canonical fill-in files (already on main):
+`apps/api/.env.staging.example` and `apps/ai-service/.env.staging.example`.
+
+The **Mode** column tags when each var is required: **both** = core 5, needed in either run
+mode; **Mode B** = only when running the full staging-service posture (`NODE_ENV=staging`).
+
+| Var | Mode | Purpose | Where used | Placeholder |
+| --- | --- | --- | --- | --- |
+| `DATABASE_URL` | both | Connection string to the **disposable non-prod** staging Postgres (Supabase session pooler, `sslmode=require`). | migrate, both seeds, API, verify (read-only event assert) | `postgresql://USER:PASS@HOST:5432/postgres?sslmode=require` |
+| `PII_ENCRYPTION_KEY` | both | AES-256-GCM key the seed encrypts the synthetic phone with — **must be byte-identical** between seed (step 6) and API (step 7) or reveal fails closed. (Mode B additionally requires a **real, non-default** key.) | seed-demand, API | `<32-byte-base64-key>` |
+| `PII_HASH_PEPPER` | both | HMAC pepper for the peppered phone hash — **must match** seed ↔ API alongside the key. (Mode B additionally requires a **real, non-default** pepper.) | seed-demand, API | `<random-pepper>` |
+| `INTERNAL_SERVICE_TOKEN` | both | Shared secret for `InternalServiceGuard` on `/unlocks*`; the verifier sends it as `x-internal-service-token`. **Same value** in API (step 7) and verify (step 8). | API, verify | `<shared-internal-token>` |
+| `API_BASE_URL` | both | Base URL the verifier hits. Defaults to `http://localhost:3000`, **but the API's own default port is `3001`** (`packages/config` `API_PORT`). For a local run you **must** set `http://localhost:3001` (or start the API on 3000). | verify | `https://STAGING-API` (local: `http://localhost:3001`) |
+| `NODE_ENV` | both | `development` for the demand-loop proof (Mode A — boots mock-only). The reach feed binds `JobsTableJobSource` **unconditionally** (`reach.module.ts`), so this controls only the **secrets posture**, not the feed. `staging` selects Mode B (boot asserts demand JWT + a real SMS provider + real PII keys). | API, seed | `development` (Mode A) / `staging` (Mode B) |
+| `PAYMENTS_ENABLE_REAL` | both | MOCK-only gate. **Must stay `false`** — real payments are a §7 gate, out of scope. | API | `false` |
+| `MESSAGING_ENABLE_REAL` | both | MOCK-only gate. **Must stay `false`** — real telephony/relay is a §7 gate. | API / ai-service | `false` |
+| `AI_ENABLE_REAL_CALLS` | both | MOCK-only gate. **Must stay `false`** — real LLM calls are a §7 gate. | ai-service | `false` |
+| `JWT_SECRET` | Mode B | Worker/payer session signing secret. Dev default is allowed in Mode A; in Mode B (`NODE_ENV=staging`) `assertAuthConfig` / `assertPayerAuthConfig` **fail closed** unless it is overridden. The demand loop does not use sessions, so it is needed in Mode B only to BOOT. | API | `<random-32+char-secret>` |
+| `SMS_PROVIDER` | Mode B | OTP delivery channel. `console` is allowed in Mode A; in Mode B `assertAuthConfig` **rejects `console`** (it logs codes) and requires `fast2sms` plus `FAST2SMS_API_KEY` / `FAST2SMS_SENDER_ID` / `FAST2SMS_DLT_TEMPLATE_ID`. The demand loop does not send OTPs — this is a Mode-B boot requirement only. | API | `console` (Mode A) / `fast2sms` (Mode B) |
+
+---
+
+## PASS / evidence criteria
+
+The verifier (`packages/db/src/verify-demand.ts`) PASSES only when the `events` spine recorded
+**all six required events** since the run started:
+
+```
+feed.shown · job_posting.purchased · payment.authorized · payment.captured · unlock.granted · contact.revealed
+```
+
+The exact PASS line to look for in stdout:
+
+```
+[verify:demand] PASS — all demand-loop events recorded: feed.shown, job_posting.purchased, payment.authorized, payment.captured, unlock.granted, contact.revealed
+```
+
+**Evidence to capture (attach to the BUG-2 close-out):**
+
+- [ ] **stdout of all four runnable steps** — `db:migrate` (step 4), `db:seed:jobs` (step 5),
+      `db:seed:demand` (step 6, prints the `5eeded00-…` ids), `db:verify:demand` (step 8, the
+      PASS line above).
+- [ ] **The `events` rows** for the six required events (the read-only query the verifier runs;
+      mirror it from the cross-linked doc §1.4 if you want the per-event payloads).
+- [ ] Confirmation the target was a **disposable non-prod** DB.
+
+> **Verify scope (do NOT over-claim):** `db:verify:demand` asserts the **six** events above
+> only. It does **NOT** assert `job_posting.created` (it purchases a plan on the seed's
+> already-`open` posting; it never POSTs a new draft), nor `resume.disclosed` (a separate
+> `/resume-disclosures` call), nor `capacity.purchased` / `coupon.redeemed`. Those belong to
+> the **human §1.3 click-path** in
+> [ops-employer-workflow-runtime-verification.md](../qa/ops-employer-workflow-runtime-verification.md) —
+> a green verifier is the **backend** proof; the click-path is the **UI/PII** proof. Both are
+> required to close BUG-2.
+
+---
+
+## Rollback
+
+Staging here is **disposable, non-prod**, and the seed is **synthetic + idempotent +
+prod-guarded** (`NODE_ENV !== "production"`) — so re-runs are safe and no production data is
+ever touched at any point in this runbook.
+
+| Situation | Rollback action |
+| --- | --- |
+| Bad seed / dirty fixture state | Re-run `db:seed:demand` — it is idempotent (stable `5eeded00-…` ids + `ON CONFLICT`; payer credits are re-topped to 25). No teardown needed. |
+| Bad migration / corrupt staging DB | **Tear down / reset the staging DB** and re-run steps 4→8. Because it is disposable non-prod, a full reset is the cheapest rollback. **Never** run a destructive op against prod. |
+| Bad code shipped to staging | **Revert the PR**; redeploy the prior build. Code rollback is independent of the data steps. |
+| Provider gate accidentally flipped | Stop the API; restart with `PAYMENTS_ENABLE_REAL=false` / `AI_ENABLE_REAL_CALLS=false` / `MESSAGING_ENABLE_REAL=false`. (These default safe; an explicit `true` is a §7 violation here.) |
+
+No step in this runbook touches production data. The highest-risk operation — a reveal that
+decrypts a phone — only ever decrypts the **synthetic fixture** phone on the disposable DB.
+
+---
+
+## Failure-mode triage
+
+The four failure modes, mapped Symptom → Root cause → Fix. Rows **(a)–(c)** are the messages the
+verifier itself surfaces (Symptom = **verbatim** `verify-demand.ts`); row **(d)** is the API
+boot-assert that stops the run before the verifier can connect (Symptom = **verbatim**
+`packages/config/src/server.ts`).
+
+| # | Symptom (verbatim) | Root cause | Fix |
+| - | --- | --- | --- |
+| **(a)** PII key mismatch — the **#1 failure mode** | `[verify:demand] unlock returned the neutral body — check consent/credits/seed, INTERNAL_SERVICE_TOKEN, and that the seed used the API's PII keys.` | The API (step 7) ran with a **different** `PII_ENCRYPTION_KEY` / `PII_HASH_PEPPER` than the seed (step 6) used. Reveal's `decrypt` of the synthetic phone fails closed → unlock returns the neutral body → no `unlock_id` → no `contact.revealed`. | **Restart the API with the seed's exact `PII_ENCRYPTION_KEY` + `PII_HASH_PEPPER`** (or re-run `db:seed:demand` with the API's keys). The two **must** be byte-identical. |
+| **(b)** Missing service token | `[verify:demand] INTERNAL_SERVICE_TOKEN is not set (required for /unlocks).` | The verifier has no `INTERNAL_SERVICE_TOKEN`, so the `/unlocks*` `InternalServiceGuard` rejects the request. | **Export the same `INTERNAL_SERVICE_TOKEN` the API was started with** (step 7) into the verify invocation (step 8). |
+| **(c)** Missing migrations / seed | `[verify:demand] DATABASE_URL is not set` **or** `[verify:demand] FAIL — missing events: <names>` (tables/rows absent → events never fire) | Either no `DATABASE_URL`, or the DB was not migrated / seeded — the demand tables or fixture rows are absent, so steps in the loop emit nothing. | **Run `db:migrate` + `db:seed:jobs` + `db:seed:demand` against the SAME DB first** (steps 4→6), confirm `DATABASE_URL` is set, then re-verify. |
+| **(d)** API refuses to boot (Mode-B posture without the secrets) | `Insecure PII secret(s) outside an explicit development/test environment: …` **OR** `Insecure/incomplete auth config outside an explicit development/test environment: …` | The API was started with `NODE_ENV=staging` (Mode B) but with **dev-default PII keys** / `SMS_PROVIDER=console` / an **unset (dev-default) `JWT_SECRET`** — the fail-closed boot asserts (`assertPiiCryptoConfig` / `assertAuthConfig` / `assertPayerAuthConfig`) reject it. The verifier then can't connect. | **Provide the full Mode-B staging secrets** (real PII keys + `JWT_SECRET` + `SMS_PROVIDER=fast2sms` + its keys), **or** run the proof in **Mode A** (`NODE_ENV=development`), which boots mock-only since the demand loop uses none of them. |
+
+> The `FAIL — missing events: <names>` form names exactly which of the six did not land — use it
+> to localize: missing `feed.shown` ⇒ `db:seed:jobs` not run (the feed binds unconditionally, so
+> `NODE_ENV` is **not** the cause); missing `contact.revealed` only ⇒ almost always failure mode
+> **(a)** (PII key mismatch). If the verifier never even connects, suspect failure mode **(d)** (the
+> API failed its boot asserts).
+
+---
+
+## Cross-links
+
+- [ops-employer-workflow-runtime-verification.md](../qa/ops-employer-workflow-runtime-verification.md)
+  — the detailed **click-path (§1.3)**, **SQL asserts (§1.4)**, and the **PASS/FAIL report**.
+  This runbook is the deploy side; that doc is the verdict side. Do not duplicate it.
+- [b1-device-capstone-runbook.md](../qa/b1-device-capstone-runbook.md) — the staging-prereq
+  pattern (no HTTPS staging URL exists yet; devops must provide one).
+- [ADR-0010](../decisions/0010-contact-unlock-and-reveal.md) — contact unlock + reveal spine.
+- [ADR-0013](../decisions/0013-monetization-and-config-driven-pricing-engine.md) — pricing /
+  credits, mock payments.
+- Registers: alpha blockers / fixlist + tech-debt (TD33 payer auth, TD34 real payments) track
+  the deferred real-money / real-provider / per-payer-auth portions.
+
+> **BUG-2 stays OPEN until a human reports a staging PASS** — a green `db:verify:demand` **and**
+> the human §1.3 click-path, both against a disposable non-prod target.

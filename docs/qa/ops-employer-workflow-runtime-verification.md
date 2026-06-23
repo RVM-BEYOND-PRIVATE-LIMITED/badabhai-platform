@@ -189,6 +189,12 @@ human-credentialed** step.
 
 Until BUG-2 deploys, **every step above is NOT-RUN.**
 
+> **Deploy-side checklist:** the provision → secrets → migrate → seed → start → verify → rollback
+> steps (with an env-var table + a failure-triage table) that make this on-deploy sequence turnkey
+> live in [bug2-staging-demand-deploy-runbook.md](../ops/bug2-staging-demand-deploy-runbook.md).
+> This doc stays the **verdict** side (§1.3 click-path / §1.4 SQL / PASS-FAIL); that runbook is the
+> **deploy** side. BUG-2 stays OPEN until a human reports a staging PASS.
+
 ### 1.2 Confirm health, console reachability, seed presence (run BEFORE the click-loop)
 
 | Check | Command / action | Expected |
