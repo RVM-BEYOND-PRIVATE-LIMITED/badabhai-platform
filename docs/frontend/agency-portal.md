@@ -20,6 +20,10 @@
   path only).
 - **Feature flags:** `src/lib/config.ts` `agencyFlags()` — public `NEXT_PUBLIC_*` booleans
   only (no secrets), all fail-closed.
+- **Faceless reach bands (reach PR-4):** the LIVE applicant feed now surfaces coarse,
+  PII-free taxonomy chips (`experienceBand` / `tradeLabel` / `cityLabel`) on faceless
+  ranked candidates — opaque labels/bands only (never name/phone/employer/exact location).
+  The wire schema accepts them optional+nullable; `skills` is not in the projection yet.
 
 ### Dashboard sections
 
@@ -81,10 +85,24 @@ never `process.env` directly in a component.
 ## API dependencies
 
 - **LIVE (payer-authed, Bearer only — XB-A):** `GET /payer/me`, `GET /payer/credits`,
-  `GET /payer/unlocks`.
-- **MOCK (no payer-authed endpoint yet):** job create/list/pause/close (the postings seam
-  serves from the session-scoped mock store). ESCALATE to backend for payer-authed
-  `GET/POST /payer/job-postings` + lifecycle/quota endpoints.
+  `GET /payer/unlocks`, `POST /payer/unlocks` + `/:id/reveal`, `POST /payer/credits`
+  (buy pack, mock money), `GET /payer/capacity` (allowance), and
+  `GET /payer/reach/jobs/:jobId/applicants` — the faceless ranked candidate list, now
+  including coarse PII-free taxonomy bands `experienceBand` / `tradeLabel` / `cityLabel`
+  (reach PR-4; surfaced as relevance chips, `skills` not yet in the projection).
+- **MOCK — backend EXISTS, frontend wiring is an OPEN escalation:** the job-postings seam
+  (`getPostings`/`createPosting`) still serves the session-scoped mock store even though
+  payer-authed `GET/POST/GET :id/PATCH :id/POST :id/close` `/payer/job-postings` shipped
+  (PR-3). Wiring it LIVE is deferred (not a clean closeout) because: (a) the payer
+  job-postings list does NOT carry applicant counts/quota (those live in posting-plans /
+  reach — the mock shows richer data); (b) there is NO `paused` status in `job_postings`
+  (only `draft|open|closed`) so pause/resume have **no backend**; (c) there is **no**
+  quota-top-up endpoint; (d) the seam is SHARED with the company portal, so a half-live
+  wiring would change company-portal behaviour. See Open escalations in
+  `docs/product/agency-portal-scope.md`.
+- **MOCK — masked resume:** `revealMaskedResume` is still mock though payer-authed
+  `POST/GET /payer/resume-disclosures` shipped (PR-2); wiring is the same shared-seam
+  escalation.
 - **NON-FUNCTIONAL:** there is NO agency-callable invite API. `POST /invites` is
   WORKER-authed (mints a worker's OWN link). The invite control is therefore DISABLED — it
   generates no link and fakes no success.
@@ -102,6 +120,9 @@ never `process.env` directly in a component.
 - No-PII / horizontal-authz: a worker name/phone in a mocked payload is NOT rendered
   (`dashboard.test.tsx`).
 - API-error normalization for the agency reads (`agency-reads.test.ts`).
+- Reach applicant bands map through faceless (`experienceBand`/`tradeLabel`/`cityLabel`),
+  `null` → `undefined`, and an older band-less backend still parses; no PII in the row
+  (`payer-api.test.ts` → "getApplicantFeed — surfaces faceless taxonomy bands").
 
 ## Gates
 
