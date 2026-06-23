@@ -67,9 +67,17 @@ boundary moved).
   conditions confirmed; an end-to-end vertical-authz test
   (`apps/api/src/agency/agency-role-authz.test.ts`) is included. Verification on `main`
   base: apps/api typecheck clean; 722 api tests pass; 67 event-schema tests pass; eslint
-  clean; build green. **The payer-web FRONTEND is HELD** pending reconciliation with the
-  parallel agency frontend merged via #123/#107 (NOT in this backend slice). KYC /
-  payouts / real comms-payments / matching / outcome-tracking remain DEFERRED (§8).
+  clean; build green.
+- **Frontend WIRED (fast-follow).** The payer-web agency dashboard now consumes the LIVE
+  `/payer/agency/*` endpoints — vacancy CRUD (list/create/edit/pause/close), the faceless
+  invite mint, and the aggregate k-anon referral funnel — reusing the existing
+  `requireAgent()` page+action gate, `payerFetch` (Bearer-only, XB-A), and
+  `assertNoAgencyPII` render-boundary guard; no new auth/transport/PII seam. The EMPLOYER
+  `posting_plans` mock + the parked payouts/KYC page are untouched. (Earlier this was HELD
+  pending reconciliation with the parallel #123/#107 agency frontend; the reconciliation
+  kept that frontend's dashboard shell and swapped its mock vacancy/invite/funnel seams for
+  the LIVE ones.) KYC / payouts / real comms-payments / matching / outcome-tracking remain
+  DEFERRED (§8).
 - See [ADR-0022](../decisions/0022-agency-supply-portal.md),
   [TD48](./tech-debt-register.md), and [TD33](./tech-debt-register.md)/[R16](./risks-register.md).
 
