@@ -20,6 +20,17 @@ Two modes, one gold set (``app.profiling.canonicalization_gold``):
     Scores ALL tiers (the real LLM is expected to clear the hard tier too) and
     exits non-zero if OVERALL accuracy < 90%. This is runbook step 4.
 
+  Flip-gate (staging only, the ONE-COMMAND flip prerequisite)::
+
+      python -m app.profiling.eval_canonicalization --flip-gate [--base-url URL]
+
+    The single STOP/PASS gate for turning extraction real on gemini-2.5-flash.
+    Against the RUNNING service on the resolved capable model, one endpoint pass
+    over the full gold set scores ROLE accuracy AND the PER-FIELD aggregate (both
+    must be >= 90%), rejects any mock-fallback/no-real-call contamination, measures
+    p95 latency, prints ONE explicit verdict line, and exits non-zero on ANY
+    miss/fallback (STOP semantics). Always real -> needs a funded staging key.
+
 MEASUREMENT CORRECTNESS: in ``--per-field --real`` the rig reads each call's
 ``ai_metadata.real_call`` + ``ai_metadata.success`` (NOT the top-level
 ``is_mock``, which only means "real was attempted"). The ONLY valid per-case
@@ -46,10 +57,101 @@ import time
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 
+from app.ai.model_config import resolve_model
+from app.config import get_settings
 from app.profiling import canonicalization_gold as gold
 from app.profiling import miss_attribution as attrib
 
 DEFAULT_BASE_URL = "http://localhost:8000"
+
+
+# --- Flip-gate pure helpers (offline-unit-testable: no network, no LLM) ------
+def compute_p95(latencies_ms: list[float]) -> float | None:
+    """p95 latency (ms) over a run, or None if no samples.
+
+    Uses the nearest-rank method on the SORTED samples: the value at rank
+    ceil(0.95 * n) (1-indexed). Deterministic, dependency-free, and exact on the
+    small gold-set sample sizes (no interpolation). Single sample -> that sample."""
+    if not latencies_ms:
+        return None
+    ordered = sorted(latencies_ms)
+    n = len(ordered)
+    # nearest-rank: smallest value at or above the 95th percentile position.
+    import math
+
+    rank = max(1, math.ceil(0.95 * n))
+    return ordered[min(rank, n) - 1]
+
+
+@dataclass(frozen=True)
+class FlipGateDecision:
+    """The combined STOP/PASS verdict for the gemini-2.5-flash flip gate.
+
+    ``passed`` is True ONLY when role accuracy >= threshold AND per-field aggregate
+    >= threshold AND the run was NOT contaminated (no mock-fallback, every scored
+    case a genuine real success). ``reasons`` lists every failed sub-check (empty on
+    a pass) so the verdict line is explicit about WHY a flip is blocked."""
+
+    passed: bool
+    role_accuracy: float
+    per_field_accuracy: float
+    threshold: float
+    contaminated: bool
+    p95_latency_ms: float | None
+    reasons: tuple[str, ...]
+
+
+def decide_flip_gate(
+    *,
+    role_accuracy: float,
+    per_field_accuracy: float,
+    contaminated: bool,
+    threshold: float,
+    p95_latency_ms: float | None,
+) -> FlipGateDecision:
+    """Pure combine of the flip-gate sub-checks into one STOP/PASS decision.
+
+    Order of severity in ``reasons``: contamination first (the measurement is
+    invalid -> any accuracy number is meaningless), then role, then per-field. A
+    contaminated run can NEVER pass even if the (mock-tainted) accuracies look high.
+    No I/O — unit-testable with synthetic inputs."""
+    reasons: list[str] = []
+    if contaminated:
+        reasons.append(
+            "contaminated run (mock-fallback or no-real-call detected) — accuracy invalid"
+        )
+    if role_accuracy < threshold:
+        reasons.append(f"role accuracy {role_accuracy:.0%} < {threshold:.0%}")
+    if per_field_accuracy < threshold:
+        reasons.append(f"per-field aggregate {per_field_accuracy:.0%} < {threshold:.0%}")
+    passed = not reasons
+    return FlipGateDecision(
+        passed=passed,
+        role_accuracy=role_accuracy,
+        per_field_accuracy=per_field_accuracy,
+        threshold=threshold,
+        contaminated=contaminated,
+        p95_latency_ms=p95_latency_ms,
+        reasons=tuple(reasons),
+    )
+
+
+def format_flip_gate_verdict(decision: FlipGateDecision) -> str:
+    """One explicit verdict line for the flip gate (printed last, machine-greppable).
+
+    PASS form:  ``FLIP-GATE PASS: role=.. per-field=.. (>=90%) p95=..ms — ...``
+    STOP form:  ``FLIP-GATE STOP: <reason>; <reason> | role=.. per-field=.. p95=..ms``"""
+    p95 = "n/a" if decision.p95_latency_ms is None else f"{decision.p95_latency_ms:.0f}ms"
+    stats = (
+        f"role={decision.role_accuracy:.0%} per-field={decision.per_field_accuracy:.0%} "
+        f"p95={p95}"
+    )
+    if decision.passed:
+        return (
+            f"FLIP-GATE PASS: {stats} (>= {decision.threshold:.0%}, no mock-fallback) "
+            "— gemini-2.5-flash cleared the re-validation gate"
+        )
+    return f"FLIP-GATE STOP: {'; '.join(decision.reasons)} | {stats}"
 
 
 @dataclass
@@ -76,9 +178,15 @@ class RealCallCollector:
     """
 
     outcomes: list[tuple[bool, bool]] = dc_field(default_factory=list)
+    # Per-call latency in ms, captured ALONGSIDE each outcome (one entry per
+    # ``record``). Sourced from ``ai_metadata.latency_ms`` when present, else the
+    # measured wall-clock for the POST. Used by the --flip-gate p95 computation.
+    latencies_ms: list[float] = dc_field(default_factory=list)
 
-    def record(self, *, real_call: bool, success: bool) -> None:
+    def record(self, *, real_call: bool, success: bool, latency_ms: float | None = None) -> None:
         self.outcomes.append((real_call, success))
+        if latency_ms is not None:
+            self.latencies_ms.append(float(latency_ms))
 
     @property
     def total(self) -> int:
@@ -215,15 +323,21 @@ def _make_real_field_extract_fn(
             elapsed = time.monotonic() - _last_call_at[0]
             if elapsed < min_interval:
                 time.sleep(min_interval - elapsed)
+        started = time.perf_counter()
         resp = client.post(url, json={"transcript": text})
+        wall_ms = (time.perf_counter() - started) * 1000.0
         _last_call_at[:] = [time.monotonic()]
         resp.raise_for_status()
         data = resp.json() or {}
         if collector is not None:
             meta = data.get("ai_metadata") or {}
+            # Prefer the server-measured latency_ms; fall back to the client
+            # wall-clock for this POST so p95 is always populated.
+            latency = meta.get("latency_ms")
             collector.record(
                 real_call=bool(meta.get("real_call", False)),
                 success=bool(meta.get("success", True)),
+                latency_ms=float(latency) if latency is not None else wall_ms,
             )
         profile = data.get("profile") or {}
         return _ProfileView(profile)
@@ -416,6 +530,72 @@ def _run_per_field(args) -> int:
     return 0 if passed else 1
 
 
+def _run_flip_gate(args) -> int:
+    """ONE-COMMAND re-validation gate for the gemini-2.5-flash flip (Finding 4).
+
+    Against the RUNNING service on the resolved capable model, in a single endpoint
+    pass over the full gold set, it:
+      - scores ROLE accuracy AND the PER-FIELD aggregate (role is derived from the
+        same per-field result's ``role`` field, so one POST per case covers both),
+      - rejects any mock-fallback / no-real-call contamination (via ai_metadata),
+      - measures p95 latency across the run,
+      - prints ONE explicit verdict line and exits non-zero on ANY miss/fallback
+        (STOP semantics).
+
+    REAL ONLY: this gate is meaningless on the mock path, so it ALWAYS runs --real.
+    It needs a funded staging key (AI_ENABLE_REAL_CALLS=true + GEMINI_FLASH_API_KEY
+    + AI_REAL_CALL_TASKS=profile_extraction). With no key every case returns mock ->
+    contaminated -> STOP (never a false PASS)."""
+    settings = get_settings()
+    capable_model = resolve_model("profile_extraction", settings)
+    base = args.base_url.rstrip("/")
+    pacing = (f" (pacing {args.min_interval:g}s between cases)"
+              if args.min_interval > 0 else "")
+    print(f"Mode: --flip-gate -> POST {base}/profile/extract on capable model "
+          f"'{capable_model}'{pacing}\n"
+          "(endpoint pseudonymizes first; fabricated data only; ALWAYS real)\n")
+
+    collector = RealCallCollector()
+    try:
+        extract_fn = _make_real_field_extract_fn(
+            args.base_url, collector=collector, min_interval=args.min_interval,
+        )
+    except ImportError:
+        print("error: --flip-gate needs httpx (pip install -r requirements-dev.txt)",
+              file=sys.stderr)
+        return 2
+
+    result = gold.evaluate_per_field(extract_fn)
+
+    # Contamination short-circuits: a mock-tainted run can never be a valid measure.
+    contaminated = collector.contaminated
+    if contaminated:
+        _print_invalid_real_run(collector)
+
+    role_fr = result.by_field.get("role")
+    role_accuracy = role_fr.accuracy if role_fr is not None else 0.0
+    per_field_accuracy = result.aggregate_accuracy
+    p95 = compute_p95(collector.latencies_ms)
+
+    decision = decide_flip_gate(
+        role_accuracy=role_accuracy,
+        per_field_accuracy=per_field_accuracy,
+        contaminated=contaminated,
+        threshold=gold.PER_FIELD_THRESHOLD,
+        p95_latency_ms=p95,
+    )
+
+    n_ok = len(collector.real_success)
+    print(f"real calls: {n_ok}/{collector.total} succeeded")
+    print(f"role accuracy     : {role_accuracy:.0%}  "
+          f"({role_fr.hits if role_fr else 0}/{role_fr.total if role_fr else 0})")
+    print(f"per-field aggregate: {per_field_accuracy:.0%}  "
+          f"({result.aggregate_hits}/{result.aggregate_total})")
+    print(f"p95 latency        : {'n/a' if p95 is None else f'{p95:.0f}ms'}\n")
+    print(format_flip_gate_verdict(decision))
+    return 0 if decision.passed else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m app.profiling.eval_canonicalization",
@@ -435,6 +615,15 @@ def main(argv: list[str] | None = None) -> int:
         "and attribute every miss to TD3 over-masking vs extraction error. "
         "Combine with --real to run against the live endpoints; exits non-zero if "
         "aggregate < 90%%.",
+    )
+    parser.add_argument(
+        "--flip-gate",
+        action="store_true",
+        help="ONE-COMMAND re-validation gate for the gemini-2.5-flash flip: against "
+        "the RUNNING service on the resolved capable model, score ROLE accuracy AND "
+        "the PER-FIELD aggregate (both must be >= 90%%), reject any mock-fallback, "
+        "measure p95 latency, print ONE verdict line, and exit non-zero on ANY "
+        "miss/fallback (STOP). Always real; needs a funded staging key.",
     )
     parser.add_argument(
         "--base-url",
@@ -466,6 +655,9 @@ def main(argv: list[str] | None = None) -> int:
         "billing is the clean path; this lets a free-tier run complete.",
     )
     args = parser.parse_args(argv)
+
+    if args.flip_gate:
+        return _run_flip_gate(args)
 
     if args.per_field:
         return _run_per_field(args)

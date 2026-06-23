@@ -158,11 +158,43 @@ class Settings(BaseSettings):
         """Whether the API credential for a provider label (as returned by
         ``provider_for_model``) is configured. Single source of truth shared by the
         router's fallback-chain gating and the CLI's readiness banner, so the
-        primary/fallback providers can be swapped freely without either drifting."""
+        primary/fallback providers can be swapped freely without either drifting.
+
+        This is a CREDENTIAL-ONLY check: it does NOT verify the provider's client
+        transport (e.g. the ``anthropic`` SDK) is importable. The router additionally
+        requires ``fallback_transport_available`` before ARMING a cross-provider
+        fallback, so a key-set-but-SDK-absent config does not add a 100%-failing
+        candidate. Keeping this method credential-only preserves its other use as the
+        CLI readiness banner (which reports configured keys, not installed SDKs)."""
         if provider == "google":
             return bool(self.gemini_flash_api_key)
         if provider == "anthropic":
             return bool(self.anthropic_api_key)
+        return False
+
+    def fallback_transport_available(self, provider: str) -> bool:
+        """Whether a provider's REAL client transport is actually usable RIGHT NOW —
+        credential present AND its client library importable. The router gates the
+        cross-provider fallback on this (not bare ``has_credential_for``) so a config
+        with the key set but the provider SDK NOT installed never arms a fallback that
+        fails 100% of the time and burns the per-call retries + the TD27 retry budget.
+
+        - "google" (Gemini, primary): reached over raw ``httpx`` (always present as a
+          core dep), so transport == credential.
+        - "anthropic" (Claude, fallback): reached via the OPTIONAL ``anthropic`` SDK,
+          which mock-only deployments do not install. We probe importability with
+          ``importlib.util.find_spec`` — cheap, NO network, NO key use, NO import side
+          effects (it does not actually import the package).
+
+        Unknown providers have no live transport -> False."""
+        if not self.has_credential_for(provider):
+            return False
+        if provider == "google":
+            return True
+        if provider == "anthropic":
+            import importlib.util
+
+            return importlib.util.find_spec("anthropic") is not None
         return False
 
     @property

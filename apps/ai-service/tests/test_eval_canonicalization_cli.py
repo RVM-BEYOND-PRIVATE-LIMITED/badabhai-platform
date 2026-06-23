@@ -276,3 +276,162 @@ def test_collector_all_real_success_is_not_contaminated():
     assert not c.fell_back and not c.not_real
     assert len(c.real_success) == 2
     assert not c.contaminated
+
+
+# --- Flip-gate pure helpers (Finding 4): p95 + STOP/PASS decision ------------
+def test_compute_p95_nearest_rank_and_empty():
+    """p95 uses nearest-rank on sorted samples; empty -> None; single -> itself."""
+    assert cli.compute_p95([]) is None
+    assert cli.compute_p95([42.0]) == 42.0
+    # 20 samples 1..20: ceil(0.95*20)=19 -> 19th smallest = 19.0.
+    assert cli.compute_p95([float(i) for i in range(1, 21)]) == 19.0
+    # Order-independent (it sorts first).
+    assert cli.compute_p95([300.0, 100.0, 200.0]) == 300.0
+
+
+def test_decide_flip_gate_passes_only_when_all_checks_clear():
+    """PASS requires role>=thr AND per-field>=thr AND not contaminated."""
+    d = cli.decide_flip_gate(
+        role_accuracy=0.95, per_field_accuracy=0.92, contaminated=False,
+        threshold=0.90, p95_latency_ms=1234.0,
+    )
+    assert d.passed is True
+    assert d.reasons == ()
+    assert "FLIP-GATE PASS" in cli.format_flip_gate_verdict(d)
+    assert "p95=1234ms" in cli.format_flip_gate_verdict(d)
+
+
+def test_decide_flip_gate_stops_on_low_role_accuracy():
+    d = cli.decide_flip_gate(
+        role_accuracy=0.80, per_field_accuracy=0.95, contaminated=False,
+        threshold=0.90, p95_latency_ms=900.0,
+    )
+    assert d.passed is False
+    assert any("role accuracy" in r for r in d.reasons)
+    assert "FLIP-GATE STOP" in cli.format_flip_gate_verdict(d)
+
+
+def test_decide_flip_gate_stops_on_low_per_field_accuracy():
+    d = cli.decide_flip_gate(
+        role_accuracy=0.95, per_field_accuracy=0.50, contaminated=False,
+        threshold=0.90, p95_latency_ms=None,
+    )
+    assert d.passed is False
+    assert any("per-field aggregate" in r for r in d.reasons)
+    assert "p95=n/a" in cli.format_flip_gate_verdict(d)
+
+
+def test_decide_flip_gate_contamination_always_stops_even_with_high_accuracy():
+    """A contaminated run can NEVER pass, even if the (mock-tainted) numbers look
+    high — contamination is the first/most-severe reason."""
+    d = cli.decide_flip_gate(
+        role_accuracy=1.0, per_field_accuracy=1.0, contaminated=True,
+        threshold=0.90, p95_latency_ms=10.0,
+    )
+    assert d.passed is False
+    assert d.reasons[0].startswith("contaminated run")
+
+
+def test_collector_records_latency_alongside_outcome():
+    c = cli.RealCallCollector()
+    c.record(real_call=True, success=True, latency_ms=120.0)
+    c.record(real_call=True, success=True, latency_ms=80.0)
+    c.record(real_call=True, success=True)  # no latency provided -> not appended
+    assert c.total == 3
+    assert c.latencies_ms == [120.0, 80.0]
+
+
+# --- Flip-gate end-to-end (offline; stubbed extract fn, no network/LLM) ------
+def test_flip_gate_stops_on_heuristic_run(capsys, monkeypatch):
+    """--flip-gate against an all-success-shaped stub that echoes the heuristic:
+    the heuristic can't clear the hard tier -> per-field < 90% -> STOP (exit 1),
+    one verdict line, p95 computed from the recorded latencies. No network."""
+
+    def fake_extract(base_url, timeout=30.0, *, collector=None, min_interval=0.0):
+        latency = {"ms": 100.0}
+
+        def extract_fn(text):
+            _rich, legacy = gold.profile_extractor.extract(text)
+            if collector is not None:
+                collector.record(real_call=True, success=True, latency_ms=latency["ms"])
+                latency["ms"] += 10.0
+            return legacy
+
+        return extract_fn
+
+    monkeypatch.setattr(cli, "_make_real_field_extract_fn", fake_extract)
+    rc = cli.main(["--flip-gate", "--base-url", "http://localhost:9999"])
+    out = capsys.readouterr().out
+    assert "--flip-gate" in out
+    assert "capable model" in out and "gemini-2.5-flash" in out
+    assert "role accuracy" in out and "per-field aggregate" in out
+    assert "p95 latency" in out
+    assert "FLIP-GATE STOP" in out
+    assert rc == 1
+
+
+def test_flip_gate_passes_when_every_field_clears(capsys, monkeypatch):
+    """--flip-gate PASSES (exit 0) when a stub returns the EXPECTED taxonomy ids
+    for every case (role + every field at 100%) with all-real-success outcomes."""
+
+    def fake_extract(base_url, timeout=30.0, *, collector=None, min_interval=0.0):
+        def extract_fn(text):
+            case = next(c for c in gold.GOLD_CASES if c.text == text)
+
+            class _Perfect:
+                canonical_role_id = case.expected_role
+                canonical_trade_id = (
+                    None if case.resolved_trade() is gold.UNSET else case.resolved_trade()
+                )
+                skills = (
+                    [] if case.expected_skills is gold.UNSET else list(case.expected_skills)
+                )
+                machines = list(case.expected_machines)
+
+                class experience:  # noqa: N801 - tiny stand-in
+                    total_years = (
+                        None if case.expected_experience is gold.UNSET
+                        else case.expected_experience
+                    )
+
+            if collector is not None:
+                collector.record(real_call=True, success=True, latency_ms=50.0)
+            return _Perfect()
+
+        return extract_fn
+
+    monkeypatch.setattr(cli, "_make_real_field_extract_fn", fake_extract)
+    rc = cli.main(["--flip-gate", "--base-url", "http://localhost:9999"])
+    out = capsys.readouterr().out
+    assert "FLIP-GATE PASS" in out
+    assert "p95=50ms" in out
+    assert rc == 0
+
+
+def test_flip_gate_stops_when_run_is_contaminated(capsys, monkeypatch):
+    """If ANY case reports a mock fallback (real_call=true, success=false), the
+    flip gate is contaminated -> STOP (exit 1), the INVALID banner shows, and the
+    verdict can never be PASS even though the heuristic output is scored."""
+
+    def fake_extract(base_url, timeout=30.0, *, collector=None, min_interval=0.0):
+        calls = {"n": 0}
+
+        def extract_fn(text):
+            _rich, legacy = gold.profile_extractor.extract(text)
+            if collector is not None:
+                fell_back = (calls["n"] == 0)  # first case is a mock fallback
+                collector.record(
+                    real_call=True, success=not fell_back, latency_ms=70.0,
+                )
+            calls["n"] += 1
+            return legacy
+
+        return extract_fn
+
+    monkeypatch.setattr(cli, "_make_real_field_extract_fn", fake_extract)
+    rc = cli.main(["--flip-gate", "--base-url", "http://localhost:9999"])
+    out = capsys.readouterr().out
+    assert "INVALID REAL RUN" in out
+    assert "FLIP-GATE STOP" in out
+    assert "contaminated run" in out
+    assert rc == 1

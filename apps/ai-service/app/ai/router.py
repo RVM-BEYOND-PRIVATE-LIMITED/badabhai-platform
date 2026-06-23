@@ -215,19 +215,22 @@ class AIRouter:
         """Ordered provider-fallback chain for a real call.
 
         ``primary_model`` first; then ``settings.default_fallback_model`` IFF the
-        credential for the FALLBACK's OWN provider is set AND its provider differs
-        from the primary's. De-duplicated, order preserved. Gating on the fallback
-        provider's own key (not a hardcoded one) lets primary/fallback be either
-        provider — e.g. Claude Haiku primary, Gemini fallback — without the chain
-        silently dropping the fallback. The fallback key is NOT a master gate; the
-        master switch is enforced upstream via ``real_call_enabled_for``."""
+        FALLBACK's OWN provider transport is actually usable (credential set AND its
+        client library importable) AND its provider differs from the primary's.
+        De-duplicated, order preserved. Gating on the fallback provider's own
+        TRANSPORT (not just a hardcoded key) lets primary/fallback be either provider
+        — e.g. Claude Haiku primary, Gemini fallback — without the chain silently
+        dropping the fallback, AND prevents a key-set-but-SDK-absent config from
+        arming a fallback that fails 100% of the time and burns the per-call retries
+        + the TD27 retry budget. The fallback key is NOT a master gate; the master
+        switch is enforced upstream via ``real_call_enabled_for``."""
         candidates = [primary_model]
         fallback = self._settings.default_fallback_model
         if (
             fallback
             and fallback not in candidates
             and provider_for_model(fallback) != provider_for_model(primary_model)
-            and self._settings.has_credential_for(provider_for_model(fallback))
+            and self._settings.fallback_transport_available(provider_for_model(fallback))
         ):
             candidates.append(fallback)
         return candidates
