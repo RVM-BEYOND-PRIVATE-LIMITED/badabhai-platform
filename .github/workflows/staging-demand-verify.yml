@@ -1,0 +1,155 @@
+# BUG-2 staging demand-loop verify — GUARDED / INERT BY DEFAULT.
+#
+# This workflow proves the employer/unlock demand loop end-to-end against a STAGING
+# environment by running: migrate -> seed:jobs -> seed:demand -> start API -> verify.
+# Companion runbook: docs/ops/bug2-staging-demand-deploy-runbook.md
+#
+# IT IS INERT UNTIL A HUMAN WIRES STAGING:
+#   - manual trigger ONLY (workflow_dispatch); no push/PR triggers.
+#   - it reads its secrets from the GitHub `staging` ENVIRONMENT secrets
+#     (DATABASE_URL, PII_ENCRYPTION_KEY, PII_HASH_PEPPER, INTERNAL_SERVICE_TOKEN).
+#   - the FIRST step checks those secrets are present. If ANY is empty it prints a
+#     clear "staging environment not wired" message and exits 0 (no-op) WITHOUT
+#     running migrate/seed/verify. So it cannot run half-configured.
+#   To activate: create the `staging` GitHub Environment and add the four secrets.
+#
+# MOCK-ONLY (non-negotiable): PAYMENTS_ENABLE_REAL / AI_ENABLE_REAL_CALLS /
+# MESSAGING_ENABLE_REAL are forced to false. Flipping any provider is a separate
+# CLAUDE.md §7 gate and is OUT of scope here.
+#
+# TARGET MUST BE A DISPOSABLE NON-PROD DB: the loop decrypts a synthetic fixture phone
+# at reveal. Never point DATABASE_URL at production. (See the runbook §Rollback.)
+#
+# RUNS IN NODE_ENV=development (runbook "Mode A"): the reach feed binds
+# JobsTableJobSource unconditionally (reach.module.ts), so dev mode serves feed.shown
+# while skipping the staging boot-asserts (JWT_SECRET + a real SMS provider) that the
+# demand loop does not use. Full staging-service posture (NODE_ENV=staging) is "Mode B"
+# in the runbook.
+
+name: Staging demand-loop verify (BUG-2)
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: staging-demand-verify
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Migrate -> seed -> start API -> verify (mock-only)
+    runs-on: ubuntu-latest
+    # Bind to the protected `staging` environment; secrets resolve from it.
+    environment: staging
+    env:
+      # Pulled from the `staging` GitHub Environment secrets. Empty until a human wires them.
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      PII_ENCRYPTION_KEY: ${{ secrets.PII_ENCRYPTION_KEY }}
+      PII_HASH_PEPPER: ${{ secrets.PII_HASH_PEPPER }}
+      INTERNAL_SERVICE_TOKEN: ${{ secrets.INTERNAL_SERVICE_TOKEN }}
+      # NODE_ENV=development is deliberate — this is an ephemeral, mock-only demand-LOOP
+      # proof against a DISPOSABLE DB. JobsTableJobSource binds unconditionally
+      # (apps/api/src/reach/reach.module.ts) so staging posture isn't needed for
+      # feed.shown, and dev mode avoids the staging boot-asserts that would require
+      # JWT_SECRET + a real (fast2sms) SMS provider just to BOOT — none of which the
+      # demand loop uses. Real-provider staging posture is a separate CLAUDE.md §7 concern.
+      NODE_ENV: development
+      # Mock-only gates — forced false. (Real providers are a separate §7 gate.)
+      API_PORT: "3001"
+      API_BASE_URL: http://localhost:3001
+      PAYMENTS_ENABLE_REAL: "false"
+      AI_ENABLE_REAL_CALLS: "false"
+      MESSAGING_ENABLE_REAL: "false"
+    steps:
+      # ---- GUARD: inert until the `staging` environment + secrets exist ----
+      # If any required secret is empty, no-op (exit 0) without running migrate/seed/verify.
+      - name: Check staging is wired (else no-op)
+        id: guard
+        run: |
+          missing=""
+          [ -z "$DATABASE_URL" ] && missing="$missing DATABASE_URL"
+          [ -z "$PII_ENCRYPTION_KEY" ] && missing="$missing PII_ENCRYPTION_KEY"
+          [ -z "$PII_HASH_PEPPER" ] && missing="$missing PII_HASH_PEPPER"
+          [ -z "$INTERNAL_SERVICE_TOKEN" ] && missing="$missing INTERNAL_SERVICE_TOKEN"
+          if [ -n "$missing" ]; then
+            echo "::notice::staging environment not wired — exiting (no-op). Missing secrets:$missing"
+            echo "Create the 'staging' GitHub Environment and add: DATABASE_URL, PII_ENCRYPTION_KEY, PII_HASH_PEPPER, INTERNAL_SERVICE_TOKEN."
+            echo "wired=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "staging environment wired — proceeding with migrate/seed/verify."
+            echo "wired=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.guard.outputs.wired == 'true'
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        if: steps.guard.outputs.wired == 'true'
+        # No `version:` here on purpose — it would conflict with the `packageManager`
+        # field in package.json (ERR_PNPM_BAD_PM_VERSION). package.json's
+        # `packageManager: pnpm@11.5.2` is the single source. (Mirrors ci.yml.)
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        if: steps.guard.outputs.wired == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.guard.outputs.wired == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (Turbo dependency order)
+        if: steps.guard.outputs.wired == 'true'
+        run: pnpm build
+
+      # ---- DB: migrate to head, then seed swipe jobs + the synthetic demand fixture ----
+      - name: Apply migrations (to head)
+        if: steps.guard.outputs.wired == 'true'
+        run: pnpm db:migrate
+
+      - name: Seed swipe jobs (ADR-0009 jobs table — needed for feed.shown)
+        if: steps.guard.outputs.wired == 'true'
+        # Package-scoped script (NOT a root script).
+        run: pnpm --filter @badabhai/db db:seed:jobs
+
+      - name: Seed demand fixture (synthetic, idempotent, prod-guarded)
+        if: steps.guard.outputs.wired == 'true'
+        # Uses the SAME PII keys the API starts with below, or reveal fails closed.
+        run: pnpm db:seed:demand
+
+      # ---- Start the API (background) with NODE_ENV=development (Mode A) + mock gates false ----
+      - name: Start API and wait for /health
+        if: steps.guard.outputs.wired == 'true'
+        run: |
+          node apps/api/dist/main.js > api.log 2>&1 &
+          API_PID=$!
+          echo "API_PID=$API_PID" >> "$GITHUB_ENV"
+          echo "API started (pid $API_PID) — waiting for /health…"
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3001/health >/dev/null 2>&1; then
+              echo "API healthy after ${i}s"; break
+            fi
+            if ! kill -0 "$API_PID" 2>/dev/null; then
+              echo "::error::API process exited during startup"; cat api.log; exit 1
+            fi
+            sleep 1
+          done
+          curl -sf http://localhost:3001/health >/dev/null \
+            || { echo "::error::API never became healthy"; cat api.log; exit 1; }
+
+      - name: Verify demand loop (asserts the six required events)
+        if: steps.guard.outputs.wired == 'true'
+        run: pnpm db:verify:demand
+
+      - name: Stop API
+        # Always tear the API down if it was started, even on verify failure.
+        if: always() && steps.guard.outputs.wired == 'true'
+        run: |
+          if [ -n "$API_PID" ]; then
+            kill "$API_PID" 2>/dev/null || true
+          fi
+          echo "----- API log (tail) -----"; tail -n 80 api.log || true
