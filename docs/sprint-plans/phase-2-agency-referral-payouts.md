@@ -71,6 +71,18 @@ DEMAND loop (post/manage vacancies, faceless reach summary, credits). See
 [docs/frontend/agency-portal.md](../frontend/agency-portal.md) and
 [docs/product/agency-portal-scope.md](../product/agency-portal-scope.md).
 
+**Update (2026-06-22, #127 — ADR-0022 demand-slice BACKEND landed):** the payer-authed
+agency BACKEND now exists — a `PayerRoleGuard` + `@PayerRoles('agent')` vertical-authz
+gate over a `payer/agency` module with agent-only job CRUD over `jobs.payer_id`, a faceless
+invite mint (`POST /invites`, opaque code only), an aggregate-only k-anon `GET /referrals/summary`,
+and applicants reusing `/payer/reach/jobs/:jobId/applicants` (new faceless `agency_invites`
+table, migration 0024; new PII-free `job.*`/`agency_invite.*` events). So "no payer-authed
+agency endpoint exists / agency jobs are mock-only / PayerRoleGuard not built" is no longer
+true. **This does NOT un-defer this spec:** #127 builds the additive DEMAND slice only — the
+consent-gated attribution seam ships INERT (no caller, [TD48](../registers/tech-debt-register.md)),
+and payouts/KYC/attribution-model remain PARKED behind the un-defer triggers below. The
+payer-web FRONTEND is HELD pending reconciliation with the parallel agency frontend (#123/#107).
+
 **Payouts and KYC remain fully PARKED.** The demand shell ships **no schema**, **no
 financial-PII UI**, no referral funnel, no attribution, no payout ledger/math, and no KYC
 form. The dashboard's KYC / Payouts cards are **disabled informational placeholders** gated

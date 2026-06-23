@@ -8,6 +8,71 @@ boundary moved).
 
 ---
 
+## 2026-06-22 — Agency Supply Portal backend landed (ADR-0022)
+- **New principal DIMENSION: a vertical-authz seam layered on the tenant guard.**
+  Until now payer authz had one axis — `PayerAuthGuard` proves *which* payer
+  (tenant identity, session-derived `payer_id`) and `assertPayerOwns`/`readOwnedById`
+  (`apps/api/src/payers/payer-scope.ts`) enforce *horizontal* isolation (payer A
+  cannot touch payer B's rows). ADR-0022's "Agent-Only" role model adds a SECOND,
+  orthogonal axis: **`PayerRoleGuard` + `@PayerRoles('agent')`**
+  ([`apps/api/src/payers/payer-role.guard.ts`](../../apps/api/src/payers/payer-role.guard.ts))
+  — *what role* the authenticated payer holds. It is **fail-closed**: an undecorated
+  route is a no-op, an absent `req.payer` → 401, a `role` that is null or out-of-set
+  → 403, and it **never defaults to `agent`**. `role: PayerRole | null` is now carried
+  on `AuthenticatedPayer` (resolution order: session claim → `payers`-row fallback →
+  null). This is **distinct from `assertPayerOwns`** (horizontal/tenant authz, which is
+  unchanged) — role is vertical, ownership is horizontal; every agency route stacks
+  BOTH (`@UseGuards(PayerAuthGuard, PayerRoleGuard) @PayerRoles('agent')`). This is the
+  first real role gate over the ADR-0019 payer account, which previously carried no role
+  claim (cross-link [TD33](./tech-debt-register.md)/[R16](./risks-register.md), the
+  `PayerAuthGuard` launch gate this builds on).
+- **New module: agency demand slice (`apps/api/src/agency/*`, controller `payer/agency`).**
+  An agency is an existing `payers` row with `role='agent'` (ADR-0019 account REUSED — no
+  new principal). The slice is the SAME additive, faceless demand loop an employer gets,
+  scoped to the agent role:
+  - **Demand on `jobs.payer_id` (full loop):** `POST`/`GET /jobs`, `GET`/`PATCH /jobs/:jobId`,
+    `POST /jobs/:jobId/close`, `POST /jobs/:jobId/pause` (pause == close-equivalent;
+    `JobStatus` stays `open|closed`). Tenancy is the SESSION payer (XB-A), never a
+    body/param; unknown-vs-not-owned → identical neutral 404 (no-oracle).
+  - **Faceless invite mint:** `POST /invites` writes an `agency_invites` row and returns
+    an OPAQUE code only — optional non-PII campaign tag, NO phone/name/email/worker-id.
+    Per-payer hourly mint cap via `PayerDisclosureRateLimit` (fail-closed on a Redis outage).
+  - **`POST /invites/:code/click`** — an agency-scoped MOCK funnel stub, distinct from the
+    public ADR-0020 invitee click.
+  - **`GET /referrals/summary`** — AGGREGATE-ONLY funnel counts with a k-anon floor
+    `MIN_BUCKET=5` (counts below the floor suppressed to 0); no per-invitee oracle
+    (closes ADR-0022 Appendix-C #2).
+  - **Applicants REUSE the shipped `/payer/reach/jobs/:jobId/applicants`** (the faceless
+    ranked reach feed) — no new applicant endpoint, no new disclosure path.
+- **New data shape: a faceless `agency_invites` table** (migration
+  `0024_agency_invites.sql` — no number collision; `main`'s latest was 0023). Columns:
+  `id`, `inviter_payer_id` (FK `payers` cascade), `code` (unique), `invited_worker_id`
+  (FK `workers` set null, nullable), `channel`/`status` enums, optional `campaign`,
+  timestamps. **NO KYC/money columns.** FORCE RLS + REVOKE ALL
+  (public/anon/authenticated/service_role) — same lock as the rest of the spine (TD20).
+- **New event family: 5 additive v1 events, PII-FREE.** `job.created`, `job.updated`
+  (carries changed-field **KEYS**, never values), `job.closed`, `agency_invite.created`,
+  `agency_invite.accepted` (the invite **code is never carried**). New event domains
+  `job` and `agency_invite`. **Event-schema registry count: 69 → 74.** No shipped
+  payload mutated (invariant 8).
+- **Consent-attribution seam is INERT/unwired.** `AgencyService.attributeWorkerToInvite`
+  is an INTERNAL seam that NO-OPs unless an active `worker_consents` row exists
+  (`findLatestByWorker` + `revokedAt` null). It is EXPORTED but currently has NO caller —
+  inert until wired into the worker consent-accept flow, a tracked fast-follow
+  ([TD48](./tech-debt-register.md)). **No attribution occurs today** (satisfies the
+  consent-before-attribution build-blocker by construction — no write path is live yet).
+- **Config:** new `AGENCY_INVITE_MINT_MAX_PER_HOUR` (default 60) in `packages/config`.
+- **Posture (mock + staging-only).** Dual security gate (security-engineer +
+  security-reviewer) returned BOTH PASS (zero Critical/High); all 5 ADR-0022 Appendix-C
+  conditions confirmed; an end-to-end vertical-authz test
+  (`apps/api/src/agency/agency-role-authz.test.ts`) is included. Verification on `main`
+  base: apps/api typecheck clean; 722 api tests pass; 67 event-schema tests pass; eslint
+  clean; build green. **The payer-web FRONTEND is HELD** pending reconciliation with the
+  parallel agency frontend merged via #123/#107 (NOT in this backend slice). KYC /
+  payouts / real comms-payments / matching / outcome-tracking remain DEFERRED (§8).
+- See [ADR-0022](../decisions/0022-agency-supply-portal.md),
+  [TD48](./tech-debt-register.md), and [TD33](./tech-debt-register.md)/[R16](./risks-register.md).
+
 ## 2026-06-19 — AI spend ledger moved to a shared Redis store (TD27 final sub-item)
 - **Redis activated for the AI service — stack-locked, no new ADR.** CLAUDE.md §3
   already names Redis as the locked cache with deferred wiring; this entry records
@@ -191,13 +256,18 @@ Established the load-bearing shape the rest of the system hangs off:
 
 ## Current component map (snapshot)
 ```
-Worker (Flutter) ─┐
-                  ├─▶ NestJS API ──emit──▶ events table
-Ops (Next.js)   ─┘      │ HTTP (no raw PII)
-                        ▼
+Worker (Flutter) ──────┐
+Ops (Next.js)   ───────┤
+Payer/Agency (payer-web)┤      ┌─ PayerAuthGuard (tenant: which payer)
+                       ├─▶ NestJS API ─┤─ PayerRoleGuard (vertical: role='agent', ADR-0022)
+                       │     │ HTTP     └─ assertPayerOwns (horizontal: own rows only)
+                       │     │ (no raw PII)   · agency module (payer/agency/*) over jobs.payer_id
+                       │     │                · reuses /payer/reach applicant feed
+                       │     ▼──emit──▶ events table (incl. job.* / agency_invite.*, PII-free)
+                       │     ▼
                  FastAPI AI: pseudonymize → mock/LLM ──(gated)──▶ Gemini→Claude (direct, ADR-0008)
-                        ▼
-                 Supabase Postgres (Drizzle)
+                       │     ▼
+                 Supabase Postgres (Drizzle) · agency_invites (faceless, FORCE-RLS)
 ```
 
 > Keep the [overview](../architecture/overview.md) as the current truth; keep this
