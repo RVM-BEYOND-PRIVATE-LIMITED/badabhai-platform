@@ -242,7 +242,38 @@ boot-assert that stops the run before the verifier can connect (Symptom = **verb
 > to localize: missing `feed.shown` ⇒ `db:seed:jobs` not run (the feed binds unconditionally, so
 > `NODE_ENV` is **not** the cause); missing `contact.revealed` only ⇒ almost always failure mode
 > **(a)** (PII key mismatch). If the verifier never even connects, suspect failure mode **(d)** (the
-> API failed its boot asserts).
+> API failed its boot asserts). **If `/unlocks` returns `401`**, the R16/LC-1 payer-auth retrofit
+> has landed on the ops routes — see *Forward-port trigger* below (the verifier needs porting).
+
+---
+
+## Forward-port trigger — when R16/LC-1 (payer auth) lands
+
+> **Status today (current `main`):** `verify-demand` drives the loop over the **ops** surface —
+> `POST /job-postings/:id/plan` (unguarded) + `GET /reach/jobs/:jobId/applicants` (unguarded) +
+> `POST /unlocks` / `POST /unlocks/:id/reveal` (`InternalServiceGuard` + body `payer_id`). This is
+> correct and **PASSes as-is** — **no forward-port is needed now.**
+
+The R16/LC-1 PayerAuthGuard retrofit (branch `feat/r16-lc1-payer-auth-close`, **unmerged**) puts
+`PayerAuthGuard` on `POST /unlocks*`. **When that branch merges, `verify-demand` will return `401`
+on the unlock + reveal steps** and must be forward-ported:
+
+1. **Log in as the demand payer** (payer email-OTP → `Bearer`) and call the **payer-authed** unlock
+   surface — `POST /payer/unlocks` + `POST /payer/unlocks/:unlockId/reveal`
+   ([`apps/api/src/payer-portal/payer-unlocks.controller.ts`](../../apps/api/src/payer-portal/payer-unlocks.controller.ts)) —
+   dropping the body `payer_id` (the session carries it, XB-A).
+2. **Seed a `payers` ACCOUNT row** for `PAYER_ID` in
+   [`seed-demand.ts`](../../packages/db/src/seed-demand.ts) (today it seeds only `payer_credits`),
+   so the login resolves — `email_enc` / `org_name_enc` / `role='employer'`.
+3. **KEEP `job_posting.purchased` on the unguarded `POST /job-postings/:id/plan`.** There is **no
+   PayerAuth route that emits `job_posting.purchased`** (`PayerCapacityController` emits
+   `capacity.purchased`, not it), so the plan-purchase step stays on the ops route until a
+   payer-authed plan endpoint exists — the ported loop is a **hybrid**, not pure-payer.
+4. `feed.shown` may optionally move to the payer-authed `GET /payer/reach/jobs/:jobId/applicants`.
+
+Tracked as **TD49** (cross-link **TD33** — the `PayerAuthGuard` build). **Do not** forward-port
+before R16 merges: it would break the verifier against current `main` **and** still cannot be a
+pure-payer loop (step 3).
 
 ---
 
@@ -256,8 +287,9 @@ boot-assert that stops the run before the verifier can connect (Symptom = **verb
 - [ADR-0010](../decisions/0010-contact-unlock-and-reveal.md) — contact unlock + reveal spine.
 - [ADR-0013](../decisions/0013-monetization-and-config-driven-pricing-engine.md) — pricing /
   credits, mock payments.
-- Registers: alpha blockers / fixlist + tech-debt (TD33 payer auth, TD34 real payments) track
-  the deferred real-money / real-provider / per-payer-auth portions.
+- Registers: alpha blockers / fixlist + tech-debt (TD33 payer auth, TD34 real payments,
+  **TD49 verify-demand R16 forward-port trigger**) track the deferred real-money /
+  real-provider / per-payer-auth portions.
 
 > **BUG-2 stays OPEN until a human reports a staging PASS** — a green `db:verify:demand` **and**
 > the human §1.3 click-path, both against a disposable non-prod target.
