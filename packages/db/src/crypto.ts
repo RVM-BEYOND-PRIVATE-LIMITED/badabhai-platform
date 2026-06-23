@@ -63,6 +63,7 @@ export function hmacValue(value: string, pepper: string): string {
 const ENC_VERSION = "v1";
 const IV_BYTES = 12; // 96-bit nonce, the GCM standard
 const KEY_BYTES = 32; // AES-256
+const AUTH_TAG_BYTES = 16; // 128-bit GCM auth tag (the standard, pinned explicitly)
 
 /** Decode + validate a base64 AES-256 key. Throws (fail-closed) on a bad key. */
 function decodeKey(keyB64: string): Buffer {
@@ -83,10 +84,15 @@ function decodeKey(keyB64: string): Buffer {
 export function encryptPii(plaintext: string, keyB64: string): string {
   const key = decodeKey(keyB64);
   const iv = randomBytes(IV_BYTES);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  // authTagLength is explicit (the GCM 128-bit standard). Pinning it makes the
+  // decrypt side reject any token whose tag is not exactly 16 bytes, closing the
+  // truncated-tag forgery window a default-length GCM would tolerate.
+  const cipher = createCipheriv("aes-256-gcm", key, iv, { authTagLength: AUTH_TAG_BYTES });
   const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
-  return [ENC_VERSION, iv.toString("base64"), tag.toString("base64"), ct.toString("base64")].join(".");
+  return [ENC_VERSION, iv.toString("base64"), tag.toString("base64"), ct.toString("base64")].join(
+    ".",
+  );
 }
 
 /** AES-256-GCM decrypt of an `encryptPii` token. Throws on wrong key or tamper. */
@@ -96,17 +102,22 @@ export function decryptPii(token: string, keyB64: string): string {
   if (version !== ENC_VERSION || !ivB64 || !tagB64 || !ctB64) {
     throw new Error("malformed PII ciphertext token");
   }
-  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivB64, "base64"));
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivB64, "base64"), {
+    authTagLength: AUTH_TAG_BYTES,
+  });
   decipher.setAuthTag(Buffer.from(tagB64, "base64"));
-  return Buffer.concat([
-    decipher.update(Buffer.from(ctB64, "base64")),
-    decipher.final(),
-  ]).toString("utf8");
+  return Buffer.concat([decipher.update(Buffer.from(ctB64, "base64")), decipher.final()]).toString(
+    "utf8",
+  );
 }
 
 /** Is this string an `encryptPii` token (vs legacy plaintext)? Useful for backfills. */
 export function isEncryptedPii(value: string): boolean {
-  return typeof value === "string" && value.startsWith(`${ENC_VERSION}.`) && value.split(".").length === 4;
+  return (
+    typeof value === "string" &&
+    value.startsWith(`${ENC_VERSION}.`) &&
+    value.split(".").length === 4
+  );
 }
 
 /** Constant-time hex-digest comparison (avoids timing leaks on hash checks). */

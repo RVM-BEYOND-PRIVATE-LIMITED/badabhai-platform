@@ -10,6 +10,7 @@ import {
   assertPaymentsConfig,
   assertMessagingConfig,
   assertPayerAuthConfig,
+  resolveCorsOrigins,
 } from "@badabhai/config";
 import { AppModule } from "./app.module";
 import { StructuredLogger } from "./common/logging/structured-logger";
@@ -38,7 +39,9 @@ async function bootstrap(): Promise<void> {
   });
 
   app.useGlobalFilters(new AllExceptionsFilter());
-  app.enableCors(); // TODO: lock down origins per environment before production
+  // Env-scoped CORS allow-list (no `*`): permissive in dev, explicit
+  // CORS_ALLOWED_ORIGINS allow-list outside dev, deny-all if unset (fail closed).
+  app.enableCors({ origin: resolveCorsOrigins(config) });
   app.enableShutdownHooks(); // ensures DatabaseModule.onModuleDestroy runs
 
   await app.listen(config.API_PORT);
