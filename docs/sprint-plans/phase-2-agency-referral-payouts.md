@@ -76,7 +76,7 @@ agency BACKEND now exists — a `PayerRoleGuard` + `@PayerRoles('agent')` vertic
 gate over a `payer/agency` module with agent-only job CRUD over `jobs.payer_id`, a faceless
 invite mint (`POST /invites`, opaque code only), an aggregate-only k-anon `GET /referrals/summary`,
 and applicants reusing `/payer/reach/jobs/:jobId/applicants` (new faceless `agency_invites`
-table, migration 0024; new PII-free `job.*`/`agency_invite.*` events). So "no payer-authed
+table, migration 0025; new PII-free `job.*`/`agency_invite.*` events). So "no payer-authed
 agency endpoint exists / agency jobs are mock-only / PayerRoleGuard not built" is no longer
 true. **This does NOT un-defer this spec:** #127 builds the additive DEMAND slice only — the
 consent-gated attribution seam ships INERT (no caller, [TD48](../registers/tech-debt-register.md)),
