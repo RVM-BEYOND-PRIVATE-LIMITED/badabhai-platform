@@ -26,6 +26,7 @@ import { MessagingModule } from "./messaging/messaging.module";
 import { ResumeDisclosureModule } from "./disclosures/resume-disclosure.module";
 import { PayersModule } from "./payers/payers.module";
 import { PayerPortalModule } from "./payer-portal/payer-portal.module";
+import { AgencyModule } from "./agency/agency.module";
 import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
 import { PdfModule } from "./common/pdf/pdf.module";
 import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
@@ -65,6 +66,9 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // identity/tenancy foundation + the external self-serve `/payer/*` route group.
     PayersModule,
     PayerPortalModule,
+    // Agency Supply Portal demand slice (ADR-0022): agent-only `/payer/agency/*` routes
+    // (jobs CRUD + invites + referrals summary) + the consent-gated attribution seam.
+    AgencyModule,
   ],
 })
 export class AppModule implements NestModule {

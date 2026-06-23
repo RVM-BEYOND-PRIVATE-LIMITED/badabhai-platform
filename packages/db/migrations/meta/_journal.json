@@ -176,6 +176,13 @@
       "when": 1782125124222,
       "tag": "0024_square_manta",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1782190538788,
+      "tag": "0025_first_black_bolt",
+      "breakpoints": true
     }
   ]
 }

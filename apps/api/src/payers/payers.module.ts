@@ -8,6 +8,7 @@ import { DatabaseModule } from "../database/database.module";
 import { PayersRepository } from "./payers.repository";
 import { PayerSessionService } from "./payer-session.service";
 import { PayerAuthGuard } from "./payer-auth.guard";
+import { PayerRoleGuard } from "./payer-role.guard";
 import { PayerAccountService } from "./payer-account.service";
 import { PayerAccountController } from "./payer-account.controller";
 
@@ -21,6 +22,11 @@ import { PayerAccountController } from "./payer-account.controller";
  * This module is now imported into `AppModule`. `PiiCryptoService` (CryptoModule) and
  * `SERVER_CONFIG` are @Global. The tenant-isolation chokepoint lives in
  * `payer-scope.ts` (pure helpers, no DI).
+ *
+ * ADR-0022 (Agency Supply Portal): exports `PayerRoleGuard` — the VERTICAL-authz primitive
+ * the upcoming agency controllers pair with `PayerAuthGuard` to gate agent-only routes
+ * (`@UseGuards(PayerAuthGuard, PayerRoleGuard)` + `@PayerRoles("agent")`). It is NOT applied
+ * to any existing route here (additive, no regression). `Reflector` is provided by Nest core.
  */
 @Module({
   imports: [
@@ -36,7 +42,13 @@ import { PayerAccountController } from "./payer-account.controller";
     }),
   ],
   controllers: [PayerAccountController],
-  providers: [PayersRepository, PayerSessionService, PayerAuthGuard, PayerAccountService],
-  exports: [PayersRepository, PayerSessionService, PayerAuthGuard],
+  providers: [
+    PayersRepository,
+    PayerSessionService,
+    PayerAuthGuard,
+    PayerRoleGuard,
+    PayerAccountService,
+  ],
+  exports: [PayersRepository, PayerSessionService, PayerAuthGuard, PayerRoleGuard],
 })
 export class PayersModule {}

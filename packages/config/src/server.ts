@@ -152,6 +152,13 @@ export const serverEnvSchema = z.object({
   // Fail-closed (a Redis outage rejects). Higher than the disclosure cap — reach is an
   // information-only refreshable read, not a billable disclosure.
   PAYER_REACH_MAX_PER_HOUR: z.coerce.number().int().positive().default(60),
+  // Per-PAYER hourly cap on the Agency Supply Portal INVITE-MINT endpoint (ADR-0022
+  // security condition — the invite analogue of XB-G). Minting an invite creates an
+  // opaque attribution code; an uncapped account could mint unboundedly to spam/seed
+  // the funnel, so this throttles a single agency's mint velocity. Reuses
+  // PayerDisclosureRateLimit with scope "agency_invite_mint". Fail-closed (a Redis
+  // outage rejects, never uncaps).
+  AGENCY_INVITE_MINT_MAX_PER_HOUR: z.coerce.number().int().positive().default(60),
 
   // AI routing (direct providers — Gemini primary + Claude Haiku fallback; ADR-0008).
   // The AI service (Python) calls providers DIRECTLY over their own SDKs/REST; the

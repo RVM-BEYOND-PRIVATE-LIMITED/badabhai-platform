@@ -4,8 +4,18 @@ import { PayerJobPostingsController } from "./payer-job-postings.controller";
 import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import type { RequestContext } from "../common/request-context";
 
-const PAYER_A: AuthenticatedPayer = { id: "aaaaaaaa-0000-4000-8000-000000000001", sid: "sid-a" };
-const PAYER_B: AuthenticatedPayer = { id: "bbbbbbbb-0000-4000-8000-000000000002", sid: "sid-b" };
+// job-postings is a SHARED demand surface (any payer role); cover both an agent and an
+// employer session. `role` is required on AuthenticatedPayer since the ADR-0022 role claim.
+const PAYER_A: AuthenticatedPayer = {
+  id: "aaaaaaaa-0000-4000-8000-000000000001",
+  sid: "sid-a",
+  role: "agent",
+};
+const PAYER_B: AuthenticatedPayer = {
+  id: "bbbbbbbb-0000-4000-8000-000000000002",
+  sid: "sid-b",
+  role: "employer",
+};
 const CTX: RequestContext = {
   correlationId: "11111111-1111-4111-8111-111111111111",
   requestId: "req-1",

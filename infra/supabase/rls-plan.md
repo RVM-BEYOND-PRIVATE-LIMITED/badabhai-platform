@@ -28,6 +28,7 @@
 | `ai_jobs`            | **none**                | full                   | internal                           |
 | `audit_logs`         | **none**                | insert only            | internal                           |
 | `payers`             | **none** (B2B PII)      | full                   | payer **own** account only (Phase 2 payer-RLS); migration 0020 already `ENABLE`+`FORCE ROW LEVEL SECURITY`+`REVOKE ALL` so it is deny-by-default today |
+| `agency_invites`     | **none**                | full                   | faceless agency supply-attribution INTENT (ADR-0022); `invited_worker_id` is a payer→worker handle, so migration 0025 ships `ENABLE`+`FORCE ROW LEVEL SECURITY`+`REVOKE ALL` (deny-by-default today). Phase-1 isolation = app-layer `assertPayerOwns(inviter_payer_id)`; per-payer DB-RLS is the open-GA gate (payer tenancy axis below) |
 
 ## Payer tenancy axis (ADR-0019 Decision C — added 2026-06-20)
 
@@ -37,7 +38,8 @@ isolation** requirement:
 
 - **payer ↔ payer** — a payer may read/act on **only their own** `payer_id`-scoped rows
   (`posting_plans` / `posting_boosts` / `payer_credits` / `credit_ledger` / `unlocks` /
-  `resume_disclosures` / `payer_capacity`). **Phase-1 enforcement is the APP-LAYER chokepoint**
+  `resume_disclosures` / `payer_capacity` / `agency_invites` — the last scoped by
+  `inviter_payer_id`, ADR-0022). **Phase-1 enforcement is the APP-LAYER chokepoint**
   (`PayerAuthGuard` session identity + `payer-scope.ts` + the `UnlockService` ownership check,
   XB-A) — proven by the horizontal-authz tests. **DB-enforced per-payer RLS is the open-GA
   launch gate (XL-A)**, not built here: it needs either a least-privilege payer

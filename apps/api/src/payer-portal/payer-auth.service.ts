@@ -110,7 +110,9 @@ export class PayerAuthService {
     const account = await this.payers.findByEmail(dto.email);
     if (!account) throw new UnauthorizedException("Incorrect or expired code");
 
-    const session = await this.sessions.create(account.id);
+    // Carry the role onto the session (ADR-0022) so PayerRoleGuard gates agent-only routes
+    // without a DB hit; pre-ADR-0022 sessions (no role) resolve it via the guard's fallback.
+    const session = await this.sessions.create(account.id, account.role);
     await this.events.emit({
       event_name: "payer.session_started",
       actor: { actor_type: "payer", actor_id: account.id },

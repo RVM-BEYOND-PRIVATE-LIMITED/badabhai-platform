@@ -129,7 +129,8 @@ describe("PayerAuthService.verifyLogin", () => {
     const d = setup();
     const res = await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
     expect(d.otp.verify).toHaveBeenCalledWith(`hmac<${EMAIL}>`, "123456");
-    expect(d.sessions.create).toHaveBeenCalledWith(PAYER_ID);
+    // ADR-0022: the account role is carried onto the session so PayerRoleGuard gates without a DB hit.
+    expect(d.sessions.create).toHaveBeenCalledWith(PAYER_ID, "employer");
     const evt = d.events.emit.mock.calls.find((c) => c[0].event_name === "payer.session_started");
     expect(evt![0].payload).toEqual({ payer_id: PAYER_ID, method: "email_otp", is_new_payer: false });
     expect(res).toMatchObject({ access_token: "jwt-token", token_type: "Bearer", payer_id: PAYER_ID, role: "employer" });

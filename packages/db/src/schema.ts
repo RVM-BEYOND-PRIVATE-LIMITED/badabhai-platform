@@ -1162,6 +1162,78 @@ export const invites = pgTable(
 ).enableRLS(); // RLS tracked in the model; REVOKE carried by the migration (spine posture)
 
 // ---------------------------------------------------------------------------
+// agency_invites — AGENCY supply-attribution INTENT (ADR-0022). FACELESS, ids-only.
+//
+// The SIBLING of `invites` (the worker→worker funnel above). A distinct table — NOT
+// a reuse — because `invites.inviter_worker_id` is `NOT NULL → workers`, while here
+// the inviter is a PAYER (the agency, `payers.role = 'agent'`): a different principal
+// on a different identity axis. Forcing both funnels through one table would have
+// meant a nullable worker FK + a payer FK + a discriminator on every row — strictly
+// worse than two purpose-built tables (ADR-0022, ACCEPTED).
+//
+// An agency invite is a shareable deep-link (`/i/<code>`). The `code` is an opaque
+// token (the only thing shared); NO phone, NO name, NO email, NO message body ever
+// lands here — the worker's contact touches the WhatsApp provider only, at send time.
+// `invited_worker_id` is the attribution handle, set ONLY after the invited person
+// becomes a worker with `consent.accepted` (DPDP gate, invariant #6).
+//
+// FACELESS / ids-only by construction: ABSOLUTELY NO KYC / bank / PAN / GST / payout /
+// commission / money / amount column ever (the deferred agency-payout rails consume
+// this as an upstream signal; they do NOT live here). The only references are opaque
+// UUIDs (`inviter_payer_id`, `invited_worker_id`) + enums + a stable non-PII campaign
+// tag — exactly the `invites` discipline.
+//
+// SECURITY (ADR-0022 Appendix C #3): `invited_worker_id` is a NEW payer-side handle
+// onto a worker, so this table ships the full spine lock — ENABLE + FORCE ROW LEVEL
+// SECURITY + REVOKE ALL from PUBLIC/anon/authenticated/service_role (carried by the
+// migration). Phase-1 isolation is the APP-LAYER chokepoint (`assertPayerOwns` on
+// `inviter_payer_id`); DB-enforced per-payer RLS is the open-GA launch gate, like the
+// rest of the payer-owned spine (rls-plan.md).
+// ---------------------------------------------------------------------------
+export type AgencyInviteChannel = InviteChannel; // mirror the invite channel enum ('whatsapp')
+export type AgencyInviteStatus = InviteStatus; // 'created' | 'clicked' | 'accepted'
+
+export const agencyInvites = pgTable(
+  "agency_invites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The agency that owns this invite (a `payers` row with role='agent'). FK to
+    // payers(id): an INTERNAL tenant entity, NOT worker PII, so a real FK + cascade
+    // is appropriate and keeps referential integrity. `payer_id` is the only token
+    // for the agency — its B2B contact PII stays in `payers`, never copied here.
+    inviterPayerId: uuid("inviter_payer_id")
+      .notNull()
+      .references(() => payers.id, { onDelete: "cascade" }),
+    // The opaque deep-link token (the only thing shared). Unique.
+    code: text("code").notNull(),
+    // Attribution handle: set ONLY after the invited person becomes a worker with
+    // consent.accepted (invariant #6). Nullable until then. FK to workers(id) with
+    // ON DELETE SET NULL — mirrors `invites.invited_worker_id`: the FK preserves
+    // referential integrity (no dangling worker id), and SET NULL keeps the
+    // attribution row's INTENT history intact when a worker is hard-deleted (DSAR).
+    // The table's FORCE-RLS + REVOKE lock is what keeps this payer→worker handle
+    // app-layer-only, satisfying ADR-0022 Appendix C #3.
+    invitedWorkerId: uuid("invited_worker_id").references(() => workers.id, {
+      onDelete: "set null",
+    }),
+    channel: text("channel").$type<AgencyInviteChannel>().notNull().default("whatsapp"),
+    status: text("status").$type<AgencyInviteStatus>().notNull().default("created"),
+    // Optional non-PII campaign tag (a stable code, never free-form PII) — mirrors
+    // the `invites.campaign` rule.
+    campaign: text("campaign"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("agency_invites_code_uq").on(t.code),
+    // Owner-scoped reads (the agency's own invites — the assertPayerOwns hot path).
+    index("agency_invites_inviter_payer_id_idx").on(t.inviterPayerId),
+    // Reverse lookup: which invite attributed a given worker (set-once, sparse).
+    index("agency_invites_invited_worker_id_idx").on(t.invitedWorkerId),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by the migration (spine posture)
+
+// ---------------------------------------------------------------------------
 // pace_states — per-job PACE supply-widening run state (ADR-0021). PII-FREE.
 //
 // One row per job under PACE. Tracks the current widen stage + area band, when the
@@ -1266,6 +1338,8 @@ export type PayerCapacity = typeof payerCapacity.$inferSelect;
 export type NewPayerCapacity = typeof payerCapacity.$inferInsert;
 export type PaceState = typeof paceStates.$inferSelect;
 export type NewPaceState = typeof paceStates.$inferInsert;
+export type AgencyInvite = typeof agencyInvites.$inferSelect;
+export type NewAgencyInvite = typeof agencyInvites.$inferInsert;
 
 /** All tables, handy for migrations/tests. */
 export const schema = {
@@ -1298,4 +1372,5 @@ export const schema = {
   payerCapacity,
   invites,
   paceStates,
+  agencyInvites,
 };

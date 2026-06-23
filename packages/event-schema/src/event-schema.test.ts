@@ -957,9 +957,164 @@ describe("payer auth events (ADR-0019 Decision B — FACELESS, ids/role/method e
   });
 });
 
+describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/bands only)", () => {
+  function jobEvent(name: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: name,
+      actor: { actor_type: "payer", actor_id: UUID_A },
+      subject: { subject_type: "job", subject_id: UUID_A },
+      payload,
+    };
+  }
+
+  it("validates job.created and defaults the optional bands to null", () => {
+    const result = validateEvent(
+      jobEvent("job.created", {
+        job_id: UUID_A,
+        payer_id: UUID_B,
+        status: "open",
+        trade_key: "cnc_operator",
+        city: "Pune",
+      }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "job.created") {
+      expect(result.event.payload.pay_min).toBeNull();
+      expect(result.event.payload.max_experience_years).toBeNull();
+      // No field could carry an employer name / address / worker id — opaque ids +
+      // coarse bands only (the city label is the only non-id string, capped + coarse).
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        [
+          "city",
+          "job_id",
+          "max_experience_years",
+          "min_experience_years",
+          "pay_max",
+          "pay_min",
+          "payer_id",
+          "status",
+          "trade_key",
+        ].sort(),
+      );
+    }
+  });
+
+  it("rejects job.created with a non-slug trade_key (no free text → no PII)", () => {
+    const bad = validateEvent(
+      jobEvent("job.created", {
+        job_id: UUID_A,
+        payer_id: UUID_B,
+        status: "open",
+        trade_key: "CNC Operator 9876543210",
+        city: "Pune",
+      }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("validates job.updated with changed field KEYS only", () => {
+    const ok = validateEvent(
+      jobEvent("job.updated", {
+        job_id: UUID_A,
+        payer_id: UUID_B,
+        status: "open",
+        changed_fields: ["title", "pay_min", "status"],
+      }),
+    );
+    expect(ok.success).toBe(true);
+
+    const bad = validateEvent(
+      jobEvent("job.updated", {
+        job_id: UUID_A,
+        payer_id: UUID_B,
+        status: "open",
+        changed_fields: ["employer_name"],
+      }),
+    );
+    expect(bad.success).toBe(false); // not a known field key → rejected
+  });
+
+  it("validates job.closed and pins status to the literal 'closed'", () => {
+    const ok = validateEvent(
+      jobEvent("job.closed", {
+        job_id: UUID_A,
+        payer_id: UUID_B,
+        previous_status: "open",
+        status: "closed",
+      }),
+    );
+    expect(ok.success).toBe(true);
+
+    const wrong = validateEvent(
+      jobEvent("job.closed", {
+        job_id: UUID_A,
+        payer_id: UUID_B,
+        previous_status: "open",
+        status: "open",
+      }),
+    );
+    expect(wrong.success).toBe(false);
+  });
+
+  it("validates agency_invite.created (NO worker id, no phone/name/email fields)", () => {
+    const result = validateEvent({
+      ...workerCreatedEvent(),
+      event_name: "agency_invite.created",
+      actor: { actor_type: "payer", actor_id: UUID_A },
+      subject: { subject_type: "agency_invite", subject_id: UUID_A },
+      payload: { agency_invite_id: UUID_A, inviter_payer_id: UUID_B, channel: "whatsapp" },
+    });
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "agency_invite.created") {
+      // No worker handle on create + no contact-PII field exists at all (the code itself
+      // is a shareable secret and is NOT carried).
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["agency_invite_id", "channel", "inviter_payer_id"].sort(),
+      );
+    }
+  });
+
+  it("validates agency_invite.accepted (carries the post-consent worker handle, opaque)", () => {
+    const result = validateEvent({
+      ...workerCreatedEvent(),
+      event_name: "agency_invite.accepted",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "agency_invite", subject_id: UUID_A },
+      payload: {
+        agency_invite_id: UUID_A,
+        inviter_payer_id: UUID_B,
+        invited_worker_id: UUID_C,
+      },
+    });
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "agency_invite.accepted") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["agency_invite_id", "invited_worker_id", "inviter_payer_id"].sort(),
+      );
+    }
+  });
+
+  it("rejects an agency_invite.created channel outside the enum (no free text → no PII)", () => {
+    const bad = validateEvent({
+      ...workerCreatedEvent(),
+      event_name: "agency_invite.created",
+      actor: { actor_type: "payer", actor_id: UUID_A },
+      subject: { subject_type: "agency_invite", subject_id: UUID_A },
+      payload: { agency_invite_id: UUID_A, inviter_payer_id: UUID_B, channel: "boss@acme.com" },
+    });
+    expect(bad.success).toBe(false);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 69 event names (64 prior + 2 ADR-0021 pace + 3 ADR-0019 payer auth)", () => {
-    expect(EVENT_NAMES).toHaveLength(69);
+  it("exposes all 74 event names (69 prior + 3 ADR-0022 job entity + 2 ADR-0022 agency_invite)", () => {
+    expect(EVENT_NAMES).toHaveLength(74);
+    expect(isEventName("job.created")).toBe(true);
+    expect(isEventName("job.updated")).toBe(true);
+    expect(isEventName("job.closed")).toBe(true);
+    expect(isEventName("agency_invite.created")).toBe(true);
+    expect(isEventName("agency_invite.accepted")).toBe(true);
     expect(isEventName("pace.wave_widened")).toBe(true);
     expect(isEventName("pace.ops_alert_raised")).toBe(true);
     expect(isEventName("payer.created")).toBe(true);

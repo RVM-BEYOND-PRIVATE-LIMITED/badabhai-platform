@@ -206,6 +206,28 @@ export const EVENT_REGISTRY = {
   "payer.created": { version: 1, domain: "payer", payload: p.PayerCreatedPayload },
   "payer.login_requested": { version: 1, domain: "payer", payload: p.PayerLoginRequestedPayload },
   "payer.session_started": { version: 1, domain: "payer", payload: p.PayerSessionStartedPayload },
+
+  // The `jobs` ENTITY lifecycle (ADR-0022 Agency Supply Portal) — DISTINCT from
+  // `job_posting.*` (ADR-0012, a different entity). PII-FREE: opaque ids + coarse
+  // non-PII bands only; the PAYER is the actor, the `job` entity the subject. All v1.
+  "job.created": { version: 1, domain: "job", payload: p.JobCreatedPayload },
+  "job.updated": { version: 1, domain: "job", payload: p.JobUpdatedPayload },
+  "job.closed": { version: 1, domain: "job", payload: p.JobClosedPayload },
+
+  // AGENCY supply-attribution funnel (ADR-0022) — the payer-axis sibling of `invite.*`.
+  // PII-FREE: opaque ids + channel enum + optional non-PII campaign tag only.
+  // `agency_invite.accepted` carries the invited worker id and is emitted ONLY after
+  // consent (invariant #6), exclusively from the internal consent-gated seam. All v1.
+  "agency_invite.created": {
+    version: 1,
+    domain: "agency_invite",
+    payload: p.AgencyInviteCreatedPayload,
+  },
+  "agency_invite.accepted": {
+    version: 1,
+    domain: "agency_invite",
+    payload: p.AgencyInviteAcceptedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

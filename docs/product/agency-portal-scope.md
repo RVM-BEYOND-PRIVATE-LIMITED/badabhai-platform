@@ -25,9 +25,15 @@ a payer account" — identical to the company DEMAND loop, only labelled for an 
 
 - **LIVE:** identity (`GET /payer/me`), credit balance (`GET /payer/credits`), unlocked
   count (`GET /payer/unlocks`).
-- **MOCK (preview-labelled):** vacancy summary + vacancy management table — no payer-authed
-  job-postings endpoint exists yet.
-- **Disabled — coming soon:** the invite control (no agency invite API).
+- **MOCK in the FRONTEND today (preview-labelled):** vacancy summary + vacancy management
+  table. **Update (2026-06-22, #127):** the payer-authed agency BACKEND now exists — the
+  `payer/agency` job-CRUD routes over `jobs.payer_id` (POST/GET/PATCH + close/pause) behind
+  `PayerRoleGuard`+`@PayerRoles('agent')` (ADR-0022). The frontend has NOT yet been wired to
+  them (the payer-web agency frontend is HELD pending reconciliation with #123/#107), so the
+  shell still serves from the mock store until that wiring lands.
+- **Disabled — coming soon (FRONTEND):** the invite control. **Update (2026-06-22, #127):**
+  a payer-authed agency invite API now exists (`POST /invites` on the `payer/agency` module —
+  faceless, opaque code only); the frontend invite control stays disabled until it is wired.
 - **Honest blanks:** reached / eligible / consented / invite-intent counts render `—` with
   a "not available yet" affordance — never fabricated.
 
