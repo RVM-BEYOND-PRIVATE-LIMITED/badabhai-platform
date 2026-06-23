@@ -344,6 +344,132 @@ export const reachApplicantListWireSchema = z.object({
   applicants: z.array(reachApplicantWireSchema),
 });
 
+/* ── Agency Supply Portal — DEMAND on the faceless `jobs` entity (ADR-0022) ──────
+ *
+ * LIVE agency-role (payers.role='agent') wire shapes for the agency's OWN jobs +
+ * invite funnel, mirroring `apps/api/src/agency/agency.dto.ts` + `AgencyService`. Every
+ * shape is COARSE + non-PII: a trade enum, generic labels, integer ₹ bands, year counts,
+ * a coarse timing enum, and counts. There is NEVER an employer name, an address, or any
+ * worker identity by construction. `payer_id` is NEVER a field — tenancy is the SESSION
+ * (XB-A), stamped server-side. Distinct from the @parked SUPPLY shells below (payouts/KYC).
+ */
+
+/**
+ * The ratified manufacturing alpha trade keys — the SAME enum the backend
+ * `agency.dto.ts` accepts (`REQUIRED_TRADE_KEYS`). Kept as a local literal (the web app
+ * never imports a server package); an out-of-set value is rejected at the form boundary
+ * AND by the backend Zod enum, so a job can never carry an arbitrary string.
+ */
+export const TRADE_KEYS = [
+  "cnc_operator",
+  "vmc_operator",
+  "cnc_vmc_setter",
+  "cnc_programmer",
+  "vmc_programmer",
+  "cad_designer",
+  "solidworks_designer",
+  "autocad_draftsman",
+  "quality_inspector",
+  "production_engineer",
+  "maintenance_technician",
+  "tool_room_technician",
+  "machine_operator",
+  "assembly_technician",
+  "fitter",
+] as const;
+export const tradeKeySchema = z.enum(TRADE_KEYS);
+export type TradeKey = z.infer<typeof tradeKeySchema>;
+
+/** Coarse timing enum — mirrors db.JobNeededBy / the agency DTO. */
+export const NEEDED_BY = ["immediate", "soon", "flexible"] as const;
+export const neededBySchema = z.enum(NEEDED_BY);
+export type NeededBy = z.infer<typeof neededBySchema>;
+
+/**
+ * One faceless agency job — the EXACT camelCase projection `AgencyService.toJobView`
+ * returns (`Date` fields serialize to ISO strings over the wire → `z.string()`). Status
+ * is `open|closed` ONLY (Phase-1 `JobStatus`; pause == close). NO `payer_id` — the owner
+ * is never returned (XB-A). NO worker identity by construction.
+ */
+export const agencyJobWireSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(["open", "closed"]),
+  tradeKey: z.string(),
+  title: z.string(),
+  city: z.string(),
+  area: z.string().nullable(),
+  payMin: z.number().int().nullable(),
+  payMax: z.number().int().nullable(),
+  minExperienceYears: z.number().int().nullable(),
+  maxExperienceYears: z.number().int().nullable(),
+  neededBy: neededBySchema.nullable(),
+  applicantsReceived: z.number().int().nonnegative(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type AgencyJob = z.infer<typeof agencyJobWireSchema>;
+export const agencyJobListWireSchema = z.array(agencyJobWireSchema);
+
+/**
+ * Create/edit input for an agency job — the COARSE, non-PII demand fields ONLY. There is
+ * deliberately NO employer-name field (ADR-0009 §2 / ADR-0022 privacy line). Mirrors the
+ * backend `CreateAgencyJobSchema` (camelCase here; mapped to snake_case at the seam).
+ */
+export const agencyJobInputSchema = z
+  .object({
+    tradeKey: tradeKeySchema,
+    title: z.string().min(1).max(200),
+    city: z.string().min(1).max(120),
+    area: z.string().min(1).max(120).optional(),
+    payMin: z.number().int().nonnegative().optional(),
+    payMax: z.number().int().nonnegative().optional(),
+    minExperienceYears: z.number().int().nonnegative().optional(),
+    maxExperienceYears: z.number().int().nonnegative().optional(),
+    neededBy: neededBySchema.optional(),
+  })
+  .refine((o) => o.payMin === undefined || o.payMax === undefined || o.payMax >= o.payMin, {
+    message: "Max pay must be greater than or equal to min pay.",
+    path: ["payMax"],
+  })
+  .refine(
+    (o) =>
+      o.minExperienceYears === undefined ||
+      o.maxExperienceYears === undefined ||
+      o.maxExperienceYears >= o.minExperienceYears,
+    {
+      message: "Max experience must be greater than or equal to min experience.",
+      path: ["maxExperienceYears"],
+    },
+  );
+export type AgencyJobInput = z.infer<typeof agencyJobInputSchema>;
+
+/**
+ * GET /payer/agency/referrals/summary — AGGREGATE-ONLY funnel counts with a k-anon floor
+ * ALREADY applied server-side: any stage count strictly below `minBucket` is returned as
+ * 0 (suppressed). A 0 therefore means "below the floor", NOT literally zero — the UI
+ * surfaces it as "<minBucket" so a single named invitee's consent can never be inferred
+ * (no oracle). NO per-invitee / per-worker rows ever (ADR-0022 C.1 #2).
+ */
+export const agencyReferralsSummaryWireSchema = z.object({
+  created: z.number().int().nonnegative(),
+  clicked: z.number().int().nonnegative(),
+  accepted: z.number().int().nonnegative(),
+  minBucket: z.number().int().positive(),
+});
+export type AgencyReferralsSummary = z.infer<typeof agencyReferralsSummaryWireSchema>;
+
+/**
+ * POST /payer/agency/invites — returns an OPAQUE code only (faceless: the mint takes no
+ * phone/name/email/worker-id, only an optional non-PII campaign tag). The agency shows
+ * the code/link to copy & share; it never types a contact.
+ */
+export const agencyInviteWireSchema = z.object({
+  agency_invite_id: z.string().uuid(),
+  code: z.string(),
+  link: z.string(),
+});
+export type AgencyInvite = z.infer<typeof agencyInviteWireSchema>;
+
 /* ── @parked Phase-2 SUPPLY contract shells (TYPE-ONLY) ──────────────────────────
  *
  * @parked Phase-2 — agency SUPPLY (referrals / payouts / KYC) is CEO-gated and NOT

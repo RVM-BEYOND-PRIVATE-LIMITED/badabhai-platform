@@ -31,7 +31,7 @@ export function isPayerUnauthorized(err: unknown): boolean {
 }
 
 interface RequestOptions<T> {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PATCH";
   /** Request body (JSON). NEVER include a payer_id — the session token carries it. */
   body?: unknown;
   /** Zod schema the response is validated against. */
