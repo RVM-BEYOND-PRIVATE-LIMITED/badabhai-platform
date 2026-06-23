@@ -3,18 +3,20 @@ import type { ReactElement, ReactNode } from "react";
 import type { PayerSession } from "../../../../lib/auth/types";
 
 /**
- * AGENCY DASHBOARD render tests (ADR-0019 DEMAND extension).
+ * AGENCY DASHBOARD render tests (ADR-0019 DEMAND extension + ADR-0022 LIVE wiring).
  *
  * Asserts the page is:
  *  - role-gated (requireAgent runs FIRST; an employer 404s before any render),
  *  - portal-flag gated (off → notFound()),
- *  - FACELESS: a worker name/phone in a mocked payload is NEVER rendered,
- *  - HONEST: identity / demand summary / parked cards render; the invite control is
- *    DISABLED and its copy carries the consent requirement,
- *  - NEGATIVE: there is NO referral / payout / KYC / bulk input control on the page.
+ *  - FACELESS: a worker name/phone in a regressed agency-jobs payload is NEVER rendered
+ *    (the page-level assertNoAgencyPII throws → the panel degrades), and
+ *  - LIVE: identity / demand summary / vacancy manager / invite / referral funnel / parked
+ *    modules all mount; the page itself holds NO form/input controls (those live in the
+ *    child client components, unit-tested separately).
+ *  - NEGATIVE: no payout/KYC commercial term (₹500 / 25% / 90d) on the page.
  *
- * Env is node (no DOM); we render the async Server Component to an element tree and
- * walk it for element types, prop flags (disabled), and text.
+ * Env is node (no DOM); we render the async Server Component to an element tree and walk
+ * it for element types, mounted child components, and text.
  */
 
 const AGENT: PayerSession = {
@@ -31,7 +33,8 @@ const notFound = vi.fn(() => {
 const getAgencyAccount = vi.fn();
 const getCredits = vi.fn();
 const getUnlocks = vi.fn();
-const getPostings = vi.fn();
+const listAgencyJobs = vi.fn();
+const getAgencyReferralsSummary = vi.fn();
 const flags = {
   agencyPortalEnabled: true,
   agencySupplyEnabled: false,
@@ -49,7 +52,8 @@ vi.mock("../../../../lib/payer-api", () => ({
   getAgencyAccount: () => getAgencyAccount(),
   getCredits: () => getCredits(),
   getUnlocks: () => getUnlocks(),
-  getPostings: () => getPostings(),
+  listAgencyJobs: () => listAgencyJobs(),
+  getAgencyReferralsSummary: () => getAgencyReferralsSummary(),
 }));
 // next/link renders an <a>; stub to a plain anchor so the walk sees it.
 vi.mock("next/link", () => ({
@@ -58,23 +62,22 @@ vi.mock("next/link", () => ({
     props: { href, children },
   }),
 }));
-// The child Server/Client components are unit-tested directly (invite-panel.test,
-// parked-modules.test). Here we render the PAGE's own composition, so we stub the
-// children to plain markers — the manual node render does not invoke nested
-// components. The invite/parked COPY + disabled control are asserted in their own
-// tests; this file owns the page-level gating, faceless, and negative assertions.
+// The child Server/Client components are unit-tested directly; here we render the PAGE's
+// own composition, so stub the children to plain markers. The manual node render does not
+// invoke nested components.
+const JobsManagerStub = () => null;
 const InvitePanelStub = () => null;
+const ReferralFunnelStub = () => null;
 const ParkedModulesStub = () => null;
-const PostingsManagerStub = () => null;
+vi.mock("./agency-jobs-manager", () => ({ AgencyJobsManager: JobsManagerStub }));
 vi.mock("./invite-panel", () => ({ AgencyInvitePanel: InvitePanelStub }));
+vi.mock("./referral-funnel", () => ({ ReferralFunnel: ReferralFunnelStub }));
 vi.mock("./parked-modules", () => ({ AgencyParkedModules: ParkedModulesStub }));
-vi.mock("../../postings/postings-manager", () => ({ PostingsManager: PostingsManagerStub }));
 
 const { default: AgencyDashboardPage } = await import("./page");
 
 interface Collected {
   types: string[];
-  /** Function-component references encountered (mounted child components). */
   components: unknown[];
   text: string[];
 }
@@ -106,6 +109,23 @@ function collect(tree: ReactNode): Collected {
   return acc;
 }
 
+const JOB = {
+  id: "00000001-0000-4000-8000-000000000001",
+  status: "open" as const,
+  tradeKey: "cnc_operator",
+  title: "CNC Operator",
+  city: "Pune",
+  area: null,
+  payMin: null,
+  payMax: null,
+  minExperienceYears: null,
+  maxExperienceYears: null,
+  neededBy: null,
+  applicantsReceived: 3,
+  createdAt: "2026-06-22T00:00:00.000Z",
+  updatedAt: "2026-06-22T00:00:00.000Z",
+};
+
 beforeEach(() => {
   requireAgent.mockReset().mockResolvedValue(AGENT);
   notFound.mockClear();
@@ -115,26 +135,16 @@ beforeEach(() => {
     status: "active",
     displayLabel: "HireFast Agency",
   });
-  getCredits.mockReset().mockResolvedValue({
-    payerId: AGENT.payerId,
-    balance: 42,
-  });
+  getCredits.mockReset().mockResolvedValue({ payerId: AGENT.payerId, balance: 42 });
   getUnlocks
     .mockReset()
     .mockResolvedValue([
       { unlockId: "u1", workerId: "w1", status: "granted", createdAt: "x", expiresAt: "y" },
     ]);
-  getPostings.mockReset().mockResolvedValue([
-    {
-      id: "00000001-0000-4000-8000-000000000001",
-      roleTitle: "CNC Operator",
-      locationLabel: "Pune",
-      vacancyBand: "1-5",
-      status: "open",
-      applicantCount: 0,
-      createdAt: "2026-06-22T00:00:00.000Z",
-    },
-  ]);
+  listAgencyJobs.mockReset().mockResolvedValue([JOB]);
+  getAgencyReferralsSummary
+    .mockReset()
+    .mockResolvedValue({ created: 7, clicked: 0, accepted: 0, minBucket: 5 });
 });
 
 describe("agency dashboard — role + flag gating", () => {
@@ -151,39 +161,39 @@ describe("agency dashboard — role + flag gating", () => {
   });
 });
 
-describe("agency dashboard — renders identity / summary / child modules", () => {
-  it("renders the agency identity, live counts, and mounts the invite + parked modules", async () => {
+describe("agency dashboard — renders identity / live summary / child modules", () => {
+  it("renders identity, live credit count, demand summary, and mounts the LIVE child modules", async () => {
     const { text, components } = collect(await AgencyDashboardPage());
     const joined = text.join(" ");
     expect(joined).toContain("Agency dashboard");
     expect(joined).toContain("HireFast Agency");
-    expect(joined).toContain("Agency"); // role label
     expect(joined).toContain("42"); // live credit balance
-    // The invite + parked module + postings sections are mounted (their content is
-    // unit-tested in invite-panel.test / parked-modules.test).
+    expect(joined).toContain("Total vacancies");
+    expect(joined).toContain("Demand summary");
+    // The LIVE vacancy manager + invite + referral funnel + parked modules are mounted.
+    expect(components).toContain(JobsManagerStub);
     expect(components).toContain(InvitePanelStub);
+    expect(components).toContain(ReferralFunnelStub);
     expect(components).toContain(ParkedModulesStub);
-    expect(components).toContain(PostingsManagerStub);
   });
 
-  it("shows honest '—' for counts with NO backend source (not fabricated)", async () => {
+  it("passes the LIVE jobs to the vacancy manager (demand summary derives from them)", async () => {
     const { text } = collect(await AgencyDashboardPage());
     const joined = text.join(" ");
-    expect(joined).toContain("Workers reached");
-    expect(joined).toContain("Not available yet");
-    expect(joined).toContain("—");
+    // total=1, applicantsReceived summed = 3 (derived by summarizeAgencyJobs)
+    expect(joined).toContain("Applicants received");
   });
 });
 
-describe("agency dashboard — NEGATIVE: no parked/dead controls, no PII", () => {
-  it("has NO form/input/select/textarea anywhere (no referral/payout/KYC/bulk input)", async () => {
+describe("agency dashboard — NEGATIVE: no page-level inputs, no payout/KYC terms, faceless", () => {
+  it("has NO form/input/select/textarea at the page level (controls live in child components)", async () => {
     const { types } = collect(await AgencyDashboardPage());
     for (const t of ["input", "form", "select", "textarea"]) {
       expect(types).not.toContain(t);
     }
   });
 
-  it("never promises a commercial term (no ₹500 / 25% / 90d)", async () => {
+  it("never promises a commercial payout term (no ₹500 / 25% / 90d)", async () => {
     const { text } = collect(await AgencyDashboardPage());
     const joined = text.join(" ");
     expect(joined).not.toMatch(/₹\s?500/);
@@ -191,25 +201,16 @@ describe("agency dashboard — NEGATIVE: no parked/dead controls, no PII", () =>
     expect(joined).not.toMatch(/\b90\s?d\b/i);
   });
 
-  it("does NOT render a worker name/phone even if a payload regresses (faceless)", async () => {
-    // A regressed postings payload carrying PII must NOT surface — the dashboard
-    // catches the faceless-guard throw and degrades the panel.
-    getPostings.mockResolvedValueOnce([
-      {
-        id: "00000001-0000-4000-8000-000000000001",
-        roleTitle: "CNC Operator",
-        locationLabel: "Pune",
-        vacancyBand: "1-5",
-        status: "open",
-        applicantCount: 0,
-        createdAt: "2026-06-22T00:00:00.000Z",
-        name: "Ramesh Kumar",
-        phone: "+919812345678",
-      },
+  it("does NOT render a worker name/phone even if an agency-jobs payload regresses (faceless)", async () => {
+    // A regressed jobs payload carrying PII must NOT surface — the page-level
+    // assertNoAgencyPII throws → the vacancy panel degrades; the PII never renders.
+    listAgencyJobs.mockResolvedValueOnce([
+      { ...JOB, name: "Ramesh Kumar", phone: "+919812345678" },
     ]);
     const { text } = collect(await AgencyDashboardPage());
     const joined = text.join(" ");
     expect(joined).not.toContain("Ramesh Kumar");
     expect(joined).not.toContain("+919812345678");
+    expect(joined).toContain("Vacancies are unavailable right now");
   });
 });

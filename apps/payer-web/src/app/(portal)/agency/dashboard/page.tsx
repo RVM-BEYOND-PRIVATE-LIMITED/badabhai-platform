@@ -2,34 +2,47 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireAgent } from "../../../../lib/auth/roles";
 import { agencyFlags } from "../../../../lib/config";
-import { getAgencyAccount, getCredits, getPostings, getUnlocks } from "../../../../lib/payer-api";
+import {
+  getAgencyAccount,
+  getAgencyReferralsSummary,
+  getCredits,
+  getUnlocks,
+  listAgencyJobs,
+} from "../../../../lib/payer-api";
 import { assertNoAgencyPII } from "../../../../lib/assert-no-agency-pii";
-import { summarizeJobStatuses } from "../../../../lib/agency-summary";
-import type { AgencyAccount, CreditBalance, PostingSummary } from "../../../../lib/contracts";
-import { PostingsManager } from "../../postings/postings-manager";
+import { summarizeAgencyJobs } from "../../../../lib/agency-summary";
+import type {
+  AgencyAccount,
+  AgencyJob,
+  AgencyReferralsSummary,
+  CreditBalance,
+} from "../../../../lib/contracts";
+import { AgencyJobsManager } from "./agency-jobs-manager";
 import { AgencyInvitePanel } from "./invite-panel";
+import { ReferralFunnel } from "./referral-funnel";
 import { AgencyParkedModules } from "./parked-modules";
 
 export const dynamic = "force-dynamic";
 
 /**
- * AGENCY DASHBOARD (ADR-0019 DEMAND extension) — READ-ONLY, FACELESS.
+ * AGENCY DASHBOARD (ADR-0019 DEMAND extension + ADR-0022 demand slice) — FACELESS.
  *
- * SECURITY / authz (XB-A / XT3): the FIRST statement is `requireAgent()`, which reads
- * the SERVER-HELD signed session and returns a NEUTRAL 404 for any non-`agent` (an
- * employer cannot reach, read, or confirm this page exists). The agency-portal public
- * flag additionally fail-closes the route (off → notFound()).
+ * SECURITY / authz (XB-A / XT3): the FIRST statement is `requireAgent()`, which reads the
+ * SERVER-HELD signed session and returns a NEUTRAL 404 for any non-`agent` (an employer
+ * cannot reach, read, or confirm this page exists). The agency-portal public flag
+ * additionally fail-closes the route (off → notFound()).
  *
- * FACELESS (CLAUDE.md §2 #2 + #6 / B-R2): the agency sees ONLY opaque worker ids,
- * COUNTS, status enums, timestamps, and its OWN org label — NEVER a worker name/phone/
- * raw resume/unconsented data. Every payload crosses {@link assertNoAgencyPII} at the
- * render boundary as defence-in-depth (in dev it throws on a forbidden key; in prod it
- * strips). No mutating action ships here — read-only + a DISABLED, consent-first invite.
+ * FACELESS (CLAUDE.md §2 #2 + #6 / B-R2): the agency sees ONLY opaque ids, COUNTS, status
+ * enums, coarse bands, timestamps, and its OWN org label — NEVER a worker name/phone/raw
+ * resume/unconsented data. Every payload crosses {@link assertNoAgencyPII} at the render
+ * boundary (defence-in-depth; the data seam also wraps it).
  *
- * LIVE vs MOCK (honest labelling): credits + unlocks + the account identity are LIVE
- * payer-authed reads; postings/jobs are MOCK until a payer-authed job-postings endpoint
- * lands (the panels say so). The invite control is DISABLED — there is NO agency invite
- * API (POST /invites is WORKER-authed). Nothing fakes success.
+ * LIVE vs MOCK (honest labelling): the account identity, credits, unlocked count, the
+ * agency's OWN vacancies (`/payer/agency/jobs` — list + create + edit + pause + close),
+ * the invite mint (`POST /payer/agency/invites`), and the referral funnel
+ * (`/payer/agency/referrals/summary`, aggregate + k-anon) are ALL LIVE payer-authed,
+ * agent-role-gated reads/writes (ADR-0022, #127). The separate EMPLOYER `posting_plans`
+ * surface remains its own escalated track and is not used here. Nothing fakes success.
  */
 export default async function AgencyDashboardPage() {
   // 1) SERVER-enforced role gate — employer → neutral 404, before anything renders.
@@ -39,12 +52,13 @@ export default async function AgencyDashboardPage() {
   const flags = agencyFlags();
   if (!flags.agencyPortalEnabled) notFound();
 
-  // 3) LIVE reads (account/credits/unlocks) + MOCK read (postings). Each isolated so a
-  //    single failing source degrades to "—"/"unavailable", never a blank screen.
+  // 3) LIVE reads, each isolated so a single failing source degrades to "—"/empty rather
+  //    than blanking the page.
   let account: AgencyAccount | null = null;
   let credits: CreditBalance | null = null;
   let unlocksCount: number | null = null;
-  let postings: PostingSummary[] | null = null;
+  let jobs: AgencyJob[] | null = null;
+  let referrals: AgencyReferralsSummary | null = null;
   let readError = false;
 
   try {
@@ -66,12 +80,17 @@ export default async function AgencyDashboardPage() {
     readError = true;
   }
   try {
-    postings = assertNoAgencyPII(await getPostings(), "payer/job-postings (mock)");
+    jobs = assertNoAgencyPII(await listAgencyJobs(), "payer/agency/jobs");
+  } catch {
+    readError = true;
+  }
+  try {
+    referrals = assertNoAgencyPII(await getAgencyReferralsSummary(), "payer/agency/referrals/summary");
   } catch {
     readError = true;
   }
 
-  const jobs = postings ? summarizeJobStatuses(postings) : null;
+  const demand = jobs ? summarizeAgencyJobs(jobs) : null;
   const dash = (n: number | null): string => (n === null ? "—" : String(n));
 
   return (
@@ -128,78 +147,52 @@ export default async function AgencyDashboardPage() {
         </div>
       </section>
 
-      {/* b) DEMAND JOB SUMMARY — counts derived from the MOCK postings seam. */}
+      {/* b) DEMAND JOB SUMMARY — counts derived from the agency's OWN LIVE jobs. */}
       <section className="section">
         <h2>Demand summary</h2>
-        <div className="note warn">
-          <strong>Preview.</strong> Vacancy counts are a preview until the backend posting API lands
-          — they are not yet a live payer-authed read.
-        </div>
         <div className="cards">
           <div className="card">
             <h3>Total vacancies</h3>
-            <div className="big">{dash(jobs ? jobs.total : null)}</div>
+            <div className="big">{dash(demand ? demand.total : null)}</div>
             <p>
-              <span className="badge badge-warn">Preview</span>{" "}
-              <Link href="/postings/new">Post a vacancy →</Link>
+              <span className="badge badge-ok">Live</span> Your agency&rsquo;s own roles
             </p>
           </div>
           <div className="card">
             <h3>Open</h3>
-            <div className="big">{dash(jobs ? jobs.open : null)}</div>
-            <p>Paused {dash(jobs ? jobs.paused : null)}</p>
+            <div className="big">{dash(demand ? demand.open : null)}</div>
+            <p>Closed {dash(demand ? demand.closed : null)}</p>
           </div>
           <div className="card">
-            <h3>Closed</h3>
-            <div className="big">{dash(jobs ? jobs.closed : null)}</div>
-            <p>Draft {dash(jobs ? jobs.draft : null)}</p>
-          </div>
-        </div>
-
-        {/* Counts with NO backend source — honest "not available yet", never fabricated. */}
-        <div className="cards">
-          <div className="card">
-            <h3>Workers reached</h3>
-            <div className="big">—</div>
+            <h3>Applicants received</h3>
+            <div className="big">{dash(demand ? demand.applicantsReceived : null)}</div>
             <p>
-              <span className="badge badge-warn">Not available yet</span> No backend source.
-            </p>
-          </div>
-          <div className="card">
-            <h3>Eligible / consented</h3>
-            <div className="big">—</div>
-            <p>
-              <span className="badge badge-warn">Not available yet</span> No backend source.
-            </p>
-          </div>
-          <div className="card">
-            <h3>Invite intent</h3>
-            <div className="big">—</div>
-            <p>
-              <span className="badge badge-warn">Not available yet</span> No agency invite API.
+              <span className="badge badge-ok">Live</span> Across all your roles
             </p>
           </div>
         </div>
       </section>
 
-      {/* d) JOBS LIST/TABLE — reuse the postings manager (MOCK until backend). */}
+      {/* d) VACANCY MANAGEMENT — LIVE list + create/edit/pause/close on the agency jobs. */}
       <section className="section">
         <h2>Your vacancies</h2>
-        <div className="note warn">
-          <strong>Mock.</strong> Vacancy management is a preview until the backend posting API
-          lands; pause / resume / quota top-up act on local preview rows only.
-        </div>
-        {postings ? (
-          <PostingsManager postings={postings} />
+        {jobs ? (
+          <AgencyJobsManager jobs={jobs} />
         ) : (
           <div className="empty">Vacancies are unavailable right now. Please retry shortly.</div>
         )}
       </section>
 
-      {/* e) INVITE INTENT — DISABLED, consent-first explainer. NO link is generated. */}
+      {/* e) INVITE — LIVE faceless mint (opaque code only; consent-first). */}
       <AgencyInvitePanel />
 
-      {/* f) PARKED MODULE CARDS — disabled, informational, NOT clickable fake flows. */}
+      {/* f) REFERRAL FUNNEL — LIVE aggregate, k-anon floored (no per-invitee oracle). */}
+      <section className="section">
+        <h2>Referral funnel</h2>
+        <ReferralFunnel summary={referrals} />
+      </section>
+
+      {/* g) PARKED MODULE CARDS — disabled, informational, NOT clickable fake flows. */}
       <AgencyParkedModules flags={flags} />
     </>
   );
