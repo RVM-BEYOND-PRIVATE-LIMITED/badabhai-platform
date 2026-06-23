@@ -253,3 +253,86 @@ describe("job-management seam — server-held payer, config-driven (WAITING mock
     expect(res).toBeNull();
   });
 });
+
+describe("getApplicantFeed — surfaces faceless taxonomy bands (PR-4), null -> undefined", () => {
+  const JOB = "44444444-4444-4444-8444-444444444444";
+  const WORKER = "55555555-5555-4555-8555-555555555555";
+
+  it("maps experience/trade/city bands from the reach wire onto the faceless applicant", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        jobId: JOB,
+        applicants: [
+          {
+            workerId: WORKER,
+            rank: 1,
+            score: 0.9,
+            hot: true,
+            pushEligible: false,
+            components: [{ signal: "role", reason: "on-trade" }],
+            experienceBand: "6-10 yrs",
+            tradeLabel: "VMC Operator",
+            cityLabel: "pune",
+          },
+        ],
+      }),
+    );
+    const { getApplicantFeed } = await import("./payer-api");
+    const feed = await getApplicantFeed(JOB);
+    const a = feed!.applicants[0]!;
+    expect(a.experienceBand).toBe("6-10 yrs");
+    expect(a.tradeLabel).toBe("VMC Operator");
+    expect(a.cityLabel).toBe("pune");
+    expect(a.signals).toContain("on-trade");
+    // Faceless: the row carries no name/phone/employer field of any kind.
+    expect(JSON.stringify(a)).not.toMatch(/name|phone|employer|email|address/i);
+  });
+
+  it("maps a null band (no worker signal) to undefined, never the string 'null'", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        jobId: JOB,
+        applicants: [
+          {
+            workerId: WORKER,
+            rank: 1,
+            score: 0.5,
+            hot: false,
+            pushEligible: false,
+            components: [],
+            experienceBand: null,
+            tradeLabel: null,
+            cityLabel: null,
+          },
+        ],
+      }),
+    );
+    const { getApplicantFeed } = await import("./payer-api");
+    const a = (await getApplicantFeed(JOB))!.applicants[0]!;
+    expect(a.experienceBand).toBeUndefined();
+    expect(a.tradeLabel).toBeUndefined();
+    expect(a.cityLabel).toBeUndefined();
+  });
+
+  it("parses fine when an older backend omits the band fields entirely (optional)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        jobId: JOB,
+        applicants: [
+          {
+            workerId: WORKER,
+            rank: 1,
+            score: 0.5,
+            hot: false,
+            pushEligible: false,
+            components: [],
+          },
+        ],
+      }),
+    );
+    const { getApplicantFeed } = await import("./payer-api");
+    const a = (await getApplicantFeed(JOB))!.applicants[0]!;
+    expect(a.workerId).toBe(WORKER);
+    expect(a.tradeLabel).toBeUndefined();
+  });
+});

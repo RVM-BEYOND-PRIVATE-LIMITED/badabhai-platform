@@ -24,7 +24,10 @@ a payer account" — identical to the company DEMAND loop, only labelled for an 
 ### LIVE vs MOCK vs disabled (honest)
 
 - **LIVE:** identity (`GET /payer/me`), credit balance (`GET /payer/credits`), unlocked
-  count (`GET /payer/unlocks`).
+  count (`GET /payer/unlocks`), and the faceless ranked applicant feed
+  (`GET /payer/reach/jobs/:jobId/applicants`) — now including the coarse PII-free taxonomy
+  bands `experienceBand` / `tradeLabel` / `cityLabel` (reach PR-4 wired into the payer-web
+  frontend; the wire schema accepts them optional+nullable, `null`→`undefined`).
 - **MOCK in the FRONTEND today (preview-labelled):** vacancy summary + vacancy management
   table. **Update (2026-06-22, #127):** the payer-authed agency BACKEND now exists — the
   `payer/agency` job-CRUD routes over `jobs.payer_id` (POST/GET/PATCH + close/pause) behind
