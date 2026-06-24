@@ -102,9 +102,9 @@ jobs:
         if: steps.guard.outputs.wired == 'true'
         run: pnpm install --frozen-lockfile
 
-      - name: Build (Turbo dependency order)
+      - name: Build API (+ workspace deps) — skip the Next.js apps
         if: steps.guard.outputs.wired == 'true'
-        run: pnpm build
+        run: pnpm --filter "@badabhai/api..." build
 
       # ---- DB: migrate to head, then seed swipe jobs + the synthetic demand fixture ----
       - name: Apply migrations (to head)
