@@ -46,9 +46,27 @@ machinery never needed re-architecting — only the clean accuracy evidence, whi
 
 ## Findings to fix before the flip
 
-1. **Configured primary `claude-haiku-4-5` fails 100%** (RuntimeError every call) — extraction
-   only works via Gemini fallback, wasting 3 attempts/call and risking the retry budget under
-   load. Fix the Anthropic key/config or drop it; the runbook intends **Gemini primary**.
+1. **✅ RESOLVED (2026-06-23) — dead Haiku FALLBACK no longer wastes attempts + the TD27 retry
+   budget.**
+   *Was (2026-06-16):* "**Configured primary `claude-haiku-4-5` fails 100%** (RuntimeError every
+   call) — extraction only works via Gemini fallback, wasting 3 attempts/call and risking the
+   retry budget under load. Fix the Anthropic key/config or drop it; the runbook intends **Gemini
+   primary**."
+   *Reconciliation:* the "Haiku **primary**" wording described a since-fixed dev-box `.env`
+   misconfig (`DEFAULT_CAPABLE_MODEL=claude-haiku-4-5`) — **Gemini primary is already the
+   committed default**: `default_capable_model = "gemini-2.5-flash"`
+   ([`app/config.py:48`](../../apps/ai-service/app/config.py)) is the capable tier for
+   `profile_extraction`; `claude-haiku-4-5` is only the cross-provider **fallback**. The real
+   residual this Finding flagged — a **dead Haiku fallback** that armed even when its transport
+   couldn't run, wasting 3 attempts/call against the **TD27 retry budget** — is now **FIXED via
+   SDK-aware gating**: new `Settings.fallback_transport_available(provider)` (config.py) requires
+   the credential present **AND** the provider client library importable
+   (`importlib.util.find_spec("anthropic")` — no network/key/import side effects), and
+   `AIRouter._candidate_models` ([`app/ai/router.py`](../../apps/ai-service/app/ai/router.py))
+   now gates the fallback on `fallback_transport_available(...)` instead of bare
+   `has_credential_for(...)`. A key-set-but-SDK-absent (or SDK-absent) config no longer arms a
+   100%-failing fallback. Master gate + Gemini primary unchanged. Evidence: 6 regression tests in
+   [`tests/test_ai_router.py`](../../apps/ai-service/tests/test_ai_router.py).
 2. **Local config deviates from the runbook** — `DEFAULT_CAPABLE_MODEL=claude-haiku-4-5` vs
    the runbook's `gemini-2.5-flash`. Pin the exact extraction model at the staging flip.
 3. **🔒 Security (rotate):** the local `apps/ai-service/.env` holds **real Gemini + Anthropic
@@ -69,9 +87,17 @@ machinery never needed re-architecting — only the clean accuracy evidence, whi
    on that model**. Neither the Haiku 95% nor the flash-lite cost/latency in the table above covers
    `gemini-2.5-flash`, so **both accuracy AND p95 must be re-measured on it**. Run on a **funded
    staging key** (NOT the dev-box free-tier key — Finding 3; free-tier 429s contaminate with mock
-   fallback). Turnkey command + p95 method: see §"Re-validation on the pinned model" in
-   [enable-real-llm-extraction.md](enable-real-llm-extraction.md). **If <90% on `gemini-2.5-flash`,
-   STOP — do not ship a model the numbers don't cover.** Owner: **ai-engineer + devops**.
+   fallback). **TARGET BUILT (2026-06-23):** the re-val is now a **one-command** gate —
+   `python -m app.profiling.eval_canonicalization --flip-gate --base-url <STAGING_URL>` (from
+   `apps/ai-service`) runs role + per-field in a single endpoint pass, rejects any mock-fallback
+   contamination, prints a **p95** latency, and exits non-zero (STOP) on any miss/contamination
+   (PASS iff role ≥90% AND per-field ≥90% AND zero mock-fallback). Built on the existing eval CLI,
+   unit-tested offline (makes NO real call). See §"Re-validation on the pinned model" in
+   [enable-real-llm-extraction.md](enable-real-llm-extraction.md) for the invocation + p95 method.
+   **The RUN is STILL OWED (human-gated — real paid calls, §7):** execute `--flip-gate` against a
+   funded `gemini-2.5-flash` staging key, then record role %, per-field %, `N/N succeeded`, the p95
+   number, and cost/call here. **If <90% on `gemini-2.5-flash`, STOP — do not ship a model the
+   numbers don't cover.** Owner: **ai-engineer + devops**.
    *Also per Q3:* p95 latency on the pinned model · ≥2 more staging runs · ~~shared-store (Redis)
    spend ledger~~ **✅ MET (2026-06-19)** · secrets manager.
 

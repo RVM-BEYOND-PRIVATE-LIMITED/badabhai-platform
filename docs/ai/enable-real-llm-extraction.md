@@ -169,15 +169,35 @@ model.** Before the flip, re-validate **on `gemini-2.5-flash`** (human-gated: re
    GEMINI_FLASH_API_KEY=<funded staging key>
    ```
 2. **Clean 56-case gold-set run on the pinned model** (role + per-field, both must be ≥90%, and the
-   rig must print `real calls: N/N succeeded` with **zero mock fallback** or it is INVALID):
+   rig must print `real calls: N/N succeeded` with **zero mock fallback** or it is INVALID).
+
+   **Recommended — ONE command (turnkey flip gate):** `--flip-gate` runs role **and** per-field in a
+   single endpoint pass over the full gold set, rejects any mock-fallback contamination, **emits the
+   p95** latency, prints one explicit verdict line, and **exits non-zero (STOP)** on any miss or
+   contamination — so it is the whole accuracy + p95 + STOP check at once:
    ```bash
    cd apps/ai-service
+   python -m app.profiling.eval_canonicalization --flip-gate --base-url <STAGING_URL>
+   ```
+   - **PASS iff** role ≥90% **AND** per-field ≥90% **AND** zero mock-fallback; the p95 number is
+     recorded in the output (`FLIP-GATE PASS: role=.. per-field=.. p95=..ms`).
+   - **STOP** on any miss or contamination (`FLIP-GATE STOP: <reason> | role=.. per-field=.. p95=..`),
+     non-zero exit. **If <90% on `gemini-2.5-flash` → STOP** — do not ship a model the numbers don't
+     cover.
+   - It **needs a FUNDED staging key** (`AI_ENABLE_REAL_CALLS=true` + `GEMINI_FLASH_API_KEY` +
+     `AI_REAL_CALL_TASKS=profile_extraction`). With no/free-tier key every case 429s → mock fallback
+     → **contaminated → STOP** (never a false PASS); the run is **INVALID** until billing is funded.
+
+   **The underlying primitives** (run individually for a narrower signal — `--flip-gate` runs both):
+   ```bash
    python -m app.profiling.eval_canonicalization --real              # role/canonicalization ≥90%
    python -m app.profiling.eval_canonicalization --per-field --real  # per-field aggregate ≥90%
    ```
-3. **p95 latency on the pinned model:** each real call traces `model` + `latency` (Langfuse, over
-   pseudonymized text only). Measure p95 across the 56-case run (repeat ≥1× for ≥112 samples, or run
-   a small concurrent batch for "realistic load"), then **record the p95 number vs target**.
+3. **p95 latency on the pinned model:** `--flip-gate` (step 2) already computes and prints p95 across
+   the run. If you ran only the primitives instead, each real call also traces `model` + `latency`
+   (Langfuse, over pseudonymized text only) — measure p95 across the 56-case run (repeat ≥1× for ≥112
+   samples, or run a small concurrent batch for "realistic load"). Either way, **record the p95 number
+   vs target**.
    - Target: extraction is **async (BullMQ `ai_jobs`, off the request hot path)**, so the bar is
      cost/throughput, not interactive latency — **recommend p95 ≤ ~5 s/call** (tune at sign-off).
 4. **Record results** in [real-llm-flip-go-no-go.md](real-llm-flip-go-no-go.md) Finding 4: the model

@@ -10,8 +10,54 @@ import {
   areRealMessagesEnabled,
   assertMessagingConfig,
   isCapacityEnforcementEnabled,
+  resolveCorsOrigins,
 } from "./server";
 import { loadPublicConfig } from "./public";
+
+describe("CORS origin resolution (no `*`; fail-closed outside dev)", () => {
+  it("reflects the request origin (true) in an explicit dev/test env", () => {
+    const config = loadServerConfig({ CORS_ALLOWED_ORIGINS: "" });
+    expect(resolveCorsOrigins(config, "development")).toBe(true);
+    expect(resolveCorsOrigins(config, "test")).toBe(true);
+  });
+
+  it("uses the explicit allow-list outside dev (trimmed, empties dropped)", () => {
+    const config = loadServerConfig({
+      CORS_ALLOWED_ORIGINS: "https://ops.badabhai.in, https://app.badabhai.in ,",
+    });
+    expect(resolveCorsOrigins(config, "production")).toEqual([
+      "https://ops.badabhai.in",
+      "https://app.badabhai.in",
+    ]);
+  });
+
+  it("DENIES all cross-origin (false) when the list is empty outside dev — fail closed, never `*`", () => {
+    const config = loadServerConfig({ CORS_ALLOWED_ORIGINS: "" });
+    expect(resolveCorsOrigins(config, "production")).toBe(false);
+    expect(resolveCorsOrigins(config, "staging")).toBe(false);
+  });
+
+  it("treats UNSET NODE_ENV as non-dev → fail closed (no arg → default reads process.env)", () => {
+    const prev = process.env.NODE_ENV;
+    delete process.env.NODE_ENV; // passing `undefined` would re-trigger the default param
+    try {
+      const config = loadServerConfig({ CORS_ALLOWED_ORIGINS: "" });
+      expect(resolveCorsOrigins(config)).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prev;
+    }
+  });
+
+  it("never returns the literal '*' wildcard", () => {
+    const config = loadServerConfig({ CORS_ALLOWED_ORIGINS: "*" });
+    // A literal "*" in the list is treated as an (unusual) exact origin entry, not
+    // a wildcard expansion — the resolver itself never emits "*" as the mode.
+    const out = resolveCorsOrigins(config, "production");
+    expect(out).not.toBe(true);
+    expect(typeof out === "boolean" || Array.isArray(out)).toBe(true);
+  });
+});
 
 describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () => {
   it("defaults to mock: PAYMENTS_ENABLE_REAL false and real payments blocked", () => {
@@ -36,7 +82,10 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     const tuned = loadServerConfig({ CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES: "3" });
     expect(tuned.CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES).toBe(3);
     // 0 is a valid allowance (a fresh payer holds zero active plans until they buy).
-    expect(loadServerConfig({ CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES: "0" }).CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES).toBe(0);
+    expect(
+      loadServerConfig({ CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES: "0" })
+        .CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES,
+    ).toBe(0);
   });
 
   it("capacity enforcement defaults OFF (shadow/inert; fail-safe default)", () => {
@@ -46,11 +95,19 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
   });
 
   it("capacity enforcement is tunable to ON (coerced from 'true'/'1')", () => {
-    expect(isCapacityEnforcementEnabled(loadServerConfig({ CAPACITY_ENFORCEMENT_ENABLED: "true" }))).toBe(true);
-    expect(isCapacityEnforcementEnabled(loadServerConfig({ CAPACITY_ENFORCEMENT_ENABLED: "1" }))).toBe(true);
+    expect(
+      isCapacityEnforcementEnabled(loadServerConfig({ CAPACITY_ENFORCEMENT_ENABLED: "true" })),
+    ).toBe(true);
+    expect(
+      isCapacityEnforcementEnabled(loadServerConfig({ CAPACITY_ENFORCEMENT_ENABLED: "1" })),
+    ).toBe(true);
     // and stays OFF for the falsey forms
-    expect(isCapacityEnforcementEnabled(loadServerConfig({ CAPACITY_ENFORCEMENT_ENABLED: "false" }))).toBe(false);
-    expect(isCapacityEnforcementEnabled(loadServerConfig({ CAPACITY_ENFORCEMENT_ENABLED: "0" }))).toBe(false);
+    expect(
+      isCapacityEnforcementEnabled(loadServerConfig({ CAPACITY_ENFORCEMENT_ENABLED: "false" })),
+    ).toBe(false);
+    expect(
+      isCapacityEnforcementEnabled(loadServerConfig({ CAPACITY_ENFORCEMENT_ENABLED: "0" })),
+    ).toBe(false);
   });
 
   it("assertPaymentsConfig is a no-op in the alpha mock default", () => {

@@ -271,9 +271,105 @@ on the unlock + reveal steps** and must be forward-ported:
    payer-authed plan endpoint exists — the ported loop is a **hybrid**, not pure-payer.
 4. `feed.shown` may optionally move to the payer-authed `GET /payer/reach/jobs/:jobId/applicants`.
 
-Tracked as **TD49** (cross-link **TD33** — the `PayerAuthGuard` build). **Do not** forward-port
+Tracked as **TD50** (cross-link **TD33** — the `PayerAuthGuard` build). **Do not** forward-port
 before R16 merges: it would break the verifier against current `main` **and** still cannot be a
 pure-payer loop (step 3).
+
+---
+
+## Real-LLM extraction flip — OPTIONAL, separate §7 gate (AFTER the demand-loop PASS)
+
+> **This is NOT part of the demand-loop proof above.** Everything before this section runs
+> **MOCK-AI** (`AI_ENABLE_REAL_CALLS=false`) and **stays that way** — the demand-loop PASS is a
+> mock-AI proof and does not depend on, nor unlock, real LLM extraction. Flipping the AI service
+> to real Gemini extraction is its **own, later CLAUDE.md §7 human gate**: it happens **after** a
+> staging demand-loop PASS, it is **optional**, and **provisioning + running it stay a human
+> action** (a funded provider key + spend are involved). This section is the **deploy-side
+> pointer** only — the AI-service rollout, the full flip env, the eval methodology, and the
+> GO/NO-GO verdict live in the two cross-linked `docs/ai/*` docs below; **do not duplicate them
+> here.**
+
+### Ordered flip steps (deploy-side)
+
+> **(PRECONDITION — keys, go-no-go Finding 3) Rotate the dev-box Gemini + Anthropic keys and remove
+> them from any dev laptop BEFORE the flip.** Real keys live ONLY in the staging/prod secret store —
+> provision the funded `GEMINI_FLASH_API_KEY` (and the OPTIONAL `ANTHROPIC_API_KEY`) there, never on
+> a dev box, never in git. A dev box that ever held a real key with `AI_ENABLE_REAL_CALLS=true` must
+> have that key rotated **and** removed before the flip.
+
+1. **(PRECONDITION) Provision Redis + set `REDIS_URL` BEFORE the flip — the spend ledger fails
+   CLOSED (TD27 / go-no-go Finding 5).** With `REDIS_URL` **unset**, the spend caps are enforced
+   **per Uvicorn worker**, so total spend can reach **N × cap** across N workers — never flip with
+   it unset. With `REDIS_URL` **set but Redis unreachable**, real calls are **blocked → mock**
+   (fail-closed; never unbounded). Confirm `GET /health` reports `spend_store: redis` (not
+   `in_process`) before proceeding.
+2. **Deploy / run the AI service against staging.** It is **host-run today** (no AI-service
+   container in compose) and reaches the compose Redis at `redis://localhost:6379/0` per go-no-go
+   Finding 5 — so on a host-run AI service, `REDIS_URL` points at the compose Redis on
+   `localhost:6379`. Full rollout steps: `docs/ai/enable-real-llm-extraction.md`.
+3. **Run the pre-flip validation gate on a FUNDED staging key — MUST PASS.** From
+   `apps/ai-service`:
+   ```bash
+   python -m app.profiling.eval_canonicalization --flip-gate --base-url <STAGING_URL>
+   ```
+   PASS iff **role accuracy ≥ 90%** AND **every per-field ≥ 90%** AND **zero mock-fallback**; it
+   prints a p95 latency and **exits non-zero (STOP) on any miss**. **If < 90% on
+   `gemini-2.5-flash`, STOP — do not ship the flip.** This must run against a **funded** key (a
+   mock/unfunded run cannot prove the gate).
+4. **Apply the flip env diff** (table below) to the AI-service staging env, then restart the
+   service. The authoritative, authorized diff is in
+   `docs/ai/real-llm-flip-go-no-go.md` ("When the flip IS authorized").
+5. **Verify `GET /health`** now reports `real_calls_enabled: true` **and** `spend_store: redis`.
+   If `spend_store` is `in_process`, **roll back immediately** (step 6) — `REDIS_URL` is not
+   wired and caps are per-worker.
+6. **Rollback** — instant, no deploy (see the Rollback note below).
+
+### FLIP env vars (placeholders only — NO secrets)
+
+These are the **AI-service** flip vars. Fill them into the AI-service staging env; **never** paste
+real values into git.
+
+| Var | Purpose | Placeholder | Notes |
+| --- | --- | --- | --- |
+| `REDIS_URL` | Backs the **shared** spend ledger so caps are global, not per-worker. **PRECONDITION — set FIRST, before the flip.** Fail-closed: unset ⇒ per-worker caps (N × cap); set-but-unreachable ⇒ real calls blocked → mock. | `redis://localhost:6379/0` (host-run AI service → compose Redis) | Confirm via `GET /health` → `spend_store: redis`. |
+| `AI_ENABLE_REAL_CALLS` | Master flip — turns real extraction ON. | `true` (flip) / `false` (default + rollback) | Default + every committed example **stays `false`**. |
+| `AI_REAL_CALL_TASKS` | Allow-list of tasks that may use real calls. | `profile_extraction` | Clearing it is an instant rollback. |
+| `GEMINI_FLASH_API_KEY` | Funded staging Gemini key for `gemini-2.5-flash`. | `<funded-staging-gemini-key>` | §7 secret — human-held; never in git. |
+| `DEFAULT_CAPABLE_MODEL` | Selects the extraction model. | `gemini-2.5-flash` | The model the `--flip-gate` must PASS on. |
+| `AI_REAL_CALLS_KILL_SWITCH` | Emergency global off-switch; `true` forces mock regardless of the flags above. | `false` (keep) | Set `true` for instant rollback. |
+| `AI_MAX_DAILY_COST_INR` | Rolling per-UTC-day spend cap (INR), enforced via the Redis ledger. | `200` (default) | Keep **at policy**; do not raise to flip. |
+| `AI_MAX_TOTAL_COST_INR` | Process-lifetime cumulative spend cap (INR). | `1000` (default) | Keep at policy. |
+| `AI_MAX_USER_DAILY_COST_INR` | Per-user (opaque `worker_ref`) per-UTC-day cap (INR) — the user-facing budget. | `6` (default) | Keep at policy. |
+| `AI_MAX_CALL_COST_INR` | Hard per-call worst-case ceiling (INR); a pricier call falls back to mock. | `10` (default) | Keep at policy. |
+| `ANTHROPIC_API_KEY` | **OPTIONAL** — adds the Claude Haiku fallback transport. | `<staging-anthropic-key>` (optional) | Now **also requires the `anthropic` SDK installed**: the router self-disables a key-set-but-SDK-absent fallback (see the `fallback_transport_available` gate / `test_ai_router.py`). Omit it to run Gemini-only. |
+
+> **`.env.staging.example` guard limit + `REDIS_URL` gap (action for the human maintainer):** the
+> PreToolUse guard **blocks automated reads/writes of any `.env.*` file**, so this runbook **cannot
+> edit** `apps/ai-service/.env.staging.example` (or `apps/api/.env.staging.example`) — the table
+> above is the placeholder substitute. Critically, `apps/ai-service/.env.staging.example`
+> **predates the Redis spend ledger**, so it likely **does NOT carry `REDIS_URL`**. The **human
+> maintainer must ensure that template carries `REDIS_URL` plus the flip vars above** before
+> flipping — otherwise the ledger silently runs per-worker (N × cap).
+
+### Rollback (instant — no deploy)
+
+Any **one** of these returns extraction to mock with **no redeploy** (just restart / hot-reload
+the env):
+
+- `AI_ENABLE_REAL_CALLS=false`, **or**
+- clear `AI_REAL_CALL_TASKS` (empty), **or**
+- `AI_REAL_CALLS_KILL_SWITCH=true`.
+
+After rollback, confirm `GET /health` → `real_calls_enabled: false`. The full rollback narrative
++ the authorized diff are in `docs/ai/real-llm-flip-go-no-go.md`.
+
+### Flip cross-links (detail lives there — do not duplicate)
+
+- [enable-real-llm-extraction.md](../ai/enable-real-llm-extraction.md) — the **AI-service
+  rollout**, the full flip env, and rollback mechanics.
+- [real-llm-flip-go-no-go.md](../ai/real-llm-flip-go-no-go.md) — the **GO verdict + Findings**,
+  the **authorized flip env diff**, and the rollback of record (incl. Finding 5 = the Redis
+  fail-closed precondition).
 
 ---
 
@@ -287,9 +383,12 @@ pure-payer loop (step 3).
 - [ADR-0010](../decisions/0010-contact-unlock-and-reveal.md) — contact unlock + reveal spine.
 - [ADR-0013](../decisions/0013-monetization-and-config-driven-pricing-engine.md) — pricing /
   credits, mock payments.
-- Registers: alpha blockers / fixlist + tech-debt (TD33 payer auth, TD34 real payments,
-  **TD49 verify-demand R16 forward-port trigger**) track the deferred real-money /
-  real-provider / per-payer-auth portions.
+- [enable-real-llm-extraction.md](../ai/enable-real-llm-extraction.md) /
+  [real-llm-flip-go-no-go.md](../ai/real-llm-flip-go-no-go.md) — the **separate, later** real-LLM
+  extraction flip (see the dedicated flip section above). MOCK-AI stays the default here.
+- Registers: alpha blockers / fixlist + tech-debt (TD27 Redis spend ledger, TD33 payer auth,
+  TD34 real payments, **TD50 verify-demand R16 forward-port trigger**) track the deferred
+  real-money / real-provider / per-payer-auth portions.
 
 > **BUG-2 stays OPEN until a human reports a staging PASS** — a green `db:verify:demand` **and**
 > the human §1.3 click-path, both against a disposable non-prod target.

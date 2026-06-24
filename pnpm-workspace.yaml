@@ -26,3 +26,20 @@ onlyBuiltDependencies:
 ignoredBuiltDependencies:
   - "@nestjs/core"
   - msgpackr-extract
+# Force transitive `multer` to the patched line (GHSA-72gw-mp4g-v24j, HIGH; fixed
+# >=2.2.0). multer is pulled only transitively (via @nestjs/platform-express@11,
+# already on the 2.x major) — no app code uses it directly (no FileInterceptor),
+# so this is a safe same-major patch that clears the advisory.
+overrides:
+  multer: ">=2.2.0"
+# Dependency-audit (`pnpm audit --audit-level high`) tracked exceptions. Each entry
+# is a HIGH/CRITICAL advisory that does NOT apply to this codebase, rationale logged
+# in the tech-debt register. Scoped to specific GHSA ids so the audit STILL fails on
+# any NEW high/critical advisory.
+#   - GHSA-gpj5-g38j-94v9: drizzle-orm SQL-injection via improperly escaped SQL
+#     IDENTIFIERS. We use the typed query-builder with static columns + bound params;
+#     no user input is ever an identifier → not exploitable. The 0.38→0.45 bump (with
+#     drizzle-kit lockstep) is deferred to a DB-owner PR (TD49).
+auditConfig:
+  ignoreGhsas:
+    - GHSA-gpj5-g38j-94v9

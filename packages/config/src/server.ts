@@ -268,6 +268,15 @@ export const serverEnvSchema = z.object({
   // Service URLs / ports
   API_PORT: portSchema.default(3001),
   AI_SERVICE_URL: z.string().url().default("http://localhost:8000"),
+
+  // Browser CORS allow-list for the API — comma-separated EXACT origins
+  // (e.g. "https://ops.badabhai.in,https://app.badabhai.in"). Mirrors the
+  // fail-closed/dev-default philosophy of the assert* guards (see
+  // `resolveCorsOrigins`): IGNORED in an explicit development/test env (CORS
+  // reflects the request origin so local ops-console/payer-web dev keeps
+  // working); OUTSIDE dev only these origins are allowed and an EMPTY list denies
+  // all cross-origin — never a "*" wildcard. Set it in staging/prod.
+  CORS_ALLOWED_ORIGINS: z.string().default(""),
 });
 
 export type ServerConfig = z.infer<typeof serverEnvSchema>;
@@ -303,6 +312,27 @@ export function areRealAiCallsEnabled(config: ServerConfig): boolean {
   return realAiCallsBlockedReason(config) === null;
 }
 
+/**
+ * Resolve the NestJS CorsOptions `origin` for the API from config — replaces a
+ * bare `app.enableCors()` (which sets `Access-Control-Allow-Origin: *`). Mirrors
+ * the fail-closed, dev-default philosophy of the assert* guards:
+ *   - dev/test → `true` (reflect the request origin; local ops-console/payer-web
+ *                dev keeps working without configuring origins).
+ *   - non-dev  → the explicit CORS_ALLOWED_ORIGINS allow-list (exact origins). An
+ *                EMPTY list returns `false` (deny ALL cross-origin) — fail closed.
+ * Never returns the literal "*" wildcard.
+ */
+export function resolveCorsOrigins(
+  config: ServerConfig,
+  rawNodeEnv: string | undefined = process.env.NODE_ENV,
+): true | false | string[] {
+  if (isDevEnv(rawNodeEnv)) return true;
+  const origins = config.CORS_ALLOWED_ORIGINS.split(",")
+    .map((o) => o.trim())
+    .filter((o) => o.length > 0);
+  return origins.length > 0 ? origins : false;
+}
+
 /** True if either PII secret is still the insecure dev default (for a boot warning). */
 export function isUsingDevPiiDefaults(config: ServerConfig): boolean {
   return (
@@ -329,7 +359,8 @@ export function assertPiiCryptoConfig(
   // Reject an all-zero AES key however it was supplied (not only the named default).
   try {
     const key = Buffer.from(config.PII_ENCRYPTION_KEY, "base64");
-    if (key.length === 32 && key.every((b) => b === 0)) insecure.push("PII_ENCRYPTION_KEY(all-zero)");
+    if (key.length === 32 && key.every((b) => b === 0))
+      insecure.push("PII_ENCRYPTION_KEY(all-zero)");
   } catch {
     /* length/format already validated by the schema .refine */
   }
@@ -473,7 +504,9 @@ export function assertAuthConfig(
     problems.push("JWT_SECRET must be overridden (the dev default is public)");
   }
   if (config.SMS_PROVIDER === "console") {
-    problems.push("SMS_PROVIDER=console prints OTP codes to logs and must not run outside development");
+    problems.push(
+      "SMS_PROVIDER=console prints OTP codes to logs and must not run outside development",
+    );
   }
   if (config.SMS_PROVIDER === "fast2sms") {
     const missing: string[] = [];
