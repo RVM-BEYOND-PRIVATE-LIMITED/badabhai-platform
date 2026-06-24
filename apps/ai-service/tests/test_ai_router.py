@@ -231,6 +231,10 @@ def _fallback_settings(**overrides):
 
 def test_gemini_failure_falls_over_to_haiku(monkeypatch):
     # Primary (Gemini) raises; the Claude Haiku fallback serves the call.
+    # The anthropic SDK is NOT installed in CI (requirements-dev.txt omits it), so
+    # simulate it present — this test exercises the armed-Haiku path, not SDK gating.
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+
     def _gem_fail():
         raise RuntimeError("gemini boom")
 
@@ -256,6 +260,11 @@ def test_gemini_failure_falls_over_to_haiku(monkeypatch):
 
 
 def test_both_providers_fail_falls_back_to_mock(monkeypatch):
+    # SDK present so the Haiku fallback actually arms — this proves BOTH providers
+    # are attempted before mock (without it, Haiku would be SDK-gated out and the
+    # test would pass for the wrong reason).
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+
     def _boom():
         raise RuntimeError("provider boom")
 
@@ -293,6 +302,9 @@ def test_cost_ceiling_skips_expensive_candidate_then_serves_cheaper(monkeypatch)
     # A tight ceiling makes the Haiku candidate (pricier) too expensive while the
     # Gemini primary stays under it. Gemini fails -> Haiku would be next but is
     # ceiling-skipped -> mock. Proves the ceiling is enforced PER candidate.
+    # SDK present so Haiku is a real candidate the CEILING skips (not SDK-gated out).
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+
     def _gem_fail():
         raise RuntimeError("gemini boom")
 
@@ -388,3 +400,84 @@ def test_gemini_fallback_dropped_when_gemini_key_absent():
         )
     )
     assert router._candidate_models("claude-haiku-4-5") == ["claude-haiku-4-5"]
+
+
+# --- SDK-aware fallback gating (Finding 1: dead Haiku fallback) -------------
+# A key-set-but-SDK-absent (or SDK-absent) Anthropic config must NOT arm the
+# Claude Haiku fallback: the anthropic_client raises 100% of the time, which would
+# waste the per-call retries AND draw down the TD27 retry budget for nothing. The
+# fallback arms ONLY when the credential AND the importable SDK are both present.
+# We mock the SDK-availability probe so the assertion never depends on whether the
+# ``anthropic`` package happens to be installed in the test env.
+
+def _patch_anthropic_sdk(monkeypatch, *, installed: bool):
+    """Force ``importlib.util.find_spec('anthropic')`` to report installed/absent,
+    leaving every other module's find_spec untouched. No import side effects."""
+    import importlib.util
+
+    real_find_spec = importlib.util.find_spec
+
+    def fake_find_spec(name, *args, **kwargs):
+        if name == "anthropic":
+            return object() if installed else None
+        return real_find_spec(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib.util, "find_spec", fake_find_spec)
+
+
+def test_fallback_chain_is_gemini_only_when_anthropic_key_unset(monkeypatch):
+    # (a) No Anthropic key -> Gemini-only candidate chain, regardless of SDK state.
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+    router = AIRouter(_fallback_settings(anthropic_api_key=None))
+    assert router._candidate_models("gemini-2.5-flash") == ["gemini-2.5-flash"]
+
+
+def test_fallback_chain_is_gemini_only_when_anthropic_sdk_absent(monkeypatch):
+    # (b) Anthropic KEY set but the SDK is NOT importable -> the fallback is a dead
+    # transport, so the chain must stay Gemini-only (no 100%-failing candidate that
+    # burns retries + the TD27 retry budget). This is the core Finding-1 fix.
+    _patch_anthropic_sdk(monkeypatch, installed=False)
+    router = AIRouter(_fallback_settings(anthropic_api_key="anth-key"))
+    assert router._candidate_models("gemini-2.5-flash") == ["gemini-2.5-flash"]
+
+
+def test_fallback_chain_includes_haiku_only_when_key_and_sdk_present(monkeypatch):
+    # Both the Anthropic key AND the importable SDK present -> the ADR-0008 Claude
+    # Haiku fallback is armed (preserved for a properly-provisioned deployment).
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+    router = AIRouter(_fallback_settings(anthropic_api_key="anth-key"))
+    assert router._candidate_models("gemini-2.5-flash") == [
+        "gemini-2.5-flash",
+        "claude-haiku-4-5",
+    ]
+
+
+def test_sdk_absent_fallback_does_not_consume_retry_budget(monkeypatch):
+    # End-to-end consequence of the fix: with the Anthropic SDK absent, a Gemini
+    # failure goes STRAIGHT to mock — the dead Haiku candidate is never dispatched,
+    # so it can't draw down the TD27 retry budget. We prove Haiku was never reached.
+    _patch_anthropic_sdk(monkeypatch, installed=False)
+
+    def _gem_fail():
+        raise RuntimeError("gemini boom")
+
+    seen = _stub_dispatcher(monkeypatch, {"gemini": _gem_fail})
+    router = AIRouter(_fallback_settings(anthropic_api_key="anth-key"))
+    content, meta = _run(
+        router.run("profile_extraction", messages=_MESSAGES, mock_response="MOCK")
+    )
+    assert content == "MOCK"
+    assert meta.real_call is True  # Gemini WAS attempted
+    assert meta.success is False
+    assert all(m.startswith("gemini") for m in seen)  # Haiku never dispatched
+    assert "claude-haiku-4-5" not in seen
+
+
+def test_fallback_transport_available_credential_only_for_google():
+    # The Gemini (primary) transport is raw httpx (a core dep), so for "google"
+    # transport-available == credential-present (no SDK probe needed).
+    s = _fallback_settings()
+    assert s.fallback_transport_available("google") is True
+    assert s.has_credential_for("anthropic") is True  # credential-only stays True
+    # Unknown providers have no live transport.
+    assert s.fallback_transport_available("openai") is False
