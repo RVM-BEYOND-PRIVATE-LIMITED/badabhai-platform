@@ -39,7 +39,11 @@ def _force_mock_only_env() -> None:
     # needing a specific routing pass explicit Settings(...) kwargs, which outrank
     # these. Values mirror the committed defaults: Gemini primary, Haiku fallback.
     os.environ["DEFAULT_CHEAP_MODEL"] = "gemini-2.5-flash-lite"
-    os.environ["DEFAULT_CAPABLE_MODEL"] = "gemini-2.5-flash-lite"
+    # Capable tier MUST mirror the committed default (config.py default_capable_model
+    # = "gemini-2.5-flash", the PINNED prod extraction model). A stale flash-lite here
+    # made profile_extraction resolve to the CHEAP model under tests, masking the
+    # three-model pin the flip gate depends on (validation-model == flip-model).
+    os.environ["DEFAULT_CAPABLE_MODEL"] = "gemini-2.5-flash"
     os.environ["DEFAULT_FALLBACK_MODEL"] = "claude-haiku-4-5"
     # Drop the eval target so the skip-gated per-field real test stays SKIPPED
     # even when a developer .env sets it.
