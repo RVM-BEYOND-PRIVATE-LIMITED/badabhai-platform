@@ -318,6 +318,63 @@ describe("AgencyService.attributeWorkerToInvite (consent-gated, internal seam)",
     });
     expect(attributed.emit).not.toHaveBeenCalled();
   });
+
+  // markAccepted RACE-LOSS: an UNATTRIBUTED invite + ACTIVE consent passes the gate, but the
+  // conditional DB write loses a race to a concurrent attribution (markAccepted -> false). This
+  // locks idempotency at the DB-guard layer (agency.service.ts:364-368): a re-run after a real
+  // success is a no-op — already_attributed with NO duplicate event.
+  it("NO-OP (already_attributed) + NO event when markAccepted loses the write race", async () => {
+    const { svc, emit, invitesRepo } = make({
+      invite: { id: INVITE_ID, inviterPayerId: PAYER_A, invitedWorkerId: null, status: "clicked" },
+      consent: { revokedAt: null },
+    });
+    invitesRepo.markAccepted.mockResolvedValueOnce(false);
+    const res = await svc.attributeWorkerToInvite("abc123abc123", WORKER_ID);
+    expect(res).toEqual({ ok: false, reason: "already_attributed" });
+    expect(invitesRepo.markAccepted).toHaveBeenCalledWith(INVITE_ID, WORKER_ID);
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  // PII-FREE + EXACT-KEYS on the agency_invite.accepted payload. The allowed schema is
+  // AgencyInviteAcceptedPayload = { agency_invite_id, inviter_payer_id, invited_worker_id }
+  // (all opaque UUIDs). Asserting the EXACT key set guarantees ids-only — no extra leaked field.
+  it("emits agency_invite.accepted with EXACTLY the three opaque ids and no PII", async () => {
+    const { svc, emit } = make({
+      invite: { id: INVITE_ID, inviterPayerId: PAYER_A, invitedWorkerId: null, status: "clicked" },
+      consent: { revokedAt: null },
+    });
+    const res = await svc.attributeWorkerToInvite("abc123abc123", WORKER_ID);
+    expect(res).toEqual({ ok: true });
+
+    const evt = firstEmit(emit);
+    expect(evt.event_name).toBe("agency_invite.accepted");
+    expect(Object.keys(evt.payload).sort()).toEqual(
+      ["agency_invite_id", "inviter_payer_id", "invited_worker_id"].sort(),
+    );
+    // Mirror the createInvite PII scan: no identity free-text in the payload.
+    expect(JSON.stringify(evt.payload)).not.toMatch(/phone|name|email|address/i);
+  });
+
+  // ACTOR = system/null (NEVER the agency) + idempotencyKey present. The attribution is a
+  // system-recorded fact post-consent; making the agency the actor would be an oracle ("the
+  // agency attributed itself"). The idempotencyKey is the dedupe key for the DB-guard layer.
+  it("records the accepted event as actor=system/null (not the agency) with a dedupe key", async () => {
+    const { svc, emit } = make({
+      invite: { id: INVITE_ID, inviterPayerId: PAYER_A, invitedWorkerId: null, status: "clicked" },
+      consent: { revokedAt: null },
+    });
+    await svc.attributeWorkerToInvite("abc123abc123", WORKER_ID);
+
+    // firstEmit asserts a call happened; read the raw arg for the actor + idempotencyKey
+    // fields (the loose firstEmit shape does not model idempotencyKey).
+    firstEmit(emit);
+    const evt = emit.mock.calls[0]![0] as {
+      actor: { actor_type: string; actor_id: string | null };
+      idempotencyKey?: string;
+    };
+    expect(evt.actor).toEqual({ actor_type: "system", actor_id: null });
+    expect(evt.idempotencyKey).toBe(`agency_invite.accepted:${INVITE_ID}`);
+  });
 });
 
 describe("AgencyService.referralsSummary (k-anon floor, no consent oracle)", () => {
