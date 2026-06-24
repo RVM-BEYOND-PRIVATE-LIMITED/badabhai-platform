@@ -231,6 +231,10 @@ def _fallback_settings(**overrides):
 
 def test_gemini_failure_falls_over_to_haiku(monkeypatch):
     # Primary (Gemini) raises; the Claude Haiku fallback serves the call.
+    # The anthropic SDK is NOT installed in CI (requirements-dev.txt omits it), so
+    # simulate it present — this test exercises the armed-Haiku path, not SDK gating.
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+
     def _gem_fail():
         raise RuntimeError("gemini boom")
 
@@ -256,6 +260,11 @@ def test_gemini_failure_falls_over_to_haiku(monkeypatch):
 
 
 def test_both_providers_fail_falls_back_to_mock(monkeypatch):
+    # SDK present so the Haiku fallback actually arms — this proves BOTH providers
+    # are attempted before mock (without it, Haiku would be SDK-gated out and the
+    # test would pass for the wrong reason).
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+
     def _boom():
         raise RuntimeError("provider boom")
 
@@ -293,6 +302,9 @@ def test_cost_ceiling_skips_expensive_candidate_then_serves_cheaper(monkeypatch)
     # A tight ceiling makes the Haiku candidate (pricier) too expensive while the
     # Gemini primary stays under it. Gemini fails -> Haiku would be next but is
     # ceiling-skipped -> mock. Proves the ceiling is enforced PER candidate.
+    # SDK present so Haiku is a real candidate the CEILING skips (not SDK-gated out).
+    _patch_anthropic_sdk(monkeypatch, installed=True)
+
     def _gem_fail():
         raise RuntimeError("gemini boom")
 
