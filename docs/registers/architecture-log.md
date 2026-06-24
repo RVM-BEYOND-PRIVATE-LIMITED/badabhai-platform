@@ -8,6 +8,31 @@ boundary moved).
 
 ---
 
+## 2026-06-24 — BUG-2 staging demand-loop PASS (backend proof DONE; pending §1.3 + formal close)
+- **What happened:** the guarded CD workflow
+  ([staging-demand-verify.yml](../../.github/workflows/staging-demand-verify.yml)) ran **GREEN** on
+  `main` (manual `workflow_dispatch`, **run #7**, commit `710846a`, ~3m) against a **disposable
+  non-prod** Supabase staging DB. `db:verify:demand` printed its PASS line with all **six** events
+  recorded: `feed.shown`, `job_posting.purchased`, `payment.authorized`, `payment.captured`,
+  `unlock.granted`, `contact.revealed`. Seed fixture: worker `5eeded00…001`, payer `5eeded00…004`
+  (credits=25), open posting `5eeded00…006`. **MOCK-only** (`PAYMENTS_ENABLE_REAL` /
+  `AI_ENABLE_REAL_CALLS` / `MESSAGING_ENABLE_REAL` all `false`).
+- **This clears the BACKEND half of BUG-2** — the unlock/contact/payment demand loop is now proven
+  end-to-end on staging (previously **0** such events had ever been recorded). Unblocks payer
+  runtime proofs + the weekly-paid-unlocks dashboard.
+- **Enabling fix (PR #136):** the workflow had built the whole monorepo, so `next build` of
+  `apps/web` failed under `NODE_ENV=development`; the build is now scoped to
+  `pnpm --filter "@badabhai/api..." build` (skips the Next.js apps the loop doesn't need). The real
+  CI blocker during bring-up was a **stale/wrong password in the GitHub `staging`-environment
+  `DATABASE_URL` secret** (CI reads ONLY the environment secret, not Supabase/local); a Supabase
+  *branch* DB is also never empty (clone of parent → `already exists`) — a fresh standalone project
+  or a `drop schema public/drizzle cascade` is the clean target.
+- **BUG-2 still OPEN — pending ONLY:** (1) a human **report** of this staging PASS, and (2) the
+  **§1.3 human click-path** (UI/PII proof) in
+  [ops-employer-workflow-runtime-verification.md](../qa/ops-employer-workflow-runtime-verification.md).
+  The verify path still rides the OPS surface (`InternalServiceGuard` + body `payer_id`); the R16
+  session-auth forward-port stays deferred as [TD50](./tech-debt-register.md).
+
 ## 2026-06-23 — BUG-2 staging demand-loop deploy SCAFFOLDING landed (BUG-2 stays OPEN)
 - **What landed (ADDITIVE, deploy-side only):** a copy-paste **deploy runbook**
   ([bug2-staging-demand-deploy-runbook.md](../ops/bug2-staging-demand-deploy-runbook.md)) —
