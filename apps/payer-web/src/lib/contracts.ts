@@ -306,15 +306,43 @@ export const buyPackResultWireSchema = z.object({
 
 /**
  * GET /payer/capacity — the caller's OWN hiring-capacity allowance (LIVE, Bearer only).
- * Mirrors {@link import("../../api/src/posting-plans/posting-plans.service").PostingPlansService.getCapacity}:
- * `{ payer_id, max_active_vacancies, source_tier, expires_at }`. Counts/codes only; NO
- * raw worker/payer PII. `source_tier`/`expires_at` are null until a capacity pack is bought.
+ * Mirrors {@link import("../../api/src/posting-plans/posting-plans.service").CapacityView}:
+ * `{ payer_id, max_active_vacancies, active_plan_count, source_tier, expires_at }`.
+ * Counts/codes only; NO raw worker/payer PII. `active_plan_count` is the REAL, derived
+ * live count of the SESSION payer's active plans from the enforcement engine (XB-A:
+ * `@CurrentPayer()`, never a body/param id) — the authoritative at-capacity signal.
+ * `source_tier`/`expires_at` are null until a capacity pack is bought.
  */
 export const payerCapacityWireSchema = z.object({
   payer_id: z.string().uuid(),
   max_active_vacancies: z.number().int().nonnegative(),
+  /** REAL active-plan count from the enforcement engine (vs the seeded-mock posting rows). */
+  active_plan_count: z.number().int().nonnegative(),
   source_tier: z.string().nullable(),
   expires_at: z.string().nullable(),
+});
+
+/**
+ * POST /payer/capacity — buy/upgrade the caller's OWN capacity (LIVE, Bearer only, XB-A).
+ * Mirrors {@link import("../../api/src/posting-plans/posting-plans.service").BuyCapacityResult}:
+ * `{ payer_id, quote, max_active_vacancies, source_tier, expires_at, resumed_plan_ids }`.
+ *
+ * The request body carries ONLY the tier CODE (XT5: the client NEVER sends a price/amount/
+ * quota — the server prices it via the pricing engine; XB-A: NO payer_id — the session token
+ * is the identity). `quote` is the server-priced receipt (parsed permissively as it is NOT
+ * surfaced to the UI — only `resumed_plan_ids` / `max_active_vacancies` / `source_tier` /
+ * `expires_at` are mapped onto a typed result). Counts/codes/timestamps + an opaque id list;
+ * NO raw worker/payer PII by construction.
+ */
+export const buyCapacityWireSchema = z.object({
+  payer_id: z.string().uuid(),
+  /** Server-priced receipt. NOT surfaced to the UI (XT5) — parsed permissively, never echoed. */
+  quote: z.unknown(),
+  max_active_vacancies: z.number().int().nonnegative(),
+  source_tier: z.string().nullable(),
+  expires_at: z.string().nullable(),
+  /** Opaque plan ids auto-resumed paused→active under the new allowance. */
+  resumed_plan_ids: z.array(z.string()),
 });
 
 /**
@@ -410,6 +438,12 @@ export const agencyJobWireSchema = z.object({
 export type AgencyJob = z.infer<typeof agencyJobWireSchema>;
 export const agencyJobListWireSchema = z.array(agencyJobWireSchema);
 
+// Numeric ceilings (C10 — anti-abuse / overflow guards, NOT business rules). MUST stay in
+// parity with the backend `agency.dto.ts` consts PAY_MAX_INR / EXPERIENCE_MAX_YEARS —
+// same VALUES (backend⇄frontend contract parity).
+const PAY_MAX_INR = 10_000_000; // ₹/month sanity ceiling (₹1 crore)
+const EXPERIENCE_MAX_YEARS = 60; // a plausible career length ceiling
+
 /**
  * Create/edit input for an agency job — the COARSE, non-PII demand fields ONLY. There is
  * deliberately NO employer-name field (ADR-0009 §2 / ADR-0022 privacy line). Mirrors the
@@ -421,10 +455,10 @@ export const agencyJobInputSchema = z
     title: z.string().min(1).max(200),
     city: z.string().min(1).max(120),
     area: z.string().min(1).max(120).optional(),
-    payMin: z.number().int().nonnegative().optional(),
-    payMax: z.number().int().nonnegative().optional(),
-    minExperienceYears: z.number().int().nonnegative().optional(),
-    maxExperienceYears: z.number().int().nonnegative().optional(),
+    payMin: z.number().int().nonnegative().max(PAY_MAX_INR).optional(),
+    payMax: z.number().int().nonnegative().max(PAY_MAX_INR).optional(),
+    minExperienceYears: z.number().int().nonnegative().max(EXPERIENCE_MAX_YEARS).optional(),
+    maxExperienceYears: z.number().int().nonnegative().max(EXPERIENCE_MAX_YEARS).optional(),
     neededBy: neededBySchema.optional(),
   })
   .refine((o) => o.payMin === undefined || o.payMax === undefined || o.payMax >= o.payMin, {

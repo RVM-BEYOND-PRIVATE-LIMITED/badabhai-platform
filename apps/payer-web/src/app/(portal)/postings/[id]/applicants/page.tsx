@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getApplicantFeed, getDashboard } from "../../../../../lib/payer-api";
 import type { ApplicantFeed, Dashboard } from "../../../../../lib/contracts";
+import { RetryButton } from "../../../../../components/retry-button";
 import { ApplicantActions } from "./applicant-actions";
 
 export const dynamic = "force-dynamic";
@@ -51,7 +52,7 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
       ) : feedError ? (
         <p className="page-sub">
           <span className="badge badge-warn">Service unavailable</span> We couldn&rsquo;t load
-          applicants right now. Please retry.
+          applicants right now. Please retry. <RetryButton />
         </p>
       ) : feed ? (
         <>

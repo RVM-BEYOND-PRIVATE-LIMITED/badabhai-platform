@@ -67,6 +67,18 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
     run(id, () => pausePostingAction({ postingId: id }));
   }
 
+  function onTopUp(id: string) {
+    // Confirm-on-spend (C11): a quota top-up is a spend action. Money is MOCK — the copy
+    // says so. XT5: the action sends only the posting id; the server prices the top-up and
+    // sets the quota from config — this client never names an amount or quota number.
+    const ok = window.confirm(
+      "Top up this posting's applicant quota? This adds more applicant slots, priced from " +
+        "the pricing config. This is a mock top-up — no real payment is taken.",
+    );
+    if (!ok) return;
+    run(id, () => topUpQuotaAction({ postingId: id }));
+  }
+
   if (rows.length === 0) {
     return (
       <div className="empty">
@@ -151,12 +163,14 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
                       className="btn secondary"
                       type="button"
                       disabled={busy}
-                      onClick={() => run(p.id, () => topUpQuotaAction({ postingId: p.id }))}
+                      onClick={() => onTopUp(p.id)}
                     >
                       {busy ? "Working…" : "Top up applicant quota"}
                     </button>
                   </div>
-                  {err ? <p className="error-text">{err}</p> : null}
+                  <div aria-live="polite">
+                    {err ? <p className="error-text">{err}</p> : null}
+                  </div>
                 </td>
               </tr>
             );

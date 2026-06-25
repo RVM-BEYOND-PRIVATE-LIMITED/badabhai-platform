@@ -42,6 +42,24 @@ interface FormFields {
   neededBy: string;
 }
 
+/**
+ * Per-field client validation parity (C9). Mirrors `agencyJobInputSchema` in contracts.ts —
+ * the SERVER Zod stays the AUTHORITY; this is UX parity (inline errors before a round-trip),
+ * not a new gate. The numeric ceilings MUST stay in parity with the backend `agency.dto.ts`
+ * consts PAY_MAX_INR / EXPERIENCE_MAX_YEARS (same VALUES — the same C10 contract).
+ */
+const PAY_MAX_INR = 10_000_000; // ₹/month sanity ceiling (₹1 crore) — parity with contracts.ts
+const EXPERIENCE_MAX_YEARS = 60; // a plausible career length ceiling — parity with contracts.ts
+
+type FieldKey =
+  | "title"
+  | "city"
+  | "payMin"
+  | "payMax"
+  | "minExperienceYears"
+  | "maxExperienceYears";
+type FieldErrors = Partial<Record<FieldKey, string>>;
+
 function fromJob(job: AgencyJob): FormFields {
   return {
     tradeKey: job.tradeKey,
@@ -76,6 +94,65 @@ function optInt(value: string): number | undefined {
   return Number.isInteger(n) && n >= 0 ? n : Number.NaN;
 }
 
+/**
+ * Inline per-field + cross-field validation mirroring `agencyJobInputSchema` (C9). Returns a
+ * per-field error map; the form blocks submit until it is empty (parity with the posting-form
+ * template). The server Zod remains the authority — this only avoids a round-trip on bad input.
+ */
+function validate(fields: FormFields): FieldErrors {
+  const errs: FieldErrors = {};
+
+  // Required, non-empty (schema: title/city min(1)).
+  if (fields.title.trim().length < 1) errs.title = "Enter a role title.";
+  if (fields.city.trim().length < 1) errs.city = "Enter a city.";
+
+  // Numeric fields: whole, non-negative, within the C10 upper bounds.
+  const payMin = optInt(fields.payMin);
+  const payMax = optInt(fields.payMax);
+  const minExp = optInt(fields.minExperienceYears);
+  const maxExp = optInt(fields.maxExperienceYears);
+
+  if (Number.isNaN(payMin)) errs.payMin = "Min pay must be a whole non-negative number.";
+  else if (payMin !== undefined && payMin > PAY_MAX_INR)
+    errs.payMin = `Min pay must be at most ${PAY_MAX_INR.toLocaleString("en-IN")}.`;
+
+  if (Number.isNaN(payMax)) errs.payMax = "Max pay must be a whole non-negative number.";
+  else if (payMax !== undefined && payMax > PAY_MAX_INR)
+    errs.payMax = `Max pay must be at most ${PAY_MAX_INR.toLocaleString("en-IN")}.`;
+
+  if (Number.isNaN(minExp))
+    errs.minExperienceYears = "Min experience must be a whole non-negative number.";
+  else if (minExp !== undefined && minExp > EXPERIENCE_MAX_YEARS)
+    errs.minExperienceYears = `Min experience must be at most ${EXPERIENCE_MAX_YEARS} years.`;
+
+  if (Number.isNaN(maxExp))
+    errs.maxExperienceYears = "Max experience must be a whole non-negative number.";
+  else if (maxExp !== undefined && maxExp > EXPERIENCE_MAX_YEARS)
+    errs.maxExperienceYears = `Max experience must be at most ${EXPERIENCE_MAX_YEARS} years.`;
+
+  // Cross-field (schema refines): payMax >= payMin; maxExp >= minExp. Only when both parse.
+  if (
+    !errs.payMin &&
+    !errs.payMax &&
+    payMin !== undefined &&
+    payMax !== undefined &&
+    payMax < payMin
+  ) {
+    errs.payMax = "Max pay must be greater than or equal to min pay.";
+  }
+  if (
+    !errs.minExperienceYears &&
+    !errs.maxExperienceYears &&
+    minExp !== undefined &&
+    maxExp !== undefined &&
+    maxExp < minExp
+  ) {
+    errs.maxExperienceYears = "Max experience must be greater than or equal to min experience.";
+  }
+
+  return errs;
+}
+
 export function AgencyJobForm({
   mode,
   job,
@@ -90,25 +167,31 @@ export function AgencyJobForm({
   submitLabel: string;
 }) {
   const [fields, setFields] = useState<FormFields>(job ? fromJob(job) : BLANK);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  // Disable-submit-until-valid (parity with the posting-form template).
+  const isValid = Object.keys(validate(fields)).length === 0;
+
   function set<K extends keyof FormFields>(key: K, value: string) {
     setFields((prev) => ({ ...prev, [key]: value }));
+    // Clear that field's inline error as the user edits it (mirrors posting-form).
+    if (key in fieldErrors) setFieldErrors((p) => ({ ...p, [key]: undefined }));
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
+    const errs = validate(fields);
+    setFieldErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+
     const payMin = optInt(fields.payMin);
     const payMax = optInt(fields.payMax);
     const minExp = optInt(fields.minExperienceYears);
     const maxExp = optInt(fields.maxExperienceYears);
-    if ([payMin, payMax, minExp, maxExp].some((n) => Number.isNaN(n))) {
-      setError("Pay and experience must be whole non-negative numbers.");
-      return;
-    }
 
     startTransition(async () => {
       const res = await onSubmit({
@@ -160,8 +243,15 @@ export function AgencyJobForm({
           className="input"
           placeholder="CNC Operator — Night Shift"
           value={fields.title}
+          aria-invalid={fieldErrors.title ? true : undefined}
+          aria-describedby={fieldErrors.title ? "title-error" : undefined}
           onChange={(e) => set("title", e.target.value)}
         />
+        {fieldErrors.title ? (
+          <p className="error-text" id="title-error">
+            {fieldErrors.title}
+          </p>
+        ) : null}
         <p className="page-sub" style={{ margin: "4px 0 0" }}>
           A generic role title — never an employer name or contact details.
         </p>
@@ -176,8 +266,15 @@ export function AgencyJobForm({
           className="input"
           placeholder="Pune"
           value={fields.city}
+          aria-invalid={fieldErrors.city ? true : undefined}
+          aria-describedby={fieldErrors.city ? "city-error" : undefined}
           onChange={(e) => set("city", e.target.value)}
         />
+        {fieldErrors.city ? (
+          <p className="error-text" id="city-error">
+            {fieldErrors.city}
+          </p>
+        ) : null}
       </div>
 
       <div className="field">
@@ -199,8 +296,15 @@ export function AgencyJobForm({
           inputMode="numeric"
           placeholder="20000"
           value={fields.payMin}
+          aria-invalid={fieldErrors.payMin ? true : undefined}
+          aria-describedby={fieldErrors.payMin ? "payMin-error" : undefined}
           onChange={(e) => set("payMin", e.target.value)}
         />
+        {fieldErrors.payMin ? (
+          <p className="error-text" id="payMin-error">
+            {fieldErrors.payMin}
+          </p>
+        ) : null}
       </div>
 
       <div className="field">
@@ -211,8 +315,15 @@ export function AgencyJobForm({
           inputMode="numeric"
           placeholder="35000"
           value={fields.payMax}
+          aria-invalid={fieldErrors.payMax ? true : undefined}
+          aria-describedby={fieldErrors.payMax ? "payMax-error" : undefined}
           onChange={(e) => set("payMax", e.target.value)}
         />
+        {fieldErrors.payMax ? (
+          <p className="error-text" id="payMax-error">
+            {fieldErrors.payMax}
+          </p>
+        ) : null}
       </div>
 
       <div className="field">
@@ -223,8 +334,15 @@ export function AgencyJobForm({
           inputMode="numeric"
           placeholder="1"
           value={fields.minExperienceYears}
+          aria-invalid={fieldErrors.minExperienceYears ? true : undefined}
+          aria-describedby={fieldErrors.minExperienceYears ? "minExperienceYears-error" : undefined}
           onChange={(e) => set("minExperienceYears", e.target.value)}
         />
+        {fieldErrors.minExperienceYears ? (
+          <p className="error-text" id="minExperienceYears-error">
+            {fieldErrors.minExperienceYears}
+          </p>
+        ) : null}
       </div>
 
       <div className="field">
@@ -235,8 +353,15 @@ export function AgencyJobForm({
           inputMode="numeric"
           placeholder="5"
           value={fields.maxExperienceYears}
+          aria-invalid={fieldErrors.maxExperienceYears ? true : undefined}
+          aria-describedby={fieldErrors.maxExperienceYears ? "maxExperienceYears-error" : undefined}
           onChange={(e) => set("maxExperienceYears", e.target.value)}
         />
+        {fieldErrors.maxExperienceYears ? (
+          <p className="error-text" id="maxExperienceYears-error">
+            {fieldErrors.maxExperienceYears}
+          </p>
+        ) : null}
       </div>
 
       <div className="field">
@@ -257,7 +382,7 @@ export function AgencyJobForm({
       </div>
 
       <div className="btn-row">
-        <button className="btn" type="submit" disabled={pending}>
+        <button className="btn" type="submit" disabled={pending || !isValid}>
           {pending ? "Saving…" : submitLabel}
         </button>
         {onCancel ? (
@@ -271,7 +396,7 @@ export function AgencyJobForm({
           A closed vacancy cannot be edited — reopen is out of scope for this release.
         </p>
       ) : null}
-      {error ? <p className="error-text">{error}</p> : null}
+      <div aria-live="polite">{error ? <p className="error-text">{error}</p> : null}</div>
     </form>
   );
 }

@@ -181,7 +181,9 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                         <span className="page-sub">Closed</span>
                       )}
                     </div>
-                    {err ? <p className="error-text">{err}</p> : null}
+                    <div aria-live="polite">
+                      {err ? <p className="error-text">{err}</p> : null}
+                    </div>
                     {editing ? (
                       <div className="card" style={{ marginTop: 8 }}>
                         <AgencyJobForm

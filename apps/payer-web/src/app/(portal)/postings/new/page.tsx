@@ -1,4 +1,5 @@
 import { postingIsFreeThroughLaunch, postingPaidTiers } from "../../../../lib/pricing-config";
+import { getCapacity } from "../../../../lib/payer-api";
 import { PostingForm } from "./posting-form";
 
 export const dynamic = "force-dynamic";
@@ -8,15 +9,37 @@ export const dynamic = "force-dynamic";
  * from a CONFIG FLAG, never a hardcoded ₹0 — the catalog cannot model a ₹0 price
  * (priceInr min(1)), which is the open ADR-0013 escalation. Post-launch paid tiers
  * are shown for transparency, read straight from `DEFAULT_CATALOG`.
+ *
+ * QUOTA-PAUSE A4 (faithful slice): a NON-BLOCKING at-capacity warning is shown when the
+ * payer is at/over their concurrent-vacancy allowance. The signal derives from the REAL
+ * enforcement-engine count via `getCapacity()` (activeVacancies >= allowance) on the
+ * server; it is informational and does NOT disable submit. A capacity read failure is
+ * swallowed (the warning simply doesn't show) — it must never block posting.
  */
-export default function NewPostingPage() {
+export default async function NewPostingPage() {
   const free = postingIsFreeThroughLaunch();
   const paidTiers = postingPaidTiers();
+
+  let atCapacity = false;
+  try {
+    const capacity = await getCapacity();
+    atCapacity = capacity.activeVacancies >= capacity.activeVacancyAllowance;
+  } catch {
+    // Capacity read failed — do NOT block posting; just omit the informational warning.
+    atCapacity = false;
+  }
 
   return (
     <>
       <h1 className="page-title">Post a job</h1>
       <p className="page-sub">Describe the role. Applicants appear faceless until you unlock them.</p>
+
+      {atCapacity ? (
+        <div className="note warn">
+          You are at capacity; this posting may be paused until you{" "}
+          <a href="/capacity">add capacity</a>.
+        </div>
+      ) : null}
 
       {free ? (
         <div className="note">

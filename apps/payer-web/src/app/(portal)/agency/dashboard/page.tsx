@@ -17,6 +17,7 @@ import type {
   AgencyReferralsSummary,
   CreditBalance,
 } from "../../../../lib/contracts";
+import { RetryButton } from "../../../../components/retry-button";
 import { AgencyJobsManager } from "./agency-jobs-manager";
 import { AgencyInvitePanel } from "./invite-panel";
 import { ReferralFunnel } from "./referral-funnel";
@@ -107,7 +108,8 @@ export default async function AgencyDashboardPage() {
       {readError ? (
         <p className="page-sub">
           <span className="badge badge-warn">Some signals unavailable</span> One or more reads could
-          not load right now — those panels show &ldquo;&mdash;&rdquo; until they recover.
+          not load right now — those panels show &ldquo;&mdash;&rdquo; until they recover.{" "}
+          <RetryButton />
         </p>
       ) : null}
 
@@ -179,7 +181,9 @@ export default async function AgencyDashboardPage() {
         {jobs ? (
           <AgencyJobsManager jobs={jobs} />
         ) : (
-          <div className="empty">Vacancies are unavailable right now. Please retry shortly.</div>
+          <div className="empty">
+            Vacancies are unavailable right now. Please retry shortly. <RetryButton />
+          </div>
         )}
       </section>
 

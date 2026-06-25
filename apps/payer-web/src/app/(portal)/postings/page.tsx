@@ -3,6 +3,7 @@ import { getPostings } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
 import { applicantQuotaStep } from "../../../lib/pricing-config";
 import type { PostingSummary } from "../../../lib/contracts";
+import { RetryButton } from "../../../components/retry-button";
 import { PostingsManager } from "./postings-manager";
 
 export const dynamic = "force-dynamic";
@@ -48,14 +49,17 @@ export default async function PostingsPage() {
           : "Top-up amounts come from the pricing config."}
       </div>
 
-      {error ? (
+      {error || !postings ? (
+        // B7: the seam either threw (→ `error`) OR returned no postings array (the future
+        // real-fetch failure path). BOTH degrade to the SAME neutral fallback + in-page
+        // Retry — never a blank-content path. Loading is handled separately by loading.tsx.
         <p className="page-sub">
           <span className="badge badge-warn">Service unavailable</span> We couldn&rsquo;t load your{" "}
-          {isAgency ? "vacancies" : "postings"} right now. Please retry.
+          {isAgency ? "vacancies" : "postings"} right now. Please retry. <RetryButton />
         </p>
-      ) : postings ? (
+      ) : (
         <PostingsManager postings={postings} />
-      ) : null}
+      )}
     </>
   );
 }

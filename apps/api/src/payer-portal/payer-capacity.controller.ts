@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Post, UseGuards } from "@nestjs/common
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers/payer-auth.guard";
-import { PostingPlansService } from "../posting-plans/posting-plans.service";
+import { PostingPlansService, type CapacityView } from "../posting-plans/posting-plans.service";
 import { BuyCapacitySchema, type BuyCapacityDto } from "../posting-plans/posting-plans.dto";
 
 /**
@@ -24,9 +24,14 @@ import { BuyCapacitySchema, type BuyCapacityDto } from "../posting-plans/posting
 export class PayerCapacityController {
   constructor(private readonly plans: PostingPlansService) {}
 
-  /** The caller's OWN capacity allowance (PII-free: opaque payer_id + counts/codes). */
+  /**
+   * The caller's OWN capacity allowance (PII-free: opaque payer_id + counts/codes/window).
+   * Includes `active_plan_count` — the derived live count of the SESSION payer's active
+   * plans (XB-A: from `@CurrentPayer()`, never a body/param id) — so the portal can show
+   * usage against the allowance.
+   */
   @Get()
-  ownCapacity(@CurrentPayer() payer: AuthenticatedPayer) {
+  ownCapacity(@CurrentPayer() payer: AuthenticatedPayer): Promise<CapacityView> {
     return this.plans.getCapacity(payer.id);
   }
 

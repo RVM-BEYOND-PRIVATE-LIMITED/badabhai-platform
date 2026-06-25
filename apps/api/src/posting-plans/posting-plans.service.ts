@@ -45,6 +45,22 @@ export interface BuyPlanResult {
   wouldPause: boolean;
 }
 
+/**
+ * The payer-self capacity read (GET /payer/capacity). PII-free: opaque payer_id, counts,
+ * a catalog tier code, and a window timestamp only. `active_plan_count` is the DERIVED
+ * live count of the AUTHENTICATED payer's currently-active plans (status='active', not
+ * expired) — added additively (ADR-0016 / payer-portal hardening A3): the allowance
+ * (`max_active_vacancies`) vs how much of it is in use, so the portal can show headroom.
+ */
+export interface CapacityView {
+  payer_id: string;
+  max_active_vacancies: number;
+  /** Derived count of the payer's currently-active (non-expired) plans. */
+  active_plan_count: number;
+  source_tier: string | null;
+  expires_at: string | null;
+}
+
 export interface BuyCapacityResult {
   payer_id: string;
   quote: Quote;
@@ -303,15 +319,23 @@ export class PostingPlansService {
    * counts; no name/phone). When the payer has no row yet, reports the config default
    * allowance so the portal always shows a coherent capacity (no NULL hole).
    */
-  async getCapacity(
-    payerId: string,
-  ): Promise<{ payer_id: string; max_active_vacancies: number; source_tier: string | null; expires_at: string | null }> {
-    const row = await this.repo.getCapacity(payerId);
+  async getCapacity(payerId: string): Promise<CapacityView> {
+    const now = new Date();
+    // Read the allowance row AND the derived live count on ONE tx so the portal sees a
+    // consistent snapshot (`active_plan_count` vs `max_active_vacancies`). countActive…
+    // is tx-scoped by signature; this is a plain read tx (no advisory lock — display only,
+    // not the buy chokepoint). Both reads are PII-free (counts/codes/timestamps only) and
+    // scoped to the AUTHENTICATED payerId (XB-A: never a body/param id).
+    const { row, activePlanCount } = await this.repo.withTransaction(async (tx) => ({
+      row: await this.repo.getCapacity(payerId, tx),
+      activePlanCount: await this.repo.countActivePlansForPayer(tx, payerId, now),
+    }));
     const maxActiveVacancies =
       row?.maxActiveVacancies ?? this.config.CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES;
     return {
       payer_id: payerId,
       max_active_vacancies: maxActiveVacancies,
+      active_plan_count: activePlanCount,
       source_tier: row?.sourceTier ?? null,
       expires_at: row?.expiresAt ? row.expiresAt.toISOString() : null,
     };

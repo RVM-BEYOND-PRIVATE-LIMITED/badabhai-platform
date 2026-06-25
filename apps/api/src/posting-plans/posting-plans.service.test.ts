@@ -62,7 +62,20 @@ function make(
     } as never,
   );
   const names = () => emit.mock.calls.map((c) => c[0].event_name);
-  return { service, emit, names, insertPlan, insertBoost, couponUsage, upsertCapacity, setPlanStatus, lockPayer, withTransaction };
+  return {
+    service,
+    emit,
+    names,
+    insertPlan,
+    insertBoost,
+    couponUsage,
+    upsertCapacity,
+    setPlanStatus,
+    lockPayer,
+    withTransaction,
+    getCapacity,
+    countActivePlansForPayer,
+  };
 }
 
 describe("PostingPlansService.buyPlan", () => {
@@ -298,5 +311,33 @@ describe("PostingPlansService.buyBoost", () => {
   it("rejects an overlapping active boost (B-R3)", async () => {
     const { service } = make({ activeBoost: true });
     await expect(service.buyBoost(POSTING, { payer_id: PAYER, tier: "all_candidates" }, CTX)).rejects.toBeInstanceOf(ConflictException);
+  });
+});
+
+describe("PostingPlansService.getCapacity (ADR-0016 — payer-portal read, A3 active_plan_count)", () => {
+  it("returns active_plan_count from the repository count (3 active → 3)", async () => {
+    const { service, countActivePlansForPayer } = make({ capacity: { maxActiveVacancies: 10 }, activeCount: 3 });
+    const view = await service.getCapacity(PAYER);
+    expect(countActivePlansForPayer).toHaveBeenCalledTimes(1);
+    expect(view).toMatchObject({
+      payer_id: PAYER,
+      max_active_vacancies: 10,
+      active_plan_count: 3,
+      source_tier: null,
+      expires_at: null,
+    });
+  });
+
+  it("reflects a different real count (repo returns 0 → active_plan_count === 0)", async () => {
+    const { service } = make({ capacity: { maxActiveVacancies: 5 }, activeCount: 0 });
+    const view = await service.getCapacity(PAYER);
+    expect(view.active_plan_count).toBe(0);
+  });
+
+  it("falls back to the config default allowance when the payer has no capacity row (count still derived)", async () => {
+    const { service } = make({ capacity: null, activeCount: 2, capacityDefault: 1 });
+    const view = await service.getCapacity(PAYER);
+    expect(view.max_active_vacancies).toBe(1);
+    expect(view.active_plan_count).toBe(2);
   });
 });
