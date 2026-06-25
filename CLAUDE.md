@@ -27,7 +27,7 @@ Engine), and production legal flows are **out of scope for Phase 1**. See
 > per-payer hiring capacity ([ADR-0016](docs/decisions/0016-payer-hiring-capacity.md):
 > faceless concurrent-active-vacancy cap, mock payments, **enforcement INERT by default**),
 > and **Contact Unlock + Reveal — "Stream A"** ([ADR-0010](docs/decisions/0010-contact-unlock-and-reveal.md):
-> mock credits + in-app relay, built + verified 2026-06-17). The **real-money / real-provider /
+> mock credits + in-app relay, built + verified 2026-06-17). Further streams have since landed (each its own ADR — full set in [docs/decisions/](docs/decisions/) through ADR-0022): the **self-serve payer/agency portal** ([ADR-0019](docs/decisions/0019-self-serve-payer-portal.md) → [`apps/payer-web`](apps/payer-web); agency = `payers.role='agent'`, [ADR-0022](docs/decisions/0022-agency-supply-portal.md)), the **WhatsApp invite funnel** ([ADR-0020](docs/decisions/0020-whatsapp-invite-funnel-and-reengagement.md), MOCK provider), **PACE supply-widening + ops alert** ([ADR-0021](docs/decisions/0021-pace-supply-widening-and-ops-alert.md)), and the **OFFLINE-only** learn layer ([ADR-0017](docs/decisions/0017-learn-layer-offline-rank-calibration.md)) + model-training corpus ([ADR-0018](docs/decisions/0018-model-training-corpus-and-finetune.md)) — both **offline-built / live-deferred**, so no learned ranking touches the live path (**invariant #4 holds**). The **real-money / real-provider /
 > per-payer-auth / production-legal** portions of these remain **deferred / launch-gated** (§8).
 
 **Phase 1 exit criteria (what we are optimizing for right now):**
@@ -47,8 +47,10 @@ compiles and tests pass. If a task requires breaking one, **stop and escalate** 
    `events` table is the audit spine. No important state change without an event.
 2. **No raw PII leaves its boundary.** Phone, full name, address, employer names, and
    ID-doc tokens **must never** appear in: LLM input, event payloads, `ai_jobs`,
-   `audit_logs`, or logs. Use `*_hash` or opaque UUIDs. Raw PII lives **only** in the
-   `workers` table.
+   `audit_logs`, or logs. Use `*_hash` or opaque UUIDs. Raw worker PII lives **only** in
+   the `workers` table; the only other PII at rest is **encrypted** payer contact in
+   `payers` (TD21) — and PII still **never** reaches LLM input, events, `ai_jobs`,
+   `audit_logs`, or logs.
 3. **Pseudonymization runs before every LLM call and fails closed.** It lives in
    [`apps/ai-service/app/pseudonymize.py`](apps/ai-service/app/pseudonymize.py). If it
    blocks (oversize input, parse error, residual digit run), the LLM is **never called**
@@ -64,7 +66,7 @@ compiles and tests pass. If a task requires breaking one, **stop and escalate** 
    contracts in [`packages/ai-contracts`](packages/ai-contracts) must stay mirrored in
    [`apps/ai-service/app/contracts.py`](apps/ai-service/app/contracts.py).
 8. **Backward compatibility.** Never mutate a shipped event payload schema or drop a DB
-   column in use — version it (§ event-schema-change, safe-db-migration skills).
+   column in use — version it (the `bb-database-design` + `migration` skills).
 
 ---
 
@@ -76,6 +78,7 @@ compiles and tests pass. If a task requires breaking one, **stop and escalate** 
 | Backend API     | NestJS (TS strict)                                                                      | [`apps/api`](apps/api)               |
 | AI service      | Python FastAPI                                                                          | [`apps/ai-service`](apps/ai-service) |
 | Web ops console | Next.js (internal only)                                                                 | [`apps/web`](apps/web)               |
+| Payer/Agency portal | Next.js (external, self-serve — [ADR-0019](docs/decisions/0019-self-serve-payer-portal.md)/[0022](docs/decisions/0022-agency-supply-portal.md)) | [`apps/payer-web`](apps/payer-web) |
 | Worker app      | Flutter (Android-first)                                                                 | [`apps/worker-app`](apps/worker-app) |
 | Database        | Supabase Postgres + Drizzle                                                             | [`packages/db`](packages/db)         |
 | Queue/cache     | Redis + BullMQ (deferred wiring)                                                        | [`infra/redis`](infra/redis)         |
@@ -94,15 +97,18 @@ Proposing a new framework/library/datastore is an architecture decision → ADR 
 ```
 apps/
   api/         NestJS — auth, consent, chat, voice, profiles, resume, events, workers, ai, health
-  ai-service/  FastAPI — pseudonymize.py, contracts.py, llm.py, config.py
+  ai-service/  FastAPI — pseudonymize.py, contracts.py, llm.py, extraction.py, stt.py, config.py + ai/ (router.py, model_config.py, cost_tracker.py)
   web/         Next.js ops console — workers / events / ai-jobs (read-only)
+  payer-web/   Next.js — external self-serve payer + agency portal (ADR-0019/0022)
   worker-app/  Flutter scaffold — Splash → … → ResumePreview, ApiClient
 packages/
   event-schema/  Artifact #1 — envelope, registry, payloads, validate
-  db/            Drizzle schema + migrations + client (16 tables)
+  db/            Drizzle schema + migrations + client (30 tables — full set in schema.ts)
   config/        Typed env (server vs public split)
+  pricing/       config-driven pricing + credit-pack catalog (ADR-0013)
+  reach-engine/  BUILT — deterministic RANK core (scoring.ts / types.ts / ranking.ts, ADR-0011/0015)
+  reach-learn/   OFFLINE learn layer — calibration only, NOT live ranking (ADR-0017)
   types/ validators/ taxonomy/ ai-contracts/   shared contracts
-  reach-engine/  PLACEHOLDER — not implemented in Phase 1
 docs/        decisions(ADRs) · sprint-plans · architecture · ai · schema · bible · registers
 infra/       docker · supabase(migration/RLS plans) · redis · monitoring
 .claude/     agents/ · skills/   (this engineering org)
@@ -115,10 +121,9 @@ HTTP only) → `<domain>.service.ts` (business logic, emits events) →
 `<domain>.module.ts` (DI wiring). Do not put data access in controllers or business
 logic in repositories.
 
-**DB tables (16):** `workers` · `worker_consents` · `worker_profiles` ·
-`chat_sessions` · `voice_notes` · `chat_messages` · `generated_resumes` · `events` ·
-`ai_jobs` · `audit_logs` · `profiles` · `questions` · `profile_questions` ·
-`worker_answers` · `jobs` · `applications`. PII lives **only** in `workers`.
+**DB tables (30):** the full set is the source of truth in
+[`packages/db/src/schema.ts`](packages/db/src/schema.ts). Raw worker PII lives **only**
+in `workers`; the only other PII at rest is **encrypted** payer contact in `payers` (TD21).
 
 ---
 
@@ -134,6 +139,9 @@ pnpm test               # all TS suites
 pnpm format             # prettier --write
 pnpm db:generate        # drizzle: author migration from schema.ts
 pnpm db:migrate         # apply migrations
+pnpm db:seed:demand     # BUG-2 demand-loop fixture (idempotent, prod-guarded)
+pnpm db:verify:demand   # assert the demand loop emits its six events
+pnpm --filter @badabhai/db db:seed:jobs   # seed ADR-0009 swipe jobs (package-scoped)
 pnpm db:up / db:down    # docker postgres+redis
 
 # AI service (from apps/ai-service)
@@ -151,7 +159,7 @@ Single package: `pnpm --filter @badabhai/<name> <script>`.
 ## 6. Quality gates — nothing merges unless all pass
 
 Mirror of [.github/pull_request_template.md](.github/pull_request_template.md), enforced
-by [CI](.github/workflows/ci.yml). The `feature-quality-gate` skill is the runnable checklist.
+by [CI](.github/workflows/ci.yml). The `bb-feature-planning` skill is the runnable checklist.
 
 - [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm build` green
 - [ ] AI service `ruff check .` + `pytest` green (if touched)
@@ -168,7 +176,7 @@ by [CI](.github/workflows/ci.yml). The `feature-quality-gate` skill is the runna
 
 ## 7. How we work (small team, low ceremony)
 
-**Feature workflow** (the `feature-quality-gate` skill encodes this):
+**Feature workflow** (the `bb-feature-planning` skill encodes this):
 Idea → Requirements → Architecture (ADR if structural) → DB → API/Events → Implementation
 → Tests → Security/Privacy review → Performance sanity → Deploy → Monitor.
 
@@ -183,8 +191,13 @@ Idea → Requirements → Architecture (ADR if structural) → DB → API/Events
 | [mobile-engineer](.claude/agents/mobile-engineer.md)       | Flutter worker app                     | `mobile-engineer`               |
 | [security-engineer](.claude/agents/security-engineer.md)   | PII/event/DPDP gate                    | `security-engineer`             |
 
-Skills (run with the Skill tool): `add-api-endpoint` · `event-schema-change` ·
-`safe-db-migration` · `privacy-review` · `feature-quality-gate` · `wire-client-to-api`.
+The six core builders are above; the **full roster (19) lives in [`.claude/agents/`](.claude/agents/)**
+(also system-architect, devops, performance, qa, product-manager, technical-writer, refactoring,
+debugging, the reviewers, test-planner).
+
+Skills (run with the Skill tool): see [`.claude/skills/`](.claude/skills/) — `bb-api-design`,
+`bb-database-design` / `migration`, `bb-security-review`, `bb-feature-planning`,
+`bb-architecture-review`, `bb-testing`, `pr-review`.
 
 **Escalate (stop and ask the human) when:** an invariant in §2 must change; the stack
 (§3) must change; a migration is destructive/irreversible; real LLM/OTP/STT/payment
@@ -200,17 +213,24 @@ register in the same PR as the change that motivated it. Decisions of record are
 
 Reach Engine **learned** ranking, advanced matching, finalized RLS (backend uses the service
 role today — see [infra/supabase/rls-plan.md](infra/supabase/rls-plan.md)), BullMQ job queues,
-real OTP/STT/LLM/payment providers, real telephony/proxy + raw-phone reveal, per-payer
-`PayerAuthGuard`, production DPDP legal copy. **Note:** the _alpha-gate_ forms of employer
-postings, contact unlock (mock credits + in-app relay, [ADR-0010](docs/decisions/0010-contact-unlock-and-reveal.md)
-Stream A), Reach feed serving, config-driven pricing/boosts, and **per-payer hiring capacity**
-([ADR-0016](docs/decisions/0016-payer-hiring-capacity.md): faceless concurrent-active-vacancy
-cap, mock payments, **enforcement INERT by default** behind `CAPACITY_ENFORCEMENT_ENABLED`)
-have **landed additively behind launch gates** (§1) — it is their **real-money / real-provider /
-per-payer-auth / production-legal** portions (tracked: TD33/TD34/TD35/TD43 + the threat-model LC
-items) that remain deferred here. **Org expansion (next):**
-system-architect, devops, performance, qa, product-manager, technical-writer,
-refactoring, debugging agents; cost/DR/monitoring strategy docs.
+real OTP/STT/LLM/payment providers, real telephony/proxy + raw-phone reveal, production DPDP
+legal copy. **Note:** the _alpha-gate_ forms of employer postings, contact unlock (mock credits
++ in-app relay, [ADR-0010](docs/decisions/0010-contact-unlock-and-reveal.md) Stream A), Reach
+feed serving, config-driven pricing/boosts, **per-payer hiring capacity**
+([ADR-0016](docs/decisions/0016-payer-hiring-capacity.md): faceless cap, mock payments,
+**enforcement INERT by default** behind `CAPACITY_ENFORCEMENT_ENABLED`), the **self-serve
+payer/agency portal** (ADR-0019/0022) and the **WhatsApp invite funnel** (ADR-0020, mock) have
+**landed additively behind launch gates** (§1) — it is their **real-money / real-provider /
+production-legal** portions (tracked: TD33/TD34/TD35/TD43 + the threat-model LC items) that
+remain deferred here.
+
+**`PayerAuthGuard` has LANDED** for the self-serve payer/agency portal (R16/LC-1, PR #110); but
+the **money routes** — Contact Unlock unlock/reveal and `POST /job-postings/:id/plan` — still ride
+`InternalServiceGuard` + body `payer_id` (see
+[unlocks.controller.ts](apps/api/src/unlocks/unlocks.controller.ts)), so LC-1 for that surface
+remains **open** (TD33/TD50). **Still pending:** a **cost** strategy doc + a **disaster-recovery**
+plan (monitoring/rollback have runbooks — [observability-runbook.md](docs/observability-runbook.md),
+[rollback-guide.md](docs/rollback-guide.md)).
 
 ## 9. Claude Efficiency Rules
 
