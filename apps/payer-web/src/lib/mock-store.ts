@@ -1,13 +1,12 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import {
-  VACANCY_BANDS,
   type CreditBalance,
   type FacelessApplicant,
   type PostingSummary,
   type UnlockHistoryItem,
 } from "./contracts";
-import { applicantQuotaStep, baseApplicantQuotaForBand } from "./pricing-config";
+import { applicantQuotaStep, baseApplicantQuotaForBand, bandForVacancies } from "./pricing-config";
 
 /**
  * In-memory MOCK data store (ADR-0019 Phase 1 — mock + staging-only).
@@ -165,31 +164,28 @@ export function ownsPosting(payerId: string, postingId: string): boolean {
 
 export function createPosting(
   payerId: string,
-  input: { roleTitle: string; locationLabel?: string; vacancyBand: string },
+  input: { roleTitle: string; locationLabel?: string; vacancies: number },
 ): PostingSummary {
   const s = stateFor(payerId);
+  // RAW vacancy count is the intake; the local band is DERIVED from it (config-driven,
+  // never client-supplied) and the quota stamped from that band. The live endpoint would
+  // derive its OWN band from the same raw count (the band-sets differ — see contracts.ts).
+  const vacancyBand = bandForVacancies(input.vacancies);
   const posting: PostingSummary = {
     id: randomUUID(),
     roleTitle: input.roleTitle,
     locationLabel: input.locationLabel ?? null,
-    vacancyBand: input.vacancyBand,
+    vacancyBand,
     status: "open",
     applicantCount: 0,
-    // Base applicant quota from CONFIG for this band (never a hardcoded literal);
-    // an unknown band fail-closes to undefined (the page renders it as "—").
-    applicantQuota: quotaForBand(input.vacancyBand),
+    // Base applicant quota from CONFIG for the derived band (never a hardcoded literal);
+    // a catalog with no quota tiers fail-closes to undefined (the page renders it as "—").
+    applicantQuota: baseApplicantQuotaForBand(vacancyBand) ?? undefined,
     createdAt: new Date().toISOString(),
   };
   s.postings = [posting, ...s.postings];
   s.applicantsByPosting.set(posting.id, []);
   return { ...posting };
-}
-
-/** Config-derived base quota for a band string (fail-closed to undefined). */
-function quotaForBand(band: string): number | undefined {
-  const known = VACANCY_BANDS.find((b) => b === band);
-  if (!known) return undefined;
-  return baseApplicantQuotaForBand(known) ?? undefined;
 }
 
 /** Add credits to the payer's mock ledger. Returns the new balance. */

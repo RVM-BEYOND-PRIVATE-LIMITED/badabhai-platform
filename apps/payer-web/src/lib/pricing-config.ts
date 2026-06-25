@@ -107,6 +107,23 @@ export function baseApplicantQuotaForBand(band: VacancyBand): number | null {
   return step * multiplier;
 }
 
+/**
+ * Derive the FRONTEND vacancy band from a raw head count, for LOCAL applicant-quota
+ * stamping ONLY (it feeds {@link baseApplicantQuotaForBand}). The frontend band-set
+ * (`VACANCY_BANDS` = 1-5 / 6-20 / 21-50 / 50+) is DISTINCT from the backend's
+ * (`@badabhai/types`: 1 / 2-5 / 6-10 / 11-25 / 25+), so this band is NEVER sent to the
+ * API — the live POST /payer/job-postings receives the raw `vacancies` and derives its
+ * OWN band server-side (`bandForCount`). Boundaries: n<=5 → "1-5", n<=20 → "6-20",
+ * n<=50 → "21-50", n>50 → "50+". A non-positive-integer fails closed to the smallest band.
+ */
+export function bandForVacancies(count: number): VacancyBand {
+  if (!Number.isInteger(count) || count < 1) return VACANCY_BANDS[0]; // fail-closed to smallest
+  if (count <= 5) return "1-5";
+  if (count <= 20) return "6-20";
+  if (count <= 50) return "21-50";
+  return "50+";
+}
+
 /* ── Hiring-capacity config (capacity view) ──────────────────────────────────────
  *
  * The per-payer concurrent active-vacancy allowance (ADR-0016 capacity tiers). The

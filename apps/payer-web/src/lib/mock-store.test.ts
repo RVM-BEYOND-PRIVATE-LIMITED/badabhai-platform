@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   applicantQuotaStep,
   baseApplicantQuotaForBand,
+  bandForVacancies,
   baselineActiveVacancyAllowance,
 } from "./pricing-config";
 import {
@@ -29,17 +30,26 @@ beforeEach(() => {
   __resetForTest(PAYER_B, false);
 });
 
-describe("createPosting — applicant quota is config-derived per band", () => {
-  it("seeds a new posting's quota from the catalog (never a hardcoded literal)", () => {
-    const expected = baseApplicantQuotaForBand("1-5");
-    const posting = createPosting(PAYER_A, { roleTitle: "VMC Operator", vacancyBand: "1-5" });
-    expect(posting.applicantQuota).toBe(expected ?? undefined);
+describe("createPosting — band is derived from the raw vacancies count, quota config-derived", () => {
+  it("derives the local band from the raw vacancies count (not a client-chosen band)", () => {
+    // 3 → "1-5", 30 → "21-50" per bandForVacancies — the store never takes a band directly.
+    expect(createPosting(PAYER_A, { roleTitle: "A", vacancies: 3 }).vacancyBand).toBe(
+      bandForVacancies(3),
+    );
+    expect(createPosting(PAYER_A, { roleTitle: "B", vacancies: 30 }).vacancyBand).toBe(
+      bandForVacancies(30),
+    );
+  });
+
+  it("seeds a new posting's quota from the catalog for the derived band (never a literal)", () => {
+    const posting = createPosting(PAYER_A, { roleTitle: "VMC Operator", vacancies: 3 });
+    expect(posting.applicantQuota).toBe(baseApplicantQuotaForBand(bandForVacancies(3)));
     expect(posting.applicantQuota).toBeGreaterThan(0);
   });
 
-  it("a higher band grants at least as much quota as a lower band", () => {
-    const small = createPosting(PAYER_A, { roleTitle: "A", vacancyBand: "1-5" });
-    const big = createPosting(PAYER_A, { roleTitle: "B", vacancyBand: "50+" });
+  it("a higher head count grants at least as much quota as a lower one", () => {
+    const small = createPosting(PAYER_A, { roleTitle: "A", vacancies: 3 }); // band "1-5"
+    const big = createPosting(PAYER_A, { roleTitle: "B", vacancies: 80 }); // band "50+"
     expect(big.applicantQuota!).toBeGreaterThanOrEqual(small.applicantQuota!);
   });
 });
