@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  bandForVacancies,
   findCreditPack,
   offeredCreditPacks,
   postingPaidTiers,
@@ -43,5 +44,25 @@ describe("pricing-config (config-sourced, no hardcoded prices)", () => {
       // The catalog cannot model ₹0 — every tier is a positive integer.
       expect(t.priceInr).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("bandForVacancies — derive the FRONTEND quota band from a raw head count", () => {
+  it("maps counts to the frontend band-set at the boundaries", () => {
+    expect(bandForVacancies(1)).toBe("1-5");
+    expect(bandForVacancies(5)).toBe("1-5");
+    expect(bandForVacancies(6)).toBe("6-20");
+    expect(bandForVacancies(20)).toBe("6-20");
+    expect(bandForVacancies(21)).toBe("21-50");
+    expect(bandForVacancies(50)).toBe("21-50");
+    expect(bandForVacancies(51)).toBe("50+");
+    expect(bandForVacancies(10_000)).toBe("50+");
+  });
+
+  it("fails closed to the smallest band on a non-positive / non-integer count", () => {
+    expect(bandForVacancies(0)).toBe("1-5");
+    expect(bandForVacancies(-7)).toBe("1-5");
+    expect(bandForVacancies(2.5)).toBe("1-5");
+    expect(bandForVacancies(Number.NaN)).toBe("1-5");
   });
 });

@@ -494,16 +494,37 @@ export async function getPostings(): Promise<PostingSummary[]> {
 }
 
 /**
- * WAITING (mock): job CREATE. `posting-plans.controller` is InternalServiceGuard
- * ("No PayerAuthGuard in alpha") — there is NO payer-authed create endpoint.
- * ESCALATE: backend needs payer-authed POST /payer/job-postings.
+ * WAITING (mock): job CREATE. A payer-authed `POST /payer/job-postings` NOW EXISTS
+ * (`PayerJobPostingsController`, `PayerCreateJobPostingSchema`), but the posting LIST /
+ * pause / resume / quota-top-up surfaces are still mock (no payer-authed endpoints), and
+ * the dashboard reads the mock store — so flipping ONLY create to live would split the
+ * source of truth (a new live posting would not appear in the mock-backed list). Create
+ * therefore stays mock until the whole posting read/write path is migrated together. The
+ * band→quota stamp lives in the store (config-driven, never hardcoded).
+ *
+ * THE LIVE BODY SHAPE (for the one-line swap to `payerFetch` once the read path migrates),
+ * exactly `PayerCreateJobPostingSchema`:
+ *   {
+ *     org_label,        // the payer's OWN org — the SESSION identity (GET /payer/me orgName),
+ *                       //   NEVER a form field, NEVER eventized (XB-A / privacy line).
+ *     role_title,       // input.roleTitle
+ *     location_label?,  // input.locationLabel
+ *     description?,     // input.description (already PII-screened: client inline + the action's Zod)
+ *     vacancies,        // input.vacancies — EXACTLY ONE of vacancy_band|vacancies; we send the
+ *                       //   RAW count so the backend derives its OWN band (the band-sets differ).
+ *   }
+ *   — and NEVER payer_id / created_by (the verified session is the owner+creator).
+ *
+ * trade/pay/exp are collected for demand-schema parity but `PayerCreateJobPostingSchema` does
+ * NOT accept them yet, so they are validated client+server and NOT sent (forward-compat; the
+ * backend employer schema is expected to grow to the agency `jobs` shape).
  */
 export async function createPosting(input: CreatePostingInput): Promise<PostingSummary> {
   const { payerId } = await requirePayer();
   return store.createPosting(payerId, {
     roleTitle: input.roleTitle,
     locationLabel: input.locationLabel,
-    vacancyBand: input.vacancyBand,
+    vacancies: input.vacancies, // RAW count → store derives the local band for quota.
   });
 }
 

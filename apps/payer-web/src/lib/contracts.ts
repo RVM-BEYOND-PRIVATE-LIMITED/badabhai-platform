@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { looksLikePii } from "@badabhai/validators";
 
 /**
  * Typed contracts (Zod) for every payer-portal data boundary (invariant #7 / §HARD
@@ -57,19 +58,105 @@ export const dashboardSchema = z.object({
 });
 export type Dashboard = z.infer<typeof dashboardSchema>;
 
+/* ── Shared DEMAND primitives (employer postings + agency jobs) ──────────────────
+ *
+ * The trade enum and the C10 numeric ceilings are now used by BOTH demand surfaces —
+ * the employer posting form ({@link createPostingInputSchema}) and the agency job form
+ * ({@link agencyJobInputSchema}) — so they live here as one shared source. The trade
+ * keys are the SAME manufacturing-alpha enum the backend `agency.dto.ts` accepts
+ * (`REQUIRED_TRADE_KEYS`); an out-of-set value is rejected at the form boundary AND by
+ * the backend Zod enum, so a job/posting can never carry an arbitrary string.
+ */
+export const TRADE_KEYS = [
+  "cnc_operator",
+  "vmc_operator",
+  "cnc_vmc_setter",
+  "cnc_programmer",
+  "vmc_programmer",
+  "cad_designer",
+  "solidworks_designer",
+  "autocad_draftsman",
+  "quality_inspector",
+  "production_engineer",
+  "maintenance_technician",
+  "tool_room_technician",
+  "machine_operator",
+  "assembly_technician",
+  "fitter",
+] as const;
+export const tradeKeySchema = z.enum(TRADE_KEYS);
+export type TradeKey = z.infer<typeof tradeKeySchema>;
+
+// Numeric ceilings (C10 — anti-abuse / overflow guards, NOT business rules). MUST stay in
+// parity with the backend `agency.dto.ts` consts PAY_MAX_INR / EXPERIENCE_MAX_YEARS —
+// same VALUES (backend⇄frontend contract parity).
+const PAY_MAX_INR = 10_000_000; // ₹/month sanity ceiling (₹1 crore)
+const EXPERIENCE_MAX_YEARS = 60; // a plausible career length ceiling
+
 /* ── Post a job ─────────────────────────────────────────────────────────────── */
 
-/** Vacancy bands mirror packages/db (banded, never a raw headcount). */
+/**
+ * Vacancy bands mirror packages/db (banded, never a raw headcount). NOTE: this FRONTEND
+ * band-set is DISTINCT from the backend `@badabhai/types` VACANCY_BANDS (1 / 2-5 / 6-10 /
+ * 11-25 / 25+). It is used ONLY for local applicant-quota stamping (pricing-config); the
+ * live POST /payer/job-postings receives a raw `vacancies` count and derives its OWN band.
+ */
 export const VACANCY_BANDS = ["1-5", "6-20", "21-50", "50+"] as const;
 export const vacancyBandSchema = z.enum(VACANCY_BANDS);
 export type VacancyBand = z.infer<typeof vacancyBandSchema>;
 
-export const createPostingInputSchema = z.object({
-  roleTitle: z.string().min(2).max(120),
-  locationLabel: z.string().max(120).optional(),
-  description: z.string().max(2000).optional(),
-  vacancyBand: vacancyBandSchema,
-});
+/**
+ * Create-posting input for the EMPLOYER self-serve form — brought to DEMAND-schema parity
+ * with the agency job form ({@link agencyJobInputSchema}): a trade enum, ordered C10-bounded
+ * ₹ pay bands, ordered bounded experience years, plus the kept role/location/description.
+ *
+ * Vacancy is a RAW integer (`vacancies`) — the PRIMARY input. The frontend derives a local
+ * band (pricing-config `bandForVacancies`) ONLY to stamp the applicant quota; the live
+ * endpoint receives the raw count and derives its OWN band server-side (the two band-sets
+ * differ — see {@link VACANCY_BANDS}). The server Zod (backend `PayerCreateJobPostingSchema`)
+ * + this schema in the action stay the AUTHORITY; the form mirrors it for inline UX (C9).
+ *
+ * PII (invariant #2 / D3 defense-in-depth): `description` is the only free-text field, so it
+ * is the only one screened for an OBVIOUS phone/email via `looksLikePii` (shared with the
+ * backend). trade/role/location are short labels (machine codes/pincodes are legit) — not
+ * screened. There is deliberately NO employer-name field (the payer's own org is the session
+ * identity, stamped server-side — never typed here).
+ */
+export const createPostingInputSchema = z
+  .object({
+    tradeKey: tradeKeySchema,
+    roleTitle: z.string().min(2).max(120),
+    locationLabel: z.string().max(120).optional(),
+    description: z
+      .string()
+      .min(1)
+      .max(2000)
+      .refine((s) => !looksLikePii(s), {
+        message: "Remove contact details (phone/email) from the description.",
+      })
+      .optional(),
+    // Raw vacancy count — INTAKE ONLY. Mirrors the backend `vacancies` field (positive int);
+    // the band is derived from it (locally for quota, server-side for the stored band).
+    vacancies: z.number().int().positive(),
+    payMin: z.number().int().nonnegative().max(PAY_MAX_INR).optional(),
+    payMax: z.number().int().nonnegative().max(PAY_MAX_INR).optional(),
+    minExperienceYears: z.number().int().nonnegative().max(EXPERIENCE_MAX_YEARS).optional(),
+    maxExperienceYears: z.number().int().nonnegative().max(EXPERIENCE_MAX_YEARS).optional(),
+  })
+  .refine((o) => o.payMin === undefined || o.payMax === undefined || o.payMax >= o.payMin, {
+    message: "Max pay must be greater than or equal to min pay.",
+    path: ["payMax"],
+  })
+  .refine(
+    (o) =>
+      o.minExperienceYears === undefined ||
+      o.maxExperienceYears === undefined ||
+      o.maxExperienceYears >= o.minExperienceYears,
+    {
+      message: "Max experience must be greater than or equal to min experience.",
+      path: ["maxExperienceYears"],
+    },
+  );
 export type CreatePostingInput = z.infer<typeof createPostingInputSchema>;
 
 /* ── Applicant feed (FACELESS, banded) ──────────────────────────────────────── */
@@ -382,32 +469,6 @@ export const reachApplicantListWireSchema = z.object({
  * (XB-A), stamped server-side. Distinct from the @parked SUPPLY shells below (payouts/KYC).
  */
 
-/**
- * The ratified manufacturing alpha trade keys — the SAME enum the backend
- * `agency.dto.ts` accepts (`REQUIRED_TRADE_KEYS`). Kept as a local literal (the web app
- * never imports a server package); an out-of-set value is rejected at the form boundary
- * AND by the backend Zod enum, so a job can never carry an arbitrary string.
- */
-export const TRADE_KEYS = [
-  "cnc_operator",
-  "vmc_operator",
-  "cnc_vmc_setter",
-  "cnc_programmer",
-  "vmc_programmer",
-  "cad_designer",
-  "solidworks_designer",
-  "autocad_draftsman",
-  "quality_inspector",
-  "production_engineer",
-  "maintenance_technician",
-  "tool_room_technician",
-  "machine_operator",
-  "assembly_technician",
-  "fitter",
-] as const;
-export const tradeKeySchema = z.enum(TRADE_KEYS);
-export type TradeKey = z.infer<typeof tradeKeySchema>;
-
 /** Coarse timing enum — mirrors db.JobNeededBy / the agency DTO. */
 export const NEEDED_BY = ["immediate", "soon", "flexible"] as const;
 export const neededBySchema = z.enum(NEEDED_BY);
@@ -437,12 +498,6 @@ export const agencyJobWireSchema = z.object({
 });
 export type AgencyJob = z.infer<typeof agencyJobWireSchema>;
 export const agencyJobListWireSchema = z.array(agencyJobWireSchema);
-
-// Numeric ceilings (C10 — anti-abuse / overflow guards, NOT business rules). MUST stay in
-// parity with the backend `agency.dto.ts` consts PAY_MAX_INR / EXPERIENCE_MAX_YEARS —
-// same VALUES (backend⇄frontend contract parity).
-const PAY_MAX_INR = 10_000_000; // ₹/month sanity ceiling (₹1 crore)
-const EXPERIENCE_MAX_YEARS = 60; // a plausible career length ceiling
 
 /**
  * Create/edit input for an agency job — the COARSE, non-PII demand fields ONLY. There is
