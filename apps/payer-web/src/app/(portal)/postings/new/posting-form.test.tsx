@@ -139,6 +139,8 @@ interface Collected {
   buttons: Array<{ type?: string; disabled?: boolean; text: string }>;
   aria: Array<{ id?: string; ariaInvalid?: unknown; ariaDescribedby?: unknown }>;
   ids: string[];
+  /** id → host element tag (e.g. "input" | "select" | "textarea"), for the field-render test. */
+  tagById: Record<string, string>;
 }
 
 function textOf(node: ReactNode): string {
@@ -171,12 +173,15 @@ function walk(node: ReactNode, acc: Collected): void {
       ariaDescribedby: el.props["aria-describedby"],
     });
   }
-  if (typeof el.props.id === "string") acc.ids.push(el.props.id);
+  if (typeof el.props.id === "string") {
+    acc.ids.push(el.props.id);
+    if (typeof el.type === "string") acc.tagById[el.props.id] = el.type;
+  }
   if ("children" in el.props) walk(el.props.children, acc);
 }
 
 function collect(tree: ReactNode): Collected {
-  const acc: Collected = { buttons: [], aria: [], ids: [] };
+  const acc: Collected = { buttons: [], aria: [], ids: [], tagById: {} };
   walk(tree, acc);
   return acc;
 }
@@ -197,6 +202,26 @@ const VALID_FIELDS = { ...BLANK_FIELDS, roleTitle: "CNC Machinist", vacancies: "
 beforeEach(() => {
   useState.mockClear();
   useTransition.mockClear();
+});
+
+describe("PostingForm render — every demand field is present with the right control", () => {
+  it("renders all nine fields (trade select, role/location/vacancies/pay/exp inputs, description textarea)", () => {
+    const { tagById } = collect(render({ fields: BLANK_FIELDS, fieldErrors: {} }));
+    // The trade enum is a <select>; the free-text/numeric fields are <input>; description is a <textarea>.
+    expect(tagById.tradeKey).toBe("select");
+    expect(tagById.description).toBe("textarea");
+    for (const id of [
+      "roleTitle",
+      "locationLabel",
+      "vacancies",
+      "payMin",
+      "payMax",
+      "minExperienceYears",
+      "maxExperienceYears",
+    ]) {
+      expect(tagById[id]).toBe("input");
+    }
+  });
 });
 
 describe("PostingForm render — disable-submit-until-valid", () => {

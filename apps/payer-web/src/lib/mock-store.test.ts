@@ -47,6 +47,18 @@ describe("createPosting — band is derived from the raw vacancies count, quota 
     expect(posting.applicantQuota).toBeGreaterThan(0);
   });
 
+  it("stamps the quota from baseApplicantQuotaForBand(config) for EVERY band — provably not a literal", () => {
+    // One representative count per frontend band. The quota MUST equal the config function's
+    // output for the derived band; equality to `baseApplicantQuotaForBand` (which reads the
+    // catalog `applicantQuotaStep`) proves the value is config-sourced, not a hardcoded number.
+    for (const vacancies of [1, 10, 30, 80]) {
+      const posting = createPosting(PAYER_A, { roleTitle: `R${vacancies}`, vacancies });
+      const expected = baseApplicantQuotaForBand(bandForVacancies(vacancies));
+      expect(posting.applicantQuota).toBe(expected ?? undefined);
+      expect(posting.applicantQuota).toBeGreaterThan(0);
+    }
+  });
+
   it("a higher head count grants at least as much quota as a lower one", () => {
     const small = createPosting(PAYER_A, { roleTitle: "A", vacancies: 3 }); // band "1-5"
     const big = createPosting(PAYER_A, { roleTitle: "B", vacancies: 80 }); // band "50+"
