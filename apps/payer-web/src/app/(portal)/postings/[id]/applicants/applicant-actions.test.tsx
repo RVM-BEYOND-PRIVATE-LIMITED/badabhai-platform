@@ -32,13 +32,18 @@ vi.mock("./actions", () => ({
   maskedResumeAction: (i: unknown) => maskedResumeAction(i),
 }));
 
-// Injected per-render state queue (rows, confirmedUnlock).
+// Injected per-render state queue (rows, confirmedUnlock, stages, activeStage). Each call's
+// SETTER is captured by index so a LOCAL transition (Keep/Pass/reach) can be asserted to fire
+// the right setter (and, by exercising the updater, the right next state) with NO network call.
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
+let setters: Array<ReturnType<typeof vi.fn>> = [];
 const useState = vi.fn((initial: unknown) => {
   const i = stateCursor++;
   const seeded = i < stateQueue.length ? stateQueue[i] : initial;
-  return [seeded, vi.fn()] as [unknown, (v: unknown) => void];
+  const setter = vi.fn();
+  setters[i] = setter;
+  return [seeded, setter] as [unknown, (v: unknown) => void];
 });
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
@@ -60,7 +65,7 @@ const APPLICANT: FacelessApplicant = {
 };
 
 interface Collected {
-  buttons: Array<{ text: string; onClick?: () => void }>;
+  buttons: Array<{ text: string; onClick?: () => void; disabled?: boolean }>;
   ariaLiveCount: number;
 }
 
@@ -84,6 +89,7 @@ function walk(node: ReactNode, acc: Collected): void {
     acc.buttons.push({
       text: textOf(el.props.children).trim(),
       onClick: el.props.onClick as (() => void) | undefined,
+      disabled: el.props.disabled as boolean | undefined,
     });
   }
   if (el.props["aria-live"] === "polite") acc.ariaLiveCount++;
@@ -97,18 +103,40 @@ function collect(tree: ReactNode): Collected {
 }
 
 function render(opts: {
+  rows?: Record<string, unknown>;
   confirmedUnlock?: Record<string, boolean>;
+  stages?: Record<string, "new" | "shortlist" | "passed">;
+  activeStage?: "new" | "shortlist";
   applicants?: FacelessApplicant[];
   balance?: number;
 }) {
-  // Source order of useState: rows (Record), confirmedUnlock (Record).
-  stateQueue = [{}, opts.confirmedUnlock ?? {}];
+  // Source order of useState: rows, confirmedUnlock, stages, activeStage.
+  stateQueue = [opts.rows ?? {}, opts.confirmedUnlock ?? {}, opts.stages ?? {}, opts.activeStage ?? "new"];
   stateCursor = 0;
+  setters = [];
   return ApplicantActions({
     postingId: "33333333-3333-4333-8333-333333333333",
     applicants: opts.applicants ?? [APPLICANT],
     balance: opts.balance ?? 5,
   }) as ReactElement;
+}
+
+/** A granted-unlock + ROUTED-reveal row state (the gate that enables Call / WhatsApp). */
+function routedRowState() {
+  return {
+    [WORKER]: {
+      busy: false,
+      unlock: { kind: "granted", unlockId: "44444444-4444-4444-8444-444444444444", expiresAt: "2026-07-01T00:00:00.000Z" },
+      unlockError: null,
+      contactBusy: false,
+      contact: { kind: "routed", relayHandle: "RELAY-abcdef", channel: "in_app_relay", expiresAt: "2026-07-01T00:00:00.000Z" },
+      contactError: null,
+      resumeBusy: false,
+      resume: null,
+      resumeError: null,
+      reach: null,
+    },
+  };
 }
 
 // The env is `node` (no DOM) — stub a minimal `window` so the component's `window.confirm`
@@ -190,5 +218,175 @@ describe("ApplicantActions — guardrails: faceless row, no PII / no oracle", ()
     // no '+'-prefixed or 10+ digit run (a real Indian phone is 10+ digits).
     expect(joined).not.toMatch(/\+\d{7,}/);
     expect(joined).not.toMatch(/\d{10,}/);
+  });
+});
+
+/** Flatten every text node in a tree (for content assertions). */
+function gatherText(tree: ReactNode): string {
+  const all: string[] = [];
+  (function gather(node: ReactNode): void {
+    if (node === null || node === undefined || typeof node === "boolean") return;
+    if (typeof node === "string" || typeof node === "number") {
+      all.push(String(node));
+      return;
+    }
+    if (Array.isArray(node)) {
+      node.forEach(gather);
+      return;
+    }
+    const el = node as ReactElement<{ children?: ReactNode }>;
+    if (el.props && "children" in el.props) gather(el.props.children);
+  })(tree);
+  return all.join(" ");
+}
+
+/** The workerId-prefix mono cells (e.g. "aaaaaaaa…") in render order — the visible rows. */
+function monoPrefixes(tree: ReactNode): string[] {
+  const out: string[] = [];
+  (function w(node: ReactNode): void {
+    if (node === null || node === undefined || typeof node === "boolean") return;
+    if (typeof node === "string" || typeof node === "number") return;
+    if (Array.isArray(node)) {
+      node.forEach(w);
+      return;
+    }
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    if (el.props?.className === "mono") {
+      const t = textOf(el.props.children as ReactNode);
+      if (t.endsWith("…")) out.push(t);
+    }
+    if (el.props && "children" in el.props) w(el.props.children as ReactNode);
+  })(tree);
+  return out;
+}
+
+/** Find the `view` prop handed to the routed-contact renderer (the opaque relay handle). */
+function findRoutedView(tree: ReactNode): Record<string, unknown> | null {
+  let found: Record<string, unknown> | null = null;
+  (function w(node: ReactNode): void {
+    if (node === null || node === undefined || typeof node === "boolean") return;
+    if (typeof node === "string" || typeof node === "number") return;
+    if (Array.isArray(node)) {
+      node.forEach(w);
+      return;
+    }
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    const v = el.props?.view as Record<string, unknown> | undefined;
+    if (v && typeof v.relayHandle === "string") found = v;
+    if (el.props && "children" in el.props) w(el.props.children as ReactNode);
+  })(tree);
+  return found;
+}
+
+const A = { ...APPLICANT, workerId: "aaaaaaaa-0000-4000-8000-000000000001", rank: 1, hot: true };
+const B = { ...APPLICANT, workerId: "bbbbbbbb-0000-4000-8000-000000000002", rank: 2, hot: false };
+const C = { ...APPLICANT, workerId: "cccccccc-0000-4000-8000-000000000003", rank: 3, hot: true };
+
+describe("ApplicantActions — pipeline Keep/Pass are LOCAL stage transitions (NO network)", () => {
+  it("Keep moves the row New→Shortlist via local state, with no unlock/reveal/resume call", () => {
+    const keep = collect(render({})).buttons.find((b) => b.text === "Keep");
+    expect(keep).toBeDefined();
+    keep!.onClick!();
+    // setters order: [rows, confirmedUnlock, stages, activeStage] → stages is index 2.
+    expect(setters[2]).toHaveBeenCalledTimes(1);
+    const updater = setters[2]!.mock.calls[0]![0] as (p: Record<string, string>) => Record<string, string>;
+    expect(updater({})).toEqual({ [WORKER]: "shortlist" });
+    expect(unlockAction).not.toHaveBeenCalled();
+    expect(revealContactAction).not.toHaveBeenCalled();
+    expect(maskedResumeAction).not.toHaveBeenCalled();
+  });
+
+  it("Pass dismisses the row (→ passed) via local state, with no network call", () => {
+    collect(render({})).buttons.find((b) => b.text === "Pass")!.onClick!();
+    expect(setters[2]).toHaveBeenCalledTimes(1);
+    const updater = setters[2]!.mock.calls[0]![0] as (p: Record<string, string>) => Record<string, string>;
+    expect(updater({})).toEqual({ [WORKER]: "passed" });
+    expect(unlockAction).not.toHaveBeenCalled();
+    expect(revealContactAction).not.toHaveBeenCalled();
+  });
+
+  it("a Shortlisted row shows a 'Shortlisted' badge instead of Keep (still Passable)", () => {
+    const { buttons } = collect(
+      render({ stages: { [WORKER]: "shortlist" }, activeStage: "shortlist" }),
+    );
+    expect(buttons.find((b) => b.text === "Keep")).toBeUndefined();
+    expect(buttons.find((b) => b.text === "Pass")).toBeDefined();
+  });
+});
+
+describe("ApplicantActions — Call/WhatsApp gated behind a granted unlock + ROUTED reveal", () => {
+  it("renders Call and WhatsApp DISABLED until a routed relay handle exists", () => {
+    const { buttons } = collect(render({})); // not unlocked ⇒ not routed
+    expect(buttons.find((b) => b.text === "Call")!.disabled).toBe(true);
+    expect(buttons.find((b) => b.text === "WhatsApp")!.disabled).toBe(true);
+  });
+
+  it("ENABLES Call/WhatsApp once row.contact is routed; clicking is LOCAL (no reveal re-call)", () => {
+    const { buttons } = collect(render({ rows: routedRowState() }));
+    const call = buttons.find((b) => b.text === "Call");
+    const wa = buttons.find((b) => b.text === "WhatsApp");
+    expect(call!.disabled).toBeFalsy();
+    expect(wa!.disabled).toBeFalsy();
+    call!.onClick!();
+    // reach is recorded on the ROWS state (index 0) — local; never re-hits reveal/unlock.
+    expect(setters[0]).toHaveBeenCalledTimes(1);
+    expect(revealContactAction).not.toHaveBeenCalled();
+    expect(unlockAction).not.toHaveBeenCalled();
+  });
+
+  it("the routed reveal carries ONLY the opaque relay handle + channel — never a phone", () => {
+    const view = findRoutedView(render({ rows: routedRowState() }));
+    expect(view).not.toBeNull();
+    expect(view!.relayHandle).toBe("RELAY-abcdef"); // opaque handle
+    expect(view!.channel).toBe("in_app_relay"); // channel is in_app_relay | proxy_number ONLY
+    // Structural no-phone (ADR-0010 F-4): the routed view has no phone/number field at all.
+    expect(view).not.toHaveProperty("phone");
+    expect(view).not.toHaveProperty("number");
+    // And the row's shallow tree leaks no phone-number digits.
+    const joined = gatherText(render({ rows: routedRowState() }));
+    expect(joined).not.toMatch(/\+\d{7,}/);
+    expect(joined).not.toMatch(/\d{10,}/);
+  });
+});
+
+describe("ApplicantActions — preserves backend best-first order; renders hot AS-IS (no percentile)", () => {
+  it("renders rows in feed order and a 'hot' badge ONLY where hot=true", () => {
+    const tree = render({ applicants: [A, B, C] });
+    const monos: string[] = [];
+    let hotBadges = 0;
+    (function walk2(node: ReactNode): void {
+      if (node === null || node === undefined || typeof node === "boolean") return;
+      if (typeof node === "string" || typeof node === "number") return;
+      if (Array.isArray(node)) {
+        node.forEach(walk2);
+        return;
+      }
+      const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+      const cls = el.props?.className;
+      if (cls === "mono") {
+        const t = textOf(el.props.children as ReactNode);
+        if (t.endsWith("…")) monos.push(t); // the workerId-prefix cell (not the score/handle)
+      }
+      if (cls === "badge badge-ok" && textOf(el.props.children as ReactNode).trim() === "hot") {
+        hotBadges += 1;
+      }
+      if (el.props && "children" in el.props) walk2(el.props.children as ReactNode);
+    })(tree);
+    expect(monos).toEqual([`${A.workerId.slice(0, 8)}…`, `${B.workerId.slice(0, 8)}…`, `${C.workerId.slice(0, 8)}…`]);
+    // hot=true for A and C only ⇒ exactly 2 badges — the engine boolean rendered as-is.
+    expect(hotBadges).toBe(2);
+  });
+
+  it("filters visible rows by the active stage and reflects per-stage counts in the tabs", () => {
+    const { buttons } = collect(
+      render({ applicants: [A, B], stages: { [A.workerId]: "shortlist" }, activeStage: "shortlist" }),
+    );
+    expect(buttons.some((b) => b.text === "New (1)")).toBe(true);
+    expect(buttons.some((b) => b.text === "Shortlist (1)")).toBe(true);
+    // Active = shortlist ⇒ only A (kept) is visible; B (new) is not rendered.
+    const ids = monoPrefixes(
+      render({ applicants: [A, B], stages: { [A.workerId]: "shortlist" }, activeStage: "shortlist" }),
+    );
+    expect(ids).toEqual([`${A.workerId.slice(0, 8)}…`]);
   });
 });

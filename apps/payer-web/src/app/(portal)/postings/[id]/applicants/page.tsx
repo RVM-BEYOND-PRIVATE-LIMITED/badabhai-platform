@@ -68,9 +68,12 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
           </p>
           <div className="note">
             Applicants are <strong>faceless</strong> — an opaque id plus deterministic relevance
-            (rank / score / signals). No name, phone, or employer is shown. Unlocking spends 1
-            credit and grants a <strong>routed</strong> contact (an opaque relay — never a phone).
-            An &ldquo;unavailable&rdquo; result never discloses its cause.
+            (rank / score / signals), shown in the engine&rsquo;s best-first order. No name, phone,
+            or employer is shown. Sort them with <strong>Keep</strong> (→ Shortlist) and{" "}
+            <strong>Pass</strong> (dismiss). <strong>Call</strong> / <strong>WhatsApp</strong> open
+            only after you unlock and reveal a candidate&rsquo;s <strong>routed</strong> contact —
+            an opaque relay, never a phone. Unlocking spends 1 credit. An
+            &ldquo;unavailable&rdquo; result never discloses its cause.
           </div>
 
           {feed.applicants.length === 0 ? (
