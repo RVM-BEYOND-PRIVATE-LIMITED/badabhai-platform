@@ -494,6 +494,34 @@ export async function getPostings(): Promise<PostingSummary[]> {
 }
 
 /**
+ * Map the EMPLOYER posting input to the LIVE `POST /payer/job-postings` body — exactly the
+ * backend `PayerCreateJobPostingSchema` shape. Pure + exported so the wire contract is
+ * unit-pinned NOW (see posting-seam.test.ts), the forward-compat sibling of
+ * {@link toAgencyJobBody}:
+ *   - `org_label` is the payer's OWN org — the SESSION identity (resolved by the caller from
+ *     GET /payer/me at the live swap), NEVER a form field, NEVER eventized (XB-A / privacy).
+ *   - sends the RAW `vacancies` count and NO `vacancy_band` ⇒ EXACTLY ONE of the two (the
+ *     backend derives its OWN band — the frontend/backend band-sets differ).
+ *   - NEVER `payer_id` / `created_by` (the verified session is owner+creator).
+ *   - trade/pay/exp are NOT included: `PayerCreateJobPostingSchema` does not accept them yet
+ *     (collected for demand parity, validated client+server, withheld until the schema grows).
+ * Optional labels are omitted when absent so the body carries only meaningful keys.
+ */
+export function toPayerJobPostingBody(
+  input: CreatePostingInput,
+  orgLabel: string,
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    org_label: orgLabel,
+    role_title: input.roleTitle,
+    vacancies: input.vacancies, // EXACTLY ONE of vacancy_band|vacancies — the RAW count.
+  };
+  if (input.locationLabel !== undefined) body.location_label = input.locationLabel;
+  if (input.description !== undefined) body.description = input.description;
+  return body;
+}
+
+/**
  * WAITING (mock): job CREATE. A payer-authed `POST /payer/job-postings` NOW EXISTS
  * (`PayerJobPostingsController`, `PayerCreateJobPostingSchema`), but the posting LIST /
  * pause / resume / quota-top-up surfaces are still mock (no payer-authed endpoints), and
@@ -502,22 +530,10 @@ export async function getPostings(): Promise<PostingSummary[]> {
  * therefore stays mock until the whole posting read/write path is migrated together. The
  * band→quota stamp lives in the store (config-driven, never hardcoded).
  *
- * THE LIVE BODY SHAPE (for the one-line swap to `payerFetch` once the read path migrates),
- * exactly `PayerCreateJobPostingSchema`:
- *   {
- *     org_label,        // the payer's OWN org — the SESSION identity (GET /payer/me orgName),
- *                       //   NEVER a form field, NEVER eventized (XB-A / privacy line).
- *     role_title,       // input.roleTitle
- *     location_label?,  // input.locationLabel
- *     description?,     // input.description (already PII-screened: client inline + the action's Zod)
- *     vacancies,        // input.vacancies — EXACTLY ONE of vacancy_band|vacancies; we send the
- *                       //   RAW count so the backend derives its OWN band (the band-sets differ).
- *   }
- *   — and NEVER payer_id / created_by (the verified session is the owner+creator).
- *
- * trade/pay/exp are collected for demand-schema parity but `PayerCreateJobPostingSchema` does
- * NOT accept them yet, so they are validated client+server and NOT sent (forward-compat; the
- * backend employer schema is expected to grow to the agency `jobs` shape).
+ * At the live swap this becomes a single `payerFetch("/payer/job-postings", { method: "POST",
+ * body: toPayerJobPostingBody(input, <session orgName>), ... })` — the body shape is already
+ * pinned by {@link toPayerJobPostingBody} (org_label from session; exactly one of
+ * vacancy_band|vacancies via the raw count; never payer_id/created_by).
  */
 export async function createPosting(input: CreatePostingInput): Promise<PostingSummary> {
   const { payerId } = await requirePayer();
