@@ -194,6 +194,10 @@ describe("getCapacity — capacity wiring (LIVE): GETs /payer/capacity with Bear
       jsonResponse({
         payer_id: PAYER_A,
         max_active_vacancies: 9,
+        // The REAL active-plan count from the enforcement engine (A3). Pinned to a value
+        // (4) that is NOT a count of the seeded mock-store rows, so the assertion below
+        // proves `activeVacancies` is the LIVE count, never a mock-store filter.
+        active_plan_count: 4,
         source_tier: null,
         expires_at: null,
       }),
@@ -204,14 +208,121 @@ describe("getCapacity — capacity wiring (LIVE): GETs /payer/capacity with Bear
     expect(cap.payerId).toBe(PAYER_A);
     // The allowance comes from the LIVE endpoint, not the config baseline.
     expect(cap.activeVacancyAllowance).toBe(9);
-    // Per-posting rows are still the (WAITING-mock) seeded plans.
+    // activeVacancies is the REAL enforcement-engine active_plan_count (4) — NOT a count
+    // derived from the seeded mock-store posting rows (which would be a different number).
+    expect(cap.activeVacancies).toBe(4);
+    // Per-posting rows are still the (WAITING-mock) seeded plans — DISPLAY-only, and they
+    // do NOT drive `activeVacancies` (proven above: 4 ≠ the seeded active-row count).
     expect(cap.postings.length).toBeGreaterThan(0);
+    expect(cap.postings.length).not.toBe(cap.activeVacancies);
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("http://api.test/payer/capacity");
     expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
     // A GET carries no body, hence no place for a client payer_id.
     expect(init.body).toBeUndefined();
+  });
+});
+
+describe("buyCapacity — capacity BUY (A1, LIVE): POSTs ONLY { tier } + Bearer (XB-A / XT5)", () => {
+  const PAYER_A = "11111111-1111-4111-8111-111111111111";
+
+  it("posts ONLY { tier } (no payer_id — XB-A; no price/amount/quota — XT5) and maps resumed_plan_ids", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        payer_id: PAYER_A,
+        // Server-priced receipt — NOT surfaced to the UI; carries a price/amount we must NOT echo.
+        quote: { amount_inr: 4999, currency: "INR", line_items: [{ price: 4999 }] },
+        max_active_vacancies: 10,
+        source_tier: "growth",
+        expires_at: "2026-12-31T00:00:00.000Z",
+        resumed_plan_ids: [
+          "aaaa1111-0000-4000-8000-000000000001",
+          "aaaa1111-0000-4000-8000-000000000002",
+        ],
+      }),
+    );
+    const { buyCapacity } = await import("./payer-api");
+    const res = await buyCapacity({ tier: "growth" });
+
+    expect(res).toEqual({
+      ok: true,
+      allowance: 10,
+      sourceTier: "growth",
+      expiresAt: "2026-12-31T00:00:00.000Z",
+      resumedPlanIds: [
+        "aaaa1111-0000-4000-8000-000000000001",
+        "aaaa1111-0000-4000-8000-000000000002",
+      ],
+    });
+    // The server-priced quote (with its price) is NEVER surfaced to the UI (XT5).
+    expect(JSON.stringify(res)).not.toMatch(/quote|amount|price|4999/i);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/payer/capacity");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
+
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    // XB-A: the ONLY body key is `tier` — no payer_id.
+    expect(Object.keys(body)).toEqual(["tier"]);
+    expect(body).not.toHaveProperty("payer_id");
+    expect(JSON.stringify(body)).not.toMatch(/payer_id/);
+    // XT5: the client NEVER sends a price / amount / quota.
+    expect(body).not.toHaveProperty("price");
+    expect(body).not.toHaveProperty("amount");
+    expect(body).not.toHaveProperty("quota");
+    expect(JSON.stringify(body)).not.toMatch(/price|amount|quota|₹|\binr\b/i);
+  });
+
+  it("maps an empty resumed_plan_ids list to resumedPlanIds: [] (no postings to resume)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        payer_id: PAYER_A,
+        quote: {},
+        max_active_vacancies: 5,
+        source_tier: "starter",
+        expires_at: null,
+        resumed_plan_ids: [],
+      }),
+    );
+    const { buyCapacity } = await import("./payer-api");
+    const res = await buyCapacity({ tier: "starter" });
+    expect(res).toEqual({
+      ok: true,
+      allowance: 5,
+      sourceTier: "starter",
+      expiresAt: null,
+      resumedPlanIds: [],
+    });
+  });
+
+  it("returns a NEUTRAL { ok:false } on a thrown transport error — no leaked reason, never a fake success", async () => {
+    fetchMock.mockRejectedValue(new Error("http://api.test/payer/capacity returned 500"));
+    const { buyCapacity } = await import("./payer-api");
+    const res = await buyCapacity({ tier: "growth" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      // FACELESS / no-oracle: the neutral error carries no role name / deny cause / PII.
+      expect(res.error).not.toMatch(/payer_id|forbidden|employer|agent|consent|phone|email/i);
+    }
+  });
+
+  it("FACELESS: the buy result carries only ids/counts/tier/timestamps — no PII-looking key", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        payer_id: PAYER_A,
+        quote: { amount_inr: 4999 },
+        max_active_vacancies: 10,
+        source_tier: "growth",
+        expires_at: "2026-12-31T00:00:00.000Z",
+        resumed_plan_ids: ["aaaa1111-0000-4000-8000-000000000001"],
+      }),
+    );
+    const { buyCapacity } = await import("./payer-api");
+    const res = await buyCapacity({ tier: "growth" });
+    // No name/phone/email/employer/address key anywhere in the surfaced payload.
+    expect(JSON.stringify(res)).not.toMatch(/name|phone|employer|email|address/i);
   });
 });
 

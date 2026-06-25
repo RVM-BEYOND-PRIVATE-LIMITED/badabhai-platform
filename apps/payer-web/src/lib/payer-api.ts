@@ -6,6 +6,7 @@ import {
   agencyJobWireSchema,
   agencyReferralsSummaryWireSchema,
   applicantFeedSchema,
+  buyCapacityWireSchema,
   buyPackResultWireSchema,
   capacitySchema,
   creditsWireSchema,
@@ -239,20 +240,24 @@ export async function topUp(input: { packCode: string }): Promise<TopUpResult | 
 /**
  * GET /payer/capacity — the caller's OWN concurrent active-vacancy ALLOWANCE (LIVE,
  * Bearer only — XB-A: no payer_id, no :payerId param). The backend
- * (`PayerCapacityController`) returns `{ payer_id, max_active_vacancies, source_tier,
- * expires_at }`; `max_active_vacancies` is the authoritative, config-resolved allowance.
+ * (`PayerCapacityController`) returns `{ payer_id, max_active_vacancies,
+ * active_plan_count, source_tier, expires_at }`; `max_active_vacancies` is the
+ * authoritative, config-resolved allowance and `active_plan_count` is the REAL, derived
+ * live count of active plans from the enforcement engine.
  *
- * The per-posting applicant-quota ROWS are NOT in this LIVE projection (and there is no
- * payer-authed create-posting endpoint yet), so they remain backend-seeded MOCK rows
- * from the session-scoped store until the create-posting backend lands (the capacity
- * page carries a note saying so). `activeVacancies` is counted off those mock rows.
- * All counts/codes; NO raw worker/payer PII.
+ * `activeVacancies` is now the REAL `active_plan_count` (the enforcement engine's count),
+ * NOT a count off the mock store — so the at-capacity signal (activeVacancies >= allowance)
+ * is faithful. The per-posting applicant-quota ROWS remain backend-seeded MOCK rows from
+ * the session-scoped store (no payer-authed create-posting / quota endpoint yet); they are
+ * DISPLAY-only and do NOT drive the count (the capacity page note says so). All counts/codes;
+ * NO raw worker/payer PII.
  */
 export async function getCapacity(): Promise<Capacity> {
   const { payerId } = await requirePayer();
   const wire = await payerFetch("/payer/capacity", { schema: payerCapacityWireSchema });
 
   // Per-posting rows are WAITING-mock (no payer-authed create-posting / quota endpoint).
+  // They are DISPLAY-only and do NOT drive `activeVacancies` (which is the REAL count below).
   const postings = store.getPostings(payerId);
   const rows = postings.map((p) => ({
     postingId: p.id,
@@ -262,16 +267,64 @@ export async function getCapacity(): Promise<Capacity> {
     applicantsUsed: p.applicantCount,
     applicantQuota: p.applicantQuota ?? 0,
   }));
-  const activeVacancies = postings.filter((p) => p.status === "open").length;
   return capacitySchema.parse({
     payerId: wire.payer_id,
-    activeVacancies,
+    // LIVE, REAL active-plan count from the enforcement engine (NOT the mock store filter).
+    activeVacancies: wire.active_plan_count,
     // LIVE allowance from the payer-authed capacity endpoint (config-resolved server-side).
     activeVacancyAllowance: wire.max_active_vacancies,
     applicantQuotaTotal: rows.reduce((sum, r) => sum + r.applicantQuota, 0),
     applicantQuotaUsed: rows.reduce((sum, r) => sum + r.applicantsUsed, 0),
     postings: rows,
   });
+}
+
+/** The seam result of a capacity buy/upgrade — a typed success or a NEUTRAL failure. */
+export type BuyCapacityResult =
+  | {
+      ok: true;
+      /** The allowance after this purchase (the raised catalog grant). */
+      allowance: number;
+      sourceTier: string | null;
+      expiresAt: string | null;
+      /** Opaque plan ids auto-resumed paused→active under the new allowance. */
+      resumedPlanIds: string[];
+    }
+  | { ok: false; error: string };
+
+/**
+ * POST /payer/capacity — buy/upgrade the caller's OWN hiring capacity (LIVE, Bearer only).
+ *
+ * The body carries ONLY the tier CODE: NEVER a payer_id (XB-A — the session token is the
+ * identity) and NEVER a price/amount/quota (XT5 — the server prices it via the pricing
+ * engine). The backend RAISES the allowance and auto-resumes paused plans up to it, then
+ * returns `{ payer_id, quote, max_active_vacancies, source_tier, expires_at, resumed_plan_ids }`.
+ *
+ * Mapped onto a typed {@link BuyCapacityResult}: only ids/counts/tier/timestamps are
+ * surfaced — the server-priced `quote` is parsed permissively and NEVER echoed (XT5). On any
+ * thrown/!ok path a NEUTRAL `{ ok:false }` is returned (no leaked reason). FACELESS by
+ * construction: the payload is opaque ids/counts/tier/timestamps only, so this does NOT wrap
+ * `assertNoAgencyPII` (capacity is an employer surface) — and it NEVER echoes an un-crossed
+ * fetched object.
+ */
+export async function buyCapacity({ tier }: { tier: string }): Promise<BuyCapacityResult> {
+  try {
+    const wire = await payerFetch("/payer/capacity", {
+      method: "POST",
+      body: { tier }, // XB-A: tier CODE ONLY — no payer_id; XT5: no price/amount/quota.
+      schema: buyCapacityWireSchema,
+    });
+    return {
+      ok: true,
+      allowance: wire.max_active_vacancies,
+      sourceTier: wire.source_tier,
+      expiresAt: wire.expires_at,
+      resumedPlanIds: wire.resumed_plan_ids,
+    };
+  } catch {
+    // Neutral failure — no leaked deny reason / role state (no-oracle); never a fake success.
+    return { ok: false, error: "Capacity upgrade failed (service unavailable). Please retry." };
+  }
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

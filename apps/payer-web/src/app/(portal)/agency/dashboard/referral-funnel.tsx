@@ -1,5 +1,6 @@
 import { kAnonCount } from "../../../../lib/agency-view";
 import type { AgencyReferralsSummary } from "../../../../lib/contracts";
+import { RetryButton } from "../../../../components/retry-button";
 
 /**
  * AGENCY REFERRAL FUNNEL (ADR-0022, LIVE) — the agency's OWN invite funnel, AGGREGATE
@@ -17,7 +18,8 @@ export function ReferralFunnel({ summary }: { summary: AgencyReferralsSummary | 
           <h3>Referral funnel</h3>
           <div className="big">—</div>
           <p>
-            <span className="badge badge-warn">Unavailable</span> Could not load right now.
+            <span className="badge badge-warn">Unavailable</span> Could not load right now.{" "}
+            <RetryButton />
           </p>
         </div>
       </div>

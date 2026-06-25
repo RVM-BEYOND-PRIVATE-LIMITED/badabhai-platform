@@ -16,6 +16,7 @@ function makeCtrl() {
     getCapacity: vi.fn(async () => ({
       payer_id: PAYER_A.id,
       max_active_vacancies: 3,
+      active_plan_count: 2,
       source_tier: null,
       expires_at: null,
     })),
@@ -45,6 +46,15 @@ describe("PayerCapacityController — identity from the session, never a param/b
   it("ownCapacity scopes to the SESSION payer", async () => {
     await d.ctrl.ownCapacity(PAYER_A);
     expect(d.plans.getCapacity).toHaveBeenCalledWith(PAYER_A.id);
+  });
+
+  it("ownCapacity surfaces active_plan_count from the service (A3 — derived live count)", async () => {
+    const res = await d.ctrl.ownCapacity(PAYER_A);
+    expect(res).toMatchObject({
+      payer_id: PAYER_A.id,
+      max_active_vacancies: 3,
+      active_plan_count: 2,
+    });
   });
 
   it("buyCapacity delegates with the SESSION payer.id (the DTO carries no payer_id)", async () => {

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getDashboard } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
 import type { Dashboard } from "../../../lib/contracts";
+import { RetryButton } from "../../../components/retry-button";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,7 @@ export default async function DashboardPage() {
         <h1 className="page-title">Dashboard</h1>
         <p className="page-sub">
           <span className="badge badge-warn">Service unavailable</span> We couldn&rsquo;t load
-          your account right now. Please retry shortly.
+          your account right now. Please retry shortly. <RetryButton />
         </p>
       </>
     );

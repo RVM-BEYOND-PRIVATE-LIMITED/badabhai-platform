@@ -1,6 +1,7 @@
 import { getDashboard } from "../../../lib/payer-api";
 import { offeredCreditPacks, unlockUnitPriceInr } from "../../../lib/pricing-config";
 import type { Dashboard } from "../../../lib/contracts";
+import { RetryButton } from "../../../components/retry-button";
 import { CreditsPanel } from "./credits-panel";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +36,7 @@ export default async function CreditsPage() {
       {error ? (
         <p className="page-sub">
           <span className="badge badge-warn">Service unavailable</span> We couldn&rsquo;t load your
-          balance right now. Please retry.
+          balance right now. Please retry. <RetryButton />
         </p>
       ) : dashboard ? (
         <CreditsPanel packs={packs} balance={dashboard.credits.balance} />

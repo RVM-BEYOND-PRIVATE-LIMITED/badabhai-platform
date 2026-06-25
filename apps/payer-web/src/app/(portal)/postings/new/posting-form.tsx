@@ -15,6 +15,12 @@ export function PostingForm() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{ roleTitle?: string; vacancyBand?: string }>({});
   const [pending, startTransition] = useTransition();
+  // B7: after a SUCCESSFUL create we navigate away. The transition ends as soon as the
+  // action resolves, but `router.push`/`refresh` are still in flight — so we latch a
+  // separate `navigating` flag that stays true until this component unmounts on navigation.
+  // This keeps the submit button disabled across the success→navigation window so it can
+  // never look unsubmitted or be re-clicked (no double create).
+  const [navigating, setNavigating] = useState(false);
 
   /** Client-side field validation (mirrors createPostingInputSchema; inline per-field). */
   function validate(): { roleTitle?: string; vacancyBand?: string } {
@@ -43,6 +49,8 @@ export function PostingForm() {
         vacancyBand,
       });
       if (res.ok) {
+        // Latch BEFORE navigating: keep submit disabled until this form unmounts.
+        setNavigating(true);
         router.push(`/postings/${res.postingId}/applicants`);
         router.refresh();
       } else {
@@ -50,6 +58,8 @@ export function PostingForm() {
       }
     });
   }
+
+  const submitDisabled = pending || navigating;
 
   return (
     <form className="form" onSubmit={onSubmit}>
@@ -123,11 +133,11 @@ export function PostingForm() {
         />
       </div>
       <div className="btn-row">
-        <button className="btn" type="submit" disabled={pending}>
-          {pending ? "Posting…" : "Post job"}
+        <button className="btn" type="submit" disabled={submitDisabled}>
+          {submitDisabled ? "Posting…" : "Post job"}
         </button>
       </div>
-      {error ? <p className="error-text">{error}</p> : null}
+      <div aria-live="polite">{error ? <p className="error-text">{error}</p> : null}</div>
     </form>
   );
 }

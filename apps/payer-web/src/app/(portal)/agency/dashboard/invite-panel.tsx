@@ -4,6 +4,15 @@ import { useState, useTransition } from "react";
 import { createInviteAction } from "./invite-actions";
 
 /**
+ * Client-side PII screen for the campaign tag (C11), mirroring `campaignSchema`'s
+ * PHONE_OR_EMAIL in invite-actions.ts. The Server Action + backend DTO stay the AUTHORITY —
+ * this only rejects a phone-like / email-like tag INLINE before the round-trip. It names the
+ * field, never the offending content (no echo).
+ */
+const PHONE_OR_EMAIL = /(\+?\d[\d\s-]{7,}\d)|([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/;
+const TAG_MAX = 64; // parity with campaignSchema.max(64)
+
+/**
  * AGENCY INVITE panel (ADR-0022, LIVE).
  *
  * Runs in the BROWSER and sees NO secret. FACELESS: the ONLY input is an optional,
@@ -18,15 +27,29 @@ import { createInviteAction } from "./invite-actions";
  */
 export function AgencyInvitePanel() {
   const [campaign, setCampaign] = useState("");
+  const [campaignError, setCampaignError] = useState<string | null>(null);
   const [invite, setInvite] = useState<{ code: string; link: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
+  /** Inline tag screen (C11): empty is fine (optional); a phone/email-like tag is rejected. */
+  function tagError(raw: string): string | null {
+    const t = raw.trim();
+    if (t === "") return null;
+    if (t.length > TAG_MAX) return "The campaign tag is too long.";
+    if (PHONE_OR_EMAIL.test(t))
+      return "The campaign tag must be a non-PII label — remove any phone or email.";
+    return null;
+  }
+
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setCopied(false);
+    const tagErr = tagError(campaign);
+    setCampaignError(tagErr);
+    if (tagErr) return;
     startTransition(async () => {
       const res = await createInviteAction({ campaign: campaign.trim() || undefined });
       if (res.ok) {
@@ -68,20 +91,34 @@ export function AgencyInvitePanel() {
             className="input"
             placeholder="diwali-drive"
             value={campaign}
-            onChange={(e) => setCampaign(e.target.value)}
+            aria-invalid={campaignError ? true : undefined}
+            aria-describedby={campaignError ? "campaign-error" : undefined}
+            onChange={(e) => {
+              setCampaign(e.target.value);
+              if (campaignError) setCampaignError(null);
+            }}
           />
+          {campaignError ? (
+            <p className="error-text" id="campaign-error">
+              {campaignError}
+            </p>
+          ) : null}
           <p className="page-sub" style={{ margin: "4px 0 0" }}>
             A short, non-identifying label to group invites. Never a phone, name, or email.
           </p>
         </div>
 
         <div className="btn-row">
-          <button className="btn" type="submit" disabled={pending}>
+          <button
+            className="btn"
+            type="submit"
+            disabled={pending || tagError(campaign) !== null}
+          >
             {pending ? "Creating…" : "Create invite link"}
           </button>
           <span className="badge badge-ok">Live</span>
         </div>
-        {error ? <p className="error-text">{error}</p> : null}
+        <div aria-live="polite">{error ? <p className="error-text">{error}</p> : null}</div>
       </form>
 
       {invite ? (

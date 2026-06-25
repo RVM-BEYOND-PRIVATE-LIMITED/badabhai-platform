@@ -58,12 +58,26 @@ export function ApplicantActions({
   balance: number;
 }) {
   const [rows, setRows] = useState<Record<string, RowState>>({});
+  // Confirm-on-spend (C11): confirm only the FIRST unlock per row this session — a retry
+  // after a transient failure (or a later reveal) does not re-prompt. Reveal/resume are
+  // NOT spend actions and are never confirmed.
+  const [confirmedUnlock, setConfirmedUnlock] = useState<Record<string, boolean>>({});
 
   function patch(workerId: string, p: Partial<RowState>) {
     setRows((prev) => ({ ...prev, [workerId]: { ...(prev[workerId] ?? EMPTY), ...p } }));
   }
 
   async function onUnlock(workerId: string) {
+    // First unlock for this row → confirm the spend. Money/credit copy is MOCK-neutral and
+    // names NO candidate detail (faceless). XT5: the action sends only ids, never an amount.
+    if (!confirmedUnlock[workerId]) {
+      const ok = window.confirm(
+        "Unlock this candidate's routed contact? This spends 1 credit and opens an in-app " +
+          "relay — never a phone number. You can reuse the relay until your access window ends.",
+      );
+      if (!ok) return;
+      setConfirmedUnlock((prev) => ({ ...prev, [workerId]: true }));
+    }
     patch(workerId, { busy: true, unlockError: null });
     const res = await unlockAction({ postingId, workerId });
     if (res.ok) patch(workerId, { busy: false, unlock: res.view });
@@ -152,7 +166,11 @@ export function ApplicantActions({
                             {row.contactBusy ? "Opening…" : "Open routed contact"}
                           </button>
                         )}
-                        {row.contactError ? <p className="error-text">{row.contactError}</p> : null}
+                        <div aria-live="polite">
+                          {row.contactError ? (
+                            <p className="error-text">{row.contactError}</p>
+                          ) : null}
+                        </div>
                       </div>
                       <div style={{ marginTop: 8 }}>
                         {row.resume?.kind === "masked" ? (
@@ -169,7 +187,11 @@ export function ApplicantActions({
                             {row.resumeBusy ? "Loading…" : "View masked resume (preview)"}
                           </button>
                         )}
-                        {row.resumeError ? <p className="error-text">{row.resumeError}</p> : null}
+                        <div aria-live="polite">
+                          {row.resumeError ? (
+                            <p className="error-text">{row.resumeError}</p>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
                   ) : row.unlock?.kind === "unavailable" ? (
@@ -191,7 +213,9 @@ export function ApplicantActions({
                           your own balance, never a signal about this candidate.
                         </p>
                       ) : null}
-                      {row.unlockError ? <p className="error-text">{row.unlockError}</p> : null}
+                      <div aria-live="polite">
+                        {row.unlockError ? <p className="error-text">{row.unlockError}</p> : null}
+                      </div>
                     </>
                   )}
                 </td>
