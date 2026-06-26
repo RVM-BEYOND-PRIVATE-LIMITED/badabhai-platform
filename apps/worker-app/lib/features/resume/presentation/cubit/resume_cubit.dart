@@ -34,4 +34,10 @@ class ResumeCubit extends Cubit<ResumeState> {
       emit(const ResumeState(status: ResumeStatus.failed));
     }
   }
+
+  /// Display an already-generated resume (generated upstream by the Building
+  /// screen) without re-running generation.
+  void showGenerated(String text) {
+    emit(ResumeState(status: ResumeStatus.ready, resumeText: text));
+  }
 }

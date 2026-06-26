@@ -1,0 +1,120 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '../../../core/di/locator.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_app_bar.dart';
+import '../../../core/widgets/bb_status_view.dart';
+import 'cubit/kit_detail_cubit.dart';
+import '../domain/interview_kit.dart';
+
+/// Interview-kit detail (spec §5.4 / `.aw-q`, screens.jsx 250-267). Full-screen
+/// from the list; numbered Q&A cards with a (stub) download action.
+class KitDetailScreen extends StatelessWidget {
+  const KitDetailScreen({super.key, required this.tradeKey});
+
+  final String tradeKey;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocProvider<KitDetailCubit>(
+      create: (_) => locator<KitDetailCubit>()..load(tradeKey),
+      child: _KitDetailView(tradeKey: tradeKey),
+    );
+  }
+}
+
+class _KitDetailView extends StatelessWidget {
+  const _KitDetailView({required this.tradeKey});
+
+  final String tradeKey;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<KitDetailCubit, KitDetailState>(
+      builder: (BuildContext context, KitDetailState state) {
+        return switch (state.status) {
+          KitDetailStatus.loading => const Scaffold(
+              appBar: BbAppBar(title: 'Interview kit'),
+              body: BbStatusView.loading(),
+            ),
+          KitDetailStatus.failed => Scaffold(
+              appBar: const BbAppBar(title: 'Interview kit'),
+              body: BbStatusView(
+                icon: Icons.cloud_off_rounded,
+                title: 'Could not load the kit.',
+                subtitle: 'Please check your internet and try again.',
+                action: FilledButton(
+                  onPressed: () => context.read<KitDetailCubit>().load(tradeKey),
+                  child: const Text('Try again'),
+                ),
+              ),
+            ),
+          KitDetailStatus.ready => _detail(context, state.kit!),
+        };
+      },
+    );
+  }
+
+  Widget _detail(BuildContext context, InterviewKit kit) {
+    return Scaffold(
+      appBar: BbAppBar(
+        title: kit.title,
+        actions: <Widget>[
+          IconButton(
+            tooltip: 'Download',
+            icon: const Icon(Icons.download),
+            onPressed: () => ScaffoldMessenger.of(context)
+              ..clearSnackBars()
+              ..showSnackBar(
+                const SnackBar(content: Text('Download shuru…')),
+              ),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.gutter,
+          vertical: AppSpacing.s4,
+        ),
+        children: <Widget>[
+          for (int i = 0; i < kit.qas.length; i++)
+            _qaCard(i, kit.qas[i], last: i == kit.qas.length - 1),
+        ],
+      ),
+    );
+  }
+
+  Widget _qaCard(int index, KitQa qa, {required bool last}) {
+    return Container(
+      decoration: BoxDecoration(
+        border: last
+            ? null
+            : const Border(bottom: BorderSide(color: AppColors.divider)),
+      ),
+      padding: EdgeInsets.only(
+        bottom: last ? AppSpacing.s2 : AppSpacing.s5,
+        top: index == 0 ? 0 : AppSpacing.s5,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            'Q${index + 1}. ${qa.question}',
+            style: AppTypography.display(
+              size: AppTypography.sizeBase,
+              weight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          Text(
+            qa.answer,
+            style: AppTypography.body(color: AppColors.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+}

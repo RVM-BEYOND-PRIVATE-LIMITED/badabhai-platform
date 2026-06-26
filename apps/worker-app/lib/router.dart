@@ -13,7 +13,11 @@ import 'features/auth/presentation/otp_verify_screen.dart';
 import 'features/consent/presentation/consent_screen.dart';
 import 'features/chat/presentation/chat_profiling_screen.dart';
 import 'features/voice/presentation/voice_note_placeholder_screen.dart';
+import 'features/kit/presentation/kit_detail_screen.dart';
+import 'features/kit/presentation/kit_screen.dart';
 import 'features/profile/presentation/profile_preview_screen.dart';
+import 'features/resume/presentation/building_screen.dart';
+import 'features/resume/presentation/resume_edit_screen.dart';
 import 'features/resume/presentation/resume_preview_screen.dart';
 import 'features/swipe/presentation/applied_screen.dart';
 import 'features/swipe/presentation/job_detail_screen.dart';
@@ -106,9 +110,7 @@ GoRouter _buildRouter() {
       ),
       GoRoute(
         path: Routes.building,
-        // TODO(stage-5): replace with the real Building screen (BbSpinner +
-        // ResumeCubit generate → go(resume)). Placeholder auto-advances for now.
-        builder: (_, __) => const _BuildingPlaceholder(),
+        builder: (_, __) => const BuildingScreen(),
       ),
 
       // ---------------- Shell (persistent 4-tab bottom nav) ----------------
@@ -146,22 +148,23 @@ GoRouter _buildRouter() {
             routes: <RouteBase>[
               GoRoute(
                 path: Routes.resume,
-                builder: (_, __) => const ResumePreviewScreen(),
+                builder: (_, GoRouterState s) =>
+                    ResumePreviewScreen(initialResume: s.extra as String?),
                 routes: <RouteBase>[
                   GoRoute(
                     path: 'edit',
                     parentNavigatorKey: _rootNavKey, // no bar
-                    builder: (_, __) => const _Placeholder('Resume edit'),
+                    builder: (_, __) => const ResumeEditScreen(),
                   ),
                   GoRoute(
                     path: 'kit',
-                    builder: (_, __) => const _Placeholder('Interview kit'),
+                    builder: (_, __) => const KitScreen(),
                     routes: <RouteBase>[
                       GoRoute(
                         path: 'detail/:tradeKey',
                         parentNavigatorKey: _rootNavKey, // no bar
-                        builder: (_, GoRouterState s) => _Placeholder(
-                            'Kit · ${s.pathParameters['tradeKey']}'),
+                        builder: (_, GoRouterState s) => KitDetailScreen(
+                            tradeKey: s.pathParameters['tradeKey']!),
                       ),
                     ],
                   ),
@@ -245,26 +248,3 @@ class _Placeholder extends StatelessWidget {
   }
 }
 
-/// Minimal stand-in for the Building screen: shows a spinner, then enters the
-/// shell at the Resume tab. The real screen (Stage 5) generates via ResumeCubit.
-class _BuildingPlaceholder extends StatefulWidget {
-  const _BuildingPlaceholder();
-
-  @override
-  State<_BuildingPlaceholder> createState() => _BuildingPlaceholderState();
-}
-
-class _BuildingPlaceholderState extends State<_BuildingPlaceholder> {
-  @override
-  void initState() {
-    super.initState();
-    Future<void>.delayed(const Duration(milliseconds: 1200), () {
-      if (mounted) context.go(Routes.resume);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(body: Center(child: CircularProgressIndicator()));
-  }
-}

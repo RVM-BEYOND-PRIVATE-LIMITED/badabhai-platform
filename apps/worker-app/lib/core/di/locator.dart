@@ -17,9 +17,16 @@ import '../../features/consent/presentation/cubit/consent_cubit.dart';
 import '../../features/profile/data/profile_repository_impl.dart';
 import '../../features/profile/domain/profile_repository.dart';
 import '../../features/profile/presentation/cubit/profile_cubit.dart';
+import '../../features/kit/data/interview_kit_repository_impl.dart';
+import '../../features/kit/domain/interview_kit_repository.dart';
+import '../../features/kit/presentation/cubit/kit_detail_cubit.dart';
+import '../../features/kit/presentation/cubit/kit_list_cubit.dart';
+import '../../features/resume/data/resume_edit_repository_impl.dart';
 import '../../features/resume/data/resume_repository_impl.dart';
+import '../../features/resume/domain/resume_edit_repository.dart';
 import '../../features/resume/domain/resume_repository.dart';
 import '../../features/resume/presentation/cubit/resume_cubit.dart';
+import '../../features/resume/presentation/cubit/resume_edit_cubit.dart';
 import '../../features/swipe/data/jobs_repository_impl.dart';
 import '../../features/swipe/data/swipe_repository_impl.dart';
 import '../../features/swipe/domain/jobs_repository.dart';
@@ -72,6 +79,12 @@ void setupLocator() {
   locator.registerLazySingleton<JobsRepository>(
     () => const JobsRepositoryImpl(),
   );
+  locator.registerLazySingleton<ResumeEditRepository>(
+    () => const ResumeEditRepositoryImpl(),
+  );
+  locator.registerLazySingleton<InterviewKitRepository>(
+    () => const InterviewKitRepositoryImpl(),
+  );
 
   // --- Blocs / Cubits (fresh instance per screen mount) ---------------------
   locator.registerFactory<PhoneLoginCubit>(
@@ -97,5 +110,14 @@ void setupLocator() {
   );
   locator.registerFactory<JobDetailCubit>(
     () => JobDetailCubit(locator<JobsRepository>(), locator<SwipeRepository>()),
+  );
+  locator.registerFactory<ResumeEditCubit>(
+    () => ResumeEditCubit(locator<ResumeEditRepository>()),
+  );
+  locator.registerFactory<KitListCubit>(
+    () => KitListCubit(locator<InterviewKitRepository>()),
+  );
+  locator.registerFactory<KitDetailCubit>(
+    () => KitDetailCubit(locator<InterviewKitRepository>()),
   );
 }

@@ -14,12 +14,24 @@ import '../../../router.dart';
 import 'cubit/resume_cubit.dart';
 
 class ResumePreviewScreen extends StatelessWidget {
-  const ResumePreviewScreen({super.key});
+  const ResumePreviewScreen({super.key, this.initialResume});
+
+  /// The resume text generated upstream by the Building screen. When present it
+  /// is shown directly (no re-generation); when null the screen generates.
+  final String? initialResume;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider<ResumeCubit>(
-      create: (_) => locator<ResumeCubit>()..generate(),
+      create: (_) {
+        final ResumeCubit cubit = locator<ResumeCubit>();
+        if (initialResume != null) {
+          cubit.showGenerated(initialResume!);
+        } else {
+          cubit.generate();
+        }
+        return cubit;
+      },
       child: const _ResumeView(),
     );
   }
@@ -47,23 +59,14 @@ class _ResumeView extends StatelessWidget {
   }
 
   Widget _actions(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        BbButton(
-          label: 'See jobs for you',
-          block: true,
-          iconLeft: Icons.work_outline_rounded,
-          onPressed: () => context.go(Routes.jobs),
-        ),
-        const SizedBox(height: AppSpacing.s3),
-        BbButton(
-          label: 'Done',
-          block: true,
-          variant: BbButtonVariant.ghost,
-          onPressed: () => context.go(Routes.splash),
-        ),
-      ],
+    // Download-PDF + WhatsApp-share are §7 follow-ups; the safe-field edit is the
+    // one entry-point in scope here.
+    return BbButton(
+      label: 'Naam / photo / phone edit karein',
+      block: true,
+      variant: BbButtonVariant.ghost,
+      iconLeft: Icons.edit_outlined,
+      onPressed: () => context.push(Routes.resumeEdit),
     );
   }
 
