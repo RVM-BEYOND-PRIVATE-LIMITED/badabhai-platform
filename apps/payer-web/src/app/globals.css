@@ -3,6 +3,11 @@
  * from tokens. Source of truth: docs/design/BadaBhai Design System/. */
 @import "../styles/tokens.css";
 
+/* BadaBhai Design System COMPONENT layer — the `.bb-*` primitive classes consumed by
+ * the typed React wrappers in src/components/ds/. Imported AFTER the tokens so every
+ * value resolves. Source of truth: docs/design/BadaBhai Design System/components/. */
+@import "../styles/ds-components.css";
+
 /* ------------------------------------------------------------------
  * LEGACY portal COMPONENT palette (pre-design-system). Kept UNCHANGED so the
  * existing component classes (.btn / .card / .badge / .note / .input / …) keep
