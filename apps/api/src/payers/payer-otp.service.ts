@@ -3,8 +3,14 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { randomInt, timingSafeEqual } from "node:crypto";
 import type { ServerConfig } from "@badabhai/config";
+import { isRealPayerEmailActive } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import {
+  OtpSendCapExceededException,
+  secondsUntilEndOfUtcDay,
+  utcDayStamp,
+} from "../common/otp-send-cap";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { PAYER_LOGIN_CHANNEL, type PayerLoginChannel } from "./payer-login-channel";
 
@@ -42,6 +48,16 @@ export interface PayerOtpIssued {
  *
  * Keyed on the email's keyed HMAC (`emailHash`) — never the raw email. Redis namespace is
  * `payer_otp:*`, DISTINCT from the worker `otp:*` namespace, so the two never collide.
+ *
+ * OTP-5 GLOBAL DAILY SEND CIRCUIT-BREAKER (the spend ceiling): in addition to the
+ * per-account cooldown/cap, a platform-wide daily ceiling on REAL email sends
+ * (PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY) bounds total email spend. It is enforced ONLY when
+ * a REAL email provider is active (`EMAIL_PROVIDER!="none"`); in the mock channel it is a
+ * no-op. Crucially it lives in the existence-INDEPENDENT {@link reserve} path (run by BOTH
+ * issueAndSend and issueWithoutDelivery), so on breach the observable 429/response is
+ * BYTE-IDENTICAL for a known vs unknown account (no enumeration oracle, XB-H). Fail-closed
+ * (a Redis error rejects). A cap of 0 = PAUSED = the payer-email kill-switch (instant halt
+ * + a PII-free payer.otp_send_cap_exceeded breach event, no redeploy).
  */
 @Injectable()
 export class PayerOtpService {
@@ -203,7 +219,49 @@ export class PayerOtpService {
     await redis.set(codeKey, this.pii.hmac(code), "EX", this.config.OTP_TTL_SECONDS);
     await redis.del(attemptsKey);
     await redis.set(cooldownKey, "1", "EX", this.config.OTP_RESEND_COOLDOWN_SECONDS);
+
+    // GLOBAL DAILY SEND CIRCUIT-BREAKER (OTP-5 spend ceiling). REAL email provider ONLY.
+    // Enforced HERE (the existence-INDEPENDENT reserve path, run by both issueAndSend and
+    // issueWithoutDelivery) so a breach is byte-identical for a known vs unknown account
+    // (no enumeration oracle). On breach, roll back the just-reserved code + cooldown and
+    // throw the SAME neutral 429 the throttle uses (tagged so the caller emits the breach
+    // event once + degrades to the neutral "code_sent" response). A Redis error propagates
+    // to the caller's fail-closed mapper (503) — it never uncaps.
+    if (isRealPayerEmailActive(this.config)) {
+      await this.assertWithinGlobalDailyCap(redis, codeKey, cooldownKey);
+    }
     return code;
+  }
+
+  /**
+   * GLOBAL daily send circuit-breaker (OTP-5). INCR the platform-wide daily counter
+   * (re-asserting its TTL to end of UTC day) and, when it reaches
+   * PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY, refuse: roll back the just-reserved code +
+   * cooldown and throw {@link OtpSendCapExceededException} (the neutral 429). `count >= cap`
+   * (not `>`) so cap=0 blocks the FIRST send (the kill-switch). A Redis error propagates to
+   * the caller's fail-closed mapper (503) — never uncaps.
+   */
+  private async assertWithinGlobalDailyCap(
+    redis: RedisOtpClient,
+    codeKey: string,
+    cooldownKey: string,
+  ): Promise<void> {
+    const day = utcDayStamp();
+    const key = PayerOtpService.globalSendCountKey(day);
+    const count = await redis.incr(key);
+    await redis.expire(key, secondsUntilEndOfUtcDay());
+    if (count >= this.config.PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY) {
+      // Leave no dangling reserved code/cooldown for a refused send.
+      await redis.del(codeKey, cooldownKey).catch(() => undefined);
+      this.logger.warn(
+        `payer OTP global daily send cap reached (payer_email) limit=${this.config.PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY} day=${day}; refusing real send`,
+      );
+      throw new OtpSendCapExceededException({
+        channel: "payer_email",
+        limit: this.config.PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY,
+        window: day,
+      });
+    }
   }
 
   /** Shape the success return + the DEV/TEST + MOCK-channel ONLY echo (mirrors OtpService). */
@@ -255,6 +313,10 @@ export class PayerOtpService {
   }
   private static sendCountKey(emailHash: string, hour: string): string {
     return `payer_otp:sendcount:${emailHash}:${hour}`;
+  }
+  /** Global daily REAL-send counter (OTP-5 spend ceiling) — NOT keyed by account. */
+  private static globalSendCountKey(day: string): string {
+    return `payer_otp:global_sendcount:${day}`;
   }
 
   /** UTC hour stamp `YYYYMMDDHH`. */

@@ -2,7 +2,9 @@ import "reflect-metadata";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { HttpException, HttpStatus, UnauthorizedException } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
+import { validateEvent } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
+import { OtpSendCapExceededException } from "../common/otp-send-cap";
 import { PayerAuthService } from "./payer-auth.service";
 
 const CTX: RequestContext = { correlationId: "11111111-1111-4111-8111-111111111111", requestId: "req-1" };
@@ -12,7 +14,10 @@ const ORG = "Acme Manufacturing Pvt Ltd";
 const PHONE = "+919876543210";
 
 function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
-  const config = { PAYER_LOGIN_METHOD: over.method ?? "email_otp" } as unknown as ServerConfig;
+  const config = {
+    PAYER_LOGIN_METHOD: over.method ?? "email_otp",
+    OTP_RESEND_COOLDOWN_SECONDS: 30,
+  } as unknown as ServerConfig;
 
   const account = { id: PAYER_ID, role: "employer", status: "active" } as never;
   const payers = {
@@ -120,6 +125,85 @@ describe("PayerAuthService.requestLogin (no user-enumeration)", () => {
     );
     await expect(d.svc.requestLogin({ email: EMAIL }, CTX)).rejects.toMatchObject({
       status: HttpStatus.TOO_MANY_REQUESTS,
+    });
+  });
+});
+
+describe("PayerAuthService global send-cap breach (OTP-5 — PII-free event + no-enumeration parity)", () => {
+  const breach = () =>
+    new OtpSendCapExceededException({ channel: "payer_email", limit: 2000, window: "20260626" });
+
+  it("requestLogin (KNOWN) on a breach emits exactly one PII-free payer.otp_send_cap_exceeded and degrades to the neutral code_sent", async () => {
+    const d = setup();
+    d.otp.issueAndSend.mockRejectedValueOnce(breach());
+    const res = await d.svc.requestLogin({ email: EMAIL }, CTX);
+
+    // Degrades to the SAME neutral response the unknown-account path returns (no 429 leak).
+    expect(res).toEqual({ status: "code_sent", resend_in_seconds: 30 });
+    const capEvts = d.events.emit.mock.calls.filter(
+      (c) => c[0].event_name === "payer.otp_send_cap_exceeded",
+    );
+    expect(capEvts).toHaveLength(1); // exactly once
+    expect(capEvts[0]![0].payload).toEqual({
+      channel: "payer_email",
+      cap: "global_daily",
+      limit: 2000,
+      window: "20260626",
+    });
+    assertNoPiiInEvents(d.events);
+    // It validates against the schema.
+    const built = validateEvent({
+      event_id: "11111111-1111-4111-8111-111111111111",
+      event_name: "payer.otp_send_cap_exceeded",
+      event_version: 1,
+      occurred_at: "2026-06-26T00:00:00.000Z",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "payer", subject_id: null },
+      source: "api",
+      correlation_id: "22222222-2222-4222-8222-222222222222",
+      causation_id: null,
+      payload: capEvts[0]![0].payload,
+      metadata: { environment: "test", service: "api" },
+    });
+    expect(built.success).toBe(true);
+  });
+
+  it("NO-ENUMERATION: the breach response for a KNOWN account == the response for an UNKNOWN account (byte-identical)", async () => {
+    // KNOWN account → issueAndSend trips the breaker.
+    const known = setup();
+    known.otp.issueAndSend.mockRejectedValueOnce(breach());
+    const knownRes = await known.svc.requestLogin({ email: EMAIL }, CTX);
+
+    // UNKNOWN account → the existence-independent issueWithoutDelivery trips the SAME breaker.
+    const unknown = setup();
+    unknown.payers.findByEmail.mockResolvedValueOnce(undefined as never);
+    unknown.otp.issueWithoutDelivery.mockRejectedValueOnce(breach());
+    const unknownRes = await unknown.svc.requestLogin({ email: "ghost@nowhere.com" }, CTX);
+
+    // Byte-identical body — a caller cannot tell whether the account exists.
+    expect(knownRes).toEqual(unknownRes);
+    expect(knownRes).toEqual({ status: "code_sent", resend_in_seconds: 30 });
+  });
+
+  it("signup on a breach also degrades to the neutral code_sent (account already created)", async () => {
+    const d = setup();
+    d.otp.issueAndSend.mockRejectedValueOnce(breach());
+    const res = await d.svc.signup({ role: "employer", email: EMAIL, org_name: ORG, phone: PHONE }, CTX);
+    expect(res).toEqual({ status: "code_sent", resend_in_seconds: 30 });
+    // payer.created still fired (account creation precedes the code issue); the breach event fired too.
+    const names = d.events.emit.mock.calls.map((c) => c[0].event_name);
+    expect(names).toContain("payer.created");
+    expect(names.filter((n) => n === "payer.otp_send_cap_exceeded")).toHaveLength(1);
+    assertNoPiiInEvents(d.events);
+  });
+
+  it("a NON-cap error (e.g. 503 Redis) still PROPAGATES — only the cap breach is neutralized", async () => {
+    const d = setup();
+    d.otp.issueAndSend.mockRejectedValueOnce(
+      new HttpException("temporarily unavailable", HttpStatus.SERVICE_UNAVAILABLE),
+    );
+    await expect(d.svc.requestLogin({ email: EMAIL }, CTX)).rejects.toMatchObject({
+      status: HttpStatus.SERVICE_UNAVAILABLE,
     });
   });
 });

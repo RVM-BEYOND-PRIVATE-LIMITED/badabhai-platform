@@ -1,6 +1,7 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { OtpSendCapExceededException } from "../common/otp-send-cap";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { OtpService } from "./otp.service";
@@ -34,7 +35,33 @@ export class AuthService {
   async requestOtp(phone: string, ctx: RequestContext): Promise<OtpRequestResponse> {
     // Issue + send first; OtpService throws (cooldown/cap/send-fail/Redis) and we
     // do NOT emit on failure. Only a real, sent code produces the event.
-    const { resendInSeconds, devCode } = await this.otp.issueAndSend(phone);
+    let issued: { resendInSeconds: number; devCode?: string };
+    try {
+      issued = await this.otp.issueAndSend(phone);
+    } catch (err) {
+      // OTP-5: the GLOBAL daily send circuit-breaker (the spend ceiling) tripped — emit
+      // the PII-free breach event ONCE (so ops can alert on the spend ceiling), then
+      // re-throw the SAME neutral 429 the throttle returns (no new oracle). This fires
+      // ONLY on the global breach, never on ordinary per-phone cooldowns/caps (those
+      // throw a plain HttpException). The payload is AGGREGATE — no phone/IP/code/id.
+      if (err instanceof OtpSendCapExceededException) {
+        await this.events.emit({
+          event_name: "worker.otp_send_cap_exceeded",
+          actor: { actor_type: "system" },
+          subject: { subject_type: "worker" },
+          payload: {
+            channel: err.breach.channel,
+            cap: "global_daily",
+            limit: err.breach.limit,
+            window: err.breach.window,
+          },
+          correlationId: ctx.correlationId,
+          requestId: ctx.requestId,
+        });
+      }
+      throw err;
+    }
+    const { resendInSeconds, devCode } = issued;
 
     const phoneHash = this.pii.hashPhone(phone);
     // NOTE: the raw phone is never logged or put into an event — only its hash.

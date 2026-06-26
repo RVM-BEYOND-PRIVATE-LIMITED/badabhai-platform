@@ -41,6 +41,47 @@ export const WorkerNameRecordedPayload = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// *.otp_send_cap_exceeded — OTP-5 global daily send circuit-breaker (the SPEND
+// ceiling) breach, on BOTH the worker SMS and payer email real-send paths.
+//
+// AGGREGATE / PII-FREE BY CONSTRUCTION: this records the FACT that the platform-wide
+// daily REAL-send breaker tripped — it carries NO worker/payer identity, NO phone,
+// NO email, NO raw IP, NO code, NO hash of any of those (CLAUDE.md invariant #2). The
+// ONLY fields are the channel KIND enum, the cap KIND literal, the integer limit, and
+// the UTC-day string the breach happened on. There is deliberately NO id field that
+// could carry an account handle — exactly the "record the fact, not the value" rule.
+// Emitted ONCE per breach, in addition to (never instead of) the neutral throttle
+// response the caller already returns — so ops can alert on the spend ceiling without
+// parsing any per-account data. `worker.otp_send_cap_exceeded` (channel "worker_sms")
+// and `payer.otp_send_cap_exceeded` (channel "payer_email") share this exact shape.
+// ---------------------------------------------------------------------------
+
+/** Which real-send path the global breaker tripped on. Enum-only → no PII. */
+export const OTP_SEND_CAP_CHANNELS = ["worker_sms", "payer_email"] as const;
+export const OtpSendCapChannel = z.enum(OTP_SEND_CAP_CHANNELS);
+export type OtpSendCapChannel = z.infer<typeof OtpSendCapChannel>;
+
+/** The aggregate, PII-free breach payload (worker + payer share this shape). */
+const otpSendCapExceededShape = {
+  channel: OtpSendCapChannel,
+  // Pinned literal — there is exactly one cap kind (the global daily ceiling). Keeping
+  // it a literal (not free text) STRUCTURALLY guarantees no PII can be smuggled here.
+  cap: z.literal("global_daily"),
+  /** The configured limit the breach was measured against (0 = paused = kill-switch). */
+  limit: z.number().int().nonnegative(),
+  /** The UTC-day window the breach happened on (`YYYYMMDD`) — never a timestamp/PII. */
+  window: z
+    .string()
+    .regex(/^\d{8}$/, "window must be a UTC-day stamp YYYYMMDD"),
+} as const;
+
+export const WorkerOtpSendCapExceededPayload = z.object(otpSendCapExceededShape);
+export type WorkerOtpSendCapExceededPayload = z.infer<typeof WorkerOtpSendCapExceededPayload>;
+
+export const PayerOtpSendCapExceededPayload = z.object(otpSendCapExceededShape);
+export type PayerOtpSendCapExceededPayload = z.infer<typeof PayerOtpSendCapExceededPayload>;
+
+// ---------------------------------------------------------------------------
 // consent.*
 // ---------------------------------------------------------------------------
 export const ConsentAcceptedPayload = z.object({

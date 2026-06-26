@@ -23,6 +23,14 @@ export const EVENT_REGISTRY = {
   "worker.otp_requested": { version: 1, domain: "worker", payload: p.WorkerOtpRequestedPayload },
   "worker.otp_verified": { version: 1, domain: "worker", payload: p.WorkerOtpVerifiedPayload },
   "worker.name_recorded": { version: 1, domain: "worker", payload: p.WorkerNameRecordedPayload },
+  // OTP-5 global daily SEND circuit-breaker breach (worker SMS path). AGGREGATE /
+  // PII-free: channel/cap enums + integer limit + UTC-day string ONLY — no worker id,
+  // phone, IP, or code. Emitted once per breach (the spend ceiling tripped).
+  "worker.otp_send_cap_exceeded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerOtpSendCapExceededPayload,
+  },
 
   "consent.accepted": { version: 1, domain: "consent", payload: p.ConsentAcceptedPayload },
 
@@ -206,6 +214,15 @@ export const EVENT_REGISTRY = {
   "payer.created": { version: 1, domain: "payer", payload: p.PayerCreatedPayload },
   "payer.login_requested": { version: 1, domain: "payer", payload: p.PayerLoginRequestedPayload },
   "payer.session_started": { version: 1, domain: "payer", payload: p.PayerSessionStartedPayload },
+  // OTP-5 global daily SEND circuit-breaker breach (payer email path). Same AGGREGATE /
+  // PII-free shape as worker.otp_send_cap_exceeded (channel "payer_email") — no payer id,
+  // email, IP, or code. Emitted once per breach; the HTTP response stays byte-identical
+  // for a known vs unknown account (no enumeration oracle, XB-H).
+  "payer.otp_send_cap_exceeded": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerOtpSendCapExceededPayload,
+  },
 
   // The `jobs` ENTITY lifecycle (ADR-0022 Agency Supply Portal) — DISTINCT from
   // `job_posting.*` (ADR-0012, a different entity). PII-FREE: opaque ids + coarse

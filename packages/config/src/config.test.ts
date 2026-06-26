@@ -10,6 +10,8 @@ import {
   areRealMessagesEnabled,
   assertMessagingConfig,
   isCapacityEnforcementEnabled,
+  isRealOtpSmsActive,
+  isRealPayerEmailActive,
   resolveCorsOrigins,
 } from "./server";
 import { loadPublicConfig } from "./public";
@@ -165,6 +167,57 @@ describe("messaging config (ADR-0020 — mock WhatsApp in alpha, fail-closed boo
     expect(realMessagingBlockedReason(config)).toBeNull();
     expect(areRealMessagesEnabled(config)).toBe(true);
     expect(() => assertMessagingConfig(config)).not.toThrow();
+  });
+});
+
+describe("OTP global daily send circuit-breaker (OTP-5 — the spend ceiling + kill-switch)", () => {
+  it("defaults the worker + payer global daily caps to 2000", () => {
+    const config = loadServerConfig({});
+    expect(config.OTP_GLOBAL_MAX_SENDS_PER_DAY).toBe(2000);
+    expect(config.PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY).toBe(2000);
+  });
+
+  it("accepts 0 (paused = kill-switch) on both caps — min(0) is deliberate", () => {
+    expect(loadServerConfig({ OTP_GLOBAL_MAX_SENDS_PER_DAY: "0" }).OTP_GLOBAL_MAX_SENDS_PER_DAY).toBe(
+      0,
+    );
+    expect(
+      loadServerConfig({ PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY: "0" }).PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY,
+    ).toBe(0);
+  });
+
+  it("is tunable (coerced from a string)", () => {
+    expect(loadServerConfig({ OTP_GLOBAL_MAX_SENDS_PER_DAY: "500" }).OTP_GLOBAL_MAX_SENDS_PER_DAY).toBe(
+      500,
+    );
+  });
+
+  it("rejects a negative cap (min(0) floor)", () => {
+    expect(() => loadServerConfig({ OTP_GLOBAL_MAX_SENDS_PER_DAY: "-1" })).toThrow();
+    expect(() => loadServerConfig({ PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY: "-1" })).toThrow();
+  });
+
+  it("isRealOtpSmsActive: true only for the real fast2sms provider (console mock → false)", () => {
+    expect(isRealOtpSmsActive(loadServerConfig({}))).toBe(false); // console default
+    expect(isRealOtpSmsActive(loadServerConfig({ SMS_PROVIDER: "console" }))).toBe(false);
+    expect(isRealOtpSmsActive(loadServerConfig({ SMS_PROVIDER: "fast2sms" }))).toBe(true);
+  });
+
+  it("isRealPayerEmailActive: true only for a real email provider (EMAIL_PROVIDER!=none)", () => {
+    expect(isRealPayerEmailActive(loadServerConfig({}))).toBe(false); // none default (mock)
+    expect(isRealPayerEmailActive(loadServerConfig({ EMAIL_PROVIDER: "none" }))).toBe(false);
+    // A non-none provider is the real-spend signal (boot-time creds are gated separately).
+    expect(
+      isRealPayerEmailActive(
+        loadServerConfig({
+          EMAIL_PROVIDER: "smtp",
+          SMTP_HOST: "h",
+          SMTP_USER: "u",
+          SMTP_PASS: "p",
+          EMAIL_FROM_ADDRESS: "otp@example.com",
+        }),
+      ),
+    ).toBe(true);
   });
 });
 

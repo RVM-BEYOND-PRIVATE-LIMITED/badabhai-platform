@@ -114,6 +114,18 @@ export const serverEnvSchema = z.object({
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(30),
   OTP_MAX_SENDS_PER_HOUR: z.coerce.number().int().positive().default(5),
+  // GLOBAL daily send circuit-breaker for the worker SMS path (OTP-5 — the SPEND
+  // ceiling). A backstop ABOVE the per-phone cooldown/cap + the per-IP cap: it bounds
+  // the TOTAL number of REAL Fast2SMS sends platform-wide per UTC day, so a distributed
+  // abuser rotating phones/IPs still cannot run up the bill. Counts REAL sends ONLY
+  // (no-op in mock/console mode → no spend, no effect). Fail-closed: a Redis error on
+  // the global counter rejects rather than uncapping.
+  //   min(0) is DELIBERATE: 0 = PAUSED = the worker-SMS KILL-SWITCH. Setting this to 0
+  //   trips the breaker on the very next real send → instant halt of all real spend
+  //   (and a PII-free worker.otp_send_cap_exceeded breach event), env-only, NO redeploy.
+  //   This is the production worker-SMS off-switch — SMS_PROVIDER=console CANNOT be used
+  //   in prod (assertAuthConfig throws on console outside dev), so the cap is the lever.
+  OTP_GLOBAL_MAX_SENDS_PER_DAY: z.coerce.number().int().min(0).default(2000),
   // SMS delivery. "console" prints the code to the server log for LOCAL dev only
   // (assertAuthConfig forbids it outside development/test). "fast2sms" sends a real
   // SMS via the Fast2SMS DLT route; all Fast2SMS specifics live in Fast2SmsProvider.
@@ -146,6 +158,21 @@ export const serverEnvSchema = z.object({
   // Per-IP hourly cap on the UNAUTHENTICATED payer auth endpoints (signup / login
   // request / verify) — an account-farming + credential-stuffing backstop (XB-H / XT2).
   PAYER_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // GLOBAL daily send circuit-breaker for the payer EMAIL-OTP path (OTP-5 — the SPEND
+  // ceiling; the payer analogue of OTP_GLOBAL_MAX_SENDS_PER_DAY). Bounds the TOTAL number
+  // of REAL payer email sends platform-wide per UTC day, ABOVE the per-account cooldown/
+  // cap + per-IP cap, so a distributed abuser cannot run up the email bill. Counts REAL
+  // sends ONLY — relevant ONLY when a REAL provider is active (EMAIL_PROVIDER!="none");
+  // in the default mock channel (EMAIL_PROVIDER="none") it is a no-op (no spend, no
+  // effect). Fail-closed: a Redis error on the global counter rejects rather than
+  // uncapping. On breach the response stays BYTE-IDENTICAL for a known vs unknown account
+  // (no enumeration oracle, XB-H) — the breaker is checked on the existence-INDEPENDENT
+  // reserve path and degrades to the same neutral "code_sent"-shaped response.
+  //   min(0) is DELIBERATE: 0 = PAUSED = the payer-email KILL-SWITCH. Setting this to 0
+  //   trips the breaker on the next real send → instant halt + a PII-free
+  //   payer.otp_send_cap_exceeded breach event, env-only, NO redeploy. (The other payer
+  //   kill-switch is EMAIL_PROVIDER=none, which reverts to the mock channel entirely.)
+  PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY: z.coerce.number().int().min(0).default(2000),
   // Per-PAYER hourly cap on the self-serve REACH read (ADR-0019 R22 / PR2). The reach
   // view returns the full faceless ranked pool for a payer's OWNED job, so repeated
   // loads are the scrape / worker-de-anonymization surface (the reach analogue of XB-G).
@@ -447,6 +474,30 @@ export function realMessagingBlockedReason(config: ServerConfig): string | null 
 
 export function areRealMessagesEnabled(config: ServerConfig): boolean {
   return realMessagingBlockedReason(config) === null;
+}
+
+/**
+ * True when the WORKER OTP path uses the REAL (spend-incurring) SMS provider
+ * (OTP-5). `fast2sms` sends a real DLT SMS (real money); `console` is the dev/test
+ * mock (no spend). The global daily send circuit-breaker
+ * (OTP_GLOBAL_MAX_SENDS_PER_DAY) is enforced ONLY when this is true — in mock mode
+ * the breaker is a no-op (there is nothing to spend).
+ */
+export function isRealOtpSmsActive(config: ServerConfig): boolean {
+  return config.SMS_PROVIDER === "fast2sms";
+}
+
+/**
+ * True when the PAYER email-OTP path uses a REAL (spend-incurring) email provider
+ * (OTP-5). Any provider other than "none" performs a real send; "none" is the alpha
+ * mock channel (no spend). The payer global daily send circuit-breaker
+ * (PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY) is enforced ONLY when this is true — in mock
+ * mode it is a no-op. NOTE: relevant only when PAYER_LOGIN_METHOD="email_otp" (the
+ * email channel is unused for whatsapp/supabase); the OTP service still gates on this
+ * flag, which is the email-spend signal.
+ */
+export function isRealPayerEmailActive(config: ServerConfig): boolean {
+  return config.EMAIL_PROVIDER !== "none";
 }
 
 /**
