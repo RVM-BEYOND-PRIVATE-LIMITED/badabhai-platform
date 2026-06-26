@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { CreditPack } from "../../../lib/contracts";
 import { Badge, Button, Card, Toast } from "../../../components/ds";
+import { formatInr } from "../../../lib/format";
 import { topUpAction } from "./actions";
 
 /**
@@ -32,7 +33,7 @@ export function CreditsPanel({ packs }: { packs: CreditPack[] }) {
   function onBuy(pack: CreditPack) {
     // Confirm step (C6). Money is MOCK — the copy says so; no real payment is taken.
     const ok = window.confirm(
-      `Add ${pack.credits} credits for ₹${pack.priceInr.toLocaleString("en-IN")}? ` +
+      `Add ${pack.credits} credits for ${formatInr(pack.priceInr)}? ` +
         "This is a mock top-up — no real payment is taken.",
     );
     if (!ok) return;
@@ -69,7 +70,7 @@ export function CreditsPanel({ packs }: { packs: CreditPack[] }) {
                   </Badge>
                 ) : null}
               </div>
-              <div className="credit-pack__price bb-mono">₹{p.priceInr.toLocaleString("en-IN")}</div>
+              <div className="credit-pack__price bb-mono">{formatInr(p.priceInr)}</div>
               <p className="credit-pack__credits">
                 <span className="bb-mono">{p.credits}</span> unlock credits
               </p>

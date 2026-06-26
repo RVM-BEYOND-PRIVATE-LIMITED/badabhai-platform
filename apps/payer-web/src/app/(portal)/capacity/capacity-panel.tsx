@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button, Card, Toast } from "../../../components/ds";
+import { formatInr } from "../../../lib/format";
 import { upgradeCapacityAction } from "./actions";
 
 /**
@@ -37,7 +38,7 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
   function onUpgrade(tier: CapacityTier) {
     // Confirm step. Money is MOCK — the copy says so; no real payment is taken.
     const ok = window.confirm(
-      `Upgrade to the ${tier.maxActiveVacancies}-vacancy tier for ₹${tier.priceInr.toLocaleString("en-IN")}? ` +
+      `Upgrade to the ${tier.maxActiveVacancies}-vacancy tier for ${formatInr(tier.priceInr)}? ` +
         "This is a mock upgrade — no real payment is taken.",
     );
     if (!ok) return;
@@ -75,9 +76,7 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
                   </Badge>
                 ) : null}
               </div>
-              <div className="capacity-tier__price bb-mono">
-                ₹{t.priceInr.toLocaleString("en-IN")}
-              </div>
+              <div className="capacity-tier__price bb-mono">{formatInr(t.priceInr)}</div>
               <p className="capacity-tier__allowance">
                 <span className="bb-mono">{t.maxActiveVacancies}</span> concurrent vacancies
               </p>

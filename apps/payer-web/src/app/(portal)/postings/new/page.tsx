@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { postingIsFreeThroughLaunch, postingPaidTiers } from "../../../../lib/pricing-config";
 import { getCapacity } from "../../../../lib/payer-api";
+import { formatInr } from "../../../../lib/format";
 import { Badge, Card } from "../../../../components/ds";
 import { PostingForm } from "./posting-form";
 
@@ -72,7 +73,7 @@ export default async function NewPostingPage() {
             {paidTiers.length === 0
               ? "unavailable"
               : paidTiers
-                  .map((t) => `${t.code} ₹${t.priceInr} / ${t.validityDays}d`)
+                  .map((t) => `${t.code} ${formatInr(t.priceInr)} / ${t.validityDays}d`)
                   .join(" · ")}
             .
           </p>

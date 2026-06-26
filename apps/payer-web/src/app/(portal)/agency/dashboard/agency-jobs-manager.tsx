@@ -11,6 +11,7 @@ import {
   payBandLabel,
   tradeLabel,
 } from "../../../../lib/agency-view";
+import { bandLabel } from "../../../../lib/masking";
 import { Badge, Button, Card } from "../../../../components/ds";
 import { AgencyJobForm } from "./agency-job-form";
 import {
@@ -141,7 +142,7 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                   <div className="agency-job__meta">
                     <span>{tradeLabel(j.tradeKey)}</span>
                     <span aria-hidden="true">·</span>
-                    <span>{[j.city, j.area].filter(Boolean).join(" · ") || "—"}</span>
+                    <span>{bandLabel([j.city, j.area]) || "—"}</span>
                     <span aria-hidden="true">·</span>
                     <span className="bb-mono">{payBandLabel(j.payMin, j.payMax)}</span>
                     <span aria-hidden="true">·</span>
