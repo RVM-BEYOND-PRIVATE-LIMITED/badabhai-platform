@@ -27,8 +27,12 @@ class MockApiClient extends ApiClient {
   Future<void> _delay() => Future<void>.delayed(_latency);
 
   @override
-  Future<void> requestOtp(String phoneE164) async {
+  Future<RequestOtpResult> requestOtp(String phoneE164) async {
     await _delay();
+    // Canned cooldown only — NO code is ever returned to the UI (the mock never
+    // echoes `dev_otp`). Mirrors the default OTP_RESEND_COOLDOWN_SECONDS so the
+    // resend countdown still renders in mock mode.
+    return RequestOtpResult(success: true, channel: 'sms', resendInSeconds: 30);
   }
 
   @override

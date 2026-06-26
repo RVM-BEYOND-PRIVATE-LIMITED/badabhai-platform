@@ -5,18 +5,24 @@ import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Input, OtpInput, Toast } from "../../components/ds";
 import { requestCodeAction, verifyCodeAction } from "./actions";
+import { SEND_CONFIRMATION } from "./messages";
 
 /**
  * Client login form (DS1.1 — re-skinned onto the design system) — TWO-STEP OTP
  * (email → 6-digit code). Calls the Server Actions; it never sees a secret or a session
  * token (the seam sets an httpOnly cookie server-side).
  *
- * NO-ORACLE (XB-H): a failed verify shows ONE neutral error in a Toast — identical copy
- * whether the email is unknown or the code is wrong, so the UI is never an enumeration
- * oracle. In dev/test the mock channel may echo a `devOtp` to prefill the code.
+ * THE CODE IS NEVER DISPLAYED OR AUTO-FILLED. There is no dev/mock shortcut here: the
+ * payer reads the 6-digit code from their real email and types it into the OtpInput. The
+ * resend control re-uses the SERVER cooldown (`resendInSeconds`) and is disabled while it
+ * counts down.
+ *
+ * NO-ORACLE (XB-H): both the send step and a failed verify show ONE neutral error in a
+ * Toast — identical copy whether the email is unknown, a limit was hit, or the code is
+ * wrong — so the UI is never an enumeration oracle.
  *
  * Payer login is EMAIL-based (the backend payer-auth contract); the 6-cell OtpInput is
- * the design-system affordance for the numeric mock code (000000 in staging).
+ * the design-system affordance for the numeric code.
  */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CODE_RE = /^\d{4,8}$/;
@@ -53,13 +59,11 @@ export function LoginForm() {
       const res = await requestCodeAction({ email: email.trim() });
       if (res.ok) {
         setStep("code");
+        // Resend countdown is driven by the SERVER cooldown — never a hard-coded number.
         setCooldown(res.resendInSeconds);
-        if (res.devOtp) {
-          setCode(res.devOtp);
-          setInfo(`Dev code prefilled: ${res.devOtp}`);
-        } else {
-          setInfo("A login code has been sent. Enter it below.");
-        }
+        // Neutral, account-state-independent confirmation. The code is NOT echoed here;
+        // the payer reads it from their email.
+        setInfo(SEND_CONFIRMATION);
       } else {
         setError(res.error);
       }

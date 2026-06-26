@@ -481,26 +481,6 @@ textarea.input {
 .login-demo p {
   margin: var(--space-2) 0 0;
 }
-/* DEV-ONLY quick-login variant — a saffron (warning) dashed edge marks it dev-only.
-   Tokens only (flips under ink); never shown in staging/production. */
-.login-demo--dev {
-  border-color: var(--warning);
-}
-.login-demo__btns {
-  display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-.login-demo__error {
-  margin: var(--space-2) 0 0;
-  color: var(--danger);
-  font-size: var(--text-sm);
-}
-.login-demo__creds {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
 
 /* ------------------------------------------------------------------
  * DASHBOARD (DS1.2) — StatTiles + faceless MaskedCandidate teasers + DS states.

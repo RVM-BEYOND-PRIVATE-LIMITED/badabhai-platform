@@ -29,6 +29,37 @@ class ProfileExtractionTimeout implements Exception {
       'ProfileExtractionTimeout: job $aiJobId did not complete in time';
 }
 
+/// Result of POST /auth/otp/request.
+///
+/// Carries the server-driven resend cooldown ([resendInSeconds] — the
+/// `OTP_RESEND_COOLDOWN_SECONDS` value) the OTP screen uses to disable its
+/// "resend code" action until the window elapses. The screen NEVER reads a code
+/// from this response: the API only ever echoes `dev_otp` on the console SMS
+/// provider in dev/test, and the worker must read the real code from their SMS.
+/// This model deliberately does NOT expose `dev_otp` so no client path can show
+/// or auto-fill it.
+class RequestOtpResult {
+  RequestOtpResult({
+    required this.success,
+    required this.channel,
+    required this.resendInSeconds,
+  });
+
+  final bool success;
+  final String channel;
+
+  /// Seconds the worker must wait before "resend code" re-enables. Sourced from
+  /// the server (`resend_in_seconds`), never a hard-coded client constant.
+  final int resendInSeconds;
+
+  factory RequestOtpResult.fromJson(Map<String, dynamic> json) =>
+      RequestOtpResult(
+        success: json['success'] as bool? ?? true,
+        channel: json['channel'] as String? ?? 'sms',
+        resendInSeconds: (json['resend_in_seconds'] as num?)?.toInt() ?? 0,
+      );
+}
+
 /// Result of POST /auth/otp/verify.
 ///
 /// Carries the bearer [accessToken] the API mints for the worker session. The

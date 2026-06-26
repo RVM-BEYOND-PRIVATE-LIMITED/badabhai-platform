@@ -38,8 +38,19 @@ class ApiClient {
   /// session stays alive without a separate refresh call. Never logs the token.
   final void Function(String freshToken)? onSessionTokenRefreshed;
 
-  Future<void> requestOtp(String phoneE164) async {
-    await _post('/auth/otp/request', <String, dynamic>{'phone': phoneE164});
+  /// Requests an OTP for [phoneE164].
+  ///
+  /// Returns only the non-sensitive fields of the response: `success`,
+  /// `channel`, and the server-driven `resend_in_seconds` cooldown (see
+  /// [RequestOtpResult]). The API may also echo `dev_otp` on the console SMS
+  /// provider in dev/test, but this client DELIBERATELY does not read or expose
+  /// it — the worker reads the real code from their SMS. A send failure / rate
+  /// limit / cap surfaces as an [ApiException]; callers must show ONE neutral
+  /// message and never reveal which limit was hit or whether the number exists.
+  Future<RequestOtpResult> requestOtp(String phoneE164) async {
+    final Map<String, dynamic> json =
+        await _post('/auth/otp/request', <String, dynamic>{'phone': phoneE164});
+    return RequestOtpResult.fromJson(json);
   }
 
   Future<VerifyOtpResult> verifyOtp(String phoneE164, String otp) async {

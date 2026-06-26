@@ -33,8 +33,12 @@ vi.mock("react", async () => {
   };
 });
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }) }));
+// Mock the Server Action module (the render path never calls it). The neutral copy lives
+// in ./messages (a plain module), so the assertions read the REAL constants from there.
 vi.mock("./actions", () => ({ requestCodeAction: vi.fn(), verifyCodeAction: vi.fn() }));
 
+// Real, single-source-of-truth copy constants (not "use server" — safe to import).
+const { NEUTRAL_SEND_ERROR, SEND_CONFIRMATION } = await import("./messages");
 const { LoginForm } = await import("./login-form");
 
 // useState call order in the source: step, email, code, emailError, codeError, error, info, cooldown.
@@ -112,22 +116,71 @@ describe("LoginForm · email step (DS skin)", () => {
 
 describe("LoginForm · code step (OtpInput)", () => {
   it("renders a single 6-cell OtpInput wired to the code value, plus a verify Button", () => {
-    const tree = render({ step: "code", email: "a@b.co", code: "0000" });
+    const tree = render({ step: "code", email: "a@b.co", code: "12" });
     const otp = findAll(tree, OtpInput);
     expect(otp.length).toBe(1);
     expect(p(otp[0]!).length).toBe(6);
-    expect(p(otp[0]!).value).toBe("0000");
+    // The OtpInput shows ONLY what the user has typed (here a partial seed) — never a
+    // server- or mock-supplied code.
+    expect(p(otp[0]!).value).toBe("12");
 
     const submit = findAll(tree, Button).find((b) => p(b).type === "submit");
     expect(textOf(p(submit!).children as ReactNode)).toContain("Verify");
   });
 
-  it("offers resend (disabled while the cooldown is active) + 'use a different email'", () => {
-    const tree = render({ step: "code", cooldown: 20 });
+  it("offers 'use a different email' alongside resend", () => {
+    const tree = render({ step: "code", cooldown: 0 });
     const buttons = findAll(tree, Button);
-    const resend = buttons.find((b) => textOf(p(b).children as ReactNode).includes("Resend"));
+    expect(
+      buttons.some((b) => textOf(p(b).children as ReactNode).includes("different email")),
+    ).toBe(true);
+  });
+});
+
+describe("LoginForm · no OTP code is ever displayed or pre-filled (OTP-4)", () => {
+  // A digit-run that would be a leaked/echoed code. The OtpInput value is bound to the
+  // `code` state; with nothing seeded it must be empty in every state.
+  const CODE_LIKE = /\b\d{4,8}\b/;
+
+  it("pre-fills NOTHING into the OtpInput on the fresh code step", () => {
+    const tree = render({ step: "code", email: "a@b.co" });
+    const otp = findAll(tree, OtpInput);
+    expect(otp.length).toBe(1);
+    expect(p(otp[0]!).value).toBe("");
+  });
+
+  it("renders no code-like digit run in the code-step UI (no echoed/prefilled code)", () => {
+    const tree = render({ step: "code", email: "a@b.co", info: SEND_CONFIRMATION });
+    expect(p(findAll(tree, OtpInput)[0]!).value).toBe("");
+    expect(textOf(tree)).not.toMatch(CODE_LIKE);
+  });
+
+  it("the email-step confirmation never contains a code-like digit run", () => {
+    const tree = render({ step: "email", info: SEND_CONFIRMATION });
+    expect(textOf(tree)).not.toMatch(CODE_LIKE);
+  });
+});
+
+describe("LoginForm · resend is wired to the SERVER cooldown (OTP-4)", () => {
+  it("disables resend while the cooldown runs and shows the remaining seconds", () => {
+    const tree = render({ step: "code", cooldown: 20 });
+    const resend = findAll(tree, Button).find((b) =>
+      textOf(p(b).children as ReactNode).includes("Resend"),
+    );
+    expect(resend).toBeDefined();
     expect(p(resend!).disabled).toBe(true);
-    expect(buttons.some((b) => textOf(p(b).children as ReactNode).includes("different email"))).toBe(true);
+    // Countdown reflects the server value (here seeded to 20s), not a hard-coded number.
+    expect(textOf(p(resend!).children as ReactNode)).toContain("20s");
+  });
+
+  it("re-enables resend once the cooldown reaches 0", () => {
+    const tree = render({ step: "code", cooldown: 0 });
+    const resend = findAll(tree, Button).find((b) =>
+      textOf(p(b).children as ReactNode).includes("Resend"),
+    );
+    expect(resend).toBeDefined();
+    expect(p(resend!).disabled).toBe(false);
+    expect(textOf(p(resend!).children as ReactNode)).not.toMatch(/\d+s/);
   });
 });
 
@@ -142,16 +195,20 @@ describe("LoginForm · errors are neutral (no enumeration oracle) via DS Toast",
     expect(textOf(tree)).not.toMatch(ENUM);
   });
 
-  it("an email-step error is likewise a neutral danger Toast (no enumeration)", () => {
-    const tree = render({ step: "email", error: "Enter a valid email." });
-    expect(findAll(tree, Toast).some((t) => p(t).tone === "danger")).toBe(true);
+  it("the send-error / limit path renders the single neutral message in a danger Toast", () => {
+    // The action collapses invalid-email, send-failure, rate-limit/cap (429), and the
+    // unknown-account path to this one constant — the form just renders it.
+    const tree = render({ step: "email", error: NEUTRAL_SEND_ERROR });
+    const danger = findAll(tree, Toast).find((t) => p(t).tone === "danger");
+    expect(danger).toBeDefined();
+    expect(textOf(p(danger!).children as ReactNode)).toBe(NEUTRAL_SEND_ERROR);
     expect(textOf(tree)).not.toMatch(ENUM);
   });
 
-  it("a dev-prefill notice renders in a brand (non-error) Toast", () => {
-    const tree = render({ step: "code", info: "Dev code prefilled: 000000" });
+  it("the neutral send confirmation renders in a brand (non-error) Toast with no code", () => {
+    const tree = render({ step: "code", info: SEND_CONFIRMATION });
     const brand = findAll(tree, Toast).find((t) => p(t).tone === "brand");
     expect(brand).toBeDefined();
-    expect(textOf(p(brand!).children as ReactNode)).toContain("prefilled");
+    expect(textOf(p(brand!).children as ReactNode)).not.toMatch(/\b\d{4,8}\b/);
   });
 });

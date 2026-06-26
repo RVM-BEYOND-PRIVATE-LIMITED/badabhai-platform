@@ -9,9 +9,14 @@ import '../../core/widgets/bb_app_bar.dart';
 import '../../core/widgets/bb_button.dart';
 import '../../core/widgets/bb_scaffold.dart';
 import '../../router.dart';
+import 'otp_verify_screen.dart';
 
 class PhoneLoginScreen extends StatefulWidget {
-  const PhoneLoginScreen({super.key});
+  const PhoneLoginScreen({super.key, ApiClient? api}) : _injectedApi = api;
+
+  /// Test seam: lets a widget test inject an [ApiClient] with a fake
+  /// `http.Client`. Production constructs the default client below.
+  final ApiClient? _injectedApi;
 
   @override
   State<PhoneLoginScreen> createState() => _PhoneLoginScreenState();
@@ -19,22 +24,53 @@ class PhoneLoginScreen extends StatefulWidget {
 
 class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   final TextEditingController _controller = TextEditingController(text: '+91');
-  final ApiClient _api = createApiClient();
+  late final ApiClient _api;
   bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _api = widget._injectedApi ?? createApiClient();
+  }
 
   @override
   void dispose() {
     _controller.dispose();
+    if (widget._injectedApi == null) _api.dispose();
     super.dispose();
   }
 
   Future<void> _continue() async {
+    final String phone = _controller.text.trim();
     setState(() => _loading = true);
-    await _api.requestOtp(_controller.text.trim());
+    RequestOtpResult result;
+    try {
+      result = await _api.requestOtp(phone);
+    } catch (_) {
+      // Send failure / rate-limit / cap / breaker (any 4xx/5xx or no network):
+      // ONE neutral message. Never reveals whether the number is registered or
+      // which limit was hit, and never advances to the code screen.
+      if (!mounted) return;
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text("Couldn't send a code right now — please try again shortly."),
+          ),
+        );
+      return;
+    }
     if (!mounted) return;
     setState(() => _loading = false);
-    Navigator.pushNamed(context, Routes.otpVerify,
-        arguments: _controller.text.trim());
+    Navigator.pushNamed(
+      context,
+      Routes.otpVerify,
+      arguments: OtpVerifyArgs(
+        phone: phone,
+        resendInSeconds: result.resendInSeconds,
+      ),
+    );
   }
 
   @override

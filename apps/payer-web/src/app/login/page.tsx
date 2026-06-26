@@ -2,8 +2,6 @@ import { redirect } from "next/navigation";
 import { payerAuth } from "../../lib/auth";
 import { BadaBhaiLogo } from "../../components/ds";
 import { LoginForm } from "./login-form";
-import { DevQuickLogin } from "./dev-quick-login";
-import { devQuickLoginEnabled } from "./dev-quick-login-flag";
 
 export const dynamic = "force-dynamic";
 
@@ -12,17 +10,14 @@ export const dynamic = "force-dynamic";
  * design system: BadaBhaiLogo lockup, an --app-max centered card, crisp operational copy.
  *
  * The mock provider is the ONLY authorized login in Phase 1; a real IdP is a separate
- * human gate. Demo credentials are shown only outside production so the staging surface
- * is exercisable without leaking anything sensitive.
+ * human gate. There is NO mock-code convenience on this surface: the code is delivered
+ * to the payer's email and typed in — never displayed, pre-filled, or one-click skipped.
  */
 export default async function LoginPage() {
   const existing = await payerAuth().currentSession();
   if (existing) redirect("/dashboard");
 
   const showDemo = process.env.NODE_ENV !== "production";
-  // Dev-only one-click login (skips manual OTP, real backend session). Off by default;
-  // the action re-asserts this same gate server-side. Never true in staging/prod.
-  const showDevQuickLogin = devQuickLoginEnabled();
 
   return (
     <div className="login-wrap">
@@ -38,18 +33,12 @@ export default async function LoginPage() {
 
         <LoginForm />
 
-        {showDevQuickLogin ? <DevQuickLogin /> : null}
-
         {showDemo ? (
           <div className="login-demo">
             <strong>Staging sign-in (email + code)</strong>
             <p>
-              Enter your payer email, then the 6-digit code. Dev/staging echoes a dev code
-              to prefill it; live auth is the backend payer-auth OTP routes.
-            </p>
-            <p className="login-demo__creds">
-              <span className="bb-mono">demo@acme-tools.example</span> ·{" "}
-              <span className="bb-mono">demo@hire-fast.example</span>
+              Enter your registered payer email, then the 6-digit code sent to that inbox.
+              Live auth is the backend payer-auth OTP routes.
             </p>
             <p>A third-party IdP / MFA is a separate human gate (ADR-0019 B-R1).</p>
           </div>
