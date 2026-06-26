@@ -173,7 +173,10 @@ jobs:
             sleep 5
           done
           if [ -z "$ok" ]; then
-            echo "::error::staging API never returned 200 on /health within the retry budget. Is the host deployed and the URL public?"
+            echo "::error::staging API never returned 200 on /health within the retry budget. Is the host deployed + the URL public, and are DB + Redis reachable?"
+            echo "Last /health response (readiness checks — no secrets in this body):"
+            curl -s "${base}/health" || true
+            echo
             exit 1
           fi
 
