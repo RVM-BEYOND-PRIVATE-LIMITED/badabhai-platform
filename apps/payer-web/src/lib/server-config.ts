@@ -49,7 +49,15 @@ let cached: PayerServerConfig | null = null;
 export function payerServerConfig(): PayerServerConfig {
   if (cached) return cached;
 
-  const rawMode = (process.env.PAYER_AUTH_MODE ?? "api").trim().toLowerCase();
+  // Default resolution: "api" (the authorized Phase-1 LIVE login) EVERYWHERE except a
+  // local `next dev` (NODE_ENV==="development") with no explicit mode — there we default to
+  // "mock" so the portal runs out of the box WITHOUT a backend/Redis (the common
+  // frontend-dev case). Staging/prod/test (NODE_ENV!=="development") keep defaulting to
+  // "api". Set PAYER_AUTH_MODE explicitly to override either way (e.g. "api" when running
+  // the full stack locally; the login page surfaces the active mode so it's never silent).
+  const explicit = process.env.PAYER_AUTH_MODE?.trim().toLowerCase();
+  const devDefault = process.env.NODE_ENV === "development" ? "mock" : "api";
+  const rawMode = explicit && explicit.length > 0 ? explicit : devDefault;
   if (rawMode !== "mock" && rawMode !== "api") {
     // Any OTHER mode (a third-party IdP, etc.) is B-R1 — a separate human gate.
     throw new Error(
