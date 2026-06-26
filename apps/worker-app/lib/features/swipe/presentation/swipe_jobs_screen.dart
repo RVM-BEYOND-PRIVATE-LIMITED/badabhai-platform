@@ -285,8 +285,10 @@ class _FeedViewState extends State<_FeedView> {
 // §2 lists employer names as PII — and exposing these on a LIVE endpoint needs an
 // ADR ruling first. These values are fabricated client-side for the alpha and are
 // NEVER sent to a real /feed, an event, ai_jobs, audit_logs, or a log. The real
-// FeedItem/getFeed path stays PII-free and unchanged.
-// (Stage 8 moves this synthesis into the MockApiClient.)
+// FeedItem/getFeed path stays PII-free and unchanged. These fields are NOT part
+// of the FeedItem contract, so they are synthesised in this presentation mapper
+// (not via the ApiClient/MockApiClient); serving them from a real endpoint is a
+// §7 follow-up gated on the PII/ADR ruling.
 BbJobCardData _mockCardData(FeedItem item) {
   const List<String> companies = <String>[
     'Sharma Precision Works',

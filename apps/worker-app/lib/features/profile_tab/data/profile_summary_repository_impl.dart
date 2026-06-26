@@ -3,8 +3,8 @@ import '../domain/profile_summary_repository.dart';
 
 /// MOCK-ONLY profile summary for the alpha. PII-free canned data — the display
 /// name is a fabricated mock string, never real worker PII, and is never sent to
-/// an LLM, event, ai_jobs, audit_logs, or a log. (Stage 8 moves this into the
-/// MockApiClient behind a real summary endpoint.)
+/// an LLM, event, ai_jobs, audit_logs, or a log. This mock repository IS the
+/// alpha source; a real profile-summary endpoint is a §7 follow-up.
 class ProfileSummaryRepositoryImpl implements ProfileSummaryRepository {
   const ProfileSummaryRepositoryImpl();
 

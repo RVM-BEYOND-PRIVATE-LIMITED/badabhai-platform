@@ -7,7 +7,8 @@ import '../domain/jobs_repository.dart';
 /// walkable without a backend. The fabricated employer name + pay are PII-
 /// sensitive on a LIVE endpoint (CLAUDE.md §2) and need an ADR ruling first;
 /// these values are never sent to a real endpoint, event, ai_jobs, or a log.
-/// (Stage 8 moves this into the MockApiClient behind a real JobsRepository.)
+/// This mock repository IS the alpha source; a real worker-facing job-detail
+/// endpoint is a §7 follow-up (gated on the PII/ADR ruling).
 class JobsRepositoryImpl implements JobsRepository {
   const JobsRepositoryImpl();
 
