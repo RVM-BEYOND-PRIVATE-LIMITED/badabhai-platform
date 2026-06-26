@@ -27,6 +27,11 @@ vi.mock("../../../lib/payer-api", () => ({
   getCreditTopUps: () => getCreditTopUps(),
   topUp: vi.fn(), // transitively imported by ./credits-panel → ./actions; never called here.
 }));
+// Billing/wallet is an OWNER-only surface (org-RBAC). The page calls requireOwner() FIRST; mock
+// it through a referenced spy so the render tests ADMIT (default) and a dedicated test can make
+// it 404. The deep gate logic itself is tested in lib/auth/org-roles.test.ts.
+const requireOwner = vi.fn();
+vi.mock("../../../lib/auth/org-roles", () => ({ requireOwner: () => requireOwner() }));
 
 const { default: CreditsPage } = await import("./page");
 
@@ -92,9 +97,26 @@ async function render(opts: { balance: number; unlocks?: UnlockHistoryItem[]; to
 beforeEach(() => {
   getDashboard.mockReset();
   getCreditTopUps.mockReset();
+  // Default: ADMIT an Owner so the render tests below exercise the page body.
+  requireOwner.mockReset().mockResolvedValue({
+    payerId: "11111111-1111-4111-8111-111111111111",
+    displayLabel: "Acme",
+    role: "employer",
+  });
 });
 afterEach(() => {
   delete process.env.PAYER_LOW_BALANCE_THRESHOLD;
+});
+
+describe("credits page — OWNER-gated billing/wallet (server gate, not nav)", () => {
+  it("calls requireOwner() FIRST and propagates its neutral 404 (a Recruiter never renders)", async () => {
+    const NOT_FOUND = new Error("NEXT_NOT_FOUND");
+    requireOwner.mockReset().mockRejectedValue(NOT_FOUND);
+    setData({ balance: 50 });
+    // The gate runs before any fetch/render — the page rejects with the not-found sentinel.
+    await expect(CreditsPage()).rejects.toBe(NOT_FOUND);
+    expect(getDashboard).not.toHaveBeenCalled();
+  });
 });
 
 describe("credits page — (a) low-balance nudge shows ONLY below the CONFIG threshold", () => {

@@ -13,6 +13,10 @@
     "./public": {
       "types": "./dist/public.d.ts",
       "default": "./dist/public.js"
+    },
+    "./shared": {
+      "types": "./dist/shared.d.ts",
+      "default": "./dist/shared.js"
     }
   },
   "files": ["dist"],

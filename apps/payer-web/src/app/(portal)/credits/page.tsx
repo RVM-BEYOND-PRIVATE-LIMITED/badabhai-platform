@@ -1,4 +1,5 @@
 import { getCreditTopUps, getDashboard } from "../../../lib/payer-api";
+import { requireOwner } from "../../../lib/auth/org-roles";
 import {
   creditValidityMonths,
   lowBalanceThreshold,
@@ -30,8 +31,13 @@ function day(ts: string): string {
  *    + mock-ledger top-ups, merged by the pure `buildTransactionHistory` helper;
  *  - a proactive LOW-BALANCE nudge whose threshold is read from config (`lowBalanceThreshold`);
  *  - a 12-month credit-EXPIRY schedule derived from purchase timestamps (`creditExpirySchedule`).
+ *
+ * ORG-RBAC: billing/wallet is an OWNER-only surface. `requireOwner()` gates it SERVER-SIDE — a
+ * Recruiter who navigates here (the nav omits the link) gets a NEUTRAL 404, not this page.
  */
 export default async function CreditsPage() {
+  await requireOwner(); // Owner-only billing/wallet — Recruiter ⇒ neutral 404 (no-oracle).
+
   const packs = offeredCreditPacks();
   const unit = unlockUnitPriceInr();
   const threshold = lowBalanceThreshold();
