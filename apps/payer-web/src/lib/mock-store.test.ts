@@ -9,7 +9,9 @@ import {
   __resetForTest,
   createPosting,
   getPostings,
+  getTopUps,
   pausePosting,
+  recordTopUp,
   resumePosting,
   topUpPostingQuota,
 } from "./mock-store";
@@ -115,5 +117,37 @@ describe("config helpers expose only catalog-derived values", () => {
   });
   it("the applicant quota step is positive", () => {
     expect(applicantQuotaStep()).toBeGreaterThan(0);
+  });
+});
+
+describe("credit top-up ledger — config-priced, tenant-scoped, PII-free", () => {
+  it("seeds the demo tenant with a config-priced top-up (never a hardcoded ₹)", () => {
+    const seeded = getTopUps(PAYER_A);
+    expect(seeded.length).toBeGreaterThanOrEqual(1);
+    const t = seeded[0]!;
+    expect(t.packCode).toBe("pack_50");
+    // Amount comes from the catalog (findCreditPack), not a literal here.
+    expect(t.priceInr).toBeGreaterThan(0);
+    expect(t.credits).toBeGreaterThan(0);
+    // PII-free shape: ids/amounts/code/timestamp only — no worker fields.
+    expect(Object.keys(t).sort()).toEqual(
+      ["createdAt", "credits", "packCode", "priceInr", "topUpId"].sort(),
+    );
+  });
+
+  it("records a new top-up newest-first and stamps a fresh id + timestamp", () => {
+    const before = getTopUps(PAYER_A).length;
+    const rec = recordTopUp(PAYER_A, { packCode: "pack_200", credits: 200, priceInr: 8000 });
+    expect(rec.topUpId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(typeof rec.createdAt).toBe("string");
+    const after = getTopUps(PAYER_A);
+    expect(after.length).toBe(before + 1);
+    expect(after[0]!.packCode).toBe("pack_200"); // newest first
+  });
+
+  it("is tenant-scoped (XB-A): one payer's top-up never appears on another", () => {
+    recordTopUp(PAYER_B, { packCode: "pack_1000", credits: 1000, priceInr: 32000 });
+    expect(getTopUps(PAYER_B).some((t) => t.packCode === "pack_1000")).toBe(true);
+    expect(getTopUps(PAYER_A).some((t) => t.packCode === "pack_1000")).toBe(false);
   });
 });
