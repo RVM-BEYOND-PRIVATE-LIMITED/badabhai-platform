@@ -51,6 +51,31 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+/**
+ * A LIVE job-posting wire row (the `JobPosting` Drizzle row the payer-authed controller
+ * returns). Carries the payer's OWN org_label + free-text description on purpose — the seam
+ * mapper must DROP them so they never reach the faceless PostingSummary the UI consumes.
+ */
+const POSTING_ID = "bbbb2222-0000-4000-8000-000000000001";
+
+function jobPostingRow(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: POSTING_ID,
+    payerId: "11111111-1111-4111-8111-111111111111",
+    createdBy: "11111111-1111-4111-8111-111111111111",
+    orgLabel: "Acme Manufacturing",
+    roleTitle: "CNC Machinist",
+    locationLabel: "Pune, MH",
+    description: "Two-shift CNC role, PPE provided.",
+    vacancyBand: "6-10", // the BACKEND band-set (distinct from the frontend bands)
+    status: "draft",
+    createdAt: "2026-06-20T00:00:00.000Z",
+    updatedAt: "2026-06-20T00:00:00.000Z",
+    closedAt: null,
+    ...over,
+  };
+}
+
 describe("requestUnlock — tenancy (XB-A): no client payer_id is ever sent", () => {
   it("posts ONLY worker_id + job_id, with the Bearer token, never a payer_id", async () => {
     fetchMock.mockResolvedValue(
@@ -212,20 +237,31 @@ describe("getCapacity — capacity wiring (LIVE): GETs /payer/capacity with Bear
   const PAYER_A = "11111111-1111-4111-8111-111111111111";
 
   it("GETs /payer/capacity (Bearer, no body) and maps max_active_vacancies to the allowance", async () => {
-    const store = await import("./mock-store");
-    store.__resetForTest(PAYER_A, true); // seed the WAITING-mock per-posting rows
-    fetchMock.mockResolvedValue(
-      jsonResponse({
-        payer_id: PAYER_A,
-        max_active_vacancies: 9,
-        // The REAL active-plan count from the enforcement engine (A3). Pinned to a value
-        // (4) that is NOT a count of the seeded mock-store rows, so the assertion below
-        // proves `activeVacancies` is the LIVE count, never a mock-store filter.
-        active_plan_count: 4,
-        source_tier: null,
-        expires_at: null,
-      }),
-    );
+    // getCapacity now fetches BOTH /payer/capacity AND /payer/job-postings (the per-posting
+    // DISPLAY rows are the LIVE postings). Branch the mock per URL.
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/payer/capacity")) {
+        return Promise.resolve(
+          jsonResponse({
+            payer_id: PAYER_A,
+            max_active_vacancies: 9,
+            // The REAL active-plan count from the enforcement engine (A3). Pinned to a value
+            // (4) that is NOT the count of the live posting rows below, so the assertion
+            // proves `activeVacancies` is the LIVE engine count, never a row count.
+            active_plan_count: 4,
+            source_tier: null,
+            expires_at: null,
+          }),
+        );
+      }
+      // The per-posting DISPLAY rows are now the LIVE postings (2 rows ≠ the active_plan_count 4).
+      return Promise.resolve(
+        jsonResponse([
+          jobPostingRow(),
+          jobPostingRow({ id: "bbbb2222-0000-4000-8000-000000000002", status: "open" }),
+        ]),
+      );
+    });
     const { getCapacity } = await import("./payer-api");
     const cap = await getCapacity();
 
@@ -233,18 +269,21 @@ describe("getCapacity — capacity wiring (LIVE): GETs /payer/capacity with Bear
     // The allowance comes from the LIVE endpoint, not the config baseline.
     expect(cap.activeVacancyAllowance).toBe(9);
     // activeVacancies is the REAL enforcement-engine active_plan_count (4) — NOT a count
-    // derived from the seeded mock-store posting rows (which would be a different number).
+    // derived from the live posting rows (2 rows), proving it is not a row filter.
     expect(cap.activeVacancies).toBe(4);
-    // Per-posting rows are still the (WAITING-mock) seeded plans — DISPLAY-only, and they
-    // do NOT drive `activeVacancies` (proven above: 4 ≠ the seeded active-row count).
-    expect(cap.postings.length).toBeGreaterThan(0);
+    // Per-posting rows are the LIVE postings — DISPLAY-only, and they do NOT drive
+    // `activeVacancies` (proven above: 4 ≠ the 2 posting rows).
+    expect(cap.postings.length).toBe(2);
     expect(cap.postings.length).not.toBe(cap.activeVacancies);
 
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("http://api.test/payer/capacity");
-    expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
+    const capCall = fetchMock.mock.calls.find((c) => (c[0] as string).endsWith("/payer/capacity")) as
+      | [string, RequestInit]
+      | undefined;
+    expect(capCall).toBeDefined();
+    expect(capCall![0]).toBe("http://api.test/payer/capacity");
+    expect((capCall![1].headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
     // A GET carries no body, hence no place for a client payer_id.
-    expect(init.body).toBeUndefined();
+    expect(capCall![1].body).toBeUndefined();
   });
 });
 
@@ -351,9 +390,10 @@ describe("buyCapacity — capacity BUY (A1, LIVE): POSTs ONLY { tier } + Bearer 
 });
 
 /**
- * WAITING-mock seam: job management + capacity. These bind to the SERVER-HELD session
- * payer (the mocked `requirePayer` above → PAYER_A) and never accept a client payer id.
- * They serve from the in-memory mock store, so they do NOT hit fetch.
+ * WAITING-mock seam: the posting PAUSE / RESUME / quota-top-up lifecycle. These bind to the
+ * SERVER-HELD session payer (the mocked `requirePayer` above → PAYER_A) and never accept a
+ * client payer id. They serve from the in-memory mock store, so they do NOT hit fetch.
+ * (createPosting / getPostings / get-one / edit / close are now LIVE — covered below.)
  */
 describe("job-management seam — server-held payer, config-driven (WAITING mock)", () => {
   const PAYER_A = "11111111-1111-4111-8111-111111111111";
@@ -361,18 +401,19 @@ describe("job-management seam — server-held payer, config-driven (WAITING mock
   it("pause/resume/top-up operate only on the session payer's own postings", async () => {
     const store = await import("./mock-store");
     store.__resetForTest(PAYER_A, true);
-    const { pausePosting, resumePosting, topUpPostingQuota, getPostings } =
-      await import("./payer-api");
+    const { pausePosting, resumePosting, topUpPostingQuota } = await import("./payer-api");
 
-    const postings = await getPostings();
-    const id = postings[0]!.id;
+    // The lifecycle shims still operate on the MOCK store; source the seed id from it DIRECTLY
+    // (getPostings is now LIVE and would hit fetch). These three never call fetch themselves.
+    const seeded = store.getPostings(PAYER_A);
+    const id = seeded[0]!.id;
 
     const paused = await pausePosting({ postingId: id });
     expect(paused?.status).toBe("paused");
     const resumed = await resumePosting({ postingId: id });
     expect(resumed?.status).toBe("open");
 
-    const beforeQuota = postings[0]!.applicantQuota ?? 0;
+    const beforeQuota = seeded[0]!.applicantQuota ?? 0;
     const topped = await topUpPostingQuota({ postingId: id });
     expect(topped!.applicantQuota!).toBeGreaterThan(beforeQuota);
 
@@ -385,6 +426,162 @@ describe("job-management seam — server-held payer, config-driven (WAITING mock
     store.__resetForTest(PAYER_A, true);
     const { pausePosting } = await import("./payer-api");
     const res = await pausePosting({ postingId: "99999999-9999-4999-8999-999999999999" });
+    expect(res).toBeNull();
+  });
+});
+
+/**
+ * LIVE EMPLOYER posting CRUD (`/payer/job-postings`). Asserts the swap off the mock store:
+ *  - TENANCY (XB-A): bodies NEVER carry payer_id/created_by; org_label is the SESSION org
+ *    (resolved from GET /payer/me), never a client field; the create sends the RAW vacancies.
+ *  - PII (invariant #2): the wire row carries the payer's OWN org_label + free-text
+ *    description, but the seam mapper DROPS them — the faceless PostingSummary that reaches a
+ *    page has no org_label/description/createdBy/payerId.
+ *  - no-oracle: an unknown-or-not-owned id maps to a neutral `null`.
+ */
+describe("createPosting — LIVE: org_label from /payer/me, faceless body, PII dropped", () => {
+  const PAYER_A = "11111111-1111-4111-8111-111111111111";
+
+  it("resolves org_label from GET /payer/me, POSTs the RAW vacancies, never payer_id/created_by", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/payer/me")) {
+        return Promise.resolve(
+          jsonResponse({ id: PAYER_A, role: "employer", status: "active", orgName: "Acme Manufacturing" }),
+        );
+      }
+      return Promise.resolve(jsonResponse(jobPostingRow(), 201));
+    });
+    const { createPosting } = await import("./payer-api");
+    const res = await createPosting({
+      tradeKey: "cnc_operator",
+      roleTitle: "CNC Machinist",
+      locationLabel: "Pune, MH",
+      description: "Two-shift CNC role, PPE provided.",
+      vacancies: 7,
+      payMin: 20000,
+      payMax: 35000,
+      minExperienceYears: 1,
+      maxExperienceYears: 5,
+    });
+
+    const postCall = fetchMock.mock.calls.find(
+      (c) => (c[0] as string).endsWith("/payer/job-postings") && (c[1] as RequestInit | undefined)?.method === "POST",
+    ) as [string, RequestInit] | undefined;
+    expect(postCall).toBeDefined();
+    const init = postCall![1];
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
+
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    // org_label is the SESSION org (from /payer/me), and EXACTLY ONE of vacancy_band|vacancies (raw count).
+    expect(body.org_label).toBe("Acme Manufacturing");
+    expect(body.vacancies).toBe(7);
+    expect(body).not.toHaveProperty("vacancy_band");
+    // XB-A: no client tenancy ids; no not-yet-accepted demand fields.
+    expect(body).not.toHaveProperty("payer_id");
+    expect(body).not.toHaveProperty("created_by");
+    expect(body).not.toHaveProperty("trade_key");
+    expect(body).not.toHaveProperty("pay_min");
+
+    // Mapped to the faceless PostingSummary — org_label/description/createdBy/payerId DROPPED.
+    expect(Object.keys(res).sort()).toEqual(
+      ["applicantCount", "createdAt", "id", "locationLabel", "roleTitle", "status", "vacancyBand"],
+    );
+    expect(res.applicantCount).toBe(0);
+    // The payer's OWN org label + free-text description never reach the UI domain object.
+    expect(JSON.stringify(res)).not.toContain("Two-shift CNC role");
+    expect(JSON.stringify(res)).not.toContain("Acme Manufacturing");
+  });
+});
+
+describe("getPostings — LIVE: GETs /payer/job-postings, maps faceless rows, drops PII", () => {
+  it("GETs with Bearer (no body) and maps wire rows → faceless PostingSummary[]", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse([
+        jobPostingRow(),
+        jobPostingRow({
+          id: "bbbb2222-0000-4000-8000-000000000002",
+          roleTitle: "VMC Operator",
+          description: "Night shift; ESI provided.",
+          status: "open",
+        }),
+      ]),
+    );
+    const { getPostings } = await import("./payer-api");
+    const rows = await getPostings();
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/payer/job-postings");
+    expect(init.method).toBe("GET");
+    expect(init.body).toBeUndefined();
+    expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.roleTitle).toBe("CNC Machinist");
+    expect(rows[1]!.status).toBe("open");
+    for (const r of rows) {
+      // PII-free: no org label, no free-text description, no owner ids reach the UI.
+      expect(r).not.toHaveProperty("description");
+      expect(r).not.toHaveProperty("orgLabel");
+      expect(r).not.toHaveProperty("createdBy");
+      expect(r).not.toHaveProperty("payerId");
+      expect(r.applicantCount).toBe(0); // not in this projection — the reach feed owns the count
+    }
+    const json = JSON.stringify(rows);
+    expect(json).not.toContain("Night shift");
+    expect(json).not.toContain("Acme Manufacturing");
+  });
+});
+
+describe("getPosting / updatePosting / closePosting — LIVE: faceless, no-oracle 404 → null", () => {
+  it("getPosting maps an unknown-or-not-owned 404 to a neutral null (no-oracle)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ message: "Job posting not found" }, 404));
+    const { getPosting } = await import("./payer-api");
+    expect(await getPosting(POSTING_ID)).toBeNull();
+  });
+
+  it("closePosting POSTs :id/close with an empty body + Bearer, maps the closed row", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(jobPostingRow({ status: "closed", closedAt: "2026-06-26T00:00:00.000Z" })),
+    );
+    const { closePosting } = await import("./payer-api");
+    const res = await closePosting(POSTING_ID);
+    expect(res?.status).toBe("closed");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://api.test/payer/job-postings/${POSTING_ID}/close`);
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(Object.keys(body)).toEqual([]); // empty body — the session is the identity (XB-A)
+    expect(body).not.toHaveProperty("payer_id");
+  });
+
+  it("updatePosting PATCHes :id with a faceless body (no org_label/payer_id), maps the row", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(jobPostingRow({ roleTitle: "CNC Machinist II" })));
+    const { updatePosting } = await import("./payer-api");
+    const res = await updatePosting(POSTING_ID, {
+      tradeKey: "cnc_operator",
+      roleTitle: "CNC Machinist II",
+      vacancies: 3,
+    });
+    expect(res?.roleTitle).toBe("CNC Machinist II");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://api.test/payer/job-postings/${POSTING_ID}`);
+    expect(init.method).toBe("PATCH");
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    // The PATCH never re-stamps org_label (session identity) and never a client tenancy id.
+    expect(body).not.toHaveProperty("org_label");
+    expect(body).not.toHaveProperty("payer_id");
+    expect(body).not.toHaveProperty("created_by");
+    expect(body.vacancies).toBe(3); // RAW count — backend derives its own band
+    expect(body).not.toHaveProperty("vacancy_band");
+  });
+
+  it("updatePosting maps a 404 to a neutral null", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ message: "not found" }, 404));
+    const { updatePosting } = await import("./payer-api");
+    const res = await updatePosting(POSTING_ID, { tradeKey: "fitter", roleTitle: "Fitter", vacancies: 1 });
     expect(res).toBeNull();
   });
 });

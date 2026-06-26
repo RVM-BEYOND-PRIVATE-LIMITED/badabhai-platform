@@ -475,6 +475,40 @@ export const reachApplicantListWireSchema = z.object({
   applicants: z.array(reachApplicantWireSchema),
 });
 
+/**
+ * GET/POST/PATCH /payer/job-postings(/:id) — the EMPLOYER self-serve posting row, exactly
+ * the `JobPosting` Drizzle row the payer-authed {@link
+ * import("../../api/src/payer-portal/payer-job-postings.controller").PayerJobPostingsController}
+ * returns (camelCase keys; `Date` columns serialize to ISO strings → `z.string()`). Status is
+ * `draft|open|closed` (the backend lifecycle — NO `paused`; the {@link postingSummarySchema}
+ * superset adds `paused` only for the WAITING-mock pause shim).
+ *
+ * PII NOTE (invariant #2 / B-R2): this WIRE shape carries the payer's OWN identity fields
+ * (`payerId`/`createdBy` — the session payer's own id) plus the payer's OWN `orgLabel` +
+ * free-text `description`. Those are the PAYER's own data (the org they registered + the blurb
+ * they typed), NEVER worker PII — but they are NOT needed by any page, so the seam's wire→domain
+ * mapper DROPS them: only the faceless {@link postingSummarySchema} fields reach the UI. No raw
+ * worker PII exists on this row by construction (applicants are a separate faceless reach feed).
+ */
+export const jobPostingWireSchema = z.object({
+  id: z.string().uuid(),
+  payerId: z.string().uuid().nullable(),
+  createdBy: z.string().uuid(),
+  orgLabel: z.string(),
+  roleTitle: z.string(),
+  locationLabel: z.string().nullable(),
+  description: z.string().nullable(),
+  // The BACKEND vacancy band-set ('1'/'2-5'/'6-10'/'11-25'/'25+') — distinct from the FRONTEND
+  // {@link VACANCY_BANDS}; `postingSummarySchema.vacancyBand` is a plain string so it passes through.
+  vacancyBand: z.string(),
+  status: z.enum(["draft", "open", "closed"]),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  closedAt: z.string().nullable(),
+});
+export type JobPostingWire = z.infer<typeof jobPostingWireSchema>;
+export const jobPostingListWireSchema = z.array(jobPostingWireSchema);
+
 /* ── Agency Supply Portal — DEMAND on the faceless `jobs` entity (ADR-0022) ──────
  *
  * LIVE agency-role (payers.role='agent') wire shapes for the agency's OWN jobs +

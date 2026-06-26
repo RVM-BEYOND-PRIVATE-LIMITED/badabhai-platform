@@ -10,6 +10,8 @@ import {
   buyPackResultWireSchema,
   capacitySchema,
   creditsWireSchema,
+  jobPostingListWireSchema,
+  jobPostingWireSchema,
   maskedResumeResultSchema,
   payerCapacityWireSchema,
   payerMeWireSchema,
@@ -70,11 +72,28 @@ import { findCreditPack } from "./pricing-config";
  */
 export async function getAgencyAccount(): Promise<AgencyAccount> {
   const me = await payerFetch("/payer/me", { schema: payerMeWireSchema });
-  return {
-    role: me.role,
-    status: me.status,
-    displayLabel: me.orgName.trim() || (me.role === "agent" ? "Your agency" : "Your company"),
-  };
+  return { role: me.role, status: me.status, displayLabel: orgDisplayLabel(me) };
+}
+
+/**
+ * The caller's OWN non-PII org display label, with a role-aware fallback when the registered
+ * org name is blank. Shared by {@link getAgencyAccount} (header identity card) and {@link
+ * sessionOrgLabel} (the `org_label` stamped on a create) so the two never drift.
+ */
+function orgDisplayLabel(me: { orgName: string; role: "employer" | "agent" }): string {
+  return me.orgName.trim() || (me.role === "agent" ? "Your agency" : "Your company");
+}
+
+/**
+ * GET /payer/me → the caller's OWN org label (the SESSION identity), used to stamp `org_label`
+ * on a posting create. The org label is the payer's OWN registered org — NEVER a form field and
+ * NEVER eventized (XB-A / privacy); resolving it server-side from the session (not the client)
+ * is exactly the contract {@link toPayerJobPostingBody} documents. The session `displayLabel`
+ * is NOT used here: it may carry a "(mock)" decoration; `/payer/me`'s `orgName` is authoritative.
+ */
+async function sessionOrgLabel(): Promise<string> {
+  const me = await payerFetch("/payer/me", { schema: payerMeWireSchema });
+  return orgDisplayLabel(me);
 }
 
 /** GET /payer/credits — the caller's OWN balance (the one knowable signal). */
@@ -98,18 +117,14 @@ export async function getUnlocks(): Promise<UnlockHistoryItem[]> {
 }
 
 /**
- * Dashboard = LIVE credits + LIVE unlocks + (WAITING) mock postings. Postings stay
- * mock until a payer-authed job-postings endpoint lands (ESCALATE: posting-plans is
- * InternalServiceGuard). The two LIVE reads are fetched concurrently.
+ * Dashboard = LIVE credits + LIVE unlocks + LIVE postings. ALL three are now payer-authed
+ * reads (the job-postings list moved off the mock store onto GET /payer/job-postings), so the
+ * dashboard and the /postings list share ONE source of truth — a posting created via the live
+ * POST appears on both. Fetched concurrently; each derives the session payer itself (XB-A).
  */
 export async function getDashboard(): Promise<Dashboard> {
-  const { payerId } = await requirePayer();
-  const [credits, unlocks] = await Promise.all([getCredits(), getUnlocks()]);
-  return {
-    credits,
-    unlocks,
-    postings: store.getPostings(payerId), // WAITING — mock (no payer-authed endpoint).
-  };
+  const [credits, unlocks, postings] = await Promise.all([getCredits(), getUnlocks(), getPostings()]);
+  return { credits, unlocks, postings };
 }
 
 /**
@@ -268,20 +283,23 @@ export async function getCreditTopUps(): Promise<CreditTopUp[]> {
  * authoritative, config-resolved allowance and `active_plan_count` is the REAL, derived
  * live count of active plans from the enforcement engine.
  *
- * `activeVacancies` is now the REAL `active_plan_count` (the enforcement engine's count),
- * NOT a count off the mock store — so the at-capacity signal (activeVacancies >= allowance)
- * is faithful. The per-posting applicant-quota ROWS remain backend-seeded MOCK rows from
- * the session-scoped store (no payer-authed create-posting / quota endpoint yet); they are
- * DISPLAY-only and do NOT drive the count (the capacity page note says so). All counts/codes;
- * NO raw worker/payer PII.
+ * `activeVacancies` is the REAL `active_plan_count` (the enforcement engine's count), NOT a
+ * count off the posting list — so the at-capacity signal (activeVacancies >= allowance) is
+ * faithful. The per-posting applicant-quota ROWS are now the LIVE postings (GET
+ * /payer/job-postings) — DISPLAY-only and they do NOT drive the count (the capacity page note
+ * says so). The live posting row has no applicant count / quota in its projection, so those
+ * columns read 0 (the count is the separate faceless reach feed's concern, not this row's).
+ * All counts/codes; NO raw worker/payer PII (the seam mapper drops org_label/description).
  */
 export async function getCapacity(): Promise<Capacity> {
-  const { payerId } = await requirePayer();
-  const wire = await payerFetch("/payer/capacity", { schema: payerCapacityWireSchema });
+  // Capacity allowance + the per-posting display rows are both payer-authed reads (XB-A: each
+  // derives the session payer itself) — fetched concurrently.
+  const [wire, postings] = await Promise.all([
+    payerFetch("/payer/capacity", { schema: payerCapacityWireSchema }),
+    getPostings(),
+  ]);
 
-  // Per-posting rows are WAITING-mock (no payer-authed create-posting / quota endpoint).
-  // They are DISPLAY-only and do NOT drive `activeVacancies` (which is the REAL count below).
-  const postings = store.getPostings(payerId);
+  // LIVE postings as DISPLAY-only rows; they do NOT drive `activeVacancies` (the REAL count below).
   const rows = postings.map((p) => ({
     postingId: p.id,
     roleTitle: p.roleTitle,
@@ -503,17 +521,44 @@ export async function createAgencyInvite(input: {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * WAITING — clearly-seamed MOCK shims. NO payer-authed endpoint exists yet.
- * ESCALATE to backend (see REPORT). Tenancy still server-held (XB-A).
- * These are createPosting / getPostings / pausePosting / resumePosting /
- * topUpPostingQuota / revealMaskedResume — kept MOCK on purpose (no payer-authed
- * endpoint). topUp + getCapacity are now LIVE (above).
+ * LIVE — EMPLOYER job postings (payer-authed `/payer/job-postings`, PayerAuthGuard).
+ *
+ * The company posting READ/WRITE path moved off the mock store onto the payer-authed
+ * endpoints (the sibling of credits/unlocks/capacity). Tenancy is the SESSION (XB-A):
+ * the JWT carries the payer; the body NEVER carries payer_id/created_by (the backend
+ * stamps them from `@CurrentPayer`). Every payload is PII-free — the wire row carries
+ * the payer's OWN org_label/description, which {@link toPostingSummary} DROPS so only the
+ * faceless {@link postingSummarySchema} fields reach the UI. Unknown-or-not-owned →
+ * the backend's IDENTICAL neutral 404 → `null` (no-oracle). The lifecycle PAUSE/RESUME/
+ * quota-top-up surfaces stay MOCK below (no payer-authed route yet).
  * ──────────────────────────────────────────────────────────────────────────── */
 
-/** WAITING (mock): payer-authed job-postings list. ESCALATE: GET /payer/job-postings. */
+/**
+ * Map a LIVE job-posting wire row → the faceless {@link PostingSummary} the pages consume.
+ * DEFENCE-IN-DEPTH (invariant #2): the wire row carries the payer's OWN `orgLabel`/`description`
+ * + `payerId`/`createdBy` (their own ids) — none of which any page needs, so they are DROPPED
+ * here and never reach the UI domain object. `applicantCount` is 0 and `applicantQuota` is
+ * omitted: NEITHER is in the job-posting projection (the applicant count is the separate faceless
+ * reach feed's concern; the quota was a mock-only config stamp). `vacancyBand` is the backend
+ * band string, surfaced as-is (postingSummarySchema.vacancyBand is a plain string).
+ */
+function toPostingSummary(wire: ReturnType<typeof jobPostingWireSchema.parse>): PostingSummary {
+  return postingSummarySchema.parse({
+    id: wire.id,
+    roleTitle: wire.roleTitle,
+    locationLabel: wire.locationLabel,
+    vacancyBand: wire.vacancyBand,
+    status: wire.status,
+    applicantCount: 0, // NOT in this projection — the count is the reach feed's, not the row's.
+    createdAt: wire.createdAt,
+    // applicantQuota intentionally omitted (not a live-row concept) → the page renders "—".
+  });
+}
+
+/** GET /payer/job-postings — the caller's OWN postings (LIVE), newest first; faceless rows. */
 export async function getPostings(): Promise<PostingSummary[]> {
-  const { payerId } = await requirePayer();
-  return store.getPostings(payerId).map((p) => p);
+  const wire = await payerFetch("/payer/job-postings", { schema: jobPostingListWireSchema });
+  return wire.map(toPostingSummary);
 }
 
 /**
@@ -545,27 +590,107 @@ export function toPayerJobPostingBody(
 }
 
 /**
- * WAITING (mock): job CREATE. A payer-authed `POST /payer/job-postings` NOW EXISTS
- * (`PayerJobPostingsController`, `PayerCreateJobPostingSchema`), but the posting LIST /
- * pause / resume / quota-top-up surfaces are still mock (no payer-authed endpoints), and
- * the dashboard reads the mock store — so flipping ONLY create to live would split the
- * source of truth (a new live posting would not appear in the mock-backed list). Create
- * therefore stays mock until the whole posting read/write path is migrated together. The
- * band→quota stamp lives in the store (config-driven, never hardcoded).
- *
- * At the live swap this becomes a single `payerFetch("/payer/job-postings", { method: "POST",
- * body: toPayerJobPostingBody(input, <session orgName>), ... })` — the body shape is already
- * pinned by {@link toPayerJobPostingBody} (org_label from session; exactly one of
- * vacancy_band|vacancies via the raw count; never payer_id/created_by).
+ * POST /payer/job-postings — create a posting OWNED by the caller (LIVE). The body is the
+ * pinned {@link toPayerJobPostingBody} shape: `org_label` is the SESSION org (resolved from
+ * GET /payer/me, NEVER a form field), it sends the RAW `vacancies` count (exactly one of
+ * vacancy_band|vacancies — the backend derives its OWN band), and it NEVER carries
+ * payer_id/created_by (XB-A — the backend stamps both from `@CurrentPayer`). The created row
+ * comes back as `status:"draft"` (publish is a separate PATCH) and is mapped to the faceless
+ * {@link PostingSummary} (org_label/description dropped). Price/quota are NOT in the body —
+ * posting is free-through-launch and the quota stays config-sourced server-side (XT5).
  */
 export async function createPosting(input: CreatePostingInput): Promise<PostingSummary> {
-  const { payerId } = await requirePayer();
-  return store.createPosting(payerId, {
-    roleTitle: input.roleTitle,
-    locationLabel: input.locationLabel,
-    vacancies: input.vacancies, // RAW count → store derives the local band for quota.
+  const orgLabel = await sessionOrgLabel(); // SESSION identity (XB-A) — never a client field.
+  const wire = await payerFetch("/payer/job-postings", {
+    method: "POST",
+    body: toPayerJobPostingBody(input, orgLabel),
+    schema: jobPostingWireSchema,
   });
+  return toPostingSummary(wire);
 }
+
+/**
+ * GET /payer/job-postings/:id — one of the caller's OWN postings (LIVE). An unknown OR
+ * not-owned id returns the SAME neutral 404 (no-oracle) → mapped to `null` so a manage page
+ * renders a neutral not-found. Faceless mapping (org_label/description dropped).
+ */
+export async function getPosting(postingId: string): Promise<PostingSummary | null> {
+  try {
+    const wire = await payerFetch(`/payer/job-postings/${postingId}`, {
+      schema: jobPostingWireSchema,
+    });
+    return toPostingSummary(wire);
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
+}
+
+/**
+ * PATCH body for an EMPLOYER posting edit — the faceless demand fields ONLY. UNLIKE create it
+ * sends NO `org_label` (the session identity is not edited) and NEVER payer_id/created_by; it
+ * sends the RAW `vacancies` count (at most one of vacancy_band|vacancies — the backend derives
+ * its band and discards the integer). Pure + exported so the wire contract is unit-pinned, the
+ * sibling of {@link toPayerJobPostingBody}. Optional labels are omitted when absent.
+ */
+export function toPayerJobPostingPatchBody(input: CreatePostingInput): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    role_title: input.roleTitle,
+    vacancies: input.vacancies, // RAW count — the backend derives its own band.
+  };
+  if (input.locationLabel !== undefined) body.location_label = input.locationLabel;
+  if (input.description !== undefined) body.description = input.description;
+  return body;
+}
+
+/**
+ * PATCH /payer/job-postings/:id — edit one of the caller's OWN postings (LIVE). Body is the
+ * faceless {@link toPayerJobPostingPatchBody} shape (no org_label, never payer_id/created_by).
+ * Unknown/not-owned → neutral 404 → `null`. Mapped to the faceless {@link PostingSummary}.
+ */
+export async function updatePosting(
+  postingId: string,
+  input: CreatePostingInput,
+): Promise<PostingSummary | null> {
+  try {
+    const wire = await payerFetch(`/payer/job-postings/${postingId}`, {
+      method: "PATCH",
+      body: toPayerJobPostingPatchBody(input),
+      schema: jobPostingWireSchema,
+    });
+    return toPostingSummary(wire);
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
+}
+
+/**
+ * POST /payer/job-postings/:id/close — close one of the caller's OWN postings (LIVE, terminal:
+ * draft|open → closed). The session is the identity (XB-A); the body is empty. Unknown/not-owned
+ * → neutral 404 → `null`. Mapped to the faceless {@link PostingSummary}.
+ */
+export async function closePosting(postingId: string): Promise<PostingSummary | null> {
+  try {
+    const wire = await payerFetch(`/payer/job-postings/${postingId}/close`, {
+      method: "POST",
+      body: {},
+      schema: jobPostingWireSchema,
+    });
+    return toPostingSummary(wire);
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * WAITING — clearly-seamed MOCK shims. NO payer-authed endpoint exists yet.
+ * ESCALATE to backend (see REPORT). Tenancy still server-held (XB-A). These are the
+ * masked-resume disclosure + the posting PAUSE/RESUME/quota-top-up lifecycle — kept
+ * MOCK on purpose. (createPosting / getPostings / getPosting / updatePosting /
+ * closePosting + topUp + getCapacity are now LIVE above.)
+ * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
  * WAITING (mock): MASKED resume disclosure. The backend `resume-disclosures` route is
@@ -593,12 +718,13 @@ export async function revealMaskedResume(input: {
 }
 
 /**
- * WAITING (mock): PAUSE one of the payer's OWN postings. `posting-plans.controller`
- * is InternalServiceGuard ("No PayerAuthGuard in alpha"), so there is NO payer-authed
- * lifecycle endpoint. ESCALATE: backend needs payer-authed
- * `PATCH /payer/job-postings/:id` (or `POST /payer/job-postings/:id/pause`).
- * Tenancy (XB-A): the payerId is the SERVER-HELD session, never client input. A
- * posting that isn't the caller's returns null ⇒ a NEUTRAL not-found.
+ * WAITING (mock): PAUSE one of the payer's OWN postings (open → paused). The LIVE
+ * `PATCH /payer/job-postings/:id` only PUBLISHES (draft → open) and the backend lifecycle
+ * has NO `paused` state, so there is no live route for this — kept on the mock store.
+ * Tenancy (XB-A): the payerId is the SERVER-HELD session, never client input. A posting
+ * that isn't the caller's returns null ⇒ a NEUTRAL not-found.
+ *
+ * // LIVE-SWAP BLOCKED: no payer-authed company pause/resume/quota route yet (ask Divyanshu)
  */
 export async function pausePosting(input: { postingId: string }): Promise<PostingSummary | null> {
   const { payerId } = await requirePayer();
@@ -607,9 +733,11 @@ export async function pausePosting(input: { postingId: string }): Promise<Postin
 }
 
 /**
- * WAITING (mock): RESUME one of the payer's OWN postings. Same missing endpoint as
- * pause. ESCALATE: payer-authed `PATCH /payer/job-postings/:id` (or
- * `POST /payer/job-postings/:id/resume`). Tenancy server-held (XB-A); not-owned → null.
+ * WAITING (mock): RESUME one of the payer's OWN postings (paused → open). Same missing
+ * route as pause (no `paused` state on the backend lifecycle). Tenancy server-held (XB-A);
+ * not-owned → null.
+ *
+ * // LIVE-SWAP BLOCKED: no payer-authed company pause/resume/quota route yet (ask Divyanshu)
  */
 export async function resumePosting(input: { postingId: string }): Promise<PostingSummary | null> {
   const { payerId } = await requirePayer();
@@ -619,11 +747,12 @@ export async function resumePosting(input: { postingId: string }): Promise<Posti
 
 /**
  * WAITING (mock): TOP-UP a posting's applicant quota by ONE CONFIG'd step (catalog
- * posting-quota tier; never a client/hardcoded amount — "view more → pay more"). The
- * `resume-disclosures` / `posting-plans` controllers are InternalServiceGuard, so no
- * payer-authed quota endpoint exists. ESCALATE: payer-authed
- * `POST /payer/job-postings/:id/quota-top-up`. Tenancy server-held (XB-A); the step
- * is resolved by code from config (XT5-style server-side amount), not a client value.
+ * posting-quota tier; never a client/hardcoded amount — "view more → pay more"). There is
+ * no payer-authed quota endpoint (applicant quota is a payer-portal concept the backend
+ * job_postings row does not model yet). Tenancy server-held (XB-A); the step is resolved
+ * by code from config (XT5-style server-side amount), not a client value.
+ *
+ * // LIVE-SWAP BLOCKED: no payer-authed company pause/resume/quota route yet (ask Divyanshu)
  */
 export async function topUpPostingQuota(input: {
   postingId: string;
