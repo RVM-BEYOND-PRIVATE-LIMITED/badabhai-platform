@@ -2,150 +2,149 @@ import Link from "next/link";
 import { getDashboard } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
 import type { Dashboard } from "../../../lib/contracts";
+import { Badge, Card, MaskedCandidate, StatTile } from "../../../components/ds";
 import { RetryButton } from "../../../components/retry-button";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Payer dashboard (ADR-0019 Phase 1) — SHARED by both roles. Shows the payer's OWN
- * postings, credit balance, and unlock history — payer-scoped only (XB-A: the data
- * seam binds to the server-held session id). No raw worker/payer PII anywhere.
+ * Payer dashboard (ADR-0019 Phase 1) — DS1.2 re-skin. SHARED by both roles; the role
+ * only adjusts user-facing LABELS (job vs vacancy), never the data path or the authz.
  *
- * The DEMAND logic is identical for `employer` and `agent`; the role only adjusts
- * user-facing LABELS (job vs vacancy), never the data path or the authz.
+ * Reads the payer's OWN live data (XB-A binds to the server-held session id): GET
+ * /payer/credits + /payer/unlocks (+ /payer/job-postings for the open count) via
+ * getDashboard(). Counts and the ₹ price render in mono tabular (.bb-stat__value /
+ * .bb-mono). The recent-unlock teasers use the MaskedCandidate primitive and stay
+ * FACELESS — no worker name/phone, no opaque id, ever reaches the DOM.
  */
 export default async function DashboardPage() {
   const session = await requirePayer();
   const isAgency = session.role === "agent";
 
   let data: Dashboard | null = null;
-  let error: string | null = null;
+  let failed = false;
   try {
     data = await getDashboard();
-  } catch (e) {
-    error = e instanceof Error ? e.message : String(e);
+  } catch {
+    failed = true;
   }
 
-  if (error) {
+  if (failed || !data) {
     return (
       <>
-        <h1 className="page-title">Dashboard</h1>
-        <p className="page-sub">
-          <span className="badge badge-warn">Service unavailable</span> We couldn&rsquo;t load
-          your account right now. Please retry shortly. <RetryButton />
-        </p>
+        <h1 className="dash-title">Dashboard</h1>
+        <Card className="dash-state">
+          <Badge tone="warning" upper>
+            Service unavailable
+          </Badge>
+          <p className="dash-state__msg">
+            We couldn&rsquo;t load your account right now. Please retry shortly.
+          </p>
+          <RetryButton />
+        </Card>
       </>
     );
   }
-  if (!data) return null;
+
+  const openCount = data.postings.filter((p) => p.status === "open").length;
+  const recentUnlocks = data.unlocks.slice(0, 5);
 
   return (
     <>
-      <h1 className="page-title">Dashboard</h1>
-      <p className="page-sub">
-        Your {isAgency ? "vacancies" : "postings"}, credits, and unlock history.
+      <h1 className="dash-title">Dashboard</h1>
+      <p className="dash-sub">
+        Your {isAgency ? "vacancies" : "postings"}, credits, and unlocked contacts.
       </p>
 
-      <div className="cards">
-        <div className="card">
-          <h3>Credit balance</h3>
-          <div className="big">{data.credits.balance}</div>
-          <p>
-            <Link href="/credits">Top up credits →</Link>
-          </p>
-        </div>
-        <div className="card">
-          <h3>Open {isAgency ? "vacancies" : "postings"}</h3>
-          <div className="big">{data.postings.filter((p) => p.status === "open").length}</div>
-          <p>
-            <Link href="/postings/new">{isAgency ? "Post a vacancy →" : "Post a job →"}</Link>
-          </p>
-        </div>
-        <div className="card">
-          <h3>Contacts unlocked</h3>
-          <div className="big">{data.unlocks.length}</div>
-          <p>1 credit per contact</p>
-        </div>
+      <div className="dash-stats">
+        <StatTile
+          label="Credit balance"
+          value={data.credits.balance}
+          icon="wallet"
+          delta={
+            <>
+              <span className="bb-mono">₹40</span> per unlock
+            </>
+          }
+          deltaDir="flat"
+        />
+        <StatTile
+          label={isAgency ? "Open vacancies" : "Open postings"}
+          value={openCount}
+          icon="briefcase"
+          delta={`${data.postings.length} total`}
+          deltaDir="flat"
+        />
+        <StatTile
+          label="Contacts unlocked"
+          value={data.unlocks.length}
+          icon="lock-key-open"
+          delta="1 credit each"
+          deltaDir="flat"
+        />
       </div>
 
-      <section className="section">
-        <h2>Your {isAgency ? "vacancies" : "job postings"}</h2>
-        {data.postings.length === 0 ? (
-          <div className="empty">
-            You haven&rsquo;t posted {isAgency ? "a vacancy" : "a job"} yet.{" "}
-            <Link href="/postings/new">
-              {isAgency ? "Post your first vacancy" : "Post your first job"}
-            </Link>{" "}
-            — free through launch.
-          </div>
+      <section className="dash-section">
+        <div className="dash-section__head">
+          <h2>Recent unlocks</h2>
+          <Link className="dash-link" href="/postings">
+            {isAgency ? "Manage vacancies" : "Manage postings"} →
+          </Link>
+        </div>
+        {recentUnlocks.length === 0 ? (
+          <Card className="dash-empty">
+            No contacts unlocked yet. Open a posting&rsquo;s applicants to unlock a
+            candidate&rsquo;s routed contact.
+          </Card>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Role</th>
-                <th>Location</th>
-                <th>Vacancies</th>
-                <th>Status</th>
-                <th>Applicants</th>
-                <th>Posted</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.postings.map((p) => (
-                <tr key={p.id}>
-                  <td>{p.roleTitle}</td>
-                  <td>{p.locationLabel ?? "—"}</td>
-                  <td>{p.vacancyBand}</td>
-                  <td>
-                    <span className={p.status === "open" ? "badge badge-ok" : "badge"}>
-                      {p.status}
-                    </span>
-                  </td>
-                  <td>{p.applicantCount}</td>
-                  <td className="mono">{new Date(p.createdAt).toISOString().slice(0, 10)}</td>
-                  <td>
-                    <Link href={`/postings/${p.id}/applicants`}>View applicants →</Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="dash-candlist">
+            {recentUnlocks.map((u) => (
+              <MaskedCandidate
+                key={u.unlockId}
+                masked={false}
+                verified={u.status === "granted"}
+                name="Unlocked contact"
+                experience={u.status === "granted" ? "Active access" : "Access expired"}
+              />
+            ))}
+          </div>
         )}
       </section>
 
-      <section className="section">
-        <h2>Unlock history</h2>
-        {data.unlocks.length === 0 ? (
-          <div className="empty">
-            No contacts unlocked yet. Open a posting&rsquo;s applicants to unlock a candidate&rsquo;s
-            routed contact.
-          </div>
+      <section className="dash-section">
+        <div className="dash-section__head">
+          <h2>Your {isAgency ? "vacancies" : "postings"}</h2>
+          <Link className="dash-link" href="/postings/new">
+            {isAgency ? "Post a vacancy" : "Post a job"} →
+          </Link>
+        </div>
+        {data.postings.length === 0 ? (
+          <Card className="dash-empty">
+            You haven&rsquo;t posted {isAgency ? "a vacancy" : "a job"} yet — free through
+            launch.
+          </Card>
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Candidate (opaque id)</th>
-                <th>Status</th>
-                <th>Unlocked</th>
-                <th>Access until</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.unlocks.map((u) => (
-                <tr key={u.unlockId}>
-                  <td className="mono">{u.workerId}</td>
-                  <td>
-                    <span className={u.status === "granted" ? "badge badge-ok" : "badge"}>
-                      {u.status}
-                    </span>
-                  </td>
-                  <td className="mono">{new Date(u.createdAt).toISOString().slice(0, 10)}</td>
-                  <td className="mono">{new Date(u.expiresAt).toISOString().slice(0, 10)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="dash-postings">
+            {data.postings.slice(0, 6).map((post) => (
+              <Card key={post.id} padding="sm" className="dash-posting">
+                <div className="dash-posting__main">
+                  <div className="dash-posting__title">{post.roleTitle}</div>
+                  <div className="dash-posting__meta">
+                    {post.locationLabel ?? "Location flexible"} · {post.vacancyBand} ·{" "}
+                    <span className="bb-mono">{post.applicantCount}</span> applicants
+                  </div>
+                </div>
+                <div className="dash-posting__right">
+                  <Badge tone={post.status === "open" ? "success" : "neutral"} upper>
+                    {post.status}
+                  </Badge>
+                  <Link className="dash-link" href={`/postings/${post.id}/applicants`}>
+                    View →
+                  </Link>
+                </div>
+              </Card>
+            ))}
+          </div>
         )}
       </section>
     </>
