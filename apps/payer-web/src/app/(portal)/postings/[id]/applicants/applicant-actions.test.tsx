@@ -3,18 +3,21 @@ import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import type { FacelessApplicant } from "../../../../../lib/contracts";
 import { NEUTRAL_UNLOCK_MESSAGE, mapUnlockResult } from "../../../../../lib/unlock-view";
+import { Badge, Button } from "../../../../../components/ds";
 
 /**
- * APPLICANT-ACTIONS tests — CONFIRM-ON-SPEND (C11) + A11Y-OF-FAILURE (B8).
+ * APPLICANT-ACTIONS tests — DS1.3 re-skin. CONFIRM-ON-SPEND (C11) + A11Y-OF-FAILURE (B8).
  *
- * C11: the FIRST unlock per row calls `window.confirm` (the spend gate); a declined confirm
- * blocks the spend. The confirm fires ONCE per row — a later reveal/resume (NOT spend
- * actions) never re-prompts, and a row already confirmed this session does not re-prompt.
+ * C11: the FIRST unlock per row OPENS a DS Dialog (the spend gate) instead of `window.confirm`;
+ * it does NOT call the unlock action yet. Clicking the dialog's confirm Button runs the (ids-only)
+ * unlock and marks the row confirmed. A row already confirmed this session unlocks directly with
+ * NO dialog (a retry never re-prompts; reveal/resume are not spend actions and never confirm).
  * B8: each per-row error region (unlock/contact/resume) is wrapped in `aria-live="polite"`.
  *
  * Env is node (no DOM); React state is injected via a mocked `useState` (source order:
- * rows, confirmedUnlock). The component's handlers are async; we fire onClick and assert the
- * confirm gate + whether the unlock action ran. `window.confirm` is mocked per case.
+ * rows, confirmedUnlock, stages, activeStage, confirmWorker). Actions are DS `Button`s — we
+ * collect by `el.type === Button` and fire `props.onClick`. The component handlers are async; we
+ * fire onClick and assert the gate + whether the unlock action ran.
  */
 
 const unlockAction = vi.fn();
@@ -33,9 +36,9 @@ vi.mock("./actions", () => ({
   maskedResumeAction: (i: unknown) => maskedResumeAction(i),
 }));
 
-// Injected per-render state queue (rows, confirmedUnlock, stages, activeStage). Each call's
-// SETTER is captured by index so a LOCAL transition (Keep/Pass/reach) can be asserted to fire
-// the right setter (and, by exercising the updater, the right next state) with NO network call.
+// Injected per-render state queue (rows, confirmedUnlock, stages, activeStage, confirmWorker).
+// Each call's SETTER is captured by index so a LOCAL transition (Keep/Pass/reach) can be asserted
+// to fire the right setter (and, by exercising the updater, the right next state) with NO network.
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
 let setters: Array<ReturnType<typeof vi.fn>> = [];
@@ -66,7 +69,7 @@ const APPLICANT: FacelessApplicant = {
 };
 
 interface Collected {
-  buttons: Array<{ text: string; onClick?: () => void; disabled?: boolean }>;
+  buttons: Array<{ text: string; onClick?: () => void; disabled?: boolean; loading?: boolean }>;
   ariaLiveCount: number;
 }
 
@@ -78,6 +81,21 @@ function textOf(node: ReactNode): string {
   return el.props && "children" in el.props ? textOf(el.props.children) : "";
 }
 
+/**
+ * The confirm-on-spend DS Dialog is CHROME (always in the tree, gated by `open`), not candidate
+ * row data; its neutral static copy ("…never a phone number") and confirm Button are intentional.
+ * Row-content walkers (faceless / no-PII / per-row buttons) skip it; the dialog-specific tests
+ * walk its `footer` explicitly via `collect` (which descends footer) to find Cancel / confirm.
+ */
+function isDialogEl(el: { type?: unknown }): boolean {
+  return typeof el.type === "function" && (el.type as { name?: string }).name === "Dialog";
+}
+
+/**
+ * Walk the element tree. Buttons are DS `Button` elements (props carry text/onClick/disabled/
+ * loading); badges are DS `Badge` elements. We do NOT expand stateful components (Dialog has a
+ * hook) — its footer Buttons live in its `footer` prop, which we walk explicitly.
+ */
 function walk(node: ReactNode, acc: Collected): void {
   if (node === null || node === undefined || typeof node === "boolean") return;
   if (typeof node === "string" || typeof node === "number") return;
@@ -86,14 +104,17 @@ function walk(node: ReactNode, acc: Collected): void {
     return;
   }
   const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-  if (el.type === "button") {
+  if (el.type === Button) {
     acc.buttons.push({
-      text: textOf(el.props.children).trim(),
+      text: textOf(el.props.children as ReactNode).trim(),
       onClick: el.props.onClick as (() => void) | undefined,
       disabled: el.props.disabled as boolean | undefined,
+      loading: el.props.loading as boolean | undefined,
     });
   }
   if (el.props["aria-live"] === "polite") acc.ariaLiveCount++;
+  // Dialog footer Buttons live in the `footer` prop, not in children.
+  if ("footer" in el.props) walk(el.props.footer as ReactNode, acc);
   if ("children" in el.props) walk(el.props.children, acc);
 }
 
@@ -108,11 +129,18 @@ function render(opts: {
   confirmedUnlock?: Record<string, boolean>;
   stages?: Record<string, "new" | "shortlist" | "passed">;
   activeStage?: "new" | "shortlist";
+  confirmWorker?: string | null;
   applicants?: FacelessApplicant[];
   balance?: number;
 }) {
-  // Source order of useState: rows, confirmedUnlock, stages, activeStage.
-  stateQueue = [opts.rows ?? {}, opts.confirmedUnlock ?? {}, opts.stages ?? {}, opts.activeStage ?? "new"];
+  // Source order of useState: rows, confirmedUnlock, stages, activeStage, confirmWorker.
+  stateQueue = [
+    opts.rows ?? {},
+    opts.confirmedUnlock ?? {},
+    opts.stages ?? {},
+    opts.activeStage ?? "new",
+    opts.confirmWorker ?? null,
+  ];
   stateCursor = 0;
   setters = [];
   return ApplicantActions({
@@ -140,34 +168,37 @@ function routedRowState() {
   };
 }
 
-// The env is `node` (no DOM) — stub a minimal `window` so the component's `window.confirm`
-// spend gate resolves to a mock we can assert on.
-const confirmMock = vi.fn();
-vi.stubGlobal("window", { confirm: confirmMock });
-
 beforeEach(() => {
   unlockAction.mockReset().mockResolvedValue({ ok: true, view: { kind: "unavailable", message: "x" } });
   revealContactAction.mockReset();
   maskedResumeAction.mockReset();
-  confirmMock.mockReset();
 });
 
 describe("ApplicantActions — CONFIRM-ON-SPEND on the FIRST unlock per row (C11)", () => {
-  it("a DECLINED confirm (false) blocks the first unlock spend", () => {
-    confirmMock.mockReturnValue(false);
+  it("the FIRST unlock click OPENS the confirm dialog and does NOT call the unlock action yet", () => {
     const { buttons } = collect(render({}));
     const unlock = buttons.find((b) => b.text.includes("Unlock contact"));
     expect(unlock).toBeDefined();
     unlock!.onClick!();
-    expect(confirmMock).toHaveBeenCalledTimes(1);
+    // confirmWorker is setter index 4 — the FIRST unlock opens the dialog (the spend gate).
+    expect(setters[4]).toHaveBeenCalledTimes(1);
+    expect(setters[4]!.mock.calls[0]![0]).toBe(WORKER);
+    // No spend yet: the unlock action has NOT run on the first click.
     expect(unlockAction).not.toHaveBeenCalled();
   });
 
-  it("an ACCEPTED confirm (true) proceeds to the unlock with ONLY ids (no amount)", () => {
-    confirmMock.mockReturnValue(true);
-    const { buttons } = collect(render({}));
-    buttons.find((b) => b.text.includes("Unlock contact"))!.onClick!();
-    expect(confirmMock).toHaveBeenCalledTimes(1);
+  it("confirming in the dialog runs the unlock with ONLY ids (no amount) and marks confirmed", () => {
+    // Seed confirmWorker = WORKER so the dialog's success Button reads it on click.
+    const { buttons } = collect(render({ confirmWorker: WORKER }));
+    const confirm = buttons.find((b) => b.text.includes("Unlock · 1 credit"));
+    expect(confirm).toBeDefined();
+    confirm!.onClick!();
+    // confirmedUnlock is setter index 1; the updater marks WORKER confirmed.
+    expect(setters[1]).toHaveBeenCalledTimes(1);
+    const updater = setters[1]!.mock.calls[0]![0] as (p: Record<string, boolean>) => Record<string, boolean>;
+    expect(updater({})).toEqual({ [WORKER]: true });
+    // The dialog is closed (confirmWorker → null) and the (ids-only) unlock runs.
+    expect(setters[4]).toHaveBeenCalledWith(null);
     expect(unlockAction).toHaveBeenCalledWith({
       postingId: "33333333-3333-4333-8333-333333333333",
       workerId: WORKER,
@@ -177,19 +208,18 @@ describe("ApplicantActions — CONFIRM-ON-SPEND on the FIRST unlock per row (C11
     expect(Object.keys(arg).sort()).toEqual(["postingId", "workerId"]);
   });
 
-  it("does NOT re-prompt when the row was already confirmed this session (fires once per row)", () => {
-    confirmMock.mockReturnValue(true);
-    // Seed confirmedUnlock[WORKER] = true → the confirm branch is skipped.
+  it("a row already confirmed this session unlocks DIRECTLY with no dialog (fires once per row)", () => {
+    // Seed confirmedUnlock[WORKER] = true → the dialog branch is skipped; unlock runs directly.
     const { buttons } = collect(render({ confirmedUnlock: { [WORKER]: true } }));
     buttons.find((b) => b.text.includes("Unlock contact"))!.onClick!();
-    expect(confirmMock).not.toHaveBeenCalled();
-    expect(unlockAction).toHaveBeenCalledTimes(1); // the retry still runs, just no re-prompt.
+    // No dialog opened (confirmWorker setter untouched) and the retry unlock runs immediately.
+    expect(setters[4]).not.toHaveBeenCalled();
+    expect(unlockAction).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("ApplicantActions — A11Y-OF-FAILURE: per-row unlock error region is aria-live='polite' (B8)", () => {
   it("renders an aria-live='polite' region around the per-row error", () => {
-    confirmMock.mockReturnValue(true);
     const { ariaLiveCount } = collect(render({}));
     expect(ariaLiveCount).toBeGreaterThanOrEqual(1);
   });
@@ -197,7 +227,6 @@ describe("ApplicantActions — A11Y-OF-FAILURE: per-row unlock error region is a
 
 describe("ApplicantActions — guardrails: faceless row, no PII / no oracle", () => {
   it("the rendered row carries no name/phone/email/employer text", () => {
-    confirmMock.mockReturnValue(true);
     const tree = render({});
     const all: string[] = [];
     (function gather(node: ReactNode): void {
@@ -210,7 +239,9 @@ describe("ApplicantActions — guardrails: faceless row, no PII / no oracle", ()
         node.forEach(gather);
         return;
       }
-      const el = node as ReactElement<{ children?: ReactNode }>;
+      const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode; footer?: ReactNode }>;
+      if (isDialogEl(el)) return; // the confirm dialog is chrome, not candidate row data
+      if (el.props && "footer" in el.props) gather(el.props.footer as ReactNode);
       if (el.props && "children" in el.props) gather(el.props.children);
     })(tree);
     const joined = all.join(" ");
@@ -222,7 +253,11 @@ describe("ApplicantActions — guardrails: faceless row, no PII / no oracle", ()
   });
 });
 
-/** Flatten every text node in a tree (for content assertions). */
+/**
+ * Flatten every text node in the candidate-row tree (for content assertions). Skips the confirm
+ * DS Dialog (chrome). Collects DS Tabs `tabs[].label` text (the per-stage counts live there, not
+ * in children) so the pipeline-tab labels are assertable.
+ */
 function gatherText(tree: ReactNode): string {
   const all: string[] = [];
   (function gather(node: ReactNode): void {
@@ -235,7 +270,11 @@ function gatherText(tree: ReactNode): string {
       node.forEach(gather);
       return;
     }
-    const el = node as ReactElement<{ children?: ReactNode }>;
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode; tabs?: unknown }>;
+    if (isDialogEl(el)) return; // the confirm dialog is chrome, not candidate row data
+    if (Array.isArray(el.props?.tabs)) {
+      for (const t of el.props.tabs as Array<{ label?: ReactNode }>) all.push(textOf(t.label));
+    }
     if (el.props && "children" in el.props) gather(el.props.children);
   })(tree);
   return all.join(" ");
@@ -252,7 +291,8 @@ function monoPrefixes(tree: ReactNode): string[] {
       return;
     }
     const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-    if (el.props?.className === "mono") {
+    const cls = el.props?.className;
+    if (typeof cls === "string" && cls.split(/\s+/).includes("bb-mono")) {
       const t = textOf(el.props.children as ReactNode);
       if (t.endsWith("…")) out.push(t);
     }
@@ -288,7 +328,7 @@ describe("ApplicantActions — pipeline Keep/Pass are LOCAL stage transitions (N
     const keep = collect(render({})).buttons.find((b) => b.text === "Keep");
     expect(keep).toBeDefined();
     keep!.onClick!();
-    // setters order: [rows, confirmedUnlock, stages, activeStage] → stages is index 2.
+    // setters order: [rows, confirmedUnlock, stages, activeStage, confirmWorker] → stages is index 2.
     expect(setters[2]).toHaveBeenCalledTimes(1);
     const updater = setters[2]!.mock.calls[0]![0] as (p: Record<string, string>) => Record<string, string>;
     expect(updater({})).toEqual({ [WORKER]: "shortlist" });
@@ -350,45 +390,45 @@ describe("ApplicantActions — Call/WhatsApp gated behind a granted unlock + ROU
   });
 });
 
+/** Count DS Badge elements whose trimmed text is exactly "Hot". */
+function hotBadgeCount(tree: ReactNode): number {
+  let n = 0;
+  (function walk2(node: ReactNode): void {
+    if (node === null || node === undefined || typeof node === "boolean") return;
+    if (typeof node === "string" || typeof node === "number") return;
+    if (Array.isArray(node)) {
+      node.forEach(walk2);
+      return;
+    }
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    if (el.type === Badge && textOf(el.props.children as ReactNode).trim() === "Hot") {
+      n += 1;
+    }
+    if (el.props && "children" in el.props) walk2(el.props.children as ReactNode);
+  })(tree);
+  return n;
+}
+
 describe("ApplicantActions — preserves backend best-first order; renders hot AS-IS (no percentile)", () => {
   it("renders rows in feed order and a 'hot' badge ONLY where hot=true", () => {
     const tree = render({ applicants: [A, B, C] });
-    const monos: string[] = [];
-    let hotBadges = 0;
-    (function walk2(node: ReactNode): void {
-      if (node === null || node === undefined || typeof node === "boolean") return;
-      if (typeof node === "string" || typeof node === "number") return;
-      if (Array.isArray(node)) {
-        node.forEach(walk2);
-        return;
-      }
-      const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-      const cls = el.props?.className;
-      if (cls === "mono") {
-        const t = textOf(el.props.children as ReactNode);
-        if (t.endsWith("…")) monos.push(t); // the workerId-prefix cell (not the score/handle)
-      }
-      if (cls === "badge badge-hot" && textOf(el.props.children as ReactNode).trim() === "Hot") {
-        hotBadges += 1;
-      }
-      if (el.props && "children" in el.props) walk2(el.props.children as ReactNode);
-    })(tree);
-    expect(monos).toEqual([`${A.workerId.slice(0, 8)}…`, `${B.workerId.slice(0, 8)}…`, `${C.workerId.slice(0, 8)}…`]);
+    expect(monoPrefixes(tree)).toEqual([
+      `${A.workerId.slice(0, 8)}…`,
+      `${B.workerId.slice(0, 8)}…`,
+      `${C.workerId.slice(0, 8)}…`,
+    ]);
     // hot=true for A and C only ⇒ exactly 2 badges — the engine boolean rendered as-is.
-    expect(hotBadges).toBe(2);
+    expect(hotBadgeCount(tree)).toBe(2);
   });
 
   it("filters visible rows by the active stage and reflects per-stage counts in the tabs", () => {
-    const { buttons } = collect(
-      render({ applicants: [A, B], stages: { [A.workerId]: "shortlist" }, activeStage: "shortlist" }),
-    );
-    expect(buttons.some((b) => b.text === "New (1)")).toBe(true);
-    expect(buttons.some((b) => b.text === "Shortlist (1)")).toBe(true);
+    const tree = render({ applicants: [A, B], stages: { [A.workerId]: "shortlist" }, activeStage: "shortlist" });
+    // Tab labels carry the per-stage counts (the Tabs `tabs` prop labels).
+    const text = gatherText(tree);
+    expect(text).toContain("New (1)");
+    expect(text).toContain("Shortlist (1)");
     // Active = shortlist ⇒ only A (kept) is visible; B (new) is not rendered.
-    const ids = monoPrefixes(
-      render({ applicants: [A, B], stages: { [A.workerId]: "shortlist" }, activeStage: "shortlist" }),
-    );
-    expect(ids).toEqual([`${A.workerId.slice(0, 8)}…`]);
+    expect(monoPrefixes(tree)).toEqual([`${A.workerId.slice(0, 8)}…`]);
   });
 });
 
@@ -413,9 +453,12 @@ const baseRow = {
   contacted: false,
 };
 
-/** Find a <button> whose text CONTAINS `contains`; report its `disabled` + `aria-busy` props. */
-function buttonInfo(tree: ReactNode, contains: string): { disabled?: boolean; ariaBusy?: unknown } | null {
-  let res: { disabled?: boolean; ariaBusy?: unknown } | null = null;
+/** Find a DS `Button` whose text CONTAINS `contains`; report `disabled` + `loading` + `aria-busy`. */
+function buttonInfo(
+  tree: ReactNode,
+  contains: string,
+): { disabled?: boolean; loading?: boolean; ariaBusy?: unknown } | null {
+  let res: { disabled?: boolean; loading?: boolean; ariaBusy?: unknown } | null = null;
   (function w(node: ReactNode): void {
     if (node === null || node === undefined || typeof node === "boolean") return;
     if (typeof node === "string" || typeof node === "number") return;
@@ -424,59 +467,40 @@ function buttonInfo(tree: ReactNode, contains: string): { disabled?: boolean; ar
       return;
     }
     const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-    if (el.type === "button" && textOf(el.props.children as ReactNode).includes(contains)) {
-      res = { disabled: el.props.disabled as boolean | undefined, ariaBusy: el.props["aria-busy"] };
+    if (el.type === Button && textOf(el.props.children as ReactNode).includes(contains)) {
+      res = {
+        disabled: el.props.disabled as boolean | undefined,
+        loading: el.props.loading as boolean | undefined,
+        ariaBusy: el.props["aria-busy"],
+      };
     }
     if (el.props && "children" in el.props) w(el.props.children as ReactNode);
   })(tree);
   return res;
 }
 
-/** Count rendered inline spinners (deep-expands the pure Spinner / child components). */
-function countSpinners(tree: ReactNode): number {
-  let n = 0;
-  (function w(node: ReactNode): void {
-    if (node === null || node === undefined || typeof node === "boolean") return;
-    if (typeof node === "string" || typeof node === "number") return;
-    if (Array.isArray(node)) {
-      node.forEach(w);
-      return;
-    }
-    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-    if (el.props?.className === "spinner") {
-      n += 1;
-      return;
-    }
-    if (typeof el.type === "function") {
-      w((el.type as (p: unknown) => ReactNode)(el.props));
-      return;
-    }
-    if (el.props && "children" in el.props) w(el.props.children as ReactNode);
-  })(tree);
-  return n;
-}
-
-describe("ApplicantActions — LOADING: per-action spinner + disabled + aria-busy while pending", () => {
-  it("an in-flight unlock disables the button, sets aria-busy, and shows an inline spinner", () => {
+describe("ApplicantActions — LOADING: per-action Button loading + disabled + aria-busy while pending", () => {
+  it("an in-flight unlock disables the button, sets aria-busy + the Button loading spinner", () => {
     const tree = render({ rows: { [WORKER]: { ...baseRow, busy: true } } });
     const info = buttonInfo(tree, "Unlocking");
     expect(info).not.toBeNull();
     expect(info!.disabled).toBe(true);
     expect(info!.ariaBusy).toBe(true);
-    expect(countSpinners(tree)).toBeGreaterThanOrEqual(1);
+    expect(info!.loading).toBe(true); // the DS Button renders its bb-btn__spinner when loading.
   });
 
-  it("an in-flight reveal disables the reveal button, sets aria-busy, and shows a spinner", () => {
+  it("an in-flight reveal disables the reveal button, sets aria-busy + Button loading", () => {
     const granted = { kind: "granted", unlockId: "44444444-4444-4444-8444-444444444444", expiresAt: "2026-07-01T00:00:00.000Z" };
     const tree = render({ rows: { [WORKER]: { ...baseRow, unlock: granted, contactBusy: true } } });
     const info = buttonInfo(tree, "Opening");
     expect(info!.disabled).toBe(true);
     expect(info!.ariaBusy).toBe(true);
-    expect(countSpinners(tree)).toBeGreaterThanOrEqual(1);
+    expect(info!.loading).toBe(true);
   });
 
-  it("an idle row renders no spinner", () => {
-    expect(countSpinners(render({}))).toBe(0);
+  it("an idle row renders no loading Button", () => {
+    const { buttons } = collect(render({}));
+    expect(buttons.some((b) => b.loading === true)).toBe(false);
   });
 });
 
@@ -504,9 +528,11 @@ describe("ApplicantActions — CURRENTLY ENGAGED: one neutral state, identical c
     const joined = gatherText(tree);
     expect(joined).toContain("Currently engaged"); // constant label — identical for every cause
     expect(joined).toContain(NEUTRAL_UNLOCK_MESSAGE); // the mapper's single neutral message
-    // Terminal no-oracle state (NOT a transient error) ⇒ there is no unlock/retry button.
+    // Terminal no-oracle state (NOT a transient error) ⇒ there is no per-row unlock/retry button.
+    // (The always-present confirm-dialog footer carries "Unlock · 1 credit"; that is chrome, not
+    // the row affordance — the ROW unlock button reads "Unlock contact" / "Retry unlock".)
     const { buttons } = collect(tree);
-    expect(buttons.find((b) => b.text.includes("Unlock"))).toBeUndefined();
+    expect(buttons.find((b) => b.text.includes("Unlock contact") || b.text.includes("Retry unlock"))).toBeUndefined();
   });
 });
 
@@ -533,14 +559,25 @@ describe("ApplicantActions — MOVE TO CONTACTED: local transition riding the sp
   });
 });
 
-/** DEEP text — expands the pure RoutedContact / MaskedResume / Spinner children too. */
-function deepGather(node: ReactNode): string {
+/** DEEP text — expands the pure RoutedContact / MaskedResume / DS children + Dialog footer too.
+ *  Stateful components (Dialog) are NOT invoked (hooks); their footer is walked via props. A
+ *  `seen` WeakSet dedupes element objects (expand a shared element reference once). */
+function deepGather(node: ReactNode, seen: WeakSet<object> = new WeakSet()): string {
   if (node === null || node === undefined || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return ` ${node} `;
-  if (Array.isArray(node)) return node.map(deepGather).join("");
-  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-  if (typeof el.type === "function") return deepGather((el.type as (p: unknown) => ReactNode)(el.props));
-  return el.props && "children" in el.props ? deepGather(el.props.children as ReactNode) : "";
+  if (Array.isArray(node)) return node.map((n) => deepGather(n, seen)).join("");
+  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode; footer?: ReactNode }>;
+  if (seen.has(el)) return "";
+  seen.add(el);
+  // Expand PURE (hook-free) child components — but never the hooked DS Dialog.
+  const isDialog = typeof el.type === "function" && (el.type as { name?: string }).name === "Dialog";
+  if (typeof el.type === "function" && !isDialog) {
+    return deepGather((el.type as (p: unknown) => ReactNode)(el.props), seen);
+  }
+  let out = "";
+  if (el.props && "footer" in el.props) out += deepGather(el.props.footer as ReactNode, seen);
+  if (el.props && "children" in el.props) out += deepGather(el.props.children as ReactNode, seen);
+  return out;
 }
 
 describe("ApplicantActions — (b) each stage renders its OWN empty state at zero rows", () => {

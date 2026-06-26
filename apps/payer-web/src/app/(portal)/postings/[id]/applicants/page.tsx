@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { getApplicantFeed, getDashboard } from "../../../../../lib/payer-api";
 import type { ApplicantFeed, Dashboard } from "../../../../../lib/contracts";
+import { Badge, Card } from "../../../../../components/ds";
 import { RetryButton } from "../../../../../components/retry-button";
 import { ApplicantActions } from "./applicant-actions";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Faceless applicant feed for one of the payer's OWN postings (ADR-0019 Decision E).
+ * Faceless applicant feed for one of the payer's OWN postings (ADR-0019 Decision E) —
+ * DS1.3 re-skin onto the BadaBhai Design System (visual only; data path unchanged).
  *
  * XB-A: the feed is fetched payer-scoped; a posting that isn't the payer's returns
  * null ⇒ a NEUTRAL not-found (no cross-tenant existence oracle). XB-C: applicants
@@ -40,33 +42,39 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
 
   return (
     <>
-      <p className="page-sub">
+      <p className="applicants-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
-      <h1 className="page-title">Applicants</h1>
+      <h1 className="applicants-title">Applicants</h1>
 
       {notFound ? (
-        <div className="empty">
+        <Card variant="flat" className="applicants-empty">
           No posting found here. It may not exist, or it isn&rsquo;t one of your postings.
-        </div>
+        </Card>
       ) : feedError ? (
-        <p className="page-sub">
-          <span className="badge badge-warn">Service unavailable</span> We couldn&rsquo;t load
-          applicants right now. Please retry. <RetryButton />
-        </p>
+        <Card variant="outline" className="applicants-state">
+          <Badge tone="warning" upper>
+            Service unavailable
+          </Badge>
+          <p className="applicants-state__msg">
+            We couldn&rsquo;t load applicants right now. Please retry.
+          </p>
+          <RetryButton />
+        </Card>
       ) : feed ? (
         <>
-          <p className="page-sub">
-            {feed.roleTitle} · {feed.applicants.length} faceless applicant
-            {feed.applicants.length === 1 ? "" : "s"}
+          <div className="applicants-meta">
+            <span>
+              {feed.roleTitle} · {feed.applicants.length} faceless applicant
+              {feed.applicants.length === 1 ? "" : "s"}
+            </span>
             {balance !== null ? (
-              <>
-                {" "}
-                · <span className="badge">Balance: {balance}</span>
-              </>
+              <Badge tone="neutral">
+                Balance: <span className="bb-mono">{balance}</span>
+              </Badge>
             ) : null}
-          </p>
-          <div className="note">
+          </div>
+          <Card variant="flat" className="applicants-explainer">
             Applicants are <strong>faceless</strong> — an opaque id plus deterministic relevance
             (rank / score / signals), shown in the engine&rsquo;s best-first order. No name, phone,
             or employer is shown. Sort them with <strong>Keep</strong> (→ Shortlist) and{" "}
@@ -74,10 +82,12 @@ export default async function ApplicantsPage({ params }: { params: Promise<{ id:
             only after you unlock and reveal a candidate&rsquo;s <strong>routed</strong> contact —
             an opaque relay, never a phone. Unlocking spends 1 credit. An
             &ldquo;unavailable&rdquo; result never discloses its cause.
-          </div>
+          </Card>
 
           {feed.applicants.length === 0 ? (
-            <div className="empty">No applicants on this posting yet.</div>
+            <Card variant="flat" className="applicants-empty">
+              No applicants on this posting yet.
+            </Card>
           ) : (
             <ApplicantActions
               postingId={feed.postingId}

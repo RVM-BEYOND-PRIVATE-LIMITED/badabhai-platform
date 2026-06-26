@@ -2,19 +2,23 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import type { FacelessApplicant } from "../../../../../lib/contracts";
+import { Badge, Button } from "../../../../../components/ds";
 
 /**
- * APPLICANT-FEED driven-render tests — render the faceless feed (a mock applicant-list
- * response) and DRIVE the real unlock→reveal flow with mocked Server Actions, asserting
- * on the rendered output. Complements applicant-actions.test.tsx (which seeds state): this
- * file proves the actual STATE TRANSITIONS.
+ * APPLICANT-FEED driven-render tests — DS1.3 re-skin. Render the faceless feed (a mock
+ * applicant-list response) and DRIVE the real unlock→reveal flow with mocked Server Actions,
+ * asserting on the rendered output. Complements applicant-actions.test.tsx (which seeds state):
+ * this file proves the actual STATE TRANSITIONS through the DS structure.
  *
  * Env is node (no DOM) — the repo convention. We render the component with a STATEFUL
  * `useState` mock that persists state across re-renders and re-invokes the component on
  * setState (a minimal React-state model), so a click that calls a mocked action and then
- * `setState` actually flips the rendered tree. Pure child components (RoutedContact /
- * MaskedResume — no hooks) are EXPANDED when gathering text, so the no-PII check covers the
- * reveal card too. The Server Actions and `next/link` are mocked; `window.confirm` is stubbed.
+ * `setState` actually flips the rendered tree. Actions are DS `Button`s collected by
+ * `el.type === Button` (its onClick/disabled are forwarded). Pure child components
+ * (RoutedContact / MaskedResume / Badge / Avatar / Card / Tabs — no hooks) are EXPANDED when
+ * gathering text, so the no-PII check covers the reveal card too. The hooked DS Dialog is NOT
+ * invoked; its footer Buttons (Cancel / confirm) are walked via its `footer` prop. The Server
+ * Actions and `next/link` are mocked.
  *
  * Acceptance covered:
  *  (a) Call/WhatsApp are DISABLED pre-unlock and stay disabled after unlock-but-before-reveal;
@@ -23,6 +27,7 @@ import type { FacelessApplicant } from "../../../../../lib/contracts";
  *  (c) Keep moves a row New→Shortlist with NO network call.
  *  (d) Rows render in backend feed order (no client re-sort).
  *  (e) The `hot` badge reflects the backend boolean, not a client-side percentile.
+ *  Confirm-on-spend: the first Unlock OPENS the DS Dialog (no spend yet); the dialog confirm spends.
  */
 
 const unlockAction = vi.fn();
@@ -61,9 +66,6 @@ vi.mock("react", async () => {
   return { ...actual, useState: (init: unknown) => useState(init) };
 });
 
-const confirmMock = vi.fn();
-vi.stubGlobal("window", { confirm: confirmMock });
-
 const { ApplicantActions } = await import("./applicant-actions");
 
 const POSTING = "33333333-3333-4333-8333-333333333333";
@@ -95,7 +97,7 @@ function textOf(node: ReactNode): string {
   return el.props && "children" in el.props ? textOf(el.props.children) : "";
 }
 
-/** Shallow walk for buttons (all live directly in the component output). */
+/** Walk for DS `Button`s (incl. the Dialog footer Buttons, walked via the `footer` prop). */
 function buttons(): Btn[] {
   const acc: Btn[] = [];
   (function walk(node: ReactNode): void {
@@ -105,30 +107,42 @@ function buttons(): Btn[] {
       node.forEach(walk);
       return;
     }
-    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-    if (el.type === "button") {
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode; footer?: ReactNode }>;
+    if (el.type === Button) {
       acc.push({
         text: textOf(el.props.children as ReactNode).trim(),
         onClick: el.props.onClick as (() => unknown) | undefined,
         disabled: el.props.disabled as boolean | undefined,
       });
     }
+    if (el.props && "footer" in el.props) walk(el.props.footer as ReactNode);
     if (el.props && "children" in el.props) walk(el.props.children as ReactNode);
   })(currentTree);
   return acc;
 }
 
-/** Deep text — EXPANDS pure function child components (RoutedContact/MaskedResume). */
-function deepText(node: ReactNode = currentTree): string {
+/**
+ * Deep text — EXPANDS pure (hook-free) child components (Card / Badge / Avatar / Chip / Tabs /
+ * RoutedContact / MaskedResume) by invoking them, never the hooked DS Dialog (its footer is
+ * walked via props). A `seen` WeakSet dedupes element objects so a stable element reachable via
+ * several walked branches is expanded once (avoids re-expanding shared element references).
+ */
+function deepText(node: ReactNode = currentTree, seen: WeakSet<object> = new WeakSet()): string {
   if (node === null || node === undefined || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return ` ${node} `;
-  if (Array.isArray(node)) return node.map((n) => deepText(n)).join("");
-  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  if (Array.isArray(node)) return node.map((n) => deepText(n, seen)).join("");
+  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode; footer?: ReactNode }>;
+  if (seen.has(el)) return "";
+  seen.add(el);
+  const isDialog = typeof el.type === "function" && (el.type as { name?: string }).name === "Dialog";
   // Expand a PURE (hook-free) child component by invoking it with its props.
-  if (typeof el.type === "function") {
-    return deepText((el.type as (p: unknown) => ReactNode)(el.props));
+  if (typeof el.type === "function" && !isDialog) {
+    return deepText((el.type as (p: unknown) => ReactNode)(el.props), seen);
   }
-  return el.props && "children" in el.props ? deepText(el.props.children as ReactNode) : "";
+  let out = "";
+  if (el.props && "footer" in el.props) out += deepText(el.props.footer as ReactNode, seen);
+  if (el.props && "children" in el.props) out += deepText(el.props.children as ReactNode, seen);
+  return out;
 }
 
 /** Ordered workerId-prefix mono cells (the visible rows). */
@@ -142,7 +156,8 @@ function monoPrefixes(): string[] {
       return;
     }
     const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-    if (el.props?.className === "mono") {
+    const cls = el.props?.className;
+    if (typeof cls === "string" && cls.split(/\s+/).includes("bb-mono")) {
       const t = textOf(el.props.children as ReactNode);
       if (t.endsWith("…")) out.push(t);
     }
@@ -161,7 +176,7 @@ function hotBadgeCount(): number {
       return;
     }
     const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-    if (el.props?.className === "badge badge-hot" && textOf(el.props.children as ReactNode).trim() === "Hot") {
+    if (el.type === Badge && textOf(el.props.children as ReactNode).trim() === "Hot") {
       n += 1;
     }
     if (el.props && "children" in el.props) walk(el.props.children as ReactNode);
@@ -176,7 +191,6 @@ beforeEach(() => {
   unlockAction.mockReset();
   revealContactAction.mockReset();
   maskedResumeAction.mockReset();
-  confirmMock.mockReset().mockReturnValue(true);
 });
 
 const GRANTED = {
@@ -187,6 +201,15 @@ const ROUTED = {
   ok: true,
   view: { kind: "routed", relayHandle: "RELAY-7h3k9q", channel: "in_app_relay", expiresAt: "2026-07-01T00:00:00.000Z" },
 };
+
+/** Drive the confirm-on-spend flow: open the dialog, then confirm (which runs the unlock). */
+async function driveUnlock() {
+  // First Unlock click OPENS the DS Dialog (the spend gate) — no spend yet.
+  find("Unlock contact (1 credit)")!.onClick!();
+  expect(unlockAction).not.toHaveBeenCalled();
+  // The dialog confirm Button now exists (confirmWorker is set) — confirming runs the unlock.
+  await findStarts("Unlock · 1 credit")!.onClick!();
+}
 
 describe("applicant feed — (a) Call/WhatsApp enable ONLY after a mocked reveal returns a relay handle", () => {
   it("disabled pre-unlock → disabled after unlock-but-before-reveal → enabled after the reveal", async () => {
@@ -199,9 +222,9 @@ describe("applicant feed — (a) Call/WhatsApp enable ONLY after a mocked reveal
     expect(find("WhatsApp")!.disabled).toBe(true);
     expect(revealContactAction).not.toHaveBeenCalled();
 
-    // Drive the unlock (spend confirmed) → granted. Call/WhatsApp must STILL be disabled
-    // (a granted unlock alone is not a routed reveal).
-    await find("Unlock contact (1 credit)")!.onClick!();
+    // Drive the unlock (spend confirmed via the dialog) → granted. Call/WhatsApp must STILL be
+    // disabled (a granted unlock alone is not a routed reveal).
+    await driveUnlock();
     expect(unlockAction).toHaveBeenCalledTimes(1);
     expect(find("Call")!.disabled).toBe(true);
     expect(find("WhatsApp")!.disabled).toBe(true);
@@ -219,6 +242,26 @@ describe("applicant feed — (a) Call/WhatsApp enable ONLY after a mocked reveal
   });
 });
 
+describe("applicant feed — confirm-on-spend: the first Unlock opens the dialog (no spend until confirm)", () => {
+  it("the first Unlock click does NOT spend; only the dialog confirm runs the (ids-only) unlock", async () => {
+    unlockAction.mockResolvedValue(GRANTED);
+    mount([A]);
+    // First click opens the dialog — no spend yet.
+    find("Unlock contact (1 credit)")!.onClick!();
+    expect(unlockAction).not.toHaveBeenCalled();
+    // The Cancel + confirm Buttons are present (the dialog is open).
+    expect(find("Cancel")).toBeDefined();
+    const confirm = findStarts("Unlock · 1 credit");
+    expect(confirm).toBeDefined();
+    // Confirming spends exactly once, with ids only.
+    await confirm!.onClick!();
+    expect(unlockAction).toHaveBeenCalledTimes(1);
+    expect(unlockAction).toHaveBeenCalledWith({ postingId: POSTING, workerId: A.workerId });
+    const arg = unlockAction.mock.calls[0]![0] as Record<string, unknown>;
+    expect(Object.keys(arg).sort()).toEqual(["postingId", "workerId"]);
+  });
+});
+
 describe("applicant feed — (b) zero PII (no phone / full name) in the rendered output", () => {
   it("the faceless feed AND the revealed routed card carry no phone digits / email / name labels", async () => {
     unlockAction.mockResolvedValue(GRANTED);
@@ -232,7 +275,7 @@ describe("applicant feed — (b) zero PII (no phone / full name) in the rendered
     expect(text).not.toMatch(/full name|employer/i);
 
     // Drive unlock + reveal on the first row, then re-check the FULL tree incl. the card.
-    await find("Unlock contact (1 credit)")!.onClick!();
+    await driveUnlock();
     await findStarts("Open routed contact")!.onClick!();
     text = deepText();
     expect(text).toContain("RELAY-7h3k9q"); // the opaque handle rendered (card is in the tree)
@@ -256,14 +299,35 @@ describe("applicant feed — (c) Keep moves a row New→Shortlist with NO networ
 
     // New now shows only B; the tab counts reflect the move.
     expect(monoPrefixes()).toEqual(["bbbbbbbb…"]);
-    expect(findStarts("New")!.text).toBe("New (1)");
-    expect(findStarts("Shortlist")!.text).toBe("Shortlist (1)");
+    expect(deepText()).toContain("New (1)");
+    expect(deepText()).toContain("Shortlist (1)");
 
-    // Switch to the Shortlist tab → A is there.
-    findStarts("Shortlist")!.onClick!();
+    // Switch to the Shortlist tab → A is there. (Tabs onChange flips activeStage.)
+    setActiveStageTo("shortlist");
     expect(monoPrefixes()).toEqual(["aaaaaaaa…"]);
   });
 });
+
+/** Fire the Tabs `onChange` for the given segment id (the pipeline tab switch). */
+function setActiveStageTo(id: "new" | "shortlist") {
+  let onChange: ((id: string) => void) | undefined;
+  (function walk(node: ReactNode): void {
+    if (onChange) return;
+    if (node === null || node === undefined || typeof node === "boolean") return;
+    if (typeof node === "string" || typeof node === "number") return;
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    if (typeof el.props?.onChange === "function" && Array.isArray(el.props?.tabs)) {
+      onChange = el.props.onChange as (id: string) => void;
+      return;
+    }
+    if (el.props && "children" in el.props) walk(el.props.children as ReactNode);
+  })(currentTree);
+  onChange!(id);
+}
 
 describe("applicant feed — (d) rows preserve backend order (no client re-sort)", () => {
   it("renders rows in the exact feed order they were given", () => {
@@ -294,8 +358,8 @@ describe("applicant feed — (g) after a granted reveal the row MOVES TO CONTACT
     revealContactAction.mockResolvedValue(ROUTED);
     mount([A]);
 
-    // Drive the full spend → reveal flow.
-    await find("Unlock contact (1 credit)")!.onClick!();
+    // Drive the full spend → reveal flow (dialog confirm spends; reveal returns routed).
+    await driveUnlock();
     await findStarts("Open routed contact")!.onClick!();
 
     // "Mark as contacted" appears ONLY now that a routed handle exists; click it (LOCAL).

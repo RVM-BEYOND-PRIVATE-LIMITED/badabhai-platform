@@ -572,6 +572,210 @@ textarea.input {
   margin: 0;
 }
 
+/* ------------------------------------------------------------------
+ * APPLICANT FEED (DS1.3) — faceless pipeline + unlock/reveal, re-skinned onto the
+ * design system. Every value resolves from tokens (no raw hex/px). The visual layer
+ * only; behaviour + the faceless / no-oracle / confirm-on-spend invariants are unchanged.
+ * ------------------------------------------------------------------ */
+.applicants-back {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-2);
+}
+.applicants-title {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-4);
+}
+.applicants-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-4);
+}
+.applicants-explainer {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  margin-bottom: var(--space-5);
+}
+.applicants-explainer strong {
+  color: var(--text-primary);
+}
+.applicants-warn {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  margin-bottom: var(--space-4);
+}
+.applicants-warn__msg {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.applicants-state {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+.applicants-state__msg {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.applicants-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.applicants-pipeline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+.applicants-pipeline__note {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.applicants-list {
+  display: grid;
+  gap: var(--space-3);
+}
+.applicant {
+  display: grid;
+  gap: var(--space-4);
+}
+.applicant__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.applicant__id {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1;
+}
+.applicant__id-code {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.applicant__trade {
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+  font-size: var(--text-base);
+}
+.applicant__bands {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.applicant__relevance {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+}
+.applicant__score {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.applicant__signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.applicant__pipeline,
+.applicant__reach {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.applicant__hint {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.applicant__contact {
+  border-top: var(--border-hairline) solid var(--border-subtle);
+  padding-top: var(--space-3);
+}
+.applicant__granted {
+  display: grid;
+  gap: var(--space-3);
+}
+.applicant__granted-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.applicant__until {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.applicant__reveal {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+.applicant__engaged,
+.applicant__unlock {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+.applicant__neutral {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.applicant__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.reveal-card {
+  width: 100%;
+}
+.reveal-card__lead {
+  margin: 0 0 var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.reveal-card__lead strong {
+  color: var(--text-primary);
+}
+.reveal-card__dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+}
+.reveal-card__dl dt {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.reveal-card__dl dd {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+}
+
 /* Inline per-action loading spinner (unlock / reveal / resume). Decorative — the button's
    live status text ("Unlocking…") carries the meaning; aria-hidden keeps it out of SR output. */
 .spinner {
