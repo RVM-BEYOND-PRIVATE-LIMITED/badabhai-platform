@@ -17,6 +17,10 @@ export default tseslint.config(
       "apps/worker-app/**",
       // Claude Code harness (hooks/config/docs) — not application source.
       ".claude/**",
+      // Design-system REFERENCE material (browser-global JSX/JS demos, templates,
+      // ui_kits) — not application source; it has its own `_adherence.oxlintrc.json`
+      // and is consumed by porting, not by linting it as repo source.
+      "docs/design/**",
     ],
   },
   js.configs.recommended,
@@ -64,6 +68,47 @@ export default tseslint.config(
         setTimeout: "readonly",
         Buffer: "readonly",
       },
+    },
+  },
+  {
+    // DESIGN-SYSTEM ADHERENCE (DS4.3) — payer-web is built entirely from the BadaBhai
+    // design tokens. Raw hex colors and raw `px` sizes in the UI source are a regression:
+    // they don't flow through the token layer and don't flip under [data-theme="ink"].
+    // These two rules are lifted from the design system's `_adherence.oxlintrc.json`
+    // (which is ESLint `no-restricted-syntax` syntax) and run here under the repo's
+    // ESLint — oxlint itself does NOT implement `no-restricted-syntax`, so ESLint is the
+    // enforcer (the existing `pnpm lint` / CI Lint step gates it); oxlint runs separately
+    // as a fast supplementary lint. The component prop-restriction selectors from that
+    // config are intentionally NOT enabled — the DS primitives extend HTMLAttributes and
+    // legitimately forward `id`/`aria-*`/`onClick`/`value`/… via `...rest`, which those
+    // selectors would false-positive on. Color/size token *values* live in CSS, so the
+    // token files + the `.bb-*` component CSS (the design-system source of truth) are out
+    // of scope here (ESLint lints TS/TSX only).
+    files: ["apps/payer-web/src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "Literal[value=/#[0-9a-fA-F]{3,8}\\b/]",
+          message: "Raw hex color — use a design-system color token via var() (DS adherence).",
+        },
+        {
+          selector: "Literal[value=/\\b\\d+px\\b/]",
+          message: "Raw px value — use a design-system spacing/size token via var() (DS adherence).",
+        },
+      ],
+    },
+  },
+  {
+    // Tests + the DS stories harness legitimately reference raw hex/px in assertions
+    // (e.g. matching `#E0371C` / `width:52px` in rendered output) — the adherence gate
+    // applies to SHIPPED UI source, not the checks that police it.
+    files: [
+      "apps/payer-web/**/*.{test,spec}.{ts,tsx}",
+      "apps/payer-web/**/*.stories.{ts,tsx}",
+    ],
+    rules: {
+      "no-restricted-syntax": "off",
     },
   },
 );

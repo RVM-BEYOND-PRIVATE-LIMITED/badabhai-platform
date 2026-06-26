@@ -43,3 +43,4 @@
 - [ ] No phone/name/address/employer/ID sent to any LLM
 - [ ] Every important new endpoint emits a validated event
 - [ ] Docs/README updated where needed
+- [ ] **Design-system adherence** (any `apps/payer-web` UI change): no raw hex/px — values resolve from tokens (the `pnpm lint` adherence rule + `pnpm lint:oxlint` enforce this); ran the `bb-ui-review` skill
