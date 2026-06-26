@@ -22,6 +22,7 @@ import {
   WhatsAppLoginChannel,
   SupabaseLoginChannel,
 } from "../payers/payer-login-channel";
+import { ZeptoMailEmailLoginChannel } from "../payers/zeptomail-email-login-channel";
 import { PayerUnlocksController } from "./payer-unlocks.controller";
 import { PayerCapacityController } from "./payer-capacity.controller";
 import { PayerAuthController } from "./payer-auth.controller";
@@ -86,6 +87,7 @@ import { PayerAuthService } from "./payer-auth.service";
     PayerDisclosureRateLimit,
     // The login channel implementations + the WhatsApp provider seam they ride.
     MockEmailLoginChannel,
+    ZeptoMailEmailLoginChannel,
     WhatsAppLoginChannel,
     SupabaseLoginChannel,
     MockWhatsAppProvider,
@@ -104,13 +106,23 @@ import { PayerAuthService } from "./payer-auth.service";
     },
     {
       // The ACTIVE payer login channel, selected by PAYER_LOGIN_METHOD (ADR-0019 B-R1).
-      // `supabase` is the config-gated adapter — assertPayerAuthConfig fails boot closed if
-      // it is selected without keys, and the adapter is inert (throws) in this build.
+      // For "email_otp" the REAL ZeptoMail/SMTP channel is chosen when EMAIL_PROVIDER!="none"
+      // (the boot guard guarantees the creds then — assertPayerAuthConfig/emailProviderBlockedReason);
+      // EMAIL_PROVIDER="none" keeps the alpha MOCK channel (the default). `supabase` is the
+      // config-gated adapter — assertPayerAuthConfig fails boot closed if selected without
+      // keys, and the adapter is inert (throws) in this build.
       provide: PAYER_LOGIN_CHANNEL,
-      inject: [SERVER_CONFIG, MockEmailLoginChannel, WhatsAppLoginChannel, SupabaseLoginChannel],
+      inject: [
+        SERVER_CONFIG,
+        MockEmailLoginChannel,
+        ZeptoMailEmailLoginChannel,
+        WhatsAppLoginChannel,
+        SupabaseLoginChannel,
+      ],
       useFactory: (
         config: ServerConfig,
-        email: MockEmailLoginChannel,
+        mockEmail: MockEmailLoginChannel,
+        realEmail: ZeptoMailEmailLoginChannel,
         whatsapp: WhatsAppLoginChannel,
         supabase: SupabaseLoginChannel,
       ): PayerLoginChannel => {
@@ -120,7 +132,8 @@ import { PayerAuthService } from "./payer-auth.service";
           case "supabase":
             return supabase;
           default:
-            return email; // "email_otp"
+            // "email_otp": REAL provider when configured, else the alpha MOCK (default).
+            return config.EMAIL_PROVIDER !== "none" ? realEmail : mockEmail;
         }
       },
     },
