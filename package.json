@@ -24,6 +24,8 @@
     "db:studio": "pnpm --filter @badabhai/db db:studio",
     "db:up": "docker compose up -d postgres redis",
     "db:down": "docker compose down",
+    "staging:smoke": "node scripts/staging-smoke.mjs",
+    "staging:smoke:test": "node --test scripts/staging-smoke.test.mjs",
     "clean": "turbo run clean && rimraf node_modules"
   },
   "devDependencies": {

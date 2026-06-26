@@ -1,0 +1,184 @@
+# Persistent-staging CD for @badabhai/api — GUARDED / INERT BY DEFAULT (BLOCKER #1).
+#
+# Stands up the PERSISTENT staging API end-to-end: build -> migrate -> trigger the
+# host's deploy -> smoke the PUBLIC URL (/health + mock-OTP). Companion runbook:
+# docs/ops/staging-service-deploy-runbook.md (the SERVICE runbook; the EPHEMERAL
+# demand-loop proof is staging-demand-verify.yml + bug2-staging-demand-deploy-runbook.md).
+#
+# IT IS INERT UNTIL A HUMAN WIRES STAGING (mirrors staging-demand-verify.yml):
+#   - manual trigger ONLY (workflow_dispatch); no push/PR triggers.
+#   - it reads its secrets from the GitHub `staging` ENVIRONMENT secrets.
+#   - the FIRST "guard" step checks the required secrets are present. If ANY is empty
+#     it prints a clear "staging not wired" ::notice:: and exits 0 (no-op, wired=false)
+#     WITHOUT building/migrating/deploying — so it cannot run half-configured.
+#   To activate: create the `staging` GitHub Environment and add the secrets listed
+#   in the guard step (and the runbook's env-var table).
+#
+# ────────────────────────────────────────────────────────────────────────────────
+# POSTURE = "Mode A + strong injected secrets" (interim; see runbook POSTURE box):
+#   NODE_ENV=development ON PURPOSE — it is the ONLY way the console mock-OTP path
+#   (which echoes `dev_otp`) BOOTS, because assertAuthConfig
+#   (packages/config/src/server.ts) FAILS boot if SMS_PROVIDER=console outside dev.
+#   We COMPENSATE by injecting STRONG REAL secrets from the `staging` environment
+#   anyway — a real JWT_SECRET (sessions non-forgeable) + real PII_ENCRYPTION_KEY /
+#   PII_HASH_PEPPER (crypto is real). All real-provider gates STAY false. The env is
+#   SYNTHETIC-DATA-ONLY + TEAM-RESTRICTED (must NOT be internet-public with real PII).
+#   True NODE_ENV=staging strength WITH mock-OTP needs a staging-safe `mock` SMS
+#   provider — the Mode-C fast-follow tracked as TD52.
+# ────────────────────────────────────────────────────────────────────────────────
+#
+# MOCK-ONLY (non-negotiable): PAYMENTS_ENABLE_REAL / AI_ENABLE_REAL_CALLS /
+# MESSAGING_ENABLE_REAL are forced false here. Flipping any provider is a separate
+# CLAUDE.md §7 gate and is OUT of scope.
+#
+# A GitHub Actions runner is EPHEMERAL — it CANNOT host the persistent API. This job's
+# role is: build -> migrate the disposable staging DB -> TRIGGER the host's deploy
+# (optional webhook) -> smoke the public URL. The host (Render/Railway/Fly/Coolify/VM)
+# is the human's choice; the deploy is modeled as a STAGING_DEPLOY_HOOK_URL webhook and
+# is SKIPPED with a notice when unset (the host may auto-deploy from the repo, or the
+# human deploys via their own CLI — a documented seam, see the runbook).
+
+name: Staging CD (persistent @badabhai/api)
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: staging-cd
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build -> migrate -> deploy -> smoke (Mode A, mock-only)
+    runs-on: ubuntu-latest
+    # Bind to the protected `staging` environment; secrets resolve from it.
+    environment: staging
+    env:
+      # ---- Pulled from the `staging` GitHub Environment SECRETS. Empty until wired. ----
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      PII_ENCRYPTION_KEY: ${{ secrets.PII_ENCRYPTION_KEY }}
+      PII_HASH_PEPPER: ${{ secrets.PII_HASH_PEPPER }}
+      INTERNAL_SERVICE_TOKEN: ${{ secrets.INTERNAL_SERVICE_TOKEN }}
+      # A REAL JWT_SECRET is injected even in Mode A so worker/payer sessions are
+      # non-forgeable (the dev default would let anyone forge a session).
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      # REDIS_URL backs the OTP per-IP cap + HMAC code store (and the BullMQ client);
+      # the mock-OTP smoke implicitly proves it is reachable.
+      REDIS_URL: ${{ secrets.REDIS_URL }}
+      # The PUBLIC HTTPS base URL of the persistent staging API (what the smoke hits,
+      # what the handset/payer-web point at). Set by the human after the host is up.
+      STAGING_API_BASE_URL: ${{ secrets.STAGING_API_BASE_URL }}
+      # OPTIONAL managed-host deploy webhook. Empty => skip the deploy with a notice
+      # (the host auto-deploys from the repo, or the human deploys via their host CLI).
+      STAGING_DEPLOY_HOOK_URL: ${{ secrets.STAGING_DEPLOY_HOOK_URL }}
+
+      # ---- Mode-A posture (plain workflow env — NOT secrets). See the POSTURE box. ----
+      # NODE_ENV=development is DELIBERATE: it is the only way SMS_PROVIDER=console boots
+      # so the console mock-OTP path echoes `dev_otp` (assertAuthConfig forbids console
+      # outside dev). Strong JWT_SECRET + PII keys are STILL injected from secrets above,
+      # so sessions are non-forgeable and crypto is real — the env is synthetic-only +
+      # team-restricted to compensate. True NODE_ENV=staging + mock-OTP = TD52 (Mode C).
+      NODE_ENV: development
+      SMS_PROVIDER: "console"
+      # Mock-only provider gates — forced false (real providers are a separate §7 gate).
+      PAYMENTS_ENABLE_REAL: "false"
+      AI_ENABLE_REAL_CALLS: "false"
+      MESSAGING_ENABLE_REAL: "false"
+    steps:
+      # ---- GUARD: inert until the `staging` environment + secrets exist ----
+      # If any REQUIRED secret is empty, no-op (exit 0) without building/migrating/
+      # deploying. STAGING_DEPLOY_HOOK_URL is OPTIONAL and is NOT part of this gate.
+      - name: Check staging is wired (else no-op)
+        id: guard
+        run: |
+          missing=""
+          [ -z "$DATABASE_URL" ] && missing="$missing DATABASE_URL"
+          [ -z "$PII_ENCRYPTION_KEY" ] && missing="$missing PII_ENCRYPTION_KEY"
+          [ -z "$PII_HASH_PEPPER" ] && missing="$missing PII_HASH_PEPPER"
+          [ -z "$INTERNAL_SERVICE_TOKEN" ] && missing="$missing INTERNAL_SERVICE_TOKEN"
+          [ -z "$JWT_SECRET" ] && missing="$missing JWT_SECRET"
+          [ -z "$REDIS_URL" ] && missing="$missing REDIS_URL"
+          [ -z "$STAGING_API_BASE_URL" ] && missing="$missing STAGING_API_BASE_URL"
+          if [ -n "$missing" ]; then
+            echo "::notice::staging environment not wired — exiting (no-op). Missing secrets:$missing"
+            echo "Create the 'staging' GitHub Environment and add: DATABASE_URL, PII_ENCRYPTION_KEY, PII_HASH_PEPPER, INTERNAL_SERVICE_TOKEN, JWT_SECRET, REDIS_URL, STAGING_API_BASE_URL (STAGING_DEPLOY_HOOK_URL optional). See docs/ops/staging-service-deploy-runbook.md."
+            echo "wired=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "staging environment wired — proceeding with build/migrate/deploy/smoke."
+            echo "wired=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.guard.outputs.wired == 'true'
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        if: steps.guard.outputs.wired == 'true'
+        # No `version:` on purpose — it would conflict with the `packageManager` field
+        # in package.json (ERR_PNPM_BAD_PM_VERSION). package.json's
+        # `packageManager: pnpm@11.5.2` is the single source. (Mirrors ci.yml.)
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        if: steps.guard.outputs.wired == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        if: steps.guard.outputs.wired == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # ---- BUILD: API + its workspace deps only; the Next.js apps fail `next build`
+      #      under NODE_ENV=development and the API loop does not need them (#136 fix). ----
+      - name: Build API (+ workspace deps) — skip the Next.js apps
+        if: steps.guard.outputs.wired == 'true'
+        run: pnpm --filter "@badabhai/api..." build
+
+      # ---- MIGRATE: apply the full chain to the DISPOSABLE staging DB (DATABASE_URL
+      #      from the staging secret). Migrations run BEFORE the code that assumes them. ----
+      - name: Apply migrations (to head)
+        if: steps.guard.outputs.wired == 'true'
+        run: pnpm db:migrate
+
+      # ---- DEPLOY: trigger the host (optional webhook). NEVER echo the hook URL. ----
+      - name: Trigger host deploy (optional webhook)
+        if: steps.guard.outputs.wired == 'true'
+        run: |
+          if [ -n "$STAGING_DEPLOY_HOOK_URL" ]; then
+            echo "Triggering staging deploy hook…"
+            # -f: fail (non-zero) on HTTP >=400. The URL is NEVER printed (no -v, no echo).
+            curl -fsS -X POST "$STAGING_DEPLOY_HOOK_URL" >/dev/null
+            echo "Deploy hook accepted (POST returned <400)."
+          else
+            echo "::notice::no STAGING_DEPLOY_HOOK_URL set — skipping the deploy trigger. Your host auto-deploys from the repo, or deploy via your host CLI (see docs/ops/staging-service-deploy-runbook.md). The smoke below still verifies the live URL."
+          fi
+
+      # ---- SMOKE: poll /health until 200 (bounded), then the mock-OTP round-trip.
+      #      Fails the job LOUDLY on any miss. The smoke never prints the phone/token/otp. ----
+      - name: Wait for /health (bounded retries)
+        if: steps.guard.outputs.wired == 'true'
+        run: |
+          base="${STAGING_API_BASE_URL%/}"
+          echo "Waiting for ${base}/health to return 200…"
+          ok=""
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "${base}/health" || echo "000")
+            if [ "$code" = "200" ]; then
+              echo "API healthy after ${i} attempt(s)."
+              ok="yes"; break
+            fi
+            echo "  attempt ${i}: /health -> ${code}; retrying in 5s…"
+            sleep 5
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::staging API never returned 200 on /health within the retry budget. Is the host deployed and the URL public?"
+            exit 1
+          fi
+
+      - name: Mock-OTP smoke (/health + OTP round-trip)
+        if: steps.guard.outputs.wired == 'true'
+        # Asserts /health ok, dev_otp present (PROVES mock-OTP mode), verify -> token, /auth/me.
+        # Reads STAGING_API_BASE_URL from env; never prints the phone/dev_otp/token.
+        run: node scripts/staging-smoke.mjs

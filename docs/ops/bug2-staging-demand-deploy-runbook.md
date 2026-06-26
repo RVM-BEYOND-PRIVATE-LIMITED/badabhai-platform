@@ -380,6 +380,9 @@ After rollback, confirm `GET /health` → `real_calls_enabled: false`. The full 
   This runbook is the deploy side; that doc is the verdict side. Do not duplicate it.
 - [b1-device-capstone-runbook.md](../qa/b1-device-capstone-runbook.md) — the staging-prereq
   pattern (no HTTPS staging URL exists yet; devops must provide one).
+- [staging-service-deploy-runbook.md](./staging-service-deploy-runbook.md) — the **persistent**
+  staging SERVICE stand-up (this doc is the *ephemeral* demand-loop proof; that one is the long-lived
+  API that B1/runtime-verify point at) + [staging-cd.yml](../../.github/workflows/staging-cd.yml).
 - [ADR-0010](../decisions/0010-contact-unlock-and-reveal.md) — contact unlock + reveal spine.
 - [ADR-0013](../decisions/0013-monetization-and-config-driven-pricing-engine.md) — pricing /
   credits, mock payments.
