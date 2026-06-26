@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 /**
  * Tenancy + no-raw-phone tests for the payer data seam (ADR-0019 XB-A / ADR-0010 F-4).
@@ -451,9 +453,9 @@ describe("createPosting — LIVE: org_label from /payer/me, faceless body, PII d
       }
       return Promise.resolve(jsonResponse(jobPostingRow(), 201));
     });
-    const { createPosting } = await import("./payer-api");
-    const res = await createPosting({
-      tradeKey: "cnc_operator",
+    const { createPosting, toPayerJobPostingBody } = await import("./payer-api");
+    const input = {
+      tradeKey: "cnc_operator" as const,
       roleTitle: "CNC Machinist",
       locationLabel: "Pune, MH",
       description: "Two-shift CNC role, PPE provided.",
@@ -462,7 +464,8 @@ describe("createPosting — LIVE: org_label from /payer/me, faceless body, PII d
       payMax: 35000,
       minExperienceYears: 1,
       maxExperienceYears: 5,
-    });
+    };
+    const res = await createPosting(input);
 
     const postCall = fetchMock.mock.calls.find(
       (c) => (c[0] as string).endsWith("/payer/job-postings") && (c[1] as RequestInit | undefined)?.method === "POST",
@@ -473,11 +476,14 @@ describe("createPosting — LIVE: org_label from /payer/me, faceless body, PII d
     expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
 
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
-    // org_label is the SESSION org (from /payer/me), and EXACTLY ONE of vacancy_band|vacancies (raw count).
+    // STRONG CONTRACT: the posted body is EXACTLY the toPayerJobPostingBody mapper output for
+    // this input + the SESSION org (from /payer/me) — same keys, same values, no extras. This
+    // pins "exactly one of vacancy_band|vacancies + no payer_id/created_by" via the mapper itself.
+    expect(body).toEqual(toPayerJobPostingBody(input, "Acme Manufacturing"));
+    // Spelled out for readability (subsumed by the deep-equal above):
     expect(body.org_label).toBe("Acme Manufacturing");
     expect(body.vacancies).toBe(7);
     expect(body).not.toHaveProperty("vacancy_band");
-    // XB-A: no client tenancy ids; no not-yet-accepted demand fields.
     expect(body).not.toHaveProperty("payer_id");
     expect(body).not.toHaveProperty("created_by");
     expect(body).not.toHaveProperty("trade_key");
@@ -666,5 +672,41 @@ describe("getApplicantFeed — surfaces faceless taxonomy bands (PR-4), null -> 
     const a = (await getApplicantFeed(JOB))!.applicants[0]!;
     expect(a.workerId).toBe(WORKER);
     expect(a.tradeLabel).toBeUndefined();
+  });
+});
+
+/**
+ * SOURCE-LEVEL GUARDRAILS — the live-swap is enforced statically, so a regression that
+ * re-points a swapped function at the mock store (or drops the gated-trio flag) fails CI
+ * rather than slipping through. Reads the seam source as text (no execution).
+ */
+describe("live-swap guardrails (source) — swapped funcs are live, gated trio flagged", () => {
+  const src = readFileSync(fileURLToPath(new URL("./payer-api.ts", import.meta.url)), "utf8");
+
+  it("the swapped company-posting reads/writes no longer route through the mock store", () => {
+    // After the swap there is NO store.getPostings / store.createPosting anywhere in the seam —
+    // create/list (and the dashboard/capacity reads) are payer-authed fetches now.
+    expect(src).not.toMatch(/store\.getPostings/);
+    expect(src).not.toMatch(/store\.createPosting/);
+  });
+
+  it("the live posting CRUD goes to the payer-authed /payer/job-postings routes", () => {
+    // The swapped functions hit the live route family (a regression to a mock shim drops these).
+    expect(src).toMatch(/payerFetch\("\/payer\/job-postings"/); // create (POST) + list (GET)
+    expect(src).toMatch(/payerFetch\(`\/payer\/job-postings\/\$\{postingId\}`/); // get-one + edit
+    expect(src).toMatch(/payerFetch\(`\/payer\/job-postings\/\$\{postingId\}\/close`/); // close
+  });
+
+  it("the gated lifecycle trio is EXPLICITLY flagged (LIVE-SWAP BLOCKED), not silently broken", () => {
+    // One marker per pausePosting / resumePosting / topUpPostingQuota — the trio is knowingly
+    // deferred (no payer-authed route), never quietly left half-working.
+    const markers = src.match(/LIVE-SWAP BLOCKED/g) ?? [];
+    expect(markers).toHaveLength(3);
+  });
+
+  it("the gated trio STILL routes to the mock store (it is intact, not removed)", () => {
+    expect(src).toMatch(/store\.pausePosting/);
+    expect(src).toMatch(/store\.resumePosting/);
+    expect(src).toMatch(/store\.topUpPostingQuota/);
   });
 });
