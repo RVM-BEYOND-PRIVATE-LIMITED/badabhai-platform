@@ -55,4 +55,39 @@ ships WITHOUT both.**
   **UN-DEFER TRIGGER:** TD33 closed (real grantor identity/authz) · product+security define
   grant policy + abuse/audit controls · a concrete promo/assisted-hiring program is greenlit.
 
+## Worker-app "Desi Vernacular Pop" alpha — deferred follow-ups (captured 2026-06-26)
+
+The Flutter worker-app build kit landed the 4-tab shell + all 17 screens **mock-backed**
+(go_router StatefulShell, ADR-0023). These are the explicitly out-of-scope items
+(prompt §7); alpha ships WITHOUT them. Each is mock/stub today with the deferral noted at
+the mock source.
+
+**Real endpoints + ADRs (the load-bearing deferrals):**
+- **Worker-facing job feed/detail PII ruling** — the rich card fields (company name, pay
+  band, "spots left") are MOCK-ONLY display data synthesised client-side; employer names
+  are PII (CLAUDE.md §2). A real `/feed`/job-detail exposing these needs an **ADR** first.
+  The real `FeedItem`/`getFeed` path stays PII-free and unchanged today.
+- **Resume safe-fields** — real `GET`/`PATCH` for `{displayName, showPhoto, showPhone,
+  nightShiftReady}` + **photo capture/storage** (DPDP/consent implications) — mock only.
+- **Interview-kit content source** — per-trade metadata + Q&A (DB vs object-store vs
+  bundled); alpha serves a single canned CNC kit + a "coming soon" checklist row.
+- **Filtered-feed query + saved filters** — the Filters sheet is session-only with a MOCK
+  "Show N jobs" count; no real filtered query or persistence.
+- **`GET /my/applications` + employer-viewed/reply signals** — Applied's timeline row 2
+  ("Employer ne dekha") is a static "Pending" placeholder.
+- **Notifications table/source** — Alerts are canned (`mock-*`); new-job / profile-viewed
+  are placeholders for deferred server signals (resume-ready is a local signal).
+- **Settings read/write** + **DPDP account-delete + data-export** — rows are inert
+  ("Jald aa raha hai"); account-delete is a confirmation-dialog stub (no-op).
+
+**Built-screen parity not in this batch:**
+- Splash language picker; OTP segmented cells + resend timer; Resume **Download-PDF** /
+  **WhatsApp-share** buttons (only the safe-field edit entry-point shipped); chat
+  form-popup (hybrid profiling card); profile-strength on the profiling ProfilePreview;
+  `BbButton` 3D-press affordance (skipped to avoid regressing the themed FilledButton).
+
+**Deferred capabilities:** photo capture/storage (PII/consent); real swipe→backend
+application events; real resume download. Drop-off analytics (Firebase Crashlytics +
+Analytics, requirement #19) is a separate, not-yet-started task.
+
 > When an item here is picked up, move it into a sprint plan / ADR and link back.
