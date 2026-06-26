@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import { looksLikePii } from "@badabhai/validators";
 import { TRADE_KEYS } from "../../../../lib/contracts";
 import { tradeLabel } from "../../../../lib/agency-view";
+import { bandForVacancies, baseApplicantQuotaForBand } from "../../../../lib/pricing-config";
+import { Badge, Button, Card, Chip, Input, Select, Textarea } from "../../../../components/ds";
 import { createPostingAction } from "./actions";
 
 /**
- * Client form for posting a job (EMPLOYER self-serve). Free-through-launch copy comes
- * from the server page.
+ * Client form for posting a job (EMPLOYER self-serve), re-skinned onto the BadaBhai Design
+ * System (DS2.1 — VISUAL layer only). Free-through-launch copy comes from the server page.
  *
  * Brought to DEMAND-schema parity with the agency job form: a trade enum, ordered
  * C10-bounded ₹ pay bands, ordered bounded experience years, plus role/location/
@@ -21,6 +23,10 @@ import { createPostingAction } from "./actions";
  * `createPostingInputSchema` (mirrored by the action's server Zod) stays the AUTHORITY;
  * this inline `validate()` is UX parity (C9) — per-field + cross-field errors before a
  * round-trip, plus a client-side PII heuristic on the only free-text field (description).
+ * The submit BODY shape + every validation/seam behaviour are UNCHANGED by the re-skin:
+ * `createPostingAction` still sends EXACTLY ONE of vacancy_band|vacancies (the RAW count)
+ * and NEVER payer_id/created_by. The derived band/quota below are DISPLAY-only (config-
+ * sourced) — they are never added to what is sent.
  */
 
 const PAY_MAX_INR = 10_000_000; // ₹/month sanity ceiling — parity with contracts.ts / agency form
@@ -199,184 +205,146 @@ export function PostingForm() {
 
   const submitDisabled = pending || navigating || !isValid;
 
+  // DISPLAY-only, CONFIG-sourced (never sent): the local frontend band derived from the raw
+  // count, and the base applicant quota that band starts with. `bandForVacancies` /
+  // `baseApplicantQuotaForBand` read the pricing config — no literal band/quota here. Shown
+  // only once a valid positive-int count is entered (the band fails-closed to the smallest).
+  const vacanciesNum = Number(fields.vacancies.trim());
+  const hasVacancies =
+    fields.vacancies.trim() !== "" && Number.isInteger(vacanciesNum) && vacanciesNum >= 1;
+  const derivedBand = hasVacancies ? bandForVacancies(vacanciesNum) : null;
+  const derivedQuota = derivedBand !== null ? baseApplicantQuotaForBand(derivedBand) : null;
+
   return (
-    <form className="form" onSubmit={onSubmit}>
-      <div className="field">
-        <label htmlFor="tradeKey">
-          Trade<span className="req">*</span>
-        </label>
-        <select
-          id="tradeKey"
-          className="input"
-          value={fields.tradeKey}
-          onChange={(e) => set("tradeKey", e.target.value)}
-        >
-          {TRADE_KEYS.map((t) => (
-            <option key={t} value={t}>
-              {tradeLabel(t)}
-            </option>
-          ))}
-        </select>
-      </div>
+    <Card as="form" className="posting-form" onSubmit={onSubmit}>
+      <Select
+        id="tradeKey"
+        label="Trade"
+        value={fields.tradeKey}
+        onChange={(e) => set("tradeKey", e.target.value)}
+      >
+        {TRADE_KEYS.map((t) => (
+          <option key={t} value={t}>
+            {tradeLabel(t)}
+          </option>
+        ))}
+      </Select>
 
-      <div className="field">
-        <label htmlFor="roleTitle">
-          Role title<span className="req">*</span>
-        </label>
-        <input
-          id="roleTitle"
-          className="input"
-          placeholder="CNC Machinist"
-          value={fields.roleTitle}
-          aria-invalid={fieldErrors.roleTitle ? true : undefined}
-          aria-describedby={fieldErrors.roleTitle ? "roleTitle-error" : undefined}
-          onChange={(e) => set("roleTitle", e.target.value)}
-        />
-        {fieldErrors.roleTitle ? (
-          <p className="error-text" id="roleTitle-error">
-            {fieldErrors.roleTitle}
-          </p>
-        ) : null}
-      </div>
+      <Input
+        id="roleTitle"
+        label="Role title"
+        placeholder="CNC Machinist"
+        value={fields.roleTitle}
+        error={fieldErrors.roleTitle}
+        aria-invalid={fieldErrors.roleTitle ? true : undefined}
+        onChange={(e) => set("roleTitle", e.target.value)}
+      />
 
-      <div className="field">
-        <label htmlFor="locationLabel">Location</label>
-        <input
-          id="locationLabel"
-          className="input"
-          placeholder="Pune, MH"
-          value={fields.locationLabel}
-          onChange={(e) => set("locationLabel", e.target.value)}
-        />
-      </div>
+      <Input
+        id="locationLabel"
+        label="Location"
+        optional
+        placeholder="Pune, MH"
+        value={fields.locationLabel}
+        onChange={(e) => set("locationLabel", e.target.value)}
+      />
 
-      <div className="field">
-        <label htmlFor="vacancies">
-          Vacancies<span className="req">*</span>
-        </label>
-        <input
+      <div className="posting-form__vacancies">
+        <Input
           id="vacancies"
-          className="input"
+          label="Vacancies"
           inputMode="numeric"
           placeholder="5"
           value={fields.vacancies}
+          error={fieldErrors.vacancies}
           aria-invalid={fieldErrors.vacancies ? true : undefined}
-          aria-describedby={fieldErrors.vacancies ? "vacancies-error" : undefined}
+          hint="How many people you need. We store this as a coarse band, never the exact count."
           onChange={(e) => set("vacancies", e.target.value)}
         />
-        {fieldErrors.vacancies ? (
-          <p className="error-text" id="vacancies-error">
-            {fieldErrors.vacancies}
-          </p>
+        {derivedBand !== null ? (
+          <div className="posting-form__band" aria-live="polite">
+            <Chip icon="users-three" aria-disabled="true" tabIndex={-1}>
+              Band {derivedBand}
+            </Chip>
+            {derivedQuota !== null ? (
+              <Badge tone="brand">
+                <span className="bb-mono">{derivedQuota}</span> applicant slots
+              </Badge>
+            ) : null}
+          </div>
         ) : null}
-        <p className="page-sub" style={{ margin: "4px 0 0" }}>
-          How many people you need. We store this as a coarse band, never the exact count.
-        </p>
       </div>
 
-      <div className="field">
-        <label htmlFor="payMin">Pay band — min (₹ / month)</label>
-        <input
+      <div className="posting-form__pair">
+        <Input
           id="payMin"
-          className="input"
+          label="Pay band — min (₹ / month)"
+          optional
           inputMode="numeric"
           placeholder="20000"
           value={fields.payMin}
+          error={fieldErrors.payMin}
           aria-invalid={fieldErrors.payMin ? true : undefined}
-          aria-describedby={fieldErrors.payMin ? "payMin-error" : undefined}
           onChange={(e) => set("payMin", e.target.value)}
         />
-        {fieldErrors.payMin ? (
-          <p className="error-text" id="payMin-error">
-            {fieldErrors.payMin}
-          </p>
-        ) : null}
-      </div>
-
-      <div className="field">
-        <label htmlFor="payMax">Pay band — max (₹ / month)</label>
-        <input
+        <Input
           id="payMax"
-          className="input"
+          label="Pay band — max (₹ / month)"
+          optional
           inputMode="numeric"
           placeholder="35000"
           value={fields.payMax}
+          error={fieldErrors.payMax}
           aria-invalid={fieldErrors.payMax ? true : undefined}
-          aria-describedby={fieldErrors.payMax ? "payMax-error" : undefined}
           onChange={(e) => set("payMax", e.target.value)}
         />
-        {fieldErrors.payMax ? (
-          <p className="error-text" id="payMax-error">
-            {fieldErrors.payMax}
-          </p>
-        ) : null}
       </div>
 
-      <div className="field">
-        <label htmlFor="minExperienceYears">Experience — min (years)</label>
-        <input
+      <div className="posting-form__pair">
+        <Input
           id="minExperienceYears"
-          className="input"
+          label="Experience — min (years)"
+          optional
           inputMode="numeric"
           placeholder="1"
           value={fields.minExperienceYears}
+          error={fieldErrors.minExperienceYears}
           aria-invalid={fieldErrors.minExperienceYears ? true : undefined}
-          aria-describedby={fieldErrors.minExperienceYears ? "minExperienceYears-error" : undefined}
           onChange={(e) => set("minExperienceYears", e.target.value)}
         />
-        {fieldErrors.minExperienceYears ? (
-          <p className="error-text" id="minExperienceYears-error">
-            {fieldErrors.minExperienceYears}
-          </p>
-        ) : null}
-      </div>
-
-      <div className="field">
-        <label htmlFor="maxExperienceYears">Experience — max (years)</label>
-        <input
+        <Input
           id="maxExperienceYears"
-          className="input"
+          label="Experience — max (years)"
+          optional
           inputMode="numeric"
           placeholder="5"
           value={fields.maxExperienceYears}
+          error={fieldErrors.maxExperienceYears}
           aria-invalid={fieldErrors.maxExperienceYears ? true : undefined}
-          aria-describedby={fieldErrors.maxExperienceYears ? "maxExperienceYears-error" : undefined}
           onChange={(e) => set("maxExperienceYears", e.target.value)}
         />
-        {fieldErrors.maxExperienceYears ? (
-          <p className="error-text" id="maxExperienceYears-error">
-            {fieldErrors.maxExperienceYears}
-          </p>
-        ) : null}
       </div>
 
-      <div className="field">
-        <label htmlFor="description">Description</label>
-        <textarea
-          id="description"
-          className="input"
-          placeholder="Shift timings, machines, location notes…"
-          value={fields.description}
-          aria-invalid={fieldErrors.description ? true : undefined}
-          aria-describedby={fieldErrors.description ? "description-error" : undefined}
-          onChange={(e) => set("description", e.target.value)}
-        />
-        {fieldErrors.description ? (
-          <p className="error-text" id="description-error">
-            {fieldErrors.description}
-          </p>
-        ) : null}
-        <p className="page-sub" style={{ margin: "4px 0 0" }}>
-          Never include a phone number or email — share contact only after you unlock a candidate.
-        </p>
-      </div>
+      <Textarea
+        id="description"
+        label="Description"
+        optional
+        placeholder="Shift timings, machines, location notes…"
+        value={fields.description}
+        error={fieldErrors.description}
+        aria-invalid={fieldErrors.description ? true : undefined}
+        hint="Never include a phone number or email — share contact only after you unlock a candidate."
+        onChange={(e) => set("description", e.target.value)}
+      />
 
-      <div className="btn-row">
-        <button className="btn" type="submit" disabled={submitDisabled}>
+      <div className="posting-form__actions">
+        <Button type="submit" disabled={submitDisabled} loading={pending || navigating}>
           {pending || navigating ? "Posting…" : "Post job"}
-        </button>
+        </Button>
       </div>
-      <div aria-live="polite">{error ? <p className="error-text">{error}</p> : null}</div>
-    </form>
+      <div aria-live="polite" className="posting-form__status">
+        {error ? <p className="posting-form__error">{error}</p> : null}
+      </div>
+    </Card>
   );
 }

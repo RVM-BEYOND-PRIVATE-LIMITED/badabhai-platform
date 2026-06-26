@@ -863,6 +863,62 @@ textarea.input {
   font-size: var(--text-sm);
 }
 
+/* ------------------------------------------------------------------
+ * POST A JOB (DS2.1) — the EMPLOYER posting form + page notes re-skinned onto the
+ * design system. The form is a DS Card whose fields are DS Input/Select/Textarea; the
+ * derived vacancy band is a DS Chip + the applicant quota a DS Badge (both config-
+ * sourced, DISPLAY-only — never sent). Every value resolves from tokens (no raw hex/px).
+ * Visual layer only; the submit body shape + validation/seam behaviour are unchanged.
+ * ------------------------------------------------------------------ */
+.posting-note {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  margin: var(--space-4) 0;
+}
+.posting-note__msg {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.posting-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-width: var(--reading-max);
+}
+.posting-form__pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-4) var(--space-5);
+}
+.posting-form__vacancies {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.posting-form__band {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.posting-form__actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.posting-form__status:empty {
+  display: none;
+}
+.posting-form__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
 /* Transient unlock-RESULT toast region (DS1.5) — fixed bottom-right; faceless, no-oracle copy. */
 .unlock-toast-region {
   position: fixed;
