@@ -8,27 +8,31 @@ import { maskedResumeAction, revealContactAction, unlockAction } from "./actions
 
 /**
  * Client interactivity for the faceless applicant pipeline + unlock + reveal (ADR-0019
- * Decision E).
+ * Decision E) — hardened to production quality on the SAME #145 row state (no new endpoint).
  *
  * Runs in the BROWSER and sees NO secret. It calls the Server Actions, which bind to
- * the server-held payer (the payer JWT, XB-A) and return only PII-free, already-mapped
- * views.
+ * the server-held payer (the payer JWT, XB-A) and return only PII-free, already-mapped views.
  *
- * PIPELINE (LOCAL ONLY): a two-stage New → Shortlist board over the existing faceless
- * feed. Keep (New→Shortlist) and Pass (dismiss) are pure CLIENT stage transitions — NO
- * network call, no event, nothing persisted. The backend's best-first order is preserved
- * (we only filter the already-sorted feed by stage) and the engine's `hot` boolean is
- * rendered AS-IS — we never recompute a percentile client-side (ranking is backend-owned).
+ * PIPELINE (LOCAL ONLY): a two-stage New → Shortlist board over the existing faceless feed.
+ * Keep (New→Shortlist), Pass (dismiss), and "Mark as contacted" are pure CLIENT transitions —
+ * NO network call, no event, nothing persisted. The backend's best-first order is preserved
+ * (we only filter the already-sorted feed by stage) and the engine's `hot` boolean is rendered
+ * AS-IS — we NEVER recompute a percentile or re-sort client-side (ranking is backend-owned).
  *
- * CONTACT (GATED): Call / WhatsApp are contact affordances that stay DISABLED until the
- * existing Unlock → reveal flow has returned a ROUTED relay handle for that row
- * (`row.contact.kind === "routed"`). They reuse that relay — they NEVER carry a phone
- * (ADR-0010 F-4: the ContactView type has no phone/number field; the channel is only
- * `in_app_relay` / `proxy_number`).
+ * CONTACT (GATED): Call / WhatsApp stay DISABLED until the existing Unlock → reveal flow has
+ * returned a ROUTED relay handle for that row (`row.contact.kind === "routed"`). They reuse
+ * that relay — NEVER a phone (ADR-0010 F-4: ContactView has no phone/number field; the channel
+ * is only `in_app_relay` / `proxy_number`). "Mark as contacted" rides the SAME already-confirmed
+ * spend (the unlock) — it never re-spends, re-prompts, or calls the network.
  *
- * NO-ORACLE (XB-C): an "unavailable" renders ONE neutral message — no branch infers the
- * cause. NO-LOG: nothing logs the result / handle / payer id. Confirm-on-spend (C11):
- * only the FIRST unlock per row prompts.
+ * LOADING: busy / contactBusy / resumeBusy each surface an INLINE spinner + `aria-busy` +
+ * disabled on their OWN action while it is pending; the error region stays aria-live for SRs.
+ *
+ * NO-ORACLE (XB-C): an "unavailable" unlock renders ONE neutral "Currently engaged" state —
+ * IDENTICAL copy for capped / unknown / no-consent / already-unlocked (the mapper collapses
+ * them; no branch here infers the cause). A transient action FAILURE renders a retryable inline
+ * error and NEVER blanks the row or the feed. NO-LOG: nothing logs the result / handle / payer
+ * id. Confirm-on-spend (C11): only the FIRST unlock per row prompts.
  */
 
 type Stage = "new" | "shortlist";
@@ -46,6 +50,8 @@ interface RowState {
   resumeError: string | null;
   /** Which routed-relay modality the payer chose to reach out on (LOCAL; never a phone). */
   reach: "call" | "whatsapp" | null;
+  /** LOCAL "contacted" marker — set after a routed reveal; rides the already-spent unlock. */
+  contacted: boolean;
 }
 
 const EMPTY: RowState = {
@@ -59,11 +65,21 @@ const EMPTY: RowState = {
   resume: null,
   resumeError: null,
   reach: null,
+  contacted: false,
 };
 
 function day(ts: string): string {
   const d = new Date(ts);
   return Number.isNaN(d.getTime()) ? ts : d.toISOString().slice(0, 10);
+}
+
+/**
+ * Inline, DECORATIVE loading spinner. `aria-hidden` keeps it out of SR output — the button's
+ * live status text ("Unlocking…") + `aria-busy` carry the pending meaning. Honors
+ * prefers-reduced-motion via CSS (the animation is disabled there).
+ */
+function Spinner() {
+  return <span className="spinner" aria-hidden="true" />;
 }
 
 export function ApplicantActions({
@@ -105,6 +121,13 @@ export function ApplicantActions({
   // NEVER dials a phone (there is none) and makes no network call.
   function onReach(workerId: string, modality: "call" | "whatsapp") {
     patch(workerId, { reach: modality });
+  }
+
+  // Mark-as-contacted: a LOCAL visual transition (the sibling of Keep→Shortlist). It is reachable
+  // ONLY once a routed handle exists, so it rides the ALREADY-confirmed unlock spend (C11) — it
+  // never re-spends, never re-prompts, and makes NO network call. Nothing is persisted/evented.
+  function onContacted(workerId: string) {
+    patch(workerId, { contacted: true });
   }
 
   async function onUnlock(workerId: string) {
@@ -186,10 +209,12 @@ export function ApplicantActions({
       </div>
 
       {visible.length === 0 ? (
+        // Per-stage empty copy: New and Shortlist each show their OWN neutral message (the
+        // page-level "no applicants on this posting yet" lives in page.tsx). Faceless — no PII.
         <div className="empty">
           {activeStage === "new"
-            ? "No new candidates — Kept candidates are in Shortlist."
-            : "No shortlisted candidates yet. Use Keep on a New candidate to add them here."}
+            ? "No candidates in New. Anything you Kept is under Shortlist; anything you Passed is hidden."
+            : "No shortlisted candidates yet. Use Keep on a New candidate to move them here."}
         </div>
       ) : (
         <table>
@@ -222,8 +247,16 @@ export function ApplicantActions({
                   <td>
                     <span className="badge">#{a.rank}</span>{" "}
                     <span className="mono">{a.score.toFixed(2)}</span>
-                    {/* `hot` is the engine's flag, rendered AS-IS (no client-side percentile). */}
-                    {a.hot ? <span className="badge badge-ok"> hot</span> : null}
+                    {/* `hot` is the engine's boolean, rendered AS-IS as a distinct tag — never a
+                        client-side percentile or re-sort (the RANK core owns relevance). */}
+                    {a.hot ? (
+                      <>
+                        {" "}
+                        <span className="badge badge-hot" title="Top match flagged by the ranking engine">
+                          Hot
+                        </span>
+                      </>
+                    ) : null}
                   </td>
                   <td>
                     <div className="skills">
@@ -256,6 +289,21 @@ export function ApplicantActions({
                       >
                         Pass
                       </button>
+                      {/* Mark-as-contacted: a LOCAL transition (sibling of Keep→Shortlist), shown
+                          only AFTER a routed reveal — it rides the already-spent unlock, no network. */}
+                      {routed ? (
+                        row.contacted ? (
+                          <span className="badge badge-contacted">Contacted</span>
+                        ) : (
+                          <button
+                            className="btn secondary"
+                            type="button"
+                            onClick={() => onContacted(a.workerId)}
+                          >
+                            Mark as contacted
+                          </button>
+                        )
+                      ) : null}
                     </div>
                     <div className="btn-row" style={{ marginTop: 8 }}>
                       <button
@@ -292,23 +340,41 @@ export function ApplicantActions({
                   <td>
                     {granted ? (
                       <div>
-                        <span className="badge badge-ok">Unlocked</span> · until{" "}
-                        <span className="mono">{day(granted.expiresAt)}</span>
+                        {row.contacted ? (
+                          <span className="badge badge-contacted">Contacted</span>
+                        ) : (
+                          <span className="badge badge-ok">Unlocked</span>
+                        )}{" "}
+                        · until <span className="mono">{day(granted.expiresAt)}</span>
                         <div style={{ marginTop: 8 }}>
                           {row.contact?.kind === "routed" ? (
                             <RoutedContact view={row.contact} />
                           ) : row.contact?.kind === "unavailable" ? (
+                            // No-oracle: a reveal that comes back unavailable shows the SAME
+                            // neutral message for every cause; no retry button (not transient).
                             <p className="note">{row.contact.message}</p>
                           ) : (
                             <button
                               className="btn secondary"
                               type="button"
                               disabled={row.contactBusy}
+                              aria-busy={row.contactBusy}
                               onClick={() => onRevealContact(granted.unlockId, a.workerId)}
                             >
-                              {row.contactBusy ? "Opening…" : "Open routed contact"}
+                              {row.contactBusy ? (
+                                <>
+                                  <Spinner />
+                                  Opening…
+                                </>
+                              ) : row.contactError ? (
+                                "Retry — open routed contact"
+                              ) : (
+                                "Open routed contact"
+                              )}
                             </button>
                           )}
+                          {/* Transient reveal failure: retryable inline error (the button above
+                              stays), aria-live for SRs; the row/feed are never blanked. */}
                           <div aria-live="polite">
                             {row.contactError ? (
                               <p className="error-text">{row.contactError}</p>
@@ -325,9 +391,19 @@ export function ApplicantActions({
                               className="btn secondary"
                               type="button"
                               disabled={row.resumeBusy}
+                              aria-busy={row.resumeBusy}
                               onClick={() => onMaskedResume(granted.unlockId, a.workerId)}
                             >
-                              {row.resumeBusy ? "Loading…" : "View masked resume (preview)"}
+                              {row.resumeBusy ? (
+                                <>
+                                  <Spinner />
+                                  Loading…
+                                </>
+                              ) : row.resumeError ? (
+                                "Retry — view masked resume"
+                              ) : (
+                                "View masked resume (preview)"
+                              )}
                             </button>
                           )}
                           <div aria-live="polite">
@@ -338,17 +414,35 @@ export function ApplicantActions({
                         </div>
                       </div>
                     ) : row.unlock?.kind === "unavailable" ? (
-                      <p className="note">{row.unlock.message}</p>
+                      // CURRENTLY ENGAGED / UNAVAILABLE (no-oracle): one neutral state, IDENTICAL
+                      // copy for capped vs unknown vs no-consent vs already-unlocked. The badge is
+                      // a constant label (never a deny reason); the message comes from the mapper.
+                      <div>
+                        <span className="badge badge-warn">Currently engaged</span>
+                        <p className="note" style={{ margin: "6px 0 0" }}>
+                          {row.unlock.message}
+                        </p>
+                      </div>
                     ) : (
                       <>
                         <button
                           className="btn"
                           type="button"
                           disabled={row.busy || balance === 0}
+                          aria-busy={row.busy}
                           title={balance === 0 ? "Top up to unlock" : undefined}
                           onClick={() => onUnlock(a.workerId)}
                         >
-                          {row.busy ? "Unlocking…" : "Unlock contact (1 credit)"}
+                          {row.busy ? (
+                            <>
+                              <Spinner />
+                              Unlocking…
+                            </>
+                          ) : row.unlockError ? (
+                            "Retry unlock (1 credit)"
+                          ) : (
+                            "Unlock contact (1 credit)"
+                          )}
                         </button>
                         {balance === 0 ? (
                           <p className="note" style={{ margin: "6px 0 0" }}>
@@ -356,6 +450,8 @@ export function ApplicantActions({
                             your own balance, never a signal about this candidate.
                           </p>
                         ) : null}
+                        {/* Transient unlock failure: retryable inline error (the Unlock button
+                            stays + relabels to "Retry"); aria-live for SRs; never blanks the row. */}
                         <div aria-live="polite">
                           {row.unlockError ? <p className="error-text">{row.unlockError}</p> : null}
                         </div>

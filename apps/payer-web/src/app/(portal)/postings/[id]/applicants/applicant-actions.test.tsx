@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import type { FacelessApplicant } from "../../../../../lib/contracts";
+import { NEUTRAL_UNLOCK_MESSAGE } from "../../../../../lib/unlock-view";
 
 /**
  * APPLICANT-ACTIONS tests — CONFIRM-ON-SPEND (C11) + A11Y-OF-FAILURE (B8).
@@ -367,7 +368,7 @@ describe("ApplicantActions — preserves backend best-first order; renders hot A
         const t = textOf(el.props.children as ReactNode);
         if (t.endsWith("…")) monos.push(t); // the workerId-prefix cell (not the score/handle)
       }
-      if (cls === "badge badge-ok" && textOf(el.props.children as ReactNode).trim() === "hot") {
+      if (cls === "badge badge-hot" && textOf(el.props.children as ReactNode).trim() === "Hot") {
         hotBadges += 1;
       }
       if (el.props && "children" in el.props) walk2(el.props.children as ReactNode);
@@ -388,5 +389,146 @@ describe("ApplicantActions — preserves backend best-first order; renders hot A
       render({ applicants: [A, B], stages: { [A.workerId]: "shortlist" }, activeStage: "shortlist" }),
     );
     expect(ids).toEqual([`${A.workerId.slice(0, 8)}…`]);
+  });
+});
+
+/* ── Production-quality hardening: loading / error / currently-engaged / contacted ─────────
+ *
+ * All on the SAME #145 RowState (no new endpoint). These seed a row's busy/error/unlock/contact
+ * fields directly and assert the rendered affordance. The faceless + no-oracle + confirm-on-spend
+ * guarantees from the blocks above continue to hold (no new network call is ever introduced).
+ */
+
+const baseRow = {
+  busy: false,
+  unlock: null,
+  unlockError: null,
+  contactBusy: false,
+  contact: null,
+  contactError: null,
+  resumeBusy: false,
+  resume: null,
+  resumeError: null,
+  reach: null,
+  contacted: false,
+};
+
+/** Find a <button> whose text CONTAINS `contains`; report its `disabled` + `aria-busy` props. */
+function buttonInfo(tree: ReactNode, contains: string): { disabled?: boolean; ariaBusy?: unknown } | null {
+  let res: { disabled?: boolean; ariaBusy?: unknown } | null = null;
+  (function w(node: ReactNode): void {
+    if (node === null || node === undefined || typeof node === "boolean") return;
+    if (typeof node === "string" || typeof node === "number") return;
+    if (Array.isArray(node)) {
+      node.forEach(w);
+      return;
+    }
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    if (el.type === "button" && textOf(el.props.children as ReactNode).includes(contains)) {
+      res = { disabled: el.props.disabled as boolean | undefined, ariaBusy: el.props["aria-busy"] };
+    }
+    if (el.props && "children" in el.props) w(el.props.children as ReactNode);
+  })(tree);
+  return res;
+}
+
+/** Count rendered inline spinners (deep-expands the pure Spinner / child components). */
+function countSpinners(tree: ReactNode): number {
+  let n = 0;
+  (function w(node: ReactNode): void {
+    if (node === null || node === undefined || typeof node === "boolean") return;
+    if (typeof node === "string" || typeof node === "number") return;
+    if (Array.isArray(node)) {
+      node.forEach(w);
+      return;
+    }
+    const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+    if (el.props?.className === "spinner") {
+      n += 1;
+      return;
+    }
+    if (typeof el.type === "function") {
+      w((el.type as (p: unknown) => ReactNode)(el.props));
+      return;
+    }
+    if (el.props && "children" in el.props) w(el.props.children as ReactNode);
+  })(tree);
+  return n;
+}
+
+describe("ApplicantActions — LOADING: per-action spinner + disabled + aria-busy while pending", () => {
+  it("an in-flight unlock disables the button, sets aria-busy, and shows an inline spinner", () => {
+    const tree = render({ rows: { [WORKER]: { ...baseRow, busy: true } } });
+    const info = buttonInfo(tree, "Unlocking");
+    expect(info).not.toBeNull();
+    expect(info!.disabled).toBe(true);
+    expect(info!.ariaBusy).toBe(true);
+    expect(countSpinners(tree)).toBeGreaterThanOrEqual(1);
+  });
+
+  it("an in-flight reveal disables the reveal button, sets aria-busy, and shows a spinner", () => {
+    const granted = { kind: "granted", unlockId: "44444444-4444-4444-8444-444444444444", expiresAt: "2026-07-01T00:00:00.000Z" };
+    const tree = render({ rows: { [WORKER]: { ...baseRow, unlock: granted, contactBusy: true } } });
+    const info = buttonInfo(tree, "Opening");
+    expect(info!.disabled).toBe(true);
+    expect(info!.ariaBusy).toBe(true);
+    expect(countSpinners(tree)).toBeGreaterThanOrEqual(1);
+  });
+
+  it("an idle row renders no spinner", () => {
+    expect(countSpinners(render({}))).toBe(0);
+  });
+});
+
+describe("ApplicantActions — ERROR: retryable inline error, the row/feed are never blanked", () => {
+  it("a transient unlock error relabels the button to Retry, keeps an aria-live error + the row", () => {
+    const tree = render({
+      rows: { [WORKER]: { ...baseRow, unlockError: "Unlock failed (service unavailable). Please retry." } },
+    });
+    const { buttons, ariaLiveCount } = collect(tree);
+    const retry = buttons.find((b) => b.text === "Retry unlock (1 credit)");
+    expect(retry).toBeDefined(); // retryable: the action button stays, relabeled
+    expect(retry!.onClick).toBeTypeOf("function");
+    expect(ariaLiveCount).toBeGreaterThanOrEqual(1);
+    expect(gatherText(tree)).toContain("Please retry");
+    // The row is NOT blanked — the candidate id cell still renders.
+    expect(monoPrefixes(tree)).toHaveLength(1);
+  });
+});
+
+describe("ApplicantActions — CURRENTLY ENGAGED: one neutral state, identical copy (no oracle)", () => {
+  it("an unavailable unlock shows a constant 'Currently engaged' badge + the neutral message, no retry", () => {
+    const tree = render({
+      rows: { [WORKER]: { ...baseRow, unlock: { kind: "unavailable", message: NEUTRAL_UNLOCK_MESSAGE } } },
+    });
+    const joined = gatherText(tree);
+    expect(joined).toContain("Currently engaged"); // constant label — identical for every cause
+    expect(joined).toContain(NEUTRAL_UNLOCK_MESSAGE); // the mapper's single neutral message
+    // Terminal no-oracle state (NOT a transient error) ⇒ there is no unlock/retry button.
+    const { buttons } = collect(tree);
+    expect(buttons.find((b) => b.text.includes("Unlock"))).toBeUndefined();
+  });
+});
+
+describe("ApplicantActions — MOVE TO CONTACTED: local transition riding the spent unlock", () => {
+  it("shows 'Mark as contacted' once routed; clicking patches ROWS state with NO network", () => {
+    const { buttons } = collect(render({ rows: routedRowState() }));
+    const mark = buttons.find((b) => b.text === "Mark as contacted");
+    expect(mark).toBeDefined();
+    mark!.onClick!();
+    // contacted is patched on the ROWS state (index 0) — local; no unlock/reveal re-call.
+    expect(setters[0]).toHaveBeenCalledTimes(1);
+    const updater = setters[0]!.mock.calls[0]![0] as (p: Record<string, unknown>) => Record<string, Record<string, unknown>>;
+    expect(updater({})[WORKER]!.contacted).toBe(true);
+    expect(unlockAction).not.toHaveBeenCalled();
+    expect(revealContactAction).not.toHaveBeenCalled();
+  });
+
+  it("a contacted row shows the 'Contacted' badge instead of the button (no re-spend)", () => {
+    const seeded = { [WORKER]: { ...routedRowState()[WORKER], contacted: true } };
+    const tree = render({ rows: seeded });
+    const { buttons } = collect(tree);
+    expect(buttons.find((b) => b.text === "Mark as contacted")).toBeUndefined();
+    expect(gatherText(tree)).toContain("Contacted");
   });
 });

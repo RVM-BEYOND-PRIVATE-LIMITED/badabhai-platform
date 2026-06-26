@@ -161,7 +161,7 @@ function hotBadgeCount(): number {
       return;
     }
     const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-    if (el.props?.className === "badge badge-ok" && textOf(el.props.children as ReactNode).trim() === "hot") {
+    if (el.props?.className === "badge badge-hot" && textOf(el.props.children as ReactNode).trim() === "Hot") {
       n += 1;
     }
     if (el.props && "children" in el.props) walk(el.props.children as ReactNode);
