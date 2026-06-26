@@ -6,8 +6,11 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import 'package:badabhai_worker_app/core/api/api_client.dart';
-import 'package:badabhai_worker_app/core/state/app_state.dart';
-import 'package:badabhai_worker_app/features/swipe/swipe_jobs_screen.dart';
+import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/session/session_repository.dart';
+import 'package:badabhai_worker_app/features/swipe/data/swipe_repository_impl.dart';
+import 'package:badabhai_worker_app/features/swipe/presentation/bloc/swipe_bloc.dart';
+import 'package:badabhai_worker_app/features/swipe/presentation/swipe_jobs_screen.dart';
 import 'package:badabhai_worker_app/router.dart';
 
 /// A single seeded feed job in the API's JSON shape (snake_case).
@@ -29,17 +32,28 @@ Map<String, dynamic> _job({
   };
 }
 
-/// Builds the screen under test with an injected mock-backed [ApiClient].
-///
-/// Uses [MaterialApp.onGenerateRoute] (not `home` + `routes`, which conflict on
-/// the `/` key) so the swipe screen is the initial route and the real app routes
-/// (e.g. consent) remain reachable for the 403-redirect test.
-Widget _harness(ApiClient api) {
+/// Builds a [SwipeBloc] over a REAL [SwipeRepositoryImpl] + [ApiClient] backed by
+/// [client], with a session carrying the bearer token worker-scoped routes need.
+/// This preserves the exact MockClient request-matching (paths, Bearer, 403).
+SwipeBloc _bloc(MockClient client) {
+  final SessionRepository session = SessionRepository()
+    ..setWorker(
+      phone: '+910000000000',
+      workerId: 'worker-1',
+      sessionToken: 'test-token',
+    );
+  final ApiClient api = ApiClient(baseUrl: 'http://test', client: client);
+  return SwipeBloc(SwipeRepositoryImpl(api, session));
+}
+
+/// Mounts the swipe screen with an injected bloc as the initial route, while the
+/// real app routes (e.g. consent) stay reachable for the 403-redirect test.
+Widget _harness(SwipeBloc bloc) {
   return MaterialApp(
     onGenerateRoute: (RouteSettings settings) {
       if (settings.name == '/') {
         return MaterialPageRoute<void>(
-          builder: (_) => SwipeJobsScreen(api: api),
+          builder: (_) => SwipeJobsScreen(bloc: bloc),
           settings: settings,
         );
       }
@@ -53,42 +67,34 @@ Widget _harness(ApiClient api) {
 }
 
 void main() {
-  setUp(() {
-    // The screen reads the session token from the in-memory AppState singleton.
-    AppState.instance.setWorker(
-      phone: '+910000000000',
-      workerId: 'worker-1',
-      sessionToken: 'test-token',
-    );
-  });
+  // The 403 scenario navigates to the real ConsentScreen via appRoutes, which
+  // resolves its cubit from get_it — so the locator must be wired. Idempotent.
+  setUpAll(setupLocator);
 
   testWidgets('renders the first job card with coarse fields only', (
     WidgetTester tester,
   ) async {
-    final ApiClient api = ApiClient(
-      baseUrl: 'http://test',
-      client: MockClient((http.Request req) async {
-        expect(req.url.path, '/feed');
-        // The session token must be attached to worker-scoped requests.
-        expect(req.headers['authorization'], 'Bearer test-token');
-        return http.Response(
-          jsonEncode(<String, dynamic>{
-            'jobs': <Map<String, dynamic>>[
-              _job(id: 'job-1', title: 'VMC Operator', city: 'Pune'),
-            ],
-          }),
-          200,
-        );
-      }),
-    );
+    http.Request? captured;
+    final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      captured = req;
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'jobs': <Map<String, dynamic>>[
+            _job(id: 'job-1', title: 'VMC Operator', city: 'Pune'),
+          ],
+        }),
+        200,
+      );
+    }));
 
-    await tester.pumpWidget(_harness(api));
+    await tester.pumpWidget(_harness(bloc));
     await tester.pumpAndSettle();
 
+    // Worker-scoped feed request carried the bearer token.
+    expect(captured?.url.path, '/feed');
+    expect(captured?.headers['authorization'], 'Bearer test-token');
     expect(find.text('VMC Operator'), findsOneWidget);
     expect(find.text('Chakan, Pune'), findsOneWidget);
-    // Action affordances present. Found by key: the `*.icon` buttons are a private
-    // FilledButton/OutlinedButton subclass, so find.byType(...) does not match them.
     expect(find.byKey(const Key('swipeApplyButton')), findsOneWidget);
     expect(find.byKey(const Key('swipeSkipButton')), findsOneWidget);
   });
@@ -96,17 +102,14 @@ void main() {
   testWidgets('empty feed shows the no-more-jobs state', (
     WidgetTester tester,
   ) async {
-    final ApiClient api = ApiClient(
-      baseUrl: 'http://test',
-      client: MockClient((http.Request req) async {
-        return http.Response(
-          jsonEncode(<String, dynamic>{'jobs': <Map<String, dynamic>>[]}),
-          200,
-        );
-      }),
-    );
+    final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      return http.Response(
+        jsonEncode(<String, dynamic>{'jobs': <Map<String, dynamic>>[]}),
+        200,
+      );
+    }));
 
-    await tester.pumpWidget(_harness(api));
+    await tester.pumpWidget(_harness(bloc));
     await tester.pumpAndSettle();
 
     expect(find.text('No more jobs right now.'), findsOneWidget);
@@ -116,14 +119,11 @@ void main() {
   testWidgets('network error on load shows a retry', (
     WidgetTester tester,
   ) async {
-    final ApiClient api = ApiClient(
-      baseUrl: 'http://test',
-      client: MockClient((http.Request req) async {
-        throw Exception('no network');
-      }),
-    );
+    final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      throw Exception('no network');
+    }));
 
-    await tester.pumpWidget(_harness(api));
+    await tester.pumpWidget(_harness(bloc));
     await tester.pumpAndSettle();
 
     expect(find.text('Could not load jobs.'), findsOneWidget);
@@ -134,39 +134,34 @@ void main() {
     WidgetTester tester,
   ) async {
     String? applyPath;
-    final ApiClient api = ApiClient(
-      baseUrl: 'http://test',
-      client: MockClient((http.Request req) async {
-        if (req.url.path == '/feed') {
-          return http.Response(
-            jsonEncode(<String, dynamic>{
-              'jobs': <Map<String, dynamic>>[_job(id: 'job-1')],
-            }),
-            200,
-          );
-        }
-        // apply
-        applyPath = req.url.path;
-        expect(req.headers['authorization'], 'Bearer test-token');
+    final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      if (req.url.path == '/feed') {
         return http.Response(
           jsonEncode(<String, dynamic>{
-            'ok': true,
-            'application_id': 'app-1',
-            'action': 'applied',
+            'jobs': <Map<String, dynamic>>[_job(id: 'job-1')],
           }),
           200,
         );
-      }),
-    );
+      }
+      applyPath = req.url.path;
+      expect(req.headers['authorization'], 'Bearer test-token');
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'ok': true,
+          'application_id': 'app-1',
+          'action': 'applied',
+        }),
+        200,
+      );
+    }));
 
-    await tester.pumpWidget(_harness(api));
+    await tester.pumpWidget(_harness(bloc));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('swipeApplyButton')));
     await tester.pumpAndSettle();
 
     expect(applyPath, '/applications/job-1/apply');
-    // Queue drained → empty state.
     expect(find.text('No more jobs right now.'), findsOneWidget);
   });
 
@@ -174,33 +169,30 @@ void main() {
     WidgetTester tester,
   ) async {
     String? skipPath;
-    final ApiClient api = ApiClient(
-      baseUrl: 'http://test',
-      client: MockClient((http.Request req) async {
-        if (req.url.path == '/feed') {
-          return http.Response(
-            jsonEncode(<String, dynamic>{
-              'jobs': <Map<String, dynamic>>[
-                _job(id: 'job-1', title: 'First Job', rank: 1),
-                _job(id: 'job-2', title: 'Second Job', rank: 2),
-              ],
-            }),
-            200,
-          );
-        }
-        skipPath = req.url.path;
+    final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      if (req.url.path == '/feed') {
         return http.Response(
           jsonEncode(<String, dynamic>{
-            'ok': true,
-            'application_id': 'app-1',
-            'action': 'skipped',
+            'jobs': <Map<String, dynamic>>[
+              _job(id: 'job-1', title: 'First Job', rank: 1),
+              _job(id: 'job-2', title: 'Second Job', rank: 2),
+            ],
           }),
           200,
         );
-      }),
-    );
+      }
+      skipPath = req.url.path;
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'ok': true,
+          'application_id': 'app-1',
+          'action': 'skipped',
+        }),
+        200,
+      );
+    }));
 
-    await tester.pumpWidget(_harness(api));
+    await tester.pumpWidget(_harness(bloc));
     await tester.pumpAndSettle();
 
     expect(find.text('First Job'), findsOneWidget);
@@ -209,7 +201,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(skipPath, '/applications/job-1/skip');
-    // Advanced to the next card; the first is gone.
     expect(find.text('First Job'), findsNothing);
     expect(find.text('Second Job'), findsOneWidget);
   });
@@ -218,51 +209,42 @@ void main() {
     WidgetTester tester,
   ) async {
     bool feedServed = false;
-    final ApiClient api = ApiClient(
-      baseUrl: 'http://test',
-      client: MockClient((http.Request req) async {
-        if (req.url.path == '/feed') {
-          feedServed = true;
-          return http.Response(
-            jsonEncode(<String, dynamic>{
-              'jobs': <Map<String, dynamic>>[_job(id: 'job-1', title: 'Stay Put')],
-            }),
-            200,
-          );
-        }
-        // apply fails (network drop)
-        throw Exception('no network');
-      }),
-    );
+    final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      if (req.url.path == '/feed') {
+        feedServed = true;
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'jobs': <Map<String, dynamic>>[_job(id: 'job-1', title: 'Stay Put')],
+          }),
+          200,
+        );
+      }
+      throw Exception('no network');
+    }));
 
-    await tester.pumpWidget(_harness(api));
+    await tester.pumpWidget(_harness(bloc));
     await tester.pumpAndSettle();
     expect(feedServed, isTrue);
 
     await tester.tap(find.byKey(const Key('swipeApplyButton')));
-    await tester.pump(); // start the future + run the catch/setState
+    await tester.pump(); // start the future + run the catch/emit
     await tester.pump(const Duration(milliseconds: 750)); // snackbar entrance
 
-    // Card is still there (worker did not lose their place).
     expect(find.text('Stay Put'), findsOneWidget);
-    // Simple retry surfaced.
     expect(find.text('Could not save. Please try again.'), findsOneWidget);
   });
 
   testWidgets('403 on load routes the worker back to consent', (
     WidgetTester tester,
   ) async {
-    final ApiClient api = ApiClient(
-      baseUrl: 'http://test',
-      client: MockClient((http.Request req) async {
-        return http.Response(
-          jsonEncode(<String, dynamic>{'message': 'worker has not accepted consent'}),
-          403,
-        );
-      }),
-    );
+    final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      return http.Response(
+        jsonEncode(<String, dynamic>{'message': 'worker has not accepted consent'}),
+        403,
+      );
+    }));
 
-    await tester.pumpWidget(_harness(api));
+    await tester.pumpWidget(_harness(bloc));
     await tester.pumpAndSettle();
 
     expect(find.text('Please accept consent to see jobs.'), findsOneWidget);
@@ -270,7 +252,6 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Go to consent'));
     await tester.pumpAndSettle();
 
-    // Landed on the consent screen.
     expect(find.text('I agree'), findsOneWidget);
   });
 }

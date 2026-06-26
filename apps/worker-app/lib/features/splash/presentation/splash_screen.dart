@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_colors.dart';
-import '../../core/theme/app_spacing.dart';
-import '../../core/theme/app_typography.dart';
-import '../../core/widgets/bb_button.dart';
-import '../../core/widgets/bb_logo.dart';
-import '../../core/widgets/bb_scaffold.dart';
-import '../../router.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_logo.dart';
+import '../../../core/widgets/bb_scaffold.dart';
+import '../../../router.dart';
 
 /// Splash + welcome. Brand-forward, reassuring, low-text: the logo, the
 /// "no test, just talk" promise, and one green CTA.
+///
+/// Deliberately DI-free and bloc-free (no API): it is the initial route, so
+/// pumping the app in a widget test must not require the service locator.
 class SplashScreen extends StatelessWidget {
   const SplashScreen({super.key});
 

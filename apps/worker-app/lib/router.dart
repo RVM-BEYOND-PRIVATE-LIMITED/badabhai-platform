@@ -1,14 +1,14 @@
 import 'package:flutter/widgets.dart';
 
-import 'features/splash/splash_screen.dart';
-import 'features/auth/phone_login_screen.dart';
-import 'features/auth/otp_verify_screen.dart';
-import 'features/consent/consent_screen.dart';
-import 'features/chat/chat_profiling_screen.dart';
-import 'features/voice/voice_note_placeholder_screen.dart';
-import 'features/profile/profile_preview_screen.dart';
-import 'features/resume/resume_preview_screen.dart';
-import 'features/swipe/swipe_jobs_screen.dart';
+import 'features/splash/presentation/splash_screen.dart';
+import 'features/auth/presentation/phone_login_screen.dart';
+import 'features/auth/presentation/otp_verify_screen.dart';
+import 'features/consent/presentation/consent_screen.dart';
+import 'features/chat/presentation/chat_profiling_screen.dart';
+import 'features/voice/presentation/voice_note_placeholder_screen.dart';
+import 'features/profile/presentation/profile_preview_screen.dart';
+import 'features/resume/presentation/resume_preview_screen.dart';
+import 'features/swipe/presentation/swipe_jobs_screen.dart';
 
 /// Named routes for the Phase 1 worker-profiling flow.
 class Routes {

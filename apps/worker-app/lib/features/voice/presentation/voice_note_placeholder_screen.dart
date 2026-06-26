@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../core/theme/app_colors.dart';
-import '../../core/theme/app_spacing.dart';
-import '../../core/theme/app_typography.dart';
-import '../../core/widgets/bb_app_bar.dart';
-import '../../core/widgets/bb_button.dart';
-import '../../core/widgets/bb_scaffold.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_app_bar.dart';
+import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_scaffold.dart';
 
 /// Voice note capture — PLACEHOLDER. Real recording + upload (≤120s) and Sarvam
 /// STT come later. This screen just illustrates the entry point in the flow.

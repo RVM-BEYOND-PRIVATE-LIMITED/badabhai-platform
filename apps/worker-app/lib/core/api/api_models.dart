@@ -3,7 +3,13 @@
 /// These mirror the JSON shapes returned by the NestJS API (see apps/api).
 /// JSON is snake_case; Dart fields are camelCase. Parsing is defensive so a
 /// missing optional field can't crash the worker flow.
+///
+/// The value models are immutable [Equatable] (const ctors + value equality) so
+/// they compose into BLoC states without breaking emit de-duplication. The two
+/// exception types stay plain (they're thrown, not held in state).
 library;
+
+import 'package:equatable/equatable.dart';
 
 /// Thrown when the API returns a non-2xx response.
 class ApiException implements Exception {
@@ -32,12 +38,12 @@ class ProfileExtractionTimeout implements Exception {
 /// Result of POST /auth/otp/verify.
 ///
 /// Carries the bearer [accessToken] the API mints for the worker session. The
-/// app stores it (in-memory, in `AppState`) and sends it as
+/// app stores it (in-memory, in the SessionRepository) and sends it as
 /// `Authorization: Bearer <token>` on worker-scoped routes (feed / apply /
 /// skip). It is the worker's own session credential — never logged, never
 /// persisted to disk.
-class VerifyOtpResult {
-  VerifyOtpResult({
+class VerifyOtpResult extends Equatable {
+  const VerifyOtpResult({
     required this.workerId,
     required this.accessToken,
     required this.isNewWorker,
@@ -55,6 +61,9 @@ class VerifyOtpResult {
         isNewWorker: json['is_new_worker'] as bool? ?? false,
         status: json['status'] as String? ?? 'active',
       );
+
+  @override
+  List<Object?> get props => <Object?>[workerId, accessToken, isNewWorker, status];
 }
 
 /// One job card the worker swipes on. Result item of GET /feed.
@@ -62,8 +71,8 @@ class VerifyOtpResult {
 /// PII-free by contract: coarse [tradeKey] / [title] / [city] / [area] only —
 /// the API returns NO employer name and NO pay, so this model carries none.
 /// [rank] is the 1-based seed display position (not a relevance rank).
-class FeedItem {
-  FeedItem({
+class FeedItem extends Equatable {
+  const FeedItem({
     required this.jobId,
     required this.tradeKey,
     required this.title,
@@ -92,11 +101,14 @@ class FeedItem {
         area: json['area'] as String?,
         rank: (json['rank'] as num?)?.toInt() ?? 0,
       );
+
+  @override
+  List<Object?> get props => <Object?>[jobId, tradeKey, title, city, area, rank];
 }
 
 /// Result of POST /applications/:jobId/apply.
-class ApplyResult {
-  ApplyResult({
+class ApplyResult extends Equatable {
+  const ApplyResult({
     required this.ok,
     required this.applicationId,
     required this.action,
@@ -111,11 +123,14 @@ class ApplyResult {
         applicationId: json['application_id'] as String? ?? '',
         action: json['action'] as String? ?? 'applied',
       );
+
+  @override
+  List<Object?> get props => <Object?>[ok, applicationId, action];
 }
 
 /// Result of POST /applications/:jobId/skip.
-class SkipResult {
-  SkipResult({
+class SkipResult extends Equatable {
+  const SkipResult({
     required this.ok,
     required this.applicationId,
     required this.action,
@@ -130,11 +145,14 @@ class SkipResult {
         applicationId: json['application_id'] as String? ?? '',
         action: json['action'] as String? ?? 'skipped',
       );
+
+  @override
+  List<Object?> get props => <Object?>[ok, applicationId, action];
 }
 
 /// Result of POST /chat/message.
-class ChatReply {
-  ChatReply({
+class ChatReply extends Equatable {
+  const ChatReply({
     required this.reply,
     required this.blocked,
     required this.isMock,
@@ -155,6 +173,9 @@ class ChatReply {
                 .toList() ??
             <String>[],
       );
+
+  @override
+  List<Object?> get props => <Object?>[reply, blocked, isMock, suggestedFollowups];
 }
 
 /// Result of POST /profile/extract.
@@ -162,8 +183,8 @@ class ChatReply {
 /// Profile extraction is now asynchronous: the API enqueues a background job
 /// (BullMQ) and returns 202 with the job id. The client polls GET /ai-jobs/{id}
 /// (see [AiJob]) until the job completes and yields a profile id.
-class EnqueueResult {
-  EnqueueResult({
+class EnqueueResult extends Equatable {
+  const EnqueueResult({
     required this.aiJobId,
     required this.status,
   });
@@ -175,6 +196,9 @@ class EnqueueResult {
         aiJobId: json['ai_job_id'] as String,
         status: json['status'] as String? ?? 'queued',
       );
+
+  @override
+  List<Object?> get props => <Object?>[aiJobId, status];
 }
 
 /// One async AI job. Result of GET /ai-jobs/{id}.
@@ -182,8 +206,8 @@ class EnqueueResult {
 /// [status] moves queued -> running -> completed | failed. When completed,
 /// [profileId] (read from `output_ref.profile_id`) is non-null. When failed,
 /// [errorMessage] explains why.
-class AiJob {
-  AiJob({
+class AiJob extends Equatable {
+  const AiJob({
     required this.id,
     required this.jobType,
     required this.status,
@@ -213,11 +237,15 @@ class AiJob {
       errorMessage: json['error_message'] as String?,
     );
   }
+
+  @override
+  List<Object?> get props =>
+      <Object?>[id, jobType, status, profileId, errorMessage];
 }
 
 /// Result of POST /resume/generate.
-class ResumeResult {
-  ResumeResult({
+class ResumeResult extends Equatable {
+  const ResumeResult({
     required this.resumeId,
     required this.version,
     required this.resumeText,
@@ -235,4 +263,7 @@ class ResumeResult {
         resumeText: json['resume_text'] as String? ?? '',
         isMock: json['is_mock'] as bool? ?? false,
       );
+
+  @override
+  List<Object?> get props => <Object?>[resumeId, version, resumeText, isMock];
 }

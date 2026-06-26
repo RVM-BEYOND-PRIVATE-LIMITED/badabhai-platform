@@ -1,100 +1,65 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../core/api/api_client.dart';
-import '../../core/config/app_config.dart';
-import '../../core/state/app_state.dart';
-import '../../core/theme/app_colors.dart';
-import '../../core/theme/app_spacing.dart';
-import '../../core/theme/app_typography.dart';
-import '../../core/widgets/bb_app_bar.dart';
-import '../../core/widgets/bb_button.dart';
-import '../../core/widgets/bb_scaffold.dart';
-import '../../router.dart';
+import '../../../core/di/locator.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_app_bar.dart';
+import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_scaffold.dart';
+import '../../../router.dart';
+import 'cubit/profile_cubit.dart';
 
-class ProfilePreviewScreen extends StatefulWidget {
+class ProfilePreviewScreen extends StatelessWidget {
   const ProfilePreviewScreen({super.key});
 
   @override
-  State<ProfilePreviewScreen> createState() => _ProfilePreviewScreenState();
+  Widget build(BuildContext context) {
+    return BlocProvider<ProfileCubit>(
+      create: (_) => locator<ProfileCubit>()..extract(),
+      child: const _ProfileView(),
+    );
+  }
 }
 
-class _ProfilePreviewScreenState extends State<ProfilePreviewScreen> {
-  final ApiClient _api = createApiClient();
-  bool _loading = true;
-  bool _failed = false;
-  String? _profileId;
-
-  @override
-  void initState() {
-    super.initState();
-    _extract();
-  }
-
-  Future<void> _extract() async {
-    final String? token = AppState.instance.sessionToken;
-    if (token == null) {
-      setState(() => _loading = false);
-      return;
-    }
-    setState(() {
-      _loading = true;
-      _failed = false;
-    });
-    try {
-      // Extraction runs as a background job on the API; this awaits the job
-      // and returns the ready profile id. Can take a few seconds.
-      final String profileId = await _api.extractProfile(
-        authToken: token,
-        sessionId: AppState.instance.sessionId,
-      );
-      AppState.instance.setProfile(profileId);
-      if (!mounted) return;
-      setState(() {
-        _profileId = profileId;
-        _loading = false;
-      });
-    } catch (_) {
-      // Timeout, job failure, or no network. Show a friendly retry rather than
-      // a stuck spinner. (No PII or error detail logged here.)
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _failed = true;
-      });
-    }
-  }
-
-  Future<void> _confirmAndGenerate() async {
-    final String? token = AppState.instance.sessionToken;
-    final String? profileId = _profileId;
-    if (token == null || profileId == null) return;
-    await _api.confirmProfile(authToken: token, profileId: profileId);
-    if (!mounted) return;
-    Navigator.pushNamed(context, Routes.resumePreview);
-  }
+class _ProfileView extends StatelessWidget {
+  const _ProfileView();
 
   @override
   Widget build(BuildContext context) {
-    return BbScaffold(
-      appBar: const BbAppBar(title: 'Your profile'),
-      bottomBar: _loading || _failed
-          ? null
-          : BbButton(
-              label: 'Confirm & generate resume',
-              block: true,
-              iconLeft: Icons.description_outlined,
-              onPressed: _confirmAndGenerate,
-            ),
-      body: _loading
-          ? _buildWaiting()
-          : _failed
-              ? _buildFailed()
-              : _buildProfile(),
+    return BlocConsumer<ProfileCubit, ProfileState>(
+      listenWhen: (prev, curr) => prev.status != curr.status,
+      listener: (BuildContext context, ProfileState state) {
+        if (state.status == ProfileStatus.confirmed) {
+          Navigator.pushNamed(context, Routes.resumePreview);
+        }
+      },
+      builder: (BuildContext context, ProfileState state) {
+        final bool isReady = state.status == ProfileStatus.ready ||
+            state.status == ProfileStatus.confirmed;
+        return BbScaffold(
+          appBar: const BbAppBar(title: 'Your profile'),
+          bottomBar: isReady
+              ? BbButton(
+                  label: 'Confirm & generate resume',
+                  block: true,
+                  iconLeft: Icons.description_outlined,
+                  onPressed: context.read<ProfileCubit>().confirm,
+                )
+              : null,
+          body: switch (state.status) {
+            ProfileStatus.extracting => _buildWaiting(),
+            ProfileStatus.failed => _buildFailed(context),
+            ProfileStatus.ready ||
+            ProfileStatus.confirmed =>
+              _buildProfile(),
+          },
+        );
+      },
     );
   }
 
-  /// Shown while the background extraction job is running. Friendly, low-text
-  /// waiting state so a first-time user is not left staring at a bare spinner.
   Widget _buildWaiting() {
     return Center(
       child: Column(
@@ -118,9 +83,7 @@ class _ProfilePreviewScreenState extends State<ProfilePreviewScreen> {
     );
   }
 
-  /// Shown when extraction times out, fails, or there is no network. Offers a
-  /// large, simple retry button.
-  Widget _buildFailed() {
+  Widget _buildFailed(BuildContext context) {
     return _StatusMessage(
       icon: Icons.cloud_off_rounded,
       title: 'Could not prepare your profile.',
@@ -128,7 +91,7 @@ class _ProfilePreviewScreenState extends State<ProfilePreviewScreen> {
       action: BbButton(
         label: 'Try again',
         iconLeft: Icons.refresh_rounded,
-        onPressed: _extract,
+        onPressed: context.read<ProfileCubit>().extract,
       ),
     );
   }
