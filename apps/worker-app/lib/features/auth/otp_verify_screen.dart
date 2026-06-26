@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/config/app_config.dart';
 import '../../core/state/app_state.dart';
 import '../../router.dart';
 
@@ -13,7 +14,7 @@ class OtpVerifyScreen extends StatefulWidget {
 
 class _OtpVerifyScreenState extends State<OtpVerifyScreen> {
   final TextEditingController _controller = TextEditingController();
-  final ApiClient _api = ApiClient();
+  final ApiClient _api = createApiClient();
   bool _loading = false;
 
   @override

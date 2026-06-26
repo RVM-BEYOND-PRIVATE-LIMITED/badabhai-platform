@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/config/app_config.dart';
 import '../../core/state/app_state.dart';
 import '../../router.dart';
 
@@ -18,7 +19,7 @@ class ChatProfilingScreen extends StatefulWidget {
 }
 
 class _ChatProfilingScreenState extends State<ChatProfilingScreen> {
-  final ApiClient _api = ApiClient();
+  final ApiClient _api = createApiClient();
   final TextEditingController _controller = TextEditingController();
   final List<_Message> _messages = <_Message>[
     _Message('Bada Bhai here. Which machines do you run?', fromWorker: false),
