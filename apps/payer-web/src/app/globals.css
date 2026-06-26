@@ -1,3 +1,18 @@
+/* BadaBhai Design System token layer — the foundation (colors / type / spacing /
+ * radii / elevation / motion / base). Imported FIRST so every rule below resolves
+ * from tokens. Source of truth: docs/design/BadaBhai Design System/. */
+@import "../styles/tokens.css";
+
+/* ------------------------------------------------------------------
+ * LEGACY portal COMPONENT palette (pre-design-system). Kept UNCHANGED so the
+ * existing component classes (.btn / .card / .badge / .note / .input / …) keep
+ * working — later tasks port each component onto the token layer above. The page
+ * CHROME (body background/text/font, links, headings, focus, box-sizing) now flows
+ * from the BadaBhai tokens (base layer); only these legacy COMPONENT vars remain.
+ *
+ * NOTE: `--danger` is intentionally NOT redefined here — it resolves from the token
+ * layer (the single source of truth for that status semantic), so no value is hardcoded.
+ * ------------------------------------------------------------------ */
 :root {
   --bg: #f6f8fb;
   --panel: #ffffff;
@@ -11,37 +26,6 @@
   --ok-soft: #e6f4ea;
   --warn: #9a6700;
   --warn-soft: #fff4d6;
-  --danger: #b42318;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  margin: 0;
-  padding: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family:
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    Roboto,
-    Helvetica,
-    Arial,
-    sans-serif;
-  font-size: 14px;
-}
-
-a {
-  color: var(--accent);
-  text-decoration: none;
-}
-a:hover {
-  text-decoration: underline;
 }
 
 .shell {
