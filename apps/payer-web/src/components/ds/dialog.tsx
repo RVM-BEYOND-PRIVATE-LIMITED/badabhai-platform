@@ -54,12 +54,24 @@ export function Dialog({
       }
     : undefined;
 
+  // Tie the dialog to its heading for screen readers (a11y) — only when a title exists.
+  const titleId = title ? "bb-dialog-title" : undefined;
+
   return (
     <div className={`bb-scrim ${sheet ? "bb-scrim--sheet" : ""}`} onClick={onScrimClick}>
-      <div className={`bb-dialog ${sheet ? "bb-dialog--sheet" : ""}`} role="dialog" aria-modal="true">
+      <div
+        className={`bb-dialog ${sheet ? "bb-dialog--sheet" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+      >
         {(title || onClose) && (
           <div className="bb-dialog__head">
-            {title && <h3 className="bb-dialog__title">{title}</h3>}
+            {title && (
+              <h3 className="bb-dialog__title" id={titleId}>
+                {title}
+              </h3>
+            )}
             {onClose && (
               <button className="bb-iconbtn" aria-label="Close" onClick={onClose}>
                 <i className="ph ph-x" aria-hidden="true" />

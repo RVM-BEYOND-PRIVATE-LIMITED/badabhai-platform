@@ -15,17 +15,21 @@ import "./globals.css";
  * PII, so none of it reaches the screen. Nothing is logged client-side.
  */
 export default function GlobalError({ reset }: { error: Error; reset: () => void }) {
+  // This boundary REPLACES the root layout, so it re-applies the optional ink theme on its
+  // own <html> (public mirror only — a client boundary sees no server env). Default = no
+  // attribute → paper, unchanged.
+  const theme = process.env.NEXT_PUBLIC_PAYER_THEME?.trim().toLowerCase() === "ink" ? "ink" : undefined;
   return (
-    <html lang="en">
+    <html lang="en" data-theme={theme}>
       <body>
         <div role="alert">
-          <h1 className="page-title">Something went wrong</h1>
-          <p className="page-sub">
+          <h1 className="chrome-title">Something went wrong</h1>
+          <p className="chrome-sub">
             We couldn&rsquo;t load this page right now. This is on our side — please try again.
           </p>
-          <div className="btn-row">
-            <button className="btn" type="button" onClick={() => reset()}>
-              Try again
+          <div className="chrome-actions">
+            <button className="bb-btn bb-btn--primary" type="button" onClick={() => reset()}>
+              <span>Try again</span>
             </button>
           </div>
         </div>

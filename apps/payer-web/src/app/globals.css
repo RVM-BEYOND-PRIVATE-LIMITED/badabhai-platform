@@ -481,6 +481,21 @@ textarea.input {
 .login-demo p {
   margin: var(--space-2) 0 0;
 }
+/* DEV-ONLY quick-login variant — a saffron (warning) dashed edge marks it dev-only.
+   Tokens only (flips under ink); never shown in staging/production. */
+.login-demo--dev {
+  border-color: var(--warning);
+}
+.login-demo__btns {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.login-demo__error {
+  margin: var(--space-2) 0 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
 .login-demo__creds {
   display: flex;
   flex-wrap: wrap;
@@ -1434,10 +1449,12 @@ textarea.input {
   border: 0;
 }
 
-/* Neutral loading skeleton (route-level loading.tsx). No data, no PII. */
+/* Neutral loading skeleton (route-level loading.tsx). No data, no PII. Token-driven so it
+   flips under [data-theme="ink"]: the base is the sunken surface; the shimmer is a soft
+   raised-surface sweep (both resolve from semantic tokens, no hardcoded light value). */
 .skeleton {
-  background: var(--panel-2);
-  border-radius: 8px;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
   position: relative;
   overflow: hidden;
 }
@@ -1446,7 +1463,8 @@ textarea.input {
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  background: linear-gradient(90deg, transparent, var(--surface-raised), transparent);
+  opacity: 0.6;
   animation: skeleton-shimmer 1.3s infinite;
 }
 @keyframes skeleton-shimmer {
@@ -1586,4 +1604,122 @@ textarea.input {
   color: var(--text-muted);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
+}
+
+/* ------------------------------------------------------------------
+ * CHROME / NEUTRAL screens (DS4.2) — token-driven equivalents of the pre-DS legacy
+ * chrome classes (.page-title / .page-sub / .btn / .form / .footer / .note / .empty …),
+ * ported so the error boundaries, 404, footer, and Team scaffold resolve from the SAME
+ * semantic surface/text tokens as every DS screen — and therefore FLIP under
+ * [data-theme="ink"]. Values match the existing paper appearance (no visual change in
+ * the default theme); the only behaviour added is dark-theme parity. Tokens only.
+ * ------------------------------------------------------------------ */
+.chrome-title {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-1);
+}
+.chrome-sub {
+  color: var(--text-muted);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  margin: 0 0 var(--space-5);
+}
+.chrome-actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+/* Token-driven "← back" breadcrumb link (replaces the legacy .page-sub use). */
+.page-back {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-2);
+}
+.chrome-footer {
+  border-top: var(--border-hairline) solid var(--border-subtle);
+  padding: var(--space-4) var(--gutter-web);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+/* Neutral centered card (404 / unauthenticated states) — DS Card surface tokens. */
+.chrome-card {
+  width: 100%;
+  max-width: var(--app-max);
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-7);
+  text-align: center;
+}
+
+/* TEAM scaffold (Owner-only user management) — re-skinned onto the token layer so it
+   flips under ink. The invite form is DS Inputs/Select/Button; this covers the section
+   scaffolding + the members table + the scaffold note. Tokens only. */
+.team-section {
+  margin: var(--space-7) 0;
+}
+.team-section__title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-3);
+}
+.team-note {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  margin: 0 0 var(--space-5);
+}
+.team-note__msg {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.team-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: var(--reading-max);
+}
+.team-form__status:empty {
+  display: none;
+}
+.team-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.team-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-2);
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.team-table th,
+.team-table td {
+  text-align: left;
+  padding: var(--space-3);
+  border-bottom: var(--border-hairline) solid var(--border-subtle);
+  vertical-align: middle;
+}
+.team-table th {
+  background: var(--surface-sunken);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  font-weight: var(--weight-semibold);
+}
+.team-table tr:last-child td {
+  border-bottom: none;
 }

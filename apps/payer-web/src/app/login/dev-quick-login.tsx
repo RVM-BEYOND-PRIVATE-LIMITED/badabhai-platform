@@ -46,13 +46,13 @@ export function DevQuickLogin() {
   }
 
   return (
-    <div className="login-demo" style={{ borderColor: "#b45309" }}>
+    <div className="login-demo login-demo--dev">
       <strong>⚙️ DEV-ONLY QUICK LOGIN</strong>
       <p>
         One click → a REAL local backend session (skips manual OTP). Never enabled in
         staging or production.
       </p>
-      <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+      <div className="login-demo__btns">
         <Button
           variant="secondary"
           block
@@ -73,7 +73,7 @@ export function DevQuickLogin() {
         </Button>
       </div>
       {error ? (
-        <p role="alert" style={{ color: "#b91c1c", marginTop: "0.5rem" }}>
+        <p role="alert" className="login-demo__error">
           {error}
         </p>
       ) : null}

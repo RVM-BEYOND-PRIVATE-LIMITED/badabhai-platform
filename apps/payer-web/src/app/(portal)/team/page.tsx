@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireOwner } from "../../../lib/auth/org-roles";
 import { listOrgMembers } from "../../../lib/org-members";
+import { Card } from "../../../components/ds";
 import { TeamManager } from "./team-manager";
 
 export const dynamic = "force-dynamic";
@@ -19,19 +20,21 @@ export default async function TeamPage() {
 
   return (
     <>
-      <p className="page-sub">
+      <p className="chrome-sub" style={{ marginBottom: "var(--space-2)" }}>
         <Link href="/dashboard">← Dashboard</Link>
       </p>
-      <h1 className="page-title">Team</h1>
-      <p className="page-sub">
+      <h1 className="chrome-title">Team</h1>
+      <p className="chrome-sub">
         Invite recruiters to your hiring desk and manage who can post, search, and unlock.
         Billing &amp; wallet stay with Owners.
       </p>
 
-      <div className="note warn">
-        <strong>Scaffold.</strong> Inviting and removing members activates when the org directory
-        API lands — nothing here charges, emails, or persists anyone yet.
-      </div>
+      <Card variant="outline" className="team-note">
+        <p className="team-note__msg">
+          <strong>Scaffold.</strong> Inviting and removing members activates when the org
+          directory API lands — nothing here charges, emails, or persists anyone yet.
+        </p>
+      </Card>
 
       <TeamManager members={members} />
     </>

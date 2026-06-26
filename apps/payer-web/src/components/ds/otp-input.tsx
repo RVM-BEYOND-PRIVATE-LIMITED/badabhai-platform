@@ -57,6 +57,9 @@ export function OtpInput({ length = 4, value = "", onChange, autoFocus = false }
           inputMode="numeric"
           maxLength={1}
           value={c}
+          // Per-cell accessible name (a11y): the group is labelled "One-time passcode";
+          // each cell names its position so a screen reader announces "Digit N of M".
+          aria-label={`Digit ${i + 1} of ${length}`}
           autoFocus={autoFocus && i === 0}
           onChange={(e) => handleChange(i, e)}
           onKeyDown={(e) => handleKey(i, e)}

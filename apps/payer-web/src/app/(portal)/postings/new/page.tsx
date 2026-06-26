@@ -34,7 +34,7 @@ export default async function NewPostingPage() {
 
   return (
     <>
-      <p className="page-sub">
+      <p className="page-back">
         <Link href="/postings">← Manage postings</Link>
       </p>
       <h1 className="dash-title">Post a job</h1>

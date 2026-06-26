@@ -18,12 +18,12 @@ export function RetryButton({ label = "Retry" }: { label?: string }) {
   const [pending, startTransition] = useTransition();
   return (
     <button
-      className="btn secondary"
+      className="bb-btn bb-btn--secondary"
       type="button"
       disabled={pending}
       onClick={() => startTransition(() => router.refresh())}
     >
-      {pending ? "Retrying…" : label}
+      <span>{pending ? "Retrying…" : label}</span>
     </button>
   );
 }
