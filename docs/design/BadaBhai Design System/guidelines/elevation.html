@@ -1,0 +1,25 @@
+<!-- @dsCard group="Spacing" viewport="700x210" name="Elevation" subtitle="Warm, low, ink-tinted. Marigold glow for the one CTA." -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 30px 28px; background: var(--surface-page); font-family: var(--font-sans); }
+  .row { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  .item { text-align: center; }
+  .box { width: 96px; height: 64px; background: var(--surface-card); border-radius: var(--radius-lg); border: 1px solid var(--border-subtle); }
+  .lab { font-size: 12px; font-weight: 700; color: var(--text-primary); margin-top: 12px; }
+  .tok { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="item"><div class="box" style="box-shadow:var(--shadow-xs)"></div><div class="lab">xs</div><div class="tok">--shadow-xs</div></div>
+    <div class="item"><div class="box" style="box-shadow:var(--shadow-sm)"></div><div class="lab">sm</div><div class="tok">--shadow-sm</div></div>
+    <div class="item"><div class="box" style="box-shadow:var(--shadow-md)"></div><div class="lab">md · card</div><div class="tok">--shadow-md</div></div>
+    <div class="item"><div class="box" style="box-shadow:var(--shadow-lg)"></div><div class="lab">lg · overlay</div><div class="tok">--shadow-lg</div></div>
+    <div class="item"><div class="box" style="box-shadow:var(--shadow-brand); background:var(--brand); border-color:transparent"></div><div class="lab">brand · CTA</div><div class="tok">--shadow-brand</div></div>
+  </div>
+</body>
+</html>

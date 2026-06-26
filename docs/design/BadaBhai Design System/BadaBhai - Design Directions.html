@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="design_doc_mode" content="canvas">
+<title>BadaBhai — Design Directions</title>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Mukta:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&family=Sora:wght@600;700;800&family=Playfair+Display:ital,wght@0,700;0,800;1,700&family=Inter:wght@400;600;700;800&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:'Mukta',system-ui,sans-serif}
+.frame{position:absolute}
+.label{margin-bottom:14px;cursor:grab}
+.label__n{font-family:'Space Grotesk','Baloo 2',sans-serif;font-weight:700;font-size:16px;color:#1b1a17}
+.label__d{font-size:13px;color:#55514a;margin-top:2px}
+.label__f{font-family:'Inter',monospace;font-size:11px;color:#8a857c;margin-top:3px;letter-spacing:.02em}
+.intro__t{font-family:'Baloo 2',sans-serif;font-weight:800;font-size:26px;color:#1b1a17}
+.intro__p{font-size:14px;color:#55514a;margin-top:6px;max-width:820px;line-height:1.55}
+
+.scr{width:340px;height:600px;border-radius:var(--frame-radius,34px);overflow:hidden;background:var(--bg);font-family:var(--font-b);color:var(--txt);display:flex;flex-direction:column;box-shadow:0 30px 60px rgba(20,18,12,.28);border:var(--phone-border,none)}
+.scr .bar{display:flex;justify-content:space-between;align-items:center;padding:12px 20px 2px;font-size:13px;font-weight:700;color:var(--txt)}
+.scr .bar__i i{margin-left:5px;font-size:14px;opacity:.85}
+.scr .hd{padding:10px 20px 14px}
+.scr .logo{font-family:var(--font-d);font-weight:800;font-size:19px;color:var(--accent);display:flex;align-items:center;gap:9px}
+.scr .mk{width:22px;height:22px;border-radius:7px;background:var(--accent);display:inline-block;flex:none}
+.scr .greet{font-family:var(--font-d);font-weight:700;font-size:26px;margin-top:16px;color:var(--txt);line-height:1.05}
+.scr .loc{font-size:14px;color:var(--muted);margin-top:4px;display:flex;align-items:center;gap:5px}
+.scr .job{margin:2px 16px 0;background:var(--surface);border:var(--card-border,none);border-radius:var(--radius);box-shadow:var(--shadow,none);padding:18px;flex:1;display:flex;flex-direction:column}
+.scr .job__top{display:flex;justify-content:space-between;gap:10px}
+.scr .job__title{font-family:var(--font-d);font-weight:800;font-size:22px;color:var(--txt);line-height:1.1}
+.scr .job__co{font-size:14px;color:var(--muted);margin-top:5px;display:flex;gap:5px;align-items:center}
+.scr .job__logo{width:42px;height:42px;border-radius:12px;background:var(--tag-bg);display:flex;align-items:center;justify-content:center;color:var(--tag-txt);font-size:20px;flex:none}
+.scr .job__facts{display:flex;gap:16px;margin:16px 0 13px;font-size:14px;color:var(--txt);align-items:center}
+.scr .job__facts span{display:flex;align-items:center;gap:4px}
+.scr .job__facts i{font-size:16px;opacity:.6}
+.scr .job__tags{display:flex;gap:7px;flex-wrap:wrap}
+.scr .job__tags b{font-size:12px;font-weight:700;background:var(--tag-bg);color:var(--tag-txt);padding:6px 11px;border-radius:var(--tag-radius,999px)}
+.scr .job__cta{display:flex;gap:10px;align-items:center;margin-top:16px}
+.scr .skip{width:48px;height:48px;flex:none;border-radius:var(--skip-radius,50%);border:var(--skip-border,2px solid #ddd);background:var(--skip-bg,transparent);color:var(--muted);font-size:20px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.scr .apply{flex:1;height:48px;border:none;border-radius:var(--cta-radius);background:var(--cta-bg);color:var(--cta-txt);font-family:var(--font-d);font-weight:800;font-size:16px;box-shadow:var(--cta-shadow,none);display:flex;align-items:center;justify-content:center;gap:7px;cursor:pointer}
+.scr .nav{display:flex;justify-content:space-around;padding:13px 8px;background:var(--nav-bg,transparent);border-top:var(--nav-border,1px solid rgba(0,0,0,.08));font-size:12px;font-weight:700;color:var(--muted);margin-top:2px}
+.scr .nav span{display:flex;align-items:center;gap:5px}
+.scr .nav span i{font-size:18px}
+.scr .nav .on{color:var(--accent)}
+
+.t-1{--bg:#FAF6EE;--surface:#fff;--txt:#211E16;--muted:#756C57;--accent:#F2820D;--radius:18px;--card-border:1px solid rgba(33,30,22,.1);--shadow:0 8px 20px rgba(33,30,22,.09);--font-d:'Baloo 2';--font-b:'Mukta';--cta-bg:#F2820D;--cta-txt:#2A1603;--cta-radius:14px;--cta-shadow:0 6px 16px rgba(242,130,13,.34);--tag-bg:#EFEADD;--tag-txt:#3F392C;--nav-bg:#fff;--skip-border:2px solid #E3DCCB}
+.t-2{--bg:#FFFDF5;--surface:#fff;--txt:#000;--muted:#555;--accent:#F2820D;--radius:6px;--card-border:3px solid #000;--shadow:6px 6px 0 #000;--font-d:'Space Grotesk';--font-b:'Space Grotesk';--cta-bg:#F2820D;--cta-txt:#000;--cta-radius:6px;--cta-shadow:4px 4px 0 #000;--tag-bg:#000;--tag-txt:#fff;--tag-radius:0;--frame-radius:8px;--phone-border:3px solid #000;--nav-bg:#fff;--nav-border:3px solid #000;--skip-border:3px solid #000;--skip-radius:6px}
+.t-2 .job__title,.t-2 .logo{text-transform:uppercase;letter-spacing:-.01em}.t-2 .nav span{text-transform:uppercase;font-size:11px}
+.t-3{--bg:#FEF7EC;--surface:#FBEEDA;--txt:#241A0E;--muted:#7A6A55;--accent:#8A5000;--radius:28px;--card-border:none;--shadow:none;--font-d:'Roboto';--font-b:'Roboto';--cta-bg:#F2820D;--cta-txt:#fff;--cta-radius:24px;--tag-bg:#F6E0BE;--tag-txt:#5A3A00;--tag-radius:999px;--nav-bg:#F3E4C9;--nav-border:none;--skip-bg:#F6E0BE;--skip-border:none;--skip-radius:50%;--frame-radius:36px}
+.t-3 .greet{font-weight:500}.t-3 .job__logo{border-radius:50%}
+.t-4{--bg:#14130E;--surface:rgba(255,255,255,.05);--txt:#F5F1E8;--muted:#9A9079;--accent:#F2C14E;--radius:18px;--card-border:1px solid rgba(255,255,255,.1);--shadow:0 10px 30px rgba(0,0,0,.5);--font-d:'Sora';--font-b:'Sora';--cta-bg:#F2C14E;--cta-txt:#1a1710;--cta-radius:14px;--cta-shadow:0 8px 24px rgba(242,193,78,.4);--tag-bg:rgba(255,255,255,.08);--tag-txt:#E3DCCB;--tag-radius:999px;--nav-bg:transparent;--nav-border:1px solid rgba(255,255,255,.1);--skip-border:1px solid rgba(255,255,255,.2);--verify:#6CC78E}
+.t-5{--bg:#FFF3E0;--surface:#fff;--txt:#3A1A00;--muted:#9A5A2A;--accent:#E2391A;--radius:16px;--card-border:2px dashed #0E7A4F;--shadow:0 6px 0 rgba(14,122,79,.18);--font-d:'Baloo 2';--font-b:'Mukta';--cta-bg:#0E7A4F;--cta-txt:#fff;--cta-radius:999px;--tag-bg:#FCE3B0;--tag-txt:#9A5A00;--tag-radius:999px;--nav-bg:#fff;--skip-border:2px solid #E2391A;--skip-radius:50%}
+.t-5 .hd{border-bottom:3px double #E2391A;margin:0 16px;padding:8px 4px 12px}.t-5 .job__logo{background:#FCE3B0;color:#E2391A}
+.t-6{--bg:#fff;--surface:#fff;--txt:#111;--muted:#8a8a8a;--accent:#F2820D;--radius:0;--card-border:1px solid #E4E4E4;--shadow:none;--font-d:'Inter';--font-b:'Inter';--cta-bg:#111;--cta-txt:#fff;--cta-radius:0;--tag-bg:#F2F2F2;--tag-txt:#111;--tag-radius:0;--nav-bg:#fff;--nav-border:1px solid #E4E4E4;--skip-radius:0;--skip-border:1px solid #111}
+.t-6 .loc,.t-6 .nav span,.t-6 .job__tags b{text-transform:uppercase;letter-spacing:.08em;font-size:11px}.t-6 .greet{font-weight:800;letter-spacing:-.02em}
+.t-7{--bg:#F7F1E6;--surface:#FFFDF8;--txt:#1F1B14;--muted:#7A7060;--accent:#B4520A;--radius:8px;--card-border:1px solid #E4DAC6;--shadow:0 6px 18px rgba(31,27,20,.08);--font-d:'Playfair Display';--font-b:'Mukta';--cta-bg:#1F1B14;--cta-txt:#F7F1E6;--cta-radius:8px;--tag-bg:#EFE6D2;--tag-txt:#7A5A2A;--tag-radius:4px;--nav-bg:#FFFDF8;--nav-border:1px solid #E4DAC6;--skip-border:1px solid #1F1B14}
+.t-7 .hd{border-bottom:1px solid #E4DAC6;margin:0 16px;padding:8px 4px 14px}.t-7 .greet{font-style:italic}
+.t-8{--bg:#F1F5F9;--surface:#fff;--txt:#0B2A4A;--muted:#5A7A94;--accent:#0E6E8C;--radius:12px;--card-border:1px solid #DCE6EE;--shadow:0 4px 14px rgba(11,42,74,.08);--font-d:'Inter';--font-b:'Inter';--cta-bg:#0E6E8C;--cta-txt:#fff;--cta-radius:10px;--tag-bg:#E6EEF4;--tag-txt:#0E6E8C;--tag-radius:6px;--nav-bg:#fff;--nav-border:1px solid #DCE6EE;--skip-border:1px solid #B8C8D6;--skip-radius:10px}
+.t-9{--bg:#FCE9D9;--surface:#FFF4EA;--txt:#4A2E1A;--muted:#A07A5A;--accent:#F2820D;--radius:26px;--card-border:none;--shadow:8px 8px 18px rgba(180,120,80,.25),-6px -6px 14px rgba(255,255,255,.7);--font-d:'Baloo 2';--font-b:'Mukta';--cta-bg:#F2820D;--cta-txt:#fff;--cta-radius:18px;--cta-shadow:6px 6px 14px rgba(242,130,13,.35),-3px -3px 10px rgba(255,255,255,.5);--tag-bg:#FBE1C8;--tag-txt:#9A5A2A;--tag-radius:999px;--nav-bg:transparent;--nav-border:none;--skip-bg:#FFF4EA;--skip-border:none;--skip-radius:50%}
+.t-9 .skip{box-shadow:4px 4px 10px rgba(180,120,80,.25),-3px -3px 8px #fff}.t-9 .job__logo{box-shadow:inset 3px 3px 7px rgba(180,120,80,.2),inset -3px -3px 7px #fff;background:#FFF4EA}
+.t-10{--bg:#FFFFFF;--surface:#fff;--txt:#3C3C3C;--muted:#AFAFAF;--accent:#F2820D;--radius:18px;--card-border:2px solid #E5E5E5;--shadow:0 2px 0 #E5E5E5;--font-d:'Baloo 2';--font-b:'Mukta';--cta-bg:#58CC02;--cta-txt:#fff;--cta-radius:16px;--cta-shadow:0 5px 0 #4AA802;--tag-bg:#F0F7E6;--tag-txt:#4AA802;--tag-radius:999px;--nav-bg:#fff;--nav-border:2px solid #E5E5E5;--skip-border:2px solid #E5E5E5;--skip-radius:16px}
+.t-10 .apply{text-transform:uppercase;letter-spacing:.04em;font-size:15px}.t-10 .skip{box-shadow:0 4px 0 #E5E5E5}
+.t-11{--bg:#FFFFFF;--surface:#fff;--txt:#000;--muted:#383838;--accent:#A8430A;--radius:14px;--card-border:2.5px solid #000;--shadow:none;--font-d:'Mukta';--font-b:'Mukta';--cta-bg:#A8430A;--cta-txt:#fff;--cta-radius:12px;--tag-bg:#000;--tag-txt:#fff;--tag-radius:6px;--nav-bg:#fff;--nav-border:2.5px solid #000;--skip-border:2.5px solid #000}
+.t-11 .job__title{font-size:27px}.t-11 .job__facts{font-size:16px;font-weight:600}.t-11 .apply{font-size:19px;height:56px}.t-11 .greet{font-size:28px;font-weight:800}.t-11 .nav span{font-size:13px;font-weight:700}
+.t-12{--bg:linear-gradient(160deg,#F2820D,#E2391A 78%);--surface:rgba(255,255,255,.16);--txt:#fff;--muted:rgba(255,255,255,.82);--accent:#fff;--radius:22px;--card-border:1px solid rgba(255,255,255,.3);--shadow:0 12px 30px rgba(120,40,0,.3);--font-d:'Sora';--font-b:'Sora';--cta-bg:#fff;--cta-txt:#C24A00;--cta-radius:16px;--tag-bg:rgba(255,255,255,.22);--tag-txt:#fff;--tag-radius:999px;--nav-bg:transparent;--nav-border:1px solid rgba(255,255,255,.25);--skip-border:1px solid rgba(255,255,255,.5);--verify:#fff}
+.t-12 .job{backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}.t-12 .job__logo{background:rgba(255,255,255,.2);color:#fff}
+
+</style>
+</head>
+<body>
+<div class="frame" style="left:40px;top:24px;width:900px">
+  <div class="intro__t">Pick a direction for BadaBhai</div>
+  <div class="intro__p">The same worker-app screen in 12 aesthetics — from the current warm minimalism to brutalist, dark-premium, desi-pop, fintech, gamified and more. Drag to pan, scroll to zoom. Tell me the number (or mix two) and I'll re-theme the whole system — tokens, components, and both UI kits — to match.</div>
+</div>
+
+<div class="frame" style="left:40px;top:150px;width:360px">
+  <div class="label" data-drags-parent="1">
+    <div class="label__n">01 · Industrial Marigold</div>
+    <div class="label__d">Current — warm paper, marigold, ink</div>
+    <div class="label__f">Baloo 2 + Mukta</div>
+  </div>
+  <div class="scr t-1" style="margin:0 auto">
+<div class="bar"><span>9:41</span><span class="bar__i"><i class="ph-fill ph-cell-signal-full"></i><i class="ph-fill ph-wifi-high"></i><i class="ph-fill ph-battery-high"></i></span></div>
+<div class="hd">
+  <div class="logo"><span class="mk"></span>BadaBhai</div>
+  <div class="greet">Jobs near you</div>
+  <div class="loc"><i class="ph-fill ph-map-pin"></i> Pune · 15 km</div>
+</div>
+<div class="job">
+  <div class="job__top">
+    <div><div class="job__title">CNC Operator</div><div class="job__co">Sharma Precision <i class="ph-fill ph-seal-check" style="color:var(--verify,#189D55)"></i></div></div>
+    <div class="job__logo"><i class="ph ph-buildings"></i></div>
+  </div>
+  <div class="job__facts"><span><i class="ph ph-map-pin"></i>Pimpri</span><span><i class="ph ph-currency-inr"></i>22–28k/mo</span></div>
+  <div class="job__tags"><b>Fanuc</b><b>2+ yrs</b><b>Day shift</b></div>
+  <div style="flex:1"></div>
+  <div class="job__cta"><button class="skip"><i class="ph ph-x"></i></button><button class="apply"><i class="ph-bold ph-check"></i> Apply</button></div>
+</div>
+<div class="nav"><span class="on"><i class="ph-fill ph-briefcase"></i> Jobs</span><span><i class="ph ph-file-text"></i> Resume</span><span><i class="ph ph-user"></i> Profile</span></div></div>
+</div>
+<div class="frame" style="left:456px;top:150px;width:360px">
+  <div class="label" data-drags-parent="1">
+    <div class="label__n">02 · Neo-Brutalist</div>
+    <div class="label__d">Thick black borders, hard offset shadows</div>
+    <div class="label__f">Space Grotesk</div>
+  </div>
+  <div class="scr t-2" style="margin:0 auto">
+<div class="bar"><span>9:41</span><span class="bar__i"><i class="ph-fill ph-cell-signal-full"></i><i class="ph-fill ph-wifi-high"></i><i class="ph-fill ph-battery-high"></i></span></div>
+<div class="hd">
+  <div class="logo"><span class="mk"></span>BadaBhai</div>
+  <div class="greet">Jobs near you</div>
+  <div class="loc"><i class="ph-fill ph-map-pin"></i> Pune · 15 km</div>
+</div>
+<div class="job">
+  <div class="job__top">
+    <div><div class="job__title">CNC Operator</div><div class="job__co">Sharma Precision <i class="ph-fill ph-seal-check" style="color:var(--verify,#189D55)"></i></div></div>
+    <div class="job__logo"><i class="ph ph-buildings"></i></div>
+  </div>
+  <div class="job__facts"><span><i class="ph ph-map-pin"></i>Pimpri</span><span><i class="ph ph-currency-inr"></i>22–28k/mo</span></div>
+  <div class="job__tags"><b>Fanuc</b><b>2+ yrs</b><b>Day shift</b></div>
+  <div style="flex:1"></div>
+  <div class="job__cta"><button class="skip"><i class="ph ph-x"></i></button><button class="apply"><i class="ph-bold ph-check"></i> Apply</button></div>
+</div>
+<div class="nav"><span class="on"><i class="ph-fill ph-briefcase"></i> Jobs</span><span><i class="ph ph-file-text"></i> Resume</span><span><i class="ph ph-user"></i> Profile</span></div></div>
+</div>
+<div class="frame" style="left:872px;top:150px;width:360px">
+  <div class="label" data-drags-parent="1">
+    <div class="label__n">03 · Material You</div>
+    <div class="label__d">Android M3 — tonal surfaces, big radii</div>
+    <div class="label__f">Roboto</div>
+  </div>
+  <div class="scr t-3" style="margin:0 auto">
+<div class="bar"><span>9:41</span><span class="bar__i"><i class="ph-fill ph-cell-signal-full"></i><i class="ph-fill ph-wifi-high"></i><i class="ph-fill ph-battery-high"></i></span></div>
+<div class="hd">
+  <div class="logo"><span class="mk"></span>BadaBhai</div>
+  <div class="greet">Jobs near you</div>
+  <div class="loc"><i class="ph-fill ph-map-pin"></i> Pune · 15 km</div>
+</div>
+<div class="job">
+  <div class="job__top">
+    <div><div class="job__title">CNC Operator</div><div class="job__co">Sharma Precision <i class="ph-fill ph-seal-check" style="color:var(--verify,#189D55)"></i></div></div>
+    <div class="job__logo"><i class="ph ph-buildings"></i></div>
+  </div>
+  <div class="job__facts"><span><i class="ph ph-map-pin"></i>Pimpri</span><span><i class="ph ph-currency-inr"></i>22–28k/mo</span></div>
+  <div class="job__tags"><b>Fanuc</b><b>2+ yrs</b><b>Day shift</b></div>
+  <div style="flex:1"></div>
+  <div class="job__cta"><button class="skip"><i class="ph ph-x"></i></button><button class="apply"><i class="ph-bold ph-check"></i> Apply</button></div>
+</div>
+<div class="nav"><span class="on"><i class="ph-fill ph-briefcase"></i> Jobs</span><span><i class="ph ph-file-text"></i> Resume</span><span><i class="ph ph-user"></i> Profile</span></div></div>
+</div>
+<div class="frame" style="left:1288px;top:150px;width:360px">
+  <div class="label" data-drags-parent="1">
+    <div class="label__n">04 · Dark Premium</div>
+    <div class="label__d">Charcoal + gold, glassy cards, glow</div>
+    <div class="label__f">Sora</div>
+  </div>
+  <div class="scr t-4" style="margin:0 auto">
+<div class="bar"><span>9:41</span><span class="bar__i"><i class="ph-fill ph-cell-signal-full"></i><i class="ph-fill ph-wifi-high"></i><i class="ph-fill ph-battery-high"></i></span></div>
+<div class="hd">
+  <div class="logo"><span class="mk"></span>BadaBhai</div>
+  <div class="greet">Jobs near you</div>
+  <div class="loc"><i class="ph-fill ph-map-pin"></i> Pune · 15 km</div>
+</div>
+<div class="job">
+  <div class="job__top">
+    <div><div class="job__title">CNC Operator</div><div class="job__co">Sharma Precision <i class="ph-fill ph-seal-check" style="color:var(--verify,#189D55)"></i></div></div>
+    <div class="job__logo"><i class="ph ph-buildings"></i></div>
+  </div>
+  <div class="job__facts"><span><i class="ph ph-map-pin"></i>Pimpri</span><span><i class="ph ph-currency-inr"></i>22–28k/mo</span></div>
+  <div class="job__tags"><b>Fanuc</b><b>2+ yrs</b><b>Day shift</b></div>
+  <div style="flex:1"></div>
+  <div class="job__cta"><button class="skip"><i class="ph ph-x"></i></button><button class="apply"><i class="ph-bold ph-check"></i> Apply</button></div>
+</div>
+<div class="nav"><span class="on"><i class="ph-fill ph-briefcase"></i> Jobs</span><span><i class="ph ph-file-text"></i> Resume</span><span><i class="ph ph-user"></i> Profile</span></div></div>
+</div>
+<div class="frame" style="left:40px;top:910px;width:360px">
+  <div class="label" data-drags-parent="1">
+    <div class="label__n">05 · Desi Vernacular Pop</div>
+    <div class="label__d">Truck-art palette — saffron + green</div>
+    <div class="label__f">Baloo 2 + Mukta</div>
+  </div>
+  <div class="scr t-5" style="margin:0 auto">
+<div class="bar"><span>9:41</span><span class="bar__i"><i class="ph-fill ph-cell-signal-full"></i><i class="ph-fill ph-wifi-high"></i><i class="ph-fill ph-battery-high"></i></span></div>
+<div class="hd">
+  <div class="logo"><span class="mk"></span>BadaBhai</div>
+  <div class="greet">Jobs near you</div>
+  <div class="loc"><i class="ph-fill ph-map-pin"></i> Pune · 15 km</div>
+</div>
+<div class="job">
+  <div class="job__top">
+    <div><div class="job__title">CNC Operator</div><div class="job__co">Sharma Precision <i class="ph-fill ph-seal-check" style="color:var(--verify,#189D55)"></i></div></div>
+    <div class="job__logo"><i class="ph ph-buildings"></i></div>
+  </div>
+  <div class="job__facts"><span><i class="ph ph-map-pin"></i>Pimpri</span><span><i class="ph ph-currency-inr"></i>22–28k/mo</span></div>
+  <div class="job__tags"><b>Fanuc</b><b>2+ yrs</b><b>Day shift</b></div>
+  <div style="flex:1"></div>
+  <div class="job__cta"><button class="skip"><i class="ph ph-x"></i></button><button class="apply"><i class="ph-bold ph-check"></i> Apply</button></div>
+</div>
+<div class="nav"><span class="on"><i class="ph-fill ph-briefcase"></i> Jobs</span><span><i class="ph ph-file-text"></i> Resume</span><span><i class="ph ph-user"></i> Profile</span></div></div>
+</div>
+<div class="frame" style="left:456px;top:910px;width:360px">
+  <div class="label" data-drags-parent="1">
+    <div class="label__n">06 · Swiss Minimal</div>
+    <div class="label__d">Grid, hairlines, black & white + accent</div>
+    <div class="label__f">Inter</div>
+  </div>
+  <div class="scr t-6" style="margin:0 auto">
+<div class="bar"><span>9:41</span><span class="bar__i"><i class="ph-fill ph-cell-signal-full"></i><i class="ph-fill ph-wifi-high"></i><i class="ph-fill ph-battery-high"></i></span></div>
+<div class="hd">
+  <div class="logo"><span class="mk"></span>BadaBhai</div>
+  <div class="greet">Jobs near you</div>
+  <div class="loc"><i class="ph-fill ph-map-pin"></i> Pune · 15 km</div>
+</div>
+<div class="job">
+  <div class="job__top">
+    <div><div class="job__title">CNC Operator</div><div class="job__co">Sharma Precision <i class="ph-fill ph-seal-check" style="color:var(--verify,#189D55)"></i></div></div>
+    <div class="job__logo"><i class="ph ph-buildings"></i></div>
+  </div>
+  <div class="job__facts"><span><i class="ph ph-map-pin"></i>Pimpri</span><span><i class="ph ph-currency-inr"></i>22–28k/mo</span></div>
+  <div class="job__tags"><b>Fanuc</b><b>2+ yrs</b><b>Day shift</b></div>
+  <div style="flex:1"></div>
+  <div class="job__cta"><button class="skip"><i class="ph ph-x"></i></button><button class="apply"><i class="ph-bold ph-check"></i> Apply</button></div>
+</div>
+<div class="nav"><span class="on"><i class="ph-fill ph-briefcase"></i> Jobs</span><span><i class="ph ph-file-text"></i> Resume</span><span><i class="ph ph-user"></i> Profile</span></div></div>
+</div>
+<div class="frame" style="left:872px;top:910px;width:360px">
+  <div class="label" data-drags-parent="1">
+    <div class="label__n">07 · Editorial Serif</div>
+    <div class="label__d">Magazine — serif headlines, premium</div>
+    <div class="label__f">Playfair Display + Mukta</div>
+  </div>
+  <div class="scr t-7" style="margin:0 auto">
+<div class="bar"><span>9:41</span><span class="bar__i"><i class="ph-fill ph-cell-signal-full"></i><i class="ph-fill ph-wifi-high"></i><i class="ph-fill ph-battery-high"></i></span></div>
+<div class="hd">
+  <div class="logo"><span class="mk"></span>BadaBhai</div>
+  <div class="greet">Jobs near you</div>
+  <div class="loc"><i class="ph-fill ph-map-pin"></i> Pune · 15 km</div>
+</div>
+<div class="job">
+  <div class="job__top">
+    <div><div class="job__title">CNC Operator</div><div class="job__co">Sharma Precision <i class="ph-fill ph-seal-check" style="color:var(--verify,#189D55)"></i></div></div>
+    <div class="job__logo"><i class="ph ph-buildings"></i></div>
+  </div>
+  <div class="job__facts"><span><i class="ph ph-map-pin"></i>Pimpri</span><span><i class="ph ph-currency-inr"></i>22–28k/mo</span></div>
+  <div class="job__tags"><b>Fanuc</b><b>2+ yrs</b><b>Day shift</b></div>
+  <div style="flex:1"></div>
+  <div class="job__cta"><button class="skip"><i class="ph ph-x"></i></button><button class="apply"><i class="ph-bold ph-check"></i> Apply</button></div>
+</div>
+<div class="nav"><span class="on"><i class="ph-fill ph-briefcase"></i> Jobs</span><span><i class="ph ph-file-text"></i> Resume</span><span><i class="ph ph-user"></i> Profile</span></div></div>
+</div>
+<div class="frame" style="left:1288px;top:910px;width:360px">
+  <div class="label" data-drags-parent="1">
+    <div class="label__n">08 · Fintech Trust</div>
+    <div class="label__d">Bank-grade — deep navy / teal, solid</div>
+    <div class="label__f">Inter</div>
+  </div>
+  <div class="scr t-8" style="margin:0 auto">
+<div class="bar"><span>9:41</span><span class="bar__i"><i class="ph-fill ph-cell-signal-full"></i><i class="ph-fill ph-wifi-high"></i><i class="ph-fill ph-battery-high"></i></span></div>
+<div class="hd">
+  <div class="logo"><span class="mk"></span>BadaBhai</div>
+  <div class="greet">Jobs near you</div>
+  <div class="loc"><i class="ph-fill ph-map-pin"></i> Pune · 15 km</div>
+</div>
+<div class="job">
+  <div class="job__top">
+    <div><div class="job__title">CNC Operator</div><div class="job__co">Sharma Precision <i class="ph-fill ph-seal-check" style="color:var(--verify,#189D55)"></i></div></div>
+    <div class="job__logo"><i class="ph ph-buildings"></i></div>
+  </div>
+  <div class="job__facts"><span><i class="ph ph-map-pin"></i>Pimpri</span><span><i class="ph ph-currency-inr"></i>22–28k/mo</span></div>
+  <div class="job__tags"><b>Fanuc</b><b>2+ yrs</b><b>Day shift</b></div>
+  <div style="flex:1"></div>
+  <div class="job__cta"><button class="skip"><i class="ph ph-x"></i></button><button class="apply"><i class="ph-bold ph-check"></i> Apply</button></div>
+</div>
+<div class="nav"><span class="on"><i class="ph-fill ph-briefcase"></i> Jobs</span><span><i class="ph ph-file-text"></i> Resume</span><span><i class="ph ph-user"></i> Profile</span></div></div>
+</div>
+<div class="frame" style="left:40px;top:1670px;width:360px">
+  <div class="label" data-drags-parent="1">
+    <div class="label__n">09 · Claymorphism</div>
+    <div class="label__d">Soft puffy 3D shapes, peach pastel</div>
+    <div class="label__f">Baloo 2 + Mukta</div>
+  </div>
+  <div class="scr t-9" style="margin:0 auto">
+<div class="bar"><span>9:41</span><span class="bar__i"><i class="ph-fill ph-cell-signal-full"></i><i class="ph-fill ph-wifi-high"></i><i class="ph-fill ph-battery-high"></i></span></div>
+<div class="hd">
+  <div class="logo"><span class="mk"></span>BadaBhai</div>
+  <div class="greet">Jobs near you</div>
+  <div class="loc"><i class="ph-fill ph-map-pin"></i> Pune · 15 km</div>
+</div>
+<div class="job">
+  <div class="job__top">
+    <div><div class="job__title">CNC Operator</div><div class="job__co">Sharma Precision <i class="ph-fill ph-seal-check" style="color:var(--verify,#189D55)"></i></div></div>
+    <div class="job__logo"><i class="ph ph-buildings"></i></div>
+  </div>
+  <div class="job__facts"><span><i class="ph ph-map-pin"></i>Pimpri</span><span><i class="ph ph-currency-inr"></i>22–28k/mo</span></div>
+  <div class="job__tags"><b>Fanuc</b><b>2+ yrs</b><b>Day shift</b></div>
+  <div style="flex:1"></div>
+  <div class="job__cta"><button class="skip"><i class="ph ph-x"></i></button><button class="apply"><i class="ph-bold ph-check"></i> Apply</button></div>
+</div>
+<div class="nav"><span class="on"><i class="ph-fill ph-briefcase"></i> Jobs</span><span><i class="ph ph-file-text"></i> Resume</span><span><i class="ph ph-user"></i> Profile</span></div></div>
+</div>
+<div class="frame" style="left:456px;top:1670px;width:360px">
+  <div class="label" data-drags-parent="1">
+    <div class="label__n">10 · Gamified</div>
+    <div class="label__d">Duolingo-style 3D buttons, chunky friendly</div>
+    <div class="label__f">Baloo 2 + Mukta</div>
+  </div>
+  <div class="scr t-10" style="margin:0 auto">
+<div class="bar"><span>9:41</span><span class="bar__i"><i class="ph-fill ph-cell-signal-full"></i><i class="ph-fill ph-wifi-high"></i><i class="ph-fill ph-battery-high"></i></span></div>
+<div class="hd">
+  <div class="logo"><span class="mk"></span>BadaBhai</div>
+  <div class="greet">Jobs near you</div>
+  <div class="loc"><i class="ph-fill ph-map-pin"></i> Pune · 15 km</div>
+</div>
+<div class="job">
+  <div class="job__top">
+    <div><div class="job__title">CNC Operator</div><div class="job__co">Sharma Precision <i class="ph-fill ph-seal-check" style="color:var(--verify,#189D55)"></i></div></div>
+    <div class="job__logo"><i class="ph ph-buildings"></i></div>
+  </div>
+  <div class="job__facts"><span><i class="ph ph-map-pin"></i>Pimpri</span><span><i class="ph ph-currency-inr"></i>22–28k/mo</span></div>
+  <div class="job__tags"><b>Fanuc</b><b>2+ yrs</b><b>Day shift</b></div>
+  <div style="flex:1"></div>
+  <div class="job__cta"><button class="skip"><i class="ph ph-x"></i></button><button class="apply"><i class="ph-bold ph-check"></i> Apply</button></div>
+</div>
+<div class="nav"><span class="on"><i class="ph-fill ph-briefcase"></i> Jobs</span><span><i class="ph ph-file-text"></i> Resume</span><span><i class="ph ph-user"></i> Profile</span></div></div>
+</div>
+<div class="frame" style="left:872px;top:1670px;width:360px">
+  <div class="label" data-drags-parent="1">
+    <div class="label__n">11 · High-Contrast Accessible</div>
+    <div class="label__d">Large type, AAA contrast, low-literacy-first</div>
+    <div class="label__f">Mukta</div>
+  </div>
+  <div class="scr t-11" style="margin:0 auto">
+<div class="bar"><span>9:41</span><span class="bar__i"><i class="ph-fill ph-cell-signal-full"></i><i class="ph-fill ph-wifi-high"></i><i class="ph-fill ph-battery-high"></i></span></div>
+<div class="hd">
+  <div class="logo"><span class="mk"></span>BadaBhai</div>
+  <div class="greet">Jobs near you</div>
+  <div class="loc"><i class="ph-fill ph-map-pin"></i> Pune · 15 km</div>
+</div>
+<div class="job">
+  <div class="job__top">
+    <div><div class="job__title">CNC Operator</div><div class="job__co">Sharma Precision <i class="ph-fill ph-seal-check" style="color:var(--verify,#189D55)"></i></div></div>
+    <div class="job__logo"><i class="ph ph-buildings"></i></div>
+  </div>
+  <div class="job__facts"><span><i class="ph ph-map-pin"></i>Pimpri</span><span><i class="ph ph-currency-inr"></i>22–28k/mo</span></div>
+  <div class="job__tags"><b>Fanuc</b><b>2+ yrs</b><b>Day shift</b></div>
+  <div style="flex:1"></div>
+  <div class="job__cta"><button class="skip"><i class="ph ph-x"></i></button><button class="apply"><i class="ph-bold ph-check"></i> Apply</button></div>
+</div>
+<div class="nav"><span class="on"><i class="ph-fill ph-briefcase"></i> Jobs</span><span><i class="ph ph-file-text"></i> Resume</span><span><i class="ph ph-user"></i> Profile</span></div></div>
+</div>
+<div class="frame" style="left:1288px;top:1670px;width:360px">
+  <div class="label" data-drags-parent="1">
+    <div class="label__n">12 · Warm Gradient Glass</div>
+    <div class="label__d">Warm gradient + frosted glass (not cold purple)</div>
+    <div class="label__f">Sora</div>
+  </div>
+  <div class="scr t-12" style="margin:0 auto">
+<div class="bar"><span>9:41</span><span class="bar__i"><i class="ph-fill ph-cell-signal-full"></i><i class="ph-fill ph-wifi-high"></i><i class="ph-fill ph-battery-high"></i></span></div>
+<div class="hd">
+  <div class="logo"><span class="mk"></span>BadaBhai</div>
+  <div class="greet">Jobs near you</div>
+  <div class="loc"><i class="ph-fill ph-map-pin"></i> Pune · 15 km</div>
+</div>
+<div class="job">
+  <div class="job__top">
+    <div><div class="job__title">CNC Operator</div><div class="job__co">Sharma Precision <i class="ph-fill ph-seal-check" style="color:var(--verify,#189D55)"></i></div></div>
+    <div class="job__logo"><i class="ph ph-buildings"></i></div>
+  </div>
+  <div class="job__facts"><span><i class="ph ph-map-pin"></i>Pimpri</span><span><i class="ph ph-currency-inr"></i>22–28k/mo</span></div>
+  <div class="job__tags"><b>Fanuc</b><b>2+ yrs</b><b>Day shift</b></div>
+  <div style="flex:1"></div>
+  <div class="job__cta"><button class="skip"><i class="ph ph-x"></i></button><button class="apply"><i class="ph-bold ph-check"></i> Apply</button></div>
+</div>
+<div class="nav"><span class="on"><i class="ph-fill ph-briefcase"></i> Jobs</span><span><i class="ph ph-file-text"></i> Resume</span><span><i class="ph ph-user"></i> Profile</span></div></div>
+</div>
+</body>
+</html>

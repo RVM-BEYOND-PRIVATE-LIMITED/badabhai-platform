@@ -1,0 +1,26 @@
+<!-- @dsCard group="Spacing" viewport="700x190" name="Touch targets" subtitle="48px floor in the worker app. Gloved hands, the field." -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 24px 28px; background: var(--surface-card); font-family: var(--font-sans); }
+  .row { display: flex; align-items: flex-end; gap: 18px; }
+  .item { text-align: center; }
+  .box { background: var(--brand-tint); border: 1.5px dashed var(--brand-border); border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; color: var(--text-brand); font-weight: 700; }
+  .lab { font-size: 12px; font-weight: 700; color: var(--text-primary); margin-top: 8px; }
+  .tok { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+  .note { font-size: 13px; color: var(--text-muted); margin-top: 16px; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="item"><div class="box" style="width:36px;height:36px">36</div><div class="lab">Small</div><div class="tok">--control-sm</div></div>
+    <div class="item"><div class="box" style="width:44px;height:44px">44</div><div class="lab">Medium</div><div class="tok">--control-md</div></div>
+    <div class="item"><div class="box" style="width:48px;height:48px;border-style:solid;background:var(--brand-tint-2)">48</div><div class="lab">Tap floor</div><div class="tok">--tap</div></div>
+    <div class="item"><div class="box" style="width:52px;height:52px">52</div><div class="lab">Primary CTA</div><div class="tok">--control-lg</div></div>
+  </div>
+  <p class="note">Worker-app interactive elements never render below <b>48px</b>. Small/medium are for the denser payer web only.</p>
+</body>
+</html>

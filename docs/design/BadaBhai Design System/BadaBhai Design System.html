@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BadaBhai Design System</title>
+<link rel="stylesheet" href="styles.css">
+<script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+<style>
+  body { margin: 0; background: var(--surface-page); color: var(--text-primary); font-family: var(--font-sans); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px 80px; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 22px 0; }
+  .logo { display: inline-flex; align-items: center; gap: 11px; }
+  .logo svg { width: 40px; height: 40px; border-radius: 22%; box-shadow: var(--shadow-sm); }
+  .logo__w { font-family: var(--font-display); font-weight: 800; font-size: 26px; letter-spacing: -0.02em; }
+  .logo__w .a { color: var(--ink-900); } .logo__w .b { color: var(--marigold-600); }
+  .pill { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--brand-press); background: var(--brand-tint); padding: 6px 12px; border-radius: var(--radius-pill); }
+
+  .hero { padding: 40px 0 28px; border-top: 1px solid var(--divider); }
+  .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-brand); }
+  .hero h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(44px, 8vw, 84px); line-height: 0.98; letter-spacing: -0.03em; margin: 16px 0 0; }
+  .hero h1 .mk { background-image: linear-gradient(transparent 60%, var(--marigold-200) 60%); }
+  .hero p { font-size: 20px; line-height: 1.5; color: var(--text-secondary); max-width: 62ch; margin: 22px 0 0; }
+
+  .flag { display: flex; gap: 14px; background: var(--mustard-50); border: 1px solid rgba(201,138,6,0.3); border-radius: var(--radius-lg); padding: 18px 20px; margin-top: 30px; }
+  .flag i { color: var(--warning); font-size: 24px; flex: none; }
+  .flag b { color: var(--ink-900); }
+  .flag p { margin: 0; font-size: 15px; line-height: 1.55; color: var(--ink-700); }
+
+  .sec { margin-top: 56px; }
+  .sec__h { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; }
+  .sec__h h2 { font-family: var(--font-display); font-weight: 700; font-size: 26px; margin: 0; }
+  .sec__h span { font-size: 14px; color: var(--text-muted); }
+
+  .ramp { display: flex; border-radius: var(--radius-md); overflow: hidden; box-shadow: var(--shadow-sm); }
+  .ramp div { flex: 1; height: 76px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 7px; font-family: var(--font-mono); font-size: 10px; color: rgba(0,0,0,0.5); }
+  .ramp div.dk { color: rgba(255,255,255,0.7); }
+  .swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 14px; }
+  .sw { border-radius: var(--radius-md); padding: 14px; height: 84px; display: flex; flex-direction: column; justify-content: flex-end; box-shadow: var(--shadow-xs); }
+  .sw b { font-size: 13px; } .sw span { font-family: var(--font-mono); font-size: 11px; opacity: 0.75; }
+
+  .type-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .tcard { background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 22px; box-shadow: var(--shadow-sm); }
+  .tcard .big { font-size: 40px; line-height: 1; color: var(--text-primary); }
+  .tcard .lbl { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); margin-top: 16px; }
+
+  .index { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .icard { background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 20px; box-shadow: var(--shadow-sm); }
+  .icard__ic { width: 44px; height: 44px; border-radius: var(--radius-md); background: var(--brand-tint); color: var(--brand-press); display: flex; align-items: center; justify-content: center; font-size: 22px; margin-bottom: 12px; }
+  .icard h3 { font-family: var(--font-display); font-size: 18px; margin: 0 0 4px; }
+  .icard p { font-size: 14px; color: var(--text-secondary); line-height: 1.5; margin: 0; }
+  .icard .num { font-family: var(--font-mono); font-weight: 700; color: var(--brand-press); }
+
+  .ask { background: var(--surface-ink); color: var(--text-inverse); border-radius: var(--radius-xl); padding: 34px 32px; margin-top: 56px; }
+  .ask h2 { font-family: var(--font-display); color: #fff; font-size: 26px; margin: 0 0 10px; }
+  .ask p { color: var(--ink-200); font-size: 16px; line-height: 1.6; margin: 0 0 6px; max-width: 70ch; }
+  .ask b { color: var(--marigold-300); }
+
+  @media (max-width: 760px) { .swatches, .type-grid, .index { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <span class="logo">
+        <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg"><rect width="512" height="512" rx="128" fill="#E0371C"/><path d="M150 124h212a40 40 0 0 1 40 40v132a40 40 0 0 1-40 40H252l-78 62a12 12 0 0 1-19.4-9.4V336h-4.6a40 40 0 0 1-40-40V164a40 40 0 0 1 40-40Z" fill="#fff"/><path d="M196 268l60-58 60 58" stroke="#0E7A4F" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+        <span class="logo__w"><span class="a">Bada</span><span class="b">Bhai</span></span>
+      </span>
+      <span class="pill">Design System · v1 proposal</span>
+    </div>
+
+    <div class="hero">
+      <div class="eyebrow">The helpful big brother for India's workforce</div>
+      <h1>Desi <span class="mk">Vernacular Pop</span></h1>
+      <p>A warm, sturdy, vernacular-Indian design language for BadaBhai — where the dignity of skilled trade work meets a big brother who never tests, only helps. Chat-first for workers; crisp and operational for the companies and agencies who pay.</p>
+
+      <div class="flag">
+        <i class="ph-fill ph-info"></i>
+        <p><b>This visual layer is a proposal.</b> Only a product/strategy doc was supplied — no logo, colors, type, or screenshots. The palette, type, logo, and icon set here are an original, defensible interpretation built from BadaBhai's product DNA. Share any real brand assets and the system snaps to them.</p>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec__h"><h2>Color</h2><span>Marigold brand · warm ink · paper · verified green</span></div>
+      <div class="ramp">
+        <div style="background:var(--marigold-50)">50</div>
+        <div style="background:var(--marigold-200)">200</div>
+        <div style="background:var(--marigold-400)">400</div>
+        <div class="dk" style="background:var(--marigold-500)">500</div>
+        <div class="dk" style="background:var(--marigold-600)">600</div>
+        <div class="dk" style="background:var(--marigold-700)">700</div>
+        <div class="dk" style="background:var(--marigold-900)">900</div>
+      </div>
+      <div class="swatches">
+        <div class="sw" style="background:var(--brand);color:var(--text-on-brand)"><b>Vermilion</b><span>#E0371C · brand</span></div>
+        <div class="sw" style="background:var(--ink-900);color:#fff"><b>Ink</b><span>#2A1A0E · text</span></div>
+        <div class="sw" style="background:var(--success);color:#fff"><b>Green</b><span>#0E7A4F · go</span></div>
+        <div class="sw" style="background:var(--paper-2);color:var(--ink-700);border:1px solid var(--border-default)"><b>Cream</b><span>#FFF6E8 · page</span></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec__h"><h2>Type</h2><span>Baloo 2 · Mukta · Roboto Mono</span></div>
+      <div class="type-grid">
+        <div class="tcard"><div class="big" style="font-family:var(--font-display);font-weight:800">Bada bhai</div><div class="lbl">Baloo 2 — display</div></div>
+        <div class="tcard"><div class="big" style="font-family:var(--font-sans);font-weight:600;font-size:30px;line-height:1.3">No test.<br>Just talk. कोई टेस्ट नहीं।</div><div class="lbl">Mukta — body, Hinglish</div></div>
+        <div class="tcard"><div class="big" style="font-family:var(--font-mono);font-weight:700">₹40</div><div class="lbl">Roboto Mono — data &amp; ₹</div></div>
+      </div>
+    </div>
+
+    <div class="sec">
+      <div class="sec__h"><h2>In this system</h2><span>open the Design System tab to browse it all</span></div>
+      <div class="index">
+        <div class="icard"><div class="icard__ic"><i class="ph ph-stack"></i></div><h3><span class="num">24</span> components</h3><p>Forms, display, feedback, navigation, plus brand primitives: chat bubble, swipe job card, masked candidate, logo.</p></div>
+        <div class="icard"><div class="icard__ic"><i class="ph ph-device-mobile"></i></div><h3>2 UI kits</h3><p>The worker mobile app (chat → resume → swipe feed) and the role-aware Company / Agency web app.</p></div>
+        <div class="icard"><div class="icard__ic"><i class="ph ph-copy"></i></div><h3>2 templates</h3><p>Copyable starting screens: a payer dashboard and a worker job feed.</p></div>
+        <div class="icard"><div class="icard__ic"><i class="ph ph-swatches"></i></div><h3><span class="num">24</span> spec cards</h3><p>Color, type, spacing, elevation, motion, and brand foundations on the Design System tab.</p></div>
+        <div class="icard"><div class="icard__ic"><i class="ph ph-textbox"></i></div><h3>Tokens &amp; fonts</h3><p>One <code>styles.css</code>. Self-hosted Roboto Mono; Baloo 2 + Mukta via Google Fonts.</p></div>
+        <div class="icard"><div class="icard__ic"><i class="ph ph-book-open"></i></div><h3>Guide &amp; skill</h3><p><code>readme.md</code> (voice, foundations, iconography) and <code>SKILL.md</code> for Claude Code.</p></div>
+      </div>
+    </div>
+
+    <div class="ask">
+      <h2>Help me make it exact</h2>
+      <p>This is a strong, opinionated v1 — but the whole visual layer is a guess from your strategy doc. The fastest way to make it real:</p>
+      <p>① Share a <b>logo</b> or even one brand color. ② You locked <b>Desi Vernacular Pop</b> — vermilion + green, Baloo 2 + Mukta. ③ Send screenshots of the real <b>Flutter app or Next.js console</b> and the UI kits become pixel-exact.</p>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,35 @@
+<!-- @dsCard group="Brand" viewport="700x250" name="Logo & app icon" subtitle="🟠 Placeholder lockup — Baloo 2 wordmark + chat-lift mark." -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 24px 28px; background: var(--surface-card); font-family: var(--font-sans); }
+  .row { display: flex; align-items: center; gap: 30px; flex-wrap: wrap; }
+  .lockup { display: flex; align-items: center; gap: 12px; }
+  .lockup img { width: 46px; height: 46px; border-radius: 13px; box-shadow: var(--shadow-sm); }
+  .wm { font-family: var(--font-display); font-weight: 800; font-size: 30px; letter-spacing: -0.02em; line-height: 1; }
+  .wm .a { color: var(--ink-900); }
+  .wm .b { color: var(--marigold-600); }
+  .tile { display: flex; align-items: center; justify-content: center; padding: 14px; border-radius: var(--radius-lg); }
+  .ink-bg { background: var(--ink-900); }
+  .ink-bg .a { color: #fff; }
+  .cap { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); margin-top: 16px; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="lockup">
+      <img src="../assets/logo/app-icon.svg" alt="BadaBhai">
+      <span class="wm"><span class="a">Bada</span><span class="b">Bhai</span></span>
+    </div>
+    <img src="../assets/logo/app-icon.svg" alt="mark" style="width:60px;height:60px;border-radius:17px;box-shadow:var(--shadow-md)">
+    <div class="tile ink-bg lockup">
+      <img src="../assets/logo/app-icon.svg" alt="BadaBhai" style="box-shadow:none">
+      <span class="wm"><span class="a">Bada</span><span class="b">Bhai</span></span>
+    </div>
+  </div>
+  <p class="cap">Wordmark = Baloo 2 800 · "Bada" ink, "Bhai" vermilion · mark = chat that lifts you up · always one word: BadaBhai</p>
+</body>
+</html>

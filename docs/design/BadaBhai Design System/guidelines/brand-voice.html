@@ -1,0 +1,35 @@
+<!-- @dsCard group="Brand" viewport="700x260" name="Voice & tone" subtitle="Helpful big brother. Never tests, only helps." -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 24px 28px; background: var(--surface-card); font-family: var(--font-sans); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 22px; }
+  .col h4 { font-family: var(--font-sans); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 8px; }
+  .do h4 { color: var(--success); }
+  .dont h4 { color: var(--danger); }
+  .item { font-size: 15px; line-height: 1.45; padding: 7px 11px; border-radius: var(--radius-sm); margin-bottom: 7px; }
+  .do .item { background: var(--success-tint); color: var(--ink-800); }
+  .dont .item { background: var(--danger-tint); color: var(--ink-700); text-decoration: none; }
+  .dont .item s { color: var(--text-muted); }
+</style>
+</head>
+<body>
+  <div class="grid">
+    <div class="col do">
+      <h4>Say this</h4>
+      <div class="item">"No test. Just talk."</div>
+      <div class="item">"Your resume is ready — download it."</div>
+      <div class="item">"We'll alert you when CNC opens near you."</div>
+    </div>
+    <div class="col dont">
+      <h4>Not this</h4>
+      <div class="item"><s>"Complete the assessment to qualify."</s></div>
+      <div class="item"><s>"Upgrade to boost your ranking."</s></div>
+      <div class="item"><s>"Launching in your city soon!"</s> (dishonest)</div>
+    </div>
+  </div>
+</body>
+</html>

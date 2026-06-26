@@ -1,0 +1,40 @@
+<!-- @dsCard group="Colors" viewport="700x180" name="Surfaces — paper & ink" subtitle="Warm paper page, crisp white cards, ink for dark blocks." -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 22px 24px; background: var(--surface-card); font-family: var(--font-sans); }
+  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .cell { border-radius: var(--radius-md); height: 70px; border: 1px solid var(--border-subtle); display: flex; align-items: flex-end; padding: 8px; }
+  .name { font-size: 11px; font-weight: 700; color: var(--text-primary); margin-top: 8px; }
+  .tok { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+  .on-ink { color: var(--paper-1); }
+</style>
+</head>
+<body>
+  <div class="grid">
+    <div>
+      <div class="cell" style="background:var(--surface-page)"></div>
+      <div class="name">Page</div><div class="tok">--surface-page</div>
+    </div>
+    <div>
+      <div class="cell" style="background:var(--surface-card); box-shadow:var(--shadow-sm)"></div>
+      <div class="name">Card</div><div class="tok">--surface-card</div>
+    </div>
+    <div>
+      <div class="cell" style="background:var(--surface-sunken)"></div>
+      <div class="name">Sunken</div><div class="tok">--surface-sunken</div>
+    </div>
+    <div>
+      <div class="cell" style="background:var(--surface-inset)"></div>
+      <div class="name">Inset</div><div class="tok">--surface-inset</div>
+    </div>
+    <div>
+      <div class="cell" style="background:var(--surface-ink)"><span class="on-ink" style="font-size:11px;font-weight:700">Aa</span></div>
+      <div class="name">Ink</div><div class="tok">--surface-ink</div>
+    </div>
+  </div>
+</body>
+</html>
