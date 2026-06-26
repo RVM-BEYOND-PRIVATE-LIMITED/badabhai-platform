@@ -24,6 +24,9 @@ import '../../features/kit/data/interview_kit_repository_impl.dart';
 import '../../features/kit/domain/interview_kit_repository.dart';
 import '../../features/kit/presentation/cubit/kit_detail_cubit.dart';
 import '../../features/kit/presentation/cubit/kit_list_cubit.dart';
+import '../../features/notifications/data/notifications_repository_impl.dart';
+import '../../features/notifications/domain/notifications_repository.dart';
+import '../../features/notifications/presentation/cubit/notifications_cubit.dart';
 import '../../features/resume/data/resume_edit_repository_impl.dart';
 import '../../features/resume/data/resume_repository_impl.dart';
 import '../../features/resume/domain/resume_edit_repository.dart';
@@ -91,6 +94,11 @@ void setupLocator() {
   locator.registerLazySingleton<ProfileSummaryRepository>(
     () => const ProfileSummaryRepositoryImpl(),
   );
+  // Single instance app-wide so the Alerts screen and the nav badge share the
+  // same reactive unread count.
+  locator.registerLazySingleton<NotificationsRepository>(
+    () => NotificationsRepositoryImpl(),
+  );
 
   // --- Blocs / Cubits (fresh instance per screen mount) ---------------------
   locator.registerFactory<PhoneLoginCubit>(
@@ -128,5 +136,8 @@ void setupLocator() {
   );
   locator.registerFactory<ProfileTabCubit>(
     () => ProfileTabCubit(locator<ProfileSummaryRepository>()),
+  );
+  locator.registerFactory<NotificationsCubit>(
+    () => NotificationsCubit(locator<NotificationsRepository>()),
   );
 }

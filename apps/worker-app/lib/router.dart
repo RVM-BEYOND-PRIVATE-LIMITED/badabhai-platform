@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import 'core/theme/app_colors.dart';
-import 'core/theme/app_typography.dart';
-import 'core/widgets/bb_app_bar.dart';
+import 'core/di/locator.dart';
 import 'core/widgets/bb_bottom_nav.dart';
 import 'core/widgets/bb_job_card.dart';
+import 'features/notifications/domain/notifications_repository.dart';
 
 import 'features/splash/presentation/splash_screen.dart';
 import 'features/auth/presentation/phone_login_screen.dart';
@@ -15,6 +14,7 @@ import 'features/chat/presentation/chat_profiling_screen.dart';
 import 'features/voice/presentation/voice_note_placeholder_screen.dart';
 import 'features/kit/presentation/kit_detail_screen.dart';
 import 'features/kit/presentation/kit_screen.dart';
+import 'features/notifications/presentation/notifications_screen.dart';
 import 'features/profile/presentation/profile_preview_screen.dart';
 import 'features/profile_tab/presentation/profile_tab_screen.dart';
 import 'features/settings/presentation/settings_screen.dart';
@@ -197,7 +197,7 @@ GoRouter _buildRouter() {
             routes: <RouteBase>[
               GoRoute(
                 path: Routes.alerts,
-                builder: (_, __) => const _Placeholder('Alerts'),
+                builder: (_, __) => const NotificationsScreen(),
               ),
             ],
           ),
@@ -207,9 +207,8 @@ GoRouter _buildRouter() {
   );
 }
 
-/// The persistent shell: tab bodies + the spec 4-tab [BbBottomNav].
-///
-/// TODO(stage-7): wire `alertsUnread` to the notifications bloc/AppState.
+/// The persistent shell: tab bodies + the spec 4-tab [BbBottomNav]. The Alerts
+/// unread badge tracks the shared [NotificationsRepository]'s reactive count.
 class _ShellScaffold extends StatelessWidget {
   const _ShellScaffold({required this.shell});
 
@@ -219,34 +218,18 @@ class _ShellScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: shell,
-      bottomNavigationBar: BbBottomNav(
-        currentIndex: shell.currentIndex,
-        // Re-tapping the active tab resets it to its branch root.
-        onTap: (int i) =>
-            shell.goBranch(i, initialLocation: i == shell.currentIndex),
-      ),
-    );
-  }
-}
-
-/// Temporary "coming soon" body for screens built in later stages.
-class _Placeholder extends StatelessWidget {
-  const _Placeholder(this.label);
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: BbAppBar(title: label),
-      body: Center(
-        child: Text(
-          '$label\n(coming soon)',
-          textAlign: TextAlign.center,
-          style: AppTypography.body(color: AppColors.textSecondary),
+      bottomNavigationBar: ValueListenableBuilder<int>(
+        valueListenable: locator<NotificationsRepository>().unreadCount,
+        builder: (BuildContext context, int unread, Widget? _) => BbBottomNav(
+          currentIndex: shell.currentIndex,
+          // Re-tapping the active tab resets it to its branch root.
+          onTap: (int i) =>
+              shell.goBranch(i, initialLocation: i == shell.currentIndex),
+          alertsUnread: unread,
         ),
       ),
     );
   }
 }
+
 
