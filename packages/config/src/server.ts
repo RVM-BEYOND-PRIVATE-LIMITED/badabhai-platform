@@ -160,6 +160,42 @@ export const serverEnvSchema = z.object({
   // outage rejects, never uncaps).
   AGENCY_INVITE_MINT_MAX_PER_HOUR: z.coerce.number().int().positive().default(60),
 
+  // Payer email-OTP delivery channel (ADR-0019; the email analogue of SMS_PROVIDER).
+  // These gate the REAL payer email-OTP channel and are RELEVANT ONLY when
+  // PAYER_LOGIN_METHOD="email_otp". Default EMAIL_PROVIDER="none" keeps the alpha MOCK
+  // channel (the one-time code is echoed over the console/mock path — NO real send), so
+  // the default boot is unchanged. Selecting a REAL provider ("zeptomail"/"smtp"/"auto")
+  // is human-gated + staging-first (CLAUDE.md §7): a real provider WITHOUT its required
+  // creds fails CLOSED at boot (assertPayerAuthConfig → emailProviderBlockedReason),
+  // never silently degrading to mock. All keys are SERVER-ONLY secrets — never
+  // NEXT_PUBLIC_*, never the public config.
+  //   "none"      — alpha MOCK (default): no real email is sent.
+  //   "zeptomail" — ZeptoMail HTTPS send API (requires the ZEPTOMAIL_* set below).
+  //   "smtp"      — generic SMTP relay (requires the SMTP_* set below).
+  //   "auto"      — pick whichever set is fully configured (ZeptoMail preferred); a
+  //                 reason is raised only when NEITHER set is satisfiable.
+  EMAIL_PROVIDER: z.enum(["none", "zeptomail", "smtp", "auto"]).default("none"),
+  // ZeptoMail (HTTPS send API). The API_URL is a non-secret endpoint; the TOKEN +
+  // MAIL_AGENT are secrets supplied only in staging-first. SANDBOX_MODE uses
+  // booleanFromString (NOT z.coerce.boolean) so a falsey string stays OFF.
+  ZEPTOMAIL_API_URL: z.string().url().optional(),
+  ZEPTOMAIL_API_TOKEN: z.string().min(1).optional(),
+  ZEPTOMAIL_MAIL_AGENT: z.string().min(1).optional(),
+  ZEPTOMAIL_SANDBOX_MODE: booleanFromString,
+  // Generic SMTP relay (alternative to ZeptoMail). HOST/USER/PASS are secrets; PORT
+  // reuses the shared portSchema. FROM is the envelope sender for the SMTP transport.
+  SMTP_HOST: z.string().min(1).optional(),
+  SMTP_PORT: portSchema.optional(),
+  SMTP_USER: z.string().min(1).optional(),
+  SMTP_PASS: z.string().min(1).optional(),
+  SMTP_FROM: z.string().min(1).optional(),
+  // Shared From identity for the rendered email (both providers). EMAIL_FROM_ADDRESS is
+  // a required cred for every REAL provider (the guard enforces it); NAME + REPLY_TO are
+  // presentation-only.
+  EMAIL_FROM_NAME: z.string().min(1).optional(),
+  EMAIL_FROM_ADDRESS: z.string().email().optional(),
+  EMAIL_REPLY_TO: z.string().email().optional(),
+
   // AI routing (direct providers — Gemini primary + Claude Haiku fallback; ADR-0008).
   // The AI service (Python) calls providers DIRECTLY over their own SDKs/REST; the
   // Node API does NOT make LLM calls (it forwards to the AI service), so these are
@@ -546,10 +582,56 @@ export function payerLoginMethodBlockedReason(config: ServerConfig): string | nu
 }
 
 /**
+ * Reason the SELECTED email-OTP provider cannot run, or null when it is satisfiable
+ * (ADR-0019; mirrors `assertAuthConfig`'s fast2sms branch + `payerLoginMethodBlockedReason`).
+ * A REAL provider that is missing its required creds returns a reason so boot can fail
+ * CLOSED rather than silently degrading to the mock channel. The mock provider ("none")
+ * is always satisfiable (no real send/spend). This helper is provider-only — the CALLER
+ * (assertPayerAuthConfig) decides whether it is RELEVANT (it gates only when
+ * PAYER_LOGIN_METHOD="email_otp"; the email channel is irrelevant for whatsapp/supabase).
+ *   - "zeptomail" requires ZEPTOMAIL_API_TOKEN + ZEPTOMAIL_MAIL_AGENT + EMAIL_FROM_ADDRESS.
+ *   - "smtp"      requires SMTP_HOST + SMTP_USER + SMTP_PASS + EMAIL_FROM_ADDRESS.
+ *   - "auto"      requires EITHER the full ZeptoMail set OR the full SMTP set (each
+ *                 including EMAIL_FROM_ADDRESS); a reason only when NEITHER is satisfiable.
+ */
+export function emailProviderBlockedReason(config: ServerConfig): string | null {
+  const zeptoMissing: string[] = [];
+  if (!config.ZEPTOMAIL_API_TOKEN) zeptoMissing.push("ZEPTOMAIL_API_TOKEN");
+  if (!config.ZEPTOMAIL_MAIL_AGENT) zeptoMissing.push("ZEPTOMAIL_MAIL_AGENT");
+  if (!config.EMAIL_FROM_ADDRESS) zeptoMissing.push("EMAIL_FROM_ADDRESS");
+
+  const smtpMissing: string[] = [];
+  if (!config.SMTP_HOST) smtpMissing.push("SMTP_HOST");
+  if (!config.SMTP_USER) smtpMissing.push("SMTP_USER");
+  if (!config.SMTP_PASS) smtpMissing.push("SMTP_PASS");
+  if (!config.EMAIL_FROM_ADDRESS) smtpMissing.push("EMAIL_FROM_ADDRESS");
+
+  switch (config.EMAIL_PROVIDER) {
+    case "none":
+      return null;
+    case "zeptomail":
+      return zeptoMissing.length > 0
+        ? `EMAIL_PROVIDER=zeptomail requires: ${zeptoMissing.join(", ")}`
+        : null;
+    case "smtp":
+      return smtpMissing.length > 0
+        ? `EMAIL_PROVIDER=smtp requires: ${smtpMissing.join(", ")}`
+        : null;
+    case "auto":
+      if (zeptoMissing.length === 0 || smtpMissing.length === 0) return null;
+      return "EMAIL_PROVIDER=auto requires a fully-configured ZeptoMail set (ZEPTOMAIL_API_TOKEN + ZEPTOMAIL_MAIL_AGENT + EMAIL_FROM_ADDRESS) OR SMTP set (SMTP_HOST + SMTP_USER + SMTP_PASS + EMAIL_FROM_ADDRESS) — neither is satisfiable";
+  }
+}
+
+/**
  * Fail-closed boot guard for the self-serve payer auth surface (ADR-0019 Decision B;
- * mirrors `assertAuthConfig` / `assertPaymentsConfig`). Two invariants:
+ * mirrors `assertAuthConfig` / `assertPaymentsConfig`). Invariants:
  *   - the chosen login method must be runnable — the `supabase` adapter must NOT boot
  *     half-configured (inert-without-keys → throw, never silently degrade), AND
+ *   - when PAYER_LOGIN_METHOD="email_otp", a REAL email provider must NOT boot
+ *     half-configured (real-provider-without-creds → throw via emailProviderBlockedReason;
+ *     the default EMAIL_PROVIDER="none" mock channel is always satisfiable). The email
+ *     channel is irrelevant — and therefore NOT gated — for whatsapp/supabase, AND
  *   - outside an explicit development/test environment JWT_SECRET must be overridden
  *     (the payer session is signed with the SAME JWT_SECRET as the worker session; the
  *     dev default would let anyone forge a payer session — XB-H secure-session).
@@ -563,6 +645,12 @@ export function assertPayerAuthConfig(
 
   const blocked = payerLoginMethodBlockedReason(config);
   if (blocked) problems.push(blocked);
+
+  // The email-OTP channel is only relevant when it is the selected login method.
+  if (config.PAYER_LOGIN_METHOD === "email_otp") {
+    const emailBlocked = emailProviderBlockedReason(config);
+    if (emailBlocked) problems.push(emailBlocked);
+  }
 
   if (!isDevEnv(rawNodeEnv) && config.JWT_SECRET === DEV_JWT_SECRET) {
     problems.push("JWT_SECRET must be overridden (the payer session is signed with it)");
