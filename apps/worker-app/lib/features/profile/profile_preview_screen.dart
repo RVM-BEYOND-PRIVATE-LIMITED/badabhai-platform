@@ -3,6 +3,12 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/config/app_config.dart';
 import '../../core/state/app_state.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/widgets/bb_app_bar.dart';
+import '../../core/widgets/bb_button.dart';
+import '../../core/widgets/bb_scaffold.dart';
 import '../../router.dart';
 
 class ProfilePreviewScreen extends StatefulWidget {
@@ -69,8 +75,16 @@ class _ProfilePreviewScreenState extends State<ProfilePreviewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Your profile')),
+    return BbScaffold(
+      appBar: const BbAppBar(title: 'Your profile'),
+      bottomBar: _loading || _failed
+          ? null
+          : BbButton(
+              label: 'Confirm & generate resume',
+              block: true,
+              iconLeft: Icons.description_outlined,
+              onPressed: _confirmAndGenerate,
+            ),
       body: _loading
           ? _buildWaiting()
           : _failed
@@ -82,26 +96,24 @@ class _ProfilePreviewScreenState extends State<ProfilePreviewScreen> {
   /// Shown while the background extraction job is running. Friendly, low-text
   /// waiting state so a first-time user is not left staring at a bare spinner.
   Widget _buildWaiting() {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            CircularProgressIndicator(),
-            SizedBox(height: 24),
-            Text(
-              'Bada Bhai is preparing your profile…',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'This takes a few seconds. Please wait.',
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const CircularProgressIndicator(),
+          const SizedBox(height: AppSpacing.s6),
+          Text(
+            'Bada Bhai is preparing your profile…',
+            textAlign: TextAlign.center,
+            style: AppTypography.display(size: AppTypography.sizeMd),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          Text(
+            'This takes a few seconds. Please wait.',
+            textAlign: TextAlign.center,
+            style: AppTypography.body(color: AppColors.textSecondary),
+          ),
+        ],
       ),
     );
   }
@@ -109,57 +121,119 @@ class _ProfilePreviewScreenState extends State<ProfilePreviewScreen> {
   /// Shown when extraction times out, fails, or there is no network. Offers a
   /// large, simple retry button.
   Widget _buildFailed() {
-    return Center(
+    return _StatusMessage(
+      icon: Icons.cloud_off_rounded,
+      title: 'Could not prepare your profile.',
+      subtitle: 'Please check your internet and try again.',
+      action: BbButton(
+        label: 'Try again',
+        iconLeft: Icons.refresh_rounded,
+        onPressed: _extract,
+      ),
+    );
+  }
+
+  Widget _buildProfile() {
+    return ListView(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
+      children: <Widget>[
+        Text('Draft profile (placeholder data):',
+            style: AppTypography.body(color: AppColors.textSecondary)),
+        const SizedBox(height: AppSpacing.s4),
+        const _ProfileRow(
+            icon: Icons.badge_outlined, label: 'Role', value: 'VMC Operator'),
+        const SizedBox(height: AppSpacing.s3),
+        const _ProfileRow(
+            icon: Icons.timeline_outlined,
+            label: 'Experience',
+            value: '5 years'),
+        const SizedBox(height: AppSpacing.s3),
+        const _ProfileRow(
+            icon: Icons.precision_manufacturing_outlined,
+            label: 'Machines',
+            value: 'VMC, CNC Lathe'),
+      ],
+    );
+  }
+}
+
+/// One labelled profile attribute card with a warm saffron icon chip.
+class _ProfileRow extends StatelessWidget {
+  const _ProfileRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
       child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        padding: const EdgeInsets.all(AppSpacing.s4),
+        child: Row(
           children: <Widget>[
-            const Icon(Icons.cloud_off, size: 48),
-            const SizedBox(height: 16),
-            const Text(
-              'Could not prepare your profile.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18),
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: AppColors.saffron50,
+                borderRadius: BorderRadius.circular(AppRadii.sm),
+              ),
+              child: Icon(icon, color: AppColors.saffronDeep, size: 24),
             ),
-            const SizedBox(height: 8),
-            const Text(
-              'Please check your internet and try again.',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            FilledButton(
-              onPressed: _extract,
-              child: const Text('Try again'),
+            const SizedBox(width: AppSpacing.s4),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(label, style: AppTypography.eyebrow()),
+                const SizedBox(height: 2),
+                Text(value,
+                    style: AppTypography.body(
+                        size: AppTypography.sizeMd, weight: FontWeight.w600)),
+              ],
             ),
           ],
         ),
       ),
     );
   }
+}
 
-  Widget _buildProfile() {
-    return Padding(
-      padding: const EdgeInsets.all(24),
+/// Centered icon + title + subtitle + action — the shared empty/error layout.
+class _StatusMessage extends StatelessWidget {
+  const _StatusMessage({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.action,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget action;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Text('Draft profile (placeholder data):'),
-          const SizedBox(height: 12),
-          const Card(
-            child: ListTile(title: Text('Role'), subtitle: Text('VMC Operator')),
-          ),
-          const Card(
-            child: ListTile(title: Text('Experience'), subtitle: Text('5 years')),
-          ),
-          const Card(
-            child: ListTile(title: Text('Machines'), subtitle: Text('VMC, CNC Lathe')),
-          ),
-          const SizedBox(height: 24),
-          FilledButton(
-            onPressed: _confirmAndGenerate,
-            child: const Text('Confirm & generate resume'),
-          ),
+          Icon(icon, size: 48, color: AppColors.textMuted),
+          const SizedBox(height: AppSpacing.s4),
+          Text(title,
+              textAlign: TextAlign.center,
+              style: AppTypography.display(size: AppTypography.sizeMd)),
+          const SizedBox(height: AppSpacing.s2),
+          Text(subtitle,
+              textAlign: TextAlign.center,
+              style: AppTypography.body(color: AppColors.textSecondary)),
+          const SizedBox(height: AppSpacing.s6),
+          action,
         ],
       ),
     );

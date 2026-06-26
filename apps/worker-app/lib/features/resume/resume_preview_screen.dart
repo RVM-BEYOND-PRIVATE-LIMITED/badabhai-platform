@@ -3,6 +3,13 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/config/app_config.dart';
 import '../../core/state/app_state.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/widgets/bb_app_bar.dart';
+import '../../core/widgets/bb_button.dart';
+import '../../core/widgets/bb_festive_card.dart';
+import '../../core/widgets/bb_scaffold.dart';
 import '../../router.dart';
 
 class ResumePreviewScreen extends StatefulWidget {
@@ -42,40 +49,86 @@ class _ResumePreviewScreenState extends State<ResumePreviewScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Your resume')),
+    return BbScaffold(
+      appBar: const BbAppBar(title: 'Your resume'),
+      bottomBar: _loading
+          ? null
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                BbButton(
+                  label: 'See jobs for you',
+                  block: true,
+                  iconLeft: Icons.work_outline_rounded,
+                  onPressed: () =>
+                      Navigator.pushNamed(context, Routes.swipeJobs),
+                ),
+                const SizedBox(height: AppSpacing.s3),
+                BbButton(
+                  label: 'Done',
+                  block: true,
+                  variant: BbButtonVariant.ghost,
+                  onPressed: () => Navigator.pushNamedAndRemoveUntil(
+                    context,
+                    Routes.splash,
+                    (Route<dynamic> route) => false,
+                  ),
+                ),
+              ],
+            ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Text(_resume),
+          : ListView(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
+              children: <Widget>[
+                _buildHeader(),
+                const SizedBox(height: AppSpacing.s5),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(AppSpacing.s4),
+                    child: Text(
+                      _resume,
+                      style: AppTypography.body(size: AppTypography.sizeMd),
                     ),
                   ),
-                  const SizedBox(height: 24),
-                  FilledButton.icon(
-                    onPressed: () =>
-                        Navigator.pushNamed(context, Routes.swipeJobs),
-                    icon: const Icon(Icons.work_outline),
-                    label: const Text('See jobs for you'),
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton(
-                    onPressed: () => Navigator.pushNamedAndRemoveUntil(
-                      context,
-                      Routes.splash,
-                      (Route<dynamic> route) => false,
-                    ),
-                    child: const Text('Done'),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
+    );
+  }
+
+  /// Celebratory festive header — the "stamp" moment when the resume is ready.
+  Widget _buildHeader() {
+    return BbFestiveCard(
+      child: Row(
+        children: <Widget>[
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: AppColors.saffron50,
+              borderRadius: BorderRadius.circular(AppRadii.md),
+            ),
+            child: const Icon(Icons.description_rounded,
+                color: AppColors.saffronDeep, size: 28),
+          ),
+          const SizedBox(width: AppSpacing.s4),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text('Resume ready! 👍',
+                    style: AppTypography.display(size: AppTypography.sizeLg)),
+                const SizedBox(height: 2),
+                Text(
+                  'Free, and yours to share.',
+                  style: AppTypography.body(color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

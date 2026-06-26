@@ -12,6 +12,10 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   http: ^1.2.0
+  # Display (Baloo 2) + body (Mukta) of the "Desi Vernacular Pop" theme.
+  # Both carry Devanagari for Hinglish/regional copy. Roboto Mono (data) is
+  # self-hosted below so figures render identically offline.
+  google_fonts: ^6.2.1
 
 dev_dependencies:
   flutter_test:
@@ -20,3 +24,20 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  fonts:
+    # Data font — wages, IDs, OTP cells, counts. Self-hosted (real binaries)
+    # so numbers render identically with no network. Sourced from the
+    # BadaBhai Design System (docs/design/.../assets/fonts).
+    - family: Roboto Mono
+      fonts:
+        - asset: assets/fonts/RobotoMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/RobotoMono-Italic.ttf
+          weight: 400
+          style: italic
+        - asset: assets/fonts/RobotoMono-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/RobotoMono-BoldItalic.ttf
+          weight: 700
+          style: italic

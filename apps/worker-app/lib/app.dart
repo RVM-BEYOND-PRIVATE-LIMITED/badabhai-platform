@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'core/config/app_config.dart';
-import 'core/theme.dart';
+import 'core/theme/app_theme.dart';
 import 'router.dart';
 
 class BadaBhaiApp extends StatelessWidget {
@@ -12,7 +12,7 @@ class BadaBhaiApp extends StatelessWidget {
     return MaterialApp(
       title: 'BadaBhai',
       debugShowCheckedModeBanner: false,
-      theme: buildTheme(),
+      theme: AppTheme.light(),
       initialRoute: Routes.splash,
       routes: appRoutes,
       // A corner ribbon in MOCK mode so it is always obvious the backend is

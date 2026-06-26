@@ -3,6 +3,11 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/config/app_config.dart';
 import '../../core/state/app_state.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/widgets/bb_app_bar.dart';
+import '../../core/widgets/bb_festive_card.dart';
 import '../../router.dart';
 
 /// Alpha swipe-to-apply screen (ADR-0009 Stream C).
@@ -181,7 +186,7 @@ class _SwipeJobsScreenState extends State<SwipeJobsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Jobs for you')),
+      appBar: const BbAppBar(title: 'Jobs for you'),
       body: switch (_status) {
         _FeedStatus.loading => const Center(child: CircularProgressIndicator()),
         _FeedStatus.error => _buildError(),
@@ -196,15 +201,16 @@ class _SwipeJobsScreenState extends State<SwipeJobsScreen> {
     final FeedItem job = _current!;
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpacing.s4),
         child: Column(
           children: <Widget>[
-            const SizedBox(height: 8),
-            const Text(
+            const SizedBox(height: AppSpacing.s2),
+            Text(
               'Swipe right to apply, left to skip',
               textAlign: TextAlign.center,
+              style: AppTypography.body(color: AppColors.textSecondary),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: AppSpacing.s3),
             Expanded(
               child: Dismissible(
                 // The job id keys the card so each swipe targets the right job.
@@ -215,13 +221,15 @@ class _SwipeJobsScreenState extends State<SwipeJobsScreen> {
                     : DismissDirection.horizontal,
                 background: _swipeBackground(
                   alignment: Alignment.centerLeft,
-                  color: Theme.of(context).colorScheme.primaryContainer,
+                  color: AppColors.green100,
+                  foreground: AppColors.green700,
                   icon: Icons.check_circle,
                   label: 'Apply',
                 ),
                 secondaryBackground: _swipeBackground(
                   alignment: Alignment.centerRight,
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  color: AppColors.surfaceSunken,
+                  foreground: AppColors.ink600,
                   icon: Icons.cancel,
                   label: 'Skip',
                 ),
@@ -240,7 +248,7 @@ class _SwipeJobsScreenState extends State<SwipeJobsScreen> {
                 child: _jobCard(job),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpacing.s4),
             _actionButtons(),
           ],
         ),
@@ -249,29 +257,38 @@ class _SwipeJobsScreenState extends State<SwipeJobsScreen> {
   }
 
   Widget _jobCard(FeedItem job) {
-    final ThemeData theme = Theme.of(context);
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(24),
+    return Align(
+      alignment: Alignment.topCenter,
+      child: BbFestiveCard(
+        padding: const EdgeInsets.all(AppSpacing.s6),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Row(
               children: <Widget>[
-                Icon(Icons.work_outline, size: 32, color: theme.colorScheme.primary),
-                const SizedBox(width: 12),
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: AppColors.brandTint,
+                    borderRadius: BorderRadius.circular(AppRadii.md),
+                  ),
+                  child: const Icon(Icons.work_rounded,
+                      size: 26, color: AppColors.brand),
+                ),
+                const SizedBox(width: AppSpacing.s3),
                 Expanded(
                   child: Text(
                     job.title,
-                    style: theme.textTheme.headlineSmall,
+                    style: AppTypography.display(size: AppTypography.sizeXl),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 24),
-            _infoRow(Icons.handyman, job.tradeKey),
-            const SizedBox(height: 16),
+            const SizedBox(height: AppSpacing.s6),
+            _infoRow(Icons.handyman_outlined, job.tradeKey),
+            const SizedBox(height: AppSpacing.s4),
             _infoRow(
               Icons.place_outlined,
               job.area == null ? job.city : '${job.area}, ${job.city}',
@@ -285,10 +302,11 @@ class _SwipeJobsScreenState extends State<SwipeJobsScreen> {
   Widget _infoRow(IconData icon, String text) {
     return Row(
       children: <Widget>[
-        Icon(icon, size: 24),
-        const SizedBox(width: 12),
+        Icon(icon, size: 22, color: AppColors.saffronDeep),
+        const SizedBox(width: AppSpacing.s3),
         Expanded(
-          child: Text(text, style: const TextStyle(fontSize: 18)),
+          child: Text(text,
+              style: AppTypography.body(size: AppTypography.sizeMd)),
         ),
       ],
     );
@@ -306,11 +324,11 @@ class _SwipeJobsScreenState extends State<SwipeJobsScreen> {
             style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(56),
             ),
-            icon: const Icon(Icons.close),
+            icon: const Icon(Icons.close_rounded),
             label: const Text('Skip', style: TextStyle(fontSize: 18)),
           ),
         ),
-        const SizedBox(width: 16),
+        const SizedBox(width: AppSpacing.s4),
         Expanded(
           child: FilledButton.icon(
             key: const Key('swipeApplyButton'),
@@ -318,7 +336,7 @@ class _SwipeJobsScreenState extends State<SwipeJobsScreen> {
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(56),
             ),
-            icon: const Icon(Icons.check),
+            icon: const Icon(Icons.check_rounded),
             label: const Text('Apply', style: TextStyle(fontSize: 18)),
           ),
         ),
@@ -329,23 +347,26 @@ class _SwipeJobsScreenState extends State<SwipeJobsScreen> {
   Widget _swipeBackground({
     required Alignment alignment,
     required Color color,
+    required Color foreground,
     required IconData icon,
     required String label,
   }) {
     return Container(
       alignment: alignment,
-      padding: const EdgeInsets.symmetric(horizontal: 32),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s7),
       decoration: BoxDecoration(
         color: color,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadii.lg),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          Icon(icon, size: 40),
-          const SizedBox(height: 4),
-          Text(label, style: const TextStyle(fontSize: 16)),
+          Icon(icon, size: 40, color: foreground),
+          const SizedBox(height: AppSpacing.s1),
+          Text(label,
+              style: AppTypography.display(
+                  size: AppTypography.sizeBase, color: foreground)),
         ],
       ),
     );
@@ -353,31 +374,14 @@ class _SwipeJobsScreenState extends State<SwipeJobsScreen> {
 
   /// Shown when there are no more jobs to show.
   Widget _buildEmpty() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            const Icon(Icons.check_circle_outline, size: 48),
-            const SizedBox(height: 16),
-            const Text(
-              'No more jobs right now.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Check back later for new jobs.',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            FilledButton(
-              onPressed: _loadFeed,
-              child: const Text('Refresh'),
-            ),
-          ],
-        ),
+    return _StatusView(
+      icon: Icons.check_circle_outline_rounded,
+      iconColor: AppColors.success,
+      title: 'No more jobs right now.',
+      subtitle: 'Check back later for new jobs.',
+      action: FilledButton(
+        onPressed: _loadFeed,
+        child: const Text('Refresh'),
       ),
     );
   }
@@ -385,31 +389,14 @@ class _SwipeJobsScreenState extends State<SwipeJobsScreen> {
   /// Shown when the feed could not load (no network / server error). Large,
   /// simple retry — mirrors the profile screen's failed state.
   Widget _buildError() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            const Icon(Icons.cloud_off, size: 48),
-            const SizedBox(height: 16),
-            const Text(
-              'Could not load jobs.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Please check your internet and try again.',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            FilledButton(
-              onPressed: _loadFeed,
-              child: const Text('Try again'),
-            ),
-          ],
-        ),
+    return _StatusView(
+      icon: Icons.cloud_off_rounded,
+      iconColor: AppColors.textMuted,
+      title: 'Could not load jobs.',
+      subtitle: 'Please check your internet and try again.',
+      action: FilledButton(
+        onPressed: _loadFeed,
+        child: const Text('Try again'),
       ),
     );
   }
@@ -417,25 +404,57 @@ class _SwipeJobsScreenState extends State<SwipeJobsScreen> {
   /// Shown when the API reports consent is required (403). Routes back to the
   /// consent screen rather than dead-ending.
   Widget _buildConsentRequired() {
+    return _StatusView(
+      icon: Icons.privacy_tip_outlined,
+      iconColor: AppColors.brand,
+      title: 'Please accept consent to see jobs.',
+      subtitle: 'It only takes a moment.',
+      action: FilledButton(
+        onPressed: () =>
+            Navigator.pushReplacementNamed(context, Routes.consent),
+        child: const Text('Go to consent'),
+      ),
+    );
+  }
+}
+
+/// Centered icon + title + subtitle + action — the shared empty/error/consent
+/// layout for the feed. Keeps the action a plain [FilledButton] so it stays the
+/// single, obvious green CTA.
+class _StatusView extends StatelessWidget {
+  const _StatusView({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    required this.action,
+  });
+
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final Widget action;
+
+  @override
+  Widget build(BuildContext context) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(AppSpacing.s6),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const Icon(Icons.privacy_tip_outlined, size: 48),
-            const SizedBox(height: 16),
-            const Text(
-              'Please accept consent to see jobs.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18),
-            ),
-            const SizedBox(height: 24),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.pushReplacementNamed(context, Routes.consent),
-              child: const Text('Go to consent'),
-            ),
+            Icon(icon, size: 48, color: iconColor),
+            const SizedBox(height: AppSpacing.s4),
+            Text(title,
+                textAlign: TextAlign.center,
+                style: AppTypography.display(size: AppTypography.sizeMd)),
+            const SizedBox(height: AppSpacing.s2),
+            Text(subtitle,
+                textAlign: TextAlign.center,
+                style: AppTypography.body(color: AppColors.textSecondary)),
+            const SizedBox(height: AppSpacing.s6),
+            action,
           ],
         ),
       ),

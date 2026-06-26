@@ -3,6 +3,11 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/config/app_config.dart';
 import '../../core/state/app_state.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/widgets/bb_app_bar.dart';
+import '../../core/widgets/bb_button.dart';
+import '../../core/widgets/bb_chat_bubble.dart';
 import '../../router.dart';
 
 class _Message {
@@ -35,7 +40,9 @@ class _ChatProfilingScreenState extends State<ChatProfilingScreen> {
   Future<void> _ensureSession() async {
     final String? workerId = AppState.instance.workerId;
     final String? token = AppState.instance.sessionToken;
-    if (workerId != null && token != null && AppState.instance.sessionId == null) {
+    if (workerId != null &&
+        token != null &&
+        AppState.instance.sessionId == null) {
       final String sessionId = await _api.startSession(authToken: token);
       AppState.instance.setSession(sessionId);
     }
@@ -72,71 +79,88 @@ class _ChatProfilingScreenState extends State<ChatProfilingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Profiling'),
+      appBar: BbAppBar(
+        title: 'Profiling',
         actions: <Widget>[
           IconButton(
             tooltip: 'Add voice note',
-            icon: const Icon(Icons.mic_none),
+            icon: const Icon(Icons.mic_none, color: AppColors.brand),
             onPressed: () => Navigator.pushNamed(context, Routes.voiceNote),
           ),
         ],
       ),
       body: _ensuringSession
           ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: <Widget>[
-                Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: _messages.length,
-                    itemBuilder: (BuildContext context, int i) {
-                      final _Message m = _messages[i];
-                      return Align(
-                        alignment:
-                            m.fromWorker ? Alignment.centerRight : Alignment.centerLeft,
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(vertical: 4),
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: m.fromWorker
-                                ? Theme.of(context).colorScheme.primaryContainer
-                                : Theme.of(context).colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(m.text),
-                        ),
-                      );
-                    },
+          : SafeArea(
+              child: Column(
+                children: <Widget>[
+                  Expanded(
+                    child: ListView.builder(
+                      padding: const EdgeInsets.all(AppSpacing.s4),
+                      itemCount: _messages.length,
+                      itemBuilder: (BuildContext context, int i) {
+                        final _Message m = _messages[i];
+                        return BbChatBubble(
+                          text: m.text,
+                          fromWorker: m.fromWorker,
+                        );
+                      },
+                    ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Row(
-                    children: <Widget>[
-                      Expanded(
-                        child: TextField(
-                          controller: _controller,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            hintText: 'Type your answer…',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton(onPressed: _send, icon: const Icon(Icons.send)),
-                    ],
+                  _inputBar(),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(AppSpacing.s4, 0,
+                        AppSpacing.s4, AppSpacing.s4),
+                    child: BbButton(
+                      label: 'Done — build my profile',
+                      block: true,
+                      iconLeft: Icons.check_circle_outline,
+                      onPressed: () =>
+                          Navigator.pushNamed(context, Routes.profilePreview),
+                    ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: FilledButton(
-                    onPressed: () => Navigator.pushNamed(context, Routes.profilePreview),
-                    child: const Text('Done — build my profile'),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
+    );
+  }
+
+  Widget _inputBar() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.s4,
+        vertical: AppSpacing.s2,
+      ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              minLines: 1,
+              maxLines: 4,
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) => _send(),
+              decoration: const InputDecoration(hintText: 'Type your answer…'),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.s2),
+          // Green circular send — the "go" action.
+          Material(
+            color: AppColors.success,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: _send,
+              child: const SizedBox(
+                width: AppSpacing.tap,
+                height: AppSpacing.tap,
+                child: Icon(Icons.send_rounded,
+                    color: AppColors.textOnBrand, size: 22),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
