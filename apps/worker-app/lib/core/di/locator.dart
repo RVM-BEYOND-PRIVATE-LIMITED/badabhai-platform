@@ -20,9 +20,12 @@ import '../../features/profile/presentation/cubit/profile_cubit.dart';
 import '../../features/resume/data/resume_repository_impl.dart';
 import '../../features/resume/domain/resume_repository.dart';
 import '../../features/resume/presentation/cubit/resume_cubit.dart';
+import '../../features/swipe/data/jobs_repository_impl.dart';
 import '../../features/swipe/data/swipe_repository_impl.dart';
+import '../../features/swipe/domain/jobs_repository.dart';
 import '../../features/swipe/domain/swipe_repository.dart';
 import '../../features/swipe/presentation/bloc/swipe_bloc.dart';
+import '../../features/swipe/presentation/cubit/job_detail_cubit.dart';
 
 /// The composition root. `get_it` wires the dependency graph in exactly one
 /// place; screens resolve their bloc/cubit through [locator], and BLoCs receive
@@ -66,6 +69,9 @@ void setupLocator() {
   locator.registerLazySingleton<SwipeRepository>(
     () => SwipeRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
   );
+  locator.registerLazySingleton<JobsRepository>(
+    () => const JobsRepositoryImpl(),
+  );
 
   // --- Blocs / Cubits (fresh instance per screen mount) ---------------------
   locator.registerFactory<PhoneLoginCubit>(
@@ -88,5 +94,8 @@ void setupLocator() {
   );
   locator.registerFactory<SwipeBloc>(
     () => SwipeBloc(locator<SwipeRepository>()),
+  );
+  locator.registerFactory<JobDetailCubit>(
+    () => JobDetailCubit(locator<JobsRepository>(), locator<SwipeRepository>()),
   );
 }

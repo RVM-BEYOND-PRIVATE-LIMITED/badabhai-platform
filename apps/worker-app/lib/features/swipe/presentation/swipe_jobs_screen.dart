@@ -7,12 +7,14 @@ import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_bottom_sheet.dart';
 import '../../../core/widgets/bb_job_card.dart';
 import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../router.dart';
 import 'bloc/swipe_bloc.dart';
 import 'bloc/swipe_state.dart';
+import 'widgets/filters_sheet.dart';
 import 'widgets/job_deck.dart';
 
 /// The Jobs tab — the rich swipe-to-apply Feed (spec §5.5 / `.aw-feed`).
@@ -61,6 +63,9 @@ class _FeedViewState extends State<_FeedView> {
   int _shownAppliedNonce = 0;
   int _shownDecisionError = 0;
 
+  /// Session-only filter selection (real filtered-feed query is a follow-up).
+  FilterSelection _filters = FilterSelection.initial;
+
   @override
   void initState() {
     super.initState();
@@ -69,6 +74,15 @@ class _FeedViewState extends State<_FeedView> {
 
   void _toggleChip(String key) {
     setState(() => _chips.contains(key) ? _chips.remove(key) : _chips.add(key));
+  }
+
+  Future<void> _openFilters(BuildContext context) async {
+    final FilterSelection? result = await showBbBottomSheet<FilterSelection>(
+      context: context,
+      builder: (_) => FiltersSheet(initial: _filters),
+    );
+    // Remember the selection (real filtered-feed query is a follow-up, §7).
+    if (result != null && mounted) setState(() => _filters = result);
   }
 
   @override
@@ -175,14 +189,7 @@ class _FeedViewState extends State<_FeedView> {
           IconButton(
             tooltip: 'Filter jobs',
             icon: const Icon(Icons.tune),
-            // TODO(stage-4): open the Filters bottom sheet (showBbBottomSheet).
-            onPressed: () {
-              ScaffoldMessenger.of(context)
-                ..clearSnackBars()
-                ..showSnackBar(
-                  const SnackBar(content: Text('Filters coming soon')),
-                );
-            },
+            onPressed: () => _openFilters(context),
           ),
         ],
       ),

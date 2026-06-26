@@ -5,6 +5,7 @@ import 'core/theme/app_colors.dart';
 import 'core/theme/app_typography.dart';
 import 'core/widgets/bb_app_bar.dart';
 import 'core/widgets/bb_bottom_nav.dart';
+import 'core/widgets/bb_job_card.dart';
 
 import 'features/splash/presentation/splash_screen.dart';
 import 'features/auth/presentation/phone_login_screen.dart';
@@ -14,6 +15,8 @@ import 'features/chat/presentation/chat_profiling_screen.dart';
 import 'features/voice/presentation/voice_note_placeholder_screen.dart';
 import 'features/profile/presentation/profile_preview_screen.dart';
 import 'features/resume/presentation/resume_preview_screen.dart';
+import 'features/swipe/presentation/applied_screen.dart';
+import 'features/swipe/presentation/job_detail_screen.dart';
 import 'features/swipe/presentation/swipe_jobs_screen.dart';
 
 /// Route locations for the worker app (ADR-0023). Kept as string constants so
@@ -126,11 +129,12 @@ GoRouter _buildRouter() {
                     path: 'detail/:jobId',
                     parentNavigatorKey: _rootNavKey, // full-screen, no bar
                     builder: (_, GoRouterState s) =>
-                        _Placeholder('Job detail · ${s.pathParameters['jobId']}'),
+                        JobDetailScreen(jobId: s.pathParameters['jobId']!),
                   ),
                   GoRoute(
                     path: 'applied',
-                    builder: (_, __) => const _Placeholder('Applied'),
+                    builder: (_, GoRouterState s) =>
+                        AppliedScreen(job: s.extra as BbJobCardData?),
                   ),
                 ],
               ),
