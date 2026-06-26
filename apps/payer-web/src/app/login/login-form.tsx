@@ -1,21 +1,26 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { Button, Input, OtpInput, Toast } from "../../components/ds";
 import { requestCodeAction, verifyCodeAction } from "./actions";
 
 /**
- * Client login form — TWO-STEP OTP (email → code). Calls the Server Actions; it never
- * sees a secret or a session token (the seam sets an httpOnly cookie server-side). A
- * failed verify shows ONE neutral error (no enumeration oracle, XB-H). In dev/test the
- * mock/api channel may echo a `devOtp` to prefill the code so a harness can finish.
+ * Client login form (DS1.1 — re-skinned onto the design system) — TWO-STEP OTP
+ * (email → 6-digit code). Calls the Server Actions; it never sees a secret or a session
+ * token (the seam sets an httpOnly cookie server-side).
  *
- * HARDENING (C5): client email-format + code-shape checks render INLINE per-field errors
- * before any round-trip; the resend code is on a cooldown driven by the server's
- * `resendInSeconds`; the info/error region is aria-live so assistive tech is notified.
+ * NO-ORACLE (XB-H): a failed verify shows ONE neutral error in a Toast — identical copy
+ * whether the email is unknown or the code is wrong, so the UI is never an enumeration
+ * oracle. In dev/test the mock channel may echo a `devOtp` to prefill the code.
+ *
+ * Payer login is EMAIL-based (the backend payer-auth contract); the 6-cell OtpInput is
+ * the design-system affordance for the numeric mock code (000000 in staging).
  */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CODE_RE = /^\d{4,8}$/;
+const OTP_LENGTH = 6;
 
 export function LoginForm() {
   const router = useRouter();
@@ -61,7 +66,7 @@ export function LoginForm() {
     });
   }
 
-  function onRequest(e: React.FormEvent) {
+  function onRequest(e: FormEvent) {
     e.preventDefault();
     sendCode();
   }
@@ -71,7 +76,7 @@ export function LoginForm() {
     sendCode();
   }
 
-  function onVerify(e: React.FormEvent) {
+  function onVerify(e: FormEvent) {
     e.preventDefault();
     setError(null);
     if (!CODE_RE.test(code.trim())) {
@@ -90,47 +95,56 @@ export function LoginForm() {
     });
   }
 
+  const statusRegion = (
+    <div aria-live="polite" className="login-status">
+      {info ? (
+        <Toast tone="brand" title="Login code">
+          {info}
+        </Toast>
+      ) : null}
+      {error ? (
+        <Toast tone="danger" title="Couldn’t sign in">
+          {error}
+        </Toast>
+      ) : null}
+    </div>
+  );
+
   if (step === "code") {
     return (
-      <form className="form" onSubmit={onVerify}>
-        <div className="field">
-          <label htmlFor="code">
-            Login code<span className="req">*</span>
-          </label>
-          <input
-            id="code"
-            className="input"
-            inputMode="numeric"
-            autoComplete="one-time-code"
+      <form className="login-form" onSubmit={onVerify}>
+        <div className="login-otp">
+          <span className="login-otp__label">Enter the {OTP_LENGTH}-digit login code</span>
+          <OtpInput
+            length={OTP_LENGTH}
             value={code}
-            aria-invalid={codeError ? true : undefined}
-            aria-describedby={codeError ? "code-error" : undefined}
-            onChange={(ev) => {
-              setCode(ev.target.value);
+            autoFocus
+            onChange={(v) => {
+              setCode(v);
               if (codeError) setCodeError(null);
             }}
           />
           {codeError ? (
-            <p className="error-text" id="code-error">
+            <span className="bb-field__error" role="alert">
               {codeError}
-            </p>
+            </span>
           ) : null}
         </div>
-        <div className="btn-row">
-          <button className="btn" type="submit" disabled={pending}>
-            {pending ? "Verifying…" : "Verify & sign in"}
-          </button>
-          <button
-            className="btn secondary"
+        <Button type="submit" variant="primary" block loading={pending} iconLeft="sign-in">
+          {pending ? "Verifying…" : "Verify & sign in"}
+        </Button>
+        <div className="login-actions__row">
+          <Button
             type="button"
+            variant="secondary"
             disabled={pending || cooldown > 0}
             onClick={onResend}
           >
             {cooldown > 0 ? `Resend code (${cooldown}s)` : "Resend code"}
-          </button>
-          <button
-            className="btn secondary"
+          </Button>
+          <Button
             type="button"
+            variant="ghost"
             disabled={pending}
             onClick={() => {
               setStep("email");
@@ -142,50 +156,33 @@ export function LoginForm() {
             }}
           >
             Use a different email
-          </button>
+          </Button>
         </div>
-        <div aria-live="polite">
-          {info ? <p className="note">{info}</p> : null}
-          {error ? <p className="error-text">{error}</p> : null}
-        </div>
+        {statusRegion}
       </form>
     );
   }
 
   return (
-    <form className="form" onSubmit={onRequest}>
-      <div className="field">
-        <label htmlFor="email">
-          Email<span className="req">*</span>
-        </label>
-        <input
-          id="email"
-          className="input"
-          type="email"
-          autoComplete="username"
-          value={email}
-          aria-invalid={emailError ? true : undefined}
-          aria-describedby={emailError ? "email-error" : undefined}
-          onChange={(ev) => {
-            setEmail(ev.target.value);
-            if (emailError) setEmailError(null);
-          }}
-        />
-        {emailError ? (
-          <p className="error-text" id="email-error">
-            {emailError}
-          </p>
-        ) : null}
-      </div>
-      <div className="btn-row">
-        <button className="btn" type="submit" disabled={pending}>
-          {pending ? "Sending code…" : "Send login code"}
-        </button>
-      </div>
-      <div aria-live="polite">
-        {info ? <p className="note">{info}</p> : null}
-        {error ? <p className="error-text">{error}</p> : null}
-      </div>
+    <form className="login-form" onSubmit={onRequest}>
+      <Input
+        label="Email"
+        type="email"
+        iconLeft="envelope"
+        autoComplete="username"
+        placeholder="you@company.example"
+        value={email}
+        error={emailError ?? undefined}
+        aria-invalid={emailError ? true : undefined}
+        onChange={(ev) => {
+          setEmail(ev.target.value);
+          if (emailError) setEmailError(null);
+        }}
+      />
+      <Button type="submit" variant="primary" block loading={pending} iconLeft="paper-plane-right">
+        {pending ? "Sending code…" : "Send login code"}
+      </Button>
+      {statusRegion}
     </form>
   );
 }
