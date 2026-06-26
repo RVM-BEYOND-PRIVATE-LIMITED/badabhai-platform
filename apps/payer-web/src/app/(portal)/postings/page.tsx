@@ -3,20 +3,25 @@ import { getPostings } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
 import { applicantQuotaStep } from "../../../lib/pricing-config";
 import type { PostingSummary } from "../../../lib/contracts";
+import { Badge, Card } from "../../../components/ds";
 import { RetryButton } from "../../../components/retry-button";
 import { PostingsManager } from "./postings-manager";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Manage job postings (ADR-0019 Phase 1 — WAITING mock). Lists the payer's OWN
- * postings (XB-A: the seam binds to the server-held session id) and offers PAUSE /
- * RESUME + applicant-quota TOP-UP. `postings/new` owns CREATE.
+ * Manage job postings (ADR-0019 Phase 1) — DS2.2 re-skin onto the BadaBhai Design System
+ * (VISUAL layer only). Lists the payer's OWN postings (XB-A: the seam binds to the
+ * server-held session id) via the LIVE `GET /payer/job-postings` read. `postings/new`
+ * owns CREATE; each row links to its own faceless applicant feed.
  *
- * The quota top-up STEP is config-derived (catalog posting-quota tier) — this page
- * never hardcodes a quota number. The underlying job-postings controller is
- * InternalServiceGuard, so the lifecycle/quota actions are mock shims until a
- * payer-authed endpoint lands (see payer-api.ts ESCALATE notes).
+ * The PAUSE / RESUME + applicant-quota TOP-UP lifecycle stays GATED: there is no
+ * payer-authed company lifecycle/quota endpoint yet (the job-postings controller is
+ * InternalServiceGuard — see payer-api.ts ESCALATE notes), so the manager renders those
+ * actions as disabled "coming soon" DS Buttons rather than wiring a fake live route.
+ *
+ * The quota top-up STEP copy is config-derived (catalog posting-quota tier) — this page
+ * never hardcodes a quota number.
  */
 export default async function PostingsPage() {
   const session = await requirePayer();
@@ -33,30 +38,42 @@ export default async function PostingsPage() {
 
   return (
     <>
-      <p className="page-sub">
+      <p className="postings-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
-      <h1 className="page-title">Manage {isAgency ? "vacancies" : "postings"}</h1>
-      <p className="page-sub">
-        Pause or resume a {isAgency ? "vacancy" : "posting"}, or top up how many applicants you can
-        see. <Link href="/postings/new">{isAgency ? "Post a vacancy →" : "Post a job →"}</Link>
+      <h1 className="postings-title">Manage {isAgency ? "vacancies" : "postings"}</h1>
+      <p className="postings-sub">
+        Review a {isAgency ? "vacancy" : "posting"} and its applicants.{" "}
+        <Link className="postings-link" href="/postings/new">
+          {isAgency ? "Post a vacancy →" : "Post a job →"}
+        </Link>
       </p>
 
-      <div className="note">
-        Applicant quota is &ldquo;view more &rarr; pay more&rdquo;.{" "}
-        {quotaStep !== null
-          ? `Each top-up adds ${quotaStep} more applicant slots (from the pricing config).`
-          : "Top-up amounts come from the pricing config."}
-      </div>
+      <Card variant="flat" className="postings-note">
+        <Badge tone="info" upper>
+          Applicant quota
+        </Badge>
+        <p className="postings-note__msg">
+          Applicant quota is &ldquo;view more &rarr; pay more&rdquo;.{" "}
+          {quotaStep !== null
+            ? `Each top-up adds ${quotaStep} more applicant slots (from the pricing config).`
+            : "Top-up amounts come from the pricing config."}
+        </p>
+      </Card>
 
       {error || !postings ? (
         // B7: the seam either threw (→ `error`) OR returned no postings array (the future
         // real-fetch failure path). BOTH degrade to the SAME neutral fallback + in-page
         // Retry — never a blank-content path. Loading is handled separately by loading.tsx.
-        <p className="page-sub">
-          <span className="badge badge-warn">Service unavailable</span> We couldn&rsquo;t load your{" "}
-          {isAgency ? "vacancies" : "postings"} right now. Please retry. <RetryButton />
-        </p>
+        <Card variant="outline" className="postings-state">
+          <Badge tone="warning" upper>
+            Service unavailable
+          </Badge>
+          <p className="postings-state__msg">
+            We couldn&rsquo;t load your {isAgency ? "vacancies" : "postings"} right now. Please retry.
+          </p>
+          <RetryButton />
+        </Card>
       ) : (
         <PostingsManager postings={postings} />
       )}
