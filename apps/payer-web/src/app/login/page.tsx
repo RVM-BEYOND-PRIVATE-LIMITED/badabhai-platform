@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { payerAuth } from "../../lib/auth";
 import { BadaBhaiLogo } from "../../components/ds";
 import { LoginForm } from "./login-form";
+import { DevQuickLogin } from "./dev-quick-login";
+import { devQuickLoginEnabled } from "./dev-quick-login-flag";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +20,9 @@ export default async function LoginPage() {
   if (existing) redirect("/dashboard");
 
   const showDemo = process.env.NODE_ENV !== "production";
+  // Dev-only one-click login (skips manual OTP, real backend session). Off by default;
+  // the action re-asserts this same gate server-side. Never true in staging/prod.
+  const showDevQuickLogin = devQuickLoginEnabled();
 
   return (
     <div className="login-wrap">
@@ -32,6 +37,8 @@ export default async function LoginPage() {
         </p>
 
         <LoginForm />
+
+        {showDevQuickLogin ? <DevQuickLogin /> : null}
 
         {showDemo ? (
           <div className="login-demo">
