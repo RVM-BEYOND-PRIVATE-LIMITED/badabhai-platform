@@ -1134,3 +1134,109 @@ textarea.input {
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------------
+ * CAPACITY (DS2.3) — concurrent active-vacancy allowance StatTiles, DS Card capacity
+ * tiers (₹/allowance in mono tabular), the INERT-enforcement "recorded only" note, and the
+ * faceless per-posting display table. ₹/counts in mono tabular. Tokens only (no raw hex/px).
+ * ------------------------------------------------------------------ */
+.capacity-back {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-2);
+}
+.capacity-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+.capacity-alert {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  margin: var(--space-4) 0;
+}
+.capacity-alert__msg {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.capacity-section {
+  margin-top: var(--space-7);
+}
+.capacity-section__title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-2);
+}
+.capacity-tiers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-4);
+}
+.capacity-tier {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.capacity-tier__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.capacity-tier__name {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+.capacity-tier__price {
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+}
+.capacity-tier__allowance {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-2);
+}
+.capacity-nudge {
+  margin-top: var(--space-4);
+}
+.capacity-result {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.capacity-result:empty {
+  display: none;
+}
+.capacity-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.capacity-link {
+  font-weight: var(--weight-semibold);
+  color: var(--text-link);
+}
+.capacity-table-card {
+  overflow: hidden;
+}
+.capacity-state {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+.capacity-state__msg {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}

@@ -62,9 +62,25 @@ function walk(node: ReactNode, acc: Collected): void {
     return;
   }
   const el = node as ReactElement<{ children?: ReactNode }>;
-  if (typeof el.type === "string") acc.types.push(el.type);
-  else acc.components.push(el.type);
-  if (el.props && "children" in el.props) walk(el.props.children, acc);
+  if (typeof el.type === "string") {
+    acc.types.push(el.type);
+    if (el.props && "children" in el.props) walk(el.props.children, acc);
+    return;
+  }
+  // Function component: record it by reference (the RetryButton/CapacityPanel assertions
+  // collect by identity), then EXPAND it ONE LEVEL by invoking it with its props so the DS
+  // primitives' text rendered via non-children props (StatTile's label/value/delta, etc.)
+  // is reachable. The DS primitives + the test stubs are all hookless/presentational, so a
+  // plain call is safe; a stub that returns null simply contributes nothing.
+  acc.components.push(el.type);
+  const Fn = el.type as (props: Record<string, unknown>) => ReactNode;
+  let rendered: ReactNode = null;
+  try {
+    rendered = Fn((el.props ?? {}) as Record<string, unknown>);
+  } catch {
+    rendered = (el.props as { children?: ReactNode } | null)?.children ?? null;
+  }
+  walk(rendered, acc);
 }
 
 function collect(tree: ReactNode): Collected {
