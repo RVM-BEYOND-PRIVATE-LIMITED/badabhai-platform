@@ -16,6 +16,8 @@ import 'features/voice/presentation/voice_note_placeholder_screen.dart';
 import 'features/kit/presentation/kit_detail_screen.dart';
 import 'features/kit/presentation/kit_screen.dart';
 import 'features/profile/presentation/profile_preview_screen.dart';
+import 'features/profile_tab/presentation/profile_tab_screen.dart';
+import 'features/settings/presentation/settings_screen.dart';
 import 'features/resume/presentation/building_screen.dart';
 import 'features/resume/presentation/resume_edit_screen.dart';
 import 'features/resume/presentation/resume_preview_screen.dart';
@@ -178,12 +180,12 @@ GoRouter _buildRouter() {
             routes: <RouteBase>[
               GoRoute(
                 path: Routes.profile,
-                builder: (_, __) => const _Placeholder('Profile'),
+                builder: (_, __) => const ProfileTabScreen(),
                 routes: <RouteBase>[
                   GoRoute(
                     path: 'settings',
                     parentNavigatorKey: _rootNavKey, // no bar
-                    builder: (_, __) => const _Placeholder('Settings'),
+                    builder: (_, __) => const SettingsScreen(),
                   ),
                 ],
               ),

@@ -17,6 +17,9 @@ import '../../features/consent/presentation/cubit/consent_cubit.dart';
 import '../../features/profile/data/profile_repository_impl.dart';
 import '../../features/profile/domain/profile_repository.dart';
 import '../../features/profile/presentation/cubit/profile_cubit.dart';
+import '../../features/profile_tab/data/profile_summary_repository_impl.dart';
+import '../../features/profile_tab/domain/profile_summary_repository.dart';
+import '../../features/profile_tab/presentation/cubit/profile_tab_cubit.dart';
 import '../../features/kit/data/interview_kit_repository_impl.dart';
 import '../../features/kit/domain/interview_kit_repository.dart';
 import '../../features/kit/presentation/cubit/kit_detail_cubit.dart';
@@ -85,6 +88,9 @@ void setupLocator() {
   locator.registerLazySingleton<InterviewKitRepository>(
     () => const InterviewKitRepositoryImpl(),
   );
+  locator.registerLazySingleton<ProfileSummaryRepository>(
+    () => const ProfileSummaryRepositoryImpl(),
+  );
 
   // --- Blocs / Cubits (fresh instance per screen mount) ---------------------
   locator.registerFactory<PhoneLoginCubit>(
@@ -119,5 +125,8 @@ void setupLocator() {
   );
   locator.registerFactory<KitDetailCubit>(
     () => KitDetailCubit(locator<InterviewKitRepository>()),
+  );
+  locator.registerFactory<ProfileTabCubit>(
+    () => ProfileTabCubit(locator<ProfileSummaryRepository>()),
   );
 }
