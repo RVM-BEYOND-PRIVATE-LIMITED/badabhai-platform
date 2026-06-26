@@ -863,6 +863,16 @@ textarea.input {
   font-size: var(--text-sm);
 }
 
+/* Transient unlock-RESULT toast region (DS1.5) — fixed bottom-right; faceless, no-oracle copy. */
+.unlock-toast-region {
+  position: fixed;
+  right: var(--gutter-web);
+  bottom: var(--gutter-web);
+  z-index: var(--z-toast);
+  display: flex;
+  justify-content: flex-end;
+}
+
 /* Inline per-action loading spinner (unlock / reveal / resume). Decorative — the button's
    live status text ("Unlocking…") carries the meaning; aria-hidden keeps it out of SR output. */
 .spinner {

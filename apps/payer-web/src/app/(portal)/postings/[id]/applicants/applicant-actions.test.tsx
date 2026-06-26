@@ -92,6 +92,18 @@ function isDialogEl(el: { type?: unknown }): boolean {
 }
 
 /**
+ * `ConfirmSpendDialog` (DS1.5) is a PURE wrapper around the hooked DS `Dialog` — invoking it is
+ * safe and yields the inner `<Dialog footer=… open=…>`. Walkers expand it so the confirm/cancel
+ * footer Buttons remain reachable (the inner `Dialog` itself is still NEVER invoked — `isDialogEl`).
+ */
+function isConfirmDialogEl(el: { type?: unknown }): boolean {
+  return typeof el.type === "function" && (el.type as { name?: string }).name === "ConfirmSpendDialog";
+}
+function expandConfirmDialog(el: { type: (p: unknown) => ReactNode; props: unknown }): ReactNode {
+  return el.type(el.props);
+}
+
+/**
  * Walk the element tree. Buttons are DS `Button` elements (props carry text/onClick/disabled/
  * loading); badges are DS `Badge` elements. We do NOT expand stateful components (Dialog has a
  * hook) — its footer Buttons live in its `footer` prop, which we walk explicitly.
@@ -104,6 +116,10 @@ function walk(node: ReactNode, acc: Collected): void {
     return;
   }
   const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  if (isConfirmDialogEl(el)) {
+    walk(expandConfirmDialog(el as never), acc);
+    return;
+  }
   if (el.type === Button) {
     acc.buttons.push({
       text: textOf(el.props.children as ReactNode).trim(),

@@ -4,7 +4,14 @@ import { useState } from "react";
 import Link from "next/link";
 import type { FacelessApplicant } from "../../../../../lib/contracts";
 import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
-import { Avatar, Badge, Button, Card, Chip, Dialog, Tabs } from "../../../../../components/ds";
+import { Avatar, Badge, Button, Card, Chip, Tabs } from "../../../../../components/ds";
+import {
+  ConfirmSpendDialog,
+  MaskedResumeCard,
+  RoutedContactCard,
+  UnlockResultToast,
+  type UnlockResultKind,
+} from "../../../../../components/unlock";
 import { maskedResumeAction, revealContactAction, unlockAction } from "./actions";
 
 /**
@@ -95,6 +102,11 @@ export function ApplicantActions({
   // The worker whose first unlock is awaiting confirmation (DS Dialog open ⇔ non-null). The
   // confirm is a pure UI gate in the SCREEN — it sends nothing and names no candidate detail.
   const [confirmWorker, setConfirmWorker] = useState<string | null>(null);
+  // Transient unlock-RESULT toast (granted | unavailable). NO-ORACLE: the failure copy is one
+  // neutral line with NO cause (the shared toast reuses NEUTRAL_UNLOCK_MESSAGE). It is purely a
+  // confirmation of the spend outcome — never names a candidate, never logs. Added LAST so the
+  // upstream useState order (rows, confirmedUnlock, stages, activeStage, confirmWorker) is intact.
+  const [result, setResult] = useState<UnlockResultKind | null>(null);
 
   function patch(workerId: string, p: Partial<RowState>) {
     setRows((prev) => ({ ...prev, [workerId]: { ...(prev[workerId] ?? EMPTY), ...p } }));
@@ -127,12 +139,19 @@ export function ApplicantActions({
   }
 
   // The unlock network call itself (ids-only body, XT5). Reused by the confirm-dialog's
-  // success action AND by a retry on an already-confirmed row (no re-prompt).
+  // success action AND by a retry on an already-confirmed row (no re-prompt). On resolution it
+  // raises a transient RESULT toast — granted on a granted view, else the ONE neutral failure
+  // line (an unavailable view AND a transient error both surface the same no-cause toast, XB-C).
   async function runUnlock(workerId: string) {
     patch(workerId, { busy: true, unlockError: null });
     const res = await unlockAction({ postingId, workerId });
-    if (res.ok) patch(workerId, { busy: false, unlock: res.view });
-    else patch(workerId, { busy: false, unlockError: res.error });
+    if (res.ok) {
+      patch(workerId, { busy: false, unlock: res.view });
+      setResult(res.view.kind === "granted" ? "granted" : "unavailable");
+    } else {
+      patch(workerId, { busy: false, unlockError: res.error });
+      setResult("unavailable");
+    }
   }
 
   function onUnlock(workerId: string) {
@@ -344,7 +363,7 @@ export function ApplicantActions({
                       </div>
                       <div className="applicant__reveal">
                         {row.contact?.kind === "routed" ? (
-                          <RoutedContact view={row.contact} />
+                          <RoutedContactCard view={row.contact} />
                         ) : row.contact?.kind === "unavailable" ? (
                           // No-oracle: a reveal that comes back unavailable shows the SAME
                           // neutral message for every cause; no retry button (not transient).
@@ -375,7 +394,7 @@ export function ApplicantActions({
                       </div>
                       <div className="applicant__reveal">
                         {row.resume?.kind === "masked" ? (
-                          <MaskedResume view={row.resume} />
+                          <MaskedResumeCard view={row.resume} />
                         ) : row.resume?.kind === "unavailable" ? (
                           <p className="applicant__neutral">{row.resume.message}</p>
                         ) : (
@@ -448,80 +467,22 @@ export function ApplicantActions({
         </div>
       )}
 
-      {/* Confirm-on-spend (C11): the FIRST unlock per row opens this DS Dialog. The copy is
-          MOCK-neutral, faceless (names NO candidate detail), and carries no amount language
-          beyond "1 credit". Confirming runs the (ids-only) unlock for that row exactly once. */}
-      <Dialog
+      {/* Confirm-on-spend (C11): the FIRST unlock per row opens the shared confirm dialog. The
+          copy is MOCK-neutral, faceless (names NO candidate detail), and carries no amount
+          language beyond "1 credit". Confirming runs the (ids-only) unlock exactly once. */}
+      <ConfirmSpendDialog
         open={confirmWorker !== null}
-        onClose={() => setConfirmWorker(null)}
-        title="Unlock routed contact?"
-        footer={
-          <>
-            <Button variant="ghost" onClick={() => setConfirmWorker(null)}>
-              Cancel
-            </Button>
-            <Button variant="success" onClick={onConfirmUnlock}>
-              Unlock · 1 credit
-            </Button>
-          </>
-        }
-      >
-        This spends 1 credit and opens an in-app relay — never a phone number. You can reuse the
-        relay until your access window ends.
-      </Dialog>
+        onCancel={() => setConfirmWorker(null)}
+        onConfirm={onConfirmUnlock}
+      />
+
+      {/* Transient unlock-RESULT toast — granted vs. the ONE neutral no-cause failure (XB-C).
+          Dismissible; faceless; never logged. Lives in a fixed bottom-right region. */}
+      {result ? (
+        <div className="unlock-toast-region" aria-live="polite">
+          <UnlockResultToast kind={result} onClose={() => setResult(null)} />
+        </div>
+      ) : null}
     </>
-  );
-}
-
-/**
- * Renders the LIVE reveal: a ROUTED relay handle ONLY (ADR-0010 F-4). There is NO
- * field here that could show a phone or a number — the artifact is an opaque, expiring
- * relay; the raw contact stays server-side and is never sent to the browser.
- */
-function RoutedContact({ view }: { view: Extract<ContactView, { kind: "routed" }> }) {
-  return (
-    <Card variant="flat" padding="sm" className="reveal-card">
-      <p className="reveal-card__lead">
-        <strong>Routed contact.</strong> This is an opaque relay —{" "}
-        <strong>not a phone number</strong>. Use it in-app to reach the candidate; it expires with
-        your access window.
-      </p>
-      <dl className="reveal-card__dl">
-        <dt>Relay handle</dt>
-        <dd className="bb-mono">{view.relayHandle}</dd>
-        <dt>Channel</dt>
-        <dd>{view.channel === "in_app_relay" ? "In-app relay" : "Proxy number"}</dd>
-        <dt>Access until</dt>
-        <dd className="bb-mono">{day(view.expiresAt)}</dd>
-      </dl>
-    </Card>
-  );
-}
-
-/**
- * WAITING (mock) masked-resume preview (XB-E): masked initials + a link + NO phone.
- * There is no field here that could show a raw name or phone — the artifact carries
- * neither. Flagged as a preview until a payer-authed disclosure endpoint lands.
- */
-function MaskedResume({ view }: { view: Extract<RevealView, { kind: "masked" }> }) {
-  return (
-    <Card variant="flat" padding="sm" className="reveal-card">
-      <p className="reveal-card__lead">
-        <strong>Masked resume (preview).</strong> Identity is masked —{" "}
-        <strong>no phone, no full name</strong> is shown.
-      </p>
-      <dl className="reveal-card__dl">
-        <dt>Candidate</dt>
-        <dd className="bb-mono">{view.displayInitials}</dd>
-        <dt>Resume</dt>
-        <dd>
-          <a href={view.resumeUrl} target="_blank" rel="noopener noreferrer">
-            Open masked resume (PDF) →
-          </a>
-        </dd>
-        <dt>Access until</dt>
-        <dd className="bb-mono">{day(view.expiresAt)}</dd>
-      </dl>
-    </Card>
   );
 }

@@ -97,7 +97,16 @@ function textOf(node: ReactNode): string {
   return el.props && "children" in el.props ? textOf(el.props.children) : "";
 }
 
-/** Walk for DS `Button`s (incl. the Dialog footer Buttons, walked via the `footer` prop). */
+/**
+ * `ConfirmSpendDialog` (DS1.5) is a PURE wrapper over the hooked DS `Dialog`; invoking it yields
+ * the inner `<Dialog footer=…>` whose Cancel / confirm Buttons we need. Walkers expand it (the
+ * inner `Dialog` itself is never invoked — it is matched by name and only its props are walked).
+ */
+function isConfirmDialogEl(el: { type?: unknown }): boolean {
+  return typeof el.type === "function" && (el.type as { name?: string }).name === "ConfirmSpendDialog";
+}
+
+/** Walk for DS `Button`s (incl. the confirm-dialog footer Buttons, reached by expanding it). */
 function buttons(): Btn[] {
   const acc: Btn[] = [];
   (function walk(node: ReactNode): void {
@@ -108,6 +117,10 @@ function buttons(): Btn[] {
       return;
     }
     const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode; footer?: ReactNode }>;
+    if (isConfirmDialogEl(el)) {
+      walk((el.type as (p: unknown) => ReactNode)(el.props));
+      return;
+    }
     if (el.type === Button) {
       acc.push({
         text: textOf(el.props.children as ReactNode).trim(),
