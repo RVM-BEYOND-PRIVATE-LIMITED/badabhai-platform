@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { payerAuth } from "../../lib/auth";
+import { payerServerConfig } from "../../lib/server-config";
+import { MOCK_ACCOUNTS } from "../../lib/auth/fixtures";
 import { BadaBhaiLogo } from "../../components/ds";
 import { LoginForm } from "./login-form";
 
@@ -18,6 +20,7 @@ export default async function LoginPage() {
   if (existing) redirect("/dashboard");
 
   const showDemo = process.env.NODE_ENV !== "production";
+  const { authMode } = payerServerConfig();
 
   return (
     <div className="login-wrap">
@@ -35,11 +38,21 @@ export default async function LoginPage() {
 
         {showDemo ? (
           <div className="login-demo">
-            <strong>Staging sign-in (email + code)</strong>
-            <p>
-              Enter your registered payer email, then the 6-digit code sent to that inbox.
-              Live auth is the backend payer-auth OTP routes.
-            </p>
+            <strong>Dev sign-in (email + code)</strong>
+            {authMode === "mock" ? (
+              <p>
+                Local <strong>mock</strong> mode — no backend needed. Sign in with a seeded
+                account (the code <strong>000000</strong> is prefilled automatically):{" "}
+                {MOCK_ACCOUNTS.map((a) => a.email).join(" · ")}.
+              </p>
+            ) : (
+              <p>
+                Live <strong>api</strong> mode — the backend payer-auth API must be running
+                (PAYER_API_URL, default localhost:3001). The code is emailed to a registered
+                payer; in dev with the mock email channel it is prefilled here. For a
+                backend-free UI run, set <strong>PAYER_AUTH_MODE=mock</strong>.
+              </p>
+            )}
             <p>A third-party IdP / MFA is a separate human gate (ADR-0019 B-R1).</p>
           </div>
         ) : null}

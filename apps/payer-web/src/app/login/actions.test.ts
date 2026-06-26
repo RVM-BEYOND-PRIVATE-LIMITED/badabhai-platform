@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 /**
  * LOGIN SERVER ACTIONS (OTP-4 / XB-H) — no-oracle, no-leak mapping.
@@ -27,20 +27,35 @@ beforeEach(() => {
   verifyCode.mockReset();
 });
 
-describe("requestCodeAction — the code never reaches the client", () => {
-  it("returns ONLY {ok, resendInSeconds} on success — drops any devOtp the seam carries", async () => {
+describe("requestCodeAction — dev code surfacing is gated (mock channel + non-prod only)", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("with a REAL provider (no devOtp) the code never reaches the client", async () => {
+    requestCode.mockResolvedValue({ ok: true, resendInSeconds: 45 }); // real provider: no devOtp
+    const res = await requestCodeAction({ email: "a@b.co" });
+    expect(res).toEqual({ ok: true, resendInSeconds: 45 });
+    expect("devCode" in res).toBe(false);
+  });
+
+  it("in PRODUCTION a leaked devOtp is still NOT surfaced (defense-in-depth)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
     requestCode.mockResolvedValue({ ok: true, resendInSeconds: 45, devOtp: "000000" });
     const res = await requestCodeAction({ email: "a@b.co" });
     expect(res).toEqual({ ok: true, resendInSeconds: 45 });
-    // No code field of any name leaks through.
     expect(JSON.stringify(res)).not.toContain("000000");
-    expect("devOtp" in res).toBe(false);
+  });
+
+  it("in DEV, surfaces the mock/console devOtp as devCode so local login is testable", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    requestCode.mockResolvedValue({ ok: true, resendInSeconds: 45, devOtp: "000000" });
+    const res = await requestCodeAction({ email: "a@b.co" });
+    expect(res).toEqual({ ok: true, resendInSeconds: 45, devCode: "000000" });
   });
 
   it("threads the SERVER resendInSeconds through unchanged (drives the resend cooldown)", async () => {
     requestCode.mockResolvedValue({ ok: true, resendInSeconds: 30 });
     const res = await requestCodeAction({ email: "a@b.co" });
-    expect(res).toEqual({ ok: true, resendInSeconds: 30 });
+    expect(res.ok && res.resendInSeconds).toBe(30);
   });
 });
 

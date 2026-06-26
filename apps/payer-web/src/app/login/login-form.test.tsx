@@ -41,7 +41,8 @@ vi.mock("./actions", () => ({ requestCodeAction: vi.fn(), verifyCodeAction: vi.f
 const { NEUTRAL_SEND_ERROR, SEND_CONFIRMATION } = await import("./messages");
 const { LoginForm } = await import("./login-form");
 
-// useState call order in the source: step, email, code, emailError, codeError, error, info, cooldown.
+// useState call order in the source: step, email, code, emailError, codeError, error, info,
+// devCode, cooldown.
 function render(seed: {
   step?: "email" | "code";
   email?: string;
@@ -50,6 +51,7 @@ function render(seed: {
   codeError?: string | null;
   error?: string | null;
   info?: string | null;
+  devCode?: string | null;
   cooldown?: number;
 }): ReactElement {
   stateQueue = [
@@ -60,6 +62,7 @@ function render(seed: {
     seed.codeError ?? null,
     seed.error ?? null,
     seed.info ?? null,
+    seed.devCode ?? null,
     seed.cooldown ?? 0,
   ];
   stateCursor = 0;
@@ -137,9 +140,9 @@ describe("LoginForm · code step (OtpInput)", () => {
   });
 });
 
-describe("LoginForm · no OTP code is ever displayed or pre-filled (OTP-4)", () => {
+describe("LoginForm · no OTP code displayed on the real-provider path (devCode=null, OTP-4)", () => {
   // A digit-run that would be a leaked/echoed code. The OtpInput value is bound to the
-  // `code` state; with nothing seeded it must be empty in every state.
+  // `code` state; with no dev code (a real provider returns none) it must be empty.
   const CODE_LIKE = /\b\d{4,8}\b/;
 
   it("pre-fills NOTHING into the OtpInput on the fresh code step", () => {
@@ -158,6 +161,23 @@ describe("LoginForm · no OTP code is ever displayed or pre-filled (OTP-4)", () 
   it("the email-step confirmation never contains a code-like digit run", () => {
     const tree = render({ step: "email", info: SEND_CONFIRMATION });
     expect(textOf(tree)).not.toMatch(CODE_LIKE);
+  });
+});
+
+describe("LoginForm · dev/mock code surfacing is gated (absent with a real provider)", () => {
+  it("prefills the OtpInput and shows a labelled 'Dev mode' hint when a dev code is present", () => {
+    // The action only returns devCode for the mock/console channel in a non-prod build;
+    // the form then prefills the code + surfaces it so local login is one click away.
+    const tree = render({ step: "code", email: "a@b.co", code: "000000", devCode: "000000" });
+    expect(p(findAll(tree, OtpInput)[0]!).value).toBe("000000");
+    const hint = findAll(tree, Toast).find((t) => p(t).title === "Dev mode");
+    expect(hint).toBeDefined();
+    expect(textOf(p(hint!).children as ReactNode)).toContain("000000");
+  });
+
+  it("shows NO dev hint on the real-provider path (no dev code)", () => {
+    const tree = render({ step: "code", email: "a@b.co", info: SEND_CONFIRMATION });
+    expect(findAll(tree, Toast).some((t) => p(t).title === "Dev mode")).toBe(false);
   });
 });
 
