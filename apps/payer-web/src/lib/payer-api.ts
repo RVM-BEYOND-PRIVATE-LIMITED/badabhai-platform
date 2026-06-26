@@ -27,6 +27,7 @@ import {
   type Capacity,
   type CreatePostingInput,
   type CreditBalance,
+  type CreditTopUp,
   type Dashboard,
   type FacelessApplicant,
   type MaskedResumeResult,
@@ -40,6 +41,7 @@ import { revealResultSchema } from "./contracts";
 import { assertNoAgencyPII } from "./assert-no-agency-pii";
 import * as store from "./mock-store";
 import { payerFetch } from "./payer-http";
+import { findCreditPack } from "./pricing-config";
 
 /**
  * The PAYER DATA SEAM (ADR-0019 Phase 1).
@@ -228,6 +230,16 @@ export async function topUp(input: { packCode: string }): Promise<TopUpResult | 
     if (e instanceof Error && /returned 404/.test(e.message)) return null;
     throw e;
   }
+  // Record the successful (mock) purchase on the caller's OWN mock ledger so the credits
+  // page can show a top-up history + a 12-month expiry schedule. The authoritative balance
+  // stays the live backend; this is a PII-free local history record. `priceInr` is resolved
+  // from the @badabhai/pricing catalog (XT5: server-side amount, never client-supplied).
+  const { payerId } = await requirePayer();
+  store.recordTopUp(payerId, {
+    packCode: wire.pack_code,
+    credits: wire.credits,
+    priceInr: findCreditPack(wire.pack_code)?.priceInr ?? 0,
+  });
   return topUpResultSchema.parse({
     payerId: wire.payer_id,
     balance: wire.balance,
@@ -235,6 +247,17 @@ export async function topUp(input: { packCode: string }): Promise<TopUpResult | 
     packCode: wire.pack_code,
     realCall: false, // MOCK money — the backend mock-purchases; there is NO Razorpay.
   });
+}
+
+/**
+ * The caller's OWN mock-ledger credit top-ups (newest first) — the top-up half of the
+ * credit history + the source of the 12-month expiry schedule. Tenancy is the server-held
+ * session (XB-A); PII-free (ids/amounts/config pack code only). WAITING-mock: there is no
+ * payer-authed credit-ledger endpoint, so this reads the local ledger recorded on top-up.
+ */
+export async function getCreditTopUps(): Promise<CreditTopUp[]> {
+  const { payerId } = await requirePayer();
+  return store.getTopUps(payerId);
 }
 
 /**

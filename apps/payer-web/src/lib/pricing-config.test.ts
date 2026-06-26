@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   bandForVacancies,
+  creditValidityMonths,
   findCreditPack,
+  lowBalanceThreshold,
   offeredCreditPacks,
   postingPaidTiers,
   unlockUnitPriceInr,
@@ -64,5 +66,60 @@ describe("bandForVacancies — derive the FRONTEND quota band from a raw head co
     expect(bandForVacancies(-7)).toBe("1-5");
     expect(bandForVacancies(2.5)).toBe("1-5");
     expect(bandForVacancies(Number.NaN)).toBe("1-5");
+  });
+});
+
+describe("lowBalanceThreshold — read from config (env), never a page literal", () => {
+  afterEach(() => {
+    delete process.env.PAYER_LOW_BALANCE_THRESHOLD;
+  });
+
+  it("returns the config default when the env var is unset", () => {
+    delete process.env.PAYER_LOW_BALANCE_THRESHOLD;
+    const t = lowBalanceThreshold();
+    expect(Number.isInteger(t)).toBe(true);
+    expect(t).toBeGreaterThanOrEqual(0);
+  });
+
+  it("honours a valid env override", () => {
+    process.env.PAYER_LOW_BALANCE_THRESHOLD = "12";
+    expect(lowBalanceThreshold()).toBe(12);
+    process.env.PAYER_LOW_BALANCE_THRESHOLD = "0";
+    expect(lowBalanceThreshold()).toBe(0);
+  });
+
+  it("ignores an invalid env value and falls back to the default", () => {
+    const def = lowBalanceThreshold();
+    process.env.PAYER_LOW_BALANCE_THRESHOLD = "-3";
+    expect(lowBalanceThreshold()).toBe(def);
+    process.env.PAYER_LOW_BALANCE_THRESHOLD = "abc";
+    expect(lowBalanceThreshold()).toBe(def);
+    process.env.PAYER_LOW_BALANCE_THRESHOLD = "2.5";
+    expect(lowBalanceThreshold()).toBe(def);
+  });
+});
+
+describe("creditValidityMonths — credit-expiry window from config (default 12), not a literal", () => {
+  afterEach(() => {
+    delete process.env.PAYER_CREDIT_VALIDITY_MONTHS;
+  });
+
+  it("defaults to 12 months when unset (honours the requested 12-month expiry)", () => {
+    delete process.env.PAYER_CREDIT_VALIDITY_MONTHS;
+    expect(creditValidityMonths()).toBe(12);
+  });
+
+  it("honours a valid positive-integer env override", () => {
+    process.env.PAYER_CREDIT_VALIDITY_MONTHS = "6";
+    expect(creditValidityMonths()).toBe(6);
+  });
+
+  it("ignores a non-positive / non-integer env value and falls back to 12", () => {
+    process.env.PAYER_CREDIT_VALIDITY_MONTHS = "0";
+    expect(creditValidityMonths()).toBe(12);
+    process.env.PAYER_CREDIT_VALIDITY_MONTHS = "-1";
+    expect(creditValidityMonths()).toBe(12);
+    process.env.PAYER_CREDIT_VALIDITY_MONTHS = "1.5";
+    expect(creditValidityMonths()).toBe(12);
   });
 });

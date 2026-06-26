@@ -176,11 +176,35 @@ describe("topUp — buy-pack wiring (LIVE): POSTs ONLY { pack_code } + Bearer", 
     expect(JSON.stringify(body)).not.toMatch(/payer_id/);
   });
 
-  it("maps an unknown-pack 404 to a neutral null (catalog item, not a tenant oracle)", async () => {
+  it("records the successful purchase on the session payer's mock ledger (config-priced)", async () => {
+    const PAYER = "11111111-1111-4111-8111-111111111111"; // the requirePayer-mocked session
+    const store = await import("./mock-store");
+    const before = store.getTopUps(PAYER).length;
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        { payer_id: PAYER, balance: 107, credits: 50, pack_code: "pack_50" },
+        201,
+      ),
+    );
+    const { topUp } = await import("./payer-api");
+    await topUp({ packCode: "pack_50" });
+    const after = store.getTopUps(PAYER);
+    expect(after.length).toBe(before + 1);
+    // Newest-first; the amount is resolved from the catalog (XT5), never echoed from the client.
+    expect(after[0]!.packCode).toBe("pack_50");
+    expect(after[0]!.priceInr).toBe(2000);
+  });
+
+  it("maps an unknown-pack 404 to a neutral null and does NOT touch the ledger", async () => {
+    const PAYER = "11111111-1111-4111-8111-111111111111";
+    const store = await import("./mock-store");
+    const before = store.getTopUps(PAYER).length;
     fetchMock.mockResolvedValue(jsonResponse({ message: "Unknown credit pack" }, 404));
     const { topUp } = await import("./payer-api");
     const res = await topUp({ packCode: "does_not_exist" });
     expect(res).toBeNull();
+    // The 404 returns before recordTopUp — the ledger is untouched.
+    expect(store.getTopUps(PAYER).length).toBe(before);
   });
 });
 

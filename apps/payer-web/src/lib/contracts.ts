@@ -279,6 +279,22 @@ export const topUpResultSchema = z.object({
 });
 export type TopUpResult = z.infer<typeof topUpResultSchema>;
 
+/**
+ * One MOCK-ledger top-up record for the caller's OWN credit history (ADR-0019 Phase 1).
+ * Recorded locally on a successful mock purchase so the credits page can show a spend/
+ * top-up history + a 12-month expiry schedule. PII-FREE by construction: ids + amounts
+ * + a config pack code only — NEVER a worker name/phone. `priceInr` is resolved from the
+ * @badabhai/pricing catalog at record time (never a client/hardcoded amount, XT5).
+ */
+export const creditTopUpSchema = z.object({
+  topUpId: z.string().uuid(),
+  packCode: z.string(),
+  credits: z.number().int().positive(),
+  priceInr: z.number().int().nonnegative(),
+  createdAt: z.string(),
+});
+export type CreditTopUp = z.infer<typeof creditTopUpSchema>;
+
 /* ── Capacity view (WAITING — no payer-authed endpoint; capacity.controller is
  *    InternalServiceGuard, ESCALATE GET /payer/capacity). PII-free counts only. ──── */
 

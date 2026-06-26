@@ -2,11 +2,17 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import {
   type CreditBalance,
+  type CreditTopUp,
   type FacelessApplicant,
   type PostingSummary,
   type UnlockHistoryItem,
 } from "./contracts";
-import { applicantQuotaStep, baseApplicantQuotaForBand, bandForVacancies } from "./pricing-config";
+import {
+  applicantQuotaStep,
+  baseApplicantQuotaForBand,
+  bandForVacancies,
+  findCreditPack,
+} from "./pricing-config";
 
 /**
  * In-memory MOCK data store (ADR-0019 Phase 1 — mock + staging-only).
@@ -37,6 +43,8 @@ interface PayerState {
   unlocks: UnlockHistoryItem[];
   /** Faceless applicants per posting id. */
   applicantsByPosting: Map<string, FacelessApplicant[]>;
+  /** MOCK-ledger credit top-ups (PII-free: ids/amounts/config pack code only). */
+  topUps: CreditTopUp[];
 }
 
 const PAYER_A = "11111111-1111-4111-8111-111111111111";
@@ -85,9 +93,24 @@ function seedApplicants(): FacelessApplicant[] {
   ];
 }
 
+/** A seed mock-ledger top-up for the demo tenant — config-priced (never a hardcoded ₹). */
+function seedTopUps(): CreditTopUp[] {
+  const pack = findCreditPack("pack_50");
+  if (!pack) return [];
+  return [
+    {
+      topUpId: "cccc3333-0000-4000-8000-000000000001",
+      packCode: pack.code,
+      credits: pack.credits,
+      priceInr: pack.priceInr,
+      createdAt: iso(-30),
+    },
+  ];
+}
+
 function freshState(seed: { withData: boolean }): PayerState {
   if (!seed.withData) {
-    return { balance: 0, postings: [], unlocks: [], applicantsByPosting: new Map() };
+    return { balance: 0, postings: [], unlocks: [], applicantsByPosting: new Map(), topUps: [] };
   }
   const postingId = "bbbb2222-0000-4000-8000-000000000001";
   const applicants = seedApplicants();
@@ -108,6 +131,7 @@ function freshState(seed: { withData: boolean }): PayerState {
     ],
     unlocks: [],
     applicantsByPosting: new Map([[postingId, applicants]]),
+    topUps: seedTopUps(),
   };
 }
 
@@ -193,6 +217,33 @@ export function addCredits(payerId: string, credits: number): number {
   const s = stateFor(payerId);
   s.balance += credits;
   return s.balance;
+}
+
+/**
+ * Record a successful top-up on the payer's OWN mock ledger (for the credit-history +
+ * 12-month expiry display). PII-FREE: ids/amounts/config pack code + a server timestamp
+ * only — never a worker identity. `priceInr` is config-resolved by the caller (XT5). The
+ * authoritative balance still lives in the live backend; this is a local history ledger.
+ */
+export function recordTopUp(
+  payerId: string,
+  input: { packCode: string; credits: number; priceInr: number },
+): CreditTopUp {
+  const s = stateFor(payerId);
+  const rec: CreditTopUp = {
+    topUpId: randomUUID(),
+    packCode: input.packCode,
+    credits: input.credits,
+    priceInr: input.priceInr,
+    createdAt: new Date().toISOString(),
+  };
+  s.topUps = [rec, ...s.topUps];
+  return { ...rec };
+}
+
+/** The payer's OWN mock-ledger top-ups (newest first), PII-free. */
+export function getTopUps(payerId: string): CreditTopUp[] {
+  return stateFor(payerId).topUps.map((t) => ({ ...t }));
 }
 
 /**
