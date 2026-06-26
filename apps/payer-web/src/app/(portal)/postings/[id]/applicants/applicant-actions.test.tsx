@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import type { FacelessApplicant } from "../../../../../lib/contracts";
-import { NEUTRAL_UNLOCK_MESSAGE } from "../../../../../lib/unlock-view";
+import { NEUTRAL_UNLOCK_MESSAGE, mapUnlockResult } from "../../../../../lib/unlock-view";
 
 /**
  * APPLICANT-ACTIONS tests — CONFIRM-ON-SPEND (C11) + A11Y-OF-FAILURE (B8).
@@ -530,5 +530,92 @@ describe("ApplicantActions — MOVE TO CONTACTED: local transition riding the sp
     const { buttons } = collect(tree);
     expect(buttons.find((b) => b.text === "Mark as contacted")).toBeUndefined();
     expect(gatherText(tree)).toContain("Contacted");
+  });
+});
+
+/** DEEP text — expands the pure RoutedContact / MaskedResume / Spinner children too. */
+function deepGather(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return ` ${node} `;
+  if (Array.isArray(node)) return node.map(deepGather).join("");
+  const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  if (typeof el.type === "function") return deepGather((el.type as (p: unknown) => ReactNode)(el.props));
+  return el.props && "children" in el.props ? deepGather(el.props.children as ReactNode) : "";
+}
+
+describe("ApplicantActions — (b) each stage renders its OWN empty state at zero rows", () => {
+  it("New empty copy ≠ Shortlist empty copy (per-stage, never a shared blank)", () => {
+    // A is kept (shortlist) ⇒ the New stage is empty; switch active to New to see its copy.
+    const newEmpty = gatherText(
+      render({ applicants: [A], stages: { [A.workerId]: "shortlist" }, activeStage: "new" }),
+    );
+    expect(newEmpty).toContain("No candidates in New");
+    // Nothing kept ⇒ the Shortlist stage is empty; its copy is distinct.
+    const shortlistEmpty = gatherText(render({ applicants: [A], activeStage: "shortlist" }));
+    expect(shortlistEmpty).toContain("No shortlisted candidates yet");
+    expect(newEmpty).not.toEqual(shortlistEmpty);
+  });
+});
+
+describe("ApplicantActions — (c) a contactError is inline, retryable, cause-free, never blanks the row", () => {
+  it("keeps the reveal button (relabeled Retry) + an aria-live error; the Unlocked row stays", () => {
+    const granted = { kind: "granted", unlockId: "44444444-4444-4444-8444-444444444444", expiresAt: "2026-07-01T00:00:00.000Z" };
+    const tree = render({
+      rows: { [WORKER]: { ...baseRow, unlock: granted, contactError: "Reveal failed (service unavailable). Please retry." } },
+    });
+    const { buttons, ariaLiveCount } = collect(tree);
+    const retry = buttons.find((b) => b.text === "Retry — open routed contact");
+    expect(retry).toBeDefined(); // retryable: the reveal button stays, relabeled
+    expect(retry!.onClick).toBeTypeOf("function");
+    expect(ariaLiveCount).toBeGreaterThanOrEqual(1);
+    const joined = gatherText(tree);
+    // No-oracle: the transient error names NO deny cause.
+    expect(joined).not.toMatch(/consent|capped|no credits|already.?unlocked|forbidden/i);
+    // Row not blanked: the candidate id + the Unlocked chip still render.
+    expect(monoPrefixes(tree)).toHaveLength(1);
+    expect(joined).toContain("Unlocked");
+  });
+});
+
+describe("ApplicantActions — (e) one neutral 'currently engaged' state; identical copy unknown vs cap", () => {
+  it("two distinct deny causes collapse to byte-identical rendered copy (no oracle)", () => {
+    // The wire collapses EVERY cause to {status:"unavailable"} before the mapper, so 'unknown'
+    // and 'cap' are indistinguishable — mapUnlockResult yields one message; the component shows it.
+    const unknown = mapUnlockResult({ status: "unavailable" });
+    const cap = mapUnlockResult({ status: "unavailable" });
+    expect(unknown).toEqual(cap); // identical view — no cause survives the mapper
+    const renderedUnknown = gatherText(render({ rows: { [WORKER]: { ...baseRow, unlock: unknown } } }));
+    const renderedCap = gatherText(render({ rows: { [WORKER]: { ...baseRow, unlock: cap } } }));
+    expect(renderedUnknown).toEqual(renderedCap); // identical COPY for both causes
+    expect(renderedUnknown).toContain("Currently engaged"); // the cap-enforcement landing UI
+    expect(renderedUnknown).toContain(NEUTRAL_UNLOCK_MESSAGE);
+  });
+});
+
+describe("ApplicantActions — (f) balance === 0 disables Unlock (own-balance FE pre-check)", () => {
+  it("renders the Unlock button disabled when the payer has 0 credits", () => {
+    const info = buttonInfo(render({ balance: 0 }), "Unlock contact");
+    expect(info).not.toBeNull();
+    expect(info!.disabled).toBe(true);
+  });
+});
+
+describe("ApplicantActions — (h) zero PII (no phone digits / email) in ANY row state", () => {
+  const granted = { kind: "granted", unlockId: "44444444-4444-4444-8444-444444444444", expiresAt: "2026-07-01T00:00:00.000Z" };
+  const routed = { kind: "routed", relayHandle: "RELAY-7h3k9q", channel: "in_app_relay", expiresAt: "2026-07-01T00:00:00.000Z" };
+  const states: Array<[string, Record<string, unknown>]> = [
+    ["idle", { ...baseRow }],
+    ["unlock pending", { ...baseRow, busy: true }],
+    ["unlock error", { ...baseRow, unlockError: "Unlock failed (service unavailable). Please retry." }],
+    ["currently engaged", { ...baseRow, unlock: { kind: "unavailable", message: NEUTRAL_UNLOCK_MESSAGE } }],
+    ["granted + reveal pending", { ...baseRow, unlock: granted, contactBusy: true }],
+    ["routed reveal", { ...baseRow, unlock: granted, contact: routed }],
+    ["contacted", { ...baseRow, unlock: granted, contact: routed, contacted: true }],
+  ];
+  it.each(states)("state '%s' leaks no phone-number digits / email (deep, incl. the routed card)", (_label, row) => {
+    const joined = deepGather(render({ rows: { [WORKER]: row } }));
+    expect(joined).not.toMatch(/\d{10,}/); // no 10+ digit phone run
+    expect(joined).not.toMatch(/\+\d{7,}/); // no +country-code phone
+    expect(joined).not.toMatch(/@/); // no email
   });
 });

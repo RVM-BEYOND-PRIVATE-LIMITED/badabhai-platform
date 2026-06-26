@@ -287,3 +287,27 @@ describe("applicant feed — (e) hot badge reflects the backend boolean, not a c
     expect(hotBadgeCount()).toBe(0);
   });
 });
+
+describe("applicant feed — (g) after a granted reveal the row MOVES TO CONTACTED (local)", () => {
+  it("unlock → routed reveal → Mark as contacted flips the row to a Contacted state, no extra network", async () => {
+    unlockAction.mockResolvedValue(GRANTED);
+    revealContactAction.mockResolvedValue(ROUTED);
+    mount([A]);
+
+    // Drive the full spend → reveal flow.
+    await find("Unlock contact (1 credit)")!.onClick!();
+    await findStarts("Open routed contact")!.onClick!();
+
+    // "Mark as contacted" appears ONLY now that a routed handle exists; click it (LOCAL).
+    const mark = find("Mark as contacted");
+    expect(mark).toBeDefined();
+    mark!.onClick!();
+
+    // The row is now Contacted: the button is gone, a Contacted badge shows, and NO extra
+    // unlock/reveal network call was made (it rides the already-spent unlock).
+    expect(find("Mark as contacted")).toBeUndefined();
+    expect(deepText()).toContain("Contacted");
+    expect(unlockAction).toHaveBeenCalledTimes(1);
+    expect(revealContactAction).toHaveBeenCalledTimes(1);
+  });
+});
