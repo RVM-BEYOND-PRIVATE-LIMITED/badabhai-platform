@@ -49,4 +49,21 @@ export default tseslint.config(
       "@typescript-eslint/consistent-type-imports": "off",
     },
   },
+  {
+    // Standalone Node ESM scripts (operational tooling, e.g. the staging smoke):
+    // give them the Node global environment so `process`/`console`/`fetch` etc.
+    // are recognized (they run under `node`, not the TS build).
+    files: ["scripts/**/*.{mjs,js}"],
+    languageOptions: {
+      sourceType: "module",
+      globals: {
+        process: "readonly",
+        console: "readonly",
+        fetch: "readonly",
+        URL: "readonly",
+        setTimeout: "readonly",
+        Buffer: "readonly",
+      },
+    },
+  },
 );

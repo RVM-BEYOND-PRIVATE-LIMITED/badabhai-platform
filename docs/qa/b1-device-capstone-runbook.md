@@ -15,7 +15,9 @@
    `<staging-api>` placeholder. The app's `API_BASE_URL` defaults to `http://localhost:3001`.
    **DevOps must stand up the staging API + Supabase + Redis and provide the concrete HTTPS
    URL** before the phone is touched. Acceptance: `GET <staging-api>/health` → `200 {status:ok}`
-   from the handset's network, and mock-OTP login works against it.
+   from the handset's network, and mock-OTP login works against it. Turnkey path:
+   [staging-service-deploy-runbook.md](../ops/staging-service-deploy-runbook.md) +
+   [staging-cd.yml](../../.github/workflows/staging-cd.yml) (the guarded CD + `pnpm staging:smoke`).
 2. **The handset run is the one human step.** It cannot be done from CI or this environment.
 
 Until #1 is delivered and #2 executed, **B1 stays NO-GO** — the verdict is not flipped on
