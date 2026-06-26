@@ -1,10 +1,11 @@
 /**
  * The PayerAuth SEAM contract (ADR-0019 Decision B / B-R1).
  *
- * This is the SINGLE interface a real IdP (Supabase Auth or bespoke) will
- * implement later. Phase 1 ships ONLY the `mock` provider (B-R1 is OPEN — a real
- * login provider is a separate human gate). Nothing outside `auth/` knows which
- * provider is wired; the rest of the app depends on this contract alone.
+ * This is the SINGLE interface the auth seam implements. Login is REAL-OTP only —
+ * the `api` provider drives the backend payer-auth routes; there is no mock/dev
+ * provider. A third-party IdP / MFA is a separate human gate (B-R1 OPEN). Nothing
+ * outside `auth/` knows which provider is wired; the rest of the app depends on
+ * this contract alone.
  *
  * SECURITY: the session carries ONLY the opaque `payerId` (+ an org display label
  * for the header). No raw payer PII (email/phone) ever lives in the session token
@@ -36,20 +37,20 @@ export type LoginResult =
 /**
  * Result of requesting a login code (real OTP flow). NO-ENUMERATION (XB-H): the
  * shape is account-state-independent — a caller cannot tell a new/known/unknown
- * email apart. `devOtp` is populated ONLY in dev/test on the mock channel so a
- * harness can finish login; never in staging/prod.
+ * email apart. The code is NEVER returned to the client; the payer reads it from
+ * their real email.
  */
 export type RequestCodeResult =
-  | { ok: true; resendInSeconds: number; devOtp?: string }
+  | { ok: true; resendInSeconds: number }
   | { ok: false; error: string };
 
 /**
- * The seam. A real provider swaps this whole module out; the app never branches
- * on the provider. All methods run SERVER-SIDE only (cookies + secrets).
+ * The seam. The app never branches on the provider. All methods run SERVER-SIDE
+ * only (cookies + secrets).
  *
- * Phase 1 LIVE login is a TWO-STEP OTP flow against the backend payer-auth routes
- * (`/payer/login/request` → `/payer/login/verify`). The mock provider implements
- * the same two methods (echoing a fixed dev code) so the UI is provider-agnostic.
+ * Login is a TWO-STEP OTP flow against the backend payer-auth routes
+ * (`/payer/login/request` → `/payer/login/verify`). The code is delivered to the
+ * payer's real email — it is never echoed to the client.
  */
 export interface PayerAuthProvider {
   /** Step 1: request a login code for an email. NO-ENUMERATION on the result. */

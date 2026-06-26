@@ -12,13 +12,9 @@ import { SEND_CONFIRMATION } from "./messages";
  * (email → 6-digit code). Calls the Server Actions; it never sees a secret or a session
  * token (the seam sets an httpOnly cookie server-side).
  *
- * WITH A REAL PROVIDER THE CODE IS NEVER DISPLAYED OR AUTO-FILLED — the payer reads the
- * 6-digit code from their real email and types it into the OtpInput. The ONLY exception is
- * a DEV/MOCK channel (PAYER_AUTH_MODE=mock or the backend mock email channel in dev/test),
- * which echoes a `devCode`; in a non-production build that code is prefilled + shown as a
- * clearly-labelled dev hint so login is testable without a real inbox. A real provider
- * never returns it, so staging/production show nothing. The resend control re-uses the
- * SERVER cooldown (`resendInSeconds`) and is disabled while it counts down.
+ * THE CODE IS NEVER DISPLAYED OR AUTO-FILLED — login is REAL-OTP only; the payer reads the
+ * 6-digit code from their real email and types it into the OtpInput. The resend control
+ * re-uses the SERVER cooldown (`resendInSeconds`) and is disabled while it counts down.
  *
  * NO-ORACLE (XB-H): both the send step and a failed verify show ONE neutral error in a
  * Toast — identical copy whether the email is unknown, a limit was hit, or the code is
@@ -40,9 +36,6 @@ export function LoginForm() {
   const [codeError, setCodeError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  // DEV-ONLY: the mock/console channel echoes a code (NODE_ENV-gated in the action). Null
-  // with any real provider (staging/prod) — there is nothing to show or prefill there.
-  const [devCode, setDevCode] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);
   const [pending, startTransition] = useTransition();
 
@@ -67,14 +60,9 @@ export function LoginForm() {
         setStep("code");
         // Resend countdown is driven by the SERVER cooldown — never a hard-coded number.
         setCooldown(res.resendInSeconds);
-        // Neutral, account-state-independent confirmation. With a real provider the code is
-        // NOT echoed — the payer reads it from their email.
+        // Neutral, account-state-independent confirmation. The code is NEVER echoed —
+        // the payer reads it from their email.
         setInfo(SEND_CONFIRMATION);
-        // DEV/MOCK only (absent with any real provider): prefill the code + surface a hint.
-        if (res.devCode) {
-          setCode(res.devCode);
-          setDevCode(res.devCode);
-        }
       } else {
         setError(res.error);
       }
@@ -145,12 +133,6 @@ export function LoginForm() {
             </span>
           ) : null}
         </div>
-        {devCode ? (
-          <Toast tone="brand" title="Dev mode">
-            Code <strong>{devCode}</strong> prefilled (mock/console channel). Staging &amp;
-            production send a real email — no code is shown there.
-          </Toast>
-        ) : null}
         <Button type="submit" variant="primary" block loading={pending} iconLeft="sign-in">
           {pending ? "Verifying…" : "Verify & sign in"}
         </Button>
@@ -173,7 +155,6 @@ export function LoginForm() {
               setError(null);
               setInfo(null);
               setCodeError(null);
-              setDevCode(null);
               setCooldown(0);
             }}
           >

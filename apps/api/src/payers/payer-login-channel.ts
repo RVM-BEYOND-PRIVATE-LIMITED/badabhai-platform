@@ -35,9 +35,9 @@ export interface PayerLoginChannel {
   /** The method this channel implements (carried into the PII-free `payer.*` events). */
   readonly method: PayerLoginMethodEnum;
   /**
-   * True for the alpha MOCK channels (no real send / no spend). Gates the DEV/TEST-only
-   * echo of the issued code (mirrors `SMS_PROVIDER==="console"` in the worker OtpService)
-   * — a real channel never echoes.
+   * True for a MOCK/no-spend channel (e.g. the WhatsApp mock provider in alpha); false for
+   * a REAL channel (ZeptoMail email, real WhatsApp). Informational only — the one-time code
+   * is delivered to the destination and NEVER echoed back, regardless of this flag.
    */
   readonly mock: boolean;
   deliver(input: PayerLoginCodeDelivery): Promise<void>;
@@ -45,28 +45,6 @@ export interface PayerLoginChannel {
 
 /** DI token for the active {@link PayerLoginChannel} implementation. */
 export const PAYER_LOGIN_CHANNEL = "PAYER_LOGIN_CHANNEL_IMPL";
-
-/**
- * Alpha MOCK email channel (the default). Sends NOTHING over the network — the payer's
- * email and the code never leave the process. Logs only an email-HASH prefix + status
- * (never the raw email or the code). The DEV/TEST echo of the code (see OtpService) is
- * what lets a tester complete login without a real mailbox; outside dev/test there is no
- * echo, so a real email provider is a launch-gate item (a production-GA prerequisite).
- */
-@Injectable()
-export class MockEmailLoginChannel implements PayerLoginChannel {
-  readonly method = "email_otp" as const;
-  readonly mock = true;
-  private readonly logger = new Logger(MockEmailLoginChannel.name);
-
-  constructor(private readonly pii: PiiCryptoService) {}
-
-  async deliver(input: PayerLoginCodeDelivery): Promise<void> {
-    const emailHashPrefix = this.pii.hmac(input.email).slice(0, 8);
-    // NEVER log the raw email or the code — only the keyed-hash prefix + status.
-    this.logger.log(`MOCK payer email login code email_hash=${emailHashPrefix}… (no real send)`);
-  }
-}
 
 /**
  * WhatsApp login channel (ADR-0019 B-R1 over the ADR-0020 MOCK provider). Delegates

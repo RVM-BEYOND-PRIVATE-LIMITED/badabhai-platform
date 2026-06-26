@@ -36,14 +36,12 @@ export type PayerLoginVerifyDto = z.infer<typeof PayerLoginVerifySchema>;
 /**
  * Response of POST /payer/signup and POST /payer/login/request. DELIBERATELY identical and
  * account-state-INDEPENDENT (XB-H no-enumeration): a caller cannot tell from this whether
- * the email is new, already registered, or never seen. `dev_otp` is populated ONLY in
- * dev/test on a mock channel (the OtpService echo rule) so an automated harness can finish
- * login; it is never present in staging/prod or on a real channel.
+ * the email is new, already registered, or never seen. The code is delivered ONLY to the
+ * payer's email via the real provider — it is NEVER returned here (real-only).
  */
 export interface PayerAuthCodeResponse {
   status: "code_sent";
   resend_in_seconds: number;
-  dev_otp?: string;
 }
 
 /** Login payload returned by POST /payer/login/verify. */

@@ -13,17 +13,15 @@ type ResolvedTransport = "zeptomail" | "smtp";
 
 /**
  * REAL payer email-OTP delivery channel (OTP-2; ADR-0019 B-R1) — the email analogue of
- * {@link import("../sms/fast2sms.provider").Fast2SmsProvider}. Selected over the alpha
- * {@link import("./payer-login-channel").MockEmailLoginChannel} whenever
- * `EMAIL_PROVIDER !== "none"` (the boot guard guarantees the required creds when it is).
+ * {@link import("../sms/fast2sms.provider").Fast2SmsProvider}. The payer email channel is
+ * REAL-ONLY: this is the ONLY `email_otp` channel (the alpha mock was removed), so the boot
+ * guard guarantees the required creds for the selected `EMAIL_PROVIDER`.
  *
  * Two transports behind one seam, chosen per `EMAIL_PROVIDER`:
  *   - "zeptomail" → the ZeptoMail Email Sending HTTPS API (Zoho-enczapikey auth).
  *   - "smtp"      → a generic SMTP relay via nodemailer.
  *   - "auto"      → ZeptoMail when its creds are fully set, else SMTP (same satisfiability
  *                   logic as `emailProviderBlockedReason`).
- *   - "none"      → never selected for this channel (the factory returns the mock); if
- *                   ever reached, throw (fail closed).
  *
  * PRIVACY (CLAUDE.md §2, HARD): the one-time `code` appears ONLY inside the outbound email
  * body (its legitimate purpose) and is NEVER logged/evented. This channel logs ONLY the
@@ -74,8 +72,9 @@ export class ZeptoMailEmailLoginChannel implements PayerLoginChannel {
   /**
    * Resolve the real transport for THIS delivery from `EMAIL_PROVIDER`. "auto" prefers
    * ZeptoMail when its creds are fully set (same satisfiability check as
-   * `emailProviderBlockedReason`), else SMTP. "none" is never selected for this channel;
-   * if reached, throw (fail closed).
+   * `emailProviderBlockedReason`), else SMTP. EMAIL_PROVIDER is REAL-ONLY (zeptomail/smtp/
+   * auto — no "none"/mock), so the default arm is unreachable; it throws (fail closed) if
+   * a future provider value is ever added without a transport mapping.
    */
   private resolveTransport(): ResolvedTransport {
     switch (this.config.EMAIL_PROVIDER) {
@@ -85,10 +84,9 @@ export class ZeptoMailEmailLoginChannel implements PayerLoginChannel {
         return "smtp";
       case "auto":
         return this.hasZeptoMailCreds() ? "zeptomail" : "smtp";
-      case "none":
       default:
-        // The factory returns the mock for "none"; reaching here is a misconfiguration.
-        throw new Error("real email channel selected with EMAIL_PROVIDER=none");
+        // Unreachable: EMAIL_PROVIDER has no other (e.g. mock) value. Fail closed.
+        throw new Error("real email channel selected with an unmapped EMAIL_PROVIDER");
     }
   }
 

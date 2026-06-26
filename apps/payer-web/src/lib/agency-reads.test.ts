@@ -13,7 +13,6 @@ const TOKEN = "payer.jwt.token";
 vi.mock("./auth/session-cookie", () => ({
   readApiToken: vi.fn(async () => TOKEN),
   API_TOKEN_COOKIE_NAME: "bb_payer_token",
-  MOCK_COOKIE_NAME: "bb_payer_session",
   sessionCookieOptions: () => ({}),
 }));
 
@@ -28,7 +27,6 @@ vi.mock("./auth", () => ({
 const fetchMock = vi.fn();
 
 beforeEach(() => {
-  process.env.PAYER_AUTH_MODE = "api";
   process.env.PAYER_API_URL = "http://api.test";
   process.env.PAYMENTS_ENABLE_REAL = "false";
   vi.stubGlobal("fetch", fetchMock);

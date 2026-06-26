@@ -4,8 +4,8 @@ import "server-only";
  * SERVER-ONLY configuration for the payer portal (ADR-0019 Phase 1).
  *
  * This module imports `server-only`, so any accidental import from a Client
- * Component is a BUILD ERROR — the values here (API base URL, the payer-auth mode,
- * the agency-supply flag) never reach the browser bundle.
+ * Component is a BUILD ERROR — the values here (API base URL, the agency-supply
+ * flag) never reach the browser bundle.
  *
  * ADR-0019 Decision D / §7: NO real payments. `PAYMENTS_ENABLE_REAL` is read
  * here ONLY to assert it is false at boot — a real-payment path is a HARD human
@@ -17,19 +17,7 @@ import "server-only";
  * a server-to-server internal token must never leave this app via the payer seam.
  */
 
-export type PayerAuthMode = "mock" | "api";
-
 export interface PayerServerConfig {
-  /**
-   * The payer-auth seam mode (ADR-0019 Decision B):
-   *  - "api"  → LIVE staging: the backend payer-auth routes (`/payer/login/*`,
-   *    `/payer/me`) issue + validate a real payer JWT (R16/LC-1 landed on main).
-   *  - "mock" → local/test fallback: an HMAC-signed self-contained session, no
-   *    backend. This is NOT a real IdP — B-R1 (a true external IdP/MFA) stays OPEN
-   *    as a separate human gate; "api" here is the backend's own OTP login, which
-   *    is the authorized Phase-1 LIVE login.
-   */
-  authMode: PayerAuthMode;
   /** API base URL used SERVER-SIDE only (route handlers / server actions). */
   apiBaseUrl: string;
   /** Asserted false in Phase 1 — real payments are a HARD human gate. */
@@ -49,23 +37,6 @@ let cached: PayerServerConfig | null = null;
 export function payerServerConfig(): PayerServerConfig {
   if (cached) return cached;
 
-  // Default resolution: "api" (the authorized Phase-1 LIVE login) EVERYWHERE except a
-  // local `next dev` (NODE_ENV==="development") with no explicit mode — there we default to
-  // "mock" so the portal runs out of the box WITHOUT a backend/Redis (the common
-  // frontend-dev case). Staging/prod/test (NODE_ENV!=="development") keep defaulting to
-  // "api". Set PAYER_AUTH_MODE explicitly to override either way (e.g. "api" when running
-  // the full stack locally; the login page surfaces the active mode so it's never silent).
-  const explicit = process.env.PAYER_AUTH_MODE?.trim().toLowerCase();
-  const devDefault = process.env.NODE_ENV === "development" ? "mock" : "api";
-  const rawMode = explicit && explicit.length > 0 ? explicit : devDefault;
-  if (rawMode !== "mock" && rawMode !== "api") {
-    // Any OTHER mode (a third-party IdP, etc.) is B-R1 — a separate human gate.
-    throw new Error(
-      `PAYER_AUTH_MODE="${rawMode}" is not authorized in Phase 1 (ADR-0019). Only "api" (backend payer-auth) or "mock" (local fallback) are allowed; a third-party IdP is a separate human gate (B-R1 OPEN).`,
-    );
-  }
-  const authMode: PayerAuthMode = rawMode === "mock" ? "mock" : "api";
-
   const paymentsEnableReal =
     (process.env.PAYMENTS_ENABLE_REAL ?? "false").trim().toLowerCase() === "true";
   if (paymentsEnableReal) {
@@ -81,7 +52,6 @@ export function payerServerConfig(): PayerServerConfig {
     (process.env.AGENCY_SUPPLY_ENABLED ?? "false").trim().toLowerCase() === "true";
 
   cached = {
-    authMode,
     apiBaseUrl: process.env.PAYER_API_URL ?? "http://localhost:3001",
     paymentsEnableReal: false,
     agencySupplyEnabled,

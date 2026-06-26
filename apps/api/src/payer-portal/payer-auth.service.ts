@@ -216,7 +216,6 @@ export class PayerAuthService {
     return {
       status: "code_sent",
       resend_in_seconds: issued.resendInSeconds,
-      ...(issued.devCode ? { dev_otp: issued.devCode } : {}),
     };
   }
 
@@ -249,7 +248,7 @@ export class PayerAuthService {
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
-    // The neutral response the unknown-account path returns (no devCode on a real channel).
+    // The neutral "code_sent" response the unknown-account path returns (no code is ever echoed).
     return {
       status: "code_sent",
       resend_in_seconds: this.config.OTP_RESEND_COOLDOWN_SECONDS,

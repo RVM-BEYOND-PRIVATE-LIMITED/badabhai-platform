@@ -24,11 +24,10 @@ interface RedisOtpClient {
   exists(key: string): Promise<number>;
 }
 
-/** What an issue resolves to: the cooldown + (dev/test mock only) the echoed code. */
+/** What an issue resolves to. The code is delivered ONLY to the payer's email via the
+ * real channel — it is never returned here (real-only, no echo). */
 export interface PayerOtpIssued {
   resendInSeconds: number;
-  /** DEV/TEST + MOCK-channel ONLY echo of the code (never in staging/prod / real channel). */
-  devCode?: string;
 }
 
 /**
@@ -51,9 +50,9 @@ export interface PayerOtpIssued {
  *
  * OTP-5 GLOBAL DAILY SEND CIRCUIT-BREAKER (the spend ceiling): in addition to the
  * per-account cooldown/cap, a platform-wide daily ceiling on REAL email sends
- * (PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY) bounds total email spend. It is enforced ONLY when
- * a REAL email provider is active (`EMAIL_PROVIDER!="none"`); in the mock channel it is a
- * no-op. Crucially it lives in the existence-INDEPENDENT {@link reserve} path (run by BOTH
+ * (PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY) bounds total email spend. The email channel is
+ * REAL-ONLY (ZeptoMail/SMTP), so it always enforces. Crucially it lives in the
+ * existence-INDEPENDENT {@link reserve} path (run by BOTH
  * issueAndSend and issueWithoutDelivery), so on breach the observable 429/response is
  * BYTE-IDENTICAL for a known vs unknown account (no enumeration oracle, XB-H). Fail-closed
  * (a Redis error rejects). A cap of 0 = PAUSED = the payer-email kill-switch (instant halt
@@ -105,7 +104,7 @@ export class PayerOtpService {
         throw new HttpException("Could not send the code, please retry", HttpStatus.BAD_GATEWAY);
       }
       this.logger.log(`payer login code issued email_hash=${hashPrefix} method=${this.channel.method}`);
-      return this.issued(code);
+      return this.issued();
     } catch (err) {
       throw this.mapFailClosed(err, hashPrefix);
     }
@@ -113,8 +112,8 @@ export class PayerOtpService {
 
   /**
    * Reserve a code WITHOUT delivering it — used ONLY for a non-existent account so the
-   * cooldown/hourly-cap/store path (and thus the observable timing + 429 behavior + the
-   * dev/test echo) is IDENTICAL to an existing account. The reserved code is never sent
+   * cooldown/hourly-cap/store path (and thus the observable timing + 429 behavior) is
+   * IDENTICAL to an existing account. The reserved code is never sent
    * and can only ever resolve to "incorrect or expired" on verify (no account → no
    * session). Throws 429 / 503 exactly as the existing-account path does (existence-
    * independent), so neither is an enumeration oracle.
@@ -123,8 +122,10 @@ export class PayerOtpService {
     const hashPrefix = emailHash.slice(0, 8);
     const redis = await this.client();
     try {
-      const code = await this.reserve(emailHash, redis);
-      return this.issued(code);
+      // Reserve a code for its SIDE EFFECTS only (cooldown/hourly-cap/store + the global
+      // breaker) — it is never delivered, so the plaintext is intentionally discarded here.
+      await this.reserve(emailHash, redis);
+      return this.issued();
     } catch (err) {
       throw this.mapFailClosed(err, hashPrefix);
     }
@@ -220,7 +221,7 @@ export class PayerOtpService {
     await redis.del(attemptsKey);
     await redis.set(cooldownKey, "1", "EX", this.config.OTP_RESEND_COOLDOWN_SECONDS);
 
-    // GLOBAL DAILY SEND CIRCUIT-BREAKER (OTP-5 spend ceiling). REAL email provider ONLY.
+    // GLOBAL DAILY SEND CIRCUIT-BREAKER (OTP-5 spend ceiling). The email channel is real-only.
     // Enforced HERE (the existence-INDEPENDENT reserve path, run by both issueAndSend and
     // issueWithoutDelivery) so a breach is byte-identical for a known vs unknown account
     // (no enumeration oracle). On breach, roll back the just-reserved code + cooldown and
@@ -264,13 +265,10 @@ export class PayerOtpService {
     }
   }
 
-  /** Shape the success return + the DEV/TEST + MOCK-channel ONLY echo (mirrors OtpService). */
-  private issued(code: string): PayerOtpIssued {
-    const echo = this.channel.mock && this.isDevOrTest();
-    return {
-      resendInSeconds: this.config.OTP_RESEND_COOLDOWN_SECONDS,
-      ...(echo ? { devCode: code } : {}),
-    };
+  /** Shape the success return. The code is delivered ONLY to the payer's email via the
+   * real channel — never returned here (real-only, no echo). */
+  private issued(): PayerOtpIssued {
+    return { resendInSeconds: this.config.OTP_RESEND_COOLDOWN_SECONDS };
   }
 
   /** Re-raise explicit HTTP decisions; map anything else (Redis/transport) to 503 (fail closed). */
@@ -285,10 +283,6 @@ export class PayerOtpService {
       "This is temporarily unavailable; please retry shortly",
       HttpStatus.SERVICE_UNAVAILABLE,
     );
-  }
-
-  private isDevOrTest(): boolean {
-    return this.config.NODE_ENV === "development" || this.config.NODE_ENV === "test";
   }
 
   private async client(): Promise<RedisOtpClient> {

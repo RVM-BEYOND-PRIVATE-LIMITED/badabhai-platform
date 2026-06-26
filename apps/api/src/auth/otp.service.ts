@@ -50,10 +50,10 @@ interface RedisOtpClient {
  * OTP-5 GLOBAL DAILY SEND CIRCUIT-BREAKER (the spend ceiling): in addition to the
  * per-phone cooldown/cap above, a platform-wide daily ceiling on REAL Fast2SMS sends
  * (OTP_GLOBAL_MAX_SENDS_PER_DAY) bounds total spend so a distributed abuser rotating
- * phones/IPs still cannot run up the bill. It is enforced ONLY when the SMS provider is
- * REAL (fast2sms) — in console/mock mode it is a no-op (no spend). Fail-closed (a Redis
- * error on the global counter rejects). A cap of 0 = PAUSED = the worker-SMS kill-switch
- * (instant halt + a PII-free worker.otp_send_cap_exceeded breach event, no redeploy).
+ * phones/IPs still cannot run up the bill. The SMS provider is always REAL (fast2sms),
+ * so this always enforces. Fail-closed (a Redis error on the global counter rejects). A
+ * cap of 0 = PAUSED = the worker-SMS kill-switch (instant halt + a PII-free
+ * worker.otp_send_cap_exceeded breach event, no redeploy).
  */
 @Injectable()
 export class OtpService {
@@ -72,9 +72,7 @@ export class OtpService {
    * client must wait before requesting another. Throws 429 (cooldown / hourly
    * cap), 502 (send failed), or 503 (Redis down — fail closed).
    */
-  async issueAndSend(
-    phoneE164: string,
-  ): Promise<{ resendInSeconds: number; devCode?: string }> {
+  async issueAndSend(phoneE164: string): Promise<{ resendInSeconds: number }> {
     const phoneHash = this.pii.hashPhone(phoneE164);
     const hashPrefix = phoneHash.slice(0, 8);
     const redis = await this.client();
@@ -138,14 +136,9 @@ export class OtpService {
       }
 
       this.logger.log(`OTP requested phone_hash=${hashPrefix} status=sent`);
-      // DEV/TEST ONLY: echo the code back to the caller when the console provider is
-      // active. assertAuthConfig forbids SMS_PROVIDER=console outside development/test
-      // (boot fails otherwise), so this can never leak in staging/prod — and in console
-      // mode the code is already printed to the log by ConsoleSmsProvider, so this adds
-      // no new exposure. Lets the e2e harness complete login without log-scraping.
-      const devCode =
-        this.config.SMS_PROVIDER === "console" ? { devCode: code } : undefined;
-      return { resendInSeconds: this.config.OTP_RESEND_COOLDOWN_SECONDS, ...devCode };
+      // The code is NEVER returned to the caller — it goes ONLY to the worker's phone via
+      // the real SMS provider. There is no dev/console echo path (real-only).
+      return { resendInSeconds: this.config.OTP_RESEND_COOLDOWN_SECONDS };
     } catch (err) {
       // Re-raise explicit HTTP decisions (cooldown/cap/send-failure).
       if (err instanceof HttpException) throw err;

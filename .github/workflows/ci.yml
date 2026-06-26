@@ -140,6 +140,18 @@ jobs:
       # (GET /resume/:id, …). Job-level so the API process AND the e2e test both see it;
       # the test sends it as x-internal-service-token.
       INTERNAL_SERVICE_TOKEN: e2e-internal-service-token
+      # OTP is REAL-ONLY (Fast2SMS for worker SMS, ZeptoMail for payer email). The API now
+      # calls assertAuthConfig (Fast2SMS creds REQUIRED in every env) + assertPayerAuthConfig
+      # (default email_otp + zeptomail → email creds REQUIRED) at boot, so it FAILS CLOSED
+      # without these. Supply obviously-FAKE placeholders so the process BOOTS — no real send
+      # ever happens (the e2e never reaches a real provider; the dev_otp login path is gone,
+      # so the OTP-login journeys are .skip). NEVER real keys.
+      FAST2SMS_API_KEY: ci-dummy-fast2sms-api-key
+      FAST2SMS_SENDER_ID: CIDUMMY
+      FAST2SMS_DLT_TEMPLATE_ID: ci-dummy-dlt-template
+      ZEPTOMAIL_API_TOKEN: ci-dummy-zeptomail-token
+      ZEPTOMAIL_MAIL_AGENT: ci-dummy-mail-agent
+      EMAIL_FROM_ADDRESS: ci-dummy@example.test
     steps:
       - uses: actions/checkout@v4
 

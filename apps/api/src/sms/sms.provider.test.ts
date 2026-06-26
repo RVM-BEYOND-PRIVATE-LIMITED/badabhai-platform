@@ -3,7 +3,6 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
-import { ConsoleSmsProvider } from "./console-sms.provider";
 import { Fast2SmsProvider } from "./fast2sms.provider";
 
 const PHONE = "+919876543210";
@@ -13,12 +12,8 @@ const pii = {
   hashPhone: (_phone: string) => "abcd1234ef567890abcd1234ef567890",
 } as unknown as PiiCryptoService;
 
-describe("ConsoleSmsProvider", () => {
-  it("logs the code (dev only) without throwing", async () => {
-    const provider = new ConsoleSmsProvider(pii);
-    await expect(provider.sendOtp({ phoneE164: PHONE, code: CODE })).resolves.toBeUndefined();
-  });
-});
+// NOTE: ConsoleSmsProvider was DELETED — worker OTP is real-only (Fast2SMS, no console
+// fallback), so its describe block was removed with it.
 
 describe("Fast2SmsProvider.toNationalNumber", () => {
   it("strips a leading +91 to a 10-digit national number", () => {

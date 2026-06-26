@@ -284,10 +284,13 @@ describe("ZeptoMailEmailLoginChannel.deliver — SMTP path (nodemailer)", () => 
   });
 });
 
-describe("ZeptoMailEmailLoginChannel.deliver — fail-closed on EMAIL_PROVIDER=none", () => {
-  it("throws (never silently no-ops) if reached with provider=none", async () => {
+describe("ZeptoMailEmailLoginChannel.deliver — fail-closed on an unmapped EMAIL_PROVIDER", () => {
+  it("throws (never silently no-ops) if reached with an unmapped provider value", async () => {
+    // EMAIL_PROVIDER is real-only (zeptomail/smtp/auto); the "none"/mock value was removed. The
+    // resolveTransport default arm still fails CLOSED for any out-of-band value — exercise it
+    // by forcing one past the type (a config drift / future-provider safety net).
     const channel = new ZeptoMailEmailLoginChannel(
-      zeptoConfig({ EMAIL_PROVIDER: "none" }),
+      zeptoConfig({ EMAIL_PROVIDER: "unmapped" as unknown as ServerConfig["EMAIL_PROVIDER"] }),
       pii,
     );
     await expect(channel.deliver(DELIVERY)).rejects.toThrow();

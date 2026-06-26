@@ -18,7 +18,6 @@ import { PayerDisclosureRateLimit } from "../payers/payer-disclosure-rate-limit.
 import {
   PAYER_LOGIN_CHANNEL,
   type PayerLoginChannel,
-  MockEmailLoginChannel,
   WhatsAppLoginChannel,
   SupabaseLoginChannel,
 } from "../payers/payer-login-channel";
@@ -86,7 +85,6 @@ import { PayerAuthService } from "./payer-auth.service";
     PayerOtpService,
     PayerDisclosureRateLimit,
     // The login channel implementations + the WhatsApp provider seam they ride.
-    MockEmailLoginChannel,
     ZeptoMailEmailLoginChannel,
     WhatsAppLoginChannel,
     SupabaseLoginChannel,
@@ -106,22 +104,20 @@ import { PayerAuthService } from "./payer-auth.service";
     },
     {
       // The ACTIVE payer login channel, selected by PAYER_LOGIN_METHOD (ADR-0019 B-R1).
-      // For "email_otp" the REAL ZeptoMail/SMTP channel is chosen when EMAIL_PROVIDER!="none"
-      // (the boot guard guarantees the creds then — assertPayerAuthConfig/emailProviderBlockedReason);
-      // EMAIL_PROVIDER="none" keeps the alpha MOCK channel (the default). `supabase` is the
+      // "email_otp" (the default) is REAL-ONLY: the ZeptoMail/SMTP channel — the boot guard
+      // (assertPayerAuthConfig/emailProviderBlockedReason) requires its credentials, so the
+      // app fails closed without them (there is no mock email channel). `supabase` is the
       // config-gated adapter — assertPayerAuthConfig fails boot closed if selected without
       // keys, and the adapter is inert (throws) in this build.
       provide: PAYER_LOGIN_CHANNEL,
       inject: [
         SERVER_CONFIG,
-        MockEmailLoginChannel,
         ZeptoMailEmailLoginChannel,
         WhatsAppLoginChannel,
         SupabaseLoginChannel,
       ],
       useFactory: (
         config: ServerConfig,
-        mockEmail: MockEmailLoginChannel,
         realEmail: ZeptoMailEmailLoginChannel,
         whatsapp: WhatsAppLoginChannel,
         supabase: SupabaseLoginChannel,
@@ -132,8 +128,8 @@ import { PayerAuthService } from "./payer-auth.service";
           case "supabase":
             return supabase;
           default:
-            // "email_otp": REAL provider when configured, else the alpha MOCK (default).
-            return config.EMAIL_PROVIDER !== "none" ? realEmail : mockEmail;
+            // "email_otp": the REAL ZeptoMail/SMTP channel (creds required at boot).
+            return realEmail;
         }
       },
     },

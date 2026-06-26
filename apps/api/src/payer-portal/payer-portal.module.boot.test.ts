@@ -14,7 +14,6 @@ import { JobPostingsModule } from "../job-postings/job-postings.module";
 import { PayerAuthGuard } from "../payers/payer-auth.guard";
 import {
   PAYER_LOGIN_CHANNEL,
-  MockEmailLoginChannel,
   WhatsAppLoginChannel,
   SupabaseLoginChannel,
   type PayerLoginChannel,
@@ -48,8 +47,9 @@ const loginChannelProvider = (): FactoryProvider =>
     (p) => (p as FactoryProvider).provide === PAYER_LOGIN_CHANNEL,
   ) as FactoryProvider;
 
-// Lightweight channel stubs the factory selects between (only .mock is asserted).
-const mockEmail = { method: "email_otp", mock: true } as unknown as MockEmailLoginChannel;
+// Lightweight channel stubs the factory selects between (only .mock is asserted). The mock
+// email channel was DELETED — email_otp is REAL-ONLY (ZeptoMail), so the factory now injects
+// [SERVER_CONFIG, ZeptoMailEmailLoginChannel, WhatsAppLoginChannel, SupabaseLoginChannel].
 const realEmail = { method: "email_otp", mock: false } as unknown as ZeptoMailEmailLoginChannel;
 const whatsapp = { method: "whatsapp", mock: true } as unknown as WhatsAppLoginChannel;
 const supabase = { method: "supabase", mock: false } as unknown as SupabaseLoginChannel;
@@ -57,7 +57,7 @@ const supabase = { method: "supabase", mock: false } as unknown as SupabaseLogin
 /** Run the real PAYER_LOGIN_CHANNEL useFactory with a given config (other args stubbed). */
 const resolveChannel = (config: Partial<ServerConfig>): PayerLoginChannel => {
   const provider = loginChannelProvider();
-  return provider.useFactory!(config as ServerConfig, mockEmail, realEmail, whatsapp, supabase);
+  return provider.useFactory!(config as ServerConfig, realEmail, whatsapp, supabase);
 };
 
 describe("PayerPortalModule wiring (cross-module DI regression guard)", () => {
@@ -79,12 +79,13 @@ describe("PayerPortalModule wiring (cross-module DI regression guard)", () => {
     expect(controllers).toContain(PayerJobPostingsController);
   });
 
-  it("provides the auth service, OTP store, XB-G cap, and all four login channels", () => {
+  it("provides the auth service, OTP store, XB-G cap, and the (real-only) login channels", () => {
     const tokens = providerTokens();
     expect(tokens).toContain("PayerAuthService");
     expect(tokens).toContain("PayerOtpService");
     expect(tokens).toContain("PayerDisclosureRateLimit");
-    expect(tokens).toContain("MockEmailLoginChannel");
+    // The mock email channel was DELETED (email_otp is real-only) — only the real channels remain.
+    expect(tokens).not.toContain("MockEmailLoginChannel");
     expect(tokens).toContain("ZeptoMailEmailLoginChannel");
     expect(tokens).toContain("WhatsAppLoginChannel");
     expect(tokens).toContain("SupabaseLoginChannel");
@@ -109,26 +110,15 @@ describe("PayerPortalModule wiring (cross-module DI regression guard)", () => {
   });
 });
 
-describe("PayerPortalModule PAYER_LOGIN_CHANNEL factory selection (OTP-2)", () => {
-  it("email_otp + EMAIL_PROVIDER=zeptomail resolves the REAL ZeptoMail channel (mock=false)", () => {
-    const channel = resolveChannel({
-      PAYER_LOGIN_METHOD: "email_otp",
-      EMAIL_PROVIDER: "zeptomail",
-    });
-    expect(channel).toBe(realEmail);
-    expect(channel.mock).toBe(false);
-  });
-
-  it("email_otp + EMAIL_PROVIDER=smtp resolves the REAL channel (mock=false)", () => {
-    const channel = resolveChannel({ PAYER_LOGIN_METHOD: "email_otp", EMAIL_PROVIDER: "smtp" });
-    expect(channel).toBe(realEmail);
-    expect(channel.mock).toBe(false);
-  });
-
-  it("email_otp + EMAIL_PROVIDER=none resolves the alpha MOCK channel (mock=true)", () => {
-    const channel = resolveChannel({ PAYER_LOGIN_METHOD: "email_otp", EMAIL_PROVIDER: "none" });
-    expect(channel).toBe(mockEmail);
-    expect(channel.mock).toBe(true);
+describe("PayerPortalModule PAYER_LOGIN_CHANNEL factory selection (OTP-2 — email_otp is real-only)", () => {
+  it("email_otp ALWAYS resolves the REAL ZeptoMail channel (mock=false) — no mock email arm", () => {
+    // email_otp is real-only now: every EMAIL_PROVIDER value (zeptomail/smtp/auto) selects the
+    // single ZeptoMail/SMTP channel; there is no EMAIL_PROVIDER=none mock branch to fall back to.
+    for (const EMAIL_PROVIDER of ["zeptomail", "smtp", "auto"] as const) {
+      const channel = resolveChannel({ PAYER_LOGIN_METHOD: "email_otp", EMAIL_PROVIDER });
+      expect(channel).toBe(realEmail);
+      expect(channel.mock).toBe(false);
+    }
   });
 
   it("whatsapp / supabase arms are unchanged by the EMAIL_PROVIDER switch", () => {

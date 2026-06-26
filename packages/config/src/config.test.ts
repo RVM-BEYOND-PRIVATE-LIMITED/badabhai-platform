@@ -197,16 +197,17 @@ describe("OTP global daily send circuit-breaker (OTP-5 — the spend ceiling + k
     expect(() => loadServerConfig({ PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY: "-1" })).toThrow();
   });
 
-  it("isRealOtpSmsActive: true only for the real fast2sms provider (console mock → false)", () => {
-    expect(isRealOtpSmsActive(loadServerConfig({}))).toBe(false); // console default
-    expect(isRealOtpSmsActive(loadServerConfig({ SMS_PROVIDER: "console" }))).toBe(false);
+  it("isRealOtpSmsActive: ALWAYS true — worker OTP is real-only (fast2sms; no console fallback)", () => {
+    // The SMS path is real-only (the literal default is fast2sms), so the spend signal —
+    // and therefore the global daily send circuit-breaker — always enforces.
+    expect(isRealOtpSmsActive(loadServerConfig({}))).toBe(true); // fast2sms default
     expect(isRealOtpSmsActive(loadServerConfig({ SMS_PROVIDER: "fast2sms" }))).toBe(true);
   });
 
-  it("isRealPayerEmailActive: true only for a real email provider (EMAIL_PROVIDER!=none)", () => {
-    expect(isRealPayerEmailActive(loadServerConfig({}))).toBe(false); // none default (mock)
-    expect(isRealPayerEmailActive(loadServerConfig({ EMAIL_PROVIDER: "none" }))).toBe(false);
-    // A non-none provider is the real-spend signal (boot-time creds are gated separately).
+  it("isRealPayerEmailActive: ALWAYS true — the payer email channel is real-only (zeptomail/smtp)", () => {
+    // The email channel is real-only (no "none"/mock), so the spend signal always fires;
+    // boot-time creds are gated separately (assertPayerAuthConfig / emailProviderBlockedReason).
+    expect(isRealPayerEmailActive(loadServerConfig({}))).toBe(true); // zeptomail default
     expect(
       isRealPayerEmailActive(
         loadServerConfig({

@@ -1,11 +1,11 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 
 /**
  * LOGIN SERVER ACTIONS (OTP-4 / XB-H) — no-oracle, no-leak mapping.
  *
  * These lock the security-relevant UI contract of step 1 + step 2:
- *  - the code is NEVER returned to the client (no `devOtp` on the result, even if the
- *    seam carries one);
+ *  - the code is NEVER returned to the client (login is real-OTP only — the result
+ *    carries no code field at all);
  *  - the send step collapses invalid-email, send-failure, rate-limit/cap, and the
  *    unknown-account path to ONE neutral constant — so the UI is never an enumeration
  *    oracle and never reveals which limit was hit;
@@ -27,29 +27,12 @@ beforeEach(() => {
   verifyCode.mockReset();
 });
 
-describe("requestCodeAction — dev code surfacing is gated (mock channel + non-prod only)", () => {
-  afterEach(() => vi.unstubAllEnvs());
-
-  it("with a REAL provider (no devOtp) the code never reaches the client", async () => {
-    requestCode.mockResolvedValue({ ok: true, resendInSeconds: 45 }); // real provider: no devOtp
+describe("requestCodeAction — the code never reaches the client (real-OTP only)", () => {
+  it("a successful send returns ONLY { ok, resendInSeconds } — no code field", async () => {
+    requestCode.mockResolvedValue({ ok: true, resendInSeconds: 45 });
     const res = await requestCodeAction({ email: "a@b.co" });
+    // toEqual is exact-shape: any code-bearing field would fail this assertion.
     expect(res).toEqual({ ok: true, resendInSeconds: 45 });
-    expect("devCode" in res).toBe(false);
-  });
-
-  it("in PRODUCTION a leaked devOtp is still NOT surfaced (defense-in-depth)", async () => {
-    vi.stubEnv("NODE_ENV", "production");
-    requestCode.mockResolvedValue({ ok: true, resendInSeconds: 45, devOtp: "000000" });
-    const res = await requestCodeAction({ email: "a@b.co" });
-    expect(res).toEqual({ ok: true, resendInSeconds: 45 });
-    expect(JSON.stringify(res)).not.toContain("000000");
-  });
-
-  it("in DEV, surfaces the mock/console devOtp as devCode so local login is testable", async () => {
-    vi.stubEnv("NODE_ENV", "development");
-    requestCode.mockResolvedValue({ ok: true, resendInSeconds: 45, devOtp: "000000" });
-    const res = await requestCodeAction({ email: "a@b.co" });
-    expect(res).toEqual({ ok: true, resendInSeconds: 45, devCode: "000000" });
   });
 
   it("threads the SERVER resendInSeconds through unchanged (drives the resend cooldown)", async () => {

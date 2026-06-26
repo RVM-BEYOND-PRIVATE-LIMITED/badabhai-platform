@@ -99,7 +99,11 @@ async function req(
   return { status: res.status, json: text ? JSON.parse(text) : null };
 }
 
-describe.skipIf(!RUN)("Per-payer hiring capacity (e2e, ADR-0016)", () => {
+// REAL-ONLY: this suite mints an authenticated payer session via OTP login, which now
+// requires a real ZeptoMail code (no dev echo) — it cannot run in automated CI. The
+// end-to-end proof is the manual OTP-7 staging check (docs/ops/otp-real-send-staging-runbook.md).
+void RUN;
+describe.skip("Per-payer hiring capacity (e2e, ADR-0016)", () => {
   let client!: DbClient;
 
   beforeAll(() => {

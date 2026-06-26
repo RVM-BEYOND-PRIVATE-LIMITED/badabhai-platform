@@ -13,20 +13,12 @@ export const OtpVerifySchema = z.object({
 });
 export type OtpVerifyDto = z.infer<typeof OtpVerifySchema>;
 
-/** Response of POST /auth/otp/request. */
+/** Response of POST /auth/otp/request. The code is delivered ONLY to the worker's
+ * phone via the real SMS provider — it is never returned here (real-only). */
 export interface OtpRequestResponse {
   success: true;
   channel: string;
   resend_in_seconds: number;
-  /**
-   * DEV/TEST ONLY echo of the issued code, populated **only** when
-   * `SMS_PROVIDER=console`. `assertAuthConfig` forbids the console provider
-   * outside development/test (it boots-fails otherwise), so this field can never
-   * be present in staging/production. It exists so the e2e harness (and a local
-   * dev) can complete login without scraping the server log — the console
-   * provider already prints the same code there. Never rely on it in app clients.
-   */
-  dev_otp?: string;
 }
 
 /** Login payload returned by POST /auth/otp/verify. */

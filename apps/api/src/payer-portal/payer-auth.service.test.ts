@@ -27,8 +27,10 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     decryptContact: vi.fn(() => ({ id: PAYER_ID, role: "employer", status: "active", email: EMAIL, phone: PHONE })),
   };
   const otp = {
-    issueAndSend: vi.fn(async () => ({ resendInSeconds: 30, devCode: "123456" })),
-    issueWithoutDelivery: vi.fn(async () => ({ resendInSeconds: 30, devCode: "999999" })),
+    // Real-only: PayerOtpIssued is { resendInSeconds } — the code is delivered to the payer's
+    // email by the channel and is NEVER echoed back to the auth service.
+    issueAndSend: vi.fn(async () => ({ resendInSeconds: 30 })),
+    issueWithoutDelivery: vi.fn(async () => ({ resendInSeconds: 30 })),
     verify: vi.fn(async () => undefined),
   };
   const sessions = {
@@ -75,7 +77,8 @@ describe("PayerAuthService.signup", () => {
     expect(created).toBeDefined();
     expect(created![0].payload).toEqual({ payer_id: PAYER_ID, role: "employer", method: "email_otp" });
     expect(d.otp.issueAndSend).toHaveBeenCalledTimes(1);
-    expect(res).toMatchObject({ status: "code_sent", resend_in_seconds: 30, dev_otp: "123456" });
+    // Real-only: the response is the neutral { status, resend_in_seconds } only — no dev_otp echo.
+    expect(res).toEqual({ status: "code_sent", resend_in_seconds: 30 });
     assertNoPiiInEvents(d.events);
   });
 

@@ -1,29 +1,19 @@
 import "server-only";
 import { redirect } from "next/navigation";
-import { payerServerConfig } from "../server-config";
 import type { PayerAuthProvider, PayerSession } from "./types";
-import { mockPayerAuthProvider } from "./mock-provider";
 import { httpPayerAuthProvider } from "./http-provider";
 
 /**
  * PayerAuth seam entry point (ADR-0019 Decision B).
  *
  * The rest of the app imports {@link payerAuth} / {@link requirePayer} and never
- * touches a concrete provider. Phase 1 LIVE login is the `api` provider (the
- * backend payer-auth routes — R16/LC-1); `mock` is the local/test fallback.
- * `payerServerConfig()` fail-closes on any other mode (a third-party IdP is B-R1).
+ * touches a concrete provider. Login is REAL-OTP only: the seam always drives the
+ * backend payer-auth routes (`/payer/login/request` → `/payer/login/verify` →
+ * `/payer/me`, R16/LC-1). There is NO mock/dev fallback — the portal requires the
+ * backend on its API URL. A third-party IdP / MFA is a separate human gate (B-R1).
  */
 export function payerAuth(): PayerAuthProvider {
-  const { authMode } = payerServerConfig();
-  switch (authMode) {
-    case "api":
-      return httpPayerAuthProvider;
-    case "mock":
-      return mockPayerAuthProvider;
-    default:
-      // Unreachable: payerServerConfig() already fail-closes on an unknown mode.
-      throw new Error(`Unsupported PAYER_AUTH_MODE: ${authMode as string}`);
-  }
+  return httpPayerAuthProvider;
 }
 
 /**

@@ -18,11 +18,22 @@ const config = {
   OTP_MAX_ATTEMPTS: 5,
   OTP_RESEND_COOLDOWN_SECONDS: 30,
   OTP_MAX_SENDS_PER_HOUR: 5,
-  // High global cap + the mock channel (EMAIL_PROVIDER="none") so the breaker is a no-op
-  // for the existing suite (no spend in mock mode). The breaker tests set a real provider.
+  // The payer email channel is REAL-ONLY (zeptomail/smtp; no "none"/mock), so
+  // isRealPayerEmailActive is always true and the global daily breaker ALWAYS enforces.
+  // Default a HIGH global cap so the breaker never trips for the issue/verify suites (each
+  // test gets a fresh Redis store → the global counter resets per test). The breaker tests
+  // set a LOW cap explicitly.
   PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY: 2000,
-  EMAIL_PROVIDER: "none",
+  EMAIL_PROVIDER: "zeptomail",
 } as unknown as ServerConfig;
+
+/** Pull the plaintext code the service handed to the (mocked) channel for delivery. The
+ * code is NEVER returned by issueAndSend anymore (real-only, no echo). */
+function deliveredCode(channel: PayerLoginChannel): string {
+  const deliver = channel.deliver as ReturnType<typeof vi.fn>;
+  const arg = deliver.mock.calls[0]?.[0] as { code?: string } | undefined;
+  return arg?.code ?? "";
+}
 
 // Length-stable keyed-HMAC stub that does NOT echo the input — so we can prove the
 // plaintext code is never the value stored in Redis.
@@ -92,17 +103,25 @@ describe("PayerOtpService.issueAndSend", () => {
     const { svc, redis, channel } = setup();
     const out = await svc.issueAndSend(issueInput);
     expect(channel.deliver).toHaveBeenCalledTimes(1);
-    expect(out.devCode).toMatch(/^\d{6}$/); // dev/test + mock echo
+    // Real-only: the result carries ONLY the resend cooldown — the code is never echoed.
+    expect(out).toEqual({ resendInSeconds: config.OTP_RESEND_COOLDOWN_SECONDS });
+    expect(Object.keys(out)).toEqual(["resendInSeconds"]);
 
+    const code = deliveredCode(channel); // the plaintext handed to the channel for delivery
+    expect(code).toMatch(/^\d{6}$/);
     const stored = redis.store.get(`payer_otp:code:${EMAIL_HASH}`);
-    expect(stored).toBe(`hmac<${out.devCode}>`); // the HMAC, NOT the plaintext code
-    expect(stored).not.toBe(out.devCode);
+    expect(stored).toBe(`hmac<${code}>`); // the HMAC, NOT the plaintext code
+    expect(stored).not.toBe(code);
   });
 
-  it("does NOT echo a code on a REAL (non-mock) channel even in test env", async () => {
-    const { svc } = setup({ mock: false });
-    const out = await svc.issueAndSend(issueInput);
-    expect(out.devCode).toBeUndefined();
+  it("NEVER echoes a code back to the caller (real-only — no devCode field on any channel)", async () => {
+    const real = setup({ mock: false });
+    const realOut = await real.svc.issueAndSend(issueInput);
+    expect(realOut).toEqual({ resendInSeconds: config.OTP_RESEND_COOLDOWN_SECONDS });
+
+    const dflt = setup();
+    const dfltOut = await dflt.svc.issueAndSend(issueInput);
+    expect(dfltOut).toEqual({ resendInSeconds: config.OTP_RESEND_COOLDOWN_SECONDS });
   });
 
   it("arms a resend cooldown — a second immediate issue is rejected (429)", async () => {
@@ -134,16 +153,20 @@ describe("PayerOtpService.issueWithoutDelivery (no-enumeration timing parity)", 
     const { svc, redis, channel } = setup();
     const out = await svc.issueWithoutDelivery(EMAIL_HASH);
     expect(channel.deliver).not.toHaveBeenCalled();
-    expect(out.devCode).toMatch(/^\d{6}$/);
+    // Real-only: the result carries ONLY the resend cooldown (the reserved code is never echoed).
+    expect(out).toEqual({ resendInSeconds: config.OTP_RESEND_COOLDOWN_SECONDS });
     // The reserve path still stores a code HMAC + arms the cooldown — identical observable
-    // Redis state to issueAndSend, so timing/429 behavior matches a known account.
-    expect(redis.store.get(`payer_otp:code:${EMAIL_HASH}`)).toBe(`hmac<${out.devCode}>`);
+    // Redis state to issueAndSend, so timing/429 behavior matches a known account. The code
+    // is unknown to the caller, so assert the stored value is an HMAC envelope (never raw).
+    const stored = redis.store.get(`payer_otp:code:${EMAIL_HASH}`);
+    expect(stored).toMatch(/^hmac<\d{6}>$/);
     expect(redis.store.has(`payer_otp:cooldown:${EMAIL_HASH}`)).toBe(true);
   });
 });
 
-describe("PayerOtpService global daily send circuit-breaker (OTP-5 spend ceiling)", () => {
-  const realConfig = { ...config, EMAIL_PROVIDER: "smtp" } as unknown as ServerConfig;
+describe("PayerOtpService global daily send circuit-breaker (OTP-5 spend ceiling — always enforces)", () => {
+  // The email channel is real-only, so the breaker ALWAYS enforces; realConfig == config.
+  const realConfig = { ...config } as unknown as ServerConfig;
   const globalKeyToday = (): string => {
     const now = new Date();
     const y = now.getUTCFullYear();
@@ -157,20 +180,12 @@ describe("PayerOtpService global daily send circuit-breaker (OTP-5 spend ceiling
     const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
     const channel: PayerLoginChannel = {
       method: "email_otp",
-      mock: false, // a REAL channel (no dev echo) — pairs with EMAIL_PROVIDER!="none"
+      mock: false, // a REAL channel — informational only; the breaker gates on config, not this
       deliver: vi.fn().mockResolvedValue(undefined),
     };
     const svc = new PayerOtpService({ ...realConfig, ...over } as ServerConfig, pii, channel, queue);
     return { svc, redis, channel };
   }
-
-  it("is a NO-OP in mock mode (EMAIL_PROVIDER=none) — never blocks, never increments", async () => {
-    const { svc, redis, channel } = setup(); // mock channel + EMAIL_PROVIDER=none
-    redis.store.set(globalKeyToday(), "999999"); // already over any cap
-    await expect(svc.issueAndSend(issueInput)).resolves.toBeDefined();
-    expect(channel.deliver).toHaveBeenCalledTimes(1);
-    expect(redis.store.get(globalKeyToday())).toBe("999999"); // untouched
-  });
 
   it("blocks the REAL send (issueAndSend) once the global daily count reaches the cap", async () => {
     const { svc, redis, channel } = realSetup({ PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY: 3 } as Partial<ServerConfig>);
@@ -229,11 +244,12 @@ describe("PayerOtpService global daily send circuit-breaker (OTP-5 spend ceiling
 
 describe("PayerOtpService.verify", () => {
   it("verifies a correct code, then is single-use (a replay is rejected)", async () => {
-    const { svc } = setup();
-    const { devCode } = await svc.issueAndSend(issueInput);
-    await expect(svc.verify(EMAIL_HASH, devCode!)).resolves.toBeUndefined();
+    const { svc, channel } = setup();
+    await svc.issueAndSend(issueInput);
+    const code = deliveredCode(channel); // captured from the (mocked) channel, not the result
+    await expect(svc.verify(EMAIL_HASH, code)).resolves.toBeUndefined();
     // single-use: the code was deleted on success → a replay now fails
-    await expect(svc.verify(EMAIL_HASH, devCode!)).rejects.toMatchObject({
+    await expect(svc.verify(EMAIL_HASH, code)).rejects.toMatchObject({
       status: HttpStatus.UNAUTHORIZED,
     });
   });

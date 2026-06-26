@@ -1,7 +1,7 @@
 # Persistent-staging CD for @badabhai/api — GUARDED / INERT BY DEFAULT (BLOCKER #1).
 #
 # Stands up the PERSISTENT staging API end-to-end: build -> migrate -> trigger the
-# host's deploy -> smoke the PUBLIC URL (/health + mock-OTP). Companion runbook:
+# host's deploy -> smoke the PUBLIC URL (/health). Companion runbook:
 # docs/ops/staging-service-deploy-runbook.md (the SERVICE runbook; the EPHEMERAL
 # demand-loop proof is staging-demand-verify.yml + bug2-staging-demand-deploy-runbook.md).
 #
@@ -15,16 +15,14 @@
 #   in the guard step (and the runbook's env-var table).
 #
 # ────────────────────────────────────────────────────────────────────────────────
-# POSTURE = "Mode A + strong injected secrets" (interim; see runbook POSTURE box):
-#   NODE_ENV=development ON PURPOSE — it is the ONLY way the console mock-OTP path
-#   (which echoes `dev_otp`) BOOTS, because assertAuthConfig
-#   (packages/config/src/server.ts) FAILS boot if SMS_PROVIDER=console outside dev.
-#   We COMPENSATE by injecting STRONG REAL secrets from the `staging` environment
-#   anyway — a real JWT_SECRET (sessions non-forgeable) + real PII_ENCRYPTION_KEY /
-#   PII_HASH_PEPPER (crypto is real). All real-provider gates STAY false. The env is
-#   SYNTHETIC-DATA-ONLY + TEAM-RESTRICTED (must NOT be internet-public with real PII).
-#   True NODE_ENV=staging strength WITH mock-OTP needs a staging-safe `mock` SMS
-#   provider — the Mode-C fast-follow tracked as TD52.
+# POSTURE = REAL-ONLY OTP (Fast2SMS + ZeptoMail). NODE_ENV=staging with REAL provider
+#   credentials injected from the `staging` environment secrets — the app fails CLOSED at
+#   boot without them (there is no console/mock OTP). A real JWT_SECRET + PII keys are also
+#   injected (sessions non-forgeable, crypto real). All OTHER real-provider gates
+#   (payments/AI/WhatsApp) STAY false. Sending real SMS/email is REAL SPEND, so staging MUST
+#   be SYNTHETIC-DATA-ONLY + TEAM-RESTRICTED, and activation is the OTP-7 human gate
+#   (docs/ops/otp-real-send-staging-runbook.md). The automated smoke is /health only — the
+#   end-to-end real-send check is the manual OTP-7 proof.
 # ────────────────────────────────────────────────────────────────────────────────
 #
 # MOCK-ONLY (non-negotiable): PAYMENTS_ENABLE_REAL / AI_ENABLE_REAL_CALLS /
@@ -49,7 +47,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Build -> migrate -> deploy -> smoke (Mode A, mock-only)
+    name: Build -> migrate -> deploy -> smoke (real-only OTP)
     runs-on: ubuntu-latest
     # Bind to the protected `staging` environment; secrets resolve from it.
     environment: staging
@@ -72,15 +70,24 @@ jobs:
       # (the host auto-deploys from the repo, or the human deploys via their host CLI).
       STAGING_DEPLOY_HOOK_URL: ${{ secrets.STAGING_DEPLOY_HOOK_URL }}
 
-      # ---- Mode-A posture (plain workflow env — NOT secrets). See the POSTURE box. ----
-      # NODE_ENV=development is DELIBERATE: it is the only way SMS_PROVIDER=console boots
-      # so the console mock-OTP path echoes `dev_otp` (assertAuthConfig forbids console
-      # outside dev). Strong JWT_SECRET + PII keys are STILL injected from secrets above,
-      # so sessions are non-forgeable and crypto is real — the env is synthetic-only +
-      # team-restricted to compensate. True NODE_ENV=staging + mock-OTP = TD52 (Mode C).
-      NODE_ENV: development
-      SMS_PROVIDER: "console"
-      # Mock-only provider gates — forced false (real providers are a separate §7 gate).
+      # ---- REAL-ONLY OTP posture (plain workflow env — NOT secrets). ----
+      # Worker OTP is REAL Fast2SMS; payer OTP is REAL ZeptoMail. There is no console/mock
+      # provider, so NODE_ENV is "staging" (not development) and the real provider creds are
+      # REQUIRED from the `staging` environment secrets below — the app fails CLOSED at boot
+      # without them (assertAuthConfig / assertPayerAuthConfig). Sending real SMS/email is
+      # REAL SPEND, so staging MUST be a CONTROLLED, synthetic-data, team-restricted
+      # environment, and activation is the OTP-7 human gate (docs/ops/otp-real-send-staging-runbook.md).
+      NODE_ENV: staging
+      SMS_PROVIDER: "fast2sms"
+      EMAIL_PROVIDER: "zeptomail"
+      FAST2SMS_API_KEY: ${{ secrets.FAST2SMS_API_KEY }}
+      FAST2SMS_SENDER_ID: ${{ secrets.FAST2SMS_SENDER_ID }}
+      FAST2SMS_DLT_TEMPLATE_ID: ${{ secrets.FAST2SMS_DLT_TEMPLATE_ID }}
+      FAST2SMS_ENTITY_ID: ${{ secrets.FAST2SMS_ENTITY_ID }}
+      ZEPTOMAIL_API_TOKEN: ${{ secrets.ZEPTOMAIL_API_TOKEN }}
+      ZEPTOMAIL_MAIL_AGENT: ${{ secrets.ZEPTOMAIL_MAIL_AGENT }}
+      EMAIL_FROM_ADDRESS: ${{ secrets.EMAIL_FROM_ADDRESS }}
+      # Mock-only provider gates — forced false (real payments/AI/WhatsApp are separate §7 gates).
       PAYMENTS_ENABLE_REAL: "false"
       AI_ENABLE_REAL_CALLS: "false"
       MESSAGING_ENABLE_REAL: "false"
@@ -99,9 +106,16 @@ jobs:
           [ -z "$JWT_SECRET" ] && missing="$missing JWT_SECRET"
           [ -z "$REDIS_URL" ] && missing="$missing REDIS_URL"
           [ -z "$STAGING_API_BASE_URL" ] && missing="$missing STAGING_API_BASE_URL"
+          # Real-only OTP credentials (the app fails closed at boot without them).
+          [ -z "$FAST2SMS_API_KEY" ] && missing="$missing FAST2SMS_API_KEY"
+          [ -z "$FAST2SMS_SENDER_ID" ] && missing="$missing FAST2SMS_SENDER_ID"
+          [ -z "$FAST2SMS_DLT_TEMPLATE_ID" ] && missing="$missing FAST2SMS_DLT_TEMPLATE_ID"
+          [ -z "$ZEPTOMAIL_API_TOKEN" ] && missing="$missing ZEPTOMAIL_API_TOKEN"
+          [ -z "$ZEPTOMAIL_MAIL_AGENT" ] && missing="$missing ZEPTOMAIL_MAIL_AGENT"
+          [ -z "$EMAIL_FROM_ADDRESS" ] && missing="$missing EMAIL_FROM_ADDRESS"
           if [ -n "$missing" ]; then
             echo "::notice::staging environment not wired — exiting (no-op). Missing secrets:$missing"
-            echo "Create the 'staging' GitHub Environment and add: DATABASE_URL, PII_ENCRYPTION_KEY, PII_HASH_PEPPER, INTERNAL_SERVICE_TOKEN, JWT_SECRET, REDIS_URL, STAGING_API_BASE_URL (STAGING_DEPLOY_HOOK_URL optional). See docs/ops/staging-service-deploy-runbook.md."
+            echo "Create the 'staging' GitHub Environment and add: DATABASE_URL, PII_ENCRYPTION_KEY, PII_HASH_PEPPER, INTERNAL_SERVICE_TOKEN, JWT_SECRET, REDIS_URL, STAGING_API_BASE_URL, FAST2SMS_API_KEY, FAST2SMS_SENDER_ID, FAST2SMS_DLT_TEMPLATE_ID, ZEPTOMAIL_API_TOKEN, ZEPTOMAIL_MAIL_AGENT, EMAIL_FROM_ADDRESS (STAGING_DEPLOY_HOOK_URL + FAST2SMS_ENTITY_ID optional). See docs/ops/staging-service-deploy-runbook.md + docs/ops/otp-real-send-staging-runbook.md."
             echo "wired=false" >> "$GITHUB_OUTPUT"
           else
             echo "staging environment wired — proceeding with build/migrate/deploy/smoke."
@@ -155,8 +169,9 @@ jobs:
             echo "::notice::no STAGING_DEPLOY_HOOK_URL set — skipping the deploy trigger. Your host auto-deploys from the repo, or deploy via your host CLI (see docs/ops/staging-service-deploy-runbook.md). The smoke below still verifies the live URL."
           fi
 
-      # ---- SMOKE: poll /health until 200 (bounded), then the mock-OTP round-trip.
-      #      Fails the job LOUDLY on any miss. The smoke never prints the phone/token/otp. ----
+      # ---- SMOKE: poll /health until 200 (bounded). Real-only OTP cannot be round-tripped
+      #      automatically (there is no echoed code) — the end-to-end real-send proof is the
+      #      MANUAL OTP-7 staging check (docs/ops/otp-real-send-staging-runbook.md). ----
       - name: Wait for /health (bounded retries)
         if: steps.guard.outputs.wired == 'true'
         run: |
@@ -173,15 +188,9 @@ jobs:
             sleep 5
           done
           if [ -z "$ok" ]; then
-            echo "::error::staging API never returned 200 on /health within the retry budget. Is the host deployed + the URL public, and are DB + Redis reachable?"
+            echo "::error::staging API never returned 200 on /health within the retry budget. Is the host deployed + the URL public, and are DB + Redis reachable? (The app fails closed at boot if the Fast2SMS/ZeptoMail credentials are missing.)"
             echo "Last /health response (readiness checks — no secrets in this body):"
             curl -s "${base}/health" || true
             echo
             exit 1
           fi
-
-      - name: Mock-OTP smoke (/health + OTP round-trip)
-        if: steps.guard.outputs.wired == 'true'
-        # Asserts /health ok, dev_otp present (PROVES mock-OTP mode), verify -> token, /auth/me.
-        # Reads STAGING_API_BASE_URL from env; never prints the phone/dev_otp/token.
-        run: node scripts/staging-smoke.mjs

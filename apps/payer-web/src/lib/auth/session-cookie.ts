@@ -2,19 +2,15 @@ import "server-only";
 import { cookies } from "next/headers";
 
 /**
- * SHARED payer-session cookie helpers (server-only).
+ * Payer-session cookie helpers (server-only).
  *
- * Two providers write a session cookie:
- *  - the MOCK provider stores an HMAC-signed, self-contained {@link PayerSession}
- *    under {@link MOCK_COOKIE_NAME} (no backend involved);
- *  - the REAL (api) provider stores the backend-issued payer JWT under
- *    {@link API_TOKEN_COOKIE_NAME} — the ONLY tenant credential, kept httpOnly +
- *    server-side so it NEVER reaches the browser bundle (invariant: no secret/token
- *    in the client). The data layer reads it via {@link readApiToken} to call the
- *    payer-authed endpoints with `Authorization: Bearer <jwt>`.
+ * The REAL (api) provider stores the backend-issued payer JWT under
+ * {@link API_TOKEN_COOKIE_NAME} — the ONLY tenant credential, kept httpOnly +
+ * server-side so it NEVER reaches the browser bundle (invariant: no secret/token
+ * in the client). The data layer reads it via {@link readApiToken} to call the
+ * payer-authed endpoints with `Authorization: Bearer <jwt>`.
  */
 
-export const MOCK_COOKIE_NAME = "bb_payer_session";
 export const API_TOKEN_COOKIE_NAME = "bb_payer_token";
 
 /**
