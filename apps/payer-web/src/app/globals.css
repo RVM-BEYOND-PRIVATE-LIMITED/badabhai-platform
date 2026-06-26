@@ -33,6 +33,85 @@
   --warn-soft: #fff4d6;
 }
 
+/* ------------------------------------------------------------------
+ * PORTAL SHELL (DS0.3) — token-styled chrome for the authenticated portal.
+ * The topbar lockup (BadaBhaiLogo + role wordmark), nav, balance chip, and the
+ * page scaffold (--content-max / --gutter-web / --surface-page) all resolve from
+ * design-system tokens — no legacy palette vars, no raw literals. Pages inside
+ * still use their existing classes until DS1.x ports each screen.
+ * ------------------------------------------------------------------ */
+.portal-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-page);
+}
+.portal-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--gutter-web);
+  background: var(--surface-card);
+  border-bottom: var(--border-hairline) solid var(--border-subtle);
+}
+.portal-top__brand {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.portal-top__role {
+  font-family: var(--font-display);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.portal-nav {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  flex: 1;
+}
+.portal-nav__link {
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  transition: var(--transition-control);
+}
+.portal-nav__link:hover {
+  background: var(--surface-sunken);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.portal-top__right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.portal-acct {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.portal-acct__label {
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+.portal-main {
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-7) var(--gutter-web);
+  flex: 1;
+}
+
 .shell {
   min-height: 100vh;
   display: flex;
