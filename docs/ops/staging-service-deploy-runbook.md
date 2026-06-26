@@ -114,15 +114,19 @@ STAGING_API_BASE_URL=https://staging-api.<your-host> pnpm staging:smoke
 
 It asserts, failing loudly on any miss ([scripts/staging-smoke.mjs](../../scripts/staging-smoke.mjs)):
 
-- **(a)** `GET /health` → `200` + `status:"ok"`.
+- **(a)** `GET /health` → `200` + `status:"ok"` — a **real readiness check**: it probes Postgres +
+  Redis and returns `{ status, service, environment, timestamp, checks: { database, redis } }`,
+  responding **503** (with `checks` showing which is `down`) when a dependency is unreachable. So the
+  CD's `/health` wait genuinely gates on DB + Redis being up.
 - **(b)** `POST /auth/otp/request {phone}` → `200` **and `dev_otp` present** — the load-bearing check
   that the env is in **mock-OTP / `console` mode** (absent ⇒ a real provider is wired or `NODE_ENV`
   drifted → FAIL).
 - **(c)** `POST /auth/otp/verify {phone, dev_otp}` → `200` + `access_token`.
 - **(d)** `GET /auth/me` (Bearer) → `200` + `worker_id`.
 
-Steps (b)–(d) also implicitly prove **Redis is wired** (OTP fails closed without it). It uses a
-**synthetic** reserved phone and never prints the phone/`dev_otp`/token (CLAUDE.md §2).
+Step (a) now proves **DB + Redis readiness directly**; steps (b)–(d) additionally prove the mock-OTP
+login round-trip. It uses a **synthetic** reserved phone and never prints the phone/`dev_otp`/token
+(CLAUDE.md §2).
 
 ---
 
@@ -147,10 +151,10 @@ Steps (b)–(d) also implicitly prove **Redis is wired** (OTP fails closed witho
 | Bad code shipped to staging | **Revert the PR**; redeploy the prior image/tag on the host. Code rollback is independent of data. |
 | Corrupt staging DB | It is **disposable non-prod** — reset the DB and re-run the CD (build→migrate→deploy→smoke). |
 | A provider gate accidentally flipped | Restart the host with `PAYMENTS_ENABLE_REAL`/`AI_ENABLE_REAL_CALLS`/`MESSAGING_ENABLE_REAL=false` (they default safe; an explicit `true` is a §7 violation here). |
-| Smoke fails on `/health` | The host isn't up / URL not public — check the host logs + that `STAGING_API_BASE_URL` is the public HTTPS URL. (`/health` has **no DB/Redis dependency** — it 200s as soon as the process listens, so a `/health` miss means the host process isn't up.) |
+| `/health` returns **503** with `checks.database:"down"` | **Postgres unreachable** — `/health` now probes the DB (`select 1`). Check `DATABASE_URL` (disposable non-prod, `sslmode=require`). |
+| `/health` returns **503** with `checks.redis:"down"` | **Redis unreachable** — `/health` now probes Redis (`PING`). Check `REDIS_URL` / the Redis host. (OTP also fails closed 429/503 until fixed.) |
+| `/health` never responds (connection refused / times out) | The host process isn't up, or the URL isn't public — check the host logs + that `STAGING_API_BASE_URL` is the public HTTPS URL. |
 | Smoke fails "no `dev_otp`" | The env drifted off Mode A (`SMS_PROVIDER`≠`console` or `NODE_ENV`≠`development`) — fix the host env. |
-| Smoke fails at OTP with **429 / 503** (but `/health` is 200) | **Redis unreachable.** The API boots **without** Redis (lazy BullMQ connection), so `/health` stays 200, but OTP fails closed — 429 (per-IP cap) or 503 (code store). Fix `REDIS_URL` / the Redis host. |
-| Smoke fails at OTP **verify** (step c) with a 5xx | **Postgres unreachable.** `/auth/otp/verify` + `/auth/me` create/read the worker row, so a DB outage surfaces here (not at `/health`). Check `DATABASE_URL`. |
 | **API won't boot at all** (Zod parse error in `loadServerConfig`) | A malformed secret: `PII_ENCRYPTION_KEY` must be **base64 of exactly 32 bytes**, `JWT_SECRET` **≥16 chars**, `PII_HASH_PEPPER` **≥16 chars**. Regenerate to spec. |
 
 ---

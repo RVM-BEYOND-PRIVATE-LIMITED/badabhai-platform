@@ -68,21 +68,24 @@ async function main() {
   console.log(`[staging-smoke]   target : ${base}`);
   console.log(`[staging-smoke]   phone  : ${maskPhone(PHONE)} (synthetic)`);
 
-  // (a) GET /health -> 200 + status ok
+  // (a) GET /health -> 200 + status ok. /health is a real readiness check: it 503s with a
+  // checks:{database,redis} body when a dependency is down. Read the body FIRST so a 503 can
+  // surface WHICH dep failed (checks carries only up/down — no PII/secret).
   let health;
   try {
     health = await fetch(`${base}/health`, { method: "GET" });
   } catch (e) {
     fail(`GET /health request errored (is the API reachable?): ${e.message}`);
   }
+  const healthBody = await readJson(health).catch(() => ({}));
   if (health.status !== 200) {
-    fail(`GET /health expected 200, got ${health.status}.`);
+    const checks = healthBody.checks ? ` checks=${JSON.stringify(healthBody.checks)}` : "";
+    fail(`GET /health expected 200, got ${health.status}.${checks} (a dependency is down).`);
   }
-  const healthBody = await readJson(health).catch((e) => fail(`GET /health: ${e.message}`));
   if (healthBody.status !== "ok") {
     fail(`GET /health body.status expected "ok", got ${JSON.stringify(healthBody.status)}.`);
   }
-  console.log(`[staging-smoke]   (a) /health           OK   (environment=${healthBody.environment})`);
+  console.log(`[staging-smoke]   (a) /health           OK   (db+redis up; environment=${healthBody.environment})`);
 
   // (b) POST /auth/otp/request -> 200 + dev_otp present (PROVES mock-OTP / console mode)
   let reqRes;
