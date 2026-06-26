@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/config/app_config.dart';
 import '../../core/state/app_state.dart';
 import '../../router.dart';
 
@@ -51,7 +52,7 @@ class _SwipeJobsScreenState extends State<SwipeJobsScreen> {
     // Wire the rolling-refresh callback so a fresh `x-session-token` keeps the
     // in-memory session alive (see WorkerAuthGuard).
     _api = widget._injectedApi ??
-        ApiClient(onSessionTokenRefreshed: AppState.instance.setSessionToken);
+        createApiClient(onSessionTokenRefreshed: AppState.instance.setSessionToken);
     _loadFeed();
   }
 

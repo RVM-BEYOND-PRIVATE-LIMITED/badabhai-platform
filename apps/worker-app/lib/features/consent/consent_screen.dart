@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/config/app_config.dart';
 import '../../core/state/app_state.dart';
 import '../../router.dart';
 
@@ -12,7 +13,7 @@ class ConsentScreen extends StatefulWidget {
 }
 
 class _ConsentScreenState extends State<ConsentScreen> {
-  final ApiClient _api = ApiClient();
+  final ApiClient _api = createApiClient();
   bool _accepted = false;
   bool _loading = false;
 

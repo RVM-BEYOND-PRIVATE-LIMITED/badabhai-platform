@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/config/app_config.dart';
 import '../../router.dart';
 
 class PhoneLoginScreen extends StatefulWidget {
@@ -12,7 +13,7 @@ class PhoneLoginScreen extends StatefulWidget {
 
 class _PhoneLoginScreenState extends State<PhoneLoginScreen> {
   final TextEditingController _controller = TextEditingController(text: '+91');
-  final ApiClient _api = ApiClient();
+  final ApiClient _api = createApiClient();
   bool _loading = false;
 
   @override

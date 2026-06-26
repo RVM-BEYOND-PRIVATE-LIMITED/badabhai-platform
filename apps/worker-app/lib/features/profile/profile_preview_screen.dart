@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/config/app_config.dart';
 import '../../core/state/app_state.dart';
 import '../../router.dart';
 
@@ -12,7 +13,7 @@ class ProfilePreviewScreen extends StatefulWidget {
 }
 
 class _ProfilePreviewScreenState extends State<ProfilePreviewScreen> {
-  final ApiClient _api = ApiClient();
+  final ApiClient _api = createApiClient();
   bool _loading = true;
   bool _failed = false;
   String? _profileId;
