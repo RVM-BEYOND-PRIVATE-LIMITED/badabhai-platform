@@ -10,15 +10,20 @@ import { agencyJobInputSchema } from "../../../../lib/contracts";
  *
  *  1. SCHEMA (the authority the form mirrors): empty title/city, payMax<payMin, maxExp<minExp,
  *     and over-bound pay/experience are rejected; a complete valid input is accepted.
- *  2. FORM RENDER (UX parity): with hooks mocked to inject field state, assert that
+ *  2. FORM RENDER (UX parity, DS3.1): with hooks mocked to inject field state, assert that
  *     - a BLANK form (empty title/city) renders the submit button DISABLED (disable-until-valid),
- *     - an injected field error wires `aria-invalid` + `aria-describedby` on that input and
- *       renders the matching error element id,
+ *     - an injected field error sets `aria-invalid` on the DS Input host AND surfaces the error
+ *       TEXT in the DS Input's `.bb-field__error` slot (no id'd error element — the DS Input
+ *       owns its error slot, mirroring the employer posting-form re-skin),
  *     - a fully-valid form renders the submit button ENABLED.
  *
  * Env is node (no DOM, no @testing-library); we inject React state via a `useState` mock and
- * render the component function to an element tree, then walk it. `useTransition` →
- * [pending=false, run-immediately] so the form is never stuck "Saving…".
+ * render the component function to an element tree, then walk it. The fields are now DESIGN-
+ * SYSTEM primitives (`Input`/`Select`/`Button`/`Card` from components/ds) — pure, hookless
+ * function components — so the walker RENDERS each function component one level deep
+ * (`el.type(el.props)`) to reach the native `<input>`/`<select>`/`<button>` host each DS
+ * field still emits (with the SAME explicit `id`). `useTransition` → [pending=false,
+ * run-immediately] so the form is never stuck "Saving…".
  */
 
 /* ── 1. SCHEMA — the validation authority the form mirrors (C9) ───────────────── */
@@ -124,6 +129,8 @@ interface Collected {
   buttons: Array<{ type?: string; disabled?: boolean; text: string }>;
   aria: Array<{ id?: string; ariaInvalid?: unknown; ariaDescribedby?: unknown }>;
   ids: string[];
+  /** Every rendered text fragment (DS error/hint slots have no id) — for error-shown assertions. */
+  texts: string[];
 }
 
 function textOf(node: ReactNode): string {
@@ -131,17 +138,38 @@ function textOf(node: ReactNode): string {
   if (typeof node === "string" || typeof node === "number") return String(node);
   if (Array.isArray(node)) return node.map(textOf).join("");
   const el = node as ReactElement<{ children?: ReactNode }>;
+  // Render a function component one level so its text children (e.g. a Button label) are reachable.
+  if (typeof el.type === "function") {
+    const fn = el.type as (props: unknown) => ReactNode;
+    return textOf(fn(el.props));
+  }
   return el.props && "children" in el.props ? textOf(el.props.children) : "";
 }
 
+/**
+ * DS3.1: the form's fields are DESIGN-SYSTEM primitives — pure, hookless function components
+ * (`Input`/`Select`/`Button`/`Card`). The component function returns an element TREE of those
+ * (not yet the native hosts), so the walker RENDERS each function component one level deep to
+ * reach the `<input>`/`<select>`/`<button>` host each still emits (with the SAME explicit
+ * `id`), keeping the aria + button + error-text assertions valid.
+ */
 function walk(node: ReactNode, acc: Collected): void {
   if (node === null || node === undefined || typeof node === "boolean") return;
-  if (typeof node === "string" || typeof node === "number") return;
+  if (typeof node === "string" || typeof node === "number") {
+    acc.texts.push(String(node));
+    return;
+  }
   if (Array.isArray(node)) {
     for (const c of node) walk(c, acc);
     return;
   }
   const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
+  // A DS primitive (function component) — render it one level, then walk its output.
+  if (typeof el.type === "function") {
+    const fn = el.type as (props: unknown) => ReactNode;
+    walk(fn(el.props), acc);
+    return;
+  }
   if (el.type === "button") {
     acc.buttons.push({
       type: el.props.type as string | undefined,
@@ -161,7 +189,7 @@ function walk(node: ReactNode, acc: Collected): void {
 }
 
 function collect(tree: ReactNode): Collected {
-  const acc: Collected = { buttons: [], aria: [], ids: [] };
+  const acc: Collected = { buttons: [], aria: [], ids: [], texts: [] };
   walk(tree, acc);
   return acc;
 }
@@ -199,23 +227,25 @@ describe("AgencyJobForm render — disable-submit-until-valid (C9)", () => {
   });
 });
 
-describe("AgencyJobForm render — aria-invalid / aria-describedby on an invalid field (C9)", () => {
-  it("wires aria-invalid + aria-describedby on the title input and renders the error element id", () => {
-    const { aria, ids } = collect(
-      render({ fields: BLANK_FIELDS, fieldErrors: { title: "Enter a role title." } }),
+describe("AgencyJobForm render — aria-invalid + visible DS error on an invalid field (C9)", () => {
+  it("sets aria-invalid on the title DS Input host and surfaces the DS error text", () => {
+    // DS3.1: the DS Input renders its error in a `.bb-field__error` slot (no id'd element), so we
+    // assert the error TEXT is shown + aria-invalid is set on the host — the disable-until-valid +
+    // body-shape guarantees (asserted elsewhere) are untouched.
+    const errorMsg = "Enter a role title.";
+    const { aria, texts } = collect(
+      render({ fields: BLANK_FIELDS, fieldErrors: { title: errorMsg } }),
     );
     const title = aria.find((a) => a.id === "title");
     expect(title).toBeDefined();
     expect(title!.ariaInvalid).toBe(true);
-    expect(title!.ariaDescribedby).toBe("title-error");
-    // The described-by error element is actually rendered with the matching id.
-    expect(ids).toContain("title-error");
+    // The DS Input surfaces the error message via its error slot (visible to the user).
+    expect(texts).toContain(errorMsg);
   });
 
   it("leaves aria-invalid UNSET on a valid field (no false error wiring)", () => {
     const { aria } = collect(render({ fields: VALID_FIELDS, fieldErrors: {} }));
     const city = aria.find((a) => a.id === "city");
     expect(city!.ariaInvalid).toBeUndefined();
-    expect(city!.ariaDescribedby).toBeUndefined();
   });
 });

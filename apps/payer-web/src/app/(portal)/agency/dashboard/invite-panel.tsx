@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Badge, Button, Card, Input } from "../../../../components/ds";
 import { createInviteAction } from "./invite-actions";
 
 /**
@@ -13,7 +14,8 @@ const PHONE_OR_EMAIL = /(\+?\d[\d\s-]{7,}\d)|([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.
 const TAG_MAX = 64; // parity with campaignSchema.max(64)
 
 /**
- * AGENCY INVITE panel (ADR-0022, LIVE).
+ * AGENCY INVITE panel (ADR-0022, LIVE) — DS3.1 re-skin onto the BadaBhai Design System
+ * (VISUAL layer only).
  *
  * Runs in the BROWSER and sees NO secret. FACELESS: the ONLY input is an optional,
  * non-PII campaign tag — there is deliberately NO phone/name/email/CSV input (the agency
@@ -23,7 +25,9 @@ const TAG_MAX = 64; // parity with campaignSchema.max(64)
  * self-onboard and accept consent (invariant #6) — minting a link does none of that.
  *
  * A mint-cap-reached OR a transient backend failure surfaces as the SAME neutral error
- * (no fake success, no leaked reason).
+ * (no fake success, no leaked reason). The mint form stays a native `<form>` (so its
+ * submit + aria-live error region remain reachable); only the field + buttons + the
+ * opaque-code result move to DS primitives. The opaque code/link render in mono tabular.
  */
 export function AgencyInvitePanel() {
   const [campaign, setCampaign] = useState("");
@@ -72,73 +76,64 @@ export function AgencyInvitePanel() {
   }
 
   return (
-    <section className="section">
-      <h2>Invite workers</h2>
-      <div className="note">
+    <section className="agency-section">
+      <h2 className="agency-section__title">Invite workers</h2>
+      <Card variant="flat" className="agency-invite__note">
         <strong>Consent-first.</strong> Share this link with workers. They must self-onboard and
         accept consent before BadaBhai processes their data — minting a link does not.
-      </div>
-      <p className="page-sub">
+      </Card>
+      <p className="agency-section__sub">
         Agencies never upload worker phone numbers or names here — workers join themselves and give
         their own consent. You only ever see consent-safe, aggregate progress.
       </p>
 
-      <form className="form" onSubmit={handleCreate}>
-        <div className="field">
-          <label htmlFor="campaign">Campaign tag (optional)</label>
-          <input
-            id="campaign"
-            className="input"
-            placeholder="diwali-drive"
-            value={campaign}
-            aria-invalid={campaignError ? true : undefined}
-            aria-describedby={campaignError ? "campaign-error" : undefined}
-            onChange={(e) => {
-              setCampaign(e.target.value);
-              if (campaignError) setCampaignError(null);
-            }}
-          />
-          {campaignError ? (
-            <p className="error-text" id="campaign-error">
-              {campaignError}
-            </p>
-          ) : null}
-          <p className="page-sub" style={{ margin: "4px 0 0" }}>
-            A short, non-identifying label to group invites. Never a phone, name, or email.
-          </p>
-        </div>
+      <form className="agency-invite__form" onSubmit={handleCreate}>
+        <Input
+          id="campaign"
+          label="Campaign tag"
+          optional
+          placeholder="diwali-drive"
+          value={campaign}
+          error={campaignError ?? undefined}
+          aria-invalid={campaignError ? true : undefined}
+          hint="A short, non-identifying label to group invites. Never a phone, name, or email."
+          onChange={(e) => {
+            setCampaign(e.target.value);
+            if (campaignError) setCampaignError(null);
+          }}
+        />
 
-        <div className="btn-row">
-          <button
-            className="btn"
-            type="submit"
-            disabled={pending || tagError(campaign) !== null}
-          >
+        <div className="agency-invite__actions">
+          <Button type="submit" disabled={pending || tagError(campaign) !== null} loading={pending}>
             {pending ? "Creating…" : "Create invite link"}
-          </button>
-          <span className="badge badge-ok">Live</span>
+          </Button>
+          <Badge tone="success" upper>
+            Live
+          </Badge>
         </div>
-        <div aria-live="polite">{error ? <p className="error-text">{error}</p> : null}</div>
+        <div aria-live="polite" className="agency-invite__status">
+          {error ? <p className="agency-invite__error">{error}</p> : null}
+        </div>
       </form>
 
       {invite ? (
-        <div className="card" style={{ marginTop: 12 }}>
-          <p className="page-sub" style={{ margin: 0 }}>
+        <Card className="agency-invite__result">
+          <p className="agency-section__sub">
             <strong>Invite created.</strong> Share this opaque link — it identifies no worker and
             carries no contact. Attribution happens only after the worker consents.
           </p>
-          <dl className="dl">
+          <dl className="agency-invite__dl">
             <dt>Code</dt>
-            <dd className="mono">{invite.code}</dd>
+            <dd className="bb-mono">{invite.code}</dd>
             <dt>Link</dt>
-            <dd className="mono">{invite.link}</dd>
+            <dd className="bb-mono">{invite.link}</dd>
           </dl>
-          <div className="btn-row">
-            <button className="btn secondary" type="button" onClick={() => copy(invite.link)}>
+          <div className="agency-invite__actions">
+            <Button variant="secondary" onClick={() => copy(invite.link)}>
               {copied ? "Copied" : "Copy link"}
-            </button>
+            </Button>
           </div>
-        </div>
+        </Card>
       ) : null}
     </section>
   );

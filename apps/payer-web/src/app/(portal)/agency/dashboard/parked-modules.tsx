@@ -1,7 +1,9 @@
 import type { AgencyFlags } from "../../../../lib/config";
+import { Badge, Card } from "../../../../components/ds";
 
 /**
- * PARKED / DEAD / DEFERRED module cards (informational, NON-interactive).
+ * PARKED / DEAD / DEFERRED module cards (informational, NON-interactive) — DS3.1 re-skin
+ * onto the BadaBhai Design System (VISUAL layer only).
  *
  * These are NOT clickable fake flows — they explain WHY a module is unavailable and
  * tie to the respective public flag (all default OFF). Building any of them is a
@@ -12,6 +14,10 @@ import type { AgencyFlags } from "../../../../lib/config";
  * NEVER promise payouts / ₹500 / 25% / 90d / any commercial term. The cards name the
  * module + its gate ONLY. A flag being ON would still build NOTHING — it only changes
  * the wording from "Parked" to "flagged on but unbuilt".
+ *
+ * Each card is a MUTED DS `Card` (variant `flat`) marked `aria-disabled` — clearly a
+ * coming-soon/post-alpha placeholder, never broken and never interactive (no DS Button,
+ * no link). Tokens only (no raw hex/px).
  */
 
 interface ParkedCard {
@@ -46,23 +52,23 @@ export function AgencyParkedModules({ flags }: { flags: AgencyFlags }) {
   ];
 
   return (
-    <section className="section">
-      <h2>Not in this release</h2>
-      <p className="page-sub">
+    <section className="agency-section">
+      <h2 className="agency-section__title">Not in this release</h2>
+      <p className="agency-section__sub">
         These modules are deliberately not built. They are gated on legal, money, consent, or
         product decisions — not engineering readiness.
       </p>
-      <div className="cards">
+      <div className="agency-parked">
         {cards.map((c) => (
-          <div key={c.title} className="card" aria-disabled="true" style={{ opacity: 0.7 }}>
-            <h3>{c.title}</h3>
-            <p>
-              <span className="badge badge-warn">
+          <Card key={c.title} variant="flat" className="agency-parked__card" aria-disabled="true">
+            <div className="agency-parked__head">
+              <h3 className="agency-parked__title">{c.title}</h3>
+              <Badge tone="warning" upper>
                 {c.flaggedOn ? "Flagged on — still unbuilt" : "Parked"}
-              </span>
-            </p>
-            <p>{c.note}</p>
-          </div>
+              </Badge>
+            </div>
+            <p className="agency-parked__note">{c.note}</p>
+          </Card>
         ))}
       </div>
     </section>

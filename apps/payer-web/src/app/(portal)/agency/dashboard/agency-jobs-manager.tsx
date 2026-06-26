@@ -11,6 +11,7 @@ import {
   payBandLabel,
   tradeLabel,
 } from "../../../../lib/agency-view";
+import { Badge, Button, Card } from "../../../../components/ds";
 import { AgencyJobForm } from "./agency-job-form";
 import {
   closeAgencyJobAction,
@@ -21,16 +22,29 @@ import {
 } from "./jobs-actions";
 
 /**
- * Client vacancy-management surface for the agency dashboard (ADR-0022, LIVE).
+ * Client vacancy-management surface for the agency dashboard (ADR-0022, LIVE) — DS3.1
+ * re-skin onto the BadaBhai Design System (VISUAL layer only).
  *
  * Runs in the BROWSER and sees NO secret. It calls the Server Actions, which bind to the
  * server-held payer (the payer JWT, XB-A) — the client passes ONLY a job id + coarse,
  * non-PII demand fields, NEVER a payer id. Create + edit happen INLINE (no separate
- * route). Every cell is faceless/coarse: opaque id + bands + a count; no worker identity,
- * no employer name. A not-found/not-owned action result reads neutrally (no oracle).
+ * route). Every vacancy renders as a DS `Card`: opaque id + bands + a count + a status
+ * `Badge`; no worker identity, no employer name (faceless/coarse). ₹ pay band + counts
+ * render in mono tabular (`bb-mono`). A not-found/not-owned action result reads neutrally
+ * (no oracle). The post/edit/pause/close are DS `Button`s wired to the SAME live actions
+ * as before — the re-skin changes presentation only; pause + close stay LIVE (the agency
+ * status is `open|closed`, pause == close). Tokens only (no raw hex/px).
  */
+
+/** The DS Badge tone for a vacancy's REAL state (reflects `status`, never invented). */
+function statusTone(active: boolean): "success" | "neutral" {
+  return active ? "success" : "neutral";
+}
+
 export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
   const router = useRouter();
+  // useState call order (mirrored by agency-jobs-manager.test.tsx): rows, creating, editingId,
+  // busyId, errorById.
   const [rows, setRows] = useState<AgencyJob[]>(jobs);
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -68,23 +82,23 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
   }
 
   return (
-    <div>
-      <div className="btn-row" style={{ marginBottom: 12 }}>
-        <button
-          className="btn"
-          type="button"
+    <div className="agency-jobs">
+      <div className="agency-jobs__bar">
+        <Button
+          variant={creating ? "secondary" : "primary"}
+          iconLeft={creating ? "x" : "plus-circle"}
           onClick={() => {
             setEditingId(null);
             setCreating((v) => !v);
           }}
         >
           {creating ? "Close form" : "Post a vacancy"}
-        </button>
+        </Button>
       </div>
 
       {creating ? (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <h3>Post a vacancy</h3>
+        <Card className="agency-jobs__createcard">
+          <h3 className="agency-jobs__createtitle">Post a vacancy</h3>
           <AgencyJobForm
             mode="create"
             submitLabel="Post vacancy"
@@ -100,116 +114,117 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
               return { ok: false, error: res.error };
             }}
           />
-        </div>
+        </Card>
       ) : null}
 
       {rows.length === 0 ? (
-        <div className="empty">
+        <Card variant="flat" className="agency-jobs__empty">
           You haven&rsquo;t posted a vacancy yet — post your first one above. It&rsquo;s free
           through launch.
-        </div>
+        </Card>
       ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Role</th>
-              <th>Trade</th>
-              <th>Location</th>
-              <th>Pay band</th>
-              <th>Experience</th>
-              <th>Needed by</th>
-              <th>Status</th>
-              <th>Applicants</th>
-              <th>Posted</th>
-              <th>Manage</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((j) => {
-              const busy = busyId === j.id;
-              const err = errorById[j.id] ?? null;
-              const active = isActiveJob(j);
-              const editing = editingId === j.id;
-              return (
-                <tr key={j.id}>
-                  <td>{j.title}</td>
-                  <td>{tradeLabel(j.tradeKey)}</td>
-                  <td>{[j.city, j.area].filter(Boolean).join(" · ")}</td>
-                  <td className="mono">{payBandLabel(j.payMin, j.payMax)}</td>
-                  <td>{experienceBandLabel(j.minExperienceYears, j.maxExperienceYears)}</td>
-                  <td>{neededByLabel(j.neededBy)}</td>
-                  <td>
-                    <span className={active ? "badge badge-ok" : "badge"}>
+        <div className="agency-jobs__list">
+          {rows.map((j) => {
+            const busy = busyId === j.id;
+            const err = errorById[j.id] ?? null;
+            const active = isActiveJob(j);
+            const editing = editingId === j.id;
+            return (
+              <Card key={j.id} className="agency-job">
+                <div className="agency-job__main">
+                  <div className="agency-job__head">
+                    <span className="agency-job__title">{j.title}</span>
+                    <Badge tone={statusTone(active)} upper>
                       {active ? "open" : "closed"}
+                    </Badge>
+                  </div>
+                  <div className="agency-job__meta">
+                    <span>{tradeLabel(j.tradeKey)}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>{[j.city, j.area].filter(Boolean).join(" · ") || "—"}</span>
+                    <span aria-hidden="true">·</span>
+                    <span className="bb-mono">{payBandLabel(j.payMin, j.payMax)}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>{experienceBandLabel(j.minExperienceYears, j.maxExperienceYears)}</span>
+                    <span aria-hidden="true">·</span>
+                    <span>Needed {neededByLabel(j.neededBy)}</span>
+                  </div>
+                  <div className="agency-job__meta">
+                    <span>
+                      <span className="bb-mono">{j.applicantsReceived}</span> applicants
                     </span>
-                  </td>
-                  <td className="mono">{j.applicantsReceived}</td>
-                  <td className="mono">{day(j.createdAt)}</td>
-                  <td>
-                    <div className="btn-row" style={{ flexWrap: "wrap", gap: 6 }}>
-                      {active ? (
-                        <>
-                          <button
-                            className="btn secondary"
-                            type="button"
-                            disabled={busy}
-                            onClick={() => {
-                              setCreating(false);
-                              setEditingId((cur) => (cur === j.id ? null : j.id));
-                            }}
-                          >
-                            {editing ? "Close edit" : "Edit"}
-                          </button>
-                          <button
-                            className="btn secondary"
-                            type="button"
-                            disabled={busy}
-                            onClick={() => runLifecycle(j.id, () => pauseAgencyJobAction({ jobId: j.id }))}
-                          >
-                            {busy ? "Working…" : "Pause"}
-                          </button>
-                          <button
-                            className="btn secondary"
-                            type="button"
-                            disabled={busy}
-                            onClick={() => runLifecycle(j.id, () => closeAgencyJobAction({ jobId: j.id }))}
-                          >
-                            {busy ? "Working…" : "Close"}
-                          </button>
-                        </>
-                      ) : (
-                        <span className="page-sub">Closed</span>
-                      )}
+                    <span aria-hidden="true">·</span>
+                    <span>
+                      Posted <span className="bb-mono">{day(j.createdAt)}</span>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="agency-job__actions">
+                  {active ? (
+                    <div className="agency-job__btns">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={busy}
+                        iconLeft="pencil-simple"
+                        onClick={() => {
+                          setCreating(false);
+                          setEditingId((cur) => (cur === j.id ? null : j.id));
+                        }}
+                      >
+                        {editing ? "Close edit" : "Edit"}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={busy}
+                        iconLeft="pause"
+                        onClick={() => runLifecycle(j.id, () => pauseAgencyJobAction({ jobId: j.id }))}
+                      >
+                        {busy ? "Working…" : "Pause"}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={busy}
+                        iconLeft="x-circle"
+                        onClick={() => runLifecycle(j.id, () => closeAgencyJobAction({ jobId: j.id }))}
+                      >
+                        {busy ? "Working…" : "Close"}
+                      </Button>
                     </div>
-                    <div aria-live="polite">
-                      {err ? <p className="error-text">{err}</p> : null}
+                  ) : (
+                    <span className="agency-job__closed">Closed</span>
+                  )}
+                  <div aria-live="polite" className="agency-job__status">
+                    {err ? <p className="agency-job__error">{err}</p> : null}
+                  </div>
+                  {editing ? (
+                    <div className="agency-job__editform">
+                      <AgencyJobForm
+                        mode="edit"
+                        job={j}
+                        submitLabel="Save changes"
+                        onCancel={() => setEditingId(null)}
+                        onSubmit={async (input) => {
+                          const res = await updateAgencyJobAction(j.id, input);
+                          if (res.ok) {
+                            upsertRow(res.job);
+                            setEditingId(null);
+                            router.refresh();
+                            return { ok: true };
+                          }
+                          return { ok: false, error: res.error };
+                        }}
+                      />
                     </div>
-                    {editing ? (
-                      <div className="card" style={{ marginTop: 8 }}>
-                        <AgencyJobForm
-                          mode="edit"
-                          job={j}
-                          submitLabel="Save changes"
-                          onCancel={() => setEditingId(null)}
-                          onSubmit={async (input) => {
-                            const res = await updateAgencyJobAction(j.id, input);
-                            if (res.ok) {
-                              upsertRow(res.job);
-                              setEditingId(null);
-                              router.refresh();
-                              return { ok: true };
-                            }
-                            return { ok: false, error: res.error };
-                          }}
-                        />
-                      </div>
-                    ) : null}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                  ) : null}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
       )}
     </div>
   );

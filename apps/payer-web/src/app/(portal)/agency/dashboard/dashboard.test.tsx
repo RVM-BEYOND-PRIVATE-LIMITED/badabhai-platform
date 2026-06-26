@@ -5,6 +5,11 @@ import type { PayerSession } from "../../../../lib/auth/types";
 /**
  * AGENCY DASHBOARD render tests (ADR-0019 DEMAND extension + ADR-0022 LIVE wiring).
  *
+ * DS3.1 re-skin: the identity / credit / demand counts now render as DS `Card` stat tiles
+ * (the count/₹ value is rendered IN-CARD as a child node, so the text walk still reaches
+ * "42" etc.) with DS `Badge`s; the degrade/empty states are DS `Card`s. These assertions
+ * are UNCHANGED by the re-skin — the page still holds NO form/input controls.
+ *
  * Asserts the page is:
  *  - role-gated (requireAgent runs FIRST; an employer 404s before any render),
  *  - portal-flag gated (off → notFound()),

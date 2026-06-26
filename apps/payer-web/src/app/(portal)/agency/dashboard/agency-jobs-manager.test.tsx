@@ -6,6 +6,12 @@ import type { AgencyJob } from "../../../../lib/contracts";
 /**
  * AGENCY-JOBS-MANAGER tests — A11Y-OF-FAILURE (B8) + guardrails (faceless / no-oracle).
  *
+ * DS3.1 re-skin: each vacancy now renders as a DS `Card` with a status `Badge` and DS
+ * `Button`s (post/edit/pause/close — the SAME live actions). The walk records only the
+ * `aria-live="polite"` regions (native) + text via `children` (DS Card/Badge/Button are
+ * hookless function components whose label children stay reachable), so these assertions
+ * are UNCHANGED by the re-skin.
+ *
  * B8: each per-row error region is wrapped in `aria-live="polite"`, so an assistive
  * technology announces a row lifecycle failure (pause/close).
  * Guardrails: the rendered manager carries only coarse/faceless cells (opaque id, bands,
