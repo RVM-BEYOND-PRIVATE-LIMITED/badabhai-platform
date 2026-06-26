@@ -10,6 +10,7 @@ class SwipeState extends Equatable {
     this.queue = const <FeedItem>[],
     this.deciding = false,
     this.decisionError = 0,
+    this.appliedNonce = 0,
   });
 
   final SwipeStatus status;
@@ -27,6 +28,11 @@ class SwipeState extends Equatable {
   /// per bump and never re-fires on unrelated rebuilds.
   final int decisionError;
 
+  /// Monotonic nonce bumped on a SUCCESSFUL apply. The Feed listens on this to
+  /// navigate to the Applied confirmation only once the apply truly succeeded
+  /// (avoids navigating optimistically and diverging on a failed apply).
+  final int appliedNonce;
+
   FeedItem? get current => queue.isEmpty ? null : queue.first;
 
   SwipeState copyWith({
@@ -34,15 +40,18 @@ class SwipeState extends Equatable {
     List<FeedItem>? queue,
     bool? deciding,
     int? decisionError,
+    int? appliedNonce,
   }) {
     return SwipeState(
       status: status ?? this.status,
       queue: queue ?? this.queue,
       deciding: deciding ?? this.deciding,
       decisionError: decisionError ?? this.decisionError,
+      appliedNonce: appliedNonce ?? this.appliedNonce,
     );
   }
 
   @override
-  List<Object?> get props => <Object?>[status, queue, deciding, decisionError];
+  List<Object?> get props =>
+      <Object?>[status, queue, deciding, decisionError, appliedNonce];
 }

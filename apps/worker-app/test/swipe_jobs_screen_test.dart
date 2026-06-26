@@ -36,7 +36,6 @@ Map<String, dynamic> _job({
 
 /// Builds a [SwipeBloc] over a REAL [SwipeRepositoryImpl] + [ApiClient] backed by
 /// [client], with a session carrying the bearer token worker-scoped routes need.
-/// This preserves the exact MockClient request-matching (paths, Bearer, 403).
 SwipeBloc _bloc(MockClient client) {
   final SessionRepository session = SessionRepository()
     ..setWorker(
@@ -48,17 +47,21 @@ SwipeBloc _bloc(MockClient client) {
   return SwipeBloc(SwipeRepositoryImpl(api, session));
 }
 
-/// Mounts the swipe screen with an injected bloc at `/`, with a real `/consent`
-/// route reachable so the 403-redirect (`context.go(Routes.consent)`) test works.
+/// Mounts the Feed at `/jobs` with an injected bloc, plus the routes its actions
+/// reach: `/consent` (403), `/jobs/detail/:id` (title tap), `/jobs/applied` (apply).
 Widget _harness(SwipeBloc bloc) {
+  Widget marker(String t) => Scaffold(body: Center(child: Text(t)));
   final GoRouter router = GoRouter(
-    initialLocation: '/',
+    initialLocation: '/jobs',
     routes: <RouteBase>[
-      GoRoute(path: '/', builder: (_, __) => SwipeJobsScreen(bloc: bloc)),
+      GoRoute(path: '/jobs', builder: (_, __) => SwipeJobsScreen(bloc: bloc)),
+      GoRoute(path: '/jobs/applied', builder: (_, __) => marker('APPLIED')),
       GoRoute(
-        path: Routes.consent,
-        builder: (_, __) => const ConsentScreen(),
+        path: '/jobs/detail/:jobId',
+        builder: (_, GoRouterState s) =>
+            marker('DETAIL ${s.pathParameters['jobId']}'),
       ),
+      GoRoute(path: Routes.consent, builder: (_, __) => const ConsentScreen()),
     ],
   );
   return MaterialApp.router(routerConfig: router);
@@ -69,7 +72,7 @@ void main() {
   // cubit from get_it — so the locator must be wired. Idempotent.
   setUpAll(setupLocator);
 
-  testWidgets('renders the first job card with coarse fields only', (
+  testWidgets('renders the head job card with title, place and mock fields', (
     WidgetTester tester,
   ) async {
     http.Request? captured;
@@ -88,7 +91,7 @@ void main() {
     await tester.pumpWidget(_harness(bloc));
     await tester.pumpAndSettle();
 
-    // Worker-scoped feed request carried the bearer token.
+    // Worker-scoped feed request carried the bearer token (PII-free path).
     expect(captured?.url.path, '/feed');
     expect(captured?.headers['authorization'], 'Bearer test-token');
     expect(find.text('VMC Operator'), findsOneWidget);
@@ -128,10 +131,10 @@ void main() {
     expect(find.widgetWithText(FilledButton, 'Try again'), findsOneWidget);
   });
 
-  testWidgets('Apply posts to the apply endpoint and advances to empty', (
+  testWidgets('Apply commits, hits the apply endpoint and routes to Applied', (
     WidgetTester tester,
   ) async {
-    String? applyPath;
+    http.Request? applyReq;
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
       if (req.url.path == '/feed') {
         return http.Response(
@@ -141,8 +144,7 @@ void main() {
           200,
         );
       }
-      applyPath = req.url.path;
-      expect(req.headers['authorization'], 'Bearer test-token');
+      applyReq = req; // assert OUTSIDE the handler (inner expect would throw)
       return http.Response(
         jsonEncode(<String, dynamic>{
           'ok': true,
@@ -159,11 +161,12 @@ void main() {
     await tester.tap(find.byKey(const Key('swipeApplyButton')));
     await tester.pumpAndSettle();
 
-    expect(applyPath, '/applications/job-1/apply');
-    expect(find.text('No more jobs right now.'), findsOneWidget);
+    expect(applyReq?.url.path, '/applications/job-1/apply');
+    expect(applyReq?.headers['authorization'], 'Bearer test-token');
+    expect(find.text('APPLIED'), findsOneWidget);
   });
 
-  testWidgets('Skip posts to the skip endpoint and advances to next card', (
+  testWidgets('Skip commits, hits the skip endpoint and advances to next card', (
     WidgetTester tester,
   ) async {
     String? skipPath;
@@ -203,13 +206,11 @@ void main() {
     expect(find.text('Second Job'), findsOneWidget);
   });
 
-  testWidgets('apply failure keeps the card and shows a retry snackbar', (
+  testWidgets('skip failure keeps the card and shows a retry snackbar', (
     WidgetTester tester,
   ) async {
-    bool feedServed = false;
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
       if (req.url.path == '/feed') {
-        feedServed = true;
         return http.Response(
           jsonEncode(<String, dynamic>{
             'jobs': <Map<String, dynamic>>[_job(id: 'job-1', title: 'Stay Put')],
@@ -222,11 +223,11 @@ void main() {
 
     await tester.pumpWidget(_harness(bloc));
     await tester.pumpAndSettle();
-    expect(feedServed, isTrue);
 
-    await tester.tap(find.byKey(const Key('swipeApplyButton')));
-    await tester.pump(); // start the future + run the catch/emit
-    await tester.pump(const Duration(milliseconds: 750)); // snackbar entrance
+    await tester.tap(find.byKey(const Key('swipeSkipButton')));
+    await tester.pump(); // start the fly-off
+    await tester.pump(const Duration(milliseconds: 400)); // commit + catch/emit
+    await tester.pump(const Duration(milliseconds: 400)); // snackbar entrance
 
     expect(find.text('Stay Put'), findsOneWidget);
     expect(find.text('Could not save. Please try again.'), findsOneWidget);

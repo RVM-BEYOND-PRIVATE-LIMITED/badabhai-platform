@@ -97,7 +97,10 @@ void main() {
             status: SwipeStatus.ready,
             queue: <FeedItem>[_item('j1')],
             deciding: true),
-        const SwipeState(status: SwipeStatus.empty, queue: <FeedItem>[]),
+        const SwipeState(
+            status: SwipeStatus.empty,
+            queue: <FeedItem>[],
+            appliedNonce: 1),
       ],
       verify: (_) =>
           verify(() => repo.applyToJob('j1', rank: 1)).called(1),

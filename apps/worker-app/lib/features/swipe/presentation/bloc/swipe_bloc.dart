@@ -69,7 +69,7 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
     emit(state.copyWith(deciding: true));
     try {
       await _repo.applyToJob(job.jobId, rank: job.rank);
-      _advance(emit);
+      _advance(emit, applied: true);
     } on Failure catch (failure) {
       _onDecisionError(emit, failure);
     }
@@ -89,13 +89,15 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
     }
   }
 
-  /// Drop the head card; show the empty state when the queue drains.
-  void _advance(Emitter<SwipeState> emit) {
+  /// Drop the head card; show the empty state when the queue drains. [applied]
+  /// bumps `appliedNonce` so the Feed navigates to Applied only on real success.
+  void _advance(Emitter<SwipeState> emit, {bool applied = false}) {
     final List<FeedItem> next = state.queue.sublist(1);
     emit(state.copyWith(
       queue: next,
       deciding: false,
       status: next.isEmpty ? SwipeStatus.empty : SwipeStatus.ready,
+      appliedNonce: applied ? state.appliedNonce + 1 : state.appliedNonce,
     ));
   }
 
