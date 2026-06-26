@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
@@ -32,7 +33,9 @@ class _ProfileView extends StatelessWidget {
       listenWhen: (prev, curr) => prev.status != curr.status,
       listener: (BuildContext context, ProfileState state) {
         if (state.status == ProfileStatus.confirmed) {
-          Navigator.pushNamed(context, Routes.resumePreview);
+          // Profile confirmed — generate the resume (Building) then enter the
+          // shell. context.go clears the onboarding stack (point of no return).
+          context.go(Routes.building);
         }
       },
       builder: (BuildContext context, ProfileState state) {

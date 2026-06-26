@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
@@ -12,19 +13,24 @@ import '../../../router.dart';
 import 'cubit/otp_verify_cubit.dart';
 
 class OtpVerifyScreen extends StatelessWidget {
-  const OtpVerifyScreen({super.key});
+  const OtpVerifyScreen({super.key, this.phone});
+
+  /// The phone the OTP was sent to (passed as go_router `extra` from login).
+  final String? phone;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider<OtpVerifyCubit>(
       create: (_) => locator<OtpVerifyCubit>(),
-      child: const _OtpVerifyView(),
+      child: _OtpVerifyView(phone: phone ?? ''),
     );
   }
 }
 
 class _OtpVerifyView extends StatefulWidget {
-  const _OtpVerifyView();
+  const _OtpVerifyView({required this.phone});
+
+  final String phone;
 
   @override
   State<_OtpVerifyView> createState() => _OtpVerifyViewState();
@@ -41,13 +47,12 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
 
   @override
   Widget build(BuildContext context) {
-    final String phone =
-        (ModalRoute.of(context)?.settings.arguments as String?) ?? '';
+    final String phone = widget.phone;
     return BlocConsumer<OtpVerifyCubit, OtpVerifyState>(
       listenWhen: (prev, curr) => prev.status != curr.status,
       listener: (BuildContext context, OtpVerifyState state) {
         if (state.status == OtpVerifyStatus.success) {
-          Navigator.pushNamed(context, Routes.consent);
+          context.push(Routes.consent);
         } else if (state.status == OtpVerifyStatus.failure) {
           // Surface the verify failure instead of silently reverting the button.
           ScaffoldMessenger.of(context)

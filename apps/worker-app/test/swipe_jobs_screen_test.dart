@@ -2,12 +2,14 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import 'package:badabhai_worker_app/core/api/api_client.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/session/session_repository.dart';
+import 'package:badabhai_worker_app/features/consent/presentation/consent_screen.dart';
 import 'package:badabhai_worker_app/features/swipe/data/swipe_repository_impl.dart';
 import 'package:badabhai_worker_app/features/swipe/presentation/bloc/swipe_bloc.dart';
 import 'package:badabhai_worker_app/features/swipe/presentation/swipe_jobs_screen.dart';
@@ -46,29 +48,25 @@ SwipeBloc _bloc(MockClient client) {
   return SwipeBloc(SwipeRepositoryImpl(api, session));
 }
 
-/// Mounts the swipe screen with an injected bloc as the initial route, while the
-/// real app routes (e.g. consent) stay reachable for the 403-redirect test.
+/// Mounts the swipe screen with an injected bloc at `/`, with a real `/consent`
+/// route reachable so the 403-redirect (`context.go(Routes.consent)`) test works.
 Widget _harness(SwipeBloc bloc) {
-  return MaterialApp(
-    onGenerateRoute: (RouteSettings settings) {
-      if (settings.name == '/') {
-        return MaterialPageRoute<void>(
-          builder: (_) => SwipeJobsScreen(bloc: bloc),
-          settings: settings,
-        );
-      }
-      final WidgetBuilder? builder = appRoutes[settings.name];
-      if (builder != null) {
-        return MaterialPageRoute<void>(builder: builder, settings: settings);
-      }
-      return null;
-    },
+  final GoRouter router = GoRouter(
+    initialLocation: '/',
+    routes: <RouteBase>[
+      GoRoute(path: '/', builder: (_, __) => SwipeJobsScreen(bloc: bloc)),
+      GoRoute(
+        path: Routes.consent,
+        builder: (_, __) => const ConsentScreen(),
+      ),
+    ],
   );
+  return MaterialApp.router(routerConfig: router);
 }
 
 void main() {
-  // The 403 scenario navigates to the real ConsentScreen via appRoutes, which
-  // resolves its cubit from get_it — so the locator must be wired. Idempotent.
+  // The 403 scenario navigates to the real ConsentScreen, which resolves its
+  // cubit from get_it — so the locator must be wired. Idempotent.
   setUpAll(setupLocator);
 
   testWidgets('renders the first job card with coarse fields only', (

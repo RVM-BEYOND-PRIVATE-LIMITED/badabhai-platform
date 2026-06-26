@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -47,8 +48,7 @@ class SplashScreen extends StatelessWidget {
             label: 'Get started',
             block: true,
             iconRight: Icons.arrow_forward_rounded,
-            onPressed: () =>
-                Navigator.pushReplacementNamed(context, Routes.phoneLogin),
+            onPressed: () => context.go(Routes.phoneLogin),
           ),
           const SizedBox(height: AppSpacing.s8),
         ],

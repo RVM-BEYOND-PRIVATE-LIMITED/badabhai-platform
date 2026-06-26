@@ -9,12 +9,11 @@ class BadaBhaiApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return MaterialApp.router(
       title: 'BadaBhai',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
-      initialRoute: Routes.splash,
-      routes: appRoutes,
+      routerConfig: appRouter,
       // A corner ribbon in MOCK mode so it is always obvious the backend is
       // stubbed. No effect in REAL mode (the default) — the builder stays null.
       builder: kUseMocks

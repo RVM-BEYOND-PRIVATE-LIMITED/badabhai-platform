@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
@@ -55,7 +56,7 @@ class _ChatViewState extends State<_ChatView> {
           IconButton(
             tooltip: 'Add voice note',
             icon: const Icon(Icons.mic_none, color: AppColors.brand),
-            onPressed: () => Navigator.pushNamed(context, Routes.voiceNote),
+            onPressed: () => context.push(Routes.voiceNote),
           ),
         ],
       ),
@@ -85,8 +86,7 @@ class _ChatViewState extends State<_ChatView> {
                     label: 'Done — build my profile',
                     block: true,
                     iconLeft: Icons.check_circle_outline,
-                    onPressed: () =>
-                        Navigator.pushNamed(context, Routes.profilePreview),
+                    onPressed: () => context.push(Routes.profilePreview),
                   ),
                 ),
               ],

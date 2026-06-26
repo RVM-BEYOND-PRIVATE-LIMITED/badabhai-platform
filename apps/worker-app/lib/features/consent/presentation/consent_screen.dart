@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
@@ -32,7 +33,7 @@ class _ConsentView extends StatelessWidget {
       listenWhen: (prev, curr) => prev.status != curr.status,
       listener: (BuildContext context, ConsentState state) {
         if (state.status == ConsentStatus.success) {
-          Navigator.pushNamed(context, Routes.chatProfiling);
+          context.push(Routes.chatProfiling);
         }
       },
       builder: (BuildContext context, ConsentState state) {

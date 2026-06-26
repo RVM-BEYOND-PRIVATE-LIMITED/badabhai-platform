@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
@@ -53,18 +54,14 @@ class _ResumeView extends StatelessWidget {
           label: 'See jobs for you',
           block: true,
           iconLeft: Icons.work_outline_rounded,
-          onPressed: () => Navigator.pushNamed(context, Routes.swipeJobs),
+          onPressed: () => context.go(Routes.jobs),
         ),
         const SizedBox(height: AppSpacing.s3),
         BbButton(
           label: 'Done',
           block: true,
           variant: BbButtonVariant.ghost,
-          onPressed: () => Navigator.pushNamedAndRemoveUntil(
-            context,
-            Routes.splash,
-            (Route<dynamic> route) => false,
-          ),
+          onPressed: () => context.go(Routes.splash),
         ),
       ],
     );

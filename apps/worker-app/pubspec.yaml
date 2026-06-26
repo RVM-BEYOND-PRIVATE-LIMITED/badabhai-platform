@@ -22,6 +22,9 @@ dependencies:
   flutter_bloc: ^8.1.6
   equatable: ^2.0.5
   get_it: ^7.7.0
+  # Declarative routing + the persistent 4-tab StatefulShellRoute shell
+  # (ADR-0023). Replaces the Navigator-1.0 Map<String, WidgetBuilder> router.
+  go_router: ^14.2.7
 
 dev_dependencies:
   flutter_test:

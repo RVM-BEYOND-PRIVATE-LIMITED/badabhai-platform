@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -45,7 +46,7 @@ class VoiceNotePlaceholderScreen extends StatelessWidget {
               label: 'Back to chat',
               variant: BbButtonVariant.secondary,
               iconLeft: Icons.arrow_back_rounded,
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => context.pop(),
             ),
           ],
         ),

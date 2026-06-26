@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_models.dart';
 import '../../../core/di/locator.dart';
@@ -291,8 +292,7 @@ class _SwipeViewState extends State<_SwipeView> {
       title: 'Please accept consent to see jobs.',
       subtitle: 'It only takes a moment.',
       action: FilledButton(
-        onPressed: () =>
-            Navigator.pushReplacementNamed(context, Routes.consent),
+        onPressed: () => context.go(Routes.consent),
         child: const Text('Go to consent'),
       ),
     );
