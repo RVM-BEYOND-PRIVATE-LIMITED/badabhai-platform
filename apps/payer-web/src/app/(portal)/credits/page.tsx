@@ -8,6 +8,7 @@ import {
 } from "../../../lib/pricing-config";
 import { buildTransactionHistory, creditExpirySchedule } from "../../../lib/credit-history";
 import type { CreditTopUp, Dashboard, UnlockHistoryItem } from "../../../lib/contracts";
+import { Badge, Card, StatTile, Toast } from "../../../components/ds";
 import { RetryButton } from "../../../components/retry-button";
 import { CreditsPanel } from "./credits-panel";
 
@@ -20,20 +21,15 @@ function day(ts: string): string {
 }
 
 /**
- * Credit top-up + history (ADR-0019 Phase 1 — MOCK ledger, no real money / XT5).
+ * Credit top-up + history (ADR-0019 Phase 1 — MOCK ledger, no real money / XT5) — DS1.4
+ * re-skin onto the design system (visual only; data + config + RBAC unchanged).
  *
  * Packs and the per-unlock unit price are read from CONFIG (`DEFAULT_CATALOG` via
- * pricing-config), never hardcoded. There is no Razorpay / card path on this surface; a
- * real-payment path is a HARD human gate (Decision D / §7).
+ * pricing-config), never hardcoded. There is no Razorpay / card path; a real-payment path
+ * is a HARD human gate (Decision D / §7). All ₹ / counts render in mono tabular.
  *
- * This page adds, all PII-free (ids/amounts only — never a worker name/phone):
- *  - a spend/top-up HISTORY aggregating the caller's OWN unlock spend (GET /payer/unlocks)
- *    + mock-ledger top-ups, merged by the pure `buildTransactionHistory` helper;
- *  - a proactive LOW-BALANCE nudge whose threshold is read from config (`lowBalanceThreshold`);
- *  - a 12-month credit-EXPIRY schedule derived from purchase timestamps (`creditExpirySchedule`).
- *
- * ORG-RBAC: billing/wallet is an OWNER-only surface. `requireOwner()` gates it SERVER-SIDE — a
- * Recruiter who navigates here (the nav omits the link) gets a NEUTRAL 404, not this page.
+ * PII-free (ids/amounts only — never a worker name/phone). ORG-RBAC: billing/wallet is an
+ * OWNER-only surface — `requireOwner()` gates it SERVER-SIDE (a Recruiter gets a neutral 404).
  */
 export default async function CreditsPage() {
   await requireOwner(); // Owner-only billing/wallet — Recruiter ⇒ neutral 404 (no-oracle).
@@ -59,8 +55,7 @@ export default async function CreditsPage() {
     topUps = [];
   }
 
-  // Credit validity window comes from config (default 12 months) — never a page literal; it
-  // is distinct from the catalog per-unlock access `windowDays` (see pricing-config).
+  // Credit validity window comes from config (default 12 months) — never a page literal.
   const validityMonths = creditValidityMonths();
   const unlocks: UnlockHistoryItem[] = dashboard?.unlocks ?? [];
   const history = buildTransactionHistory({ unlocks, topUps });
@@ -70,107 +65,134 @@ export default async function CreditsPage() {
 
   return (
     <>
-      <h1 className="page-title">Credits</h1>
-      <p className="page-sub">
+      <h1 className="dash-title">Credits</h1>
+      <p className="dash-sub">
         1 credit = 1 contact unlock{unit !== null ? ` (₹${unit} per unlock)` : ""}. Mock top-up —
         no real payment is taken in this staging preview.
       </p>
 
       {lowBalance ? (
-        <div className="note warn">
-          <strong>You&rsquo;re running low — {balance} credit{balance === 1 ? "" : "s"} left.</strong>{" "}
-          Top up below so you can keep unlocking candidates. (We nudge you below {threshold} credits —
-          this is your own balance, never a signal about any candidate.)
-        </div>
+        <Card variant="outline" className="credits-alert">
+          <Badge tone="warning" upper>
+            Running low
+          </Badge>
+          <p className="credits-alert__msg">
+            You&rsquo;re running low — <span className="bb-mono">{balance}</span> credit
+            {balance === 1 ? "" : "s"} left. Top up below to keep unlocking candidates. We nudge
+            below {threshold} credits — this is your own balance, never a signal about any candidate.
+          </p>
+        </Card>
       ) : null}
 
       {error ? (
-        <p className="page-sub">
-          <span className="badge badge-warn">Service unavailable</span> We couldn&rsquo;t load your
-          balance right now. Please retry. <RetryButton />
-        </p>
+        <Card variant="outline" className="credits-state">
+          <Badge tone="warning" upper>
+            Service unavailable
+          </Badge>
+          <p className="credits-state__msg">
+            We couldn&rsquo;t load your balance right now. Please retry.
+          </p>
+          <RetryButton />
+        </Card>
       ) : dashboard ? (
-        <CreditsPanel packs={packs} balance={dashboard.credits.balance} />
+        <>
+          <div className="credits-stats">
+            <StatTile
+              label="Credit balance"
+              value={dashboard.credits.balance}
+              icon="wallet"
+              delta={
+                unit !== null ? (
+                  <>
+                    <span className="bb-mono">₹{unit}</span> per unlock
+                  </>
+                ) : undefined
+              }
+              deltaDir="flat"
+            />
+          </div>
+          <CreditsPanel packs={packs} />
+        </>
       ) : null}
 
       {history.length > 0 ? (
-        <section style={{ marginTop: 24 }}>
-          <h2 className="page-title" style={{ fontSize: "1.1rem" }}>
-            History
-          </h2>
-          <p className="page-sub">
+        <section className="credits-section">
+          <h2 className="credits-section__title">History</h2>
+          <p className="dash-sub">
             Your own credit movements — top-ups and unlock spends. Ids and amounts only; no
             candidate identity is ever shown.
           </p>
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Type</th>
-                <th>Credits</th>
-                <th>Amount</th>
-                <th>Ref</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map((t) => (
-                <tr key={t.id}>
-                  <td className="mono">{day(t.at)}</td>
-                  <td>
-                    {t.kind === "topup" ? (
-                      <span className="badge badge-ok">Top-up</span>
-                    ) : (
-                      <span className="badge">Unlock</span>
-                    )}
-                  </td>
-                  <td className="mono">
-                    {t.credits > 0 ? `+${t.credits}` : t.credits}
-                  </td>
-                  <td className="mono">
-                    {t.kind === "topup" && t.priceInr !== undefined
-                      ? `₹${t.priceInr.toLocaleString("en-IN")}`
-                      : "—"}
-                  </td>
-                  <td className="mono">{t.id.slice(0, 8)}…</td>
+          <Card padding="none" className="credits-table-card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Type</th>
+                  <th>Credits</th>
+                  <th>Amount</th>
+                  <th>Ref</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {history.map((t) => (
+                  <tr key={t.id}>
+                    <td className="bb-mono">{day(t.at)}</td>
+                    <td>
+                      {t.kind === "topup" ? (
+                        <Badge tone="success">Top-up</Badge>
+                      ) : (
+                        <Badge tone="neutral">Unlock</Badge>
+                      )}
+                    </td>
+                    <td className="bb-mono">{t.credits > 0 ? `+${t.credits}` : t.credits}</td>
+                    <td className="bb-mono">
+                      {t.kind === "topup" && t.priceInr !== undefined
+                        ? `₹${t.priceInr.toLocaleString("en-IN")}`
+                        : "—"}
+                    </td>
+                    <td className="bb-mono">{t.id.slice(0, 8)}…</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
         </section>
       ) : null}
 
       {expiry.length > 0 ? (
-        <section style={{ marginTop: 24 }}>
-          <h2 className="page-title" style={{ fontSize: "1.1rem" }}>
-            Credit expiry
-          </h2>
-          <p className="page-sub">
+        <section className="credits-section">
+          <h2 className="credits-section__title">Credit expiry</h2>
+          <p className="dash-sub">
             Purchased credits expire {validityMonths} months after the top-up. Soonest first.
           </p>
-          <table>
-            <thead>
-              <tr>
-                <th>Credits</th>
-                <th>Purchased</th>
-                <th>Expires</th>
-              </tr>
-            </thead>
-            <tbody>
-              {expiry.map((e) => (
-                <tr key={e.topUpId}>
-                  <td className="mono">{e.credits}</td>
-                  <td className="mono">{day(e.purchasedAt)}</td>
-                  <td className="mono">{day(e.expiresAt)}</td>
+          <Card padding="none" className="credits-table-card">
+            <table>
+              <thead>
+                <tr>
+                  <th>Credits</th>
+                  <th>Purchased</th>
+                  <th>Expires</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {expiry.map((e) => (
+                  <tr key={e.topUpId}>
+                    <td className="bb-mono">{e.credits}</td>
+                    <td className="bb-mono">{day(e.purchasedAt)}</td>
+                    <td className="bb-mono">{day(e.expiresAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
         </section>
       ) : null}
 
-      <div className="note warn" style={{ marginTop: 24 }}>
-        <strong>Mock payments only.</strong> No card details are collected and no money moves. Real
-        checkout (Razorpay) is a separate, human-gated rollout (ADR-0019 Decision D).
+      <div className="credits-nudge">
+        <Toast tone="neutral">
+          <strong>Mock payments only.</strong> No card details are collected and no money moves.
+          Real checkout (Razorpay) is a separate, human-gated rollout (ADR-0019 Decision D).
+        </Toast>
       </div>
     </>
   );
