@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'core/theme/app_colors.dart';
 import 'core/theme/app_typography.dart';
 import 'core/widgets/bb_app_bar.dart';
+import 'core/widgets/bb_bottom_nav.dart';
 
 import 'features/splash/presentation/splash_screen.dart';
 import 'features/auth/presentation/phone_login_screen.dart';
@@ -197,10 +198,9 @@ GoRouter _buildRouter() {
   );
 }
 
-/// The persistent shell: tab bodies + the 4-tab bottom bar.
+/// The persistent shell: tab bodies + the spec 4-tab [BbBottomNav].
 ///
-/// TODO(stage-2): swap the temporary [NavigationBar] for the spec `BbBottomNav`
-/// (outline/fill icons, brand active colour, Alerts unread badge).
+/// TODO(stage-7): wire `alertsUnread` to the notifications bloc/AppState.
 class _ShellScaffold extends StatelessWidget {
   const _ShellScaffold({required this.shell});
 
@@ -210,31 +210,11 @@ class _ShellScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: shell,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: shell.currentIndex,
-        onDestinationSelected: (int i) => shell.goBranch(
-          i,
-          // Re-tapping the active tab resets it to its branch root.
-          initialLocation: i == shell.currentIndex,
-        ),
-        destinations: const <NavigationDestination>[
-          NavigationDestination(
-              icon: Icon(Icons.work_outline),
-              selectedIcon: Icon(Icons.work),
-              label: 'Jobs'),
-          NavigationDestination(
-              icon: Icon(Icons.description_outlined),
-              selectedIcon: Icon(Icons.description),
-              label: 'Resume'),
-          NavigationDestination(
-              icon: Icon(Icons.person_outline),
-              selectedIcon: Icon(Icons.person),
-              label: 'Profile'),
-          NavigationDestination(
-              icon: Icon(Icons.notifications_outlined),
-              selectedIcon: Icon(Icons.notifications),
-              label: 'Alerts'),
-        ],
+      bottomNavigationBar: BbBottomNav(
+        currentIndex: shell.currentIndex,
+        // Re-tapping the active tab resets it to its branch root.
+        onTap: (int i) =>
+            shell.goBranch(i, initialLocation: i == shell.currentIndex),
       ),
     );
   }

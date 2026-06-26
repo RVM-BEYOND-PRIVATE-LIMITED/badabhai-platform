@@ -9,6 +9,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_scaffold.dart';
+import '../../../core/widgets/bb_status_view.dart';
 import '../../../router.dart';
 import 'cubit/profile_cubit.dart';
 
@@ -87,7 +88,7 @@ class _ProfileView extends StatelessWidget {
   }
 
   Widget _buildFailed(BuildContext context) {
-    return _StatusMessage(
+    return BbStatusView(
       icon: Icons.cloud_off_rounded,
       title: 'Could not prepare your profile.',
       subtitle: 'Please check your internet and try again.',
@@ -169,39 +170,3 @@ class _ProfileRow extends StatelessWidget {
   }
 }
 
-/// Centered icon + title + subtitle + action — the shared empty/error layout.
-class _StatusMessage extends StatelessWidget {
-  const _StatusMessage({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.action,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Widget action;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Icon(icon, size: 48, color: AppColors.textMuted),
-          const SizedBox(height: AppSpacing.s4),
-          Text(title,
-              textAlign: TextAlign.center,
-              style: AppTypography.display(size: AppTypography.sizeMd)),
-          const SizedBox(height: AppSpacing.s2),
-          Text(subtitle,
-              textAlign: TextAlign.center,
-              style: AppTypography.body(color: AppColors.textSecondary)),
-          const SizedBox(height: AppSpacing.s6),
-          action,
-        ],
-      ),
-    );
-  }
-}

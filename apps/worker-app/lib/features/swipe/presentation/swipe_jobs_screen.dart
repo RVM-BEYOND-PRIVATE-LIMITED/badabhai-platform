@@ -9,6 +9,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_festive_card.dart';
+import '../../../core/widgets/bb_status_view.dart';
 import '../../../router.dart';
 import 'bloc/swipe_bloc.dart';
 import 'bloc/swipe_state.dart';
@@ -72,8 +73,7 @@ class _SwipeViewState extends State<_SwipeView> {
         },
         builder: (BuildContext context, SwipeState state) {
           return switch (state.status) {
-            SwipeStatus.loading =>
-              const Center(child: CircularProgressIndicator()),
+            SwipeStatus.loading => const BbStatusView.loading(),
             SwipeStatus.error => _buildError(context),
             SwipeStatus.consentRequired => _buildConsentRequired(context),
             SwipeStatus.empty => _buildEmpty(context),
@@ -258,7 +258,7 @@ class _SwipeViewState extends State<_SwipeView> {
   }
 
   Widget _buildEmpty(BuildContext context) {
-    return _StatusView(
+    return BbStatusView(
       icon: Icons.check_circle_outline_rounded,
       iconColor: AppColors.success,
       title: 'No more jobs right now.',
@@ -272,7 +272,7 @@ class _SwipeViewState extends State<_SwipeView> {
   }
 
   Widget _buildError(BuildContext context) {
-    return _StatusView(
+    return BbStatusView(
       icon: Icons.cloud_off_rounded,
       iconColor: AppColors.textMuted,
       title: 'Could not load jobs.',
@@ -286,7 +286,7 @@ class _SwipeViewState extends State<_SwipeView> {
   }
 
   Widget _buildConsentRequired(BuildContext context) {
-    return _StatusView(
+    return BbStatusView(
       icon: Icons.privacy_tip_outlined,
       iconColor: AppColors.brand,
       title: 'Please accept consent to see jobs.',
@@ -299,45 +299,3 @@ class _SwipeViewState extends State<_SwipeView> {
   }
 }
 
-/// Centered icon + title + subtitle + action — the shared empty/error/consent
-/// layout for the feed.
-class _StatusView extends StatelessWidget {
-  const _StatusView({
-    required this.icon,
-    required this.iconColor,
-    required this.title,
-    required this.subtitle,
-    required this.action,
-  });
-
-  final IconData icon;
-  final Color iconColor;
-  final String title;
-  final String subtitle;
-  final Widget action;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.s6),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(icon, size: 48, color: iconColor),
-            const SizedBox(height: AppSpacing.s4),
-            Text(title,
-                textAlign: TextAlign.center,
-                style: AppTypography.display(size: AppTypography.sizeMd)),
-            const SizedBox(height: AppSpacing.s2),
-            Text(subtitle,
-                textAlign: TextAlign.center,
-                style: AppTypography.body(color: AppColors.textSecondary)),
-            const SizedBox(height: AppSpacing.s6),
-            action,
-          ],
-        ),
-      ),
-    );
-  }
-}
