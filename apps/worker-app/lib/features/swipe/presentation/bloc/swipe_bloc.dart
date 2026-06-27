@@ -1,0 +1,121 @@
+import 'package:equatable/equatable.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '../../../../core/api/api_models.dart';
+import '../../../../core/error/failure.dart';
+import '../../domain/swipe_repository.dart';
+import 'swipe_state.dart';
+
+// ---------------- Events ----------------
+
+sealed class SwipeEvent extends Equatable {
+  const SwipeEvent();
+
+  @override
+  List<Object?> get props => <Object?>[];
+}
+
+/// (Re)load the feed.
+class SwipeFeedRequested extends SwipeEvent {
+  const SwipeFeedRequested();
+}
+
+/// Apply to the current (head) card.
+class SwipeApplied extends SwipeEvent {
+  const SwipeApplied();
+}
+
+/// Skip the current (head) card.
+class SwipeSkipped extends SwipeEvent {
+  const SwipeSkipped();
+}
+
+// ---------------- Bloc ----------------
+
+class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
+  SwipeBloc(this._repo) : super(const SwipeState()) {
+    on<SwipeFeedRequested>(_onFeedRequested);
+    on<SwipeApplied>(_onApplied);
+    on<SwipeSkipped>(_onSkipped);
+  }
+
+  final SwipeRepository _repo;
+
+  Future<void> _onFeedRequested(
+    SwipeFeedRequested event,
+    Emitter<SwipeState> emit,
+  ) async {
+    emit(state.copyWith(status: SwipeStatus.loading));
+    try {
+      final List<FeedItem> jobs = await _repo.getFeed();
+      emit(state.copyWith(
+        queue: jobs,
+        status: jobs.isEmpty ? SwipeStatus.empty : SwipeStatus.ready,
+      ));
+    } on Failure catch (failure) {
+      // 403 routes to consent; everything else (network / unknown / 401 / 5xx)
+      // is the generic error view.
+      emit(state.copyWith(
+        status: failure is ConsentRequiredFailure
+            ? SwipeStatus.consentRequired
+            : SwipeStatus.error,
+      ));
+    }
+  }
+
+  Future<void> _onApplied(SwipeApplied event, Emitter<SwipeState> emit) async {
+    final FeedItem? job = state.current;
+    if (job == null || state.deciding) return;
+    emit(state.copyWith(deciding: true));
+    try {
+      await _repo.applyToJob(job.jobId, rank: job.rank);
+      _advance(emit, applied: true);
+    } on Failure catch (failure) {
+      _onDecisionError(emit, failure);
+    }
+  }
+
+  Future<void> _onSkipped(SwipeSkipped event, Emitter<SwipeState> emit) async {
+    final FeedItem? job = state.current;
+    if (job == null || state.deciding) return;
+    emit(state.copyWith(deciding: true));
+    try {
+      // A single-tap skip means "not interested"; richer reasons are a later
+      // refinement. Still a coarse, PII-free enum.
+      await _repo.skipJob(job.jobId, reason: 'not_interested');
+      _advance(emit);
+    } on Failure catch (failure) {
+      _onDecisionError(emit, failure);
+    }
+  }
+
+  /// Drop the head card; show the empty state when the queue drains. [applied]
+  /// bumps `appliedNonce` so the Feed navigates to Applied only on real success.
+  void _advance(Emitter<SwipeState> emit, {bool applied = false}) {
+    final List<FeedItem> next = state.queue.sublist(1);
+    emit(state.copyWith(
+      queue: next,
+      deciding: false,
+      status: next.isEmpty ? SwipeStatus.empty : SwipeStatus.ready,
+      appliedNonce: applied ? state.appliedNonce + 1 : state.appliedNonce,
+    ));
+  }
+
+  /// Apply/skip failed. Keep the current card (the worker does not lose their
+  /// place); a 403 routes to consent, anything else bumps the snackbar nonce.
+  void _onDecisionError(Emitter<SwipeState> emit, Failure failure) {
+    if (failure is ConsentRequiredFailure) {
+      emit(state.copyWith(deciding: false, status: SwipeStatus.consentRequired));
+    } else if (failure is UnauthorizedFailure) {
+      // Mirror the load path: a missing/invalid token is a full-screen error,
+      // not a transient snackbar. Currently unreachable (the session token is
+      // never cleared once set), but kept in parity with _onFeedRequested.
+      emit(state.copyWith(deciding: false, status: SwipeStatus.error));
+    } else {
+      emit(state.copyWith(
+        deciding: false,
+        decisionError: state.decisionError + 1,
+      ));
+    }
+  }
+}

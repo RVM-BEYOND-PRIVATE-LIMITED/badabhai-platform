@@ -4,4 +4,10 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- DEBUG-ONLY: allow cleartext (http://) so the app can reach a LAN dev API
+         such as http://<laptop-ip>:3001 or the emulator's http://10.0.2.2:3001.
+         This overlay applies only to debug builds (flutter run); release builds
+         inherit the main manifest and keep cleartext DISABLED. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>
