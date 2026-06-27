@@ -49,18 +49,14 @@ export function PortalNav({ isAgency, isOwner }: PortalNavProps) {
     );
   }
   if (isAgency) {
-    links.push(
-      {
-        href: "/agency/dashboard",
-        label: "Agency dashboard",
-        match: (p) => p.startsWith("/agency/dashboard"),
-      },
-      {
-        href: "/agency/referrals",
-        label: "Referrals & payouts",
-        match: (p) => p.startsWith("/agency/referrals"),
-      },
-    );
+    // MERGE-1: the agency demand dashboard is now the single role-aware `/dashboard` (the
+    // "Dashboard" link above), so there is no separate "Agency dashboard" nav entry — it would
+    // be a redundant duplicate of Dashboard. The referrals deep page stays its own link.
+    links.push({
+      href: "/agency/referrals",
+      label: "Referrals & payouts",
+      match: (p) => p.startsWith("/agency/referrals"),
+    });
   }
 
   return (

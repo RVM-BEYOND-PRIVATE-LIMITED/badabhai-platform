@@ -69,7 +69,7 @@ export default async function AgencyReferralsPage() {
   return (
     <>
       <p className="agency-back">
-        <Link href="/agency/dashboard">← Agency dashboard</Link>
+        <Link href="/dashboard">← Dashboard</Link>
       </p>
       <h1 className="agency-title">Referrals &amp; payouts</h1>
       <p className="agency-sub">
