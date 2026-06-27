@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import {
   type Database,
   adminUsers,
@@ -112,5 +112,40 @@ export class AdminRepository {
       .update(adminUsers)
       .set({ lastLoginAt: new Date(), updatedAt: new Date() })
       .where(eq(adminUsers.id, id));
+  }
+
+  // ---------------------------------------------------------------------------
+  // ADMIN-3a governed admin_users management (ADR-0025 Decision 3 — `manage_admins`,
+  // super_admin only). The role/status are enum CODES pinned at the DB (the role/status
+  // CHECKs); no PII is read or written here. The decrypted email never appears.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Change an admin's RBAC role. Returns the updated raw row (ciphertext email — never
+   * decrypted) or undefined when no row matched the id. The new role is an enum CODE; it is
+   * recorded on THIS row (the system-of-record), never in the emitted event payload.
+   */
+  async updateRole(id: string, role: AdminRole): Promise<AdminUser | undefined> {
+    const [row] = await this.db
+      .update(adminUsers)
+      .set({ role, updatedAt: new Date() })
+      .where(eq(adminUsers.id, id))
+      .returning();
+    return row;
+  }
+
+  /**
+   * Suspend an admin (→ status 'suspended'). IDEMPOTENT + terminal: guarded on the current
+   * status NOT already 'suspended', so a re-invoke matches no row and returns undefined — the
+   * service treats that as an idempotent no-op (no duplicate event). A suspended admin
+   * authenticates to NOTHING (only 'active' may auth).
+   */
+  async suspend(id: string): Promise<AdminUser | undefined> {
+    const [row] = await this.db
+      .update(adminUsers)
+      .set({ status: "suspended" satisfies AdminStatus, updatedAt: new Date() })
+      .where(and(eq(adminUsers.id, id), ne(adminUsers.status, "suspended")))
+      .returning();
+    return row;
   }
 }

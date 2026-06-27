@@ -365,6 +365,55 @@ describe("AdminRepository.touchLastLogin — stamp last_login_at (observability 
 });
 
 // ---------------------------------------------------------------------------
+// updateRole — ADMIN-3a manage_admins role change; CODE-only, PII-free row.
+// ---------------------------------------------------------------------------
+describe("AdminRepository.updateRole — change the RBAC role (ADMIN-3a)", () => {
+  it("sets ONLY role (+ updated_at) to an allowed enum value; never touches email/status", async () => {
+    const updated = rawRow({ role: "support" });
+    const { repo, updates } = makeRepo([updated]);
+    const row = await repo.updateRole(ADMIN_ID, "support");
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.set!.role).toBe("support");
+    expect(ALLOWED_ROLES).toContain(updates[0]!.set!.role as AdminRole);
+    expect(Object.keys(updates[0]!.set!).sort()).toEqual(["role", "updatedAt"]);
+    // No email churn, no status change — the role CODE is the only mutated value.
+    expect("emailEnc" in updates[0]!.set!).toBe(false);
+    expect("status" in updates[0]!.set!).toBe(false);
+    assertNoPii(updates[0]!.set);
+    expect(row!.role).toBe("support");
+  });
+
+  it("returns undefined when no row matched the id", async () => {
+    expect(await makeRepo([]).repo.updateRole("nope", "analyst")).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// suspend — ADMIN-3a manage_admins terminal suspend; guarded + idempotent.
+// ---------------------------------------------------------------------------
+describe("AdminRepository.suspend — terminal suspend (idempotent)", () => {
+  it("sets status='suspended' under a guard (status != suspended) and stamps updated_at", async () => {
+    const updated = rawRow({ status: "suspended" });
+    const { repo, updates } = makeRepo([updated]);
+    const row = await repo.suspend(ADMIN_ID);
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.set!.status).toBe("suspended");
+    expect(ALLOWED_STATUS).toContain(updates[0]!.set!.status as AdminStatus);
+    expect(updates[0]!.set!.updatedAt).toBeInstanceOf(Date);
+    // The WHERE carries the ne(status,'suspended') guard so a re-invoke is a no-op.
+    expect(updates[0]!.where).toBeDefined();
+    assertNoPii(updates[0]!.set);
+    expect(row!.status).toBe("suspended");
+  });
+
+  it("returns undefined when the guard excluded the row (already suspended → no-op)", async () => {
+    expect(await makeRepo([]).repo.suspend(ADMIN_ID)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Cross-cutting: NO method ever decrypts/returns email_enc as plaintext (ADMIN-1).
 // ---------------------------------------------------------------------------
 describe("AdminRepository — no path decrypts or returns the admin email as plaintext", () => {

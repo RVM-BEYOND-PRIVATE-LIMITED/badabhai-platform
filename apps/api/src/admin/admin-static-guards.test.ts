@@ -4,6 +4,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { AdminAuthController } from "./admin-auth.controller";
 import { AdminEventsController } from "./admin-events.controller";
+import { AdminActionsController } from "./admin-actions.controller";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
 import { type AdminCapability } from "./admin-capabilities";
@@ -164,5 +165,78 @@ describe("ADMIN-2 event-spine routes — guarded + capability-declared (must-fix
     expect(capabilityOf("timeline")).toBe("read_events");
     expect(capabilityOf("metrics")).toBe("read_events");
     expect(capabilityOf("export")).toBe("export");
+  });
+});
+
+describe("ADMIN-3a entity-action routes — guarded + exactly one capability (must-fix #4 extended)", () => {
+  const proto = AdminActionsController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminActionsController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  /** Read the @RequireAdminRole capability declared on a handler (method ∪ class). */
+  function capabilityOf(method: string): AdminCapability | undefined {
+    const fn = (proto[method] ?? undefined) as object | undefined;
+    return (
+      (fn && (Reflect.getMetadata(ADMIN_CAPABILITY_KEY, fn) as AdminCapability | undefined)) ??
+      (Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminActionsController) as
+        | AdminCapability
+        | undefined)
+    );
+  }
+
+  it("discovers the nine entity-action routes (no route silently dropped)", () => {
+    expect(routeMethods.sort()).toEqual(
+      [
+        "suspendPayer",
+        "reinstatePayer",
+        "grantCredits",
+        "forceClosePosting",
+        "flagWorker",
+        "unflagWorker",
+        "inviteAdmin",
+        "changeAdminRole",
+        "suspendAdmin",
+      ].sort(),
+    );
+  });
+
+  it("EVERY entity-action route carries AdminAuthGuard AND AdminRolesGuard (no open privileged route)", () => {
+    for (const method of routeMethods) {
+      const guards = effectiveGuards(AdminActionsController, method);
+      expect(guards, `${method} must be behind AdminAuthGuard`).toContain(AdminAuthGuard.name);
+      expect(guards, `${method} must be behind AdminRolesGuard`).toContain(AdminRolesGuard.name);
+    }
+  });
+
+  it("EVERY entity-action route declares EXACTLY ONE @RequireAdminRole (deny-by-default, one role per route)", () => {
+    for (const method of routeMethods) {
+      // method-level declaration (the controller has NO class-level @RequireAdminRole, so the
+      // capability is the per-route one — exactly one principal+role per route).
+      const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto[method] as object) as
+        | AdminCapability
+        | undefined;
+      const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminActionsController) as
+        | AdminCapability
+        | undefined;
+      expect(onMethod, `${method} must declare a @RequireAdminRole at the method level`).toBeDefined();
+      expect(onClass, "AdminActionsController must NOT declare a class-level capability").toBeUndefined();
+    }
+  });
+
+  it("each route declares the EXACT capability for its action (suspend_payer/grant_credits/force_close_posting/flag_worker; manage_admins super-only)", () => {
+    expect(capabilityOf("suspendPayer")).toBe("suspend_payer");
+    expect(capabilityOf("reinstatePayer")).toBe("suspend_payer");
+    expect(capabilityOf("grantCredits")).toBe("grant_credits");
+    expect(capabilityOf("forceClosePosting")).toBe("force_close_posting");
+    expect(capabilityOf("flagWorker")).toBe("flag_worker");
+    expect(capabilityOf("unflagWorker")).toBe("flag_worker");
+    // manage_admins is super_admin ONLY (asserted per-role in admin-actions.authz.test.ts).
+    expect(capabilityOf("inviteAdmin")).toBe("manage_admins");
+    expect(capabilityOf("changeAdminRole")).toBe("manage_admins");
+    expect(capabilityOf("suspendAdmin")).toBe("manage_admins");
   });
 });

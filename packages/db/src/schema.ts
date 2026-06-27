@@ -1333,6 +1333,75 @@ export const adminUsers = pgTable(
 ).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by the migration (ADR-0004 posture)
 
 // ---------------------------------------------------------------------------
+// worker_flags — admin "flag / unflag worker for review" action (ADR-0025,
+// ADMIN-3a entity actions). FACELESS METADATA ONLY — NOT a PII surface.
+//
+// A flag is an ops-admin marking a worker for review. It is a SEPARATE table (not
+// columns on `workers`) on purpose: unflag = stamp `resolved_at` (the row STAYS),
+// so flag → unflag → re-flag leaves a complete, append-style audit trail; NULLing
+// columns on `workers` would erase the prior flag on every unflag. It also keeps
+// admin-action metadata OFF the PII table (`workers` stays the encrypted, RLS-locked
+// identity row) — mirroring how pace_states/agency_invites keep faceless-but-linkable
+// state on their own tables.
+//
+// PII-FREE BY CONSTRUCTION: the ONLY columns are opaque UUIDs (`worker_id` → workers,
+// `flagged_by_admin_id` = the opaque admin_users.id), a reason CODE (a short stable
+// enum, NEVER free text / name / phone / note), and timestamps. There is ABSOLUTELY
+// NO name / phone / address / free-text note column here. `worker_id` is the only join
+// back to identity (PII stays in `workers`, RLS-locked) — exactly the `applications`
+// discipline. `flag_reason_code` is pinned at the DB by CHECK (the text+$type+CHECK
+// convention, see header — the repo uses no pg enums; mirrors admin_users_role_chk).
+//
+// The flag/unflag actions each emit their own admin.* event (the audit spine carries
+// the actor admin id); this row is the queryable current/historical state. RLS-enabled
+// (FORCE + REVOKE carried by the migration, ADR-0004 / TD20 spine posture).
+// ---------------------------------------------------------------------------
+export type WorkerFlagReasonCode = "quality_review" | "abuse_report" | "duplicate" | "other";
+
+export const workerFlags = pgTable(
+  "worker_flags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The flagged worker. FK to workers(id) with cascade — a worker hard-delete (DSAR)
+    // takes its flags with it. This is the ONLY join back to identity; PII stays in
+    // `workers` (RLS-locked), never copied here.
+    workerId: uuid("worker_id")
+      .notNull()
+      .references(() => workers.id, { onDelete: "cascade" }),
+    // Stable, non-PII reason CODE (NOT free text). Pinned by the CHECK below.
+    flagReasonCode: text("flag_reason_code").$type<WorkerFlagReasonCode>().notNull(),
+    // The admin who raised the flag — the OPAQUE admin_users.id (no FK kept lean, like
+    // the rest of the opaque-actor refs in this schema, e.g. job_postings.created_by /
+    // pricing_catalog.updated_by). Never an admin email/name; admin PII stays in
+    // admin_users (RLS-locked).
+    flaggedByAdminId: uuid("flagged_by_admin_id").notNull(),
+    flaggedAt: timestamp("flagged_at", { withTimezone: true }).notNull().defaultNow(),
+    // Unflag (resolve) stamp — NULL while the flag is OPEN; set when an admin unflags.
+    // Keeping the row + stamping this is what makes flag → unflag → re-flag auditable.
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    // The admin who resolved (unflagged) — opaque admin id; NULL until resolved.
+    resolvedByAdminId: uuid("resolved_by_admin_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Hot lookup: a worker's flags (current + history), and the per-worker cap reads.
+    index("worker_flags_worker_id_idx").on(t.workerId),
+    // At most ONE OPEN flag per worker (resolved_at IS NULL) — makes flag idempotent /
+    // race-safe (ON CONFLICT) and lets re-flag after an unflag create a fresh row
+    // (resolved rows are excluded from the partial index, so they never collide).
+    uniqueIndex("worker_flags_open_uq")
+      .on(t.workerId)
+      .where(sql`${t.resolvedAt} IS NULL`),
+    // Pin the reason union at the DB (mirrors admin_users_role_chk / the schema convention).
+    check(
+      "worker_flags_reason_code_chk",
+      sql`${t.flagReasonCode} IN ('quality_review', 'abuse_report', 'duplicate', 'other')`,
+    ),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by the migration (ADR-0004 / TD20 posture)
+
+// ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
 // ---------------------------------------------------------------------------
 export type Worker = typeof workers.$inferSelect;
@@ -1397,6 +1466,8 @@ export type AgencyInvite = typeof agencyInvites.$inferSelect;
 export type NewAgencyInvite = typeof agencyInvites.$inferInsert;
 export type AdminUser = typeof adminUsers.$inferSelect;
 export type NewAdminUser = typeof adminUsers.$inferInsert;
+export type WorkerFlag = typeof workerFlags.$inferSelect;
+export type NewWorkerFlag = typeof workerFlags.$inferInsert;
 
 /** All tables, handy for migrations/tests. */
 export const schema = {
@@ -1431,4 +1502,5 @@ export const schema = {
   paceStates,
   agencyInvites,
   adminUsers,
+  workerFlags,
 };
