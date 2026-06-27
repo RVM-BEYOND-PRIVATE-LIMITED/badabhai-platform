@@ -10,6 +10,8 @@ import {
   assertPaymentsConfig,
   assertMessagingConfig,
   assertPayerAuthConfig,
+  assertAdminAuthConfig,
+  isUsingDevAdminJwtDefault,
   resolveCorsOrigins,
 } from "@badabhai/config";
 import { AppModule } from "./app.module";
@@ -23,6 +25,7 @@ async function bootstrap(): Promise<void> {
   assertPaymentsConfig(config); // fail closed if real payments enabled without a provider key (ADR-0010 F-6)
   assertMessagingConfig(config); // fail closed if real WhatsApp enabled without Meta credentials (ADR-0020)
   assertPayerAuthConfig(config); // fail closed on a half-configured payer login method / dev JWT (ADR-0019 B)
+  assertAdminAuthConfig(config); // fail closed on a dev/shared admin JWT or half-set MFA/TOTP (ADR-0025 ADMIN-1)
   if (isUsingDevPiiDefaults(config)) {
     new Logger("Bootstrap").warn(
       "Using INSECURE default PII secrets (local dev only). Set PII_HASH_PEPPER + PII_ENCRYPTION_KEY.",
@@ -31,6 +34,11 @@ async function bootstrap(): Promise<void> {
   if (isUsingDevJwtDefault(config)) {
     new Logger("Bootstrap").warn(
       "Using INSECURE default JWT secret (local dev only). Set JWT_SECRET.",
+    );
+  }
+  if (isUsingDevAdminJwtDefault(config)) {
+    new Logger("Bootstrap").warn(
+      "Using INSECURE default ADMIN JWT secret (local dev only). Set ADMIN_JWT_SECRET.",
     );
   }
 

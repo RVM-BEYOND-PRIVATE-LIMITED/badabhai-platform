@@ -253,6 +253,28 @@ export const EVENT_REGISTRY = {
     domain: "agency_invite",
     payload: p.AgencyInviteAcceptedPayload,
   },
+
+  // Admin Ops Portal (ADR-0025) — the 4th privileged principal. PII-FREE & FACELESS:
+  // opaque admin_id + role/action/reason CODES + opaque target ids ONLY (the admin email
+  // lives encrypted in `admin_users`, never in an event). `session_started`/`session_revoked`
+  // are emitted by ADMIN-1; `action_performed`/`pii_viewed` are registered now for ADMIN-3
+  // (not emitted in ADMIN-1). All v1.
+  "admin.session_started": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminSessionStartedPayload,
+  },
+  "admin.session_revoked": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminSessionRevokedPayload,
+  },
+  "admin.action_performed": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminActionPerformedPayload,
+  },
+  "admin.pii_viewed": { version: 1, domain: "admin", payload: p.AdminPiiViewedPayload },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

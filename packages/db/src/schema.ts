@@ -1278,6 +1278,61 @@ export const paceStates = pgTable(
 ).enableRLS();
 
 // ---------------------------------------------------------------------------
+// admin_users — the 4th privileged principal (ADR-0025, ADMIN-1). DISTINCT from
+// worker / payer / InternalService. Modeled on `payers` (same ADR-0004 at-rest
+// discipline): the admin's OWN login email is AES-256-GCM CIPHERTEXT (`email_enc`,
+// an encryptPii token — key never in the DB) + a keyed-HMAC lookup column
+// (`email_hash`, the brute-force-resistant unique login/dedup key — the only email
+// derivative allowed outside this row). This is ADMIN-CLASS PII, NOT a worker's or
+// payer's: there is NO worker/payer PII here and NO FK to workers/payers.
+//
+// Onboarding is INVITE-THEN-ACTIVATE (ADR-0025 OQ-2, owner-decided): `status`
+// defaults to 'pending' — a created-but-unactivated admin authenticates to NOTHING
+// (the AdminAuthGuard mints no session for a non-'active' row). MFA is enforced
+// server-side at session-mint (ADR-0025 OQ-1); `mfa_enrolled` is the gate flag.
+//
+// Like all PII, the admin email NEVER enters events / ai_jobs / audit_logs / logs /
+// LLM input — `admin_users.id` is the only admin token that appears in events (the
+// actor_id on admin.* events). Sessions are Redis-backed in their own namespace
+// (ADR-0025 Decision 2.2 / OQ-5) — there is deliberately NO `admin_sessions` table.
+// RLS-enabled (REVOKE/FORCE carried by the migration, ADR-0004 spine posture). Status/
+// role unions are pinned at the DB by CHECK (matches the text-$type+CHECK convention
+// used across this schema — see header; the repo deliberately uses no pg enums).
+// ---------------------------------------------------------------------------
+export type AdminRole = "super_admin" | "ops_admin" | "support" | "analyst";
+export type AdminStatus = "pending" | "active" | "suspended";
+
+export const adminUsers = pgTable(
+  "admin_users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Admin's OWN login email: AES-256-GCM ciphertext at rest + keyed HMAC for
+    // lookup/dedup (mirrors payers.email_enc / email_hash). The hash is the unique
+    // login key (login finds the row without decrypting).
+    emailEnc: text("email_enc").notNull(), // AES-256-GCM ciphertext token
+    emailHash: text("email_hash").notNull(), // keyed HMAC-SHA256 (login lookup/dedup)
+    role: text("role").$type<AdminRole>().notNull(),
+    // Invite-then-activate (ADR-0025 OQ-2): default 'pending'. Only 'active' may auth.
+    status: text("status").$type<AdminStatus>().notNull().default("pending"),
+    mfaEnrolled: boolean("mfa_enrolled").notNull().default(false),
+    lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Login lookup/dedup: email_hash is the unique key (mirrors payers_email_hash_uq).
+    uniqueIndex("admin_users_email_hash_uq").on(t.emailHash),
+    // Pin the role union at the DB (mirrors VACANCY_BANDS-style CHECKs in this schema).
+    check(
+      "admin_users_role_chk",
+      sql`${t.role} IN ('super_admin', 'ops_admin', 'support', 'analyst')`,
+    ),
+    // Pin the status union; default 'pending' (invite-then-activate).
+    check("admin_users_status_chk", sql`${t.status} IN ('pending', 'active', 'suspended')`),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by the migration (ADR-0004 posture)
+
+// ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
 // ---------------------------------------------------------------------------
 export type Worker = typeof workers.$inferSelect;
@@ -1340,6 +1395,8 @@ export type PaceState = typeof paceStates.$inferSelect;
 export type NewPaceState = typeof paceStates.$inferInsert;
 export type AgencyInvite = typeof agencyInvites.$inferSelect;
 export type NewAgencyInvite = typeof agencyInvites.$inferInsert;
+export type AdminUser = typeof adminUsers.$inferSelect;
+export type NewAdminUser = typeof adminUsers.$inferInsert;
 
 /** All tables, handy for migrations/tests. */
 export const schema = {
@@ -1373,4 +1430,5 @@ export const schema = {
   invites,
   paceStates,
   agencyInvites,
+  adminUsers,
 };

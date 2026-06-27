@@ -1154,3 +1154,82 @@ export const AgencyInviteAcceptedPayload = z.object({
   invited_worker_id: uuidSchema,
 });
 export type AgencyInviteAcceptedPayload = z.infer<typeof AgencyInviteAcceptedPayload>;
+
+// ---------------------------------------------------------------------------
+// admin.* — the Admin Ops Portal, the 4th privileged principal (ADR-0025).
+//
+// FACELESS / PII-FREE by construction (CLAUDE.md invariant #2). The admin's OWN login
+// email lives encrypted ONLY in `admin_users` — it MUST NEVER appear here. The ONLY
+// identity reference is the opaque `admin_id` (== `admin_users.id`). These payloads carry
+// ids + enums + CODES only — never a value, a changed value, the revealed PII, the admin's
+// email, or a free-text reason note. `.strict()` on every schema STRUCTURALLY rejects any
+// extra (potentially PII-shaped) key at validation time, so a careless caller cannot smuggle
+// a value into the spine.
+//
+// `admin.session_started` / `admin.session_revoked` ride the `admin_session` subject;
+// `admin.action_performed` / `admin.pii_viewed` (registered now for ADMIN-3, NOT emitted in
+// ADMIN-1) carry a `target_type`/`target_id` of the entity acted on. All v1
+// (version-never-mutate — a future incompatible change bumps the version, never mutates).
+// ---------------------------------------------------------------------------
+
+/** The admin's RBAC role (mirrors `db.AdminRole`). Enum-only → no PII. */
+export const AdminRoleEnum = z.enum(["super_admin", "ops_admin", "support", "analyst"]);
+export type AdminRoleEnum = z.infer<typeof AdminRoleEnum>;
+
+/**
+ * An admin session was minted (a successful login that passed OTP + the MFA gate). The
+ * opaque `admin_id` + the role enum ONLY — never the admin's email or any value. `.strict()`
+ * so no extra key can ride along.
+ */
+export const AdminSessionStartedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    role: AdminRoleEnum,
+  })
+  .strict();
+export type AdminSessionStartedPayload = z.infer<typeof AdminSessionStartedPayload>;
+
+/**
+ * An admin session was revoked (logout). The opaque `admin_id` ONLY (no reason value, no
+ * PII). `.strict()` rejects any extra key.
+ */
+export const AdminSessionRevokedPayload = z
+  .object({
+    admin_id: uuidSchema,
+  })
+  .strict();
+export type AdminSessionRevokedPayload = z.infer<typeof AdminSessionRevokedPayload>;
+
+/**
+ * A governed admin mutation was performed (ADR-0025 Decision 5/6 — registered now for
+ * ADMIN-3; NOT emitted in ADMIN-1). The WHAT is an opaque `action_code` (e.g. a
+ * `suspend_payer` code), NEVER the old/new VALUES — exactly the "record the fact, not the
+ * value" rule the `pricing.*` keys-only events use. `target_type`/`target_id` identify the
+ * entity acted on (opaque). `.strict()` so no value can be smuggled in.
+ */
+export const AdminActionPerformedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    action_code: z.string().min(1).max(64),
+    target_type: z.string().min(1).max(64),
+    target_id: uuidSchema,
+  })
+  .strict();
+export type AdminActionPerformedPayload = z.infer<typeof AdminActionPerformedPayload>;
+
+/**
+ * A reason-gated PII reveal happened (ADR-0025 Decision 4/6 — registered now for ADMIN-3;
+ * NOT emitted in ADMIN-1). The audit FACT: which admin viewed which subject's contact and
+ * under which `reason_code` (a closed code, never the free-text note, NEVER the revealed
+ * value). The revealed phone/name exists ONLY in the HTTP response to the authenticated
+ * admin — never in this payload, a log, `ai_jobs`, or `audit_logs`. `.strict()` is the
+ * structural backstop against smuggling the value into the spine.
+ */
+export const AdminPiiViewedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    subject_id: uuidSchema,
+    reason_code: z.string().min(1).max(64),
+  })
+  .strict();
+export type AdminPiiViewedPayload = z.infer<typeof AdminPiiViewedPayload>;
