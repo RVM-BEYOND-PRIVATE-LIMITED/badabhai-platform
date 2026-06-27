@@ -6,6 +6,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/util/pdf_launcher.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_festive_card.dart';
@@ -59,14 +60,21 @@ class _ResumeView extends StatelessWidget {
   }
 
   Widget _actions(BuildContext context) {
-    // Download-PDF + WhatsApp-share are §7 follow-ups; the safe-field edit is the
-    // one entry-point in scope here.
-    return BbButton(
-      label: 'Naam / photo / phone edit karein',
-      block: true,
-      variant: BbButtonVariant.ghost,
-      iconLeft: Icons.edit_outlined,
-      onPressed: () => context.push(Routes.resumeEdit),
+    // Download the resume PDF (GET /resume/:id/download — real, worker-authed),
+    // then the safe-field edit entry-point.
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        const _DownloadResumeButton(),
+        const SizedBox(height: AppSpacing.s2),
+        BbButton(
+          label: 'Naam / photo / phone edit karein',
+          block: true,
+          variant: BbButtonVariant.ghost,
+          iconLeft: Icons.edit_outlined,
+          onPressed: () => context.push(Routes.resumeEdit),
+        ),
+      ],
     );
   }
 
@@ -146,6 +154,38 @@ class _ResumeView extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// "Download PDF" CTA. Resolves a short-lived signed url via the cubit and opens
+/// it in the device viewer; shows its own spinner while resolving and a
+/// user-safe SnackBar on failure. The url is launched immediately, never logged.
+class _DownloadResumeButton extends StatefulWidget {
+  const _DownloadResumeButton();
+
+  @override
+  State<_DownloadResumeButton> createState() => _DownloadResumeButtonState();
+}
+
+class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
+  bool _loading = false;
+
+  Future<void> _download() async {
+    final ResumeCubit cubit = context.read<ResumeCubit>();
+    setState(() => _loading = true);
+    await openSignedPdf(context, resolve: cubit.resolveDownloadUrl);
+    if (mounted) setState(() => _loading = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BbButton(
+      label: 'PDF download karein',
+      block: true,
+      iconLeft: Icons.download_rounded,
+      loading: _loading,
+      onPressed: _download,
     );
   }
 }

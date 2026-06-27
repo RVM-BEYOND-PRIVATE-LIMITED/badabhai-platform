@@ -39,4 +39,19 @@ void main() {
       ResumeState(status: ResumeStatus.failed),
     ],
   );
+
+  test('resolveDownloadUrl returns the signed url on success', () async {
+    when(() => repo.resumeDownloadUrl())
+        .thenAnswer((_) async => 'https://signed/u?token=x');
+    final ResumeCubit cubit = ResumeCubit(repo);
+    expect(await cubit.resolveDownloadUrl(), 'https://signed/u?token=x');
+    verify(() => repo.resumeDownloadUrl()).called(1);
+  });
+
+  test('resolveDownloadUrl returns null on a Failure (user-safe, never throws)',
+      () async {
+    when(() => repo.resumeDownloadUrl()).thenThrow(const UnauthorizedFailure());
+    final ResumeCubit cubit = ResumeCubit(repo);
+    expect(await cubit.resolveDownloadUrl(), isNull);
+  });
 }

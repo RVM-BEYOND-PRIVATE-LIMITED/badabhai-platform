@@ -146,6 +146,27 @@ class MockApiClient extends ApiClient {
   }
 
   @override
+  Future<ResumeDownload> downloadResume({
+    required String resumeId,
+    required String authToken,
+  }) async {
+    await _delay();
+    return const ResumeDownload(
+      url: 'https://mock.local/resume/mock-resume-0001.pdf',
+      expiresInSeconds: 900,
+    );
+  }
+
+  @override
+  Future<InterviewKitDownload> downloadInterviewKit(String tradeKey) async {
+    await _delay();
+    return const InterviewKitDownload(
+      url: 'https://mock.local/interview-kit/mock-kit-0001.pdf',
+      expiresInSeconds: 900,
+    );
+  }
+
+  @override
   Future<List<FeedItem>> getFeed({
     required String authToken,
     int limit = 20,

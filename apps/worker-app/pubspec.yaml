@@ -25,6 +25,10 @@ dependencies:
   # Declarative routing + the persistent 4-tab StatefulShellRoute shell
   # (ADR-0023). Replaces the Navigator-1.0 Map<String, WidgetBuilder> router.
   go_router: ^14.2.7
+  # Opens short-lived SIGNED PDF urls (resume / interview-kit downloads) in the
+  # device browser/PDF viewer via an external VIEW intent. The url is launched
+  # immediately and never logged (it embeds a token).
+  url_launcher: ^6.3.1
 
 dev_dependencies:
   flutter_test:

@@ -52,4 +52,20 @@ void main() {
       KitDetailState(status: KitDetailStatus.failed),
     ],
   );
+
+  test('resolveDownloadUrl returns the signed url on success', () async {
+    when(() => repo.downloadUrl(any()))
+        .thenAnswer((_) async => 'https://signed/k?token=x');
+    final KitDetailCubit cubit = KitDetailCubit(repo);
+    expect(await cubit.resolveDownloadUrl('cnc_operator'),
+        'https://signed/k?token=x');
+    verify(() => repo.downloadUrl('cnc_operator')).called(1);
+  });
+
+  test('resolveDownloadUrl returns null on a Failure (user-safe, never throws)',
+      () async {
+    when(() => repo.downloadUrl(any())).thenThrow(const NetworkFailure());
+    final KitDetailCubit cubit = KitDetailCubit(repo);
+    expect(await cubit.resolveDownloadUrl('cnc_operator'), isNull);
+  });
 }

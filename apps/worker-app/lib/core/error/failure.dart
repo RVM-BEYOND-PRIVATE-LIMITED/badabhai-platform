@@ -48,6 +48,13 @@ class ConsentRequiredFailure extends Failure {
   const ConsentRequiredFailure([super.message = 'Please accept consent to continue.']);
 }
 
+/// HTTP 429 — too many requests. The per-IP hourly cap on the download routes
+/// (interview-kit + resume PDF, 20/hr) and any other rate-limited endpoint. The
+/// copy asks the worker to wait and retry rather than blaming the network.
+class RateLimitedFailure extends Failure {
+  const RateLimitedFailure([super.message = 'Bahut requests. Thodi der baad dobara koshish karein.']);
+}
+
 /// The async profile-extraction job did not finish within the client's budget.
 class ProfileTimeoutFailure extends Failure {
   const ProfileTimeoutFailure(

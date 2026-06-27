@@ -1244,9 +1244,162 @@ describe("otp send-cap-exceeded events (OTP-5 — AGGREGATE, PII-free, no identi
   });
 });
 
+describe("admin auth events (ADR-0025 — the 4th principal, FACELESS, ids/role/code enums only)", () => {
+  function adminSessionEvent(
+    name: string,
+    payload: Record<string, unknown>,
+  ): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: name,
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload,
+    };
+  }
+
+  it("validates admin.session_started with admin_id + role enum and NO email/value fields", () => {
+    const result = validateEvent(
+      adminSessionEvent("admin.session_started", { admin_id: UUID_A, role: "support" }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.session_started") {
+      // ids + the role enum ONLY — there is no field that could carry the admin's email.
+      expect(Object.keys(result.event.payload).sort()).toEqual(["admin_id", "role"].sort());
+    }
+  });
+
+  it("rejects an admin.session_started role outside the 4-role enum (no free text)", () => {
+    const bad = validateEvent(
+      adminSessionEvent("admin.session_started", { admin_id: UUID_A, role: "boss@acme.com" }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects an admin.session_started carrying an extra PII-shaped key (.strict)", () => {
+    // Unlike the looser payer payloads (which strip extras), the admin payloads are
+    // `.strict()` so an email/value smuggled alongside the id+enum FAILS validation —
+    // a structural backstop against the spine becoming a PII sink (CLAUDE.md invariant #2).
+    const bad = validateEvent(
+      adminSessionEvent("admin.session_started", {
+        admin_id: UUID_A,
+        role: "support",
+        email: "admin@badabhai.in",
+      }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("validates admin.session_revoked with admin_id only", () => {
+    const result = validateEvent(adminSessionEvent("admin.session_revoked", { admin_id: UUID_A }));
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.session_revoked") {
+      expect(Object.keys(result.event.payload)).toEqual(["admin_id"]);
+    }
+  });
+
+  it("rejects admin.session_revoked with an extra key (.strict — no value can ride along)", () => {
+    const bad = validateEvent(
+      adminSessionEvent("admin.session_revoked", { admin_id: UUID_A, reason: "logout" }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("validates admin.action_performed with action_code + target ids and NO values (ADMIN-3)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.action_performed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "payer", subject_id: UUID_B },
+      payload: {
+        admin_id: UUID_A,
+        action_code: "suspend_payer",
+        target_type: "payer",
+        target_id: UUID_B,
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.action_performed") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["action_code", "admin_id", "target_id", "target_type"].sort(),
+      );
+    }
+  });
+
+  it("rejects admin.action_performed carrying an old/new VALUE key (.strict — codes only, ADMIN-3)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.action_performed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "payer", subject_id: UUID_B },
+      payload: {
+        admin_id: UUID_A,
+        action_code: "suspend_payer",
+        target_type: "payer",
+        target_id: UUID_B,
+        old_value: "active", // a changed VALUE must never validate into the spine
+      },
+    };
+    const bad = validateEvent(evt);
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("validates admin.pii_viewed with reason_code + subject id and NEVER the PII (ADMIN-3)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.pii_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload: { admin_id: UUID_A, subject_id: UUID_B, reason_code: "worker_support_callback" },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.pii_viewed") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["admin_id", "reason_code", "subject_id"].sort(),
+      );
+    }
+  });
+
+  it("rejects admin.pii_viewed carrying a phone/name VALUE key (.strict — never the PII, ADMIN-3)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.pii_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload: {
+        admin_id: UUID_A,
+        subject_id: UUID_B,
+        reason_code: "worker_support_callback",
+        phone: "+919876543210", // the revealed PII must never validate into the spine
+      },
+    };
+    const bad = validateEvent(evt);
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("admits `admin` as an actor_type and `admin_session` as a subject_type (additive enums)", () => {
+    // The enum additions break no existing event (z.enum widening only); a wrong actor for
+    // an admin event still validates the envelope — the principal binding is the guard's job.
+    expect(
+      validateEvent(adminSessionEvent("admin.session_revoked", { admin_id: UUID_A })).success,
+    ).toBe(true);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 77 event names (76 prior + payer.account_updated — PROF-3)", () => {
-    expect(EVENT_NAMES).toHaveLength(77);
+  it("exposes all 81 event names (77 prior + 4 admin.* — ADR-0025 ADMIN-1)", () => {
+    expect(EVENT_NAMES).toHaveLength(81);
+    expect(isEventName("admin.session_started")).toBe(true);
+    expect(isEventName("admin.session_revoked")).toBe(true);
+    expect(isEventName("admin.action_performed")).toBe(true);
+    expect(isEventName("admin.pii_viewed")).toBe(true);
     expect(isEventName("worker.otp_send_cap_exceeded")).toBe(true);
     expect(isEventName("payer.otp_send_cap_exceeded")).toBe(true);
     expect(isEventName("payer.account_updated")).toBe(true);

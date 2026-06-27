@@ -26,6 +26,15 @@ export const DEV_PII_ENCRYPTION_KEY = Buffer.alloc(32).toString("base64"); // 32
  */
 export const DEV_JWT_SECRET = "dev-insecure-jwt-secret-change-me";
 
+/**
+ * Dev-only ADMIN session signing secret (ADR-0025 ADMIN-1). DISTINCT from DEV_JWT_SECRET:
+ * the admin session is signed with its OWN secret so an admin token is cryptographically
+ * unrelated to a worker/payer token (defense-in-depth behind the `typ:"admin"` audience
+ * pin + the separate Redis namespace). Keeps local boot + tests working; production MUST
+ * override it (enforced by assertAdminAuthConfig — fail-closed).
+ */
+export const DEV_ADMIN_JWT_SECRET = "dev-insecure-admin-jwt-secret-change-me";
+
 export const serverEnvSchema = z.object({
   NODE_ENV: nodeEnvSchema,
 
@@ -185,6 +194,33 @@ export const serverEnvSchema = z.object({
   // PayerDisclosureRateLimit with scope "agency_invite_mint". Fail-closed (a Redis
   // outage rejects, never uncaps).
   AGENCY_INVITE_MINT_MAX_PER_HOUR: z.coerce.number().int().positive().default(60),
+
+  // Admin Ops Portal auth (ADR-0025 ADMIN-1) — the 4th privileged principal (worker /
+  // payer / ops-secret / admin). The admin session reuses the payer rolling/revocable
+  // httpOnly-JWT mechanism, but with its OWN signing secret + Redis namespace + `typ:"admin"`
+  // audience pin, so a worker/payer token can NEVER satisfy AdminAuthGuard and vice-versa.
+  //
+  // ADMIN_JWT_SECRET signs the admin session token. Dev default keeps local boot/tests
+  // working; OUTSIDE an explicit development/test env it MUST be overridden AND must NOT
+  // equal the worker/payer JWT_SECRET (a shared secret would defeat the principal
+  // separation) — both enforced fail-closed by assertAdminAuthConfig.
+  ADMIN_JWT_SECRET: z.string().min(16).default(DEV_ADMIN_JWT_SECRET),
+  // MFA scope (ADR-0025 OQ-1 — owner: MFA for ALL roles, incl. analyst). Default ON. When
+  // true, EVERY admin role must have mfa_enrolled=true AND pass a TOTP step before a session
+  // is minted (enforced server-side at session-mint, must-fix #1). booleanFromString +
+  // a true default would coerce wrong, so this is its own coerced boolean defaulting true.
+  ADMIN_MFA_REQUIRED: z
+    .union([z.boolean(), z.string()])
+    .transform((v) => (typeof v === "boolean" ? v : !["false", "0", "no", "off", ""].includes(v.toLowerCase())))
+    .default(true),
+  // TOTP issuer label shown in the authenticator app (the `issuer` in the otpauth URI).
+  // Non-secret, but REQUIRED when ADMIN_MFA_REQUIRED is true (a half-set MFA config —
+  // MFA required but no issuer — fails closed at boot via assertAdminAuthConfig).
+  ADMIN_TOTP_ISSUER: z.string().min(1).default("BadaBhai Admin"),
+  // Per-IP hourly cap on the UNAUTHENTICATED admin auth endpoints (login request / verify /
+  // MFA) — the admin analogue of PAYER_AUTH_MAX_PER_IP_PER_HOUR (credential-stuffing /
+  // account-farming backstop). Fail-closed (a Redis outage rejects).
+  ADMIN_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
 
   // Payer email-OTP delivery channel (ADR-0019; the email analogue of SMS_PROVIDER).
   // REAL-ONLY and RELEVANT when PAYER_LOGIN_METHOD="email_otp". There is NO "none"/mock
@@ -689,5 +725,57 @@ export function assertPayerAuthConfig(
 
   if (problems.length > 0) {
     throw new Error(`Invalid payer-auth config (ADR-0019, fail closed): ${problems.join("; ")}`);
+  }
+}
+
+/** True if ADMIN_JWT_SECRET is still the insecure dev default (for a boot warning). */
+export function isUsingDevAdminJwtDefault(config: ServerConfig): boolean {
+  return config.ADMIN_JWT_SECRET === DEV_ADMIN_JWT_SECRET;
+}
+
+/**
+ * Fail-closed boot guard for the Admin Ops Portal auth surface (ADR-0025 ADMIN-1, must-fix
+ * #2 — mirrors `assertPayerAuthConfig` with the SAME fail-closed test matrix). A
+ * misconfigured env must NOT silently expose the 4th (highly-privileged) principal, so this
+ * refuses to start when admin auth is half-configured. Invariants (all enforced OUTSIDE an
+ * explicit development/test env; dev/test keeps the defaults for local boot):
+ *   - ADMIN_JWT_SECRET must be overridden — the dev default is public, so it would let
+ *     anyone forge an admin session (the most privileged token in the system).
+ *   - ADMIN_JWT_SECRET must NOT equal the worker/payer JWT_SECRET — a shared secret would
+ *     collapse the principal separation (an admin token must be cryptographically distinct).
+ *   - when ADMIN_MFA_REQUIRED is true (the owner default — MFA for ALL roles), the TOTP
+ *     config must be complete: a non-empty ADMIN_TOTP_ISSUER is required. MFA-required with
+ *     no issuer is a HALF-SET MFA config → reject (never boot a half-configured second
+ *     factor).
+ * Call once at boot (main.ts), after `assertPayerAuthConfig`.
+ */
+export function assertAdminAuthConfig(
+  config: ServerConfig,
+  rawNodeEnv: string | undefined = process.env.NODE_ENV,
+): void {
+  const problems: string[] = [];
+
+  if (!isDevEnv(rawNodeEnv)) {
+    if (config.ADMIN_JWT_SECRET === DEV_ADMIN_JWT_SECRET) {
+      problems.push("ADMIN_JWT_SECRET must be overridden (the dev default is public)");
+    }
+    // The admin token MUST be cryptographically distinct from the worker/payer session token.
+    if (config.ADMIN_JWT_SECRET === config.JWT_SECRET) {
+      problems.push(
+        "ADMIN_JWT_SECRET must differ from JWT_SECRET (a shared secret defeats principal separation)",
+      );
+    }
+  }
+
+  // A half-set MFA config (MFA required, but the TOTP issuer is missing) must fail closed —
+  // even in development/test, since it is a structural mis-configuration, not a dev shortcut.
+  if (config.ADMIN_MFA_REQUIRED && config.ADMIN_TOTP_ISSUER.trim().length === 0) {
+    problems.push(
+      "ADMIN_MFA_REQUIRED is true but ADMIN_TOTP_ISSUER is empty — refusing to boot a half-configured second factor",
+    );
+  }
+
+  if (problems.length > 0) {
+    throw new Error(`Invalid admin-auth config (ADR-0025, fail closed): ${problems.join("; ")}`);
   }
 }

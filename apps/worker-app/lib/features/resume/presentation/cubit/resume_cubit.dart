@@ -40,4 +40,16 @@ class ResumeCubit extends Cubit<ResumeState> {
   void showGenerated(String text) {
     emit(ResumeState(status: ResumeStatus.ready, resumeText: text));
   }
+
+  /// Resolves a short-lived signed url for the resume PDF, or null if it could
+  /// not be fetched (the screen then shows a user-safe message). Does NOT change
+  /// [ResumeState] — the resume is already shown; this is a side action. The url
+  /// is returned for immediate launch only and is never stored or logged.
+  Future<String?> resolveDownloadUrl() async {
+    try {
+      return await _repo.resumeDownloadUrl();
+    } on Failure catch (_) {
+      return null;
+    }
+  }
 }

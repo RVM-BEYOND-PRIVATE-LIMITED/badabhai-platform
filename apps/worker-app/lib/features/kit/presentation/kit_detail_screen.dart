@@ -5,6 +5,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/util/pdf_launcher.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import 'cubit/kit_detail_cubit.dart';
@@ -63,15 +64,7 @@ class _KitDetailView extends StatelessWidget {
       appBar: BbAppBar(
         title: kit.title,
         actions: <Widget>[
-          IconButton(
-            tooltip: 'Download',
-            icon: const Icon(Icons.download),
-            onPressed: () => ScaffoldMessenger.of(context)
-              ..clearSnackBars()
-              ..showSnackBar(
-                const SnackBar(content: Text('Download shuru…')),
-              ),
-          ),
+          _KitDownloadButton(tradeKey: tradeKey),
         ],
       ),
       body: ListView(
@@ -115,6 +108,52 @@ class _KitDetailView extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// AppBar "Download PDF" action for the kit (GET /interview-kit/:tradeKey/download
+/// — real, public). Resolves a short-lived signed url via the cubit and opens it
+/// in the device viewer; shows a spinner while resolving and a user-safe SnackBar
+/// on failure. The url is launched immediately, never logged.
+class _KitDownloadButton extends StatefulWidget {
+  const _KitDownloadButton({required this.tradeKey});
+
+  final String tradeKey;
+
+  @override
+  State<_KitDownloadButton> createState() => _KitDownloadButtonState();
+}
+
+class _KitDownloadButtonState extends State<_KitDownloadButton> {
+  bool _loading = false;
+
+  Future<void> _download() async {
+    final KitDetailCubit cubit = context.read<KitDetailCubit>();
+    setState(() => _loading = true);
+    await openSignedPdf(
+      context,
+      resolve: () => cubit.resolveDownloadUrl(widget.tradeKey),
+    );
+    if (mounted) setState(() => _loading = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.all(14),
+        child: SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+    return IconButton(
+      tooltip: 'Download PDF',
+      icon: const Icon(Icons.download),
+      onPressed: _download,
     );
   }
 }
