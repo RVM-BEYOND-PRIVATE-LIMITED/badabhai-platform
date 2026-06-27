@@ -1,0 +1,12 @@
+# .semgrepignore — paths excluded from the SAST (semgrep OSS) scan defined in
+# .github/workflows/security-scan.yml. (The workflow header sanctions a committed
+# .semgrepignore as the mechanism to scope out non-application findings.)
+#
+# Justification: the BadaBhai Design System reference artifacts under docs/design/
+# are self-contained HTML/JS MOCKUPS (CDN <script>/<link> tags + embedded demo JS)
+# used purely for visual/design fidelity. They are NOT shipped application code and
+# never execute in production. semgrep's missing-integrity (SRI) / wildcard-postMessage
+# / prototype-pollution rules fire on these mockups — all 29 SAST findings were in
+# docs/design/ — which is pure noise. Real application source (apps/, packages/,
+# infra/, tests/) stays fully scanned.
+docs/design/

@@ -114,8 +114,10 @@ export class ZeptoMailEmailLoginChannel implements PayerLoginChannel {
 
     const subject = ZeptoMailEmailLoginChannel.subject();
     const body: Record<string, unknown> = {
-      // The mail-agent / sending-identity association (ZeptoMail Mail Agent alias key).
-      mail_agent_alias: mailAgent,
+      // NOTE: the ZeptoMail v1.1 send API selects the Mail Agent purely from the send-mail
+      // token in the Authorization header — there is NO body field for it. (An earlier
+      // `mail_agent_alias` field was non-standard and could be rejected by ZeptoMail.)
+      // ZEPTOMAIL_MAIL_AGENT is retained only as a boot-time presence check, not sent.
       from: { address: fromAddress, name: this.config.EMAIL_FROM_NAME ?? undefined },
       to: [{ email_address: { address: input.email } }],
       subject,
@@ -137,7 +139,7 @@ export class ZeptoMailEmailLoginChannel implements PayerLoginChannel {
       res = await fetch(apiUrl, {
         method: "POST",
         headers: {
-          Authorization: `Zoho-enczapikey ${token}`,
+          Authorization: `Zoho-enczapikey ${ZeptoMailEmailLoginChannel.sendMailToken(token)}`,
           "Content-Type": "application/json",
           Accept: "application/json",
         },
@@ -177,6 +179,18 @@ export class ZeptoMailEmailLoginChannel implements PayerLoginChannel {
     const obj = parsed as Record<string, unknown>;
     if ("error" in obj && obj.error != null) return false;
     return true;
+  }
+
+  /**
+   * The ZeptoMail Authorization header is `Zoho-enczapikey <send-mail-token>`. A common setup
+   * mistake is pasting the FULL header value — including the `Zoho-enczapikey ` prefix that the
+   * ZeptoMail dashboard/docs show — into ZEPTOMAIL_API_TOKEN. The code would then prepend the
+   * prefix again, producing a doubled `Zoho-enczapikey Zoho-enczapikey …` header that ZeptoMail
+   * rejects (HTTP 500, nothing delivered). Strip any leading prefix so BOTH the raw token and
+   * the full-header form authenticate correctly.
+   */
+  private static sendMailToken(token: string): string {
+    return token.replace(/^\s*Zoho-enczapikey\s+/i, "");
   }
 
   // --- SMTP (nodemailer) ------------------------------------------------------

@@ -116,18 +116,40 @@ describe("ZeptoMailEmailLoginChannel.deliver — ZeptoMail HTTPS path", () => {
     const sent = JSON.parse(init.body as string) as {
       to: Array<{ email_address: { address: string } }>;
       from: { address: string };
-      mail_agent_alias: string;
       reply_to?: Array<{ address: string }>;
       htmlbody: string;
       textbody: string;
     };
     expect(sent.to[0]!.email_address.address).toBe(EMAIL);
     expect(sent.from.address).toBe("noreply@badabhai.in");
-    expect(sent.mail_agent_alias).toBe("agent-alias-123");
+    // The ZeptoMail v1.1 API has NO mail-agent body field — the agent is bound to the
+    // send-mail token. Sending a non-standard field could be rejected, so it must be absent.
+    expect(sent).not.toHaveProperty("mail_agent_alias");
     expect(sent.reply_to?.[0]!.address).toBe("support@badabhai.in");
     // The code is in the email body (its legitimate place) and only there.
     expect(sent.htmlbody).toContain(CODE);
     expect(sent.textbody).toContain(CODE);
+  });
+
+  it("strips a pasted 'Zoho-enczapikey ' prefix so the auth header is never doubled", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [{ code: "EM_104" }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    // A user pastes the FULL header value (prefix + raw token) into ZEPTOMAIL_API_TOKEN.
+    const channel = new ZeptoMailEmailLoginChannel(
+      zeptoConfig({ ZEPTOMAIL_API_TOKEN: "Zoho-enczapikey raw-token-abc" }),
+      pii,
+    );
+    await expect(channel.deliver(DELIVERY)).resolves.toBeUndefined();
+
+    const [, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
+    const auth = (init.headers as Record<string, string>).Authorization;
+    // Exactly ONE prefix — not a doubled "Zoho-enczapikey Zoho-enczapikey …" (the HTTP-500 bug).
+    expect(auth).toBe("Zoho-enczapikey raw-token-abc");
   });
 
   it("throws on a non-2xx response (and the error is opaque)", async () => {
