@@ -41,5 +41,13 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Lets url_launcher resolve a browser / PDF viewer for the short-lived
+             https SIGNED-URL downloads (resume + interview-kit PDFs) under the
+             Android 11+ (API 30+) package-visibility rules. Without this,
+             launchUrl() returns false on a real device even on the happy path. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
     </queries>
 </manifest>
