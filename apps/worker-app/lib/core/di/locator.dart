@@ -48,7 +48,22 @@ final GetIt locator = GetIt.instance;
 
 /// Registers the whole graph. Idempotent — calling it again (e.g. across tests)
 /// is a no-op, so a test that needs the locator can call it freely.
-void setupLocator() {
+///
+/// [apiClient] is a **test-only** seam: pass a [MockApiClient] to force mock
+/// mode for an end-to-end widget test without relying on the compile-time
+/// `kUseMocks` dart-define (which is `false` under a plain `flutter test`). In
+/// production [main] calls `setupLocator()` with no argument, so the live wiring
+/// goes through [createApiClient] exactly as before.
+void setupLocator({ApiClient? apiClient}) {
+  // The override only applies to a FRESH graph. Guard against a silent no-op:
+  // if the graph is already wired, the early-return below would drop the
+  // override and leave the real network client in place (a footgun under
+  // `flutter test`). Reset the locator before passing one.
+  assert(
+    apiClient == null || !locator.isRegistered<SessionRepository>(),
+    'setupLocator(apiClient:) was ignored — the locator is already wired; '
+    'call `await locator.reset()` before supplying a test ApiClient.',
+  );
   if (locator.isRegistered<SessionRepository>()) return;
 
   // --- Cross-cutting singletons ---------------------------------------------
@@ -57,10 +72,13 @@ void setupLocator() {
 
   // ONE ApiClient app-wide: MOCK vs REAL via the createApiClient factory
   // (kUseMocks), with the x-session-token rolling refresh wired to the session.
+  // A test-supplied [apiClient] override wins (mock-mode e2e).
   locator.registerLazySingleton<ApiClient>(
-    () => createApiClient(
-      onSessionTokenRefreshed: locator<SessionRepository>().setSessionToken,
-    ),
+    () =>
+        apiClient ??
+        createApiClient(
+          onSessionTokenRefreshed: locator<SessionRepository>().setSessionToken,
+        ),
   );
 
   // --- Repositories (stateless singletons) ----------------------------------

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
@@ -45,7 +46,11 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
       listenWhen: (prev, curr) => prev.status != curr.status,
       listener: (BuildContext context, PhoneLoginState state) {
         if (state.status == PhoneLoginStatus.success) {
-          Navigator.pushNamed(context, Routes.otpVerify, arguments: state.phone);
+          // go_router push (the app is on MaterialApp.router — ADR-0023). The
+          // submitted phone rides as typed `extra`; the OTP route reads it via
+          // `s.extra`. (Was a stale Navigator-1.0 pushNamed that would throw
+          // "Could not find a generator for route" under go_router.)
+          context.push(Routes.otpVerify, extra: state.phone);
         } else if (state.status == PhoneLoginStatus.failure) {
           // Surface the OTP-request failure instead of silently reverting the
           // button. The message is the mapper's generic, PII-safe copy.

@@ -90,4 +90,32 @@ the mock source.
 application events; real resume download. Drop-off analytics (Firebase Crashlytics +
 Analytics, requirement #19) is a separate, not-yet-started task.
 
+## Worker-app pending-work batch — follow-ups (captured 2026-06-27)
+
+Landed this batch (all Flutter-side, no missing endpoint): the **inert splash language
+picker** (Hindi/Marathi/Bhojpuri/English, visual-only), a **go_router fix** for the
+login→OTP nav (a stale `Navigator.pushNamed` that threw under `MaterialApp.router`), and
+a headless **full-journey mock-mode e2e** (`test/e2e/app_journey_test.dart`). Deferred,
+each with a noted reason:
+
+- **Real localization (i18n).** The splash picker is **inert** — local visual state only,
+  no `intl`/l10n package, no persistence, no translated copy, no locale switch. Real
+  multilingual support (string registry + translated copy + persisted locale + DI/BLoC
+  threading) is a separate workstream. (Cross-ref the existing "multilingual chat" item.)
+- **5-feature client integration + real STT voice note — blocked on missing endpoints**
+  (TD54). Interview-kit list/detail, notifications, profile-summary, resume-safe-fields,
+  and the record→upload→transcribe→merge voice flow target backend contracts that **do
+  not exist yet** (only `GET /interview-kit/:tradeKey/download`, `POST /voice/upload`,
+  `POST /voice/transcribe`, `GET /ai-jobs/:id` are built). Left per the "missing endpoint →
+  leave it" directive; features stay mock at the repository layer. Voice real STT also
+  stays a §7 provider-gate escalation (Sarvam keys/spend) — its ADR-0025 is deferred too.
+- **Worker-facing job-detail PII ruling** — ruled on in
+  [ADR-0024](../decisions/0024-worker-visible-job-fields-pii.md) (recommend masked employer
+  + banded pay, audited precise-reveal); job-detail stays mock-only until built (TD53).
+- **`integration_test` package** was intentionally **not** added: it routes `integration_test/`
+  to on-device / `flutter drive` runs (needs a connected device), which contradicts the
+  headless "Dart-first, no emulator" mock-mode design and the CI `flutter test` gate. The
+  equivalent full-journey e2e lives under `test/e2e/` and runs in the existing gate. Revisit
+  if/when on-device integration runs are wired into CI.
+
 > When an item here is picked up, move it into a sprint plan / ADR and link back.
