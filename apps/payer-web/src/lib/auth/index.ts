@@ -28,4 +28,4 @@ export async function requirePayer(): Promise<PayerSession> {
   return session;
 }
 
-export type { PayerSession, PayerAuthProvider } from "./types";
+export type { PayerSession, PayerAuthProvider, PayerRole } from "./types";

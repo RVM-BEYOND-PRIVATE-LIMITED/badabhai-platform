@@ -55,6 +55,10 @@ export function OtpInput({ length = 4, value = "", onChange, autoFocus = false }
           }}
           className={`bb-otp__cell ${c ? "bb-otp__cell--filled" : ""}`}
           inputMode="numeric"
+          // Only the FIRST cell advertises one-time-code autofill, so the browser/devtools targets
+          // a single field (a code from SMS/email fills the first cell, then auto-advances). This
+          // is what resolves Chrome DevTools' "input should have autocomplete" issue on OTP forms.
+          autoComplete={i === 0 ? "one-time-code" : "off"}
           maxLength={1}
           value={c}
           // Per-cell accessible name (a11y): the group is labelled "One-time passcode";

@@ -69,6 +69,20 @@ export type RequestCodeResult =
 export interface PayerAuthProvider {
   /** Step 1: request a login code for an email. NO-ENUMERATION on the result. */
   requestCode(input: { email: string }): Promise<RequestCodeResult>;
+  /**
+   * Self-serve signup (AUTH-1). Creates the account with its stored `role` and funnels
+   * into the EXACT SAME OTP `code` step the login uses — so the return shape is the same
+   * {@link RequestCodeResult} as {@link requestCode}, and is likewise NO-ENUMERATION
+   * (account-state-independent; a caller cannot tell a new email from an already-registered
+   * one). The code is emailed, NEVER returned. The role is set HERE, at signup; login then
+   * stays role-agnostic (the server already knows the role).
+   */
+  signup(input: {
+    role: PayerRole;
+    orgName: string;
+    email: string;
+    phone?: string;
+  }): Promise<RequestCodeResult>;
   /** Step 2: verify the code and establish a session. NO-ORACLE on failure. */
   verifyCode(input: { email: string; code: string }): Promise<LoginResult>;
   /** The current session from the request cookies, or null if unauthenticated. */

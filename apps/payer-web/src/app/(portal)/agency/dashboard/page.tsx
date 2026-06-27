@@ -130,7 +130,11 @@ export default async function AgencyDashboardPage() {
       <section className="agency-section">
         <h2 className="agency-section__title">Your agency</h2>
         <div className="agency-stats">
-          <Card className="agency-stat">
+          <Card
+            className="agency-stat"
+            href="/account"
+            ariaLabel={`Account ${account?.displayLabel ?? "Your agency"} — manage account`}
+          >
             <div className="agency-stat__head">
               <span className="agency-stat__label">Account</span>
             </div>
@@ -145,7 +149,14 @@ export default async function AgencyDashboardPage() {
             </div>
           </Card>
 
-          <Card className="agency-stat">
+          {/* Whole-card link to the wallet. The inner "Top up credits →" link is removed — the
+              stretched link is now the single target (a kept inner <a> would be an <a>-in-<a>
+              + a redundant-link defect). */}
+          <Card
+            className="agency-stat"
+            href="/credits"
+            ariaLabel={`Credit balance ${dash(credits ? credits.balance : null)} — open wallet`}
+          >
             <div className="agency-stat__head">
               <span className="agency-stat__label">Credit balance</span>
             </div>
@@ -154,9 +165,7 @@ export default async function AgencyDashboardPage() {
               <Badge tone="success" upper>
                 Live
               </Badge>
-              <Link className="agency-link" href="/credits">
-                Top up credits →
-              </Link>
+              <span className="agency-stat__hint">Top up in your wallet</span>
             </div>
           </Card>
 
@@ -179,7 +188,12 @@ export default async function AgencyDashboardPage() {
       <section className="agency-section">
         <h2 className="agency-section__title">Demand summary</h2>
         <div className="agency-stats">
-          <Card className="agency-stat">
+          {/* Whole-card link to the vacancy manager section below (same page, #-fragment). */}
+          <Card
+            className="agency-stat"
+            href="/agency/dashboard#agency-vacancies"
+            ariaLabel={`Total vacancies ${dash(demand ? demand.total : null)} — manage vacancies`}
+          >
             <div className="agency-stat__head">
               <span className="agency-stat__label">Total vacancies</span>
             </div>
@@ -219,8 +233,9 @@ export default async function AgencyDashboardPage() {
         </div>
       </section>
 
-      {/* d) VACANCY MANAGEMENT — LIVE list + create/edit/pause/close on the agency jobs. */}
-      <section className="agency-section">
+      {/* d) VACANCY MANAGEMENT — LIVE list + create/edit/pause/close on the agency jobs.
+          `id` is the in-page anchor target for the "Total vacancies" demand tile (#-fragment). */}
+      <section id="agency-vacancies" className="agency-section">
         <h2 className="agency-section__title">Your vacancies</h2>
         {jobs ? (
           <AgencyJobsManager jobs={jobs} />

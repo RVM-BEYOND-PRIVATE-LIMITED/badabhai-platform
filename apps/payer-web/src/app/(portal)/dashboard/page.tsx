@@ -62,6 +62,8 @@ export default async function DashboardPage() {
           label="Credit balance"
           value={data.credits.balance}
           icon="wallet"
+          href="/credits"
+          ariaLabel={`Credit balance ${data.credits.balance} credits — open wallet`}
           delta={
             <>
               <span className="bb-mono">{formatInr(40)}</span> per unlock
@@ -73,6 +75,10 @@ export default async function DashboardPage() {
           label={isAgency ? "Open vacancies" : "Open postings"}
           value={openCount}
           icon="briefcase"
+          href="/postings"
+          ariaLabel={`${isAgency ? "Open vacancies" : "Open postings"} ${openCount} — manage ${
+            isAgency ? "vacancies" : "postings"
+          }`}
           delta={`${data.postings.length} total`}
           deltaDir="flat"
         />
@@ -80,6 +86,8 @@ export default async function DashboardPage() {
           label="Contacts unlocked"
           value={data.unlocks.length}
           icon="lock-key-open"
+          href="/postings"
+          ariaLabel={`Contacts unlocked ${data.unlocks.length} — manage postings`}
           delta="1 credit each"
           deltaDir="flat"
         />
@@ -101,13 +109,26 @@ export default async function DashboardPage() {
         ) : (
           <div className="dash-candlist">
             {recentUnlocks.map((u) => (
-              <MaskedCandidate
+              // Whole-row link to the postings list (no dedicated unlocks route exists; this is
+              // the most relevant destination). FACELESS: the href is a static literal — NO
+              // worker id/phone/name ever enters it. The wrapper Card supplies the stretched
+              // link + relative context; its own surface is zeroed (.dash-unlock-link) so only
+              // the inner MaskedCandidate row shows. The unmasked row holds no interactive child.
+              <Card
                 key={u.unlockId}
-                masked={false}
-                verified={u.status === "granted"}
-                name="Unlocked contact"
-                experience={u.status === "granted" ? "Active access" : "Access expired"}
-              />
+                variant="flat"
+                padding="none"
+                className="dash-unlock-link"
+                href="/postings"
+                ariaLabel="Unlocked contact — manage"
+              >
+                <MaskedCandidate
+                  masked={false}
+                  verified={u.status === "granted"}
+                  name="Unlocked contact"
+                  experience={u.status === "granted" ? "Active access" : "Access expired"}
+                />
+              </Card>
             ))}
           </div>
         )}
@@ -129,7 +150,18 @@ export default async function DashboardPage() {
         ) : (
           <div className="dash-postings">
             {data.postings.slice(0, 6).map((post) => (
-              <Card key={post.id} padding="sm" className="dash-posting">
+              // Whole-card link to THIS posting's applicants (the nested route exists). The id is
+              // the posting's OWN opaque uuid (never a worker id/phone). The previous inner
+              // "View" link is removed — the stretched link is now the single target (a kept
+              // inner link would be a redundant/duplicate-link a11y defect). The status Badge is
+              // a non-interactive status indicator and stays.
+              <Card
+                key={post.id}
+                padding="sm"
+                className="dash-posting"
+                href={`/postings/${post.id}/applicants`}
+                ariaLabel={`${post.roleTitle} — view applicants`}
+              >
                 <div className="dash-posting__main">
                   <div className="dash-posting__title">{post.roleTitle}</div>
                   <div className="dash-posting__meta">
@@ -141,13 +173,7 @@ export default async function DashboardPage() {
                   <Badge tone={post.status === "open" ? "success" : "neutral"} upper>
                     {post.status}
                   </Badge>
-                  <Link
-                    className="bb-btn bb-btn--tonal bb-btn--sm dash-view"
-                    href={`/postings/${post.id}/applicants`}
-                  >
-                    <span>View</span>
-                    <i className="ph ph-arrow-right dash-view__arrow" aria-hidden="true" />
-                  </Link>
+                  <i className="ph ph-arrow-right dash-view__arrow" aria-hidden="true" />
                 </div>
               </Card>
             ))}

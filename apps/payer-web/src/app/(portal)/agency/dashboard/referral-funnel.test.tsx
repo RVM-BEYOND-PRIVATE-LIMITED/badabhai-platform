@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import { ReferralFunnel } from "./referral-funnel";
+import { Card } from "../../../../components/ds";
 import type { AgencyReferralsSummary } from "../../../../lib/contracts";
 
 /**
@@ -57,5 +58,32 @@ describe("ReferralFunnel — k-anon: a suppressed stage shows '<minBucket', neve
     const joined = collectText(ReferralFunnel({ summary })).join(" ");
     expect(joined.toLowerCase()).toContain("aggregate only");
     expect(joined).toContain("no per-worker breakdown");
+  });
+});
+
+describe("CARDS-1 · ReferralFunnel — each stage is a whole-card link to /agency/referrals", () => {
+  function findCards(node: ReactNode, acc: ReactElement[] = []): ReactElement[] {
+    if (node === null || node === undefined || typeof node !== "object") return acc;
+    if (Array.isArray(node)) {
+      node.forEach((c) => findCards(c, acc));
+      return acc;
+    }
+    const el = node as ReactElement<{ children?: ReactNode }>;
+    if (el.type === Card) acc.push(el);
+    if (el.props && "children" in el.props) findCards(el.props.children, acc);
+    return acc;
+  }
+
+  it("links all three stage cards to /agency/referrals (static href, no PII)", () => {
+    const summary: AgencyReferralsSummary = { created: 30, clicked: 12, accepted: 5, minBucket: 5 };
+    const cards = findCards(ReferralFunnel({ summary }));
+    expect(cards.length).toBe(3);
+    for (const c of cards) {
+      const props = c.props as Record<string, unknown>;
+      expect(props.href).toBe("/agency/referrals");
+      expect(String(props.ariaLabel ?? "").length).toBeGreaterThan(0);
+      // faceless: the href is a static literal — no id of any kind
+      expect(props.href).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/i);
+    }
   });
 });
