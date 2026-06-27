@@ -19,6 +19,7 @@ Failure mapError(Object error) {
     return switch (error.statusCode) {
       401 => const UnauthorizedFailure(),
       403 => const ConsentRequiredFailure(),
+      429 => const RateLimitedFailure(),
       _ => ServerFailure(error.statusCode),
     };
   }
