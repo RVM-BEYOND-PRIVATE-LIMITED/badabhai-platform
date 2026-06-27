@@ -525,9 +525,11 @@ not a live-data dependency, and it never relaxes the PII or spine-RO rules.
   kill-switch, `AI_ENABLE_REAL_CALLS`), and which stay **env-only / deploy-gated**? *Recommendation:
   expose only operational pauses already designed as runtime knobs; keep real-provider enables
   env/deploy-gated per §5/§7.*
-- **OQ-7 [owner] — admin audit retention / review cadence.** Who reviews `admin.pii_viewed` +
-  `admin.action_performed`, how often, and with what retention? (Process, not code — but it is the
-  control that makes reason-gating meaningful.)
+- **OQ-7 [owner] — admin audit retention / review cadence. RESOLVED (owner, 2026-06-27):** the
+  **owner reviews `admin.pii_viewed` + `admin.action_performed` weekly**, with **1-year retention**
+  of those audit events. This is the process control that makes reason-gating meaningful and is the
+  standing condition that **unblocks the ADMIN-3 PII-reveal route** (the reveal route may ship once
+  this cadence is in effect). Process, not code — but a precondition for ADMIN-3's reveal.
 
 ---
 

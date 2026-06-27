@@ -14,6 +14,9 @@ import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard } from "./admin-roles.guard";
 import { AdminAuthService } from "./admin-auth.service";
 import { AdminAuthController } from "./admin-auth.controller";
+import { AdminEventsRepository } from "./admin-events.repository";
+import { AdminEventsService } from "./admin-events.service";
+import { AdminEventsController } from "./admin-events.controller";
 
 /**
  * Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1). The 4th, highly-
@@ -29,10 +32,13 @@ import { AdminAuthController } from "./admin-auth.controller";
  * the admin code only EMITs via EventsService, never UPDATE/DELETE on `events`). `PiiCryptoService`
  * (CryptoModule), `SERVER_CONFIG`, and `IpRateLimit` (RateLimitModule) are @Global.
  *
- * SCOPE NOTE (ADR-0025): ADMIN-1 is auth + RBAC + MFA only. The capability-gated FEATURE
- * routes (events query, entity actions, PII reveal) are ADMIN-2/ADMIN-3. OBS-4 (migrating the
- * existing ops read routes behind a dual-accept guard) is DEFERRED — this module does NOT
- * touch the existing ops/InternalService routes or `apps/web`.
+ * SCOPE NOTE (ADR-0025): ADMIN-1 is auth + RBAC + MFA. ADMIN-2 adds the READ-ONLY event-spine
+ * query API (`AdminEventsController`/`AdminEventsService`/`AdminEventsRepository`): list/detail/
+ * trace/timeline/metrics/export, all `read_events`-gated except export (`export` capability,
+ * super_admin/ops_admin only). The events repository is SELECT-ONLY (spine immutability, must-fix
+ * #3). The entity actions + PII reveal remain ADMIN-3. OBS-4 (migrating the existing ops read
+ * routes behind a dual-accept guard) is DEFERRED — this module does NOT touch the existing
+ * ops/InternalService routes or `apps/web`. SSE live-tail is DEFERRED to ADMIN-7.
  */
 @Module({
   imports: [
@@ -49,7 +55,7 @@ import { AdminAuthController } from "./admin-auth.controller";
       }),
     }),
   ],
-  controllers: [AdminAuthController],
+  controllers: [AdminAuthController, AdminEventsController],
   providers: [
     AdminRepository,
     AdminSessionService,
@@ -58,6 +64,9 @@ import { AdminAuthController } from "./admin-auth.controller";
     AdminAuthService,
     AdminAuthGuard,
     AdminRolesGuard,
+    // ADMIN-2: read-only event-spine query API (select-only over `events`).
+    AdminEventsRepository,
+    AdminEventsService,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })

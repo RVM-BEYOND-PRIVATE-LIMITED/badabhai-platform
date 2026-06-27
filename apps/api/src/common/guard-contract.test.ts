@@ -30,6 +30,7 @@ import { PayerReachController } from "../payer-portal/payer-reach.controller";
 import { AgencyJobsController } from "../agency/agency-jobs.controller";
 import { AgencyInvitesController } from "../agency/agency-invites.controller";
 import { AdminAuthController } from "../admin/admin-auth.controller";
+import { AdminEventsController } from "../admin/admin-events.controller";
 
 /**
  * AUTHZ CONTRACT — the single source of truth for which guards protect every
@@ -72,6 +73,7 @@ const I = "InternalServiceGuard";
 const P = "PayerAuthGuard";
 const R = "PayerRoleGuard";
 const A = "AdminAuthGuard";
+const AR = "AdminRolesGuard";
 
 const CONTRACT: ControllerContract[] = [
   { name: "Actions", ctor: ActionsController, routes: { record: [], recordBatch: [] } },
@@ -192,6 +194,22 @@ const CONTRACT: ControllerContract[] = [
     name: "AdminAuth",
     ctor: AdminAuthController,
     routes: { requestLogin: [], verifyLogin: [], verifyMfa: [], refresh: [A], logout: [A], me: [A] },
+  },
+  // Admin Ops Portal READ-ONLY event-spine API (ADR-0025 ADMIN-2). EVERY route is behind the
+  // admin session (AdminAuthGuard) + vertical RBAC (AdminRolesGuard, one @RequireAdminRole each):
+  // the five reads need `read_events` (all roles); `export` needs the `export` capability
+  // (super_admin/ops_admin only) — the per-role authz is asserted in admin-events authz tests.
+  {
+    name: "AdminEvents",
+    ctor: AdminEventsController,
+    routes: {
+      list: [A, AR],
+      metrics: [A, AR],
+      export: [A, AR],
+      trace: [A, AR],
+      getOne: [A, AR],
+      timeline: [A, AR],
+    },
   },
 ];
 
