@@ -1,5 +1,8 @@
+import Link from "next/link";
 import { postingIsFreeThroughLaunch, postingPaidTiers } from "../../../../lib/pricing-config";
 import { getCapacity } from "../../../../lib/payer-api";
+import { formatInr } from "../../../../lib/format";
+import { Badge, Card } from "../../../../components/ds";
 import { PostingForm } from "./posting-form";
 
 export const dynamic = "force-dynamic";
@@ -31,32 +34,50 @@ export default async function NewPostingPage() {
 
   return (
     <>
-      <h1 className="page-title">Post a job</h1>
-      <p className="page-sub">Describe the role. Applicants appear faceless until you unlock them.</p>
+      <p className="page-back">
+        <Link href="/postings">← Manage postings</Link>
+      </p>
+      <h1 className="dash-title">Post a job</h1>
+      <p className="dash-sub">Describe the role. Applicants appear faceless until you unlock them.</p>
 
       {atCapacity ? (
-        <div className="note warn">
-          You are at capacity; this posting may be paused until you{" "}
-          <a href="/capacity">add capacity</a>.
-        </div>
+        <Card variant="outline" className="posting-note">
+          <Badge tone="warning" upper>
+            At capacity
+          </Badge>
+          <p className="posting-note__msg">
+            You are at capacity; this posting may be paused until you{" "}
+            <Link href="/capacity">add capacity</Link>.
+          </p>
+        </Card>
       ) : null}
 
       {free ? (
-        <div className="note">
-          <strong>Free through launch.</strong> Posting a job is free during the launch phase. (We
-          show this from a launch-phase config flag — the pricing catalog cannot represent a ₹0
-          price, so &ldquo;free&rdquo; is not a catalog amount.)
-        </div>
+        <Card variant="outline" className="posting-note">
+          <Badge tone="success" upper>
+            Free through launch
+          </Badge>
+          <p className="posting-note__msg">
+            Posting a job is free during the launch phase. (We show this from a launch-phase config
+            flag — the pricing catalog cannot represent a ₹0 price, so &ldquo;free&rdquo; is not a
+            catalog amount.)
+          </p>
+        </Card>
       ) : (
-        <div className="note warn">
-          Paid posting plans (config-driven):{" "}
-          {paidTiers.length === 0
-            ? "unavailable"
-            : paidTiers
-                .map((t) => `${t.code} ₹${t.priceInr} / ${t.validityDays}d`)
-                .join(" · ")}
-          .
-        </div>
+        <Card variant="outline" className="posting-note">
+          <Badge tone="warning" upper>
+            Paid plans
+          </Badge>
+          <p className="posting-note__msg">
+            Paid posting plans (config-driven):{" "}
+            {paidTiers.length === 0
+              ? "unavailable"
+              : paidTiers
+                  .map((t) => `${t.code} ${formatInr(t.priceInr)} / ${t.validityDays}d`)
+                  .join(" · ")}
+            .
+          </p>
+        </Card>
       )}
 
       <PostingForm />

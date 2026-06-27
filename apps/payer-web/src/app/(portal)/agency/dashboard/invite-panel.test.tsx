@@ -14,6 +14,11 @@ import type * as ReactModule from "react";
  * campaign, campaignError, invite, copied, error). `useTransition` → [false, run-immediately].
  * The submit handler reads the injected `campaign` state, so a phone-like seed exercises the
  * inline reject path with the action mocked.
+ *
+ * DS3.1 re-skin: the field + buttons + opaque-code result use DS primitives, but the mint
+ * `<form onSubmit>` and the `aria-live="polite"` error region stay NATIVE elements — so the
+ * walk still finds the form and the announce region. The only input remains the optional,
+ * non-PII campaign tag (faceless: still NO phone/name/email/contact field).
  */
 
 const createInviteAction = vi.fn();

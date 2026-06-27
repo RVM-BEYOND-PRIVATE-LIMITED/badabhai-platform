@@ -11,8 +11,10 @@ import type { AgencyReferralsSummary } from "../../../../lib/contracts";
  * invitee's consent can never be inferred (no oracle). A non-zero count (>= the floor) shows
  * as-is. There are NO per-invitee rows by construction (aggregate counts only).
  *
- * ReferralFunnel is a plain (non-hook) component; we render it to an element tree and walk
- * the text. RetryButton (in the null-summary branch) is a client hook component — stub it.
+ * ReferralFunnel is a plain (non-hook) component, now DS3.1-re-skinned: each stage is a DS
+ * `Card` whose k-anon count is rendered IN-CARD as a child node (mono tabular), so the walk
+ * still reaches the count text via `children`. We render it to an element tree and walk the
+ * text. RetryButton (in the null-summary branch) is a client hook component — stub it.
  */
 
 vi.mock("../../../../components/retry-button", () => ({ RetryButton: () => null }));

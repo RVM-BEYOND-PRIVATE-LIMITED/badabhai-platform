@@ -1,6 +1,8 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { HttpException, HttpStatus } from "@nestjs/common";
+import { validateEvent } from "@badabhai/event-schema";
+import { OtpSendCapExceededException } from "../common/otp-send-cap";
 import { AuthService } from "./auth.service";
 
 const ctx = { requestId: "req-1", correlationId: "11111111-1111-4111-8111-111111111111" };
@@ -73,6 +75,54 @@ describe("AuthService (real OTP)", () => {
       status: HttpStatus.TOO_MANY_REQUESTS,
     });
     expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("requestOtp on a GLOBAL send-cap breach emits exactly one PII-free worker.otp_send_cap_exceeded and re-throws 429", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const otp = makeOtp();
+    otp.issueAndSend = vi.fn().mockRejectedValue(
+      new OtpSendCapExceededException({ channel: "worker_sms", limit: 2000, window: "20260626" }),
+    );
+    const svc = new AuthService(
+      { emit } as never,
+      {} as never,
+      pii,
+      otp as never,
+      makeSessions() as never,
+    );
+
+    // The neutral 429 (same as a throttle) reaches the client — no new oracle.
+    await expect(svc.requestOtp(PHONE, ctx)).rejects.toMatchObject({
+      status: HttpStatus.TOO_MANY_REQUESTS,
+    });
+
+    // Exactly ONE breach event, with the AGGREGATE PII-free payload — and it validates.
+    expect(emit).toHaveBeenCalledTimes(1);
+    const arg = emit.mock.calls[0]![0] as { event_name: string; payload: Record<string, unknown> };
+    expect(arg.event_name).toBe("worker.otp_send_cap_exceeded");
+    expect(arg.payload).toEqual({
+      channel: "worker_sms",
+      cap: "global_daily",
+      limit: 2000,
+      window: "20260626",
+    });
+    // No phone / code anywhere in the emitted event.
+    expect(JSON.stringify(arg)).not.toContain("9876543210");
+    // The emitted shape validates against @badabhai/event-schema.
+    const built = validateEvent({
+      event_id: "11111111-1111-4111-8111-111111111111",
+      event_name: arg.event_name,
+      event_version: 1,
+      occurred_at: "2026-06-26T00:00:00.000Z",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "worker", subject_id: null },
+      source: "api",
+      correlation_id: "22222222-2222-4222-8222-222222222222",
+      causation_id: null,
+      payload: arg.payload,
+      metadata: { environment: "test", service: "api" },
+    });
+    expect(built.success).toBe(true);
   });
 
   it("verifyOtp rejects a bad code (otp.verify throws) and never touches the worker table", async () => {

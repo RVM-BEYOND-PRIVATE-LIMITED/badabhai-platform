@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* global process, console, fetch, AbortSignal */
+/* global AbortSignal */
 /**
  * BadaBhai smoke test — "is the API alive and is the front of the happy path wired?"
  *

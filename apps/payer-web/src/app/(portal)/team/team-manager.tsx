@@ -2,6 +2,7 @@
 
 import { useState, useTransition, type FormEvent } from "react";
 import type { OrgMemberView } from "../../../lib/org-members";
+import { Badge, Button, Card, Input, Select } from "../../../components/ds";
 import { inviteMemberAction, removeMemberAction } from "./actions";
 
 /**
@@ -39,59 +40,52 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
 
   return (
     <>
-      <section className="section">
-        <h2>Invite a member</h2>
-        <form className="form" onSubmit={onInvite}>
-          <div className="field">
-            <label htmlFor="invite-email">
-              Email <span className="req">*</span>
-            </label>
-            <input
-              id="invite-email"
-              className="input"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="recruiter@yourcompany.example"
-              autoComplete="off"
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="invite-role">Role</label>
-            <select
-              id="invite-role"
-              className="input"
-              value={orgRole}
-              onChange={(e) => setOrgRole(e.target.value)}
-            >
-              <option value="recruiter">Recruiter — post / search / unlock / contact</option>
-              <option value="owner">Owner — billing &amp; user management too</option>
-            </select>
-          </div>
-          <div className="btn-row">
-            <button className="btn" type="submit" disabled={pending} aria-busy={pending}>
+      <section className="team-section">
+        <h2 className="team-section__title">Invite a member</h2>
+        <form className="team-form" onSubmit={onInvite}>
+          <Input
+            id="invite-email"
+            label="Email"
+            type="email"
+            iconLeft="envelope"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="recruiter@yourcompany.example"
+            autoComplete="off"
+          />
+          <Select
+            id="invite-role"
+            label="Role"
+            value={orgRole}
+            onChange={(e) => setOrgRole(e.target.value)}
+          >
+            <option value="recruiter">Recruiter — post / search / unlock / contact</option>
+            <option value="owner">Owner — billing &amp; user management too</option>
+          </Select>
+          <div className="chrome-actions">
+            <Button type="submit" variant="primary" loading={pending} aria-busy={pending}>
               {pending ? "Working…" : "Send invite"}
-            </button>
+            </Button>
           </div>
         </form>
-        <div aria-live="polite">
+        <div aria-live="polite" className="team-form__status">
           {message ? (
-            <p className="note" style={{ marginTop: 12 }}>
-              {message}
-            </p>
+            <Card variant="outline" className="team-note" style={{ marginTop: "var(--space-3)" }}>
+              <p className="team-note__msg">{message}</p>
+            </Card>
           ) : null}
         </div>
       </section>
 
-      <section className="section">
-        <h2>Members</h2>
+      <section className="team-section">
+        <h2 className="team-section__title">Members</h2>
         {members.length === 0 ? (
-          <div className="empty">
+          <Card variant="flat" className="team-empty">
             No additional members yet. Invites you send will appear here once the org directory
             API is connected.
-          </div>
+          </Card>
         ) : (
-          <table>
+          <table className="team-table">
             <thead>
               <tr>
                 <th>Member</th>
@@ -102,21 +96,19 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
             <tbody>
               {members.map((m) => (
                 <tr key={m.memberId}>
-                  <td className="mono">{m.label}</td>
+                  <td className="bb-mono">{m.label}</td>
                   <td>
-                    <span className={m.orgRole === "owner" ? "badge badge-ok" : "badge"}>
-                      {m.orgRole}
-                    </span>
+                    <Badge tone={m.orgRole === "owner" ? "success" : "neutral"}>{m.orgRole}</Badge>
                   </td>
                   <td>
-                    <button
-                      className="btn secondary"
-                      type="button"
+                    <Button
+                      variant="secondary"
+                      size="sm"
                       disabled={pending}
                       onClick={() => onRemove(m.memberId)}
                     >
                       Remove
-                    </button>
+                    </Button>
                   </td>
                 </tr>
               ))}

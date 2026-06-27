@@ -1,8 +1,8 @@
 import "reflect-metadata";
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
-import { ConsoleSmsProvider } from "./console-sms.provider";
 import { Fast2SmsProvider } from "./fast2sms.provider";
 
 const PHONE = "+919876543210";
@@ -12,12 +12,8 @@ const pii = {
   hashPhone: (_phone: string) => "abcd1234ef567890abcd1234ef567890",
 } as unknown as PiiCryptoService;
 
-describe("ConsoleSmsProvider", () => {
-  it("logs the code (dev only) without throwing", async () => {
-    const provider = new ConsoleSmsProvider(pii);
-    await expect(provider.sendOtp({ phoneE164: PHONE, code: CODE })).resolves.toBeUndefined();
-  });
-});
+// NOTE: ConsoleSmsProvider was DELETED — worker OTP is real-only (Fast2SMS, no console
+// fallback), so its describe block was removed with it.
 
 describe("Fast2SmsProvider.toNationalNumber", () => {
   it("strips a leading +91 to a 10-digit national number", () => {
@@ -111,5 +107,42 @@ describe("Fast2SmsProvider.sendOtp", () => {
     const partial = { ...fast2smsConfig, FAST2SMS_API_KEY: undefined } as unknown as ServerConfig;
     const provider = new Fast2SmsProvider(partial, pii);
     await expect(provider.sendOtp({ phoneE164: PHONE, code: CODE })).rejects.toThrow();
+  });
+
+  // §2 invariant (OTP-3): the provider NEVER logs the raw phone or the OTP code — only a
+  // prefix of the phone HASH + a status. Assert it directly across BOTH success and the
+  // provider-rejected failure (the two log sites), spying every Logger level.
+  it("never logs the raw phone or the OTP code (success or failure)", async () => {
+    const logArgs: unknown[] = [];
+    for (const level of ["log", "error", "warn", "debug", "verbose"] as const) {
+      vi.spyOn(Logger.prototype, level).mockImplementation((...args: unknown[]) => {
+        logArgs.push(...args);
+        return undefined as never;
+      });
+    }
+
+    const okFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ return: true, request_id: "abc" }),
+    });
+    vi.stubGlobal("fetch", okFetch);
+    await new Fast2SmsProvider(fast2smsConfig, pii).sendOtp({ phoneE164: PHONE, code: CODE });
+
+    const rejectFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ return: false, message: ["Invalid"] }),
+    });
+    vi.stubGlobal("fetch", rejectFetch);
+    await new Fast2SmsProvider(fast2smsConfig, pii)
+      .sendOtp({ phoneE164: PHONE, code: CODE })
+      .catch(() => undefined);
+
+    expect(logArgs.length).toBeGreaterThan(0); // proves the log sites actually fired
+    const logged = logArgs.map(String).join("\n");
+    expect(logged).not.toContain(CODE); // the OTP code
+    expect(logged).not.toContain("9876543210"); // the national number
+    expect(logged).not.toContain(PHONE); // the raw E.164 phone
   });
 });

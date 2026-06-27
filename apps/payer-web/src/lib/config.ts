@@ -84,3 +84,26 @@ export function agencyFlags(): AgencyFlags {
 export function __resetAgencyFlagsForTest(): void {
   cachedAgencyFlags = null;
 }
+
+/**
+ * PORTAL THEME (DS4.2) — resolve the optional dark "ink" theme.
+ *
+ * The whole portal is token-driven, and `src/styles/tokens.css` defines a full
+ * `[data-theme="ink"]` block that flips the semantic surface/text tokens. Setting
+ * `data-theme="ink"` on the portal shell (the <html> root) therefore re-themes the
+ * entire app with zero per-screen changes. This helper makes the dark theme REACHABLE
+ * without altering the default appearance:
+ *
+ *  - Returns `"ink"` ONLY when `PAYER_THEME` (server) — or its public mirror
+ *    `NEXT_PUBLIC_PAYER_THEME` — is the exact literal "ink" (fail-closed).
+ *  - Returns `undefined` for unset / "paper" / anything else, so the DEFAULT render
+ *    emits NO `data-theme` attribute and paper (light) stays exactly as shipped.
+ *
+ * No secret is read; both keys are plain theme selectors safe in any context.
+ */
+export function resolvePayerTheme(): "ink" | undefined {
+  const raw = (process.env.PAYER_THEME ?? process.env.NEXT_PUBLIC_PAYER_THEME ?? "")
+    .trim()
+    .toLowerCase();
+  return raw === "ink" ? "ink" : undefined;
+}

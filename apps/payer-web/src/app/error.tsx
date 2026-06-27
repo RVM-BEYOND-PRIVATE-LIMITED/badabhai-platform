@@ -16,13 +16,13 @@
 export default function RootError({ reset }: { error: Error; reset: () => void }) {
   return (
     <div role="alert">
-      <h1 className="page-title">Something went wrong</h1>
-      <p className="page-sub">
+      <h1 className="chrome-title">Something went wrong</h1>
+      <p className="chrome-sub">
         We couldn&rsquo;t load this page right now. This is on our side — please try again.
       </p>
-      <div className="btn-row">
-        <button className="btn" type="button" onClick={() => reset()}>
-          Try again
+      <div className="chrome-actions">
+        <button className="bb-btn bb-btn--primary" type="button" onClick={() => reset()}>
+          <span>Try again</span>
         </button>
       </div>
     </div>

@@ -30,11 +30,10 @@ import { API_TOKEN_COOKIE_NAME, sessionCookieOptions } from "./session-cookie";
 
 const NEUTRAL_LOGIN_ERROR = "Invalid or expired code.";
 
-/** POST /payer/login/request response (no-enumeration; dev_otp only in dev/test). */
+/** POST /payer/login/request response (no-enumeration; the code is emailed, never returned). */
 const requestCodeWireSchema = z.object({
   status: z.literal("code_sent"),
   resend_in_seconds: z.number(),
-  dev_otp: z.string().optional(),
 });
 
 /** POST /payer/login/verify response — the minted Bearer session. */
@@ -59,7 +58,6 @@ export const httpPayerAuthProvider: PayerAuthProvider = {
       return {
         ok: true,
         resendInSeconds: res.resend_in_seconds,
-        devOtp: res.dev_otp,
       };
     } catch {
       // Honest service error (NOT an enumeration signal — request never reveals state).

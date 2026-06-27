@@ -18,10 +18,10 @@ import { PayerDisclosureRateLimit } from "../payers/payer-disclosure-rate-limit.
 import {
   PAYER_LOGIN_CHANNEL,
   type PayerLoginChannel,
-  MockEmailLoginChannel,
   WhatsAppLoginChannel,
   SupabaseLoginChannel,
 } from "../payers/payer-login-channel";
+import { ZeptoMailEmailLoginChannel } from "../payers/zeptomail-email-login-channel";
 import { PayerUnlocksController } from "./payer-unlocks.controller";
 import { PayerCapacityController } from "./payer-capacity.controller";
 import { PayerAuthController } from "./payer-auth.controller";
@@ -85,7 +85,7 @@ import { PayerAuthService } from "./payer-auth.service";
     PayerOtpService,
     PayerDisclosureRateLimit,
     // The login channel implementations + the WhatsApp provider seam they ride.
-    MockEmailLoginChannel,
+    ZeptoMailEmailLoginChannel,
     WhatsAppLoginChannel,
     SupabaseLoginChannel,
     MockWhatsAppProvider,
@@ -104,13 +104,21 @@ import { PayerAuthService } from "./payer-auth.service";
     },
     {
       // The ACTIVE payer login channel, selected by PAYER_LOGIN_METHOD (ADR-0019 B-R1).
-      // `supabase` is the config-gated adapter — assertPayerAuthConfig fails boot closed if
-      // it is selected without keys, and the adapter is inert (throws) in this build.
+      // "email_otp" (the default) is REAL-ONLY: the ZeptoMail/SMTP channel — the boot guard
+      // (assertPayerAuthConfig/emailProviderBlockedReason) requires its credentials, so the
+      // app fails closed without them (there is no mock email channel). `supabase` is the
+      // config-gated adapter — assertPayerAuthConfig fails boot closed if selected without
+      // keys, and the adapter is inert (throws) in this build.
       provide: PAYER_LOGIN_CHANNEL,
-      inject: [SERVER_CONFIG, MockEmailLoginChannel, WhatsAppLoginChannel, SupabaseLoginChannel],
+      inject: [
+        SERVER_CONFIG,
+        ZeptoMailEmailLoginChannel,
+        WhatsAppLoginChannel,
+        SupabaseLoginChannel,
+      ],
       useFactory: (
         config: ServerConfig,
-        email: MockEmailLoginChannel,
+        realEmail: ZeptoMailEmailLoginChannel,
         whatsapp: WhatsAppLoginChannel,
         supabase: SupabaseLoginChannel,
       ): PayerLoginChannel => {
@@ -120,7 +128,8 @@ import { PayerAuthService } from "./payer-auth.service";
           case "supabase":
             return supabase;
           default:
-            return email; // "email_otp"
+            // "email_otp": the REAL ZeptoMail/SMTP channel (creds required at boot).
+            return realEmail;
         }
       },
     },

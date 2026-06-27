@@ -2,31 +2,36 @@
 
 import { z } from "zod";
 import { payerAuth } from "../../lib/auth";
+import { NEUTRAL_SEND_ERROR, NEUTRAL_VERIFY_ERROR } from "./messages";
 
 /**
  * Login Server Actions (ADR-0019 Decision B / XB-H) — TWO-STEP OTP.
  *
- * Runs SERVER-SIDE only. Step 1 requests a code (no-enumeration response). Step 2
+ * Runs SERVER-SIDE only. Step 1 requests a code (no-enumeration response) and NEVER
+ * returns the code to the client — the payer reads it from their real email. Step 2
  * verifies it and the seam sets an httpOnly session cookie — no secret or token ever
- * reaches the client. Verify returns ONE neutral error for any failure (bad code OR
- * unknown email OR service error) — no user-enumeration oracle. Nothing is logged.
+ * reaches the client. Both steps return ONE neutral error for any failure (bad/expired
+ * code OR unknown email OR send failure/limit) — no user-enumeration oracle. Nothing is
+ * logged.
  */
 
 const emailSchema = z.string().trim().toLowerCase().email().max(254);
 const codeSchema = z.string().trim().regex(/^\d{4,8}$/);
 
 export type RequestCodeActionResult =
-  | { ok: true; resendInSeconds: number; devOtp?: string }
+  | { ok: true; resendInSeconds: number }
   | { ok: false; error: string };
 
 export async function requestCodeAction(input: {
   email: string;
 }): Promise<RequestCodeActionResult> {
   const parsed = emailSchema.safeParse(input.email);
-  if (!parsed.success) return { ok: false, error: "Enter a valid email." };
+  // Same neutral copy as a send/limit failure — no enumeration via validation.
+  if (!parsed.success) return { ok: false, error: NEUTRAL_SEND_ERROR };
   const res = await payerAuth().requestCode({ email: parsed.data });
-  if (!res.ok) return { ok: false, error: res.error };
-  return { ok: true, resendInSeconds: res.resendInSeconds, devOtp: res.devOtp };
+  if (!res.ok) return { ok: false, error: NEUTRAL_SEND_ERROR };
+  // The code is NEVER returned to the client — the payer reads it from their real email.
+  return { ok: true, resendInSeconds: res.resendInSeconds };
 }
 
 export type VerifyCodeActionResult = { ok: true } | { ok: false; error: string };
@@ -39,7 +44,7 @@ export async function verifyCodeAction(input: {
   const code = codeSchema.safeParse(input.code);
   if (!email.success || !code.success) {
     // Same neutral copy as a code mismatch — no enumeration via validation.
-    return { ok: false, error: "Invalid or expired code." };
+    return { ok: false, error: NEUTRAL_VERIFY_ERROR };
   }
   const res = await payerAuth().verifyCode({ email: email.data, code: code.data });
   if (!res.ok) return { ok: false, error: res.error };

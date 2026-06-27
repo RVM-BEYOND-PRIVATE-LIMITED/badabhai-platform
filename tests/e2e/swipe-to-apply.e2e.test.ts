@@ -71,7 +71,11 @@ async function acceptConsent(workerId: string): Promise<void> {
   expect(r.status).toBe(201);
 }
 
-describe.skipIf(!RUN)("Alpha swipe-to-apply (e2e, ADR-0009)", () => {
+// REAL-ONLY: this suite mints an authenticated worker session via OTP login, which now
+// requires a real Fast2SMS code (no dev echo) — it cannot run in automated CI. The
+// end-to-end proof is the manual OTP-7 staging check (docs/ops/otp-real-send-staging-runbook.md).
+void RUN;
+describe.skip("Alpha swipe-to-apply (e2e, ADR-0009)", () => {
   let client!: DbClient;
   let worker!: { workerId: string; token: string };
 

@@ -481,11 +481,6 @@ textarea.input {
 .login-demo p {
   margin: var(--space-2) 0 0;
 }
-.login-demo__creds {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
 
 /* ------------------------------------------------------------------
  * DASHBOARD (DS1.2) — StatTiles + faceless MaskedCandidate teasers + DS states.
@@ -863,6 +858,530 @@ textarea.input {
   font-size: var(--text-sm);
 }
 
+/* ------------------------------------------------------------------
+ * POST A JOB (DS2.1) — the EMPLOYER posting form + page notes re-skinned onto the
+ * design system. The form is a DS Card whose fields are DS Input/Select/Textarea; the
+ * derived vacancy band is a DS Chip + the applicant quota a DS Badge (both config-
+ * sourced, DISPLAY-only — never sent). Every value resolves from tokens (no raw hex/px).
+ * Visual layer only; the submit body shape + validation/seam behaviour are unchanged.
+ * ------------------------------------------------------------------ */
+.posting-note {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  margin: var(--space-4) 0;
+}
+.posting-note__msg {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.posting-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-width: var(--reading-max);
+}
+.posting-form__pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-4) var(--space-5);
+}
+.posting-form__vacancies {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.posting-form__band {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.posting-form__actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.posting-form__status:empty {
+  display: none;
+}
+.posting-form__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+/* ------------------------------------------------------------------
+ * MANAGE POSTINGS (DS2.2) — the EMPLOYER postings list + manager re-skinned onto the
+ * design system. Each posting is a DS Card with its REAL status Badge, mono-tabular
+ * applicant counts, and a link to its faceless applicant feed (a LIVE payer-authed read).
+ * The pause / resume / quota top-up trio renders as DISABLED "coming soon" DS Buttons —
+ * no payer-authed lifecycle route exists yet. Every value resolves from tokens (no raw
+ * hex/px); visual layer only — the live read + the gated-trio flagging are unchanged.
+ * ------------------------------------------------------------------ */
+.postings-back {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-2);
+}
+.postings-title {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-1);
+}
+.postings-sub {
+  color: var(--text-muted);
+  font-size: var(--text-base);
+  margin: 0 0 var(--space-5);
+}
+.postings-link {
+  font-weight: var(--weight-semibold);
+  color: var(--text-link);
+  white-space: nowrap;
+}
+.postings-note {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  margin: 0 0 var(--space-5);
+}
+.postings-note__msg {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.postings-state {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+.postings-state__msg {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.postings-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.postings-list {
+  display: grid;
+  gap: var(--space-4);
+}
+.posting-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+.posting-card__main {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  flex: 1;
+}
+.posting-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.posting-card__title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+}
+.posting-card__title:hover {
+  color: var(--text-link);
+}
+.posting-card__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.posting-card__actions {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: end;
+  text-align: right;
+}
+.posting-card__btns {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.posting-card__soon {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  max-width: 22rem;
+}
+.posting-card__soon strong {
+  color: var(--text-secondary);
+}
+
+/* ------------------------------------------------------------------
+ * AGENCY DASHBOARD (DS3.1) — the FACELESS agency supply portal re-skinned onto the design
+ * system (VISUAL layer only). Identity / credit / demand counts are DS Card stat tiles
+ * (counts + ₹ in mono tabular); status/live = DS Badge (green = live/active). Vacancies are
+ * DS Cards with a status Badge + DS Button lifecycle (post/edit/pause/close, all LIVE). The
+ * invite mint is a DS Input + Buttons (opaque code only — NO contact field). Parked modules
+ * are muted DS Cards. Every value resolves from tokens (no raw hex/px); the live /payer/agency/*
+ * path, the faceless boundary, and the no-PII / no-oracle guards are unchanged.
+ * ------------------------------------------------------------------ */
+.agency-back {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-2);
+}
+.agency-title {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-1);
+}
+.agency-sub {
+  color: var(--text-muted);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  margin: 0 0 var(--space-5);
+  max-width: var(--reading-max);
+}
+.agency-degrade {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  margin: 0 0 var(--space-5);
+}
+.agency-degrade__msg {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.agency-section {
+  margin: 0 0 var(--space-7);
+}
+.agency-section__title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-2);
+}
+.agency-section__sub {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  margin: var(--space-3) 0 0;
+  max-width: var(--reading-max);
+}
+.agency-link {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-link);
+  white-space: nowrap;
+}
+
+/* Stat tiles (identity + credit + demand summary). */
+.agency-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+}
+.agency-stat {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+}
+.agency-stat__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.agency-stat__label {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.agency-stat__value {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  line-height: var(--leading-tight);
+}
+.agency-stat__foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.agency-stat__hint {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+/* Vacancy manager. */
+.agency-jobs {
+  display: grid;
+  gap: var(--space-4);
+}
+.agency-jobs__bar {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.agency-jobs__createcard {
+  display: grid;
+  gap: var(--space-4);
+}
+.agency-jobs__createtitle {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  margin: 0;
+}
+.agency-jobs__empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.agency-jobs__list {
+  display: grid;
+  gap: var(--space-4);
+}
+.agency-job {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+.agency-job__main {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  flex: 1;
+}
+.agency-job__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.agency-job__title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+}
+.agency-job__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.agency-job__actions {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: end;
+  text-align: right;
+}
+.agency-job__btns {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.agency-job__closed {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.agency-job__status:empty {
+  display: none;
+}
+.agency-job__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.agency-job__editform {
+  width: 100%;
+  margin-top: var(--space-3);
+}
+
+/* Inline create/edit form. */
+.agency-job-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-width: var(--reading-max);
+}
+.agency-job-form__pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--space-4) var(--space-5);
+}
+.agency-job-form__actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.agency-job-form__hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.agency-job-form__status:empty {
+  display: none;
+}
+.agency-job-form__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+/* Invite mint (opaque code only — no contact field). */
+.agency-invite__note {
+  margin: var(--space-3) 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.agency-invite__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: var(--reading-max);
+  margin-top: var(--space-4);
+}
+.agency-invite__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.agency-invite__status:empty {
+  display: none;
+}
+.agency-invite__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.agency-invite__result {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  max-width: var(--reading-max);
+}
+.agency-invite__dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+}
+.agency-invite__dl dt {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.agency-invite__dl dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+/* Referral funnel + parked modules. */
+.agency-funnel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+}
+.agency-funnel__card {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+}
+.agency-funnel__label {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 0;
+}
+.agency-funnel__value {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  line-height: var(--leading-tight);
+}
+.agency-funnel__hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.agency-funnel__conv {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+  max-width: var(--reading-max);
+}
+.agency-parked {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+}
+.agency-parked__card {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  opacity: 0.72;
+}
+.agency-parked__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.agency-parked__title {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  margin: 0;
+}
+.agency-parked__note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
 /* Transient unlock-RESULT toast region (DS1.5) — fixed bottom-right; faceless, no-oracle copy. */
 .unlock-toast-region {
   position: fixed;
@@ -910,10 +1429,12 @@ textarea.input {
   border: 0;
 }
 
-/* Neutral loading skeleton (route-level loading.tsx). No data, no PII. */
+/* Neutral loading skeleton (route-level loading.tsx). No data, no PII. Token-driven so it
+   flips under [data-theme="ink"]: the base is the sunken surface; the shimmer is a soft
+   raised-surface sweep (both resolve from semantic tokens, no hardcoded light value). */
 .skeleton {
-  background: var(--panel-2);
-  border-radius: 8px;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
   position: relative;
   overflow: hidden;
 }
@@ -922,7 +1443,8 @@ textarea.input {
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  background: linear-gradient(90deg, transparent, var(--surface-raised), transparent);
+  opacity: 0.6;
   animation: skeleton-shimmer 1.3s infinite;
 }
 @keyframes skeleton-shimmer {
@@ -956,4 +1478,228 @@ textarea.input {
   .skeleton::after {
     animation: none;
   }
+}
+
+/* ------------------------------------------------------------------
+ * CAPACITY (DS2.3) — concurrent active-vacancy allowance StatTiles, DS Card capacity
+ * tiers (₹/allowance in mono tabular), the INERT-enforcement "recorded only" note, and the
+ * faceless per-posting display table. ₹/counts in mono tabular. Tokens only (no raw hex/px).
+ * ------------------------------------------------------------------ */
+.capacity-back {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-2);
+}
+.capacity-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+.capacity-alert {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  margin: var(--space-4) 0;
+}
+.capacity-alert__msg {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.capacity-section {
+  margin-top: var(--space-7);
+}
+.capacity-section__title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-2);
+}
+.capacity-tiers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-4);
+}
+.capacity-tier {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.capacity-tier__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.capacity-tier__name {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+.capacity-tier__price {
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+}
+.capacity-tier__allowance {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-2);
+}
+.capacity-nudge {
+  margin-top: var(--space-4);
+}
+.capacity-result {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.capacity-result:empty {
+  display: none;
+}
+.capacity-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.capacity-link {
+  font-weight: var(--weight-semibold);
+  color: var(--text-link);
+}
+.capacity-table-card {
+  overflow: hidden;
+}
+.capacity-state {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+.capacity-state__msg {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+/* ------------------------------------------------------------------
+ * CHROME / NEUTRAL screens (DS4.2) — token-driven equivalents of the pre-DS legacy
+ * chrome classes (.page-title / .page-sub / .btn / .form / .footer / .note / .empty …),
+ * ported so the error boundaries, 404, footer, and Team scaffold resolve from the SAME
+ * semantic surface/text tokens as every DS screen — and therefore FLIP under
+ * [data-theme="ink"]. Values match the existing paper appearance (no visual change in
+ * the default theme); the only behaviour added is dark-theme parity. Tokens only.
+ * ------------------------------------------------------------------ */
+.chrome-title {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-1);
+}
+.chrome-sub {
+  color: var(--text-muted);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  margin: 0 0 var(--space-5);
+}
+.chrome-actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+/* Token-driven "← back" breadcrumb link (replaces the legacy .page-sub use). */
+.page-back {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-2);
+}
+.chrome-footer {
+  border-top: var(--border-hairline) solid var(--border-subtle);
+  padding: var(--space-4) var(--gutter-web);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+/* Neutral centered card (404 / unauthenticated states) — DS Card surface tokens. */
+.chrome-card {
+  width: 100%;
+  max-width: var(--app-max);
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-7);
+  text-align: center;
+}
+
+/* TEAM scaffold (Owner-only user management) — re-skinned onto the token layer so it
+   flips under ink. The invite form is DS Inputs/Select/Button; this covers the section
+   scaffolding + the members table + the scaffold note. Tokens only. */
+.team-section {
+  margin: var(--space-7) 0;
+}
+.team-section__title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-3);
+}
+.team-note {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  margin: 0 0 var(--space-5);
+}
+.team-note__msg {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.team-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: var(--reading-max);
+}
+.team-form__status:empty {
+  display: none;
+}
+.team-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.team-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--space-2);
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.team-table th,
+.team-table td {
+  text-align: left;
+  padding: var(--space-3);
+  border-bottom: var(--border-hairline) solid var(--border-subtle);
+  vertical-align: middle;
+}
+.team-table th {
+  background: var(--surface-sunken);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  font-weight: var(--weight-semibold);
+}
+.team-table tr:last-child td {
+  border-bottom: none;
 }

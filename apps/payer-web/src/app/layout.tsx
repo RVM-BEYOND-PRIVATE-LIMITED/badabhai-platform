@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
-import { publicConfig } from "../lib/config";
+import { publicConfig, resolvePayerTheme } from "../lib/config";
 
 export const metadata: Metadata = {
   title: "BadaBhai for Employers",
@@ -15,8 +15,12 @@ export const metadata: Metadata = {
  * renders clean. Only `NEXT_PUBLIC_*` config is read here (no server secret).
  */
 export default function RootLayout({ children }: { children: ReactNode }) {
+  // Optional dark theme (DS4.2). Default render emits NO data-theme → paper (light) is
+  // unchanged; set PAYER_THEME=ink (or NEXT_PUBLIC_PAYER_THEME=ink) to flip the whole
+  // portal to the token-driven [data-theme="ink"] dark theme.
+  const theme = resolvePayerTheme();
   return (
-    <html lang="en">
+    <html lang="en" data-theme={theme}>
       <head>
         {/* Baloo 2 (display) + Mukta (body/multilingual) — the BadaBhai type tokens
             (--font-display / --font-sans). Roboto Mono (--font-mono) is self-hosted via
@@ -30,7 +34,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </head>
       <body>
         {children}
-        <div className="footer">
+        <div className="chrome-footer">
           BadaBhai for Employers · {publicConfig.NEXT_PUBLIC_ENVIRONMENT} · Staging preview —
           mock payments, no real money. Worker identities are masked and consent-gated.
         </div>

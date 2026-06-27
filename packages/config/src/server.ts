@@ -114,10 +114,23 @@ export const serverEnvSchema = z.object({
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(30),
   OTP_MAX_SENDS_PER_HOUR: z.coerce.number().int().positive().default(5),
-  // SMS delivery. "console" prints the code to the server log for LOCAL dev only
-  // (assertAuthConfig forbids it outside development/test). "fast2sms" sends a real
-  // SMS via the Fast2SMS DLT route; all Fast2SMS specifics live in Fast2SmsProvider.
-  SMS_PROVIDER: z.enum(["console", "fast2sms"]).default("console"),
+  // GLOBAL daily send circuit-breaker for the worker SMS path (OTP-5 — the SPEND
+  // ceiling). A backstop ABOVE the per-phone cooldown/cap + the per-IP cap: it bounds
+  // the TOTAL number of REAL Fast2SMS sends platform-wide per UTC day, so a distributed
+  // abuser rotating phones/IPs still cannot run up the bill. Counts REAL sends ONLY
+  // (no-op in mock/console mode → no spend, no effect). Fail-closed: a Redis error on
+  // the global counter rejects rather than uncapping.
+  //   min(0) is DELIBERATE: 0 = PAUSED = the worker-SMS KILL-SWITCH. Setting this to 0
+  //   trips the breaker on the very next real send → instant halt of all real spend
+  //   (and a PII-free worker.otp_send_cap_exceeded breach event), env-only, NO redeploy.
+  //   This is the worker-SMS off-switch: worker OTP is REAL-ONLY (Fast2SMS), so there is
+  //   no provider toggle to disable real sends — setting the cap to 0 is the lever.
+  OTP_GLOBAL_MAX_SENDS_PER_DAY: z.coerce.number().int().min(0).default(2000),
+  // SMS delivery is REAL-ONLY: "fast2sms" sends via the Fast2SMS DLT route (all Fast2SMS
+  // specifics live in Fast2SmsProvider). There is NO console/dev provider — assertAuthConfig
+  // requires the Fast2SMS credentials in EVERY environment, so the app fails CLOSED without
+  // them. The literal keeps the env var for back-compat with one allowed value.
+  SMS_PROVIDER: z.literal("fast2sms").default("fast2sms"),
   FAST2SMS_API_KEY: z.string().min(1).optional(),
   FAST2SMS_SENDER_ID: z.string().min(1).optional(),
   FAST2SMS_DLT_TEMPLATE_ID: z.string().min(1).optional(),
@@ -130,8 +143,8 @@ export const serverEnvSchema = z.object({
   // above (one set of OTP shape/lifecycle for both principals).
   //
   // PAYER_LOGIN_METHOD selects the login channel (ADR-0019 B-R1):
-  //   "email_otp" — alpha MOCK default: a one-time code is delivered over a console/mock
-  //                 channel (the SmsProvider="console" analogue; dev/test echo only).
+  //   "email_otp" — DEFAULT: a one-time code is emailed via the REAL provider
+  //                 (EMAIL_PROVIDER below — ZeptoMail/SMTP; credentials required at boot).
   //   "whatsapp"  — rides the ADR-0020 WhatsApp MOCK provider (no real send in alpha);
   //                 the payer's phone is required on the account.
   //   "supabase"  — config-gated adapter (locked stack). INERT WITHOUT KEYS: selecting it
@@ -146,6 +159,19 @@ export const serverEnvSchema = z.object({
   // Per-IP hourly cap on the UNAUTHENTICATED payer auth endpoints (signup / login
   // request / verify) — an account-farming + credential-stuffing backstop (XB-H / XT2).
   PAYER_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // GLOBAL daily send circuit-breaker for the payer EMAIL-OTP path (OTP-5 — the SPEND
+  // ceiling; the payer analogue of OTP_GLOBAL_MAX_SENDS_PER_DAY). Bounds the TOTAL number
+  // of REAL payer email sends platform-wide per UTC day, ABOVE the per-account cooldown/
+  // cap + per-IP cap, so a distributed abuser cannot run up the email bill. Counts REAL
+  // sends. The payer email channel is REAL-ONLY (ZeptoMail/SMTP), so this always enforces.
+  // Fail-closed: a Redis error on the global counter rejects rather than uncapping. On
+  // breach the response stays BYTE-IDENTICAL for a known vs unknown account (no enumeration
+  // oracle, XB-H) — the breaker is checked on the existence-INDEPENDENT reserve path and
+  // degrades to the same neutral "code_sent"-shaped response.
+  //   min(0) is DELIBERATE: 0 = PAUSED = the payer-email KILL-SWITCH. Setting this to 0
+  //   trips the breaker on the next real send → instant halt + a PII-free
+  //   payer.otp_send_cap_exceeded breach event, env-only, NO redeploy.
+  PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY: z.coerce.number().int().min(0).default(2000),
   // Per-PAYER hourly cap on the self-serve REACH read (ADR-0019 R22 / PR2). The reach
   // view returns the full faceless ranked pool for a payer's OWNED job, so repeated
   // loads are the scrape / worker-de-anonymization surface (the reach analogue of XB-G).
@@ -159,6 +185,37 @@ export const serverEnvSchema = z.object({
   // PayerDisclosureRateLimit with scope "agency_invite_mint". Fail-closed (a Redis
   // outage rejects, never uncaps).
   AGENCY_INVITE_MINT_MAX_PER_HOUR: z.coerce.number().int().positive().default(60),
+
+  // Payer email-OTP delivery channel (ADR-0019; the email analogue of SMS_PROVIDER).
+  // REAL-ONLY and RELEVANT when PAYER_LOGIN_METHOD="email_otp". There is NO "none"/mock
+  // option — a real provider's credentials are REQUIRED at boot (assertPayerAuthConfig →
+  // emailProviderBlockedReason fails CLOSED without them, never silently degrading). All
+  // keys are SERVER-ONLY secrets — never NEXT_PUBLIC_*, never the public config.
+  //   "zeptomail" — ZeptoMail HTTPS send API (requires the ZEPTOMAIL_* set below) [default].
+  //   "smtp"      — generic SMTP relay (requires the SMTP_* set below).
+  //   "auto"      — pick whichever set is fully configured (ZeptoMail preferred); a
+  //                 reason is raised only when NEITHER set is satisfiable.
+  EMAIL_PROVIDER: z.enum(["zeptomail", "smtp", "auto"]).default("zeptomail"),
+  // ZeptoMail (HTTPS send API). The API_URL is a non-secret endpoint; the TOKEN +
+  // MAIL_AGENT are secrets supplied only in staging-first. SANDBOX_MODE uses
+  // booleanFromString (NOT z.coerce.boolean) so a falsey string stays OFF.
+  ZEPTOMAIL_API_URL: z.string().url().optional(),
+  ZEPTOMAIL_API_TOKEN: z.string().min(1).optional(),
+  ZEPTOMAIL_MAIL_AGENT: z.string().min(1).optional(),
+  ZEPTOMAIL_SANDBOX_MODE: booleanFromString,
+  // Generic SMTP relay (alternative to ZeptoMail). HOST/USER/PASS are secrets; PORT
+  // reuses the shared portSchema. FROM is the envelope sender for the SMTP transport.
+  SMTP_HOST: z.string().min(1).optional(),
+  SMTP_PORT: portSchema.optional(),
+  SMTP_USER: z.string().min(1).optional(),
+  SMTP_PASS: z.string().min(1).optional(),
+  SMTP_FROM: z.string().min(1).optional(),
+  // Shared From identity for the rendered email (both providers). EMAIL_FROM_ADDRESS is
+  // a required cred for every REAL provider (the guard enforces it); NAME + REPLY_TO are
+  // presentation-only.
+  EMAIL_FROM_NAME: z.string().min(1).optional(),
+  EMAIL_FROM_ADDRESS: z.string().email().optional(),
+  EMAIL_REPLY_TO: z.string().email().optional(),
 
   // AI routing (direct providers — Gemini primary + Claude Haiku fallback; ADR-0008).
   // The AI service (Python) calls providers DIRECTLY over their own SDKs/REST; the
@@ -414,6 +471,27 @@ export function areRealMessagesEnabled(config: ServerConfig): boolean {
 }
 
 /**
+ * True when the WORKER OTP path uses the REAL (spend-incurring) SMS provider (OTP-5).
+ * Worker OTP is REAL-ONLY (Fast2SMS), so this is always true — the global daily send
+ * circuit-breaker (OTP_GLOBAL_MAX_SENDS_PER_DAY) therefore always enforces. Retained as
+ * the explicit spend-signal seam the OTP service gates on.
+ */
+export function isRealOtpSmsActive(_config: ServerConfig): boolean {
+  return true;
+}
+
+/**
+ * True when the PAYER email-OTP path uses a REAL (spend-incurring) email provider (OTP-5).
+ * The payer email channel is REAL-ONLY (ZeptoMail/SMTP — no "none"/mock), so this is always
+ * true and the payer global daily send circuit-breaker (PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY)
+ * always enforces. NOTE: relevant only when PAYER_LOGIN_METHOD="email_otp" (the email
+ * channel is unused for whatsapp/supabase); the OTP service gates on this spend signal.
+ */
+export function isRealPayerEmailActive(_config: ServerConfig): boolean {
+  return true;
+}
+
+/**
  * Guard for the per-payer capacity ENFORCEMENT path (ADR-0016, posture B) — the
  * direct analogue of `areRealPaymentsEnabled`. Default OFF (fail-safe = inert):
  * when false the chokepoint runs in SHADOW — it computes the over-cap decision but
@@ -483,45 +561,36 @@ export function assertMessagingConfig(config: ServerConfig): void {
 }
 
 /**
- * Fail-closed guard for worker-auth config. Like assertPiiCryptoConfig, the dev
- * shortcuts are acceptable ONLY when NODE_ENV is EXPLICITLY "development"/"test".
- * Any other value — including UNSET, "staging", or "production" — must:
- *   - override JWT_SECRET (the dev default would let anyone forge a session), AND
- *   - use a real SMS provider (the console provider PRINTS the code to logs, so it
- *     must never run outside dev), AND
- *   - when SMS_PROVIDER="fast2sms", supply the required Fast2SMS credentials, so a
- *     half-configured provider fails at boot rather than silently dropping OTPs.
- * Call once at boot (main.ts).
+ * Fail-closed guard for worker-auth config. Worker OTP is REAL-ONLY (Fast2SMS), so the
+ * Fast2SMS credentials are REQUIRED in EVERY environment — there is no console/dev
+ * provider to fall back to, so the app fails CLOSED (refuses to boot) without them. The
+ * JWT dev-default shortcut is acceptable ONLY in an explicit development/test env; any
+ * other value (UNSET, "staging", "production") must override JWT_SECRET, since the dev
+ * default would let anyone forge a session. Call once at boot (main.ts).
  */
 export function assertAuthConfig(
   config: ServerConfig,
   rawNodeEnv: string | undefined = process.env.NODE_ENV,
 ): void {
-  if (isDevEnv(rawNodeEnv)) return;
-
   const problems: string[] = [];
-  if (config.JWT_SECRET === DEV_JWT_SECRET) {
+
+  // Real SMS credentials are required in EVERY environment (real-only worker OTP — no
+  // console fallback). A half-configured/absent provider fails at boot, never silently.
+  const missing: string[] = [];
+  if (!config.FAST2SMS_API_KEY) missing.push("FAST2SMS_API_KEY");
+  if (!config.FAST2SMS_SENDER_ID) missing.push("FAST2SMS_SENDER_ID");
+  if (!config.FAST2SMS_DLT_TEMPLATE_ID) missing.push("FAST2SMS_DLT_TEMPLATE_ID");
+  if (missing.length > 0) {
+    problems.push(`SMS_PROVIDER=fast2sms requires: ${missing.join(", ")}`);
+  }
+
+  // The dev JWT default is acceptable only in an explicit development/test environment.
+  if (!isDevEnv(rawNodeEnv) && config.JWT_SECRET === DEV_JWT_SECRET) {
     problems.push("JWT_SECRET must be overridden (the dev default is public)");
-  }
-  if (config.SMS_PROVIDER === "console") {
-    problems.push(
-      "SMS_PROVIDER=console prints OTP codes to logs and must not run outside development",
-    );
-  }
-  if (config.SMS_PROVIDER === "fast2sms") {
-    const missing: string[] = [];
-    if (!config.FAST2SMS_API_KEY) missing.push("FAST2SMS_API_KEY");
-    if (!config.FAST2SMS_SENDER_ID) missing.push("FAST2SMS_SENDER_ID");
-    if (!config.FAST2SMS_DLT_TEMPLATE_ID) missing.push("FAST2SMS_DLT_TEMPLATE_ID");
-    if (missing.length > 0) {
-      problems.push(`SMS_PROVIDER=fast2sms requires: ${missing.join(", ")}`);
-    }
   }
 
   if (problems.length > 0) {
-    throw new Error(
-      `Insecure/incomplete auth config outside an explicit development/test environment: ${problems.join("; ")}`,
-    );
+    throw new Error(`Insecure/incomplete auth config: ${problems.join("; ")}`);
   }
 }
 
@@ -546,10 +615,54 @@ export function payerLoginMethodBlockedReason(config: ServerConfig): string | nu
 }
 
 /**
+ * Reason the SELECTED email-OTP provider cannot run, or null when it is satisfiable
+ * (ADR-0019; mirrors `assertAuthConfig`'s fast2sms branch + `payerLoginMethodBlockedReason`).
+ * A REAL provider that is missing its required creds returns a reason so boot can fail
+ * CLOSED rather than silently degrading to the mock channel. The mock provider ("none")
+ * is always satisfiable (no real send/spend). This helper is provider-only — the CALLER
+ * (assertPayerAuthConfig) decides whether it is RELEVANT (it gates only when
+ * PAYER_LOGIN_METHOD="email_otp"; the email channel is irrelevant for whatsapp/supabase).
+ *   - "zeptomail" requires ZEPTOMAIL_API_TOKEN + ZEPTOMAIL_MAIL_AGENT + EMAIL_FROM_ADDRESS.
+ *   - "smtp"      requires SMTP_HOST + SMTP_USER + SMTP_PASS + EMAIL_FROM_ADDRESS.
+ *   - "auto"      requires EITHER the full ZeptoMail set OR the full SMTP set (each
+ *                 including EMAIL_FROM_ADDRESS); a reason only when NEITHER is satisfiable.
+ */
+export function emailProviderBlockedReason(config: ServerConfig): string | null {
+  const zeptoMissing: string[] = [];
+  if (!config.ZEPTOMAIL_API_TOKEN) zeptoMissing.push("ZEPTOMAIL_API_TOKEN");
+  if (!config.ZEPTOMAIL_MAIL_AGENT) zeptoMissing.push("ZEPTOMAIL_MAIL_AGENT");
+  if (!config.EMAIL_FROM_ADDRESS) zeptoMissing.push("EMAIL_FROM_ADDRESS");
+
+  const smtpMissing: string[] = [];
+  if (!config.SMTP_HOST) smtpMissing.push("SMTP_HOST");
+  if (!config.SMTP_USER) smtpMissing.push("SMTP_USER");
+  if (!config.SMTP_PASS) smtpMissing.push("SMTP_PASS");
+  if (!config.EMAIL_FROM_ADDRESS) smtpMissing.push("EMAIL_FROM_ADDRESS");
+
+  switch (config.EMAIL_PROVIDER) {
+    case "zeptomail":
+      return zeptoMissing.length > 0
+        ? `EMAIL_PROVIDER=zeptomail requires: ${zeptoMissing.join(", ")}`
+        : null;
+    case "smtp":
+      return smtpMissing.length > 0
+        ? `EMAIL_PROVIDER=smtp requires: ${smtpMissing.join(", ")}`
+        : null;
+    case "auto":
+      if (zeptoMissing.length === 0 || smtpMissing.length === 0) return null;
+      return "EMAIL_PROVIDER=auto requires a fully-configured ZeptoMail set (ZEPTOMAIL_API_TOKEN + ZEPTOMAIL_MAIL_AGENT + EMAIL_FROM_ADDRESS) OR SMTP set (SMTP_HOST + SMTP_USER + SMTP_PASS + EMAIL_FROM_ADDRESS) — neither is satisfiable";
+  }
+}
+
+/**
  * Fail-closed boot guard for the self-serve payer auth surface (ADR-0019 Decision B;
- * mirrors `assertAuthConfig` / `assertPaymentsConfig`). Two invariants:
+ * mirrors `assertAuthConfig` / `assertPaymentsConfig`). Invariants:
  *   - the chosen login method must be runnable — the `supabase` adapter must NOT boot
  *     half-configured (inert-without-keys → throw, never silently degrade), AND
+ *   - when PAYER_LOGIN_METHOD="email_otp", the REAL email provider's credentials are
+ *     REQUIRED (real-only — no mock channel); a half-configured provider throws via
+ *     emailProviderBlockedReason. The email channel is irrelevant — and therefore NOT
+ *     gated — for whatsapp/supabase, AND
  *   - outside an explicit development/test environment JWT_SECRET must be overridden
  *     (the payer session is signed with the SAME JWT_SECRET as the worker session; the
  *     dev default would let anyone forge a payer session — XB-H secure-session).
@@ -563,6 +676,12 @@ export function assertPayerAuthConfig(
 
   const blocked = payerLoginMethodBlockedReason(config);
   if (blocked) problems.push(blocked);
+
+  // The email-OTP channel is only relevant when it is the selected login method.
+  if (config.PAYER_LOGIN_METHOD === "email_otp") {
+    const emailBlocked = emailProviderBlockedReason(config);
+    if (emailBlocked) problems.push(emailBlocked);
+  }
 
   if (!isDevEnv(rawNodeEnv) && config.JWT_SECRET === DEV_JWT_SECRET) {
     problems.push("JWT_SECRET must be overridden (the payer session is signed with it)");

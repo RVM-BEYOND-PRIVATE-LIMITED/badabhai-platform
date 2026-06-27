@@ -13,8 +13,8 @@ import type { PayerRole, PayerSession } from "./types";
  * a client flag/param.
  *
  * SECURITY (XB-A / XT3 — horizontal & role authz):
- *  - the role is read from {@link requirePayer} → the HMAC-signed session cookie
- *    (`session-token.ts`), which a client cannot forge or tamper;
+ *  - the role is read from {@link requirePayer} → the backend payer JWT resolved via
+ *    `GET /payer/me` (server-side), which a client cannot forge or tamper;
  *  - on a role mismatch we return a NEUTRAL `notFound()` (404) — never a "forbidden"
  *    oracle and never a client-side hide. An `employer` cannot even learn that an
  *    `agent`-only route exists, and vice-versa.

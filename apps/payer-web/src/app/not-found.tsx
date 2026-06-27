@@ -11,14 +11,14 @@ import Link from "next/link";
 export default function NotFound() {
   return (
     <div className="login-wrap">
-      <div className="form" style={{ textAlign: "center" }}>
-        <h1 className="page-title">Not found</h1>
-        <p className="page-sub">
+      <div className="chrome-card">
+        <h1 className="chrome-title">Not found</h1>
+        <p className="chrome-sub">
           This page doesn&rsquo;t exist, or isn&rsquo;t available to your account.
         </p>
-        <div className="btn-row" style={{ justifyContent: "center" }}>
-          <Link className="btn" href="/dashboard">
-            Go to dashboard
+        <div className="chrome-actions" style={{ justifyContent: "center" }}>
+          <Link className="bb-btn bb-btn--primary" href="/dashboard">
+            <span>Go to dashboard</span>
           </Link>
         </div>
       </div>

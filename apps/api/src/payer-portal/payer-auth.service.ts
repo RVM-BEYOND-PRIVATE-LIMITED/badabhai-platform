@@ -10,6 +10,7 @@ import type { ServerConfig } from "@badabhai/config";
 import type { PayerLoginMethodEnum } from "@badabhai/event-schema";
 import { SERVER_CONFIG } from "../config/config.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { OtpSendCapExceededException } from "../common/otp-send-cap";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { PayersRepository } from "../payers/payers.repository";
@@ -81,23 +82,31 @@ export class PayerAuthService {
 
     // Issue a code to the canonical stored contact (uniform for new + existing — no
     // overwrite of an existing account; the response is identical either way, XB-H).
-    const issued = await this.issueForExistingAccount(id, dto.email, ctx, false);
-    return this.codeResponse(issued);
+    try {
+      const issued = await this.issueForExistingAccount(id, dto.email, ctx, false);
+      return this.codeResponse(issued);
+    } catch (err) {
+      return this.neutralOnSendCapBreach(err, ctx);
+    }
   }
 
   /** POST /payer/login/request — issue a code; NO-ENUMERATION across known/unknown emails. */
   async requestLogin(dto: PayerLoginRequestDto, ctx: RequestContext): Promise<PayerAuthCodeResponse> {
-    const account = await this.payers.findByEmail(dto.email);
-    let issued: PayerOtpIssued;
-    if (account) {
-      issued = await this.issueForExistingAccount(account.id, dto.email, ctx, true);
-    } else {
-      // UNKNOWN email: run the IDENTICAL reserve (cooldown/cap/store) WITHOUT delivery so
-      // the observable timing/response + 429s match a known account. No event is emitted
-      // (no subject), and that asymmetry is not caller-observable (the body is identical).
-      issued = await this.otp.issueWithoutDelivery(this.emailHash(dto.email));
+    try {
+      const account = await this.payers.findByEmail(dto.email);
+      let issued: PayerOtpIssued;
+      if (account) {
+        issued = await this.issueForExistingAccount(account.id, dto.email, ctx, true);
+      } else {
+        // UNKNOWN email: run the IDENTICAL reserve (cooldown/cap/store) WITHOUT delivery so
+        // the observable timing/response + 429s match a known account. No event is emitted
+        // (no subject), and that asymmetry is not caller-observable (the body is identical).
+        issued = await this.otp.issueWithoutDelivery(this.emailHash(dto.email));
+      }
+      return this.codeResponse(issued);
+    } catch (err) {
+      return this.neutralOnSendCapBreach(err, ctx);
     }
-    return this.codeResponse(issued);
   }
 
   /** POST /payer/login/verify — verify the code then mint a session (only for a real account). */
@@ -207,7 +216,42 @@ export class PayerAuthService {
     return {
       status: "code_sent",
       resend_in_seconds: issued.resendInSeconds,
-      ...(issued.devCode ? { dev_otp: issued.devCode } : {}),
+    };
+  }
+
+  /**
+   * OTP-5 no-enumeration handler for the GLOBAL daily send circuit-breaker breach. The
+   * breaker trips on the existence-INDEPENDENT reserve path (run identically for a known
+   * and an unknown account), so a breach surfaces as the same {@link OtpSendCapExceededException}
+   * either way. Here we emit the PII-free `payer.otp_send_cap_exceeded` breach event ONCE
+   * and DEGRADE to the SAME neutral "code_sent"-shaped response the unknown-account path
+   * already returns — so the response is BYTE-IDENTICAL for a known vs unknown account
+   * (XB-H). Any OTHER error (cooldown/cap 429, 503) is re-thrown unchanged; those already
+   * propagate identically across both branches, so they are not an oracle. The breach
+   * payload is AGGREGATE — no payer id, email, IP, or code.
+   */
+  private async neutralOnSendCapBreach(
+    err: unknown,
+    ctx: RequestContext,
+  ): Promise<PayerAuthCodeResponse> {
+    if (!(err instanceof OtpSendCapExceededException)) throw err;
+    await this.events.emit({
+      event_name: "payer.otp_send_cap_exceeded",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "payer" },
+      payload: {
+        channel: err.breach.channel,
+        cap: "global_daily",
+        limit: err.breach.limit,
+        window: err.breach.window,
+      },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+    // The neutral "code_sent" response the unknown-account path returns (no code is ever echoed).
+    return {
+      status: "code_sent",
+      resend_in_seconds: this.config.OTP_RESEND_COOLDOWN_SECONDS,
     };
   }
 }

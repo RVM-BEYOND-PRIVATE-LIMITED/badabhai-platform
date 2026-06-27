@@ -1,4 +1,5 @@
 import type { AgencyJob, NeededBy } from "./contracts";
+import { formatInr } from "./format";
 
 /**
  * PURE, presentational formatting for the Agency Supply Portal DEMAND surface (ADR-0022).
@@ -11,10 +12,10 @@ import type { AgencyJob, NeededBy } from "./contracts";
 export function payBandLabel(payMin: number | null, payMax: number | null): string {
   if (payMin === null && payMax === null) return "—";
   if (payMin !== null && payMax !== null) {
-    return `₹${payMin.toLocaleString("en-IN")}–₹${payMax.toLocaleString("en-IN")}`;
+    return `${formatInr(payMin)}–${formatInr(payMax)}`;
   }
-  if (payMin !== null) return `₹${payMin.toLocaleString("en-IN")}+`;
-  return `up to ₹${payMax!.toLocaleString("en-IN")}`;
+  if (payMin !== null) return `${formatInr(payMin)}+`;
+  return `up to ${formatInr(payMax!)}`;
 }
 
 /** A coarse experience band label (years), or "—" when neither end is set. */

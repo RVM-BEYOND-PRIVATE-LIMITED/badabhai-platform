@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { FacelessApplicant } from "../../../../../lib/contracts";
 import type { ContactView, RevealView, UnlockView } from "../../../../../lib/unlock-view";
 import { Avatar, Badge, Button, Card, Chip, Tabs } from "../../../../../components/ds";
+import { bandLabel, opaqueId } from "../../../../../lib/masking";
 import {
   ConfirmSpendDialog,
   MaskedResumeCard,
@@ -253,13 +254,13 @@ export function ApplicantActions({
                       opaque id; bands are banded taxonomy only — never PII. */}
                   <Avatar masked size={44} aria-hidden="true" />
                   <div className="applicant__id">
-                    <span className="bb-mono applicant__id-code">{a.workerId.slice(0, 8)}…</span>
+                    <span className="bb-mono applicant__id-code">{opaqueId(a.workerId)}</span>
                     {a.tradeLabel ? (
                       <span className="applicant__trade">{a.tradeLabel}</span>
                     ) : null}
                     {a.experienceBand || a.cityLabel ? (
                       <span className="applicant__bands">
-                        {[a.experienceBand, a.cityLabel].filter(Boolean).join(" · ")}
+                        {bandLabel([a.experienceBand, a.cityLabel])}
                       </span>
                     ) : null}
                   </div>

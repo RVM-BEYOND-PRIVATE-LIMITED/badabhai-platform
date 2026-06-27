@@ -78,7 +78,11 @@ async function consent(workerId: string, purposes: string[]): Promise<void> {
   expect(r.status).toBe(201);
 }
 
-describe.skipIf(!RUN)("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)", () => {
+// REAL-ONLY: this suite mints authenticated worker/payer sessions via OTP login, which now
+// requires a real Fast2SMS/ZeptoMail code (no dev echo) — it cannot run in automated CI. The
+// end-to-end proof is the manual OTP-7 staging check (docs/ops/otp-real-send-staging-runbook.md).
+void RUN;
+describe.skip("Contact Unlock + Reveal (e2e, ADR-0010 Stream A)", () => {
   let client!: DbClient;
 
   beforeAll(() => {

@@ -3,16 +3,22 @@
 import { useState, useTransition } from "react";
 import { NEEDED_BY, TRADE_KEYS, type AgencyJob, type NeededBy } from "../../../../lib/contracts";
 import { neededByLabel, tradeLabel } from "../../../../lib/agency-view";
+import { Button, Card, Input, Select } from "../../../../components/ds";
 
 /**
  * Shared CREATE/EDIT form for an agency vacancy (ADR-0022, LIVE), rendered INLINE on the
- * agency dashboard.
+ * agency dashboard — DS3.1 re-skin onto the BadaBhai Design System (VISUAL layer only).
  *
  * Runs in the BROWSER and sees NO secret. It collects ONLY the coarse, non-PII demand
  * fields (a trade enum, a generic role title, a city/area label, ₹ pay bands, year
  * counts, a coarse timing enum). There is deliberately NO employer-name field and NO
  * worker field — those are not demand attributes (ADR-0009 §2 / ADR-0022 privacy line).
  * The session payer is stamped server-side (XB-A); this form never sends a payer id.
+ *
+ * The fields are DS `Input`/`Select` primitives (each with an explicit `id` so the
+ * label/error associate); inline errors surface in the DS Input's own `.bb-field__error`
+ * slot. The submit/cancel are DS `Button`s. Every value resolves from tokens (no raw
+ * hex/px). The `validate()` parity + the submit body shape are UNCHANGED by the re-skin.
  */
 
 interface AgencyJobInputValues {
@@ -166,6 +172,7 @@ export function AgencyJobForm({
   onCancel?: () => void;
   submitLabel: string;
 }) {
+  // useState call order (mirrored by agency-job-form.test.tsx): fields, fieldErrors, error.
   const [fields, setFields] = useState<FormFields>(job ? fromJob(job) : BLANK);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
@@ -215,188 +222,133 @@ export function AgencyJobForm({
   }
 
   return (
-    <form className="form" onSubmit={handleSubmit}>
-      <div className="field">
-        <label htmlFor="tradeKey">
-          Trade<span className="req">*</span>
-        </label>
-        <select
-          id="tradeKey"
-          className="input"
-          value={fields.tradeKey}
-          onChange={(e) => set("tradeKey", e.target.value)}
-        >
-          {TRADE_KEYS.map((t) => (
-            <option key={t} value={t}>
-              {tradeLabel(t)}
-            </option>
-          ))}
-        </select>
-      </div>
+    <Card as="form" className="agency-job-form" onSubmit={handleSubmit}>
+      <Select
+        id="tradeKey"
+        label="Trade"
+        value={fields.tradeKey}
+        onChange={(e) => set("tradeKey", e.target.value)}
+      >
+        {TRADE_KEYS.map((t) => (
+          <option key={t} value={t}>
+            {tradeLabel(t)}
+          </option>
+        ))}
+      </Select>
 
-      <div className="field">
-        <label htmlFor="title">
-          Role title<span className="req">*</span>
-        </label>
-        <input
-          id="title"
-          className="input"
-          placeholder="CNC Operator — Night Shift"
-          value={fields.title}
-          aria-invalid={fieldErrors.title ? true : undefined}
-          aria-describedby={fieldErrors.title ? "title-error" : undefined}
-          onChange={(e) => set("title", e.target.value)}
-        />
-        {fieldErrors.title ? (
-          <p className="error-text" id="title-error">
-            {fieldErrors.title}
-          </p>
-        ) : null}
-        <p className="page-sub" style={{ margin: "4px 0 0" }}>
-          A generic role title — never an employer name or contact details.
-        </p>
-      </div>
+      <Input
+        id="title"
+        label="Role title"
+        placeholder="CNC Operator — Night Shift"
+        value={fields.title}
+        error={fieldErrors.title}
+        aria-invalid={fieldErrors.title ? true : undefined}
+        hint="A generic role title — never an employer name or contact details."
+        onChange={(e) => set("title", e.target.value)}
+      />
 
-      <div className="field">
-        <label htmlFor="city">
-          City<span className="req">*</span>
-        </label>
-        <input
-          id="city"
-          className="input"
-          placeholder="Pune"
-          value={fields.city}
-          aria-invalid={fieldErrors.city ? true : undefined}
-          aria-describedby={fieldErrors.city ? "city-error" : undefined}
-          onChange={(e) => set("city", e.target.value)}
-        />
-        {fieldErrors.city ? (
-          <p className="error-text" id="city-error">
-            {fieldErrors.city}
-          </p>
-        ) : null}
-      </div>
+      <Input
+        id="city"
+        label="City"
+        placeholder="Pune"
+        value={fields.city}
+        error={fieldErrors.city}
+        aria-invalid={fieldErrors.city ? true : undefined}
+        onChange={(e) => set("city", e.target.value)}
+      />
 
-      <div className="field">
-        <label htmlFor="area">Area / locality</label>
-        <input
-          id="area"
-          className="input"
-          placeholder="Pimpri-Chinchwad"
-          value={fields.area}
-          onChange={(e) => set("area", e.target.value)}
-        />
-      </div>
+      <Input
+        id="area"
+        label="Area / locality"
+        optional
+        placeholder="Pimpri-Chinchwad"
+        value={fields.area}
+        onChange={(e) => set("area", e.target.value)}
+      />
 
-      <div className="field">
-        <label htmlFor="payMin">Pay band — min (₹ / month)</label>
-        <input
+      <div className="agency-job-form__pair">
+        <Input
           id="payMin"
-          className="input"
+          label="Pay band — min (₹ / month)"
+          optional
           inputMode="numeric"
           placeholder="20000"
           value={fields.payMin}
+          error={fieldErrors.payMin}
           aria-invalid={fieldErrors.payMin ? true : undefined}
-          aria-describedby={fieldErrors.payMin ? "payMin-error" : undefined}
           onChange={(e) => set("payMin", e.target.value)}
         />
-        {fieldErrors.payMin ? (
-          <p className="error-text" id="payMin-error">
-            {fieldErrors.payMin}
-          </p>
-        ) : null}
-      </div>
-
-      <div className="field">
-        <label htmlFor="payMax">Pay band — max (₹ / month)</label>
-        <input
+        <Input
           id="payMax"
-          className="input"
+          label="Pay band — max (₹ / month)"
+          optional
           inputMode="numeric"
           placeholder="35000"
           value={fields.payMax}
+          error={fieldErrors.payMax}
           aria-invalid={fieldErrors.payMax ? true : undefined}
-          aria-describedby={fieldErrors.payMax ? "payMax-error" : undefined}
           onChange={(e) => set("payMax", e.target.value)}
         />
-        {fieldErrors.payMax ? (
-          <p className="error-text" id="payMax-error">
-            {fieldErrors.payMax}
-          </p>
-        ) : null}
       </div>
 
-      <div className="field">
-        <label htmlFor="minExperienceYears">Experience — min (years)</label>
-        <input
+      <div className="agency-job-form__pair">
+        <Input
           id="minExperienceYears"
-          className="input"
+          label="Experience — min (years)"
+          optional
           inputMode="numeric"
           placeholder="1"
           value={fields.minExperienceYears}
+          error={fieldErrors.minExperienceYears}
           aria-invalid={fieldErrors.minExperienceYears ? true : undefined}
-          aria-describedby={fieldErrors.minExperienceYears ? "minExperienceYears-error" : undefined}
           onChange={(e) => set("minExperienceYears", e.target.value)}
         />
-        {fieldErrors.minExperienceYears ? (
-          <p className="error-text" id="minExperienceYears-error">
-            {fieldErrors.minExperienceYears}
-          </p>
-        ) : null}
-      </div>
-
-      <div className="field">
-        <label htmlFor="maxExperienceYears">Experience — max (years)</label>
-        <input
+        <Input
           id="maxExperienceYears"
-          className="input"
+          label="Experience — max (years)"
+          optional
           inputMode="numeric"
           placeholder="5"
           value={fields.maxExperienceYears}
+          error={fieldErrors.maxExperienceYears}
           aria-invalid={fieldErrors.maxExperienceYears ? true : undefined}
-          aria-describedby={fieldErrors.maxExperienceYears ? "maxExperienceYears-error" : undefined}
           onChange={(e) => set("maxExperienceYears", e.target.value)}
         />
-        {fieldErrors.maxExperienceYears ? (
-          <p className="error-text" id="maxExperienceYears-error">
-            {fieldErrors.maxExperienceYears}
-          </p>
-        ) : null}
       </div>
 
-      <div className="field">
-        <label htmlFor="neededBy">Needed by</label>
-        <select
-          id="neededBy"
-          className="input"
-          value={fields.neededBy}
-          onChange={(e) => set("neededBy", e.target.value)}
-        >
-          <option value="">— select —</option>
-          {NEEDED_BY.map((n) => (
-            <option key={n} value={n}>
-              {neededByLabel(n)}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Select
+        id="neededBy"
+        label="Needed by"
+        optional
+        value={fields.neededBy}
+        onChange={(e) => set("neededBy", e.target.value)}
+      >
+        <option value="">— select —</option>
+        {NEEDED_BY.map((n) => (
+          <option key={n} value={n}>
+            {neededByLabel(n)}
+          </option>
+        ))}
+      </Select>
 
-      <div className="btn-row">
-        <button className="btn" type="submit" disabled={pending || !isValid}>
+      <div className="agency-job-form__actions">
+        <Button type="submit" disabled={pending || !isValid} loading={pending}>
           {pending ? "Saving…" : submitLabel}
-        </button>
+        </Button>
         {onCancel ? (
-          <button className="btn secondary" type="button" disabled={pending} onClick={onCancel}>
+          <Button variant="secondary" type="button" disabled={pending} onClick={onCancel}>
             Cancel
-          </button>
+          </Button>
         ) : null}
       </div>
       {mode === "edit" ? (
-        <p className="page-sub" style={{ margin: 0 }}>
+        <p className="agency-job-form__hint">
           A closed vacancy cannot be edited — reopen is out of scope for this release.
         </p>
       ) : null}
-      <div aria-live="polite">{error ? <p className="error-text">{error}</p> : null}</div>
-    </form>
+      <div aria-live="polite" className="agency-job-form__status">
+        {error ? <p className="agency-job-form__error">{error}</p> : null}
+      </div>
+    </Card>
   );
 }

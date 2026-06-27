@@ -219,6 +219,22 @@
 .bb-badge--outline.bb-badge--success { color: var(--green-600); }
 .bb-badge--outline.bb-badge--neutral { color: var(--ink-500); }
 
+/* INK a11y (DS4.2): the SOFT badge foregrounds are dark-end ramp colors tuned for the
+   LIGHT (paper) tint backgrounds. Under [data-theme="ink"] the tints flip to dark
+   translucent fills, so a dark foreground would fall sub-AA (e.g. green-700 on a dark
+   green tint ≈ 1.6:1). Re-point ONLY the soft-badge + soft-outline foregrounds to the
+   light end of each ramp (≥5.4:1 on the ink tints). Paper is untouched. */
+[data-theme="ink"] .bb-badge--neutral { color: var(--ink-200); }
+[data-theme="ink"] .bb-badge--brand   { color: var(--vermilion-200); }
+[data-theme="ink"] .bb-badge--success { color: var(--green-200); }
+[data-theme="ink"] .bb-badge--danger  { color: var(--red-300); }
+[data-theme="ink"] .bb-badge--warning { color: var(--saffron-200); }
+[data-theme="ink"] .bb-badge--info    { color: var(--teal-100); }
+[data-theme="ink"] .bb-badge--outline.bb-badge--success { color: var(--green-300); }
+[data-theme="ink"] .bb-badge--outline.bb-badge--neutral { color: var(--ink-300); }
+/* The SOLID badges keep white-on-saturated text (unchanged): those backgrounds are the
+   same vivid brand/success/danger tones in both themes, so contrast is theme-independent. */
+
 /* ---------- Chip ---------- */
 .bb-chip {
   display: inline-flex; align-items: center; gap: 6px;

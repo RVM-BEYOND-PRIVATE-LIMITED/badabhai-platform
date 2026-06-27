@@ -3,8 +3,14 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { randomInt, timingSafeEqual } from "node:crypto";
 import type { ServerConfig } from "@badabhai/config";
+import { isRealOtpSmsActive } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import {
+  OtpSendCapExceededException,
+  secondsUntilEndOfUtcDay,
+  utcDayStamp,
+} from "../common/otp-send-cap";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { SMS_PROVIDER, type SmsProvider } from "../sms/sms.provider";
 
@@ -39,6 +45,15 @@ interface RedisOtpClient {
  *   otp:attempts:<phoneHash>  verify-attempt counter   TTL = OTP_TTL_SECONDS
  *   otp:cooldown:<phoneHash>  resend cooldown marker    TTL = OTP_RESEND_COOLDOWN_SECONDS
  *   otp:sendcount:<phoneHash>:<utcHour>  hourly sends   TTL = to end of UTC hour
+ *   otp:global_sendcount:<utcDay>  global daily REAL sends  TTL = to end of UTC day
+ *
+ * OTP-5 GLOBAL DAILY SEND CIRCUIT-BREAKER (the spend ceiling): in addition to the
+ * per-phone cooldown/cap above, a platform-wide daily ceiling on REAL Fast2SMS sends
+ * (OTP_GLOBAL_MAX_SENDS_PER_DAY) bounds total spend so a distributed abuser rotating
+ * phones/IPs still cannot run up the bill. The SMS provider is always REAL (fast2sms),
+ * so this always enforces. Fail-closed (a Redis error on the global counter rejects). A
+ * cap of 0 = PAUSED = the worker-SMS kill-switch (instant halt + a PII-free
+ * worker.otp_send_cap_exceeded breach event, no redeploy).
  */
 @Injectable()
 export class OtpService {
@@ -57,9 +72,7 @@ export class OtpService {
    * client must wait before requesting another. Throws 429 (cooldown / hourly
    * cap), 502 (send failed), or 503 (Redis down — fail closed).
    */
-  async issueAndSend(
-    phoneE164: string,
-  ): Promise<{ resendInSeconds: number; devCode?: string }> {
+  async issueAndSend(phoneE164: string): Promise<{ resendInSeconds: number }> {
     const phoneHash = this.pii.hashPhone(phoneE164);
     const hashPrefix = phoneHash.slice(0, 8);
     const redis = await this.client();
@@ -97,6 +110,15 @@ export class OtpService {
       await redis.del(attemptsKey);
       await redis.set(cooldownKey, "1", "EX", this.config.OTP_RESEND_COOLDOWN_SECONDS);
 
+      // 5b. GLOBAL DAILY SEND CIRCUIT-BREAKER (OTP-5 spend ceiling). REAL provider ONLY —
+      // count REAL sends, at the point a real send is about to occur. On breach (count
+      // reaches the cap, which includes the cap=0 paused/kill-switch case) do NOT send,
+      // roll back the reserved code, and throw the SAME neutral 429 the throttle uses
+      // (no new oracle) — tagged so the caller emits the PII-free breach event once.
+      if (isRealOtpSmsActive(this.config)) {
+        await this.assertWithinGlobalDailyCap(redis, codeKey);
+      }
+
       // 6. Send. On failure, delete the code so a failed send leaves no dangling code.
       try {
         await this.sms.sendOtp({ phoneE164, code });
@@ -114,14 +136,9 @@ export class OtpService {
       }
 
       this.logger.log(`OTP requested phone_hash=${hashPrefix} status=sent`);
-      // DEV/TEST ONLY: echo the code back to the caller when the console provider is
-      // active. assertAuthConfig forbids SMS_PROVIDER=console outside development/test
-      // (boot fails otherwise), so this can never leak in staging/prod — and in console
-      // mode the code is already printed to the log by ConsoleSmsProvider, so this adds
-      // no new exposure. Lets the e2e harness complete login without log-scraping.
-      const devCode =
-        this.config.SMS_PROVIDER === "console" ? { devCode: code } : undefined;
-      return { resendInSeconds: this.config.OTP_RESEND_COOLDOWN_SECONDS, ...devCode };
+      // The code is NEVER returned to the caller — it goes ONLY to the worker's phone via
+      // the real SMS provider. There is no dev/console echo path (real-only).
+      return { resendInSeconds: this.config.OTP_RESEND_COOLDOWN_SECONDS };
     } catch (err) {
       // Re-raise explicit HTTP decisions (cooldown/cap/send-failure).
       if (err instanceof HttpException) throw err;
@@ -205,6 +222,33 @@ export class OtpService {
     }
   }
 
+  /**
+   * GLOBAL daily send circuit-breaker (OTP-5). INCR the platform-wide daily counter
+   * (re-asserting its TTL to the end of the UTC day on every hit) and, when it reaches
+   * OTP_GLOBAL_MAX_SENDS_PER_DAY, refuse the real send: roll back the just-reserved code
+   * and throw an {@link OtpSendCapExceededException} (the neutral 429). A Redis error
+   * propagates to the outer fail-closed handler (503) — it NEVER uncaps. `count >= cap`
+   * (not `>`) so a cap of 0 blocks the FIRST send (the kill-switch).
+   */
+  private async assertWithinGlobalDailyCap(redis: RedisOtpClient, codeKey: string): Promise<void> {
+    const day = utcDayStamp();
+    const key = OtpService.globalSendCountKey(day);
+    const count = await redis.incr(key);
+    await redis.expire(key, secondsUntilEndOfUtcDay());
+    if (count >= this.config.OTP_GLOBAL_MAX_SENDS_PER_DAY) {
+      // Refuse the send → leave no dangling reserved code (mirrors the send-failure cleanup).
+      await redis.del(codeKey).catch(() => undefined);
+      this.logger.warn(
+        `OTP global daily send cap reached (worker_sms) limit=${this.config.OTP_GLOBAL_MAX_SENDS_PER_DAY} day=${day}; refusing real send`,
+      );
+      throw new OtpSendCapExceededException({
+        channel: "worker_sms",
+        limit: this.config.OTP_GLOBAL_MAX_SENDS_PER_DAY,
+        window: day,
+      });
+    }
+  }
+
   private async client(): Promise<RedisOtpClient> {
     return (await this.queue.client) as unknown as RedisOtpClient;
   }
@@ -229,6 +273,10 @@ export class OtpService {
   }
   private static sendCountKey(phoneHash: string, hour: string): string {
     return `otp:sendcount:${phoneHash}:${hour}`;
+  }
+  /** Global daily REAL-send counter (OTP-5 spend ceiling) — NOT keyed by phone. */
+  private static globalSendCountKey(day: string): string {
+    return `otp:global_sendcount:${day}`;
   }
 
   /** UTC hour stamp `YYYYMMDDHH` (key namespace + rolling window). */

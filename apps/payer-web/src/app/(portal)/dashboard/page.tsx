@@ -4,6 +4,7 @@ import { requirePayer } from "../../../lib/auth";
 import type { Dashboard } from "../../../lib/contracts";
 import { Badge, Card, MaskedCandidate, StatTile } from "../../../components/ds";
 import { RetryButton } from "../../../components/retry-button";
+import { formatInr } from "../../../lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +64,7 @@ export default async function DashboardPage() {
           icon="wallet"
           delta={
             <>
-              <span className="bb-mono">₹40</span> per unlock
+              <span className="bb-mono">{formatInr(40)}</span> per unlock
             </>
           }
           deltaDir="flat"

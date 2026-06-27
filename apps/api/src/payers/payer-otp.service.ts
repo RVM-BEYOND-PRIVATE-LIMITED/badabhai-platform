@@ -3,8 +3,14 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { randomInt, timingSafeEqual } from "node:crypto";
 import type { ServerConfig } from "@badabhai/config";
+import { isRealPayerEmailActive } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import {
+  OtpSendCapExceededException,
+  secondsUntilEndOfUtcDay,
+  utcDayStamp,
+} from "../common/otp-send-cap";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { PAYER_LOGIN_CHANNEL, type PayerLoginChannel } from "./payer-login-channel";
 
@@ -18,11 +24,10 @@ interface RedisOtpClient {
   exists(key: string): Promise<number>;
 }
 
-/** What an issue resolves to: the cooldown + (dev/test mock only) the echoed code. */
+/** What an issue resolves to. The code is delivered ONLY to the payer's email via the
+ * real channel — it is never returned here (real-only, no echo). */
 export interface PayerOtpIssued {
   resendInSeconds: number;
-  /** DEV/TEST + MOCK-channel ONLY echo of the code (never in staging/prod / real channel). */
-  devCode?: string;
 }
 
 /**
@@ -42,6 +47,16 @@ export interface PayerOtpIssued {
  *
  * Keyed on the email's keyed HMAC (`emailHash`) — never the raw email. Redis namespace is
  * `payer_otp:*`, DISTINCT from the worker `otp:*` namespace, so the two never collide.
+ *
+ * OTP-5 GLOBAL DAILY SEND CIRCUIT-BREAKER (the spend ceiling): in addition to the
+ * per-account cooldown/cap, a platform-wide daily ceiling on REAL email sends
+ * (PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY) bounds total email spend. The email channel is
+ * REAL-ONLY (ZeptoMail/SMTP), so it always enforces. Crucially it lives in the
+ * existence-INDEPENDENT {@link reserve} path (run by BOTH
+ * issueAndSend and issueWithoutDelivery), so on breach the observable 429/response is
+ * BYTE-IDENTICAL for a known vs unknown account (no enumeration oracle, XB-H). Fail-closed
+ * (a Redis error rejects). A cap of 0 = PAUSED = the payer-email kill-switch (instant halt
+ * + a PII-free payer.otp_send_cap_exceeded breach event, no redeploy).
  */
 @Injectable()
 export class PayerOtpService {
@@ -89,7 +104,7 @@ export class PayerOtpService {
         throw new HttpException("Could not send the code, please retry", HttpStatus.BAD_GATEWAY);
       }
       this.logger.log(`payer login code issued email_hash=${hashPrefix} method=${this.channel.method}`);
-      return this.issued(code);
+      return this.issued();
     } catch (err) {
       throw this.mapFailClosed(err, hashPrefix);
     }
@@ -97,8 +112,8 @@ export class PayerOtpService {
 
   /**
    * Reserve a code WITHOUT delivering it — used ONLY for a non-existent account so the
-   * cooldown/hourly-cap/store path (and thus the observable timing + 429 behavior + the
-   * dev/test echo) is IDENTICAL to an existing account. The reserved code is never sent
+   * cooldown/hourly-cap/store path (and thus the observable timing + 429 behavior) is
+   * IDENTICAL to an existing account. The reserved code is never sent
    * and can only ever resolve to "incorrect or expired" on verify (no account → no
    * session). Throws 429 / 503 exactly as the existing-account path does (existence-
    * independent), so neither is an enumeration oracle.
@@ -107,8 +122,10 @@ export class PayerOtpService {
     const hashPrefix = emailHash.slice(0, 8);
     const redis = await this.client();
     try {
-      const code = await this.reserve(emailHash, redis);
-      return this.issued(code);
+      // Reserve a code for its SIDE EFFECTS only (cooldown/hourly-cap/store + the global
+      // breaker) — it is never delivered, so the plaintext is intentionally discarded here.
+      await this.reserve(emailHash, redis);
+      return this.issued();
     } catch (err) {
       throw this.mapFailClosed(err, hashPrefix);
     }
@@ -203,16 +220,55 @@ export class PayerOtpService {
     await redis.set(codeKey, this.pii.hmac(code), "EX", this.config.OTP_TTL_SECONDS);
     await redis.del(attemptsKey);
     await redis.set(cooldownKey, "1", "EX", this.config.OTP_RESEND_COOLDOWN_SECONDS);
+
+    // GLOBAL DAILY SEND CIRCUIT-BREAKER (OTP-5 spend ceiling). The email channel is real-only.
+    // Enforced HERE (the existence-INDEPENDENT reserve path, run by both issueAndSend and
+    // issueWithoutDelivery) so a breach is byte-identical for a known vs unknown account
+    // (no enumeration oracle). On breach, roll back the just-reserved code + cooldown and
+    // throw the SAME neutral 429 the throttle uses (tagged so the caller emits the breach
+    // event once + degrades to the neutral "code_sent" response). A Redis error propagates
+    // to the caller's fail-closed mapper (503) — it never uncaps.
+    if (isRealPayerEmailActive(this.config)) {
+      await this.assertWithinGlobalDailyCap(redis, codeKey, cooldownKey);
+    }
     return code;
   }
 
-  /** Shape the success return + the DEV/TEST + MOCK-channel ONLY echo (mirrors OtpService). */
-  private issued(code: string): PayerOtpIssued {
-    const echo = this.channel.mock && this.isDevOrTest();
-    return {
-      resendInSeconds: this.config.OTP_RESEND_COOLDOWN_SECONDS,
-      ...(echo ? { devCode: code } : {}),
-    };
+  /**
+   * GLOBAL daily send circuit-breaker (OTP-5). INCR the platform-wide daily counter
+   * (re-asserting its TTL to end of UTC day) and, when it reaches
+   * PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY, refuse: roll back the just-reserved code +
+   * cooldown and throw {@link OtpSendCapExceededException} (the neutral 429). `count >= cap`
+   * (not `>`) so cap=0 blocks the FIRST send (the kill-switch). A Redis error propagates to
+   * the caller's fail-closed mapper (503) — never uncaps.
+   */
+  private async assertWithinGlobalDailyCap(
+    redis: RedisOtpClient,
+    codeKey: string,
+    cooldownKey: string,
+  ): Promise<void> {
+    const day = utcDayStamp();
+    const key = PayerOtpService.globalSendCountKey(day);
+    const count = await redis.incr(key);
+    await redis.expire(key, secondsUntilEndOfUtcDay());
+    if (count >= this.config.PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY) {
+      // Leave no dangling reserved code/cooldown for a refused send.
+      await redis.del(codeKey, cooldownKey).catch(() => undefined);
+      this.logger.warn(
+        `payer OTP global daily send cap reached (payer_email) limit=${this.config.PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY} day=${day}; refusing real send`,
+      );
+      throw new OtpSendCapExceededException({
+        channel: "payer_email",
+        limit: this.config.PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY,
+        window: day,
+      });
+    }
+  }
+
+  /** Shape the success return. The code is delivered ONLY to the payer's email via the
+   * real channel — never returned here (real-only, no echo). */
+  private issued(): PayerOtpIssued {
+    return { resendInSeconds: this.config.OTP_RESEND_COOLDOWN_SECONDS };
   }
 
   /** Re-raise explicit HTTP decisions; map anything else (Redis/transport) to 503 (fail closed). */
@@ -227,10 +283,6 @@ export class PayerOtpService {
       "This is temporarily unavailable; please retry shortly",
       HttpStatus.SERVICE_UNAVAILABLE,
     );
-  }
-
-  private isDevOrTest(): boolean {
-    return this.config.NODE_ENV === "development" || this.config.NODE_ENV === "test";
   }
 
   private async client(): Promise<RedisOtpClient> {
@@ -255,6 +307,10 @@ export class PayerOtpService {
   }
   private static sendCountKey(emailHash: string, hour: string): string {
     return `payer_otp:sendcount:${emailHash}:${hour}`;
+  }
+  /** Global daily REAL-send counter (OTP-5 spend ceiling) — NOT keyed by account. */
+  private static globalSendCountKey(day: string): string {
+    return `payer_otp:global_sendcount:${day}`;
   }
 
   /** UTC hour stamp `YYYYMMDDHH`. */

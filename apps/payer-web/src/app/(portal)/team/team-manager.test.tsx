@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type * as ReactModule from "react";
 import type { OrgMemberView } from "../../../lib/org-members";
+import { Button } from "../../../components/ds";
 
 /**
  * (e) TeamManager scaffold render — the Owner user-management UI exists (invite form + members
@@ -43,7 +44,10 @@ function gatherButtons(tree: ReactNode): string[] {
       return;
     }
     const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-    if (el.type === "button") out.push(textOf(el.props.children as ReactNode).trim());
+    // The TeamManager invite/remove affordances are DS <Button> (DS4.2 ink-parity re-skin),
+    // which render a <button>; recognize either so the affordance assertions hold.
+    if (el.type === "button" || el.type === Button)
+      out.push(textOf(el.props.children as ReactNode).trim());
     if (el.props && "children" in el.props) w(el.props.children as ReactNode);
   })(tree);
   return out;

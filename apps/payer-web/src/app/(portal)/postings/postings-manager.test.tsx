@@ -1,56 +1,25 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { ReactElement, ReactNode } from "react";
-import type * as ReactModule from "react";
 import type { PostingSummary } from "../../../lib/contracts";
+import { Badge, Button } from "../../../components/ds";
 
 /**
- * POSTINGS-MANAGER tests — CONFIRM-ON-SPEND (C11) + A11Y-OF-FAILURE (B8).
+ * POSTINGS-MANAGER tests (DS2.2 re-skin) — STATUS RENDERING + GATED-TRIO + A11Y (B8).
  *
- * C11: a quota TOP-UP and a PAUSE both call `window.confirm` BEFORE the Server Action. A
- * declined confirm (→ false) blocks the action; an accepted confirm (→ true) proceeds.
- * B8: each per-row error region is wrapped in `aria-live="polite"`, so an assistive
- * technology announces a row failure.
+ * The manager is now a PURE presentational DS surface (no hooks, no server actions): each
+ * posting renders as a DS Card with its REAL `status` Badge and the pause/resume/quota
+ * top-up GATED TRIO as DISABLED DS Buttons + a "coming soon" note (no payer-authed
+ * lifecycle route exists yet). These tests assert:
+ *  - the status Badge reflects the posting's real `status` (open → success tone, etc.);
+ *  - every gated-trio Button renders DISABLED (never fires a fake live action);
+ *  - the "coming soon" note is present;
+ *  - each row keeps an `aria-live="polite"` region (B8 — announces a row failure).
  *
- * Env is node (no DOM); we inject React state via mocked hooks, render the component to an
- * element tree, find a row button by its label, fire its onClick, and assert the action
- * call / confirm gate. `useTransition` → [false, run-immediately]; `window.confirm` is mocked.
+ * Env is node (no DOM); the component is a plain function we render to an element tree and
+ * walk. DS Button/Badge are HOOKLESS pure components — collected by `el.type === Button`/
+ * `Badge` and expanded ONE level (calling the function) to read `disabled` / the rendered
+ * native host. `next/link` resolves to an `<a>` so its text is reachable.
  */
-
-const pausePostingAction = vi.fn();
-const resumePostingAction = vi.fn();
-const topUpQuotaAction = vi.fn();
-const refresh = vi.fn();
-
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
-vi.mock("next/link", () => ({
-  default: ({ children, href }: { children: ReactNode; href: string }) => ({
-    type: "a",
-    props: { href, children },
-  }),
-}));
-vi.mock("./actions", () => ({
-  pausePostingAction: (i: { postingId: string }) => pausePostingAction(i),
-  resumePostingAction: (i: { postingId: string }) => resumePostingAction(i),
-  topUpQuotaAction: (i: { postingId: string }) => topUpQuotaAction(i),
-}));
-
-// Inject React state via a mocked useState (source order: rows, busyId, errorById).
-let stateQueue: unknown[] = [];
-let stateCursor = 0;
-const useState = vi.fn((initial: unknown) => {
-  const i = stateCursor++;
-  const seeded = i < stateQueue.length ? stateQueue[i] : initial;
-  return [seeded, vi.fn()] as [unknown, (v: unknown) => void];
-});
-const useTransition = vi.fn((): [boolean, (cb: () => void) => void] => [false, (cb) => cb()]);
-vi.mock("react", async () => {
-  const actual = await vi.importActual<typeof ReactModule>("react");
-  return {
-    ...actual,
-    useState: (initial: unknown) => useState(initial),
-    useTransition: () => useTransition(),
-  };
-});
 
 const { PostingsManager } = await import("./postings-manager");
 
@@ -65,8 +34,17 @@ const OPEN: PostingSummary = {
   createdAt: "2026-06-22T00:00:00.000Z",
 };
 
+interface CollectedButton {
+  text: string;
+  disabled: boolean;
+}
+interface CollectedBadge {
+  text: string;
+  tone: string;
+}
 interface Collected {
-  buttons: Array<{ text: string; onClick?: () => void }>;
+  buttons: CollectedButton[];
+  badges: CollectedBadge[];
   ariaLiveCount: number;
 }
 
@@ -86,79 +64,90 @@ function walk(node: ReactNode, acc: Collected): void {
     return;
   }
   const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-  if (el.type === "button") {
+
+  // DS Button — a hookless wrapper. Read its props directly (disabled + label); don't recurse
+  // into its rendered native <button>, the props ARE the contract.
+  if (el.type === Button) {
     acc.buttons.push({
       text: textOf(el.props.children).trim(),
-      onClick: el.props.onClick as (() => void) | undefined,
+      disabled: el.props.disabled === true,
     });
+    return;
+  }
+  // DS Badge — the REAL status chip. Record its text + tone.
+  if (el.type === Badge) {
+    acc.badges.push({
+      text: textOf(el.props.children).trim(),
+      tone: typeof el.props.tone === "string" ? el.props.tone : "neutral",
+    });
+    return;
   }
   if (el.props["aria-live"] === "polite") acc.ariaLiveCount++;
   if ("children" in el.props) walk(el.props.children, acc);
 }
 
 function collect(tree: ReactNode): Collected {
-  const acc: Collected = { buttons: [], ariaLiveCount: 0 };
+  const acc: Collected = { buttons: [], badges: [], ariaLiveCount: 0 };
   walk(tree, acc);
   return acc;
 }
 
-function render(postings: PostingSummary[], errorById: Record<string, string | null> = {}) {
-  // useState order: rows, busyId, errorById.
-  stateQueue = [postings, null, errorById];
-  stateCursor = 0;
+function render(postings: PostingSummary[]) {
   return PostingsManager({ postings }) as ReactElement;
 }
 
-// The env is `node` (no DOM) — stub a minimal `window` so the component's `window.confirm`
-// spend gate resolves to a mock we can assert on.
-const confirmMock = vi.fn();
-vi.stubGlobal("window", { confirm: confirmMock });
+describe("PostingsManager — STATUS RENDERING reflects the real status", () => {
+  it("an open posting renders a success-tone status Badge with the real status text", () => {
+    const { badges } = collect(render([OPEN]));
+    const status = badges.find((b) => b.text === "open");
+    expect(status).toBeDefined();
+    expect(status!.tone).toBe("success");
+  });
 
-beforeEach(() => {
-  pausePostingAction.mockReset().mockResolvedValue({ ok: true, posting: OPEN });
-  resumePostingAction.mockReset().mockResolvedValue({ ok: true, posting: OPEN });
-  topUpQuotaAction.mockReset().mockResolvedValue({ ok: true, posting: { ...OPEN, applicantQuota: 20 } });
-  refresh.mockReset();
-  useState.mockClear();
-  useTransition.mockClear();
-  confirmMock.mockReset();
+  it("a paused posting renders a warning-tone status Badge; draft/closed render neutral", () => {
+    const paused = collect(render([{ ...OPEN, status: "paused" }])).badges.find(
+      (b) => b.text === "paused",
+    );
+    expect(paused?.tone).toBe("warning");
+
+    const draft = collect(render([{ ...OPEN, status: "draft" }])).badges.find(
+      (b) => b.text === "draft",
+    );
+    expect(draft?.tone).toBe("neutral");
+
+    const closed = collect(render([{ ...OPEN, status: "closed" }])).badges.find(
+      (b) => b.text === "closed",
+    );
+    expect(closed?.tone).toBe("neutral");
+  });
 });
 
-describe("PostingsManager — CONFIRM-ON-SPEND on quota top-up (C11)", () => {
-  it("a DECLINED confirm (false) blocks the top-up action", () => {
-    confirmMock.mockReturnValue(false);
+describe("PostingsManager — GATED TRIO renders DISABLED with a coming-soon note", () => {
+  it("Pause + Top up applicant quota render as DISABLED DS Buttons (no fake live action)", () => {
     const { buttons } = collect(render([OPEN]));
+    const pause = buttons.find((b) => b.text === "Pause");
     const topUp = buttons.find((b) => b.text.includes("Top up applicant quota"));
+    expect(pause).toBeDefined();
+    expect(pause!.disabled).toBe(true);
     expect(topUp).toBeDefined();
-    topUp!.onClick!();
-    expect(confirmMock).toHaveBeenCalledTimes(1);
-    expect(topUpQuotaAction).not.toHaveBeenCalled();
+    expect(topUp!.disabled).toBe(true);
   });
 
-  it("an ACCEPTED confirm (true) proceeds to the top-up action with ONLY the posting id (no amount)", () => {
-    confirmMock.mockReturnValue(true);
+  it("a paused posting offers a DISABLED Resume button (still gated, not wired)", () => {
+    const { buttons } = collect(render([{ ...OPEN, status: "paused" }]));
+    const resume = buttons.find((b) => b.text === "Resume");
+    expect(resume).toBeDefined();
+    expect(resume!.disabled).toBe(true);
+  });
+
+  it("EVERY gated-trio button on the row is disabled (never a fake live route)", () => {
     const { buttons } = collect(render([OPEN]));
-    const topUp = buttons.find((b) => b.text.includes("Top up applicant quota"));
-    topUp!.onClick!();
-    expect(confirmMock).toHaveBeenCalledTimes(1);
-    expect(topUpQuotaAction).toHaveBeenCalledWith({ postingId: OPEN.id });
-    // XT5: the client sends only the id — no amount/price/quota number.
-    const arg = topUpQuotaAction.mock.calls[0]![0] as Record<string, unknown>;
-    expect(Object.keys(arg)).toEqual(["postingId"]);
+    expect(buttons.length).toBeGreaterThanOrEqual(2);
+    expect(buttons.every((b) => b.disabled)).toBe(true);
   });
-});
 
-describe("PostingsManager — CONFIRM-ON-SPEND on pause (C3/C11)", () => {
-  it("a DECLINED confirm blocks the pause; an ACCEPTED one proceeds", () => {
-    confirmMock.mockReturnValueOnce(false);
-    let buttons = collect(render([OPEN])).buttons;
-    buttons.find((b) => b.text === "Pause")!.onClick!();
-    expect(pausePostingAction).not.toHaveBeenCalled();
-
-    confirmMock.mockReturnValue(true);
-    buttons = collect(render([OPEN])).buttons;
-    buttons.find((b) => b.text === "Pause")!.onClick!();
-    expect(pausePostingAction).toHaveBeenCalledWith({ postingId: OPEN.id });
+  it("renders the 'coming soon' gated note", () => {
+    expect(textOf(render([OPEN]))).toContain("coming soon");
   });
 });
 
@@ -172,5 +161,9 @@ describe("PostingsManager — A11Y-OF-FAILURE: per-row error region is aria-live
     const second = { ...OPEN, id: "bbbb2222-0000-4000-8000-000000000002" };
     const { ariaLiveCount } = collect(render([OPEN, second]));
     expect(ariaLiveCount).toBe(2);
+  });
+
+  it("renders a faceless empty state when there are no postings", () => {
+    expect(textOf(render([]))).toContain("haven");
   });
 });

@@ -4,6 +4,7 @@ import { HttpException, HttpStatus } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
+import { OtpSendCapExceededException } from "../common/otp-send-cap";
 import type { SmsProvider } from "../sms/sms.provider";
 import { OtpService } from "./otp.service";
 
@@ -15,6 +16,12 @@ const config = {
   OTP_MAX_ATTEMPTS: 5,
   OTP_RESEND_COOLDOWN_SECONDS: 30,
   OTP_MAX_SENDS_PER_HOUR: 5,
+  // Worker OTP is REAL-ONLY (fast2sms; no console fallback), so isRealOtpSmsActive is always
+  // true and the global daily breaker ALWAYS enforces. Default a HIGH global cap so the
+  // breaker never trips for the throttle/verify suites (each test gets a fresh Redis store,
+  // so the global counter resets per test). The breaker tests set a LOW cap explicitly.
+  OTP_GLOBAL_MAX_SENDS_PER_DAY: 2000,
+  SMS_PROVIDER: "fast2sms",
 } as unknown as ServerConfig;
 
 // A keyed-HMAC stub: deterministic, length-stable, and (like the real HMAC) it
@@ -103,25 +110,13 @@ describe("OtpService.issueAndSend", () => {
     expect(sent.code).toMatch(/^\d{6}$/);
   });
 
-  it("echoes the code as devCode ONLY when SMS_PROVIDER=console (dev/test seam)", async () => {
-    // console mode → devCode is returned (and equals the sent code) so the e2e
-    // harness / local dev can complete login. assertAuthConfig forbids console
-    // outside dev/test, so this can never leak in staging/prod.
-    const consoleCfg = { ...config, SMS_PROVIDER: "console" } as unknown as ServerConfig;
-    const redis = makeRedis();
-    const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
-    const sms: SmsProvider = { sendOtp: vi.fn().mockResolvedValue(undefined) };
-    const res = await new OtpService(consoleCfg, pii, sms, queue).issueAndSend(PHONE);
-    const sent = (sms.sendOtp as ReturnType<typeof vi.fn>).mock.calls[0]![0] as { code: string };
-    expect(res.devCode).toBe(sent.code);
-
-    // fast2sms (real provider) → devCode is NEVER present.
-    const realCfg = { ...config, SMS_PROVIDER: "fast2sms" } as unknown as ServerConfig;
-    const redis2 = makeRedis();
-    const queue2 = { client: Promise.resolve(redis2.client) } as unknown as Queue;
-    const sms2: SmsProvider = { sendOtp: vi.fn().mockResolvedValue(undefined) };
-    const res2 = await new OtpService(realCfg, pii, sms2, queue2).issueAndSend(PHONE);
-    expect(res2.devCode).toBeUndefined();
+  it("returns ONLY { resendInSeconds } — the code is never echoed back (real-only, no dev seam)", async () => {
+    // Real-only: the code is delivered ONLY to the phone via Fast2SMS; the result carries
+    // the resend cooldown and nothing else (no devCode field exists anymore).
+    const { svc } = setup();
+    const res = await svc.issueAndSend(PHONE);
+    expect(res).toEqual({ resendInSeconds: config.OTP_RESEND_COOLDOWN_SECONDS });
+    expect(Object.keys(res)).toEqual(["resendInSeconds"]);
   });
 
   it("stores the HMAC of the code (via pii.hmac), never the plaintext itself", async () => {
@@ -173,6 +168,82 @@ describe("OtpService.issueAndSend", () => {
     await expect(svc.issueAndSend(PHONE)).rejects.toMatchObject({
       status: HttpStatus.SERVICE_UNAVAILABLE,
     });
+  });
+});
+
+describe("OtpService global daily send circuit-breaker (OTP-5 spend ceiling — always enforces)", () => {
+  // Worker OTP is real-only (fast2sms), so the breaker ALWAYS enforces; realConfig == config.
+  const realConfig = { ...config } as unknown as ServerConfig;
+  const globalKeyToday = (): string => {
+    const now = new Date();
+    const y = now.getUTCFullYear();
+    const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(now.getUTCDate()).padStart(2, "0");
+    return `otp:global_sendcount:${y}${m}${d}`;
+  };
+
+  function realSetup(over: Partial<ServerConfig> = {}, opts: { sendThrows?: boolean } = {}) {
+    const redis = makeRedis();
+    const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
+    const sms: SmsProvider = {
+      sendOtp: opts.sendThrows
+        ? vi.fn().mockRejectedValue(new Error("gateway down"))
+        : vi.fn().mockResolvedValue(undefined),
+    };
+    const svc = new OtpService({ ...realConfig, ...over } as ServerConfig, pii, sms, queue);
+    return { svc, redis, sms };
+  }
+
+  it("blocks the REAL send once the global daily count reaches the cap (neutral 429, no send)", async () => {
+    const { svc, redis, sms } = realSetup({ OTP_GLOBAL_MAX_SENDS_PER_DAY: 3 } as Partial<ServerConfig>);
+    // Pre-seed the counter at cap-1 so the next send's INCR reaches the cap.
+    redis.store.set(globalKeyToday(), "2");
+    redis.store.delete(`otp:cooldown:${phoneHash}`);
+    const err = await svc.issueAndSend(PHONE).catch((e) => e);
+    expect(err).toBeInstanceOf(OtpSendCapExceededException);
+    expect(err.getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
+    expect(err.breach).toEqual({ channel: "worker_sms", limit: 3, window: expect.any(String) });
+    // The real send was REFUSED and the reserved code rolled back (no dangling code).
+    expect(sms.sendOtp).not.toHaveBeenCalled();
+    expect(redis.store.has(codeKey)).toBe(false);
+  });
+
+  it("cap=0 (kill-switch) blocks the VERY FIRST real send", async () => {
+    const { svc, sms } = realSetup({ OTP_GLOBAL_MAX_SENDS_PER_DAY: 0 } as Partial<ServerConfig>);
+    const err = await svc.issueAndSend(PHONE).catch((e) => e);
+    expect(err).toBeInstanceOf(OtpSendCapExceededException);
+    expect(err.breach.limit).toBe(0);
+    expect(sms.sendOtp).not.toHaveBeenCalled();
+  });
+
+  it("allows the real send while under the cap and increments the global counter", async () => {
+    const { svc, redis, sms } = realSetup({ OTP_GLOBAL_MAX_SENDS_PER_DAY: 5 } as Partial<ServerConfig>);
+    await expect(svc.issueAndSend(PHONE)).resolves.toBeDefined();
+    expect(sms.sendOtp).toHaveBeenCalledTimes(1);
+    expect(redis.store.get(globalKeyToday())).toBe("1");
+  });
+
+  it("FAILS CLOSED (does not uncap) when the global counter INCR errors on the real path", async () => {
+    const redis = makeRedis("incr");
+    const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
+    const sms: SmsProvider = { sendOtp: vi.fn().mockResolvedValue(undefined) };
+    const svc = new OtpService(realConfig, pii, sms, queue);
+    await expect(svc.issueAndSend(PHONE)).rejects.toMatchObject({
+      status: HttpStatus.SERVICE_UNAVAILABLE, // fail closed → never the real send
+    });
+    expect(sms.sendOtp).not.toHaveBeenCalled();
+  });
+
+  it("breach metadata carries NO phone/code — aggregate only (channel/limit/window)", async () => {
+    const { svc } = realSetup({ OTP_GLOBAL_MAX_SENDS_PER_DAY: 0 } as Partial<ServerConfig>);
+    const err = (await svc.issueAndSend(PHONE).catch((e) => e)) as OtpSendCapExceededException;
+    // Aggregate shape ONLY: the channel kind, the cap limit, and the UTC-day window. NO
+    // phone, no code, no id (the `window` is a non-PII calendar-day stamp by design).
+    expect(Object.keys(err.breach).sort()).toEqual(["channel", "limit", "window"].sort());
+    const serialized = JSON.stringify(err.breach);
+    expect(serialized).not.toContain(PHONE); // never the raw phone
+    expect(serialized).not.toContain("9876543210"); // nor its national-number digits
+    expect(err.breach.window).toMatch(/^\d{8}$/); // a UTC-DAY stamp, not a phone/code
   });
 });
 

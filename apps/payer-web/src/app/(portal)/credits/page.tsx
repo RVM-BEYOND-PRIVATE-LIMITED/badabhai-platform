@@ -7,6 +7,8 @@ import {
   unlockUnitPriceInr,
 } from "../../../lib/pricing-config";
 import { buildTransactionHistory, creditExpirySchedule } from "../../../lib/credit-history";
+import { formatInr } from "../../../lib/format";
+import { opaqueId } from "../../../lib/masking";
 import type { CreditTopUp, Dashboard, UnlockHistoryItem } from "../../../lib/contracts";
 import { Badge, Card, StatTile, Toast } from "../../../components/ds";
 import { RetryButton } from "../../../components/retry-button";
@@ -67,7 +69,7 @@ export default async function CreditsPage() {
     <>
       <h1 className="dash-title">Credits</h1>
       <p className="dash-sub">
-        1 credit = 1 contact unlock{unit !== null ? ` (₹${unit} per unlock)` : ""}. Mock top-up —
+        1 credit = 1 contact unlock{unit !== null ? ` (${formatInr(unit)} per unlock)` : ""}. Mock top-up —
         no real payment is taken in this staging preview.
       </p>
 
@@ -104,7 +106,7 @@ export default async function CreditsPage() {
               delta={
                 unit !== null ? (
                   <>
-                    <span className="bb-mono">₹{unit}</span> per unlock
+                    <span className="bb-mono">{formatInr(unit)}</span> per unlock
                   </>
                 ) : undefined
               }
@@ -147,10 +149,10 @@ export default async function CreditsPage() {
                     <td className="bb-mono">{t.credits > 0 ? `+${t.credits}` : t.credits}</td>
                     <td className="bb-mono">
                       {t.kind === "topup" && t.priceInr !== undefined
-                        ? `₹${t.priceInr.toLocaleString("en-IN")}`
+                        ? formatInr(t.priceInr)
                         : "—"}
                     </td>
-                    <td className="bb-mono">{t.id.slice(0, 8)}…</td>
+                    <td className="bb-mono">{opaqueId(t.id)}</td>
                   </tr>
                 ))}
               </tbody>

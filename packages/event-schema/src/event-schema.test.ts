@@ -1107,9 +1107,90 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
   });
 });
 
+describe("otp send-cap-exceeded events (OTP-5 — AGGREGATE, PII-free, no identity)", () => {
+  function capEvent(name: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: name,
+      actor: { actor_type: "system" },
+      subject: { subject_type: name.startsWith("payer") ? "payer" : "worker", subject_id: null },
+      payload,
+    };
+  }
+
+  it("validates worker.otp_send_cap_exceeded with the aggregate shape (no PII fields exist)", () => {
+    const result = validateEvent(
+      capEvent("worker.otp_send_cap_exceeded", {
+        channel: "worker_sms",
+        cap: "global_daily",
+        limit: 2000,
+        window: "20260626",
+      }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "worker.otp_send_cap_exceeded") {
+      // The payload schema has NO field that could hold a phone/email/IP/code/id — only
+      // the two enums, the integer limit, and the UTC-day string.
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["cap", "channel", "limit", "window"].sort(),
+      );
+    }
+  });
+
+  it("validates payer.otp_send_cap_exceeded (channel payer_email)", () => {
+    const result = validateEvent(
+      capEvent("payer.otp_send_cap_exceeded", {
+        channel: "payer_email",
+        cap: "global_daily",
+        limit: 0, // kill-switch
+        window: "20260626",
+      }),
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an out-of-enum channel (no free text → no PII / no destination leak)", () => {
+    const bad = validateEvent(
+      capEvent("worker.otp_send_cap_exceeded", {
+        channel: "+919876543210",
+        cap: "global_daily",
+        limit: 2000,
+        window: "20260626",
+      }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects a cap other than the 'global_daily' literal, and a non-day window", () => {
+    expect(
+      validateEvent(
+        capEvent("worker.otp_send_cap_exceeded", {
+          channel: "worker_sms",
+          cap: "per_phone",
+          limit: 5,
+          window: "20260626",
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      validateEvent(
+        capEvent("payer.otp_send_cap_exceeded", {
+          channel: "payer_email",
+          cap: "global_daily",
+          limit: 2000,
+          window: "2026-06-26T00:00:00.000Z", // a timestamp is NOT a UTC-day stamp
+        }),
+      ).success,
+    ).toBe(false);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 74 event names (69 prior + 3 ADR-0022 job entity + 2 ADR-0022 agency_invite)", () => {
-    expect(EVENT_NAMES).toHaveLength(74);
+  it("exposes all 76 event names (74 prior + worker/payer otp_send_cap_exceeded — OTP-5)", () => {
+    expect(EVENT_NAMES).toHaveLength(76);
+    expect(isEventName("worker.otp_send_cap_exceeded")).toBe(true);
+    expect(isEventName("payer.otp_send_cap_exceeded")).toBe(true);
     expect(isEventName("job.created")).toBe(true);
     expect(isEventName("job.updated")).toBe(true);
     expect(isEventName("job.closed")).toBe(true);
