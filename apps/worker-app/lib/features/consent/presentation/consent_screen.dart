@@ -33,7 +33,8 @@ class _ConsentView extends StatelessWidget {
       listenWhen: (prev, curr) => prev.status != curr.status,
       listener: (BuildContext context, ConsentState state) {
         if (state.status == ConsentStatus.success) {
-          context.push(Routes.chatProfiling);
+          // Capture the worker's name once (consent-gated) before chat profiling.
+          context.push(Routes.name);
         }
       },
       builder: (BuildContext context, ConsentState state) {

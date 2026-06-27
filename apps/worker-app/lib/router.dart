@@ -10,6 +10,7 @@ import 'features/splash/presentation/splash_screen.dart';
 import 'features/auth/presentation/phone_login_screen.dart';
 import 'features/auth/presentation/otp_verify_screen.dart';
 import 'features/consent/presentation/consent_screen.dart';
+import 'features/name/presentation/name_screen.dart';
 import 'features/chat/presentation/chat_profiling_screen.dart';
 import 'features/voice/presentation/voice_note_placeholder_screen.dart';
 import 'features/kit/presentation/kit_detail_screen.dart';
@@ -36,6 +37,7 @@ class Routes {
   static const String phoneLogin = '/login';
   static const String otpVerify = '/otp';
   static const String consent = '/consent';
+  static const String name = '/name'; // "Your name" step (after consent, before chat)
   static const String chatProfiling = '/chat';
   static const String voiceNote = '/voice';
 
@@ -97,6 +99,10 @@ GoRouter _buildRouter() {
       GoRoute(
         path: Routes.consent,
         builder: (_, __) => const ConsentScreen(),
+      ),
+      GoRoute(
+        path: Routes.name,
+        builder: (_, __) => const NameScreen(),
       ),
       GoRoute(
         path: Routes.chatProfiling,

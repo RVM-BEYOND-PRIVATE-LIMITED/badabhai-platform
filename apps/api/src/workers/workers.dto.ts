@@ -22,3 +22,20 @@ export const SetWorkerNameSchema = z.object({
     .refine((s) => !hasControlChars(s), "full_name must not contain control characters"),
 });
 export type SetWorkerNameDto = z.infer<typeof SetWorkerNameSchema>;
+
+/**
+ * Worker SELF-service name capture (PATCH /workers/me/name). Tighter than the ops
+ * {@link SetWorkerNameSchema}: 1–80 chars and rejects an all-digits string (a name
+ * is not a number — catches a fat-fingered phone/id). Control chars rejected; the
+ * value is PII, encrypted at rest by the service, and never echoed back.
+ */
+export const SetMyNameSchema = z.object({
+  full_name: z
+    .string()
+    .trim()
+    .min(1, "full_name is required")
+    .max(80, "full_name is too long")
+    .refine((s) => !hasControlChars(s), "full_name must not contain control characters")
+    .refine((s) => !/^\d+$/.test(s), "full_name must not be digits only"),
+});
+export type SetMyNameDto = z.infer<typeof SetMyNameSchema>;

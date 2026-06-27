@@ -125,6 +125,13 @@ void main() {
     await _pumpUntil(tester, find.text('Continue'));
     await tester.tap(find.text('Continue'));
 
+    // ── 4b. YOUR NAME — consent-gated capture (PATCH /workers/me/name), before
+    //     the identity-free chat. Mock ApiClient.updateName is a no-op. ──
+    await _pumpUntil(tester, find.text('Aapka naam?'));
+    await tester.enterText(find.byType(TextField), 'Asha Kumari');
+    await tester.pump();
+    await tester.tap(find.text('Continue'));
+
     // ── 5. CHAT — send one message (exercises ChatRepository.sendMessage), then
     //     build the profile. ──
     await _pumpUntil(tester, find.text('Done — build my profile'));

@@ -178,6 +178,22 @@ class ApiClient {
     );
   }
 
+  /// Records the worker's real name (PATCH /workers/me/name). Worker-scoped —
+  /// requires [authToken] (WorkerAuthGuard + ConsentGuard); the worker is taken
+  /// from the token, never from the body. The name is PII: it is sent once over
+  /// TLS, encrypted at rest by the API, and NEVER returned or logged. The
+  /// response is only `{ ok: true }`, so nothing is parsed back.
+  Future<void> updateName({
+    required String fullName,
+    required String authToken,
+  }) async {
+    await _patch(
+      '/workers/me/name',
+      <String, dynamic>{'full_name': fullName},
+      authToken: authToken,
+    );
+  }
+
   Future<ResumeResult> generateResume({
     required String workerId,
     required String profileId,
@@ -261,6 +277,24 @@ class ApiClient {
   }) async {
     final Uri uri = Uri.parse('$baseUrl$path');
     final http.Response res = await _client.post(
+      uri,
+      headers: _headers(contentType: true, authToken: authToken),
+      body: jsonEncode(body),
+    );
+    return _decode(res);
+  }
+
+  /// PATCH JSON and return the decoded object. Throws [ApiException] on non-2xx.
+  ///
+  /// When [authToken] is supplied it is sent as `Authorization: Bearer <token>`
+  /// (required by worker-scoped routes).
+  Future<Map<String, dynamic>> _patch(
+    String path,
+    Map<String, dynamic> body, {
+    String? authToken,
+  }) async {
+    final Uri uri = Uri.parse('$baseUrl$path');
+    final http.Response res = await _client.patch(
       uri,
       headers: _headers(contentType: true, authToken: authToken),
       body: jsonEncode(body),

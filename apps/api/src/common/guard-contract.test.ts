@@ -176,7 +176,13 @@ const CONTRACT: ControllerContract[] = [
   },
   // P0 fix (PR #91).
   { name: "Voice", ctor: VoiceController, routes: { upload: [C, W], transcribe: [C, W] } },
-  { name: "Workers", ctor: WorkersController, routes: { list: [], getProfile: [], setName: [] } },
+  // setName (PUT :id/name) is the ops-style open route; setMyName (PATCH me/name)
+  // is the worker-self capture — consent-gated (invariant #6), worker from the token.
+  {
+    name: "Workers",
+    ctor: WorkersController,
+    routes: { list: [], getProfile: [], setName: [], setMyName: [C, W] },
+  },
 ];
 
 describe("API authz contract — guards on every controller route", () => {
@@ -215,5 +221,13 @@ describe("API authz contract — guards on every controller route", () => {
         expect(guardNames(ctor)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);
       });
     }
+
+    // WorkersController.setMyName applies the guards at the METHOD level (the
+    // controller also has open ops routes), so assert the order on the handler.
+    it("WorkersController.setMyName runs [WorkerAuthGuard, ConsentGuard] in order", () => {
+      const handler = (WorkersController.prototype as unknown as Record<string, object>)
+        .setMyName;
+      expect(guardNames(handler)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);
+    });
   });
 });

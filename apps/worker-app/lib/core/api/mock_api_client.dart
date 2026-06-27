@@ -123,6 +123,15 @@ class MockApiClient extends ApiClient {
   }
 
   @override
+  Future<void> updateName({
+    required String fullName,
+    required String authToken,
+  }) async {
+    // No-op: never stores, echoes, or logs the name (PII-free by construction).
+    await _delay();
+  }
+
+  @override
   Future<ResumeResult> generateResume({
     required String workerId,
     required String profileId,
