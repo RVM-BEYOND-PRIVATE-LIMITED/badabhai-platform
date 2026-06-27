@@ -114,8 +114,10 @@ export class ZeptoMailEmailLoginChannel implements PayerLoginChannel {
 
     const subject = ZeptoMailEmailLoginChannel.subject();
     const body: Record<string, unknown> = {
-      // The mail-agent / sending-identity association (ZeptoMail Mail Agent alias key).
-      mail_agent_alias: mailAgent,
+      // NOTE: the ZeptoMail v1.1 send API selects the Mail Agent purely from the send-mail
+      // token in the Authorization header — there is NO body field for it. (An earlier
+      // `mail_agent_alias` field was non-standard and could be rejected by ZeptoMail.)
+      // ZEPTOMAIL_MAIL_AGENT is retained only as a boot-time presence check, not sent.
       from: { address: fromAddress, name: this.config.EMAIL_FROM_NAME ?? undefined },
       to: [{ email_address: { address: input.email } }],
       subject,
