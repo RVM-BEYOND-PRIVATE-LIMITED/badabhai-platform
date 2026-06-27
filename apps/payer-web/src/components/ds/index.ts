@@ -55,7 +55,7 @@ export { Dialog } from "./dialog";
 export type { DialogProps } from "./dialog";
 export { Toast } from "./toast";
 export type { ToastProps } from "./toast";
-export { Tabs } from "./tabs";
+export { Tabs, tabId, tabPanelId } from "./tabs";
 export type { TabsProps, TabItem } from "./tabs";
 export { JobCard } from "./job-card";
 export type { JobCardProps } from "./job-card";

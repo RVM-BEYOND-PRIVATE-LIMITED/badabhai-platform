@@ -22,3 +22,24 @@ export const NEUTRAL_VERIFY_ERROR = "Invalid or expired code.";
 /** Account-state-independent confirmation after step 1. NEVER contains the code. */
 export const SEND_CONFIRMATION =
   "If that email is registered, a login code is on its way. Enter it below.";
+
+/**
+ * Brief success affordance shown the instant a code verifies, just before the redirect to the
+ * dashboard. Account-state-independent and contains NO code, token, or PII — purely a "you're in"
+ * cue so the transition doesn't feel abrupt.
+ */
+export const VERIFIED_CONFIRMATION = "Code verified — taking you to your dashboard…";
+
+/**
+ * Inline field error for an invalid organisation name (signup entry). Mirrors the backend
+ * (`org_name` 1..200 on the trimmed value) and the server action's Zod — never reveals account
+ * state. A field-level error only; the no-enumeration send/create outcome stays {@link
+ * NEUTRAL_SEND_ERROR}.
+ */
+export const INVALID_ORG_NAME = "Enter your organisation name.";
+
+/**
+ * Inline field error for an invalid phone (signup entry, optional field). Mirrors the
+ * `@badabhai/validators` E.164 schema. Field-level only — not an enumeration signal.
+ */
+export const INVALID_PHONE = "Enter a valid phone number, e.g. +919876543210.";

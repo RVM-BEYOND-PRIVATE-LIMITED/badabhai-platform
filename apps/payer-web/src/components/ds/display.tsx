@@ -7,6 +7,7 @@
  * (Chip is interactive and lives in ./chip.tsx as a client primitive.)
  */
 import type { ElementType, HTMLAttributes, ReactNode } from "react";
+import Link from "next/link";
 
 /* ---------- Card ---------- */
 export interface CardProps extends HTMLAttributes<HTMLElement> {
@@ -18,6 +19,16 @@ export interface CardProps extends HTMLAttributes<HTMLElement> {
   interactive?: boolean;
   /** Element/tag to render. @default 'div' */
   as?: ElementType;
+  /**
+   * When set, the WHOLE card becomes ONE accessible interactive link to `href` via the
+   * stretched-link pattern (a single `<a>` whose `::after` overlays the card; the card root
+   * becomes `position:relative`). Backward-compatible: omit `href` and the card renders
+   * EXACTLY as before. Any OTHER interactive child must sit above the overlay
+   * (`position:relative; z-index:1`) so it stays clickable and there is never an `<a>` in `<a>`.
+   */
+  href?: string;
+  /** Accessible name for the stretched link (use when the visible text isn't a clear name). */
+  ariaLabel?: string;
 }
 
 export function Card({
@@ -25,16 +36,20 @@ export function Card({
   padding = "md",
   interactive = false,
   as,
+  href,
+  ariaLabel,
   className = "",
   children,
   ...rest
 }: CardProps) {
   const Tag = as ?? "div";
+  const isLink = href != null;
   const cls = [
     "bb-card",
     variant !== "default" ? `bb-card--${variant}` : "",
     padding !== "md" ? `bb-card--pad-${padding}` : "",
     interactive ? "bb-card--interactive" : "",
+    isLink ? "bb-card--link" : "",
     className,
   ]
     .filter(Boolean)
@@ -42,6 +57,9 @@ export function Card({
 
   return (
     <Tag className={cls} {...rest}>
+      {isLink && (
+        <Link className="bb-stretched-link" href={href} aria-label={ariaLabel} />
+      )}
       {children}
     </Tag>
   );
@@ -98,6 +116,14 @@ export interface StatTileProps extends HTMLAttributes<HTMLDivElement> {
   delta?: ReactNode;
   /** @default 'up' */
   deltaDir?: "up" | "down" | "flat";
+  /**
+   * When set, the WHOLE tile becomes ONE accessible interactive link to `href` (stretched-link;
+   * see {@link CardProps.href}). Backward-compatible: omit `href` and the tile renders EXACTLY
+   * as before (no `<a>` is added).
+   */
+  href?: string;
+  /** Accessible name for the stretched link (the bare label+value is rarely a clear name). */
+  ariaLabel?: string;
 }
 
 export function StatTile({
@@ -106,12 +132,17 @@ export function StatTile({
   icon,
   delta,
   deltaDir = "up",
+  href,
+  ariaLabel,
   className = "",
   ...rest
 }: StatTileProps) {
   const arrow = deltaDir === "up" ? "trend-up" : deltaDir === "down" ? "trend-down" : "minus";
+  const isLink = href != null;
+  const cls = ["bb-stat", isLink ? "bb-stat--link" : "", className].filter(Boolean).join(" ");
   return (
-    <div className={["bb-stat", className].filter(Boolean).join(" ")} {...rest}>
+    <div className={cls} {...rest}>
+      {isLink && <Link className="bb-stretched-link" href={href} aria-label={ariaLabel} />}
       <div className="bb-stat__head">
         <span className="bb-stat__label">{label}</span>
         {icon && (

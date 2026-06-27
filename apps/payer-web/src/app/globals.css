@@ -134,6 +134,61 @@ body {
   gap: var(--space-3);
   flex-wrap: wrap;
 }
+/* Sign-out — icon-only, danger-tinted. ≥44px square tap target; the red comes from the DS
+   danger token (paper + ink both resolve --danger), never a literal. */
+.portal-logout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-md);
+  height: var(--control-md);
+  min-width: var(--control-md);
+  min-height: var(--control-md);
+  padding: 0;
+  background: transparent;
+  border: var(--border-medium) solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--danger);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+.portal-logout .ph {
+  font-size: var(--text-lg);
+  line-height: 1;
+}
+.portal-logout:hover {
+  background: var(--danger-tint);
+  border-color: var(--danger);
+}
+.portal-logout:active {
+  transform: scale(0.96);
+}
+.portal-logout:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+.portal-logout:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.portal-logout__spin {
+  animation: portal-logout-spin var(--duration-slower) linear infinite;
+}
+@keyframes portal-logout-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .portal-logout__spin {
+    animation: none;
+  }
+}
+/* INK: lift the icon to the light crimson ramp on the dark header (mirrors the menu item +
+   badge danger ink treatment) so the glyph reads clearly against the dark card. */
+[data-theme="ink"] .portal-logout {
+  color: var(--red-300);
+}
 .portal-acct {
   display: inline-flex;
   align-items: center;
@@ -460,7 +515,160 @@ textarea.input {
 }
 
 /* ------------------------------------------------------------------
- * LOGIN CARD (DS1.1) — token-styled, --app-max centered sign-in card.
+ * AUTH SHELL (AUTH-1) — an enterprise two-column split on ≥1024px: a restrained left
+ * BRAND/VALUE panel + the right form card. Below 1024px the aside collapses (display:none)
+ * and the card centres — the SAME single-card experience as before. Tokens only; both themes
+ * resolve from the same semantic vars, so ink parity is automatic.
+ * ------------------------------------------------------------------ */
+.login-shell {
+  width: 100%;
+  max-width: var(--app-max);
+  margin: 0 auto;
+  /* A short, low-travel entrance — collapses to nothing under prefers-reduced-motion. */
+  animation: login-shell-in var(--duration-base) var(--ease-out);
+}
+@keyframes login-shell-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-2));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .login-shell {
+    animation: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  .login-shell {
+    /* Two app-canvas widths plus the centre seam — derived from tokens (no raw container px). */
+    max-width: calc(var(--app-max) * 2 + var(--space-7));
+    display: grid;
+    grid-template-columns: 1.05fr 1fr;
+    align-items: stretch;
+    background: var(--surface-card);
+    border: var(--border-hairline) solid var(--border-subtle);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+  }
+}
+
+/* ---- Left value panel (≥1024px only) ---- */
+.login-aside {
+  display: none;
+}
+@media (min-width: 1024px) {
+  .login-aside {
+    display: flex;
+    position: relative;
+    background:
+      radial-gradient(120% 120% at 0% 0%, var(--ink-800), transparent 60%),
+      linear-gradient(150deg, var(--ink-900), var(--ink-950));
+    color: var(--paper-1);
+    overflow: hidden;
+  }
+  /* A subtle brand wash + a festive saffron glint, well below the copy — restrained, not loud.
+     The glint is mixed FROM the saffron token (no raw color literal), so it flips with the
+     theme and stays on-brand. */
+  .login-aside::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(80% 70% at 100% 100%, var(--brand-tint-2), transparent 70%),
+      radial-gradient(
+        50% 40% at 8% 86%,
+        color-mix(in srgb, var(--saffron) 14%, transparent),
+        transparent 70%
+      );
+    pointer-events: none;
+  }
+}
+.login-aside__inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-8);
+  width: 100%;
+}
+.login-aside__brand {
+  margin-bottom: var(--space-2);
+}
+.login-aside__eyebrow {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--saffron-200);
+  margin: 0;
+}
+.login-aside__headline {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  line-height: var(--leading-snug);
+  letter-spacing: var(--tracking-tight);
+  color: var(--paper-0);
+  margin: 0;
+  max-width: 22ch;
+}
+.login-aside__points {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-5);
+}
+.login-aside__point {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.login-aside__point-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-8);
+  height: var(--space-8);
+  border-radius: var(--radius-md);
+  background: var(--brand-tint-2);
+  color: var(--saffron-200);
+  font-size: var(--text-lg);
+}
+.login-aside__point-text {
+  display: grid;
+  gap: var(--space-1);
+}
+.login-aside__point-title {
+  font-family: var(--font-sans);
+  font-weight: var(--weight-bold);
+  font-size: var(--text-base);
+  color: var(--paper-0);
+}
+.login-aside__point-body {
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--ink-200);
+}
+.login-aside__foot {
+  margin: auto 0 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  color: var(--ink-300);
+  border-top: var(--border-hairline) solid var(--border-ink);
+  padding-top: var(--space-4);
+}
+
+/* ------------------------------------------------------------------
+ * LOGIN CARD (DS1.1 → AUTH-1) — token-styled sign-in card. Standalone (centred) below
+ * 1024px; the right pane of the shell above it. Refined elevation + a hairline brand
+ * header rule for a deliberate, premium feel.
  * ------------------------------------------------------------------ */
 .login-card {
   width: 100%;
@@ -470,6 +678,20 @@ textarea.input {
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-md);
   padding: var(--space-7);
+}
+/* Inside the two-column shell the card is the right pane: drop its own border/radius/shadow
+   (the shell carries those) and give it room to breathe. */
+@media (min-width: 1024px) {
+  .login-shell .login-card {
+    max-width: none;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    padding: var(--space-8);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
 }
 .login-card__brand {
   display: flex;
@@ -489,6 +711,21 @@ textarea.input {
   text-align: center;
   line-height: var(--leading-normal);
   margin: 0 0 var(--space-6);
+  /* A hairline brand rule under the header gives a deliberate, premium separation between the
+     lockup/headline and the auth controls (both themes resolve the divider token). */
+  padding-bottom: var(--space-5);
+  border-bottom: var(--border-hairline) solid var(--divider);
+}
+/* In the two-column shell the aside already carries the prominent lockup, so drop the redundant
+   in-card logo and LEFT-align the header for a crisper, less "splash-page" right pane. */
+@media (min-width: 1024px) {
+  .login-shell .login-card__brand {
+    display: none;
+  }
+  .login-shell .login-card__title,
+  .login-shell .login-card__sub {
+    text-align: left;
+  }
 }
 .login-form {
   display: flex;
@@ -521,6 +758,11 @@ textarea.input {
   font-weight: var(--weight-semibold);
   word-break: break-word;
 }
+/* The verify-step heading is focused on step change for a11y; it is not a "control", so
+   suppress the default focus ring (focus is moved purely to anchor the screen reader). */
+.login-otp__sent:focus {
+  outline: none;
+}
 .login-actions__row {
   display: flex;
   gap: var(--space-2);
@@ -548,6 +790,170 @@ textarea.input {
 }
 .login-demo p {
   margin: var(--space-2) 0 0;
+}
+
+/* ------------------------------------------------------------------
+ * AUTH FLOW (AUTH-1) — the guided 2-step shell. A clear visual hierarchy:
+ *   1. a quiet STEP cue (Step 1 / 2 of 2),
+ *   2. the PRIMARY role selector — a labelled segmented Tabs ("I'm a  [Company][Agency]"),
+ *   3. a LIGHT secondary mode switch (sign in / create) that deliberately does NOT mimic the
+ *      role tabs, so the two never read as duplicate segmented bars.
+ * Tokens only; ink-theme parity comes for free (every value is a themed token). The DS
+ * Tabs/Input/Button/Badge carry their own focus rings + ≥tap sizing.
+ * ------------------------------------------------------------------ */
+.login-auth {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* ---- Step cue (a subtle "Step N of 2" + a 2-dot track). Decorative (aria-hidden); the
+   step's content + the live status region carry the real meaning for assistive tech. ---- */
+.login-steps {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.login-steps__label {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.login-steps__track {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.login-steps__dot {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  transition: var(--transition-control);
+}
+.login-steps__dot--active {
+  width: var(--space-5);
+  background: var(--brand);
+}
+.login-steps__dot--done {
+  background: var(--success);
+}
+
+/* ---- PRIMARY: the role selector (segmented Tabs with an "I'm a" lead-in label). ---- */
+.login-roleblock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.login-roleblock__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+}
+.login-roletabs {
+  width: 100%;
+  display: flex;
+}
+.login-roletabs .bb-tab {
+  flex: 1 1 0;
+  justify-content: center;
+  min-height: var(--tap);
+}
+.login-rolepanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.login-context {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.login-context__tag {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+/* ---- SECONDARY: the sign-in / create switch. A LIGHT inline pill pair — smaller, quieter,
+   underlined-active — so it is clearly subordinate to the role tabs (not a second segment bar). */
+.login-modes {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-pill);
+}
+.login-mode {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-sm);
+  padding: var(--space-1) var(--space-4);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+.login-mode:hover {
+  color: var(--text-primary);
+}
+.login-mode--active {
+  background: var(--surface-card);
+  color: var(--brand-press);
+  box-shadow: var(--shadow-xs);
+}
+[data-theme="ink"] .login-mode--active {
+  color: var(--text-brand);
+}
+/* The real radio is visually hidden but keyboard-focusable — the label is the target;
+   the focus ring is drawn on the label so it is visible in BOTH themes. */
+.login-mode__input {
+  position: absolute;
+  width: var(--border-hairline);
+  height: var(--border-hairline);
+  padding: 0;
+  margin: calc(-1 * var(--border-hairline));
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.login-mode:has(.login-mode__input:focus-visible) {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+
+/* ---- Inline valid-email affordance — the right-side check tints green (the action/verified
+   color) once the typed email is well-formed. Presentation only. ---- */
+.login-input--valid + .bb-input__icon--right,
+.bb-input-wrap:has(.login-input--valid) .bb-input__icon--right {
+  color: var(--success);
+}
+
+/* ---- Trust / security microcopy near the CTA (truthful: passwordless one-time code). ---- */
+.login-trust {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: calc(-1 * var(--space-1)) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+.login-trust .ph {
+  color: var(--success);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  flex: none;
 }
 
 /* ------------------------------------------------------------------
@@ -648,6 +1054,31 @@ textarea.input {
 .account-menu__link:focus-visible {
   outline: none;
   box-shadow: var(--ring-focus);
+}
+/* Sign-out menu item — rendered as a <button> so it needs the native control reset, then the
+   danger accent. Red icon + label from the DS danger token; hover fills the danger tint. Both
+   themes resolve --danger / --danger-tint, so ink parity is automatic. */
+.account-menu__link--danger {
+  width: 100%;
+  font-family: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+  color: var(--danger);
+}
+.account-menu__link--danger:hover {
+  background: var(--danger-tint);
+  color: var(--danger);
+}
+.account-menu__link--danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+/* INK: --red-500 on the dark card falls short for TEXT — lift the label/icon to the light end
+   of the crimson ramp (mirrors the badge danger ink treatment) so the row stays AA-legible. */
+[data-theme="ink"] .account-menu__link--danger,
+[data-theme="ink"] .account-menu__link--danger:hover {
+  color: var(--red-300);
 }
 .account-menu__link-arrow {
   margin-left: auto;
@@ -864,6 +1295,33 @@ textarea.input {
   align-items: center;
   gap: var(--space-3);
   flex: none;
+}
+/* CARDS-1 — the standalone "go to applicants" arrow on a whole-card link (replaces the old
+   inner tonal "View" pill). Muted by default; takes the action color on card hover. */
+.dash-posting .dash-view__arrow {
+  color: var(--text-muted);
+  font-size: var(--text-lg);
+  transition: color var(--duration-fast) var(--ease-out);
+}
+.dash-posting:hover .dash-view__arrow {
+  color: var(--brand-press);
+}
+/* CARDS-1 — wrapper around a Recent-unlock MaskedCandidate that turns the WHOLE row into a
+   stretched link. The wrapper Card carries the link + relative context only, so we zero its
+   own surface (no double border/shadow/pad) and let the inner .bb-candidate render as before.
+   The hover lift/shadow on the wrapper is suppressed; the inner row keeps its own card look. */
+.dash-unlock-link {
+  border: none;
+  background: none;
+  box-shadow: none;
+}
+.dash-unlock-link:hover {
+  transform: translateY(-2px);
+  box-shadow: none;
+}
+.dash-unlock-link:hover .bb-candidate {
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-default);
 }
 .dash-empty,
 .dash-state {

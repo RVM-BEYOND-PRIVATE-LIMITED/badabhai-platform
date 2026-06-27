@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { ReactElement, ReactNode } from "react";
 import type { PayerSession } from "../../../../lib/auth/types";
+import { Card } from "../../../../components/ds";
 
 /**
  * AGENCY DASHBOARD render tests (ADR-0019 DEMAND extension + ADR-0022 LIVE wiring).
@@ -115,6 +116,27 @@ function collect(tree: ReactNode): Collected {
   return acc;
 }
 
+/** Collect every element of `type` in the tree (for the CARDS-1 wiring assertions). */
+function findAll(node: ReactNode, type: unknown, acc: ReactElement[] = []): ReactElement[] {
+  if (node === null || node === undefined || typeof node !== "object") return acc;
+  if (Array.isArray(node)) {
+    node.forEach((c) => findAll(c, type, acc));
+    return acc;
+  }
+  const el = node as ReactElement<{ children?: ReactNode }>;
+  if (el.type === type) acc.push(el);
+  if (el.props && "children" in el.props) findAll(el.props.children, type, acc);
+  return acc;
+}
+const prop = (el: ReactElement): Record<string, unknown> => el.props as Record<string, unknown>;
+const labelOf = (el: ReactElement): string => {
+  const lbl = findAll(el, "span").find((s) =>
+    String((prop(s).className as string) ?? "").includes("agency-stat__label"),
+  );
+  const child = lbl ? (prop(lbl).children as ReactNode) : "";
+  return typeof child === "string" ? child : "";
+};
+
 const JOB = {
   id: "00000001-0000-4000-8000-000000000001",
   status: "open" as const,
@@ -218,5 +240,45 @@ describe("agency dashboard — NEGATIVE: no page-level inputs, no payout/KYC ter
     expect(joined).not.toContain("Ramesh Kumar");
     expect(joined).not.toContain("+919812345678");
     expect(joined).toContain("Vacancies are unavailable right now");
+  });
+});
+
+describe("CARDS-1 · agency tiles are whole-card links to their REAL routes (faceless)", () => {
+  it("wires identity → /account, credit → /credits, total-vacancies → the #-anchor", async () => {
+    const tree = await AgencyDashboardPage();
+    const cards = findAll(tree, Card);
+    const byLabel = (l: string) => cards.find((c) => labelOf(c) === l);
+
+    expect(prop(byLabel("Account")!).href).toBe("/account");
+    expect(prop(byLabel("Credit balance")!).href).toBe("/credits");
+    expect(prop(byLabel("Total vacancies")!).href).toBe("/agency/dashboard#agency-vacancies");
+
+    // every LINKED tile carries a non-empty accessible name
+    for (const c of cards) {
+      const href = prop(c).href;
+      if (typeof href === "string") {
+        expect(String(prop(c).ariaLabel ?? "").length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("the credit tile no longer keeps a redundant inner 'Top up credits' link", async () => {
+    const { text } = collect(await AgencyDashboardPage());
+    expect(text.join(" ")).not.toContain("Top up credits");
+  });
+
+  it("NO worker PII (uuid / phone-shaped / +91) appears in ANY tile href", async () => {
+    const tree = await AgencyDashboardPage();
+    const hrefs = findAll(tree, Card)
+      .map((c) => prop(c).href)
+      .filter((h): h is string => typeof h === "string");
+    expect(hrefs.length).toBeGreaterThan(0);
+    for (const h of hrefs) {
+      expect(h).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+      expect(h).not.toMatch(/\b\d{10}\b/);
+      expect(h).not.toMatch(/\+91/);
+      // every tile href is a static app route (no interpolated id at all)
+      expect(h).toMatch(/^\/(account|credits|agency\/dashboard#agency-vacancies)$/);
+    }
   });
 });

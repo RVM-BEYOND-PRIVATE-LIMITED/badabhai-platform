@@ -129,6 +129,60 @@ describe("DS1.2 · StatTiles read live counts (mono tabular)", () => {
   });
 });
 
+describe("CARDS-1 · clickable tiles + cards link to their REAL routes", () => {
+  it("each StatTile is a whole-tile link to its mapped route, with an accessible name", async () => {
+    const tree = await render();
+    const tiles = findAll(tree, StatTile);
+    const byLabel = (l: string) => tiles.find((t) => p(t).label === l)!;
+    expect(p(byLabel("Credit balance")).href).toBe("/credits");
+    expect(p(byLabel("Open postings")).href).toBe("/postings");
+    expect(p(byLabel("Contacts unlocked")).href).toBe("/postings");
+    // every linked tile carries a non-empty accessible name
+    for (const t of tiles) {
+      expect(typeof p(t).href).toBe("string");
+      expect(String(p(t).ariaLabel ?? "").length).toBeGreaterThan(0);
+    }
+  });
+
+  it("each 'Your postings' card links to THAT posting's applicants (real opaque id)", async () => {
+    const tree = await render();
+    const cards = findByClass(tree, "dash-posting");
+    expect(cards.length).toBe(2);
+    const hrefs = cards.map((c) => p(c).href as string);
+    expect(hrefs).toContain("/postings/j1/applicants");
+    expect(hrefs).toContain("/postings/j2/applicants");
+    // accessible name present, no leftover inner "View" link (the stretched link is the target)
+    expect(cards.every((c) => String(p(c).ariaLabel ?? "").includes("view applicants"))).toBe(true);
+  });
+
+  it("each Recent-unlock row is a whole-row link to /postings (faceless)", async () => {
+    const tree = await render();
+    const links = findByClass(tree, "dash-unlock-link");
+    expect(links.length).toBe(2);
+    expect(links.every((l) => p(l).href === "/postings")).toBe(true);
+  });
+
+  it("NO worker PII (uuid / phone-shaped / +91) appears in ANY generated href", async () => {
+    const tree = await render();
+    const cards = findByClass(tree, "dash-posting");
+    const unlockLinks = findByClass(tree, "dash-unlock-link");
+    const tileHrefs = findAll(tree, StatTile).map((t) => p(t).href as string | undefined);
+    const cardHrefs = cards.map((c) => p(c).href as string | undefined);
+    const unlockHrefs = unlockLinks.map((l) => p(l).href as string | undefined);
+    const allHrefs = [...tileHrefs, ...cardHrefs, ...unlockHrefs].filter(Boolean) as string[];
+    expect(allHrefs.length).toBeGreaterThan(0);
+    for (const h of allHrefs) {
+      // only the posting's OWN opaque id is allowed; never a worker id/phone
+      expect(h).not.toContain("worker-uuid");
+      expect(h).not.toMatch(/\b\d{10}\b/); // 10-digit phone run
+      expect(h).not.toMatch(/\+91/);
+      // a full uuid only ever appears as a posting id under /postings/<id>/applicants
+      const uuid = h.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+      if (uuid) expect(h).toMatch(/^\/postings\/[^/]+\/applicants$/);
+    }
+  });
+});
+
 describe("DS1.2 · recent-unlock teasers are faceless MaskedCandidate rows", () => {
   it("renders one MaskedCandidate per recent unlock, all unmasked, with NO PII", async () => {
     const tree = await render();

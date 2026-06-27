@@ -14,17 +14,23 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const requestCode = vi.fn();
 const verifyCode = vi.fn();
+const signup = vi.fn();
 
 vi.mock("../../lib/auth", () => ({
-  payerAuth: () => ({ requestCode: (i: unknown) => requestCode(i), verifyCode: (i: unknown) => verifyCode(i) }),
+  payerAuth: () => ({
+    requestCode: (i: unknown) => requestCode(i),
+    verifyCode: (i: unknown) => verifyCode(i),
+    signup: (i: unknown) => signup(i),
+  }),
 }));
 
-const { requestCodeAction, verifyCodeAction } = await import("./actions");
+const { requestCodeAction, verifyCodeAction, signupAction } = await import("./actions");
 const { NEUTRAL_SEND_ERROR, NEUTRAL_VERIFY_ERROR } = await import("./messages");
 
 beforeEach(() => {
   requestCode.mockReset();
   verifyCode.mockReset();
+  signup.mockReset();
 });
 
 describe("requestCodeAction — the code never reaches the client (real-OTP only)", () => {
@@ -59,6 +65,62 @@ describe("requestCodeAction — ONE neutral message for every non-success (no or
 
   it("the neutral send error reveals neither account existence nor which limit was hit", () => {
     expect(NEUTRAL_SEND_ERROR).not.toMatch(/unknown|not found|no account|registered|limit|rate|cap|exists/i);
+  });
+});
+
+describe("signupAction — funnels into the SAME OTP step, no enumeration, no code echo", () => {
+  it("a valid signup forwards role/org_name/email to the seam and returns ONLY { ok, resendInSeconds }", async () => {
+    signup.mockResolvedValue({ ok: true, resendInSeconds: 60 });
+    const res = await signupAction({ role: "agent", orgName: "  Acme Staffing  ", email: "A@B.CO" });
+    // No code field of any kind reaches the client.
+    expect(res).toEqual({ ok: true, resendInSeconds: 60 });
+    // org_name is trimmed and email lowercased to match the backend; phone omitted (not supplied).
+    expect(signup).toHaveBeenCalledWith({ role: "agent", orgName: "Acme Staffing", email: "a@b.co" });
+  });
+
+  it("includes a valid E.164 phone when supplied", async () => {
+    signup.mockResolvedValue({ ok: true, resendInSeconds: 30 });
+    await signupAction({ role: "employer", orgName: "Acme Tools", email: "a@b.co", phone: "+919876543210" });
+    expect(signup).toHaveBeenCalledWith({
+      role: "employer",
+      orgName: "Acme Tools",
+      email: "a@b.co",
+      phone: "+919876543210",
+    });
+  });
+
+  it("an ALREADY-REGISTERED email returns the IDENTICAL neutral result (no 'already exists' oracle)", async () => {
+    // The seam is account-state-independent: signup of a known email returns the same
+    // success shape as a brand-new one. The action threads it through unchanged.
+    signup.mockResolvedValue({ ok: true, resendInSeconds: 60 });
+    const fresh = await signupAction({ role: "employer", orgName: "New Co", email: "new@b.co" });
+    const known = await signupAction({ role: "employer", orgName: "Known Co", email: "known@b.co" });
+    expect(known).toEqual(fresh);
+    expect(known).toEqual({ ok: true, resendInSeconds: 60 });
+  });
+
+  it("an invalid org_name / email / phone collapses to the SAME neutral send error (no oracle)", async () => {
+    const badOrg = await signupAction({ role: "employer", orgName: "   ", email: "a@b.co" });
+    expect(badOrg).toEqual({ ok: false, error: NEUTRAL_SEND_ERROR });
+    const badEmail = await signupAction({ role: "employer", orgName: "Co", email: "not-an-email" });
+    expect(badEmail).toEqual({ ok: false, error: NEUTRAL_SEND_ERROR });
+    const badPhone = await signupAction({ role: "agent", orgName: "Co", email: "a@b.co", phone: "12345" });
+    expect(badPhone).toEqual({ ok: false, error: NEUTRAL_SEND_ERROR });
+    // None reached the seam (and none revealed which field failed).
+    expect(signup).not.toHaveBeenCalled();
+  });
+
+  it("a seam failure (create/send/limit) yields the SAME neutral send error", async () => {
+    signup.mockResolvedValue({ ok: false, error: "rate_limited" });
+    const res = await signupAction({ role: "employer", orgName: "Co", email: "a@b.co" });
+    expect(res).toEqual({ ok: false, error: NEUTRAL_SEND_ERROR });
+  });
+
+  it("rejects an unknown role without hitting the seam", async () => {
+    // @ts-expect-error — deliberately invalid role to assert the enum gate.
+    const res = await signupAction({ role: "admin", orgName: "Co", email: "a@b.co" });
+    expect(res).toEqual({ ok: false, error: NEUTRAL_SEND_ERROR });
+    expect(signup).not.toHaveBeenCalled();
   });
 });
 

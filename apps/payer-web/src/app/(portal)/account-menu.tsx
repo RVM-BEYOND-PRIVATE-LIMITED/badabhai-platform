@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Avatar, Badge } from "../../components/ds";
+import { logoutAction } from "./logout-action";
 
 /**
  * Compact account menu (PROF-2) — the shell's collapsed identity.
@@ -53,6 +54,7 @@ export function AccountMenu({ orgName, email, role, status }: AccountMenuProps) 
   const reactId = useId();
   const panelId = `account-menu-${reactId}`;
   const [open, setOpen] = useState(false);
+  const [signingOut, startSignOut] = useTransition();
 
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -132,6 +134,23 @@ export function AccountMenu({ orgName, email, role, status }: AccountMenuProps) 
             <span>Account settings</span>
             <i className="ph ph-arrow-right account-menu__link-arrow" aria-hidden="true" />
           </Link>
+
+          {/* Sign out — same row affordance, danger-tinted. Closes the menu (no focus return,
+              the page is about to navigate) then runs the server logout action. */}
+          <button
+            type="button"
+            role="menuitem"
+            className="account-menu__link account-menu__link--danger"
+            aria-busy={signingOut}
+            disabled={signingOut}
+            onClick={() => {
+              close(false);
+              startSignOut(() => logoutAction());
+            }}
+          >
+            <i className="ph ph-sign-out" aria-hidden="true" />
+            <span>{signingOut ? "Signing out…" : "Sign out"}</span>
+          </button>
         </div>
       ) : null}
     </div>

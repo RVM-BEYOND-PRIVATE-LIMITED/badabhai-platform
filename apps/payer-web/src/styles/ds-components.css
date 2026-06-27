@@ -191,6 +191,17 @@
 .bb-card--pad-lg { padding: var(--space-7); }
 .bb-card--pad-none { padding: 0; }
 
+/* CARDS-1 — whole-card link (stretched-link a11y). A card with `href` becomes ONE
+   accessible link: the card root is the positioning context and a single overlay anchor
+   (.bb-stretched-link) covers it. Hover lifts the surface + deepens the shadow; :active
+   presses; the focus ring is driven by :focus-within (the overlay anchor is the focus
+   target). Tokens only; transitions collapse to 0ms under prefers-reduced-motion (the
+   --transition-control durations flip to 0 in tokens.css). */
+.bb-card--link { position: relative; cursor: pointer; transition: var(--transition-control); }
+.bb-card--link:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); border-color: var(--border-default); }
+.bb-card--link:active { transform: translateY(0); box-shadow: var(--shadow-md); }
+.bb-card--link:focus-within { box-shadow: var(--ring-focus); border-color: var(--brand); }
+
 /* ---------- Badge ---------- */
 .bb-badge {
   display: inline-flex; align-items: center; gap: var(--space-1);
@@ -224,7 +235,12 @@
    translucent fills, so a dark foreground would fall sub-AA (e.g. green-700 on a dark
    green tint ≈ 1.6:1). Re-point ONLY the soft-badge + soft-outline foregrounds to the
    light end of each ramp (≥5.4:1 on the ink tints). Paper is untouched. */
-[data-theme="ink"] .bb-badge--neutral { color: var(--ink-200); }
+/* The neutral SOFT badge is the one tone whose background is a FIXED ink-ramp value
+   (--ink-100, a pale cream) rather than a flipping --*-tint. Under [data-theme="ink"] that
+   pale fill stays pale, so a pale label (the old --ink-200) fell to ~1.3:1 — the "DRAFT" pill
+   was illegible. Flip the pill to a dark warm-neutral fill (--ink-700) and lift the label to
+   --ink-100 so it reads AA-legible on the dark surface, consistent with the other tones. */
+[data-theme="ink"] .bb-badge--neutral { background: var(--ink-700); color: var(--ink-100); }
 [data-theme="ink"] .bb-badge--brand   { color: var(--vermilion-200); }
 [data-theme="ink"] .bb-badge--success { color: var(--green-200); }
 [data-theme="ink"] .bb-badge--danger  { color: var(--red-300); }
@@ -281,6 +297,27 @@
 .bb-stat__delta--up { color: var(--success); }
 .bb-stat__delta--down { color: var(--danger); }
 .bb-stat__delta--flat { color: var(--text-muted); }
+
+/* CARDS-1 — whole-tile link (stretched-link a11y), mirrors .bb-card--link. */
+.bb-stat--link { position: relative; cursor: pointer; transition: var(--transition-control); }
+.bb-stat--link:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); border-color: var(--border-default); }
+.bb-stat--link:active { transform: translateY(0); box-shadow: var(--shadow-xs); }
+.bb-stat--link:focus-within { box-shadow: var(--ring-focus); border-color: var(--brand); }
+
+/* CARDS-1 — the single stretched-link overlay anchor. It is the ONE semantic link for the
+   whole card/tile: zero-size in flow, its ::after spans the whole positioned parent so the
+   entire surface is the hit target (still ONE <a>, not a div-with-onclick). The :focus ring
+   is rendered by the PARENT via :focus-within (above), so the overlay itself shows none. Any
+   other interactive child must carry position:relative; z-index:1 to stay clickable above it. */
+.bb-stretched-link {
+  position: absolute; width: 1px; height: 1px;
+  font-size: 0; line-height: 0; color: transparent;
+  outline: none;
+}
+.bb-stretched-link::after {
+  content: ""; position: absolute; inset: 0; z-index: var(--z-base);
+  border-radius: inherit;
+}
 
 /* ============================================================
    FEEDBACK — Dialog, Toast, Tooltip, ProgressBar.

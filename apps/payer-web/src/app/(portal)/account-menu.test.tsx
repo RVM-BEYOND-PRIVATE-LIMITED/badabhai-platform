@@ -19,6 +19,9 @@ let openState = false;
 // inert stand-ins so the component can be invoked as a plain function in the node env
 // (real React hooks throw "Invalid hook call" outside a render).
 const useState = vi.fn(() => [openState, vi.fn()] as [unknown, (v: unknown) => void]);
+// `useTransition` returns [isPending, startTransition]; the stand-in runs the callback
+// synchronously so the Sign-out onClick path can be exercised in the node env.
+const startTransition = vi.fn((cb: () => void) => cb());
 vi.mock("react", async () => {
   const actual = await vi.importActual<typeof ReactModule>("react");
   return {
@@ -28,8 +31,13 @@ vi.mock("react", async () => {
     useRef: () => ({ current: null }),
     useId: () => "test-id",
     useCallback: (fn: unknown) => fn,
+    useTransition: () => [false, startTransition] as [boolean, (cb: () => void) => void],
   };
 });
+// The server logout action — mocked so the menu's Sign-out click can be asserted without a
+// real server round-trip (parity with how layout.test mocks ./logout-button).
+const logoutAction = vi.fn();
+vi.mock("./logout-action", () => ({ logoutAction: () => logoutAction() }));
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: ReactNode; href: string }) => ({
     type: "a",
@@ -87,6 +95,8 @@ function collect(tree: ReactNode): { props: Array<Record<string, unknown>>; text
 beforeEach(() => {
   openState = false;
   useState.mockClear();
+  startTransition.mockClear();
+  logoutAction.mockClear();
 });
 
 describe("AccountMenu — collapsed trigger (a11y)", () => {
@@ -135,6 +145,45 @@ describe("AccountMenu — open panel shows the payer's OWN identity", () => {
     const link = props.find((p) => p["href"] === "/account");
     expect(link).toBeDefined();
     expect(String(link!["role"])).toBe("menuitem");
+  });
+});
+
+describe("AccountMenu — Sign out menu item", () => {
+  /** All menuitems in the open panel (the settings Link + the new Sign-out button). */
+  function menuitems(over: Props = {}) {
+    openState = true;
+    const { props } = collect(render(over));
+    return props.filter((p) => p["role"] === "menuitem");
+  }
+
+  /** The Sign-out menuitem = the role="menuitem" that is NOT the /account Link. */
+  function signOutItem(items: Array<Record<string, unknown>>) {
+    return items.find((p) => p["href"] === undefined && typeof p["onClick"] === "function");
+  }
+
+  it("adds a SECOND menuitem labelled 'Sign out' below 'Account settings'", () => {
+    const items = menuitems();
+    // Two menuitems now: the settings Link (href=/account) then the Sign-out button.
+    expect(items.length).toBe(2);
+    const settingsIdx = items.findIndex((p) => p["href"] === "/account");
+    const signOut = signOutItem(items);
+    expect(settingsIdx).toBe(0);
+    expect(signOut).toBeDefined();
+    // It carries the danger accent class and an onClick handler.
+    expect(String(signOut!["className"])).toContain("account-menu__link--danger");
+  });
+
+  it("renders the accessible 'Sign out' label text", () => {
+    openState = true;
+    const { text } = collect(render());
+    expect(text).toContain("Sign out");
+  });
+
+  it("invokes logoutAction when the Sign-out menuitem is clicked", () => {
+    const signOut = signOutItem(menuitems());
+    (signOut!["onClick"] as () => void)();
+    expect(startTransition).toHaveBeenCalledTimes(1);
+    expect(logoutAction).toHaveBeenCalledTimes(1);
   });
 });
 

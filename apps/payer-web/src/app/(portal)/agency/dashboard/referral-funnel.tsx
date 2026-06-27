@@ -35,20 +35,23 @@ export function ReferralFunnel({ summary }: { summary: AgencyReferralsSummary | 
   }
 
   const { created, clicked, accepted, minBucket } = summary;
+  // Each stage card is a whole-card link to the referrals page. The href is a static literal
+  // (no per-invitee/worker id) — aggregate, k-anon counts only; faceless preserved.
+  const REF = "/agency/referrals";
   return (
     <>
       <div className="agency-funnel">
-        <Card className="agency-funnel__card">
+        <Card className="agency-funnel__card" href={REF} ariaLabel="Invites created — view referrals">
           <h3 className="agency-funnel__label">Invites created</h3>
           <div className="agency-funnel__value bb-mono">{kAnonCount(created, minBucket)}</div>
           <p className="agency-funnel__hint">Links you minted</p>
         </Card>
-        <Card className="agency-funnel__card">
+        <Card className="agency-funnel__card" href={REF} ariaLabel="Clicked — view referrals">
           <h3 className="agency-funnel__label">Clicked</h3>
           <div className="agency-funnel__value bb-mono">{kAnonCount(clicked, minBucket)}</div>
           <p className="agency-funnel__hint">Opened the invite link</p>
         </Card>
-        <Card className="agency-funnel__card">
+        <Card className="agency-funnel__card" href={REF} ariaLabel="Accepted — view referrals">
           <h3 className="agency-funnel__label">Accepted</h3>
           <div className="agency-funnel__value bb-mono">{kAnonCount(accepted, minBucket)}</div>
           <p className="agency-funnel__hint">Joined &amp; consented</p>

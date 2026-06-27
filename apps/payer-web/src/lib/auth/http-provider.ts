@@ -65,6 +65,34 @@ export const httpPayerAuthProvider: PayerAuthProvider = {
     }
   },
 
+  async signup({ role, orgName, email, phone }): Promise<RequestCodeResult> {
+    try {
+      // The signup response is DELIBERATELY IDENTICAL to /payer/login/request's
+      // (account-state-independent, no-enumeration / XB-H): same `{ status, resend_in_seconds }`
+      // shape, the OTP is emailed and NEVER returned. So we reuse the same wire schema and
+      // funnel the caller into the SAME shared OTP `code` step the login uses.
+      const res = await payerFetch("/payer/signup", {
+        method: "POST",
+        public: true,
+        body: {
+          role,
+          org_name: orgName,
+          email,
+          // Omit `phone` entirely when not provided (optional E.164 field).
+          ...(phone ? { phone } : {}),
+        },
+        schema: requestCodeWireSchema,
+      });
+      return {
+        ok: true,
+        resendInSeconds: res.resend_in_seconds,
+      };
+    } catch {
+      // Honest service error (NOT an enumeration signal — signup never reveals account state).
+      return { ok: false, error: "Could not start signup right now. Please retry." };
+    }
+  },
+
   async verifyCode({ email, code }): Promise<LoginResult> {
     let res: z.infer<typeof verifyWireSchema>;
     try {
