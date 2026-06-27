@@ -102,6 +102,15 @@ each with a noted reason:
   no `intl`/l10n package, no persistence, no translated copy, no locale switch. Real
   multilingual support (string registry + translated copy + persisted locale + DI/BLoC
   threading) is a separate workstream. (Cross-ref the existing "multilingual chat" item.)
+- **Port origin's richer OTP screen into the clean-arch shell.** The `origin/main`
+  merge (`addedfa`) kept the local clean-arch worker-app and dropped origin's
+  **flat-structure** auth screens, which carried a real-OTP UI the rebuild had deferred
+  (**segmented OTP cells + resend timer**). That impl is NOT lost — it lives in history
+  at `00c0c62` ("OTP-4 — de-mock the login OTP surfaces") / `d2f228e` ("real-only OTP").
+  To port: `git show 00c0c62:apps/worker-app/lib/features/auth/otp_verify_screen.dart`
+  and re-home the segmented-cells + resend-timer UX into
+  `features/auth/presentation/otp_verify_screen.dart` (keep the mock seam; real mode
+  already drives the now-real OTP API).
 - **5-feature client integration + real STT voice note — blocked on missing endpoints**
   (TD54). Interview-kit list/detail, notifications, profile-summary, resume-safe-fields,
   and the record→upload→transcribe→merge voice flow target backend contracts that **do
