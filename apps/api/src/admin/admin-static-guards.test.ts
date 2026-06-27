@@ -3,7 +3,10 @@ import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { AdminAuthController } from "./admin-auth.controller";
+import { AdminEventsController } from "./admin-events.controller";
 import { AdminAuthGuard } from "./admin-auth.guard";
+import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
+import { type AdminCapability } from "./admin-capabilities";
 
 /**
  * STATIC build-blocker guards for the Admin Ops Portal security invariants (ADR-0025
@@ -110,5 +113,56 @@ describe("Admin every-route-guarded build-blocker (must-fix #4)", () => {
       (m) => !effectiveGuards(AdminAuthController, m).includes(AdminAuthGuard.name),
     );
     expect(unguarded.sort()).toEqual([...PUBLIC_ROUTES].sort());
+  });
+});
+
+describe("ADMIN-2 event-spine routes — guarded + capability-declared (must-fix #4 extended)", () => {
+  // Discover the route handlers on the read-only event-spine controller.
+  const proto = AdminEventsController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminEventsController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  /** Read the @RequireAdminRole capability declared on a handler (method ∪ class). */
+  function capabilityOf(method: string): AdminCapability | undefined {
+    const fn = (proto[method] ?? undefined) as object | undefined;
+    return (
+      (fn && (Reflect.getMetadata(ADMIN_CAPABILITY_KEY, fn) as AdminCapability | undefined)) ??
+      (Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminEventsController) as
+        | AdminCapability
+        | undefined)
+    );
+  }
+
+  it("discovers the six event-spine routes (no route silently dropped)", () => {
+    expect(routeMethods.sort()).toEqual(
+      ["export", "getOne", "list", "metrics", "timeline", "trace"].sort(),
+    );
+  });
+
+  it("EVERY event-spine route carries AdminAuthGuard AND AdminRolesGuard (no open privileged route)", () => {
+    for (const method of routeMethods) {
+      const guards = effectiveGuards(AdminEventsController, method);
+      expect(guards, `${method} must be behind AdminAuthGuard`).toContain(AdminAuthGuard.name);
+      expect(guards, `${method} must be behind AdminRolesGuard`).toContain(AdminRolesGuard.name);
+    }
+  });
+
+  it("EVERY event-spine route declares exactly one @RequireAdminRole capability (deny-by-default)", () => {
+    for (const method of routeMethods) {
+      expect(capabilityOf(method), `${method} must declare a @RequireAdminRole`).toBeDefined();
+    }
+  });
+
+  it("the five reads require `read_events`; `export` requires the `export` capability (least-privilege)", () => {
+    expect(capabilityOf("list")).toBe("read_events");
+    expect(capabilityOf("getOne")).toBe("read_events");
+    expect(capabilityOf("trace")).toBe("read_events");
+    expect(capabilityOf("timeline")).toBe("read_events");
+    expect(capabilityOf("metrics")).toBe("read_events");
+    expect(capabilityOf("export")).toBe("export");
   });
 });
