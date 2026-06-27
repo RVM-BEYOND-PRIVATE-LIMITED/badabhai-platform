@@ -35,8 +35,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         {children}
         <div className="chrome-footer">
-          BadaBhai for Employers · {publicConfig.NEXT_PUBLIC_ENVIRONMENT} · Staging preview —
-          mock payments, no real money. Worker identities are masked and consent-gated.
+          BadaBhai for Employers · {publicConfig.NEXT_PUBLIC_ENVIRONMENT} · Worker identities
+          are masked and consent-gated.
         </div>
       </body>
     </html>

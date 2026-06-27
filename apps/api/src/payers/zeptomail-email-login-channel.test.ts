@@ -131,6 +131,27 @@ describe("ZeptoMailEmailLoginChannel.deliver — ZeptoMail HTTPS path", () => {
     expect(sent.textbody).toContain(CODE);
   });
 
+  it("strips a pasted 'Zoho-enczapikey ' prefix so the auth header is never doubled", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [{ code: "EM_104" }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    // A user pastes the FULL header value (prefix + raw token) into ZEPTOMAIL_API_TOKEN.
+    const channel = new ZeptoMailEmailLoginChannel(
+      zeptoConfig({ ZEPTOMAIL_API_TOKEN: "Zoho-enczapikey raw-token-abc" }),
+      pii,
+    );
+    await expect(channel.deliver(DELIVERY)).resolves.toBeUndefined();
+
+    const [, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
+    const auth = (init.headers as Record<string, string>).Authorization;
+    // Exactly ONE prefix — not a doubled "Zoho-enczapikey Zoho-enczapikey …" (the HTTP-500 bug).
+    expect(auth).toBe("Zoho-enczapikey raw-token-abc");
+  });
+
   it("throws on a non-2xx response (and the error is opaque)", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,

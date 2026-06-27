@@ -26,8 +26,7 @@ export default async function LoginPage() {
         </div>
         <h1 className="login-card__title">Sign in to your hiring desk</h1>
         <p className="login-card__sub">
-          Post jobs, see verified applicants, unlock contacts. Staging preview — no real
-          money. A third-party IdP / MFA is a separate human gate (ADR-0019 B-R1).
+          Post jobs, see verified applicants, unlock contacts.
         </p>
 
         <LoginForm />
