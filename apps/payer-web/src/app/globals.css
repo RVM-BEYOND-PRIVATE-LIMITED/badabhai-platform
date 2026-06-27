@@ -59,7 +59,7 @@ body {
 .portal-top {
   display: flex;
   align-items: center;
-  gap: var(--space-5);
+  gap: var(--space-3) var(--space-5);
   flex-wrap: wrap;
   padding: var(--space-3) var(--gutter-web);
   background: var(--surface-card);
@@ -69,6 +69,24 @@ body {
   top: 0;
   z-index: var(--z-nav);
   box-shadow: var(--shadow-xs);
+}
+/* COMPACT-1 — narrow widths (≤768px): the brand + actions cluster stays on the top line and
+   the role-aware nav WRAPS to its own full-width line below them (order:3, flex-basis:100%) so
+   NO nav item is ever dropped or hidden — it just reflows. The right cluster keeps its place
+   next to the brand. The gutter also trims to the mobile rail (matches .portal-main). */
+@media (max-width: 768px) {
+  .portal-top {
+    padding: var(--space-3) var(--gutter);
+    row-gap: var(--space-2);
+  }
+  .portal-top__brand {
+    margin-right: auto;
+  }
+  .portal-nav {
+    order: 3;
+    flex-basis: 100%;
+    flex: 1 1 100%;
+  }
 }
 /* Brand lockup is a LINK to /dashboard — reset anchor chrome, add a restrained hover
    hit-area + focus ring. Negative margin keeps the visual position identical to before. */
@@ -133,6 +151,14 @@ body {
   align-items: center;
   gap: var(--space-3);
   flex-wrap: wrap;
+}
+/* Tighten the action cluster on small phones so the brand + (badge · theme · account · sign-out)
+   all fit the top line at ≈360px without forcing a page-wide horizontal scrollbar. The theme
+   toggle's "System" pill is the most space-hungry; the cluster wraps before it ever clips. */
+@media (max-width: 768px) {
+  .portal-top__right {
+    gap: var(--space-2);
+  }
 }
 /* Sign-out — icon-only, danger-tinted. ≥44px square tap target; the red comes from the DS
    danger token (paper + ink both resolve --danger), never a literal. */
@@ -208,11 +234,23 @@ body {
   width: 100%;
   max-width: var(--content-max);
   margin: 0 auto;
-  padding: var(--space-7) var(--gutter-web);
+  /* COMPACT-1 — one content rail at a deliberately tighter, consistent rhythm. The vertical
+     pad is trimmed (space-6, was space-7) and the horizontal gutter reuses --gutter-web; both
+     condense on small phones (the @media below) so nothing is cramped yet wide screens never
+     sprawl past --content-max. */
+  padding: var(--space-6) var(--gutter-web);
   flex: 1;
+  min-width: 0; /* lets inner scroll regions / long tables size against the rail, not overflow it */
   /* Restrained entrance — a short, low-travel fade so route changes feel composed, not
      jumpy. Collapses to nothing under prefers-reduced-motion (token durations → 0ms). */
   animation: portal-fade var(--duration-base) var(--ease-out);
+}
+/* Narrow phones: trim the web gutter to the mobile gutter so a 360px viewport never forces a
+   page-wide horizontal scrollbar and content keeps its breathing room without crowding edges. */
+@media (max-width: 768px) {
+  .portal-main {
+    padding: var(--space-5) var(--gutter);
+  }
 }
 @keyframes portal-fade {
   from {
@@ -1216,11 +1254,24 @@ textarea.input {
   font-size: var(--text-base);
   margin: 0 0 var(--space-6);
 }
-.dash-stats {
+/* COMPACT-1 — shared responsive stat-grid utility. Every stat / demand / pack / tier / funnel
+   row composes onto ONE fluid auto-fit grid keyed off --stat-min, so tiles pack tightly and
+   reflow at the SAME breakpoint everywhere — never overflowing a row, never orphaning a tile.
+   Single source of truth: change the rhythm here, not per page. */
+.dash-stats,
+.credits-stats,
+.credits-packs,
+.capacity-stats,
+.capacity-tiers,
+.agency-stats,
+.agency-funnel,
+.agency-parked {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(var(--stat-min), 1fr));
   gap: var(--space-4);
-  margin-bottom: var(--space-7);
+}
+.dash-stats {
+  margin-bottom: var(--section-gap);
 }
 /* Dashboard stat tiles — warm BRAND-orange (saffron) cards with bigger numbers + labels
    (per request). Tokens only; ink text keeps AA contrast on the warm fill. */
@@ -1247,7 +1298,7 @@ textarea.input {
   color: var(--saffron-700);
 }
 .dash-section {
-  margin-bottom: var(--space-7);
+  margin-bottom: var(--section-gap);
 }
 .dash-section__head {
   display: flex;
@@ -1358,16 +1409,9 @@ textarea.input {
   line-height: var(--leading-normal);
 }
 .credits-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--space-4);
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--block-gap);
 }
-.credits-packs {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: var(--space-4);
-}
+/* (credits-stats / credits-packs grid is the shared .dash-stats utility above.) */
 .credit-pack {
   display: flex;
   flex-direction: column;
@@ -1405,7 +1449,7 @@ textarea.input {
   display: none;
 }
 .credits-section {
-  margin-top: var(--space-7);
+  margin-top: var(--section-gap);
 }
 .credits-section__title {
   font-family: var(--font-display);
@@ -1413,8 +1457,19 @@ textarea.input {
   color: var(--text-primary);
   margin: 0 0 var(--space-2);
 }
-.credits-table-card {
-  overflow: hidden;
+/* COMPACT-1 — wide data tables become an INTENTIONAL, VISIBLE horizontal scroll region inside
+   their padding:none Card rather than a silent clip. `overflow-x:auto` keeps the full table
+   reachable on a narrow viewport (the table can scroll, the page does not), and the inner
+   <table> width:max-content lets columns size naturally without being squashed unreadable.
+   The card still clips its rounded corners vertically. Shared by credits + capacity tables. */
+.credits-table-card,
+.capacity-table-card {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.credits-table-card table,
+.capacity-table-card table {
+  min-width: max-content;
 }
 .credits-state {
   display: grid;
@@ -1846,7 +1901,7 @@ textarea.input {
   line-height: var(--leading-normal);
 }
 .agency-section {
-  margin: 0 0 var(--space-7);
+  margin: 0 0 var(--section-gap);
 }
 .agency-section__title {
   font-family: var(--font-display);
@@ -1868,12 +1923,7 @@ textarea.input {
   white-space: nowrap;
 }
 
-/* Stat tiles (identity + credit + demand summary). */
-.agency-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--space-4);
-}
+/* Stat tiles (identity + credit + demand summary) — grid is the shared .dash-stats utility. */
 .agency-stat {
   display: grid;
   gap: var(--space-2);
@@ -2085,12 +2135,7 @@ textarea.input {
   word-break: break-all;
 }
 
-/* Referral funnel + parked modules. */
-.agency-funnel {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--space-4);
-}
+/* Referral funnel + parked modules — grids are the shared .dash-stats utility above. */
 .agency-funnel__card {
   display: grid;
   gap: var(--space-2);
@@ -2122,11 +2167,6 @@ textarea.input {
   margin-top: var(--space-5);
   max-width: var(--reading-max);
 }
-.agency-parked {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--space-4);
-}
 .agency-parked__card {
   display: grid;
   gap: var(--space-2);
@@ -2151,6 +2191,50 @@ textarea.input {
   color: var(--text-muted);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
+}
+
+/* COMPACT-1 — the parked "Not in this release" section as an accessible native <details>
+   disclosure. Open by default (nothing hidden on first paint); the <summary> is the
+   keyboard-operable toggle. Layout/disclosure only — no copy/data change. */
+.agency-parked-disclosure {
+  margin: 0 0 var(--section-gap);
+}
+.agency-parked-disclosure__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  /* ≥44px target row; the whole summary is the toggle. The default disclosure triangle is
+     removed in favour of the brand caret on the right. */
+  min-height: var(--control-md);
+  padding: var(--space-1) 0;
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--radius-sm);
+}
+.agency-parked-disclosure__summary::-webkit-details-marker {
+  display: none;
+}
+.agency-parked-disclosure__summary:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+.agency-parked-disclosure__summary .agency-section__title {
+  margin: 0;
+}
+.agency-parked-disclosure__caret {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--text-lg);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.agency-parked-disclosure[open] .agency-parked-disclosure__caret {
+  transform: rotate(180deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .agency-parked-disclosure__caret {
+    transition: none;
+  }
 }
 
 /* Transient unlock-RESULT toast region (DS1.5) — fixed bottom-right; faceless, no-oracle copy. */
@@ -2238,7 +2322,9 @@ textarea.input {
 }
 .skeleton-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  /* COMPACT-1 — match the loaded stat-grid density so the loading skeleton reflows at the same
+     breakpoint as the real .dash-stats (no jump from skeleton → content). */
+  grid-template-columns: repeat(auto-fill, minmax(var(--stat-min), 1fr));
   gap: 16px;
   margin-top: 20px;
 }
@@ -2262,10 +2348,7 @@ textarea.input {
   margin: 0 0 var(--space-2);
 }
 .capacity-stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--space-4);
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--block-gap);
 }
 .capacity-alert {
   display: grid;
@@ -2280,18 +2363,13 @@ textarea.input {
   line-height: var(--leading-normal);
 }
 .capacity-section {
-  margin-top: var(--space-7);
+  margin-top: var(--section-gap);
 }
 .capacity-section__title {
   font-family: var(--font-display);
   font-size: var(--text-lg);
   color: var(--text-primary);
   margin: 0 0 var(--space-2);
-}
-.capacity-tiers {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: var(--space-4);
 }
 .capacity-tier {
   display: flex;
@@ -2342,9 +2420,7 @@ textarea.input {
   font-weight: var(--weight-semibold);
   color: var(--text-link);
 }
-.capacity-table-card {
-  overflow: hidden;
-}
+/* (.capacity-table-card overflow is the shared scroll-region rule above.) */
 .capacity-state {
   display: grid;
   gap: var(--space-3);
@@ -2415,7 +2491,7 @@ textarea.input {
    flips under ink. The invite form is DS Inputs/Select/Button; this covers the section
    scaffolding + the members table + the scaffold note. Tokens only. */
 .team-section {
-  margin: var(--space-7) 0;
+  margin: var(--section-gap) 0;
 }
 .team-section__title {
   font-family: var(--font-display);

@@ -344,6 +344,19 @@
   --content-max: 1200px;
   --reading-max: 68ch;
   --app-max: 440px; /* worker mobile canvas */
+
+  /* COMPACT-1 density rail — one consistent layout scale for the portal. These compose
+     EXISTING space tokens (no new magnitudes) so the whole shell tightens uniformly and
+     can be re-tuned from one place instead of per-page one-off margins.
+       --stat-min  : the floor a stat/demand tile may shrink to before the auto-fit grid
+                     reflows (a token-derived min for the responsive `repeat(auto-fit, …)`).
+       --section-gap: vertical rhythm BETWEEN page sections (was an ad-hoc --space-7 each).
+       --block-gap : vertical rhythm WITHIN a section / between stacked blocks.
+       --rail-gap  : the column gap of the dense two-column (feed + rail) dashboard. */
+  --stat-min: 13.5rem; /* ≈216px — packs ~5 across at --content-max, reflows below */
+  --section-gap: var(--space-6); /* tighter than the old per-section --space-7 */
+  --block-gap: var(--space-4);
+  --rail-gap: var(--space-6);
 }
 
 /* ============================================================
