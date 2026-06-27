@@ -14,6 +14,9 @@ import '../../features/chat/presentation/bloc/chat_bloc.dart';
 import '../../features/consent/data/consent_repository_impl.dart';
 import '../../features/consent/domain/consent_repository.dart';
 import '../../features/consent/presentation/cubit/consent_cubit.dart';
+import '../../features/name/data/name_repository_impl.dart';
+import '../../features/name/domain/name_repository.dart';
+import '../../features/name/presentation/cubit/name_cubit.dart';
 import '../../features/profile/data/profile_repository_impl.dart';
 import '../../features/profile/domain/profile_repository.dart';
 import '../../features/profile/presentation/cubit/profile_cubit.dart';
@@ -88,6 +91,9 @@ void setupLocator({ApiClient? apiClient}) {
   locator.registerLazySingleton<ConsentRepository>(
     () => ConsentRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
   );
+  locator.registerLazySingleton<NameRepository>(
+    () => NameRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
+  );
   locator.registerLazySingleton<ChatRepository>(
     () => ChatRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
   );
@@ -127,6 +133,9 @@ void setupLocator({ApiClient? apiClient}) {
   );
   locator.registerFactory<ConsentCubit>(
     () => ConsentCubit(locator<ConsentRepository>()),
+  );
+  locator.registerFactory<NameCubit>(
+    () => NameCubit(locator<NameRepository>()),
   );
   locator.registerFactory<ChatBloc>(
     () => ChatBloc(locator<ChatRepository>()),

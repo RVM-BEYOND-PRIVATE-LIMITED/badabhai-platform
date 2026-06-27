@@ -6,15 +6,28 @@ import {
   NotFoundException,
   Param,
   ParseUUIDPipe,
+  Patch,
   Put,
   Query,
+  UseGuards,
 } from "@nestjs/common";
 import { clampLimit } from "../common/pagination";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import {
+  WorkerAuthGuard,
+  CurrentWorker,
+  type AuthenticatedWorker,
+} from "../auth/worker-auth.guard";
+import { ConsentGuard } from "../auth/consent.guard";
 import { WorkersRepository } from "./workers.repository";
 import { WorkersService } from "./workers.service";
-import { SetWorkerNameSchema, type SetWorkerNameDto } from "./workers.dto";
+import {
+  SetWorkerNameSchema,
+  type SetWorkerNameDto,
+  SetMyNameSchema,
+  type SetMyNameDto,
+} from "./workers.dto";
 
 @Controller("workers")
 export class WorkersController {
@@ -66,5 +79,28 @@ export class WorkersController {
     @Ctx() ctx: RequestContext,
   ) {
     return this.workersService.setFullName(id, dto.full_name, ctx);
+  }
+
+  /**
+   * Worker SELF-service name capture. The worker is taken from the bearer token
+   * via @CurrentWorker — NEVER from a path/body id (no IDOR). Consent-gated: name
+   * capture is processing of personal data, so it must follow `consent.accepted`
+   * (CLAUDE.md §2 invariant #6) — hence WorkerAuthGuard THEN ConsentGuard
+   * (ConsentGuard reads `req.worker`, which WorkerAuthGuard attaches).
+   *
+   * The plaintext name is encrypted at rest by the service, emitted as a name-free
+   * `worker.name_recorded` event, and never logged — the response is only
+   * `{ ok: true }` (never the raw name).
+   */
+  @Patch("me/name")
+  @HttpCode(200)
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  async setMyName(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Body(new ZodValidationPipe(SetMyNameSchema)) dto: SetMyNameDto,
+    @Ctx() ctx: RequestContext,
+  ): Promise<{ ok: true }> {
+    await this.workersService.setFullName(worker.id, dto.full_name, ctx);
+    return { ok: true };
   }
 }

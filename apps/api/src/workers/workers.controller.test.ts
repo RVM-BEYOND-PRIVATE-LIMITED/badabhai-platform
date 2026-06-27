@@ -69,4 +69,15 @@ describe("WorkersController — list/getProfile (read, no-PII) + setName", () =>
     expect(workersService.setFullName).toHaveBeenCalledWith(ID, "Asha", CTX);
     expect(res).toEqual({ worker_id: ID });
   });
+
+  it("setMyName takes the worker from the token (not a body/path id) and returns only { ok: true }", async () => {
+    const { controller, workersService } = make();
+    const worker = { id: ID, sid: "sess-1" };
+    const res = await controller.setMyName(worker, { full_name: "Asha" } as never, CTX);
+    // worker id comes from @CurrentWorker — never the body
+    expect(workersService.setFullName).toHaveBeenCalledWith(ID, "Asha", CTX);
+    // response NEVER carries the name (or even the id): only { ok: true }
+    expect(res).toEqual({ ok: true });
+    expect(JSON.stringify(res)).not.toMatch(/Asha/i);
+  });
 });
