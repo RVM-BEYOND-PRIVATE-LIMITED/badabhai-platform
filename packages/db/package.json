@@ -29,9 +29,15 @@
     "db:seed:jobs": "tsx src/seed-jobs.ts",
     "db:seed:demand": "tsx src/seed-demand.ts",
     "db:verify:demand": "tsx src/verify-demand.ts",
+    "db:seed:reach": "tsx src/seed-reach-pool.ts",
+    "db:seed:reach:large": "tsx src/seed-reach-pool.ts",
+    "db:unseed:reach": "tsx src/seed-reach-pool.ts --unseed-only",
+    "db:verify:reach": "tsx src/verify-reach.ts",
     "clean": "rimraf dist .turbo *.tsbuildinfo"
   },
   "dependencies": {
+    "@badabhai/reach-engine": "workspace:*",
+    "@badabhai/taxonomy": "workspace:*",
     "@badabhai/types": "workspace:*",
     "drizzle-orm": "^0.38.3",
     "postgres": "^3.4.5"

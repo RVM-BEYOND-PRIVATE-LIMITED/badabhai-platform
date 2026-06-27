@@ -45,6 +45,10 @@ export type { BadaBhaiLogoProps } from "./logo";
 /* ---- Interactive ("use client") ---- */
 export { OtpInput } from "./otp-input";
 export type { OtpInputProps } from "./otp-input";
+export { SelectMenu } from "./select-menu";
+export type { SelectMenuProps, SelectOption } from "./select-menu";
+export { WavyText } from "./wavy-text";
+export type { WavyTextProps } from "./wavy-text";
 export { Chip } from "./chip";
 export type { ChipProps } from "./chip";
 export { Dialog } from "./dialog";
@@ -57,3 +61,4 @@ export { JobCard } from "./job-card";
 export type { JobCardProps } from "./job-card";
 export { MaskedCandidate } from "./masked-candidate";
 export type { MaskedCandidateProps } from "./masked-candidate";
+export { ThemeToggle } from "./theme-toggle";

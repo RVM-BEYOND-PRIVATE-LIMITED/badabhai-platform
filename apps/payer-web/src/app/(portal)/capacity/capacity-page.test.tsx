@@ -20,6 +20,7 @@ const EMPLOYER: PayerSession = {
   payerId: "11111111-1111-4111-8111-111111111111",
   displayLabel: "Acme Manufacturing",
   role: "employer",
+  status: "active",
 };
 
 const requirePayer = vi.fn<() => Promise<PayerSession>>();

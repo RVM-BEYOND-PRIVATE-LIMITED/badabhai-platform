@@ -1012,6 +1012,29 @@ export const PayerSessionStartedPayload = z.object({
 });
 export type PayerSessionStartedPayload = z.infer<typeof PayerSessionStartedPayload>;
 
+/**
+ * The field KEYS a payer may self-edit on `PATCH /payer/me` (PROF-3). Pinned as an
+ * enum (not a free `z.string()`) so the registry STRUCTURALLY guarantees
+ * `changed_fields` can only ever carry KEYS — never the new org-name / phone VALUES
+ * (defense-in-depth on the B-R2 PII boundary; CLAUDE.md invariant #2).
+ */
+const PAYER_ACCOUNT_CHANGED_FIELDS = ["org_name", "phone"] as const;
+
+/**
+ * A payer edited their OWN account display name and/or contact phone (PROF-3,
+ * `PATCH /payer/me`). FACELESS by construction: the only fact recorded is WHICH field
+ * KEYS changed — NEVER the new org-name or phone VALUES (those are the B-R2 contact PII,
+ * stored ONLY in `payers`, encrypted). `changed_fields` is a non-empty subset of
+ * {org_name, phone} (an empty patch is rejected at the boundary, so a recorded update
+ * always changed at least one field). Email/role/status are immutable here, so they can
+ * never appear. Mirrors the `job.updated` / `job_posting.updated` keys-only precedent.
+ */
+export const PayerAccountUpdatedPayload = z.object({
+  payer_id: uuidSchema,
+  changed_fields: z.array(z.enum(PAYER_ACCOUNT_CHANGED_FIELDS)).min(1),
+});
+export type PayerAccountUpdatedPayload = z.infer<typeof PayerAccountUpdatedPayload>;
+
 // ---------------------------------------------------------------------------
 // job.* — the `jobs` ENTITY lifecycle (ADR-0022 Agency Supply Portal demand slice).
 //

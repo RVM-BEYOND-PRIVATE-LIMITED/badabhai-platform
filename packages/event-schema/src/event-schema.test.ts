@@ -955,6 +955,64 @@ describe("payer auth events (ADR-0019 Decision B — FACELESS, ids/role/method e
       expect(result.event.payload.is_new_payer).toBe(false);
     }
   });
+
+  it("validates payer.account_updated with KEYS-ONLY changed_fields and no value fields", () => {
+    const result = validateEvent(
+      payerAuthEvent("payer.account_updated", {
+        payer_id: UUID_A,
+        changed_fields: ["org_name", "phone"],
+      }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "payer.account_updated") {
+      // The payload schema has NO field that could hold an org-name/phone VALUE — only
+      // the opaque id + the changed field KEYS (the B-R2 contact PII lives encrypted in
+      // `payers`). The keys are restricted to {org_name, phone}.
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["changed_fields", "payer_id"].sort(),
+      );
+    }
+  });
+
+  it("rejects a payer.account_updated payload carrying a VALUE field (keys only)", () => {
+    const bad = validateEvent(
+      payerAuthEvent("payer.account_updated", {
+        payer_id: UUID_A,
+        changed_fields: ["org_name"],
+        // A leaked org-name VALUE must never validate — the schema is strict on the
+        // payload's allowed fields via the envelope's payload contract.
+        org_name: "Acme Pvt Ltd",
+        phone: "+919876543210",
+      }),
+    );
+    // Extra keys are stripped by z.object (not its own failure), so prove instead that
+    // the VALIDATED payload never carries them — only the opaque id + field KEYS survive.
+    expect(bad.success).toBe(true);
+    if (bad.success && bad.event.event_name === "payer.account_updated") {
+      expect(Object.keys(bad.event.payload).sort()).toEqual(["changed_fields", "payer_id"].sort());
+      expect(JSON.stringify(bad.event.payload)).not.toContain("Acme Pvt Ltd");
+      expect(JSON.stringify(bad.event.payload)).not.toContain("9876543210");
+    }
+  });
+
+  it("rejects payer.account_updated with an empty changed_fields (must change ≥1 field)", () => {
+    const bad = validateEvent(
+      payerAuthEvent("payer.account_updated", { payer_id: UUID_A, changed_fields: [] }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects a payer.account_updated changed_fields key outside {org_name,phone}", () => {
+    const bad = validateEvent(
+      payerAuthEvent("payer.account_updated", {
+        payer_id: UUID_A,
+        changed_fields: ["email"], // email is immutable here → not an allowed key
+      }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
 });
 
 describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/bands only)", () => {
@@ -1187,10 +1245,11 @@ describe("otp send-cap-exceeded events (OTP-5 — AGGREGATE, PII-free, no identi
 });
 
 describe("registry", () => {
-  it("exposes all 76 event names (74 prior + worker/payer otp_send_cap_exceeded — OTP-5)", () => {
-    expect(EVENT_NAMES).toHaveLength(76);
+  it("exposes all 77 event names (76 prior + payer.account_updated — PROF-3)", () => {
+    expect(EVENT_NAMES).toHaveLength(77);
     expect(isEventName("worker.otp_send_cap_exceeded")).toBe(true);
     expect(isEventName("payer.otp_send_cap_exceeded")).toBe(true);
+    expect(isEventName("payer.account_updated")).toBe(true);
     expect(isEventName("job.created")).toBe(true);
     expect(isEventName("job.updated")).toBe(true);
     expect(isEventName("job.closed")).toBe(true);

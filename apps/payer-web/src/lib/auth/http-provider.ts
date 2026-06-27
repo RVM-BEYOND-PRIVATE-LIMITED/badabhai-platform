@@ -121,7 +121,7 @@ export const httpPayerAuthProvider: PayerAuthProvider = {
   },
 };
 
-/** Build the PII-free session principal from GET /payer/me. */
+/** Build the session principal from GET /payer/me — the payer's OWN data only. */
 function sessionFromMe(me: z.infer<typeof payerMeWireSchema>): PayerSession {
   return {
     payerId: me.id,
@@ -129,5 +129,12 @@ function sessionFromMe(me: z.infer<typeof payerMeWireSchema>): PayerSession {
     // back to a neutral label if absent (e.g. right after verify).
     displayLabel: me.orgName.trim() || (me.role === "agent" ? "Your agency" : "Your company"),
     role: me.role,
+    // The payer's OWN account fields (their email / masked phone / state) — shown back
+    // to them in the account menu + /account only; never logged/eventized (invariant #2).
+    // `email` stays undefined on a verify-step session (no /payer/me yet) — that is fine,
+    // the field is optional. `phoneLast4` normalizes a missing value to null.
+    email: me.email,
+    phoneLast4: me.phoneLast4 ?? null,
+    status: me.status,
   };
 }

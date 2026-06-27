@@ -1,6 +1,6 @@
 ---
 name: bb-ui-review
-description: Review UI for the Next.js ops console and the Flutter worker app — correctness of data display, no-PII-leak, resilience to backend errors, and accessibility for low-literacy worker users. Use during implementation/review of any UI change.
+description: Review UI for the payer/agency portal (apps/payer-web), the Next.js ops console (apps/web), and the Flutter worker app — correctness of data display, no-PII-leak, resilience to backend errors, design-system adherence (Desi Vernacular Pop tokens), and accessibility for low-literacy worker users. Use during implementation/review of any UI change.
 ---
 
 # Skill: UI Review
@@ -20,14 +20,20 @@ audience — ops (Next.js) or low-literacy workers (Flutter).
 4. Accessibility (worker app especially): large touch targets, minimal text, voice
    affordance, regional-language readiness, works on low bandwidth.
 5. Consistency with existing components and states.
+6. **Design-system adherence** (`bb-design-system`): color/type/spacing/radius/elevation
+   come from tokens — not raw hex/px; DS primitives reused; the screen matches the
+   `ui_kits/` recreation for its surface; ₹ in mono tabular (`₹40`), green = the action
+   color; masked-until-unlocked intact; audience-correct voice; `[data-theme="ink"]` parity.
 
 **Checklist.**
-- [ ] No raw PII rendered beyond what the API intends.
-- [ ] No secret reaches the client; web uses only public env.
+- [ ] No raw PII rendered beyond what the API intends; faceless/masked views stay masked.
+- [ ] No secret reaches the client; web uses only public env (payer-web API base is server-side).
 - [ ] Loading / empty / error states handled; resilient to backend failure.
-- [ ] Worker-app UX works for a first-time low-literacy user.
-- [ ] Ops console Phase-1 actions are read-only (no unplanned mutations).
+- [ ] Worker-app UX works for a first-time low-literacy user (≥48px targets, icon + label).
+- [ ] Ops console (apps/web) Phase-1 actions are read-only; payer-web mutations never carry a body `payer_id`.
 - [ ] Consistent with existing UI patterns.
+- [ ] **On-brand:** design tokens (no raw hex/px), DS primitives reused, matches the surface's `ui_kit`.
+- [ ] **₹** mono tabular; green = action (vermilion not flooded); masking motif present; voice correct per audience.
 
 **Expected Output.** A UI review verdict with specific findings (privacy,
 resilience, accessibility, consistency) and required fixes.

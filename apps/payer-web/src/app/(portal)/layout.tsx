@@ -3,8 +3,10 @@ import type { ReactNode } from "react";
 import { requirePayer } from "../../lib/auth";
 import { getOrgRole } from "../../lib/auth/org-roles";
 import { getCredits } from "../../lib/payer-api";
-import { BadaBhaiLogo, Badge } from "../../components/ds";
+import { BadaBhaiLogo, Badge, ThemeToggle } from "../../components/ds";
+import { AccountMenu } from "./account-menu";
 import { LogoutButton } from "./logout-button";
+import { PortalNav } from "./portal-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -44,47 +46,17 @@ export default async function PortalLayout({ children }: { children: ReactNode }
   return (
     <div className="portal-shell">
       <header className="portal-top">
-        <div className="portal-top__brand">
-          <BadaBhaiLogo size={28} />
+        {/* Brand lockup → Dashboard (the portal home). Authorization is unchanged: the
+            target route is itself behind requirePayer(). */}
+        <Link className="portal-top__brand" href="/dashboard" aria-label="BadaBhai — go to dashboard">
+          <BadaBhaiLogo size={28} wavy />
           <span className="portal-top__role">for {isAgency ? "Agencies" : "Employers"}</span>
-        </div>
+        </Link>
 
-        <nav className="portal-nav" aria-label="Primary">
-          <Link className="portal-nav__link" href="/dashboard">
-            Dashboard
-          </Link>
-          <Link className="portal-nav__link" href="/postings/new">
-            {isAgency ? "Post a vacancy" : "Post a job"}
-          </Link>
-          <Link className="portal-nav__link" href="/postings">
-            {isAgency ? "Manage vacancies" : "Manage postings"}
-          </Link>
-          <Link className="portal-nav__link" href="/capacity">
-            Capacity
-          </Link>
-          {/* Owner-only affordances (billing/wallet + user management). The SERVER gate
-              (requireOwner → neutral 404) — not this conditional — is the authorization. */}
-          {isOwner ? (
-            <Link className="portal-nav__link" href="/credits">
-              Credits
-            </Link>
-          ) : null}
-          {isOwner ? (
-            <Link className="portal-nav__link" href="/team">
-              Team
-            </Link>
-          ) : null}
-          {isAgency ? (
-            <Link className="portal-nav__link" href="/agency/dashboard">
-              Agency dashboard
-            </Link>
-          ) : null}
-          {isAgency ? (
-            <Link className="portal-nav__link" href="/agency/referrals">
-              Referrals &amp; payouts
-            </Link>
-          ) : null}
-        </nav>
+        {/* Role-aware primary nav (links + which ones render decided HERE; the active-route
+            highlight is added client-side). The SERVER gate (requireOwner/requireAgent) — not
+            the nav — is the authorization. */}
+        <PortalNav isAgency={isAgency} isOwner={isOwner} />
 
         <div className="portal-top__right">
           {balance != null ? (
@@ -92,11 +64,16 @@ export default async function PortalLayout({ children }: { children: ReactNode }
               <span className="bb-mono">{balance}</span> unlocks
             </Badge>
           ) : null}
-          <span className="portal-acct">
-            <span className="portal-acct__label">{session.displayLabel}</span>
-            <Badge tone="neutral">{isAgency ? "agency" : "employer"}</Badge>
-            <Badge tone={isOwner ? "brand" : "neutral"}>{isOwner ? "owner" : "recruiter"}</Badge>
-          </span>
+          {/* Light/dark theme — a per-user display preference, role-agnostic. Visible on
+              every authenticated page, next to the account menu. */}
+          <ThemeToggle />
+          <AccountMenu
+            orgName={session.displayLabel}
+            email={session.email}
+            phoneLast4={session.phoneLast4}
+            role={session.role}
+            status={session.status}
+          />
           <LogoutButton />
         </div>
       </header>

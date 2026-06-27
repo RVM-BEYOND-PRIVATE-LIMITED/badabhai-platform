@@ -1,5 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ReactElement, ReactNode } from "react";
+import type * as ReactModule from "react";
+
+// global-error.tsx is a client component (THEME-1 added useState/useEffect so the error screen
+// re-applies the saved theme on its own <html>). Stub the hooks so it can be invoked as a plain
+// function in the node env. The neutral copy under test renders regardless of theme state.
+vi.mock("react", async () => {
+  const actual = await vi.importActual<typeof ReactModule>("react");
+  return {
+    ...actual,
+    useState: (init: unknown) => [init, vi.fn()],
+    useEffect: () => undefined,
+  };
+});
 
 /**
  * ERROR-BOUNDARY render tests (B5 — CAUSE-FREE / NO-LEAK).
