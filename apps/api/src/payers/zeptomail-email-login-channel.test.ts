@@ -116,14 +116,15 @@ describe("ZeptoMailEmailLoginChannel.deliver — ZeptoMail HTTPS path", () => {
     const sent = JSON.parse(init.body as string) as {
       to: Array<{ email_address: { address: string } }>;
       from: { address: string };
-      mail_agent_alias: string;
       reply_to?: Array<{ address: string }>;
       htmlbody: string;
       textbody: string;
     };
     expect(sent.to[0]!.email_address.address).toBe(EMAIL);
     expect(sent.from.address).toBe("noreply@badabhai.in");
-    expect(sent.mail_agent_alias).toBe("agent-alias-123");
+    // The ZeptoMail v1.1 API has NO mail-agent body field — the agent is bound to the
+    // send-mail token. Sending a non-standard field could be rejected, so it must be absent.
+    expect(sent).not.toHaveProperty("mail_agent_alias");
     expect(sent.reply_to?.[0]!.address).toBe("support@badabhai.in");
     // The code is in the email body (its legitimate place) and only there.
     expect(sent.htmlbody).toContain(CODE);
