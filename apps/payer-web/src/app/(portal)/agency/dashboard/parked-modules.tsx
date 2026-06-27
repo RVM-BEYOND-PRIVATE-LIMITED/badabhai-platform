@@ -52,8 +52,16 @@ export function AgencyParkedModules({ flags }: { flags: AgencyFlags }) {
   ];
 
   return (
-    <section className="agency-section">
-      <h2 className="agency-section__title">Not in this release</h2>
+    // COMPACT-1: this verbose, lowest-priority secondary section (what is deliberately NOT
+    // built) becomes an accessible native <details> disclosure to lift dashboard density —
+    // but it stays `open` by DEFAULT so nothing is hidden on first paint. Layout/disclosure
+    // only: the same heading, sub-copy, and parked cards render unchanged. The native
+    // <summary> is keyboard-operable for free; the chevron motion honors reduced-motion.
+    <details className="agency-section agency-parked-disclosure" open>
+      <summary className="agency-parked-disclosure__summary">
+        <span className="agency-section__title">Not in this release</span>
+        <i className="ph ph-caret-down agency-parked-disclosure__caret" aria-hidden="true" />
+      </summary>
       <p className="agency-section__sub">
         These modules are deliberately not built. They are gated on legal, money, consent, or
         product decisions — not engineering readiness.
@@ -71,6 +79,6 @@ export function AgencyParkedModules({ flags }: { flags: AgencyFlags }) {
           </Card>
         ))}
       </div>
-    </section>
+    </details>
   );
 }
