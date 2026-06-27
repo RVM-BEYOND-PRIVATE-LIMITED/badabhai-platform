@@ -29,6 +29,7 @@ import { PayerCapacityController } from "../payer-portal/payer-capacity.controll
 import { PayerReachController } from "../payer-portal/payer-reach.controller";
 import { AgencyJobsController } from "../agency/agency-jobs.controller";
 import { AgencyInvitesController } from "../agency/agency-invites.controller";
+import { AdminAuthController } from "../admin/admin-auth.controller";
 
 /**
  * AUTHZ CONTRACT — the single source of truth for which guards protect every
@@ -70,6 +71,7 @@ const C = "ConsentGuard";
 const I = "InternalServiceGuard";
 const P = "PayerAuthGuard";
 const R = "PayerRoleGuard";
+const A = "AdminAuthGuard";
 
 const CONTRACT: ControllerContract[] = [
   { name: "Actions", ctor: ActionsController, routes: { record: [], recordBatch: [] } },
@@ -177,6 +179,14 @@ const CONTRACT: ControllerContract[] = [
   // P0 fix (PR #91).
   { name: "Voice", ctor: VoiceController, routes: { upload: [C, W], transcribe: [C, W] } },
   { name: "Workers", ctor: WorkersController, routes: { list: [], getProfile: [], setName: [] } },
+  // Admin Ops Portal auth (ADR-0025 ADMIN-1, the 4th principal). The ONLY public routes are
+  // the login request/verify + MFA verify (external untrusted boundary, IP-rate-limited);
+  // every session route binds to the admin session (AdminAuthGuard). One principal per route.
+  {
+    name: "AdminAuth",
+    ctor: AdminAuthController,
+    routes: { requestLogin: [], verifyLogin: [], verifyMfa: [], refresh: [A], logout: [A], me: [A] },
+  },
 ];
 
 describe("API authz contract — guards on every controller route", () => {

@@ -78,6 +78,13 @@ export const EVENT_DOMAINS = [
   // ids + the channel enum + an optional non-PII campaign tag ONLY; never a phone, name,
   // email, or message body. `agency_invite.accepted` is emitted ONLY after consent (#6).
   "agency_invite",
+  // Admin Ops Portal — the 4th privileged principal (ADR-0025). The admin auth/session
+  // lifecycle + governed actions + reason-gated PII-reveal audit. PII-FREE & FACELESS by
+  // construction: the admin's OWN email lives encrypted ONLY in `admin_users` (never in an
+  // event); the ONLY identity token here is the opaque `admin_id` (== `admin_users.id`).
+  // `admin.action_performed`/`admin.pii_viewed` carry an action/reason CODE + a target/
+  // subject id — NEVER a changed value or the revealed PII (CLAUDE.md invariant #2).
+  "admin",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;
@@ -90,8 +97,19 @@ export type EventDomain = z.infer<typeof EventDomain>;
  * - ops: internal BadaBhai operator
  * - system: automated background process
  * - ai_service: the FastAPI AI service
+ * - admin: an authenticated Admin Ops Portal principal (ADR-0025, the 4th principal —
+ *   DISTINCT from `ops`, which is the shared-secret service caller). The `actor_id` is
+ *   the opaque `admin_users.id`; the admin's email/role-name VALUE never appears.
  */
-export const ACTOR_TYPES = ["worker", "payer", "agent", "ops", "system", "ai_service"] as const;
+export const ACTOR_TYPES = [
+  "worker",
+  "payer",
+  "agent",
+  "ops",
+  "system",
+  "ai_service",
+  "admin",
+] as const;
 export const ActorType = z.enum(ACTOR_TYPES);
 export type ActorType = z.infer<typeof ActorType>;
 
@@ -137,6 +155,12 @@ export const SUBJECT_TYPES = [
   // opaque). The subject of the `agency_invite.*` funnel events. (The `job` subject above
   // already serves the `job.*` lifecycle events — no new subject is needed for those.)
   "agency_invite",
+  // An admin session (ADR-0025). The subject_id is the opaque `admin_users.id` whose
+  // session was started/revoked; carries NO PII (the admin's email lives encrypted in
+  // `admin_users`, never in an event). The subject of `admin.session_started` /
+  // `admin.session_revoked`. (`admin.action_performed` / `admin.pii_viewed` use the
+  // TARGET entity's subject — e.g. `worker` for a reveal — not this one.)
+  "admin_session",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;
