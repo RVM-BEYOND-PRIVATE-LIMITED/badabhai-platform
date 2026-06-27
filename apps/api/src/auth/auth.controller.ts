@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -26,13 +27,29 @@ import {
 import {
   OtpRequestSchema,
   OtpVerifySchema,
+  TokenRefreshSchema,
   type OtpRequestDto,
   type OtpVerifyDto,
+  type TokenRefreshDto,
   type LoginResponse,
   type MeResponse,
   type OtpRequestResponse,
   type RefreshResponse,
+  type TokenRefreshResponse,
+  type SessionResponse,
+  type SessionInfo,
 } from "./auth.dto";
+import type { SessionView } from "./session.service";
+
+/** Map an internal SessionView (epoch-ms) to the wire SessionInfo (ISO-8601). */
+function toSessionInfo(view: SessionView): SessionInfo {
+  return {
+    tier: view.tier,
+    expires_at: new Date(view.expiresAtMs).toISOString(),
+    requires_otp_after:
+      view.requiresOtpAfterMs === null ? null : new Date(view.requiresOtpAfterMs).toISOString(),
+  };
+}
 
 /** Bearer token from the Authorization header (the guard already validated it). */
 function bearer(req: Request): string {
@@ -105,6 +122,66 @@ export class AuthController {
   @HttpCode(204)
   @UseGuards(WorkerAuthGuard)
   async logout(@CurrentWorker() worker: AuthenticatedWorker): Promise<void> {
-    await this.sessions.revoke(worker.sid);
+    await this.sessions.revoke(worker.sid, worker.id);
+  }
+
+  /**
+   * Silent rotation of the opaque refresh token (ADR-0026 Phase 1). NO guard — the
+   * refresh token in the body IS the credential (the access JWT may have expired). The
+   * `Idempotency-Key` header is REQUIRED so an honest double-refresh (flaky-network
+   * retry) returns the same rotated pair instead of tripping reuse-detection. A
+   * missing/reused/invalid token ⇒ 401.
+   */
+  @Post("token/refresh")
+  @HttpCode(200)
+  async tokenRefresh(
+    @Body(new ZodValidationPipe(TokenRefreshSchema)) dto: TokenRefreshDto,
+    @Req() req: Request,
+  ): Promise<TokenRefreshResponse> {
+    const idempotencyKey = req.header("idempotency-key")?.trim();
+    if (!idempotencyKey) {
+      throw new BadRequestException("Idempotency-Key header is required");
+    }
+
+    const outcome = await this.sessions.refreshByToken(dto.refresh_token, idempotencyKey);
+    if (!outcome.ok) {
+      // invalid / reuse_detected / requires_otp all collapse to a 401 (no oracle on which).
+      throw new UnauthorizedException("Invalid or expired refresh token");
+    }
+
+    const { minted } = outcome;
+    return {
+      access_token: minted.access.token,
+      token_type: "Bearer",
+      expires_in_seconds: minted.access.expiresInSeconds,
+      refresh_token: minted.refresh.token,
+      refresh_expires_in_seconds: minted.refresh.expiresInSeconds,
+      session: toSessionInfo(minted.session),
+    };
+  }
+
+  /**
+   * Revoke EVERY active session for the current worker (logout-all). 204 No Content —
+   * the count is recorded in the PII-free `worker.logged_out_all` event, not the body.
+   */
+  @Post("logout-all")
+  @HttpCode(204)
+  @UseGuards(WorkerAuthGuard)
+  async logoutAll(@CurrentWorker() worker: AuthenticatedWorker): Promise<void> {
+    await this.sessions.revokeAll(worker.id);
+  }
+
+  /** Tier + expiry introspection for the current session (ADR-0026). */
+  @Get("session")
+  @UseGuards(WorkerAuthGuard)
+  async session(@CurrentWorker() worker: AuthenticatedWorker): Promise<SessionResponse> {
+    const view = await this.sessions.describe(worker.id, worker.sid);
+    if (!view) throw new UnauthorizedException("Invalid or expired session");
+    const info = toSessionInfo(view);
+    return {
+      tier: info.tier,
+      expires_at: info.expires_at,
+      requires_otp_after: info.requires_otp_after,
+    };
   }
 }

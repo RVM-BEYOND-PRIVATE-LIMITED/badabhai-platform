@@ -50,6 +50,27 @@ describe("assertAuthConfig (fail-closed worker-auth guard — real-only Fast2SMS
     const c = cfg({ ...FAST2SMS_CREDS, JWT_SECRET: REAL_JWT });
     expect(() => assertAuthConfig(c, "production")).not.toThrow();
   });
+
+  // ADR-0026: the refresh-token TTL must be >= the session absolute cap (else a refresh
+  // record would expire out from under a still-valid session, forcing OTP early).
+  it("fails closed when AUTH_REFRESH_TTL_DAYS < AUTH_SESSION_ABSOLUTE_MAX_DAYS", () => {
+    const c = cfg({
+      ...FAST2SMS_CREDS,
+      AUTH_REFRESH_TTL_DAYS: "30",
+      AUTH_SESSION_ABSOLUTE_MAX_DAYS: "90",
+    });
+    expect(() => assertAuthConfig(c, "development")).toThrow(/AUTH_REFRESH_TTL_DAYS/i);
+  });
+
+  it("passes when AUTH_REFRESH_TTL_DAYS >= AUTH_SESSION_ABSOLUTE_MAX_DAYS (default 90/90)", () => {
+    expect(() => assertAuthConfig(cfg(FAST2SMS_CREDS), "development")).not.toThrow();
+    const equalish = cfg({
+      ...FAST2SMS_CREDS,
+      AUTH_REFRESH_TTL_DAYS: "120",
+      AUTH_SESSION_ABSOLUTE_MAX_DAYS: "90",
+    });
+    expect(() => assertAuthConfig(equalish, "development")).not.toThrow();
+  });
 });
 
 describe("isUsingDevJwtDefault", () => {
