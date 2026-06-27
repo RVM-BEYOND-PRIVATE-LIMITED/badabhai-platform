@@ -3,7 +3,6 @@ import 'package:go_router/go_router.dart';
 
 import 'core/di/locator.dart';
 import 'core/widgets/bb_bottom_nav.dart';
-import 'core/widgets/bb_job_card.dart';
 import 'features/notifications/domain/notifications_repository.dart';
 
 import 'features/splash/presentation/splash_screen.dart';
@@ -22,7 +21,6 @@ import 'features/settings/presentation/settings_screen.dart';
 import 'features/resume/presentation/building_screen.dart';
 import 'features/resume/presentation/resume_edit_screen.dart';
 import 'features/resume/presentation/resume_preview_screen.dart';
-import 'features/swipe/presentation/applied_screen.dart';
 import 'features/swipe/presentation/job_detail_screen.dart';
 import 'features/swipe/presentation/swipe_jobs_screen.dart';
 
@@ -53,7 +51,6 @@ class Routes {
 
   // --- Shell sub-routes (append the id where noted) ---
   static const String jobDetail = '/jobs/detail'; // + '/<jobId>'  (no bar)
-  static const String applied = '/jobs/applied'; // (keeps bar)
   static const String resumeEdit = '/resume/edit'; // (no bar)
   static const String kit = '/resume/kit'; // (keeps bar)
   static const String kitDetail = '/resume/kit/detail'; // + '/<tradeKey>' (no bar)
@@ -140,11 +137,6 @@ GoRouter _buildRouter() {
                     parentNavigatorKey: _rootNavKey, // full-screen, no bar
                     builder: (_, GoRouterState s) =>
                         JobDetailScreen(jobId: s.pathParameters['jobId']!),
-                  ),
-                  GoRoute(
-                    path: 'applied',
-                    builder: (_, GoRouterState s) =>
-                        AppliedScreen(job: s.extra as BbJobCardData?),
                   ),
                 ],
               ),

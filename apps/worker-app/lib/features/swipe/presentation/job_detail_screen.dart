@@ -8,10 +8,8 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
-import '../../../core/widgets/bb_job_card.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_tag.dart';
-import '../../../router.dart';
 import 'cubit/job_detail_cubit.dart';
 import '../domain/job_detail.dart';
 
@@ -66,19 +64,9 @@ class _JobDetailViewState extends State<_JobDetailView> {
         listener: (BuildContext context, JobDetailState state) {
           if (state.appliedNonce != _shownApplied) {
             _shownApplied = state.appliedNonce;
-            final JobDetail d = state.detail!;
-            context.go(
-              Routes.applied,
-              extra: BbJobCardData(
-                title: d.title,
-                company: d.company,
-                verified: d.verified,
-                payBand: d.payBand,
-                place: d.location,
-                shift: d.shift,
-                tags: d.requirements,
-              ),
-            );
+            // J3: the "Apply ho gaya" screen is gone — pop back to the Jobs
+            // feed with a result so it surfaces an "Applied" toast.
+            context.pop('applied');
           } else if (state.applyErrorNonce != _shownError) {
             _shownError = state.applyErrorNonce;
             ScaffoldMessenger.of(context)

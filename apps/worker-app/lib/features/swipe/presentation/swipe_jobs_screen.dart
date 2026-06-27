@@ -57,11 +57,13 @@ class _FeedViewState extends State<_FeedView> {
   // Filters sheet, stage 4). CNC is pre-selected to match the spec.
   final Set<String> _chips = <String>{'CNC'};
 
-  /// The card the worker just applied to, captured at dispatch time so the
-  /// Applied screen can show its details once the apply truly succeeds.
-  BbJobCardData? _pendingApplied;
   int _shownAppliedNonce = 0;
   int _shownDecisionError = 0;
+
+  /// The head jobId captured at skip-dispatch time. Skip success is silent in the
+  /// bloc (it only advances the queue), so we confirm it here: once this id is no
+  /// longer the head and no new decision error landed, we toast "Skipped".
+  String? _pendingSkipId;
 
   /// Session-only filter selection (real filtered-feed query is a follow-up).
   FilterSelection _filters = FilterSelection.initial;
@@ -93,20 +95,24 @@ class _FeedViewState extends State<_FeedView> {
         child: BlocConsumer<SwipeBloc, SwipeState>(
           listenWhen: (SwipeState prev, SwipeState curr) =>
               prev.decisionError != curr.decisionError ||
-              prev.appliedNonce != curr.appliedNonce,
+              prev.appliedNonce != curr.appliedNonce ||
+              prev.queue != curr.queue,
           listener: (BuildContext context, SwipeState state) {
             if (state.appliedNonce != _shownAppliedNonce) {
               _shownAppliedNonce = state.appliedNonce;
-              // Apply truly succeeded — now show the Applied confirmation.
-              context.push(Routes.applied, extra: _pendingApplied);
+              _pendingSkipId = null;
+              // Apply truly succeeded — confirm with a lightweight toast and let
+              // the deck advance to the next card (no full-screen confirmation).
+              _toast(context, 'Applied');
             } else if (state.decisionError != _shownDecisionError) {
               _shownDecisionError = state.decisionError;
-              ScaffoldMessenger.of(context)
-                ..clearSnackBars()
-                ..showSnackBar(
-                  const SnackBar(
-                      content: Text('Could not save. Please try again.')),
-                );
+              _pendingSkipId = null; // a failed skip never confirms
+              _toast(context, 'Could not save. Please try again.');
+            } else if (_pendingSkipId != null &&
+                state.current?.jobId != _pendingSkipId) {
+              // The skipped head advanced away with no error — confirm the skip.
+              _pendingSkipId = null;
+              _toast(context, 'Skipped');
             }
           },
           builder: (BuildContext context, SwipeState state) {
@@ -125,7 +131,6 @@ class _FeedViewState extends State<_FeedView> {
 
   Widget _feed(BuildContext context, SwipeState state) {
     final SwipeBloc bloc = context.read<SwipeBloc>();
-    final FeedItem head = state.current!;
     final List<JobDeckItem> cards = state.queue
         .map((FeedItem i) => JobDeckItem(id: i.jobId, data: _mockCardData(i)))
         .toList();
@@ -142,21 +147,34 @@ class _FeedViewState extends State<_FeedView> {
             child: JobDeck(
               cards: cards,
               deciding: state.deciding,
-              onTitleTap: (String id) =>
-                  context.push('${Routes.jobDetail}/$id'),
-              onSkip: () => bloc.add(const SwipeSkipped()),
-              onApply: () {
-                // Capture the card now; navigate to Applied only once the bloc
-                // confirms success (appliedNonce bump in the listener above).
-                _pendingApplied = _mockCardData(head);
-                bloc.add(const SwipeApplied());
+              onTitleTap: (String id) async {
+                // J3: applying from JobDetail pops back with 'applied' — surface
+                // the same "Applied" toast here (no more Applied confirmation screen).
+                final Object? result =
+                    await context.push('${Routes.jobDetail}/$id');
+                if (result == 'applied' && context.mounted) {
+                  _toast(context, 'Applied');
+                }
               },
+              onSkip: () {
+                // Capture the head id so the listener can confirm the skip once
+                // it advances away with no error (the bloc has no skip nonce).
+                _pendingSkipId = state.current?.jobId;
+                bloc.add(const SwipeSkipped());
+              },
+              onApply: () => bloc.add(const SwipeApplied()),
             ),
           ),
         ),
         _swipeHint(),
       ],
     );
+  }
+
+  void _toast(BuildContext context, String message) {
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   Widget _header(BuildContext context) {

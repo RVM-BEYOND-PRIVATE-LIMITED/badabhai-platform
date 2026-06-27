@@ -229,6 +229,13 @@ class ApiClient {
     return InterviewKitDownload.fromJson(json);
   }
 
+  /// Logs the worker out — best-effort token revocation. Worker-scoped: sends
+  /// the bearer [authToken]; the API returns 204 (no body). The caller should
+  /// clear local session state regardless of the outcome (offline-safe).
+  Future<void> logout({required String authToken}) async {
+    await _post('/auth/logout', <String, dynamic>{}, authToken: authToken);
+  }
+
   /// Fetches the alpha swipe-to-apply feed (ADR-0009): up to [limit] open jobs
   /// in deterministic seed order. Worker-scoped — requires [authToken] (the
   /// session token from OTP verify); the API guards this with WorkerAuthGuard +

@@ -1,7 +1,10 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/api/api_client.dart';
+import '../../../../core/di/locator.dart';
 import '../../../../core/error/failure.dart';
+import '../../../../core/session/session_repository.dart';
 import '../../domain/profile_summary.dart';
 import '../../domain/profile_summary_repository.dart';
 
@@ -17,11 +20,24 @@ class ProfileTabState extends Equatable {
   List<Object?> get props => <Object?>[status, summary];
 }
 
-/// Loads the tabbed Profile summary on open.
+/// Loads the tabbed Profile summary on open and owns the logout flow.
 class ProfileTabCubit extends Cubit<ProfileTabState> {
-  ProfileTabCubit(this._repo) : super(const ProfileTabState());
+  /// [api] and [session] are optional named seams so the existing DI
+  /// registration `ProfileTabCubit(repo)` keeps compiling while tests can inject
+  /// fakes for the logout flow. When omitted they are resolved LAZILY from the
+  /// locator only inside [logout] — so constructing the cubit (e.g. the
+  /// load-only unit tests) never requires a wired locator.
+  ProfileTabCubit(
+    this._repo, {
+    ApiClient? api,
+    SessionRepository? session,
+  })  : _api = api,
+        _session = session,
+        super(const ProfileTabState());
 
   final ProfileSummaryRepository _repo;
+  final ApiClient? _api;
+  final SessionRepository? _session;
 
   Future<void> load() async {
     emit(const ProfileTabState(status: ProfileTabStatus.loading));
@@ -33,5 +49,22 @@ class ProfileTabCubit extends Cubit<ProfileTabState> {
       if (isClosed) return;
       emit(const ProfileTabState(status: ProfileTabStatus.failed));
     }
+  }
+
+  /// Best-effort logout: revoke the token server-side (ignored on failure —
+  /// offline-safe), then wipe the in-memory session. The screen handles
+  /// navigation back to the login route after this resolves.
+  Future<void> logout() async {
+    final ApiClient api = _api ?? locator<ApiClient>();
+    final SessionRepository session = _session ?? locator<SessionRepository>();
+    final String? token = session.sessionToken;
+    try {
+      if (token != null && token.isNotEmpty) {
+        await api.logout(authToken: token);
+      }
+    } catch (_) {
+      // Ignore: a failed/offline revoke must not block local sign-out.
+    }
+    session.clear();
   }
 }

@@ -52,4 +52,13 @@ class SessionRepository {
   void setResume(String resumeId) {
     _session = _session.copyWith(resumeId: resumeId);
   }
+
+  /// Wipes all in-memory session state on logout — token, ids, and the transient
+  /// phone. Resets to a fresh empty [Session] so every getter returns null and
+  /// the next login starts clean. This holder is a passive value object (not a
+  /// ChangeNotifier — nothing listens to it), so there is no notify to fire; the
+  /// logout flow navigates back to the login route explicitly.
+  void clear() {
+    _session = const Session();
+  }
 }
