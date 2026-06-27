@@ -19,7 +19,15 @@
  */
 export type PayerRole = "employer" | "agent";
 
-/** A logged-in payer principal, as the seam exposes it to the app. */
+/**
+ * A logged-in payer principal, as the seam exposes it to the app.
+ *
+ * Every field here is the payer's OWN data (their org label, their own contact, their
+ * account state) — shown back to them only. It is NEVER worker PII; it is NEVER logged
+ * or eventized (invariant #2 / B-R2). The opaque `payerId` remains the only tenant
+ * token any data call may bind to (XB-A). `email` / `phoneLast4` are optional for
+ * rollout-safety: a verify-step session (before GET /payer/me) carries neither.
+ */
 export interface PayerSession {
   /** The opaque payer id — the ONLY tenant token the rest of the app may use. */
   readonly payerId: string;
@@ -27,6 +35,12 @@ export interface PayerSession {
   readonly displayLabel: string;
   /** Role, for UI affordances only — never an authz decision on the client. */
   readonly role: PayerRole;
+  /** The payer's OWN account email — shown back to them only; never logged/eventized. */
+  readonly email?: string;
+  /** Last 4 of the payer's OWN phone (masked), or null if not set; never logged/eventized. */
+  readonly phoneLast4?: string | null;
+  /** The payer's OWN account status — drives the identity badge, not an authz decision. */
+  readonly status: "pending" | "active" | "suspended";
 }
 
 /** Result of a login attempt. NO-ORACLE on failure (XB-H): a single neutral error. */

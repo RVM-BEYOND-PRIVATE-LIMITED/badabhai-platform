@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { payerAuth } from "../../lib/auth";
-import { BadaBhaiLogo } from "../../components/ds";
+import { BadaBhaiLogo, ThemeToggle } from "../../components/ds";
 import { LoginForm } from "./login-form";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +20,10 @@ export default async function LoginPage() {
 
   return (
     <div className="login-wrap">
+      {/* Pre-auth theme control — the preference is available before sign-in too. */}
+      <div className="login-theme">
+        <ThemeToggle />
+      </div>
       <div className="login-card">
         <div className="login-card__brand">
           <BadaBhaiLogo size={34} />

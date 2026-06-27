@@ -214,6 +214,14 @@ export const EVENT_REGISTRY = {
   "payer.created": { version: 1, domain: "payer", payload: p.PayerCreatedPayload },
   "payer.login_requested": { version: 1, domain: "payer", payload: p.PayerLoginRequestedPayload },
   "payer.session_started": { version: 1, domain: "payer", payload: p.PayerSessionStartedPayload },
+  // A payer self-edited their own account on PATCH /payer/me (PROF-3). FACELESS:
+  // opaque payer_id + the changed field KEYS (subset of {org_name, phone}) ONLY —
+  // never the new org-name/phone VALUES (B-R2 PII lives encrypted in `payers`). v1.
+  "payer.account_updated": {
+    version: 1,
+    domain: "payer",
+    payload: p.PayerAccountUpdatedPayload,
+  },
   // OTP-5 global daily SEND circuit-breaker breach (payer email path). Same AGGREGATE /
   // PII-free shape as worker.otp_send_cap_exceeded (channel "payer_email") — no payer id,
   // email, IP, or code. Emitted once per breach; the HTTP response stays byte-identical

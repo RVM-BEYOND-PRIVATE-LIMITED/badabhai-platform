@@ -26,11 +26,13 @@ const employer: PayerSession = {
   payerId: "11111111-1111-4111-8111-111111111111",
   displayLabel: "Acme Tools (mock)",
   role: "employer",
+  status: "active",
 };
 const agent: PayerSession = {
   payerId: "22222222-2222-4222-8222-222222222222",
   displayLabel: "HireFast Agency (mock)",
   role: "agent",
+  status: "active",
 };
 
 beforeEach(() => {

@@ -1,5 +1,22 @@
 import { z } from "zod";
 import { loadPublicConfig } from "@badabhai/config/public";
+import {
+  THEME_COOKIE_NAME,
+  THEME_COOKIE_MAX_AGE,
+  parseThemePreference,
+  type ResolvedTheme,
+  type ThemePreference,
+} from "./theme-constants";
+
+// Re-export the shared theme constants/types so existing consumers + tests can keep importing
+// them from `lib/config` (the server-facing theme surface).
+export {
+  THEME_COOKIE_NAME,
+  THEME_COOKIE_MAX_AGE,
+  parseThemePreference,
+  type ResolvedTheme,
+  type ThemePreference,
+};
 
 /**
  * Browser-safe config for the external payer portal.
@@ -86,24 +103,59 @@ export function __resetAgencyFlagsForTest(): void {
 }
 
 /**
- * PORTAL THEME (DS4.2) — resolve the optional dark "ink" theme.
+ * PORTAL THEME (THEME-1) — the light⇄dark (paper/ink) selector.
  *
  * The whole portal is token-driven, and `src/styles/tokens.css` defines a full
  * `[data-theme="ink"]` block that flips the semantic surface/text tokens. Setting
  * `data-theme="ink"` on the portal shell (the <html> root) therefore re-themes the
- * entire app with zero per-screen changes. This helper makes the dark theme REACHABLE
- * without altering the default appearance:
+ * entire app with zero per-screen changes.
  *
- *  - Returns `"ink"` ONLY when `PAYER_THEME` (server) — or its public mirror
- *    `NEXT_PUBLIC_PAYER_THEME` — is the exact literal "ink" (fail-closed).
- *  - Returns `undefined` for unset / "paper" / anything else, so the DEFAULT render
- *    emits NO `data-theme` attribute and paper (light) stays exactly as shipped.
+ * THREE preference values flow through the app:
+ *  - the persisted user CHOICE — the SSR-readable `bb_theme` cookie ∈ paper|ink|system
+ *    (NOT httpOnly so the client toggle reads/writes it; carries NO PII);
+ *  - the env DEFAULT — `PAYER_THEME` / `NEXT_PUBLIC_PAYER_THEME` (back-compat seam);
+ *  - the OS preference — only knowable in the browser (`prefers-color-scheme`), so the
+ *    server resolves `system` to a stable default and the inline no-FOUC script in the
+ *    root <head> corrects it before first paint.
  *
- * No secret is read; both keys are plain theme selectors safe in any context.
+ * `resolvePayerTheme()` is a PURE function of the (already-read) cookie value so it stays
+ * unit-testable in the node env without `next/headers`. The server layout reads the cookie
+ * with {@link readThemeCookie} and passes it in. No secret is read here.
  */
-export function resolvePayerTheme(): "ink" | undefined {
+
+/** The env DEFAULT (back-compat): `PAYER_THEME=ink` / `NEXT_PUBLIC_PAYER_THEME=ink`. */
+function envThemeDefault(): ResolvedTheme | "system" {
   const raw = (process.env.PAYER_THEME ?? process.env.NEXT_PUBLIC_PAYER_THEME ?? "")
     .trim()
     .toLowerCase();
-  return raw === "ink" ? "ink" : undefined;
+  return raw === "ink" ? "ink" : raw === "paper" ? "paper" : "system";
+}
+
+/**
+ * Resolve the theme to render server-side, given the (already-read) `bb_theme` cookie value.
+ *
+ * Precedence: explicit cookie (`paper`/`ink`) → env `PAYER_THEME` (back-compat) →
+ * `system`/`paper`. For `system` (cookie says system, or no cookie + no env default) the
+ * server CANNOT know the OS preference, so it resolves to the stable `paper` default and the
+ * inline script corrects it before paint. Returns one of `"paper" | "ink"`.
+ */
+export function resolvePayerTheme(cookieValue?: string | null): ResolvedTheme {
+  const pref = parseThemePreference(cookieValue);
+  if (pref === "ink" || pref === "paper") return pref; // explicit user choice wins
+  if (pref === "system") return systemFallback(); // user asked to follow OS → stable default
+  // No (valid) cookie → fall back to the env default, then to the system/paper baseline.
+  const env = envThemeDefault();
+  if (env === "ink" || env === "paper") return env;
+  return systemFallback();
+}
+
+/**
+ * Server-side fallback for `system`: the server can't read `prefers-color-scheme`, so it
+ * renders the stable `paper` baseline. The inline no-FOUC script flips it to ink before the
+ * first paint when the OS prefers dark — and the SSR/client `data-theme` only ever diverge on
+ * this no-explicit-cookie path (the script runs before React hydrates), so there is no
+ * hydration mismatch on the cookie path.
+ */
+function systemFallback(): ResolvedTheme {
+  return "paper";
 }

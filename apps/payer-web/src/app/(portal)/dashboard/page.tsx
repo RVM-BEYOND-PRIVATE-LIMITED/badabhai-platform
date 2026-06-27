@@ -88,8 +88,9 @@ export default async function DashboardPage() {
       <section className="dash-section">
         <div className="dash-section__head">
           <h2>Recent unlocks</h2>
-          <Link className="dash-link" href="/postings">
-            {isAgency ? "Manage vacancies" : "Manage postings"} →
+          <Link className="bb-btn bb-btn--success bb-btn--sm dash-action" href="/postings">
+            <span>{isAgency ? "Manage vacancies" : "Manage postings"}</span>
+            <i className="ph ph-arrow-right" aria-hidden="true" />
           </Link>
         </div>
         {recentUnlocks.length === 0 ? (
@@ -115,8 +116,9 @@ export default async function DashboardPage() {
       <section className="dash-section">
         <div className="dash-section__head">
           <h2>Your {isAgency ? "vacancies" : "postings"}</h2>
-          <Link className="dash-link" href="/postings/new">
-            {isAgency ? "Post a vacancy" : "Post a job"} →
+          <Link className="bb-btn bb-btn--success bb-btn--sm dash-action" href="/postings/new">
+            <span>{isAgency ? "Post a vacancy" : "Post a job"}</span>
+            <i className="ph ph-arrow-right" aria-hidden="true" />
           </Link>
         </div>
         {data.postings.length === 0 ? (
@@ -139,8 +141,12 @@ export default async function DashboardPage() {
                   <Badge tone={post.status === "open" ? "success" : "neutral"} upper>
                     {post.status}
                   </Badge>
-                  <Link className="dash-link" href={`/postings/${post.id}/applicants`}>
-                    View →
+                  <Link
+                    className="bb-btn bb-btn--tonal bb-btn--sm dash-view"
+                    href={`/postings/${post.id}/applicants`}
+                  >
+                    <span>View</span>
+                    <i className="ph ph-arrow-right dash-view__arrow" aria-hidden="true" />
                   </Link>
                 </div>
               </Card>

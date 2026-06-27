@@ -262,8 +262,8 @@ describe("DS0.2 · adherence — no raw hex / px literal in any wrapper source",
     .filter((f) => f.endsWith(".tsx") && !f.includes(".test.") && !f.includes(".stories."))
     .map((f) => ({ f, code: stripComments(readFileSync(new URL(f, import.meta.url), "utf8")) }));
 
-  it("covers the whole library (11 component modules)", () => {
-    expect(sources.length).toBe(11);
+  it("covers the whole library (14 component modules)", () => {
+    expect(sources.length).toBe(14);
   });
 
   for (const { f } of sources) {

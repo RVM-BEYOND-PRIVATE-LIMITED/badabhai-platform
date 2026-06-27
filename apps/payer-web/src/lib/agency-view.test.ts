@@ -49,9 +49,12 @@ describe("coarse, non-PII formatters", () => {
     expect(neededByLabel("flexible")).toBe("Flexible");
     expect(neededByLabel(null)).toBe("—");
   });
-  it("humanises a trade_key slug without inventing data", () => {
-    expect(tradeLabel("cnc_operator")).toBe("Cnc operator");
-    expect(tradeLabel("quality_inspector")).toBe("Quality inspector");
+  it("humanises a trade_key slug to Title Case with domain acronyms uppercased", () => {
+    expect(tradeLabel("cnc_operator")).toBe("CNC Operator");
+    expect(tradeLabel("vmc_programmer")).toBe("VMC Programmer");
+    expect(tradeLabel("cnc_vmc_setter")).toBe("CNC VMC Setter");
+    expect(tradeLabel("cad_designer")).toBe("CAD Designer");
+    expect(tradeLabel("quality_inspector")).toBe("Quality Inspector");
   });
   it("formats a wire timestamp to yyyy-mm-dd and echoes an unparseable value", () => {
     expect(day("2026-06-22T10:30:00.000Z")).toBe("2026-06-22");

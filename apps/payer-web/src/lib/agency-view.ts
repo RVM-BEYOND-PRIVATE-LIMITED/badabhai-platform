@@ -40,10 +40,30 @@ export function neededByLabel(neededBy: NeededBy | null): string {
   }
 }
 
-/** A readable trade label from the stable trade_key slug (e.g. "cnc_operator" → "Cnc operator"). */
+/**
+ * Domain acronyms / brand casing that must NEVER be title-cased down (e.g. "CNC", not
+ * "Cnc") — this is industrial manufacturing copy, so the trade jargon stays correct.
+ */
+const TRADE_CASING: Record<string, string> = {
+  cnc: "CNC",
+  vmc: "VMC",
+  cad: "CAD",
+  solidworks: "SolidWorks",
+  autocad: "AutoCAD",
+};
+
+/**
+ * A readable trade label from the stable trade_key slug — proper Title Case with the
+ * domain acronyms forced uppercase (e.g. "cnc_operator" → "CNC Operator",
+ * "cad_designer" → "CAD Designer", "quality_inspector" → "Quality Inspector").
+ */
 export function tradeLabel(tradeKey: string): string {
-  const words = tradeKey.replace(/_/g, " ").trim();
-  return words.length === 0 ? tradeKey : words.charAt(0).toUpperCase() + words.slice(1);
+  const slug = tradeKey.replace(/_/g, " ").trim();
+  if (slug.length === 0) return tradeKey;
+  return slug
+    .split(/\s+/)
+    .map((word) => TRADE_CASING[word.toLowerCase()] ?? word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 /** ISO date (yyyy-mm-dd) from a wire timestamp; echoes the input on a parse failure. */

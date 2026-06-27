@@ -1,6 +1,6 @@
 # Agents
 
-18 specialized engineering roles Claude can act as for BadaBhai. Each file is a
+19 specialized engineering roles Claude can act as for BadaBhai. Each file is a
 Claude Code subagent (frontmatter + a system prompt) scoped to a slice of the
 platform, with explicit **decision boundaries** and **escalation rules** so no
 agent quietly oversteps — especially around the privacy and event invariants.
@@ -30,6 +30,7 @@ inherited from the session unless a task clearly needs otherwise.
 | 16  | [migration-reviewer](./migration-reviewer.md)     | Migration/RLS pre-merge review                 | Review-only    |
 | 17  | [security-reviewer](./security-reviewer.md)       | Authz/IDOR/secrets pre-merge review            | Review-only    |
 | 18  | [test-planner](./test-planner.md)                 | Coverage gaps + missing tests                  | Yes (tests)    |
+| 19  | [design-engineer](./design-engineer.md)           | Design-system fidelity + UI/UX (web + app)     | Yes (UI)       |
 
 **Review agents block on Critical findings within their scope:** code-reviewer
 (correctness/invariants), security-engineer (privacy/PII/pseudonymization),

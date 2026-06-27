@@ -425,6 +425,12 @@
 .bb-logo__b { color: var(--marigold-600); }
 .bb-logo--ink .bb-logo__a { color: var(--paper-0); }
 .bb-logo--ink .bb-logo__b { color: var(--marigold-400); }
+/* Page dark-theme parity (THEME-1): when the whole portal flips to ink, the wordmark must
+   flip too — `.bb-logo__a`'s default ink-900 would vanish on the dark surface. Mirrors the
+   `.bb-logo--ink` prop variant, but keyed on the PAGE theme so the runtime toggle re-themes
+   the lockup. */
+[data-theme="ink"] .bb-logo__a { color: var(--paper-0); }
+[data-theme="ink"] .bb-logo__b { color: var(--marigold-400); }
 
 /* ---------- ChatBubble (chat-first product) ---------- */
 .bb-chat { display: flex; gap: 8px; align-items: flex-end; max-width: 88%; }

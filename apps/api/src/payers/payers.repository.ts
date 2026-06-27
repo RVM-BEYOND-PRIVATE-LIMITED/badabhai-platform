@@ -102,6 +102,36 @@ export class PayersRepository {
     return row;
   }
 
+  /**
+   * Self-edit a payer's OWN contact (PROF-3, `PATCH /payer/me`). Updates ONLY the fields
+   * present in `patch` (a partial update): `orgName` re-encrypts the display name, and
+   * `phone` re-encrypts the E.164 value AND refreshes `phoneHash` (the keyed lookup key,
+   * kept in lockstep with the ciphertext). `updatedAt` is bumped (last-write-wins). The
+   * caller-supplied `phone` is the already-validated E.164 string from `PayerUpdateSchema`.
+   *
+   * `id` is the GUARD principal id only — there is no body-supplied id path, so this can
+   * never write another payer's row. An unknown id matches no row and returns `undefined`
+   * (the service maps that to a neutral 404 — no existence oracle). Returns the UPDATED row
+   * (ciphertext; decrypt via {@link decryptContact}) so the caller re-derives the masked DTO.
+   */
+  async update(
+    id: string,
+    patch: { orgName?: string; phone?: string },
+  ): Promise<Payer | undefined> {
+    const set: Partial<typeof payers.$inferInsert> = { updatedAt: new Date() };
+    if (patch.orgName !== undefined) set.orgNameEnc = this.pii.encrypt(patch.orgName);
+    if (patch.phone !== undefined) {
+      set.phoneEnc = this.pii.encrypt(patch.phone);
+      set.phoneHash = this.pii.hashPhone(patch.phone);
+    }
+    const [row] = await this.db
+      .update(payers)
+      .set(set)
+      .where(eq(payers.id, id))
+      .returning();
+    return row;
+  }
+
   /** Look up a payer by login email via the keyed hash (never scans plaintext). */
   async findByEmail(email: string): Promise<Payer | undefined> {
     const hash = this.pii.hmac(PayersRepository.normEmail(email));
