@@ -1,14 +1,21 @@
+import '../../../core/api/api_client.dart';
+import '../../../core/error/failure_mapper.dart';
 import '../domain/interview_kit.dart';
 import '../domain/interview_kit_repository.dart';
 
-/// MOCK-ONLY interview-kit source for the alpha.
+/// Interview-kit source.
 ///
-/// Kit content is static, curated client-side, and carries no PII — so it is
-/// safe to ship hard-coded without a backend. Only the single CNC Operator
-/// trade ships now; per-trade content (and the interview-day checklist) are a
-/// follow-up. (A later stage moves this behind a real InterviewKitRepository.)
+/// The kit LIST and the inline Q&A CONTENT are static, curated client-side, and
+/// carry no PII — and there is NO backend for them (no list route, and the
+/// `/interview-kit/:tradeKey/download` route returns a PDF, not inline Q&A), so
+/// [listKits]/[kit] stay hard-coded. BLOCKED on a worker confirmed-trade source
+/// (to drive the list) + a Q&A endpoint; tracked as a §7 follow-up.
+///
+/// [downloadUrl] IS wired to the real public endpoint via [ApiClient].
 class InterviewKitRepositoryImpl implements InterviewKitRepository {
-  const InterviewKitRepositoryImpl();
+  InterviewKitRepositoryImpl(this._api);
+
+  final ApiClient _api;
 
   @override
   Future<List<KitListItem>> listKits() async {
@@ -50,5 +57,15 @@ class InterviewKitRepositoryImpl implements InterviewKitRepository {
         ),
       ],
     );
+  }
+
+  @override
+  Future<String> downloadUrl(String tradeKey) async {
+    try {
+      final InterviewKitDownload dl = await _api.downloadInterviewKit(tradeKey);
+      return dl.url;
+    } catch (error) {
+      throw mapError(error);
+    }
   }
 }

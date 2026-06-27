@@ -28,4 +28,22 @@ class ResumeRepositoryImpl implements ResumeRepository {
       throw mapError(error);
     }
   }
+
+  @override
+  Future<String> resumeDownloadUrl() async {
+    final String? resumeId = _session.resumeId;
+    final String? token = _session.sessionToken;
+    if (resumeId == null || token == null) {
+      throw const UnauthorizedFailure();
+    }
+    try {
+      final ResumeDownload dl = await _api.downloadResume(
+        resumeId: resumeId,
+        authToken: token,
+      );
+      return dl.url;
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
 }

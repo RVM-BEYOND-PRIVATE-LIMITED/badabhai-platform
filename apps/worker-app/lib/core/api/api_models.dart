@@ -243,6 +243,48 @@ class AiJob extends Equatable {
       <Object?>[id, jobType, status, profileId, errorMessage];
 }
 
+/// Result of GET /resume/:id/download (ADR-0009 Stream C / G1c).
+///
+/// A short-lived, server-minted SIGNED url to the worker's resume PDF, plus its
+/// TTL in seconds. PRIVACY: [url] embeds a single-use token — it must NEVER be
+/// logged, persisted, or held in a BLoC state; launch it immediately and
+/// re-fetch when it expires.
+class ResumeDownload extends Equatable {
+  const ResumeDownload({required this.url, required this.expiresInSeconds});
+
+  final String url;
+  final int expiresInSeconds;
+
+  factory ResumeDownload.fromJson(Map<String, dynamic> json) => ResumeDownload(
+        url: json['url'] as String? ?? '',
+        expiresInSeconds: (json['expires_in'] as num?)?.toInt() ?? 0,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[url, expiresInSeconds];
+}
+
+/// Result of GET /interview-kit/:tradeKey/download.
+///
+/// A short-lived SIGNED url to the trade's interview-kit PDF (PII-free, static
+/// curated content — the route is public). Same privacy rule as
+/// [ResumeDownload]: [url] embeds a token; never log it, re-fetch on expiry.
+class InterviewKitDownload extends Equatable {
+  const InterviewKitDownload({required this.url, required this.expiresInSeconds});
+
+  final String url;
+  final int expiresInSeconds;
+
+  factory InterviewKitDownload.fromJson(Map<String, dynamic> json) =>
+      InterviewKitDownload(
+        url: json['url'] as String? ?? '',
+        expiresInSeconds: (json['expires_in'] as num?)?.toInt() ?? 0,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[url, expiresInSeconds];
+}
+
 /// Result of POST /resume/generate.
 class ResumeResult extends Equatable {
   const ResumeResult({

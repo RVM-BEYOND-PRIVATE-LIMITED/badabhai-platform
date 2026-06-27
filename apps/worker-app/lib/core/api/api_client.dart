@@ -189,6 +189,30 @@ class ApiClient {
     return ResumeResult.fromJson(json);
   }
 
+  /// Fetches a short-lived SIGNED url to the worker's own resume PDF
+  /// (GET /resume/:id/download — ADR-0009 Stream C / G1c). Worker-scoped:
+  /// requires [authToken] (WorkerAuthGuard); the server derives the worker from
+  /// the token and emits `resume.downloaded`. PRIVACY: the returned url embeds a
+  /// token and must NEVER be logged.
+  Future<ResumeDownload> downloadResume({
+    required String resumeId,
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json =
+        await _get('/resume/$resumeId/download', authToken: authToken);
+    return ResumeDownload.fromJson(json);
+  }
+
+  /// Fetches a short-lived SIGNED url to a trade's interview-kit PDF
+  /// (GET /interview-kit/:tradeKey/download). PUBLIC route — the content is
+  /// per-trade and PII-free, so NO auth token is sent. [tradeKey] is a lowercase
+  /// slug. PRIVACY: the returned url embeds a token and must NEVER be logged.
+  Future<InterviewKitDownload> downloadInterviewKit(String tradeKey) async {
+    final Map<String, dynamic> json =
+        await _get('/interview-kit/$tradeKey/download?source=worker_app');
+    return InterviewKitDownload.fromJson(json);
+  }
+
   /// Fetches the alpha swipe-to-apply feed (ADR-0009): up to [limit] open jobs
   /// in deterministic seed order. Worker-scoped — requires [authToken] (the
   /// session token from OTP verify); the API guards this with WorkerAuthGuard +

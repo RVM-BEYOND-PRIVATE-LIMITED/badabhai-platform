@@ -18,6 +18,10 @@ void main() {
       expect(mapError(ApiException(401, 'x')), isA<UnauthorizedFailure>());
     });
 
+    test('429 -> RateLimitedFailure (per-IP download cap)', () {
+      expect(mapError(ApiException(429, 'x')), isA<RateLimitedFailure>());
+    });
+
     test('other status -> ServerFailure carrying the code', () {
       final Failure f = mapError(ApiException(500, 'boom'));
       expect(f, isA<ServerFailure>());
