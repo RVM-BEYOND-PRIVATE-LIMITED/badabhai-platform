@@ -339,12 +339,19 @@ export type Capacity = z.infer<typeof capacitySchema>;
  * NONE of these carry raw worker/payer PII (invariant #2 / B-R2).
  */
 
-/** GET /payer/me — the payer's OWN account (their own org label; never eventized). */
+/**
+ * GET /payer/me — the payer's OWN account (their own org label + email + masked phone;
+ * their own data, never eventized). Mirrors the backend `PayerMeSchema` (PROF-1). `email`
+ * and `phoneLast4` are `.optional()` here so the consumer stays backward-compatible during
+ * rollout (an older response without them still parses); the live backend always sends them.
+ */
 export const payerMeWireSchema = z.object({
   id: z.string().uuid(),
   role: z.enum(["employer", "agent"]),
   status: z.enum(["pending", "active", "suspended"]),
   orgName: z.string(),
+  email: z.string().email().optional(),
+  phoneLast4: z.string().length(4).nullable().optional(),
 });
 export type PayerMeWire = z.infer<typeof payerMeWireSchema>;
 

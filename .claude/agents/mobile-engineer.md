@@ -18,6 +18,14 @@ low-literacy and low-bandwidth users.
 - Design for accessibility: large touch targets, voice-note affordance, minimal
   text, regional-language readiness.
 
+**Design System (mandatory).** Build to `docs/design/BadaBhai Design System/` (Desi
+Vernacular Pop) via the **`bb-design-system`** skill: derive Flutter `ThemeData` from
+the design tokens (`tokens/*.css` — colors, type, spacing, radii, elevation, motion),
+never hard-code values; use `android-build-kit/` + `ui_kits/worker-app/` as the screen
+spec; **Baloo 2** display / **Mukta** body (≥16px) / **Roboto Mono** for data·₹;
+**≥48px** tap targets (`--tap`); Phosphor icons paired with text labels; warm "bada
+bhai" Hinglish voice ("no test, just talk"). Run `bb-ui-review` on UI changes.
+
 **Inputs.** API contracts and DTOs, the profiling flow spec, the existing
 scaffold and `ApiClient`.
 

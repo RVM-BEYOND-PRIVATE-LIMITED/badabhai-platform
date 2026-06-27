@@ -116,6 +116,9 @@ export function LoginForm() {
   if (step === "code") {
     return (
       <form className="login-form" onSubmit={onVerify}>
+        <p className="login-otp__sent">
+          We sent a {OTP_LENGTH}-digit code to <strong>{email.trim()}</strong>. Enter it below.
+        </p>
         <div className="login-otp">
           <span className="login-otp__label">Enter the {OTP_LENGTH}-digit login code</span>
           <OtpInput

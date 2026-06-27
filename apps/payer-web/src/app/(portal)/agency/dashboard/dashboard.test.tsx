@@ -28,6 +28,7 @@ const AGENT: PayerSession = {
   payerId: "22222222-2222-4222-8222-222222222222",
   displayLabel: "HireFast Agency (mock)",
   role: "agent",
+  status: "active",
 };
 
 const requireAgent = vi.fn<() => Promise<PayerSession>>();

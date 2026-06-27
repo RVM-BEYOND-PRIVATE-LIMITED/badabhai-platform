@@ -124,6 +124,31 @@ vi.mock("next/navigation", () => ({
 }));
 // The form imports the server action directly; the render path never calls it.
 vi.mock("./actions", () => ({ createPostingAction: vi.fn() }));
+// The trade picker is now the interactive (hook-using) SelectMenu combobox. This test renders
+// DS primitives directly in a DOM-less env, so mock it to the equivalent hookless native
+// <select id="tradeKey"> host — keeping the "trade enum is a <select>" assertion + the form's
+// value/validation contract intact (the combobox's own behaviour is its concern, not this suite).
+vi.mock("../../../../components/ds/select-menu", () => ({
+  SelectMenu: ({
+    id,
+    value,
+    options,
+  }: {
+    id?: string;
+    value: string;
+    options: Array<{ value: string; label: string }>;
+  }) => ({
+    type: "select",
+    props: {
+      id,
+      value,
+      children: options.map((o) => ({
+        type: "option",
+        props: { value: o.value, children: o.label },
+      })),
+    },
+  }),
+}));
 
 const { PostingForm } = await import("./posting-form");
 

@@ -6,7 +6,10 @@ import { looksLikePii } from "@badabhai/validators";
 import { TRADE_KEYS } from "../../../../lib/contracts";
 import { tradeLabel } from "../../../../lib/agency-view";
 import { bandForVacancies, baseApplicantQuotaForBand } from "../../../../lib/pricing-config";
-import { Badge, Button, Card, Chip, Input, Select, Textarea } from "../../../../components/ds";
+import { Badge, Button, Card, Chip, Input, Textarea } from "../../../../components/ds";
+// Imported from the module path (not the ds barrel) so the form-validation test can mock
+// just this interactive combobox while rendering the other hookless DS primitives for real.
+import { SelectMenu } from "../../../../components/ds/select-menu";
 import { createPostingAction } from "./actions";
 
 /**
@@ -217,18 +220,13 @@ export function PostingForm() {
 
   return (
     <Card as="form" className="posting-form" onSubmit={onSubmit}>
-      <Select
+      <SelectMenu
         id="tradeKey"
         label="Trade"
         value={fields.tradeKey}
-        onChange={(e) => set("tradeKey", e.target.value)}
-      >
-        {TRADE_KEYS.map((t) => (
-          <option key={t} value={t}>
-            {tradeLabel(t)}
-          </option>
-        ))}
-      </Select>
+        options={TRADE_KEYS.map((t) => ({ value: t, label: tradeLabel(t) }))}
+        onChange={(v) => set("tradeKey", v)}
+      />
 
       <Input
         id="roleTitle"
@@ -338,7 +336,14 @@ export function PostingForm() {
       />
 
       <div className="posting-form__actions">
-        <Button type="submit" disabled={submitDisabled} loading={pending || navigating}>
+        <Button
+          type="submit"
+          size="lg"
+          className="posting-cta"
+          iconRight={pending || navigating ? undefined : "rocket-launch"}
+          disabled={submitDisabled}
+          loading={pending || navigating}
+        >
           {pending || navigating ? "Posting…" : "Post job"}
         </Button>
       </div>

@@ -25,7 +25,27 @@ vi.mock("next/link", () => ({
     props: { href, children },
   }),
 }));
+// PortalNav (client) reads the active route via usePathname — pin it so the nav renders
+// deterministically when the test walk expands the component.
+vi.mock("next/navigation", () => ({ usePathname: () => "/dashboard" }));
 vi.mock("./logout-button", () => ({ LogoutButton: () => null }));
+// ThemeToggle (client, hooks) — render an inert stand-in so the shell walk doesn't run real
+// React hooks. The theme control's own behaviour is covered by theme-toggle.test.tsx.
+vi.mock("../../components/ds", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, ThemeToggle: () => null };
+});
+// AccountMenu is a client component (hooks) — render a thin stand-in that echoes its
+// accessible name so the walk can assert the shell mounts the identity menu.
+vi.mock("./account-menu", () => ({
+  AccountMenu: ({ orgName, email }: { orgName: string; email?: string }) => ({
+    type: "div",
+    props: {
+      "aria-label": `Signed in as ${orgName}${email ? ", " + email : ""}`,
+      children: orgName,
+    },
+  }),
+}));
 
 const { default: PortalLayout } = await import("./layout");
 
@@ -70,6 +90,9 @@ async function render(opts: {
     payerId: "11111111-1111-4111-8111-111111111111",
     displayLabel: "Acme",
     role: opts.role ?? "employer",
+    email: "ops@acme.example",
+    phoneLast4: null,
+    status: "active",
   });
   getOrgRole.mockReturnValue(opts.orgRole ?? "recruiter");
   if (opts.creditsThrows) getCredits.mockRejectedValue(new Error("credits unavailable"));
@@ -109,19 +132,17 @@ describe("portal nav — Owner-only links by getOrgRole (affordance, NOT authz)"
 });
 
 describe("portal labeling — driven by session.role (server-side, not a client flag)", () => {
-  it("employer → 'Employers' wordmark + 'Post a job' + employer badge, no agency links", async () => {
+  it("employer → 'Employers' wordmark + 'Post a job', no agency links", async () => {
     const { hrefs, text } = await render({ role: "employer", orgRole: "owner" });
     expect(text).toContain("Employers");
     expect(text).toContain("Post a job");
-    expect(text).toContain("employer");
     expect(hrefs).not.toContain("/agency/dashboard");
   });
 
-  it("agent → 'Agencies' wordmark + 'Post a vacancy' + agency links + agency badge", async () => {
+  it("agent → 'Agencies' wordmark + 'Post a vacancy' + agency links", async () => {
     const { hrefs, text } = await render({ role: "agent", orgRole: "owner" });
     expect(text).toContain("Agencies");
     expect(text).toContain("Post a vacancy");
-    expect(text).toContain("agency");
     expect(hrefs).toContain("/agency/dashboard");
     expect(hrefs).toContain("/agency/referrals");
   });
@@ -129,9 +150,19 @@ describe("portal labeling — driven by session.role (server-side, not a client 
   it("renders the BadaBhai wordmark lockup in both roles", async () => {
     for (const role of ["employer", "agent"] as const) {
       const { text } = await render({ role });
-      expect(text).toContain("Bada");
-      expect(text).toContain("Bhai");
+      // The shell logo waves per-letter (separate spans), so collapse inter-letter
+      // whitespace before asserting the wordmark survives.
+      expect(text.replace(/\s+/g, "")).toContain("BadaBhai");
     }
+  });
+});
+
+describe("portal identity — the compact account menu mounts in the shell", () => {
+  it("renders the account menu (the org label now lives there, not a separate badge)", async () => {
+    const { text } = await render({ role: "employer" });
+    // The AccountMenu stand-in echoes the orgName; it is the only source of "Acme" now
+    // that the old org-label/role badges were removed from the shell.
+    expect(text).toContain("Acme");
   });
 });
 

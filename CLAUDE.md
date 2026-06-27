@@ -187,17 +187,19 @@ Idea → Requirements → Architecture (ADR if structural) → DB → API/Events
 | [backend-engineer](.claude/agents/backend-engineer.md)     | NestJS API, events                     | `backend-engineer`              |
 | [ai-engineer](.claude/agents/ai-engineer.md)               | FastAPI, privacy gateway, AI contracts | `ai-engineer`                   |
 | [database-architect](.claude/agents/database-architect.md) | Drizzle schema + migrations            | `database-architect`            |
-| [frontend-engineer](.claude/agents/frontend-engineer.md)   | Next.js ops console                    | `frontend-engineer`             |
+| [frontend-engineer](.claude/agents/frontend-engineer.md)   | Payer/agency portal + ops console      | `frontend-engineer`             |
+| [design-engineer](.claude/agents/design-engineer.md)       | Design-system fidelity + UI/UX         | `design-engineer`               |
 | [mobile-engineer](.claude/agents/mobile-engineer.md)       | Flutter worker app                     | `mobile-engineer`               |
 | [security-engineer](.claude/agents/security-engineer.md)   | PII/event/DPDP gate                    | `security-engineer`             |
 
-The six core builders are above; the **full roster (19) lives in [`.claude/agents/`](.claude/agents/)**
-(also system-architect, devops, performance, qa, product-manager, technical-writer, refactoring,
-debugging, the reviewers, test-planner).
+The seven builders above include **design-engineer** (UI/UX + design-system fidelity across
+apps/payer-web, apps/web, and the worker app); the **full roster (19) lives in
+[`.claude/agents/`](.claude/agents/)** (also system-architect, devops, performance, qa,
+product-manager, technical-writer, refactoring, debugging, the reviewers, test-planner).
 
 Skills (run with the Skill tool): see [`.claude/skills/`](.claude/skills/) — `bb-api-design`,
 `bb-database-design` / `migration`, `bb-security-review`, `bb-feature-planning`,
-`bb-architecture-review`, `bb-testing`, `pr-review`.
+`bb-architecture-review`, `bb-testing`, `bb-design-system`, `bb-ui-review`, `pr-review`.
 
 **Escalate (stop and ask the human) when:** an invariant in §2 must change; the stack
 (§3) must change; a migration is destructive/irreversible; real LLM/OTP/STT/payment

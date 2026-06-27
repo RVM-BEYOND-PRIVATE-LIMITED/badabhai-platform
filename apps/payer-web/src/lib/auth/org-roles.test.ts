@@ -30,6 +30,7 @@ const session: PayerSession = {
   payerId: "11111111-1111-4111-8111-111111111111",
   displayLabel: "Acme Tools (mock)",
   role: "employer",
+  status: "active",
 };
 
 beforeEach(() => {

@@ -15,12 +15,25 @@ export interface BadaBhaiLogoProps extends HTMLAttributes<HTMLSpanElement> {
   theme?: "paper" | "ink";
   /** Mark size in px; wordmark scales from it. @default 32 */
   size?: number;
+  /** Animate the wordmark with a continuous per-letter wave (`.wavy__ch`). @default false */
+  wavy?: boolean;
+}
+
+/** Split a wordmark segment into per-letter spans that ride the continuous `.wavy__ch`
+ *  wave, staggered by absolute position so the whole word undulates. Pure render (no hooks). */
+function wavyChars(segment: string, offset: number) {
+  return Array.from(segment).map((ch, i) => (
+    <span key={i} className="wavy__ch" style={{ animationDelay: `${(offset + i) * 70}ms` }}>
+      {ch}
+    </span>
+  ));
 }
 
 export function BadaBhaiLogo({
   variant = "full",
   theme = "paper",
   size = 32,
+  wavy = false,
   className = "",
   ...rest
 }: BadaBhaiLogoProps) {
@@ -52,8 +65,8 @@ export function BadaBhaiLogo({
       {variant !== "wordmark" && mark}
       {variant !== "mark" && (
         <span className="bb-logo__word" style={{ fontSize: Math.round(size * 0.92) }}>
-          <span className="bb-logo__a">Bada</span>
-          <span className="bb-logo__b">Bhai</span>
+          <span className="bb-logo__a">{wavy ? wavyChars("Bada", 0) : "Bada"}</span>
+          <span className="bb-logo__b">{wavy ? wavyChars("Bhai", 4) : "Bhai"}</span>
         </span>
       )}
     </span>

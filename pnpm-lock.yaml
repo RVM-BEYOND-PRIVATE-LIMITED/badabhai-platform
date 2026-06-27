@@ -194,6 +194,12 @@ importers:
 
   packages/db:
     dependencies:
+      '@badabhai/reach-engine':
+        specifier: workspace:*
+        version: link:../reach-engine
+      '@badabhai/taxonomy':
+        specifier: workspace:*
+        version: link:../taxonomy
       '@badabhai/types':
         specifier: workspace:*
         version: link:../types

@@ -33,6 +33,16 @@
   --warn-soft: #fff4d6;
 }
 
+/* Sticky footer — the body is a viewport-tall flex column so `.chrome-footer` always sits at
+   the page END (only scrolling below the fold when content overflows). The page wrappers
+   (.portal-shell / .login-wrap) flex to fill the space above it; the footer's margin-top:auto
+   pins it to the bottom on any page that doesn't use a flexing wrapper (e.g. 404 / error). */
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
 /* ------------------------------------------------------------------
  * PORTAL SHELL (DS0.3) — token-styled chrome for the authenticated portal.
  * The topbar lockup (BadaBhaiLogo + role wordmark), nav, balance chip, and the
@@ -41,7 +51,7 @@
  * still use their existing classes until DS1.x ports each screen.
  * ------------------------------------------------------------------ */
 .portal-shell {
-  min-height: 100vh;
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
   background: var(--surface-page);
@@ -54,11 +64,35 @@
   padding: var(--space-3) var(--gutter-web);
   background: var(--surface-card);
   border-bottom: var(--border-hairline) solid var(--border-subtle);
+  /* Sticky chrome with a hairline of elevation so content scrolls cleanly underneath. */
+  position: sticky;
+  top: 0;
+  z-index: var(--z-nav);
+  box-shadow: var(--shadow-xs);
 }
+/* Brand lockup is a LINK to /dashboard — reset anchor chrome, add a restrained hover
+   hit-area + focus ring. Negative margin keeps the visual position identical to before. */
 .portal-top__brand {
   display: inline-flex;
   align-items: baseline;
   gap: var(--space-2);
+  color: inherit;
+  text-decoration: none;
+  padding: var(--space-1) var(--space-2);
+  margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-2));
+  border-radius: var(--radius-md);
+  transition: var(--transition-control);
+}
+.portal-top__brand:hover {
+  text-decoration: none;
+  background: var(--surface-sunken);
+}
+.portal-top__brand:active {
+  transform: scale(0.98);
+}
+.portal-top__brand:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
 }
 .portal-top__role {
   font-family: var(--font-display);
@@ -87,6 +121,13 @@
   color: var(--text-primary);
   text-decoration: none;
 }
+/* Active route (set client-side via aria-current) — brand-tinted pill so the payer always
+   knows where they are. The SERVER gate, not this class, is the authorization. */
+.portal-nav__link--active,
+.portal-nav__link--active:hover {
+  background: var(--brand-tint);
+  color: var(--brand-press);
+}
 .portal-top__right {
   display: flex;
   align-items: center;
@@ -101,8 +142,12 @@
   font-size: var(--text-sm);
 }
 .portal-acct__label {
-  font-weight: var(--weight-semibold);
-  color: var(--text-secondary);
+  font-family: var(--font-display);
+  font-weight: var(--weight-extrabold);
+  font-size: var(--text-lg);
+  letter-spacing: var(--tracking-tight);
+  color: var(--brand);
+  line-height: 1;
 }
 .portal-main {
   width: 100%;
@@ -110,6 +155,15 @@
   margin: 0 auto;
   padding: var(--space-7) var(--gutter-web);
   flex: 1;
+  /* Restrained entrance — a short, low-travel fade so route changes feel composed, not
+     jumpy. Collapses to nothing under prefers-reduced-motion (token durations → 0ms). */
+  animation: portal-fade var(--duration-base) var(--ease-out);
+}
+@keyframes portal-fade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 
 .shell {
@@ -398,7 +452,7 @@ textarea.input {
 }
 
 .login-wrap {
-  min-height: 100vh;
+  flex: 1 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -453,6 +507,20 @@ textarea.input {
   font-weight: var(--weight-semibold);
   color: var(--text-primary);
 }
+/* "We sent a code to you@company.example." — keeps the typed email on screen for
+   reference at the verify step (previously the address was lost after step 1). */
+.login-otp__sent {
+  margin: 0;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.login-otp__sent strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+  word-break: break-word;
+}
 .login-actions__row {
   display: flex;
   gap: var(--space-2);
@@ -483,6 +551,227 @@ textarea.input {
 }
 
 /* ------------------------------------------------------------------
+ * ACCOUNT MENU (PROF-2) — compact, collapsed-by-default shell identity. The trigger is
+ * the DS Avatar as a button; the panel is a DS Card surface showing the payer's OWN
+ * org / email (mono) / role + status badges + an Account-settings link. Every value
+ * resolves from tokens (no raw hex/px). The open animation collapses under
+ * prefers-reduced-motion (token durations → 0ms + the keyframe guard below).
+ * ------------------------------------------------------------------ */
+.account-menu {
+  position: relative;
+  display: inline-flex;
+}
+.account-menu__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-1);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+.account-menu__trigger:hover {
+  background: var(--surface-sunken);
+}
+.account-menu__trigger:active {
+  transform: scale(0.96);
+}
+.account-menu__trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+.account-menu__panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: var(--z-overlay);
+  width: 18rem;
+  max-width: calc(100vw - var(--space-7));
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  animation: account-menu-pop var(--duration-fast) var(--ease-out);
+}
+@keyframes account-menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .account-menu__panel {
+    animation: none;
+  }
+}
+.account-menu__identity {
+  display: grid;
+  gap: var(--space-2);
+}
+.account-menu__org {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  line-height: var(--leading-tight);
+  word-break: break-word;
+}
+.account-menu__email {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+.account-menu__badges {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.account-menu__link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border-top: var(--border-hairline) solid var(--border-subtle);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+  transition: var(--transition-control);
+}
+.account-menu__link:hover {
+  background: var(--surface-sunken);
+  text-decoration: none;
+}
+.account-menu__link:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+.account-menu__link-arrow {
+  margin-left: auto;
+  color: var(--text-muted);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.account-menu__link:hover .account-menu__link-arrow {
+  transform: translateX(3px);
+}
+
+/* ------------------------------------------------------------------
+ * ACCOUNT PAGE (PROF-2 read shell + PROF-4 edit) — the payer's OWN account. An identity
+ * header Card (org display label + email in mono), then the edit form: org name + a NEW
+ * contact phone (the current number shows masked, read-only), read-only email (mono) with a
+ * support helper, and role + status DS Badges. Tokens only (no raw hex/px); flips under
+ * [data-theme="ink"].
+ * ------------------------------------------------------------------ */
+.account-back {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-2);
+}
+.account-card {
+  margin-bottom: var(--space-5);
+}
+.account-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.account-card__id {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1;
+}
+.account-card__org {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  line-height: var(--leading-tight);
+  word-break: break-word;
+}
+.account-card__email {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+/* ---- PROF-4 edit form ---- */
+.account-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-width: var(--reading-max);
+}
+.account-form__phone {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.account-form__current {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0;
+  flex-wrap: wrap;
+}
+.account-form__current-label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+.account-form__current-value {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.account-form__email {
+  display: grid;
+  gap: var(--space-1);
+}
+.account-form__email-label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-primary);
+}
+.account-form__email-value {
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+.account-form__email-help {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.account-form__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.account-form__actions {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.account-form__status {
+  display: grid;
+  gap: var(--space-3);
+}
+.account-form__status:empty {
+  display: none;
+}
+.account-form__saved {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--success);
+}
+
+/* ------------------------------------------------------------------
  * DASHBOARD (DS1.2) — StatTiles + faceless MaskedCandidate teasers + DS states.
  * ------------------------------------------------------------------ */
 .dash-title {
@@ -501,6 +790,30 @@ textarea.input {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: var(--space-4);
   margin-bottom: var(--space-7);
+}
+/* Dashboard stat tiles — warm BRAND-orange (saffron) cards with bigger numbers + labels
+   (per request). Tokens only; ink text keeps AA contrast on the warm fill. */
+.dash-stats .bb-stat {
+  background: linear-gradient(160deg, var(--saffron-100), var(--saffron-50));
+  border-color: var(--saffron-300);
+}
+.dash-stats .bb-stat__label {
+  font-size: var(--text-md);
+  color: var(--ink-700);
+}
+.dash-stats .bb-stat__value {
+  font-size: var(--text-4xl);
+  color: var(--ink-900);
+}
+.dash-stats .bb-stat__delta {
+  font-size: var(--text-base);
+}
+.dash-stats .bb-stat__delta--flat {
+  color: var(--ink-600);
+}
+.dash-stats .bb-stat__icon {
+  background: var(--saffron-200);
+  color: var(--saffron-700);
 }
 .dash-section {
   margin-bottom: var(--space-7);
@@ -1618,6 +1931,9 @@ textarea.input {
   margin: 0 0 var(--space-2);
 }
 .chrome-footer {
+  /* Pins the footer to the bottom on any page whose content doesn't fill the viewport
+     (the flexing wrappers handle the common case; this covers 404 / error / short pages). */
+  margin-top: auto;
   border-top: var(--border-hairline) solid var(--border-subtle);
   padding: var(--space-4) var(--gutter-web);
   color: var(--text-muted);
@@ -1702,4 +2018,338 @@ textarea.input {
 }
 .team-table tr:last-child td {
   border-bottom: none;
+}
+
+/* ------------------------------------------------------------------
+ * ENTERPRISE POLISH (DS5) — wavy org label, button-ized dashboard links with
+ * continuous affordance motion, the exciting Post-job CTA shine, and the accessible
+ * SelectMenu combobox. Tokens only; every motion collapses under prefers-reduced-motion.
+ * ------------------------------------------------------------------ */
+
+/* ---- WavyText: per-letter continuous wave (the badabhai.ai org label) ---- */
+.wavy {
+  display: inline-flex;
+  align-items: baseline;
+}
+.wavy__chars {
+  display: inline-flex;
+  align-items: baseline;
+}
+.wavy__ch {
+  display: inline-block;
+  animation: wavy-bob 1.9s var(--ease-in-out) infinite;
+  will-change: transform;
+}
+@keyframes wavy-bob {
+  0%,
+  55%,
+  100% {
+    transform: translateY(0);
+  }
+  28% {
+    transform: translateY(-0.24em);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wavy__ch {
+    animation: none;
+  }
+}
+
+/* ---- Dashboard section actions (green = the DS action color) — arrow nudges on hover ---- */
+.dash-action .ph {
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.dash-action:hover .ph {
+  transform: translateX(3px);
+}
+
+/* ---- "View" card action — tonal pill with a CONTINUOUSLY nudging arrow ---- */
+.dash-view__arrow {
+  animation: arrow-nudge 1.2s var(--ease-in-out) infinite;
+  will-change: transform;
+}
+@keyframes arrow-nudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dash-view__arrow {
+    animation: none;
+  }
+}
+
+/* ---- Post-job CTA — an "exciting" brand button: a slow shine sweep + a rocket lift ---- */
+.posting-cta {
+  position: relative;
+  overflow: hidden;
+}
+.posting-cta::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.4) 50%,
+    transparent 70%
+  );
+  transform: translateX(-130%);
+  animation: cta-shine 2.8s var(--ease-in-out) infinite;
+  pointer-events: none;
+}
+@keyframes cta-shine {
+  0% {
+    transform: translateX(-130%);
+  }
+  55%,
+  100% {
+    transform: translateX(130%);
+  }
+}
+.posting-cta .ph {
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.posting-cta:hover .ph {
+  transform: translateX(2px) translateY(-2px) rotate(-12deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .posting-cta::after {
+    animation: none;
+    display: none;
+  }
+}
+
+/* ---- SelectMenu — accessible combobox (token-styled replacement for the native select) ---- */
+.bb-selectmenu {
+  position: relative;
+}
+.bb-selectmenu__wrap {
+  position: relative;
+}
+.bb-selectmenu__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+.bb-selectmenu__value {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bb-selectmenu__placeholder {
+  color: var(--text-faint);
+}
+.bb-selectmenu__caret {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--text-md);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.bb-selectmenu__trigger--open {
+  border-color: var(--brand);
+  box-shadow: var(--ring-focus);
+}
+.bb-selectmenu__trigger--open .bb-selectmenu__caret {
+  transform: rotate(180deg);
+  color: var(--brand);
+}
+.bb-selectmenu__list {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  left: 0;
+  right: 0;
+  z-index: var(--z-overlay);
+  margin: 0;
+  padding: var(--space-2);
+  list-style: none;
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  max-height: 320px;
+  overflow-y: auto;
+  outline: none;
+  animation: selectmenu-pop var(--duration-fast) var(--ease-out);
+}
+@keyframes selectmenu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bb-selectmenu__list {
+    animation: none;
+  }
+}
+.bb-selectmenu__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color var(--duration-instant) var(--ease-out);
+}
+.bb-selectmenu__option--active {
+  background: var(--surface-sunken);
+}
+.bb-selectmenu__option--selected {
+  color: var(--brand-press);
+  font-weight: var(--weight-semibold);
+}
+.bb-selectmenu__option--selected.bb-selectmenu__option--active {
+  background: var(--brand-tint);
+}
+.bb-selectmenu__option-check {
+  flex: none;
+  color: var(--success);
+  font-size: var(--text-md);
+}
+
+/* ------------------------------------------------------------------
+ * THEME TOGGLE (THEME-1) — the light⇄dark (paper/ink) control. A real role="switch"
+ * (sun/moon thumb) + a small "System" button. Every value resolves from tokens, so the
+ * control itself flips under [data-theme="ink"]; the visible focus ring (--ring-focus)
+ * reads in BOTH themes. All motion collapses under prefers-reduced-motion.
+ * ------------------------------------------------------------------ */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.theme-toggle__switch {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+.theme-toggle__switch:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+/* The track: a pill that fills brand-tinted when "on" (dark). */
+.theme-toggle__track {
+  display: inline-flex;
+  align-items: center;
+  width: var(--space-9);
+  height: var(--space-6);
+  padding: var(--space-1);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  border: var(--border-hairline) solid var(--border-default);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+.theme-toggle__switch[aria-checked="true"] .theme-toggle__track {
+  background: var(--brand-tint);
+  border-color: var(--brand-border);
+}
+/* The thumb slides right when "on"; carries the sun/moon glyph. */
+.theme-toggle__thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-5);
+  height: var(--space-5);
+  border-radius: var(--radius-round);
+  background: var(--surface-card);
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-xs);
+  transition:
+    transform var(--duration-base) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+.theme-toggle__switch[aria-checked="true"] .theme-toggle__thumb {
+  transform: translateX(var(--space-4));
+  color: var(--brand);
+}
+.theme-toggle__system {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: transparent;
+  border: var(--border-hairline) solid var(--border-default);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+  transition: var(--transition-control);
+}
+.theme-toggle__system:hover {
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+.theme-toggle__system:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+}
+.theme-toggle__system[aria-pressed="true"] {
+  background: var(--brand-tint);
+  border-color: var(--brand-border);
+  color: var(--brand-press);
+}
+.theme-toggle__system-label {
+  line-height: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .theme-toggle__thumb,
+  .theme-toggle__track {
+    transition: none;
+  }
+}
+
+/* Pre-auth toggle placement: pinned to the top-right of the login viewport. */
+.login-theme {
+  position: fixed;
+  top: var(--space-4);
+  right: var(--space-4);
+  z-index: var(--z-sticky);
+}
+
+/* ------------------------------------------------------------------
+ * THEME CROSS-FADE (THEME-1) — a tasteful color transition when the theme flips. Scoped to
+ * background/text/border ONLY (never layout) and driven by DS motion tokens, so it is instant
+ * under prefers-reduced-motion (the duration tokens collapse to 0ms there). It is NOT applied
+ * on first paint: the `.theme-anim` class is added by the toggle only on an explicit switch.
+ * (The optional View Transition radial sweep is layered on top when the browser supports it.)
+ * ------------------------------------------------------------------ */
+:root {
+  --theme-fade:
+    background-color var(--duration-base) var(--ease-out),
+    color var(--duration-base) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out);
+}
+@media (prefers-reduced-motion: no-preference) {
+  html.theme-anim,
+  html.theme-anim body,
+  html.theme-anim .portal-top,
+  html.theme-anim .portal-shell,
+  html.theme-anim .bb-card,
+  html.theme-anim .login-card {
+    transition: var(--theme-fade);
+  }
 }
