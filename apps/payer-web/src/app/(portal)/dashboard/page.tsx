@@ -5,18 +5,34 @@ import type { Dashboard } from "../../../lib/contracts";
 import { Badge, Card, MaskedCandidate, StatTile } from "../../../components/ds";
 import { RetryButton } from "../../../components/retry-button";
 import { formatInr } from "../../../lib/format";
+import { AgentSections } from "./agent-sections";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Payer dashboard (ADR-0019 Phase 1) — DS1.2 re-skin. SHARED by both roles; the role
- * only adjusts user-facing LABELS (job vs vacancy), never the data path or the authz.
+ * Payer dashboard (ADR-0019 Phase 1) — DS1.2 re-skin + MERGE-1 (the single role-aware
+ * dashboard). SHARED top by both roles; the role only adjusts user-facing LABELS (job vs
+ * vacancy), never the shared data path or the authz.
  *
  * Reads the payer's OWN live data (XB-A binds to the server-held session id): GET
- * /payer/credits + /payer/unlocks (+ /payer/job-postings for the open count) via
- * getDashboard(). Counts and the ₹ price render in mono tabular (.bb-stat__value /
- * .bb-mono). The recent-unlock teasers use the MaskedCandidate primitive and stay
- * FACELESS — no worker name/phone, no opaque id, ever reaches the DOM.
+ * /payer/credits + /payer/unlocks (+ /payer/job-postings) via getDashboard(). Counts and the
+ * ₹ price render in mono tabular (.bb-stat__value / .bb-mono). The recent-unlock teasers use
+ * the MaskedCandidate primitive and stay FACELESS — no worker name/phone, no opaque id, ever
+ * reaches the DOM.
+ *
+ * MERGE-1 (agent branch): when `session.role === "agent"` the agency demand modules render
+ * INLINE below the shared top via {@link AgentSections} (a SERVER component that re-asserts
+ * `requireAgent()`, fail-closes on the portal flag, and wraps every agency payload in
+ * `assertNoAgencyPII`). An EMPLOYER never renders/reaches that branch, so an employer never
+ * fetches or sees any agency module.
+ *
+ * DATA-COHERENCE (the agent case): the shared top reads the EMPLOYER `job-postings` entity
+ * while the agency modules read the `jobs.payer_id` entity — DIFFERENT data sets for an agent.
+ * For an agent the AGENCY data is the source of truth for vacancies, so the shared top OMITS
+ * its `job-postings`-derived "Open vacancies" tile + "Your vacancies" section for agents (they
+ * would contradict the agency Demand summary / manager, and an agent's job-postings list is
+ * empty). Credit balance + Contacts unlocked + Recent unlocks are COHERENT (same payer-authed
+ * reads) and render for BOTH roles. Employers see the unchanged 3 tiles + both sections.
  */
 export default async function DashboardPage() {
   const session = await requirePayer();
@@ -71,17 +87,22 @@ export default async function DashboardPage() {
           }
           deltaDir="flat"
         />
-        <StatTile
-          label={isAgency ? "Open vacancies" : "Open postings"}
-          value={openCount}
-          icon="briefcase"
-          href="/postings"
-          ariaLabel={`${isAgency ? "Open vacancies" : "Open postings"} ${openCount} — manage ${
-            isAgency ? "vacancies" : "postings"
-          }`}
-          delta={`${data.postings.length} total`}
-          deltaDir="flat"
-        />
+        {/* DATA-COHERENCE: the "Open postings" tile comes from the EMPLOYER `job-postings`
+            read. For an AGENT that entity is NOT where their vacancies live (those are the
+            `jobs.payer_id` entity shown in the Demand summary below), so we OMIT this tile for
+            agents to avoid a contradictory "Open vacancies = 0" next to a populated agency
+            demand summary. Employers keep it unchanged. */}
+        {isAgency ? null : (
+          <StatTile
+            label="Open postings"
+            value={openCount}
+            icon="briefcase"
+            href="/postings"
+            ariaLabel={`Open postings ${openCount} — manage postings`}
+            delta={`${data.postings.length} total`}
+            deltaDir="flat"
+          />
+        )}
         <StatTile
           label="Contacts unlocked"
           value={data.unlocks.length}
@@ -134,52 +155,63 @@ export default async function DashboardPage() {
         )}
       </section>
 
-      <section className="dash-section">
-        <div className="dash-section__head">
-          <h2>Your {isAgency ? "vacancies" : "postings"}</h2>
-          <Link className="bb-btn bb-btn--success bb-btn--sm dash-action" href="/postings/new">
-            <span>{isAgency ? "Post a vacancy" : "Post a job"}</span>
-            <i className="ph ph-arrow-right" aria-hidden="true" />
-          </Link>
-        </div>
-        {data.postings.length === 0 ? (
-          <Card className="dash-empty">
-            You haven&rsquo;t posted {isAgency ? "a vacancy" : "a job"} yet — free through
-            launch.
-          </Card>
-        ) : (
-          <div className="dash-postings">
-            {data.postings.slice(0, 6).map((post) => (
-              // Whole-card link to THIS posting's applicants (the nested route exists). The id is
-              // the posting's OWN opaque uuid (never a worker id/phone). The previous inner
-              // "View" link is removed — the stretched link is now the single target (a kept
-              // inner link would be a redundant/duplicate-link a11y defect). The status Badge is
-              // a non-interactive status indicator and stays.
-              <Card
-                key={post.id}
-                padding="sm"
-                className="dash-posting"
-                href={`/postings/${post.id}/applicants`}
-                ariaLabel={`${post.roleTitle} — view applicants`}
-              >
-                <div className="dash-posting__main">
-                  <div className="dash-posting__title">{post.roleTitle}</div>
-                  <div className="dash-posting__meta">
-                    {post.locationLabel ?? "Location flexible"} · {post.vacancyBand} ·{" "}
-                    <span className="bb-mono">{post.applicantCount}</span> applicants
-                  </div>
-                </div>
-                <div className="dash-posting__right">
-                  <Badge tone={post.status === "open" ? "success" : "neutral"} upper>
-                    {post.status}
-                  </Badge>
-                  <i className="ph ph-arrow-right dash-view__arrow" aria-hidden="true" />
-                </div>
-              </Card>
-            ))}
+      {/* DATA-COHERENCE: the "Your postings" list is the EMPLOYER `job-postings` entity. An
+          AGENT's vacancies live in the `jobs.payer_id` entity (the AgencyJobsManager below,
+          full CRUD), so this employer-postings section is OMITTED for agents — keeping it
+          would render a second, contradictory vacancy list. Employers keep it unchanged. */}
+      {isAgency ? null : (
+        <section className="dash-section">
+          <div className="dash-section__head">
+            <h2>Your postings</h2>
+            <Link className="bb-btn bb-btn--success bb-btn--sm dash-action" href="/postings/new">
+              <span>Post a job</span>
+              <i className="ph ph-arrow-right" aria-hidden="true" />
+            </Link>
           </div>
-        )}
-      </section>
+          {data.postings.length === 0 ? (
+            <Card className="dash-empty">
+              You haven&rsquo;t posted a job yet — free through launch.
+            </Card>
+          ) : (
+            <div className="dash-postings">
+              {data.postings.slice(0, 6).map((post) => (
+                // Whole-card link to THIS posting's applicants (the nested route exists). The id
+                // is the posting's OWN opaque uuid (never a worker id/phone). The previous inner
+                // "View" link is removed — the stretched link is now the single target (a kept
+                // inner link would be a redundant/duplicate-link a11y defect). The status Badge is
+                // a non-interactive status indicator and stays.
+                <Card
+                  key={post.id}
+                  padding="sm"
+                  className="dash-posting"
+                  href={`/postings/${post.id}/applicants`}
+                  ariaLabel={`${post.roleTitle} — view applicants`}
+                >
+                  <div className="dash-posting__main">
+                    <div className="dash-posting__title">{post.roleTitle}</div>
+                    <div className="dash-posting__meta">
+                      {post.locationLabel ?? "Location flexible"} · {post.vacancyBand} ·{" "}
+                      <span className="bb-mono">{post.applicantCount}</span> applicants
+                    </div>
+                  </div>
+                  <div className="dash-posting__right">
+                    <Badge tone={post.status === "open" ? "success" : "neutral"} upper>
+                      {post.status}
+                    </Badge>
+                    <i className="ph ph-arrow-right dash-view__arrow" aria-hidden="true" />
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* MERGE-1: the agency demand modules render INLINE for an AGENT only. AgentSections is a
+          SERVER component that re-asserts requireAgent() (defence-in-depth), fail-closes on the
+          agency portal flag, and wraps every agency payload in assertNoAgencyPII. An EMPLOYER
+          never renders this branch, so an employer never fetches or sees any agency module. */}
+      {isAgency ? <AgentSections /> : null}
     </>
   );
 }

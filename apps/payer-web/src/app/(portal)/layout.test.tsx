@@ -139,12 +139,16 @@ describe("portal labeling — driven by session.role (server-side, not a client 
     expect(hrefs).not.toContain("/agency/dashboard");
   });
 
-  it("agent → 'Agencies' wordmark + 'Post a vacancy' + agency links", async () => {
+  it("agent → 'Agencies' wordmark + 'Post a vacancy' + agency referrals link", async () => {
     const { hrefs, text } = await render({ role: "agent", orgRole: "owner" });
     expect(text).toContain("Agencies");
     expect(text).toContain("Post a vacancy");
-    expect(hrefs).toContain("/agency/dashboard");
+    // MERGE-1: the agency dashboard is now the single /dashboard, so there is NO separate
+    // "/agency/dashboard" nav entry for an agent (it would duplicate Dashboard). The referrals
+    // deep page stays its own link.
+    expect(hrefs).not.toContain("/agency/dashboard");
     expect(hrefs).toContain("/agency/referrals");
+    expect(hrefs).toContain("/dashboard");
   });
 
   it("renders the BadaBhai wordmark lockup in both roles", async () => {

@@ -63,7 +63,7 @@ export async function createAgencyJobAction(input: unknown): Promise<AgencyJobMu
   }
   try {
     const job = await createAgencyJob(parsed.data);
-    revalidatePath("/agency/dashboard");
+    revalidatePath("/dashboard"); // MERGE-1: the agency vacancy manager now renders on /dashboard.
     return { ok: true, job };
   } catch {
     return { ok: false, error: "Could not create the vacancy right now. Please retry." };
@@ -85,7 +85,7 @@ export async function updateAgencyJobAction(
   try {
     const job = await updateAgencyJob(jobId, parsed.data);
     if (!job) return { ok: false, error: NOT_FOUND }; // no-oracle: not-found == not-owned.
-    revalidatePath("/agency/dashboard");
+    revalidatePath("/dashboard"); // MERGE-1: the agency vacancy manager now renders on /dashboard.
     return { ok: true, job };
   } catch {
     return { ok: false, error: "Could not update the vacancy right now. Please retry." };
@@ -102,7 +102,7 @@ export async function pauseAgencyJobAction(input: {
   try {
     const job = await pauseAgencyJob(input.jobId);
     if (!job) return { ok: false, error: NOT_FOUND }; // no-oracle: not-found == not-owned.
-    revalidatePath("/agency/dashboard");
+    revalidatePath("/dashboard"); // MERGE-1: the agency vacancy manager now renders on /dashboard.
     return { ok: true, job };
   } catch {
     return { ok: false, error: "Could not pause the vacancy right now. Please retry." };
@@ -119,7 +119,7 @@ export async function closeAgencyJobAction(input: {
   try {
     const job = await closeAgencyJob(input.jobId);
     if (!job) return { ok: false, error: NOT_FOUND }; // no-oracle: not-found == not-owned.
-    revalidatePath("/agency/dashboard");
+    revalidatePath("/dashboard"); // MERGE-1: the agency vacancy manager now renders on /dashboard.
     return { ok: true, job };
   } catch {
     return { ok: false, error: "Could not close the vacancy right now. Please retry." };

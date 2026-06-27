@@ -19,6 +19,11 @@ vi.mock("next/link", () => ({
     props: { href, children },
   }),
 }));
+// MERGE-1: AgentSections (the agency demand modules) is the AGENT-only branch. It does its own
+// agency reads + role gate; here we stub it to a marker so this PAGE test asserts the COMPOSITION
+// (an agent mounts it, an employer never does). AgentSections has its own unit test.
+const AgentSectionsStub = () => null;
+vi.mock("./agent-sections", () => ({ AgentSections: AgentSectionsStub }));
 
 const { default: DashboardPage } = await import("./page");
 
@@ -97,8 +102,11 @@ function findByClass(node: ReactNode, cls: string, acc: ReactElement[] = []): Re
 
 const p = (el: ReactElement): Record<string, unknown> => el.props as Record<string, unknown>;
 
-async function render(over?: Partial<typeof DATA> | { throws: true }): Promise<ReactElement> {
-  requirePayer.mockResolvedValue({ payerId: "p", displayLabel: "Acme", role: "employer" });
+async function render(
+  over?: Partial<typeof DATA> | { throws: true },
+  role: "employer" | "agent" = "employer",
+): Promise<ReactElement> {
+  requirePayer.mockResolvedValue({ payerId: "p", displayLabel: "Acme", role });
   if (over && "throws" in over) getDashboard.mockRejectedValue(new Error("boom"));
   else getDashboard.mockResolvedValue({ ...DATA, ...over });
   return (await DashboardPage()) as ReactElement;
@@ -213,5 +221,47 @@ describe("DS1.2 · DS Card empty + error states", () => {
     expect(findAll(tree, Card).length).toBeGreaterThanOrEqual(1);
     // no candidate/posting data leaks on the error path
     expect(findAll(tree, MaskedCandidate).length).toBe(0);
+  });
+});
+
+describe("MERGE-1 · single role-aware dashboard composition (agent vs employer)", () => {
+  it("an EMPLOYER dashboard mounts NO agency module (AgentSections never renders)", async () => {
+    const tree = await render(undefined, "employer");
+    expect(findAll(tree, AgentSectionsStub).length).toBe(0);
+    // the employer keeps all THREE shared StatTiles + the 'Your postings' section
+    const tiles = findAll(tree, StatTile);
+    expect(tiles.length).toBe(3);
+    const labels = tiles.map((t) => p(t).label);
+    expect(labels).toContain("Open postings");
+    expect(findByClass(tree, "dash-posting").length).toBe(2);
+  });
+
+  it("an AGENT dashboard mounts the agency demand modules (AgentSections) below the shared top", async () => {
+    const tree = await render(undefined, "agent");
+    expect(findAll(tree, AgentSectionsStub).length).toBe(1);
+  });
+
+  it("an AGENT dashboard DROPS the duplicate 'Open postings' tile + employer 'Your postings' list", async () => {
+    const tree = await render(undefined, "agent");
+    // DATA-COHERENCE: the employer job-postings-derived vacancy tile + list are omitted for
+    // agents (the agency Demand summary + manager in AgentSections are the source of truth),
+    // so they can never contradict.
+    const tiles = findAll(tree, StatTile);
+    expect(tiles.length).toBe(2); // Credit balance + Contacts unlocked only
+    const labels = tiles.map((t) => p(t).label);
+    expect(labels).not.toContain("Open postings");
+    expect(labels).not.toContain("Open vacancies");
+    // the employer-postings list does NOT render for an agent (no contradictory second list)
+    expect(findByClass(tree, "dash-posting").length).toBe(0);
+  });
+
+  it("an AGENT still sees the COHERENT shared reads (credit balance + recent unlocks)", async () => {
+    const tree = await render(undefined, "agent");
+    const tiles = findAll(tree, StatTile);
+    const byLabel = (l: string) => tiles.find((t) => p(t).label === l);
+    expect(p(byLabel("Credit balance")!).value).toBe(247);
+    expect(p(byLabel("Contacts unlocked")!).value).toBe(2);
+    // recent-unlock teasers are coherent (same unlocks read) and stay faceless
+    expect(findAll(tree, MaskedCandidate).length).toBe(2);
   });
 });
