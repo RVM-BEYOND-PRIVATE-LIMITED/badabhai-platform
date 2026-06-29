@@ -42,6 +42,14 @@ function makeSessions() {
   };
 }
 
+/**
+ * A devices service double (ADR-0026 Phase 2). registerOnLogin resolves to the given
+ * device row id (undefined = no device_info / best-effort miss → session minted unbound).
+ */
+function makeDevices(deviceId?: string) {
+  return { registerOnLogin: vi.fn().mockResolvedValue(deviceId) };
+}
+
 describe("AuthService (real OTP)", () => {
   it("requestOtp issues+sends the code and emits worker.otp_requested without leaking the phone", async () => {
     const emit = vi.fn().mockResolvedValue(undefined);
@@ -52,6 +60,7 @@ describe("AuthService (real OTP)", () => {
       pii,
       otp as never,
       makeSessions() as never,
+      makeDevices() as never,
     );
 
     const res = await svc.requestOtp(PHONE, ctx);
@@ -77,6 +86,7 @@ describe("AuthService (real OTP)", () => {
       pii,
       otp as never,
       makeSessions() as never,
+      makeDevices() as never,
     );
 
     await expect(svc.requestOtp(PHONE, ctx)).rejects.toMatchObject({
@@ -97,6 +107,7 @@ describe("AuthService (real OTP)", () => {
       pii,
       otp as never,
       makeSessions() as never,
+      makeDevices() as never,
     );
 
     // The neutral 429 (same as a throttle) reaches the client — no new oracle.
@@ -145,6 +156,7 @@ describe("AuthService (real OTP)", () => {
       pii,
       makeOtp({ verifyThrows: true }) as never,
       sessions as never,
+      makeDevices() as never,
     );
 
     await expect(svc.verifyOtp(PHONE, "000000", ctx)).rejects.toMatchObject({
@@ -172,6 +184,7 @@ describe("AuthService (real OTP)", () => {
       pii,
       makeOtp() as never,
       sessions as never,
+      makeDevices() as never,
     );
 
     const res = await svc.verifyOtp(PHONE, "123456", ctx);
@@ -188,7 +201,7 @@ describe("AuthService (real OTP)", () => {
     expect(typeof res.session.expires_at).toBe("string");
     expect(typeof res.session.requires_otp_after).toBe("string");
     expect(createOrGetByPhoneHash).toHaveBeenCalledOnce();
-    expect(sessions.create).toHaveBeenCalledWith("worker-new");
+    expect(sessions.create).toHaveBeenCalledWith("worker-new", undefined);
     const names = emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
     expect(names).toContain("worker.created");
     expect(names).toContain("worker.otp_verified");
@@ -207,6 +220,7 @@ describe("AuthService (real OTP)", () => {
       pii,
       makeOtp() as never,
       makeSessions() as never,
+      makeDevices() as never,
     );
 
     const res = await svc.verifyOtp(PHONE, "123456", ctx);
@@ -237,6 +251,7 @@ describe("AuthService (real OTP)", () => {
       pii,
       makeOtp() as never,
       makeSessions() as never,
+      makeDevices() as never,
     );
 
     const res = await svc.verifyOtp(PHONE, "123456", ctx);
@@ -246,5 +261,31 @@ describe("AuthService (real OTP)", () => {
     expect(createOrGetByPhoneHash).toHaveBeenCalledOnce();
     const names = emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
     expect(names).toEqual(["worker.otp_verified"]);
+  });
+
+  it("verifyOtp with device_info registers the device and binds the session via did", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const workers = {
+      findByPhoneHash: vi.fn().mockResolvedValue({ id: "worker-1", status: "active" }),
+      createOrGetByPhoneHash: vi.fn(),
+    };
+    const sessions = makeSessions();
+    const devices = makeDevices("device-row-1");
+    const svc = new AuthService(
+      { emit } as never,
+      workers as never,
+      pii,
+      makeOtp() as never,
+      sessions as never,
+      devices as never,
+    );
+
+    const deviceInfo = { device_id: "client-stable-id", platform: "android" as const };
+    await svc.verifyOtp(PHONE, "123456", ctx, deviceInfo as never);
+
+    // The device is registered with the worker id from the verified login + the
+    // device_info, and the returned device ROW id is threaded into the session as `did`.
+    expect(devices.registerOnLogin).toHaveBeenCalledWith("worker-1", deviceInfo, ctx);
+    expect(sessions.create).toHaveBeenCalledWith("worker-1", "device-row-1");
   });
 });

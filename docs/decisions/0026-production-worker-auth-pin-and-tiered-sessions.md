@@ -177,3 +177,126 @@ Payloads carry `worker_id` + opaque ids/hashes (`device_hash`, `session id`,
   the `worker_consents` + `events` spine already in use.
 - **Keep single-factor OTP-only** — rejected: re-OTP on every cold start now costs
   real money and gives poor UX for low-literacy returning workers.
+
+## Phase 3 addendum (as-built) — device-unlock PIN
+
+> Records the device-bound PIN **as actually built** (Rollout step 3). It does **not**
+> rewrite the decision body above; it documents two reconciliations against the original
+> Phase-3 text and the lockout state machine that landed. Code of record:
+> [`pin.service.ts`](../../apps/api/src/auth/pin.service.ts),
+> [`pin-hasher.service.ts`](../../apps/api/src/auth/pin-hasher.service.ts),
+> [`pin.repository.ts`](../../apps/api/src/auth/pin.repository.ts),
+> [`crypto.ts`](../../packages/db/src/crypto.ts) (`hashPin`/`verifyPin`),
+> `worker_credentials` in [`schema.ts`](../../packages/db/src/schema.ts), migration **0030**.
+> **Status: security-signed-off.** Two independent reviews returned **PASS-WITH-FINDINGS**
+> (no Critical/High); all findings are addressed below (Findings 1 + 3 carry forward as a
+> resolved fix + a documented, accepted residual respectively).
+
+### Two reconciliations vs the original Phase-3 text
+
+**(a) PIN hash storage + throttle durability.** The original text named `worker_credentials`
+columns `pin_salt` + `pin_algo` (`'scrypt-v1'`) and a "server-side **Redis** throttle".
+**As built:**
+
+- The PIN hash is a **self-encoded scrypt token** `scrypt-v1.<salt_b64>.<derived_b64>`
+  — the per-PIN random salt is **embedded in the token**, so there is **no `pin_salt`
+  column** and the version prefix replaces a separate `pin_algo` column. A
+  **`pepper_version`** integer column (default 1) carries pepper-rotation/rehash intent.
+  The server pepper (`PIN_PEPPER`) is mixed into the KDF input and never stored.
+- The throttle is **DB-durable + Redis-transient**, not Redis-only. `worker_credentials`
+  carries durable `failed_attempts`, `locked_until`, `lockout_cycles`, **`otp_cycle_count`**;
+  the *fast path* lives in a per-`(worker,device)` **transient** Redis key
+  `pin_throttle:<workerId>:<deviceId>` `{ failed, lockedUntil, cycle }`. Chosen because the
+  durable DB mirror **survives a Redis flush** — strictly stronger than a Redis-only throttle
+  (a flush cannot reset the lockout ladder or revive a force-OTP'd PIN; see Finding 1).
+
+**(b) SIM-swap PIN gate.** The original text described a post-OTP "PIN gate" / short-lived
+`registration_token` / pin-challenge token. **As built**, the SIM-swap defense is a
+**trusted-device requirement on `POST /auth/pin/verify`**: identity for verify is derived
+from the **device-bound refresh token** the client already holds, resolved server-side
+(`SessionService.resolveRefreshToken`) — there is deliberately **no `worker_id` field** on
+the verify DTO. A new/unknown device has no trusted refresh token, so it **cannot PIN-unlock
+and must OTP** (the existing login path is **byte-for-byte unchanged**). No separate challenge
+token is minted. (The unused `PIN_CHALLENGE_TTL_SECONDS` knob remains for a future
+challenge-token variant but is not on this path.)
+
+### Lockout / force-OTP state machine (the core)
+
+Per-`(worker,device)` transient `pin_throttle:<worker>:<device>` `{ failed, lockedUntil, cycle }`
+in Redis, durably mirrored in `worker_credentials`:
+
+1. **Wrong PIN** → `failed++`.
+2. At **`PIN_MAX_ATTEMPTS`** (default 5) → arm an **exponential lockout**
+   `PIN_LOCKOUT_BASE_SECONDS * 2^cycle` (default base 60s), `cycle++`, reset `failed`,
+   and **durably mirror `lockout_cycles`**. Emits `worker.pin_locked{force_otp:false}`.
+3. At **`cycle == PIN_MAX_LOCKOUT_CYCLES`** (default K=5, the *final* cycle) → atomically
+   **bump durable `otp_cycle_count`** + mirror `lockout_cycles=K`, emit
+   `worker.pin_locked{force_otp:true}` → the PIN is **invalidated until an OTP-gated reset**.
+4. **Only a set/reset** zeroes `otp_cycle_count` (the `upsertPin` clears the whole throttle +
+   force-OTP state; a *successful verify* clears the throttle but **leaves `otp_cycle_count`**,
+   so a lucky correct PIN can never un-invalidate a force-OTP'd account).
+
+The verify **force-OTP gate reads the DURABLE columns** —
+`otp_cycle_count >= 1 || lockout_cycles >= PIN_MAX_LOCKOUT_CYCLES` — so force-OTP **survives a
+Redis flush**. (We check `otp_cycle_count >= 1`, not `>= K`: that counter starts at 0 and reaches
+1 on the first exhaustion.)
+
+**Finding 1 fix (Redis-flush rehydration).** On a Redis miss/eviction/read-error for a worker
+whose durable `lockout_cycles > 0` (mid-ladder, below K — the final cycle is already caught by
+the durable force-OTP gate above), the transient is **rehydrated from `lockout_cycles`**: the
+cycle is **preserved** and the current cycle's backoff window is **re-imposed**, then persisted.
+A flush therefore costs the attacker a lockout — it can **never** reset the ladder to cycle 0
+with a fresh, zero-wait attempt budget.
+
+### scrypt vs Argon2id (R3 / TD55)
+
+scrypt (Node stdlib, `N=2^15, r=8, p=1` ≈ 32MB) is the **as-built KDF** — memory-hard,
+OWASP-listed, **zero new dependency**. The version-prefixed token (`scrypt-v1.…`) **plus** the
+`pepper_version` column make an **Argon2id swap a non-breaking rehash-on-verify**: `PinHasher.verify`
+branches on the stored version and fails closed on an unknown one, so a future v2 row is never
+coerced to "verified", and a successful v1 verify can rehash to v2 transparently. **Argon2id stays
+deferred in [TD55](../registers/tech-debt-register.md)** (with R1 JWKS / R2 KMS / R5 Play Integrity);
+nothing here builds it.
+
+### Neutral no-oracle + residual timing note (Finding 3)
+
+Every negative path — **wrong PIN, locked, untrusted/revoked device, no-PIN-set, force-OTP** —
+returns the **identical neutral 401** (`"Could not verify PIN"`, no body/status/field oracle).
+Ops still gets distinct **PII-free** events/logs (the failure *reason* is a static log code,
+never placed in an event payload, which stays the two-uuid shape).
+
+- **Residual (accepted, Finding 3):** the **untrusted-device**, **locked**, and **force-OTP**
+  paths return **before** the scrypt verify, so a latency probe can distinguish device-trust /
+  lockout **STATE** from a wrong PIN. This is **not a PIN-value oracle** — it leaks only state the
+  refresh-token holder already controls and that is independently observable (an untrusted device
+  must OTP regardless; a lockout is the intended UX signal). Padding `locked`/`untrusted` with a
+  throwaway 32MB-scrypt would hand an attacker a **CPU/memory amplification lever**, so it is
+  **deliberately not padded**. The no-PIN-set and wrong-PIN paths *do* run an equivalent-cost
+  scrypt to keep their timing uniform.
+
+### Endpoints + events as built
+
+- `POST /auth/pin/set` — `WorkerAuthGuard`; worker id from the token (never a body field);
+  format + denylist (`pin-hasher.service.ts`: all-same-digit, ±1 runs, small explicit list) →
+  scrypt hash → `upsertPin` (clears throttle) → `worker.pin_set`. 204.
+- `POST /auth/pin/verify` — **no guard**; the device-bound **refresh token IS the credential**;
+  identity + trusted device resolved server-side. Login-shape session on success
+  (`SessionService.create`), neutral 401 otherwise.
+- `POST /auth/pin/reset/request` + `POST /auth/pin/reset/confirm` — **reuse the existing OTP
+  channel** (`AuthService.requestOtp` / `OtpService.verify`); worker resolved by **phone hash**
+  after OTP verify, never a body id; new PIN set + `worker.pin_reset`.
+
+Events (all **v1**, registered in [`@badabhai/event-schema`](../../packages/event-schema/src/registry.ts)):
+`worker.pin_set`, `worker.pin_verified`, `worker.pin_verify_failed`, `worker.pin_locked`,
+`worker.pin_reset` — **PII-free by construction**: opaque `worker_id` / `device_id` (the
+`worker_devices.id` row uuid) + bounded ints/bools (`lockout_cycle`, `force_otp`) only; never the
+PIN, `pin_hash`, raw device fingerprint, or phone (`.strict()` payload backstops).
+
+### §2 boundary
+
+`pin_hash` (scrypt), the raw PIN, the pepper, and the raw device fingerprint **never** enter
+events, `ai_jobs`, `audit_logs`, logs, or LLM input. `worker_credentials` stays **RLS-FORCED**
+(service role bypasses RLS today per [rls-plan.md](../../infra/supabase/rls-plan.md); every repo
+method is `worker_id`-scoped). Migration **0030** (adds `otp_cycle_count` + `pepper_version`) is
+**additive / reversible** — no column drop, no event-payload mutation (§8). Auth never calls an
+LLM, so the pseudonymization gate (CLAUDE.md §3) is untouched.

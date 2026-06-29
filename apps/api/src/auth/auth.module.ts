@@ -12,6 +12,13 @@ import { OtpService } from "./otp.service";
 import { SessionService } from "./session.service";
 import { WorkerAuthGuard } from "./worker-auth.guard";
 import { ConsentGuard } from "./consent.guard";
+import { DevicesController } from "./devices.controller";
+import { DevicesService } from "./devices.service";
+import { DevicesRepository } from "./devices.repository";
+import { PinController } from "./pin.controller";
+import { PinService } from "./pin.service";
+import { PinRepository } from "./pin.repository";
+import { PinHasher } from "./pin-hasher.service";
 
 @Module({
   imports: [
@@ -35,9 +42,26 @@ import { ConsentGuard } from "./consent.guard";
       }),
     }),
   ],
-  controllers: [AuthController],
-  // IpRateLimit is @Global (RateLimitModule) — do not re-provide it.
-  providers: [AuthService, OtpService, SessionService, WorkerAuthGuard, ConsentGuard],
+  controllers: [AuthController, DevicesController, PinController],
+  // IpRateLimit is @Global (RateLimitModule) — do not re-provide it. DevicesRepository
+  // reaches the @Global DATABASE token; DevicesService composes EventsService/PiiCrypto/
+  // SessionService (all reachable here), and AuthService depends on DevicesService.
+  // ADR-0026 Phase 3 (device-bound PIN): PinRepository reaches @Global DATABASE; PinHasher
+  // composes PiiCryptoService; PinService composes SessionService/DevicesRepository/OtpService/
+  // AuthService/EventsService/PiiCryptoService + the @Global WorkersRepository + the BullMQ
+  // queue (the same Redis client SessionService uses) — all reachable in this module.
+  providers: [
+    AuthService,
+    OtpService,
+    SessionService,
+    WorkerAuthGuard,
+    ConsentGuard,
+    DevicesService,
+    DevicesRepository,
+    PinService,
+    PinRepository,
+    PinHasher,
+  ],
   // Export the guards AND their dependencies. When another module applies a guard
   // via @UseGuards, Nest resolves the guard's ctor deps in the IMPORTING module's
   // injector — so each dep must be reachable there, else it resolves to null and

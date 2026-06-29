@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { randomBytes, createCipheriv } from "node:crypto";
-import { encryptPii, decryptPii, isEncryptedPii } from "./crypto";
+import { encryptPii, decryptPii, isEncryptedPii, hashPin, verifyPin, isPinHash } from "./crypto";
 
 const KEY = randomBytes(32).toString("base64"); // a valid AES-256 key
 const OTHER_KEY = randomBytes(32).toString("base64");
@@ -64,5 +64,46 @@ describe("PII crypto (AES-256-GCM, explicit authTagLength)", () => {
       ct.toString("base64"),
     ].join(".");
     expect(decryptPii(legacyToken, KEY)).toBe("+919876543210");
+  });
+});
+
+describe("PIN hashing (scrypt-v1, peppered, per-PIN salt, constant-time)", () => {
+  const PEPPER = "a-server-side-pin-pepper-min-16";
+  const OTHER_PEPPER = "a-different-pin-pepper-value-16!";
+
+  it("verifies the correct PIN under the same pepper", () => {
+    const token = hashPin("1357", PEPPER);
+    expect(isPinHash(token)).toBe(true);
+    expect(token.startsWith("scrypt-v1.")).toBe(true);
+    expect(token.split(".")).toHaveLength(3); // scrypt-v1.<salt>.<derived>
+    expect(verifyPin("1357", token, PEPPER)).toBe(true);
+  });
+
+  it("rejects a wrong PIN", () => {
+    const token = hashPin("1357", PEPPER);
+    expect(verifyPin("1358", token, PEPPER)).toBe(false);
+    expect(verifyPin("", token, PEPPER)).toBe(false);
+  });
+
+  it("rejects the correct PIN under a WRONG pepper (a row leak can't brute-force without the server pepper)", () => {
+    const token = hashPin("1357", PEPPER);
+    expect(verifyPin("1357", token, OTHER_PEPPER)).toBe(false);
+  });
+
+  it("is non-deterministic (fresh per-PIN salt → equal PINs hash differently)", () => {
+    expect(hashPin("1357", PEPPER)).not.toBe(hashPin("1357", PEPPER));
+  });
+
+  it("never embeds the raw PIN or the pepper in the token", () => {
+    const token = hashPin("4826", PEPPER);
+    expect(token).not.toContain("4826");
+    expect(token).not.toContain(PEPPER);
+  });
+
+  it("verifyPin fails CLOSED (false, never throws) on a malformed/wrong-version token", () => {
+    expect(verifyPin("1357", "not-a-token", PEPPER)).toBe(false);
+    expect(verifyPin("1357", "scrypt-v1.onlytwo", PEPPER)).toBe(false);
+    expect(verifyPin("1357", "argon2id.salt.derived", PEPPER)).toBe(false); // future algo not yet supported
+    expect(isPinHash("not-a-token")).toBe(false);
   });
 });

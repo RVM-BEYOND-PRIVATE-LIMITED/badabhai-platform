@@ -59,6 +59,92 @@ export const WorkerLoggedOutAllPayload = z.object({
   sessions_revoked: z.number().int().nonnegative(),
 });
 
+// ADR-0026 Phase 2 — trusted-device binding. A device was registered on a fresh OTP
+// login / revoked from the device list. PII-FREE: the opaque worker id + the device ROW
+// uuid (`worker_devices.id`) ONLY. The `device_hash` (keyed HMAC of the client device
+// id), the raw client device id, the `push_token`, and platform/model/app_version —
+// NONE appear here (CLAUDE.md invariant #2; mirrors how the events above carry the
+// family/session uuid, never the token value). The device row uuid is an opaque handle.
+export const WorkerDeviceRegisteredPayload = z.object({
+  worker_id: uuidSchema,
+  device_id: uuidSchema,
+});
+
+export const WorkerDeviceRevokedPayload = z.object({
+  worker_id: uuidSchema,
+  device_id: uuidSchema,
+});
+
+// ---------------------------------------------------------------------------
+// worker.pin_* — device-bound unlock PIN (ADR-0026 Phase 3).
+//
+// The PIN NEVER authenticates from scratch — a correct PIN only unlocks an already
+// device-bound session. These record the PIN lifecycle (set / verified / verify-failed /
+// locked / reset) for the audit spine — the PIN sibling of the `worker.device_*` events.
+//
+// PII-FREE BY CONSTRUCTION (CLAUDE.md invariant #2): the raw PIN, the `pin_hash`, the
+// throttle state, the raw client device id / device fingerprint, and the phone NEVER
+// appear here. The ONLY fields are the opaque worker id, the opaque device ROW uuid
+// (`worker_devices.id`, same handle the `device_*` events carry), and bounded ints/bools
+// for the lockout escalation. `.strict()` STRUCTURALLY rejects any extra (potentially
+// PII-shaped) key at validation time — a careless caller cannot smuggle a value onto the
+// spine. All v1 (version-never-mutate).
+// ---------------------------------------------------------------------------
+
+/** A worker set (or replaced) their device-unlock PIN. The opaque worker id ONLY —
+ * never the PIN, the pin_hash, or any throttle/device value. `.strict()` backstop. */
+export const WorkerPinSetPayload = z
+  .object({
+    worker_id: uuidSchema,
+  })
+  .strict();
+export type WorkerPinSetPayload = z.infer<typeof WorkerPinSetPayload>;
+
+/** A device-bound PIN was verified successfully (a fresh session was minted). The opaque
+ * worker id + the device ROW uuid the PIN rode ONLY — never the PIN or any secret. */
+export const WorkerPinVerifiedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    device_id: uuidSchema,
+  })
+  .strict();
+export type WorkerPinVerifiedPayload = z.infer<typeof WorkerPinVerifiedPayload>;
+
+/** A device-bound PIN verify FAILED (wrong PIN / locked / untrusted-device / invalidated
+ * — the client sees ONE neutral 401; ops gets this distinct PII-free fact). The opaque
+ * worker id + the device ROW uuid ONLY — never the submitted PIN or a reason value. */
+export const WorkerPinVerifyFailedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    device_id: uuidSchema,
+  })
+  .strict();
+export type WorkerPinVerifyFailedPayload = z.infer<typeof WorkerPinVerifyFailedPayload>;
+
+/** A PIN lockout escalation step fired: the transient lockout cycle bumped, and when it
+ * reaches the configured K cycles `force_otp` is true (the PIN is durably invalidated until
+ * an OTP-gated reset). Opaque worker id + device ROW uuid + the integer cycle + the boolean
+ * ONLY — never the PIN, the hash, or any throttle timestamp. */
+export const WorkerPinLockedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    device_id: uuidSchema,
+    lockout_cycle: z.number().int().nonnegative(),
+    force_otp: z.boolean().default(false),
+  })
+  .strict();
+export type WorkerPinLockedPayload = z.infer<typeof WorkerPinLockedPayload>;
+
+/** A worker reset their PIN through the OTP-gated reset flow (a new PIN was set, clearing
+ * the throttle + force-OTP state). The opaque worker id ONLY — never the new PIN, the old
+ * hash, the OTP, or the phone. `.strict()` backstop. */
+export const WorkerPinResetPayload = z
+  .object({
+    worker_id: uuidSchema,
+  })
+  .strict();
+export type WorkerPinResetPayload = z.infer<typeof WorkerPinResetPayload>;
+
 // ---------------------------------------------------------------------------
 // *.otp_send_cap_exceeded — OTP-5 global daily send circuit-breaker (the SPEND
 // ceiling) breach, on BOTH the worker SMS and payer email real-send paths.

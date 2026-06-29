@@ -32,6 +32,8 @@ interface RedisSessionClient {
 interface WorkerJwtClaims {
   sub: string;
   sid: string;
+  /** ADR-0026 Phase 2 — the bound trusted-device ROW uuid, when device-bound (opaque). */
+  did?: string;
   exp?: number;
 }
 
@@ -40,6 +42,8 @@ interface SessionRecord {
   worker_id: string;
   /** The refresh FAMILY this session belongs to (so a deliberate logout kills it). */
   family_id?: string;
+  /** ADR-0026 Phase 2 — the bound trusted-device ROW uuid (so revokeByDevice finds it). */
+  device_id?: string;
   created_via_otp_at_ms?: number;
   absolute_expiry_ms?: number;
   active_days?: string[];
@@ -60,6 +64,12 @@ interface RefreshRecord {
    * OTP (a new `create()`) starts a new clock. (ADR-0026: "only an OTP resets that clock".)
    */
   created_via_otp_at_ms: number;
+  /**
+   * ADR-0026 Phase 2 — the bound trusted-device ROW uuid (opaque), carried on the refresh
+   * lineage like the OTP anchor so a lapsed-then-refreshed session record is RE-CREATED
+   * still bound to its device (keeps revokeByDevice correct across an idle lapse).
+   */
+  device_id?: string;
 }
 
 export interface SessionToken {
@@ -92,6 +102,8 @@ export interface MintedSession {
 export interface ValidatedSession {
   workerId: string;
   sid: string;
+  /** ADR-0026 Phase 2 — the bound device row uuid from the token `did` claim, if any. */
+  deviceId?: string;
   /** Seconds until the CURRENT token expires (per its JWT `exp`). */
   remainingSeconds: number;
 }
@@ -179,7 +191,7 @@ export class SessionService {
    * JWT, mint a fresh refresh token + family, and register the sid under the worker's
    * session set. Returns the access token + the opaque refresh token + the session view.
    */
-  async create(workerId: string): Promise<MintedSession> {
+  async create(workerId: string, deviceId?: string): Promise<MintedSession> {
     const sid = randomUUID();
     const familyId = randomUUID();
     const nowMs = Date.now();
@@ -189,6 +201,7 @@ export class SessionService {
     const record: SessionRecord = {
       worker_id: workerId,
       family_id: familyId,
+      device_id: deviceId,
       created_via_otp_at_ms: nowMs,
       absolute_expiry_ms: nowMs + this.absoluteMaxSeconds() * 1000,
       active_days: [istToday],
@@ -202,14 +215,16 @@ export class SessionService {
     await redis.set(SessionService.sessionKey(sid), JSON.stringify(record), "EX", ttlSec);
     await this.trackWorkerSession(redis, workerId, sid, familyId);
 
-    const access = await this.mintAccess(workerId, sid);
+    const access = await this.mintAccess(workerId, sid, deviceId);
     // The OTP that mints this session is the IMMUTABLE absolute-cap anchor — only a new
     // create() (= a fresh OTP) starts a new clock; rotation copies it forward unchanged.
+    // The device id is carried on the lineage the same way (immutable for the family).
     const refresh = await this.mintRefresh(redis, {
       sid,
       familyId,
       workerId,
       createdViaOtpAtMs: nowMs,
+      deviceId,
     });
 
     return { access, refresh, session: this.viewOf(record, ttlSec, nowMs) };
@@ -275,7 +290,7 @@ export class SessionService {
 
       const nowSeconds = Math.floor(Date.now() / 1000);
       const remainingSeconds = claims.exp ? Math.max(0, claims.exp - nowSeconds) : 0;
-      return { workerId: claims.sub, sid: claims.sid, remainingSeconds };
+      return { workerId: claims.sub, sid: claims.sid, deviceId: claims.did, remainingSeconds };
     } catch (err) {
       this.logger.error(
         `Session Redis error; treating as unauthenticated (reason: ${
@@ -313,6 +328,7 @@ export class SessionService {
     const updated: SessionRecord = {
       worker_id: record.worker_id,
       family_id: record.family_id, // preserve the family so logout can kill the lineage
+      device_id: record.device_id, // preserve the device binding so revokeByDevice holds
       created_via_otp_at_ms: record.created_via_otp_at_ms ?? nowMs,
       absolute_expiry_ms: rolled.absoluteExpiryMs,
       active_days: rolled.activeDays,
@@ -333,6 +349,7 @@ export class SessionService {
     return {
       worker_id: parsed.worker_id ?? fallbackWorkerId,
       family_id: parsed.family_id,
+      device_id: parsed.device_id,
       created_via_otp_at_ms: parsed.created_via_otp_at_ms ?? nowMs,
       absolute_expiry_ms:
         parsed.absolute_expiry_ms ?? nowMs + this.absoluteMaxSeconds() * 1000,
@@ -349,19 +366,22 @@ export class SessionService {
   async refresh(token: string): Promise<SessionToken | null> {
     const session = await this.validateAndTouch(token);
     if (!session) return null;
-    return this.mintAccess(session.workerId, session.sid);
+    // Preserve the device binding (`did`) on the freshly minted token.
+    return this.mintAccess(session.workerId, session.sid, session.deviceId);
   }
 
   /** Mint a fresh JWT for an already-validated worker+session (rolling refresh). */
-  async mint(workerId: string, sid: string): Promise<SessionToken> {
-    return this.mintAccess(workerId, sid);
+  async mint(workerId: string, sid: string, deviceId?: string): Promise<SessionToken> {
+    return this.mintAccess(workerId, sid, deviceId);
   }
 
-  private async mintAccess(workerId: string, sid: string): Promise<SessionToken> {
-    const token = await this.jwt.signAsync(
-      { sub: workerId, sid },
-      { expiresIn: `${this.config.SESSION_TTL_DAYS}d` },
-    );
+  private async mintAccess(workerId: string, sid: string, deviceId?: string): Promise<SessionToken> {
+    // `did` is added ONLY when the session is device-bound — old/unbound tokens stay
+    // exactly the {sub, sid} shape (back-compat; the claim is optional on verify).
+    const claims = deviceId ? { sub: workerId, sid, did: deviceId } : { sub: workerId, sid };
+    const token = await this.jwt.signAsync(claims, {
+      expiresIn: `${this.config.SESSION_TTL_DAYS}d`,
+    });
     return { token, expiresInSeconds: this.ttlSeconds() };
   }
 
@@ -372,7 +392,13 @@ export class SessionService {
    */
   private async mintRefresh(
     redis: RedisSessionClient,
-    args: { sid: string; familyId: string; workerId: string; createdViaOtpAtMs: number },
+    args: {
+      sid: string;
+      familyId: string;
+      workerId: string;
+      createdViaOtpAtMs: number;
+      deviceId?: string;
+    },
   ): Promise<RefreshToken> {
     const rawToken = randomBytes(32).toString("hex"); // 256-bit opaque secret
     const tokenHash = sha256Hex(rawToken);
@@ -385,6 +411,7 @@ export class SessionService {
       superseded_by: null,
       created_at_ms: Date.now(),
       created_via_otp_at_ms: args.createdViaOtpAtMs,
+      device_id: args.deviceId,
     };
     await redis.set(SessionService.refreshKey(tokenHash), JSON.stringify(record), "EX", ttl);
     await redis.sadd(SessionService.refreshFamilyKey(args.familyId), tokenHash);
@@ -499,6 +526,7 @@ export class SessionService {
         rec.sid,
         rec.worker_id,
         rec.created_via_otp_at_ms,
+        rec.device_id,
       );
       if (!sessionView) {
         // Past the absolute cap (only possible when the gate is on) — revoke + force OTP.
@@ -527,6 +555,7 @@ export class SessionService {
         superseded_by: null,
         created_at_ms: Date.now(),
         created_via_otp_at_ms: rec.created_via_otp_at_ms, // immutable OTP anchor — never reset
+        device_id: rec.device_id, // immutable device binding — carried for the family's life
       };
       await redis.set(
         SessionService.refreshKey(newHash),
@@ -545,7 +574,7 @@ export class SessionService {
       // idempotent; this only refreshes both set TTLs to refreshTtlSeconds().
       await this.trackWorkerSession(redis, rec.worker_id, rec.sid, rec.family_id);
 
-      const access = await this.mintAccess(rec.worker_id, rec.sid);
+      const access = await this.mintAccess(rec.worker_id, rec.sid, rec.device_id);
       const minted: MintedSession = {
         access,
         refresh: { token: newRawToken, expiresInSeconds: this.refreshTtlSeconds() },
@@ -610,6 +639,7 @@ export class SessionService {
     sid: string,
     workerId: string,
     createdViaOtpAtMs: number,
+    deviceId?: string,
   ): Promise<SessionView | null> {
     const key = SessionService.sessionKey(sid);
     const raw = await redis.get(key);
@@ -617,12 +647,13 @@ export class SessionService {
 
     if (!this.config.AUTH_ROLLING_TIERS_ENABLED) {
       // Flat slide — recreate the record if missing (refresh keeps a session alive),
-      // preserving the worker id + family. No absolute cap (gate OFF — byte-identical
-      // to the pre-ADR-0026 behavior).
+      // preserving the worker id + family + device binding. No absolute cap (gate OFF —
+      // byte-identical to the pre-ADR-0026 behavior aside from the carried device id).
       const record = raw
         ? this.parseRecord(raw, workerId, nowMs)
         : {
             worker_id: workerId,
+            device_id: deviceId, // re-bind a lapsed-then-refreshed record from the lineage
             tier: 0,
             active_days: [],
             created_via_otp_at_ms: createdViaOtpAtMs,
@@ -649,6 +680,7 @@ export class SessionService {
       if (rolled.expired) return null;
       const record: SessionRecord = {
         worker_id: workerId,
+        device_id: deviceId, // re-bind from the refresh lineage after an idle lapse
         created_via_otp_at_ms: createdViaOtpAtMs,
         absolute_expiry_ms: rolled.absoluteExpiryMs,
         active_days: rolled.activeDays,
@@ -662,6 +694,41 @@ export class SessionService {
     const slid = await this.slideTiered(redis, key, raw, workerId);
     if (!slid) return null;
     return this.viewOf(slid.record, slid.ttlSec, nowMs);
+  }
+
+  /**
+   * READ-ONLY resolution of an opaque refresh token to its bound identity (ADR-0026 Phase 3
+   * device-bound PIN). Loads `refresh:<sha256(token)>` and returns the worker/device/session/
+   * family it belongs to WITHOUT rotating, marking-used, sliding the session, or flagging
+   * reuse — it is a pure lookup. Returns null when the token is missing/expired/unparseable
+   * or Redis is unreachable (fail closed). PRIVACY: only sha256(token) is ever used as a key;
+   * the token value is never logged. Used by PinService to derive the PIN-verify identity from
+   * the device-bound refresh token the client already holds (the SIM-swap defense — a new
+   * device has no trusted refresh token).
+   */
+  async resolveRefreshToken(
+    rawToken: string,
+  ): Promise<{ workerId: string; deviceId?: string; sid: string; familyId: string } | null> {
+    try {
+      const redis = await this.client();
+      const raw = await redis.get(SessionService.refreshKey(sha256Hex(rawToken)));
+      if (!raw) return null;
+      const rec = JSON.parse(raw) as RefreshRecord;
+      if (!rec.worker_id || !rec.sid || !rec.family_id) return null;
+      return {
+        workerId: rec.worker_id,
+        deviceId: rec.device_id,
+        sid: rec.sid,
+        familyId: rec.family_id,
+      };
+    } catch (err) {
+      this.logger.error(
+        `resolveRefreshToken Redis error; treating as unresolved (reason: ${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      );
+      return null;
+    }
   }
 
   /** A read-only session view for GET /auth/session (no slide, no secrets). */
@@ -775,6 +842,51 @@ export class SessionService {
       subject: { subject_type: "worker", subject_id: workerId },
       payload: { worker_id: workerId, sessions_revoked: count },
     });
+    return count;
+  }
+
+  /**
+   * Revoke every session BOUND to a specific device (ADR-0026 Phase 2 — invoked when a
+   * worker revokes a device from their device list). Returns the count of families revoked.
+   *
+   * Driven off the worker's FAMILY set (not the live-session set): every device-bound
+   * session is created with a refresh family (create() always sets both), and the refresh
+   * lineage OUTLIVES the session record (the boot guard pins refreshTtl >= absoluteMax >=
+   * idle TTL). So iterating `worker_families` catches a device whose session record has
+   * idle-LAPSED but still holds an unused refresh token — the resurrection vector a
+   * session-set-driven sweep would miss (it would skip the lapsed `!raw` record while the
+   * live refresh token could re-mint a session on the just-revoked device). For each
+   * family we read its (immutable) `device_id` from a surviving refresh record and, on a
+   * match, kill the whole family (every refresh:<hash> + the family set + the session +
+   * both memberships) — so no outstanding refresh token can resurrect the cut device.
+   * Best-effort/fail-safe — never throws out of the revoke flow (the caller has already
+   * marked the device row revoked).
+   */
+  async revokeByDevice(workerId: string, deviceId: string): Promise<number> {
+    let count = 0;
+    try {
+      const redis = await this.client();
+      const familyIds = await redis.smembers(SessionService.workerFamiliesKey(workerId));
+      for (const familyId of familyIds) {
+        const hashes = await redis.smembers(SessionService.refreshFamilyKey(familyId));
+        // device_id is immutable across a family — read it from the first surviving record.
+        let rec: RefreshRecord | null = null;
+        for (const h of hashes) {
+          const raw = await redis.get(SessionService.refreshKey(h));
+          if (raw) {
+            rec = JSON.parse(raw) as RefreshRecord;
+            break;
+          }
+        }
+        if (!rec || rec.device_id !== deviceId) continue;
+        await this.revokeFamily(redis, familyId, rec.sid, workerId);
+        count++;
+      }
+    } catch (err) {
+      this.logger.error(
+        `revokeByDevice Redis error (reason: ${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
     return count;
   }
 

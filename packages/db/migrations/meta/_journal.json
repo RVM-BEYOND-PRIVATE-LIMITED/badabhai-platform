@@ -204,6 +204,20 @@
       "when": 1782567665504,
       "tag": "0028_black_rick_jones",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1782713480366,
+      "tag": "0029_sharp_silver_surfer",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1782717849077,
+      "tag": "0030_nosy_human_fly",
+      "breakpoints": true
     }
   ]
 }
