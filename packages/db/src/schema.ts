@@ -1617,4 +1617,6 @@ export const schema = {
   agencyInvites,
   adminUsers,
   workerFlags,
+  workerDevices,
+  workerCredentials,
 };
