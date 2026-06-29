@@ -7,6 +7,7 @@ import { WorkersRepository } from "../workers/workers.repository";
 import { OtpService } from "./otp.service";
 import { SessionService } from "./session.service";
 import { DevicesService } from "./devices.service";
+import { PinRepository } from "./pin.repository";
 import type { LoginResponse, OtpRequestResponse } from "./auth.dto";
 import type { DeviceInfoDto } from "./devices.dto";
 
@@ -33,6 +34,7 @@ export class AuthService {
     private readonly otp: OtpService,
     private readonly sessions: SessionService,
     private readonly devices: DevicesService,
+    private readonly pins: PinRepository,
   ) {}
 
   async requestOtp(phone: string, ctx: RequestContext): Promise<OtpRequestResponse> {
@@ -139,6 +141,11 @@ export class AuthService {
     // the access JWT also carries the opaque `did` claim.
     const minted = await this.sessions.create(worker.id, deviceId);
 
+    // ADR-0026 Phase 4 — does this worker already have a device-unlock PIN? The app routes a
+    // returning worker to enter-PIN (true) vs set-PIN (false). A brand-new worker has no
+    // worker_credentials row → false. Only the boolean is surfaced — never the PIN/hash.
+    const pinSet = !!(await this.pins.findByWorkerId(worker.id));
+
     // No idempotencyKey: a worker legitimately verifies/logs in many times, so
     // each otp_verified is a distinct fact (likewise otp_requested resends above).
     await this.events.emit({
@@ -157,6 +164,8 @@ export class AuthService {
       worker_id: worker.id,
       is_new_worker: isNew,
       status: worker.status,
+      // ADR-0026 Phase 4 — lets the app route enter-PIN (true) vs set-PIN (false).
+      pin_set: pinSet,
       // ADR-0026 additive fields — the opaque rotating refresh token + session view.
       refresh_token: minted.refresh.token,
       refresh_expires_in_seconds: minted.refresh.expiresInSeconds,

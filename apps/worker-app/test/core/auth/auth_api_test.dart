@@ -16,16 +16,18 @@ import 'fakes.dart';
 
 AuthApi _api(MockClient transport) {
   final SecureTokenStore store = SecureTokenStore(FakeSecureStore());
+  final DeviceIdProvider deviceId = DeviceIdProvider(store);
   final AuthedClient client = AuthedClient(
     baseUrl: 'http://test',
     tokenStore: store,
-    deviceId: DeviceIdProvider(store),
+    deviceId: deviceId,
     localeStore: LocaleStore(FakePrefs()),
     reauthSignal: ReauthSignal(),
     client: transport,
     retryBackoff: Duration.zero,
   );
-  return AuthApi(client);
+  // Same provider drives both the X-Device-Id header and device_info.device_id.
+  return AuthApi(client, deviceId: deviceId);
 }
 
 void main() {
@@ -82,16 +84,17 @@ void main() {
       );
     });
 
-    test('otpVerify parses worker flags + tokens', () async {
+    test('otpVerify parses worker flags + tokens (real LoginResponse keys)',
+        () async {
       final AuthApi api = _api(MockClient((http.Request req) async {
         return http.Response(
           jsonEncode(<String, dynamic>{
             'worker_id': 'w-1',
-            'is_new_user': true,
+            'is_new_worker': true,
             'pin_set': false,
             'access_token': 'a-1',
             'refresh_token': 'r-1',
-            'access_expires_in': 900,
+            'expires_in_seconds': 900,
           }),
           200,
         );
@@ -108,6 +111,54 @@ void main() {
         result.tokens.accessExpiresAt.isAfter(DateTime.now()),
         isTrue,
       );
+    });
+
+    test('otpVerify sends device_info bound to the X-Device-Id device id',
+        () async {
+      late final Map<String, dynamic> sentBody;
+      String? sentDeviceHeader;
+      final AuthApi api = _api(MockClient((http.Request req) async {
+        sentBody = jsonDecode(req.body) as Map<String, dynamic>;
+        sentDeviceHeader = req.headers['X-Device-Id'] ?? req.headers['x-device-id'];
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'worker_id': 'w-1',
+            'is_new_worker': false,
+            'pin_set': true,
+            'access_token': 'a-1',
+            'refresh_token': 'r-1',
+            'expires_in_seconds': 900,
+          }),
+          200,
+        );
+      }));
+
+      await api.otpVerify('+910000000000', '123456');
+
+      final Map<String, dynamic>? deviceInfo =
+          sentBody['device_info'] as Map<String, dynamic>?;
+      expect(deviceInfo, isNotNull);
+      // device_info.device_id is the SAME id as the X-Device-Id header.
+      expect(deviceInfo!['device_id'], isNotNull);
+      expect(deviceInfo['device_id'], sentDeviceHeader);
+      expect((deviceInfo['device_id'] as String).length,
+          greaterThanOrEqualTo(8));
+      expect(deviceInfo['platform'], isNotNull);
+    });
+
+    test('revokeDevice issues DELETE /auth/devices/{id}', () async {
+      late final String method;
+      late final String path;
+      final AuthApi api = _api(MockClient((http.Request req) async {
+        method = req.method;
+        path = req.url.path;
+        return http.Response('', 204);
+      }));
+
+      await api.revokeDevice('dev-123');
+
+      expect(method, 'DELETE');
+      expect(path, '/auth/devices/dev-123');
     });
   });
 }

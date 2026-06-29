@@ -310,11 +310,12 @@ class AuthedClient {
   }
 
   /// Persists a token set from a `{ access_token, refresh_token,
-  /// access_expires_in }` body and updates the in-memory access token.
+  /// expires_in_seconds }` body (TokenRefreshResponse) and updates the in-memory
+  /// access token.
   Future<void> _persistTokens(Map<String, dynamic> body) async {
     final String? access = body['access_token'] as String?;
     final String? refresh = body['refresh_token'] as String?;
-    final int expiresIn = (body['access_expires_in'] as num?)?.toInt() ?? 0;
+    final int expiresIn = (body['expires_in_seconds'] as num?)?.toInt() ?? 0;
     if (refresh != null && refresh.isNotEmpty) {
       await _tokenStore.saveTokens(
         refreshToken: refresh,
