@@ -12,6 +12,20 @@ import '../api/mock_api_client.dart';
 /// → profile → resume → swipe) is walkable with no backend running.
 const bool kUseMocks = bool.fromEnvironment('USE_MOCKS', defaultValue: false);
 
+/// Persistent-auth / PIN layer (PASS 2) enable gate.
+///
+/// OFF by default in REAL builds: the backend `/auth/pin/*`, `/auth/token/refresh`,
+/// `/auth/devices` contract is not live yet and the `/auth/otp/verify` response
+/// shape differs from this client's ASSUMED shape, so running the PIN gate against
+/// the real backend dead-ends the worker after OTP. With the layer OFF, OTP login
+/// falls back to the proven OTP→shell flow (exactly as on main).
+///
+/// ON automatically in mock mode (the full PIN flow is walkable), and switchable
+/// for staging via `--dart-define=PERSISTENT_AUTH=true` once the backend contract
+/// lands and `auth_api.dart`'s `// ASSUMED` shapes are reconciled.
+const bool kPersistentAuth =
+    kUseMocks || bool.fromEnvironment('PERSISTENT_AUTH', defaultValue: false);
+
 /// The single place that picks the API client.
 ///
 /// Screens construct their client through this factory so the [kUseMocks] switch

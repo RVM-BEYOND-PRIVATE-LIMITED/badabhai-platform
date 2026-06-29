@@ -27,4 +27,24 @@ void main() {
     expect(s.workerId, 'w1');
     expect(s.sessionToken, 't2');
   });
+
+  test('clear() nulls every session field (logout wipe)', () {
+    final SessionRepository s = SessionRepository();
+    s.setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 't1');
+    s.setSession('sess1');
+    s.setProfile('p1');
+    s.setResume('r1');
+    // Sanity: state is populated before the wipe.
+    expect(s.workerId, 'w1');
+    expect(s.sessionToken, 't1');
+
+    s.clear();
+
+    expect(s.phoneE164, isNull);
+    expect(s.workerId, isNull);
+    expect(s.sessionToken, isNull);
+    expect(s.sessionId, isNull);
+    expect(s.profileId, isNull);
+    expect(s.resumeId, isNull);
+  });
 }

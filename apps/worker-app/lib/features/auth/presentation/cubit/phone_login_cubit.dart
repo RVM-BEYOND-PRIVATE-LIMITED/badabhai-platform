@@ -1,8 +1,9 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../core/error/failure.dart';
-import '../../domain/auth_repository.dart';
+import '../../../../core/auth/auth_error_messages.dart';
+import '../../../../core/auth/auth_failure.dart';
+import '../../domain/auth_session_manager.dart';
 
 enum PhoneLoginStatus { initial, submitting, success, failure }
 
@@ -29,7 +30,7 @@ class PhoneLoginState extends Equatable {
     return PhoneLoginState(
       status: status ?? this.status,
       phone: phone ?? this.phone,
-      message: message ?? this.message,
+      message: message,
     );
   }
 
@@ -37,24 +38,30 @@ class PhoneLoginState extends Equatable {
   List<Object?> get props => <Object?>[status, phone, message];
 }
 
-/// Drives the phone-entry screen: a single fire-and-forget OTP request.
+/// Drives the phone-entry screen: a single OTP request through
+/// [AuthSessionManager] (so the call carries `X-Device-Id` / `X-Locale` via the
+/// interceptor). On an [AuthFailure] (e.g. OTP_RATE_LIMITED) it surfaces the
+/// localized copy.
 class PhoneLoginCubit extends Cubit<PhoneLoginState> {
-  PhoneLoginCubit(this._repo) : super(const PhoneLoginState());
+  PhoneLoginCubit(this._manager, {String locale = 'hi'})
+      : _locale = locale,
+        super(const PhoneLoginState());
 
-  final AuthRepository _repo;
+  final AuthSessionManager _manager;
+  final String _locale;
 
   Future<void> submit(String phoneE164) async {
     if (state.isSubmitting) return;
     emit(state.copyWith(status: PhoneLoginStatus.submitting, phone: phoneE164));
     try {
-      await _repo.requestOtp(phoneE164);
+      await _manager.requestOtp(phoneE164);
       if (isClosed) return;
       emit(state.copyWith(status: PhoneLoginStatus.success, phone: phoneE164));
-    } on Failure catch (failure) {
+    } on AuthFailure catch (failure) {
       if (isClosed) return;
       emit(state.copyWith(
         status: PhoneLoginStatus.failure,
-        message: failure.message,
+        message: authErrorMessage(failure, _locale),
       ));
     }
   }

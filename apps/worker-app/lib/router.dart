@@ -3,12 +3,16 @@ import 'package:go_router/go_router.dart';
 
 import 'core/di/locator.dart';
 import 'core/widgets/bb_bottom_nav.dart';
-import 'core/widgets/bb_job_card.dart';
+import 'features/auth/domain/auth_session_manager.dart';
 import 'features/notifications/domain/notifications_repository.dart';
 
 import 'features/splash/presentation/splash_screen.dart';
 import 'features/auth/presentation/phone_login_screen.dart';
 import 'features/auth/presentation/otp_verify_screen.dart';
+import 'features/auth/presentation/enter_pin_screen.dart';
+import 'features/auth/presentation/set_pin_screen.dart';
+import 'features/auth/presentation/forgot_pin_screen.dart';
+import 'features/auth/presentation/devices_screen.dart';
 import 'features/consent/presentation/consent_screen.dart';
 import 'features/name/presentation/name_screen.dart';
 import 'features/chat/presentation/chat_profiling_screen.dart';
@@ -22,7 +26,6 @@ import 'features/settings/presentation/settings_screen.dart';
 import 'features/resume/presentation/building_screen.dart';
 import 'features/resume/presentation/resume_edit_screen.dart';
 import 'features/resume/presentation/resume_preview_screen.dart';
-import 'features/swipe/presentation/applied_screen.dart';
 import 'features/swipe/presentation/job_detail_screen.dart';
 import 'features/swipe/presentation/swipe_jobs_screen.dart';
 
@@ -36,6 +39,20 @@ class Routes {
   static const String splash = '/';
   static const String phoneLogin = '/login';
   static const String otpVerify = '/otp';
+
+  // --- Persistent auth (PASS 2) ---
+  /// Enter-PIN unlock (the cold-start / re-lock fast path).
+  static const String pin = '/pin';
+
+  /// Set / reset PIN (new user or forgot-PIN).
+  static const String setPin = '/pin/set';
+
+  /// Forgot-PIN: re-verify OTP, then set a fresh PIN.
+  static const String forgotPin = '/pin/forgot';
+
+  /// My-devices list (reachable from Settings).
+  static const String devices = '/profile/settings/devices';
+
   static const String consent = '/consent';
   static const String name = '/name'; // "Your name" step (after consent, before chat)
   static const String chatProfiling = '/chat';
@@ -53,7 +70,6 @@ class Routes {
 
   // --- Shell sub-routes (append the id where noted) ---
   static const String jobDetail = '/jobs/detail'; // + '/<jobId>'  (no bar)
-  static const String applied = '/jobs/applied'; // (keeps bar)
   static const String resumeEdit = '/resume/edit'; // (no bar)
   static const String kit = '/resume/kit'; // (keeps bar)
   static const String kitDetail = '/resume/kit/detail'; // + '/<tradeKey>' (no bar)
@@ -73,13 +89,95 @@ final GlobalKey<NavigatorState> _profileNavKey =
 final GlobalKey<NavigatorState> _alertsNavKey =
     GlobalKey<NavigatorState>(debugLabel: 'alerts');
 
-/// The app-wide router instance (one per process, like the old `appRoutes` map).
-final GoRouter appRouter = _buildRouter();
+/// Builds a router bound to the CURRENTLY-registered [AuthSessionManager] (its
+/// `refreshListenable`). Built once per [BadaBhaiApp] instance in `initState`
+/// (no longer a process-global final) so each app — and each test that re-wires
+/// the locator — gets a redirect that reacts to the live auth status. Legacy
+/// widget tests that don't wire auth get an inert redirect (null manager).
+GoRouter buildAppRouter() => _buildRouter();
+
+/// Routes the auth redirect treats as "auth surface" — reachable while NOT
+/// authenticated (splash + the whole login/PIN journey). Everything else (the
+/// shell + onboarding) requires [AuthStatus.authenticated].
+const Set<String> _authRoutes = <String>{
+  Routes.splash,
+  Routes.phoneLogin,
+  Routes.otpVerify,
+  Routes.pin,
+  Routes.setPin,
+  Routes.forgotPin,
+};
+
+/// Resolve the [AuthSessionManager] if the auth graph is wired (it is in the
+/// real app + the e2e/auth tests). Returns null under the legacy widget tests
+/// that pump [BadaBhaiApp] without `initAuthLocator` — in which case the
+/// redirect is INERT and app-open routing behaves exactly as before.
+AuthSessionManager? _maybeAuth() =>
+    locator.isRegistered<AuthSessionManager>() ? locator<AuthSessionManager>() : null;
+
+/// The auth gate (PASS 2 §5). Driven by [AuthSessionManager]:
+///  - `loggedOut`  → force to `/login` (unless already on an auth route),
+///  - `locked`     → force to `/pin` (the enter-PIN fast path),
+///  - `authenticated` → block the auth routes (bounce login/PIN into the shell);
+///    onboarding + shell are otherwise allowed.
+///
+/// Returns null (no redirect) when auth isn't wired (legacy widget tests), while
+/// [AuthSessionManager.bootstrap] hasn't resolved the cold-start state yet (the
+/// worker simply waits on splash), or when persistent-auth is DISABLED (the gate
+/// is inert — main's routing). Null otherwise means "stay put".
+String? _authRedirect(BuildContext context, GoRouterState state) {
+  final AuthSessionManager? auth = _maybeAuth();
+  // When persistent-auth is disabled (real/default build until the backend
+  // /auth/* contract lands), the gate is INERT — routing matches `main` exactly
+  // (splash→login→OTP→consent→onboarding→shell), with the API bearer
+  // (SessionRepository.sessionToken) as the only auth gate, as before. This also
+  // removes the /otp→/resume bounce that would otherwise fight the consent push.
+  if (auth == null || !auth.isReady || !auth.persistentAuthEnabled) return null;
+
+  final String loc = state.matchedLocation;
+  final bool onAuthRoute = _authRoutes.contains(loc);
+
+  switch (auth.status) {
+    case AuthStatus.loggedOut:
+      // The pre-auth surface is reachable: splash → phone → OTP, plus the
+      // forgot-PIN OTP flow. Everything else (shell + onboarding) is forced to
+      // login. (Set-PIN is NOT reachable while loggedOut — a PIN can only be set
+      // after an OTP verify, which flips the status to locked/authenticated.)
+      if (loc == Routes.splash ||
+          loc == Routes.phoneLogin ||
+          loc == Routes.otpVerify ||
+          loc == Routes.forgotPin) {
+        return null;
+      }
+      return Routes.phoneLogin;
+    case AuthStatus.locked:
+      // Reachable while locked: enter-PIN, set-PIN (a brand-new user is "locked"
+      // between OTP verify and choosing their first PIN), and the forgot-PIN OTP
+      // flow. `otpVerify` is allowed too so the OTP→set-PIN hand-off isn't
+      // bounced to enter-PIN by the redirect that fires on the status change.
+      if (loc == Routes.pin ||
+          loc == Routes.setPin ||
+          loc == Routes.forgotPin ||
+          loc == Routes.otpVerify) {
+        return null;
+      }
+      return Routes.pin;
+    case AuthStatus.authenticated:
+      // Authenticated workers must not sit on splash/login/pin — lift them into
+      // the shell (the worker's home tab). Onboarding + shell routes pass.
+      if (onAuthRoute) return Routes.resume;
+      return null;
+  }
+}
 
 GoRouter _buildRouter() {
   return GoRouter(
     navigatorKey: _rootNavKey,
     initialLocation: Routes.splash,
+    // Re-run the redirect whenever the auth status changes (login, unlock,
+    // re-lock, reauth). Null when auth isn't wired (legacy widget tests).
+    refreshListenable: _maybeAuth(),
+    redirect: _authRedirect,
     routes: <RouteBase>[
       // ---------------- Onboarding (no bottom nav) ----------------
       GoRoute(
@@ -95,6 +193,21 @@ GoRouter _buildRouter() {
         // The submitted phone rides as typed `extra` (was ModalRoute arguments).
         builder: (_, GoRouterState s) =>
             OtpVerifyScreen(phone: s.extra as String?),
+      ),
+      // ---------------- Persistent auth (PASS 2) ----------------
+      GoRoute(
+        path: Routes.pin,
+        builder: (_, __) => const EnterPinScreen(),
+      ),
+      GoRoute(
+        path: Routes.setPin,
+        // `extra == true` → reset mode (forgot-PIN), else new-user onboarding.
+        builder: (_, GoRouterState s) =>
+            SetPinScreen(isReset: s.extra == true),
+      ),
+      GoRoute(
+        path: Routes.forgotPin,
+        builder: (_, __) => const ForgotPinScreen(),
       ),
       GoRoute(
         path: Routes.consent,
@@ -140,11 +253,6 @@ GoRouter _buildRouter() {
                     parentNavigatorKey: _rootNavKey, // full-screen, no bar
                     builder: (_, GoRouterState s) =>
                         JobDetailScreen(jobId: s.pathParameters['jobId']!),
-                  ),
-                  GoRoute(
-                    path: 'applied',
-                    builder: (_, GoRouterState s) =>
-                        AppliedScreen(job: s.extra as BbJobCardData?),
                   ),
                 ],
               ),
@@ -192,6 +300,13 @@ GoRouter _buildRouter() {
                     path: 'settings',
                     parentNavigatorKey: _rootNavKey, // no bar
                     builder: (_, __) => const SettingsScreen(),
+                    routes: <RouteBase>[
+                      GoRoute(
+                        path: 'devices',
+                        parentNavigatorKey: _rootNavKey, // no bar
+                        builder: (_, __) => const DevicesScreen(),
+                      ),
+                    ],
                   ),
                 ],
               ),

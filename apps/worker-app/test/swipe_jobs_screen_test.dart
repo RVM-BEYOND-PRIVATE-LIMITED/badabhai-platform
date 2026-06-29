@@ -48,14 +48,14 @@ SwipeBloc _bloc(MockClient client) {
 }
 
 /// Mounts the Feed at `/jobs` with an injected bloc, plus the routes its actions
-/// reach: `/consent` (403), `/jobs/detail/:id` (title tap), `/jobs/applied` (apply).
+/// reach: `/consent` (403) and `/jobs/detail/:id` (title tap). Apply/skip now stay
+/// on the Feed and confirm with a SnackBar (no Applied screen navigation).
 Widget _harness(SwipeBloc bloc) {
   Widget marker(String t) => Scaffold(body: Center(child: Text(t)));
   final GoRouter router = GoRouter(
     initialLocation: '/jobs',
     routes: <RouteBase>[
       GoRoute(path: '/jobs', builder: (_, __) => SwipeJobsScreen(bloc: bloc)),
-      GoRoute(path: '/jobs/applied', builder: (_, __) => marker('APPLIED')),
       GoRoute(
         path: '/jobs/detail/:jobId',
         builder: (_, GoRouterState s) =>
@@ -131,7 +131,7 @@ void main() {
     expect(find.widgetWithText(FilledButton, 'Try again'), findsOneWidget);
   });
 
-  testWidgets('Apply commits, hits the apply endpoint and routes to Applied', (
+  testWidgets('Apply commits, hits the apply endpoint and toasts (no nav)', (
     WidgetTester tester,
   ) async {
     http.Request? applyReq;
@@ -139,7 +139,10 @@ void main() {
       if (req.url.path == '/feed') {
         return http.Response(
           jsonEncode(<String, dynamic>{
-            'jobs': <Map<String, dynamic>>[_job(id: 'job-1')],
+            'jobs': <Map<String, dynamic>>[
+              _job(id: 'job-1', title: 'First Job', rank: 1),
+              _job(id: 'job-2', title: 'Second Job', rank: 2),
+            ],
           }),
           200,
         );
@@ -163,10 +166,12 @@ void main() {
 
     expect(applyReq?.url.path, '/applications/job-1/apply');
     expect(applyReq?.headers['authorization'], 'Bearer test-token');
-    expect(find.text('APPLIED'), findsOneWidget);
+    // J3: stays on the Feed (advances the deck), confirms with a SnackBar.
+    expect(find.text('Applied'), findsOneWidget);
+    expect(find.text('Second Job'), findsOneWidget);
   });
 
-  testWidgets('Skip commits, hits the skip endpoint and advances to next card', (
+  testWidgets('Skip commits, hits the skip endpoint, toasts and advances', (
     WidgetTester tester,
   ) async {
     String? skipPath;
@@ -204,6 +209,8 @@ void main() {
     expect(skipPath, '/applications/job-1/skip');
     expect(find.text('First Job'), findsNothing);
     expect(find.text('Second Job'), findsOneWidget);
+    // J3: skip now confirms with a SnackBar (previously silent).
+    expect(find.text('Skipped'), findsOneWidget);
   });
 
   testWidgets('skip failure keeps the card and shows a retry snackbar', (

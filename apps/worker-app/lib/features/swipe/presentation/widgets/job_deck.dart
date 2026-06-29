@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_motion.dart';
 import '../../../../core/theme/app_spacing.dart';
-import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_job_card.dart';
 
@@ -18,18 +17,21 @@ class JobDeckItem {
 
 /// The signature swipe-to-apply card deck (spec §6 + `.aw-deck` / `.aw-job`).
 ///
-/// Finger-tracks the front card with a small tilt, rises the behind-cards toward
-/// full size as the drag grows, fades in APPLY / SKIP intent overlays, and on
-/// release commits (off-screen fly-out) when the drag passes a fraction of the
-/// screen width OR a fling-velocity threshold — otherwise it springs back. The
-/// two big buttons drive the SAME commit animation: for low-literacy workers the
-/// buttons are the primary affordance and swipe is the enhancement.
+/// Finger-tracks the front card with a small tilt, slides the next real card up
+/// from behind as the drag grows, and deepens an axis tint with the drag — green
+/// (apply) / red (skip) side bands plus a golden bottom band on an up-swipe (add
+/// to Priority). On release it commits (off-screen fly-out) when the drag passes
+/// a fraction of the screen width/height OR a fling-velocity threshold — right =
+/// apply, left = skip, up = prioritize — otherwise it springs back. The two big
+/// buttons drive the SAME apply/skip commit: for low-literacy workers the buttons
+/// are the primary affordance and swipe is the enhancement.
 class JobDeck extends StatefulWidget {
   const JobDeck({
     super.key,
     required this.cards,
     required this.onApply,
     required this.onSkip,
+    required this.onPrioritize,
     this.onTitleTap,
     this.deciding = false,
   });
@@ -42,6 +44,9 @@ class JobDeck extends StatefulWidget {
 
   /// Fired once the front card has committed to the left (skip).
   final VoidCallback onSkip;
+
+  /// Fired once the front card has committed upward (add to Priority).
+  final VoidCallback onPrioritize;
 
   /// Tapping the front card's title (opens the detail route).
   final ValueChanged<String>? onTitleTap;
@@ -60,10 +65,18 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
   static const double _flingVelocity = 800;
   static const double _maxAngle = 0.12;
 
+  // How far (px) the behind card peeks below the front card at rest; it slides
+  // up to 0 as the front card is dragged away.
+  static const double _behindPeek = 14;
+
+  // Peak opacity of the drag-direction side-band tint (right=apply, left=skip).
+  static const double _bandMaxAlpha = 0.6;
+
   late final AnimationController _release;
   Animation<Offset>? _releaseAnim;
   Offset _drag = Offset.zero;
-  int _committing = 0; // 0 = settling, 1 = apply (right), -1 = skip (left)
+  // 0 = settling, 1 = apply (right), -1 = skip (left), 2 = prioritize (up).
+  int _committing = 0;
 
   @override
   void initState() {
@@ -121,17 +134,25 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
 
   void _onPanUpdate(DragUpdateDetails d) {
     if (_locked) return;
-    // Horizontal is 1:1; vertical only loosely follows the finger.
-    setState(() => _drag += Offset(d.delta.dx, d.delta.dy * 0.2));
+    // Track the full 2D drag 1:1 so the card follows the finger upward (priority)
+    // as well as horizontally; the horizontal tilt logic stays.
+    setState(() => _drag += Offset(d.delta.dx, d.delta.dy));
   }
 
-  void _onPanEnd(DragEndDetails d, double width) {
+  void _onPanEnd(DragEndDetails d, double width, double height) {
     if (_locked) return;
     final double vx = d.velocity.pixelsPerSecond.dx;
-    if (_drag.dx > _commitFraction * width || vx > _flingVelocity) {
-      _flyOff(1, width);
+    final double vy = d.velocity.pixelsPerSecond.dy;
+    // Up-swipe = add to Priority. Dominant-axis precedence so a clear up-swipe
+    // wins over a small horizontal drift (down-swipes do nothing → snap back).
+    final bool verticalDominant = _drag.dy.abs() > _drag.dx.abs();
+    if (verticalDominant &&
+        (_drag.dy < -_commitFraction * height || vy < -_flingVelocity)) {
+      _flyOff(2, width, height);
+    } else if (_drag.dx > _commitFraction * width || vx > _flingVelocity) {
+      _flyOff(1, width, height);
     } else if (_drag.dx < -_commitFraction * width || vx < -_flingVelocity) {
-      _flyOff(-1, width);
+      _flyOff(-1, width, height);
     } else {
       _snapBack();
     }
@@ -145,12 +166,15 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
     _release.forward(from: 0);
   }
 
-  void _flyOff(int dir, double width) {
+  // [height] is only needed for the upward (prioritize) commit; the CTA buttons
+  // call this for apply/skip (dir ±1) where it is unused, so it defaults to 0.
+  void _flyOff(int dir, double width, [double height = 0]) {
     _committing = dir;
-    _releaseAnim = Tween<Offset>(
-      begin: _drag,
-      end: Offset(dir * width * 1.5, _drag.dy),
-    ).animate(CurvedAnimation(parent: _release, curve: AppMotion.easeIn));
+    final Offset end = dir == 2
+        ? Offset(_drag.dx, -height * 1.5) // prioritize: fly off the top
+        : Offset(dir * width * 1.5, _drag.dy);
+    _releaseAnim = Tween<Offset>(begin: _drag, end: end)
+        .animate(CurvedAnimation(parent: _release, curve: AppMotion.easeIn));
     _release.forward(from: 0);
   }
 
@@ -169,6 +193,8 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
     if (mounted) setState(() {});
     if (dir == 1) {
       widget.onApply();
+    } else if (dir == 2) {
+      widget.onPrioritize();
     } else {
       widget.onSkip();
     }
@@ -187,15 +213,24 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
           child: LayoutBuilder(
             builder: (BuildContext ctx, BoxConstraints cons) {
               final List<JobDeckItem> cards = widget.cards;
+              final double height = cons.maxHeight;
+              // Upward (prioritize) drag progress, same ratio behavior as the
+              // horizontal progress but on the vertical axis.
+              final double upProgress = _drag.dy < 0
+                  ? (-_drag.dy / (_commitFraction * height)).clamp(0.0, 1.0)
+                  : 0.0;
+              final double behindProgress =
+                  progress > upProgress ? progress : upProgress;
               return Stack(
                 clipBehavior: Clip.none,
                 alignment: Alignment.topCenter,
                 children: <Widget>[
-                  if (cards.length > 2)
-                    _behind(cons.maxWidth, tier: 2, progress: progress),
-                  if (cards.length > 1)
-                    _behind(cons.maxWidth, tier: 1, progress: progress),
-                  _front(cards.first, width, progress),
+                  // The behind card is the next REAL job, rendered at full size /
+                  // full fidelity. It peeks below the front card and animates up to
+                  // the front position as the front card is dragged away (apply,
+                  // skip, or prioritize).
+                  if (cards.length > 1) _behind(cards[1], behindProgress),
+                  _front(cards.first, width, height, progress, upProgress),
                 ],
               );
             },
@@ -207,41 +242,21 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
     );
   }
 
-  /// A peeking silhouette of the next card; rises toward the front as [progress]
-  /// grows so the deck "promotes" the next card while the front leaves.
-  Widget _behind(double maxWidth, {required int tier, required double progress}) {
-    final double baseTop = tier == 1 ? 8 : 16;
-    final double baseInset = tier == 1 ? 52 : 76;
-    final double top = -baseTop * (1 - progress);
-    final double w = maxWidth - baseInset * (1 - progress);
-    final double opacity = tier == 1 ? 1.0 : 0.55 + 0.45 * progress;
-    return Positioned(
-      top: top,
-      child: Opacity(
-        opacity: opacity,
-        child: Container(
-          width: w,
-          height: 64,
-          decoration: BoxDecoration(
-            color: AppColors.surfaceCard,
-            border: Border.all(color: AppColors.borderSubtle),
-            borderRadius: BorderRadius.circular(AppRadii.xl),
-            boxShadow: tier == 1
-                ? <BoxShadow>[
-                    BoxShadow(
-                      color: AppColors.ink900.withValues(alpha: 0.05),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
-          ),
-        ),
+  /// The next job's full [BbJobCard], peeking below the front card. As the front
+  /// card is dragged away ([progress] -> 1) it slides up to the front (offset 0),
+  /// "promoting" the next card. Only the front card is interactive.
+  Widget _behind(JobDeckItem item, double progress) {
+    final double dy = _behindPeek * (1 - progress);
+    return IgnorePointer(
+      child: Transform.translate(
+        offset: Offset(0, dy),
+        child: BbJobCard(data: item.data),
       ),
     );
   }
 
-  Widget _front(JobDeckItem item, double width, double progress) {
+  Widget _front(JobDeckItem item, double width, double height, double progress,
+      double upProgress) {
     final double angle = (_drag.dx / width) * _maxAngle;
     return Transform.translate(
       offset: _drag,
@@ -251,7 +266,7 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onPanUpdate: _onPanUpdate,
-          onPanEnd: (DragEndDetails d) => _onPanEnd(d, width),
+          onPanEnd: (DragEndDetails d) => _onPanEnd(d, width, height),
           child: Stack(
             children: <Widget>[
               BbJobCard(
@@ -262,24 +277,13 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
                     ? null
                     : () => widget.onTitleTap!(item.id),
               ),
-              Positioned(
-                top: AppSpacing.s5,
-                left: AppSpacing.s5,
-                child: _intent(
-                  label: 'APPLY',
-                  color: AppColors.success,
-                  opacity: _drag.dx > 0 ? progress : 0,
-                ),
-              ),
-              Positioned(
-                top: AppSpacing.s5,
-                right: AppSpacing.s5,
-                child: _intent(
-                  label: 'SKIP',
-                  color: AppColors.textMuted,
-                  opacity: _drag.dx < 0 ? progress : 0,
-                ),
-              ),
+              // Drag-direction side-band tint: green from the left edge on an
+              // apply drag, red from the right edge on a skip drag. Decorative —
+              // clipped to the card radius and never intercepts the drag.
+              Positioned.fill(child: _sideBand(progress)),
+              // Golden bottom tint on an up-swipe (add to Priority), on the
+              // independent vertical axis.
+              Positioned.fill(child: _goldBand(upProgress)),
             ],
           ),
         ),
@@ -287,34 +291,59 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
     );
   }
 
-  Widget _intent({
-    required String label,
-    required Color color,
-    required double opacity,
-  }) {
-    // Decorative only — must never intercept taps/drags meant for the card
-    // (otherwise the zero-opacity badge swallows the title tap).
+  /// A directional tint band that deepens with drag [progress]: green hugging the
+  /// LEFT edge while dragging right (apply), red hugging the RIGHT edge while
+  /// dragging left (skip) — i.e. the tint sits on the side OPPOSITE the drag.
+  /// Absent when centred.
+  Widget _sideBand(double progress) {
+    final double dx = _drag.dx;
+    // Centred: no tint at all.
+    if (dx == 0) return const IgnorePointer(child: SizedBox.shrink());
+
+    final bool toApply = dx > 0;
+    final double alpha = _bandMaxAlpha * progress;
+    final Color edge = toApply ? AppColors.success : AppColors.danger;
+    final LinearGradient gradient = LinearGradient(
+      begin: toApply ? Alignment.centerLeft : Alignment.centerRight,
+      end: Alignment.center,
+      colors: <Color>[
+        edge.withValues(alpha: alpha),
+        edge.withValues(alpha: 0.0),
+      ],
+    );
+
     return IgnorePointer(
-      child: Opacity(
-        opacity: opacity.clamp(0.0, 1.0),
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.s3,
-            vertical: AppSpacing.s1,
-          ),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceCard,
-            border: Border.all(color: color, width: 3),
-            borderRadius: BorderRadius.circular(AppRadii.sm),
-          ),
-          child: Text(
-            label,
-            style: AppTypography.display(
-              size: AppTypography.sizeMd,
-              weight: FontWeight.w800,
-              color: color,
-            ),
-          ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        child: DecoratedBox(
+          decoration: BoxDecoration(gradient: gradient),
+        ),
+      ),
+    );
+  }
+
+  /// A golden bottom-half tint that ramps with up-drag [upProgress] (add to
+  /// Priority): strongest at the bottom edge, fading to transparent by the card's
+  /// vertical centre. Reads the vertical axis independently of [_sideBand], so a
+  /// pure up-swipe shows only gold; absent at rest.
+  Widget _goldBand(double upProgress) {
+    if (upProgress == 0) return const IgnorePointer(child: SizedBox.shrink());
+
+    final double alpha = _bandMaxAlpha * upProgress;
+    final LinearGradient gradient = LinearGradient(
+      begin: Alignment.bottomCenter,
+      end: Alignment.center,
+      colors: <Color>[
+        AppColors.saffron.withValues(alpha: alpha),
+        AppColors.saffron.withValues(alpha: 0.0),
+      ],
+    );
+
+    return IgnorePointer(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        child: DecoratedBox(
+          decoration: BoxDecoration(gradient: gradient),
         ),
       ),
     );

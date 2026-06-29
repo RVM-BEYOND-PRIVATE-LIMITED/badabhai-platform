@@ -7,6 +7,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
+import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_list_row.dart';
 import '../../../core/widgets/bb_progress_bar.dart';
 import '../../../core/widgets/bb_status_view.dart';
@@ -75,8 +76,51 @@ class _ProfileTabView extends StatelessWidget {
         _strengthCard(s),
         const SizedBox(height: AppSpacing.s4),
         _kitShortcut(context),
+        // Comfortable separation from the content above; logout sits last.
+        const SizedBox(height: AppSpacing.s8),
+        _logoutButton(context),
       ],
     );
+  }
+
+  Widget _logoutButton(BuildContext context) {
+    return BbButton(
+      label: 'Logout',
+      block: true,
+      variant: BbButtonVariant.danger,
+      iconLeft: Icons.logout_rounded,
+      onPressed: () => _confirmLogout(context),
+    );
+  }
+
+  Future<void> _confirmLogout(BuildContext context) async {
+    final ProfileTabCubit cubit = context.read<ProfileTabCubit>();
+    final bool confirmed = await showDialog<bool>(
+          context: context,
+          builder: (BuildContext dialogContext) => AlertDialog(
+            title: const Text('Logout karein?'),
+            content: const Text('Aap dobara login kar sakte hain.'),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: AppColors.red600),
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Logout'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) return;
+
+    // Best-effort server revoke + local session wipe (offline-safe), then exit
+    // the StatefulShell back to the linear login flow.
+    await cubit.logout();
+    if (!context.mounted) return;
+    context.go(Routes.phoneLogin);
   }
 
   Widget _header(ProfileSummary s) {

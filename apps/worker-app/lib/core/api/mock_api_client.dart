@@ -167,6 +167,13 @@ class MockApiClient extends ApiClient {
   }
 
   @override
+  Future<void> logout({required String authToken}) async {
+    // No-op: nothing to revoke in mock mode. The caller still clears the
+    // in-memory session locally.
+    await _delay();
+  }
+
+  @override
   Future<List<FeedItem>> getFeed({
     required String authToken,
     int limit = 20,

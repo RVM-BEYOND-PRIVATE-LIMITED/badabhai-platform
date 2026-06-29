@@ -4,13 +4,23 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_bubble.dart';
 import '../../../router.dart';
 import '../domain/chat_message.dart';
 import 'bloc/chat_bloc.dart';
+
+/// How close to the bottom (px) the worker must be for a freshly-received bot
+/// message to auto-scroll. Beyond this, we surface the "new message" pill
+/// instead of yanking the transcript down under their thumb.
+const double _kNearBottomThreshold = 120;
+
+/// Hinglish label on the jump-to-bottom pill.
+const String _kNewMessageLabel = 'Naye message';
 
 class ChatProfilingScreen extends StatelessWidget {
   const ChatProfilingScreen({super.key});
@@ -33,9 +43,23 @@ class _ChatView extends StatefulWidget {
 
 class _ChatViewState extends State<_ChatView> {
   final TextEditingController _controller = TextEditingController();
+  final ScrollController _scroll = ScrollController();
+
+  /// True when a bot message arrived while the worker had scrolled up — drives
+  /// the "Naye message" jump pill rather than yanking the transcript down.
+  bool _hasUnreadBelow = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Manual scroll back near the bottom dismisses the pill.
+    _scroll.addListener(_onScroll);
+  }
 
   @override
   void dispose() {
+    _scroll.removeListener(_onScroll);
+    _scroll.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -45,6 +69,63 @@ class _ChatViewState extends State<_ChatView> {
     if (text.trim().isEmpty) return;
     context.read<ChatBloc>().add(ChatMessageSent(text));
     _controller.clear();
+  }
+
+  /// Whether the viewport is within [_kNearBottomThreshold] of the end.
+  bool get _isNearBottom {
+    if (!_scroll.hasClients) return true;
+    final ScrollPosition pos = _scroll.position;
+    return pos.pixels >= pos.maxScrollExtent - _kNearBottomThreshold;
+  }
+
+  /// Smooth-scroll to the newest message after the list has rebuilt.
+  ///
+  /// A freshly-appended bubble can still be growing the list's
+  /// `maxScrollExtent` on the frame we kick the animation off, so the captured
+  /// target lands a few pixels short of the true bottom. We animate to the
+  /// best-known extent, then on completion re-check and snap the residual gap
+  /// so the newest message is always fully in view.
+  void _animateToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!_scroll.hasClients) return;
+      await _scroll.animateTo(
+        _scroll.position.maxScrollExtent,
+        duration: AppMotion.base,
+        curve: AppMotion.easeOut,
+      );
+      if (!_scroll.hasClients) return;
+      final double end = _scroll.position.maxScrollExtent;
+      if (_scroll.position.pixels < end) {
+        _scroll.jumpTo(end);
+      }
+    });
+  }
+
+  /// Clear the unread pill once the worker has scrolled back near the bottom.
+  void _onScroll() {
+    if (_hasUnreadBelow && _isNearBottom) {
+      setState(() => _hasUnreadBelow = false);
+    }
+  }
+
+  /// Decide how to react to a freshly-appended message.
+  void _onMessagesChanged(List<ChatMessage> messages) {
+    if (messages.isEmpty) return;
+    final bool ownMessage = messages.last.fromWorker;
+    if (ownMessage || _isNearBottom) {
+      // Own message always follows the worker down; a received one only when
+      // they were already reading the bottom.
+      if (_hasUnreadBelow) setState(() => _hasUnreadBelow = false);
+      _animateToBottom();
+    } else {
+      // Received while scrolled up — surface the pill instead of jumping.
+      setState(() => _hasUnreadBelow = true);
+    }
+  }
+
+  void _jumpToBottom() {
+    _animateToBottom();
+    setState(() => _hasUnreadBelow = false);
   }
 
   @override
@@ -60,39 +141,60 @@ class _ChatViewState extends State<_ChatView> {
           ),
         ],
       ),
-      body: BlocBuilder<ChatBloc, ChatState>(
-        builder: (BuildContext context, ChatState state) {
-          if (state.initializing) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          return SafeArea(
-            child: Column(
-              children: <Widget>[
-                Expanded(
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(AppSpacing.s4),
-                    itemCount: state.messages.length,
-                    itemBuilder: (BuildContext context, int i) {
-                      final ChatMessage m = state.messages[i];
-                      return BbChatBubble(text: m.text, fromWorker: m.fromWorker);
-                    },
+      body: BlocListener<ChatBloc, ChatState>(
+        // Fire only when a message is appended (length grows), not on every
+        // state change (e.g. the initializing flag flipping).
+        listenWhen: (ChatState prev, ChatState curr) =>
+            curr.messages.length > prev.messages.length,
+        listener: (BuildContext context, ChatState state) =>
+            _onMessagesChanged(state.messages),
+        child: BlocBuilder<ChatBloc, ChatState>(
+          builder: (BuildContext context, ChatState state) {
+            if (state.initializing) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            return SafeArea(
+              child: Column(
+                children: <Widget>[
+                  Expanded(
+                    child: Stack(
+                      children: <Widget>[
+                        ListView.builder(
+                          controller: _scroll,
+                          padding: const EdgeInsets.all(AppSpacing.s4),
+                          itemCount: state.messages.length,
+                          itemBuilder: (BuildContext context, int i) {
+                            final ChatMessage m = state.messages[i];
+                            return BbChatBubble(
+                                text: m.text, fromWorker: m.fromWorker);
+                          },
+                        ),
+                        if (_hasUnreadBelow)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: AppSpacing.s3,
+                            child: Center(child: _jumpPill()),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
-                _inputBar(),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.s4, 0, AppSpacing.s4, AppSpacing.s4),
-                  child: BbButton(
-                    label: 'Done — build my profile',
-                    block: true,
-                    iconLeft: Icons.check_circle_outline,
-                    onPressed: () => context.push(Routes.profilePreview),
+                  _inputBar(),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.s4, 0, AppSpacing.s4, AppSpacing.s4),
+                    child: BbButton(
+                      label: 'Done — build my profile',
+                      block: true,
+                      iconLeft: Icons.check_circle_outline,
+                      onPressed: () => context.push(Routes.profilePreview),
+                    ),
                   ),
-                ),
-              ],
-            ),
-          );
-        },
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -131,6 +233,44 @@ class _ChatViewState extends State<_ChatView> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// "Naye message" jump pill — shown bottom-centre above the composer when a
+  /// bot reply lands while the worker has scrolled up. Tapping rides them down.
+  Widget _jumpPill() {
+    return Material(
+      color: AppColors.surfaceCard,
+      elevation: 3,
+      borderRadius: BorderRadius.circular(AppRadii.pill),
+      shadowColor: AppColors.scrim,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(AppRadii.pill),
+        onTap: _jumpToBottom,
+        child: Container(
+          constraints: const BoxConstraints(minHeight: AppSpacing.tap),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.s4,
+            vertical: AppSpacing.s2,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Text(
+                _kNewMessageLabel,
+                style: AppTypography.body(
+                  size: AppTypography.sizeSm,
+                  weight: FontWeight.w700,
+                  color: AppColors.brand,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s1),
+              const Icon(Icons.keyboard_arrow_down_rounded,
+                  color: AppColors.brand, size: 20),
+            ],
+          ),
+        ),
       ),
     );
   }

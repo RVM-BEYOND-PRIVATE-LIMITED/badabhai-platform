@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/auth/locale_store.dart';
+import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -35,9 +37,20 @@ class _SplashScreenState extends State<SplashScreen> {
     'English',
   ];
 
-  /// Visual-only selection. Hindi-first. No persistence, no locale switch —
-  /// nothing downstream reads this (the picker is inert by design).
+  /// Hindi-first selection. The chip order mirrors [LocaleStore.supported]
+  /// (`hi, mr, bho, en`), so the index maps straight to the locale code.
   int _selected = 0;
+
+  /// Persist the picked language as the `X-Locale` source — only when the
+  /// LocaleStore is wired (the real app + auth tests). The splash stays DI-free
+  /// for the legacy splash widget test, which pumps it without the locator.
+  void _select(int i) {
+    setState(() => _selected = i);
+    if (locator.isRegistered<LocaleStore>() &&
+        i < LocaleStore.supported.length) {
+      locator<LocaleStore>().write(LocaleStore.supported[i]);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +83,7 @@ class _SplashScreenState extends State<SplashScreen> {
           _LanguagePicker(
             languages: _languages,
             selected: _selected,
-            onSelect: (int i) => setState(() => _selected = i),
+            onSelect: _select,
           ),
           const SizedBox(height: AppSpacing.s5),
           BbButton(

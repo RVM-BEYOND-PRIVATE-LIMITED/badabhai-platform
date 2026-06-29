@@ -2,21 +2,24 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-import 'package:badabhai_worker_app/core/error/failure.dart';
-import 'package:badabhai_worker_app/features/auth/domain/auth_repository.dart';
+import 'package:badabhai_worker_app/core/auth/auth_api.dart';
+import 'package:badabhai_worker_app/core/auth/auth_failure.dart';
+import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/cubit/phone_login_cubit.dart';
 
-class MockAuthRepository extends Mock implements AuthRepository {}
+class MockAuthSessionManager extends Mock implements AuthSessionManager {}
 
 void main() {
-  late MockAuthRepository repo;
-  setUp(() => repo = MockAuthRepository());
+  late MockAuthSessionManager manager;
+  setUp(() => manager = MockAuthSessionManager());
 
   blocTest<PhoneLoginCubit, PhoneLoginState>(
     'submit -> submitting then success, requesting the OTP',
     build: () {
-      when(() => repo.requestOtp(any())).thenAnswer((_) async {});
-      return PhoneLoginCubit(repo);
+      when(() => manager.requestOtp(any())).thenAnswer(
+        (_) async => const OtpRequestResult(resendIn: Duration(seconds: 30)),
+      );
+      return PhoneLoginCubit(manager);
     },
     act: (PhoneLoginCubit c) => c.submit('+919912345678'),
     expect: () => const <PhoneLoginState>[
@@ -25,14 +28,15 @@ void main() {
       PhoneLoginState(
           status: PhoneLoginStatus.success, phone: '+919912345678'),
     ],
-    verify: (_) => verify(() => repo.requestOtp('+919912345678')).called(1),
+    verify: (_) => verify(() => manager.requestOtp('+919912345678')).called(1),
   );
 
   blocTest<PhoneLoginCubit, PhoneLoginState>(
-    'failure -> submitting then failure with a generic message',
+    'failure -> submitting then failure with localized AuthFailure copy',
     build: () {
-      when(() => repo.requestOtp(any())).thenThrow(const NetworkFailure());
-      return PhoneLoginCubit(repo);
+      when(() => manager.requestOtp(any()))
+          .thenThrow(const AuthFailure(AuthErrorCode.network));
+      return PhoneLoginCubit(manager, locale: 'en');
     },
     act: (PhoneLoginCubit c) => c.submit('+919912345678'),
     expect: () => const <PhoneLoginState>[
@@ -41,7 +45,7 @@ void main() {
       PhoneLoginState(
           status: PhoneLoginStatus.failure,
           phone: '+919912345678',
-          message: 'Can\'t reach the server. Please try again.'),
+          message: "Can't reach the server. Please try again."),
     ],
   );
 
@@ -50,11 +54,13 @@ void main() {
   blocTest<PhoneLoginCubit, PhoneLoginState>(
     'a double submit while in flight only requests the OTP once',
     build: () {
-      when(() => repo.requestOtp(any())).thenAnswer(
-        (_) async =>
-            Future<void>.delayed(const Duration(milliseconds: 50)),
+      when(() => manager.requestOtp(any())).thenAnswer(
+        (_) async {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          return const OtpRequestResult(resendIn: Duration(seconds: 30));
+        },
       );
-      return PhoneLoginCubit(repo);
+      return PhoneLoginCubit(manager);
     },
     act: (PhoneLoginCubit c) {
       c.submit('+919912345678'); // in flight
@@ -67,6 +73,6 @@ void main() {
       PhoneLoginState(
           status: PhoneLoginStatus.success, phone: '+919912345678'),
     ],
-    verify: (_) => verify(() => repo.requestOtp('+919912345678')).called(1),
+    verify: (_) => verify(() => manager.requestOtp('+919912345678')).called(1),
   );
 }

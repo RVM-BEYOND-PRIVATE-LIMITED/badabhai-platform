@@ -29,6 +29,16 @@ dependencies:
   # device browser/PDF viewer via an external VIEW intent. The url is launched
   # immediately and never logged (it embeds a token).
   url_launcher: ^6.3.1
+  # Persistent auth. The refresh token + device id live ONLY in
+  # flutter_secure_storage (Android Keystore-backed); the access token stays in
+  # memory and is never written here. shared_preferences holds the NON-secret
+  # locale choice only. uuid mints the random (PII-free) device id +
+  # Idempotency-Keys. These are platform plugins — they throw under
+  # `flutter test`, so SecureTokenStore/LocaleStore inject their backing store and
+  # tests pass in-memory fakes (never the real plugin).
+  flutter_secure_storage: ^9.2.4
+  shared_preferences: ^2.3.5
+  uuid: ^4.5.1
 
 dev_dependencies:
   flutter_test:
