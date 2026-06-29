@@ -11,6 +11,9 @@ import '../auth/secure_token_store.dart';
 import '../config/app_config.dart';
 import '../session/session_repository.dart';
 
+import '../../features/applications/data/applications_repository_impl.dart';
+import '../../features/applications/domain/applications_repository.dart';
+import '../../features/applications/presentation/cubit/applications_cubit.dart';
 import '../../features/auth/data/auth_repository_impl.dart';
 import '../../features/auth/domain/auth_repository.dart';
 import '../../features/auth/domain/auth_session_manager.dart';
@@ -153,6 +156,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   locator.registerLazySingleton<NotificationsRepository>(
     () => NotificationsRepositoryImpl(),
   );
+  locator.registerLazySingleton<ApplicationsRepository>(
+    () => ApplicationsRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
+  );
 
   // --- Blocs / Cubits (fresh instance per screen mount) ---------------------
   // Auth cubits resolve [AuthSessionManager] + [LocaleStore] LAZILY (the factory
@@ -224,6 +231,9 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerFactory<NotificationsCubit>(
     () => NotificationsCubit(locator<NotificationsRepository>()),
+  );
+  locator.registerFactory<ApplicationsCubit>(
+    () => ApplicationsCubit(locator<ApplicationsRepository>()),
   );
 }
 

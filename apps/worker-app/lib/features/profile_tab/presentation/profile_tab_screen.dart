@@ -76,6 +76,8 @@ class _ProfileTabView extends StatelessWidget {
         _strengthCard(s),
         const SizedBox(height: AppSpacing.s4),
         _kitShortcut(context),
+        const SizedBox(height: AppSpacing.s4),
+        _appliedShortcut(context),
         // Comfortable separation from the content above; logout sits last.
         const SizedBox(height: AppSpacing.s8),
         _logoutButton(context),
@@ -229,6 +231,24 @@ class _ProfileTabView extends StatelessWidget {
         title: 'Interview kit',
         subtitle: '15 sawaal + jawaab',
         onTap: () => context.go(Routes.kit),
+      ),
+    );
+  }
+
+  Widget _appliedShortcut(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceCard,
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        border: Border.all(color: AppColors.borderSubtle),
+      ),
+      clipBehavior: Clip.antiAlias,
+      // Pushed full-screen from Profile (back → Profile), like Settings.
+      child: BbListRow.kit(
+        icon: Icons.work_history,
+        title: 'Applied jobs',
+        subtitle: 'Aapki apply ki gayi jobs',
+        onTap: () => context.push(Routes.appliedJobs),
       ),
     );
   }

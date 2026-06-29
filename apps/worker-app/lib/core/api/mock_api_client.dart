@@ -210,6 +210,83 @@ class MockApiClient extends ApiClient {
       action: 'skipped',
     );
   }
+
+  @override
+  Future<List<AppliedJob>> getMyApplications({required String authToken}) async {
+    await _delay();
+    // Canned, PII-FREE rows: several action:'apply' (kept) and a couple
+    // action:'skip' (filtered out by the repository) so the applied-only filter
+    // is exercised; varied created_at, with some area/reason/rank null to
+    // exercise the nullables. Oldest-first, matching the real API ordering.
+    final DateTime now = DateTime.now();
+    return <AppliedJob>[
+      AppliedJob(
+        jobId: 'mock-job-0001',
+        tradeKey: 'cnc_operator',
+        title: 'CNC Operator',
+        city: 'Pune',
+        area: 'Chakan',
+        action: 'apply',
+        reason: null,
+        sourceSurface: 'feed',
+        rank: 3,
+        createdAt: now.subtract(const Duration(days: 4)),
+        updatedAt: now.subtract(const Duration(days: 4)),
+      ),
+      AppliedJob(
+        jobId: 'mock-job-0002',
+        tradeKey: 'fitter',
+        title: 'Fitter',
+        city: 'Nashik',
+        area: null, // null area -> subtitle falls back to city only
+        action: 'skip', // filtered out
+        reason: 'too_far',
+        sourceSurface: 'feed',
+        rank: 7,
+        createdAt: now.subtract(const Duration(days: 2)),
+        updatedAt: now.subtract(const Duration(days: 2)),
+      ),
+      AppliedJob(
+        jobId: 'mock-job-0003',
+        tradeKey: 'vmc_operator',
+        title: 'VMC Operator',
+        city: 'Pune',
+        area: null, // null area
+        action: 'apply',
+        reason: null,
+        sourceSurface: 'search',
+        rank: null, // null rank
+        createdAt: now.subtract(const Duration(hours: 6)),
+        updatedAt: now.subtract(const Duration(hours: 6)),
+      ),
+      AppliedJob(
+        jobId: 'mock-job-0004',
+        tradeKey: 'welder',
+        title: 'Welder',
+        city: 'Aurangabad',
+        area: 'Waluj',
+        action: 'skip', // filtered out
+        reason: 'low_pay',
+        sourceSurface: 'feed',
+        rank: null,
+        createdAt: now.subtract(const Duration(hours: 2)),
+        updatedAt: now.subtract(const Duration(hours: 2)),
+      ),
+      AppliedJob(
+        jobId: 'mock-job-0005',
+        tradeKey: 'cnc_operator',
+        title: 'CNC Setter',
+        city: 'Pune',
+        area: 'Hinjewadi',
+        action: 'apply',
+        reason: null,
+        sourceSurface: 'feed',
+        rank: 1,
+        createdAt: now.subtract(const Duration(minutes: 25)),
+        updatedAt: now.subtract(const Duration(minutes: 25)),
+      ),
+    ];
+  }
 }
 
 /// One canned assistant turn (reply + suggested follow-up chips).

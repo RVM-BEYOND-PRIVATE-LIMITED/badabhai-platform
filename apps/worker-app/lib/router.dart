@@ -21,6 +21,7 @@ import 'features/kit/presentation/kit_detail_screen.dart';
 import 'features/kit/presentation/kit_screen.dart';
 import 'features/notifications/presentation/notifications_screen.dart';
 import 'features/profile/presentation/profile_preview_screen.dart';
+import 'features/applications/presentation/applied_jobs_screen.dart';
 import 'features/profile_tab/presentation/profile_tab_screen.dart';
 import 'features/settings/presentation/settings_screen.dart';
 import 'features/resume/presentation/building_screen.dart';
@@ -74,6 +75,8 @@ class Routes {
   static const String kit = '/resume/kit'; // (keeps bar)
   static const String kitDetail = '/resume/kit/detail'; // + '/<tradeKey>' (no bar)
   static const String settings = '/profile/settings'; // (no bar)
+  static const String appliedJobs =
+      '/profile/applied'; // (no bar) — pushed from Profile, back → Profile
 }
 
 /// Root navigator — onboarding routes and every "no bar" full-screen route render
@@ -307,6 +310,13 @@ GoRouter _buildRouter() {
                         builder: (_, __) => const DevicesScreen(),
                       ),
                     ],
+                  ),
+                  // Applied jobs — pushed full-screen from Profile (back → Profile),
+                  // consistent with how Settings hangs off the Profile branch.
+                  GoRoute(
+                    path: 'applied',
+                    parentNavigatorKey: _rootNavKey, // no bar
+                    builder: (_, __) => const AppliedJobsScreen(),
                   ),
                 ],
               ),
