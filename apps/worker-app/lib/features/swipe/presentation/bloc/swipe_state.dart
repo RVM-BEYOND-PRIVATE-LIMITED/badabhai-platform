@@ -11,6 +11,7 @@ class SwipeState extends Equatable {
     this.deciding = false,
     this.decisionError = 0,
     this.appliedNonce = 0,
+    this.prioritizedNonce = 0,
   });
 
   final SwipeStatus status;
@@ -33,6 +34,10 @@ class SwipeState extends Equatable {
   /// (avoids navigating optimistically and diverging on a failed apply).
   final int appliedNonce;
 
+  /// Monotonic nonce bumped on a SUCCESSFUL prioritize (up-swipe). The Feed
+  /// listens on this to toast "Priority" once the local record succeeded.
+  final int prioritizedNonce;
+
   FeedItem? get current => queue.isEmpty ? null : queue.first;
 
   SwipeState copyWith({
@@ -41,6 +46,7 @@ class SwipeState extends Equatable {
     bool? deciding,
     int? decisionError,
     int? appliedNonce,
+    int? prioritizedNonce,
   }) {
     return SwipeState(
       status: status ?? this.status,
@@ -48,10 +54,17 @@ class SwipeState extends Equatable {
       deciding: deciding ?? this.deciding,
       decisionError: decisionError ?? this.decisionError,
       appliedNonce: appliedNonce ?? this.appliedNonce,
+      prioritizedNonce: prioritizedNonce ?? this.prioritizedNonce,
     );
   }
 
   @override
-  List<Object?> get props =>
-      <Object?>[status, queue, deciding, decisionError, appliedNonce];
+  List<Object?> get props => <Object?>[
+        status,
+        queue,
+        deciding,
+        decisionError,
+        appliedNonce,
+        prioritizedNonce,
+      ];
 }

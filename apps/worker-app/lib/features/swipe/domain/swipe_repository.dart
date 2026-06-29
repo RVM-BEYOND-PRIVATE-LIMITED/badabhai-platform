@@ -9,4 +9,8 @@ abstract interface class SwipeRepository {
   Future<void> applyToJob(String jobId, {int? rank});
 
   Future<void> skipJob(String jobId, {required String reason});
+
+  /// Add the job to the worker's Priority list. Flutter-only for now (the
+  /// backend endpoint is being built separately); records the intent locally.
+  Future<void> prioritizeJob(String jobId);
 }

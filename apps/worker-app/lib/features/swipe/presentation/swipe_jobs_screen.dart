@@ -58,6 +58,7 @@ class _FeedViewState extends State<_FeedView> {
   final Set<String> _chips = <String>{'CNC'};
 
   int _shownAppliedNonce = 0;
+  int _shownPrioritizedNonce = 0;
   int _shownDecisionError = 0;
 
   /// The head jobId captured at skip-dispatch time. Skip success is silent in the
@@ -96,6 +97,7 @@ class _FeedViewState extends State<_FeedView> {
           listenWhen: (SwipeState prev, SwipeState curr) =>
               prev.decisionError != curr.decisionError ||
               prev.appliedNonce != curr.appliedNonce ||
+              prev.prioritizedNonce != curr.prioritizedNonce ||
               prev.queue != curr.queue,
           listener: (BuildContext context, SwipeState state) {
             if (state.appliedNonce != _shownAppliedNonce) {
@@ -104,6 +106,12 @@ class _FeedViewState extends State<_FeedView> {
               // Apply truly succeeded — confirm with a lightweight toast and let
               // the deck advance to the next card (no full-screen confirmation).
               _toast(context, 'Applied');
+            } else if (state.prioritizedNonce != _shownPrioritizedNonce) {
+              _shownPrioritizedNonce = state.prioritizedNonce;
+              _pendingSkipId = null;
+              // Up-swipe recorded the Priority intent (local for now) — confirm
+              // with a toast; the deck has already advanced to the next card.
+              _toast(context, 'Priority');
             } else if (state.decisionError != _shownDecisionError) {
               _shownDecisionError = state.decisionError;
               _pendingSkipId = null; // a failed skip never confirms
@@ -163,6 +171,9 @@ class _FeedViewState extends State<_FeedView> {
                 bloc.add(const SwipeSkipped());
               },
               onApply: () => bloc.add(const SwipeApplied()),
+              // Up-swipe = add to Priority (records intent locally + toasts;
+              // no "priority jobs" screen yet — deferred with the backend).
+              onPrioritize: () => bloc.add(const SwipePrioritized()),
             ),
           ),
         ),

@@ -30,6 +30,11 @@ class SwipeSkipped extends SwipeEvent {
   const SwipeSkipped();
 }
 
+/// Add the current (head) card to Priority (up-swipe). Flutter-only for now.
+class SwipePrioritized extends SwipeEvent {
+  const SwipePrioritized();
+}
+
 // ---------------- Bloc ----------------
 
 class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
@@ -37,6 +42,7 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
     on<SwipeFeedRequested>(_onFeedRequested);
     on<SwipeApplied>(_onApplied);
     on<SwipeSkipped>(_onSkipped);
+    on<SwipePrioritized>(_onPrioritized);
   }
 
   final SwipeRepository _repo;
@@ -89,15 +95,39 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
     }
   }
 
+  Future<void> _onPrioritized(
+    SwipePrioritized event,
+    Emitter<SwipeState> emit,
+  ) async {
+    final FeedItem? job = state.current;
+    if (job == null || state.deciding) return;
+    emit(state.copyWith(deciding: true));
+    try {
+      // Flutter-only seam for now (the prioritize backend is being built
+      // separately). Records the intent and advances — NOT marked applied.
+      await _repo.prioritizeJob(job.jobId);
+      _advance(emit, prioritized: true);
+    } on Failure catch (failure) {
+      _onDecisionError(emit, failure);
+    }
+  }
+
   /// Drop the head card; show the empty state when the queue drains. [applied]
-  /// bumps `appliedNonce` so the Feed navigates to Applied only on real success.
-  void _advance(Emitter<SwipeState> emit, {bool applied = false}) {
+  /// bumps `appliedNonce` (apply toast); [prioritized] bumps `prioritizedNonce`
+  /// (Priority toast) — both only on real success.
+  void _advance(
+    Emitter<SwipeState> emit, {
+    bool applied = false,
+    bool prioritized = false,
+  }) {
     final List<FeedItem> next = state.queue.sublist(1);
     emit(state.copyWith(
       queue: next,
       deciding: false,
       status: next.isEmpty ? SwipeStatus.empty : SwipeStatus.ready,
       appliedNonce: applied ? state.appliedNonce + 1 : state.appliedNonce,
+      prioritizedNonce:
+          prioritized ? state.prioritizedNonce + 1 : state.prioritizedNonce,
     ));
   }
 
