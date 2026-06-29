@@ -28,11 +28,26 @@ import {
  * emission + the fail-closed ordering live in {@link UnlockService} (the chokepoint).
  *
  * GUARD (ALL routes): InternalServiceGuard — the INTERIM payer-auth seam (F-7 launch
- * gate). There is NO per-payer identity yet: `payer_id` comes from the request
+ * gate). There is NO per-payer identity here: `payer_id` comes from the request
  * body/param and is trusted ONLY because the caller is the shared-secret holder
  * (backend/ops). "Payer owns the unlock" is UNENFORCEABLE under a shared secret — a
  * real PayerAuthGuard (with a horizontal-authz test) is a HARD LAUNCH GATE before any
  * client-facing payer surface. Do NOT ship a production payer surface on this guard.
+ *
+ * STATUS (2026-06-29, LC-1 audit + TL decision — safe-interim, full hardening tracked):
+ * the CLIENT-facing payer money surface is ALREADY CLOSED — payer-web rides PayerAuthGuard
+ * `/payer/*` ({@link import("../payer-portal/payer-unlocks.controller").PayerUnlocksController})
+ * EXCLUSIVELY; body `payer_id` is gone there (XB-A) and reveal enforces ownership at the
+ * UnlockService chokepoint (not-owned/unknown → identical neutral body, no IDOR/oracle).
+ * This `/unlocks*` + `/payers/:id/credits` set is therefore **OPS-ONLY — it MUST NEVER be
+ * network-exposed to payers/clients**; an internal-token holder can still act as any payer
+ * (the residual, internal-only LC-1/TD33/F-7 surface). Fully retiring the ops WRITE money
+ * routes + moving the ops-console credit-grant to the governed AdminAuthGuard
+ * `POST /admin/payers/:id/credits` is BLOCKED-BY two unbuilt prerequisites: (1) ops-console
+ * admin auth (deferred ADMIN-4..8 / OBS-4 — `apps/web` has only INTERNAL_SERVICE_TOKEN, no
+ * admin login), and (2) a headless/dev payer-session mint for `db:verify:demand` (payer OTP
+ * is real-only). Tracked: TD33 + TD50. The one-principal-per-route split is pinned by
+ * `guard-contract.test.ts` (Unlocks=[InternalServiceGuard]; PayerUnlocks=[PayerAuthGuard]).
  *
  * No `@Controller` prefix: the routes span `/unlocks` and `/payers/...`, and the ADR
  * pins those exact paths. Responses are PII-FREE — never a phone / number / deny reason.

@@ -53,3 +53,7 @@ Thumbs.db
 !.vscode/extensions.json
 *.log
 logs/
+
+# ---- Redis (local dev dumps — may contain OTP/session/PII; NEVER commit) ----
+dump.rdb
+*.rdb
