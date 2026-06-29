@@ -83,6 +83,16 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerPinResetPayload,
   },
+  // ADR-0026 Phase 5 — DPDP worker-initiated account deletion. PII-FREE: opaque worker id +
+  // non-negative counts/flags ONLY (sessions/devices revoked, storage objects deleted/failed,
+  // had_pin). Never a phone, phone_hash, name, device hash, resume key, or OTP code. Emitted
+  // AFTER the hard-delete (the actor_id is opaque, no FK to the gone row), so it is the durable
+  // record of the erasure. v1.
+  "worker.account_deleted": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerAccountDeletedPayload,
+  },
   // OTP-5 global daily SEND circuit-breaker breach (worker SMS path). AGGREGATE /
   // PII-free: channel/cap enums + integer limit + UTC-day string ONLY — no worker id,
   // phone, IP, or code. Emitted once per breach (the spend ceiling tripped).

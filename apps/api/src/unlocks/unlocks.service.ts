@@ -252,7 +252,12 @@ export class UnlockService {
     if (pre && expectedPayerId !== undefined && pre.payer_id !== expectedPayerId) {
       return neutralUnavailable();
     }
-    if (pre && !(await this.isConsentedForSharing(pre.worker_id))) return neutralUnavailable();
+    // ADR-0026 Phase 5: a worker hard-delete (DSAR) SET-NULLs unlocks.worker_id while keeping
+    // the PII-free paid-grant row. A reveal cannot relay to a gone worker — return the SAME
+    // neutral body (no oracle; never pass null into the consent check / worker lock below).
+    if (pre && pre.worker_id === null) return neutralUnavailable();
+    if (pre && pre.worker_id !== null && !(await this.isConsentedForSharing(pre.worker_id)))
+      return neutralUnavailable();
 
     // F-3: unknown/expired/over-cap/revoked all return the NEUTRAL body (not a 404).
     // The transaction does ALL the DB work + returns WHICH events to emit; it does NOT
@@ -264,6 +269,10 @@ export class UnlockService {
 
         const unlock = await this.repo.findByIdForUpdate(tx, unlockId);
         if (!unlock) return { response: neutralUnavailable(), events };
+        // ADR-0026 Phase 5: a hard-deleted worker SET-NULLs worker_id. The grant row survives
+        // (billing history) but cannot be relayed — guard BEFORE lockWorker/relay/emit so a
+        // null worker_id never reaches them; return the IDENTICAL neutral body (no oracle).
+        if (unlock.workerId === null) return { response: neutralUnavailable(), events };
 
         // Serialize reveals for this worker (per-attempt cap atomicity; F-2).
         await this.repo.lockWorker(tx, unlock.workerId);
@@ -271,6 +280,11 @@ export class UnlockService {
         // Re-read under the worker lock to see this txn's view consistently.
         const fresh = await this.repo.findByIdForUpdate(tx, unlockId);
         if (!fresh) return { response: neutralUnavailable(), events };
+        // Re-guard after the lock (the worker could have been deleted in the TOCTOU window).
+        // Bind to a non-null local so the deferred event closures (which TS won't narrow a
+        // mutable property through) carry a guaranteed-non-null worker id (ADR-0026 Phase 5).
+        if (fresh.workerId === null) return { response: neutralUnavailable(), events };
+        const freshWorkerId: string = fresh.workerId;
 
         // Must be a live grant: granted/revealed, not expired.
         const live =
@@ -282,7 +296,7 @@ export class UnlockService {
 
         // Per-unlock attempt cap (F-2 atomic; under the worker lock).
         if (fresh.revealCount >= this.config.UNLOCK_MAX_ATTEMPTS_PER_UNLOCK) {
-          events.push(() => this.emitCapExceeded(fresh.payerId, fresh.workerId, "attempts_per_unlock", ctx));
+          events.push(() => this.emitCapExceeded(fresh.payerId, freshWorkerId, "attempts_per_unlock", ctx));
           return { response: neutralUnavailable(), events };
         }
 
@@ -297,7 +311,7 @@ export class UnlockService {
         const channel: RoutingChannel = "in_app_relay"; // alpha: discloses no number
         let relayHandle: string;
         try {
-          relayHandle = await this.wireInAppRelay(fresh.workerId, fresh.id);
+          relayHandle = await this.wireInAppRelay(freshWorkerId, fresh.id);
         } catch {
           // Do NOT surface the error (it could embed the phone). Log id + class only.
           this.logger.warn(`reveal failed for unlock=${fresh.id}: relay_wire_error`);
@@ -314,7 +328,7 @@ export class UnlockService {
         });
         const revealCount = await this.repo.incrementReveal(tx, fresh.id);
 
-        events.push(() => this.emitRevealed(fresh.id, fresh.payerId, fresh.workerId, channel, revealCount, ctx));
+        events.push(() => this.emitRevealed(fresh.id, fresh.payerId, freshWorkerId, channel, revealCount, ctx));
 
         return {
           response: {

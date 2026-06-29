@@ -1549,6 +1549,83 @@ describe("worker refresh/session auth events (ADR-0026 Phase 1 — PII-free, ids
     );
     expect(bad.success).toBe(false);
   });
+
+  // ADR-0026 Phase 5 — DPDP account deletion. PII-FREE: opaque worker id + counts/flags only.
+  it("validates worker.account_deleted with worker_id + counts/flags and NOTHING else", () => {
+    const result = validateEvent(
+      workerAuthEvent("worker.account_deleted", {
+        worker_id: UUID_B,
+        sessions_revoked: 2,
+        devices_revoked: 1,
+        storage_objects_deleted: 3,
+        storage_objects_failed: 0,
+        had_pin: true,
+      }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "worker.account_deleted") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        [
+          "devices_revoked",
+          "had_pin",
+          "sessions_revoked",
+          "storage_objects_deleted",
+          "storage_objects_failed",
+          "worker_id",
+        ].sort(),
+      );
+    }
+  });
+
+  it("rejects worker.account_deleted with a negative storage_objects_failed (counts non-negative)", () => {
+    const bad = validateEvent(
+      workerAuthEvent("worker.account_deleted", {
+        worker_id: UUID_B,
+        sessions_revoked: 0,
+        devices_revoked: 0,
+        storage_objects_deleted: 0,
+        storage_objects_failed: -1,
+        had_pin: false,
+      }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("rejects worker.account_deleted with an EXTRA field (strict — no phone/key smuggling)", () => {
+    const bad = validateEvent(
+      workerAuthEvent("worker.account_deleted", {
+        worker_id: UUID_B,
+        sessions_revoked: 0,
+        devices_revoked: 0,
+        storage_objects_deleted: 0,
+        storage_objects_failed: 0,
+        had_pin: false,
+        phone_hash: "leaked",
+      }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects worker.account_deleted carrying a RAW-PHONE-looking field (strict — never the value)", () => {
+    // The §2/D6 invariant: the number NEVER appears. A smuggled raw phone (under any field
+    // name) must be rejected by .strict() at the payload stage, not silently passed through.
+    for (const smuggle of [{ phone: "+919876512345" }, { phone_e164: "+919876512345" }, { full_name: "Ramesh Kumar" }, { otp: "482915" }]) {
+      const bad = validateEvent(
+        workerAuthEvent("worker.account_deleted", {
+          worker_id: UUID_B,
+          sessions_revoked: 1,
+          devices_revoked: 1,
+          storage_objects_deleted: 1,
+          storage_objects_failed: 0,
+          had_pin: true,
+          ...smuggle,
+        }),
+      );
+      expect(bad.success, `must reject ${JSON.stringify(smuggle)}`).toBe(false);
+      if (!bad.success) expect(bad.error.stage).toBe("payload");
+    }
+  });
 });
 
 describe("worker device events (ADR-0026 Phase 2 — PII-free, two opaque uuids only)", () => {
@@ -1699,13 +1776,14 @@ describe("worker PIN events (ADR-0026 Phase 3 — device-bound PIN, PII-free, id
 });
 
 describe("registry", () => {
-  it("exposes all 92 event names (87 prior + worker.pin_set/pin_verified/pin_verify_failed/pin_locked/pin_reset [ADR-0026 Phase 3 device-bound PIN])", () => {
-    expect(EVENT_NAMES).toHaveLength(92);
+  it("exposes all 93 event names (92 prior incl. worker.pin_* [ADR-0026 Phase 3] + worker.account_deleted [ADR-0026 Phase 5])", () => {
+    expect(EVENT_NAMES).toHaveLength(93);
     expect(isEventName("worker.pin_set")).toBe(true);
     expect(isEventName("worker.pin_verified")).toBe(true);
     expect(isEventName("worker.pin_verify_failed")).toBe(true);
     expect(isEventName("worker.pin_locked")).toBe(true);
     expect(isEventName("worker.pin_reset")).toBe(true);
+    expect(isEventName("worker.account_deleted")).toBe(true);
     expect(isEventName("admin.session_started")).toBe(true);
     expect(isEventName("admin.session_revoked")).toBe(true);
     expect(isEventName("admin.action_performed")).toBe(true);
@@ -1716,6 +1794,7 @@ describe("registry", () => {
     expect(isEventName("worker.logged_out_all")).toBe(true);
     expect(isEventName("worker.device_registered")).toBe(true);
     expect(isEventName("worker.device_revoked")).toBe(true);
+    expect(isEventName("worker.account_deleted")).toBe(true);
     expect(isEventName("worker.otp_send_cap_exceeded")).toBe(true);
     expect(isEventName("payer.otp_send_cap_exceeded")).toBe(true);
     expect(isEventName("payer.account_updated")).toBe(true);

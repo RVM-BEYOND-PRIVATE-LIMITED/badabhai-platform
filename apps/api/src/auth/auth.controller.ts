@@ -16,9 +16,12 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
+import { PiiCryptoService } from "../common/pii-crypto.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { AuthService } from "./auth.service";
+import { OtpService } from "./otp.service";
 import { SessionService } from "./session.service";
+import { AccountDeletionService } from "./account-deletion.service";
 import {
   WorkerAuthGuard,
   CurrentWorker,
@@ -28,9 +31,12 @@ import {
   OtpRequestSchema,
   OtpVerifySchema,
   TokenRefreshSchema,
+  AccountDeleteConfirmSchema,
   type OtpRequestDto,
   type OtpVerifyDto,
   type TokenRefreshDto,
+  type AccountDeleteConfirmDto,
+  type AccountDeleteRequestResponse,
   type LoginResponse,
   type MeResponse,
   type OtpRequestResponse,
@@ -66,6 +72,9 @@ export class AuthController {
     private readonly sessions: SessionService,
     private readonly workers: WorkersRepository,
     private readonly ipRateLimit: IpRateLimit,
+    private readonly otp: OtpService,
+    private readonly pii: PiiCryptoService,
+    private readonly accountDeletion: AccountDeletionService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
@@ -183,5 +192,56 @@ export class AuthController {
       expires_at: info.expires_at,
       requires_otp_after: info.requires_otp_after,
     };
+  }
+
+  /**
+   * Step-up OTP request for DPDP account deletion (ADR-0026 Phase 5). Identity ALWAYS from
+   * the guard's `worker.id` — never a body — so a worker can only ever target their OWN
+   * account. Decrypts the token-bound worker's phone (mirrors how login resolves it) and
+   * reuses the existing gated Fast2SMS OtpService (no new provider, no fork). Reuses OTP, so
+   * it emits no new event; the deletion event is emitted by /confirm. 200 with the cooldown.
+   */
+  @Post("account/delete/request")
+  @HttpCode(200)
+  @UseGuards(WorkerAuthGuard)
+  async accountDeleteRequest(
+    @CurrentWorker() worker: AuthenticatedWorker,
+  ): Promise<AccountDeleteRequestResponse> {
+    const phone = await this.resolvePhone(worker.id);
+    const { resendInSeconds } = await this.otp.issueAndSend(phone);
+    return { success: true, resend_in_seconds: resendInSeconds };
+  }
+
+  /**
+   * Step-up OTP confirm for DPDP account deletion (ADR-0026 Phase 5). Re-derives the phone
+   * from the TOKEN's worker, verifies the OTP (OtpService.verify throws 401 on a bad/expired
+   * code — the step-up gate), then runs the irreversible erasure orchestration and returns
+   * 204. FAIL-CLOSED: a failed OTP throws BEFORE execute() ⇒ no deletion. The body carries
+   * ONLY the OTP code — identity is the guard's worker.id, never the body.
+   */
+  @Post("account/delete/confirm")
+  @HttpCode(204)
+  @UseGuards(WorkerAuthGuard)
+  async accountDeleteConfirm(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Body(new ZodValidationPipe(AccountDeleteConfirmSchema)) dto: AccountDeleteConfirmDto,
+  ): Promise<void> {
+    const phone = await this.resolvePhone(worker.id);
+    // Throws 401/429/503 on a bad/expired code or Redis down (fail closed). No deletion runs
+    // unless this resolves — verify is the step-up gate.
+    await this.otp.verify(phone, dto.otp);
+    await this.accountDeletion.execute(worker.id);
+  }
+
+  /**
+   * Resolve a worker's E.164 phone from the TOKEN-bound worker row by decrypting the stored
+   * ciphertext (mirrors how OTP/login resolve it). The plaintext is read transiently to feed
+   * the OTP send/verify and is NEVER logged, evented, or returned. A 401 if the worker row is
+   * gone (e.g. a deleted-then-reused session) — fail closed, no oracle.
+   */
+  private async resolvePhone(workerId: string): Promise<string> {
+    const row = await this.workers.findById(workerId);
+    if (!row) throw new UnauthorizedException("Invalid or expired session");
+    return this.pii.decrypt(row.phoneE164);
   }
 }

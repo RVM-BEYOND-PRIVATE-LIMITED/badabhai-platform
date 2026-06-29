@@ -78,6 +78,114 @@ export class StorageService {
   }
 
   /**
+   * Delete a single object `${bucket}/${objectKey}` (ADR-0026 Phase 5 — DPDP erasure).
+   * A 404 is treated as ALREADY-GONE (success — deletion is idempotent). Any OTHER non-2xx
+   * or transport failure THROWS a PII-free error so the caller can count it as a failed
+   * object delete and continue (an orphan keyed by an opaque UUID is non-PII-linkable and
+   * re-runnable — it must NOT abort the whole account erasure). Mirrors uploadPdf's structure
+   * (AbortController timeout, never any bytes/decrypted-name/path-PII in an error message).
+   */
+  async deletePdf(objectKey: string, bucket?: string): Promise<void> {
+    const { url, serviceKey, bucket: b } = this.requireStorage(bucket);
+    const target = `${url}/storage/v1/object/${b}/${encodeURI(objectKey)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const res = await fetch(target, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${serviceKey}` },
+        signal: controller.signal,
+      });
+      // 404 = already gone → idempotent success. Object keys are opaque UUIDs, so the
+      // status carries no PII.
+      if (res.status === 404) return;
+      if (!res.ok) {
+        throw new Error(`storage delete failed with status ${res.status}`);
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /**
+   * Delete EVERY object under `prefix` in `${bucket}` (ADR-0026 Phase 5 — DPDP erasure of a
+   * worker's archived conversations, keyed `<worker_id>/...`). Lists the objects under the
+   * prefix, then deletes them in one batch. Returns the count of objects deleted (0 when the
+   * prefix is empty/absent — never an error for "nothing to delete"). PII-free errors only:
+   * object keys are opaque UUIDs, and no bytes/decrypted-name ever appears in a message.
+   */
+  async deleteByPrefix(prefix: string, bucket?: string): Promise<number> {
+    const { url, serviceKey, bucket: b } = this.requireStorage(bucket);
+
+    const keys = await this.listUnderPrefix(url, serviceKey, b, prefix);
+    if (keys.length === 0) return 0;
+
+    const target = `${url}/storage/v1/object/${b}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const res = await fetch(target, {
+        method: "DELETE",
+        headers: {
+          authorization: `Bearer ${serviceKey}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ prefixes: keys }),
+        signal: controller.signal,
+      });
+      // A 404 here means the bucket/keys vanished between list + delete → treat as gone.
+      if (res.status === 404) return 0;
+      if (!res.ok) {
+        throw new Error(`storage batch-delete failed with status ${res.status}`);
+      }
+      return keys.length;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /**
+   * List object keys under `prefix` in `bucket` via the Storage `list` endpoint. Returns
+   * FULLY-QUALIFIED keys (`<prefix><name>`), since the API returns names relative to the
+   * prefix. Empty/absent prefix → []. PII-free errors only (opaque keys).
+   */
+  private async listUnderPrefix(
+    url: string,
+    serviceKey: string,
+    bucket: string,
+    prefix: string,
+  ): Promise<string[]> {
+    const target = `${url}/storage/v1/object/list/${bucket}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const res = await fetch(target, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${serviceKey}`,
+          "content-type": "application/json",
+        },
+        // `limit` is the Supabase max page size. A worker's archived-conversation set is
+        // small (one snapshot object per session); a single page is sufficient for Phase 5.
+        body: JSON.stringify({ prefix, limit: 1000 }),
+        signal: controller.signal,
+      });
+      if (res.status === 404) return [];
+      if (!res.ok) {
+        throw new Error(`storage list failed with status ${res.status}`);
+      }
+      const body = (await res.json()) as Array<{ name?: string; id?: string | null }>;
+      // The list endpoint returns names RELATIVE to the prefix; folder placeholders have a
+      // null id. Keep only real objects and re-qualify with the prefix for deletion.
+      return body
+        .filter((o): o is { name: string; id?: string | null } => typeof o.name === "string" && o.name.length > 0)
+        .map((o) => `${prefix}${o.name}`);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /**
    * Mint a short-lived signed URL for `${bucket}/${objectKey}`. Returns an
    * ABSOLUTE url. Throws a PII-free error on failure.
    */

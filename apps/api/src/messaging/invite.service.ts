@@ -11,7 +11,13 @@ export interface CreatedInvite {
 
 export type AcceptResult =
   | { ok: true }
-  | { ok: false; reason: "unknown_code" | "self_invite" | "already_attributed" };
+  | {
+      ok: false;
+      // "inviter_unavailable": the inviter was hard-deleted (DSAR SET NULL) — should be
+      // unreachable at accept time (the inviter is non-null by construction), kept as a
+      // fail-closed branch so the PII-free event never gets a null uuid (ADR-0026 Phase 5).
+      reason: "unknown_code" | "self_invite" | "already_attributed" | "inviter_unavailable";
+    };
 
 /**
  * Invite funnel + PII-free attribution (ADR-0020 Decision 3). An invite is an opaque
@@ -61,7 +67,14 @@ export class InviteService {
   async recordAccept(code: string, invitedWorkerId: string): Promise<AcceptResult> {
     const invite = await this.repo.findByCode(code);
     if (!invite) return { ok: false, reason: "unknown_code" };
-    if (invite.inviterWorkerId === invitedWorkerId) return { ok: false, reason: "self_invite" };
+    // ADR-0026 Phase 5: invites.inviter_worker_id became NULLABLE (DSAR SET NULL of the
+    // inviter on a worker hard-delete). At ACCEPT time the inviter is non-null BY
+    // CONSTRUCTION — an invite is created with an inviter and accepted before the inviter
+    // could be deleted. Assert it (fail closed) so the PII-free `invite.accepted` event keeps
+    // a non-null uuid; we do NOT relax the event schema. A null here is an invariant breach.
+    const inviterWorkerId = invite.inviterWorkerId;
+    if (inviterWorkerId === null) return { ok: false, reason: "inviter_unavailable" };
+    if (inviterWorkerId === invitedWorkerId) return { ok: false, reason: "self_invite" };
     if (invite.invitedWorkerId) return { ok: false, reason: "already_attributed" };
     await this.repo.markAccepted(invite.id, invitedWorkerId);
     await this.events.emit({
@@ -70,7 +83,7 @@ export class InviteService {
       subject: { subject_type: "invite", subject_id: invite.id },
       payload: {
         invite_id: invite.id,
-        inviter_worker_id: invite.inviterWorkerId,
+        inviter_worker_id: inviterWorkerId,
         invited_worker_id: invitedWorkerId,
       },
       idempotencyKey: `invite.accepted:${invite.id}`,

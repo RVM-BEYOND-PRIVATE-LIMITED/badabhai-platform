@@ -6,10 +6,12 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { SmsModule } from "../sms/sms.module";
 import { ConsentModule } from "../consent/consent.module";
+import { StorageModule } from "../storage/storage.module";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
 import { OtpService } from "./otp.service";
 import { SessionService } from "./session.service";
+import { AccountDeletionService } from "./account-deletion.service";
 import { WorkerAuthGuard } from "./worker-auth.guard";
 import { ConsentGuard } from "./consent.guard";
 import { DevicesController } from "./devices.controller";
@@ -26,6 +28,10 @@ import { PinHasher } from "./pin-hasher.service";
     // ConsentGuard reads the worker's latest consent via ConsentRepository.
     // ConsentModule does NOT import AuthModule, so there is no cycle.
     ConsentModule,
+    // ADR-0026 Phase 5 — AccountDeletionService erases resume PDFs + archived conversations
+    // via StorageService (service-role Storage). StorageModule does NOT import AuthModule, so
+    // there is no cycle. WorkersRepository + EventsService + PiiCryptoService are @Global.
+    StorageModule,
     // Reuse BullMQ's existing Redis connection for OTP + session keys (registers
     // the queue only to obtain its client — no second connection), exactly like
     // RateLimitModule does.
@@ -54,6 +60,7 @@ import { PinHasher } from "./pin-hasher.service";
     AuthService,
     OtpService,
     SessionService,
+    AccountDeletionService,
     WorkerAuthGuard,
     ConsentGuard,
     DevicesService,
