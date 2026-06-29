@@ -527,3 +527,79 @@ describe("SessionService — idempotency cache is encrypted at rest", () => {
     expect(allValues).not.toContain(out.minted.access.token);
   });
 });
+
+describe("SessionService device binding (ADR-0026 Phase 2)", () => {
+  it("create(workerId, deviceId) signs `did` into the JWT + stores device_id on the session and refresh records", async () => {
+    const { svc, redis, jwt } = setup();
+    const res = await svc.create("worker-1", "device-abc");
+
+    expect((jwt.lastSigned as unknown as Record<string, unknown>).did).toBe("device-abc");
+
+    const sid = jwt.lastSigned!.sid;
+    const stored = JSON.parse(redis.store.get(`session:${sid}`)!);
+    expect(stored.device_id).toBe("device-abc");
+
+    const refreshRec = JSON.parse(redis.store.get(`refresh:${sha256Hex(res.refresh.token)}`)!);
+    expect(refreshRec.device_id).toBe("device-abc");
+  });
+
+  it("create() WITHOUT a deviceId keeps the legacy {sub, sid} token shape (no did) — back-compat", async () => {
+    const { svc, jwt } = setup();
+    await svc.create("worker-1");
+    expect((jwt.lastSigned as unknown as Record<string, unknown>).did).toBeUndefined();
+  });
+
+  it("revokeByDevice kills ONLY the sessions bound to that device (the other device survives)", async () => {
+    const { svc, redis } = setup();
+    const a = await svc.create("worker-1", "deviceA");
+    const b = await svc.create("worker-1", "deviceB");
+    const sidA = a.access.token.split(".")[2]!;
+    const sidB = b.access.token.split(".")[2]!;
+    const hashA = sha256Hex(a.refresh.token);
+    const hashB = sha256Hex(b.refresh.token);
+
+    const n = await svc.revokeByDevice("worker-1", "deviceA");
+
+    expect(n).toBe(1);
+    // deviceA's session + its refresh token are gone (no resurrection).
+    expect(redis.store.has(`session:${sidA}`)).toBe(false);
+    expect(redis.store.has(`refresh:${hashA}`)).toBe(false);
+    expect(redis.sets.get("worker_sessions:worker-1")!.has(sidA)).toBe(false);
+    // deviceB's session + refresh token are untouched.
+    expect(redis.store.has(`session:${sidB}`)).toBe(true);
+    expect(redis.store.has(`refresh:${hashB}`)).toBe(true);
+    expect(redis.sets.get("worker_sessions:worker-1")!.has(sidB)).toBe(true);
+  });
+
+  it("revokeByDevice revokes nothing (returns 0) when no live session is bound to that device", async () => {
+    const { svc, redis } = setup();
+    const a = await svc.create("worker-1", "deviceA");
+    const sidA = a.access.token.split(".")[2]!;
+    const n = await svc.revokeByDevice("worker-1", "deviceZ");
+    expect(n).toBe(0);
+    expect(redis.store.has(`session:${sidA}`)).toBe(true);
+  });
+
+  it("revokeByDevice ALSO cuts a device whose session record idle-LAPSED but still holds a live refresh token (no resurrection)", async () => {
+    const { svc, redis } = setup();
+    const a = await svc.create("worker-1", "deviceA");
+    const sidA = a.access.token.split(".")[2]!;
+    const familyA = JSON.parse(redis.store.get(`session:${sidA}`)!).family_id;
+    const hashA = sha256Hex(a.refresh.token);
+
+    // Simulate the session record idle-lapsing while its refresh token is still valid +
+    // unused — the family set, worker_families membership, and refresh token all survive.
+    redis.store.delete(`session:${sidA}`);
+    expect(redis.store.has(`refresh:${hashA}`)).toBe(true);
+
+    const n = await svc.revokeByDevice("worker-1", "deviceA");
+
+    // Driven off worker_families (not the live-session set), the lapsed-but-refreshable
+    // device is still caught: its refresh token is deleted, so it can never re-mint a
+    // session on the just-revoked device. This is the durability gap the family-driven
+    // sweep closes (a session-set-driven sweep would have skipped the lapsed record).
+    expect(n).toBe(1);
+    expect(redis.store.has(`refresh:${hashA}`)).toBe(false);
+    expect(redis.sets.get("worker_families:worker-1")!.has(familyA)).toBe(false);
+  });
+});

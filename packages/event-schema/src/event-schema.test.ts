@@ -1551,9 +1551,57 @@ describe("worker refresh/session auth events (ADR-0026 Phase 1 — PII-free, ids
   });
 });
 
+describe("worker device events (ADR-0026 Phase 2 — PII-free, two opaque uuids only)", () => {
+  function workerDeviceEvent(
+    name: string,
+    payload: Record<string, unknown>,
+  ): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: name,
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload,
+    };
+  }
+
+  it("validates worker.device_registered with ONLY worker_id + device_id (no hash/raw-id/push-token field exists)", () => {
+    const result = validateEvent(
+      workerDeviceEvent("worker.device_registered", { worker_id: UUID_B, device_id: UUID_A }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "worker.device_registered") {
+      // The payload schema has NO field that could carry the device_hash, the raw client
+      // device id, the push_token, or platform/model/app_version — only two opaque UUIDs.
+      expect(Object.keys(result.event.payload).sort()).toEqual(["device_id", "worker_id"].sort());
+    }
+  });
+
+  it("validates worker.device_revoked with ONLY worker_id + device_id", () => {
+    const result = validateEvent(
+      workerDeviceEvent("worker.device_revoked", { worker_id: UUID_B, device_id: UUID_A }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "worker.device_revoked") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(["device_id", "worker_id"].sort());
+    }
+  });
+
+  it("rejects worker.device_registered with a non-uuid device_id (no free text → no hash/id/token leak)", () => {
+    const bad = validateEvent(
+      workerDeviceEvent("worker.device_registered", {
+        worker_id: UUID_B,
+        device_id: "hmac<raw-android-device-id-value>",
+      }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 85 event names (77 prior + 4 admin.* [ADR-0025 ADMIN-1] + worker.refresh_reuse_detected + worker.logged_out_all [ADR-0026 Phase 1] + admin.pii_reveal_cap_exceeded [ADR-0025 ADMIN-3b] + admin.kill_switch_pause_requested [ADR-0025 ADMIN-3c])", () => {
-    expect(EVENT_NAMES).toHaveLength(85);
+  it("exposes all 87 event names (77 prior + 4 admin.* [ADR-0025 ADMIN-1] + worker.refresh_reuse_detected + worker.logged_out_all [ADR-0026 Phase 1] + admin.pii_reveal_cap_exceeded [ADR-0025 ADMIN-3b] + admin.kill_switch_pause_requested [ADR-0025 ADMIN-3c] + worker.device_registered + worker.device_revoked [ADR-0026 Phase 2])", () => {
+    expect(EVENT_NAMES).toHaveLength(87);
     expect(isEventName("admin.session_started")).toBe(true);
     expect(isEventName("admin.session_revoked")).toBe(true);
     expect(isEventName("admin.action_performed")).toBe(true);
@@ -1562,6 +1610,8 @@ describe("registry", () => {
     expect(isEventName("admin.kill_switch_pause_requested")).toBe(true);
     expect(isEventName("worker.refresh_reuse_detected")).toBe(true);
     expect(isEventName("worker.logged_out_all")).toBe(true);
+    expect(isEventName("worker.device_registered")).toBe(true);
+    expect(isEventName("worker.device_revoked")).toBe(true);
     expect(isEventName("worker.otp_send_cap_exceeded")).toBe(true);
     expect(isEventName("payer.otp_send_cap_exceeded")).toBe(true);
     expect(isEventName("payer.account_updated")).toBe(true);

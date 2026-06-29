@@ -38,6 +38,20 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerLoggedOutAllPayload,
   },
+  // ADR-0026 Phase 2 — trusted-device binding. PII-FREE: opaque worker id + the device
+  // ROW uuid ONLY (never the device_hash, the raw client device id, the push_token, or
+  // platform/model/app_version). `device_registered` fires once per NEW device on a
+  // fresh OTP login; `device_revoked` fires when a worker revokes a device. v1.
+  "worker.device_registered": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerDeviceRegisteredPayload,
+  },
+  "worker.device_revoked": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerDeviceRevokedPayload,
+  },
   // OTP-5 global daily SEND circuit-breaker breach (worker SMS path). AGGREGATE /
   // PII-free: channel/cap enums + integer limit + UTC-day string ONLY — no worker id,
   // phone, IP, or code. Emitted once per breach (the spend ceiling tripped).

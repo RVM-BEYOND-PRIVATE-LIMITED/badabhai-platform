@@ -6,7 +6,9 @@ import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { OtpService } from "./otp.service";
 import { SessionService } from "./session.service";
+import { DevicesService } from "./devices.service";
 import type { LoginResponse, OtpRequestResponse } from "./auth.dto";
+import type { DeviceInfoDto } from "./devices.dto";
 
 /**
  * Real OTP login.
@@ -30,6 +32,7 @@ export class AuthService {
     private readonly pii: PiiCryptoService,
     private readonly otp: OtpService,
     private readonly sessions: SessionService,
+    private readonly devices: DevicesService,
   ) {}
 
   async requestOtp(phone: string, ctx: RequestContext): Promise<OtpRequestResponse> {
@@ -83,7 +86,12 @@ export class AuthService {
     };
   }
 
-  async verifyOtp(phone: string, otp: string, ctx: RequestContext): Promise<LoginResponse> {
+  async verifyOtp(
+    phone: string,
+    otp: string,
+    ctx: RequestContext,
+    deviceInfo?: DeviceInfoDto,
+  ): Promise<LoginResponse> {
     // Verify the code FIRST — throws 401/429 on a bad/expired code or 503 if Redis
     // is down (fail closed). No worker is created on a failed verify.
     await this.otp.verify(phone, otp);
@@ -120,10 +128,16 @@ export class AuthService {
       }
     }
 
+    // ADR-0026 Phase 2 — register the trusted device (only if the client sent device_info)
+    // and bind the new session to it via the `did` claim. BEST-EFFORT: a device failure
+    // returns undefined and login proceeds unbound — device binding never breaks login.
+    const deviceId = await this.devices.registerOnLogin(worker.id, deviceInfo, ctx);
+
     // Mint a rolling session for this worker: a short access JWT + Redis session record
     // PLUS (ADR-0026) an opaque rotating refresh token + family. The legacy access-token
-    // fields are unchanged; the refresh token + session block are ADDED.
-    const minted = await this.sessions.create(worker.id);
+    // fields are unchanged; the refresh token + session block are ADDED. When device-bound,
+    // the access JWT also carries the opaque `did` claim.
+    const minted = await this.sessions.create(worker.id, deviceId);
 
     // No idempotencyKey: a worker legitimately verifies/logs in many times, so
     // each otp_verified is a distinct fact (likewise otp_requested resends above).

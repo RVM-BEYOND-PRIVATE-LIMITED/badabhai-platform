@@ -15,6 +15,8 @@ import { SessionService } from "./session.service";
 export interface AuthenticatedWorker {
   id: string;
   sid: string;
+  /** ADR-0026 Phase 2 — the bound trusted-device row uuid (the token `did` claim), if any. */
+  deviceId?: string;
 }
 
 // Augment Express's Request with the authenticated worker (global namespace).
@@ -53,12 +55,13 @@ export class WorkerAuthGuard implements CanActivate {
     const validated = await this.session.validateAndTouch(token);
     if (!validated) throw new UnauthorizedException("Invalid or expired session");
 
-    req.worker = { id: validated.workerId, sid: validated.sid };
+    req.worker = { id: validated.workerId, sid: validated.sid, deviceId: validated.deviceId };
 
-    // Rolling refresh: past the half-life, hand back a fresh token via a header.
+    // Rolling refresh: past the half-life, hand back a fresh token via a header. Preserve
+    // the device binding (`did`) so the rolled token stays bound to the same device.
     const fullTtl = this.config.SESSION_TTL_DAYS * 86400;
     if (validated.remainingSeconds < fullTtl / 2) {
-      const fresh = await this.session.mint(validated.workerId, validated.sid);
+      const fresh = await this.session.mint(validated.workerId, validated.sid, validated.deviceId);
       res.setHeader("x-session-token", fresh.token);
     }
 

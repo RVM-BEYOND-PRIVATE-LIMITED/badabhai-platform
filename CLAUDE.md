@@ -103,7 +103,7 @@ apps/
   worker-app/  Flutter scaffold — Splash → … → ResumePreview, ApiClient
 packages/
   event-schema/  Artifact #1 — envelope, registry, payloads, validate
-  db/            Drizzle schema + migrations + client (30 tables — full set in schema.ts)
+  db/            Drizzle schema + migrations + client (34 tables — full set in schema.ts)
   config/        Typed env (server vs public split)
   pricing/       config-driven pricing + credit-pack catalog (ADR-0013)
   reach-engine/  BUILT — deterministic RANK core (scoring.ts / types.ts / ranking.ts, ADR-0011/0015)
@@ -121,7 +121,7 @@ HTTP only) → `<domain>.service.ts` (business logic, emits events) →
 `<domain>.module.ts` (DI wiring). Do not put data access in controllers or business
 logic in repositories.
 
-**DB tables (30):** the full set is the source of truth in
+**DB tables (34):** the full set is the source of truth in
 [`packages/db/src/schema.ts`](packages/db/src/schema.ts). Raw worker PII lives **only**
 in `workers`; the only other PII at rest is **encrypted** payer contact in `payers` (TD21).
 

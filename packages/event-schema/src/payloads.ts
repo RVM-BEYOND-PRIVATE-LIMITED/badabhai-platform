@@ -59,6 +59,22 @@ export const WorkerLoggedOutAllPayload = z.object({
   sessions_revoked: z.number().int().nonnegative(),
 });
 
+// ADR-0026 Phase 2 — trusted-device binding. A device was registered on a fresh OTP
+// login / revoked from the device list. PII-FREE: the opaque worker id + the device ROW
+// uuid (`worker_devices.id`) ONLY. The `device_hash` (keyed HMAC of the client device
+// id), the raw client device id, the `push_token`, and platform/model/app_version —
+// NONE appear here (CLAUDE.md invariant #2; mirrors how the events above carry the
+// family/session uuid, never the token value). The device row uuid is an opaque handle.
+export const WorkerDeviceRegisteredPayload = z.object({
+  worker_id: uuidSchema,
+  device_id: uuidSchema,
+});
+
+export const WorkerDeviceRevokedPayload = z.object({
+  worker_id: uuidSchema,
+  device_id: uuidSchema,
+});
+
 // ---------------------------------------------------------------------------
 // *.otp_send_cap_exceeded — OTP-5 global daily send circuit-breaker (the SPEND
 // ceiling) breach, on BOTH the worker SMS and payer email real-send paths.

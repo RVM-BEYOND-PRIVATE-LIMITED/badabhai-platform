@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { e164PhoneSchema } from "@badabhai/validators";
+import { DeviceInfoSchema } from "./devices.dto";
 
 export const OtpRequestSchema = z.object({
   phone: e164PhoneSchema,
@@ -10,6 +11,9 @@ export const OtpVerifySchema = z.object({
   phone: e164PhoneSchema,
   // Accept 4-8 digits to match the configurable OTP_LENGTH (default 6).
   otp: z.string().regex(/^\d{4,8}$/, "OTP must be 4-8 digits"),
+  // ADR-0026 Phase 2 — OPTIONAL trusted-device binding. Omitted by clients that don't
+  // bind a device → login behaves exactly as before (additive, back-compat §8).
+  device_info: DeviceInfoSchema.optional(),
 });
 export type OtpVerifyDto = z.infer<typeof OtpVerifySchema>;
 

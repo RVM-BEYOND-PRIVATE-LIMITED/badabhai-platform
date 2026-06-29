@@ -76,7 +76,9 @@ describe("WorkerAuthGuard", () => {
     const guard = new WorkerAuthGuard(session, config);
     const { ctx, setHeader } = makeCtx("Bearer aging.token");
     await expect(guard.canActivate(ctx)).resolves.toBe(true);
-    expect(session.mint).toHaveBeenCalledWith("w1", "s1");
+    // The rolling-refresh mint preserves the (here absent) device binding — the deviceId
+    // arg is undefined for an unbound session.
+    expect(session.mint).toHaveBeenCalledWith("w1", "s1", undefined);
     expect(setHeader).toHaveBeenCalledWith("x-session-token", "fresh.jwt");
   });
 });
