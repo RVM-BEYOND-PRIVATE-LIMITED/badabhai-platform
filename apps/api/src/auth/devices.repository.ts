@@ -79,6 +79,27 @@ export class DevicesRepository {
     return { device: row, created: false };
   }
 
+  /**
+   * One ACTIVE (non-revoked) device by row id, SCOPED to its owning worker (ADR-0026 Phase 3
+   * device-bound PIN trusted-device gate). Returns undefined when the id does not exist, is
+   * not owned by `workerId`, or has been revoked — so a PIN-verify can confirm the resolved
+   * device is still a trusted device for that worker (no IDOR; a revoked device is untrusted).
+   */
+  async findActiveById(workerId: string, deviceId: string): Promise<WorkerDevice | undefined> {
+    const rows = await this.db
+      .select()
+      .from(workerDevices)
+      .where(
+        and(
+          eq(workerDevices.id, deviceId),
+          eq(workerDevices.workerId, workerId),
+          isNull(workerDevices.revokedAt),
+        ),
+      )
+      .limit(1);
+    return rows[0];
+  }
+
   /** Active (non-revoked) devices for a worker, most-recently-seen first. */
   async listActiveByWorker(workerId: string): Promise<WorkerDevice[]> {
     return this.db

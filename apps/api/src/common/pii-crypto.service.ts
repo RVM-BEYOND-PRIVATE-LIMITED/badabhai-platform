@@ -1,22 +1,25 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
-import { hashPhone, hashIp, hmacValue, encryptPii, decryptPii } from "./crypto";
+import { hashPhone, hashIp, hmacValue, encryptPii, decryptPii, hashPin, verifyPin } from "./crypto";
 
 /**
- * Single boundary for worker-PII crypto. Holds the server-side pepper + AES key
+ * Single boundary for worker-PII crypto. Holds the server-side peppers + AES key
  * (from validated config) so the rest of the app never handles raw secrets:
  *   - hashPhone/hashIp  → keyed HMAC (safe for events + lookups)
  *   - encrypt/decrypt   → AES-256-GCM for phone_e164 at rest (key never in DB)
+ *   - hashPin/verifyPin → scrypt (slow KDF) for the device-unlock PIN (ADR-0026 Phase 3)
  */
 @Injectable()
 export class PiiCryptoService {
   private readonly pepper: string;
   private readonly key: string;
+  private readonly pinPepper: string;
 
   constructor(@Inject(SERVER_CONFIG) config: ServerConfig) {
     this.pepper = config.PII_HASH_PEPPER;
     this.key = config.PII_ENCRYPTION_KEY;
+    this.pinPepper = config.PIN_PEPPER;
   }
 
   hashPhone(phoneE164: string): string {
@@ -48,5 +51,19 @@ export class PiiCryptoService {
    */
   decrypt(token: string): string {
     return decryptPii(token, this.key);
+  }
+
+  /**
+   * Hash a device-unlock PIN with scrypt (slow KDF) + a per-PIN salt + the PIN pepper.
+   * Returns a self-encoded `scrypt-v1.<salt>.<derived>` token for worker_credentials.pin_hash.
+   * The raw PIN and the pepper never leave this boundary (ADR-0026 Phase 3, R25a).
+   */
+  hashPin(pin: string): string {
+    return hashPin(pin, this.pinPepper);
+  }
+
+  /** Constant-time verify of a PIN against a hashPin() token. Fail-closed (false, never throws). */
+  verifyPin(pin: string, token: string): boolean {
+    return verifyPin(pin, token, this.pinPepper);
   }
 }

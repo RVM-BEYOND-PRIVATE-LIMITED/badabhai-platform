@@ -229,6 +229,14 @@ export const workerCredentials = pgTable(
     failedAttempts: integer("failed_attempts").notNull().default(0),
     lockedUntil: timestamp("locked_until", { withTimezone: true }),
     lockoutCycles: integer("lockout_cycles").notNull().default(0),
+    // Durable per-worker count of force-OTP escalations: when the per-(worker,device)
+    // lockout escalation reaches the configured K cycles, this is bumped and the PIN is
+    // invalidated until an OTP-gated reset. Lives in the DB (NOT Redis) so a Redis flush
+    // cannot wipe the force-OTP state. Server-side only; never in events/ai_jobs/logs.
+    otpCycleCount: integer("otp_cycle_count").notNull().default(0),
+    // Which PIN_PEPPER version hashed this row's pin_hash — for future pepper rotation +
+    // rehash-on-verify. Default 1 (the only version today). Never the pepper itself.
+    pepperVersion: integer("pepper_version").notNull().default(1),
     pinUpdatedAt: timestamp("pin_updated_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

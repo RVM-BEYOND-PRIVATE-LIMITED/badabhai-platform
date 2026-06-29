@@ -5,6 +5,7 @@ import {
   createCipheriv,
   createDecipheriv,
   timingSafeEqual,
+  scryptSync,
 } from "node:crypto";
 
 /**
@@ -124,4 +125,69 @@ export function isEncryptedPii(value: string): boolean {
 export function safeEqualHex(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   return timingSafeEqual(Buffer.from(a, "hex"), Buffer.from(b, "hex"));
+}
+
+// ---------------------------------------------------------------------------
+// PIN hashing (ADR-0026 Phase 3 — device-unlock 4-digit PIN).
+//
+// A 4-digit PIN is a 10^4 space, so the hash MUST be a SLOW, MEMORY-HARD KDF +
+// per-user random salt + a server-side pepper — otherwise a leak of `pin_hash`
+// is trivially brute-forced offline. We use Node stdlib **scrypt** (memory-hard,
+// OWASP-listed) — the ADR-0026 R3 reconciliation (Argon2id is the spec default;
+// scrypt delivers the same slow-KDF + salt + pepper property with ZERO new
+// dependency; a future Argon2id swap is non-breaking via the version prefix).
+//
+// SELF-ENCODED token (no separate pin_salt / pin_algo column):
+//   "scrypt-v1.<salt_b64>.<derived_b64>"
+// The salt is random per PIN (so equal PINs across workers hash differently); the
+// pepper is mixed into the KDF input (a leak of the row still can't brute-force the
+// PIN without the server pepper). The version prefix lets verify detect an old
+// param/algo and rehash-on-verify later. The RAW PIN and the pepper NEVER appear in
+// the token, an event, a log, ai_jobs, or audit_logs (CLAUDE.md §2).
+// ---------------------------------------------------------------------------
+const PIN_HASH_VERSION = "scrypt-v1";
+const PIN_SALT_BYTES = 16;
+const PIN_KEY_BYTES = 32;
+// scrypt cost: N=2^15 (CPU/memory hardness), r=8, p=1 → ~32MB, a few ms server-side.
+// maxmem is raised to fit N (128*N*r = 32MB) so scrypt does not throw on the cost.
+const PIN_SCRYPT = { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 } as const;
+
+/** Mix the pepper into the KDF input so the row alone cannot be brute-forced. */
+function pinKdfInput(pin: string, pepper: string): string {
+  return `pin:${pepper}:${pin}`;
+}
+
+/**
+ * Hash a PIN to a self-encoded scrypt token (`scrypt-v1.<salt>.<derived>`). The raw
+ * PIN and the pepper are never stored. Pure (secrets supplied by the caller).
+ */
+export function hashPin(pin: string, pepper: string): string {
+  const salt = randomBytes(PIN_SALT_BYTES);
+  const derived = scryptSync(pinKdfInput(pin, pepper), salt, PIN_KEY_BYTES, PIN_SCRYPT);
+  return [PIN_HASH_VERSION, salt.toString("base64"), derived.toString("base64")].join(".");
+}
+
+/**
+ * Constant-time verify of a PIN against a `hashPin` token. Returns false on any
+ * malformed token, wrong version, or mismatch (fail-closed — never throws). The
+ * scrypt recompute uses the token's own salt; the comparison is timing-safe.
+ */
+export function verifyPin(pin: string, token: string, pepper: string): boolean {
+  const [version, saltB64, derivedB64] = token.split(".");
+  if (version !== PIN_HASH_VERSION || !saltB64 || !derivedB64) return false;
+  let expected: Buffer;
+  let actual: Buffer;
+  try {
+    expected = Buffer.from(derivedB64, "base64");
+    if (expected.length !== PIN_KEY_BYTES) return false;
+    actual = scryptSync(pinKdfInput(pin, pepper), Buffer.from(saltB64, "base64"), expected.length, PIN_SCRYPT);
+  } catch {
+    return false;
+  }
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+/** Is this a `hashPin` token (vs an empty/legacy value)? For rehash-on-verify checks. */
+export function isPinHash(value: string): boolean {
+  return typeof value === "string" && value.startsWith(`${PIN_HASH_VERSION}.`) && value.split(".").length === 3;
 }

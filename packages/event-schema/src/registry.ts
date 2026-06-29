@@ -52,6 +52,37 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerDeviceRevokedPayload,
   },
+  // ADR-0026 Phase 3 — device-bound unlock PIN. PII-FREE: opaque worker id + the device
+  // ROW uuid (the same handle the `device_*` events carry) + bounded ints/bools ONLY —
+  // never the PIN, the pin_hash, the throttle state, the raw device fingerprint, or a
+  // phone. `pin_set` fires on set/reset; `pin_verified`/`pin_verify_failed` on a verify;
+  // `pin_locked` when a lockout cycle escalates (force_otp at the final cycle); `pin_reset`
+  // on the OTP-gated reset. All v1.
+  "worker.pin_set": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerPinSetPayload,
+  },
+  "worker.pin_verified": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerPinVerifiedPayload,
+  },
+  "worker.pin_verify_failed": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerPinVerifyFailedPayload,
+  },
+  "worker.pin_locked": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerPinLockedPayload,
+  },
+  "worker.pin_reset": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerPinResetPayload,
+  },
   // OTP-5 global daily SEND circuit-breaker breach (worker SMS path). AGGREGATE /
   // PII-free: channel/cap enums + integer limit + UTC-day string ONLY — no worker id,
   // phone, IP, or code. Emitted once per breach (the spend ceiling tripped).
