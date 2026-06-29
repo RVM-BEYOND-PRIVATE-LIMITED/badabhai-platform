@@ -20,9 +20,10 @@ const int kPinLength = 4;
 ///
 /// The masked keypad assembles the PIN in LOCAL state only; it is forwarded to
 /// the cubit on the last digit and cleared from memory immediately. On a wrong
-/// PIN the dots flash crimson and attempts-left copy shows; on a lockout the
-/// keypad disables and a countdown shows. A "PIN bhool gaye?" link starts the
-/// forgot-PIN flow.
+/// PIN the dots flash crimson and the NEUTRAL "PIN sahi nahi…" copy shows — the
+/// backend gives one opaque 401 per failure, so there is no attempts/countdown
+/// UI. After a few soft fails the "PIN bhool gaye?" link is emphasized; it starts
+/// the forgot-PIN flow.
 class EnterPinScreen extends StatelessWidget {
   const EnterPinScreen({super.key});
 
@@ -75,8 +76,7 @@ class _EnterPinViewState extends State<_EnterPinView> {
         }
       },
       builder: (BuildContext context, EnterPinState state) {
-        final bool error = state.status == EnterPinStatus.invalid ||
-            state.status == EnterPinStatus.locked;
+        final bool error = state.status == EnterPinStatus.failure;
         return BbScaffold(
           body: Column(
             children: <Widget>[
@@ -114,7 +114,8 @@ class _EnterPinViewState extends State<_EnterPinView> {
               ),
               const SizedBox(height: AppSpacing.s4),
               BbPinKeypad(
-                enabled: !state.isLocked && !state.isSubmitting,
+                // Keypad disables ONLY while submitting — no lockout state.
+                enabled: !state.isSubmitting,
                 onDigit: _onDigit,
                 onBackspace: _onBackspace,
               ),
@@ -122,10 +123,15 @@ class _EnterPinViewState extends State<_EnterPinView> {
               TextButton(
                 onPressed: () => context.push(Routes.forgotPin),
                 child: Text(
-                  'PIN bhool gaye?',
+                  // After enough soft fails, nudge harder toward the reset flow.
+                  state.suggestForgot
+                      ? 'PIN bhool gaye? Naya PIN banayein'
+                      : 'PIN bhool gaye?',
                   style: AppTypography.body(
                     weight: FontWeight.w700,
-                    color: AppColors.textLink,
+                    color: state.suggestForgot
+                        ? AppColors.brand
+                        : AppColors.textLink,
                   ),
                 ),
               ),

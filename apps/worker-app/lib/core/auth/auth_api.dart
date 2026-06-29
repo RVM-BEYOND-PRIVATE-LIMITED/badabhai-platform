@@ -136,13 +136,28 @@ class AuthDevice extends Equatable {
       <Object?>[id, platform, model, appVersion, trustedAt, lastSeenAt, isCurrent];
 }
 
+/// The /auth/* endpoints whose error mapping differs by HTTP status. The real
+/// backend (ADR-0026) returns plain NestJS `{ statusCode, message }` with NO
+/// `code` field, so the failure code is derived from `(endpoint, statusCode)`.
+enum _AuthEndpoint {
+  otpRequest,
+  otpVerify,
+  pinSet,
+  pinVerify,
+  tokenRefresh,
+  authed, // logout / devices (bearer): 401 → reauthRequired, else unknown
+  pinResetRequest,
+  pinResetConfirm,
+}
+
 /// The single isolated contract layer for /auth/*.
 ///
 /// Every method funnels through [AuthedClient.send] (which signs, refreshes, and
-/// retries) and parses the assumed shapes above into typed results. On a 4xx /
-/// 409 / 429 it throws a typed [AuthFailure] built from `{ code, message,
-/// retry_after_seconds, attempts_left }`. PASS 2's cubits call these methods and
-/// react to the typed results / failures.
+/// retries) and parses the confirmed response shapes above into typed results.
+/// On a non-2xx it throws a typed [AuthFailure] built by [_failureFor] from the
+/// `(endpoint kind, HTTP statusCode)` pair — the real backend sends plain
+/// `{ statusCode, message }` with NO `code` and NO attempts/retry metadata. PASS
+/// 2's cubits call these methods and react to the typed results / failures.
 class AuthApi {
   /// [deviceId] supplies the SAME stable device id sent as the `X-Device-Id`
   /// header, so the `device_info` block on OTP verify binds the session to the
@@ -178,7 +193,7 @@ class AuthApi {
       body: <String, dynamic>{'phone': phoneE164}, // ASSUMED: key `phone`
       idempotent: true,
     );
-    _throwIfError(res);
+    _check(res, _AuthEndpoint.otpRequest);
     return OtpRequestResult.fromJson(res.body);
   }
 
@@ -202,7 +217,7 @@ class AuthApi {
       body: body,
       idempotent: true,
     );
-    _throwIfError(res);
+    _check(res, _AuthEndpoint.otpVerify);
     return OtpVerifyResult.fromJson(res.body);
   }
 
@@ -237,7 +252,7 @@ class AuthApi {
       authed: true,
       idempotent: true,
     );
-    _throwIfError(res);
+    _check(res, _AuthEndpoint.pinSet);
   }
 
   /// POST /auth/pin/verify {pin} (+ persisted refresh token) → tokens.
@@ -255,7 +270,7 @@ class AuthApi {
       },
       idempotent: true,
     );
-    _throwIfError(res);
+    _check(res, _AuthEndpoint.pinVerify);
     return AuthTokens.fromJson(res.body);
   }
 
@@ -271,7 +286,7 @@ class AuthApi {
       body: <String, dynamic>{'refresh_token': refreshToken}, // ASSUMED
       idempotent: true,
     );
-    _throwIfError(res);
+    _check(res, _AuthEndpoint.tokenRefresh);
     return AuthTokens.fromJson(res.body);
   }
 
@@ -284,7 +299,7 @@ class AuthApi {
       authed: true,
       idempotent: true,
     );
-    _throwIfError(res);
+    _check(res, _AuthEndpoint.authed);
   }
 
   /// GET /auth/devices (bearer) → {devices:[...]}.
@@ -294,7 +309,7 @@ class AuthApi {
       '/auth/devices',
       authed: true,
     );
-    _throwIfError(res);
+    _check(res, _AuthEndpoint.authed);
     final List<dynamic> devices =
         res.body['devices'] as List<dynamic>? ?? <dynamic>[]; // ASSUMED key
     return devices
@@ -311,31 +326,99 @@ class AuthApi {
       authed: true,
       idempotent: true,
     );
-    _throwIfError(res);
+    _check(res, _AuthEndpoint.authed);
   }
 
-  /// Throws a typed [AuthFailure] for any non-2xx, parsed from the assumed error
-  /// body `{ code, message, retry_after_seconds, attempts_left }`. Drives logic
-  /// off `code`, never `message`.
-  void _throwIfError(AuthResponse res) {
+  /// POST /auth/pin/reset/request {phone} → 200 {success:true}. Idempotent; no
+  /// bearer — starts the dedicated forgot-PIN OTP flow. 429 → rate-limited,
+  /// 503 → unavailable.
+  Future<void> pinResetRequest(String phoneE164) async {
+    final AuthResponse res = await _client.send(
+      HttpMethod.post,
+      '/auth/pin/reset/request',
+      body: <String, dynamic>{'phone': phoneE164},
+      idempotent: true,
+    );
+    _check(res, _AuthEndpoint.pinResetRequest);
+  }
+
+  /// POST /auth/pin/reset/confirm {phone, otp, pin} → 204. Idempotent; no
+  /// bearer — proves the OTP and sets the NEW PIN in one step. 401 → bad/expired
+  /// OTP, 400 → weak/format PIN, 429 → rate-limited.
+  Future<void> pinResetConfirm(
+    String phoneE164,
+    String otp,
+    String pin,
+  ) async {
+    final AuthResponse res = await _client.send(
+      HttpMethod.post,
+      '/auth/pin/reset/confirm',
+      body: <String, dynamic>{'phone': phoneE164, 'otp': otp, 'pin': pin},
+      idempotent: true,
+    );
+    _check(res, _AuthEndpoint.pinResetConfirm);
+  }
+
+  /// Throws a typed [AuthFailure] for any non-2xx, derived from the
+  /// `(endpoint, HTTP status)` pair. The real backend (ADR-0026) sends plain
+  /// `{ statusCode, message }` with NO `code` and NO attempts/retry metadata, so
+  /// the code is computed here, never read off the body. The PII-free server
+  /// `message` is carried through for the few codes that surface it (rate-limit /
+  /// unavailable / weak-PIN); PIN-verify is a NEUTRAL 401 with no oracle.
+  void _check(AuthResponse res, _AuthEndpoint endpoint) {
     if (res.isSuccess) return;
-    final Map<String, dynamic> body = res.body;
-    final String code = (body['code'] as String?) ?? // ASSUMED: key `code`
-        _fallbackCodeFor(res.statusCode);
-    final int? retrySeconds =
-        (body['retry_after_seconds'] as num?)?.toInt(); // ASSUMED key
-    final int? attemptsLeft =
-        (body['attempts_left'] as num?)?.toInt(); // ASSUMED key
-    throw AuthFailure(
+    throw _failureFor(endpoint, res.statusCode, res.body['message'] as String?);
+  }
+
+  AuthFailure _failureFor(_AuthEndpoint endpoint, int status, String? message) {
+    final String code = _codeFor(endpoint, status);
+    return AuthFailure(
       code,
-      retryAfter:
-          retrySeconds == null ? null : Duration(seconds: retrySeconds),
-      attemptsLeft: attemptsLeft,
+      statusCode: status,
+      // Carry the PII-free server message when present; else the curated copy
+      // wins downstream (authErrorMessage only prefers it for select codes).
+      message: (message != null && message.isNotEmpty)
+          ? message
+          : 'Please try again.',
     );
   }
 
-  String _fallbackCodeFor(int status) {
-    if (status == 401) return AuthErrorCode.tokenExpired;
-    return AuthErrorCode.unknown;
+  /// The (endpoint, status) → code table. See the per-method doc comments and the
+  /// confirmed backend status codes (ADR-0026 / apps/api/src/auth/*).
+  String _codeFor(_AuthEndpoint endpoint, int status) {
+    switch (endpoint) {
+      case _AuthEndpoint.otpRequest:
+        if (status == 429) return AuthErrorCode.otpRateLimited;
+        if (status == 503) return AuthErrorCode.unavailable;
+        return AuthErrorCode.unknown;
+      case _AuthEndpoint.otpVerify:
+        if (status == 401) return AuthErrorCode.otpInvalid;
+        if (status == 429) return AuthErrorCode.otpRateLimited;
+        if (status == 503) return AuthErrorCode.unavailable;
+        return AuthErrorCode.unknown;
+      case _AuthEndpoint.pinSet:
+        if (status == 400) return AuthErrorCode.pinWeak;
+        if (status == 503) return AuthErrorCode.unavailable;
+        return AuthErrorCode.unknown;
+      case _AuthEndpoint.pinVerify:
+        // NEUTRAL: every PIN failure is one opaque 401 — no oracle.
+        if (status == 401) return AuthErrorCode.pinVerifyFailed;
+        return AuthErrorCode.unknown;
+      case _AuthEndpoint.tokenRefresh:
+        if (status == 401) return AuthErrorCode.reauthRequired;
+        return AuthErrorCode.network;
+      case _AuthEndpoint.authed:
+        if (status == 401) return AuthErrorCode.reauthRequired;
+        return AuthErrorCode.unknown;
+      case _AuthEndpoint.pinResetRequest:
+        if (status == 429) return AuthErrorCode.otpRateLimited;
+        if (status == 503) return AuthErrorCode.unavailable;
+        return AuthErrorCode.unknown;
+      case _AuthEndpoint.pinResetConfirm:
+        if (status == 401) return AuthErrorCode.otpInvalid;
+        if (status == 400) return AuthErrorCode.pinWeak;
+        if (status == 429) return AuthErrorCode.otpRateLimited;
+        return AuthErrorCode.unknown;
+    }
   }
 }

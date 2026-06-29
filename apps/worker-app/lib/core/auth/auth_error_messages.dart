@@ -11,40 +11,16 @@ import 'auth_failure.dart';
 /// from the Hindi line where a vetted translation is not yet available — flagged
 /// here so a translator can fill them in.
 ///
-/// Some messages carry a `{n}` (attempts left) or `{t}` placeholder (a
-/// human-friendly retry window) that `authErrorMessage` fills from the
-/// [AuthFailure] metadata.
+/// There are NO placeholders: the real backend sends no attempts-left / retry
+/// metadata, so PIN copy is neutral and rate-limit / unavailable / weak-PIN
+/// prefer the server `message` when present (see [authErrorMessage]).
 const Map<String, Map<String, String>> kAuthErrorMessages =
     <String, Map<String, String>>{
-  AuthErrorCode.pinLocked: <String, String>{
-    'hi': 'Bahut galat tries — {t} baad dobara try karein.',
-    'mr': 'Bahut galat tries — {t} baad dobara try karein.', // TODO l10n: mr
-    'bho': 'Bahut galat tries — {t} baad dobara try karein.', // TODO l10n: bho
-    'en': 'Too many wrong tries. Try again in {t}.',
-  },
-  AuthErrorCode.pinInvalid: <String, String>{
-    'hi': 'Galat PIN ({n} tries bachi).',
-    'mr': 'Galat PIN ({n} tries bachi).', // TODO l10n: mr
-    'bho': 'Galat PIN ({n} tries bachi).', // TODO l10n: bho
-    'en': 'Wrong PIN ({n} tries left).',
-  },
-  AuthErrorCode.requiresOtp: <String, String>{
-    'hi': 'Surakshit rakhne ke liye dobara login karein.',
-    'mr': 'Surakshit rakhne ke liye dobara login karein.', // TODO l10n: mr
-    'bho': 'Surakshit rakhne ke liye dobara login karein.', // TODO l10n: bho
-    'en': 'Please log in again to keep your account safe.',
-  },
-  AuthErrorCode.refreshReuseDetected: <String, String>{
-    'hi': 'Surakshit rakhne ke liye dobara login karein.',
-    'mr': 'Surakshit rakhne ke liye dobara login karein.', // TODO l10n: mr
-    'bho': 'Surakshit rakhne ke liye dobara login karein.', // TODO l10n: bho
-    'en': 'Please log in again to keep your account safe.',
-  },
-  AuthErrorCode.deviceRevoked: <String, String>{
-    'hi': 'Yeh device hata diya gaya — dobara login karein.',
-    'mr': 'Yeh device hata diya gaya — dobara login karein.', // TODO l10n: mr
-    'bho': 'Yeh device hata diya gaya — dobara login karein.', // TODO l10n: bho
-    'en': 'This device was removed. Please log in again.',
+  AuthErrorCode.otpInvalid: <String, String>{
+    'hi': 'Galat code. Dobara daalein.',
+    'mr': 'Galat code. Dobara daalein.', // TODO l10n: mr
+    'bho': 'Galat code. Dobara daalein.', // TODO l10n: bho
+    'en': 'Wrong code. Please re-enter.',
   },
   AuthErrorCode.otpRateLimited: <String, String>{
     'hi': 'Thodi der baad try karein.',
@@ -52,17 +28,31 @@ const Map<String, Map<String, String>> kAuthErrorMessages =
     'bho': 'Thodi der baad try karein.', // TODO l10n: bho
     'en': 'Please try again in a little while.',
   },
-  AuthErrorCode.otpInvalid: <String, String>{
-    'hi': 'Galat code. Dobara daalein.',
-    'mr': 'Galat code. Dobara daalein.', // TODO l10n: mr
-    'bho': 'Galat code. Dobara daalein.', // TODO l10n: bho
-    'en': 'Wrong code. Please re-enter.',
+  AuthErrorCode.pinVerifyFailed: <String, String>{
+    'hi': 'PIN sahi nahi — dobara try karein, ya \'PIN bhool gaye?\'',
+    'mr':
+        'PIN sahi nahi — dobara try karein, ya \'PIN bhool gaye?\'', // TODO l10n: mr
+    'bho':
+        'PIN sahi nahi — dobara try karein, ya \'PIN bhool gaye?\'', // TODO l10n: bho
+    'en': "PIN didn't match — try again, or tap 'Forgot PIN?'",
   },
-  AuthErrorCode.tokenExpired: <String, String>{
-    'hi': 'Session khatam ho gaya — dobara login karein.',
-    'mr': 'Session khatam ho gaya — dobara login karein.', // TODO l10n: mr
-    'bho': 'Session khatam ho gaya — dobara login karein.', // TODO l10n: bho
-    'en': 'Your session expired. Please log in again.',
+  AuthErrorCode.pinWeak: <String, String>{
+    'hi': 'Yeh PIN kamzor hai — thoda mushkil PIN chunein.',
+    'mr': 'Yeh PIN kamzor hai — thoda mushkil PIN chunein.', // TODO l10n: mr
+    'bho': 'Yeh PIN kamzor hai — thoda mushkil PIN chunein.', // TODO l10n: bho
+    'en': 'That PIN is too weak. Please choose a stronger one.',
+  },
+  AuthErrorCode.reauthRequired: <String, String>{
+    'hi': 'Surakshit rakhne ke liye dobara login karein.',
+    'mr': 'Surakshit rakhne ke liye dobara login karein.', // TODO l10n: mr
+    'bho': 'Surakshit rakhne ke liye dobara login karein.', // TODO l10n: bho
+    'en': 'Please log in again to keep your account safe.',
+  },
+  AuthErrorCode.unavailable: <String, String>{
+    'hi': 'Service abhi busy hai. Thodi der baad try karein.',
+    'mr': 'Service abhi busy hai. Thodi der baad try karein.', // TODO l10n: mr
+    'bho': 'Service abhi busy hai. Thodi der baad try karein.', // TODO l10n: bho
+    'en': 'Service is busy right now. Please try again shortly.',
   },
   AuthErrorCode.network: <String, String>{
     'hi': 'Internet nahi mil raha. Dobara try karein.',
@@ -78,27 +68,35 @@ const Map<String, Map<String, String>> kAuthErrorMessages =
   },
 };
 
-/// Resolves the localized message for [failure] in [locale], filling the `{n}`
-/// (attempts-left) and `{t}` (retry window) placeholders from the failure's
-/// metadata. Falls back: requested locale → Hindi → English → the failure's own
-/// generic message. PASS 2's UI calls this; it never displays the raw server
-/// message.
+/// Codes whose backend `message` is meaningful + safe to surface directly when
+/// present (rate-limit windows, provider-unavailable detail, weak-PIN reason).
+/// All other codes always use the curated localized copy above.
+const Set<String> _preferServerMessage = <String>{
+  AuthErrorCode.otpRateLimited,
+  AuthErrorCode.unavailable,
+  AuthErrorCode.pinWeak,
+};
+
+/// Resolves the localized message for [failure] in [locale].
+///
+/// For the few codes in [_preferServerMessage] the server's non-generic
+/// [AuthFailure.message] is shown when present; otherwise the localized copy is
+/// used. Falls back: requested locale → Hindi → English → the failure's own
+/// generic message. PASS 2's UI calls this; it never displays a raw server
+/// message for codes outside [_preferServerMessage].
 String authErrorMessage(AuthFailure failure, String locale) {
+  if (_preferServerMessage.contains(failure.code) &&
+      _isMeaningful(failure.message)) {
+    return failure.message;
+  }
   final Map<String, String>? byLocale = kAuthErrorMessages[failure.code];
-  final String template = byLocale?[locale] ??
+  return byLocale?[locale] ??
       byLocale?['hi'] ??
       byLocale?['en'] ??
       failure.message;
-  return template
-      .replaceAll('{n}', failure.attemptsLeft?.toString() ?? '0')
-      .replaceAll('{t}', _humanizeRetry(failure.retryAfter));
 }
 
-/// Renders a retry window as worker-friendly copy ("30 second", "2 minute").
-String _humanizeRetry(Duration? retryAfter) {
-  if (retryAfter == null) return 'thodi der';
-  final int seconds = retryAfter.inSeconds;
-  if (seconds < 60) return '$seconds second';
-  final int minutes = (seconds / 60).ceil();
-  return '$minutes minute';
-}
+/// A server message is "meaningful" when it isn't empty or the generic default
+/// [AuthFailure] carries when none was parsed.
+bool _isMeaningful(String message) =>
+    message.isNotEmpty && message != 'Please try again.';

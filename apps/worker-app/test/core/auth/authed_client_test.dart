@@ -208,8 +208,11 @@ void main() {
       expect(authHeaders.last, 'Bearer access-fresh');
     });
 
-    test('REFRESH_REUSE_DETECTED → store cleared + requiresReauth fired',
+    test('refresh 401 (reuse/invalid — NEUTRAL) → store cleared + reauth fired',
         () async {
+      // The real backend collapses invalid/reuse/requires_otp refresh failures
+      // to ONE opaque 401 with no `code` field — the client must still force a
+      // fresh login on any refresh 401.
       final SecureTokenStore store = SecureTokenStore(FakeSecureStore());
       await store.saveTokens(
         refreshToken: 'refresh-reused',
@@ -227,8 +230,8 @@ void main() {
           if (req.url.path == '/auth/token/refresh') {
             return http.Response(
               jsonEncode(<String, dynamic>{
-                'code': AuthErrorCode.refreshReuseDetected,
-                'message': 'reuse',
+                'statusCode': 401,
+                'message': 'Unauthorized',
               }),
               401,
             );
