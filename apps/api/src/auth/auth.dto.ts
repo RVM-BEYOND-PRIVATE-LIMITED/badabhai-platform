@@ -48,6 +48,8 @@ export interface LoginResponse {
   worker_id: string;
   is_new_worker: boolean;
   status: string;
+  // ADR-0026 Phase 4 — does this worker already have a device-unlock PIN, so the app routes enter-PIN vs set-PIN
+  pin_set: boolean;
   refresh_token: string;
   refresh_expires_in_seconds: number;
   session: SessionInfo;

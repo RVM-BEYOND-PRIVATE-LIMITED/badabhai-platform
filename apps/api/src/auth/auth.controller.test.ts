@@ -20,7 +20,8 @@ const WORKER: AuthenticatedWorker = { id: "11111111-1111-4111-8111-111111111111"
 function make() {
   const auth = {
     requestOtp: vi.fn(async () => ({ success: true, channel: "sms" })),
-    verifyOtp: vi.fn(async () => ({ worker_id: WORKER.id, access_token: "tok" })),
+    // pin_set is surfaced on the login response (ADR-0026 Phase 4) — the controller passes it through.
+    verifyOtp: vi.fn(async () => ({ worker_id: WORKER.id, access_token: "tok", pin_set: false })),
   };
   const MINTED = {
     access: { token: "fresh", expiresInSeconds: 3600 },
@@ -78,11 +79,13 @@ describe("AuthController", () => {
     expect(auth.requestOtp).not.toHaveBeenCalled();
   });
 
-  it("verifyOtp delegates phone + otp (+ optional device_info)", async () => {
+  it("verifyOtp delegates phone + otp (+ optional device_info) and passes through pin_set", async () => {
     const { controller, auth } = make();
-    await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, CTX);
+    const res = await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, CTX);
     // device_info is undefined when the client omits it (ADR-0026 Phase 2 — additive/opt-in).
     expect(auth.verifyOtp).toHaveBeenCalledWith("+91999", "1234", CTX, undefined);
+    // ADR-0026 Phase 4 — the controller surfaces pin_set unchanged from the service.
+    expect(res.pin_set).toBe(false);
   });
 
   it("me returns the authed worker id + status (no PII)", async () => {

@@ -88,18 +88,27 @@ class MockAuthApi extends AuthApi {
   @override
   Future<List<AuthDevice>> listDevices() async {
     await _delay();
+    // Mirrors the real GET /auth/devices DeviceListItem shape (id / platform /
+    // model / is_current — no `label`; the UI derives the label from platform +
+    // model). PII-FREE: generic canned descriptors only.
     return <AuthDevice>[
       AuthDevice(
-        deviceId: await _tokenStore.readDeviceId() ?? 'mock-device-current',
-        label: 'This phone',
+        id: await _tokenStore.readDeviceId() ?? 'mock-device-current',
+        platform: 'android',
+        model: 'This phone',
+        appVersion: '0.1.0',
+        trustedAt: DateTime.now().subtract(const Duration(days: 1)),
         lastSeenAt: DateTime.now(),
-        current: true,
+        isCurrent: true,
       ),
       AuthDevice(
-        deviceId: 'mock-device-0002',
-        label: 'Old phone',
+        id: 'mock-device-0002',
+        platform: 'android',
+        model: 'Old phone',
+        appVersion: '0.1.0',
+        trustedAt: DateTime.now().subtract(const Duration(days: 30)),
         lastSeenAt: DateTime.now().subtract(const Duration(days: 3)),
-        current: false,
+        isCurrent: false,
       ),
     ];
   }

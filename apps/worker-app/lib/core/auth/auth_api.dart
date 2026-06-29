@@ -1,17 +1,19 @@
-// ASSUMED CONTRACT — reconcile with backend.
+// CONTRACT LAYER for /auth/* — reconciled with the REAL backend (ADR-0026 Phase 4).
 //
-// The real /auth/* request + response shapes are NOT finalized. EVERY assumption
-// about the wire format lives in THIS file so reconciling with the backend is a
-// single-file change. Each assumed field is flagged inline with `// ASSUMED:`.
-//
-// NOTE (live status): the pin/*, token/refresh, and devices endpoints do NOT yet
-// exist on the live backend — REAL mode will 404 on them; that is EXPECTED in
-// PASS 1. Mock mode (USE_MOCKS=true, see MockAuthApi) is the walkable path now.
+// EVERY /auth/* request + response shape lives in THIS file so the wire contract is
+// a single-file change. The login/refresh/pin/devices field names + routes below are
+// confirmed against apps/api (auth.dto.ts, devices.dto.ts, pin.dto.ts). A handful of
+// genuinely still-flexible fields (otp/request resend key, error envelope keys) keep
+// their `// ASSUMED:` marker; the confirmed ones no longer carry it.
+
+import 'dart:io' show Platform;
 
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'auth_failure.dart';
 import 'authed_client.dart';
+import 'device_id.dart';
 
 /// A token set the client holds after OTP/PIN verify or a refresh.
 ///
@@ -29,13 +31,13 @@ class AuthTokens extends Equatable {
   final String refresh;
   final DateTime accessExpiresAt;
 
-  /// Parses `{ access_token, refresh_token, access_expires_in }`.
+  /// Parses `{ access_token, refresh_token, expires_in_seconds }` (the shared
+  /// shape of /auth/otp/verify, /auth/token/refresh, /auth/pin/verify).
   factory AuthTokens.fromJson(Map<String, dynamic> json) {
-    final int expiresIn =
-        (json['access_expires_in'] as num?)?.toInt() ?? 0; // ASSUMED: seconds
+    final int expiresIn = (json['expires_in_seconds'] as num?)?.toInt() ?? 0;
     return AuthTokens(
-      access: json['access_token'] as String? ?? '', // ASSUMED: field name
-      refresh: json['refresh_token'] as String? ?? '', // ASSUMED: field name
+      access: json['access_token'] as String? ?? '',
+      refresh: json['refresh_token'] as String? ?? '',
       accessExpiresAt: DateTime.now().add(Duration(seconds: expiresIn)),
     );
   }
@@ -60,9 +62,12 @@ class OtpVerifyResult extends Equatable {
 
   factory OtpVerifyResult.fromJson(Map<String, dynamic> json) =>
       OtpVerifyResult(
-        workerId: json['worker_id'] as String? ?? '', // ASSUMED: field name
-        isNewUser: json['is_new_user'] as bool? ?? false, // ASSUMED
-        pinSet: json['pin_set'] as bool? ?? false, // ASSUMED
+        workerId: json['worker_id'] as String? ?? '',
+        // Backend key is `is_new_worker` (LoginResponse); client field stays
+        // `isNewUser` (its meaning — a worker without a remembered PIN).
+        isNewUser: json['is_new_worker'] as bool? ?? false,
+        // `pin_set` (LoginResponse) — does this worker already have a PIN.
+        pinSet: json['pin_set'] as bool? ?? false,
         tokens: AuthTokens.fromJson(json),
       );
 
@@ -88,34 +93,47 @@ class OtpRequestResult extends Equatable {
   List<Object?> get props => <Object?>[resendIn];
 }
 
-/// One known device for this worker. Result item of GET /auth/devices.
+/// One trusted device for this worker. Result item of GET /auth/devices
+/// (DeviceListItem). There is NO server `label` — the UI derives a display
+/// label from [platform] + [model].
 class AuthDevice extends Equatable {
   const AuthDevice({
-    required this.deviceId,
-    required this.label,
+    required this.id,
+    required this.platform,
+    required this.model,
+    required this.appVersion,
+    required this.trustedAt,
     required this.lastSeenAt,
-    required this.current,
+    required this.isCurrent,
   });
 
-  final String deviceId;
-  final String label;
+  /// Opaque device row id — the value passed to DELETE /auth/devices/{id}.
+  final String id;
+  final String platform;
+  final String? model;
+  final String? appVersion;
+  final DateTime? trustedAt;
   final DateTime? lastSeenAt;
 
   /// True for the device making the request (cannot be revoked from here).
-  final bool current;
+  final bool isCurrent;
 
   factory AuthDevice.fromJson(Map<String, dynamic> json) => AuthDevice(
-        deviceId: json['device_id'] as String? ?? '', // ASSUMED: field name
-        label: json['label'] as String? ?? '', // ASSUMED
-        lastSeenAt: _parseDate(json['last_seen_at']), // ASSUMED: ISO-8601
-        current: json['current'] as bool? ?? false, // ASSUMED
+        id: json['id'] as String? ?? '',
+        platform: json['platform'] as String? ?? '',
+        model: json['model'] as String?,
+        appVersion: json['app_version'] as String?,
+        trustedAt: _parseDate(json['trusted_at']),
+        lastSeenAt: _parseDate(json['last_seen_at']),
+        isCurrent: json['is_current'] as bool? ?? false,
       );
 
   static DateTime? _parseDate(Object? raw) =>
       raw is String ? DateTime.tryParse(raw) : null;
 
   @override
-  List<Object?> get props => <Object?>[deviceId, label, lastSeenAt, current];
+  List<Object?> get props =>
+      <Object?>[id, platform, model, appVersion, trustedAt, lastSeenAt, isCurrent];
 }
 
 /// The single isolated contract layer for /auth/*.
@@ -126,14 +144,23 @@ class AuthDevice extends Equatable {
 /// retry_after_seconds, attempts_left }`. PASS 2's cubits call these methods and
 /// react to the typed results / failures.
 class AuthApi {
-  AuthApi(AuthedClient client) : _maybeClient = client;
+  /// [deviceId] supplies the SAME stable device id sent as the `X-Device-Id`
+  /// header, so the `device_info` block on OTP verify binds the session to the
+  /// already-known device (ADR-0026 Phase 2). Optional so tests can omit it
+  /// (then `device_info` is simply not sent — login still works, no device bound).
+  AuthApi(AuthedClient client, {DeviceIdProvider? deviceId})
+      : _maybeClient = client,
+        _deviceId = deviceId;
 
   /// Subclass seam: [MockAuthApi] overrides every method and never touches the
   /// client, so it constructs with a null client (the real plugin/network is
   /// never reachable in mock mode).
-  AuthApi.withoutClient() : _maybeClient = null;
+  AuthApi.withoutClient()
+      : _maybeClient = null,
+        _deviceId = null;
 
   final AuthedClient? _maybeClient;
+  final DeviceIdProvider? _deviceId;
 
   /// The signing client. Throws if a mock subclass left a method un-overridden
   /// and fell through to the real network path — a guard, never expected to fire.
@@ -155,19 +182,50 @@ class AuthApi {
     return OtpRequestResult.fromJson(res.body);
   }
 
-  /// POST /auth/otp/verify {phone, otp} → tokens + worker flags.
+  /// POST /auth/otp/verify {phone, otp, device_info?} → tokens + worker flags.
+  ///
+  /// Sends the OPTIONAL `device_info` block (ADR-0026 Phase 2) so the session is
+  /// bound to this trusted device — without it the Phase-3 trusted-device
+  /// PIN-unlock gate can never pass. `device_id` is the same PII-free UUID sent
+  /// as the `X-Device-Id` header; `platform` is the host OS.
   Future<OtpVerifyResult> otpVerify(String phoneE164, String otp) async {
+    final Map<String, dynamic> body = <String, dynamic>{
+      'phone': phoneE164,
+      'otp': otp,
+    };
+    final Map<String, dynamic>? deviceInfo = await _buildDeviceInfo();
+    if (deviceInfo != null) body['device_info'] = deviceInfo;
+
     final AuthResponse res = await _client.send(
       HttpMethod.post,
       '/auth/otp/verify',
-      body: <String, dynamic>{
-        'phone': phoneE164, // ASSUMED: key `phone`
-        'otp': otp, // ASSUMED: key `otp`
-      },
+      body: body,
       idempotent: true,
     );
     _throwIfError(res);
     return OtpVerifyResult.fromJson(res.body);
+  }
+
+  /// Builds the `device_info` block from the persisted device id + host platform,
+  /// matching the backend [DeviceInfoSchema] (device_id 8–256 chars, platform
+  /// enum). Returns null when no device-id provider is wired (then no device is
+  /// bound). `model` / `app_version` / `push_token` are optional and omitted here.
+  Future<Map<String, dynamic>?> _buildDeviceInfo() async {
+    final DeviceIdProvider? provider = _deviceId;
+    if (provider == null) return null;
+    final String deviceId = await provider.getOrCreate();
+    if (deviceId.length < 8) return null; // schema guard — never send an invalid id
+    return <String, dynamic>{
+      'device_id': deviceId,
+      'platform': _platformName(),
+    };
+  }
+
+  static String _platformName() {
+    if (kIsWeb) return 'web';
+    if (Platform.isAndroid) return 'android';
+    if (Platform.isIOS) return 'ios';
+    return 'unknown';
   }
 
   /// POST /auth/pin/set (bearer) {pin} → {ok}.
@@ -245,12 +303,11 @@ class AuthApi {
         .toList();
   }
 
-  /// POST /auth/devices/{id}/revoke (bearer) → {ok}.
+  /// DELETE /auth/devices/{id} (bearer) → 204. Revokes that trusted device.
   Future<void> revokeDevice(String deviceId) async {
     final AuthResponse res = await _client.send(
-      HttpMethod.post,
-      '/auth/devices/$deviceId/revoke',
-      body: <String, dynamic>{},
+      HttpMethod.delete,
+      '/auth/devices/$deviceId',
       authed: true,
       idempotent: true,
     );

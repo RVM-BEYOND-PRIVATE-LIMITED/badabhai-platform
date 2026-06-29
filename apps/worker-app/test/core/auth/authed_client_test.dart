@@ -128,7 +128,7 @@ void main() {
               jsonEncode(<String, dynamic>{
                 'access_token': 'access-new',
                 'refresh_token': 'refresh-new',
-                'access_expires_in': 900,
+                'expires_in_seconds': 900,
               }),
               200,
             );
@@ -181,7 +181,7 @@ void main() {
               jsonEncode(<String, dynamic>{
                 'access_token': 'access-fresh',
                 'refresh_token': 'refresh-fresh',
-                'access_expires_in': 900,
+                'expires_in_seconds': 900,
               }),
               200,
             );

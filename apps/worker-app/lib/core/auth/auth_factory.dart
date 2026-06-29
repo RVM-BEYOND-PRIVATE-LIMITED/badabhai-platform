@@ -38,5 +38,7 @@ AuthApi createAuthApi({
     localeStore: localeStore,
     reauthSignal: reauthSignal,
   );
-  return AuthApi(client);
+  // Thread the SAME device-id provider that signs `X-Device-Id` so OTP verify's
+  // `device_info.device_id` matches the header (ADR-0026 Phase 2 device binding).
+  return AuthApi(client, deviceId: deviceId);
 }

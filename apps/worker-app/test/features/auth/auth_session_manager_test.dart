@@ -88,10 +88,14 @@ class ScriptAuthApi extends AuthApi {
   @override
   Future<List<AuthDevice>> listDevices() async => <AuthDevice>[
         AuthDevice(
-            deviceId: 'd1',
-            label: 'This phone',
-            lastSeenAt: DateTime.now(),
-            current: true),
+          id: 'd1',
+          platform: 'android',
+          model: 'This phone',
+          appVersion: '0.1.0',
+          trustedAt: DateTime.now(),
+          lastSeenAt: DateTime.now(),
+          isCurrent: true,
+        ),
       ];
 
   @override

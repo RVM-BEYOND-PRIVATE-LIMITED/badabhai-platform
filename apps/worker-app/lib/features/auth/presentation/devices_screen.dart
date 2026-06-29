@@ -68,6 +68,7 @@ class _DeviceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final String label = _deviceLabel(device);
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surfaceCard,
@@ -78,10 +79,10 @@ class _DeviceTile extends StatelessWidget {
       child: Row(
         children: <Widget>[
           Icon(
-            device.current
+            device.isCurrent
                 ? Icons.phone_android_rounded
                 : Icons.devices_other_rounded,
-            color: device.current ? AppColors.brand : AppColors.textMuted,
+            color: device.isCurrent ? AppColors.brand : AppColors.textMuted,
           ),
           const SizedBox(width: AppSpacing.s3),
           Expanded(
@@ -92,11 +93,11 @@ class _DeviceTile extends StatelessWidget {
                   children: <Widget>[
                     Flexible(
                       child: Text(
-                        device.label.isEmpty ? 'Device' : device.label,
+                        label,
                         style: AppTypography.body(weight: FontWeight.w700),
                       ),
                     ),
-                    if (device.current) ...<Widget>[
+                    if (device.isCurrent) ...<Widget>[
                       const SizedBox(width: AppSpacing.s2),
                       Text('· Yeh phone',
                           style: AppTypography.body(
@@ -114,7 +115,7 @@ class _DeviceTile extends StatelessWidget {
               ],
             ),
           ),
-          if (!device.current)
+          if (!device.isCurrent)
             TextButton(
               style:
                   TextButton.styleFrom(foregroundColor: AppColors.danger),
@@ -126,16 +127,25 @@ class _DeviceTile extends StatelessWidget {
     );
   }
 
+  /// Derives a human label from platform + model (there is no server `label`).
+  /// e.g. "Android · Pixel 6", or just "Android" when the model is unknown.
+  static String _deviceLabel(AuthDevice device) {
+    final String platform = device.platform.isEmpty
+        ? 'Device'
+        : '${device.platform[0].toUpperCase()}${device.platform.substring(1)}';
+    final String? model = device.model;
+    if (model == null || model.isEmpty) return platform;
+    return '$platform · $model';
+  }
+
   Future<void> _confirmRevoke(BuildContext context, AuthDevice device) async {
     final DevicesCubit cubit = context.read<DevicesCubit>();
+    final String label = _deviceLabel(device);
     final bool ok = await showDialog<bool>(
           context: context,
           builder: (BuildContext d) => AlertDialog(
             title: const Text('Device hatayein?'),
-            content: Text(
-              '${device.label.isEmpty ? "Yeh device" : device.label} se logout '
-              'ho jayega.',
-            ),
+            content: Text('$label se logout ho jayega.'),
             actions: <Widget>[
               TextButton(
                 onPressed: () => Navigator.of(d).pop(false),
@@ -150,7 +160,7 @@ class _DeviceTile extends StatelessWidget {
           ),
         ) ??
         false;
-    if (ok) await cubit.revoke(device.deviceId);
+    if (ok) await cubit.revoke(device.id);
   }
 
   String _ago(DateTime when) {

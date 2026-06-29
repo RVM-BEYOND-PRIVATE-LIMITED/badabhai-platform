@@ -50,6 +50,14 @@ function makeDevices(deviceId?: string) {
   return { registerOnLogin: vi.fn().mockResolvedValue(deviceId) };
 }
 
+/**
+ * A PIN repository double (ADR-0026 Phase 4). findByWorkerId resolves to a credential row
+ * (=> pin_set true) or undefined when the worker has never set a PIN (=> pin_set false).
+ */
+function makePins(credential?: unknown) {
+  return { findByWorkerId: vi.fn().mockResolvedValue(credential) };
+}
+
 describe("AuthService (real OTP)", () => {
   it("requestOtp issues+sends the code and emits worker.otp_requested without leaking the phone", async () => {
     const emit = vi.fn().mockResolvedValue(undefined);
@@ -61,6 +69,7 @@ describe("AuthService (real OTP)", () => {
       otp as never,
       makeSessions() as never,
       makeDevices() as never,
+      makePins() as never,
     );
 
     const res = await svc.requestOtp(PHONE, ctx);
@@ -87,6 +96,7 @@ describe("AuthService (real OTP)", () => {
       otp as never,
       makeSessions() as never,
       makeDevices() as never,
+      makePins() as never,
     );
 
     await expect(svc.requestOtp(PHONE, ctx)).rejects.toMatchObject({
@@ -108,6 +118,7 @@ describe("AuthService (real OTP)", () => {
       otp as never,
       makeSessions() as never,
       makeDevices() as never,
+      makePins() as never,
     );
 
     // The neutral 429 (same as a throttle) reaches the client — no new oracle.
@@ -157,6 +168,7 @@ describe("AuthService (real OTP)", () => {
       makeOtp({ verifyThrows: true }) as never,
       sessions as never,
       makeDevices() as never,
+      makePins() as never,
     );
 
     await expect(svc.verifyOtp(PHONE, "000000", ctx)).rejects.toMatchObject({
@@ -185,12 +197,15 @@ describe("AuthService (real OTP)", () => {
       makeOtp() as never,
       sessions as never,
       makeDevices() as never,
+      makePins() as never,
     );
 
     const res = await svc.verifyOtp(PHONE, "123456", ctx);
 
     expect(res.is_new_worker).toBe(true);
     expect(res.worker_id).toBe("worker-new");
+    // ADR-0026 Phase 4 — a brand-new worker has no worker_credentials row → set-PIN flow.
+    expect(res.pin_set).toBe(false);
     expect(res.access_token).toBe("jwt.token.value");
     expect(res.token_type).toBe("Bearer");
     expect(res.expires_in_seconds).toBe(2592000);
@@ -221,15 +236,44 @@ describe("AuthService (real OTP)", () => {
       makeOtp() as never,
       makeSessions() as never,
       makeDevices() as never,
+      makePins() as never,
     );
 
     const res = await svc.verifyOtp(PHONE, "123456", ctx);
 
     expect(res.is_new_worker).toBe(false);
+    // ADR-0026 Phase 4 — no credential row mocked → pin_set false (set-PIN flow).
+    expect(res.pin_set).toBe(false);
     expect(res.access_token).toBe("jwt.token.value");
     expect(createOrGetByPhoneHash).not.toHaveBeenCalled();
     const names = emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
     expect(names).toEqual(["worker.otp_verified"]);
+  });
+
+  it("verifyOtp returns pin_set=true when the worker already has a credential row (enter-PIN flow)", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const workers = {
+      findByPhoneHash: vi.fn().mockResolvedValue({ id: "worker-1", status: "active" }),
+      createOrGetByPhoneHash: vi.fn(),
+    };
+    // A present worker_credentials row → the worker has a device-unlock PIN.
+    const pins = makePins({ workerId: "worker-1" });
+    const svc = new AuthService(
+      { emit } as never,
+      workers as never,
+      pii,
+      makeOtp() as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      pins as never,
+    );
+
+    const res = await svc.verifyOtp(PHONE, "123456", ctx);
+
+    expect(res.pin_set).toBe(true);
+    expect(pins.findByWorkerId).toHaveBeenCalledWith("worker-1");
+    // The PIN/hash is never surfaced — only the boolean.
+    expect(JSON.stringify(res)).not.toMatch(/pin_?hash|pinHash/i);
   });
 
   // TD23: concurrent first-time logins both miss the SELECT; the loser's INSERT
@@ -252,6 +296,7 @@ describe("AuthService (real OTP)", () => {
       makeOtp() as never,
       makeSessions() as never,
       makeDevices() as never,
+      makePins() as never,
     );
 
     const res = await svc.verifyOtp(PHONE, "123456", ctx);
@@ -278,6 +323,7 @@ describe("AuthService (real OTP)", () => {
       makeOtp() as never,
       sessions as never,
       devices as never,
+      makePins() as never,
     );
 
     const deviceInfo = { device_id: "client-stable-id", platform: "android" as const };
