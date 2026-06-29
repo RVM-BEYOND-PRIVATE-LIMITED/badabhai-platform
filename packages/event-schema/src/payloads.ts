@@ -1274,3 +1274,53 @@ export const AdminPiiRevealCapExceededPayload = z
   })
   .strict();
 export type AdminPiiRevealCapExceededPayload = z.infer<typeof AdminPiiRevealCapExceededPayload>;
+
+/**
+ * The CLOSED set of platform operational/provider kill-switches an admin may request a
+ * safe-direction PAUSE for (ADR-0025 ADMIN-3c, OQ-6). A switch KEY enum — never free text,
+ * never a secret/value. Each names an EXISTING env/config-governed switch (the pause is
+ * actioned out-of-band via env/deploy; this event records only the audited INTENT — §2 #5).
+ */
+export const ADMIN_KILL_SWITCH_KEYS = [
+  "ai_real_calls", // AI_ENABLE_REAL_CALLS / ai-service real LLM calls
+  "real_payments", // PAYMENTS_ENABLE_REAL (mock in alpha)
+  "real_messaging", // MESSAGING_ENABLE_REAL — WhatsApp (mock in alpha)
+  "worker_otp_sms", // OTP_GLOBAL_MAX_SENDS_PER_DAY → 0 = paused (worker SMS)
+  "payer_otp_email", // PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY → 0 = paused (payer email)
+  "resume_render", // RESUME_RENDER_ENABLED (WeasyPrint resume + interview-kit)
+  "admin_pii_reveal", // ADMIN_PII_REVEAL_ENABLED (ADMIN-3b)
+] as const;
+export const AdminKillSwitchKey = z.enum(ADMIN_KILL_SWITCH_KEYS);
+export type AdminKillSwitchKey = z.infer<typeof AdminKillSwitchKey>;
+
+/**
+ * Why an admin requested a safe-direction kill-switch PAUSE (ADR-0025 ADMIN-3c). A CLOSED
+ * reason CODE — never free text — so the audited intent carries no PII / no value.
+ */
+export const ADMIN_KILL_SWITCH_PAUSE_REASONS = [
+  "incident_response",
+  "cost_spike",
+  "abuse_mitigation",
+  "maintenance",
+] as const;
+export const AdminKillSwitchPauseReason = z.enum(ADMIN_KILL_SWITCH_PAUSE_REASONS);
+export type AdminKillSwitchPauseReason = z.infer<typeof AdminKillSwitchPauseReason>;
+
+/**
+ * A safe-direction kill-switch PAUSE was REQUESTED (ADR-0025 ADMIN-3c, OQ-6) — the audited
+ * INTENT to pause a provider/operation. It NEVER enables anything (enabling a real provider
+ * stays env/deploy-gated, §2 #5 — there is no enable event/route). PII-FREE & VALUE-FREE by
+ * construction: the opaque `admin_id` + a switch KEY enum + a reason CODE ONLY — no secret,
+ * no provider key, no toggle value. `.strict()` is the structural backstop against smuggling
+ * a value onto the spine. Subject = the `kill_switch` subject (subject_id null).
+ */
+export const AdminKillSwitchPauseRequestedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    switch_key: AdminKillSwitchKey,
+    reason_code: AdminKillSwitchPauseReason,
+  })
+  .strict();
+export type AdminKillSwitchPauseRequestedPayload = z.infer<
+  typeof AdminKillSwitchPauseRequestedPayload
+>;

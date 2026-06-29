@@ -1426,6 +1426,68 @@ describe("admin auth events (ADR-0025 — the 4th principal, FACELESS, ids/role/
     if (!bad.success) expect(bad.error.stage).toBe("payload");
   });
 
+  it("validates admin.kill_switch_pause_requested with switch_key + reason_code and NO value (ADMIN-3c)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.kill_switch_pause_requested",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "kill_switch", subject_id: null },
+      payload: { admin_id: UUID_A, switch_key: "ai_real_calls", reason_code: "incident_response" },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.kill_switch_pause_requested") {
+      // PII-FREE & VALUE-FREE: opaque admin_id + a switch KEY enum + a reason CODE ONLY.
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["admin_id", "reason_code", "switch_key"].sort(),
+      );
+    }
+  });
+
+  it("rejects admin.kill_switch_pause_requested with an unknown switch_key (enum-only — no free text)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.kill_switch_pause_requested",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "kill_switch", subject_id: null },
+      payload: { admin_id: UUID_A, switch_key: "enable_everything", reason_code: "incident_response" },
+    };
+    const bad = validateEvent(evt);
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects admin.kill_switch_pause_requested with an unknown reason_code (enum-only)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.kill_switch_pause_requested",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "kill_switch", subject_id: null },
+      payload: { admin_id: UUID_A, switch_key: "ai_real_calls", reason_code: "owner_said_so" },
+    };
+    const bad = validateEvent(evt);
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects admin.kill_switch_pause_requested carrying a provider-key/value (.strict — never a secret/value, ADMIN-3c)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.kill_switch_pause_requested",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "kill_switch", subject_id: null },
+      payload: {
+        admin_id: UUID_A,
+        switch_key: "real_payments",
+        reason_code: "cost_spike",
+        provider_key: "sk_live_should_never_be_here", // a secret/value must never validate
+      },
+    };
+    const bad = validateEvent(evt);
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
   it("admits `admin` as an actor_type and `admin_session` as a subject_type (additive enums)", () => {
     // The enum additions break no existing event (z.enum widening only); a wrong actor for
     // an admin event still validates the envelope — the principal binding is the guard's job.
@@ -1490,13 +1552,14 @@ describe("worker refresh/session auth events (ADR-0026 Phase 1 — PII-free, ids
 });
 
 describe("registry", () => {
-  it("exposes all 84 event names (77 prior + 4 admin.* [ADR-0025 ADMIN-1] + worker.refresh_reuse_detected + worker.logged_out_all [ADR-0026 Phase 1] + admin.pii_reveal_cap_exceeded [ADR-0025 ADMIN-3b])", () => {
-    expect(EVENT_NAMES).toHaveLength(84);
+  it("exposes all 85 event names (77 prior + 4 admin.* [ADR-0025 ADMIN-1] + worker.refresh_reuse_detected + worker.logged_out_all [ADR-0026 Phase 1] + admin.pii_reveal_cap_exceeded [ADR-0025 ADMIN-3b] + admin.kill_switch_pause_requested [ADR-0025 ADMIN-3c])", () => {
+    expect(EVENT_NAMES).toHaveLength(85);
     expect(isEventName("admin.session_started")).toBe(true);
     expect(isEventName("admin.session_revoked")).toBe(true);
     expect(isEventName("admin.action_performed")).toBe(true);
     expect(isEventName("admin.pii_viewed")).toBe(true);
     expect(isEventName("admin.pii_reveal_cap_exceeded")).toBe(true);
+    expect(isEventName("admin.kill_switch_pause_requested")).toBe(true);
     expect(isEventName("worker.refresh_reuse_detected")).toBe(true);
     expect(isEventName("worker.logged_out_all")).toBe(true);
     expect(isEventName("worker.otp_send_cap_exceeded")).toBe(true);

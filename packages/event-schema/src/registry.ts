@@ -298,6 +298,14 @@ export const EVENT_REGISTRY = {
     domain: "admin",
     payload: p.AdminPiiRevealCapExceededPayload,
   },
+  // ADR-0025 ADMIN-3c (OQ-6) — an admin requested a SAFE-DIRECTION kill-switch PAUSE. The
+  // audited INTENT only; it NEVER enables anything (enabling a real provider stays env/deploy-
+  // gated, §2 #5). PII-free: opaque admin_id + a switch KEY enum + a reason CODE only. v1.
+  "admin.kill_switch_pause_requested": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminKillSwitchPauseRequestedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

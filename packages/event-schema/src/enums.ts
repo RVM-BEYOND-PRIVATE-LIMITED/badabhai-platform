@@ -161,6 +161,11 @@ export const SUBJECT_TYPES = [
   // `admin.session_revoked`. (`admin.action_performed` / `admin.pii_viewed` use the
   // TARGET entity's subject — e.g. `worker` for a reveal — not this one.)
   "admin_session",
+  // A platform operational/provider kill-switch (ADR-0025 ADMIN-3c, OQ-6). The subject of
+  // `admin.kill_switch_pause_requested` — an admin's audited INTENT to PAUSE (safe-direction
+  // only; never enable). The switch is named by the closed `switch_key` enum IN the payload,
+  // so the subject_id is null (a switch is not a uuid entity). Carries NO PII / NO value.
+  "kill_switch",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;

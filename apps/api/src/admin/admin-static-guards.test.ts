@@ -6,6 +6,7 @@ import { AdminAuthController } from "./admin-auth.controller";
 import { AdminEventsController } from "./admin-events.controller";
 import { AdminActionsController } from "./admin-actions.controller";
 import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
+import { AdminKillSwitchController } from "./admin-kill-switch.controller";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
 import { type AdminCapability } from "./admin-capabilities";
@@ -290,5 +291,57 @@ describe("ADMIN-3b PII-reveal route — guarded + exactly one `reveal_pii` capab
       []) as Array<{ name: string; value: string }>;
     const cacheControl = headers.find((h) => h.name.toLowerCase() === "cache-control");
     expect(cacheControl?.value).toBe("no-store");
+  });
+});
+
+describe("ADMIN-3c kill-switch routes — guarded + toggle_kill_switch + SAFE-DIRECTION only (must-fix #4 extended, OQ-6)", () => {
+  const proto = AdminKillSwitchController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminKillSwitchController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  /** Read the @RequireAdminRole capability declared on a handler (method ∪ class). */
+  function capabilityOf(method: string): AdminCapability | undefined {
+    const fn = (proto[method] ?? undefined) as object | undefined;
+    return (
+      (fn && (Reflect.getMetadata(ADMIN_CAPABILITY_KEY, fn) as AdminCapability | undefined)) ??
+      (Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminKillSwitchController) as
+        | AdminCapability
+        | undefined)
+    );
+  }
+
+  it("discovers EXACTLY the two routes — a status READ + a pause-intent record (no enable/resume/toggle route, §2 #5)", () => {
+    // The safe-direction guarantee is STRUCTURAL: the only routes are a read and a pause-intent
+    // record. There is no enable/resume/activate route by construction (enabling stays env-gated).
+    expect(routeMethods.sort()).toEqual(["requestPause", "status"].sort());
+    for (const m of routeMethods) {
+      expect(m.toLowerCase()).not.toMatch(/enable|resume|activate|toggle/);
+    }
+  });
+
+  it("BOTH kill-switch routes carry AdminAuthGuard AND AdminRolesGuard (no open privileged route)", () => {
+    for (const method of routeMethods) {
+      const guards = effectiveGuards(AdminKillSwitchController, method);
+      expect(guards, `${method} must be behind AdminAuthGuard`).toContain(AdminAuthGuard.name);
+      expect(guards, `${method} must be behind AdminRolesGuard`).toContain(AdminRolesGuard.name);
+    }
+  });
+
+  it("BOTH routes declare EXACTLY ONE @RequireAdminRole('toggle_kill_switch') (super_admin break-glass, deny-by-default)", () => {
+    const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminKillSwitchController) as
+      | AdminCapability
+      | undefined;
+    expect(onClass, "AdminKillSwitchController must NOT declare a class-level capability").toBeUndefined();
+    for (const method of routeMethods) {
+      const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto[method] as object) as
+        | AdminCapability
+        | undefined;
+      expect(onMethod, `${method} must declare a method-level @RequireAdminRole`).toBeDefined();
+      expect(capabilityOf(method)).toBe("toggle_kill_switch");
+    }
   });
 });

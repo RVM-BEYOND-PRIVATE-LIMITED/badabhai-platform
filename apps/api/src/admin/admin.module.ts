@@ -24,6 +24,8 @@ import { AdminPiiRevealRepository } from "./admin-pii-reveal.repository";
 import { AdminPiiRevealCapService } from "./admin-pii-reveal-cap.service";
 import { AdminPiiRevealService } from "./admin-pii-reveal.service";
 import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
+import { AdminKillSwitchService } from "./admin-kill-switch.service";
+import { AdminKillSwitchController } from "./admin-kill-switch.controller";
 
 /**
  * Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1). The 4th, highly-
@@ -55,7 +57,12 @@ import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
  * (super_admin/support ONLY), behind the DEFAULT-OFF `ADMIN_PII_REVEAL_ENABLED` flag (neutral 404
  * when off). It audits BEFORE decrypt (`admin.pii_viewed`, value-free), per-admin rate-caps
  * fail-closed (`admin.pii_reveal_cap_exceeded` breach), and decrypts the phone ONLY into the HTTP
- * response (never logged/cached/persisted/evented). The kill-switch is ADMIN-3c. OBS-4 (migrating the existing
+ * response (never logged/cached/persisted/evented). ADMIN-3c adds the KILL-SWITCH surface
+ * (`AdminKillSwitchController`/`AdminKillSwitchService`): `GET /admin/kill-switch/status` (read-only
+ * DISPLAY) + `POST /admin/kill-switch/pause-request` (a value-free `admin.kill_switch_pause_requested`
+ * audit of a SAFE-DIRECTION pause INTENT), `toggle_kill_switch`-gated (super_admin ONLY). Per OQ-6 it
+ * DISPLAYS + records a pause intent ONLY — it NEVER enables a real provider (enabling stays
+ * env/deploy-gated, §2 #5); there is no enable/resume/toggle route by construction. OBS-4 (migrating the existing
  * ops read routes behind a dual-accept guard) is DEFERRED — this module does NOT touch the
  * existing ops/InternalService routes or `apps/web`. SSE live-tail is DEFERRED to ADMIN-7.
  */
@@ -79,6 +86,7 @@ import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
     AdminEventsController,
     AdminActionsController,
     AdminPiiRevealController,
+    AdminKillSwitchController,
   ],
   providers: [
     AdminRepository,
@@ -100,6 +108,10 @@ import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
     AdminPiiRevealRepository,
     AdminPiiRevealCapService,
     AdminPiiRevealService,
+    // ADMIN-3c: kill-switch surface — read-only DISPLAY + safe-direction PAUSE INTENT only. Reads
+    // existing server-config gates; emits a value-free `admin.kill_switch_pause_requested`. It NEVER
+    // enables a provider (enabling stays env/deploy-gated, §2 #5) — there is no enable code path.
+    AdminKillSwitchService,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })
