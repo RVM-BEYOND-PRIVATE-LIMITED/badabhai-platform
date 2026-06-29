@@ -67,8 +67,12 @@ class _Wired {
 /// Wires the full app graph over fakes. [seedRefresh] pre-seeds a remembered
 /// refresh token (a returning device); [scriptPin] swaps in a [ScriptablePinApi]
 /// (built over the SAME wired store) so a test can force PIN failures.
+/// [persistentAuth] toggles the PIN/lock gate — `false` exercises the inert
+/// (main-like) redirect (the real/default build).
 Future<_Wired> _wire(
-    {required bool seedRefresh, bool scriptPin = false}) async {
+    {required bool seedRefresh,
+    bool scriptPin = false,
+    bool persistentAuth = true}) async {
   GoogleFonts.config.allowRuntimeFetching = false;
   await locator.reset();
   final FakeSecureStore secure = FakeSecureStore();
@@ -83,6 +87,7 @@ Future<_Wired> _wire(
   await initAuthLocator(
     localeStore: LocaleStore(FakePrefs()),
     authApi: pinApi ?? MockAuthApi(store),
+    persistentAuthEnabled: persistentAuth,
   );
   await locator<AuthSessionManager>().bootstrap();
   return _Wired(secure, pinApi);
@@ -127,6 +132,27 @@ void main() {
     await _pumpUntil(tester, find.text('Get started'));
     await tester.tap(find.text('Get started'));
     await _pumpUntil(tester, find.text('Send OTP'));
+    expect(find.text('Send OTP'), findsOneWidget);
+    expect(find.text('PIN daalein'), findsNothing);
+  });
+
+  testWidgets(
+      'gate OFF (real/default build): redirect is INERT — a remembered token '
+      'does NOT force /pin; routing matches main',
+      (WidgetTester tester) async {
+    bigCanvas(tester);
+    // Seed a refresh token AND disable the gate: with the gate ON this cold-starts
+    // LOCKED (/pin). With it OFF, bootstrap short-circuits to loggedOut and the
+    // redirect never fires, so the worker can walk splash → login exactly as main.
+    await _wire(seedRefresh: true, persistentAuth: false);
+    await tester.pumpWidget(const BadaBhaiApp());
+
+    await _pumpUntil(tester, find.text('Get started'));
+    expect(find.text('PIN daalein'), findsNothing); // never bounced to /pin
+    await tester.tap(find.text('Get started'));
+    await _pumpUntil(tester, find.text('Send OTP'));
+
+    // Reached the phone-login surface — not force-redirected to /login or /pin.
     expect(find.text('Send OTP'), findsOneWidget);
     expect(find.text('PIN daalein'), findsNothing);
   });

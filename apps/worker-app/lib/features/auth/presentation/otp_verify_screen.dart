@@ -52,18 +52,21 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
       listenWhen: (prev, curr) => prev.status != curr.status,
       listener: (BuildContext context, OtpVerifyState state) {
         if (state.status == OtpVerifyStatus.success) {
-          // Route off the verify flags: a new user / no-PIN sets a PIN first;
-          // a returning worker with a PIN is already authenticated — the router
-          // redirect lifts them out of the onboarding stack into the shell, so
-          // we just nudge it by going to the consent gate (which itself routes
-          // on once the auth status is authenticated). For set-PIN we go to the
-          // set-PIN route explicitly.
-          if (state.next == OtpNext.setPin) {
-            context.go(Routes.setPin);
-          } else {
-            // Authenticated returning worker → straight to the shell (no
-            // re-profiling). The redirect would block onboarding routes anyway.
-            context.go(Routes.resume);
+          // Route off the resolved next-step (exhaustive — all three arms):
+          switch (state.next!) {
+            case OtpNext.onboarding:
+              // Persistent-auth OFF (real/default build until the backend
+              // /auth/* contract lands): replicate main's OTP→consent flow —
+              // PUSH the consent gate, then the worker walks consent → name →
+              // chat → profile → resume. No PIN; the auth redirect is inert.
+              context.push(Routes.consent);
+            case OtpNext.setPin:
+              // New user (gate ON) → choose a PIN before the shell.
+              context.go(Routes.setPin);
+            case OtpNext.authenticated:
+              // Returning worker with a PIN (gate ON) → straight to the shell
+              // (no re-profiling). The redirect blocks onboarding routes anyway.
+              context.go(Routes.resume);
           }
         } else if (state.status == OtpVerifyStatus.failure) {
           // Surface the verify failure instead of silently reverting the button.

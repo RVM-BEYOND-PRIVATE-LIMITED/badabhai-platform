@@ -31,6 +31,10 @@ void main() {
       when(() => manager.verifyOtp(any(), any())).thenAnswer(
         (_) async => _result(isNewUser: true, pinSet: false),
       );
+      // Gate ON: the cubit routes off the manager's resolved status; a new user
+      // resolves to `locked` (must set a PIN).
+      when(() => manager.persistentAuthEnabled).thenReturn(true);
+      when(() => manager.status).thenReturn(AuthStatus.locked);
       return OtpVerifyCubit(manager);
     },
     act: (OtpVerifyCubit c) => c.verify(phone: '+919912345678', otp: '1234'),
@@ -48,6 +52,10 @@ void main() {
       when(() => manager.verifyOtp(any(), any())).thenAnswer(
         (_) async => _result(isNewUser: false, pinSet: true),
       );
+      // Gate ON: a returning worker with a PIN resolves straight to
+      // `authenticated`.
+      when(() => manager.persistentAuthEnabled).thenReturn(true);
+      when(() => manager.status).thenReturn(AuthStatus.authenticated);
       return OtpVerifyCubit(manager);
     },
     act: (OtpVerifyCubit c) => c.verify(phone: '+919912345678', otp: '1234'),
@@ -55,6 +63,26 @@ void main() {
       OtpVerifyState(status: OtpVerifyStatus.submitting),
       OtpVerifyState(
           status: OtpVerifyStatus.success, next: OtpNext.authenticated),
+    ],
+  );
+
+  blocTest<OtpVerifyCubit, OtpVerifyState>(
+    'gate OFF (real/default build) -> success routes to main\'s onboarding',
+    build: () {
+      when(() => manager.verifyOtp(any(), any())).thenAnswer(
+        (_) async => _result(isNewUser: false, pinSet: false),
+      );
+      // Gate OFF: regardless of status, the cubit routes to onboarding (main's
+      // OTP→consent flow). The manager resolves to `authenticated` on the real
+      // path, but the gate check wins before status is ever read.
+      when(() => manager.persistentAuthEnabled).thenReturn(false);
+      when(() => manager.status).thenReturn(AuthStatus.authenticated);
+      return OtpVerifyCubit(manager);
+    },
+    act: (OtpVerifyCubit c) => c.verify(phone: '+919912345678', otp: '1234'),
+    expect: () => const <OtpVerifyState>[
+      OtpVerifyState(status: OtpVerifyStatus.submitting),
+      OtpVerifyState(status: OtpVerifyStatus.success, next: OtpNext.onboarding),
     ],
   );
 
@@ -85,6 +113,8 @@ void main() {
           return _result(isNewUser: false, pinSet: true);
         },
       );
+      when(() => manager.persistentAuthEnabled).thenReturn(true);
+      when(() => manager.status).thenReturn(AuthStatus.authenticated);
       return OtpVerifyCubit(manager);
     },
     act: (OtpVerifyCubit c) {

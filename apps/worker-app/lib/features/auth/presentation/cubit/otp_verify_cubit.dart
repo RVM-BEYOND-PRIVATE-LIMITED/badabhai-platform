@@ -7,11 +7,13 @@ import '../../domain/auth_session_manager.dart';
 
 enum OtpVerifyStatus { initial, submitting, success, failure }
 
-/// Where the OTP-verify success routes next, derived from the verify flags.
+/// Where the OTP-verify success routes next.
 ///
+///  - [onboarding] — persistent-auth OFF (real/default build): replicate main's
+///    OTP→consent onboarding; no PIN. The API bearer is the only auth gate.
 ///  - [setPin]    — new user or `pin_set=false`: must choose a PIN first.
 ///  - [authenticated] — returning worker with a PIN: straight into the app.
-enum OtpNext { setPin, authenticated }
+enum OtpNext { onboarding, setPin, authenticated }
 
 class OtpVerifyState extends Equatable {
   const OtpVerifyState({
@@ -59,11 +61,20 @@ class OtpVerifyCubit extends Cubit<OtpVerifyState> {
     if (state.isSubmitting) return;
     emit(state.copyWith(status: OtpVerifyStatus.submitting));
     try {
-      final result = await _manager.verifyOtp(phone, otp);
+      await _manager.verifyOtp(phone, otp);
       if (isClosed) return;
-      final OtpNext next = (result.pinSet && !result.isNewUser)
-          ? OtpNext.authenticated
-          : OtpNext.setPin;
+      // Route off the manager — the single source of truth that respects the
+      // persistent-auth gate. Gate OFF (real/default build) → main's OTP→consent
+      // onboarding (no PIN). Gate ON → `locked` means a new user must set a PIN,
+      // anything else means a returning worker goes straight to the shell.
+      final OtpNext next;
+      if (!_manager.persistentAuthEnabled) {
+        next = OtpNext.onboarding; // gate OFF → main's OTP→consent flow
+      } else if (_manager.status == AuthStatus.locked) {
+        next = OtpNext.setPin; // new user → set a PIN
+      } else {
+        next = OtpNext.authenticated; // returning worker → shell
+      }
       emit(state.copyWith(status: OtpVerifyStatus.success, next: next));
     } on AuthFailure catch (failure) {
       if (isClosed) return;

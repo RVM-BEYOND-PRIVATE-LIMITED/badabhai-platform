@@ -111,6 +111,7 @@ void main() {
         tokenStore: store,
         session: session,
         reauthSignal: reauth,
+        persistentAuthEnabled: true,
       );
 
   setUp(() {
@@ -263,6 +264,7 @@ void main() {
         tokenStore: store,
         session: session,
         reauthSignal: reauth,
+        persistentAuthEnabled: true,
       );
       await m.verifyOtp('+91999', '1234');
 

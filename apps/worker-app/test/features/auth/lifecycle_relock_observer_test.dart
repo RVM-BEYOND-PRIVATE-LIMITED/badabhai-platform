@@ -25,6 +25,7 @@ Future<_Ctx> _authenticated() async {
     tokenStore: store,
     session: session,
     reauthSignal: reauth,
+    persistentAuthEnabled: true,
   );
   await manager.verifyOtp('+91999', '1234');
   return _Ctx(manager, store, reauth);
@@ -97,6 +98,7 @@ void main() {
       tokenStore: store,
       session: SessionRepository(),
       reauthSignal: reauth,
+      persistentAuthEnabled: true,
     );
     await manager.bootstrap(); // loggedOut (no token)
 

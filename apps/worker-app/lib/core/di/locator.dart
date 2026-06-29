@@ -241,9 +241,14 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
 /// [MockAuthApi] over a fake secure store) to force the mock auth path for a
 /// mock-mode e2e — mirroring the [setupLocator] `apiClient` seam (the
 /// compile-time `kUseMocks` is false under a plain `flutter test`).
+/// [persistentAuthEnabled] mirrors the [authApi]/[localeStore] test seam: the
+/// compile-time [kPersistentAuth] const is false under a plain `flutter test`
+/// (no dart-define), so a test that walks the full PIN flow (or the mock-mode
+/// e2e) must force it ON the same way the mock api/store are forced.
 Future<void> initAuthLocator({
   LocaleStore? localeStore,
   AuthApi? authApi,
+  bool persistentAuthEnabled = kPersistentAuth,
 }) async {
   if (locator.isRegistered<AuthApi>()) return;
 
@@ -276,6 +281,7 @@ Future<void> initAuthLocator({
       tokenStore: locator<SecureTokenStore>(),
       session: locator<SessionRepository>(),
       reauthSignal: locator<ReauthSignal>(),
+      persistentAuthEnabled: persistentAuthEnabled,
     ),
   );
 }

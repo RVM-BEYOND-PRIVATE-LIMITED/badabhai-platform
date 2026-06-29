@@ -29,6 +29,7 @@ void main() {
       tokenStore: store,
       session: SessionRepository(),
       reauthSignal: reauth,
+      persistentAuthEnabled: true,
     );
 
     const String secretPin = '7416';
@@ -103,6 +104,7 @@ void main() {
       tokenStore: store,
       session: SessionRepository(),
       reauthSignal: reauth,
+      persistentAuthEnabled: true,
     );
 
     final List<String> printed = <String>[];

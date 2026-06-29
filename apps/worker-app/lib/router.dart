@@ -121,12 +121,18 @@ AuthSessionManager? _maybeAuth() =>
 ///  - `authenticated` → block the auth routes (bounce login/PIN into the shell);
 ///    onboarding + shell are otherwise allowed.
 ///
-/// Returns null (no redirect) when auth isn't wired (legacy widget tests) or
-/// while [AuthSessionManager.bootstrap] hasn't resolved the cold-start state yet
-/// (the worker simply waits on splash). Null otherwise means "stay put".
+/// Returns null (no redirect) when auth isn't wired (legacy widget tests), while
+/// [AuthSessionManager.bootstrap] hasn't resolved the cold-start state yet (the
+/// worker simply waits on splash), or when persistent-auth is DISABLED (the gate
+/// is inert — main's routing). Null otherwise means "stay put".
 String? _authRedirect(BuildContext context, GoRouterState state) {
   final AuthSessionManager? auth = _maybeAuth();
-  if (auth == null || !auth.isReady) return null;
+  // When persistent-auth is disabled (real/default build until the backend
+  // /auth/* contract lands), the gate is INERT — routing matches `main` exactly
+  // (splash→login→OTP→consent→onboarding→shell), with the API bearer
+  // (SessionRepository.sessionToken) as the only auth gate, as before. This also
+  // removes the /otp→/resume bounce that would otherwise fight the consent push.
+  if (auth == null || !auth.isReady || !auth.persistentAuthEnabled) return null;
 
   final String loc = state.matchedLocation;
   final bool onAuthRoute = _authRoutes.contains(loc);

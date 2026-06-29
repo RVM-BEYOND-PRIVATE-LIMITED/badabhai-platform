@@ -103,6 +103,7 @@ void main() {
     await initAuthLocator(
       localeStore: LocaleStore(FakePrefs()),
       authApi: MockAuthApi(locator<SecureTokenStore>()),
+      persistentAuthEnabled: true,
     );
     // Cold start: no remembered token → loggedOut → the journey starts at login.
     await locator<AuthSessionManager>().bootstrap();
