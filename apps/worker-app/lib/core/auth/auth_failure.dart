@@ -1,93 +1,78 @@
 import 'package:equatable/equatable.dart';
 
-/// The canonical set of auth error `code` strings the API returns in its error
-/// body (`{ "code": "PIN_LOCKED", ... }`). Logic keys off these constants — never
-/// off the human-readable `message`, which is for display only.
+/// The CLIENT-derived set of auth error codes.
 ///
-/// ASSUMED CONTRACT — reconcile with backend. These strings are the assumed
-/// wire values for the (not-yet-shipped) /auth/* error bodies. If the backend
-/// settles on different strings, change them HERE only.
+/// The REAL backend (ADR-0026) returns plain NestJS errors — `{ statusCode,
+/// message }` with NO `code` field, and PIN/refresh failures collapse to one
+/// opaque 401. So these codes are NOT parsed off the wire: they are derived by
+/// [AuthApi]'s endpoint-aware mapper from `(endpoint kind, HTTP status)`. Logic
+/// keys off these constants; the human-readable copy comes from
+/// `auth_error_messages.dart` (with the server `message` preferred where the
+/// contract surfaces a meaningful one — rate-limit / unavailable / weak-PIN).
 abstract final class AuthErrorCode {
-  /// Too many bad PIN attempts — locked for `retryAfter`.
-  static const String pinLocked = 'PIN_LOCKED';
-
-  /// Wrong PIN — `attemptsLeft` tries remain before a lock.
-  static const String pinInvalid = 'PIN_INVALID';
-
-  /// The server wants a fresh OTP login (e.g. PIN reset path).
-  static const String requiresOtp = 'REQUIRES_OTP';
-
-  /// A rotated refresh token was reused — treated as a compromise; force re-auth.
-  static const String refreshReuseDetected = 'REFRESH_REUSE_DETECTED';
-
-  /// OTP requested too often.
-  static const String otpRateLimited = 'OTP_RATE_LIMITED';
-
-  /// Wrong / expired OTP code.
+  /// Wrong / expired OTP code (otp/verify 401, pin/reset/confirm 401).
   static const String otpInvalid = 'OTP_INVALID';
 
-  /// This device's session was revoked from another device.
-  static const String deviceRevoked = 'DEVICE_REVOKED';
+  /// OTP requested / attempted too often (429 on the OTP + reset endpoints).
+  static const String otpRateLimited = 'OTP_RATE_LIMITED';
 
-  /// The access (or refresh) token is expired — drives the reactive refresh.
-  static const String tokenExpired = 'TOKEN_EXPIRED';
+  /// PIN unlock failed — NEUTRAL: the backend returns one opaque 401 on every
+  /// PIN failure (no oracle, no attempts-left, no retry-after).
+  static const String pinVerifyFailed = 'PIN_VERIFY_FAILED';
 
-  /// Synthetic (client-side) code for a transport/offline failure — never sent by
-  /// the server, emitted by the interceptor when a request can't reach the host.
+  /// PIN rejected as weak / malformed (pin/set 400, pin/reset/confirm 400).
+  static const String pinWeak = 'PIN_WEAK';
+
+  /// The session must re-authenticate from scratch (refresh 401 — invalid /
+  /// reuse / requires_otp, all neutral). Clears the store and bounces to OTP.
+  static const String reauthRequired = 'REAUTH_REQUIRED';
+
+  /// Provider / server unavailable (503).
+  static const String unavailable = 'UNAVAILABLE';
+
+  /// Transport / offline failure — emitted by the interceptor when a request
+  /// can't reach the host (never sent by the server).
   static const String network = 'NETWORK';
 
-  /// Synthetic (client-side) catch-all when the server gives no parseable code.
+  /// Catch-all when the (endpoint, status) pair has no specific mapping.
   static const String unknown = 'UNKNOWN';
-
-  /// The codes that mean "this device must log in again from scratch": clear the
-  /// secure store and bounce to OTP. The interceptor uses this set to decide when
-  /// to fire the reauth signal after a failed refresh.
-  static const Set<String> reauthRequired = <String>{
-    requiresOtp,
-    refreshReuseDetected,
-    deviceRevoked,
-  };
 }
 
-/// A typed auth error parsed from the API error body
-/// (`{ code, message, retry_after_seconds, attempts_left }`).
+/// A typed auth error built by [AuthApi]'s `(endpoint, status)` mapper.
 ///
 /// Standalone (NOT part of the sealed [Failure] hierarchy, which can't be
-/// extended cross-library): it carries the auth-specific `code` plus the
-/// rate-limit / lockout metadata the UI needs (countdown, remaining attempts).
-/// It is thrown by [AuthApi] methods and caught by PASS 2's cubits.
+/// extended cross-library). It carries a CLIENT-derived [code] plus the optional
+/// HTTP [statusCode] and a generic [message]. There is NO attempts-left /
+/// retry-after metadata — the real backend does not send any (PIN failures are a
+/// single opaque 401), so the UI shows neutral copy with a client-side
+/// "forgot PIN?" nudge instead of a countdown.
 ///
-/// PASS 2's UI maps [code] → localized copy via `auth_error_messages.dart`; it
-/// never shows [message] (which may carry server detail) directly.
+/// PASS 2's UI maps [code] → localized copy via `auth_error_messages.dart`
+/// (preferring the server [message] for the few codes where it is meaningful).
 class AuthFailure extends Equatable implements Exception {
   const AuthFailure(
     this.code, {
-    this.retryAfter,
-    this.attemptsLeft,
+    this.statusCode,
     this.message = 'Please try again.',
   });
 
   /// One of [AuthErrorCode]. Drives all logic + the localized message lookup.
   final String code;
 
-  /// A generic, PII-free fallback string. Display copy comes from
-  /// `auth_error_messages.dart` keyed by [code]; this is only a last resort.
+  /// The HTTP status the failure was derived from (null for synthetic/network).
+  final int? statusCode;
+
+  /// The server's PII-free `message` (or a generic fallback). Display copy comes
+  /// from `auth_error_messages.dart`; this is preferred only for the codes that
+  /// carry a meaningful server message (rate-limit / unavailable / weak-PIN).
   final String message;
 
-  /// Seconds to wait before retrying (from `retry_after_seconds`). Null when the
-  /// server did not send one (e.g. a plain invalid-PIN).
-  final Duration? retryAfter;
-
-  /// Remaining attempts before a lock (from `attempts_left`). Null when absent.
-  final int? attemptsLeft;
-
-  bool get isReauthRequired => AuthErrorCode.reauthRequired.contains(code);
+  bool get isReauthRequired => code == AuthErrorCode.reauthRequired;
   bool get isNetwork => code == AuthErrorCode.network;
 
   @override
-  List<Object?> get props => <Object?>[code, message, retryAfter, attemptsLeft];
+  List<Object?> get props => <Object?>[code, statusCode, message];
 
   @override
-  String toString() =>
-      'AuthFailure($code, retryAfter: $retryAfter, attemptsLeft: $attemptsLeft)';
+  String toString() => 'AuthFailure($code, statusCode: $statusCode)';
 }

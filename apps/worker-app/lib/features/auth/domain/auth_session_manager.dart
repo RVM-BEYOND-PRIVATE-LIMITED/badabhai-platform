@@ -115,9 +115,10 @@ class AuthSessionManager extends ChangeNotifier {
       _authApi.otpRequest(phoneE164);
 
   /// Verify [otp] for [phoneE164]. On success the fresh access token is bridged
-  /// into [SessionRepository]; with the persistent-auth layer ON the tokens +
-  /// worker id + pin_set flag are also persisted (by [AuthApi]/MockAuthApi into
-  /// [SecureTokenStore]).
+  /// into [SessionRepository]; with the persistent-auth layer ON the manager
+  /// also persists the tokens + worker id into [SecureTokenStore] (GAP A) so a
+  /// later cold start can reach the device-bound PIN fast path. Routing keys off
+  /// the SERVER `result.pinSet` + `result.isNewUser` (NOT a client flag).
   ///
   /// Returns the routing flags `{isNewUser, pinSet}`. With the layer ON a new
   /// user / no PIN routes to set-PIN ([locked]) while an existing PIN goes
@@ -126,6 +127,15 @@ class AuthSessionManager extends ChangeNotifier {
   /// exactly as on main. Throws [AuthFailure] on a bad / expired code.
   Future<OtpVerifyResult> verifyOtp(String phoneE164, String otp) async {
     final OtpVerifyResult result = await _authApi.otpVerify(phoneE164, otp);
+    // GAP A: persist the freshly minted tokens on the REAL path so a later cold
+    // start can find the refresh token and reach the device-bound PIN fast path.
+    // (MockAuthApi also writes the store; this re-persists the same values.)
+    // Gated on the layer being ON so the OFF/default build keeps no persisted
+    // state, exactly as on main.
+    if (_persistentAuthEnabled) {
+      await _persistTokens(result.tokens);
+      await _tokenStore.writeWorkerId(result.workerId);
+    }
     _bridge(
       accessToken: result.tokens.access,
       workerId: result.workerId,
@@ -153,18 +163,21 @@ class AuthSessionManager extends ChangeNotifier {
   }
 
   /// Unlock with the PIN: verifies against the persisted refresh token, mints a
-  /// FRESH token pair, bridges it into [SessionRepository], and authenticates.
-  /// On [AuthErrorCode.pinInvalid] / [AuthErrorCode.pinLocked] it throws the
-  /// typed failure (attempts-left / countdown) for the screen to render; the
-  /// status stays [locked]. Throws [AuthFailure].
+  /// FRESH token pair, persists + bridges it into [SessionRepository], and
+  /// authenticates. On a failed PIN it throws the NEUTRAL
+  /// [AuthErrorCode.pinVerifyFailed] (the backend gives one opaque 401, no
+  /// attempts/countdown); the status stays [locked]. Throws [AuthFailure].
   Future<void> unlockWithPin(String pin) async {
     final String? refresh = await _tokenStore.readRefreshToken();
     if (refresh == null || refresh.isEmpty) {
       // Nothing to unlock against — force a fresh OTP login.
       await _wipeAndLogOut();
-      throw const AuthFailure(AuthErrorCode.requiresOtp);
+      throw const AuthFailure(AuthErrorCode.reauthRequired);
     }
     final AuthTokens tokens = await _authApi.pinVerify(pin, refreshToken: refresh);
+    // GAP A: persist the rotated tokens so the next cold start stays on the fast
+    // path with the freshest refresh token.
+    await _persistTokens(tokens);
     final String? workerId = await _tokenStore.readWorkerId();
     _bridge(accessToken: tokens.access, workerId: workerId);
     _setStatus(AuthStatus.authenticated);
@@ -177,18 +190,35 @@ class AuthSessionManager extends ChangeNotifier {
     final String? refresh = await _tokenStore.readRefreshToken();
     if (refresh == null || refresh.isEmpty) {
       await _wipeAndLogOut();
-      throw const AuthFailure(AuthErrorCode.requiresOtp);
+      throw const AuthFailure(AuthErrorCode.reauthRequired);
     }
     final AuthTokens tokens = await _authApi.tokenRefresh(refresh);
+    // GAP A: persist the rotated tokens from the on-demand refresh too.
+    await _persistTokens(tokens);
     final String? workerId = await _tokenStore.readWorkerId();
     _bridge(accessToken: tokens.access, workerId: workerId);
     _setStatus(AuthStatus.authenticated);
   }
 
-  /// Forgot-PIN: re-runs the OTP flow for [phoneE164]; the screen then routes to
-  /// set-PIN to choose a fresh one. Just a thin alias over [requestOtp] kept as a
-  /// named intent so the forgot-PIN screen reads clearly.
-  Future<OtpRequestResult> forgotPin(String phoneE164) => requestOtp(phoneE164);
+  // --- Forgot-PIN (dedicated reset endpoints) -------------------------------
+
+  /// Forgot-PIN step 1: start the dedicated PIN-reset OTP flow for [phoneE164]
+  /// (POST /auth/pin/reset/request). Throws [AuthFailure] (e.g. otpRateLimited).
+  Future<void> requestPinReset(String phoneE164) =>
+      _authApi.pinResetRequest(phoneE164);
+
+  /// Forgot-PIN step 2: confirm the OTP AND set the new [pin] in one call
+  /// (POST /auth/pin/reset/confirm). On success, if a persisted refresh token
+  /// survives the worker can unlock with the NEW PIN ([locked]); otherwise they
+  /// must log in again ([loggedOut]). Throws [AuthFailure] on a bad OTP (401 →
+  /// otpInvalid) or a weak/format PIN (400 → pinWeak).
+  Future<void> confirmPinReset(String phoneE164, String otp, String pin) async {
+    await _authApi.pinResetConfirm(phoneE164, otp, pin);
+    final String? refresh = await _tokenStore.readRefreshToken();
+    _setStatus((refresh != null && refresh.isNotEmpty)
+        ? AuthStatus.locked
+        : AuthStatus.loggedOut);
+  }
 
   // --- Lifecycle re-lock ----------------------------------------------------
 
@@ -228,6 +258,20 @@ class AuthSessionManager extends ChangeNotifier {
   Future<void> revokeDevice(String deviceId) => _authApi.revokeDevice(deviceId);
 
   // --- internals ------------------------------------------------------------
+
+  /// GAP A: persist a freshly minted token set to [SecureTokenStore] so a cold
+  /// start finds the refresh token (reaching the device-bound PIN fast path) and
+  /// the proactive-refresh skew works off the real expiry. The access token is
+  /// kept in memory only (the store never writes it to disk). No-op when the
+  /// persistent-auth layer is OFF (the real/default build keeps no PIN gate).
+  Future<void> _persistTokens(AuthTokens tokens) async {
+    if (!_persistentAuthEnabled) return;
+    await _tokenStore.saveTokens(
+      refreshToken: tokens.refresh,
+      accessExpiresAt: tokens.accessExpiresAt,
+      accessToken: tokens.access,
+    );
+  }
 
   /// Mirror the fresh access token into the legacy [SessionRepository] so every
   /// worker-scoped call keeps its bearer. The worker id / phone are set on the

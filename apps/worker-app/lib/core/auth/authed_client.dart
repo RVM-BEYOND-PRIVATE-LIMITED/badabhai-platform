@@ -34,8 +34,8 @@ class AuthResponse {
 ///  - adds `Authorization: Bearer <access>` when `authed`,
 ///  - adds an `Idempotency-Key` (reused on retry) when `idempotent`,
 ///  - PROACTIVELY refreshes the access token if it is expired / within the skew,
-///  - REACTIVELY refreshes once on a 401 / `TOKEN_EXPIRED` and retries the
-///    original request a single time with the new token,
+///  - REACTIVELY refreshes once on a 401 and retries the original request a
+///    single time with the new token,
 ///  - dedupes concurrent refreshes behind ONE shared Future (single-flight),
 ///  - retries a flaky idempotent write (bounded, same key) on transport errors,
 ///  - on an unrecoverable refresh failure: clears the store + fires [ReauthSignal].
@@ -112,7 +112,7 @@ class AuthedClient {
       idempotencyKey: idempotencyKey,
     );
 
-    // Reactive refresh: a single retry on 401 / TOKEN_EXPIRED.
+    // Reactive refresh: a single retry on 401.
     if (authed && _isUnauthorized(res)) {
       final bool refreshed = await _refresh();
       if (refreshed) {
@@ -235,9 +235,7 @@ class AuthedClient {
     return AuthResponse(res.statusCode, body);
   }
 
-  bool _isUnauthorized(AuthResponse res) =>
-      res.statusCode == 401 ||
-      (res.body['code'] == AuthErrorCode.tokenExpired);
+  bool _isUnauthorized(AuthResponse res) => res.statusCode == 401;
 
   /// Proactive refresh: if the access token is missing or within [refreshSkew] of
   /// expiry, refresh before the request goes out.
@@ -295,12 +293,9 @@ class AuthedClient {
       return;
     }
 
-    // Non-2xx: decide between "force re-login" and "transient".
-    final String? code = res.body['code'] as String?;
-    if (code != null && AuthErrorCode.reauthRequired.contains(code)) {
-      await _forceReauth();
-      return;
-    }
+    // Non-2xx: the real backend collapses every unrecoverable refresh (invalid /
+    // reuse / requires_otp) to a NEUTRAL 401 (403 defensive). Force a fresh OTP
+    // login on those; treat anything else (5xx) as transient.
     if (res.statusCode == 401 || res.statusCode == 403) {
       await _forceReauth();
       return;

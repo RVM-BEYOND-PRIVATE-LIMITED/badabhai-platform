@@ -106,6 +106,84 @@ class FeedItem extends Equatable {
   List<Object?> get props => <Object?>[jobId, tradeKey, title, city, area, rank];
 }
 
+/// A worker's apply/skip decision row from `GET /me/applications` (the "Applied
+/// jobs" screen filters to `action == 'apply'`). Coarse, PII-free fields only —
+/// exactly the projection the ops service already returns. Parsing is defensive:
+/// missing optionals → null; a missing/bad date → epoch (never crashes).
+class AppliedJob extends Equatable {
+  const AppliedJob({
+    required this.jobId,
+    required this.tradeKey,
+    required this.title,
+    required this.city,
+    required this.area,
+    required this.action,
+    required this.reason,
+    required this.sourceSurface,
+    required this.rank,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String jobId;
+
+  /// One of the 15 alpha trades — kept as a plain String (no enum).
+  final String tradeKey;
+  final String title;
+  final String city;
+
+  /// Coarse locality bucket. Nullable — not every job has one.
+  final String? area;
+
+  /// 'apply' | 'skip' — the list mixes both; the screen shows only 'apply'.
+  final String action;
+
+  /// Coarse skip reason enum, or null for an apply. Nullable.
+  final String? reason;
+
+  /// Where the decision was taken: 'feed' | 'search' | 'share' | 'other'.
+  final String sourceSurface;
+
+  /// 1-based feed position the decision was taken from. Nullable.
+  final int? rank;
+
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  static DateTime _date(Object? v) =>
+      DateTime.tryParse(v as String? ?? '') ??
+      DateTime.fromMillisecondsSinceEpoch(0);
+
+  factory AppliedJob.fromJson(Map<String, dynamic> json) => AppliedJob(
+        jobId: json['job_id'] as String? ?? '',
+        tradeKey: json['trade_key'] as String? ?? '',
+        title: json['title'] as String? ?? '',
+        city: json['city'] as String? ?? '',
+        area: json['area'] as String?,
+        action: json['action'] as String? ?? '',
+        reason: json['reason'] as String?,
+        sourceSurface: json['source_surface'] as String? ?? 'other',
+        rank: (json['rank'] as num?)?.toInt(),
+        createdAt: _date(json['created_at']),
+        updatedAt: _date(json['updated_at']),
+      );
+
+  @override
+  List<Object?> get props => <Object?>[
+        jobId,
+        tradeKey,
+        title,
+        city,
+        area,
+        action,
+        reason,
+        sourceSurface,
+        rank,
+        createdAt,
+        updatedAt,
+      ];
+}
+
 /// Result of POST /applications/:jobId/apply.
 class ApplyResult extends Equatable {
   const ApplyResult({

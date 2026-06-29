@@ -119,6 +119,22 @@ class MockAuthApi extends AuthApi {
     // No-op in mock mode — the canned device list is regenerated on next read.
   }
 
+  @override
+  Future<void> pinResetRequest(String phoneE164) async {
+    await _delay();
+    // Canned success — mirrors POST /auth/pin/reset/request {phone} → 200.
+  }
+
+  @override
+  Future<void> pinResetConfirm(String phoneE164, String otp, String pin) async {
+    await _delay();
+    // Canned success — mirrors POST /auth/pin/reset/confirm → 204. The reset
+    // leaves the persisted refresh token intact so the worker can unlock with
+    // the new PIN; flip the in-process pin_set flag accordingly.
+    _pinSet = true;
+    await _tokenStore.writePinSet(true);
+  }
+
   Future<AuthTokens> _mintMockTokens() async {
     final DateTime expiresAt = DateTime.now().add(const Duration(minutes: 15));
     await _tokenStore.saveTokens(

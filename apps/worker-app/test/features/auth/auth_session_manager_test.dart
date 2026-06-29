@@ -100,6 +100,45 @@ class ScriptAuthApi extends AuthApi {
 
   @override
   Future<void> revokeDevice(String deviceId) async => revokeCalls++;
+
+  bool resetRequested = false;
+  bool resetConfirmed = false;
+
+  @override
+  Future<void> pinResetRequest(String phoneE164) async => resetRequested = true;
+
+  @override
+  Future<void> pinResetConfirm(String phone, String otp, String pin) async =>
+      resetConfirmed = true;
+}
+
+/// An api that mints tokens but does NOT write [SecureTokenStore] — proves the
+/// MANAGER (GAP A), not the api/mock, is what persists the tokens.
+class _NonPersistingApi extends AuthApi {
+  _NonPersistingApi() : super.withoutClient();
+
+  AuthTokens _mint(String access, String refresh) => AuthTokens(
+        access: access,
+        refresh: refresh,
+        accessExpiresAt: DateTime.now().add(const Duration(minutes: 15)),
+      );
+
+  @override
+  Future<OtpVerifyResult> otpVerify(String phone, String otp) async =>
+      OtpVerifyResult(
+        workerId: 'worker-np',
+        isNewUser: false,
+        pinSet: true,
+        tokens: _mint('access-otp-np', 'refresh-otp-np'),
+      );
+
+  @override
+  Future<AuthTokens> pinVerify(String pin, {required String refreshToken}) async =>
+      _mint('access-pin-np', 'refresh-pin-np');
+
+  @override
+  Future<AuthTokens> tokenRefresh(String refreshToken) async =>
+      _mint('access-ref-np', 'refresh-ref-np');
 }
 
 void main() {
@@ -197,15 +236,17 @@ void main() {
       expect(session.workerId, 'worker-9');
     });
 
-    test('PIN_INVALID throws and stays locked', () async {
+    test('a failed PIN throws NEUTRAL pinVerifyFailed and stays locked',
+        () async {
       await store.writeRefreshToken('refresh-1');
       await manager.bootstrap();
       api.throwOnPinVerify =
-          const AuthFailure(AuthErrorCode.pinInvalid, attemptsLeft: 2);
+          const AuthFailure(AuthErrorCode.pinVerifyFailed);
 
       await expectLater(
         manager.unlockWithPin('0000'),
-        throwsA(isA<AuthFailure>()),
+        throwsA(isA<AuthFailure>().having(
+            (AuthFailure f) => f.code, 'code', AuthErrorCode.pinVerifyFailed)),
       );
       expect(manager.status, AuthStatus.locked);
     });
@@ -302,6 +343,108 @@ void main() {
     await manager.revokeDevice('other');
     expect(api.revokeCalls, 1);
   });
+
+  group('GAP A: the MANAGER persists tokens to SecureTokenStore', () {
+    late AuthSessionManager m;
+    setUp(() {
+      m = AuthSessionManager(
+        authApi: _NonPersistingApi(),
+        tokenStore: store,
+        session: session,
+        reauthSignal: reauth,
+        persistentAuthEnabled: true,
+      );
+    });
+    tearDown(() => m.dispose());
+
+    test('verifyOtp persists the refresh token + worker id + access expiry',
+        () async {
+      await m.verifyOtp('+91999', '1234');
+      expect(await store.readRefreshToken(), 'refresh-otp-np');
+      expect(await store.readWorkerId(), 'worker-np');
+      expect(store.accessToken, 'access-otp-np');
+      expect(await store.readAccessExpiresAt(), isNotNull);
+    });
+
+    test('unlockWithPin persists the ROTATED tokens', () async {
+      await store.writeRefreshToken('seed-refresh');
+      await store.writeWorkerId('worker-np');
+      await m.bootstrap(); // locked
+
+      await m.unlockWithPin('7416');
+
+      expect(await store.readRefreshToken(), 'refresh-pin-np');
+      expect(store.accessToken, 'access-pin-np');
+    });
+
+    test('refresh persists the ROTATED tokens', () async {
+      await store.writeRefreshToken('seed-refresh');
+      await m.bootstrap();
+
+      await m.refresh();
+
+      expect(await store.readRefreshToken(), 'refresh-ref-np');
+      expect(store.accessToken, 'access-ref-np');
+    });
+
+    test('with the layer OFF, verifyOtp persists NOTHING (main-like)', () async {
+      final AuthSessionManager off = AuthSessionManager(
+        authApi: _NonPersistingApi(),
+        tokenStore: store,
+        session: session,
+        reauthSignal: reauth,
+        persistentAuthEnabled: false,
+      );
+      await off.verifyOtp('+91999', '1234');
+      expect(await store.readRefreshToken(), isNull);
+      expect(await store.readWorkerId(), isNull);
+      off.dispose();
+    });
+  });
+
+  group('GAP C: forgot-PIN drives the dedicated reset endpoints', () {
+    test('requestPinReset calls pin/reset/request', () async {
+      await manager.requestPinReset('+91999');
+      expect(api.resetRequested, isTrue);
+    });
+
+    test('confirmPinReset → locked when a refresh token survives', () async {
+      await store.writeRefreshToken('survives');
+      await manager.confirmPinReset('+91999', '123456', '4821');
+      expect(api.resetConfirmed, isTrue);
+      expect(manager.status, AuthStatus.locked);
+    });
+
+    test('confirmPinReset → loggedOut when NO refresh token remains', () async {
+      await manager.confirmPinReset('+91999', '123456', '4821');
+      expect(manager.status, AuthStatus.loggedOut);
+    });
+
+    test('confirmPinReset rethrows a bad-OTP AuthFailure', () async {
+      final AuthSessionManager m = AuthSessionManager(
+        authApi: _ThrowingResetApi(store),
+        tokenStore: store,
+        session: session,
+        reauthSignal: reauth,
+        persistentAuthEnabled: true,
+      );
+      await expectLater(
+        m.confirmPinReset('+91999', '000000', '4821'),
+        throwsA(isA<AuthFailure>()
+            .having((AuthFailure f) => f.code, 'code', AuthErrorCode.otpInvalid)),
+      );
+      m.dispose();
+    });
+  });
+}
+
+/// A reset api whose confirm throws an OTP-invalid failure (401 path).
+class _ThrowingResetApi extends ScriptAuthApi {
+  _ThrowingResetApi(super.store);
+
+  @override
+  Future<void> pinResetConfirm(String phone, String otp, String pin) async =>
+      throw const AuthFailure(AuthErrorCode.otpInvalid);
 }
 
 /// An api whose logout throws — proves the offline-safe local wipe.

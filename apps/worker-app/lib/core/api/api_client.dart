@@ -255,6 +255,26 @@ class ApiClient {
         .toList();
   }
 
+  /// Fetches the worker's own applied/skipped jobs for the "Applied jobs" screen.
+  /// Worker-scoped — the worker is derived from [authToken] (never a param), like
+  /// [getFeed]. Returns the raw list (apply + skip MIXED); the repository filters
+  /// to `action == 'apply'`. Coarse, PII-free fields only.
+  ///
+  /// ASSUMED / NOT-YET-BUILT endpoint — reconcile with backend when it ships
+  /// (mirrors the ops `applicationsForWorker` projection; today only the
+  /// ops-internal GET /workers/:workerId/applications exists, which the worker
+  /// app must NOT call). Runs on MockApiClient until then.
+  Future<List<AppliedJob>> getMyApplications({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/me/applications', authToken: authToken);
+    final List<dynamic> apps =
+        json['applications'] as List<dynamic>? ?? <dynamic>[];
+    return apps
+        .whereType<Map<String, dynamic>>()
+        .map(AppliedJob.fromJson)
+        .toList();
+  }
+
   /// Records an APPLY decision on [jobId] (idempotent server-side). Worker-scoped
   /// — requires [authToken]. [rank] is the 1-based feed position the apply was
   /// taken from (nullable); [sourceSurface] mirrors the API enum and defaults to

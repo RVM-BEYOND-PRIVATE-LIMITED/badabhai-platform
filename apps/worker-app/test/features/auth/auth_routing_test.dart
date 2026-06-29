@@ -173,12 +173,14 @@ void main() {
     expect(find.text('Your privacy'), findsNothing); // consent never shown
   });
 
-  testWidgets('PIN_INVALID shows attempts-left and stays on the PIN screen',
-      (WidgetTester tester) async {
+  testWidgets(
+      'a failed PIN shows NEUTRAL copy (no attempts/countdown) and stays on '
+      'the PIN screen', (WidgetTester tester) async {
     bigCanvas(tester);
     final _Wired w = await _wire(seedRefresh: true, scriptPin: true);
+    // The real backend returns one opaque 401 per failure → pinVerifyFailed.
     w.pinApi!.pinVerifyFailure =
-        const AuthFailure(AuthErrorCode.pinInvalid, attemptsLeft: 2);
+        const AuthFailure(AuthErrorCode.pinVerifyFailed);
 
     await tester.pumpWidget(const BadaBhaiApp());
     await _pumpUntil(tester, find.text('PIN daalein'));
@@ -186,39 +188,44 @@ void main() {
     await _enterPin(tester, '0000');
     await tester.pump(const Duration(milliseconds: 400));
 
-    expect(find.text('Galat PIN (2 tries bachi).'), findsOneWidget);
-    expect(find.text('PIN daalein'), findsOneWidget); // still locked screen
-  });
-
-  testWidgets('PIN_LOCKED disables the keypad and shows a countdown',
-      (WidgetTester tester) async {
-    bigCanvas(tester);
-    final _Wired w = await _wire(seedRefresh: true, scriptPin: true);
-    w.pinApi!.pinVerifyFailure = const AuthFailure(
-      AuthErrorCode.pinLocked,
-      retryAfter: Duration(minutes: 2),
-    );
-
-    await tester.pumpWidget(const BadaBhaiApp());
-    await _pumpUntil(tester, find.text('PIN daalein'));
-
-    await _enterPin(tester, '0000');
-    await tester.pump(const Duration(milliseconds: 400));
-
+    // Neutral PIN line — no "tries bachi" / countdown copy anywhere.
     expect(
-      find.text('Bahut galat tries — 2 minute baad dobara try karein.'),
+      find.text("PIN sahi nahi — dobara try karein, ya 'PIN bhool gaye?'"),
       findsOneWidget,
     );
-    // Keypad disabled: a further tap must NOT add a dot / call verify again.
+    expect(find.textContaining('tries'), findsNothing);
+    expect(find.textContaining('minute'), findsNothing);
+    expect(find.text('PIN daalein'), findsOneWidget); // still on the PIN screen
+
+    // The keypad is NOT disabled (no lockout) — another digit registers.
     await tester.tap(find.descendant(
       of: find.byType(BbPinKeypad),
       matching: find.text('1'),
     ));
     await tester.pump();
-    // Still showing the lock copy (no new verify attempt cleared it).
-    expect(
-      find.text('Bahut galat tries — 2 minute baad dobara try karein.'),
-      findsOneWidget,
-    );
+    // A partial entry doesn't auto-submit; still on the PIN screen.
+    expect(find.text('PIN daalein'), findsOneWidget);
+  });
+
+  testWidgets('after ≥3 soft fails the screen nudges toward forgot-PIN',
+      (WidgetTester tester) async {
+    bigCanvas(tester);
+    final _Wired w = await _wire(seedRefresh: true, scriptPin: true);
+    w.pinApi!.pinVerifyFailure =
+        const AuthFailure(AuthErrorCode.pinVerifyFailed);
+
+    await tester.pumpWidget(const BadaBhaiApp());
+    await _pumpUntil(tester, find.text('PIN daalein'));
+
+    // Below the threshold the gentle link shows.
+    expect(find.text('PIN bhool gaye?'), findsOneWidget);
+
+    for (int i = 0; i < 3; i++) {
+      await _enterPin(tester, '0000');
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    // After 3 fails the emphasized nudge replaces the plain link.
+    expect(find.text('PIN bhool gaye? Naya PIN banayein'), findsOneWidget);
   });
 }
