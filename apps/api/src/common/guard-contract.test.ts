@@ -31,6 +31,7 @@ import { AgencyJobsController } from "../agency/agency-jobs.controller";
 import { AgencyInvitesController } from "../agency/agency-invites.controller";
 import { AdminAuthController } from "../admin/admin-auth.controller";
 import { AdminEventsController } from "../admin/admin-events.controller";
+import { AdminActionsController } from "../admin/admin-actions.controller";
 
 /**
  * AUTHZ CONTRACT — the single source of truth for which guards protect every
@@ -220,6 +221,27 @@ const CONTRACT: ControllerContract[] = [
       trace: [A, AR],
       getOne: [A, AR],
       timeline: [A, AR],
+    },
+  },
+  // Admin Ops Portal GOVERNED ENTITY ACTIONS (ADR-0025 ADMIN-3a). EVERY write route is behind
+  // the admin session (AdminAuthGuard) + vertical RBAC (AdminRolesGuard, exactly one
+  // @RequireAdminRole each): suspend_payer / grant_credits / force_close_posting / flag_worker
+  // (super_admin+ops_admin) and manage_admins (super_admin ONLY). The per-capability authz is
+  // asserted in admin-actions.authz.test.ts; the one-role-per-route + spine-immutability in the
+  // static-guards test. One principal per route; the actor is the session admin, never a body.
+  {
+    name: "AdminActions",
+    ctor: AdminActionsController,
+    routes: {
+      suspendPayer: [A, AR],
+      reinstatePayer: [A, AR],
+      grantCredits: [A, AR],
+      forceClosePosting: [A, AR],
+      flagWorker: [A, AR],
+      unflagWorker: [A, AR],
+      inviteAdmin: [A, AR],
+      changeAdminRole: [A, AR],
+      suspendAdmin: [A, AR],
     },
   },
 ];

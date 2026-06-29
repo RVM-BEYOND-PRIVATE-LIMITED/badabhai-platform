@@ -6,6 +6,7 @@ import {
   type EventName,
 } from "@badabhai/event-schema";
 import type { ServerConfig } from "@badabhai/config";
+import type { Database } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsRepository, type EventToInsert } from "./events.repository";
 
@@ -18,6 +19,11 @@ import { EventsRepository, type EventToInsert } from "./events.repository";
  * no-op at the DB (`ON CONFLICT DO NOTHING`) — exactly-once in the events table.
  * Omit it for events that are legitimately repeatable (e.g. otp resends,
  * behavioural actions), which then always insert.
+ *
+ * `tx` (must-fix H3): an optional transaction executor. When supplied the event
+ * row is inserted on THAT transaction, so a caller can commit a system-of-record
+ * write + its event atomically (emit-failure rolls back the SoR write; success
+ * commits both). Omit it for the default standalone insert.
  */
 export type EmitParams<N extends EventName> = Omit<
   CreateEventInput<N>,
@@ -27,6 +33,7 @@ export type EmitParams<N extends EventName> = Omit<
   causationId?: string | null;
   requestId?: string;
   idempotencyKey?: string;
+  tx?: Database;
 };
 
 /**
@@ -47,7 +54,7 @@ export class EventsService {
   async emit<N extends EventName>(params: EmitParams<N>): Promise<BadaBhaiEvent<N>> {
     const { event, idempotencyKey } = this.build(params);
 
-    const written = await this.repo.insert(event, idempotencyKey);
+    const written = await this.repo.insert(event, idempotencyKey, params.tx);
     if (written) {
       this.logger.log(
         `event=${event.event_name} subject=${event.subject.subject_type}:${event.subject.subject_id ?? "-"} correlation=${event.correlation_id}`,
@@ -97,7 +104,7 @@ export class EventsService {
   private build<N extends EventName>(
     params: EmitParams<N>,
   ): { event: BadaBhaiEvent<N>; idempotencyKey?: string } {
-    const { correlationId, causationId, requestId, idempotencyKey, ...rest } = params;
+    const { correlationId, causationId, requestId, idempotencyKey, tx: _tx, ...rest } = params;
     const event = createEvent<N>({
       ...rest,
       source: "api",

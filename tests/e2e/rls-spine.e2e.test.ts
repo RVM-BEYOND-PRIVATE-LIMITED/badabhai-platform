@@ -68,6 +68,7 @@ const LOCKED_TABLES = [
   "pace_states", // ADR-0021: pace supply-widening state (PII-free); RLS+FORCE+REVOKE in migration 0023
   "agency_invites", // ADR-0022: agency supply-attribution INTENT (faceless); invited_worker_id is a payer→worker handle → RLS+FORCE+REVOKE in migration 0025
   "admin_users", // ADR-0025: admin ops portal identity (admin-class PII = the admin's OWN encrypted email + authz state); RLS+FORCE+REVOKE in migration 0026
+  "worker_flags", // ADR-0025 (ADMIN-3a): admin worker flag/unflag metadata (faceless — opaque worker/admin ids + reason CODE, joins back to identity); RLS+FORCE+REVOKE in migration 0027
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

@@ -17,6 +17,9 @@ import { AdminAuthController } from "./admin-auth.controller";
 import { AdminEventsRepository } from "./admin-events.repository";
 import { AdminEventsService } from "./admin-events.service";
 import { AdminEventsController } from "./admin-events.controller";
+import { AdminActionsRepository } from "./admin-actions.repository";
+import { AdminActionsService } from "./admin-actions.service";
+import { AdminActionsController } from "./admin-actions.controller";
 
 /**
  * Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1). The 4th, highly-
@@ -36,9 +39,15 @@ import { AdminEventsController } from "./admin-events.controller";
  * query API (`AdminEventsController`/`AdminEventsService`/`AdminEventsRepository`): list/detail/
  * trace/timeline/metrics/export, all `read_events`-gated except export (`export` capability,
  * super_admin/ops_admin only). The events repository is SELECT-ONLY (spine immutability, must-fix
- * #3). The entity actions + PII reveal remain ADMIN-3. OBS-4 (migrating the existing ops read
- * routes behind a dual-accept guard) is DEFERRED — this module does NOT touch the existing
- * ops/InternalService routes or `apps/web`. SSE live-tail is DEFERRED to ADMIN-7.
+ * #3). ADMIN-3a adds the GOVERNED ENTITY ACTIONS (`AdminActionsController`/`AdminActionsService`/
+ * `AdminActionsRepository`): suspend/reinstate payer, grant credits, force-close posting,
+ * flag/unflag worker, and admin management (invite/role/suspend, `manage_admins` super_admin
+ * only). Each mutates a SYSTEM-OF-RECORD table and emits EXACTLY ONE value-free
+ * `admin.action_performed` via EventsService — the spine stays append-only (must-fix #3): the
+ * actions repository writes payers/credit_ledger/job_postings/worker_flags/admin_users, NEVER
+ * `events`. PII reveal remains ADMIN-3b; the kill-switch ADMIN-3c. OBS-4 (migrating the existing
+ * ops read routes behind a dual-accept guard) is DEFERRED — this module does NOT touch the
+ * existing ops/InternalService routes or `apps/web`. SSE live-tail is DEFERRED to ADMIN-7.
  */
 @Module({
   imports: [
@@ -55,7 +64,7 @@ import { AdminEventsController } from "./admin-events.controller";
       }),
     }),
   ],
-  controllers: [AdminAuthController, AdminEventsController],
+  controllers: [AdminAuthController, AdminEventsController, AdminActionsController],
   providers: [
     AdminRepository,
     AdminSessionService,
@@ -67,6 +76,9 @@ import { AdminEventsController } from "./admin-events.controller";
     // ADMIN-2: read-only event-spine query API (select-only over `events`).
     AdminEventsRepository,
     AdminEventsService,
+    // ADMIN-3a: governed entity actions (system-of-record writes + one value-free event each).
+    AdminActionsRepository,
+    AdminActionsService,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })

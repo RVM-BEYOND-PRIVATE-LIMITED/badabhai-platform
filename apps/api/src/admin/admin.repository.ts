@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { eq } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import {
   type Database,
   adminUsers,
@@ -67,14 +67,27 @@ export class AdminRepository {
   }
 
   /**
+   * Count the currently-ACTIVE super_admins (L1 last-super_admin lockout guard). Used to reject
+   * a suspend/demote that would leave ZERO active super_admins (an org-wide `manage_admins`
+   * lockout). Value-free: a count only, no PII.
+   */
+  async countActiveSuperAdmins(): Promise<number> {
+    const [row] = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(adminUsers)
+      .where(and(eq(adminUsers.role, "super_admin"), eq(adminUsers.status, "active")));
+    return row?.n ?? 0;
+  }
+
+  /**
    * Create an admin (invite). `status` defaults to `'pending'` at the DB (ADR-0025 OQ-2,
    * invite-then-activate) — a created-but-unactivated admin authenticates to NOTHING.
    * Encrypts the email at rest + stores its keyed hash. Returns the new id only (never the
    * email). Idempotent enough for callers: a duplicate email 23505s on `admin_users_email_hash_uq`.
    */
-  async create(input: CreateAdminInput): Promise<{ id: string }> {
+  async create(input: CreateAdminInput, tx: Database = this.db): Promise<{ id: string }> {
     const normEmail = AdminRepository.normEmail(input.email);
-    const [row] = await this.db
+    const [row] = await tx
       .insert(adminUsers)
       .values({
         role: input.role,
@@ -112,5 +125,53 @@ export class AdminRepository {
       .update(adminUsers)
       .set({ lastLoginAt: new Date(), updatedAt: new Date() })
       .where(eq(adminUsers.id, id));
+  }
+
+  // ---------------------------------------------------------------------------
+  // ADMIN-3a governed admin_users management (ADR-0025 Decision 3 — `manage_admins`,
+  // super_admin only). The role/status are enum CODES pinned at the DB (the role/status
+  // CHECKs); no PII is read or written here. The decrypted email never appears.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Run `cb` inside one Drizzle transaction — the actions service uses this to commit the
+   * admin_users SoR write + its `admin.action_performed` event atomically (must-fix H3).
+   */
+  withTransaction<T>(cb: (tx: Database) => Promise<T>): Promise<T> {
+    return this.db.transaction(cb as (tx: unknown) => Promise<T>);
+  }
+
+  /**
+   * Change an admin's RBAC role. Returns the updated raw row (ciphertext email — never
+   * decrypted) or undefined when no row matched the id. The new role is an enum CODE; it is
+   * recorded on THIS row (the system-of-record), never in the emitted event payload.
+   *
+   * SAME-ROLE NO-OP (L2): guarded on `role != newRole` so a role X→X PATCH matches NO row →
+   * undefined (the service suppresses the bump + the event, mirroring the other terminal no-ops).
+   * `tx` runs the write on a caller transaction (H3) so it commits with the event atomically.
+   */
+  async updateRole(id: string, role: AdminRole, tx: Database = this.db): Promise<AdminUser | undefined> {
+    const [row] = await tx
+      .update(adminUsers)
+      .set({ role, updatedAt: new Date() })
+      .where(and(eq(adminUsers.id, id), ne(adminUsers.role, role)))
+      .returning();
+    return row;
+  }
+
+  /**
+   * Suspend an admin (→ status 'suspended'). IDEMPOTENT + terminal: guarded on the current
+   * status NOT already 'suspended', so a re-invoke matches no row and returns undefined — the
+   * service treats that as an idempotent no-op (no duplicate event). A suspended admin
+   * authenticates to NOTHING (only 'active' may auth). `tx` runs the write on a caller
+   * transaction (H3) so it commits with the event atomically.
+   */
+  async suspend(id: string, tx: Database = this.db): Promise<AdminUser | undefined> {
+    const [row] = await tx
+      .update(adminUsers)
+      .set({ status: "suspended" satisfies AdminStatus, updatedAt: new Date() })
+      .where(and(eq(adminUsers.id, id), ne(adminUsers.status, "suspended")))
+      .returning();
+    return row;
   }
 }

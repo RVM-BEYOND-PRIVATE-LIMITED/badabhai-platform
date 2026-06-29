@@ -9,6 +9,7 @@ import { AdminMfaSecretStore } from "./admin-mfa.store";
 import { AdminAuthService } from "./admin-auth.service";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard } from "./admin-roles.guard";
+import { AdminActionsController } from "./admin-actions.controller";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
 
@@ -34,6 +35,13 @@ describe("AdminModule wiring (DI regression guard)", () => {
 
   it("declares the admin auth controller", () => {
     expect(getMeta("controllers", AdminModule)).toContain(AdminAuthController);
+  });
+
+  it("declares the ADMIN-3a governed-actions controller + provides its service/repository", () => {
+    expect(getMeta("controllers", AdminModule)).toContain(AdminActionsController);
+    const tokens = providerTokens();
+    expect(tokens).toContain("AdminActionsService");
+    expect(tokens).toContain("AdminActionsRepository");
   });
 
   it("provides the repository, session, OTP, MFA-store, auth service, and both guards", () => {
