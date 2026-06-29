@@ -178,6 +178,8 @@ Payloads carry `worker_id` + opaque ids/hashes (`device_hash`, `session id`,
 - **Keep single-factor OTP-only** — rejected: re-OTP on every cold start now costs
   real money and gives poor UX for low-literacy returning workers.
 
+---
+
 ## Phase 3 addendum (as-built) — device-unlock PIN
 
 > Records the device-bound PIN **as actually built** (Rollout step 3). It does **not**
@@ -300,3 +302,211 @@ events, `ai_jobs`, `audit_logs`, logs, or LLM input. `worker_credentials` stays 
 method is `worker_id`-scoped). Migration **0030** (adds `otp_cycle_count` + `pepper_version`) is
 **additive / reversible** — no column drop, no event-payload mutation (§8). Auth never calls an
 LLM, so the pseudonymization gate (CLAUDE.md §3) is untouched.
+
+## Phase 5 addendum (as-built design) — DPDP worker-initiated account deletion
+
+- Addendum status: **Design accepted; build gated** (the destructive endpoint + any
+  `onDelete` migration are §7 escalations — see decision 7). Date: 2026-06-29.
+- Scope: `apps/api/src/auth/*` (new endpoints on the existing `AuthController`),
+  `packages/event-schema` (one new PII-free event), `packages/db` (one `onDelete`
+  posture change on two billing tables — **flagged, see decision 3**), and
+  `apps/api/src/storage` (one new prefix-scoped erasure method). No PIN/session
+  primitive changes — Phase 5 **reuses** the OTP + session-revoke + cascade primitives
+  built in Phases 1–3.
+
+This is Rollout step 5. It realizes the `DELETE /account` line of the main Decision as a
+two-step, step-up-OTP, actor-scoped erasure. The seven decisions below are the design of
+record; nothing here relaxes the §2/§5/§6 invariants.
+
+### D1 — Endpoint shape (two-step, step-up OTP, identity from the guard)
+
+Two endpoints on the existing `@Controller("auth")`, both `WorkerAuthGuard`-protected
+(identity from the token's `worker.id`, **never** the body):
+
+- `POST /auth/account/delete/request` — `WorkerAuthGuard`. Decrypts the worker's phone
+  (`WorkersRepository` + `PiiCryptoService`), calls the **existing**
+  `OtpService.issueAndSend(phoneE164)` (real Fast2SMS, throttled, global daily cap),
+  returns `{ resend_in_seconds }`. No body. Idempotent under the OTP cooldown.
+- `POST /auth/account/delete/confirm` — `WorkerAuthGuard` + `{ otp }` in the body.
+  Re-derives the phone from the **token-bound** worker, calls the **existing**
+  `OtpService.verify(phoneE164, otp)` (constant-time, single-use, throws on bad), then
+  executes the erasure orchestration (D4) and returns `204`.
+
+Rationale: deletion is **irreversible**, so it gets the strongest gate we have —
+re-proving possession of the SIM (step-up OTP) on top of an already-authenticated
+session. Two steps mirror `pin/reset/request`+`confirm`. We deliberately do **not** add a
+`DELETE /account` verb; the two `POST` actions read clearer for a destructive workflow and
+keep the body-carries-OTP shape. The confirm's identity is the guard's `worker.id`; the
+body carries **only** the OTP code — a worker can never delete another worker by id.
+
+### D2 — Hard-delete + a minimal PII-free tombstone
+
+**Hard-delete the `workers` row** (DPDP right-to-erasure — raw PII GONE; the cascade in D3
+erases every PII-bearing child). We do **not** soft-delete (a `status='deleted'` row would
+retain encrypted phone + name and fail the erasure intent).
+
+**Retain one PII-free tombstone row** in a new `worker_deletions` table (or, if a row is
+preferred over a table, reuse the events spine alone — see trade-off):
+`id`, `phone_hash` (the keyed HMAC blind index — **not reversible to a phone**, already the
+only phone derivative allowed outside `workers` per §2), `deleted_at`, optional
+`cooldown_until`. Purpose: (a) block immediate re-registration abuse / OTP-spend churn via a
+short cool-down keyed on `phone_hash`; (b) give OTP-request a deterministic "this number was
+deleted" branch without resurrecting identity. `phone_hash` is **PII-free by the same rule
+that lets it appear in `worker.created`** — it is a non-brute-forceable HMAC, never the
+number. Nothing else is retained: no ciphertext phone, no name, no device hash.
+
+Trade-off (decided): a dedicated `worker_deletions` table is cleaner than overloading the
+events spine for the cool-down read (events is append-only audit, not a lookup index). If
+the team prefers zero new tables, the cool-down can instead live as a Redis key
+`deleted_phone:<phone_hash>` with a TTL — **recommended fallback**, since the cool-down is
+inherently time-bounded and a Redis flush losing it only re-opens normal registration (fail-
+open is acceptable for an anti-abuse cool-down, never for auth). **Recommendation: Redis-TTL
+cool-down keyed on `phone_hash`; no new table.** The durable record of the deletion is the
+PII-free `worker.account_deleted` event (D5).
+
+> **AS-BUILT:** the **Redis-TTL tombstone** was chosen — `AccountDeletionService` sets
+> `deleted_phone:<phone_hash>` with `ACCOUNT_DELETION_COOLDOWN_SECONDS` TTL (default 7d),
+> **no `worker_deletions` table**. The set is **fail-open** (a Redis error logs + continues —
+> it never aborts the completed erasure). `phone_hash` is the keyed-HMAC blind index (the only
+> §2-permitted retained phone derivative); the raw phone is never stored.
+
+### D3 — Per-table fate map (every FK into `workers.id`)
+
+CASCADE-erase = PII-bearing child, erased by the existing `onDelete: "cascade"`. The
+schema today cascades **all** of these:
+
+| Table | Line | Current `onDelete` | Fate | Note |
+|---|---|---|---|---|
+| `worker_consents` | 133 | cascade | **CASCADE-erase** | consent records are worker-scoped PII context |
+| `worker_devices` | 167 | cascade | **CASCADE-erase** | device hash + push token |
+| `worker_credentials` | 224 | cascade | **CASCADE-erase** | PIN hash/salt |
+| `worker_profiles` | 251 | cascade | **CASCADE-erase** | extracted profile |
+| `chat_sessions` | 296 | cascade | **CASCADE-erase** | conversation state |
+| `voice_notes` | 327 | cascade | **CASCADE-erase** (row) + ⚠ **audio-blob LAUNCH GATE** | the row (incl. `storage_path` + transcripts) cascade-erases, but the AUDIO BLOB at `storage_path` must also be erased from object storage. Today voice upload is a Phase-1 placeholder (client-supplied path, **no backend audio bucket**), so there is nothing to erase. D4 wires a **dormant erase seam** (`listVoiceStorageKeys` → erase via `VOICE_NOTES_BUCKET`, unset today → no-op). **Launch gate (security Finding 1 / R25):** before any real audio bucket ships, audio MUST live in `VOICE_NOTES_BUCKET` (or under `conversationWorkerPrefix`) so deletion covers it — else raw voice PII survives a DSAR. |
+| `chat_messages` | 364 | cascade | **CASCADE-erase** | message bodies |
+| `generated_resumes` | 387 | cascade | **CASCADE-erase** | resume rows (PDFs handled in D4) |
+| `worker_answers` | 590 | cascade | **CASCADE-erase** | questionnaire answers |
+| `applications` | 848 | cascade | **CASCADE-erase** | swipe decisions (worker-owned, not billing) |
+| `worker_flags` | ~1505 | cascade | **CASCADE-erase** | flags are PII-free codes but worker-scoped; erasing with the worker is acceptable (no billing/legal value) |
+| `invites.inviterWorkerId` | 1256 | **cascade** | **⚠ FLAG → RETAIN (SET NULL)** | inviter is an *intent/attribution* row; cascading destroys referral history. See flag below. |
+| `invites.invitedWorkerId` | 1258 | set null | **RETAIN (SET NULL)** | already correct — attribution handle nulls out |
+| `agency_invites.invitedWorkerId` | 1326 | set null | **RETAIN (SET NULL)** | already correct (schema comment: "keep INTENT history intact") |
+| **`unlocks.workerId`** | **936** | **cascade** | **⚠ FLAG → RETAIN (SET NULL)** | a **paid** contact-unlock grant. Cascading **destroys billing history**. See flag. |
+| **`resume_disclosures.workerId`** | **1173** | **cascade** | **⚠ FLAG → RETAIN (SET NULL)** | a PII-disclosure grant on the consent+caps spine. Cascading destroys disclosure history. See flag. |
+
+> **DESIGN QUESTION (do not resolve silently — §7).** Three tables currently
+> `onDelete: "cascade"` from `workers.id` that arguably should **survive** a DSAR
+> hard-delete as PII-free billing/intent history: **`unlocks`** (a paid grant),
+> **`resume_disclosures`** (a logged PII disclosure), and **`invites.inviter_worker_id`**
+> (referral attribution). These rows are **already PII-free by construction** (opaque
+> ids only — confirmed in schema headers: `unlocks` line 922, `resume_disclosures` line
+> 1162). DPDP erasure requires removing the worker's **PII**, not necessarily an
+> anonymous record that they were once unlocked/disclosed/referred — and the platform has
+> a legitimate financial-record interest in retaining the *fact* of a paid unlock.
+>
+> **Recommendation:** change these three FKs from `cascade` to **`set null`** (make
+> `unlocks.worker_id` / `resume_disclosures.worker_id` / `invites.inviter_worker_id`
+> nullable) so the **money/intent row survives with its identity join nulled** — fully
+> PII-free, billing intact. This is a **schema migration** and therefore a §7 escalation
+> (decision 7); it is **flagged for human sign-off**, not silently changed. Until signed
+> off, the build must either (a) ship D4 with these three still cascading and a tech-debt
+> note, or (b) block on the migration. **Recommended: block D4 launch on the migration**
+> so we never destroy a billing row in production.
+
+`events.actorId` (schema.ts:440, **no FK**) and `audit_logs` carry only opaque,
+PII-free ids and are **RETAINED** — DPDP permits a PII-free audit/legal trail. They are
+untouched by the cascade by construction (no FK to follow).
+
+### D4 — Orchestration, ordering, failure semantics
+
+`AccountDeletionService.execute(workerId)` runs **best-effort-complete and idempotent**, in
+this fixed order:
+
+1. **Revoke all sessions + refresh families** — `SessionService.revokeAll(workerId)`
+   (existing). First, so a deleted-in-progress worker can never be re-authenticated. This
+   also emits `worker.logged_out_all` (existing) — harmless and accurate.
+2. **Erase storage** — delete every resume PDF for the worker and every archived
+   conversation object. Conversations are prefix-scoped via
+   `conversationWorkerPrefix(workerId)` (validators). Resume PDFs are keyed by opaque
+   resume UUIDs, so **read the worker's `generated_resumes` rows BEFORE the DB delete**
+   (step 3) to learn their object keys — i.e. storage erasure consumes a key list captured
+   pre-cascade. This requires a **new** `StorageService.deleteByPrefix(prefix, bucket)` +
+   `StorageService.deletePdf(objectKey, bucket)` (the service today has only
+   upload/exists/sign — see `storage.service.ts`). Storage is **inline** (synchronous within
+   the request) for Phase 5 — BullMQ wiring is deferred (§8) and inline keeps the operation
+   atomic-enough and re-runnable; if a single object delete fails, record the failure count
+   and continue (do not abort the whole erasure — a leftover orphan object keyed by an
+   opaque UUID is non-PII-linkable and re-runnable).
+3. **DB cascade delete** — delete the `workers` row in a transaction; Postgres cascades all
+   D3 CASCADE children atomically. (If the D3 migration lands, the three flagged FKs
+   `SET NULL` here instead.)
+4. **Tombstone + event** — set the Redis cool-down key on `phone_hash` (D2) and emit
+   `worker.account_deleted` (D5) with the counts captured in steps 1–3.
+
+**Failure semantics.** The operation is **idempotent and re-runnable**: re-invoking on an
+already-deleted worker is a no-op (the `workers` row is gone; `SessionService.revokeAll`
+on a non-existent worker revokes nothing; storage deletes are upsert-style idempotent). A
+**partial failure never half-auths** a deleted worker because step 1 (revoke) precedes
+everything and step 3 (DB delete) is the atomic identity removal — if step 2 partially
+fails we still proceed to 3 (PII identity gone) and surface a non-zero
+`storage_objects_failed` count in the event for ops to re-run a storage sweep. The only
+ordering that would be unsafe — deleting the DB row before capturing resume object keys —
+is explicitly avoided (keys captured in step 2 pre-cascade).
+
+### D5 — `worker.account_deleted` v1 event (strict, PII-free)
+
+New registry entry (`worker` domain, v1), payload mirroring the established
+`workerAuthEvent` shape — opaque `worker_id` + **counts/flags only**:
+
+```ts
+export const WorkerAccountDeletedPayload = z.object({
+  worker_id: uuidSchema,            // opaque id of the now-erased worker
+  sessions_revoked: z.number().int().nonnegative(),
+  devices_revoked: z.number().int().nonnegative(),
+  storage_objects_deleted: z.number().int().nonnegative(),
+  storage_objects_failed: z.number().int().nonnegative(),  // 0 on a clean run
+  had_pin: z.boolean(),             // whether worker_credentials existed
+}).strict();
+```
+
+No phone, no `phone_hash`, no name, no device hash, no resume key, no OTP code — exactly
+the "record the fact + counts, never the value" rule the Phase-1/2 auth events follow. The
+event is the **durable** record of the deletion (the worker row is gone). Registered as
+`version: 1` in `registry.ts`; the global event-count test +1.
+
+### D6 — §2 / invariant conformance
+
+- **§2 (no raw PII leaves boundary):** the OTP code, phone, and name never enter the event,
+  `ai_jobs`, `audit_logs`, or logs. The only retained derivative is `phone_hash` (HMAC, the
+  established §2-permitted blind index), used solely for the cool-down. `workers` remains the
+  only raw-PII location right up until it is erased.
+- **§5 (real-call gating):** Phase 5 calls **no LLM** — auth never does. The OTP send rides
+  the existing gated Fast2SMS path unchanged (no new provider, no fork of `OtpService`).
+- **§6 (consent gate):** N/A in the deletion direction (erasure is consent-revoking, not
+  processing); no AI processing is triggered.
+- **Fail-closed:** if OTP verify throws, the worker is **not** deleted (no erasure on an
+  unverified confirm). If Redis is down, `OtpService.verify` already fails closed (503) and
+  no deletion runs.
+- **Reuse, don't fork:** `issueAndSend` / `verify` / `SessionService.revokeAll` /
+  `conversationWorkerPrefix` are all reused verbatim; only `StorageService` gains delete
+  methods and `event-schema` gains one event.
+
+### D7 — Escalation (§7)
+
+Per CLAUDE.md §7, **hard-deleting production worker rows is an escalation**. Two items
+require human sign-off before any production run:
+
+1. **The destructive endpoint + orchestration** — `POST /auth/account/delete/confirm`
+   performs an irreversible cascade delete of production PII. Build behind review; **remote
+   /prod execution against real worker data is a human-gated step**, not automated by this
+   ADR.
+2. **The D3 `onDelete` migration** (changing `unlocks` / `resume_disclosures` /
+   `invites.inviter_worker_id` from `cascade` → `set null` + making those columns nullable)
+   is a schema change that protects billing/intent history from silent destruction. It is
+   **flagged in D3 as a design question** and routed to `database-architect` + human
+   sign-off (Prakash/Akshit) — it is **not** silently chosen here. Recommended posture:
+   land the migration first, then ship D4 so production never destroys a paid-unlock row.
+
+Rollback story: the **endpoint** is reversible (feature-gated / revertable PR). The
+**deletion it performs is not** — there is no undo for an executed cascade. That asymmetry
+is exactly why the gate (step-up OTP + two-step + human-gated prod run) is this strong.

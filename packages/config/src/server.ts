@@ -64,6 +64,14 @@ export const serverEnvSchema = z.object({
   // never in the path. MUST be created PRIVATE out-of-band (anon denied); RLS only
   // covers Postgres tables, not Storage object ACLs.
   RESUMES_BUCKET: z.string().min(1).default("worker-resumes"),
+  // ADR-0026 Phase 5 (security Finding 1) — private Storage bucket for raw worker AUDIO
+  // (voice-note blobs). EMPTY DEFAULT is deliberate: voice upload is a Phase-1 placeholder —
+  // the client supplies a `voice_notes.storage_path` (e.g. "worker/sess/v1.ogg") but there is
+  // NO backend audio bucket today, so DSAR audio erasure is a WIRED-BUT-DORMANT seam. When a
+  // real audio bucket lands, set this (or store audio under conversationWorkerPrefix) so
+  // AccountDeletionService erases the audio blobs that hold raw PII (the transcript lives on
+  // the row, erased by the cascade; the blob at storage_path must be erased here). Unset → skip.
+  VOICE_NOTES_BUCKET: z.string().default(""),
   // Private Storage bucket holding rendered per-trade interview-kit PDFs (TD24, Task 4).
   // Same Storage Mode A (service-role, backend-only). Object keys are
   // `interview-kits/{tradeKey}/{contentVersion}/interview-kit.pdf` — fully deterministic,
@@ -166,6 +174,13 @@ export const serverEnvSchema = z.object({
   // SIM-swap gate trips (existing account + new device + a PIN is set) — the client must
   // complete /auth/pin/verify within this window or re-OTP.
   PIN_CHALLENGE_TTL_SECONDS: z.coerce.number().int().positive().default(600),
+
+  // ADR-0026 Phase 5 — DPDP account-deletion re-registration cool-down (seconds). After a
+  // worker hard-deletes their account, a Redis key keyed on the PII-free phone_hash blocks
+  // immediate re-registration / OTP-spend churn for this window (default 7d). Fail-OPEN: a
+  // Redis flush losing the key only re-opens normal registration (acceptable for an anti-abuse
+  // cool-down — never for auth). nonnegative() so 0 disables the cool-down (no key set).
+  ACCOUNT_DELETION_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(604800),
 
   // OTP shape + lifecycle. The code is generated with crypto.randomInt per digit,
   // stored ONLY as a keyed HMAC, single-use, and rate-limited per phone + per IP.

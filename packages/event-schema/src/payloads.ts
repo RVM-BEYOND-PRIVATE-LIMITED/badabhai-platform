@@ -75,6 +75,24 @@ export const WorkerDeviceRevokedPayload = z.object({
   device_id: uuidSchema,
 });
 
+// ADR-0026 Phase 5 — DPDP worker-initiated account deletion. The worker's identity row
+// (and every PII-bearing child) has been hard-erased; the billing/intent rows survive with
+// their identity join nulled (D3). PII-FREE: the now-erased worker's opaque id + non-negative
+// COUNTS/FLAGS only — sessions/devices revoked, storage objects deleted/failed, and whether a
+// PIN existed. The phone, phone_hash, name, device hash, resume object keys, and the OTP code
+// NEVER appear here (CLAUDE.md invariant #2; "record the fact + counts, never the value"). This
+// event is the DURABLE record of the deletion — the worker row itself is gone.
+export const WorkerAccountDeletedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    sessions_revoked: z.number().int().nonnegative(),
+    devices_revoked: z.number().int().nonnegative(),
+    storage_objects_deleted: z.number().int().nonnegative(),
+    storage_objects_failed: z.number().int().nonnegative(),
+    had_pin: z.boolean(),
+  })
+  .strict();
+
 // ---------------------------------------------------------------------------
 // worker.pin_* — device-bound unlock PIN (ADR-0026 Phase 3).
 //

@@ -68,4 +68,19 @@ describe("InviteService — funnel + PII-free attribution (ADR-0020)", () => {
     const { svc } = harness({ findByCode: vi.fn().mockResolvedValue(undefined) });
     expect(await svc.recordClick("nope")).toEqual({ ok: false });
   });
+
+  // ---- ADR-0026 Phase 5: invites.inviter_worker_id became NULLABLE (DSAR SET NULL) ----
+
+  it("recordAccept on a NULL inviter_worker_id fails closed (inviter_unavailable) and emits NO invite.accepted", async () => {
+    // A worker hard-delete SET-NULLs invites.inviter_worker_id. At accept time the inviter is
+    // non-null by construction, but the fail-closed branch guarantees the PII-free invite.accepted
+    // event is NEVER emitted with a null uuid (the event schema keeps a non-null inviter_worker_id).
+    const { svc, emit, repo } = harness({
+      findByCode: vi.fn().mockResolvedValue({ id: "inv-1", inviterWorkerId: null, invitedWorkerId: null }),
+    });
+    const r = await svc.recordAccept("code1", "B");
+    expect(r).toEqual({ ok: false, reason: "inviter_unavailable" });
+    expect(emit).not.toHaveBeenCalled(); // no invite.accepted with a null uuid
+    expect(repo.markAccepted).not.toHaveBeenCalled(); // no attribution write either
+  });
 });

@@ -1,10 +1,13 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { desc, eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import {
   type Database,
   workers,
   workerProfiles,
+  workerCredentials,
+  workerDevices,
   generatedResumes,
+  voiceNotes,
   type Worker,
   type NewWorker,
   type WorkerProfile,
@@ -135,6 +138,82 @@ export class WorkersRepository {
       .orderBy(desc(workerProfiles.createdAt))
       .limit(1);
     return rows[0];
+  }
+
+  /**
+   * The opaque PDF object keys for a worker's rendered resumes (ADR-0026 Phase 5 — DPDP).
+   * Read BEFORE the hard-delete (the cascade erases generated_resumes), so the deletion
+   * orchestration can erase the corresponding objects from the resumes bucket. Returns only
+   * non-null keys (a row is null until its PDF is rendered). The keys are opaque UUIDs — no
+   * PII (the worker's name lives INSIDE the PDF bytes, never in the path).
+   */
+  async listResumeStorageKeys(workerId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ key: generatedResumes.pdfStorageKey })
+      .from(generatedResumes)
+      .where(
+        eq(generatedResumes.workerId, workerId),
+      );
+    return rows
+      .map((r) => r.key)
+      .filter((k): k is string => typeof k === "string" && k.length > 0);
+  }
+
+  /**
+   * The raw audio object keys (`voice_notes.storage_path`) for a worker (ADR-0026 Phase 5,
+   * security Finding 1). Read BEFORE the hard-delete (the cascade erases voice_notes), so the
+   * deletion orchestration can erase the corresponding AUDIO blobs — which hold raw PII — from
+   * the audio bucket. `storage_path` is NOT NULL in schema; filter defensively anyway. NOTE:
+   * these paths are client-supplied placeholders today (no backend audio bucket yet) — the
+   * caller no-ops the erase until VOICE_NOTES_BUCKET is configured.
+   */
+  async listVoiceStorageKeys(workerId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ key: voiceNotes.storagePath })
+      .from(voiceNotes)
+      .where(eq(voiceNotes.workerId, workerId));
+    return rows
+      .map((r) => r.key)
+      .filter((k): k is string => typeof k === "string" && k.length > 0);
+  }
+
+  /** True if a PIN credential row exists for the worker (the `had_pin` flag, captured
+   * pre-delete since the cascade erases worker_credentials). */
+  async hasCredentials(workerId: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: workerCredentials.id })
+      .from(workerCredentials)
+      .where(eq(workerCredentials.workerId, workerId))
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  /** Count the worker's device rows (the `devices_revoked` count — every device row is
+   * erased by the cascade on hard-delete). Captured pre-delete. */
+  async countDevices(workerId: string): Promise<number> {
+    const rows = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(workerDevices)
+      .where(eq(workerDevices.workerId, workerId));
+    return rows[0]?.n ?? 0;
+  }
+
+  /**
+   * Hard-delete the worker row (ADR-0026 Phase 5 — DPDP right-to-erasure). One DELETE inside
+   * a transaction: Postgres atomically cascades to every PII-bearing child (consents, devices,
+   * credentials, profiles, chats, voice notes, messages, resumes, answers, applications,
+   * downloads, flags) and SET-NULLs the three billing/intent FKs (unlocks/resume_disclosures/
+   * invites.inviter_worker_id) per migration 0030. Returns true if a row was deleted, false if
+   * the worker was already gone (idempotent — a re-run is a no-op).
+   */
+  async hardDelete(id: string): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const deleted = await tx
+        .delete(workers)
+        .where(eq(workers.id, id))
+        .returning({ id: workers.id });
+      return deleted.length > 0;
+    });
   }
 
   async latestResume(workerId: string): Promise<GeneratedResume | undefined> {
