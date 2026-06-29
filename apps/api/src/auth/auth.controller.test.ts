@@ -64,10 +64,11 @@ describe("AuthController", () => {
     expect(auth.requestOtp).not.toHaveBeenCalled();
   });
 
-  it("verifyOtp delegates phone + otp", async () => {
+  it("verifyOtp delegates phone + otp (+ optional device_info)", async () => {
     const { controller, auth } = make();
     await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, CTX);
-    expect(auth.verifyOtp).toHaveBeenCalledWith("+91999", "1234", CTX);
+    // device_info is undefined when the client omits it (ADR-0026 Phase 2 — additive/opt-in).
+    expect(auth.verifyOtp).toHaveBeenCalledWith("+91999", "1234", CTX, undefined);
   });
 
   it("me returns the authed worker id + status (no PII)", async () => {

@@ -92,7 +92,7 @@ export class AuthController {
     @Body(new ZodValidationPipe(OtpVerifySchema)) dto: OtpVerifyDto,
     @Ctx() ctx: RequestContext,
   ): Promise<LoginResponse> {
-    return this.auth.verifyOtp(dto.phone, dto.otp, ctx);
+    return this.auth.verifyOtp(dto.phone, dto.otp, ctx, dto.device_info);
   }
 
   /** Current worker identity + status (worker-authenticated). */
