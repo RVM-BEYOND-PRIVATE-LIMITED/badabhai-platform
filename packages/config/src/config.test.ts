@@ -112,6 +112,29 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     ).toBe(false);
   });
 
+  it("ADMIN-3b PII-reveal defaults OFF (the route is inert until its security review; Control 1)", () => {
+    const config = loadServerConfig({});
+    expect(config.ADMIN_PII_REVEAL_ENABLED).toBe(false);
+  });
+
+  it("ADMIN-3b PII-reveal flag is tunable to ON (coerced from 'true'/'1'; stays OFF on falsey forms)", () => {
+    expect(loadServerConfig({ ADMIN_PII_REVEAL_ENABLED: "true" }).ADMIN_PII_REVEAL_ENABLED).toBe(true);
+    expect(loadServerConfig({ ADMIN_PII_REVEAL_ENABLED: "1" }).ADMIN_PII_REVEAL_ENABLED).toBe(true);
+    expect(loadServerConfig({ ADMIN_PII_REVEAL_ENABLED: "false" }).ADMIN_PII_REVEAL_ENABLED).toBe(false);
+    expect(loadServerConfig({ ADMIN_PII_REVEAL_ENABLED: "0" }).ADMIN_PII_REVEAL_ENABLED).toBe(false);
+    expect(loadServerConfig({ ADMIN_PII_REVEAL_ENABLED: "" }).ADMIN_PII_REVEAL_ENABLED).toBe(false);
+  });
+
+  it("ADMIN-3b per-admin reveal caps expose sane positive defaults (config-driven, tunable)", () => {
+    const config = loadServerConfig({});
+    expect(config.ADMIN_PII_REVEAL_MAX_PER_HOUR).toBe(10);
+    expect(config.ADMIN_PII_REVEAL_MAX_PER_DAY).toBe(30);
+    expect(loadServerConfig({ ADMIN_PII_REVEAL_MAX_PER_HOUR: "3" }).ADMIN_PII_REVEAL_MAX_PER_HOUR).toBe(3);
+    expect(loadServerConfig({ ADMIN_PII_REVEAL_MAX_PER_DAY: "5" }).ADMIN_PII_REVEAL_MAX_PER_DAY).toBe(5);
+    // positive-only: a non-positive cap is rejected (an unbounded/zero reveal cap is unsafe).
+    expect(() => loadServerConfig({ ADMIN_PII_REVEAL_MAX_PER_HOUR: "0" })).toThrow();
+  });
+
   it("assertPaymentsConfig is a no-op in the alpha mock default", () => {
     expect(() => assertPaymentsConfig(loadServerConfig({}))).not.toThrow();
   });

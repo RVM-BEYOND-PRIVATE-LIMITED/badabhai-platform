@@ -5,6 +5,7 @@ import { join, relative } from "node:path";
 import { AdminAuthController } from "./admin-auth.controller";
 import { AdminEventsController } from "./admin-events.controller";
 import { AdminActionsController } from "./admin-actions.controller";
+import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
 import { type AdminCapability } from "./admin-capabilities";
@@ -238,5 +239,56 @@ describe("ADMIN-3a entity-action routes — guarded + exactly one capability (mu
     expect(capabilityOf("inviteAdmin")).toBe("manage_admins");
     expect(capabilityOf("changeAdminRole")).toBe("manage_admins");
     expect(capabilityOf("suspendAdmin")).toBe("manage_admins");
+  });
+});
+
+describe("ADMIN-3b PII-reveal route — guarded + exactly one `reveal_pii` capability (must-fix #4 extended)", () => {
+  const proto = AdminPiiRevealController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminPiiRevealController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  /** Read the @RequireAdminRole capability declared on a handler (method ∪ class). */
+  function capabilityOf(method: string): AdminCapability | undefined {
+    const fn = (proto[method] ?? undefined) as object | undefined;
+    return (
+      (fn && (Reflect.getMetadata(ADMIN_CAPABILITY_KEY, fn) as AdminCapability | undefined)) ??
+      (Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminPiiRevealController) as
+        | AdminCapability
+        | undefined)
+    );
+  }
+
+  it("discovers exactly the one reveal route (single-subject, no list/bulk route, Control 6)", () => {
+    expect(routeMethods.sort()).toEqual(["revealContact"]);
+  });
+
+  it("the reveal route carries AdminAuthGuard AND AdminRolesGuard (no open privileged route)", () => {
+    const guards = effectiveGuards(AdminPiiRevealController, "revealContact");
+    expect(guards).toContain(AdminAuthGuard.name);
+    expect(guards).toContain(AdminRolesGuard.name);
+  });
+
+  it("the reveal route declares EXACTLY ONE @RequireAdminRole('reveal_pii') at the method level (one role per route)", () => {
+    const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto.revealContact as object) as
+      | AdminCapability
+      | undefined;
+    const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminPiiRevealController) as
+      | AdminCapability
+      | undefined;
+    expect(onMethod).toBe("reveal_pii");
+    expect(onClass, "AdminPiiRevealController must NOT declare a class-level capability").toBeUndefined();
+    expect(capabilityOf("revealContact")).toBe("reveal_pii");
+  });
+
+  it("the reveal route sets Cache-Control: no-store on its handler (Control 8 — plaintext out of any cache)", () => {
+    // Nest's @Header(...) stores response headers as route metadata under "__headers__".
+    const headers = (Reflect.getMetadata("__headers__", proto.revealContact as object) ??
+      []) as Array<{ name: string; value: string }>;
+    const cacheControl = headers.find((h) => h.name.toLowerCase() === "cache-control");
+    expect(cacheControl?.value).toBe("no-store");
   });
 });

@@ -290,6 +290,14 @@ export const EVENT_REGISTRY = {
     payload: p.AdminActionPerformedPayload,
   },
   "admin.pii_viewed": { version: 1, domain: "admin", payload: p.AdminPiiViewedPayload },
+  // ADR-0025 ADMIN-3b (must-fix #8) — a per-admin worker-PII reveal cap was exceeded. The
+  // PII-free BREACH event: opaque admin_id + which window (hour|day) ONLY — never a worker/
+  // subject id, the revealed value, or the reason note. An over-cap request reveals nothing. v1.
+  "admin.pii_reveal_cap_exceeded": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminPiiRevealCapExceededPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

@@ -10,6 +10,7 @@ import { AdminAuthService } from "./admin-auth.service";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard } from "./admin-roles.guard";
 import { AdminActionsController } from "./admin-actions.controller";
+import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
 
@@ -42,6 +43,14 @@ describe("AdminModule wiring (DI regression guard)", () => {
     const tokens = providerTokens();
     expect(tokens).toContain("AdminActionsService");
     expect(tokens).toContain("AdminActionsRepository");
+  });
+
+  it("declares the ADMIN-3b PII-reveal controller + provides its service/repository/cap (default-OFF flag)", () => {
+    expect(getMeta("controllers", AdminModule)).toContain(AdminPiiRevealController);
+    const tokens = providerTokens();
+    expect(tokens).toContain("AdminPiiRevealService");
+    expect(tokens).toContain("AdminPiiRevealRepository");
+    expect(tokens).toContain("AdminPiiRevealCapService");
   });
 
   it("provides the repository, session, OTP, MFA-store, auth service, and both guards", () => {

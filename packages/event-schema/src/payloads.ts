@@ -1252,3 +1252,25 @@ export const AdminPiiViewedPayload = z
   })
   .strict();
 export type AdminPiiViewedPayload = z.infer<typeof AdminPiiViewedPayload>;
+
+/** Which per-admin reveal cap was breached (ADR-0025 ADMIN-3b must-fix #8). Enum-only → no PII. */
+export const ADMIN_PII_REVEAL_CAP_WINDOWS = ["hour", "day"] as const;
+export const AdminPiiRevealCapWindow = z.enum(ADMIN_PII_REVEAL_CAP_WINDOWS);
+export type AdminPiiRevealCapWindow = z.infer<typeof AdminPiiRevealCapWindow>;
+
+/**
+ * A per-admin worker-PII reveal cap was EXCEEDED (ADR-0025 ADMIN-3b must-fix #8) — the
+ * PII-free BREACH/ALERT recorded when an admin tries to reveal past their hour/day cap (an
+ * over-cap request reveals NOTHING). Ops can alert on this without parsing any per-subject
+ * data. AGGREGATE / PII-FREE BY CONSTRUCTION: the opaque `admin_id` whose velocity tripped
+ * the cap + which `window` (hour|day) ONLY — NEVER a worker/subject id, the revealed value,
+ * the reason note, or any phone. `.strict()` is the structural backstop against smuggling a
+ * value onto the spine.
+ */
+export const AdminPiiRevealCapExceededPayload = z
+  .object({
+    admin_id: uuidSchema,
+    window: AdminPiiRevealCapWindow,
+  })
+  .strict();
+export type AdminPiiRevealCapExceededPayload = z.infer<typeof AdminPiiRevealCapExceededPayload>;
