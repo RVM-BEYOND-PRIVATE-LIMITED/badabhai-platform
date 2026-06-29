@@ -696,6 +696,41 @@ export class SessionService {
     return this.viewOf(slid.record, slid.ttlSec, nowMs);
   }
 
+  /**
+   * READ-ONLY resolution of an opaque refresh token to its bound identity (ADR-0026 Phase 3
+   * device-bound PIN). Loads `refresh:<sha256(token)>` and returns the worker/device/session/
+   * family it belongs to WITHOUT rotating, marking-used, sliding the session, or flagging
+   * reuse — it is a pure lookup. Returns null when the token is missing/expired/unparseable
+   * or Redis is unreachable (fail closed). PRIVACY: only sha256(token) is ever used as a key;
+   * the token value is never logged. Used by PinService to derive the PIN-verify identity from
+   * the device-bound refresh token the client already holds (the SIM-swap defense — a new
+   * device has no trusted refresh token).
+   */
+  async resolveRefreshToken(
+    rawToken: string,
+  ): Promise<{ workerId: string; deviceId?: string; sid: string; familyId: string } | null> {
+    try {
+      const redis = await this.client();
+      const raw = await redis.get(SessionService.refreshKey(sha256Hex(rawToken)));
+      if (!raw) return null;
+      const rec = JSON.parse(raw) as RefreshRecord;
+      if (!rec.worker_id || !rec.sid || !rec.family_id) return null;
+      return {
+        workerId: rec.worker_id,
+        deviceId: rec.device_id,
+        sid: rec.sid,
+        familyId: rec.family_id,
+      };
+    } catch (err) {
+      this.logger.error(
+        `resolveRefreshToken Redis error; treating as unresolved (reason: ${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      );
+      return null;
+    }
+  }
+
   /** A read-only session view for GET /auth/session (no slide, no secrets). */
   async describe(workerId: string, sid: string): Promise<SessionView | null> {
     try {

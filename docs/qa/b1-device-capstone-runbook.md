@@ -205,6 +205,22 @@ grep -niF '<REAL_NAME_ENTERED>' b1_logcat.txt           # the worker's real full
 | 7 | Profile confirm | extracted fields + the confirm control |
 | 8 | Resume — text | the generated resume text rendered in-app |
 
+**Captured so far (2026-06-27) — [docs/qa/evidence/b1/](evidence/b1/):** a **partial, mock-mode UI walkthrough**, NOT a B1 GO artifact. The screens were captured in **mock mode** (the fixture **"Ramesh Kumar"** + raw `role_cnc_*` / `dom_*` tokens in the resume), **not** a real staging handset run, so they prove only that the screens render. PII-safe (no real phone/name in any shot). They cover a few checklist rows and **miss every blocking one**.
+
+| Captured screen | File | B1 checklist row |
+|---|---|---|
+| Splash / language select | [01-splash-language](evidence/b1/01-splash-language.jpeg) | — (pre-login, bonus) |
+| Login — phone entry | [02-login-phone](evidence/b1/02-login-phone.jpeg) | ✅ #1 |
+| Profile **tab** + logout dialog | [03-profile-tab-logout](evidence/b1/03-profile-tab-logout.jpeg) | — (shell tab, **not** #7 profile-confirm) |
+| Jobs — filter sheet | [04-jobs-filter](evidence/b1/04-jobs-filter.jpeg) | — (§4 swipe, non-blocking) |
+| Alerts | [05-alerts](evidence/b1/05-alerts.jpeg) | — (bonus) |
+| Profile **tab** + interview kit | [06-profile-tab-kit](evidence/b1/06-profile-tab-kit.jpeg) | — (shell tab) |
+| Resume — text + Download PDF | [07-resume-text](evidence/b1/07-resume-text.jpeg) | ⚠️ #8 (but **mock** raw-token resume) |
+| Jobs — swipe card 1 | [08-jobs-swipe-card-1](evidence/b1/08-jobs-swipe-card-1.jpeg) | — (§4 swipe, non-blocking) |
+| Jobs — swipe card 2 | [09-jobs-swipe-card-2](evidence/b1/09-jobs-swipe-card-2.jpeg) | — (§4 swipe, non-blocking) |
+
+> **Still required for B1 GO (absent from this set):** **#2 OTP**, **#3 Consent**, **#4–6 Chat (≥3 turns)**, **#7 Profile-confirm** — captured from a **real staging handset run** (not mock mode), alongside the (b) event-chain query, (c) logcat no-PII grep, and §4 swipe events. Until those land, B1 stays **NO-GO** (the two §⛔ prerequisites are also still unmet).
+
 ### 3. Consent gate on-device
 
 Server-side the gate is enforced by `ConsentGuard` (no profiling/AI before

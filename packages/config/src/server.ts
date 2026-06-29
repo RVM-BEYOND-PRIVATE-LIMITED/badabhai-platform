@@ -27,6 +27,14 @@ export const DEV_PII_ENCRYPTION_KEY = Buffer.alloc(32).toString("base64"); // 32
 export const DEV_JWT_SECRET = "dev-insecure-jwt-secret-change-me";
 
 /**
+ * Dev-only PIN pepper (ADR-0026 Phase 3). DISTINCT from DEV_PII_HASH_PEPPER: the device-
+ * unlock PIN is hashed (scrypt) with its OWN server pepper so the PIN KDF is cryptographically
+ * independent of the phone/IP HMAC pepper. Keeps local boot + tests working; production MUST
+ * override it (enforced by assertAuthConfig — fail-closed), exactly like PII_HASH_PEPPER.
+ */
+export const DEV_PIN_PEPPER = "dev-insecure-pin-pepper-change-me";
+
+/**
  * Dev-only ADMIN session signing secret (ADR-0025 ADMIN-1). DISTINCT from DEV_JWT_SECRET:
  * the admin session is signed with its OWN secret so an admin token is cryptographically
  * unrelated to a worker/payer token (defense-in-depth behind the `typ:"admin"` audience
@@ -139,6 +147,26 @@ export const serverEnvSchema = z.object({
   // so the refresh record never expires out from under a session that is still inside its
   // absolute cap (else a worker inside the 90d window would lose silent refresh early).
   AUTH_REFRESH_TTL_DAYS: z.coerce.number().int().positive().default(90),
+
+  // ADR-0026 Phase 3 — device-unlock PIN (BACKEND ONLY). The PIN is hashed with scrypt +
+  // a per-PIN salt + this dedicated server pepper; the hash lives in worker_credentials and
+  // NEVER enters events/ai_jobs/audit_logs/logs (§2). Dev default keeps local boot/tests
+  // working; production MUST override PIN_PEPPER (assertAuthConfig fails closed otherwise).
+  PIN_PEPPER: z.string().min(16).default(DEV_PIN_PEPPER),
+  // PIN shape: exactly N digits (4 by default). A weak-PIN denylist is enforced in code.
+  PIN_LENGTH: z.coerce.number().int().min(4).max(8).default(4),
+  // Server-side throttle (durable in worker_credentials — survives a Redis flush): after
+  // PIN_MAX_ATTEMPTS consecutive wrong PINs the account is locked for an EXPONENTIAL backoff
+  // (PIN_LOCKOUT_BASE_SECONDS * 2^cycle); after PIN_MAX_LOCKOUT_CYCLES the PIN is invalidated
+  // and a fresh OTP + PIN reset is forced (SIM-swap / brute-force defense, R25a).
+  PIN_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
+  PIN_LOCKOUT_BASE_SECONDS: z.coerce.number().int().positive().default(60),
+  PIN_MAX_LOCKOUT_CYCLES: z.coerce.number().int().positive().default(5),
+  // Lifetime (seconds) of the short-lived pin-challenge token minted by OTP verify when the
+  // SIM-swap gate trips (existing account + new device + a PIN is set) — the client must
+  // complete /auth/pin/verify within this window or re-OTP.
+  PIN_CHALLENGE_TTL_SECONDS: z.coerce.number().int().positive().default(600),
+
   // OTP shape + lifecycle. The code is generated with crypto.randomInt per digit,
   // stored ONLY as a keyed HMAC, single-use, and rate-limited per phone + per IP.
   OTP_LENGTH: z.coerce.number().int().min(4).max(8).default(6),
@@ -661,6 +689,13 @@ export function assertAuthConfig(
   // The dev JWT default is acceptable only in an explicit development/test environment.
   if (!isDevEnv(rawNodeEnv) && config.JWT_SECRET === DEV_JWT_SECRET) {
     problems.push("JWT_SECRET must be overridden (the dev default is public)");
+  }
+
+  // ADR-0026 Phase 3 — the PIN pepper is a secret on par with PII_HASH_PEPPER: a leak of
+  // worker_credentials + the dev-public pepper would make the 10^4 PIN space brute-forceable.
+  // The dev default is acceptable only in an explicit development/test environment.
+  if (!isDevEnv(rawNodeEnv) && config.PIN_PEPPER === DEV_PIN_PEPPER) {
+    problems.push("PIN_PEPPER must be overridden (the dev default is public)");
   }
 
   // ADR-0026: the opaque refresh token's lifetime must be >= the session absolute cap, so

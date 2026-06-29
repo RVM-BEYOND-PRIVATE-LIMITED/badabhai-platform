@@ -1599,9 +1599,113 @@ describe("worker device events (ADR-0026 Phase 2 — PII-free, two opaque uuids 
   });
 });
 
+describe("worker PIN events (ADR-0026 Phase 3 — device-bound PIN, PII-free, ids/ints/bools only)", () => {
+  function workerPinEvent(name: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: name,
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload,
+    };
+  }
+
+  it("validates worker.pin_set with ONLY worker_id (no PIN/hash/throttle field exists)", () => {
+    const result = validateEvent(workerPinEvent("worker.pin_set", { worker_id: UUID_B }));
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "worker.pin_set") {
+      // The payload schema has NO field that could carry the raw PIN, the pin_hash, the
+      // device fingerprint, or a phone — only the opaque worker uuid.
+      expect(Object.keys(result.event.payload).sort()).toEqual(["worker_id"].sort());
+    }
+  });
+
+  it("validates worker.pin_reset with ONLY worker_id (never the new PIN / OTP / phone)", () => {
+    const result = validateEvent(workerPinEvent("worker.pin_reset", { worker_id: UUID_B }));
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "worker.pin_reset") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(["worker_id"].sort());
+    }
+  });
+
+  it("validates worker.pin_verified with ONLY worker_id + device_id (the device the PIN rode)", () => {
+    const result = validateEvent(
+      workerPinEvent("worker.pin_verified", { worker_id: UUID_B, device_id: UUID_A }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "worker.pin_verified") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(["device_id", "worker_id"].sort());
+    }
+  });
+
+  it("validates worker.pin_verify_failed with ONLY worker_id + device_id (no submitted-PIN field)", () => {
+    const result = validateEvent(
+      workerPinEvent("worker.pin_verify_failed", { worker_id: UUID_B, device_id: UUID_A }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "worker.pin_verify_failed") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(["device_id", "worker_id"].sort());
+    }
+  });
+
+  it("validates worker.pin_locked with ids + the integer cycle + the force_otp boolean only", () => {
+    const result = validateEvent(
+      workerPinEvent("worker.pin_locked", {
+        worker_id: UUID_B,
+        device_id: UUID_A,
+        lockout_cycle: 5,
+        force_otp: true,
+      }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "worker.pin_locked") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["device_id", "force_otp", "lockout_cycle", "worker_id"].sort(),
+      );
+    }
+  });
+
+  it("rejects worker.pin_verified with a non-uuid device_id (no free text → no fingerprint leak)", () => {
+    const bad = validateEvent(
+      workerPinEvent("worker.pin_verified", {
+        worker_id: UUID_B,
+        device_id: "raw-android-device-fingerprint-value",
+      }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects worker.pin_set carrying an extra free-text field (.strict() blocks PII smuggling)", () => {
+    const bad = validateEvent(
+      // A careless caller tries to smuggle a value (e.g. the PIN or a phone) onto the spine.
+      workerPinEvent("worker.pin_set", { worker_id: UUID_B, pin: "1357" }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects worker.pin_locked with a negative lockout_cycle (cycles are non-negative ints)", () => {
+    const bad = validateEvent(
+      workerPinEvent("worker.pin_locked", {
+        worker_id: UUID_B,
+        device_id: UUID_A,
+        lockout_cycle: -1,
+        force_otp: false,
+      }),
+    );
+    expect(bad.success).toBe(false);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 87 event names (77 prior + 4 admin.* [ADR-0025 ADMIN-1] + worker.refresh_reuse_detected + worker.logged_out_all [ADR-0026 Phase 1] + admin.pii_reveal_cap_exceeded [ADR-0025 ADMIN-3b] + admin.kill_switch_pause_requested [ADR-0025 ADMIN-3c] + worker.device_registered + worker.device_revoked [ADR-0026 Phase 2])", () => {
-    expect(EVENT_NAMES).toHaveLength(87);
+  it("exposes all 92 event names (87 prior + worker.pin_set/pin_verified/pin_verify_failed/pin_locked/pin_reset [ADR-0026 Phase 3 device-bound PIN])", () => {
+    expect(EVENT_NAMES).toHaveLength(92);
+    expect(isEventName("worker.pin_set")).toBe(true);
+    expect(isEventName("worker.pin_verified")).toBe(true);
+    expect(isEventName("worker.pin_verify_failed")).toBe(true);
+    expect(isEventName("worker.pin_locked")).toBe(true);
+    expect(isEventName("worker.pin_reset")).toBe(true);
     expect(isEventName("admin.session_started")).toBe(true);
     expect(isEventName("admin.session_revoked")).toBe(true);
     expect(isEventName("admin.action_performed")).toBe(true);

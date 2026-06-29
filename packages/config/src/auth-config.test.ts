@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { loadServerConfig, assertAuthConfig, isUsingDevJwtDefault, DEV_JWT_SECRET } from "./server";
 
 const REAL_JWT = "x".repeat(40);
+const REAL_PIN_PEPPER = "p".repeat(24); // a non-dev PIN pepper (ADR-0026 Phase 3)
 // The real-only Fast2SMS creds are now REQUIRED in EVERY environment. A fully-satisfiable
 // set used by the "passes" cases (no real key — placeholder only).
 const FAST2SMS_CREDS = {
@@ -46,9 +47,17 @@ describe("assertAuthConfig (fail-closed worker-auth guard — real-only Fast2SMS
     }
   });
 
-  it("passes in production with a real JWT secret + fully-configured Fast2SMS", () => {
-    const c = cfg({ ...FAST2SMS_CREDS, JWT_SECRET: REAL_JWT });
+  it("passes in production with a real JWT secret + PIN pepper + fully-configured Fast2SMS", () => {
+    const c = cfg({ ...FAST2SMS_CREDS, JWT_SECRET: REAL_JWT, PIN_PEPPER: REAL_PIN_PEPPER });
     expect(() => assertAuthConfig(c, "production")).not.toThrow();
+  });
+
+  it("throws on the dev PIN pepper in production (ADR-0026 Phase 3 — fail closed like JWT_SECRET)", () => {
+    // Real JWT + Fast2SMS but the PIN pepper left at its public dev default → must fail closed.
+    const c = cfg({ ...FAST2SMS_CREDS, JWT_SECRET: REAL_JWT });
+    expect(() => assertAuthConfig(c, "production")).toThrow(/PIN_PEPPER/i);
+    // dev/test still allows the dev PIN pepper.
+    expect(() => assertAuthConfig(cfg(FAST2SMS_CREDS), "development")).not.toThrow();
   });
 
   // ADR-0026: the refresh-token TTL must be >= the session absolute cap (else a refresh

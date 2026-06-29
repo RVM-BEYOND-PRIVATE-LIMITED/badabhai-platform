@@ -15,4 +15,7 @@ export {
   decryptPii,
   isEncryptedPii,
   safeEqualHex,
+  hashPin,
+  verifyPin,
+  isPinHash,
 } from "@badabhai/db";
