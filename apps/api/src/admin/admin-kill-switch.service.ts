@@ -161,7 +161,7 @@ export class AdminKillSwitchService {
     return {
       switch_key: dto.switch_key,
       recorded: true,
-      action_required: `Apply the pause via env/deploy: ${pauseLeverFor(dto.switch_key)}. This portal records intent only; it never enables or disables a provider (§2 #5).`,
+      action_required: `Apply the pause via env/deploy: ${pauseLeverFor(dto.switch_key)}. This portal records intent only — enabling or disabling a real provider is an env/deploy action, never a portal toggle.`,
     };
   }
 }
