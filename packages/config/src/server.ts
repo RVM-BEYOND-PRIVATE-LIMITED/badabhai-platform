@@ -116,6 +116,29 @@ export const serverEnvSchema = z.object({
   // Session lifetime (days). The token + Redis session key share this TTL; an
   // active client gets it refreshed (rolling/sliding) past the half-life.
   SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
+
+  // ADR-0026 Phase 1 — engagement-tiered rolling session + opaque rotating refresh
+  // token. ALL Phase-1 keys are SERVER-ONLY. The refresh-token endpoints are ALWAYS
+  // live (additive); only the tiered idle-TTL / 90d absolute-cap BEHAVIOR is gated.
+  //
+  // Master gate for the tiered-session BEHAVIOR change (ADR-0026 §Rollout 1). Default
+  // OFF (booleanFromString → a falsey string stays OFF, fail-safe to no-behavior-change):
+  //   false → the session idle TTL stays today's flat SESSION_TTL_DAYS and NO absolute
+  //           cap is enforced (byte-identical to the pre-ADR-0026 rolling behavior).
+  //   true  → the idle TTL becomes tier-based (session-tiers.ts) and the absolute cap
+  //           (AUTH_SESSION_ABSOLUTE_MAX_DAYS) is enforced — past the cap only a fresh
+  //           OTP resets the clock. Flip true in staging-first to activate tiers.
+  AUTH_ROLLING_TIERS_ENABLED: booleanFromString,
+  // Hard absolute lifetime (days) of a session from the OTP that minted it — only an
+  // OTP resets this clock. Enforced ONLY when AUTH_ROLLING_TIERS_ENABLED (else inert).
+  AUTH_SESSION_ABSOLUTE_MAX_DAYS: z.coerce.number().int().positive().default(90),
+  // Trailing window (days) over which distinct active IST dates are counted to pick the
+  // engagement tier. Active days older than this are pruned on every refresh.
+  AUTH_TIER_WINDOW_DAYS: z.coerce.number().int().positive().default(60),
+  // Opaque rotating-refresh-token lifetime (days). MUST be >= AUTH_SESSION_ABSOLUTE_MAX_DAYS
+  // so the refresh record never expires out from under a session that is still inside its
+  // absolute cap (else a worker inside the 90d window would lose silent refresh early).
+  AUTH_REFRESH_TTL_DAYS: z.coerce.number().int().positive().default(90),
   // OTP shape + lifecycle. The code is generated with crypto.randomInt per digit,
   // stored ONLY as a keyed HMAC, single-use, and rate-limited per phone + per IP.
   OTP_LENGTH: z.coerce.number().int().min(4).max(8).default(6),
@@ -623,6 +646,15 @@ export function assertAuthConfig(
   // The dev JWT default is acceptable only in an explicit development/test environment.
   if (!isDevEnv(rawNodeEnv) && config.JWT_SECRET === DEV_JWT_SECRET) {
     problems.push("JWT_SECRET must be overridden (the dev default is public)");
+  }
+
+  // ADR-0026: the opaque refresh token's lifetime must be >= the session absolute cap, so
+  // a refresh record never expires out from under a session still inside its 90d window
+  // (which would force OTP early). Fail closed on a misconfiguration in EVERY environment.
+  if (config.AUTH_REFRESH_TTL_DAYS < config.AUTH_SESSION_ABSOLUTE_MAX_DAYS) {
+    problems.push(
+      `AUTH_REFRESH_TTL_DAYS (${config.AUTH_REFRESH_TTL_DAYS}) must be >= AUTH_SESSION_ABSOLUTE_MAX_DAYS (${config.AUTH_SESSION_ABSOLUTE_MAX_DAYS})`,
+    );
   }
 
   if (problems.length > 0) {

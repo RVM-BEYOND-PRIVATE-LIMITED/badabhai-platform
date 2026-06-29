@@ -92,7 +92,18 @@ const CONTRACT: ControllerContract[] = [
   {
     name: "Auth",
     ctor: AuthController,
-    routes: { requestOtp: [], verifyOtp: [], me: [W], refresh: [W], logout: [W] },
+    // ADR-0026 Phase 1: tokenRefresh is OPEN (the refresh token in the body is the
+    // credential — the access JWT may be expired); logoutAll + session are worker-authed.
+    routes: {
+      requestOtp: [],
+      verifyOtp: [],
+      me: [W],
+      refresh: [W],
+      logout: [W],
+      tokenRefresh: [],
+      logoutAll: [W],
+      session: [W],
+    },
   },
   // P0 fix (PR #91): worker AI routes are worker-authed + consent-gated.
   { name: "Chat", ctor: ChatController, routes: { startSession: [C, W], postMessage: [C, W] } },

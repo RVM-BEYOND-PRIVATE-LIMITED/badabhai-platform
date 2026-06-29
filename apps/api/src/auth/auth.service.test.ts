@@ -27,10 +27,18 @@ function makeOtp(overrides: Partial<{ verifyThrows: boolean }> = {}) {
   };
 }
 
-/** A session service double that mints a deterministic token. */
+/**
+ * A session service double that mints a deterministic MintedSession (ADR-0026): the
+ * access token + an opaque refresh token + the session view.
+ */
 function makeSessions() {
+  const ABSOLUTE_MS = Date.UTC(2026, 8, 25);
   return {
-    create: vi.fn().mockResolvedValue({ token: "jwt.token.value", expiresInSeconds: 2592000 }),
+    create: vi.fn().mockResolvedValue({
+      access: { token: "jwt.token.value", expiresInSeconds: 2592000 },
+      refresh: { token: "rt_opaque_value", expiresInSeconds: 7776000 },
+      session: { tier: 0, expiresAtMs: Date.UTC(2026, 6, 27), requiresOtpAfterMs: ABSOLUTE_MS },
+    }),
   };
 }
 
@@ -173,6 +181,12 @@ describe("AuthService (real OTP)", () => {
     expect(res.access_token).toBe("jwt.token.value");
     expect(res.token_type).toBe("Bearer");
     expect(res.expires_in_seconds).toBe(2592000);
+    // ADR-0026 additive fields surfaced on the login response.
+    expect(res.refresh_token).toBe("rt_opaque_value");
+    expect(res.refresh_expires_in_seconds).toBe(7776000);
+    expect(res.session.tier).toBe(0);
+    expect(typeof res.session.expires_at).toBe("string");
+    expect(typeof res.session.requires_otp_after).toBe("string");
     expect(createOrGetByPhoneHash).toHaveBeenCalledOnce();
     expect(sessions.create).toHaveBeenCalledWith("worker-new");
     const names = emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);

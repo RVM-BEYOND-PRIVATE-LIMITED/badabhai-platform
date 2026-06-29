@@ -40,6 +40,25 @@ export const WorkerNameRecordedPayload = z.object({
   worker_id: uuidSchema,
 });
 
+// ADR-0026 Phase 1 — opaque rotating refresh token reuse detection. A previously
+// USED refresh token was replayed (token theft / a leaked token re-presented) ⇒ the
+// whole token FAMILY is revoked and the worker is forced back to OTP. PII-FREE: the
+// opaque worker id + the opaque family id (a UUID lineage handle) ONLY — the refresh
+// TOKEN VALUE (and its sha256) is NEVER carried (CLAUDE.md invariant #2; mirrors the
+// OTP HMAC rule). No phone, no token, no session-secret.
+export const WorkerRefreshReuseDetectedPayload = z.object({
+  worker_id: uuidSchema,
+  family_id: uuidSchema,
+});
+
+// ADR-0026 Phase 1 — the worker revoked every active session (logout-all). PII-FREE:
+// the opaque worker id + the non-negative count of sessions revoked ONLY. No session
+// ids, no tokens, no phone.
+export const WorkerLoggedOutAllPayload = z.object({
+  worker_id: uuidSchema,
+  sessions_revoked: z.number().int().nonnegative(),
+});
+
 // ---------------------------------------------------------------------------
 // *.otp_send_cap_exceeded — OTP-5 global daily send circuit-breaker (the SPEND
 // ceiling) breach, on BOTH the worker SMS and payer email real-send paths.
