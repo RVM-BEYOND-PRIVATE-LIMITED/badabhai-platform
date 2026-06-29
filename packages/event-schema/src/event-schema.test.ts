@@ -1393,13 +1393,69 @@ describe("admin auth events (ADR-0025 — the 4th principal, FACELESS, ids/role/
   });
 });
 
+describe("worker refresh/session auth events (ADR-0026 Phase 1 — PII-free, ids/counts only)", () => {
+  function workerAuthEvent(name: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: name,
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload,
+    };
+  }
+
+  it("validates worker.refresh_reuse_detected with ONLY worker_id + family_id (no token field exists)", () => {
+    const result = validateEvent(
+      workerAuthEvent("worker.refresh_reuse_detected", { worker_id: UUID_B, family_id: UUID_A }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "worker.refresh_reuse_detected") {
+      // The payload schema has NO field that could carry the refresh token value, its
+      // sha256, a phone, or a session secret — only two opaque UUIDs.
+      expect(Object.keys(result.event.payload).sort()).toEqual(["family_id", "worker_id"].sort());
+    }
+  });
+
+  it("rejects worker.refresh_reuse_detected with a non-uuid family_id (no free text → no token leak)", () => {
+    const bad = validateEvent(
+      workerAuthEvent("worker.refresh_reuse_detected", {
+        worker_id: UUID_B,
+        family_id: "rt_abc123_raw_token_like_value",
+      }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("validates worker.logged_out_all with worker_id + a non-negative count and nothing else", () => {
+    const result = validateEvent(
+      workerAuthEvent("worker.logged_out_all", { worker_id: UUID_B, sessions_revoked: 3 }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "worker.logged_out_all") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["sessions_revoked", "worker_id"].sort(),
+      );
+    }
+  });
+
+  it("rejects worker.logged_out_all with a negative sessions_revoked (counts are non-negative)", () => {
+    const bad = validateEvent(
+      workerAuthEvent("worker.logged_out_all", { worker_id: UUID_B, sessions_revoked: -1 }),
+    );
+    expect(bad.success).toBe(false);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 81 event names (77 prior + 4 admin.* — ADR-0025 ADMIN-1)", () => {
-    expect(EVENT_NAMES).toHaveLength(81);
+  it("exposes all 83 event names (77 prior + 4 admin.* [ADR-0025 ADMIN-1] + worker.refresh_reuse_detected + worker.logged_out_all [ADR-0026 Phase 1])", () => {
+    expect(EVENT_NAMES).toHaveLength(83);
     expect(isEventName("admin.session_started")).toBe(true);
     expect(isEventName("admin.session_revoked")).toBe(true);
     expect(isEventName("admin.action_performed")).toBe(true);
     expect(isEventName("admin.pii_viewed")).toBe(true);
+    expect(isEventName("worker.refresh_reuse_detected")).toBe(true);
+    expect(isEventName("worker.logged_out_all")).toBe(true);
     expect(isEventName("worker.otp_send_cap_exceeded")).toBe(true);
     expect(isEventName("payer.otp_send_cap_exceeded")).toBe(true);
     expect(isEventName("payer.account_updated")).toBe(true);

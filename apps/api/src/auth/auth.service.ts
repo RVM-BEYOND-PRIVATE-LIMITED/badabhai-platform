@@ -120,8 +120,10 @@ export class AuthService {
       }
     }
 
-    // Mint a rolling session (JWT + Redis session record) for this worker.
-    const session = await this.sessions.create(worker.id);
+    // Mint a rolling session for this worker: a short access JWT + Redis session record
+    // PLUS (ADR-0026) an opaque rotating refresh token + family. The legacy access-token
+    // fields are unchanged; the refresh token + session block are ADDED.
+    const minted = await this.sessions.create(worker.id);
 
     // No idempotencyKey: a worker legitimately verifies/logs in many times, so
     // each otp_verified is a distinct fact (likewise otp_requested resends above).
@@ -135,12 +137,23 @@ export class AuthService {
     });
 
     return {
-      access_token: session.token,
+      access_token: minted.access.token,
       token_type: "Bearer",
-      expires_in_seconds: session.expiresInSeconds,
+      expires_in_seconds: minted.access.expiresInSeconds,
       worker_id: worker.id,
       is_new_worker: isNew,
       status: worker.status,
+      // ADR-0026 additive fields — the opaque rotating refresh token + session view.
+      refresh_token: minted.refresh.token,
+      refresh_expires_in_seconds: minted.refresh.expiresInSeconds,
+      session: {
+        tier: minted.session.tier,
+        expires_at: new Date(minted.session.expiresAtMs).toISOString(),
+        requires_otp_after:
+          minted.session.requiresOtpAfterMs === null
+            ? null
+            : new Date(minted.session.requiresOtpAfterMs).toISOString(),
+      },
     };
   }
 }

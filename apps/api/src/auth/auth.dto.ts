@@ -21,7 +21,22 @@ export interface OtpRequestResponse {
   resend_in_seconds: number;
 }
 
-/** Login payload returned by POST /auth/otp/verify. */
+/** Session introspection (tier/expiry) embedded in mint responses (ADR-0026). */
+export interface SessionInfo {
+  tier: number;
+  /** ISO-8601 of the current session record's idle expiry. */
+  expires_at: string;
+  /** ISO-8601 of the absolute cap when tiers are enabled, else null. */
+  requires_otp_after: string | null;
+}
+
+/**
+ * Login payload returned by POST /auth/otp/verify.
+ *
+ * BACK-COMPAT (§8): every field shipped before is unchanged. ADR-0026 ADDS the optional
+ * opaque rotating `refresh_token` (+ its TTL) and the `session` introspection block — all
+ * additive, never removed/renamed. The refresh token is the long-lived credential.
+ */
 export interface LoginResponse {
   access_token: string;
   token_type: "Bearer";
@@ -29,14 +44,44 @@ export interface LoginResponse {
   worker_id: string;
   is_new_worker: boolean;
   status: string;
+  refresh_token: string;
+  refresh_expires_in_seconds: number;
+  session: SessionInfo;
 }
 
-/** Response of POST /auth/refresh. */
+/** Response of POST /auth/refresh (legacy rolling-token refresh — unchanged). */
 export interface RefreshResponse {
   access_token: string;
   token_type: "Bearer";
   expires_in_seconds: number;
 }
+
+/** Body of POST /auth/token/refresh — the opaque rotating refresh token (ADR-0026). */
+export const TokenRefreshSchema = z.object({
+  refresh_token: z.string().min(1, "refresh_token is required"),
+});
+export type TokenRefreshDto = z.infer<typeof TokenRefreshSchema>;
+
+/** Response of POST /auth/token/refresh — fresh access + rotated refresh + session. */
+export interface TokenRefreshResponse {
+  access_token: string;
+  token_type: "Bearer";
+  expires_in_seconds: number;
+  refresh_token: string;
+  refresh_expires_in_seconds: number;
+  session: SessionInfo;
+}
+
+/** Response of GET /auth/session — tier + expiry introspection (ADR-0026). */
+export interface SessionResponse {
+  tier: number;
+  expires_at: string;
+  requires_otp_after: string | null;
+}
+
+// NOTE: POST /auth/logout-all returns 204 No Content (no body). The count of sessions
+// revoked is recorded in the PII-free `worker.logged_out_all` event, never in a response
+// body — so there is intentionally NO LogoutAllResponse type.
 
 /** Response of GET /auth/me. */
 export interface MeResponse {

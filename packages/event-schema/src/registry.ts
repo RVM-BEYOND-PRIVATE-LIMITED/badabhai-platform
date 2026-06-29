@@ -23,6 +23,21 @@ export const EVENT_REGISTRY = {
   "worker.otp_requested": { version: 1, domain: "worker", payload: p.WorkerOtpRequestedPayload },
   "worker.otp_verified": { version: 1, domain: "worker", payload: p.WorkerOtpVerifiedPayload },
   "worker.name_recorded": { version: 1, domain: "worker", payload: p.WorkerNameRecordedPayload },
+  // ADR-0026 Phase 1 — opaque rotating-refresh-token reuse detection + logout-all.
+  // PII-FREE: opaque worker/family ids + a count only (never the refresh token value
+  // or its sha256, never a phone). Routine token rotation is NOT emitted (it is not a
+  // material state change and would flood the events spine) — only the security-material
+  // facts (a replayed used token, a full logout-all) are recorded. All v1.
+  "worker.refresh_reuse_detected": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerRefreshReuseDetectedPayload,
+  },
+  "worker.logged_out_all": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerLoggedOutAllPayload,
+  },
   // OTP-5 global daily SEND circuit-breaker breach (worker SMS path). AGGREGATE /
   // PII-free: channel/cap enums + integer limit + UTC-day string ONLY — no worker id,
   // phone, IP, or code. Emitted once per breach (the spend ceiling tripped).
