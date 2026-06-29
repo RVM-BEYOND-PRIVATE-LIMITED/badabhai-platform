@@ -245,6 +245,21 @@ export const serverEnvSchema = z.object({
   // account-farming backstop). Fail-closed (a Redis outage rejects).
   ADMIN_AUTH_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
 
+  // Reason-gated worker-PII reveal (ADR-0025 ADMIN-3b, Decision 4) — the single most
+  // sensitive route in the system (it decrypts a worker's phone). Master switch: DEFAULT
+  // OFF so the route is INERT until its security review passes. booleanFromString so a
+  // falsey string stays OFF (fail-safe to inert, like AI_ENABLE_REAL_CALLS). When OFF the
+  // route returns a NEUTRAL 404 — indistinguishable from a non-existent route (no oracle
+  // that the feature exists). Flip true ONLY after the ADMIN-3b security review (Control 1).
+  ADMIN_PII_REVEAL_ENABLED: booleanFromString,
+  // Per-ADMIN reveal caps (ADR-0025 ADMIN-3b must-fix #8) over a rolling UTC hour + UTC day.
+  // A backstop on a single admin's reveal velocity (a reason-gated route must still be
+  // RATE-bounded so a compromised/abusive admin cannot bulk-deanonymize). Counted per-admin
+  // in Redis (namespace `admin_pii_reveal:*`); checked BEFORE the decrypt. Fail-closed: a
+  // Redis error DENIES (never uncaps). An over-cap denial emits a PII-free breach event.
+  ADMIN_PII_REVEAL_MAX_PER_HOUR: z.coerce.number().int().positive().default(10),
+  ADMIN_PII_REVEAL_MAX_PER_DAY: z.coerce.number().int().positive().default(30),
+
   // Payer email-OTP delivery channel (ADR-0019; the email analogue of SMS_PROVIDER).
   // REAL-ONLY and RELEVANT when PAYER_LOGIN_METHOD="email_otp". There is NO "none"/mock
   // option — a real provider's credentials are REQUIRED at boot (assertPayerAuthConfig →

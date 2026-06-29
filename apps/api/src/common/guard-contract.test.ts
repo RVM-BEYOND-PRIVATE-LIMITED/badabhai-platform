@@ -32,6 +32,7 @@ import { AgencyInvitesController } from "../agency/agency-invites.controller";
 import { AdminAuthController } from "../admin/admin-auth.controller";
 import { AdminEventsController } from "../admin/admin-events.controller";
 import { AdminActionsController } from "../admin/admin-actions.controller";
+import { AdminPiiRevealController } from "../admin/admin-pii-reveal.controller";
 
 /**
  * AUTHZ CONTRACT — the single source of truth for which guards protect every
@@ -243,6 +244,15 @@ const CONTRACT: ControllerContract[] = [
       changeAdminRole: [A, AR],
       suspendAdmin: [A, AR],
     },
+  },
+  // Admin Ops Portal reason-gated worker-PII REVEAL (ADR-0025 ADMIN-3b). The single most sensitive
+  // route — admin session (AdminAuthGuard) + vertical RBAC (AdminRolesGuard, @RequireAdminRole
+  // "reveal_pii" = super_admin/support only). One principal + one role; actor = session admin,
+  // target = validated path uuid. Behind the default-OFF ADMIN_PII_REVEAL_ENABLED flag (neutral 404).
+  {
+    name: "AdminPiiReveal",
+    ctor: AdminPiiRevealController,
+    routes: { revealContact: [A, AR] },
   },
 ];
 

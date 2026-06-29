@@ -1384,6 +1384,48 @@ describe("admin auth events (ADR-0025 — the 4th principal, FACELESS, ids/role/
     if (!bad.success) expect(bad.error.stage).toBe("payload");
   });
 
+  it("validates admin.pii_reveal_cap_exceeded with admin_id + window enum and NO subject/value (ADMIN-3b)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.pii_reveal_cap_exceeded",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, window: "hour" },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.pii_reveal_cap_exceeded") {
+      // PII-FREE: opaque admin_id + window enum ONLY — never a worker/subject id or value.
+      expect(Object.keys(result.event.payload).sort()).toEqual(["admin_id", "window"].sort());
+    }
+  });
+
+  it("rejects admin.pii_reveal_cap_exceeded with an unknown window (enum-only — no free text)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.pii_reveal_cap_exceeded",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, window: "minute" },
+    };
+    const bad = validateEvent(evt);
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects admin.pii_reveal_cap_exceeded carrying a worker/subject id (.strict — aggregate, no per-subject data, ADMIN-3b)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.pii_reveal_cap_exceeded",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, window: "day", subject_id: UUID_B },
+    };
+    const bad = validateEvent(evt);
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
   it("admits `admin` as an actor_type and `admin_session` as a subject_type (additive enums)", () => {
     // The enum additions break no existing event (z.enum widening only); a wrong actor for
     // an admin event still validates the envelope — the principal binding is the guard's job.
@@ -1448,12 +1490,13 @@ describe("worker refresh/session auth events (ADR-0026 Phase 1 — PII-free, ids
 });
 
 describe("registry", () => {
-  it("exposes all 83 event names (77 prior + 4 admin.* [ADR-0025 ADMIN-1] + worker.refresh_reuse_detected + worker.logged_out_all [ADR-0026 Phase 1])", () => {
-    expect(EVENT_NAMES).toHaveLength(83);
+  it("exposes all 84 event names (77 prior + 4 admin.* [ADR-0025 ADMIN-1] + worker.refresh_reuse_detected + worker.logged_out_all [ADR-0026 Phase 1] + admin.pii_reveal_cap_exceeded [ADR-0025 ADMIN-3b])", () => {
+    expect(EVENT_NAMES).toHaveLength(84);
     expect(isEventName("admin.session_started")).toBe(true);
     expect(isEventName("admin.session_revoked")).toBe(true);
     expect(isEventName("admin.action_performed")).toBe(true);
     expect(isEventName("admin.pii_viewed")).toBe(true);
+    expect(isEventName("admin.pii_reveal_cap_exceeded")).toBe(true);
     expect(isEventName("worker.refresh_reuse_detected")).toBe(true);
     expect(isEventName("worker.logged_out_all")).toBe(true);
     expect(isEventName("worker.otp_send_cap_exceeded")).toBe(true);

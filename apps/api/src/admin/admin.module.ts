@@ -20,6 +20,10 @@ import { AdminEventsController } from "./admin-events.controller";
 import { AdminActionsRepository } from "./admin-actions.repository";
 import { AdminActionsService } from "./admin-actions.service";
 import { AdminActionsController } from "./admin-actions.controller";
+import { AdminPiiRevealRepository } from "./admin-pii-reveal.repository";
+import { AdminPiiRevealCapService } from "./admin-pii-reveal-cap.service";
+import { AdminPiiRevealService } from "./admin-pii-reveal.service";
+import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 
 /**
  * Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1). The 4th, highly-
@@ -45,7 +49,13 @@ import { AdminActionsController } from "./admin-actions.controller";
  * only). Each mutates a SYSTEM-OF-RECORD table and emits EXACTLY ONE value-free
  * `admin.action_performed` via EventsService — the spine stays append-only (must-fix #3): the
  * actions repository writes payers/credit_ledger/job_postings/worker_flags/admin_users, NEVER
- * `events`. PII reveal remains ADMIN-3b; the kill-switch ADMIN-3c. OBS-4 (migrating the existing
+ * `events`. ADMIN-3b adds the reason-gated, audited, rate-capped worker-PII REVEAL
+ * (`AdminPiiRevealController`/`AdminPiiRevealService`/`AdminPiiRevealRepository` +
+ * `AdminPiiRevealCapService`): `POST /admin/workers/:id/reveal-contact`, `reveal_pii`-gated
+ * (super_admin/support ONLY), behind the DEFAULT-OFF `ADMIN_PII_REVEAL_ENABLED` flag (neutral 404
+ * when off). It audits BEFORE decrypt (`admin.pii_viewed`, value-free), per-admin rate-caps
+ * fail-closed (`admin.pii_reveal_cap_exceeded` breach), and decrypts the phone ONLY into the HTTP
+ * response (never logged/cached/persisted/evented). The kill-switch is ADMIN-3c. OBS-4 (migrating the existing
  * ops read routes behind a dual-accept guard) is DEFERRED — this module does NOT touch the
  * existing ops/InternalService routes or `apps/web`. SSE live-tail is DEFERRED to ADMIN-7.
  */
@@ -64,7 +74,12 @@ import { AdminActionsController } from "./admin-actions.controller";
       }),
     }),
   ],
-  controllers: [AdminAuthController, AdminEventsController, AdminActionsController],
+  controllers: [
+    AdminAuthController,
+    AdminEventsController,
+    AdminActionsController,
+    AdminPiiRevealController,
+  ],
   providers: [
     AdminRepository,
     AdminSessionService,
@@ -79,6 +94,12 @@ import { AdminActionsController } from "./admin-actions.controller";
     // ADMIN-3a: governed entity actions (system-of-record writes + one value-free event each).
     AdminActionsRepository,
     AdminActionsService,
+    // ADMIN-3b: reason-gated, audited, rate-capped worker-PII reveal (default-OFF flag). The
+    // reveal repo is SELECT-ONLY on `workers` (encrypted phone) — never touches `events`. The
+    // cap service reuses the BullMQ Redis client (fail-closed per-admin hour+day caps).
+    AdminPiiRevealRepository,
+    AdminPiiRevealCapService,
+    AdminPiiRevealService,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })
