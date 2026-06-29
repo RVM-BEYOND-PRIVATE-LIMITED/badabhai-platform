@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Database } from "@badabhai/db";
+import { type Database, creditLedger, payerCredits } from "@badabhai/db";
 import { AdminActionsRepository } from "./admin-actions.repository";
 
 /**
@@ -78,6 +78,53 @@ function makeDb(rows: Record<string, unknown>[] = []) {
   return { db, updates, inserts };
 }
 
+/**
+ * A sequenced mock for the H2 dedup branch: the ledger insert resolves `ledgerInsert`, and the two
+ * follow-up SELECTs (existing ledger row, current balance) resolve from `selects` in order. The
+ * balance UPSERT (insert into payer_credits) is recorded so the test can assert it never ran.
+ */
+function makeDbSeq(cfg: { ledgerInsert: Record<string, unknown>[]; selects: Record<string, unknown>[][] }) {
+  const inserts: InsertCall[] = [];
+  let selectIdx = 0;
+
+  const insert = (table: unknown) => ({
+    values: (values: Record<string, unknown>) => {
+      const call: InsertCall = { table, values };
+      inserts.push(call);
+      const isLedger = table === creditLedger;
+      return {
+        onConflictDoNothing: (cfg2: unknown) => {
+          call.onConflict = cfg2;
+          return { returning: async () => (isLedger ? cfg.ledgerInsert : []) };
+        },
+        onConflictDoUpdate: (cfg2: unknown) => {
+          call.onConflict = cfg2;
+          return { returning: async () => [{ balance: 0 }] };
+        },
+        returning: async () => [],
+      };
+    },
+  });
+
+  const select = (_proj?: unknown) => ({
+    from: (_table: unknown) => ({
+      where: (_where: unknown) => ({
+        limit: async (_n: number) => cfg.selects[selectIdx++] ?? [],
+      }),
+    }),
+  });
+
+  const db = {
+    select,
+    insert,
+    transaction: async (cb: (tx: unknown) => Promise<unknown>) => cb({ insert, select }),
+  } as unknown as Database;
+
+  // Expose a `table` tag so the test can assert which tables were inserted into.
+  const tagged = inserts as (InsertCall & { table: unknown })[];
+  return { db, inserts: tagged, payerCreditsTable: payerCredits };
+}
+
 const PAYER_ID = "bbbbbbbb-0000-4000-8000-000000000002";
 const POSTING_ID = "cccccccc-0000-4000-8000-000000000003";
 const WORKER_ID = "dddddddd-0000-4000-8000-000000000004";
@@ -114,21 +161,46 @@ describe("AdminActionsRepository.reinstatePayer — guarded suspended→active",
   });
 });
 
-describe("AdminActionsRepository.grantCredits — positive additive ledger movement", () => {
-  it("upserts the balance (+amount) and appends a 'grant' ledger row in one tx", async () => {
-    // The tx runs insert(payerCredits)->returning(balance) then insert(creditLedger)->returning(id).
+const GRANT_KEY = "99999999-0000-4000-8000-00000000000a";
+
+describe("AdminActionsRepository.grantCredits — positive additive ledger movement (H2)", () => {
+  it("NEW key → appends a 'grant' ledger row (keyed) + bumps the balance (applied:true)", async () => {
+    // The tx runs insert(creditLedger)->returning(id) FIRST (a new row), then the balance upsert.
     // Our mock returns `rows` for BOTH returning() calls; shape it to satisfy both reads.
     const m = makeDb([{ balance: 500, id: "ledger-1" }]);
-    const res = await new AdminActionsRepository(m.db).grantCredits(PAYER_ID, 500);
-    expect(res).toEqual({ ledgerId: "ledger-1", balance: 500 });
+    const res = await new AdminActionsRepository(m.db).grantCredits(PAYER_ID, 500, GRANT_KEY);
+    expect(res).toEqual({ ledgerId: "ledger-1", balance: 500, applied: true });
 
-    // Two inserts: the balance upsert (+amount) and the ledger movement (delta=+amount, grant).
+    // Two inserts: the ledger movement (delta=+amount, grant, KEYED) then the balance upsert.
     expect(m.inserts).toHaveLength(2);
     const ledger = m.inserts.find((i) => i.values.reason === "grant");
     expect(ledger, "a 'grant' ledger movement was appended").toBeDefined();
-    expect(ledger!.values).toMatchObject({ payerId: PAYER_ID, delta: 500, reason: "grant" });
+    expect(ledger!.values).toMatchObject({
+      payerId: PAYER_ID,
+      delta: 500,
+      reason: "grant",
+      idempotencyKey: GRANT_KEY,
+    });
     // The amount is a POSITIVE delta (a grant never drives the balance negative).
     expect(ledger!.values.delta).toBeGreaterThan(0);
+    // It is ON CONFLICT DO NOTHING on the idempotency key (exactly-once on the ledger).
+    expect(ledger!.onConflict).toBeDefined();
+  });
+
+  it("DUPLICATE key (ledger insert deduped) → NO balance bump, applied:false (exactly-once)", async () => {
+    // Model the conflict: the keyed ledger insert returns [] (ON CONFLICT DO NOTHING suppressed it),
+    // then the existing-row + balance SELECTs resolve the already-applied state. The balance upsert
+    // must NOT run.
+    const m = makeDbSeq({
+      ledgerInsert: [], // deduped: no new ledger row
+      selects: [[{ id: "ledger-existing" }], [{ balance: 500 }]],
+    });
+    const res = await new AdminActionsRepository(m.db).grantCredits(PAYER_ID, 500, GRANT_KEY);
+    expect(res).toEqual({ ledgerId: "ledger-existing", balance: 500, applied: false });
+
+    // Exactly ONE insert was attempted (the ledger); the balance upsert was NOT reached.
+    expect(m.inserts).toHaveLength(1);
+    expect(m.inserts.find((i) => i.table === m.payerCreditsTable)).toBeUndefined();
   });
 });
 

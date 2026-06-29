@@ -7,6 +7,7 @@ import type { ServerConfig } from "@badabhai/config";
 import type { AdminRole } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
+import { AdminRepository } from "./admin.repository";
 
 /**
  * Admin sessions (ADR-0025 ADMIN-1, Decision 2.2) — the 4th principal's session layer,
@@ -61,6 +62,7 @@ export class AdminSessionService {
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     private readonly jwt: JwtService,
     @InjectQueue(RESUME_RENDER_QUEUE) private readonly queue: Queue,
+    private readonly admins: AdminRepository,
   ) {}
 
   private ttlSeconds(): number {
@@ -78,9 +80,9 @@ export class AdminSessionService {
 
   /**
    * Create a new admin session: store the revocable record (admin id + role) and mint the
-   * signed `typ:"admin"` JWT. The `role` travels in both the Redis blob and the JWT claim so
-   * the guard needs no DB hit on the hot path (the role is re-checked against the row only at
-   * login, never on every request).
+   * signed `typ:"admin"` JWT. The `role` travels in the Redis blob and the JWT claim for
+   * observability/refresh continuity ONLY — it is NOT trusted for authz: `validateAndTouch`
+   * re-reads the live `admin_users` row each request and uses the row's status + role (H1).
    */
   async create(adminId: string, role: AdminRole): Promise<AdminSessionToken> {
     const sid = randomUUID();
@@ -99,7 +101,19 @@ export class AdminSessionService {
     return { token, expiresInSeconds: ttl };
   }
 
-  /** Verify the token + load its Redis session, slide the TTL, return claims (or null). */
+  /**
+   * Verify the token + load its Redis session, slide the TTL, return claims (or null).
+   *
+   * STALE-PRIVILEGE DEFENSE (ADMIN-3a must-fix H1): the Redis blob + JWT `role` claim are
+   * minted at login and NEVER trusted for the live status/role on a subsequent request — a
+   * suspended or demoted admin would otherwise keep its old elevated access for the whole
+   * rolling-refresh window. So EVERY request re-reads the `admin_users` row (admin traffic is
+   * low-volume internal ops, so a per-request row read is the correct security posture) and:
+   *   (a) rejects the session if `status !== 'active'` (suspended/pending → null → 401), and
+   *   (b) returns the CURRENT `role` FROM THE ROW (so AdminRolesGuard sees a demotion live).
+   * The JWT/Redis role is never used for authz once the row is loaded. A missing row (deleted
+   * admin) → null → 401.
+   */
   async validateAndTouch(token: string): Promise<ValidatedAdminSession | null> {
     let claims: AdminJwtClaims;
     try {
@@ -115,14 +129,19 @@ export class AdminSessionService {
       const key = AdminSessionService.sessionKey(claims.sid);
       const raw = await redis.get(key);
       if (!raw) return null;
+
+      // Re-load the system-of-record row EACH request (H1) — the JWT/Redis snapshot is never
+      // trusted for live status/role. A suspended/pending admin (or a deleted row) → null.
+      const row = await this.admins.findById(claims.sub);
+      if (!row || row.status !== "active") return null;
+      if (!AdminSessionService.isAdminRole(row.role)) return null;
+
       await redis.expire(key, this.ttlSeconds());
       const nowSeconds = Math.floor(Date.now() / 1000);
       const remainingSeconds = claims.exp ? Math.max(0, claims.exp - nowSeconds) : 0;
-      // The Redis blob is the server-side authority for the role; the JWT claim is the
-      // fallback. If neither yields a known role → null → the guard fails closed.
-      const role = AdminSessionService.readRole(raw) ?? claims.role;
-      if (!AdminSessionService.isAdminRole(role)) return null;
-      return { adminId: claims.sub, sid: claims.sid, role, remainingSeconds };
+      // Authoritative role comes from the ROW (a demotion takes effect on the next request);
+      // the JWT/Redis role claim is NOT trusted for authz.
+      return { adminId: claims.sub, sid: claims.sid, role: row.role, remainingSeconds };
     } catch (err) {
       this.logger.error(
         `Admin session Redis error; treating as unauthenticated (reason: ${
@@ -153,16 +172,6 @@ export class AdminSessionService {
           err instanceof Error ? err.message : String(err)
         })`,
       );
-    }
-  }
-
-  /** Parse the persisted role from the Redis session blob (tolerant of legacy shapes). */
-  private static readRole(raw: string): AdminRole | null {
-    try {
-      const blob = JSON.parse(raw) as { role?: unknown };
-      return AdminSessionService.isAdminRole(blob.role) ? blob.role : null;
-    } catch {
-      return null;
     }
   }
 

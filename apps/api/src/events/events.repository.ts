@@ -27,9 +27,17 @@ export class EventsRepository {
    * is a no-op (`ON CONFLICT DO NOTHING`). Returns `true` if a row was written,
    * `false` if it was deduplicated. Rows with no key always insert (Postgres
    * treats NULL keys as distinct).
+   *
+   * `executor` lets a caller run this insert inside its OWN transaction (the events
+   * table + the SoR tables are the same Postgres DB), so a SoR write + the event
+   * emit commit atomically (must-fix H3). Defaults to the injected db.
    */
-  async insert(event: BadaBhaiEvent, idempotencyKey?: string | null): Promise<boolean> {
-    const written = await this.db
+  async insert(
+    event: BadaBhaiEvent,
+    idempotencyKey?: string | null,
+    executor: Database = this.db,
+  ): Promise<boolean> {
+    const written = await executor
       .insert(events)
       .values(toRow(event, idempotencyKey))
       .onConflictDoNothing({ target: events.idempotencyKey })

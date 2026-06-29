@@ -59,6 +59,7 @@ describe("EventsService", () => {
     expect(insert).toHaveBeenCalledWith(
       expect.objectContaining({ event_name: "worker.otp_requested" }),
       "profile.extraction_ready:session-abc",
+      undefined, // no caller transaction (H3 executor) supplied
     );
   });
 
@@ -74,7 +75,26 @@ describe("EventsService", () => {
       correlationId: CORR,
     });
 
-    expect(insert).toHaveBeenCalledWith(expect.anything(), undefined);
+    expect(insert).toHaveBeenCalledWith(expect.anything(), undefined, undefined);
+  });
+
+  // --- H3: transaction-aware emit --------------------------------------------
+
+  it("threads a caller transaction executor to the repository (atomic SoR+event)", async () => {
+    const insert = vi.fn().mockResolvedValue(true);
+    const svc = new EventsService({ insert } as never, { NODE_ENV: "test" } as never);
+    const tx = { __tx: true } as never;
+
+    await svc.emit({
+      event_name: "worker.otp_requested",
+      actor: { actor_type: "worker" },
+      subject: { subject_type: "worker" },
+      payload: { phone_hash: "hash" },
+      correlationId: CORR,
+      tx,
+    });
+
+    expect(insert).toHaveBeenCalledWith(expect.anything(), undefined, tx);
   });
 
   it("still returns the event when the insert was a dedup no-op (returns false)", async () => {

@@ -14,6 +14,15 @@ import {
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
+/** The outcome of a credit grant — the new balance + the ledger row id, plus whether THIS call
+ * actually moved the balance (false on an idempotent replay of the same key). */
+export interface GrantCreditsResult {
+  ledgerId: string;
+  balance: number;
+  /** True when a new ledger row was inserted + the balance moved; false on a deduped replay. */
+  applied: boolean;
+}
+
 /**
  * Data access for the ADMIN-3a governed entity actions (ADR-0025 Decision 3/5/6) — the
  * SYSTEM-OF-RECORD writes behind each admin mutation. EACH method writes the VALUE (the new
@@ -34,6 +43,15 @@ import { DATABASE } from "../database/database.module";
 export class AdminActionsRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
+  /**
+   * Run `cb` inside one Drizzle transaction (must-fix H3) — the service uses this to commit a
+   * SoR write + its `admin.action_performed` event atomically. The `tx` handed to `cb` is a
+   * `Database`-shaped executor the write methods below + EventsService.emit accept.
+   */
+  withTransaction<T>(cb: (tx: Database) => Promise<T>): Promise<T> {
+    return this.db.transaction(cb as (tx: unknown) => Promise<T>);
+  }
+
   // ----- payers.status (suspend / reinstate) --------------------------------
 
   /** Fetch a payer's id + status only (no contact PII decrypted). undefined if gone. */
@@ -49,14 +67,16 @@ export class AdminActionsRepository {
   /**
    * Transition a payer to a terminal status, guarded so a no-op transition (already in the
    * target status) matches NO row → returns undefined. `from`/`to` are the only allowed pair
-   * the service passes. Returns the new status when the row actually changed.
+   * the service passes. Returns the new status when the row actually changed. `tx` runs the
+   * write on a caller-provided transaction (H3) so it commits with the event atomically.
    */
   private async transitionPayer(
     id: string,
     from: PayerStatus,
     to: PayerStatus,
+    tx: Database = this.db,
   ): Promise<{ status: PayerStatus } | undefined> {
-    const [row] = await this.db
+    const [row] = await tx
       .update(payers)
       .set({ status: to, updatedAt: new Date() })
       .where(and(eq(payers.id, id), eq(payers.status, from)))
@@ -65,13 +85,13 @@ export class AdminActionsRepository {
   }
 
   /** active → suspended. undefined when not active (already suspended/pending = no-op). */
-  suspendPayer(id: string): Promise<{ status: PayerStatus } | undefined> {
-    return this.transitionPayer(id, "active", "suspended");
+  suspendPayer(id: string, tx?: Database): Promise<{ status: PayerStatus } | undefined> {
+    return this.transitionPayer(id, "active", "suspended", tx);
   }
 
   /** suspended → active. undefined when not suspended (already active/pending = no-op). */
-  reinstatePayer(id: string): Promise<{ status: PayerStatus } | undefined> {
-    return this.transitionPayer(id, "suspended", "active");
+  reinstatePayer(id: string, tx?: Database): Promise<{ status: PayerStatus } | undefined> {
+    return this.transitionPayer(id, "suspended", "active", tx);
   }
 
   // ----- credit ledger (positive admin grant) -------------------------------
@@ -81,12 +101,52 @@ export class AdminActionsRepository {
    * transaction (mirrors the unlocks `creditPack` seam, reason='grant'). The AMOUNT lives on
    * the ledger row + balance (the SoR) — NEVER in the event. Returns the new balance + the
    * opaque ledger row id (the audit target). The CHECK (balance >= 0) holds (a grant is +ve).
+   *
+   * EXACTLY-ONCE (H2): the ledger insert is `ON CONFLICT (idempotency_key) DO NOTHING` and the
+   * balance is bumped ONLY when a NEW ledger row was actually inserted. So a retry with the SAME
+   * `idempotencyKey` inserts NO second row and moves the balance ZERO times — `applied:false`,
+   * the existing balance + ledger id are returned. A genuinely new grant (new key) = one row +
+   * one balance move = `applied:true`. The order (ledger first, then balance) is what binds the
+   * dedup to the balance — there is no path where the balance moves without a new ledger row.
+   *
+   * `tx` lets a CALLER run this inside its own transaction (H3) so the SoR write + the event
+   * emit commit atomically; default opens its own tx.
    */
   async grantCredits(
     payerId: string,
     amount: number,
-  ): Promise<{ ledgerId: string; balance: number }> {
-    return this.db.transaction(async (tx) => {
+    idempotencyKey: string,
+    tx?: Database,
+  ): Promise<GrantCreditsResult> {
+    const run = <T>(cb: (e: Database) => Promise<T>): Promise<T> =>
+      tx ? cb(tx) : this.db.transaction(cb as (e: unknown) => Promise<T>);
+    return run(async (tx) => {
+      // 1) Append the ledger movement, deduped on the opaque idempotency key. A replay of the
+      //    same key inserts NO row and returns nothing (the SoR is the dedup authority).
+      const [ledger] = await tx
+        .insert(creditLedger)
+        .values({ payerId, delta: amount, reason: "grant", idempotencyKey })
+        .onConflictDoNothing({ target: creditLedger.idempotencyKey })
+        .returning({ id: creditLedger.id });
+
+      if (!ledger) {
+        // Idempotent replay: the row already exists. Do NOT touch the balance. Return the
+        // existing (already-applied) ledger id + the current balance.
+        const [existingLedger] = await tx
+          .select({ id: creditLedger.id })
+          .from(creditLedger)
+          .where(eq(creditLedger.idempotencyKey, idempotencyKey))
+          .limit(1);
+        const [cur] = await tx
+          .select({ balance: payerCredits.balance })
+          .from(payerCredits)
+          .where(eq(payerCredits.payerId, payerId))
+          .limit(1);
+        if (!existingLedger) throw new Error("Failed to resolve idempotent credit grant");
+        return { ledgerId: existingLedger.id, balance: cur?.balance ?? 0, applied: false };
+      }
+
+      // 2) A new ledger row WAS inserted → move the balance exactly once.
       const [bal] = await tx
         .insert(payerCredits)
         .values({ payerId, balance: amount })
@@ -95,12 +155,8 @@ export class AdminActionsRepository {
           set: { balance: sql`${payerCredits.balance} + ${amount}`, updatedAt: sql`now()` },
         })
         .returning({ balance: payerCredits.balance });
-      const [ledger] = await tx
-        .insert(creditLedger)
-        .values({ payerId, delta: amount, reason: "grant" })
-        .returning({ id: creditLedger.id });
-      if (!bal || !ledger) throw new Error("Failed to grant credits");
-      return { ledgerId: ledger.id, balance: bal.balance };
+      if (!bal) throw new Error("Failed to grant credits");
+      return { ledgerId: ledger.id, balance: bal.balance, applied: true };
     });
   }
 
@@ -121,9 +177,14 @@ export class AdminActionsRepository {
   /**
    * Force a posting to `closed`, guarded on status != 'closed' so an already-closed posting
    * matches NO row → undefined (idempotent no-op). Returns the row id when it actually closed.
+   * `tx` runs the write on a caller transaction (H3) so it commits with the event atomically.
    */
-  async forceClosePosting(id: string, closedAt: Date): Promise<{ id: string } | undefined> {
-    const [row] = await this.db
+  async forceClosePosting(
+    id: string,
+    closedAt: Date,
+    tx: Database = this.db,
+  ): Promise<{ id: string } | undefined> {
+    const [row] = await tx
       .update(jobPostings)
       .set({ status: "closed", closedAt, updatedAt: closedAt })
       .where(and(eq(jobPostings.id, id), ne(jobPostings.status, "closed")))
@@ -153,8 +214,9 @@ export class AdminActionsRepository {
     workerId: string,
     reasonCode: WorkerFlagReasonCode,
     adminId: string,
+    tx: Database = this.db,
   ): Promise<{ id: string } | undefined> {
-    const [row] = await this.db
+    const [row] = await tx
       .insert(workerFlags)
       .values({ workerId, flagReasonCode: reasonCode, flaggedByAdminId: adminId })
       .onConflictDoNothing({ target: workerFlags.workerId, where: isNull(workerFlags.resolvedAt) })
@@ -168,9 +230,13 @@ export class AdminActionsRepository {
    * no-op). Keeping the row (vs delete) is what makes flag → unflag → re-flag auditable.
    * Returns the resolved flag id when one was actually closed.
    */
-  async resolveFlag(workerId: string, adminId: string): Promise<{ id: string } | undefined> {
+  async resolveFlag(
+    workerId: string,
+    adminId: string,
+    tx: Database = this.db,
+  ): Promise<{ id: string } | undefined> {
     const now = new Date();
-    const [row] = await this.db
+    const [row] = await tx
       .update(workerFlags)
       .set({ resolvedAt: now, resolvedByAdminId: adminId, updatedAt: now })
       .where(and(eq(workerFlags.workerId, workerId), isNull(workerFlags.resolvedAt)))

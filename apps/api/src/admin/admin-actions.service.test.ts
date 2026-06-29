@@ -63,16 +63,22 @@ interface Mocks {
     forceClosePosting: ReturnType<typeof vi.fn>;
     openFlag: ReturnType<typeof vi.fn>;
     resolveFlag: ReturnType<typeof vi.fn>;
+    withTransaction: ReturnType<typeof vi.fn>;
   };
   admins: {
     create: ReturnType<typeof vi.fn>;
     updateRole: ReturnType<typeof vi.fn>;
     suspend: ReturnType<typeof vi.fn>;
     findById: ReturnType<typeof vi.fn>;
+    countActiveSuperAdmins: ReturnType<typeof vi.fn>;
+    withTransaction: ReturnType<typeof vi.fn>;
   };
   events: { emit: ReturnType<typeof vi.fn> };
   service: AdminActionsService;
 }
+
+/** A fake `tx` token the mocked withTransaction hands to the callback (the repo mocks ignore it). */
+const FAKE_TX = { __tx: true } as unknown;
 
 function make(): Mocks {
   const actions = {
@@ -84,12 +90,15 @@ function make(): Mocks {
     forceClosePosting: vi.fn(),
     openFlag: vi.fn(),
     resolveFlag: vi.fn(),
+    withTransaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(FAKE_TX)),
   };
   const admins = {
     create: vi.fn(),
     updateRole: vi.fn(),
     suspend: vi.fn(),
     findById: vi.fn(),
+    countActiveSuperAdmins: vi.fn(async () => 2),
+    withTransaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(FAKE_TX)),
   };
   const events = { emit: vi.fn(async () => undefined) };
   const service = new AdminActionsService(
@@ -195,7 +204,8 @@ describe("suspendPayer", () => {
 
     const res = await m.service.suspendPayer(ADMIN_ID, PAYER_ID, CTX);
 
-    expect(m.actions.suspendPayer).toHaveBeenCalledWith(PAYER_ID); // SoR mutated, target from arg
+    // SoR mutated, target from arg; the 2nd arg is the H3 transaction handle.
+    expect(m.actions.suspendPayer).toHaveBeenCalledWith(PAYER_ID, FAKE_TX);
     expect(res).toEqual({ target_id: PAYER_ID, changed: true });
     assertValueFreeAction(soleEmit(m.events), {
       actionCode: "payer_suspended",
@@ -235,7 +245,7 @@ describe("reinstatePayer", () => {
 
     const res = await m.service.reinstatePayer(ADMIN_ID, PAYER_ID, CTX);
 
-    expect(m.actions.reinstatePayer).toHaveBeenCalledWith(PAYER_ID);
+    expect(m.actions.reinstatePayer).toHaveBeenCalledWith(PAYER_ID, FAKE_TX);
     expect(res).toEqual({ target_id: PAYER_ID, changed: true });
     assertValueFreeAction(soleEmit(m.events), {
       actionCode: "payer_reinstated",
@@ -256,32 +266,58 @@ describe("reinstatePayer", () => {
 // credits — grant (additive; amount stays OUT of the event)
 // ---------------------------------------------------------------------------
 
+const GRANT_KEY = "99999999-0000-4000-8000-00000000000a";
+
 describe("grantCredits", () => {
   it("grants the SoR ledger + emits ONE value-free credits_granted (amount NOT in the event)", async () => {
     m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
-    m.actions.grantCredits.mockResolvedValue({ ledgerId: LEDGER_ID, balance: 500 });
+    m.actions.grantCredits.mockResolvedValue({ ledgerId: LEDGER_ID, balance: 500, applied: true });
 
     const res = await m.service.grantCredits(
       ADMIN_ID,
       PAYER_ID,
-      { amount: 500, reason_code: "goodwill" },
+      { amount: 500, reason_code: "goodwill", idempotency_key: GRANT_KEY },
       CTX,
     );
 
-    // The AMOUNT + reason go to the ledger SoR — NOT the event.
-    expect(m.actions.grantCredits).toHaveBeenCalledWith(PAYER_ID, 500);
+    // The AMOUNT + reason go to the ledger SoR — NOT the event. The grant is keyed for H2.
+    expect(m.actions.grantCredits).toHaveBeenCalledWith(PAYER_ID, 500, GRANT_KEY, FAKE_TX);
     expect(res).toEqual({ target_id: PAYER_ID, changed: true, ledger_id: LEDGER_ID, balance: 500 });
-    assertValueFreeAction(soleEmit(m.events), {
+    const emitted = soleEmit(m.events);
+    assertValueFreeAction(emitted, {
       actionCode: "credits_granted",
       subjectType: "payer",
       targetId: PAYER_ID,
     });
+    // H2: the event is keyed on the SAME grant key as the ledger (ledger + spine agree).
+    expect(emitted.idempotencyKey).toBe(`admin_action:credits_granted:${GRANT_KEY}`);
+  });
+
+  it("idempotent replay (applied:false) → NO event emitted, existing balance returned", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    // The repo deduped on the key: no new ledger row, no balance move (applied:false).
+    m.actions.grantCredits.mockResolvedValue({ ledgerId: LEDGER_ID, balance: 500, applied: false });
+
+    const res = await m.service.grantCredits(
+      ADMIN_ID,
+      PAYER_ID,
+      { amount: 500, reason_code: "goodwill", idempotency_key: GRANT_KEY },
+      CTX,
+    );
+
+    expect(res).toEqual({ target_id: PAYER_ID, changed: false, ledger_id: LEDGER_ID, balance: 500 });
+    expect(m.events.emit).not.toHaveBeenCalled(); // exactly-once: the replay emits nothing
   });
 
   it("unknown payer → 404, NO ledger write, NO event", async () => {
     m.actions.findPayerStatus.mockResolvedValue(undefined);
     await expect(
-      m.service.grantCredits(ADMIN_ID, PAYER_ID, { amount: 10, reason_code: "promo" }, CTX),
+      m.service.grantCredits(
+        ADMIN_ID,
+        PAYER_ID,
+        { amount: 10, reason_code: "promo", idempotency_key: GRANT_KEY },
+        CTX,
+      ),
     ).rejects.toThrow(NotFoundException);
     expect(m.actions.grantCredits).not.toHaveBeenCalled();
     expect(m.events.emit).not.toHaveBeenCalled();
@@ -299,7 +335,7 @@ describe("forceClosePosting", () => {
 
     const res = await m.service.forceClosePosting(ADMIN_ID, POSTING_ID, CTX);
 
-    expect(m.actions.forceClosePosting).toHaveBeenCalledWith(POSTING_ID, expect.any(Date));
+    expect(m.actions.forceClosePosting).toHaveBeenCalledWith(POSTING_ID, expect.any(Date), FAKE_TX);
     expect(res).toEqual({ target_id: POSTING_ID, changed: true });
     assertValueFreeAction(soleEmit(m.events), {
       actionCode: "posting_force_closed",
@@ -344,7 +380,7 @@ describe("flagWorker", () => {
     const res = await m.service.flagWorker(ADMIN_ID, WORKER_ID, { reason_code: "abuse_report" }, CTX);
 
     // The reason CODE + the admin id go to the worker_flags ROW — NOT the event payload.
-    expect(m.actions.openFlag).toHaveBeenCalledWith(WORKER_ID, "abuse_report", ADMIN_ID);
+    expect(m.actions.openFlag).toHaveBeenCalledWith(WORKER_ID, "abuse_report", ADMIN_ID, FAKE_TX);
     expect(res).toEqual({ target_id: WORKER_ID, changed: true });
     assertValueFreeAction(soleEmit(m.events), {
       actionCode: "worker_flagged",
@@ -367,7 +403,7 @@ describe("unflagWorker", () => {
 
     const res = await m.service.unflagWorker(ADMIN_ID, WORKER_ID, CTX);
 
-    expect(m.actions.resolveFlag).toHaveBeenCalledWith(WORKER_ID, ADMIN_ID);
+    expect(m.actions.resolveFlag).toHaveBeenCalledWith(WORKER_ID, ADMIN_ID, FAKE_TX);
     expect(res).toEqual({ target_id: WORKER_ID, changed: true });
     assertValueFreeAction(soleEmit(m.events), {
       actionCode: "worker_unflagged",
@@ -399,7 +435,10 @@ describe("inviteAdmin", () => {
     );
 
     // The email (PII) + role go to admin_users (encrypted) — NOT the event/response value-set.
-    expect(m.admins.create).toHaveBeenCalledWith({ role: "ops_admin", email: "ops@badabhai.in" });
+    expect(m.admins.create).toHaveBeenCalledWith(
+      { role: "ops_admin", email: "ops@badabhai.in" },
+      FAKE_TX,
+    );
     expect(res).toEqual({ admin_id: TARGET_ADMIN_ID });
     assertValueFreeAction(soleEmit(m.events), {
       actionCode: "admin_invited",
@@ -418,12 +457,14 @@ describe("inviteAdmin", () => {
 });
 
 describe("changeAdminRole", () => {
-  it("known admin → updates role SoR + emits ONE value-free admin_role_changed", async () => {
+  it("known admin (different role) → updates role SoR + emits ONE value-free admin_role_changed", async () => {
+    // Target is currently support → ops_admin is a real change (not a same-role no-op).
+    m.admins.findById.mockResolvedValue({ id: TARGET_ADMIN_ID, role: "support", status: "active" });
     m.admins.updateRole.mockResolvedValue({ id: TARGET_ADMIN_ID, role: "ops_admin" });
 
     const res = await m.service.changeAdminRole(ADMIN_ID, TARGET_ADMIN_ID, { role: "ops_admin" }, CTX);
 
-    expect(m.admins.updateRole).toHaveBeenCalledWith(TARGET_ADMIN_ID, "ops_admin");
+    expect(m.admins.updateRole).toHaveBeenCalledWith(TARGET_ADMIN_ID, "ops_admin", FAKE_TX);
     expect(res).toEqual({ target_id: TARGET_ADMIN_ID, changed: true });
     assertValueFreeAction(soleEmit(m.events), {
       actionCode: "admin_role_changed",
@@ -433,22 +474,61 @@ describe("changeAdminRole", () => {
   });
 
   it("unknown admin → 404, NO event", async () => {
-    m.admins.updateRole.mockResolvedValue(undefined);
+    m.admins.findById.mockResolvedValue(undefined);
     await expect(
       m.service.changeAdminRole(ADMIN_ID, TARGET_ADMIN_ID, { role: "support" }, CTX),
     ).rejects.toThrow(NotFoundException);
+    expect(m.admins.updateRole).not.toHaveBeenCalled();
     expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  // L2 — same-role X→X PATCH is a no-op (no row bump, no event).
+  it("same-role PATCH (role X→X) → no-op success, NO SoR write, NO event", async () => {
+    m.admins.findById.mockResolvedValue({ id: TARGET_ADMIN_ID, role: "ops_admin", status: "active" });
+    const res = await m.service.changeAdminRole(ADMIN_ID, TARGET_ADMIN_ID, { role: "ops_admin" }, CTX);
+    expect(res).toEqual({ target_id: TARGET_ADMIN_ID, changed: false });
+    expect(m.admins.updateRole).not.toHaveBeenCalled();
+    expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  // L1 — self-demotion + last-super_admin lockout guards.
+  it("demoting YOURSELF → 409 conflict, NO SoR write, NO event", async () => {
+    m.admins.findById.mockResolvedValue({ id: ADMIN_ID, role: "super_admin", status: "active" });
+    await expect(
+      m.service.changeAdminRole(ADMIN_ID, ADMIN_ID, { role: "analyst" }, CTX),
+    ).rejects.toThrow(ConflictException);
+    expect(m.admins.updateRole).not.toHaveBeenCalled();
+    expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("demoting the LAST active super_admin → 409 conflict, NO SoR write, NO event", async () => {
+    m.admins.findById.mockResolvedValue({ id: TARGET_ADMIN_ID, role: "super_admin", status: "active" });
+    m.admins.countActiveSuperAdmins.mockResolvedValue(1); // the target is the only one
+    await expect(
+      m.service.changeAdminRole(ADMIN_ID, TARGET_ADMIN_ID, { role: "analyst" }, CTX),
+    ).rejects.toThrow(ConflictException);
+    expect(m.admins.updateRole).not.toHaveBeenCalled();
+    expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("demoting a super_admin when OTHERS remain (count > 1) → allowed", async () => {
+    m.admins.findById.mockResolvedValue({ id: TARGET_ADMIN_ID, role: "super_admin", status: "active" });
+    m.admins.countActiveSuperAdmins.mockResolvedValue(2);
+    m.admins.updateRole.mockResolvedValue({ id: TARGET_ADMIN_ID, role: "analyst" });
+    const res = await m.service.changeAdminRole(ADMIN_ID, TARGET_ADMIN_ID, { role: "analyst" }, CTX);
+    expect(res).toEqual({ target_id: TARGET_ADMIN_ID, changed: true });
+    expect(soleEmit(m.events).payload.action_code).toBe("admin_role_changed");
   });
 });
 
 describe("suspendAdmin", () => {
   it("active admin → suspends SoR + emits ONE value-free admin_suspended", async () => {
-    m.admins.findById.mockResolvedValue({ id: TARGET_ADMIN_ID, status: "active" });
+    m.admins.findById.mockResolvedValue({ id: TARGET_ADMIN_ID, role: "ops_admin", status: "active" });
     m.admins.suspend.mockResolvedValue({ id: TARGET_ADMIN_ID, status: "suspended" });
 
     const res = await m.service.suspendAdmin(ADMIN_ID, TARGET_ADMIN_ID, CTX);
 
-    expect(m.admins.suspend).toHaveBeenCalledWith(TARGET_ADMIN_ID);
+    expect(m.admins.suspend).toHaveBeenCalledWith(TARGET_ADMIN_ID, FAKE_TX);
     expect(res).toEqual({ target_id: TARGET_ADMIN_ID, changed: true });
     assertValueFreeAction(soleEmit(m.events), {
       actionCode: "admin_suspended",
@@ -458,7 +538,7 @@ describe("suspendAdmin", () => {
   });
 
   it("already-suspended admin → idempotent no-op, NO SoR write, NO event", async () => {
-    m.admins.findById.mockResolvedValue({ id: TARGET_ADMIN_ID, status: "suspended" });
+    m.admins.findById.mockResolvedValue({ id: TARGET_ADMIN_ID, role: "ops_admin", status: "suspended" });
     const res = await m.service.suspendAdmin(ADMIN_ID, TARGET_ADMIN_ID, CTX);
     expect(res).toEqual({ target_id: TARGET_ADMIN_ID, changed: false });
     expect(m.admins.suspend).not.toHaveBeenCalled();
@@ -471,6 +551,33 @@ describe("suspendAdmin", () => {
       NotFoundException,
     );
     expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  // L1 — self-suspend + last-super_admin lockout guards.
+  it("suspending YOURSELF → 409 conflict, NO SoR write, NO event", async () => {
+    m.admins.findById.mockResolvedValue({ id: ADMIN_ID, role: "super_admin", status: "active" });
+    await expect(m.service.suspendAdmin(ADMIN_ID, ADMIN_ID, CTX)).rejects.toThrow(ConflictException);
+    expect(m.admins.suspend).not.toHaveBeenCalled();
+    expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("suspending the LAST active super_admin → 409 conflict, NO SoR write, NO event", async () => {
+    m.admins.findById.mockResolvedValue({ id: TARGET_ADMIN_ID, role: "super_admin", status: "active" });
+    m.admins.countActiveSuperAdmins.mockResolvedValue(1);
+    await expect(m.service.suspendAdmin(ADMIN_ID, TARGET_ADMIN_ID, CTX)).rejects.toThrow(
+      ConflictException,
+    );
+    expect(m.admins.suspend).not.toHaveBeenCalled();
+    expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("suspending a super_admin when OTHERS remain (count > 1) → allowed", async () => {
+    m.admins.findById.mockResolvedValue({ id: TARGET_ADMIN_ID, role: "super_admin", status: "active" });
+    m.admins.countActiveSuperAdmins.mockResolvedValue(2);
+    m.admins.suspend.mockResolvedValue({ id: TARGET_ADMIN_ID, status: "suspended" });
+    const res = await m.service.suspendAdmin(ADMIN_ID, TARGET_ADMIN_ID, CTX);
+    expect(res).toEqual({ target_id: TARGET_ADMIN_ID, changed: true });
+    expect(soleEmit(m.events).payload.action_code).toBe("admin_suspended");
   });
 });
 

@@ -903,9 +903,21 @@ export const creditLedger = pgTable(
     // OPAQUE external payment/order ref ONLY (e.g. a gateway order id) — NEVER card
     // number, UPI handle, or any PII. Null for ops grants / mock debits.
     paymentRef: text("payment_ref"),
+    // EXACTLY-ONCE money guard (ADMIN-3a H2). An OPAQUE, caller-supplied stable key for a
+    // logical credit movement (e.g. an admin grant). The partial unique index below makes the
+    // ledger insert idempotent under at-least-once retry: a re-submit with the SAME key inserts
+    // NO second row and changes NO balance. NULLABLE on purpose (NULLS DISTINCT) — movements with
+    // no natural dedup key (legacy/mock debits) leave it null and never collide. Carries NO PII /
+    // value — an opaque UUID only; the admin.action_performed event is keyed on the SAME value so
+    // ledger + spine agree (no double-spend / no money-vs-spine divergence).
+    idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("credit_ledger_payer_id_idx").on(t.payerId)],
+  (t) => [
+    index("credit_ledger_payer_id_idx").on(t.payerId),
+    // Exactly-once: non-null keys are unique; many NULLs allowed (Postgres NULLS DISTINCT).
+    uniqueIndex("credit_ledger_idempotency_key_uq").on(t.idempotencyKey),
+  ],
 );
 
 // unlock_routing — SERVER-SIDE-ONLY routing mapping (ADR-0010 §D2 / Phase-0 F-4/F-5).

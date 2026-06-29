@@ -33,11 +33,19 @@ export const ADMIN_CREDIT_GRANT_REASONS = [
 export const AdminCreditGrantReason = z.enum(ADMIN_CREDIT_GRANT_REASONS);
 export type AdminCreditGrantReason = z.infer<typeof AdminCreditGrantReason>;
 
-/** POST /admin/payers/:id/credits body — a positive integer amount + a closed reason code. */
+/**
+ * POST /admin/payers/:id/credits body — a positive integer amount + a closed reason code + a
+ * client-supplied UUID idempotency key (H2). The key is the EXACTLY-ONCE token for this money
+ * movement: it is validated as a UUID (NOT the raw, client-controllable `x-request-id`) and keys
+ * BOTH the credit_ledger insert AND the `credits_granted` event — so a retry with the same key is
+ * exactly-once on ledger + spine (no double-spend, no money-vs-spine divergence). It is an opaque
+ * id — no value/PII rides on it; it is NEVER put on the event payload, only on its dedup key.
+ */
 export const AdminGrantCreditsSchema = z
   .object({
     amount: z.number().int().positive().max(ADMIN_CREDIT_GRANT_MAX),
     reason_code: AdminCreditGrantReason,
+    idempotency_key: z.string().uuid(),
   })
   .strict();
 export type AdminGrantCreditsDto = z.infer<typeof AdminGrantCreditsSchema>;
