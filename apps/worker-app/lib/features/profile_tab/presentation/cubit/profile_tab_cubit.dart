@@ -5,6 +5,7 @@ import '../../../../core/api/api_client.dart';
 import '../../../../core/di/locator.dart';
 import '../../../../core/error/failure.dart';
 import '../../../../core/session/session_repository.dart';
+import '../../../auth/domain/auth_session_manager.dart';
 import '../../domain/profile_summary.dart';
 import '../../domain/profile_summary_repository.dart';
 
@@ -52,9 +53,22 @@ class ProfileTabCubit extends Cubit<ProfileTabState> {
   }
 
   /// Best-effort logout: revoke the token server-side (ignored on failure —
-  /// offline-safe), then wipe the in-memory session. The screen handles
-  /// navigation back to the login route after this resolves.
+  /// offline-safe), then wipe the session. The screen handles navigation back to
+  /// the login route after this resolves.
+  ///
+  /// When persistent auth is wired (the real app), it delegates to
+  /// [AuthSessionManager.logout] — which ALSO clears the secure store (refresh
+  /// token + worker id) and flips the auth status to loggedOut so the router
+  /// redirect bounces to /login. The legacy [ApiClient]/[SessionRepository] path
+  /// is the fallback for the existing unit tests that inject those seams without
+  /// a manager.
   Future<void> logout() async {
+    if (_api == null &&
+        _session == null &&
+        locator.isRegistered<AuthSessionManager>()) {
+      await locator<AuthSessionManager>().logout();
+      return;
+    }
     final ApiClient api = _api ?? locator<ApiClient>();
     final SessionRepository session = _session ?? locator<SessionRepository>();
     final String? token = session.sessionToken;

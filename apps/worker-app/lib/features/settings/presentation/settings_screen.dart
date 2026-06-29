@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -6,6 +7,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_list_row.dart';
 import '../../../core/widgets/bb_scaffold.dart';
+import '../../../router.dart';
 
 /// Settings (spec §5.10). For the alpha the rows are mostly inert — a tap shows
 /// a "coming soon" snackbar — and account-delete is a stub dialog explaining the
@@ -71,6 +73,12 @@ class SettingsScreen extends StatelessWidget {
             title: 'Notifications',
             subtitle: 'On',
             onTap: () => _comingSoon(context),
+          ),
+          BbListRow.setting(
+            icon: Icons.devices_other_outlined,
+            title: 'Aapke devices',
+            subtitle: 'Logged-in devices dekhein · hatayein',
+            onTap: () => context.push(Routes.devices),
           ),
           BbListRow.setting(
             icon: Icons.verified_user_outlined,

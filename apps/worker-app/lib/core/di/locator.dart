@@ -1,13 +1,24 @@
 import 'package:get_it/get_it.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/api_client.dart';
+import '../auth/auth_api.dart';
+import '../auth/auth_factory.dart';
+import '../auth/device_id.dart';
+import '../auth/locale_store.dart';
+import '../auth/reauth_signal.dart';
+import '../auth/secure_token_store.dart';
 import '../config/app_config.dart';
 import '../session/session_repository.dart';
 
 import '../../features/auth/data/auth_repository_impl.dart';
 import '../../features/auth/domain/auth_repository.dart';
+import '../../features/auth/domain/auth_session_manager.dart';
+import '../../features/auth/presentation/cubit/devices_cubit.dart';
+import '../../features/auth/presentation/cubit/enter_pin_cubit.dart';
 import '../../features/auth/presentation/cubit/otp_verify_cubit.dart';
 import '../../features/auth/presentation/cubit/phone_login_cubit.dart';
+import '../../features/auth/presentation/cubit/set_pin_cubit.dart';
 import '../../features/chat/data/chat_repository_impl.dart';
 import '../../features/chat/domain/chat_repository.dart';
 import '../../features/chat/presentation/bloc/chat_bloc.dart';
@@ -57,21 +68,40 @@ final GetIt locator = GetIt.instance;
 /// `kUseMocks` dart-define (which is `false` under a plain `flutter test`). In
 /// production [main] calls `setupLocator()` with no argument, so the live wiring
 /// goes through [createApiClient] exactly as before.
-void setupLocator({ApiClient? apiClient}) {
+void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // The override only applies to a FRESH graph. Guard against a silent no-op:
   // if the graph is already wired, the early-return below would drop the
   // override and leave the real network client in place (a footgun under
   // `flutter test`). Reset the locator before passing one.
   assert(
-    apiClient == null || !locator.isRegistered<SessionRepository>(),
-    'setupLocator(apiClient:) was ignored — the locator is already wired; '
-    'call `await locator.reset()` before supplying a test ApiClient.',
+    (apiClient == null && secureStore == null) ||
+        !locator.isRegistered<SessionRepository>(),
+    'setupLocator(apiClient:/secureStore:) was ignored — the locator is already '
+    'wired; call `await locator.reset()` before supplying a test override.',
   );
   if (locator.isRegistered<SessionRepository>()) return;
 
   // --- Cross-cutting singletons ---------------------------------------------
   // Session first: the ApiClient's rolling-refresh callback closes over it.
   locator.registerLazySingleton<SessionRepository>(() => SessionRepository());
+
+  // --- Persistent auth (PASS 1) ---------------------------------------------
+  // The plugin-FREE singletons register here (synchronous, no platform call):
+  // SecureTokenStore (the secure-storage plugin itself is lazy and only touched
+  // on first read/write), DeviceIdProvider, and the ReauthSignal. The two
+  // SharedPreferences-backed pieces (LocaleStore + AuthApi) register in the
+  // ASYNC [initAuthLocator] below — kept out of the synchronous, plugin-free
+  // [setupLocator] so existing widget tests (which never await it) don't trip
+  // the SharedPreferences platform channel.
+  // The real plugin throws under `flutter test`; an injected in-memory
+  // [secureStore] lets the mock-mode e2e exercise persistence without it.
+  locator.registerLazySingleton<SecureTokenStore>(
+    () => SecureTokenStore(secureStore ?? FlutterSecureKeyValueStore()),
+  );
+  locator.registerLazySingleton<DeviceIdProvider>(
+    () => DeviceIdProvider(locator<SecureTokenStore>()),
+  );
+  locator.registerLazySingleton<ReauthSignal>(() => ReauthSignal());
 
   // ONE ApiClient app-wide: MOCK vs REAL via the createApiClient factory
   // (kUseMocks), with the x-session-token rolling refresh wired to the session.
@@ -125,11 +155,39 @@ void setupLocator({ApiClient? apiClient}) {
   );
 
   // --- Blocs / Cubits (fresh instance per screen mount) ---------------------
+  // Auth cubits resolve [AuthSessionManager] + [LocaleStore] LAZILY (the factory
+  // closure runs on demand, after [initAuthLocator] has registered both). The
+  // [AuthRepository] above stays wired for backward compat (existing tests),
+  // even though the live flows now route through the manager.
   locator.registerFactory<PhoneLoginCubit>(
-    () => PhoneLoginCubit(locator<AuthRepository>()),
+    () => PhoneLoginCubit(
+      locator<AuthSessionManager>(),
+      locale: locator<LocaleStore>().read(),
+    ),
   );
   locator.registerFactory<OtpVerifyCubit>(
-    () => OtpVerifyCubit(locator<AuthRepository>()),
+    () => OtpVerifyCubit(
+      locator<AuthSessionManager>(),
+      locale: locator<LocaleStore>().read(),
+    ),
+  );
+  locator.registerFactory<SetPinCubit>(
+    () => SetPinCubit(
+      locator<AuthSessionManager>(),
+      locale: locator<LocaleStore>().read(),
+    ),
+  );
+  locator.registerFactory<EnterPinCubit>(
+    () => EnterPinCubit(
+      locator<AuthSessionManager>(),
+      locale: locator<LocaleStore>().read(),
+    ),
+  );
+  locator.registerFactory<DevicesCubit>(
+    () => DevicesCubit(
+      locator<AuthSessionManager>(),
+      locale: locator<LocaleStore>().read(),
+    ),
   );
   locator.registerFactory<ConsentCubit>(
     () => ConsentCubit(locator<ConsentRepository>()),
@@ -166,5 +224,58 @@ void setupLocator({ApiClient? apiClient}) {
   );
   locator.registerFactory<NotificationsCubit>(
     () => NotificationsCubit(locator<NotificationsRepository>()),
+  );
+}
+
+/// Registers the SharedPreferences-backed auth singletons ([LocaleStore] +
+/// [AuthApi]) — the part of the auth graph that needs an async platform call.
+///
+/// Kept OUT of the synchronous, plugin-free [setupLocator] so existing widget
+/// tests (which never await it) don't trip the SharedPreferences platform
+/// channel. PASS 2's app bootstrap awaits this once before any authed request
+/// (e.g. silent login), after [setupLocator]. Idempotent: a second call is a
+/// no-op once [AuthApi] is registered.
+///
+/// In tests, pass an already-built [localeStore] (over an in-memory fake) to
+/// avoid the real plugin entirely, and an [authApi] override (e.g. a
+/// [MockAuthApi] over a fake secure store) to force the mock auth path for a
+/// mock-mode e2e — mirroring the [setupLocator] `apiClient` seam (the
+/// compile-time `kUseMocks` is false under a plain `flutter test`).
+Future<void> initAuthLocator({
+  LocaleStore? localeStore,
+  AuthApi? authApi,
+}) async {
+  if (locator.isRegistered<AuthApi>()) return;
+
+  final LocaleStore store = localeStore ??
+      LocaleStore(
+        SharedPrefsKeyValueStore(await SharedPreferences.getInstance()),
+      );
+  locator.registerSingleton<LocaleStore>(store);
+
+  // MOCK vs REAL pick lives in createAuthApi (kUseMocks), mirroring
+  // createApiClient. The full signing chain (device id, locale, refresh, reauth)
+  // is wired here from the singletons registered in setupLocator. A test-supplied
+  // [authApi] override wins (mock-mode e2e).
+  locator.registerSingleton<AuthApi>(
+    authApi ??
+        createAuthApi(
+          tokenStore: locator<SecureTokenStore>(),
+          deviceId: locator<DeviceIdProvider>(),
+          localeStore: locator<LocaleStore>(),
+          reauthSignal: locator<ReauthSignal>(),
+        ),
+  );
+
+  // The orchestration layer (PASS 2): the single source of "am I logged
+  // in / locked", listenable by the router. It bridges fresh tokens into the
+  // legacy SessionRepository so worker-scoped calls keep their bearer.
+  locator.registerSingleton<AuthSessionManager>(
+    AuthSessionManager(
+      authApi: locator<AuthApi>(),
+      tokenStore: locator<SecureTokenStore>(),
+      session: locator<SessionRepository>(),
+      reauthSignal: locator<ReauthSignal>(),
+    ),
   );
 }

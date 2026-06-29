@@ -52,7 +52,19 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
       listenWhen: (prev, curr) => prev.status != curr.status,
       listener: (BuildContext context, OtpVerifyState state) {
         if (state.status == OtpVerifyStatus.success) {
-          context.push(Routes.consent);
+          // Route off the verify flags: a new user / no-PIN sets a PIN first;
+          // a returning worker with a PIN is already authenticated — the router
+          // redirect lifts them out of the onboarding stack into the shell, so
+          // we just nudge it by going to the consent gate (which itself routes
+          // on once the auth status is authenticated). For set-PIN we go to the
+          // set-PIN route explicitly.
+          if (state.next == OtpNext.setPin) {
+            context.go(Routes.setPin);
+          } else {
+            // Authenticated returning worker → straight to the shell (no
+            // re-profiling). The redirect would block onboarding routes anyway.
+            context.go(Routes.resume);
+          }
         } else if (state.status == OtpVerifyStatus.failure) {
           // Surface the verify failure instead of silently reverting the button.
           ScaffoldMessenger.of(context)

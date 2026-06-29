@@ -31,8 +31,15 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:badabhai_worker_app/app.dart';
 import 'package:badabhai_worker_app/core/api/mock_api_client.dart';
+import 'package:badabhai_worker_app/core/auth/locale_store.dart';
+import 'package:badabhai_worker_app/core/auth/mock_auth_api.dart';
+import 'package:badabhai_worker_app/core/auth/secure_token_store.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_bottom_nav.dart';
+import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
+import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_keypad.dart';
+
+import '../core/auth/fakes.dart';
 
 /// Pump the fake clock in small steps until [finder] matches, then return — or
 /// fail loudly once the budget is spent. Avoids both `pumpAndSettle` (perpetual
@@ -71,12 +78,34 @@ Finder _navBadge(String count) => find.descendant(
       matching: find.text(count),
     );
 
+/// Tap the masked PIN keypad to enter [pin] (digit by digit). The keypad has no
+/// OS keyboard, so we tap the on-screen digit keys.
+Future<void> _enterPin(WidgetTester tester, String pin) async {
+  for (final String d in pin.split('')) {
+    await tester.tap(find.descendant(
+      of: find.byType(BbPinKeypad),
+      matching: find.text(d),
+    ));
+    await tester.pump();
+  }
+}
+
 void main() {
   setUp(() async {
     // No network, deterministic glyph metrics.
     GoogleFonts.config.allowRuntimeFetching = false;
     await locator.reset();
-    setupLocator(apiClient: MockApiClient());
+    // Mock the whole stack: the ApiClient AND the auth subsystem. A fake secure
+    // store + fake prefs stand in for the plugins (which throw under
+    // `flutter test`), and MockAuthApi serves the OTP/PIN flow offline.
+    final FakeSecureStore secure = FakeSecureStore();
+    setupLocator(apiClient: MockApiClient(), secureStore: secure);
+    await initAuthLocator(
+      localeStore: LocaleStore(FakePrefs()),
+      authApi: MockAuthApi(locator<SecureTokenStore>()),
+    );
+    // Cold start: no remembered token → loggedOut → the journey starts at login.
+    await locator<AuthSessionManager>().bootstrap();
   });
 
   tearDown(() async {
@@ -118,6 +147,14 @@ void main() {
     await _pumpUntil(tester, find.text('Verify'));
     await tester.enterText(find.byType(TextField), '123456');
     await tester.tap(find.text('Verify'));
+
+    // ── 3b. SET-PIN (new user) — the OTP-verify flags route here (pin_set=false).
+    //     Enter a PIN then confirm it; setPin authenticates and continues to
+    //     consent (the onboarding). Masked keypad → tap the on-screen digits. ──
+    await _pumpUntil(tester, find.text('4-digit PIN banayein'));
+    await _enterPin(tester, '7416');
+    await _pumpUntil(tester, find.text('PIN dobara daalein'));
+    await _enterPin(tester, '7416');
 
     // ── 4. CONSENT (DPDP gate) ──
     await _pumpUntil(tester, find.text('Your privacy'));
