@@ -932,6 +932,13 @@ export type RoutingChannel = "in_app_relay" | "proxy_number";
 // — one idempotent unlock per payer per candidate; a retried request converges on
 // the same row (last-state-wins; per-attempt audit lives in events). `job_id` is
 // OPTIONAL context (granularity is per-profile, not per-(worker, job)).
+//
+// DPDP erasure posture (ADR-0026 Phase 5, D3): `worker_id` is `onDelete: "set null"`
+// + NULLABLE — a worker hard-delete (DSAR) PRESERVES this PII-free PAID grant and
+// only nulls the identity join. Cascading here would DESTROY billing history; this
+// mirrors the `agency_invites`/`invites.invited_worker_id` "keep INTENT history
+// intact" posture. Existing rows keep their (non-null) worker_id; SET NULL fires
+// only on a future worker DELETE.
 export const unlocks = pgTable(
   "unlocks",
   {
@@ -939,9 +946,9 @@ export const unlocks = pgTable(
     // Opaque payer ref (employer OR agent) — faceless rails, NO FK, NO PII.
     payerId: uuid("payer_id").notNull(),
     // The ONLY join back to identity; PII stays in `workers` (RLS-locked).
-    workerId: uuid("worker_id")
-      .notNull()
-      .references(() => workers.id, { onDelete: "cascade" }),
+    // NULLABLE + onDelete:"set null" — DSAR erasure nulls the join, keeps the
+    // PII-free paid-grant row (ADR-0026 Phase 5 D3).
+    workerId: uuid("worker_id").references(() => workers.id, { onDelete: "set null" }),
     // Optional job context (per-profile granularity, so nullable). FK to jobs.
     jobId: uuid("job_id").references(() => jobs.id, { onDelete: "set null" }),
     status: text("status").$type<UnlockStatus>().notNull().default("requested"),
@@ -1171,14 +1178,21 @@ export const postingBoosts = pgTable(
 // FREE but is a PII DISCLOSURE — it rides the ADR-0010 consent+caps spine. PII-FREE
 // by construction: the resume bytes / name / download link are NEVER here. `resume_ref`
 // is an opaque pointer into generated_resumes; worker_id is the only identity join.
+//
+// DPDP erasure posture (ADR-0026 Phase 5, D3): `worker_id` is `onDelete: "set null"`
+// + NULLABLE — a worker hard-delete (DSAR) PRESERVES this PII-free disclosure record
+// and only nulls the identity join. Cascading here would DESTROY disclosure history;
+// this mirrors the `agency_invites`/`invites.invited_worker_id` "keep INTENT history
+// intact" posture. Existing rows keep their (non-null) worker_id; SET NULL fires
+// only on a future worker DELETE.
 export const resumeDisclosures = pgTable(
   "resume_disclosures",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     payerId: uuid("payer_id").notNull(),
-    workerId: uuid("worker_id")
-      .notNull()
-      .references(() => workers.id, { onDelete: "cascade" }),
+    // NULLABLE + onDelete:"set null" — DSAR erasure nulls the join, keeps the
+    // PII-free disclosure row (ADR-0026 Phase 5 D3).
+    workerId: uuid("worker_id").references(() => workers.id, { onDelete: "set null" }),
     // Scope to a posting if downloaded from a candidates page; null for pure search.
     jobPostingId: uuid("job_posting_id").references(() => jobPostings.id, { onDelete: "set null" }),
     // Which resume artifact was disclosed (a pointer, NOT the bytes).
@@ -1249,6 +1263,15 @@ export const payerCapacity = pgTable(
 // provider only, at send time). This is the upstream attribution signal the
 // deferred agency-referral payout will consume. RLS-enabled (REVOKE in the
 // migration, spine posture). `invited_worker_id` is set on signup-acceptance.
+//
+// DPDP erasure posture (ADR-0026 Phase 5, D3): BOTH `inviter_worker_id` and
+// `invited_worker_id` are `onDelete: "set null"` + NULLABLE — a worker hard-delete
+// (DSAR) PRESERVES this PII-free referral-attribution row and only nulls the
+// identity join(s). `inviter_worker_id` was changed cascade→set-null here so an
+// inviter's erasure no longer DESTROYS referral history; it now matches the
+// already-correct `invited_worker_id` "keep INTENT history intact" posture.
+// Existing rows keep their (non-null) inviter_worker_id; SET NULL fires only on a
+// future worker DELETE.
 // ---------------------------------------------------------------------------
 export type InviteChannel = "whatsapp";
 export type InviteStatus = "created" | "clicked" | "accepted";
@@ -1259,9 +1282,11 @@ export const invites = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     // The opaque deep-link token (the only thing shared). Unique.
     code: text("code").notNull(),
-    inviterWorkerId: uuid("inviter_worker_id")
-      .notNull()
-      .references(() => workers.id, { onDelete: "cascade" }),
+    // NULLABLE + onDelete:"set null" — DSAR erasure nulls the join, keeps the
+    // PII-free referral-attribution row (ADR-0026 Phase 5 D3).
+    inviterWorkerId: uuid("inviter_worker_id").references(() => workers.id, {
+      onDelete: "set null",
+    }),
     // Set when an invited person becomes a worker (attribution). Nullable until then.
     invitedWorkerId: uuid("invited_worker_id").references(() => workers.id, {
       onDelete: "set null",

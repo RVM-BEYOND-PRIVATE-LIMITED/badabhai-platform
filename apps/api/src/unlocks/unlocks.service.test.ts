@@ -68,7 +68,12 @@ function setup(opts: SetupOpts = {}) {
     // reveal() reads the projection (tx-external) BEFORE the lock to run the consent
     // gate; return a worker_id-bearing projection whenever an unlock exists so that
     // pre-lock consent check fires in the reveal tests.
-    getProjection: vi.fn(async () => (opts.existingUnlock ? { worker_id: WORKER, payer_id: PAYER } : undefined)),
+    // worker_id is `string | null` post-ADR-0026 Phase 5 (DSAR SET NULL) — type the literal so
+    // a test can mockResolvedValue a null-worker_id projection (the deleted-worker guard).
+    getProjection: vi.fn(
+      async (): Promise<{ worker_id: string | null; payer_id: string } | undefined> =>
+        opts.existingUnlock ? { worker_id: WORKER, payer_id: PAYER } : undefined,
+    ),
     ...txMethods,
   };
 
@@ -375,6 +380,44 @@ describe("UnlockService — reveal (F-5: sentinel phone never leaks)", () => {
     expect(await svc.reveal("unlock-1", CTX)).toEqual({ status: "unavailable" });
     expect(emitted(events)).toContain("unlock.cap_exceeded");
     expect(txMethods.createRouting).not.toHaveBeenCalled();
+  });
+
+  // ---- ADR-0026 Phase 5: a hard-deleted worker SET-NULLs unlocks.worker_id ----
+
+  it("reveal on a NULL worker_id (worker deleted, DSAR SET NULL) returns the neutral body, no crash, no oracle", async () => {
+    // The paid-grant row survives the worker hard-delete with worker_id nulled. A reveal must
+    // NOT relay to a gone worker — it returns the IDENTICAL neutral body, never an error/404,
+    // and never passes null into the consent check or the worker lock.
+    const { svc, txMethods, consents, pii } = setup({
+      consentPurposes: ["employer_sharing"],
+      existingUnlock: { ...grantedUnlock(), workerId: null },
+    });
+    // The pre-lock projection reports a null worker_id (the SET-NULL result).
+    txMethods.findByIdForUpdate.mockResolvedValue({ ...grantedUnlock(), workerId: null });
+    (svc as unknown as { repo: { getProjection: ReturnType<typeof vi.fn> } }).repo.getProjection =
+      vi.fn(async () => ({ worker_id: null, payer_id: PAYER }));
+
+    const out = await svc.reveal("unlock-1", CTX);
+    expect(out).toEqual({ status: "unavailable" }); // byte-identical neutral
+    // The null worker_id is guarded BEFORE consent / lock / relay — none of these fire.
+    expect(consents.findLatestByWorker).not.toHaveBeenCalled();
+    expect(txMethods.lockWorker).not.toHaveBeenCalled();
+    expect(txMethods.createRouting).not.toHaveBeenCalled();
+    expect(pii.decrypt).not.toHaveBeenCalled(); // the phone is never decrypted for a gone worker
+  });
+
+  it("the pre-lock projection guard catches a NULL worker_id before the tx even opens (no oracle)", async () => {
+    // Even if the projection (the tx-external pre-lock read) reports a null worker_id, the
+    // reveal short-circuits to neutral WITHOUT opening the transaction — the strongest
+    // no-oracle posture for a DSAR-erased worker.
+    const { svc, repo, txMethods } = setup({
+      existingUnlock: { ...grantedUnlock(), workerId: null },
+    });
+    repo.getProjection.mockResolvedValue({ worker_id: null, payer_id: PAYER });
+    const out = await svc.reveal("unlock-1", CTX);
+    expect(out).toEqual({ status: "unavailable" });
+    expect(repo.withTransaction).not.toHaveBeenCalled(); // never opened the tx
+    expect(txMethods.findByIdForUpdate).not.toHaveBeenCalled();
   });
 });
 

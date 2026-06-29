@@ -6,6 +6,9 @@ import type { ServerConfig } from "@badabhai/config";
 import { AuthController } from "./auth.controller";
 import type { AuthService } from "./auth.service";
 import type { SessionService } from "./session.service";
+import type { OtpService } from "./otp.service";
+import type { PiiCryptoService } from "../common/pii-crypto.service";
+import type { AccountDeletionService } from "./account-deletion.service";
 import type { WorkersRepository } from "../workers/workers.repository";
 import type { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import type { AuthenticatedWorker } from "./worker-auth.guard";
@@ -31,17 +34,28 @@ function make() {
     revokeAll: vi.fn(async () => 2),
     describe: vi.fn(async () => ({ tier: 1, expiresAtMs: Date.UTC(2026, 6, 27), requiresOtpAfterMs: null })),
   };
-  const workers = { findById: vi.fn(async () => ({ id: WORKER.id, status: "active" })) };
+  const workers = {
+    findById: vi.fn(async () => ({ id: WORKER.id, status: "active", phoneE164: "ENC(+91999)" })),
+  };
   const ipRateLimit = { assertWithinHourlyIpCap: vi.fn(async () => undefined) };
+  const otp = {
+    issueAndSend: vi.fn(async () => ({ resendInSeconds: 30 })),
+    verify: vi.fn(async () => undefined),
+  };
+  const pii = { decrypt: vi.fn((t: string) => t.replace(/^ENC\(|\)$/g, "")) };
+  const accountDeletion = { execute: vi.fn(async () => undefined) };
   const config = { OTP_MAX_SENDS_PER_HOUR: 5 } as ServerConfig;
   const controller = new AuthController(
     auth as unknown as AuthService,
     sessions as unknown as SessionService,
     workers as unknown as WorkersRepository,
     ipRateLimit as unknown as IpRateLimit,
+    otp as unknown as OtpService,
+    pii as unknown as PiiCryptoService,
+    accountDeletion as unknown as AccountDeletionService,
     config,
   );
-  return { controller, auth, sessions, workers, ipRateLimit };
+  return { controller, auth, sessions, workers, ipRateLimit, otp, pii, accountDeletion };
 }
 
 const reqWith = (overrides: Partial<Request> = {}): Request =>
@@ -159,4 +173,89 @@ describe("AuthController", () => {
     (sessions.describe as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
     await expect(controller.session(WORKER)).rejects.toBeInstanceOf(UnauthorizedException);
   });
+
+  // ---- ADR-0026 Phase 5 — DPDP account deletion (step-up OTP) ----
+
+  it("accountDeleteRequest resolves the TOKEN worker's phone (never a body) and sends the OTP", async () => {
+    const { controller, workers, pii, otp } = make();
+    const res = await controller.accountDeleteRequest(WORKER);
+    expect(workers.findById).toHaveBeenCalledWith(WORKER.id);
+    expect(pii.decrypt).toHaveBeenCalledWith("ENC(+91999)");
+    expect(otp.issueAndSend).toHaveBeenCalledWith("+91999");
+    expect(res).toEqual({ success: true, resend_in_seconds: 30 });
+  });
+
+  it("accountDeleteRequest 401s when the token worker row is gone (no oracle, fail closed)", async () => {
+    const { controller, workers, otp } = make();
+    (workers.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+    await expect(controller.accountDeleteRequest(WORKER)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(otp.issueAndSend).not.toHaveBeenCalled();
+  });
+
+  it("accountDeleteConfirm verifies the step-up OTP THEN runs the erasure (204)", async () => {
+    const { controller, otp, accountDeletion } = make();
+    await controller.accountDeleteConfirm(WORKER, { otp: "123456" } as never);
+    expect(otp.verify).toHaveBeenCalledWith("+91999", "123456");
+    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id);
+  });
+
+  it("accountDeleteConfirm does NOT delete when the OTP verify throws (fail closed)", async () => {
+    const { controller, otp, accountDeletion } = make();
+    (otp.verify as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new UnauthorizedException("bad otp"));
+    await expect(
+      controller.accountDeleteConfirm(WORKER, { otp: "000000" } as never),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(accountDeletion.execute).not.toHaveBeenCalled();
+  });
+
+  // ---- Phase 5 added coverage (QA gap-closure) ----
+
+  it("accountDeleteConfirm IDENTITY is the GUARD's worker.id — a body worker_id is IGNORED (no IDOR)", async () => {
+    // The handler signature only accepts {otp}; even if a hostile body smuggles a worker_id,
+    // execute() must always run against the TOKEN's worker.id, never the body. Assert the
+    // erasure + the OTP gate both target the guard identity, not the injected victim id.
+    const { controller, otp, accountDeletion } = make();
+    const VICTIM = "99999999-9999-4999-8999-999999999999";
+    await controller.accountDeleteConfirm(WORKER, {
+      otp: "123456",
+      worker_id: VICTIM,
+    } as never);
+    // The OTP was verified against the TOKEN worker's phone (resolved from WORKER.id).
+    expect(otp.verify).toHaveBeenCalledWith("+91999", "123456");
+    // The erasure targets the GUARD's id — never the injected victim id.
+    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id);
+    expect(accountDeletion.execute).not.toHaveBeenCalledWith(VICTIM);
+  });
+
+  it("accountDeleteRequest resolves the phone from the GUARD worker (not a body) — body is unused", async () => {
+    // /request takes no body param at all; the phone is derived from the token worker's
+    // decrypted ciphertext. A would-be body worker_id can never redirect the OTP send.
+    const { controller, workers, otp } = make();
+    const VICTIM = "99999999-9999-4999-8999-999999999999";
+    await controller.accountDeleteRequest(WORKER);
+    expect(workers.findById).toHaveBeenCalledWith(WORKER.id);
+    expect(workers.findById).not.toHaveBeenCalledWith(VICTIM);
+    expect(otp.issueAndSend).toHaveBeenCalledWith("+91999");
+  });
+
+  it("accountDeleteRequest NEVER returns the phone or the OTP — only success + resend_in_seconds", async () => {
+    const { controller } = make();
+    const res = await controller.accountDeleteRequest(WORKER);
+    expect(res).toEqual({ success: true, resend_in_seconds: 30 });
+    const json = JSON.stringify(res);
+    // No decrypted phone, no E.164 run, no OTP code in the response body.
+    expect(json).not.toContain("+91999");
+    expect(json).not.toMatch(/\d{6,}/); // no OTP-length / phone-length digit run
+    expect(json).not.toMatch(/otp/i);
+  });
+
+  it("accountDeleteConfirm returns void (204) and surfaces no PII", async () => {
+    const { controller } = make();
+    const res = await controller.accountDeleteConfirm(WORKER, { otp: "123456" } as never);
+    expect(res).toBeUndefined(); // 204 No Content — body is the PII-free event, not the response
+  });
 });
+
+// Guard metadata (401 for an unauthenticated caller) is asserted structurally in
+// account-deletion.module.boot.test.ts: both routes carry @UseGuards(WorkerAuthGuard), so an
+// unauthenticated request is rejected by the guard before either handler body runs.

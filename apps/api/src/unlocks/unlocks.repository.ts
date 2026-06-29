@@ -29,7 +29,10 @@ export type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 export interface UnlockProjection {
   unlock_id: string;
   payer_id: string;
-  worker_id: string;
+  // NULLABLE post-ADR-0026 Phase 5: a worker hard-delete (DSAR) SET-NULLs the identity join
+  // while preserving this PII-free paid-grant row (migration 0030). The reveal path guards on
+  // a null worker_id BEFORE relaying (a gone worker cannot be revealed).
+  worker_id: string | null;
   job_id: string | null;
   status: UnlockStatus;
   reveal_count: number;
