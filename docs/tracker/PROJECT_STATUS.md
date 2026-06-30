@@ -1,9 +1,9 @@
 # BadaBhai Project Progress
 
-**Last updated:** 2026-06-29 (re-scored after 9 PRs merged today: ADR-0026 all 5 phases + ADMIN-3a/3b/3c; decisions D1–D8 closed)
-**Updated by:** Control-room (progress re-score)
-**Branch:** `feat/auth-phase4-mobile-reconcile` (HEAD: `d305877`) — 9 PRs merged today including ADR-0026 all phases + ADMIN-3a/3b/3c
-**Environment:** Local (Windows, no Docker). **Staging deployment pending (D1 decided: Lightsail/EC2).** Confidence basis = static + unit/integration tests only; **zero runtime/staging/handset proof yet.**
+**Last updated:** 2026-06-30 (evidence-folder verification; no percentage move)
+**Updated by:** Control-room (evidence verification + 200% daily board)
+**Branch:** `main` (HEAD: `2f1de80`) — latest pulled; ADR-0026 all phases + ADMIN-3a/3b/3c + worker Applied Jobs are on main
+**Environment:** Local (Windows, no Docker). **Staging deployment pending (D1 decided: Lightsail/EC2).** Confidence basis = static + unit/integration tests plus partial screenshot artifacts in `docs/qa/evidence/b1`; **zero staging event/logcat proof yet.**
 
 > **Numbers are evidence-based and conservative.** Nothing has been verified on real
 > infrastructure, so by the honesty rule **no area exceeds 85%**. Phase weights are the
@@ -12,7 +12,7 @@
 ## BadaBhai Progress Snapshot (2026-06-29)
 - **Overall Project: 72%** · **Alpha Readiness: 57%** · **Release Readiness: 28%**
 - Payer Web 74% · Worker App 67% · Backend/API 80% · OTP/Auth/Security 78% · Agency Demand 68% · Resume+Kit 75% · Infra/Staging 45% · Docs/Process 80%
-- _Re-score driver (since 69% baseline): ADR-0026 all 5 phases + ADMIN-3a/3b/3c merged → Worker Auth 35%→80%, lifting Backend 77→80, OTP/Auth 70→78, Worker App 62→67. **Caps unchanged: still 0 staging/handset proof → no area >85%; alpha gated by B1.**_
+- _Re-score driver (since 69% baseline): ADR-0026 all 5 phases + ADMIN-3a/3b/3c merged -> Worker Auth 35%->80%, lifting Backend 77->80, OTP/Auth 70->78, Worker App 62->67. **Caps unchanged: screenshot artifacts now exist, but there is still 0 staging event/logcat proof -> no area >85%; alpha gated by B1.**_
 - **P0 Blockers: 1** (staging not yet provisioned — D1 DECIDED: Lightsail/EC2, Prakash executing)
 - **P1 Blockers: 1** (unlock/reveal LC-1 auth — posting-plans D3 DECIDED: guard in progress)
 - **Decisions Needed: 0** — all decisions closed 2026-06-29 (D1–D8). **Alpha deadline: Friday 2026-07-04 (B1 sprint).**
@@ -29,8 +29,8 @@ The gap to alpha is **verification + staging**, not "more code".
 
 | Area | Progress | Status | Confidence | P0/P1 Blockers | Evidence |
 | ---- | -------: | ------ | ---------- | -------------- | -------- |
-| Overall Project | 72% | IN_PROGRESS | Medium | 1 P0 / 1 P1 | [QA_EVIDENCE.md](QA_EVIDENCE.md) — all gates green; 9 PRs merged today; no runtime proof |
-| Alpha Readiness | 57% | BLOCKED | Medium | 1 P0 (B1 handset / staging) — B1 sprint → 2026-07-04 | [registers/alpha-capstone-fixlist.md](../registers/alpha-capstone-fixlist.md) — NO-GO on B1 |
+| Overall Project | 72% | IN_PROGRESS | Medium | 1 P0 / 1 P1 | [QA_EVIDENCE.md](QA_EVIDENCE.md) + [`docs/qa/evidence/`](../qa/evidence/) — gates green; screenshots present; no staging event/logcat proof |
+| Alpha Readiness | 57% | BLOCKED | Medium | 1 P0 (B1 handset / staging) — B1 sprint → 2026-07-04 | [registers/alpha-capstone-fixlist.md](../registers/alpha-capstone-fixlist.md) — NO-GO on B1; screenshot evidence partial |
 | Release Readiness | 28% | BLOCKED | High | RLS deferred, real providers off, no DR/cost doc, 4 PIN throttle fast-follows | [RELEASE_READINESS.md](RELEASE_READINESS.md) |
 
 ## Phase Progress (weights = CLAUDE.md/owner defaults, WEIGHTS_PENDING)
@@ -109,7 +109,7 @@ Verified API-surface extraction produced two docs: the **[payer/agency go-live p
 | Unlock/Reveal | Per-payer auth on money route | 40% | BLOCKED | LC-1 (TD33/TD50) | rides InternalServiceGuard | Caller payer_id from session, not body |
 | Posting plans | Guard the `/plan` + `/boost` routes | 50% | IN_PROGRESS | D3 decided (guard) | controller fix in progress | Auth guard + ownership check |
 | Admin PII reveal (3b) | Reason-gated reveal committed + green | 78% | VERIFY | D4: cadence must go live | merged green; D4 owner = Prakash (weekly review) | Weekly audit-stream review + 1-yr retention operational |
-| Worker app | Handset onboarding→resume on staging | 0% | BLOCKED | B1 / staging — **sprint → 2026-07-04** | code merged (PIN/persistent auth + PDF); runbook ready | 3 evidence artifacts (B1) |
+| Worker app | Handset onboarding->resume on staging | 0% | BLOCKED | B1 / staging — **sprint -> 2026-07-04** | screenshots in `docs/qa/evidence/b1`; still missing staging events + clean logcat + PDF-open proof | 3 evidence families (screenshots + events + logcat), plus PDF `resume.downloaded` |
 | Credits | Real credit-ledger history read | 50% | PARTIAL | endpoint | UI on mock store | History from live ledger |
 
 ---

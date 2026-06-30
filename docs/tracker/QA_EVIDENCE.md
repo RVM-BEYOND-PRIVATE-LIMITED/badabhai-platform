@@ -3,6 +3,35 @@
 Proof for every progress claim. **A % move without a row here is invalid.** Append-only;
 newest first. Paste real terminal output, test counts, API responses, manual notes.
 
+Canonical artifact folder: [`docs/qa/evidence/`](../qa/evidence/). Keep screenshots,
+logcat captures, event exports, and API response files there; use this tracker as the
+written index.
+
+---
+
+## 2026-06-30 — Evidence-folder verification
+
+**Source checked:** [`docs/qa/evidence/b1/`](../qa/evidence/b1/)
+
+**Artifacts present:** 9 JPEG screenshots:
+`01-splash-language.jpeg`, `02-login-phone.jpeg`, `03-profile-tab-logout.jpeg`,
+`04-jobs-filter.jpeg`, `05-alerts.jpeg`, `06-profile-tab-kit.jpeg`,
+`07-resume-text.jpeg`, `08-jobs-swipe-card-1.jpeg`, `09-jobs-swipe-card-2.jpeg`.
+
+**Visual spot-check:** splash/language, login, profile/logout, jobs filter, alerts,
+profile/kit, resume text preview with Download PDF button, and jobs swipe-card screens
+are present.
+
+**Verdict:** B1 evidence is **PARTIAL**, not GO. The screenshots satisfy the screenshot
+artifact family, but the B1 gate still needs:
+
+- staging `/health` proof for the API used by the handset,
+- staging `events` export for the worker run,
+- clean logcat showing no raw phone/name/OTP/PIN/token,
+- PDF-open proof plus `resume.downloaded` event because D5 made PDF required for alpha.
+
+No progress percentage was moved from this evidence alone.
+
 ---
 
 ## 2026-06-29 (b) — Re-verify after concurrent ADMIN-3b commit

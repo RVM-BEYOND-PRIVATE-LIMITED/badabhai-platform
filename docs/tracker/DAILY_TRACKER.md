@@ -5,6 +5,50 @@ Newest day on top. Copy the template block each working day. Every % move needs 
 
 ---
 
+# Daily Tracker — 2026-06-30
+
+## BadaBhai Progress Snapshot
+- **Overall Project: 72%** · **Alpha Readiness: 57%** · **Release Readiness: 28%**
+- Payer Web 74% · Worker App 67% · Backend/API 80% · OTP/Auth/Security 78% · Agency Demand 68% · Infra/Staging 45%
+- **P0: 1** · **P1: 1** · **Decisions Needed: 0**
+
+## Progress Movement
+| Area | Yesterday | Today | Change | Reason |
+| ---- | --------: | ----: | -----: | ------ |
+| Overall Project | 72% | 72% | 0 | Evidence verified, but no staging event/logcat proof yet |
+| Alpha Readiness | 57% | 57% | 0 | `docs/qa/evidence/b1` screenshots are present; B1 still needs staging events + clean logcat + PDF-open proof |
+| Docs/Process | 80% | 82% | +2 | Evidence folder is now canonical and documented; 200% owner board added |
+
+## Developer Progress
+| Developer | Assigned Today | Status | Blocker |
+| --------- | -------------- | ------ | ------- |
+| Prakash | Provision staging, wire secrets, `/health`, OTP-7 prep, WeasyPrint/PDF enablement | ACTIVE | AWS host + staging secrets |
+| Divyanshu | Guard posting-plans `/plan` + `/boost`, add tests, record evidence | ACTIVE | None |
+| Rishi | Run Flutter analyze/test, prepare real-mode handset build, attempt B1 if staging lands | ACTIVE | Needs `STAGING_API_BASE_URL` |
+
+## What moved today
+- Verified `docs/qa/evidence/b1` contains 9 screenshots.
+- Added `docs/qa/evidence/README.md` as the canonical artifact index.
+- Updated [QA_EVIDENCE.md](QA_EVIDENCE.md), [TEST_MATRIX.md](TEST_MATRIX.md), [PROJECT_STATUS.md](PROJECT_STATUS.md), [ROADMAP.md](ROADMAP.md), and [OWNER_TASKS.md](OWNER_TASKS.md) to use the evidence folder.
+- Issued the **200% Mode — 2026-06-30** task board in [OWNER_TASKS.md](OWNER_TASKS.md).
+
+## What did NOT move
+- B1 is **not GO**: screenshots exist, but staging events, clean logcat, and PDF-open proof are still missing.
+- No progress percentage moved from screenshots alone.
+
+## Tests run today
+- Not run; docs/evidence verification only.
+
+## Decisions needed
+- None. D1-D8 are already closed.
+
+## Today’s target
+- Prakash: staging `/health` 200 evidence in `docs/qa/evidence/staging/`.
+- Divyanshu: posting-plans guard evidence in `docs/qa/evidence/backend/`.
+- Rishi: Flutter analyze/test plus real-mode B1 evidence under `docs/qa/evidence/b1/` if staging lands.
+
+---
+
 # Daily Tracker — 2026-06-29
 
 ## BadaBhai Progress Snapshot
