@@ -1,4 +1,5 @@
 {
+  "concurrency": "16",
   "$schema": "https://turbo.build/schema.json",
   "ui": "stream",
   "globalEnv": ["NODE_ENV"],

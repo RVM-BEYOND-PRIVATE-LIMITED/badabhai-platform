@@ -1,0 +1,6 @@
+# Local-only override (NOT committed): host Postgres already owns :5432, so map the
+# container to :5433 on the host. Inline DATABASE_URL=...localhost:5433... for migrate/seed.
+services:
+  postgres:
+    ports:
+      - "5433:5432"

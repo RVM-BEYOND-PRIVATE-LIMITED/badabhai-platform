@@ -17,8 +17,10 @@ import {
 import { AppModule } from "./app.module";
 import { StructuredLogger } from "./common/logging/structured-logger";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
+import { loadRootEnv } from "./config/root-env";
 
 async function bootstrap(): Promise<void> {
+  const rootEnv = loadRootEnv();
   const config = loadServerConfig();
   assertPiiCryptoConfig(config); // fail closed if PII secrets are dev defaults outside dev/test
   assertAuthConfig(config); // fail closed on dev JWT secret / console SMS / half-set Fast2SMS outside dev/test
@@ -40,6 +42,9 @@ async function bootstrap(): Promise<void> {
     new Logger("Bootstrap").warn(
       "Using INSECURE default ADMIN JWT secret (local dev only). Set ADMIN_JWT_SECRET.",
     );
+  }
+  if (rootEnv.loaded > 0) {
+    new Logger("Bootstrap").log(`Loaded ${rootEnv.loaded} env vars from repo root .env`);
   }
 
   const app = await NestFactory.create(AppModule, {
