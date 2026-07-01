@@ -33,6 +33,12 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
     issueWithoutDelivery: vi.fn(async () => ({ resendInSeconds: 30 })),
     verify: vi.fn(async () => undefined),
   };
+  const orgs = {
+    // Default: the payer already has an org (backfilled / prior signup) so login does NOT
+    // re-ensure. Tests override resolveOrgForPayer→null to exercise the gap-payer repair.
+    ensureSoloOrg: vi.fn(async () => ({ orgId: "org-1", orgRole: "owner" })),
+    resolveOrgForPayer: vi.fn(async () => ({ orgId: "org-1", orgRole: "owner" })),
+  };
   const sessions = {
     create: vi.fn(async () => ({ token: "jwt-token", expiresInSeconds: 2592000 })),
     mint: vi.fn(async () => ({ token: "fresh-jwt", expiresInSeconds: 2592000 })),
@@ -49,12 +55,13 @@ function setup(over: { method?: "email_otp" | "whatsapp" | "supabase" } = {}) {
   const svc = new PayerAuthService(
     config,
     payers as never,
+    orgs as never,
     otp as never,
     sessions as never,
     events as never,
     pii as never,
   );
-  return { svc, payers, otp, sessions, events };
+  return { svc, payers, orgs, otp, sessions, events };
 }
 
 /** Every string the raw contact PII could be — must NEVER appear in an emitted event. */
@@ -79,6 +86,8 @@ describe("PayerAuthService.signup", () => {
     expect(d.otp.issueAndSend).toHaveBeenCalledTimes(1);
     // Real-only: the response is the neutral { status, resend_in_seconds } only — no dev_otp echo.
     expect(res).toEqual({ status: "code_sent", resend_in_seconds: 30 });
+    // B5: a new payer founds a solo org with themselves as owner.
+    expect(d.orgs.ensureSoloOrg).toHaveBeenCalledWith(PAYER_ID);
     assertNoPiiInEvents(d.events);
   });
 
@@ -86,6 +95,8 @@ describe("PayerAuthService.signup", () => {
     d.payers.createOrGet.mockResolvedValueOnce({ id: PAYER_ID, created: false });
     const res = await d.svc.signup({ role: "employer", email: EMAIL, org_name: ORG, phone: PHONE }, CTX);
     expect(d.events.emit.mock.calls.find((c) => c[0].event_name === "payer.created")).toBeUndefined();
+    // B5: an existing account is NEVER mutated on the signup path — no org ensure either.
+    expect(d.orgs.ensureSoloOrg).not.toHaveBeenCalled();
     expect(res).toMatchObject({ status: "code_sent" }); // same neutral shape as a new signup
   });
 });
@@ -232,6 +243,22 @@ describe("PayerAuthService.verifyLogin", () => {
     );
     expect(d.sessions.create).not.toHaveBeenCalled();
     expect(d.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("does NOT re-ensure the org when the payer already has one (cheap common path)", async () => {
+    const d = setup(); // resolveOrgForPayer defaults to an existing org
+    await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
+    expect(d.orgs.resolveOrgForPayer).toHaveBeenCalledWith(PAYER_ID);
+    expect(d.orgs.ensureSoloOrg).not.toHaveBeenCalled();
+  });
+
+  it("repairs a gap payer (no org yet) by ensuring the solo org on first login (B5.1→B5.2 gap)", async () => {
+    const d = setup();
+    d.orgs.resolveOrgForPayer.mockResolvedValueOnce(null as never); // created before B5.2 shipped
+    await d.svc.verifyLogin({ email: EMAIL, code: "123456" }, CTX);
+    expect(d.orgs.ensureSoloOrg).toHaveBeenCalledWith(PAYER_ID);
+    // Still mints the session normally.
+    expect(d.sessions.create).toHaveBeenCalledWith(PAYER_ID, "employer");
   });
 });
 
