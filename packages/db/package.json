@@ -29,6 +29,8 @@
     "db:seed:jobs": "tsx src/seed-jobs.ts",
     "db:seed:demand": "tsx src/seed-demand.ts",
     "db:verify:demand": "tsx src/verify-demand.ts",
+    "db:verify:org-id": "tsx src/verify-org-id.ts",
+    "db:verify:org-id:sql": "psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f verify/0034_org_id_backfill.sql",
     "db:seed:reach": "tsx src/seed-reach-pool.ts",
     "db:seed:reach:large": "tsx src/seed-reach-pool.ts",
     "db:unseed:reach": "tsx src/seed-reach-pool.ts --unseed-only",

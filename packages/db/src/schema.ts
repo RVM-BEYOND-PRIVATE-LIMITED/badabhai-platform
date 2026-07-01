@@ -735,6 +735,13 @@ export const jobPostings = pgTable(
     // read/write by it (tenancy). Never enters an event payload — the event ACTOR
     // (actor_type:"payer", actor_id) carries the payer id, opaque, instead.
     payerId: uuid("payer_id"),
+    // Org tenancy (ADR-0027 B5.x Increment 0) — ADDITIVE, behaviorally INERT. The
+    // tenant-root ref backfilled from payer_orgs.id WHERE root_payer_id = payer_id.
+    // NULLABLE like payer_id: ops-created postings (payer_id NULL) legitimately keep
+    // org_id NULL. No predicate reads this yet (the payer_id→org_id chokepoint flip is
+    // a later B5.x increment); the org_id_when_payer CHECK ties the two so a payer-owned row is always
+    // org-scoped. Opaque uuid, PII-free.
+    orgId: uuid("org_id"),
     orgLabel: text("org_label").notNull(),
     roleTitle: text("role_title").notNull(),
     locationLabel: text("location_label"),
@@ -750,6 +757,8 @@ export const jobPostings = pgTable(
     index("job_postings_status_created_at_idx").on(t.status, t.createdAt),
     // Backs the payer self-serve list (own postings, newest first): WHERE payer_id, status.
     index("job_postings_payer_id_idx").on(t.payerId, t.createdAt),
+    // ADR-0027 B5.x-0: org-scoped read index (ADDITIVE, alongside the payer_id one).
+    index("job_postings_org_id_idx").on(t.orgId),
     // Pin the banded vacancy to the 5 allowed values (mirrors VACANCY_BANDS).
     check(
       "job_postings_vacancy_band_chk",
@@ -868,6 +877,13 @@ export const jobs = pgTable(
     // first owns it, the other consumes it. NEVER resolved to identity in any event
     // or log.
     payerId: uuid("payer_id"),
+    // Org tenancy (ADR-0027 B5.x Increment 0) — ADDITIVE, behaviorally INERT. The
+    // tenant-root ref backfilled from payer_orgs.id WHERE root_payer_id = payer_id.
+    // NULLABLE like payer_id: seed / ops jobs (payer_id NULL) legitimately keep org_id
+    // NULL. No predicate reads this yet (the payer_id→org_id flip is a later B5.x increment); the
+    // org_id_when_payer CHECK ties the two so a payer-owned job is always org-scoped.
+    // Opaque uuid, PII-free.
+    orgId: uuid("org_id"),
     // Denormalized on-row counter of applies received for this job (ADR-0009
     // swipe-to-apply). Each apply still emits its own `application.submitted` event;
     // this is just an integer rollup for the feed/UI. PII-FREE (a count, never a name).
@@ -894,6 +910,8 @@ export const jobs = pgTable(
     // Backs the worker feed + reach open-jobs queries: filter `status='open'`,
     // order by `created_at` (id tiebreak via the PK). Also serves the status filter.
     index("jobs_status_created_at_idx").on(t.status, t.createdAt),
+    // ADR-0027 B5.x-0: org-scoped read index (ADDITIVE, alongside the existing ones).
+    index("jobs_org_id_idx").on(t.orgId),
     check("jobs_applicants_received_nonneg_chk", sql`${t.applicantsReceived} >= 0`),
     // Pay/experience are non-negative when present, and the max is not below the min.
     check(
@@ -1022,6 +1040,11 @@ export const unlocks = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     // Opaque payer ref (employer OR agent) — faceless rails, NO FK, NO PII.
     payerId: uuid("payer_id").notNull(),
+    // Org tenancy (ADR-0027 B5.x Increment 0) — ADDITIVE, behaviorally INERT. Backfilled
+    // from payer_orgs.id WHERE root_payer_id = payer_id, then set NOT NULL (payer_id here
+    // is NOT NULL). No predicate reads it yet (the payer_id→org_id flip is a later B5.x increment). Opaque
+    // uuid, PII-free.
+    orgId: uuid("org_id"),
     // The ONLY join back to identity; PII stays in `workers` (RLS-locked).
     // NULLABLE + onDelete:"set null" — DSAR erasure nulls the join, keeps the
     // PII-free paid-grant row (ADR-0026 Phase 5 D3).
@@ -1046,6 +1069,12 @@ export const unlocks = pgTable(
   (t) => [
     // Per-profile idempotency: at most one unlock per (payer, candidate).
     uniqueIndex("unlocks_payer_worker_uq").on(t.payerId, t.workerId),
+    // ADR-0027 B5.x-0: org-scoped idempotency, ADDITIVE ALONGSIDE the payer_worker one
+    // (both live; the payer→org flip removes the old later). NULLS DISTINCT preserved so
+    // DSAR-nulled worker_id rows don't collide (same posture as the payer_worker uq).
+    uniqueIndex("unlocks_org_worker_uq").on(t.orgId, t.workerId),
+    // ADR-0027 B5.x-0: org-scoped read index (ADDITIVE).
+    index("unlocks_org_id_idx").on(t.orgId),
     // Ops read: unlocks per worker (also feeds the per-worker cap reads).
     index("unlocks_worker_id_idx").on(t.workerId),
     // Ops/cap read: unlocks per payer.
@@ -1063,6 +1092,10 @@ export const payerCredits = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     // Opaque payer ref (no FK, no PII). One balance row per payer.
     payerId: uuid("payer_id").notNull(),
+    // Org tenancy (ADR-0027 B5.x Increment 0) — ADDITIVE, behaviorally INERT. Backfilled
+    // from payer_orgs.id WHERE root_payer_id = payer_id, then set NOT NULL. No predicate
+    // reads it yet (the payer_id→org_id flip is a later B5.x increment). Opaque uuid, PII-free.
+    orgId: uuid("org_id"),
     // Unlock credits available. Phase-0 F-6: must never go negative.
     balance: integer("balance").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -1070,6 +1103,8 @@ export const payerCredits = pgTable(
   },
   (t) => [
     uniqueIndex("payer_credits_payer_id_uq").on(t.payerId),
+    // ADR-0027 B5.x-0: one balance row per org, ADDITIVE ALONGSIDE the payer_id one.
+    uniqueIndex("payer_credits_org_id_uq").on(t.orgId),
     // F-6: balance is never negative (a debit below zero must fail closed).
     check("payer_credits_balance_nonneg_chk", sql`${t.balance} >= 0`),
   ],
@@ -1083,6 +1118,10 @@ export const creditLedger = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     payerId: uuid("payer_id").notNull(),
+    // Org tenancy (ADR-0027 B5.x Increment 0) — ADDITIVE, behaviorally INERT. Backfilled
+    // from payer_orgs.id WHERE root_payer_id = payer_id, then set NOT NULL. No predicate
+    // reads it yet (the payer_id→org_id flip is a later B5.x increment). Opaque uuid, PII-free.
+    orgId: uuid("org_id"),
     // +grant / -debit. Signed credit movement.
     delta: integer("delta").notNull(),
     reason: text("reason").$type<CreditReason>().notNull(),
@@ -1105,6 +1144,8 @@ export const creditLedger = pgTable(
   },
   (t) => [
     index("credit_ledger_payer_id_idx").on(t.payerId),
+    // ADR-0027 B5.x-0: org-scoped read index (ADDITIVE).
+    index("credit_ledger_org_id_idx").on(t.orgId),
     // Exactly-once: non-null keys are unique; many NULLs allowed (Postgres NULLS DISTINCT).
     uniqueIndex("credit_ledger_idempotency_key_uq").on(t.idempotencyKey),
   ],
@@ -1207,6 +1248,10 @@ export const postingPlans = pgTable(
       .references(() => jobPostings.id, { onDelete: "cascade" }),
     // Opaque payer (employer OR agent) — faceless rails, NO FK, NO PII.
     payerId: uuid("payer_id").notNull(),
+    // Org tenancy (ADR-0027 B5.x Increment 0) — ADDITIVE, behaviorally INERT. Backfilled
+    // from payer_orgs.id WHERE root_payer_id = payer_id, then set NOT NULL. No predicate
+    // reads it yet (the payer_id→org_id flip is a later B5.x increment). Opaque uuid, PII-free.
+    orgId: uuid("org_id"),
     tier: text("tier").$type<PostingPlanTier>().notNull(),
     // Stamped from the catalog at purchase (10 / 30); the cap on applicant views.
     applicantVisibilityQuota: integer("applicant_visibility_quota").notNull(),
@@ -1221,6 +1266,8 @@ export const postingPlans = pgTable(
   (t) => [
     index("posting_plans_job_posting_id_idx").on(t.jobPostingId),
     index("posting_plans_payer_id_idx").on(t.payerId),
+    // ADR-0027 B5.x-0: org-scoped read index (ADDITIVE).
+    index("posting_plans_org_id_idx").on(t.orgId),
     check("posting_plans_tier_chk", sql`${t.tier} IN ('standard', 'pro')`),
     check("posting_plans_status_chk", sql`${t.status} IN ('draft', 'active', 'expired', 'paused')`),
     check("posting_plans_viewed_nonneg_chk", sql`${t.applicantsViewedCount} >= 0`),
@@ -1236,6 +1283,10 @@ export const postingBoosts = pgTable(
       .notNull()
       .references(() => jobPostings.id, { onDelete: "cascade" }),
     payerId: uuid("payer_id").notNull(),
+    // Org tenancy (ADR-0027 B5.x Increment 0) — ADDITIVE, behaviorally INERT. Backfilled
+    // from payer_orgs.id WHERE root_payer_id = payer_id, then set NOT NULL. No predicate
+    // reads it yet (the payer_id→org_id flip is a later B5.x increment). Opaque uuid, PII-free.
+    orgId: uuid("org_id"),
     tier: text("tier").$type<BoostTier>().notNull().default("all_candidates"),
     boostStartsAt: timestamp("boost_starts_at", { withTimezone: true }),
     boostEndsAt: timestamp("boost_ends_at", { withTimezone: true }),
@@ -1246,6 +1297,8 @@ export const postingBoosts = pgTable(
   (t) => [
     index("posting_boosts_job_posting_id_idx").on(t.jobPostingId),
     index("posting_boosts_payer_id_idx").on(t.payerId),
+    // ADR-0027 B5.x-0: org-scoped read index (ADDITIVE).
+    index("posting_boosts_org_id_idx").on(t.orgId),
     check("posting_boosts_tier_chk", sql`${t.tier} IN ('all_candidates')`),
     check("posting_boosts_status_chk", sql`${t.status} IN ('active', 'expired')`),
   ],
@@ -1267,6 +1320,11 @@ export const resumeDisclosures = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     payerId: uuid("payer_id").notNull(),
+    // Org tenancy (ADR-0027 B5.x Increment 0) — ADDITIVE, behaviorally INERT. Backfilled
+    // from payer_orgs.id WHERE root_payer_id = payer_id, then set NOT NULL (payer_id here
+    // is NOT NULL). No predicate reads it yet (the payer_id→org_id flip is a later B5.x increment). Opaque
+    // uuid, PII-free.
+    orgId: uuid("org_id"),
     // NULLABLE + onDelete:"set null" — DSAR erasure nulls the join, keeps the
     // PII-free disclosure row (ADR-0026 Phase 5 D3).
     workerId: uuid("worker_id").references(() => workers.id, { onDelete: "set null" }),
@@ -1290,6 +1348,17 @@ export const resumeDisclosures = pgTable(
       t.workerId,
       t.jobPostingId,
     ),
+    // ADR-0027 B5.x-0: org-scoped idempotency on the same tuple, ADDITIVE ALONGSIDE the
+    // payer one (both live; the payer→org flip removes the old later). NULLS DISTINCT
+    // preserved so null-posting search rows (and DSAR-nulled worker_id) don't collide —
+    // same posture as the payer_worker_posting uq.
+    uniqueIndex("resume_disclosures_org_worker_posting_uq").on(
+      t.orgId,
+      t.workerId,
+      t.jobPostingId,
+    ),
+    // ADR-0027 B5.x-0: org-scoped read index (ADDITIVE).
+    index("resume_disclosures_org_id_idx").on(t.orgId),
     index("resume_disclosures_worker_id_idx").on(t.workerId),
     index("resume_disclosures_payer_id_idx").on(t.payerId),
     check(
@@ -1313,6 +1382,10 @@ export const payerCapacity = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     // Opaque payer (employer OR agent) — faceless rails, NO FK, NO PII.
     payerId: uuid("payer_id").notNull(),
+    // Org tenancy (ADR-0027 B5.x Increment 0) — ADDITIVE, behaviorally INERT. Backfilled
+    // from payer_orgs.id WHERE root_payer_id = payer_id, then set NOT NULL. No predicate
+    // reads it yet (the payer_id→org_id flip is a later B5.x increment). Opaque uuid, PII-free.
+    orgId: uuid("org_id"),
     // How many posting_plans this payer may hold in status='active' concurrently.
     maxActiveVacancies: integer("max_active_vacancies").notNull(),
     // The capacity-catalog tier code that granted this allowance (a stable code, NOT
@@ -1327,6 +1400,8 @@ export const payerCapacity = pgTable(
     // One capacity row per payer (this unique index also serves payer_id lookups —
     // no separate payer_id index needed).
     uniqueIndex("payer_capacity_payer_id_uq").on(t.payerId),
+    // ADR-0027 B5.x-0: one capacity row per org, ADDITIVE ALONGSIDE the payer_id one.
+    uniqueIndex("payer_capacity_org_id_uq").on(t.orgId),
     check("payer_capacity_max_nonneg_chk", sql`${t.maxActiveVacancies} >= 0`),
   ],
 );
