@@ -1,6 +1,10 @@
-import { Body, Controller, HttpCode, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, HttpCode, Inject, Post, Req, UseGuards } from "@nestjs/common";
+import type { Request } from "express";
+import type { ServerConfig } from "@badabhai/config";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import { SERVER_CONFIG } from "../config/config.module";
+import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import { PinService } from "./pin.service";
 import { WorkerAuthGuard, CurrentWorker, type AuthenticatedWorker } from "./worker-auth.guard";
 import {
@@ -30,7 +34,11 @@ import {
  */
 @Controller("auth/pin")
 export class PinController {
-  constructor(private readonly pin: PinService) {}
+  constructor(
+    private readonly pin: PinService,
+    private readonly ipRateLimit: IpRateLimit,
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+  ) {}
 
   /** Set/replace the authenticated worker's PIN. 204 No Content. */
   @Post("set")
@@ -60,13 +68,26 @@ export class PinController {
     );
   }
 
-  /** Start a PIN reset — send an OTP to the phone (reuses the existing OTP send path). */
+  /**
+   * Start a PIN reset — send an OTP to the phone (reuses the existing OTP send path). Guarded
+   * by the per-IP hourly cap FIRST (security Finding 2): this reset send previously reached the
+   * OTP path WITHOUT the network-level backstop the login route applies.
+   */
   @Post("reset/request")
   @HttpCode(200)
   async resetRequest(
     @Body(new ZodValidationPipe(PinResetRequestSchema)) dto: PinResetRequestDto,
+    @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ): Promise<{ success: true }> {
+    // Per-IP hourly cap BEFORE the send — the SAME backstop auth.controller requestOtp uses,
+    // sharing the "otp_request" scope so PIN-reset + login draw from ONE per-IP SMS budget.
+    // Fails closed (429) if Redis is down. (Finding 2: this path bypassed the per-IP cap.)
+    await this.ipRateLimit.assertWithinHourlyIpCap(
+      "otp_request",
+      req.ip ?? "unknown",
+      this.config.OTP_MAX_SENDS_PER_HOUR,
+    );
     await this.pin.resetRequest(dto.phone, ctx);
     return { success: true };
   }
