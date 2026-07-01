@@ -232,6 +232,13 @@
       "when": 1782813600000,
       "tag": "0032_relax_legacy_payer_type",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1782899944436,
+      "tag": "0033_dark_crusher_hogan",
+      "breakpoints": true
     }
   ]
 }
