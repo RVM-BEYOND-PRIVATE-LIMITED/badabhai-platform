@@ -1776,8 +1776,10 @@ describe("worker PIN events (ADR-0026 Phase 3 — device-bound PIN, PII-free, id
 });
 
 describe("registry", () => {
-  it("exposes all 93 event names (92 prior incl. worker.pin_* [ADR-0026 Phase 3] + worker.account_deleted [ADR-0026 Phase 5])", () => {
-    expect(EVENT_NAMES).toHaveLength(93);
+  it("exposes all 95 event names (93 prior + payer_member.invited/removed [ADR-0027 / B5])", () => {
+    expect(EVENT_NAMES).toHaveLength(95);
+    expect(isEventName("payer_member.invited")).toBe(true);
+    expect(isEventName("payer_member.removed")).toBe(true);
     expect(isEventName("worker.pin_set")).toBe(true);
     expect(isEventName("worker.pin_verified")).toBe(true);
     expect(isEventName("worker.pin_verify_failed")).toBe(true);

@@ -10,6 +10,7 @@ import { PayerOrgsRepository } from "./payer-orgs.repository";
 import { PayerSessionService } from "./payer-session.service";
 import { PayerAuthGuard } from "./payer-auth.guard";
 import { PayerRoleGuard } from "./payer-role.guard";
+import { PayerOrgRoleGuard } from "./payer-org-role.guard";
 import { PayerAccountService } from "./payer-account.service";
 import { PayerAccountController } from "./payer-account.controller";
 
@@ -49,6 +50,7 @@ import { PayerAccountController } from "./payer-account.controller";
     PayerSessionService,
     PayerAuthGuard,
     PayerRoleGuard,
+    PayerOrgRoleGuard,
     PayerAccountService,
   ],
   exports: [
@@ -57,6 +59,7 @@ import { PayerAccountController } from "./payer-account.controller";
     PayerSessionService,
     PayerAuthGuard,
     PayerRoleGuard,
+    PayerOrgRoleGuard,
   ],
 })
 export class PayersModule {}

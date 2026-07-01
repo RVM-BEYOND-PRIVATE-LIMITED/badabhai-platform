@@ -292,6 +292,10 @@ export const EVENT_REGISTRY = {
     domain: "payer",
     payload: p.PayerAccountUpdatedPayload,
   },
+  // Payer org membership lifecycle (ADR-0027 / B5). PII-FREE: opaque row/org/actor ids +
+  // org_role enum only — the invitee email lives encrypted in `payer_members`, never here.
+  "payer_member.invited": { version: 1, domain: "payer", payload: p.PayerMemberInvitedPayload },
+  "payer_member.removed": { version: 1, domain: "payer", payload: p.PayerMemberRemovedPayload },
   // OTP-5 global daily SEND circuit-breaker breach (payer email path). Same AGGREGATE /
   // PII-free shape as worker.otp_send_cap_exceeded (channel "payer_email") — no payer id,
   // email, IP, or code. Emitted once per breach; the HTTP response stays byte-identical
