@@ -239,6 +239,13 @@
       "when": 1782895372285,
       "tag": "0033_volatile_venom",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1782900596376,
+      "tag": "0034_sturdy_vindicator",
+      "breakpoints": true
     }
   ]
 }
