@@ -86,6 +86,7 @@ const CONTRACT: ControllerContract[] = [
       feed: [C, W],
       apply: [C, W],
       skip: [C, W],
+      myApplications: [C, W],
       applicants: [I],
       workerApplications: [I],
     },

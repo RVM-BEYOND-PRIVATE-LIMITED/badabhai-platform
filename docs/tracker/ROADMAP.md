@@ -27,8 +27,8 @@ Owners: Prakash (TL/PM, staging+infra), Divyanshu (backend/AI), Rishi Ojha (Andr
   - **Thu** — QA/Prakash: payer company gate + agency gate on staging; admin ops smoke (3a/3b/3c).
   - **Fri** — QA: all 6 alpha-gate scripts pass with evidence → **B1 CLOSED**.
 - **Blockers:** P0 staging not yet provisioned (decided, implementation pending); posting-plans guard (D3, finish in Phase 0).
-- **Acceptance:** all 6 scripts pass with the 3 B1 evidence artifacts (screenshots + staging `events` chain + clean logcat).
-- **Test gate:** staging `/health` 200 + smoke; manual click-throughs logged in [QA_EVIDENCE.md](QA_EVIDENCE.md).
+- **Acceptance:** all 6 scripts pass with the 3 B1 evidence families (screenshots + staging `events` chain + clean logcat) plus PDF-open proof (`resume.downloaded`) because D5 requires PDF for alpha.
+- **Test gate:** staging `/health` 200 + smoke; manual artifacts stored in [`docs/qa/evidence/`](../qa/evidence/) and indexed in [QA_EVIDENCE.md](QA_EVIDENCE.md).
 
 ## Phase 2 — Internal RVM pilot  ·  Owner: Prakash  ·  Target: week of 2026-07-07
 - **Goal:** the RVM team uses the system on staging (synthetic + a few real internal users).
