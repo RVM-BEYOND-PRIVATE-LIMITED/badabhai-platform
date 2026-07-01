@@ -20,6 +20,9 @@ function make(
     capacityDefault?: number; // config default allowance
     enforceCapacity?: boolean; // ADR-0016 posture B flag (default OFF = shadow)
     pausedPlans?: { id: string; jobPostingId: string; expiresAt: Date | null }[];
+    // B2 quota top-up knobs:
+    activeTopupPlan?: { id: string; quotaTopupCount: number } | null; // null → no active plan (409)
+    topupRaced?: boolean; // addQuotaTopup returns undefined (plan raced to expiry) → 409
   } = {},
 ) {
   const emit = vi.fn().mockResolvedValue(undefined);
@@ -28,6 +31,13 @@ function make(
   const insertBoost = vi.fn().mockImplementation(async (input: Record<string, unknown>) => ({ id: "b-1", ...input }));
   const findActiveBoost = vi.fn().mockResolvedValue(opts.activeBoost ? { id: "b-old" } : undefined);
   const couponUsage = vi.fn().mockResolvedValue(opts.couponUsage ?? { total: 0, perPayer: 0 });
+  // B2: default to an active plan with 0 prior top-ups; addQuotaTopup returns it with the
+  // delta applied (unless topupRaced → undefined, the expiry-race 409 path).
+  const topupPlan = opts.activeTopupPlan === undefined ? { id: "p-1", quotaTopupCount: 0 } : opts.activeTopupPlan;
+  const findActivePlanForPostingAndPayer = vi.fn().mockResolvedValue(topupPlan ?? undefined);
+  const addQuotaTopup = vi.fn().mockImplementation(async (planId: string, _payerId: string, delta: number) =>
+    opts.topupRaced || !topupPlan ? undefined : { id: planId, quotaTopupCount: topupPlan.quotaTopupCount + delta },
+  );
   // The transaction simply runs its callback with a sentinel tx (the repo methods below
   // are all mocked, so the sentinel is never really used by Drizzle).
   const withTransaction = vi.fn().mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => work({}));
@@ -52,6 +62,8 @@ function make(
       upsertCapacity,
       listPausedPlansForPayer,
       setPlanStatus,
+      findActivePlanForPostingAndPayer,
+      addQuotaTopup,
     } as never,
     { emit } as never,
     { getActiveCatalog } as never,
@@ -75,6 +87,8 @@ function make(
     withTransaction,
     getCapacity,
     countActivePlansForPayer,
+    findActivePlanForPostingAndPayer,
+    addQuotaTopup,
   };
 }
 
@@ -351,6 +365,64 @@ describe("PostingPlansService payer-authed wrappers (B3/LC-1 — session payer_i
     const boosted = emit.mock.calls.find((c) => c[0].event_name === "job_posting.boosted")![0];
     expect(boosted.payload.payer_id).toBe(SESSION_PAYER);
     expect(boost.payerId).toBe(SESSION_PAYER);
+  });
+});
+
+describe("PostingPlansService.topUpQuotaForPayer (B2 — pricing-engine refill on an active plan)", () => {
+  const SESSION_PAYER = "55555555-5555-4555-8555-555555555555";
+
+  it("resolves the top-up price, atomically increments quota_topup_count, and emits payment + quota_topped", async () => {
+    const { service, emit, names, addQuotaTopup } = make();
+    const { plan, quote } = await service.topUpQuotaForPayer(POSTING, SESSION_PAYER, { tier: "topup_10" }, CTX);
+    expect(quote.finalInr).toBe(1000);
+    // Atomic increment called with the SESSION payer + the catalog grant (10 views).
+    expect(addQuotaTopup).toHaveBeenCalledWith("p-1", SESSION_PAYER, 10, expect.any(Date));
+    expect(plan.quotaTopupCount).toBe(10);
+    expect(names()).toEqual(["payment.authorized", "payment.captured", "posting_plan.quota_topped"]);
+    const topped = emit.mock.calls.find((c) => c[0].event_name === "posting_plan.quota_topped")![0];
+    expect(topped.actor).toEqual({ actor_type: "payer", actor_id: SESSION_PAYER });
+    expect(topped.subject).toEqual({ subject_type: "posting_plan", subject_id: "p-1" });
+    expect(topped.payload).toMatchObject({
+      plan_id: "p-1",
+      job_posting_id: POSTING,
+      payer_id: SESSION_PAYER,
+      tier: "topup_10",
+      quota_added: 10,
+      quota_topup_total: 10,
+      price_inr: 1000,
+      real_call: false,
+    });
+  });
+
+  it("accumulates on top of prior top-ups (quota_topup_total reflects the running total)", async () => {
+    const { service } = make({ activeTopupPlan: { id: "p-1", quotaTopupCount: 30 } });
+    const { plan } = await service.topUpQuotaForPayer(POSTING, SESSION_PAYER, { tier: "topup_30" }, CTX);
+    expect(plan.quotaTopupCount).toBe(60); // 30 prior + 30 added
+  });
+
+  it("409s when the posting has no active plan to top up (no payment emitted)", async () => {
+    const { service, names } = make({ activeTopupPlan: null });
+    await expect(
+      service.topUpQuotaForPayer(POSTING, SESSION_PAYER, { tier: "topup_10" }, CTX),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(names()).not.toContain("payment.authorized");
+    expect(names()).not.toContain("posting_plan.quota_topped");
+  });
+
+  it("409s (no phantom grant/payment) when the plan raced to expiry between read and increment", async () => {
+    const { service, names } = make({ topupRaced: true });
+    await expect(
+      service.topUpQuotaForPayer(POSTING, SESSION_PAYER, { tier: "topup_10" }, CTX),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(names()).not.toContain("payment.authorized");
+    expect(names()).not.toContain("posting_plan.quota_topped");
+  });
+
+  it("rejects an unknown top-up tier fail-closed (unavailable → 400)", async () => {
+    const { service } = make();
+    await expect(
+      service.topUpQuotaForPayer(POSTING, SESSION_PAYER, { tier: "nope" }, CTX),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });
 
