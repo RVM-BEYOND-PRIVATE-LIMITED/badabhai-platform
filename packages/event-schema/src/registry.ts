@@ -228,6 +228,16 @@ export const EVENT_REGISTRY = {
     domain: "job_posting",
     payload: p.JobPostingClosedPayload,
   },
+  "job_posting.paused": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingPausedPayload,
+  },
+  "job_posting.resumed": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingResumedPayload,
+  },
   // Contact Unlock + Reveal (ADR-0010, Stream A) — PII-FREE, ids/enums/counts only.
   // The revealed contact / proxy number / relay destination NEVER appears in any
   // payload (CLAUDE.md invariant 2; threat-model F-5). All v1.

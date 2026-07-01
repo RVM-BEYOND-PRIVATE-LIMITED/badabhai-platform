@@ -20,7 +20,12 @@ import type {
 /** The acting identity on a job_posting.* event — ops (the creator) or a payer (the owner). */
 type JobPostingActor = { actor_type: "ops" | "payer"; actor_id: string };
 
-type JobPostingEventName = "job_posting.created" | "job_posting.updated" | "job_posting.closed";
+type JobPostingEventName =
+  | "job_posting.created"
+  | "job_posting.updated"
+  | "job_posting.closed"
+  | "job_posting.paused"
+  | "job_posting.resumed";
 
 /** The validated PATCH the service derived from an edit DTO (column patch + changed KEYS). */
 interface PreparedUpdate {
@@ -184,6 +189,47 @@ export class JobPostingsService {
     return closed;
   }
 
+  /**
+   * Pause one of the caller's OWN LIVE postings (open -> paused; B1). The DB transition is
+   * guarded on id + payer_id + status='open', so a non-open / gone / not-owned row is a no-op
+   * → 409 (without leaking which). A paused posting is excluded from any open-filtered feed
+   * until resumed. Emits the PII-free `job_posting.paused`.
+   */
+  async pauseForPayer(id: string, payerId: string, ctx: RequestContext): Promise<JobPosting> {
+    await this.getOneForPayer(id, payerId); // no-oracle 404 (unknown OR foreign id)
+    const paused = await this.repo.transitionOwned(id, payerId, "open", "paused");
+    if (!paused) throw new ConflictException("Only an open job posting can be paused");
+
+    const actor: JobPostingActor = { actor_type: "payer", actor_id: payerId };
+    const payload: PayloadInputOf<"job_posting.paused"> = {
+      job_posting_id: paused.id,
+      previous_status: "open",
+      status: "paused",
+    };
+    await this.events.emit(this.emitParams("job_posting.paused", paused.id, actor, payload, ctx));
+    return paused;
+  }
+
+  /**
+   * Resume one of the caller's OWN paused postings (paused -> open; B1). Guarded on id +
+   * payer_id + status='paused' (non-paused / gone / not-owned → 409). Emits the PII-free
+   * `job_posting.resumed`.
+   */
+  async resumeForPayer(id: string, payerId: string, ctx: RequestContext): Promise<JobPosting> {
+    await this.getOneForPayer(id, payerId); // no-oracle 404
+    const resumed = await this.repo.transitionOwned(id, payerId, "paused", "open");
+    if (!resumed) throw new ConflictException("Only a paused job posting can be resumed");
+
+    const actor: JobPostingActor = { actor_type: "payer", actor_id: payerId };
+    const payload: PayloadInputOf<"job_posting.resumed"> = {
+      job_posting_id: resumed.id,
+      previous_status: "paused",
+      status: "open",
+    };
+    await this.events.emit(this.emitParams("job_posting.resumed", resumed.id, actor, payload, ctx));
+    return resumed;
+  }
+
   // ----- shared internals (one chokepoint for both surfaces) -----------------
 
   /** Insert a posting (always status=draft) and emit the created event for the actor. */
@@ -341,10 +387,17 @@ function resolveCreateBand(
   return dto.vacancies !== undefined ? bandForCount(dto.vacancies) : dto.vacancy_band!;
 }
 
-/** Assert a posting is closeable and narrow its status to the two closeable states. */
+/**
+ * Assert a posting is closeable and narrow its status to the two closeable states. `closed`
+ * is terminal; a `paused` posting (B1) must be RESUMED before closing (so the shipped
+ * `job_posting.closed` payload's `previous_status` stays draft|open — no event-schema change).
+ */
 function assertCloseable(current: JobPosting): "draft" | "open" {
   if (current.status === "closed") {
     throw new ConflictException("Job posting is already closed");
+  }
+  if (current.status === "paused") {
+    throw new ConflictException("Resume the job posting before closing it");
   }
   return current.status;
 }

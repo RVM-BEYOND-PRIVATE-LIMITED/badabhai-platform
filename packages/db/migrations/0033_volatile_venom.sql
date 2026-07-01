@@ -1,0 +1,2 @@
+ALTER TABLE "job_postings" DROP CONSTRAINT "job_postings_status_chk";--> statement-breakpoint
+ALTER TABLE "job_postings" ADD CONSTRAINT "job_postings_status_chk" CHECK ("job_postings"."status" IN ('draft', 'open', 'paused', 'closed'));
