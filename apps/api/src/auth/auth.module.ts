@@ -13,7 +13,7 @@ import { OtpService } from "./otp.service";
 import { SessionService } from "./session.service";
 import { AccountDeletionService } from "./account-deletion.service";
 import { WorkerAuthGuard } from "./worker-auth.guard";
-import { ConsentGuard } from "./consent.guard";
+import { ConsentGuard, ConsentNotRevokedGuard } from "./consent.guard";
 import { DevicesController } from "./devices.controller";
 import { DevicesService } from "./devices.service";
 import { DevicesRepository } from "./devices.repository";
@@ -63,6 +63,7 @@ import { PinHasher } from "./pin-hasher.service";
     AccountDeletionService,
     WorkerAuthGuard,
     ConsentGuard,
+    ConsentNotRevokedGuard,
     DevicesService,
     DevicesRepository,
     PinService,

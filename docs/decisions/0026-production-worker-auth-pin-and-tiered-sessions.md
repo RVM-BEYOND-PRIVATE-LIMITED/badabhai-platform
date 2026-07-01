@@ -510,3 +510,52 @@ require human sign-off before any production run:
 Rollback story: the **endpoint** is reversible (feature-gated / revertable PR). The
 **deletion it performs is not** — there is no undo for an executed cascade. That asymmetry
 is exactly why the gate (step-up OTP + two-step + human-gated prod run) is this strong.
+
+---
+
+## Amendment A5 — consent-on-resume (defense-in-depth on the refresh path)
+
+- Status: Accepted · Date: 2026-07-01 · Scope: `apps/api/src/auth/*` (no schema, no new event).
+
+**Problem.** The §6 consent gate (`ConsentGuard`) is enforced per-request on the profiling
+routes (chat / profile / voice / applications feed), reading the worker's latest consent from
+the DB and failing closed — so a resumed/persistent session **cannot profile** without current
+consent. That boundary already holds. What was missing: the **session-resume/refresh** surface
+did not consider consent at all. `POST /auth/refresh` carried only `WorkerAuthGuard`, and
+`POST /auth/token/refresh` is guard-less by design (the refresh token in the body is the
+credential — the access JWT may be expired). So a worker who had **withdrawn** consent could
+keep silently extending a live session via the refresh path. This is the gate that must be green
+before the Flutter `kPersistentAuth` flip.
+
+**Decision.** Enforce a **narrower** rule on the resume path than `ConsentGuard`: deny a resume
+only when consent has been **REVOKED**; **allow a NEVER-consented worker**. The asymmetry is
+deliberate — the onboarding order is `login → consent → chat`, so a worker holds a session
+*before* consenting, and refreshing during that pre-consent window must keep working. A
+never-consented worker still cannot reach any profiling route (those keep `ConsentGuard`, which
+denies until acceptance), so §6 is never relaxed on the processing path.
+
+**Mechanism.**
+- New `ConsentNotRevokedGuard` (`apps/api/src/auth/consent.guard.ts`): denies iff the latest
+  `worker_consents` row exists **and** `revokedAt` is set (403, PII-free). Applied to
+  `POST /auth/refresh` after `WorkerAuthGuard` → guard set `[ConsentNotRevokedGuard, WorkerAuthGuard]`
+  in the authz contract (`guard-contract.test.ts`).
+- `POST /auth/token/refresh` stays **guard-less** but enforces the **same** rule in-controller:
+  it resolves the worker from the refresh token via the existing `SessionService.resolveRefreshToken`
+  (which does **not** mint/rotate/consume the token), then 403s on a revoked consent **before**
+  rotating. An **unresolvable** token skips the check and falls through to the existing neutral
+  401 — no consent oracle for a token we cannot tie to a worker. Fail-closed is preserved
+  (a Redis error resolves to "unresolved" → the neutral 401 path).
+
+**Invariants.** No schema change, no new event, no new PII at rest. Reuses `ConsentRepository.findLatestByWorker`
+and `SessionService.resolveRefreshToken`. §6 profiling boundary unchanged (still `ConsentGuard`
+per-request). Consent **revocation** has no live endpoint in Phase 1 (only `consent.accept`
+exists), so today "revoked" arises via account deletion (which already revokes sessions) — this
+amendment is **future-proofing** for when a revoke endpoint / withdrawal flow ships, and closes
+the silent-resume gap ahead of `kPersistentAuth`.
+
+**Coverage note.** A sweep of the worker-facing profiling/feed routes confirms `ConsentGuard`
+is present on every one (chat, profiles, voice, and the ApplicationsController `feed` / `apply` /
+`skip` / `myApplications`). `ReachController` (`/reach/*`, incl. `workers/:workerId/feed`) is a
+**faceless ops** read over the deterministic RANK core (no PII, documented alpha-ops surface),
+not a worker profiling route — its open posture is a separate matter (candidate for an
+`InternalServiceGuard` hardening like the posting-plans/A2 change), **not** a §6 consent gap.
