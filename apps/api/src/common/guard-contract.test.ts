@@ -144,7 +144,14 @@ const CONTRACT: ControllerContract[] = [
   {
     name: "PayerUnlocks",
     ctor: PayerUnlocksController,
-    routes: { requestUnlock: [P], reveal: [P], listOwn: [P], ownCredits: [P], buyPack: [P] },
+    routes: {
+      requestUnlock: [P],
+      reveal: [P],
+      listOwn: [P],
+      ownCredits: [P],
+      creditsLedger: [P],
+      buyPack: [P],
+    },
   },
   // Payer-self capacity view/buy (ADR-0019 + ADR-0016): session-bound, NO :payerId param.
   {

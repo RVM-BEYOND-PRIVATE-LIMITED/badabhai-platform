@@ -25,6 +25,17 @@ import { OPS_LIST_CAP } from "../common/pagination";
  */
 export type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
+/** PII-free projection of a credit_ledger movement (amounts + opaque ids only). */
+export interface CreditLedgerItem {
+  id: string;
+  delta: number;
+  reason: CreditReason;
+  unlock_id: string | null;
+  pack_code: string | null;
+  payment_ref: string | null;
+  created_at: Date;
+}
+
 /** PII-free ops/list projection of an unlock row (NO routing token resolved). */
 export interface UnlockProjection {
   unlock_id: string;
@@ -277,6 +288,29 @@ export class UnlocksRepository {
       .where(eq(payerCredits.payerId, payerId))
       .limit(1);
     return rows[0]?.balance ?? 0;
+  }
+
+  /**
+   * The payer's OWN credit-ledger movements, newest first, bounded by `limit`. The append-only
+   * source of truth behind the balance — amounts + opaque ids only (PII-free by table design;
+   * no currency/PAN/UPI). Scoped by `payer_id` (the caller's SESSION id) so a payer only ever
+   * sees their OWN rows. Read-only.
+   */
+  async listCreditLedgerByPayer(payerId: string, limit: number): Promise<CreditLedgerItem[]> {
+    return this.db
+      .select({
+        id: creditLedger.id,
+        delta: creditLedger.delta,
+        reason: creditLedger.reason,
+        unlock_id: creditLedger.unlockId,
+        pack_code: creditLedger.packCode,
+        payment_ref: creditLedger.paymentRef,
+        created_at: creditLedger.createdAt,
+      })
+      .from(creditLedger)
+      .where(eq(creditLedger.payerId, payerId))
+      .orderBy(desc(creditLedger.createdAt))
+      .limit(limit);
   }
 
   /**
