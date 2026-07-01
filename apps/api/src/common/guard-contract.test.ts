@@ -123,7 +123,7 @@ const CONTRACT: ControllerContract[] = [
     routes: { createInvite: [W], recordClick: [], reengage: [I] },
   },
   { name: "Capacity", ctor: CapacityController, routes: { buyCapacity: [I] } },
-  { name: "PostingPlans", ctor: PostingPlansController, routes: { buyPlan: [], buyBoost: [] } },
+  { name: "PostingPlans", ctor: PostingPlansController, routes: { buyPlan: [I], buyBoost: [I] } },
   {
     name: "Pricing",
     ctor: PricingController,
