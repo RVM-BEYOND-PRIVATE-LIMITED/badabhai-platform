@@ -174,6 +174,8 @@ interface BuildOpts {
   resolved?: { workerId: string; deviceId: string } | null;
   device?: { id: string } | null;
   otpVerifyThrows?: boolean;
+  /** Latest worker_consents row for the A5 consent-on-resume gate. undefined = never consented. */
+  consent?: { revokedAt: Date | null };
 }
 
 function build(opts: BuildOpts = {}) {
@@ -203,6 +205,7 @@ function build(opts: BuildOpts = {}) {
       : vi.fn().mockResolvedValue(undefined),
   };
   const auth = { requestOtp: vi.fn().mockResolvedValue({ success: true }) };
+  const consents = { findLatestByWorker: vi.fn(async () => opts.consent) };
 
   const svc = new PinService(
     config,
@@ -215,10 +218,11 @@ function build(opts: BuildOpts = {}) {
     devices as never,
     otp as never,
     auth as never,
+    consents as never,
     queue,
   );
 
-  return { svc, redis, emit, hasher, pins, sessions, devices, workers, otp, auth };
+  return { svc, redis, emit, hasher, pins, sessions, devices, workers, otp, auth, consents };
 }
 
 /** All event names emitted, in order. */
@@ -351,6 +355,23 @@ describe("PinService.verifyPin — happy path (trusted device)", () => {
     expect(json).not.toContain(GOOD_PIN);
     expect(json).not.toContain(`pin$${GOOD_PIN}`);
     expect(json).not.toContain(REFRESH);
+  });
+
+  it("A5: a correct PIN but REVOKED consent → neutral 401, NO session minted, no pin_verified", async () => {
+    const { svc, sessions, emit } = build({ consent: { revokedAt: new Date() } });
+    await expectNeutral401(svc.verifyPin(verifyInput(), ctx));
+    // A revoked-consent worker cannot resume via PIN, even with the correct PIN.
+    expect(sessions.create).not.toHaveBeenCalled();
+    expect(emittedNames(emit)).not.toContain("worker.pin_verified");
+    // Ops still gets the PII-free verify-failed fact (reason is a log-only static code).
+    expect(emittedNames(emit)).toContain("worker.pin_verify_failed");
+  });
+
+  it("A5: a correct PIN with never-consented (no row) still succeeds — onboarding not broken", async () => {
+    const { svc, sessions } = build({ consent: undefined });
+    const res = await svc.verifyPin(verifyInput(), ctx);
+    expect(res.worker_id).toBe(WORKER);
+    expect(sessions.create).toHaveBeenCalledWith(WORKER, DEVICE);
   });
 });
 

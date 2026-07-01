@@ -20,6 +20,7 @@ import { SessionService } from "./session.service";
 import { DevicesRepository } from "./devices.repository";
 import { PinHasher } from "./pin-hasher.service";
 import { PinRepository } from "./pin.repository";
+import { ConsentRepository } from "../consent/consent.repository";
 import type { PinVerifyResponse } from "./pin.dto";
 
 /** Minimal typed view of the Redis commands the PIN throttle needs (ioredis at runtime). */
@@ -79,6 +80,7 @@ export class PinService {
     private readonly devices: DevicesRepository,
     private readonly otp: OtpService,
     private readonly auth: AuthService,
+    private readonly consents: ConsentRepository,
     @InjectQueue(RESUME_RENDER_QUEUE) private readonly queue: Queue,
   ) {}
 
@@ -245,6 +247,18 @@ export class PinService {
     const ok = this.hasher.verify(input.pin, cred.pinHash, cred.pepperVersion);
 
     if (ok) {
+      // A5 (ADR-0026 amendment): a correct PIN unlocks/RESUMES a session — but a worker whose
+      // consent was REVOKED must not resume (parity with /auth/token/refresh). Checked AFTER the
+      // scrypt verify so it is not a pre-scrypt oracle — only the legitimate PIN-holder reaches
+      // it — and returns the SAME neutral 401 as every other negative path (no consent oracle on
+      // this strict no-oracle surface). A never-consented worker is allowed (pre-consent
+      // onboarding); profiling stays ConsentGuard-blocked regardless.
+      const consent = await this.consents.findLatestByWorker(workerId);
+      if (consent && consent.revokedAt !== null) {
+        await this.emitVerifyFailed(workerId, deviceId, "consent_revoked", ctx);
+        throw PinService.neutralFailure();
+      }
+
       // SUCCESS — clear the transient + DB throttle (leave otp_cycle_count as-is), mint a
       // fresh device-bound session (the SAME shape OTP login returns), emit pin_verified.
       await this.clearThrottle(redis, workerId, deviceId);

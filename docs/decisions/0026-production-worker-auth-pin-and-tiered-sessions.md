@@ -559,3 +559,13 @@ is present on every one (chat, profiles, voice, and the ApplicationsController `
 **faceless ops** read over the deterministic RANK core (no PII, documented alpha-ops surface),
 not a worker profiling route — its open posture is a separate matter (candidate for an
 `InternalServiceGuard` hardening like the posting-plans/A2 change), **not** a §6 consent gap.
+
+**Session-minting entry points.** The resume rule is applied to **every** path that mints or
+extends a session, not only token refresh. `POST /auth/pin/verify` (`PinService.verifyPin`) — the
+device-bound PIN unlock, itself a resume path — now runs the SAME revoked-consent check on its
+success branch (AFTER the scrypt verify, so it is not a pre-scrypt oracle), returning the strict
+neutral 401 the PIN surface uses for every negative path (a never-consented worker still
+succeeds). OTP `verifyOtp` mints a **fresh login** (a new session, not a resume) and precedes
+consent in onboarding, so it is intentionally NOT gated here — the profiling routes' per-request
+`ConsentGuard` is the gate for that worker. Together these close the resume surface ahead of the
+Flutter `kPersistentAuth` flip (which may resume via PIN unlock or rolling-token refresh).
