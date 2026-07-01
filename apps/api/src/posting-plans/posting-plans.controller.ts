@@ -10,13 +10,14 @@ import { BuyPlanSchema, BuyBoostSchema, type BuyPlanDto, type BuyBoostDto } from
  * ZodValidationPipe, all logic + the mock payment + events in the service.
  *
  * @deprecated for the PAYER path — SOFT-DEPRECATED by B3 (LC-1). These ops routes trust a
- * body `payer_id` and are unauthenticated in alpha, so they must NOT be exposed to external
- * payers (that is the IDOR/LC-1 risk A2 hardened with `InternalServiceGuard`). The canonical
+ * body `payer_id` but are guarded by class-level `InternalServiceGuard` (A2 / PR #174, MERGED) —
+ * the shared-secret ops posture that closed the earlier OPEN-route IDOR. `payer_id` there stays
+ * ADVISORY (an internal-token holder can assert any payer), so they MUST NOT be exposed to
+ * external payers (residual internal-only LC-1, tracked TD33/TD50, CLAUDE.md §8). The canonical
  * payer path is now the session-authed {@link import("../payer-portal/payer-job-postings.controller").PayerJobPostingsController}
  * (`POST /payer/job-postings/:id/plan` | `/boost`), where `payer_id` is the verified session
- * payer and the posting is ownership-checked (no-oracle 404). These routes are RETAINED only
- * for internal/ops-run support behind `InternalServiceGuard` (A2) — do not build new payer
- * surface on them.
+ * payer and the posting is ownership-checked (no-oracle 404). Do not build new payer surface on
+ * these routes; they are internal/ops-run support only.
  */
 @Controller("job-postings")
 @UseGuards(InternalServiceGuard)
