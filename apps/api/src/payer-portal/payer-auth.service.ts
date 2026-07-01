@@ -14,6 +14,7 @@ import { OtpSendCapExceededException } from "../common/otp-send-cap";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { PayersRepository } from "../payers/payers.repository";
+import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import { PayerSessionService } from "../payers/payer-session.service";
 import { PayerOtpService, type PayerOtpIssued } from "../payers/payer-otp.service";
 import type {
@@ -49,6 +50,7 @@ export class PayerAuthService {
   constructor(
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     private readonly payers: PayersRepository,
+    private readonly orgs: PayerOrgsRepository,
     private readonly otp: PayerOtpService,
     private readonly sessions: PayerSessionService,
     private readonly events: EventsService,
@@ -78,6 +80,11 @@ export class PayerAuthService {
         correlationId: ctx.correlationId,
         requestId: ctx.requestId,
       });
+      // Every new payer founds a SOLO org with themselves as OWNER (ADR-0027 / B5). Idempotent
+      // + only on the created path — an existing account is never mutated here (XB-H). The org's
+      // own `org.created` audit event ships with the member lifecycle in B5.3; today the org is a
+      // deterministic 1:1 consequence of `payer.created` (which is evented above).
+      await this.orgs.ensureSoloOrg(id);
     }
 
     // Issue a code to the canonical stored contact (uniform for new + existing — no
@@ -119,8 +126,16 @@ export class PayerAuthService {
     const account = await this.payers.findByEmail(dto.email);
     if (!account) throw new UnauthorizedException("Incorrect or expired code");
 
+    // Guarantee the payer's solo org + owner membership (ADR-0027 / B5). Cheap common case
+    // (1 read → org already exists via signup or the B5.1 backfill); only a gap payer created
+    // BEFORE B5.2 shipped has none, and is repaired here on first login. Idempotent, fail-safe.
+    if (!(await this.orgs.resolveOrgForPayer(account.id))) {
+      await this.orgs.ensureSoloOrg(account.id);
+    }
+
     // Carry the role onto the session (ADR-0022) so PayerRoleGuard gates agent-only routes
     // without a DB hit; pre-ADR-0022 sessions (no role) resolve it via the guard's fallback.
+    // (The session `org_id`/`org_role` claim lands with the member API + PayerOrgRoleGuard in B5.3.)
     const session = await this.sessions.create(account.id, account.role);
     await this.events.emit({
       event_name: "payer.session_started",
