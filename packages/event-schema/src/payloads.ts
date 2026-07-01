@@ -990,6 +990,27 @@ export const PostingPlanResumedPayload = z.object({
   reason: PostingPlanResumeReasonEnum,
 });
 
+/**
+ * A payer topped up a posting plan's applicant-visibility quota (B2) — a paid "view more →
+ * pay more" refill resolved through the ONE pricing engine (ADR-0013). `quota_added` is the
+ * catalog `additionalVisibilityQuota` granted; `quota_topup_total` is the plan's running
+ * top-up total AFTER this purchase (the original `applicant_visibility_quota` receipt stays
+ * immutable). FACELESS: opaque `payer_id`, tier CODE, integer ₹ + counts ONLY (no PII).
+ * `real_call` is the mock-honesty flag (false until a real gateway ships, human-gated).
+ */
+export const PostingPlanQuotaToppedPayload = z.object({
+  plan_id: uuidSchema,
+  job_posting_id: uuidSchema,
+  payer_id: uuidSchema,
+  tier: catalogCode,
+  quota_added: z.number().int().positive(),
+  quota_topup_total: z.number().int().nonnegative(),
+  price_inr: z.number().int().nonnegative(),
+  discount_inr: z.number().int().nonnegative().default(0),
+  coupon_applied: z.boolean().default(false),
+  real_call: z.boolean().default(false),
+});
+
 // ---------------------------------------------------------------------------
 // WhatsApp invite funnel + re-engagement (ADR-0020). PII-FREE: ids + enums +
 // the template id ONLY. The phone, the message body, and template VARIABLES

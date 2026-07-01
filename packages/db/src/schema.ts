@@ -1132,8 +1132,15 @@ export const postingPlans = pgTable(
     // Opaque payer (employer OR agent) — faceless rails, NO FK, NO PII.
     payerId: uuid("payer_id").notNull(),
     tier: text("tier").$type<PostingPlanTier>().notNull(),
-    // Stamped from the catalog at purchase (10 / 30); the cap on applicant views.
+    // Stamped from the catalog at purchase (10 / 30); the cap on applicant views. This is the
+    // IMMUTABLE original receipt — never mutated after purchase (a top-up adds to
+    // quotaTopupCount below, NOT here).
     applicantVisibilityQuota: integer("applicant_visibility_quota").notNull(),
+    // Additional applicant-visibility views bought AFTER purchase via a quota top-up (B2).
+    // Accumulates each top-up so the original receipt (applicantVisibilityQuota) stays
+    // immutable; the effective cap the (future) view chokepoint enforces is
+    // applicantVisibilityQuota + quotaTopupCount. Each top-up also emits posting_plan.quota_topped.
+    quotaTopupCount: integer("quota_topup_count").notNull().default(0),
     // Atomic check-and-increment at the single view chokepoint (ADR-0010 F-2 discipline).
     applicantsViewedCount: integer("applicants_viewed_count").notNull().default(0),
     paidAt: timestamp("paid_at", { withTimezone: true }),
@@ -1148,6 +1155,7 @@ export const postingPlans = pgTable(
     check("posting_plans_tier_chk", sql`${t.tier} IN ('standard', 'pro')`),
     check("posting_plans_status_chk", sql`${t.status} IN ('draft', 'active', 'expired', 'paused')`),
     check("posting_plans_viewed_nonneg_chk", sql`${t.applicantsViewedCount} >= 0`),
+    check("posting_plans_topup_nonneg_chk", sql`${t.quotaTopupCount} >= 0`),
   ],
 );
 

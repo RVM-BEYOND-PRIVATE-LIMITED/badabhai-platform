@@ -45,6 +45,11 @@ function makeCtrl() {
         boost: { id: "boost-1" },
       }),
     ),
+    topUpQuotaForPayer: vi.fn(
+      async (_id: string, _payerId: string, _dto: unknown, _ctx: unknown) => ({
+        plan: { id: "plan-1", quotaTopupCount: 10 },
+      }),
+    ),
   };
   const ctrl = new PayerJobPostingsController(jobPostings as never, plans as never);
   return { ctrl, jobPostings, plans };
@@ -149,5 +154,34 @@ describe("PayerJobPostingsController — buy plan/boost is session-scoped + owne
       d.ctrl.buyBoost(POSTING, { tier: "all_candidates" }, PAYER_A, CTX),
     ).rejects.toThrow();
     expect(d.plans.buyBoostForPayer).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * B2: quota top-up is session-scoped + ownership-gated. The `payer_id` is the SESSION payer
+ * (never the body), and posting OWNERSHIP is asserted via `getOneForPayer` BEFORE the paid
+ * top-up — an unknown/foreign posting can never reach the money path.
+ */
+describe("PayerJobPostingsController — quota top-up is session-scoped + ownership-gated (B2)", () => {
+  let d: ReturnType<typeof makeCtrl>;
+  beforeEach(() => {
+    d = makeCtrl();
+  });
+
+  it("checks ownership FIRST, then tops up with the SESSION payer id (no body payer_id)", async () => {
+    const dto = { tier: "topup_10" as const };
+    await d.ctrl.topUpQuota(POSTING, dto, PAYER_A, CTX);
+    expect(d.jobPostings.getOneForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id);
+    expect(d.plans.topUpQuotaForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id, dto, CTX);
+    expect(d.jobPostings.getOneForPayer.mock.invocationCallOrder[0]!).toBeLessThan(
+      d.plans.topUpQuotaForPayer.mock.invocationCallOrder[0]!,
+    );
+    expect(d.plans.topUpQuotaForPayer.mock.calls[0]![2]).not.toHaveProperty("payer_id");
+  });
+
+  it("on an unknown OR foreign posting (404) NEVER reaches the money path", async () => {
+    d.jobPostings.getOneForPayer.mockRejectedValueOnce(new Error("Job posting not found"));
+    await expect(d.ctrl.topUpQuota(POSTING, { tier: "topup_10" }, PAYER_A, CTX)).rejects.toThrow();
+    expect(d.plans.topUpQuotaForPayer).not.toHaveBeenCalled();
   });
 });

@@ -844,6 +844,45 @@ describe("capacity / posting_plan lifecycle events (ADR-0016 — PII-free, ids/c
     expect(bad.success).toBe(false);
     if (!bad.success) expect(bad.error.stage).toBe("payload");
   });
+
+  it("validates posting_plan.quota_topped (B2 — ids/tier/counts/₹ only, no PII)", () => {
+    const topped = validateEvent({
+      ...workerCreatedEvent(),
+      event_name: "posting_plan.quota_topped",
+      actor: { actor_type: "payer", actor_id: UUID_C },
+      subject: { subject_type: "posting_plan", subject_id: UUID_A },
+      payload: {
+        plan_id: UUID_A,
+        job_posting_id: UUID_B,
+        payer_id: UUID_C,
+        tier: "topup_10",
+        quota_added: 10,
+        quota_topup_total: 10,
+        price_inr: 1000,
+      },
+    });
+    expect(topped.success).toBe(true);
+  });
+
+  it("rejects a non-positive quota_added on quota_topped (a top-up must grant views)", () => {
+    const bad = validateEvent({
+      ...workerCreatedEvent(),
+      event_name: "posting_plan.quota_topped",
+      actor: { actor_type: "payer", actor_id: UUID_C },
+      subject: { subject_type: "posting_plan", subject_id: UUID_A },
+      payload: {
+        plan_id: UUID_A,
+        job_posting_id: UUID_B,
+        payer_id: UUID_C,
+        tier: "topup_10",
+        quota_added: 0,
+        quota_topup_total: 0,
+        price_inr: 1000,
+      },
+    });
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
 });
 
 describe("pace supply-widening events (ADR-0021 — PII-free, faceless, no-LLM)", () => {
@@ -1776,10 +1815,11 @@ describe("worker PIN events (ADR-0026 Phase 3 — device-bound PIN, PII-free, id
 });
 
 describe("registry", () => {
-  it("exposes all 95 event names (93 prior + job_posting.paused/resumed [B1])", () => {
-    expect(EVENT_NAMES).toHaveLength(95);
+  it("exposes all 96 event names (93 prior + job_posting.paused/resumed [B1] + posting_plan.quota_topped [B2 quota top-up])", () => {
+    expect(EVENT_NAMES).toHaveLength(96);
     expect(isEventName("job_posting.paused")).toBe(true);
     expect(isEventName("job_posting.resumed")).toBe(true);
+    expect(isEventName("posting_plan.quota_topped")).toBe(true);
     expect(isEventName("worker.pin_set")).toBe(true);
     expect(isEventName("worker.pin_verified")).toBe(true);
     expect(isEventName("worker.pin_verify_failed")).toBe(true);

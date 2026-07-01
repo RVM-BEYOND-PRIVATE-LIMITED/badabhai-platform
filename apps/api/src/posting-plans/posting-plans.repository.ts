@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, count, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import {
   type Database,
   jobPostings,
@@ -185,6 +185,66 @@ export class PostingPlansRepository {
         ),
       )
       .limit(1);
+    return rows[0];
+  }
+
+  /**
+   * The payer's single ACTIVE, unexpired plan for a posting — the target of a quota top-up
+   * (B2). Latest-paid first (if a posting somehow carries more than one active plan, the
+   * most recent receipt is the one topped up). PAYER-SCOPED (`payer_id` in the WHERE) so a
+   * foreign plan is invisible; a plain read (no lock — {@link addQuotaTopup} is the atomic
+   * guard). PII-free (ids/counts only).
+   */
+  async findActivePlanForPostingAndPayer(
+    jobPostingId: string,
+    payerId: string,
+    now: Date,
+  ): Promise<PostingPlan | undefined> {
+    const rows = await this.db
+      .select()
+      .from(postingPlans)
+      .where(
+        and(
+          eq(postingPlans.jobPostingId, jobPostingId),
+          eq(postingPlans.payerId, payerId),
+          eq(postingPlans.status, "active"),
+          or(isNull(postingPlans.expiresAt), gt(postingPlans.expiresAt, now)),
+        ),
+      )
+      .orderBy(desc(postingPlans.paidAt))
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
+   * Atomically add `delta` applicant-visibility views to a plan's quota_topup_count (B2).
+   * ONE UPDATE (`SET col = col + delta`) so concurrent top-ups COMPOSE without a lock. The
+   * WHERE re-asserts the plan is still the payer's + active + unexpired (no TOCTOU vs the
+   * read in {@link findActivePlanForPostingAndPayer}): returns undefined if the plan changed
+   * or expired in between → the caller 409s. The immutable `applicant_visibility_quota`
+   * receipt is NEVER touched. PII-free.
+   */
+  async addQuotaTopup(
+    planId: string,
+    payerId: string,
+    delta: number,
+    now: Date,
+  ): Promise<PostingPlan | undefined> {
+    const rows = await this.db
+      .update(postingPlans)
+      .set({
+        quotaTopupCount: sql`${postingPlans.quotaTopupCount} + ${delta}`,
+        updatedAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(postingPlans.id, planId),
+          eq(postingPlans.payerId, payerId),
+          eq(postingPlans.status, "active"),
+          or(isNull(postingPlans.expiresAt), gt(postingPlans.expiresAt, now)),
+        ),
+      )
+      .returning();
     return rows[0];
   }
 

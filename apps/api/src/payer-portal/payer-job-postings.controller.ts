@@ -18,8 +18,10 @@ import { PostingPlansService } from "../posting-plans/posting-plans.service";
 import {
   PayerBuyPlanSchema,
   PayerBuyBoostSchema,
+  PayerTopUpQuotaSchema,
   type PayerBuyPlanDto,
   type PayerBuyBoostDto,
+  type PayerTopUpQuotaDto,
 } from "../posting-plans/posting-plans.dto";
 import {
   PayerCreateJobPostingSchema,
@@ -168,5 +170,26 @@ export class PayerJobPostingsController {
   ) {
     await this.jobPostings.getOneForPayer(id, payer.id); // no-oracle 404 (unknown OR foreign)
     return this.plans.buyBoostForPayer(id, payer.id, dto, ctx);
+  }
+
+  /**
+   * Top up applicant-visibility quota on the caller's OWN active plan for this posting (B2 —
+   * "view more → pay more"). OWNERSHIP of the posting is asserted FIRST via the no-oracle
+   * `getOneForPayer` (unknown OR foreign posting → the SAME neutral 404), and the plan lookup
+   * inside {@link PostingPlansService.topUpQuotaForPayer} is itself payer-scoped, so a payer
+   * can only top up their own plan. The `payer_id` is the SESSION payer (XB-A) — never a body
+   * value. Priced through the pricing engine + mock-paid. 201 on top-up; 409 if the posting has
+   * no active plan to top up.
+   */
+  @Post(":id/quota-topup")
+  @HttpCode(201)
+  async topUpQuota(
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Body(new ZodValidationPipe(PayerTopUpQuotaSchema)) dto: PayerTopUpQuotaDto,
+    @CurrentPayer() payer: AuthenticatedPayer,
+    @Ctx() ctx: RequestContext,
+  ) {
+    await this.jobPostings.getOneForPayer(id, payer.id); // no-oracle 404 (unknown OR foreign)
+    return this.plans.topUpQuotaForPayer(id, payer.id, dto, ctx);
   }
 }

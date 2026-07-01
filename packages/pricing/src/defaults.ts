@@ -65,6 +65,19 @@ export const DEFAULT_CATALOG: Catalog = catalogSchema.parse({
         { code: "cap_15", priceInr: 12000, maxActiveVacancies: 15, validityDays: 30 },
       ],
     },
+    {
+      // quota_topup (B2): refill applicant-visibility views on an EXISTING active plan
+      // ("view more → pay more"). Priced at the same per-view anchor as the posting tiers
+      // (standard ₹1000/10 = ₹100/view; pro ₹2500/30 ≈ ₹83/view) so a top-up never
+      // undercuts buying the plan. Ops-editable; the service reads the grant, never a
+      // hardcoded number. Added views ride the plan's existing validity window.
+      kind: "quota_topup",
+      code: "quota_topup",
+      tiers: [
+        { code: "topup_10", priceInr: 1000, additionalVisibilityQuota: 10 },
+        { code: "topup_30", priceInr: 2500, additionalVisibilityQuota: 30 },
+      ],
+    },
   ],
   offers: [],
   coupons: [],

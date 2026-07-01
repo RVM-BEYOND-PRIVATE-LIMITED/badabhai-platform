@@ -17,7 +17,8 @@ export type Grants =
   | { kind: "posting"; validityDays: number; applicantVisibilityQuota: number }
   | { kind: "boost"; boostDays: number }
   | { kind: "credit_pack"; credits: number; windowDays: number }
-  | { kind: "capacity"; maxActiveVacancies: number; validityDays: number };
+  | { kind: "capacity"; maxActiveVacancies: number; validityDays: number }
+  | { kind: "quota_topup"; additionalVisibilityQuota: number };
 
 /** A resolved, ready-to-charge price quote. PII-FREE (codes + integer ₹ only). */
 export interface Quote {
@@ -90,6 +91,14 @@ function findGrants(product: Product, tierCode: string): { basePriceInr: number;
     return {
       basePriceInr: tier.priceInr,
       grants: { kind: "capacity", maxActiveVacancies: tier.maxActiveVacancies, validityDays: tier.validityDays },
+    };
+  }
+  if (product.kind === "quota_topup") {
+    const tier = product.tiers.find((t) => t.code === tierCode);
+    if (!tier) return null;
+    return {
+      basePriceInr: tier.priceInr,
+      grants: { kind: "quota_topup", additionalVisibilityQuota: tier.additionalVisibilityQuota },
     };
   }
   const tier = product.tiers.find((t) => t.code === tierCode);

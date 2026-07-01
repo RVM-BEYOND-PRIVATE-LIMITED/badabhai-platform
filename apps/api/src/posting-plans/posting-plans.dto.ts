@@ -55,3 +55,17 @@ export const BuyCapacitySchema = z.object({
   coupon: z.string().min(1).max(64).optional(),
 });
 export type BuyCapacityDto = z.infer<typeof BuyCapacitySchema>;
+
+/**
+ * Payer self-serve quota top-up (B2). Buys additional applicant-visibility views for one of
+ * the caller's OWN active posting plans ("view more → pay more"), resolved through the ONE
+ * pricing engine (ADR-0013 — a `quota_topup` catalog product). `tier` is a top-up tier CODE
+ * (e.g. `topup_10`), validated fail-closed by the engine. NO `payer_id`: the owner is the
+ * verified SESSION payer (`req.payer.id`), stamped by the service (XB-A). Optional coupon is
+ * validated fail-closed. PII-free.
+ */
+export const PayerTopUpQuotaSchema = z.object({
+  tier: z.string().min(1).max(64),
+  coupon: z.string().min(1).max(64).optional(),
+});
+export type PayerTopUpQuotaDto = z.infer<typeof PayerTopUpQuotaSchema>;
