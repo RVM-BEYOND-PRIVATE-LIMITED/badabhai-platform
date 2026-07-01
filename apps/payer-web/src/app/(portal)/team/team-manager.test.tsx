@@ -5,10 +5,11 @@ import type { OrgMemberView } from "../../../lib/org-members";
 import { Button } from "../../../components/ds";
 
 /**
- * (e) TeamManager scaffold render — the Owner user-management UI exists (invite form + members
- * list + per-row Remove) but carries NO fabricated members: an empty directory renders an empty
- * state, never fake rows. PII-free: members are a coarse label + role only. Env is node — React
- * state is stubbed via a mocked useState/useTransition; the Server Actions are mocked inert.
+ * TeamManager render (Owner user-management, LIVE-wired B5.5) — invite form + members list +
+ * per-row Remove. FACELESS: members render a SERVER-MASKED email + role + status only, never a raw
+ * address; an empty directory renders an empty state. A member's own row / an owner row hides the
+ * Remove affordance. Env is node — React state is stubbed via a mocked useState/useTransition; the
+ * Server Actions are mocked inert.
  */
 
 vi.mock("react", async () => {
@@ -44,8 +45,6 @@ function gatherButtons(tree: ReactNode): string[] {
       return;
     }
     const el = node as ReactElement<Record<string, unknown> & { children?: ReactNode }>;
-    // The TeamManager invite/remove affordances are DS <Button> (DS4.2 ink-parity re-skin),
-    // which render a <button>; recognize either so the affordance assertions hold.
     if (el.type === "button" || el.type === Button)
       out.push(textOf(el.props.children as ReactNode).trim());
     if (el.props && "children" in el.props) w(el.props.children as ReactNode);
@@ -71,26 +70,46 @@ function gatherText(tree: ReactNode): string {
   return all.join(" ");
 }
 
-const member: OrgMemberView = { memberId: "stub-1", label: "member-a1b2", orgRole: "recruiter" };
+const recruiter: OrgMemberView = {
+  memberId: "mem-1",
+  orgRole: "recruiter",
+  status: "invited",
+  emailMasked: "h•••@acme.example",
+  invitedAt: "2026-07-01T00:00:00.000Z",
+  isSelf: false,
+};
+const self: OrgMemberView = {
+  memberId: "mem-self",
+  orgRole: "owner",
+  status: "active",
+  emailMasked: "o•••@acme.example",
+  invitedAt: "2026-06-01T00:00:00.000Z",
+  isSelf: true,
+};
 
-describe("TeamManager scaffold — invite affordance + stub empty state, PII-free", () => {
+describe("TeamManager — invite affordance + masked members list, PII-free", () => {
   it("renders the invite affordance + an empty members state with NO fabricated members", () => {
     const tree = TeamManager({ members: [] }) as ReactElement;
     expect(gatherButtons(tree)).toContain("Send invite");
     const text = gatherText(tree);
-    expect(text).toMatch(/No additional members yet/i);
-    // PII-free: no phone-number digit runs anywhere.
+    expect(text).toMatch(/No members yet/i);
     expect(text).not.toMatch(/\d{10,}/);
     expect(text).not.toMatch(/\+\d{7,}/);
   });
 
-  it("renders a per-row Remove affordance + the coarse label/role for a supplied member", () => {
-    // The member is TEST INPUT (the stub returns []); the component must render what it's given.
-    const tree = TeamManager({ members: [member] }) as ReactElement;
+  it("renders masked email + role + status, and a per-row Remove for a removable member", () => {
+    const tree = TeamManager({ members: [recruiter] }) as ReactElement;
     expect(gatherButtons(tree)).toContain("Remove");
     const text = gatherText(tree);
-    expect(text).toContain("member-a1b2"); // coarse opaque label
-    expect(text).toContain("recruiter"); // role badge
+    expect(text).toContain("h•••@acme.example"); // server-masked, never raw
+    expect(text).toContain("recruiter");
+    expect(text).toContain("invited");
     expect(text).not.toMatch(/\d{10,}/);
+  });
+
+  it("hides Remove for the caller's own row / an owner (marks it 'You')", () => {
+    const tree = TeamManager({ members: [self] }) as ReactElement;
+    expect(gatherButtons(tree)).not.toContain("Remove");
+    expect(gatherText(tree)).toContain("You");
   });
 });
