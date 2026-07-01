@@ -43,3 +43,26 @@ Run one of the commands above against the migrated staging/local DB to get a rea
 
 On an **empty** DB (no `payer_orgs`, no payer-owned rows), every assertion is vacuously true
 — that is a genuine PASS (nothing to backfill), not a skipped check.
+
+### Prod-apply notes (migration-review advisories — non-blocking at alpha volume)
+
+`0034` is safe as-authored for alpha data volume. For a future **large live table**, harden the
+apply so it doesn't block reads/writes:
+
+- **`SET NOT NULL`** on the 7 tables takes `ACCESS EXCLUSIVE` + a full-table validation scan. On a
+  large table prefer the expand pattern: add a `NOT VALID` CHECK `(org_id IS NOT NULL)` →
+  `VALIDATE CONSTRAINT` (only `SHARE UPDATE EXCLUSIVE`) → then `SET NOT NULL` (PG ≥12 skips the
+  rescan using the validated constraint).
+- **`CREATE UNIQUE INDEX`** takes a write lock for the build. For prod prefer
+  `CREATE UNIQUE INDEX CONCURRENTLY` — but that **cannot** run inside the migration transaction /
+  `--> statement-breakpoint` batching, so it must be a separate out-of-transaction step.
+- Run `pnpm --filter @badabhai/db db:verify:org-id` against staging **immediately post-apply**.
+
+### ⚠️ For the author of the NEXT increment (the payer_id→org_id predicate flips)
+
+`org_id` is intentionally **nullable in the Drizzle model** (insert back-compat) while the DB has it
+`NOT NULL` on the 7 tables + the two `*_org_id_when_payer_chk` CHECKs — a deliberate
+model-vs-DB drift. A future `pnpm db:generate` will therefore **diff the model (nullable, no CHECK)
+against the DB and MAY re-emit `SET NOT NULL` / re-add-or-drop the CHECKs**. When you author the
+flip increment, either add `.notNull()` to the 7 tables' model at that point, or hand-reconcile
+(delete) any spurious re-emitted `SET NOT NULL` / CHECK statements before committing.
