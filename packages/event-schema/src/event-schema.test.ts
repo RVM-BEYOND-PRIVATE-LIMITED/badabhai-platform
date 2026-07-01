@@ -1815,12 +1815,13 @@ describe("worker PIN events (ADR-0026 Phase 3 — device-bound PIN, PII-free, id
 });
 
 describe("registry", () => {
-  it("exposes all 98 event names (93 prior + job_posting.paused/resumed [B1] + posting_plan.quota_topped [B2] + payer_member.invited/removed [ADR-0027 / B5])", () => {
-    expect(EVENT_NAMES).toHaveLength(98);
+  it("exposes all 99 event names (93 prior + job_posting.paused/resumed [B1] + posting_plan.quota_topped [B2] + payer_member.invited/accepted/removed [ADR-0027 / B5])", () => {
+    expect(EVENT_NAMES).toHaveLength(99);
     expect(isEventName("job_posting.paused")).toBe(true);
     expect(isEventName("job_posting.resumed")).toBe(true);
     expect(isEventName("posting_plan.quota_topped")).toBe(true);
     expect(isEventName("payer_member.invited")).toBe(true);
+    expect(isEventName("payer_member.accepted")).toBe(true);
     expect(isEventName("payer_member.removed")).toBe(true);
     expect(isEventName("worker.pin_set")).toBe(true);
     expect(isEventName("worker.pin_verified")).toBe(true);

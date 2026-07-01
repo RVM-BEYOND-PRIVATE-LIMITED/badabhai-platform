@@ -13,3 +13,15 @@ export const InviteMemberSchema = z.object({
   org_role: z.enum(["recruiter"]).default("recruiter"),
 });
 export type InviteMemberDto = z.infer<typeof InviteMemberSchema>;
+
+/**
+ * Accept a teammate invite (ADR-0027 / B5.4). The body carries ONLY the single-use raw
+ * `token` from the accept link — no org_id / member_id (both are resolved from the token,
+ * server-side). The accepting principal is the authenticated payer (PayerAuthGuard); the
+ * service additionally binds the accept to that payer's own verified email (defense-in-depth
+ * on a leaked token). Bounded length so a garbage body is rejected before any DB hit.
+ */
+export const AcceptInviteSchema = z.object({
+  token: z.string().trim().min(16).max(200),
+});
+export type AcceptInviteDto = z.infer<typeof AcceptInviteSchema>;

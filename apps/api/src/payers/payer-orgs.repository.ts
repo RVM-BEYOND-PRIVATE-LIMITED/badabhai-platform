@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, desc, eq, ne } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, ne } from "drizzle-orm";
 import {
   type Database,
   payers,
@@ -123,6 +123,19 @@ export class PayerOrgsRepository {
     return row;
   }
 
+  /**
+   * Count the NON-removed members of an org (active + invited) — the per-org seat cap the
+   * invite path enforces (a backstop against unbounded invite minting). Removed rows are
+   * excluded so freeing a seat re-opens the cap.
+   */
+  async countActiveOrInvited(orgId: string): Promise<number> {
+    const [row] = await this.db
+      .select({ n: count() })
+      .from(payerMembers)
+      .where(and(eq(payerMembers.orgId, orgId), ne(payerMembers.status, "removed")));
+    return row?.n ?? 0;
+  }
+
   /** The current NON-removed member for an email in an org (dup-invite / already-member guard). */
   async findActiveOrInvitedByEmail(orgId: string, emailHash: string): Promise<PayerMember | undefined> {
     const [row] = await this.db
@@ -176,6 +189,63 @@ export class PayerOrgsRepository {
       })
       .returning();
     if (!row) throw new Error("failed to invite payer member");
+    return row;
+  }
+
+  /**
+   * Look up a still-pending invite by its token HASH (never the raw token) — used by the
+   * accept flow to resolve which invited member a bearer token belongs to. Matches ONLY a row
+   * that is still `invited` AND not past `invite_expires_at` (a consumed/expired/removed token
+   * resolves to undefined → the service returns a no-oracle rejection). The caller additionally
+   * binds the accept to the authenticated payer's email (defense-in-depth on a leaked token).
+   */
+  async findByInviteTokenHash(tokenHash: string, now: Date): Promise<PayerMember | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(payerMembers)
+      .where(
+        and(
+          eq(payerMembers.inviteTokenHash, tokenHash),
+          eq(payerMembers.status, "invited"),
+          gt(payerMembers.inviteExpiresAt, now),
+        ),
+      )
+      .limit(1);
+    return row;
+  }
+
+  /**
+   * ACCEPT an invite in ONE guarded write (no TOCTOU): flip an `invited` row to `active`, bind
+   * it to the accepting payer, and CONSUME the token (inviteTokenHash → null so it is strictly
+   * single-use). The WHERE re-checks id + the token hash + status='invited' + not-expired, so a
+   * concurrent double-accept / expired / already-consumed token is a no-op → undefined (the
+   * service 409/404s without leaking which). member_payer_id is stamped here (the invite carried
+   * only the email until now). Returns the activated row.
+   */
+  async acceptInvite(input: {
+    memberId: string;
+    tokenHash: string;
+    memberPayerId: string;
+    now: Date;
+  }): Promise<PayerMember | undefined> {
+    const [row] = await this.db
+      .update(payerMembers)
+      .set({
+        status: "active",
+        memberPayerId: input.memberPayerId,
+        acceptedAt: input.now,
+        inviteTokenHash: null,
+        updatedAt: input.now,
+      })
+      .where(
+        and(
+          eq(payerMembers.id, input.memberId),
+          eq(payerMembers.inviteTokenHash, input.tokenHash),
+          eq(payerMembers.status, "invited"),
+          gt(payerMembers.inviteExpiresAt, input.now),
+        ),
+      )
+      .returning();
     return row;
   }
 
