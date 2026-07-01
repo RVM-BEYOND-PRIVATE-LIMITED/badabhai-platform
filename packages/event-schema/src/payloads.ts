@@ -1154,6 +1154,18 @@ export const PayerMemberInvitedPayload = z.object({
 export type PayerMemberInvitedPayload = z.infer<typeof PayerMemberInvitedPayload>;
 
 /**
+ * A teammate ACCEPTED an org invite (ADR-0027 / B5.4) — the invited row went `active` and was
+ * bound to `member_payer_id` (the accepting payer). ids ONLY — no email/PII, no invite token
+ * (the bearer secret is consumed on accept, never emitted).
+ */
+export const PayerMemberAcceptedPayload = z.object({
+  member_id: uuidSchema,
+  org_id: uuidSchema,
+  member_payer_id: uuidSchema,
+});
+export type PayerMemberAcceptedPayload = z.infer<typeof PayerMemberAcceptedPayload>;
+
+/**
  * A teammate was REMOVED from a payer org (ADR-0027 / B5) — soft-deleted (status='removed').
  * `removed_by` is the acting owner. ids ONLY (no email/PII).
  */

@@ -1,13 +1,24 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import type { ServerConfig } from "@badabhai/config";
 import type { OrgRole, PayerMember, PayerMemberStatus } from "@badabhai/db";
+import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
+import { PayersRepository } from "../payers/payers.repository";
 import { PayerOrgsRepository, type ResolvedOrg } from "../payers/payer-orgs.repository";
-import type { InviteMemberDto } from "./payer-org-members.dto";
+import type { InviteMemberDto, AcceptInviteDto } from "./payer-org-members.dto";
+import { MEMBER_INVITE_MAILER, type MemberInviteMailer } from "./member-invite.mailer";
 
-/** Days an org invite token stays valid (mock alpha; real delivery + accept lands in B5.4). */
+/** Days an org invite token stays valid before it must be re-issued. */
 const INVITE_TTL_DAYS = 7;
 const MS_PER_DAY = 86_400_000;
 
@@ -32,8 +43,13 @@ export interface OrgMemberView {
  * {@link import("../payers/payer-org-role.guard").PayerOrgRoleGuard}. Every emitted event is
  * PII-free (ids + role enum). The invitee EMAIL is encrypted at rest (email_enc + email_hash,
  * TD21) and only ever MASKED in a response; the invite token is a bearer secret stored ONLY as
- * a keyed hash. MOCK invites in B5.3 (no real send / accept — that is B5.4 behind
- * MEMBER_INVITES_ENABLE_REAL).
+ * a keyed hash.
+ *
+ * B5.4 adds: the invite ACCEPT flow (single-use token verify → member activation, always live,
+ * no provider), a per-org seat cap (MEMBER_INVITE_MAX_PER_ORG), and REAL accept-link email
+ * delivery behind the {@link MEMBER_INVITE_MAILER} seam. Delivery is MOCK (no send) by default;
+ * the real ZeptoMail/SMTP mailer is chosen only behind MEMBER_INVITES_ENABLE_REAL (§7, staging-
+ * first). The raw token appears ONLY in the mailer input (accept link) — never logged/evented.
  */
 @Injectable()
 export class PayerOrgMembersService {
@@ -41,6 +57,9 @@ export class PayerOrgMembersService {
     private readonly orgs: PayerOrgsRepository,
     private readonly pii: PiiCryptoService,
     private readonly events: EventsService,
+    private readonly payers: PayersRepository,
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    @Inject(MEMBER_INVITE_MAILER) private readonly mailer: MemberInviteMailer,
   ) {}
 
   /** The caller's org members (masked), faceless — any member of the org may read. */
@@ -51,9 +70,12 @@ export class PayerOrgMembersService {
 
   /**
    * Invite a teammate by email (owner-only, enforced by the guard). Rejects re-inviting an
-   * already-ACTIVE member (409). Encrypts the email, mints a single-use token (stored as a keyed
-   * HASH only), records the invited member, emits payer_member.invited (PII-free), and returns
-   * the masked view. MOCK: no email is sent in B5.3.
+   * already-ACTIVE member (409); enforces the per-org seat cap for a NEW seat only (a re-invite
+   * of an existing invited/removed email reuses its row, so it does not consume a seat).
+   * Encrypts the email, mints a single-use token (stored as a keyed HASH only), records the
+   * invited member, emits payer_member.invited (PII-free), then delivers the accept link via the
+   * {@link MEMBER_INVITE_MAILER} seam (MOCK no-op by default; real send only behind the gate).
+   * Returns the masked view. The raw token/link go ONLY to the mailer — never logged/evented.
    */
   async invite(
     org: ResolvedOrg,
@@ -67,9 +89,16 @@ export class PayerOrgMembersService {
     if (existing && existing.status === "active") {
       throw new ConflictException("That email is already an active member of this org");
     }
+    // Seat cap: only a NEW seat (no existing non-removed row for this email) counts against it.
+    if (!existing) {
+      const seats = await this.orgs.countActiveOrInvited(org.orgId);
+      if (seats >= this.config.MEMBER_INVITE_MAX_PER_ORG) {
+        throw new ConflictException("This organization has reached its member limit");
+      }
+    }
 
-    // Bearer token — the RAW value never leaves the service in B5.3 (no delivery yet); only its
-    // keyed hash is persisted. B5.4 delivers the raw token via the accept-link email.
+    // Bearer token — the RAW value goes ONLY into the accept-link email (the mailer input);
+    // only its keyed hash is persisted (single-use, consumed on accept).
     const rawToken = `${randomUUID()}${randomUUID()}`;
     const inviteTokenHash = this.pii.hmac(rawToken);
 
@@ -97,7 +126,75 @@ export class PayerOrgMembersService {
       requestId: ctx.requestId,
     });
 
+    // Deliver the accept link (MOCK no-op by default; real ZeptoMail/SMTP only behind the gate).
+    // The invite is already recorded + evented, so a real-delivery failure surfaces as a 503 and
+    // the owner re-invites (upsert refreshes the token + re-sends) — the audit event still holds.
+    try {
+      await this.mailer.send({ email: dto.email, acceptUrl: this.buildAcceptUrl(rawToken) });
+    } catch {
+      throw new ServiceUnavailableException("Could not send the invite email; please retry");
+    }
+
     return this.toView(member, invitedBy);
+  }
+
+  /**
+   * ACCEPT an invite (ADR-0027 / B5.4) — ALWAYS live, no provider. The accepting principal is
+   * the authenticated payer (PayerAuthGuard). Resolves the invite by the single-use token HASH
+   * (never the raw token); a missing/expired/consumed token is a no-oracle 404. Binds the accept
+   * to the caller's OWN verified email (defense-in-depth on a leaked link) — an email mismatch is
+   * 403. Activates the member in one guarded write (consumes the token), then emits
+   * payer_member.accepted (PII-free). Returns the masked view of the now-active membership.
+   */
+  async accept(
+    payerId: string,
+    dto: AcceptInviteDto,
+    ctx: RequestContext,
+  ): Promise<OrgMemberView> {
+    const now = new Date();
+    const tokenHash = this.pii.hmac(dto.token);
+
+    const member = await this.orgs.findByInviteTokenHash(tokenHash, now);
+    if (!member) throw new NotFoundException("Invalid or expired invite");
+
+    // The accept must be completed by the SAME identity the invite was addressed to — compare
+    // the caller's verified email hash to the invite's (both keyed HMACs; no plaintext).
+    const payer = await this.payers.findById(payerId);
+    if (!payer || payer.emailHash !== member.emailHash) {
+      throw new ForbiddenException("This invite is for a different account");
+    }
+
+    const accepted = await this.orgs.acceptInvite({
+      memberId: member.id,
+      tokenHash,
+      memberPayerId: payerId,
+      now,
+    });
+    if (!accepted) throw new ConflictException("Invite has already been used or has expired");
+
+    await this.events.emit({
+      event_name: "payer_member.accepted",
+      actor: { actor_type: "payer", actor_id: payerId },
+      subject: { subject_type: "payer", subject_id: accepted.id },
+      payload: { member_id: accepted.id, org_id: accepted.orgId, member_payer_id: payerId },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+
+    return this.toView(accepted, payerId);
+  }
+
+  /**
+   * Build the accept link the invitee follows. When MEMBER_INVITE_ACCEPT_URL is set (required
+   * for real sends), the single-use raw token is appended as a query param; otherwise (mock,
+   * no base configured) a `mock://` link is returned — the mock mailer never transmits it, so
+   * the raw token still never leaves the process.
+   */
+  private buildAcceptUrl(rawToken: string): string {
+    const base = this.config.MEMBER_INVITE_ACCEPT_URL;
+    const q = `token=${encodeURIComponent(rawToken)}`;
+    if (!base) return `mock://invite/accept?${q}`;
+    return `${base}${base.includes("?") ? "&" : "?"}${q}`;
   }
 
   /**

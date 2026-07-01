@@ -1,7 +1,7 @@
 import { Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import type { ServerConfig } from "@badabhai/config";
-import { areRealMessagesEnabled } from "@badabhai/config";
+import { areRealMessagesEnabled, areRealMemberInvitesEnabled } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { PayersModule } from "../payers/payers.module";
@@ -29,8 +29,15 @@ import { PayerReachController } from "./payer-reach.controller";
 import { PayerDisclosureController } from "./payer-disclosure.controller";
 import { PayerJobPostingsController } from "./payer-job-postings.controller";
 import { PayerOrgMembersController } from "./payer-org-members.controller";
+import { PayerOrgInvitesController } from "./payer-org-invites.controller";
 import { PayerAuthService } from "./payer-auth.service";
 import { PayerOrgMembersService } from "./payer-org-members.service";
+import {
+  MEMBER_INVITE_MAILER,
+  MockMemberInviteMailer,
+  RealMemberInviteMailer,
+  type MemberInviteMailer,
+} from "./member-invite.mailer";
 
 /**
  * Payer portal route group (ADR-0019 Phase 1 — closes R16 / LC-1 / TD33).
@@ -82,11 +89,27 @@ import { PayerOrgMembersService } from "./payer-org-members.service";
     PayerDisclosureController,
     PayerJobPostingsController,
     PayerOrgMembersController,
+    PayerOrgInvitesController,
   ],
   providers: [
     PayerAuthService,
     PayerOrgMembersService,
     PayerOtpService,
+    // Org-invite mailer seam (ADR-0027 / B5.4). Mirrors the WhatsApp/login-channel factory:
+    // the MOCK mailer (no send — the raw token/link never leaves the process) is the alpha
+    // default; the REAL ZeptoMail/SMTP mailer is chosen ONLY when areRealMemberInvitesEnabled
+    // (MEMBER_INVITES_ENABLE_REAL + email creds + accept URL — a human gate, staging-first).
+    MockMemberInviteMailer,
+    RealMemberInviteMailer,
+    {
+      provide: MEMBER_INVITE_MAILER,
+      inject: [SERVER_CONFIG, MockMemberInviteMailer, RealMemberInviteMailer],
+      useFactory: (
+        config: ServerConfig,
+        mock: MockMemberInviteMailer,
+        real: RealMemberInviteMailer,
+      ): MemberInviteMailer => (areRealMemberInvitesEnabled(config) ? real : mock),
+    },
     PayerDisclosureRateLimit,
     // The login channel implementations + the WhatsApp provider seam they ride.
     ZeptoMailEmailLoginChannel,
