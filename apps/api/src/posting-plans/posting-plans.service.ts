@@ -15,7 +15,13 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { PricingService } from "../pricing/pricing.service";
 import { PostingPlansRepository } from "./posting-plans.repository";
-import type { BuyPlanDto, BuyBoostDto, BuyCapacityDto } from "./posting-plans.dto";
+import type {
+  BuyPlanDto,
+  BuyBoostDto,
+  BuyCapacityDto,
+  PayerBuyPlanDto,
+  PayerBuyBoostDto,
+} from "./posting-plans.dto";
 
 const MS_PER_DAY = 86_400_000;
 
@@ -189,6 +195,36 @@ export class PostingPlansService {
     await this.emitCouponIfApplied(quote, dto.payer_id, "job_posting", dto.tier, ctx);
 
     return { plan, quote, paused, wouldPause };
+  }
+
+  /**
+   * Payer self-serve buy-a-plan (B3 / LC-1 fix). The `payerId` is the VERIFIED SESSION payer
+   * (never a body value — XB-A), stamped into the internal {@link BuyPlanDto} and then run
+   * through {@link buyPlan} UNCHANGED (same price-resolve → mock pay → capacity chokepoint →
+   * spine events). OWNERSHIP of the posting is asserted by the caller (the payer controller's
+   * no-oracle `getOneForPayer`) BEFORE this runs, so a payer can only buy a plan for their own
+   * posting. This is a thin authz-narrowing wrapper — no new payment/event logic.
+   */
+  buyPlanForPayer(
+    jobPostingId: string,
+    payerId: string,
+    dto: PayerBuyPlanDto,
+    ctx: RequestContext,
+  ): Promise<BuyPlanResult> {
+    return this.buyPlan(jobPostingId, { payer_id: payerId, tier: dto.tier, coupon: dto.coupon }, ctx);
+  }
+
+  /**
+   * Payer self-serve buy-a-boost (B3 / LC-1 fix). Session `payerId` (XB-A) → {@link buyBoost}
+   * unchanged. Ownership asserted by the caller before this runs (see {@link buyPlanForPayer}).
+   */
+  buyBoostForPayer(
+    jobPostingId: string,
+    payerId: string,
+    dto: PayerBuyBoostDto,
+    ctx: RequestContext,
+  ): Promise<{ boost: PostingBoost; quote: Quote }> {
+    return this.buyBoost(jobPostingId, { payer_id: payerId, tier: dto.tier, coupon: dto.coupon }, ctx);
   }
 
   async buyBoost(jobPostingId: string, dto: BuyBoostDto, ctx: RequestContext): Promise<{ boost: PostingBoost; quote: Quote }> {

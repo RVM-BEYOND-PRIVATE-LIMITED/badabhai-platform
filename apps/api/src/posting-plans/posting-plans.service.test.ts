@@ -314,6 +314,46 @@ describe("PostingPlansService.buyBoost", () => {
   });
 });
 
+describe("PostingPlansService payer-authed wrappers (B3/LC-1 — session payer_id stamped)", () => {
+  const SESSION_PAYER = "55555555-5555-4555-8555-555555555555";
+
+  it("buyPlanForPayer stamps the SESSION payer_id onto the plan + the purchased event", async () => {
+    const { service, insertPlan, emit } = make();
+    const { plan, quote } = await service.buyPlanForPayer(
+      POSTING,
+      SESSION_PAYER,
+      { tier: "standard" },
+      CTX,
+    );
+    // The plan row + every emitted event carry the SESSION payer id — never a body value.
+    expect(insertPlan).toHaveBeenCalledWith(
+      expect.objectContaining({ jobPostingId: POSTING, payerId: SESSION_PAYER }),
+      expect.anything(),
+    );
+    const purchased = emit.mock.calls.find((c) => c[0].event_name === "job_posting.purchased")![0];
+    expect(purchased.actor).toEqual({ actor_type: "payer", actor_id: SESSION_PAYER });
+    expect(purchased.payload.payer_id).toBe(SESSION_PAYER);
+    expect(plan.payerId).toBe(SESSION_PAYER);
+    expect(quote.finalInr).toBeGreaterThanOrEqual(0);
+  });
+
+  it("buyBoostForPayer stamps the SESSION payer_id onto the boost", async () => {
+    const { service, insertBoost, emit } = make();
+    const { boost } = await service.buyBoostForPayer(
+      POSTING,
+      SESSION_PAYER,
+      { tier: "all_candidates" },
+      CTX,
+    );
+    expect(insertBoost).toHaveBeenCalledWith(
+      expect.objectContaining({ jobPostingId: POSTING, payerId: SESSION_PAYER }),
+    );
+    const boosted = emit.mock.calls.find((c) => c[0].event_name === "job_posting.boosted")![0];
+    expect(boosted.payload.payer_id).toBe(SESSION_PAYER);
+    expect(boost.payerId).toBe(SESSION_PAYER);
+  });
+});
+
 describe("PostingPlansService.getCapacity (ADR-0016 — payer-portal read, A3 active_plan_count)", () => {
   it("returns active_plan_count from the repository count (3 active → 3)", async () => {
     const { service, countActivePlansForPayer } = make({ capacity: { maxActiveVacancies: 10 }, activeCount: 3 });

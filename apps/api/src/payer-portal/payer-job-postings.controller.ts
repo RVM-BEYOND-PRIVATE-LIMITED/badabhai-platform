@@ -14,6 +14,13 @@ import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers/payer-auth.guard";
 import { JobPostingsService } from "../job-postings/job-postings.service";
+import { PostingPlansService } from "../posting-plans/posting-plans.service";
+import {
+  PayerBuyPlanSchema,
+  PayerBuyBoostSchema,
+  type PayerBuyPlanDto,
+  type PayerBuyBoostDto,
+} from "../posting-plans/posting-plans.dto";
 import {
   PayerCreateJobPostingSchema,
   ListJobPostingsQuerySchema,
@@ -38,14 +45,22 @@ import {
  * ops). A read/edit/close of an unknown OR another payer's posting returns the SAME
  * neutral 404 (no-oracle horizontal authz).
  *
- * Mock payments + staging-only (PAYMENTS_ENABLE_REAL=false): posting is free-through-
- * launch; this surface adds NO payment path. A `bb-security-review` PASS is the
- * pre-merge gate (external untrusted boundary).
+ * Mock payments + staging-only (PAYMENTS_ENABLE_REAL=false): posting itself is free-
+ * through-launch. The paid actions (buy-plan / buy-boost, B3) reuse {@link PostingPlansService}
+ * UNCHANGED (mock pay, real_call honest) — they are the payer-authed, session-scoped
+ * REPLACEMENT for the ops {@link import("../posting-plans/posting-plans.controller").PostingPlansController}
+ * routes, closing LC-1 for the plan/boost money surface (the `payer_id` is the verified
+ * session payer, never a body value — XB-A, so a payer can never buy under another payer's id
+ * nor against another payer's posting). A `bb-security-review` PASS is the pre-merge gate
+ * (external untrusted money boundary).
  */
 @Controller("payer/job-postings")
 @UseGuards(PayerAuthGuard)
 export class PayerJobPostingsController {
-  constructor(private readonly jobPostings: JobPostingsService) {}
+  constructor(
+    private readonly jobPostings: JobPostingsService,
+    private readonly plans: PostingPlansService,
+  ) {}
 
   /** Create a posting OWNED by the caller (status=draft). payer_id from the session. */
   @Post()
@@ -116,5 +131,42 @@ export class PayerJobPostingsController {
     @Ctx() ctx: RequestContext,
   ) {
     return this.jobPostings.resumeForPayer(id, payer.id, ctx);
+  }
+
+  /**
+   * Buy a paid plan for one of the caller's OWN postings (B3 / LC-1 fix; ADR-0013 Decision B).
+   * OWNERSHIP is asserted FIRST via the no-oracle `getOneForPayer` — an unknown OR another
+   * payer's posting returns the SAME neutral 404, so this route can never be turned into an
+   * IDOR oracle nor buy a plan against a foreign posting. The `payer_id` is the SESSION payer
+   * (XB-A) — never a body value. Delegates to {@link PostingPlansService.buyPlanForPayer} (the
+   * mock-pay + capacity chokepoint + spine events, reused unchanged). 201 on purchase.
+   */
+  @Post(":id/plan")
+  @HttpCode(201)
+  async buyPlan(
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Body(new ZodValidationPipe(PayerBuyPlanSchema)) dto: PayerBuyPlanDto,
+    @CurrentPayer() payer: AuthenticatedPayer,
+    @Ctx() ctx: RequestContext,
+  ) {
+    await this.jobPostings.getOneForPayer(id, payer.id); // no-oracle 404 (unknown OR foreign)
+    return this.plans.buyPlanForPayer(id, payer.id, dto, ctx);
+  }
+
+  /**
+   * Buy a booster for one of the caller's OWN postings (B3 / LC-1 fix; ADR-0013 Decision B).
+   * Same ownership-first no-oracle 404 + session `payer_id` (XB-A) as {@link buyPlan}. Delegates
+   * to {@link PostingPlansService.buyBoostForPayer} (reused unchanged; B-R3 no overlapping boost).
+   */
+  @Post(":id/boost")
+  @HttpCode(201)
+  async buyBoost(
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Body(new ZodValidationPipe(PayerBuyBoostSchema)) dto: PayerBuyBoostDto,
+    @CurrentPayer() payer: AuthenticatedPayer,
+    @Ctx() ctx: RequestContext,
+  ) {
+    await this.jobPostings.getOneForPayer(id, payer.id); // no-oracle 404 (unknown OR foreign)
+    return this.plans.buyBoostForPayer(id, payer.id, dto, ctx);
   }
 }

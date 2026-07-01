@@ -34,8 +34,20 @@ function makeCtrl() {
     pauseForPayer: vi.fn(async () => ({ id: POSTING })),
     resumeForPayer: vi.fn(async () => ({ id: POSTING })),
   };
-  const ctrl = new PayerJobPostingsController(jobPostings as never);
-  return { ctrl, jobPostings };
+  const plans = {
+    buyPlanForPayer: vi.fn(
+      async (_id: string, _payerId: string, _dto: unknown, _ctx: unknown) => ({
+        plan: { id: "plan-1" },
+      }),
+    ),
+    buyBoostForPayer: vi.fn(
+      async (_id: string, _payerId: string, _dto: unknown, _ctx: unknown) => ({
+        boost: { id: "boost-1" },
+      }),
+    ),
+  };
+  const ctrl = new PayerJobPostingsController(jobPostings as never, plans as never);
+  return { ctrl, jobPostings, plans };
 }
 
 /**
@@ -89,5 +101,53 @@ describe("PayerJobPostingsController — identity from the session, never the bo
   it("resume forwards the SESSION payer as the ownership key (B1)", async () => {
     await d.ctrl.resume(POSTING, PAYER_B, CTX);
     expect(d.jobPostings.resumeForPayer).toHaveBeenCalledWith(POSTING, PAYER_B.id, CTX);
+  });
+});
+
+/**
+ * B3 / LC-1: the payer-authed money routes (buy-plan / buy-boost). The `payer_id` is the
+ * SESSION payer (never the body), and OWNERSHIP is asserted via `getOneForPayer` BEFORE any
+ * purchase. Proves a payer can only buy against their OWN posting and can never inject another
+ * payer's id — the IDOR guarantee the ops routes lacked.
+ */
+describe("PayerJobPostingsController — buy plan/boost is session-scoped + ownership-gated (B3/LC-1)", () => {
+  let d: ReturnType<typeof makeCtrl>;
+  beforeEach(() => {
+    d = makeCtrl();
+  });
+
+  it("buyPlan checks ownership FIRST, then buys with the SESSION payer id (no body payer_id)", async () => {
+    const dto = { tier: "standard" as const };
+    await d.ctrl.buyPlan(POSTING, dto, PAYER_A, CTX);
+    expect(d.jobPostings.getOneForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id);
+    expect(d.plans.buyPlanForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id, dto, CTX);
+    // The service is only reached AFTER the ownership read resolves.
+    expect(d.jobPostings.getOneForPayer.mock.invocationCallOrder[0]!).toBeLessThan(
+      d.plans.buyPlanForPayer.mock.invocationCallOrder[0]!,
+    );
+    // No payer_id is ever forwarded from the controller (it isn't in the payer DTO).
+    expect(d.plans.buyPlanForPayer.mock.calls[0]![2]).not.toHaveProperty("payer_id");
+  });
+
+  it("buyBoost checks ownership FIRST, then buys with the SESSION payer id", async () => {
+    const dto = { tier: "all_candidates" as const };
+    await d.ctrl.buyBoost(POSTING, dto, PAYER_B, CTX);
+    expect(d.jobPostings.getOneForPayer).toHaveBeenCalledWith(POSTING, PAYER_B.id);
+    expect(d.plans.buyBoostForPayer).toHaveBeenCalledWith(POSTING, PAYER_B.id, dto, CTX);
+    expect(d.plans.buyBoostForPayer.mock.calls[0]![2]).not.toHaveProperty("payer_id");
+  });
+
+  it("buyPlan on an unknown OR foreign posting (404) NEVER reaches the money path", async () => {
+    d.jobPostings.getOneForPayer.mockRejectedValueOnce(new Error("Job posting not found"));
+    await expect(d.ctrl.buyPlan(POSTING, { tier: "pro" }, PAYER_A, CTX)).rejects.toThrow();
+    expect(d.plans.buyPlanForPayer).not.toHaveBeenCalled();
+  });
+
+  it("buyBoost on an unknown OR foreign posting (404) NEVER reaches the money path", async () => {
+    d.jobPostings.getOneForPayer.mockRejectedValueOnce(new Error("Job posting not found"));
+    await expect(
+      d.ctrl.buyBoost(POSTING, { tier: "all_candidates" }, PAYER_A, CTX),
+    ).rejects.toThrow();
+    expect(d.plans.buyBoostForPayer).not.toHaveBeenCalled();
   });
 });
