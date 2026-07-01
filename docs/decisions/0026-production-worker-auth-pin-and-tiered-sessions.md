@@ -560,12 +560,24 @@ is present on every one (chat, profiles, voice, and the ApplicationsController `
 not a worker profiling route — its open posture is a separate matter (candidate for an
 `InternalServiceGuard` hardening like the posting-plans/A2 change), **not** a §6 consent gap.
 
-**Session-minting entry points.** The resume rule is applied to **every** path that mints or
-extends a session, not only token refresh. `POST /auth/pin/verify` (`PinService.verifyPin`) — the
-device-bound PIN unlock, itself a resume path — now runs the SAME revoked-consent check on its
-success branch (AFTER the scrypt verify, so it is not a pre-scrypt oracle), returning the strict
-neutral 401 the PIN surface uses for every negative path (a never-consented worker still
-succeeds). OTP `verifyOtp` mints a **fresh login** (a new session, not a resume) and precedes
-consent in onboarding, so it is intentionally NOT gated here — the profiling routes' per-request
-`ConsentGuard` is the gate for that worker. Together these close the resume surface ahead of the
-Flutter `kPersistentAuth` flip (which may resume via PIN unlock or rolling-token refresh).
+**Session-minting entry points.** The resume rule is applied to the **explicit** resume paths —
+`POST /auth/refresh`, `POST /auth/token/refresh`, and `POST /auth/pin/verify`
+(`PinService.verifyPin`) — the device-bound PIN unlock, itself a resume path — now runs the SAME
+revoked-consent check on its success branch (AFTER the scrypt verify, so it is not a pre-scrypt
+oracle), returning the strict neutral 401 the PIN surface uses for every negative path (a
+never-consented worker still succeeds). OTP `verifyOtp` mints a **fresh login** (a new session, not
+a resume) and precedes consent in onboarding, so it is intentionally NOT gated here — the profiling
+routes' per-request `ConsentGuard` is the gate for that worker.
+
+**Known uncovered path — launch gate (do NOT read the list above as "every" mint/extend path).**
+`WorkerAuthGuard` itself extends a session on **every** `[W]` route: `validateAndTouch` slides the
+idle TTL and, past the token half-life, silently re-mints a fresh full-TTL JWT via the
+`x-session-token` response header — and that slide/re-mint is **NOT** gated on consent. It is **not
+exploitable today**: the only path that stamps `revokedAt` is account deletion, which calls
+`SessionService.revokeAll(workerId)` **first**, so the session record is already gone before the
+slide (`validateAndTouch` returns null → 401). Enforcement therefore rests on the invariant that
+**any future consent-withdrawal path MUST call `revokeAll` atomically with stamping `revokedAt`**.
+**Before a standalone consent-withdrawal endpoint ships — or before the Flutter `kPersistentAuth`
+flip — either gate the `WorkerAuthGuard` slide/re-mint on revoked consent, or land that coupling as
+a tested invariant.** Together with the explicit paths above, this closes the resume surface ahead
+of the flip.
