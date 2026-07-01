@@ -31,6 +31,8 @@ function makeCtrl() {
     getOneForPayer: vi.fn(async () => ({ id: POSTING })),
     updateForPayer: vi.fn(async () => ({ id: POSTING })),
     closeForPayer: vi.fn(async () => ({ id: POSTING })),
+    pauseForPayer: vi.fn(async () => ({ id: POSTING })),
+    resumeForPayer: vi.fn(async () => ({ id: POSTING })),
   };
   const ctrl = new PayerJobPostingsController(jobPostings as never);
   return { ctrl, jobPostings };
@@ -77,5 +79,15 @@ describe("PayerJobPostingsController — identity from the session, never the bo
   it("close forwards the SESSION payer as the ownership key", async () => {
     await d.ctrl.close(POSTING, PAYER_A, CTX);
     expect(d.jobPostings.closeForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id, CTX);
+  });
+
+  it("pause forwards the SESSION payer as the ownership key (B1)", async () => {
+    await d.ctrl.pause(POSTING, PAYER_A, CTX);
+    expect(d.jobPostings.pauseForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id, CTX);
+  });
+
+  it("resume forwards the SESSION payer as the ownership key (B1)", async () => {
+    await d.ctrl.resume(POSTING, PAYER_B, CTX);
+    expect(d.jobPostings.resumeForPayer).toHaveBeenCalledWith(POSTING, PAYER_B.id, CTX);
   });
 });

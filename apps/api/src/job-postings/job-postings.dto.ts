@@ -119,8 +119,8 @@ export const UpdateJobPostingSchema = z
   });
 export type UpdateJobPostingDto = z.infer<typeof UpdateJobPostingSchema>;
 
-/** Optional `?status=` filter for the list endpoint. */
+/** Optional `?status=` filter for the list endpoint (includes `paused` — B1). */
 export const ListJobPostingsQuerySchema = z.object({
-  status: z.enum(["draft", "open", "closed"]).optional(),
+  status: z.enum(["draft", "open", "paused", "closed"]).optional(),
 });
 export type ListJobPostingsQueryDto = z.infer<typeof ListJobPostingsQuerySchema>;

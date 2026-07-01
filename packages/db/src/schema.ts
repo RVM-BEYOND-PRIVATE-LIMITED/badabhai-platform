@@ -678,8 +678,9 @@ export const jobPostings = pgTable(
       "job_postings_vacancy_band_chk",
       sql`${t.vacancyBand} IN ('1', '2-5', '6-10', '11-25', '25+')`,
     ),
-    // Pin the lifecycle to the 3 allowed values (mirrors JOB_POSTING_STATUSES).
-    check("job_postings_status_chk", sql`${t.status} IN ('draft', 'open', 'closed')`),
+    // Pin the lifecycle to the 4 allowed values (mirrors JOB_POSTING_STATUSES). `paused`
+    // (B1) is a reversible open<->paused state, additive to the original draft/open/closed.
+    check("job_postings_status_chk", sql`${t.status} IN ('draft', 'open', 'paused', 'closed')`),
   ],
 );
 

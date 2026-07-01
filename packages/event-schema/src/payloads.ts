@@ -698,6 +698,25 @@ export const JobPostingClosedPayload = z.object({
   status: z.literal("closed"),
 });
 export type JobPostingClosedPayload = z.infer<typeof JobPostingClosedPayload>;
+
+/**
+ * A payer PAUSED a live (open) job posting (B1). Records the transition only — PII-free
+ * (id + enums). A paused posting is excluded from any open-filtered feed until resumed.
+ */
+export const JobPostingPausedPayload = z.object({
+  job_posting_id: uuidSchema,
+  previous_status: z.literal("open"),
+  status: z.literal("paused"),
+});
+export type JobPostingPausedPayload = z.infer<typeof JobPostingPausedPayload>;
+
+/** A payer RESUMED a paused job posting back to open (B1). PII-free (id + enums). */
+export const JobPostingResumedPayload = z.object({
+  job_posting_id: uuidSchema,
+  previous_status: z.literal("paused"),
+  status: z.literal("open"),
+});
+export type JobPostingResumedPayload = z.infer<typeof JobPostingResumedPayload>;
 // unlock.* / contact.* / payment.* — Contact Unlock + Reveal (ADR-0010, Stream A).
 //
 // The single highest-risk PII path in the product — and therefore the family with

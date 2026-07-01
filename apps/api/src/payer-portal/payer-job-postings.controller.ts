@@ -95,4 +95,26 @@ export class PayerJobPostingsController {
   ) {
     return this.jobPostings.closeForPayer(id, payer.id, ctx);
   }
+
+  /** Pause one of the caller's OWN LIVE postings (open -> paused; B1). Reversible. */
+  @Post(":id/pause")
+  @HttpCode(200)
+  pause(
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @CurrentPayer() payer: AuthenticatedPayer,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.jobPostings.pauseForPayer(id, payer.id, ctx);
+  }
+
+  /** Resume one of the caller's OWN paused postings (paused -> open; B1). */
+  @Post(":id/resume")
+  @HttpCode(200)
+  resume(
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @CurrentPayer() payer: AuthenticatedPayer,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.jobPostings.resumeForPayer(id, payer.id, ctx);
+  }
 }
