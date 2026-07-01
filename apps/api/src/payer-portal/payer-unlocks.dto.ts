@@ -25,3 +25,13 @@ export const PayerBuyPackSchema = z.object({
   pack_code: z.string().min(1).max(64),
 });
 export type PayerBuyPackDto = z.infer<typeof PayerBuyPackSchema>;
+
+/**
+ * GET /payer/credits/ledger query — bounded page size for the (session) payer's own ledger.
+ * Mirrors the feed pagination convention (1..50, default 20). No `payer_id` here or anywhere —
+ * the payer is the AUTHENTICATED session payer (XB-A), never a query/body value.
+ */
+export const PayerLedgerQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+export type PayerLedgerQueryDto = z.infer<typeof PayerLedgerQuerySchema>;

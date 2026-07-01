@@ -9,7 +9,12 @@ import { EventsService } from "../events/events.service";
 import { ConsentRepository } from "../consent/consent.repository";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
-import { UnlocksRepository, type Tx, type UnlockProjection } from "./unlocks.repository";
+import {
+  UnlocksRepository,
+  type Tx,
+  type UnlockProjection,
+  type CreditLedgerItem,
+} from "./unlocks.repository";
 import { PaymentGateway } from "./payment-gateway";
 import {
   neutralUnavailable,
@@ -381,6 +386,18 @@ export class UnlockService {
 
   async getCredits(payerId: string): Promise<{ payer_id: string; balance: number }> {
     return { payer_id: payerId, balance: await this.repo.getBalance(payerId) };
+  }
+
+  /**
+   * The payer's OWN credit-ledger history (the append-only movements behind the balance),
+   * newest first, bounded by `limit`. PII-free by table design; scoped to the SESSION payer.
+   * Read-only — no event.
+   */
+  async getCreditLedger(
+    payerId: string,
+    limit: number,
+  ): Promise<{ payer_id: string; ledger: CreditLedgerItem[] }> {
+    return { payer_id: payerId, ledger: await this.repo.listCreditLedgerByPayer(payerId, limit) };
   }
 
   // ===========================================================================

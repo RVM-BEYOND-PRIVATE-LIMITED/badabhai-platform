@@ -7,6 +7,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import { Ctx, type RequestContext } from "../common/request-context";
@@ -19,6 +20,8 @@ import {
   type PayerBuyPackDto,
   PayerRequestUnlockSchema,
   type PayerRequestUnlockDto,
+  PayerLedgerQuerySchema,
+  type PayerLedgerQueryDto,
 } from "./payer-unlocks.dto";
 
 /**
@@ -91,6 +94,20 @@ export class PayerUnlocksController {
   @Get("credits")
   ownCredits(@CurrentPayer() payer: AuthenticatedPayer) {
     return this.unlocks.getCredits(payer.id);
+  }
+
+  /**
+   * The caller's OWN credit ledger — the append-only movement history behind the balance
+   * (amounts + opaque ids only; PII-free by table design). Scoped to the SESSION `payer_id`
+   * (XB-A) — never a body/param value; a payer only ever sees their own rows. Newest first,
+   * bounded page size. Read-only: no event.
+   */
+  @Get("credits/ledger")
+  creditsLedger(
+    @Query(new ZodValidationPipe(PayerLedgerQuerySchema)) query: PayerLedgerQueryDto,
+    @CurrentPayer() payer: AuthenticatedPayer,
+  ) {
+    return this.unlocks.getCreditLedger(payer.id, query.limit);
   }
 
   /**
