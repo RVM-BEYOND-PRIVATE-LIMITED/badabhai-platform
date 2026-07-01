@@ -61,7 +61,7 @@ describe("ApplicationsModule wiring (cross-module guard DI regression guard)", (
   it("worker routes are guarded by [WorkerAuthGuard, ConsentGuard] IN THAT ORDER", () => {
     const ctrl = ApplicationsController.prototype;
     // @UseGuards stores guard classes under '__guards__' on the route handler.
-    for (const handler of ["feed", "apply", "skip"] as const) {
+    for (const handler of ["feed", "apply", "skip", "myApplications"] as const) {
       const guards = getMeta("__guards__", ctrl[handler]);
       expect(guards, `${handler} guards`).toEqual([WorkerAuthGuard, ConsentGuard]);
     }

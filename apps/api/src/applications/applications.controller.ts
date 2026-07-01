@@ -93,6 +93,22 @@ export class ApplicationsController {
     return this.applications.skip(worker.id, jobId, dto, ctx);
   }
 
+  /**
+   * Worker self-service: my applications (the Flutter "Applied" tab). The worker
+   * id comes from `@CurrentWorker` (the bearer token) — never a path/body param —
+   * so there is no IDOR surface. Same coarse, PII-free projection as the ops read
+   * below (no employer, no pay). Read-only: no event.
+   *
+   * Declared BEFORE `workers/:workerId/applications` so the literal `me` matches
+   * here and never reaches that route's `ParseUUIDPipe` (which would 400 on it).
+   * Guard order mirrors the other worker routes: `WorkerAuthGuard` then `ConsentGuard`.
+   */
+  @Get("workers/me/applications")
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  myApplications(@CurrentWorker() worker: AuthenticatedWorker) {
+    return this.applications.applicationsForWorker(worker.id);
+  }
+
   /** Ops: applicants per job. PII-free projection (worker_id only). */
   @Get("jobs/:jobId/applicants")
   @UseGuards(InternalServiceGuard)
