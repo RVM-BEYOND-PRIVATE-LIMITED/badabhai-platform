@@ -1,22 +1,21 @@
 import Link from "next/link";
 import { requireOwner } from "../../../lib/auth/org-roles";
-import { listOrgMembers } from "../../../lib/org-members";
 import { Card } from "../../../components/ds";
-import { TeamManager } from "./team-manager";
 
 export const dynamic = "force-dynamic";
 
 /**
- * OWNER-only TEAM (user management) — org-RBAC scaffold.
+ * OWNER-only TEAM (user management) — COMING SOON (alpha cut).
  *
- * {@link requireOwner} gates the route SERVER-SIDE: a Recruiter gets a NEUTRAL 404 (not a
- * nav-only hide — the nav merely omits the link as an affordance; THIS is the decision). The
- * member directory + the invite/remove actions bind to a clearly-STUBBED data source — there is
- * no org/member API yet (see lib/org-members.ts // STUB). PII-free: opaque ids + coarse labels.
+ * {@link requireOwner} still gates the route SERVER-SIDE (a Recruiter gets a NEUTRAL 404). Team
+ * member management (invite → accept → remove) is BUILT on the org-members API but NOT scoped into
+ * the alpha cut yet, so this renders a clear coming-soon state with NO dead fetch and no
+ * no-op form. Turning it live = land the org-members API + team wiring (ADR-0027 B5.3 / B5.5) —
+ * an OWNER scope decision; the `TeamManager` + `org-members` seam are kept for that swap.
+ * PII-free: nothing here reads or renders a member.
  */
 export default async function TeamPage() {
   await requireOwner();
-  const members = await listOrgMembers();
 
   return (
     <>
@@ -25,18 +24,16 @@ export default async function TeamPage() {
       </p>
       <h1 className="chrome-title">Team</h1>
       <p className="chrome-sub">
-        Invite recruiters to your hiring desk and manage who can post, search, and unlock.
-        Billing &amp; wallet stay with Owners.
+        Invite recruiters to your hiring desk — post, search, and unlock together. Billing &amp;
+        wallet stay with owners.
       </p>
 
       <Card variant="outline" className="team-note">
         <p className="team-note__msg">
-          <strong>Scaffold.</strong> Inviting and removing members activates when the org
-          directory API lands — nothing here charges, emails, or persists anyone yet.
+          <strong>Coming soon.</strong> Team member management is on the way. You&rsquo;ll be able
+          to invite recruiters by email, manage roles, and remove members here.
         </p>
       </Card>
-
-      <TeamManager members={members} />
     </>
   );
 }
