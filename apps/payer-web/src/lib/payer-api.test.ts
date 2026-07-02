@@ -390,6 +390,163 @@ describe("buyCapacity — capacity BUY (A1, LIVE): POSTs ONLY { tier } + Bearer 
 });
 
 /**
+ * LIVE buy PLAN / BOOST (FE-3 / #179): POST /payer/job-postings/:id/plan and .../:id/boost.
+ * NET-NEW seams. Asserts:
+ *  - the posting id rides the PATH; the body carries ONLY { tier } (+ optional coupon) — NEVER a
+ *    payer_id (XB-A) and NEVER a price/amount/quota (XT5);
+ *  - the response is mapped to a typed success (tier/status/paused|endsAt/window); the server-
+ *    priced `quote` is NEVER echoed (XT5);
+ *  - a thrown transport error (a foreign posting 403/404, a boost 409, a pricing miss) collapses
+ *    to ONE NEUTRAL `{ ok:false }` with no leaked reason (no-oracle), never a fake success.
+ */
+function planRow(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: "cccc3333-0000-4000-8000-000000000001",
+    jobPostingId: POSTING_ID,
+    payerId: "11111111-1111-4111-8111-111111111111",
+    tier: "standard",
+    applicantVisibilityQuota: 10,
+    quotaTopupCount: 0,
+    applicantsViewedCount: 0,
+    paidAt: "2026-06-20T00:00:00.000Z",
+    expiresAt: "2026-07-20T00:00:00.000Z",
+    status: "active",
+    createdAt: "2026-06-20T00:00:00.000Z",
+    updatedAt: "2026-06-20T00:00:00.000Z",
+    ...over,
+  };
+}
+
+function boostRow(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: "dddd4444-0000-4000-8000-000000000001",
+    jobPostingId: POSTING_ID,
+    payerId: "11111111-1111-4111-8111-111111111111",
+    tier: "all_candidates",
+    boostStartsAt: "2026-06-20T00:00:00.000Z",
+    boostEndsAt: "2026-06-22T00:00:00.000Z",
+    status: "active",
+    createdAt: "2026-06-20T00:00:00.000Z",
+    updatedAt: "2026-06-20T00:00:00.000Z",
+    ...over,
+  };
+}
+
+describe("buyPlan — LIVE: PATH id, { tier } body (no payer_id/amount), typed success", () => {
+  it("POSTs :id/plan with ONLY { tier } + Bearer and maps tier/status/paused/window (no quote echo)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        { plan: planRow({ tier: "pro", status: "active" }), quote: { finalInr: 2500, currency: "INR" }, paused: false, wouldPause: false },
+        201,
+      ),
+    );
+    const { buyPlan } = await import("./payer-api");
+    const res = await buyPlan({ postingId: POSTING_ID, tier: "pro" });
+
+    expect(res).toEqual({
+      ok: true,
+      tier: "pro",
+      status: "active",
+      paused: false,
+      expiresAt: "2026-07-20T00:00:00.000Z",
+    });
+    // The server-priced quote never surfaces (XT5).
+    expect(JSON.stringify(res)).not.toMatch(/quote|finalInr|2500|inr/i);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://api.test/payer/job-postings/${POSTING_ID}/plan`);
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
+
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    // XB-A: the id is on the PATH; the body carries ONLY the tier code — never a payer_id.
+    expect(Object.keys(body)).toEqual(["tier"]);
+    expect(body.tier).toBe("pro");
+    expect(body).not.toHaveProperty("payer_id");
+    expect(body).not.toHaveProperty("postingId");
+    // XT5: the client NEVER sends a price/amount/quota.
+    expect(JSON.stringify(body)).not.toMatch(/payer_id|price|amount|quota|₹|\binr\b/i);
+  });
+
+  it("surfaces paused=true when the plan was written paused (over the capacity allowance)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ plan: planRow({ status: "paused" }), quote: {}, paused: true, wouldPause: true }, 201),
+    );
+    const { buyPlan } = await import("./payer-api");
+    const res = await buyPlan({ postingId: POSTING_ID, tier: "standard" });
+    expect(res).toMatchObject({ ok: true, paused: true, status: "paused" });
+  });
+
+  it("includes an optional coupon in the body when provided (still no payer_id)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ plan: planRow(), quote: {}, paused: false, wouldPause: false }, 201),
+    );
+    const { buyPlan } = await import("./payer-api");
+    await buyPlan({ postingId: POSTING_ID, tier: "standard", coupon: "SAVE10" });
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string) as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(["coupon", "tier"]);
+    expect(body).not.toHaveProperty("payer_id");
+  });
+
+  it("returns a NEUTRAL { ok:false } on a thrown error (foreign 403/404) — no leaked reason", async () => {
+    fetchMock.mockRejectedValue(new Error("http://api.test/payer/job-postings/x/plan returned 403"));
+    const { buyPlan } = await import("./payer-api");
+    const res = await buyPlan({ postingId: POSTING_ID, tier: "standard" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).not.toMatch(/payer_id|forbidden|employer|agent|consent|phone|email|403|404/i);
+    }
+  });
+});
+
+describe("buyBoost — LIVE: PATH id, { tier } body (no payer_id/amount), typed success", () => {
+  it("POSTs :id/boost with ONLY { tier } + Bearer and maps tier/status/window (no quote echo)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ boost: boostRow(), quote: { finalInr: 1200 } }, 201),
+    );
+    const { buyBoost } = await import("./payer-api");
+    const res = await buyBoost({ postingId: POSTING_ID, tier: "all_candidates" });
+
+    expect(res).toEqual({
+      ok: true,
+      tier: "all_candidates",
+      status: "active",
+      endsAt: "2026-06-22T00:00:00.000Z",
+    });
+    expect(JSON.stringify(res)).not.toMatch(/quote|finalInr|1200/i);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://api.test/payer/job-postings/${POSTING_ID}/boost`);
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(Object.keys(body)).toEqual(["tier"]);
+    expect(body.tier).toBe("all_candidates");
+    expect(body).not.toHaveProperty("payer_id");
+    expect(JSON.stringify(body)).not.toMatch(/payer_id|price|amount|quota/i);
+  });
+
+  it("returns a NEUTRAL { ok:false } on a 409 overlapping-boost error — no leaked reason", async () => {
+    fetchMock.mockRejectedValue(
+      new Error("http://api.test/payer/job-postings/x/boost returned 409"),
+    );
+    const { buyBoost } = await import("./payer-api");
+    const res = await buyBoost({ postingId: POSTING_ID, tier: "all_candidates" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).not.toMatch(/payer_id|forbidden|409|already|overlap/i);
+    }
+  });
+
+  it("a phone-bearing boost row fails to parse (no raw PII can surface)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ boost: { id: "x", phone: "+919876543210" }, quote: {} }, 201));
+    const { buyBoost } = await import("./payer-api");
+    // The seam catches the parse error and returns the neutral failure (never throws to the UI).
+    const res = await buyBoost({ postingId: POSTING_ID, tier: "all_candidates" });
+    expect(res.ok).toBe(false);
+  });
+});
+
+/**
  * WAITING-mock seam: the posting PAUSE / RESUME / quota-top-up lifecycle. These bind to the
  * SERVER-HELD session payer (the mocked `requirePayer` above → PAYER_A) and never accept a
  * client payer id. They serve from the in-memory mock store, so they do NOT hit fetch.

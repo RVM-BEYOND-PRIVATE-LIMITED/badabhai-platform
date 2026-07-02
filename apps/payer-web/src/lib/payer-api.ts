@@ -6,8 +6,10 @@ import {
   agencyJobWireSchema,
   agencyReferralsSummaryWireSchema,
   applicantFeedSchema,
+  buyBoostResultWireSchema,
   buyCapacityWireSchema,
   buyPackResultWireSchema,
+  buyPlanResultWireSchema,
   capacitySchema,
   creditsWireSchema,
   jobPostingListWireSchema,
@@ -365,6 +367,106 @@ export async function buyCapacity({ tier }: { tier: string }): Promise<BuyCapaci
   } catch {
     // Neutral failure — no leaked deny reason / role state (no-oracle); never a fake success.
     return { ok: false, error: "Capacity upgrade failed (service unavailable). Please retry." };
+  }
+}
+
+/** The seam result of a posting PLAN buy — a typed success or a NEUTRAL failure (mirrors BuyCapacityResult). */
+export type BuyPlanResult =
+  | {
+      ok: true;
+      /** The tier bought (standard|pro). */
+      tier: "standard" | "pro";
+      /** The plan lifecycle status after purchase (`paused` when over the ADR-0016 capacity cap). */
+      status: "draft" | "active" | "expired" | "paused";
+      /** true when the plan was written `paused` (bought over the capacity allowance). */
+      paused: boolean;
+      /** When the plan's validity window ends (ISO), or null. */
+      expiresAt: string | null;
+    }
+  | { ok: false; error: string };
+
+/**
+ * POST /payer/job-postings/:id/plan — buy a paid plan for one of the caller's OWN postings
+ * (B3 / #179, LIVE). NET-NEW seam. The body carries ONLY `{ tier, coupon? }`: NEVER a payer_id
+ * (XB-A — the session token is the identity; the posting `:id` rides the PATH) and NEVER a
+ * price/amount/quota (XT5 — the server prices it via the pricing engine).
+ *
+ * Mapped onto a typed {@link BuyPlanResult}: only tier/status/paused/window are surfaced — the
+ * server-priced `quote` is parsed permissively and NEVER echoed (XT5). A foreign/unknown posting
+ * returns the SAME neutral 403/404 as the no-oracle ownership check → a NEUTRAL `{ ok:false }`
+ * (no leaked reason). Money is MOCK (real_call:false; there is NO Razorpay). FACELESS: the payload
+ * is opaque ids/codes/timestamps only — no worker PII exists on it by construction.
+ */
+export async function buyPlan(input: {
+  postingId: string;
+  tier: "standard" | "pro";
+  coupon?: string;
+}): Promise<BuyPlanResult> {
+  const body: Record<string, unknown> = { tier: input.tier }; // XB-A: tier CODE only — no payer_id.
+  if (input.coupon) body.coupon = input.coupon; // XT5: server prices it; the client sends no amount.
+  try {
+    const wire = await payerFetch(`/payer/job-postings/${input.postingId}/plan`, {
+      method: "POST",
+      body,
+      schema: buyPlanResultWireSchema,
+    });
+    return {
+      ok: true,
+      tier: wire.plan.tier,
+      status: wire.plan.status,
+      paused: wire.paused,
+      expiresAt: wire.plan.expiresAt,
+    };
+  } catch {
+    // Neutral failure — a foreign/unknown posting (403/404), a pricing miss, or a transient error
+    // all collapse to ONE neutral message (no-oracle / no leaked reason); never a fake success.
+    return { ok: false, error: "Plan purchase failed (service unavailable). Please retry." };
+  }
+}
+
+/** The seam result of a posting BOOST buy — a typed success or a NEUTRAL failure. */
+export type BuyBoostResult =
+  | {
+      ok: true;
+      /** The booster tier bought (all_candidates). */
+      tier: "all_candidates";
+      status: "active" | "expired";
+      /** When the boost broadcast ends (ISO), or null. */
+      endsAt: string | null;
+    }
+  | { ok: false; error: string };
+
+/**
+ * POST /payer/job-postings/:id/boost — buy a booster for one of the caller's OWN postings
+ * (B3 / #179, LIVE). NET-NEW seam. Same XB-A / XT5 discipline as {@link buyPlan}: body ONLY
+ * `{ tier, coupon? }` (no payer_id; `:id` on the PATH; no price/amount). Mapped onto a typed
+ * {@link BuyBoostResult} (tier/status/window; the `quote` is NEVER echoed, XT5). A foreign/unknown
+ * posting (403/404) OR a second overlapping active boost (409, B-R3) collapses to ONE NEUTRAL
+ * `{ ok:false }` (no-oracle). Money is MOCK. FACELESS by construction (opaque ids/codes/timestamps).
+ */
+export async function buyBoost(input: {
+  postingId: string;
+  tier: "all_candidates";
+  coupon?: string;
+}): Promise<BuyBoostResult> {
+  const body: Record<string, unknown> = { tier: input.tier }; // XB-A: tier CODE only — no payer_id.
+  if (input.coupon) body.coupon = input.coupon; // XT5: server prices it; the client sends no amount.
+  try {
+    const wire = await payerFetch(`/payer/job-postings/${input.postingId}/boost`, {
+      method: "POST",
+      body,
+      schema: buyBoostResultWireSchema,
+    });
+    return {
+      ok: true,
+      tier: wire.boost.tier,
+      status: wire.boost.status,
+      endsAt: wire.boost.boostEndsAt,
+    };
+  } catch {
+    // Neutral failure — foreign posting (403/404), an existing active boost (409), or a transient
+    // error all collapse to ONE neutral message (no-oracle); never a fake success.
+    return { ok: false, error: "Boost purchase failed (service unavailable). Please retry." };
   }
 }
 

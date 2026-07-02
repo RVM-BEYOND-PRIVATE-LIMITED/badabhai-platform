@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   bandForVacancies,
+  boostTiers,
   creditValidityMonths,
   findCreditPack,
   lowBalanceThreshold,
   offeredCreditPacks,
   postingPaidTiers,
+  postingPlanTiers,
   unlockUnitPriceInr,
 } from "./pricing-config";
 
@@ -46,6 +48,23 @@ describe("pricing-config (config-sourced, no hardcoded prices)", () => {
       // The catalog cannot model ₹0 — every tier is a positive integer.
       expect(t.priceInr).toBeGreaterThan(0);
     }
+  });
+
+  it("exposes the config'd PLAN tiers (standard/pro) ascending by price, with quota + validity", () => {
+    const tiers = postingPlanTiers();
+    expect(tiers.map((t) => t.code)).toEqual(["standard", "pro"]); // ascending by price
+    for (const t of tiers) {
+      expect(t.priceInr).toBeGreaterThan(0);
+      expect(t.applicantVisibilityQuota).toBeGreaterThan(0);
+      expect(t.validityDays).toBeGreaterThan(0);
+    }
+  });
+
+  it("exposes the config'd BOOST tier (all_candidates) with a positive price + boostDays", () => {
+    const tiers = boostTiers();
+    expect(tiers.map((t) => t.code)).toEqual(["all_candidates"]);
+    expect(tiers[0]!.priceInr).toBeGreaterThan(0);
+    expect(tiers[0]!.boostDays).toBeGreaterThan(0);
   });
 });
 

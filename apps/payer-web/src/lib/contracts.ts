@@ -456,6 +456,80 @@ export const buyCapacityWireSchema = z.object({
 });
 
 /**
+ * The `PostingPlan` Drizzle row (`$inferSelect`) as the payer-authed buy-plan route returns it
+ * (POST /payer/job-postings/:id/plan) — camelCase keys; `Date` columns (`paidAt`/`expiresAt`/
+ * `createdAt`/`updatedAt`) serialize to ISO strings → `z.string()`. Mirrors {@link
+ * import("../../api/src/posting-plans/posting-plans.service").BuyPlanResult}`.plan`.
+ *
+ * PII NOTE (invariant #2): the row carries the payer's OWN `payerId` (their own id) + counts +
+ * codes + timestamps ONLY — there is NO worker PII on it by construction (the applicant reach
+ * feed is a separate faceless surface). None of these fields is surfaced to the UI: the seam maps
+ * onto a typed {@link BuyPlanResult} with only the tier/status/window kept.
+ */
+export const postingPlanWireSchema = z.object({
+  id: z.string().uuid(),
+  jobPostingId: z.string().uuid(),
+  payerId: z.string().uuid(),
+  tier: z.enum(["standard", "pro"]),
+  applicantVisibilityQuota: z.number().int().nonnegative(),
+  quotaTopupCount: z.number().int().nonnegative(),
+  applicantsViewedCount: z.number().int().nonnegative(),
+  paidAt: z.string().nullable(),
+  expiresAt: z.string().nullable(),
+  status: z.enum(["draft", "active", "expired", "paused"]),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+/**
+ * POST /payer/job-postings/:id/plan — buy a paid plan for the caller's OWN posting (B3 / #179,
+ * @HttpCode(201)). The body carries ONLY `{ tier, coupon? }` (XB-A: no payer_id — the session
+ * token is the identity; the `:id` rides the PATH; XT5: the server prices it). The response
+ * mirrors {@link import("../../api/src/posting-plans/posting-plans.service").buyPlanForPayer}:
+ * `{ plan, quote, paused, wouldPause }`. `quote` is the server-priced receipt — parsed
+ * permissively and NEVER surfaced (XT5). `paused` reflects the ADR-0016 capacity chokepoint (a
+ * plan bought over the allowance may be written `paused` under enforcement). Money is MOCK.
+ */
+export const buyPlanResultWireSchema = z.object({
+  plan: postingPlanWireSchema,
+  /** Server-priced receipt. NOT surfaced to the UI (XT5) — parsed permissively, never echoed. */
+  quote: z.unknown(),
+  paused: z.boolean(),
+  wouldPause: z.boolean(),
+});
+
+/**
+ * The `PostingBoost` Drizzle row (`$inferSelect`) as POST /payer/job-postings/:id/boost returns
+ * it — camelCase keys; `Date` columns serialize to ISO strings → `z.string()`. Mirrors {@link
+ * import("../../api/src/posting-plans/posting-plans.service").buyBoostForPayer}`.boost`. PII-free
+ * (opaque ids + a tier code + a status + timestamps). None surfaced to the UI.
+ */
+export const postingBoostWireSchema = z.object({
+  id: z.string().uuid(),
+  jobPostingId: z.string().uuid(),
+  payerId: z.string().uuid(),
+  tier: z.enum(["all_candidates"]),
+  boostStartsAt: z.string().nullable(),
+  boostEndsAt: z.string().nullable(),
+  status: z.enum(["active", "expired"]),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+/**
+ * POST /payer/job-postings/:id/boost — buy a booster for the caller's OWN posting (B3 / #179,
+ * @HttpCode(201)). Body ONLY `{ tier, coupon? }` (XB-A: no payer_id; `:id` on the PATH; XT5:
+ * server-priced). Response mirrors {@link
+ * import("../../api/src/posting-plans/posting-plans.service").buyBoostForPayer}: `{ boost, quote }`.
+ * `quote` NEVER surfaced (XT5). Money is MOCK. A second overlapping boost is a backend 409.
+ */
+export const buyBoostResultWireSchema = z.object({
+  boost: postingBoostWireSchema,
+  /** Server-priced receipt. NOT surfaced to the UI (XT5) — parsed permissively, never echoed. */
+  quote: z.unknown(),
+});
+
+/**
  * GET /payer/reach/jobs/:jobId/applicants — faceless ranked rows (no PII).
  *
  * The backend reach projection (ApplicantRowDto) now also returns coarse, PII-free

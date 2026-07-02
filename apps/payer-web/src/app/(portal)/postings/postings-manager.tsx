@@ -77,6 +77,11 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
               <span>
                 Posted <span className="bb-mono">{day(p.createdAt)}</span>
               </span>
+              <span aria-hidden="true">·</span>
+              {/* Posting detail = the plan/boost BUY surface (FE-3 / #179). */}
+              <Link className="postings-link" href={`/postings/${p.id}`}>
+                Plans &amp; boost →
+              </Link>
             </div>
           </div>
 

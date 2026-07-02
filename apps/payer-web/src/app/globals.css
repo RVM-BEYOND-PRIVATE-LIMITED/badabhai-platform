@@ -1263,6 +1263,7 @@ textarea.input {
 .credits-packs,
 .capacity-stats,
 .capacity-tiers,
+.posting-buy__tiers,
 .agency-stats,
 .agency-funnel,
 .agency-parked {
@@ -2431,6 +2432,105 @@ textarea.input {
   color: var(--text-muted);
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
+}
+
+/* ------------------------------------------------------------------
+ * POSTING DETAIL + BUY (FE-3 / #179) — the company posting-detail page + the plan/boost
+ * buy panel, MIRRORING the capacity buy surface. Tokens only (no raw hex/px); ₹ prices +
+ * counts render in the shared .bb-mono tabular class.
+ * ------------------------------------------------------------------ */
+.posting-detail__back,
+.posting-detail__links {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-2);
+}
+.posting-detail__links {
+  font-weight: var(--weight-semibold);
+}
+.posting-detail__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.posting-detail__state {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+.posting-detail__state-msg {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.posting-buy {
+  margin-top: var(--section-gap);
+}
+.posting-buy__heading,
+.posting-buy__title {
+  font-family: var(--font-display);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-2);
+}
+.posting-buy__heading {
+  font-size: var(--text-xl);
+}
+.posting-buy__title {
+  font-size: var(--text-lg);
+}
+.posting-buy__coupon {
+  margin: var(--space-4) 0;
+  max-width: 22rem;
+}
+.posting-buy__section {
+  margin-top: var(--section-gap);
+}
+.posting-buy__tier {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.posting-buy__tier-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.posting-buy__tier-name {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+.posting-buy__tier-price {
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+}
+.posting-buy__tier-meta {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  margin: 0 0 var(--space-2);
+}
+.posting-buy__empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.posting-buy__nudge {
+  margin-top: var(--space-4);
+}
+.posting-buy__result {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.posting-buy__result:empty {
+  display: none;
 }
 
 /* ------------------------------------------------------------------

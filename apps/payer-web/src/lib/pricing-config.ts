@@ -69,6 +69,46 @@ export function postingPaidTiers(): { code: string; priceInr: number; validityDa
   }));
 }
 
+/**
+ * The config'd PLAN tiers a payer can buy for a posting (B3 — standard/pro), ascending by
+ * price + the applicant-visibility quota each grants. Read from the catalog `job_posting`
+ * product; the buy sends only the CODE and the backend prices + grants server-side (XT5).
+ */
+export function postingPlanTiers(): {
+  code: string;
+  priceInr: number;
+  validityDays: number;
+  applicantVisibilityQuota: number;
+}[] {
+  const product = DEFAULT_CATALOG.products.find(
+    (p) => p.kind === "posting" && p.code === "job_posting",
+  );
+  if (!product || product.kind !== "posting") return [];
+  return product.tiers
+    .map((t) => ({
+      code: t.code,
+      priceInr: t.priceInr,
+      validityDays: t.validityDays,
+      applicantVisibilityQuota: t.applicantVisibilityQuota,
+    }))
+    .sort((a, b) => a.priceInr - b.priceInr);
+}
+
+/**
+ * The config'd BOOST tiers a payer can buy for a posting (B3 — all_candidates), ascending by
+ * price. Read from the catalog `job_boost` product; the buy sends only the CODE and the backend
+ * prices + grants server-side (XT5). Empty if the catalog carries no boost product.
+ */
+export function boostTiers(): { code: string; priceInr: number; boostDays: number }[] {
+  const product = DEFAULT_CATALOG.products.find(
+    (p) => p.kind === "boost" && p.code === "job_boost",
+  );
+  if (!product || product.kind !== "boost") return [];
+  return product.tiers
+    .map((t) => ({ code: t.code, priceInr: t.priceInr, boostDays: t.boostDays }))
+    .sort((a, b) => a.priceInr - b.priceInr);
+}
+
 /* ── Applicant-quota config (job management + capacity) ──────────────────────────
  *
  * Applicant quota per posting is "view more → pay more" (catalog posting tiers'
