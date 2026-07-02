@@ -32,27 +32,21 @@ describe("unlock-view (no-oracle, XB-C)", () => {
     expect(Object.keys(v).sort()).toEqual(["kind", "message"]);
   });
 
-  it("maps a disclosed masked resume to the masked view (initials, no phone)", () => {
+  it("maps a disclosed masked resume to the masked view (masked link only, no name/phone)", () => {
     const r: MaskedResumeResult = {
       ok: true,
       disclosureId: "22222222-2222-4222-8222-222222222222",
       status: "disclosed",
-      displayInitials: "R***** K.",
       resumeUrl: "https://staging.example/masked.pdf",
       expiresAt: "2026-07-01T00:00:00.000Z",
     };
     const v = mapRevealResult(r);
     expect(v.kind).toBe("masked");
     if (v.kind === "masked") {
-      expect(v.displayInitials).toBe("R***** K.");
-      // The view shape has no phone/name field at all.
-      expect(Object.keys(v).sort()).toEqual([
-        "disclosureId",
-        "displayInitials",
-        "expiresAt",
-        "kind",
-        "resumeUrl",
-      ]);
+      expect(v.resumeUrl).toBe("https://staging.example/masked.pdf");
+      // The view shape has NO name/initials/phone field at all — only the masked link + expiry.
+      expect(Object.keys(v).sort()).toEqual(["disclosureId", "expiresAt", "kind", "resumeUrl"]);
+      expect(JSON.stringify(v)).not.toMatch(/displayInitials|name|phone|employer/i);
     }
   });
 

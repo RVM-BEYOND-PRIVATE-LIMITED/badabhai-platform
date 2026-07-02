@@ -65,18 +65,21 @@ export async function revealContactAction(input: {
 }
 
 /**
- * WAITING (mock shim): the MASKED resume. No payer-authed disclosure endpoint exists
- * (resume-disclosures is InternalServiceGuard) — this is a clearly-flagged mock.
+ * LIVE: request the MASKED resume for a candidate the caller is entitled to (POST
+ * /payer/resume-disclosures, PayerAuthGuard). The client supplies only the opaque workerId
+ * + the postingId; the payer is the SERVER-HELD session (XB-A). A neutral "unavailable"
+ * (every deny cause collapses to it) maps to the ONE neutral view; a no-session 401
+ * (PayerUnauthorized thrown by the seam) surfaces as the retryable error state, not a crash.
  */
 export type RevealActionResult =
   | { ok: true; view: RevealView }
   | { ok: false; error: string };
 
 export async function maskedResumeAction(input: {
-  unlockId: string;
   workerId: string;
+  jobPostingId: string;
 }): Promise<RevealActionResult> {
-  if (!uuid.safeParse(input.unlockId).success || !uuid.safeParse(input.workerId).success) {
+  if (!uuid.safeParse(input.workerId).success || !uuid.safeParse(input.jobPostingId).success) {
     return { ok: false, error: "Invalid request." };
   }
   try {

@@ -390,6 +390,85 @@ describe("buyCapacity — capacity BUY (A1, LIVE): POSTs ONLY { tier } + Bearer 
 });
 
 /**
+ * LIVE masked-resume disclosure seam (POST /payer/resume-disclosures, PayerAuthGuard). Asserts:
+ *  - TENANCY (XB-A): the outbound body carries ONLY worker_id + job_posting_id — NEVER a payer_id
+ *    (the payer is the Bearer session); the request carries the Bearer token.
+ *  - no-oracle (B-C): the byte-identical neutral body maps to the ONE `{ status: 'unavailable' }`.
+ *  - NO RAW PII (invariant #2): a success returns the masked resume_url + expiry and NO
+ *    name/phone/employer field; a phone/name-bearing wire body fails to parse.
+ *  - a no-session throw (PayerUnauthorized) propagates (the caller surfaces the error state).
+ */
+describe("revealMaskedResume — LIVE: POSTs worker_id + job_posting_id ONLY, no payer_id", () => {
+  const WORKER = "55555555-5555-4555-8555-555555555555";
+  const POSTING = "44444444-4444-4444-8444-444444444444";
+  const DISCLOSURE = "66666666-6666-4666-8666-666666666666";
+
+  it("POSTs ONLY { worker_id, job_posting_id } + Bearer, and maps the granted disclosure", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        disclosure_id: DISCLOSURE,
+        status: "disclosed",
+        resume_url: "https://staging.badabhai.example/masked/abc.pdf",
+        expires_at: "2026-07-15T00:00:00.000Z",
+      }),
+    );
+    const { revealMaskedResume } = await import("./payer-api");
+    const res = await revealMaskedResume({ workerId: WORKER, jobPostingId: POSTING });
+
+    expect(res).toEqual({
+      ok: true,
+      disclosureId: DISCLOSURE,
+      status: "disclosed",
+      resumeUrl: "https://staging.badabhai.example/masked/abc.pdf",
+      expiresAt: "2026-07-15T00:00:00.000Z",
+    });
+    // NO raw PII on the mapped result — no name/phone/employer field, no +country-code phone.
+    // (Opaque uuids contain digit runs, so the phone check targets the actual leak shape: a
+    // +-prefixed E.164 number.)
+    expect(JSON.stringify(res)).not.toMatch(/name|phone|employer|email|address|displayInitials/i);
+    expect(JSON.stringify(res)).not.toMatch(/\+\d{7,}/);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/payer/resume-disclosures");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
+
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    // The ONLY keys are worker_id + job_posting_id — there is NO payer_id (XB-A).
+    expect(Object.keys(body).sort()).toEqual(["job_posting_id", "worker_id"]);
+    expect(body.worker_id).toBe(WORKER);
+    expect(body.job_posting_id).toBe(POSTING);
+    expect(body).not.toHaveProperty("payer_id");
+    expect(body).not.toHaveProperty("unlock_id");
+    expect(JSON.stringify(body)).not.toMatch(/payer_id/);
+  });
+
+  it("collapses the neutral disclosure body to the single unavailable result (no-oracle)", async () => {
+    // HTTP 200 for the neutral body too — the status is NOT an oracle (B-C).
+    fetchMock.mockResolvedValue(jsonResponse({ status: "unavailable" }, 200));
+    const { revealMaskedResume } = await import("./payer-api");
+    const res = await revealMaskedResume({ workerId: WORKER, jobPostingId: POSTING });
+    expect(res).toEqual({ status: "unavailable" });
+  });
+
+  it("a phone/name-bearing wire body fails to parse (raw PII can never surface)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ ok: true, disclosure_id: DISCLOSURE, status: "disclosed", phone: "+919876543210" }),
+    );
+    const { revealMaskedResume } = await import("./payer-api");
+    await expect(revealMaskedResume({ workerId: WORKER, jobPostingId: POSTING })).rejects.toThrow();
+  });
+
+  it("propagates a no-session / transport throw (the caller renders the error state, no crash)", async () => {
+    fetchMock.mockRejectedValue(new Error("http://api.test/payer/resume-disclosures returned 401"));
+    const { revealMaskedResume } = await import("./payer-api");
+    await expect(revealMaskedResume({ workerId: WORKER, jobPostingId: POSTING })).rejects.toThrow();
+    // The seam does NOT silently fall back to a mock store — a real backend error surfaces.
+  });
+});
+
+/**
  * WAITING-mock seam: the posting PAUSE / RESUME / quota-top-up lifecycle. These bind to the
  * SERVER-HELD session payer (the mocked `requirePayer` above → PAYER_A) and never accept a
  * client payer id. They serve from the in-memory mock store, so they do NOT hit fetch.

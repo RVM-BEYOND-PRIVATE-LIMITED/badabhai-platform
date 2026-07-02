@@ -235,20 +235,24 @@ export const revealNeutralSchema = z.object({ status: z.literal("unavailable") }
 export const revealResultSchema = z.union([revealRoutedSchema, revealNeutralSchema]);
 export type RevealResult = z.infer<typeof revealResultSchema>;
 
-/* ── Masked resume reveal (WAITING — no payer-authed endpoint; resume-disclosure
- *    is InternalServiceGuard, ESCALATE). Kept for the clearly-seamed shim. ───────── */
+/* ── Masked resume reveal (LIVE — POST /payer/resume-disclosures, PayerAuthGuard) ────
+ *
+ * The payer-authed masked-resume disclosure surface (ADR-0013 Decision C / ADR-0019
+ * XB-A). The seam POSTs `{ worker_id, job_posting_id }` (the payer is the SESSION token
+ * — never a body value) and the backend returns HTTP 200 in ALL cases with either the ONE
+ * distinguishable success or the byte-identical neutral body (no-oracle, B-C). ────────── */
 
 /**
- * The masked employer-facing resume (resume-disclosure addendum B-G / XB-E):
- * masked initials like "R***** K.", NO phone, no raw name. `resumeUrl` is a
- * short-TTL signed URL to the masked PDF — never logged client-side.
+ * The masked employer-facing resume (resume-disclosure addendum B-G / XB-E): a masked,
+ * short-TTL signed URL to the masked PDF, NO phone, no raw name. `resumeUrl` is the
+ * masked-resume link — never logged client-side. There is deliberately NO name/initials
+ * field: the LIVE `DisclosureGrantedResponse` carries only ids + the masked link, so a
+ * raw name can never surface (the masking happens server-side inside the rendered PDF).
  */
 export const maskedResumeSchema = z.object({
   ok: z.literal(true),
   disclosureId: z.string().uuid(),
   status: z.literal("disclosed"),
-  /** Masked initials only — e.g. "R***** K." NEVER a full name. */
-  displayInitials: z.string(),
   /** Short-TTL signed URL to the MASKED PDF. No phone anywhere in the artifact. */
   resumeUrl: z.string().url(),
   expiresAt: z.string(),
@@ -515,6 +519,57 @@ export const jobPostingWireSchema = z.object({
 });
 export type JobPostingWire = z.infer<typeof jobPostingWireSchema>;
 export const jobPostingListWireSchema = z.array(jobPostingWireSchema);
+
+/**
+ * POST /payer/resume-disclosures — the MASKED-resume disclosure result (LIVE, PayerAuthGuard).
+ * Mirrors the backend `ResumeDisclosureService` outcome EXACTLY:
+ *   - the ONE distinguishable success {@link import("../../api/src/disclosures/resume-disclosure.service").DisclosureGrantedResponse}:
+ *     `{ ok, disclosure_id, status:'disclosed', resume_url, expires_at }` — a masked-resume
+ *     link + expiry, PII-free (the real name is read once server-side at render only, never
+ *     returned), and
+ *   - the byte-identical NEUTRAL body `{ status: 'unavailable' }` for EVERY deny branch
+ *     (no_consent / capped / unknown / no-resume / render-unavailable — no-oracle, B-C).
+ *
+ * HTTP is a constant 200 in ALL cases — the status is NOT an oracle. `resume_url` is a
+ * masked-resume link; there is NO phone/full-name/employer field on this shape, so a raw
+ * phone/name is a COMPILE error, not a review miss.
+ */
+export const disclosureGrantedWireSchema = z.object({
+  ok: z.literal(true),
+  disclosure_id: z.string().uuid(),
+  status: z.literal("disclosed"),
+  resume_url: z.string().url(),
+  expires_at: z.string(),
+});
+export const disclosureResultWireSchema = z.union([disclosureGrantedWireSchema, neutralWireSchema]);
+
+/**
+ * POST /payer/resume-disclosures REQUEST body (LIVE). Mirrors the backend
+ * `PayerRequestDisclosureSchema` (apps/api/src/payer-portal/payer-disclosure.dto.ts) EXACTLY:
+ * `worker_id` (uuid) + `job_posting_id` (uuid | null). There is NO `payer_id` — the payer is
+ * the verified SESSION token (XB-A horizontal authz); the body carries ONLY the two opaque refs.
+ * Pinned here so the seam's outbound body is a one-line, contract-checked mapping.
+ */
+export const payerDisclosureRequestWireSchema = z.object({
+  worker_id: z.string().uuid(),
+  job_posting_id: z.string().uuid().nullable(),
+});
+export type PayerDisclosureRequestWire = z.infer<typeof payerDisclosureRequestWireSchema>;
+
+/**
+ * PARITY ASSERTION (invariant #7 / Zod⇄backend-DTO): the FRONTEND disclosure-request keys MUST
+ * equal the BACKEND `PayerRequestDisclosureSchema` keys — no smuggled `payer_id`, no drift. This
+ * is a compile-time `keyof` cross-check (the sibling of the posting-body key set pinned in
+ * posting-seam.test.ts): if either side grows/renames a key without the other, this fails to
+ * compile. The backend DTO shape is inlined as a type (the payer-web app never imports @badabhai/api).
+ */
+type BackendPayerDisclosureRequest = { worker_id: string; job_posting_id: string | null };
+type _AssertDisclosureReqParity = [
+  PayerDisclosureRequestWire extends BackendPayerDisclosureRequest ? true : never,
+  BackendPayerDisclosureRequest extends PayerDisclosureRequestWire ? true : never,
+];
+// Referenced so the assertion is not an "unused type" lint casualty (structural, zero runtime).
+export type DisclosureRequestParityOk = _AssertDisclosureReqParity;
 
 /* ── Agency Supply Portal — DEMAND on the faceless `jobs` entity (ADR-0022) ──────
  *

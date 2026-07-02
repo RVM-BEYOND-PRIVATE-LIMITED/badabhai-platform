@@ -10,6 +10,7 @@ import {
   buyPackResultWireSchema,
   capacitySchema,
   creditsWireSchema,
+  disclosureResultWireSchema,
   jobPostingListWireSchema,
   jobPostingWireSchema,
   maskedResumeResultSchema,
@@ -685,36 +686,45 @@ export async function closePosting(postingId: string): Promise<PostingSummary | 
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * WAITING — clearly-seamed MOCK shims. NO payer-authed endpoint exists yet.
- * ESCALATE to backend (see REPORT). Tenancy still server-held (XB-A). These are the
- * masked-resume disclosure + the posting PAUSE/RESUME/quota-top-up lifecycle — kept
- * MOCK on purpose. (createPosting / getPostings / getPosting / updatePosting /
- * closePosting + topUp + getCapacity are now LIVE above.)
+ * LIVE — MASKED resume disclosure (payer-authed POST /payer/resume-disclosures,
+ * PayerAuthGuard). The reveal above returns the routed CONTACT handle; this is the
+ * separate masked-RESUME surface, now on its own payer-authed route (mock shim REMOVED).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
- * WAITING (mock): MASKED resume disclosure. The backend `resume-disclosures` route is
- * InternalServiceGuard (NO payer-authed disclosure endpoint), so this stays a mock
- * shim. The LIVE reveal above already returns the routed CONTACT handle; the masked
- * RESUME is a separate surface. ESCALATE: payer-authed POST /payer/resume-disclosures.
+ * POST /payer/resume-disclosures — request the identity-MASKED resume for one worker the
+ * caller is entitled to (LIVE, PayerAuthGuard). The body carries ONLY `{ worker_id,
+ * job_posting_id }` — the payer is the SESSION token (XB-A: there is nowhere to put a
+ * payer_id). Mirrors the backend `PayerRequestDisclosureSchema`.
  *
- * The masked initials are MOCK-derived from the opaque worker id (no real name is read
- * anywhere in this app). No phone, no full name in the artifact.
+ * Response (HTTP 200 in ALL cases — the status is NOT an oracle, B-C): either the ONE
+ * distinguishable success `{ ok, disclosure_id, status:'disclosed', resume_url, expires_at }`
+ * (a masked-resume link + expiry) OR the byte-identical NEUTRAL body → mapped to the single
+ * neutral `{ status: 'unavailable' }`. EVERY deny cause (no_consent / capped / unknown /
+ * no-resume / render-unavailable) collapses to that one neutral result. The success carries
+ * NO name/phone/employer — the real name is read once server-side at render only and NEVER
+ * returned (F-5 / B-G); `resume_url` is a masked-resume link.
  */
 export async function revealMaskedResume(input: {
-  unlockId: string;
   workerId: string;
+  jobPostingId: string;
 }): Promise<MaskedResumeResult> {
-  await requirePayer();
-  const initials = mockMaskedInitials(input.workerId);
-  return maskedResumeResultSchema.parse({
-    ok: true,
-    disclosureId: input.unlockId,
-    status: "disclosed",
-    displayInitials: initials,
-    resumeUrl: `https://staging.badabhai.example/masked-resume/${input.unlockId}.pdf`,
-    expiresAt: new Date(Date.now() + 14 * 86400_000).toISOString(),
+  const wire = await payerFetch("/payer/resume-disclosures", {
+    method: "POST",
+    // XB-A: worker + posting refs ONLY — no payer_id (the session token is the identity).
+    body: { worker_id: input.workerId, job_posting_id: input.jobPostingId },
+    schema: disclosureResultWireSchema,
   });
+  if ("ok" in wire && wire.ok) {
+    return maskedResumeResultSchema.parse({
+      ok: true,
+      disclosureId: wire.disclosure_id,
+      status: "disclosed",
+      resumeUrl: wire.resume_url,
+      expiresAt: wire.expires_at,
+    });
+  }
+  return maskedResumeResultSchema.parse({ status: "unavailable" });
 }
 
 /**
@@ -760,16 +770,4 @@ export async function topUpPostingQuota(input: {
   const { payerId } = await requirePayer();
   const updated = store.topUpPostingQuota(payerId, input.postingId);
   return updated ? postingSummarySchema.parse(updated) : null;
-}
-
-/**
- * Deterministic PII-FREE mock masked initials from an opaque id ("R***** K.") — never
- * a real name (there is none in this app). Used only by the WAITING masked-resume shim.
- */
-function mockMaskedInitials(workerId: string): string {
-  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  const hex = workerId.replace(/-/g, "");
-  const first = letters[parseInt(hex.slice(0, 2), 16) % 26]!;
-  const last = letters[parseInt(hex.slice(2, 4), 16) % 26]!;
-  return `${first}***** ${last}.`;
 }

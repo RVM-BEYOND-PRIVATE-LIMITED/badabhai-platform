@@ -44,20 +44,19 @@ export function RoutedContactCard({ view }: { view: Extract<ContactView, { kind:
 }
 
 /**
- * WAITING (mock) masked-resume preview (XB-E): masked initials + a link + NO phone.
+ * LIVE masked-resume disclosure (XB-E): a masked-resume PDF link + expiry + NO phone.
  * There is no field here that could show a raw name or phone — the artifact carries
- * neither. Flagged as a preview until a payer-authed disclosure endpoint lands.
+ * neither; identity is masked server-side inside the rendered PDF (the real name is read
+ * once at render only, never returned to the browser).
  */
 export function MaskedResumeCard({ view }: { view: Extract<RevealView, { kind: "masked" }> }) {
   return (
     <Card variant="flat" padding="sm" className="reveal-card">
       <p className="reveal-card__lead">
-        <strong>Masked resume (preview).</strong> Identity is masked —{" "}
+        <strong>Masked resume.</strong> Identity is masked —{" "}
         <strong>no phone, no full name</strong> is shown.
       </p>
       <dl className="reveal-card__dl">
-        <dt>Candidate</dt>
-        <dd className="bb-mono">{view.displayInitials}</dd>
         <dt>Resume</dt>
         <dd>
           <a href={view.resumeUrl} target="_blank" rel="noopener noreferrer">

@@ -183,9 +183,13 @@ export function ApplicantActions({
     else patch(workerId, { contactBusy: false, contactError: res.error });
   }
 
-  async function onMaskedResume(unlockId: string, workerId: string) {
+  // MASKED resume (LIVE, POST /payer/resume-disclosures): the disclosure is keyed on the
+  // OPAQUE workerId + this posting (jobPostingId = postingId) — the payer is the server-held
+  // session (XB-A). It is gated behind a granted unlock in the UI, but the disclosure request
+  // itself never carries the unlock id (the backend keys on payer+worker+posting).
+  async function onMaskedResume(workerId: string) {
     patch(workerId, { resumeBusy: true, resumeError: null });
-    const res = await maskedResumeAction({ unlockId, workerId });
+    const res = await maskedResumeAction({ workerId, jobPostingId: postingId });
     if (res.ok) patch(workerId, { resumeBusy: false, resume: res.view });
     else patch(workerId, { resumeBusy: false, resumeError: res.error });
   }
@@ -405,7 +409,7 @@ export function ApplicantActions({
                             disabled={row.resumeBusy}
                             loading={row.resumeBusy}
                             aria-busy={row.resumeBusy}
-                            onClick={() => onMaskedResume(granted.unlockId, a.workerId)}
+                            onClick={() => onMaskedResume(a.workerId)}
                           >
                             {row.resumeBusy
                               ? "Loading…"

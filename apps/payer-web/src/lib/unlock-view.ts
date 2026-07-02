@@ -16,7 +16,7 @@ export const NEUTRAL_UNLOCK_MESSAGE =
 export const NEUTRAL_CONTACT_MESSAGE =
   "Unavailable — a routed contact can't be opened for this candidate right now. The reason is intentionally not disclosed (no consent, expired, capped all look identical).";
 
-/** The single neutral masked-reveal message (WAITING masked-resume shim). */
+/** The single neutral masked-reveal message — identical for EVERY deny cause (XB-C). */
 export const NEUTRAL_REVEAL_MESSAGE =
   "Unavailable — this candidate's masked resume can't be shown right now. The reason is intentionally not disclosed.";
 
@@ -56,9 +56,7 @@ export type RevealView =
   | {
       kind: "masked";
       disclosureId: string;
-      /** Masked initials only — e.g. "R***** K." NEVER a full name (XB-E). */
-      displayInitials: string;
-      /** Short-TTL signed URL to the MASKED PDF. No phone in the artifact. */
+      /** Short-TTL signed URL to the MASKED PDF. No phone/full name in the artifact (XB-E). */
       resumeUrl: string;
       expiresAt: string;
     }
@@ -72,13 +70,12 @@ export function mapUnlockResult(result: UnlockResult): UnlockView {
   return { kind: "unavailable", message: NEUTRAL_UNLOCK_MESSAGE };
 }
 
-/** Disclosed → masked view (initials + masked PDF link, NO phone); else neutral. */
+/** Disclosed → masked view (masked PDF link only, NO name/phone); else the ONE neutral. */
 export function mapRevealResult(result: MaskedResumeResult): RevealView {
   if ("ok" in result && result.ok === true) {
     return {
       kind: "masked",
       disclosureId: result.disclosureId,
-      displayInitials: result.displayInitials,
       resumeUrl: result.resumeUrl,
       expiresAt: result.expiresAt,
     };
