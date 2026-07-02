@@ -6,7 +6,8 @@ import {
   unlockUnitPriceInr,
 } from "../../../lib/pricing-config";
 import { addMonthsIso } from "../../../lib/credit-history";
-import type { CreditLedgerItem, CreditTopUp, Dashboard, UnlockHistoryItem } from "../../../lib/contracts";
+import type { CreditLedgerItem, Dashboard, UnlockHistoryItem } from "../../../lib/contracts";
+import type * as PayerApiModule from "../../../lib/payer-api";
 
 /**
  * CREDITS PAGE render tests — assert the page actually surfaces the nudge / history / expiry
@@ -22,14 +23,18 @@ import type { CreditLedgerItem, CreditTopUp, Dashboard, UnlockHistoryItem } from
  */
 
 const getDashboard = vi.fn();
-const getCreditTopUps = vi.fn();
 const getCreditLedger = vi.fn();
-vi.mock("../../../lib/payer-api", () => ({
-  getDashboard: () => getDashboard(),
-  getCreditTopUps: () => getCreditTopUps(),
-  getCreditLedger: () => getCreditLedger(),
-  topUp: vi.fn(), // transitively imported by ./credits-panel → ./actions; never called here.
-}));
+vi.mock("../../../lib/payer-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof PayerApiModule>();
+  return {
+    getDashboard: () => getDashboard(),
+    getCreditLedger: () => getCreditLedger(),
+    // The page derives the top-up subset from the ALREADY-FETCHED ledger via this REAL pure
+    // helper (no second /credits/ledger round-trip) — keep it un-mocked so the derivation is tested.
+    creditTopUpsFromLedger: actual.creditTopUpsFromLedger,
+    topUp: vi.fn(), // transitively imported by ./credits-panel → ./actions; never called here.
+  };
+});
 // Billing/wallet is an OWNER-only surface (org-RBAC). The page calls requireOwner() FIRST; mock
 // it through a referenced spy so the render tests ADMIT (default) and a dedicated test can make
 // it 404. The deep gate logic itself is tested in lib/auth/org-roles.test.ts.
@@ -41,15 +46,6 @@ const { default: CreditsPage } = await import("./page");
 const PAYER = "11111111-1111-4111-8111-111111111111";
 const WORKER = "99999999-9999-4999-8999-999999999999"; // must NOT appear in any rendered row
 const UNLOCK = "22222222-2222-4222-8222-222222222222";
-
-const topUp = (over: Partial<CreditTopUp> = {}): CreditTopUp => ({
-  topUpId: "33333333-3333-4333-8333-333333333333",
-  packCode: "pack_50",
-  credits: 50,
-  priceInr: 2000,
-  createdAt: "2026-01-10T08:00:00.000Z",
-  ...over,
-});
 
 /** A LIVE credit-ledger purchase movement (positive delta; a config pack code + ₹). */
 const purchaseRow = (over: Partial<CreditLedgerItem> = {}): CreditLedgerItem => ({
@@ -79,11 +75,10 @@ function dashboard(balance: number, unlocks: UnlockHistoryItem[] = []): Dashboar
 function setData(opts: {
   balance: number;
   unlocks?: UnlockHistoryItem[];
-  topUps?: CreditTopUp[];
   ledger?: CreditLedgerItem[];
 }) {
   getDashboard.mockResolvedValue(dashboard(opts.balance, opts.unlocks ?? []));
-  getCreditTopUps.mockResolvedValue(opts.topUps ?? []);
+  // The AUTHORITATIVE source is the LIVE ledger; the top-up subset is derived from it in-page.
   getCreditLedger.mockResolvedValue(opts.ledger ?? []);
 }
 
@@ -112,7 +107,6 @@ function collect(node: ReactNode, acc: Collected = { text: [], panelPacks: undef
 async function render(opts: {
   balance: number;
   unlocks?: UnlockHistoryItem[];
-  topUps?: CreditTopUp[];
   ledger?: CreditLedgerItem[];
 }) {
   setData(opts);
@@ -123,7 +117,6 @@ async function render(opts: {
 
 beforeEach(() => {
   getDashboard.mockReset();
-  getCreditTopUps.mockReset();
   getCreditLedger.mockReset();
   // Default: ADMIT an Owner so the render tests below exercise the page body.
   requireOwner.mockReset().mockResolvedValue({
@@ -187,7 +180,8 @@ describe("credits page — (b) history renders from the LIVE credit ledger (#177
 describe("credits page — (c) expiry shows purchase + 12 months", () => {
   it("renders the purchase date and the +12-month expiry date", async () => {
     const purchased = "2026-01-10T08:00:00.000Z";
-    const { joined } = await render({ balance: 50, topUps: [topUp({ createdAt: purchased })] });
+    // Expiry derives from the LIVE ledger's pack_purchase rows (via the in-page pure derivation).
+    const { joined } = await render({ balance: 50, ledger: [purchaseRow({ createdAt: purchased })] });
     expect(joined).toMatch(/Credit expiry/);
     expect(joined).toContain("2026-01-10"); // purchased
     // +12 months via the same pure helper the page uses → 2027-01-10.
@@ -202,7 +196,6 @@ describe("credits page — (d) zero PII in any row (ids/amounts only)", () => {
       balance: 50,
       // The live ledger's unlock_debit carries the opaque unlock id — NEVER a worker id.
       ledger: [purchaseRow(), debitRow()],
-      topUps: [topUp()],
     });
     // History rows reference the opaque UNLOCK id, never the worker id.
     expect(joined).not.toContain(WORKER);

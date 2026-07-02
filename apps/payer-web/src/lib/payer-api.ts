@@ -298,7 +298,17 @@ export async function getCreditLedger(): Promise<CreditLedgerItem[]> {
  * 0` (display fallback) — the credits/₹ still come from the authoritative live ledger row.
  */
 export async function getCreditTopUps(): Promise<CreditTopUp[]> {
-  const ledger = await getCreditLedger();
+  return creditTopUpsFromLedger(await getCreditLedger());
+}
+
+/**
+ * PURE: the `pack_purchase` top-ups from an ALREADY-FETCHED ledger (same newest-first order),
+ * mapped onto {@link CreditTopUp}. Lets a caller that already holds the ledger (e.g. the credits
+ * page) derive the top-up subset without a second `/payer/credits/ledger` round-trip. A purchase
+ * with an unresolvable config price contributes `priceInr: 0` (display fallback); the credits/₹
+ * still come from the authoritative live ledger row.
+ */
+export function creditTopUpsFromLedger(ledger: CreditLedgerItem[]): CreditTopUp[] {
   return ledger
     .filter((r) => r.reason === "pack_purchase")
     .map((r) =>

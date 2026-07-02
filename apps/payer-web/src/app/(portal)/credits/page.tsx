@@ -1,4 +1,4 @@
-import { getCreditLedger, getCreditTopUps, getDashboard } from "../../../lib/payer-api";
+import { getCreditLedger, creditTopUpsFromLedger, getDashboard } from "../../../lib/payer-api";
 import { requireOwner } from "../../../lib/auth/org-roles";
 import {
   creditValidityMonths,
@@ -55,7 +55,9 @@ export default async function CreditsPage() {
   let ledger: CreditLedgerItem[] = [];
   let topUps: CreditTopUp[] = [];
   try {
-    [ledger, topUps] = await Promise.all([getCreditLedger(), getCreditTopUps()]);
+    // ONE ledger round-trip; the top-up subset is derived purely (no second /credits/ledger call).
+    ledger = await getCreditLedger();
+    topUps = creditTopUpsFromLedger(ledger);
   } catch {
     ledger = [];
     topUps = [];
