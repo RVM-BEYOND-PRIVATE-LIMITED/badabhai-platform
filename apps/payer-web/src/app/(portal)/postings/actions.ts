@@ -5,13 +5,15 @@ import { pausePosting, resumePosting, topUpPostingQuota } from "../../../lib/pay
 import type { PostingSummary } from "../../../lib/contracts";
 
 /**
- * Job-management Server Actions (ADR-0019 Phase 1 — WAITING mock).
+ * Job-management Server Actions (ADR-0019 Phase 1).
  *
  * Every action binds to the SERVER-HELD session payer (XB-A) inside the data seam —
  * the client supplies ONLY the posting id, never a payer id. A posting that isn't the
- * caller's returns the SAME neutral not-found (no cross-tenant existence oracle). The
- * underlying job-postings controller is InternalServiceGuard, so these are mock shims
- * until a payer-authed lifecycle endpoint lands (see payer-api.ts ESCALATE notes).
+ * caller's returns the SAME neutral not-found (no cross-tenant existence oracle).
+ *
+ * pause / resume are LIVE (feature #178): they hit the payer-authed
+ * `POST /payer/job-postings/:id/pause|resume`. The applicant-quota top-up stays a mock
+ * shim (its top-up rides the paid posting-plan surface, not wired here — see payer-api.ts).
  */
 
 export type PostingActionResult =

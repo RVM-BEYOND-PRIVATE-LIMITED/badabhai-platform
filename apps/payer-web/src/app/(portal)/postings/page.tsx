@@ -10,15 +10,16 @@ import { PostingsManager } from "./postings-manager";
 export const dynamic = "force-dynamic";
 
 /**
- * Manage job postings (ADR-0019 Phase 1) — DS2.2 re-skin onto the BadaBhai Design System
- * (VISUAL layer only). Lists the payer's OWN postings (XB-A: the seam binds to the
- * server-held session id) via the LIVE `GET /payer/job-postings` read. `postings/new`
- * owns CREATE; each row links to its own faceless applicant feed.
+ * Manage job postings (ADR-0019 Phase 1) — DS2.2 re-skin onto the BadaBhai Design System.
+ * Lists the payer's OWN postings (XB-A: the seam binds to the server-held session id) via
+ * the LIVE `GET /payer/job-postings` read. `postings/new` owns CREATE; each row links to
+ * its own faceless applicant feed.
  *
- * The PAUSE / RESUME + applicant-quota TOP-UP lifecycle stays GATED: there is no
- * payer-authed company lifecycle/quota endpoint yet (the job-postings controller is
- * InternalServiceGuard — see payer-api.ts ESCALATE notes), so the manager renders those
- * actions as disabled "coming soon" DS Buttons rather than wiring a fake live route.
+ * PAUSE / RESUME are LIVE (feature #178): the manager wires the pause/resume Buttons to the
+ * payer-authed `POST /payer/job-postings/:id/pause|resume` (via the Server Actions), and a
+ * paused posting renders a paused Badge + a Resume affordance. Only the applicant-quota
+ * TOP-UP stays GATED (its top-up rides the paid posting-plan surface, not this faceless row)
+ * — the manager renders it as a disabled "coming soon" DS Button.
  *
  * The quota top-up STEP copy is config-derived (catalog posting-quota tier) — this page
  * never hardcodes a quota number.

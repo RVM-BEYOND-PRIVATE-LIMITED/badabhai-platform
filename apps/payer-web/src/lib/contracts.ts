@@ -487,8 +487,10 @@ export const reachApplicantListWireSchema = z.object({
  * the `JobPosting` Drizzle row the payer-authed {@link
  * import("../../api/src/payer-portal/payer-job-postings.controller").PayerJobPostingsController}
  * returns (camelCase keys; `Date` columns serialize to ISO strings → `z.string()`). Status is
- * `draft|open|closed` (the backend lifecycle — NO `paused`; the {@link postingSummarySchema}
- * superset adds `paused` only for the WAITING-mock pause shim).
+ * `draft|open|paused|closed` — the FULL backend lifecycle (feature #178 added the reversible
+ * `open<->paused` state; the DB `job_postings_status_chk` pins the same four values). This is
+ * a superset-compatible extension of the prior `draft|open|closed` set (additive, never a
+ * breaking narrowing) and matches {@link postingSummarySchema.status}.
  *
  * PII NOTE (invariant #2 / B-R2): this WIRE shape carries the payer's OWN identity fields
  * (`payerId`/`createdBy` — the session payer's own id) plus the payer's OWN `orgLabel` +
@@ -508,13 +510,30 @@ export const jobPostingWireSchema = z.object({
   // The BACKEND vacancy band-set ('1'/'2-5'/'6-10'/'11-25'/'25+') — distinct from the FRONTEND
   // {@link VACANCY_BANDS}; `postingSummarySchema.vacancyBand` is a plain string so it passes through.
   vacancyBand: z.string(),
-  status: z.enum(["draft", "open", "closed"]),
+  // The FULL backend lifecycle (feature #178: pause/resume adds the reversible `paused`
+  // state). Mirrors the DB `job_postings_status_chk` IN ('draft','open','paused','closed').
+  status: z.enum(["draft", "open", "paused", "closed"]),
   createdAt: z.string(),
   updatedAt: z.string(),
   closedAt: z.string().nullable(),
 });
 export type JobPostingWire = z.infer<typeof jobPostingWireSchema>;
 export const jobPostingListWireSchema = z.array(jobPostingWireSchema);
+
+/**
+ * PARITY ASSERTION (invariant #7 / Zod⇄backend-DTO): the FRONTEND job-posting `status` set MUST
+ * equal the DB `job_postings_status_chk` set the backend controller returns — a compile-time
+ * cross-check so a lifecycle-state drift (e.g. the backend adds a state, or this list narrows)
+ * fails to compile. The DB check set is inlined as a type (the payer-web app never imports the
+ * backend/db package). Both `postingSummarySchema` and `jobPostingWireSchema` reuse this set.
+ */
+type BackendJobPostingStatus = "draft" | "open" | "paused" | "closed";
+type _AssertPostingStatusParity = [
+  JobPostingWire["status"] extends BackendJobPostingStatus ? true : never,
+  BackendJobPostingStatus extends JobPostingWire["status"] ? true : never,
+];
+// Referenced so the assertion is not an "unused type" lint casualty (structural, zero runtime).
+export type PostingStatusParityOk = _AssertPostingStatusParity;
 
 /* ── Agency Supply Portal — DEMAND on the faceless `jobs` entity (ADR-0022) ──────
  *

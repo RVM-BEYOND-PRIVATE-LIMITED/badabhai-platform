@@ -685,11 +685,12 @@ export async function closePosting(postingId: string): Promise<PostingSummary | 
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * WAITING — clearly-seamed MOCK shims. NO payer-authed endpoint exists yet.
- * ESCALATE to backend (see REPORT). Tenancy still server-held (XB-A). These are the
- * masked-resume disclosure + the posting PAUSE/RESUME/quota-top-up lifecycle — kept
- * MOCK on purpose. (createPosting / getPostings / getPosting / updatePosting /
- * closePosting + topUp + getCapacity are now LIVE above.)
+ * LIVE — EMPLOYER posting PAUSE / RESUME (payer-authed POST /payer/job-postings/:id/pause|
+ * resume, PayerAuthGuard, feature #178). The reversible open<->paused lifecycle now has a
+ * payer-authed route (the sibling of :id/close), so these moved off the mock store. Tenancy
+ * is the SESSION (XB-A): the :id rides the PATH; the body is empty; the JWT carries the payer.
+ * Unknown-or-not-owned → the backend's IDENTICAL neutral 404 → `null` (no-oracle) — a
+ * cross-tenant id can never be distinguished from an unknown one, so nothing leaks.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
@@ -718,41 +719,57 @@ export async function revealMaskedResume(input: {
 }
 
 /**
- * WAITING (mock): PAUSE one of the payer's OWN postings (open → paused). The LIVE
- * `PATCH /payer/job-postings/:id` only PUBLISHES (draft → open) and the backend lifecycle
- * has NO `paused` state, so there is no live route for this — kept on the mock store.
- * Tenancy (XB-A): the payerId is the SERVER-HELD session, never client input. A posting
- * that isn't the caller's returns null ⇒ a NEUTRAL not-found.
- *
- * // LIVE-SWAP BLOCKED: no payer-authed company pause/resume/quota route yet (ask Divyanshu)
+ * POST /payer/job-postings/:id/pause — PAUSE one of the caller's OWN LIVE postings (open →
+ * paused; feature #178, reversible). The session is the identity (XB-A); the :id rides the
+ * PATH and the body is empty (NO payer_id). Returns the updated posting (`status:"paused"`),
+ * mapped to the faceless {@link PostingSummary} (org_label/description dropped). An unknown OR
+ * not-owned id returns the SAME neutral 404 (no-oracle) → `null` ⇒ a neutral not-found (no
+ * cross-tenant leak). A 409 (posting not open) is NOT a not-found — it propagates for the caller
+ * to neutralize as a retryable error.
  */
 export async function pausePosting(input: { postingId: string }): Promise<PostingSummary | null> {
-  const { payerId } = await requirePayer();
-  const updated = store.pausePosting(payerId, input.postingId);
-  return updated ? postingSummarySchema.parse(updated) : null;
+  try {
+    const wire = await payerFetch(`/payer/job-postings/${input.postingId}/pause`, {
+      method: "POST",
+      body: {},
+      schema: jobPostingWireSchema,
+    });
+    return toPostingSummary(wire);
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
 }
 
 /**
- * WAITING (mock): RESUME one of the payer's OWN postings (paused → open). Same missing
- * route as pause (no `paused` state on the backend lifecycle). Tenancy server-held (XB-A);
- * not-owned → null.
- *
- * // LIVE-SWAP BLOCKED: no payer-authed company pause/resume/quota route yet (ask Divyanshu)
+ * POST /payer/job-postings/:id/resume — RESUME one of the caller's OWN paused postings (paused
+ * → open; feature #178). Session identity (XB-A), :id on the PATH, empty body. Returns the
+ * updated posting (`status:"open"`), mapped to the faceless {@link PostingSummary}. Unknown/
+ * not-owned → neutral 404 → `null`; a 409 (posting not paused) propagates as a retryable error.
  */
 export async function resumePosting(input: { postingId: string }): Promise<PostingSummary | null> {
-  const { payerId } = await requirePayer();
-  const updated = store.resumePosting(payerId, input.postingId);
-  return updated ? postingSummarySchema.parse(updated) : null;
+  try {
+    const wire = await payerFetch(`/payer/job-postings/${input.postingId}/resume`, {
+      method: "POST",
+      body: {},
+      schema: jobPostingWireSchema,
+    });
+    return toPostingSummary(wire);
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
 }
 
 /**
  * WAITING (mock): TOP-UP a posting's applicant quota by ONE CONFIG'd step (catalog
- * posting-quota tier; never a client/hardcoded amount — "view more → pay more"). There is
- * no payer-authed quota endpoint (applicant quota is a payer-portal concept the backend
- * job_postings row does not model yet). Tenancy server-held (XB-A); the step is resolved
- * by code from config (XT5-style server-side amount), not a client value.
+ * posting-quota tier; never a client/hardcoded amount — "view more → pay more"). The backend
+ * `:id/quota-topup` route operates on a POSTING PLAN (a paid, config-priced money surface), not
+ * the faceless job_postings row this seam models, so wiring it is out of scope here — it stays a
+ * mock shim. Tenancy server-held (XB-A); the step is resolved by code from config (XT5-style
+ * server-side amount), not a client value. (pause/resume are now LIVE above.)
  *
- * // LIVE-SWAP BLOCKED: no payer-authed company pause/resume/quota route yet (ask Divyanshu)
+ * // LIVE-SWAP BLOCKED: applicant-quota top-up rides the paid posting-plan surface, not wired here
  */
 export async function topUpPostingQuota(input: {
   postingId: string;

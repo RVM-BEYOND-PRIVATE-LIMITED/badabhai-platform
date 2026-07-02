@@ -390,42 +390,98 @@ describe("buyCapacity — capacity BUY (A1, LIVE): POSTs ONLY { tier } + Bearer 
 });
 
 /**
- * WAITING-mock seam: the posting PAUSE / RESUME / quota-top-up lifecycle. These bind to the
- * SERVER-HELD session payer (the mocked `requirePayer` above → PAYER_A) and never accept a
- * client payer id. They serve from the in-memory mock store, so they do NOT hit fetch.
- * (createPosting / getPostings / get-one / edit / close are now LIVE — covered below.)
+ * LIVE EMPLOYER posting PAUSE / RESUME (`/payer/job-postings/:id/pause|resume`, feature #178).
+ * Asserts the swap off the mock store:
+ *  - TENANCY (XB-A): the :id rides the PATH; the body is EMPTY (never a payer_id); the request
+ *    carries the Bearer token — the payer is the session, never a client value.
+ *  - the response is the UPDATED posting (paused → `status:"paused"`; resume → `status:"open"`),
+ *    mapped to the faceless PostingSummary (org_label/description/owner ids DROPPED — PII #2).
+ *  - no-oracle: a 403/404 (cross-tenant OR unknown) maps to a neutral `null` not-found — never
+ *    a cross-tenant existence leak.
  */
-describe("job-management seam — server-held payer, config-driven (WAITING mock)", () => {
+describe("pausePosting / resumePosting — LIVE: :id/pause|resume, empty body, no payer_id", () => {
+  it("pausePosting POSTs :id/pause with an EMPTY body + Bearer and maps the paused row", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(jobPostingRow({ status: "paused" })));
+    const { pausePosting } = await import("./payer-api");
+    const res = await pausePosting({ postingId: POSTING_ID });
+    expect(res?.status).toBe("paused");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://api.test/payer/job-postings/${POSTING_ID}/pause`);
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(Object.keys(body)).toEqual([]); // empty body — the session is the identity (XB-A)
+    expect(body).not.toHaveProperty("payer_id");
+
+    // Faceless mapping: the payer's OWN org label / free-text description never reach the UI.
+    expect(res).not.toHaveProperty("orgLabel");
+    expect(res).not.toHaveProperty("description");
+    expect(res).not.toHaveProperty("payerId");
+    expect(res).not.toHaveProperty("createdBy");
+    expect(JSON.stringify(res)).not.toContain("Acme Manufacturing");
+  });
+
+  it("resumePosting POSTs :id/resume with an EMPTY body + Bearer and maps the open row", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(jobPostingRow({ status: "open" })));
+    const { resumePosting } = await import("./payer-api");
+    const res = await resumePosting({ postingId: POSTING_ID });
+    expect(res?.status).toBe("open");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://api.test/payer/job-postings/${POSTING_ID}/resume`);
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(Object.keys(body)).toEqual([]);
+    expect(body).not.toHaveProperty("payer_id");
+  });
+
+  it("maps an unknown-or-not-owned 404 to a neutral null (no cross-tenant oracle)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ message: "Job posting not found" }, 404));
+    const { pausePosting, resumePosting } = await import("./payer-api");
+    expect(await pausePosting({ postingId: POSTING_ID })).toBeNull();
+    expect(await resumePosting({ postingId: POSTING_ID })).toBeNull();
+  });
+
+  it("propagates a 409 bad-state-transition throw (the caller neutralizes it, not a not-found)", async () => {
+    // A 409 (posting not open/paused) is NOT a 404 — it must propagate so the caller renders a
+    // retryable error rather than silently claiming the posting is gone.
+    fetchMock.mockRejectedValue(
+      new Error(`http://api.test/payer/job-postings/${POSTING_ID}/pause returned 409`),
+    );
+    const { pausePosting } = await import("./payer-api");
+    await expect(pausePosting({ postingId: POSTING_ID })).rejects.toThrow();
+  });
+});
+
+/**
+ * WAITING-mock seam: the applicant-quota top-up only. It binds to the SERVER-HELD session payer
+ * (the mocked `requirePayer` above → PAYER_A) and never accepts a client payer id. It serves from
+ * the in-memory mock store, so it does NOT hit fetch. (pause/resume are now LIVE — covered above.)
+ */
+describe("topUpPostingQuota seam — server-held payer, config-driven (WAITING mock)", () => {
   const PAYER_A = "11111111-1111-4111-8111-111111111111";
 
-  it("pause/resume/top-up operate only on the session payer's own postings", async () => {
+  it("top-up operates only on the session payer's own postings and never touches fetch", async () => {
     const store = await import("./mock-store");
     store.__resetForTest(PAYER_A, true);
-    const { pausePosting, resumePosting, topUpPostingQuota } = await import("./payer-api");
+    const { topUpPostingQuota } = await import("./payer-api");
 
-    // The lifecycle shims still operate on the MOCK store; source the seed id from it DIRECTLY
-    // (getPostings is now LIVE and would hit fetch). These three never call fetch themselves.
     const seeded = store.getPostings(PAYER_A);
     const id = seeded[0]!.id;
-
-    const paused = await pausePosting({ postingId: id });
-    expect(paused?.status).toBe("paused");
-    const resumed = await resumePosting({ postingId: id });
-    expect(resumed?.status).toBe("open");
-
     const beforeQuota = seeded[0]!.applicantQuota ?? 0;
     const topped = await topUpPostingQuota({ postingId: id });
     expect(topped!.applicantQuota!).toBeGreaterThan(beforeQuota);
 
-    // None of these touched fetch (they are mock-store shims, not LIVE calls).
+    // The remaining mock shim never calls fetch.
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("returns null (neutral not-found) for a posting id the session payer doesn't own", async () => {
     const store = await import("./mock-store");
     store.__resetForTest(PAYER_A, true);
-    const { pausePosting } = await import("./payer-api");
-    const res = await pausePosting({ postingId: "99999999-9999-4999-8999-999999999999" });
+    const { topUpPostingQuota } = await import("./payer-api");
+    const res = await topUpPostingQuota({ postingId: "99999999-9999-4999-8999-999999999999" });
     expect(res).toBeNull();
   });
 });
@@ -678,7 +734,7 @@ describe("getApplicantFeed — surfaces faceless taxonomy bands (PR-4), null -> 
  * re-points a swapped function at the mock store (or drops the gated-trio flag) fails CI
  * rather than slipping through. Reads the seam source as text (no execution).
  */
-describe("live-swap guardrails (source) — swapped funcs are live, gated trio flagged", () => {
+describe("live-swap guardrails (source) — swapped funcs are live, quota shim still flagged", () => {
   const src = readFileSync(fileURLToPath(new URL("./payer-api.ts", import.meta.url)), "utf8");
 
   it("the swapped company-posting reads/writes no longer route through the mock store", () => {
@@ -688,23 +744,30 @@ describe("live-swap guardrails (source) — swapped funcs are live, gated trio f
     expect(src).not.toMatch(/store\.createPosting/);
   });
 
-  it("the live posting CRUD goes to the payer-authed /payer/job-postings routes", () => {
+  it("the live posting CRUD + pause/resume go to the payer-authed /payer/job-postings routes", () => {
     // The swapped functions hit the live route family (a regression to a mock shim drops these).
     expect(src).toMatch(/payerFetch\("\/payer\/job-postings"/); // create (POST) + list (GET)
     expect(src).toMatch(/payerFetch\(`\/payer\/job-postings\/\$\{postingId\}`/); // get-one + edit
     expect(src).toMatch(/payerFetch\(`\/payer\/job-postings\/\$\{postingId\}\/close`/); // close
+    // feature #178: pause/resume are now LIVE payer-authed routes (off the mock store).
+    expect(src).toMatch(/payerFetch\(`\/payer\/job-postings\/\$\{input\.postingId\}\/pause`/);
+    expect(src).toMatch(/payerFetch\(`\/payer\/job-postings\/\$\{input\.postingId\}\/resume`/);
   });
 
-  it("the gated lifecycle trio is EXPLICITLY flagged (LIVE-SWAP BLOCKED), not silently broken", () => {
-    // One marker per pausePosting / resumePosting / topUpPostingQuota — the trio is knowingly
-    // deferred (no payer-authed route), never quietly left half-working.
+  it("pause/resume no longer route through the mock store (fully swapped, not half-wired)", () => {
+    // The pause/resume live-swap DELETES the store fallback so real backend errors surface.
+    expect(src).not.toMatch(/store\.pausePosting/);
+    expect(src).not.toMatch(/store\.resumePosting/);
+  });
+
+  it("only the applicant-quota top-up remains EXPLICITLY flagged (LIVE-SWAP BLOCKED)", () => {
+    // ONE marker now — pause/resume landed on payer-authed routes; the quota shim is the sole
+    // remaining deferral (its top-up rides the paid posting-plan surface, not wired here).
     const markers = src.match(/LIVE-SWAP BLOCKED/g) ?? [];
-    expect(markers).toHaveLength(3);
+    expect(markers).toHaveLength(1);
   });
 
-  it("the gated trio STILL routes to the mock store (it is intact, not removed)", () => {
-    expect(src).toMatch(/store\.pausePosting/);
-    expect(src).toMatch(/store\.resumePosting/);
+  it("the quota top-up shim STILL routes to the mock store (intact, not removed)", () => {
     expect(src).toMatch(/store\.topUpPostingQuota/);
   });
 });
