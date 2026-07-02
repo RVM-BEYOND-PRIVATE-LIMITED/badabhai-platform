@@ -390,21 +390,22 @@ describe("buyCapacity — capacity BUY (A1, LIVE): POSTs ONLY { tier } + Bearer 
 });
 
 /**
- * WAITING-mock seam: the posting PAUSE / RESUME / quota-top-up lifecycle. These bind to the
- * SERVER-HELD session payer (the mocked `requirePayer` above → PAYER_A) and never accept a
- * client payer id. They serve from the in-memory mock store, so they do NOT hit fetch.
- * (createPosting / getPostings / get-one / edit / close are now LIVE — covered below.)
+ * WAITING-mock seam: the posting PAUSE / RESUME lifecycle (the quota top-up is now LIVE — see the
+ * dedicated block below). Pause/resume bind to the SERVER-HELD session payer (the mocked
+ * `requirePayer` above → PAYER_A) and never accept a client payer id; they serve from the
+ * in-memory mock store, so they do NOT hit fetch. (createPosting / getPostings / get-one / edit /
+ * close / quota-top-up are now LIVE.)
  */
 describe("job-management seam — server-held payer, config-driven (WAITING mock)", () => {
   const PAYER_A = "11111111-1111-4111-8111-111111111111";
 
-  it("pause/resume/top-up operate only on the session payer's own postings", async () => {
+  it("pause/resume operate only on the session payer's own postings", async () => {
     const store = await import("./mock-store");
     store.__resetForTest(PAYER_A, true);
-    const { pausePosting, resumePosting, topUpPostingQuota } = await import("./payer-api");
+    const { pausePosting, resumePosting } = await import("./payer-api");
 
     // The lifecycle shims still operate on the MOCK store; source the seed id from it DIRECTLY
-    // (getPostings is now LIVE and would hit fetch). These three never call fetch themselves.
+    // (getPostings is now LIVE and would hit fetch). These never call fetch themselves.
     const seeded = store.getPostings(PAYER_A);
     const id = seeded[0]!.id;
 
@@ -413,11 +414,7 @@ describe("job-management seam — server-held payer, config-driven (WAITING mock
     const resumed = await resumePosting({ postingId: id });
     expect(resumed?.status).toBe("open");
 
-    const beforeQuota = seeded[0]!.applicantQuota ?? 0;
-    const topped = await topUpPostingQuota({ postingId: id });
-    expect(topped!.applicantQuota!).toBeGreaterThan(beforeQuota);
-
-    // None of these touched fetch (they are mock-store shims, not LIVE calls).
+    // Neither touched fetch (they are mock-store shims, not LIVE calls).
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -427,6 +424,111 @@ describe("job-management seam — server-held payer, config-driven (WAITING mock
     const { pausePosting } = await import("./payer-api");
     const res = await pausePosting({ postingId: "99999999-9999-4999-8999-999999999999" });
     expect(res).toBeNull();
+  });
+});
+
+/**
+ * LIVE quota top-up (FE-4 / #180): POST /payer/job-postings/:id/quota-topup. Asserts the swap off
+ * the mock store:
+ *  - the id rides the PATH; the body carries ONLY { tier } (+ optional coupon) — NEVER a payer_id
+ *    (XB-A) and NEVER a price/amount/quota (XT5);
+ *  - the REAL raised quota is derived from the returned plan (applicantVisibilityQuota +
+ *    quotaTopupCount), and applicantsUsed = applicantsViewedCount;
+ *  - a foreign/unknown posting (404) and a no-active-plan posting (409) BOTH map to a neutral null.
+ */
+describe("topUpPostingQuota — LIVE: PATH id, { tier } body, REAL quota, neutral 404/409", () => {
+  it("POSTs :id/quota-topup with ONLY { tier } (no payer_id/amount) and maps the REAL raised quota", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        {
+          plan: {
+            id: "cccc3333-0000-4000-8000-000000000001",
+            jobPostingId: POSTING_ID,
+            payerId: "11111111-1111-4111-8111-111111111111",
+            tier: "standard",
+            applicantVisibilityQuota: 10,
+            quotaTopupCount: 10, // one top-up applied → effective cap = 10 + 10 = 20
+            applicantsViewedCount: 3,
+            paidAt: "2026-06-20T00:00:00.000Z",
+            expiresAt: "2026-07-20T00:00:00.000Z",
+            status: "active",
+            createdAt: "2026-06-20T00:00:00.000Z",
+            updatedAt: "2026-06-21T00:00:00.000Z",
+          },
+          // Server-priced receipt — must NOT be echoed (XT5).
+          quote: { finalInr: 1000, currency: "INR" },
+        },
+        201,
+      ),
+    );
+    const { topUpPostingQuota } = await import("./payer-api");
+    const res = await topUpPostingQuota({ postingId: POSTING_ID, tier: "topup_10" });
+
+    // REAL effective cap = receipt quota (10) + accumulated top-ups (10) = 20; used = viewed (3).
+    expect(res).toEqual({
+      postingId: POSTING_ID,
+      planId: "cccc3333-0000-4000-8000-000000000001",
+      applicantQuota: 20,
+      applicantsUsed: 3,
+    });
+    // The server-priced receipt never surfaces (XT5).
+    expect(JSON.stringify(res)).not.toMatch(/quote|finalInr|1000|inr/i);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://api.test/payer/job-postings/${POSTING_ID}/quota-topup`);
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
+
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    // XB-A: the id is on the PATH, not the body; the body carries ONLY the tier code.
+    expect(Object.keys(body)).toEqual(["tier"]);
+    expect(body.tier).toBe("topup_10");
+    expect(body).not.toHaveProperty("payer_id");
+    expect(body).not.toHaveProperty("postingId");
+    // XT5: the client NEVER sends a price/amount/quota.
+    expect(JSON.stringify(body)).not.toMatch(/payer_id|price|amount|quota|₹|\binr\b/i);
+  });
+
+  it("includes an optional coupon in the body when provided (still no payer_id)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        {
+          plan: {
+            id: "cccc3333-0000-4000-8000-000000000001",
+            jobPostingId: POSTING_ID,
+            payerId: "11111111-1111-4111-8111-111111111111",
+            tier: "standard",
+            applicantVisibilityQuota: 10,
+            quotaTopupCount: 30,
+            applicantsViewedCount: 0,
+            paidAt: null,
+            expiresAt: null,
+            status: "active",
+            createdAt: "2026-06-20T00:00:00.000Z",
+            updatedAt: "2026-06-21T00:00:00.000Z",
+          },
+          quote: {},
+        },
+        201,
+      ),
+    );
+    const { topUpPostingQuota } = await import("./payer-api");
+    await topUpPostingQuota({ postingId: POSTING_ID, tier: "topup_30", coupon: "SAVE10" });
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string) as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(["coupon", "tier"]);
+    expect(body).not.toHaveProperty("payer_id");
+  });
+
+  it("maps a foreign/unknown-posting 404 to a neutral null (no-oracle)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ message: "Job posting not found" }, 404));
+    const { topUpPostingQuota } = await import("./payer-api");
+    expect(await topUpPostingQuota({ postingId: POSTING_ID, tier: "topup_10" })).toBeNull();
+  });
+
+  it("maps a no-active-plan 409 to a neutral null (never a leaked reason)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ message: "no active plan to top up" }, 409));
+    const { topUpPostingQuota } = await import("./payer-api");
+    expect(await topUpPostingQuota({ postingId: POSTING_ID, tier: "topup_10" })).toBeNull();
   });
 });
 
@@ -695,16 +797,21 @@ describe("live-swap guardrails (source) — swapped funcs are live, gated trio f
     expect(src).toMatch(/payerFetch\(`\/payer\/job-postings\/\$\{postingId\}\/close`/); // close
   });
 
-  it("the gated lifecycle trio is EXPLICITLY flagged (LIVE-SWAP BLOCKED), not silently broken", () => {
-    // One marker per pausePosting / resumePosting / topUpPostingQuota — the trio is knowingly
-    // deferred (no payer-authed route), never quietly left half-working.
+  it("the gated pause/resume pair is EXPLICITLY flagged (LIVE-SWAP BLOCKED), not silently broken", () => {
+    // One marker per pausePosting / resumePosting — the pair is knowingly deferred (the backend
+    // lifecycle has no `paused` state), never quietly left half-working. The quota top-up is LIVE.
     const markers = src.match(/LIVE-SWAP BLOCKED/g) ?? [];
-    expect(markers).toHaveLength(3);
+    expect(markers).toHaveLength(2);
   });
 
-  it("the gated trio STILL routes to the mock store (it is intact, not removed)", () => {
+  it("pause/resume STILL route to the mock store (intact); quota top-up no longer does", () => {
     expect(src).toMatch(/store\.pausePosting/);
     expect(src).toMatch(/store\.resumePosting/);
-    expect(src).toMatch(/store\.topUpPostingQuota/);
+    // FE-4: the mock-store quota fallback is DELETED — the quota top-up is a live payer-authed fetch.
+    expect(src).not.toMatch(/store\.topUpPostingQuota/);
+  });
+
+  it("the quota top-up goes LIVE to the payer-authed /payer/job-postings/:id/quota-topup route", () => {
+    expect(src).toMatch(/payerFetch\(`\/payer\/job-postings\/\$\{input\.postingId\}\/quota-topup`/);
   });
 });

@@ -34,6 +34,23 @@ export const postingSummarySchema = z.object({
 });
 export type PostingSummary = z.infer<typeof postingSummarySchema>;
 
+/**
+ * The faceless result of a LIVE applicant-quota top-up (B2) — the REAL raised quota derived
+ * from the returned plan row, NOT a mock stamp. `applicantQuota` is the effective cap after the
+ * top-up (`applicantVisibilityQuota + quotaTopupCount`) and `applicantsUsed` is
+ * `applicantsViewedCount`; the calling UI shows `applicantsUsed / applicantQuota` and it
+ * increments after each top-up. PII-free: ids + counts + a tier code only.
+ */
+export const postingQuotaResultSchema = z.object({
+  postingId: z.string().uuid(),
+  planId: z.string().uuid(),
+  /** Effective applicant-visibility cap after the top-up (receipt quota + accumulated top-ups). */
+  applicantQuota: z.number().int().nonnegative(),
+  /** Applicant profiles already viewed against this plan (how much of the quota is used). */
+  applicantsUsed: z.number().int().nonnegative(),
+});
+export type PostingQuotaResult = z.infer<typeof postingQuotaResultSchema>;
+
 /** A payer's own credit balance — the one legitimately-knowable signal (no-oracle). */
 export const creditBalanceSchema = z.object({
   payerId: z.string().uuid(),
@@ -453,6 +470,98 @@ export const buyCapacityWireSchema = z.object({
   expires_at: z.string().nullable(),
   /** Opaque plan ids auto-resumed paused→active under the new allowance. */
   resumed_plan_ids: z.array(z.string()),
+});
+
+/**
+ * The `PostingPlan` Drizzle row (`$inferSelect`) as the payer-authed money routes return it
+ * (POST /payer/job-postings/:id/plan and .../:id/quota-topup) — camelCase keys; `Date` columns
+ * (`paidAt`/`expiresAt`/`createdAt`/`updatedAt`) serialize to ISO strings → `z.string()`. Mirrors
+ * {@link import("../../api/src/posting-plans/posting-plans.service").BuyPlanResult}`.plan` /
+ * {@link import("../../api/src/posting-plans/posting-plans.service").topUpQuotaForPayer}`.plan`.
+ *
+ * PII NOTE (invariant #2): the row carries the payer's OWN `payerId` (their own id) + counts +
+ * codes + timestamps ONLY — there is NO worker PII on it by construction (the applicant reach
+ * feed is a separate faceless surface). The EFFECTIVE applicant-visibility cap is the IMMUTABLE
+ * receipt `applicantVisibilityQuota` PLUS the accumulated `quotaTopupCount` (a top-up raises the
+ * latter, never the receipt); `applicantsViewedCount` is how much of it is used.
+ */
+export const postingPlanWireSchema = z.object({
+  id: z.string().uuid(),
+  jobPostingId: z.string().uuid(),
+  payerId: z.string().uuid(),
+  tier: z.enum(["standard", "pro"]),
+  applicantVisibilityQuota: z.number().int().nonnegative(),
+  quotaTopupCount: z.number().int().nonnegative(),
+  applicantsViewedCount: z.number().int().nonnegative(),
+  paidAt: z.string().nullable(),
+  expiresAt: z.string().nullable(),
+  status: z.enum(["draft", "active", "expired", "paused"]),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type PostingPlanWire = z.infer<typeof postingPlanWireSchema>;
+
+/**
+ * POST /payer/job-postings/:id/quota-topup — buy additional applicant-visibility views on the
+ * caller's OWN active plan (B2, @HttpCode(201)). The body carries ONLY `{ tier, coupon? }`
+ * (XB-A: no payer_id — the session token is the identity; the `:id` rides the PATH; XT5: the
+ * server prices it). The response mirrors {@link
+ * import("../../api/src/posting-plans/posting-plans.service").topUpQuotaForPayer}: `{ plan,
+ * quote }`. `quote` is the server-priced receipt — parsed permissively and NEVER surfaced (XT5);
+ * only the raised plan quota is mapped onto the UI. Money is MOCK (real_call:false; NO Razorpay).
+ */
+export const quotaTopUpResultWireSchema = z.object({
+  plan: postingPlanWireSchema,
+  /** Server-priced receipt. NOT surfaced to the UI (XT5) — parsed permissively, never echoed. */
+  quote: z.unknown(),
+});
+
+/**
+ * The `PostingBoost` Drizzle row (`$inferSelect`) as POST /payer/job-postings/:id/boost returns
+ * it — camelCase keys; `Date` columns serialize to ISO strings → `z.string()`. Mirrors {@link
+ * import("../../api/src/posting-plans/posting-plans.service").buyBoostForPayer}`.boost`. PII-free
+ * (opaque ids + a tier code + a status + timestamps).
+ */
+export const postingBoostWireSchema = z.object({
+  id: z.string().uuid(),
+  jobPostingId: z.string().uuid(),
+  payerId: z.string().uuid(),
+  tier: z.enum(["all_candidates"]),
+  boostStartsAt: z.string().nullable(),
+  boostEndsAt: z.string().nullable(),
+  status: z.enum(["active", "expired"]),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type PostingBoostWire = z.infer<typeof postingBoostWireSchema>;
+
+/**
+ * POST /payer/job-postings/:id/plan — buy a paid plan for the caller's OWN posting (B3,
+ * @HttpCode(201)). Body ONLY `{ tier, coupon? }` (XB-A: no payer_id; `:id` on the PATH; XT5:
+ * server-priced). Response mirrors {@link
+ * import("../../api/src/posting-plans/posting-plans.service").buyPlanForPayer}: `{ plan, quote,
+ * paused, wouldPause }`. `quote` NEVER surfaced (XT5). `paused` reflects the ADR-0016 capacity
+ * chokepoint (a plan bought over the allowance may write `paused` under enforcement).
+ */
+export const buyPlanResultWireSchema = z.object({
+  plan: postingPlanWireSchema,
+  /** Server-priced receipt. NOT surfaced to the UI (XT5) — parsed permissively, never echoed. */
+  quote: z.unknown(),
+  paused: z.boolean(),
+  wouldPause: z.boolean(),
+});
+
+/**
+ * POST /payer/job-postings/:id/boost — buy a booster for the caller's OWN posting (B3,
+ * @HttpCode(201)). Body ONLY `{ tier, coupon? }` (XB-A: no payer_id; `:id` on the PATH; XT5:
+ * server-priced). Response mirrors {@link
+ * import("../../api/src/posting-plans/posting-plans.service").buyBoostForPayer}: `{ boost, quote }`.
+ * `quote` NEVER surfaced (XT5).
+ */
+export const buyBoostResultWireSchema = z.object({
+  boost: postingBoostWireSchema,
+  /** Server-priced receipt. NOT surfaced to the UI (XT5) — parsed permissively, never echoed. */
+  quote: z.unknown(),
 });
 
 /**

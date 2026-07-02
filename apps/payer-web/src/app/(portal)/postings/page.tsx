@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getPostings } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
-import { applicantQuotaStep } from "../../../lib/pricing-config";
+import { applicantQuotaStep, quotaTopUpTiers } from "../../../lib/pricing-config";
 import type { PostingSummary } from "../../../lib/contracts";
 import { Badge, Card } from "../../../components/ds";
 import { RetryButton } from "../../../components/retry-button";
@@ -27,6 +27,9 @@ export default async function PostingsPage() {
   const session = await requirePayer();
   const isAgency = session.role === "agent";
   const quotaStep = applicantQuotaStep();
+  // Config'd quota-top-up tiers (the LIVE "view more → pay more" refill) — passed to the manager
+  // so the client sends ONLY a tier CODE (XT5: never a client price/amount).
+  const quotaTiers = quotaTopUpTiers();
 
   let postings: PostingSummary[] | null = null;
   let error: string | null = null;
@@ -75,7 +78,7 @@ export default async function PostingsPage() {
           <RetryButton />
         </Card>
       ) : (
-        <PostingsManager postings={postings} />
+        <PostingsManager postings={postings} quotaTiers={quotaTiers} />
       )}
     </>
   );

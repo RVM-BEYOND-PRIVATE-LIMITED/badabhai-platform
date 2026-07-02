@@ -15,7 +15,9 @@ import {
   maskedResumeResultSchema,
   payerCapacityWireSchema,
   payerMeWireSchema,
+  postingQuotaResultSchema,
   postingSummarySchema,
+  quotaTopUpResultWireSchema,
   reachApplicantListWireSchema,
   topUpResultSchema,
   unlockResultSchema,
@@ -33,6 +35,7 @@ import {
   type Dashboard,
   type FacelessApplicant,
   type MaskedResumeResult,
+  type PostingQuotaResult,
   type PostingSummary,
   type RevealResult,
   type TopUpResult,
@@ -300,6 +303,10 @@ export async function getCapacity(): Promise<Capacity> {
   ]);
 
   // LIVE postings as DISPLAY-only rows; they do NOT drive `activeVacancies` (the REAL count below).
+  // The applicant QUOTA lives on the posting's PLAN row (applicantVisibilityQuota + quotaTopupCount),
+  // NOT on the job-posting projection — and there is no BULK plan read, so this list-level column
+  // shows 0 until a per-plan read exists (ESCALATE: a payer-authed GET /payer/job-postings/:id/plan).
+  // The REAL quota IS surfaced on the posting-detail top-up flow (topUpPostingQuota → PostingQuotaResult).
   const rows = postings.map((p) => ({
     postingId: p.id,
     roleTitle: p.roleTitle,
@@ -684,12 +691,57 @@ export async function closePosting(postingId: string): Promise<PostingSummary | 
   }
 }
 
+/**
+ * POST /payer/job-postings/:id/quota-topup — buy additional applicant-visibility views on the
+ * caller's OWN active plan for this posting (B2 / #180, LIVE). "View more → pay more": the body
+ * carries ONLY `{ tier, coupon? }` (a config'd top-up tier CODE — never a client/hardcoded
+ * amount); the posting `:id` rides the PATH and the payer is the SESSION token (XB-A — there is
+ * nowhere to put a payer_id; XT5 — the server prices it through the pricing engine).
+ *
+ * SURFACES THE REAL QUOTA: the response's plan row carries the REAL raised cap
+ * (`applicantVisibilityQuota + quotaTopupCount`) + `applicantsViewedCount`, mapped onto the
+ * faceless {@link PostingQuotaResult} — the counter the UI shows is the live value, not a mock.
+ *
+ * Money is MOCK (real_call:false; there is NO Razorpay). A foreign/unknown posting returns the
+ * SAME neutral 404 (no-oracle) and a posting with no active plan to top up returns a 409 — BOTH
+ * map to a neutral `null` so the UI shows a neutral not-available (never a cross-tenant oracle).
+ */
+export async function topUpPostingQuota(input: {
+  postingId: string;
+  tier: string;
+  coupon?: string;
+}): Promise<PostingQuotaResult | null> {
+  const body: Record<string, unknown> = { tier: input.tier }; // XB-A: tier CODE only — no payer_id.
+  if (input.coupon) body.coupon = input.coupon; // XT5: server prices it; the client sends no amount.
+  let wire: ReturnType<typeof quotaTopUpResultWireSchema.parse>;
+  try {
+    wire = await payerFetch(`/payer/job-postings/${input.postingId}/quota-topup`, {
+      method: "POST",
+      body,
+      schema: quotaTopUpResultWireSchema,
+    });
+  } catch (e) {
+    // 404 = unknown/foreign posting (no-oracle); 409 = no active plan to top up. BOTH are a
+    // neutral "not available" — never a leaked reason / cross-tenant existence oracle.
+    if (e instanceof Error && /returned (404|409)/.test(e.message)) return null;
+    throw e;
+  }
+  return postingQuotaResultSchema.parse({
+    postingId: wire.plan.jobPostingId,
+    planId: wire.plan.id,
+    // REAL effective cap = immutable receipt quota + accumulated top-ups (never a mock stamp).
+    applicantQuota: wire.plan.applicantVisibilityQuota + wire.plan.quotaTopupCount,
+    applicantsUsed: wire.plan.applicantsViewedCount,
+  });
+}
+
 /* ────────────────────────────────────────────────────────────────────────────
  * WAITING — clearly-seamed MOCK shims. NO payer-authed endpoint exists yet.
  * ESCALATE to backend (see REPORT). Tenancy still server-held (XB-A). These are the
- * masked-resume disclosure + the posting PAUSE/RESUME/quota-top-up lifecycle — kept
- * MOCK on purpose. (createPosting / getPostings / getPosting / updatePosting /
- * closePosting + topUp + getCapacity are now LIVE above.)
+ * masked-resume disclosure + the posting PAUSE/RESUME lifecycle — kept MOCK on purpose
+ * (the backend job-postings lifecycle has no `paused` state; ADR-0016 pause/resume is
+ * capacity-driven, not a payer action). (createPosting / getPostings / getPosting /
+ * updatePosting / closePosting + topUp + getCapacity + quota-top-up are now LIVE above.)
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
@@ -742,23 +794,6 @@ export async function pausePosting(input: { postingId: string }): Promise<Postin
 export async function resumePosting(input: { postingId: string }): Promise<PostingSummary | null> {
   const { payerId } = await requirePayer();
   const updated = store.resumePosting(payerId, input.postingId);
-  return updated ? postingSummarySchema.parse(updated) : null;
-}
-
-/**
- * WAITING (mock): TOP-UP a posting's applicant quota by ONE CONFIG'd step (catalog
- * posting-quota tier; never a client/hardcoded amount — "view more → pay more"). There is
- * no payer-authed quota endpoint (applicant quota is a payer-portal concept the backend
- * job_postings row does not model yet). Tenancy server-held (XB-A); the step is resolved
- * by code from config (XT5-style server-side amount), not a client value.
- *
- * // LIVE-SWAP BLOCKED: no payer-authed company pause/resume/quota route yet (ask Divyanshu)
- */
-export async function topUpPostingQuota(input: {
-  postingId: string;
-}): Promise<PostingSummary | null> {
-  const { payerId } = await requirePayer();
-  const updated = store.topUpPostingQuota(payerId, input.postingId);
   return updated ? postingSummarySchema.parse(updated) : null;
 }
 

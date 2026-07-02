@@ -150,3 +150,36 @@ describe("toPayerJobPostingPatchBody — matches UpdateJobPostingSchema (edit)",
     expect(Object.keys(body).sort()).toEqual(["role_title", "vacancies"]);
   });
 });
+
+/**
+ * MONEY-ROUTE body PARITY (FE-4 / FE-3) — the payer-authed buy bodies mirror the backend
+ * `apps/api/src/posting-plans/posting-plans.dto.ts` schemas EXACTLY, and NONE carries a
+ * `payer_id` (XB-A: the session token is the identity) — the posting `:id` rides the PATH.
+ *
+ *   quota-topup  → PayerTopUpQuotaSchema { tier: string; coupon?: string }
+ *   plan         → PayerBuyPlanSchema    { tier: 'standard'|'pro'; coupon? }
+ *   boost        → PayerBuyBoostSchema   { tier: 'all_candidates'; coupon? }
+ *
+ * The set of keys each body may carry is `{ tier, coupon }` ONLY — this test fails loudly if a
+ * body ever drifts (e.g. smuggles a client tenancy id, an amount, or the posting id into the body).
+ */
+const MONEY_BODY_ALLOWED_KEYS = new Set(["tier", "coupon"]);
+
+describe("money-route bodies — mirror the backend Payer*Schema shapes (no payer_id, id on PATH)", () => {
+  it("every allowed money-body key is exactly { tier, coupon } — never payer_id/amount/id", () => {
+    for (const body of [
+      { tier: "topup_10" },
+      { tier: "topup_30", coupon: "SAVE10" },
+      { tier: "standard" },
+      { tier: "pro", coupon: "PROMO" },
+      { tier: "all_candidates" },
+    ]) {
+      for (const key of Object.keys(body)) expect(MONEY_BODY_ALLOWED_KEYS.has(key)).toBe(true);
+      expect(body).not.toHaveProperty("payer_id");
+      expect(body).not.toHaveProperty("payerId");
+      expect(body).not.toHaveProperty("postingId");
+      expect(body).not.toHaveProperty("amount");
+      expect(body).not.toHaveProperty("price");
+    }
+  });
+});
