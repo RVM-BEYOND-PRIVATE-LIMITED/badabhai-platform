@@ -11,6 +11,11 @@ import {
 const POSTING_ID = "33333333-3333-4333-8333-333333333333";
 const CREATED_BY = "44444444-4444-4444-8444-444444444444";
 const PAYER_ID = "55555555-5555-4555-8555-555555555555";
+// ADR-0027 B5.x Inc 1: OWNERSHIP is the caller's ORG. ORG_A is the acting org; ORG_B is a
+// DIFFERENT org used for the cross-org IDOR test. A SECOND payer in ORG_A proves shared-org.
+const ORG_ID = "66666666-6666-4666-8666-666666666666"; // ORG_A
+const ORG_B_ID = "77777777-7777-4777-8777-777777777777"; // a foreign org
+const PAYER_ID_2 = "88888888-8888-4888-8888-888888888888"; // a 2nd member of ORG_A
 const CTX = { correlationId: "22222222-2222-4222-8222-222222222222", requestId: "req-1" };
 
 // Free-text values used in tests — NONE of these may ever appear in an emitted
@@ -24,6 +29,8 @@ const FREE_TEXT = [ORG, ROLE, LOCATION, DESC];
 type Row = {
   id: string;
   createdBy: string;
+  payerId: string | null;
+  orgId: string | null;
   orgLabel: string;
   roleTitle: string;
   locationLabel: string | null;
@@ -39,6 +46,8 @@ function row(overrides: Partial<Row> = {}): Row {
   return {
     id: POSTING_ID,
     createdBy: CREATED_BY,
+    payerId: null,
+    orgId: null,
     orgLabel: ORG,
     roleTitle: ROLE,
     locationLabel: null,
@@ -67,18 +76,18 @@ function make(existing?: Row) {
       Promise.resolve(row({ ...existing, id, status: "closed", closedAt })),
     );
   const list = vi.fn().mockResolvedValue([]);
-  // Payer owner-scoped repo methods (default: the row IS owned; tests override
-  // findByIdAndPayer with undefined to exercise the not-owned / no-oracle path).
-  const findByIdAndPayer = vi.fn().mockResolvedValue(existing);
-  const listByPayer = vi.fn().mockResolvedValue([]);
+  // Payer ORG-scoped repo methods (ADR-0027 B5.x Inc 1). Default: the row IS in the org;
+  // tests override findByIdAndOrg with undefined to exercise the other-org / no-oracle path.
+  const findByIdAndOrg = vi.fn().mockResolvedValue(existing);
+  const listByOrg = vi.fn().mockResolvedValue([]);
   const updateOwned = vi
     .fn()
-    .mockImplementation((id: string, _payerId: string, patch: Partial<Row>) =>
+    .mockImplementation((id: string, _orgId: string, patch: Partial<Row>) =>
       Promise.resolve(row({ ...existing, ...patch, id })),
     );
   const closeOwned = vi
     .fn()
-    .mockImplementation((id: string, _payerId: string, _prev: "draft" | "open", closedAt: Date) =>
+    .mockImplementation((id: string, _orgId: string, _prev: "draft" | "open", closedAt: Date) =>
       Promise.resolve(row({ ...existing, id, status: "closed", closedAt })),
     );
   const svc = new JobPostingsService(
@@ -88,8 +97,8 @@ function make(existing?: Row) {
       update,
       close,
       list,
-      findByIdAndPayer,
-      listByPayer,
+      findByIdAndOrg,
+      listByOrg,
       updateOwned,
       closeOwned,
     } as never,
@@ -103,8 +112,8 @@ function make(existing?: Row) {
     update,
     close,
     list,
-    findByIdAndPayer,
-    listByPayer,
+    findByIdAndOrg,
+    listByOrg,
     updateOwned,
     closeOwned,
   };
@@ -442,26 +451,37 @@ describe("UpdateJobPostingSchema status guard", () => {
 });
 
 // ---------------------------------------------------------------------------
-// PAYER self-serve surface (ADR-0019 / ADR-0022 module 9) — owner-scoped CRUD,
-// session payer stamped as owner, payer event actor, no-oracle 404.
+// PAYER self-serve surface (ADR-0019 / ADR-0022 module 9 → ADR-0027 B5.x Inc 1) —
+// OWNERSHIP is the caller's ORG (org-scoped CRUD). Any org member shares the org's
+// postings; create stamps BOTH org_id (the new key) + payer_id (rollback / CHECK); the
+// event actor stays the acting payer (opaque); no-oracle 404 for unknown OR other-org.
+// Signature: (id?, orgId, [payerId], dto?, ctx?).
 // ---------------------------------------------------------------------------
-describe("JobPostingsService — payer self-serve (*ForPayer)", () => {
-  it("createForPayer stamps the SESSION payer as owner AND created_by, status=draft", async () => {
+describe("JobPostingsService — payer self-serve, ORG-scoped (*ForPayer)", () => {
+  it("createForPayer stamps BOTH org_id AND payer_id, keeps created_by = the payer, status=draft", async () => {
     const { svc, create } = make();
     await svc.createForPayer(
+      ORG_ID,
       PAYER_ID,
       { org_label: ORG, role_title: ROLE, vacancy_band: "2-5" },
       CTX as never,
     );
-    // The row is created with payerId = createdBy = the session payer; status draft.
+    // The row is created with org_id = the session org (ownership) AND payer_id =
+    // created_by = the session payer (rollback + the org_id_when_payer CHECK); status draft.
     expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({ payerId: PAYER_ID, createdBy: PAYER_ID, status: "draft" }),
+      expect.objectContaining({
+        orgId: ORG_ID,
+        payerId: PAYER_ID,
+        createdBy: PAYER_ID,
+        status: "draft",
+      }),
     );
   });
 
-  it("createForPayer emits job_posting.created with the PAYER actor, payload PII-free + payer-free", async () => {
+  it("createForPayer emits job_posting.created with the PAYER actor, payload PII-free (no payer_id/org_id)", async () => {
     const { svc, emit } = make();
     await svc.createForPayer(
+      ORG_ID,
       PAYER_ID,
       { org_label: ORG, role_title: ROLE, location_label: LOCATION, vacancies: 7 },
       CTX as never,
@@ -470,79 +490,163 @@ describe("JobPostingsService — payer self-serve (*ForPayer)", () => {
     expect(arg.event_name).toBe("job_posting.created");
     expect(arg.actor).toEqual({ actor_type: "payer", actor_id: PAYER_ID });
     const payload = arg.payload as Record<string, unknown>;
-    // created_by carries the opaque payer id; there is NO payer_id payload key.
+    // created_by carries the opaque payer id; NEITHER payer_id NOR org_id is a payload key.
     expect(payload.created_by).toBe(PAYER_ID);
     expect(payload).not.toHaveProperty("payer_id");
+    expect(payload).not.toHaveProperty("org_id");
     assertNoFreeText(payload); // org/role/location free text never leaves the row
   });
 
-  it("listForPayer + getOneForPayer scope to the session payer", async () => {
-    const { svc, listByPayer, findByIdAndPayer } = make(row({ payerId: PAYER_ID } as Partial<Row>));
-    await svc.listForPayer(PAYER_ID, { status: "open" });
-    expect(listByPayer).toHaveBeenCalledWith(PAYER_ID, "open");
-    await svc.getOneForPayer(POSTING_ID, PAYER_ID);
-    expect(findByIdAndPayer).toHaveBeenCalledWith(POSTING_ID, PAYER_ID);
+  it("listForPayer + getOneForPayer scope to the session ORG (not the payer)", async () => {
+    const { svc, listByOrg, findByIdAndOrg } = make(row({ orgId: ORG_ID } as Partial<Row>));
+    await svc.listForPayer(ORG_ID, { status: "open" });
+    expect(listByOrg).toHaveBeenCalledWith(ORG_ID, "open");
+    await svc.getOneForPayer(POSTING_ID, ORG_ID);
+    expect(findByIdAndOrg).toHaveBeenCalledWith(POSTING_ID, ORG_ID);
   });
 
-  it("getOneForPayer 404s (no-oracle) for an unknown OR another payer's posting", async () => {
-    const { svc, findByIdAndPayer } = make();
-    findByIdAndPayer.mockResolvedValueOnce(undefined); // not found OR not owned — same result
-    await expect(svc.getOneForPayer(POSTING_ID, PAYER_ID)).rejects.toBeInstanceOf(
-      NotFoundException,
+  it("getOneForPayer 404s (no-oracle) for an unknown OR another ORG's posting", async () => {
+    const { svc, findByIdAndOrg } = make();
+    findByIdAndOrg.mockResolvedValueOnce(undefined); // not found OR other-org — same result
+    await expect(svc.getOneForPayer(POSTING_ID, ORG_ID)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("updateForPayer reads + writes ORG-scoped and emits the acting PAYER actor", async () => {
+    const existing = row({ status: "draft", orgId: ORG_ID } as Partial<Row>);
+    const { svc, emit, findByIdAndOrg, updateOwned, update } = make(existing);
+    await svc.updateForPayer(
+      POSTING_ID,
+      ORG_ID,
+      PAYER_ID,
+      { role_title: "CNC Operator" },
+      CTX as never,
     );
-  });
-
-  it("updateForPayer reads + writes owner-scoped and emits the PAYER actor", async () => {
-    const existing = row({ status: "draft", payerId: PAYER_ID } as Partial<Row>);
-    const { svc, emit, findByIdAndPayer, updateOwned, update } = make(existing);
-    await svc.updateForPayer(POSTING_ID, PAYER_ID, { role_title: "CNC Operator" }, CTX as never);
-    expect(findByIdAndPayer).toHaveBeenCalledWith(POSTING_ID, PAYER_ID);
+    expect(findByIdAndOrg).toHaveBeenCalledWith(POSTING_ID, ORG_ID);
     expect(updateOwned).toHaveBeenCalledWith(
       POSTING_ID,
-      PAYER_ID,
+      ORG_ID,
       expect.objectContaining({ roleTitle: "CNC Operator" }),
     );
     // The ops (unscoped) update path is NEVER used by the payer surface.
     expect(update).not.toHaveBeenCalled();
     const arg = emit.mock.calls[0]![0] as Record<string, unknown>;
+    // Actor is the acting payer (opaque), even though ownership is the org.
     expect(arg.actor).toEqual({ actor_type: "payer", actor_id: PAYER_ID });
   });
 
-  it("updateForPayer 404s (no-oracle) for a not-owned posting BEFORE any write", async () => {
-    const { svc, findByIdAndPayer, updateOwned } = make();
-    findByIdAndPayer.mockResolvedValueOnce(undefined);
+  it("updateForPayer 404s (no-oracle) for an other-org posting BEFORE any write", async () => {
+    const { svc, findByIdAndOrg, updateOwned } = make();
+    findByIdAndOrg.mockResolvedValueOnce(undefined);
     await expect(
-      svc.updateForPayer(POSTING_ID, PAYER_ID, { role_title: "X" }, CTX as never),
+      svc.updateForPayer(POSTING_ID, ORG_ID, PAYER_ID, { role_title: "X" }, CTX as never),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(updateOwned).not.toHaveBeenCalled();
   });
 
-  it("closeForPayer reads + closes owner-scoped and emits the PAYER actor", async () => {
-    const existing = row({ status: "open", payerId: PAYER_ID } as Partial<Row>);
+  it("closeForPayer reads + closes ORG-scoped and emits the acting PAYER actor", async () => {
+    const existing = row({ status: "open", orgId: ORG_ID } as Partial<Row>);
     const { svc, emit, closeOwned, close } = make(existing);
-    await svc.closeForPayer(POSTING_ID, PAYER_ID, CTX as never);
-    expect(closeOwned).toHaveBeenCalledWith(POSTING_ID, PAYER_ID, "open", expect.any(Date));
+    await svc.closeForPayer(POSTING_ID, ORG_ID, PAYER_ID, CTX as never);
+    expect(closeOwned).toHaveBeenCalledWith(POSTING_ID, ORG_ID, "open", expect.any(Date));
     expect(close).not.toHaveBeenCalled(); // never the ops (unscoped) close
     const arg = emit.mock.calls[0]![0] as Record<string, unknown>;
     expect(arg.event_name).toBe("job_posting.closed");
     expect(arg.actor).toEqual({ actor_type: "payer", actor_id: PAYER_ID });
   });
 
-  it("closeForPayer 404s (no-oracle) for a not-owned posting BEFORE any write", async () => {
-    const { svc, findByIdAndPayer, closeOwned } = make();
-    findByIdAndPayer.mockResolvedValueOnce(undefined);
-    await expect(svc.closeForPayer(POSTING_ID, PAYER_ID, CTX as never)).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+  it("closeForPayer 404s (no-oracle) for an other-org posting BEFORE any write", async () => {
+    const { svc, findByIdAndOrg, closeOwned } = make();
+    findByIdAndOrg.mockResolvedValueOnce(undefined);
+    await expect(
+      svc.closeForPayer(POSTING_ID, ORG_ID, PAYER_ID, CTX as never),
+    ).rejects.toBeInstanceOf(NotFoundException);
     expect(closeOwned).not.toHaveBeenCalled();
   });
 
-  it("closeForPayer 409s when the owned row was already closed (concurrent close)", async () => {
-    const existing = row({ status: "open", payerId: PAYER_ID } as Partial<Row>);
+  it("closeForPayer 409s when the org row was already closed (concurrent close)", async () => {
+    const existing = row({ status: "open", orgId: ORG_ID } as Partial<Row>);
     const { svc, closeOwned } = make(existing);
     closeOwned.mockResolvedValueOnce(undefined); // guarded update found nothing to close
-    await expect(svc.closeForPayer(POSTING_ID, PAYER_ID, CTX as never)).rejects.toBeInstanceOf(
-      ConflictException,
+    await expect(
+      svc.closeForPayer(POSTING_ID, ORG_ID, PAYER_ID, CTX as never),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0027 B5.x Inc 1 — cross-org IDOR + shared-org tenancy. The org_id in the WHERE is
+// the SINGLE authorization boundary: a member of org A can never see/mutate org B's row
+// (identical neutral 404, no leak of B's data), and two DIFFERENT members of the SAME
+// org both manage the org's postings (shared-org).
+// ---------------------------------------------------------------------------
+describe("JobPostingsService — cross-org IDOR (org A cannot touch org B's posting)", () => {
+  // The stored row belongs to ORG_ID (org A). Every ORG-scoped repo method is org-filtered,
+  // so when the CALLER's org is ORG_B_ID the guarded read/write resolves undefined — the
+  // service maps that to the SAME neutral 404 as a genuinely unknown id (no oracle).
+  const bRow = row({ orgId: ORG_ID, payerId: PAYER_ID, status: "open" } as Partial<Row>);
+
+  it("get: member of org B reading org A's posting gets the neutral 404 (never A's data)", async () => {
+    const { svc, findByIdAndOrg } = make(bRow);
+    // The org-scoped read for ORG_B_ID finds nothing (row is ORG_ID's).
+    findByIdAndOrg.mockResolvedValueOnce(undefined);
+    await expect(svc.getOneForPayer(POSTING_ID, ORG_B_ID)).rejects.toBeInstanceOf(NotFoundException);
+    // The org-scope was applied at the data layer with the CALLER's org, not the row's.
+    expect(findByIdAndOrg).toHaveBeenCalledWith(POSTING_ID, ORG_B_ID);
+  });
+
+  it("update: member of org B updating org A's posting gets the neutral 404, no write", async () => {
+    const { svc, findByIdAndOrg, updateOwned } = make(bRow);
+    findByIdAndOrg.mockResolvedValueOnce(undefined);
+    await expect(
+      svc.updateForPayer(POSTING_ID, ORG_B_ID, PAYER_ID_2, { role_title: "X" }, CTX as never),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(updateOwned).not.toHaveBeenCalled(); // never reaches the write
+  });
+
+  it("pause/close: member of org B closing org A's posting gets the neutral 404, no write", async () => {
+    const { svc, findByIdAndOrg, closeOwned } = make(bRow);
+    findByIdAndOrg.mockResolvedValueOnce(undefined);
+    await expect(
+      svc.closeForPayer(POSTING_ID, ORG_B_ID, PAYER_ID_2, CTX as never),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(closeOwned).not.toHaveBeenCalled();
+  });
+});
+
+describe("JobPostingsService — shared-org (two members of the SAME org manage the org's postings)", () => {
+  // The row belongs to ORG_ID. BOTH PAYER_ID (owner) and PAYER_ID_2 (recruiter) act within
+  // ORG_ID, so the SAME org-scoped read/write succeeds for either — the payer differs only
+  // as the (opaque) event actor, never as the ownership key.
+  it("both members see the org's posting (get succeeds for either, org-scoped identically)", async () => {
+    const shared = row({ orgId: ORG_ID, status: "open" } as Partial<Row>);
+    const { svc, findByIdAndOrg } = make(shared);
+    const asOwner = await svc.getOneForPayer(POSTING_ID, ORG_ID);
+    const asRecruiter = await svc.getOneForPayer(POSTING_ID, ORG_ID);
+    expect(asOwner.id).toBe(POSTING_ID);
+    expect(asRecruiter.id).toBe(POSTING_ID);
+    // Both reads used the SAME org key (ORG_ID) — not either payer id.
+    expect(findByIdAndOrg).toHaveBeenNthCalledWith(1, POSTING_ID, ORG_ID);
+    expect(findByIdAndOrg).toHaveBeenNthCalledWith(2, POSTING_ID, ORG_ID);
+  });
+
+  it("a DIFFERENT member (recruiter) can update the org's posting; actor is that recruiter", async () => {
+    const shared = row({ orgId: ORG_ID, status: "draft" } as Partial<Row>);
+    const { svc, emit, updateOwned } = make(shared);
+    // PAYER_ID_2 (a 2nd member of ORG_ID) edits a posting created by PAYER_ID.
+    await svc.updateForPayer(
+      POSTING_ID,
+      ORG_ID,
+      PAYER_ID_2,
+      { role_title: "CNC Operator" },
+      CTX as never,
     );
+    expect(updateOwned).toHaveBeenCalledWith(
+      POSTING_ID,
+      ORG_ID,
+      expect.objectContaining({ roleTitle: "CNC Operator" }),
+    );
+    const arg = emit.mock.calls[0]![0] as Record<string, unknown>;
+    // Ownership is the shared org; the ACTOR is whoever acted (the 2nd member).
+    expect(arg.actor).toEqual({ actor_type: "payer", actor_id: PAYER_ID_2 });
   });
 });

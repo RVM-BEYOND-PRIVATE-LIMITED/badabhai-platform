@@ -76,35 +76,36 @@ export class JobPostingsRepository {
   }
 
   // ---------------------------------------------------------------------------
-  // PAYER self-serve scope (ADR-0019 / ADR-0022 module 9). Every read/write is
-  // guarded on `payer_id` IN THE QUERY, so tenancy is enforced at the data layer
-  // (XB-A horizontal authz), not just the service. `payer_id` is the SESSION payer
-  // the controller passes — never a body/route value.
+  // PAYER self-serve scope (ADR-0019 / ADR-0022 module 9 → ADR-0027 B5.x Inc 1).
+  // OWNERSHIP is now the caller's ORG, not the creating payer: every read/write is
+  // guarded on `org_id` IN THE QUERY, so ANY member of the org (owner + recruiter)
+  // shares the org's postings, and tenancy is enforced at the data layer (XB-A
+  // horizontal authz), not just the service. `org_id` is the SESSION-resolved org the
+  // controller passes (from @CurrentOrg — never a body/route value). For today's solo
+  // orgs (org == the one payer) this is behavior-preserving. `payer_id` is STILL
+  // stamped on create (rollback + the org_id_when_payer CHECK), but it is no longer an
+  // ownership predicate.
   // ---------------------------------------------------------------------------
 
   /**
-   * Owner-scoped read (NO-ORACLE, F-3): the row ONLY if it exists AND belongs to
-   * `payerId`. A not-found id and another payer's id BOTH resolve to `undefined`, so
-   * the service maps both to the SAME neutral 404 (a payer cannot probe foreign ids).
+   * Org-scoped read (NO-ORACLE, F-3): the row ONLY if it exists AND belongs to `orgId`.
+   * A not-found id and another org's id BOTH resolve to `undefined`, so the service maps
+   * both to the SAME neutral 404 (a member cannot probe another org's ids).
    */
-  async findByIdAndPayer(id: string, payerId: string): Promise<JobPosting | undefined> {
+  async findByIdAndOrg(id: string, orgId: string): Promise<JobPosting | undefined> {
     const rows = await this.db
       .select()
       .from(jobPostings)
-      .where(and(eq(jobPostings.id, id), eq(jobPostings.payerId, payerId)))
+      .where(and(eq(jobPostings.id, id), eq(jobPostings.orgId, orgId)))
       .limit(1);
     return rows[0];
   }
 
-  /** A payer's OWN postings newest first, optionally filtered by status. */
-  async listByPayer(
-    payerId: string,
-    status?: JobPostingStatus,
-    limit = 100,
-  ): Promise<JobPosting[]> {
+  /** An org's OWN postings newest first, optionally filtered by status (any member sees all). */
+  async listByOrg(orgId: string, status?: JobPostingStatus, limit = 100): Promise<JobPosting[]> {
     const where = status
-      ? and(eq(jobPostings.payerId, payerId), eq(jobPostings.status, status))
-      : eq(jobPostings.payerId, payerId);
+      ? and(eq(jobPostings.orgId, orgId), eq(jobPostings.status, status))
+      : eq(jobPostings.orgId, orgId);
     return this.db
       .select()
       .from(jobPostings)
@@ -114,31 +115,31 @@ export class JobPostingsRepository {
   }
 
   /**
-   * Owner-scoped field/status update: guarded on `id` AND `payer_id`, so a payer can
-   * only mutate its OWN row (the ownership lives in the WHERE — no TOCTOU window
-   * between an ownership read and the write). Returns undefined if gone or not-owned.
+   * Org-scoped field/status update: guarded on `id` AND `org_id`, so a caller can only
+   * mutate a row in its OWN org (the ownership lives in the WHERE — no TOCTOU window
+   * between an ownership read and the write). Returns undefined if gone or not-in-org.
    */
   async updateOwned(
     id: string,
-    payerId: string,
+    orgId: string,
     patch: JobPostingUpdate,
   ): Promise<JobPosting | undefined> {
     const rows = await this.db
       .update(jobPostings)
       .set(patch)
-      .where(and(eq(jobPostings.id, id), eq(jobPostings.payerId, payerId)))
+      .where(and(eq(jobPostings.id, id), eq(jobPostings.orgId, orgId)))
       .returning();
     return rows[0];
   }
 
   /**
-   * Owner-scoped close: guarded on `id` AND `payer_id` AND the current status, so an
-   * already-closed, gone, or not-owned row is a DB no-op → undefined (service maps to
+   * Org-scoped close: guarded on `id` AND `org_id` AND the current status, so an
+   * already-closed, gone, or not-in-org row is a DB no-op → undefined (service maps to
    * 409/404 — without leaking which).
    */
   async closeOwned(
     id: string,
-    payerId: string,
+    orgId: string,
     previousStatus: "draft" | "open",
     closedAt: Date,
   ): Promise<JobPosting | undefined> {
@@ -148,7 +149,7 @@ export class JobPostingsRepository {
       .where(
         and(
           eq(jobPostings.id, id),
-          eq(jobPostings.payerId, payerId),
+          eq(jobPostings.orgId, orgId),
           eq(jobPostings.status, previousStatus),
         ),
       )

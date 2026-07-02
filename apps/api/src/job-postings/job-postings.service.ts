@@ -41,12 +41,15 @@ interface PreparedUpdate {
  *   - OPS path (`create`/`list`/`getOne`/`update`/`close`) — no ops auth in alpha;
  *     `created_by` arrives on the DTO as an opaque ops-actor uuid, `payer_id` stays
  *     NULL, and the events carry the OPS actor. Behaviour is unchanged.
- *   - PAYER path (`*ForPayer`) — behind PayerAuthGuard; the SESSION `payer_id` is
- *     stamped on the row and used as BOTH the `created_by` and the event ACTOR
- *     (actor_type:"payer"). Every read/write is owner-scoped (payer_id in the WHERE,
- *     no-oracle 404 for an unknown OR foreign id — XB-A horizontal authz). `payer_id`
- *     is consumed only as the ownership key + the opaque actor_id; it never enters a
- *     payload (the event stays PII-free, no schema change).
+ *   - PAYER path (`*ForPayer`) — behind PayerAuthGuard + PayerOrgRoleGuard; OWNERSHIP is
+ *     the caller's ORG (ADR-0027 B5.x Inc 1), so ANY org member (owner + recruiter) shares
+ *     the org's postings. Every read/write is ORG-scoped (`org_id` in the WHERE, no-oracle
+ *     404 for an unknown OR other-org id — XB-A horizontal authz). On CREATE the row stamps
+ *     BOTH `org_id` (the new ownership key, from the session-resolved @CurrentOrg) AND
+ *     `payer_id` = the SESSION payer (kept for rollback + to satisfy the org_id_when_payer
+ *     CHECK, and still the `created_by` + event ACTOR actor_type:"payer"). Neither id ever
+ *     enters a payload (the event stays PII-free, no schema change). For today's solo orgs
+ *     (org == the one payer) the org-scope is behavior-preserving.
  *
  * Lifecycle (ADR open-item b), enforced for both surfaces:
  *   draft -> open    (via PATCH status="open")
@@ -122,19 +125,24 @@ export class JobPostingsService {
     return closed;
   }
 
-  // ----- PAYER self-serve surface (ADR-0019 / ADR-0022 module 9) -------------
-  // Identity is the SESSION payer (XB-A); the body never carries payer_id/created_by.
+  // ----- PAYER self-serve surface (ADR-0019 / ADR-0022 module 9 → ADR-0027 B5.x Inc 1) --
+  // OWNERSHIP is the caller's ORG (org_id in the WHERE), so any org member shares the
+  // org's postings. The org_id + the session payer_id both come from the verified session
+  // (@CurrentOrg / @CurrentPayer); the body never carries either (XB-A).
 
   async createForPayer(
+    orgId: string,
     payerId: string,
     dto: PayerCreateJobPostingDto,
     ctx: RequestContext,
   ): Promise<JobPosting> {
     return this.insertAndEmit(
       {
-        // The payer is BOTH the owner and the (only) creator identity we have.
+        // OWNERSHIP is the org (the new key); payer_id is still stamped (rollback +
+        // the org_id_when_payer CHECK) and remains the (only) creator identity + actor.
         createdBy: payerId,
         payerId,
+        orgId,
         orgLabel: dto.org_label,
         roleTitle: dto.role_title,
         locationLabel: dto.location_label ?? null,
@@ -146,38 +154,45 @@ export class JobPostingsService {
     );
   }
 
-  listForPayer(payerId: string, query: ListJobPostingsQueryDto): Promise<JobPosting[]> {
-    return this.repo.listByPayer(payerId, query.status);
+  listForPayer(orgId: string, query: ListJobPostingsQueryDto): Promise<JobPosting[]> {
+    return this.repo.listByOrg(orgId, query.status);
   }
 
-  /** One of the caller's OWN postings; no-oracle 404 for an unknown OR foreign id. */
-  async getOneForPayer(id: string, payerId: string): Promise<JobPosting> {
-    const row = await this.repo.findByIdAndPayer(id, payerId);
+  /** One of the caller's ORG's postings; no-oracle 404 for an unknown OR other-org id. */
+  async getOneForPayer(id: string, orgId: string): Promise<JobPosting> {
+    const row = await this.repo.findByIdAndOrg(id, orgId);
     if (!row) throw new NotFoundException("Job posting not found");
     return row;
   }
 
   async updateForPayer(
     id: string,
+    orgId: string,
     payerId: string,
     dto: UpdateJobPostingDto,
     ctx: RequestContext,
   ): Promise<JobPosting> {
-    const current = await this.getOneForPayer(id, payerId); // no-oracle 404
+    const current = await this.getOneForPayer(id, orgId); // no-oracle 404 (org-scoped)
     const prepared = this.prepareUpdate(current, dto);
 
-    const updated = await this.repo.updateOwned(id, payerId, prepared.patch);
+    const updated = await this.repo.updateOwned(id, orgId, prepared.patch);
     if (!updated) throw new NotFoundException("Job posting not found");
 
+    // The ACTOR stays the acting payer (opaque), even though ownership is the org.
     await this.emitUpdated(updated, { actor_type: "payer", actor_id: payerId }, prepared, ctx);
     return updated;
   }
 
-  async closeForPayer(id: string, payerId: string, ctx: RequestContext): Promise<JobPosting> {
-    const current = await this.getOneForPayer(id, payerId); // no-oracle 404
+  async closeForPayer(
+    id: string,
+    orgId: string,
+    payerId: string,
+    ctx: RequestContext,
+  ): Promise<JobPosting> {
+    const current = await this.getOneForPayer(id, orgId); // no-oracle 404 (org-scoped)
     const previousStatus = assertCloseable(current);
 
-    const closed = await this.repo.closeOwned(id, payerId, previousStatus, new Date());
+    const closed = await this.repo.closeOwned(id, orgId, previousStatus, new Date());
     if (!closed) throw new ConflictException("Job posting is already closed");
 
     await this.emitClosed(closed, { actor_type: "payer", actor_id: payerId }, previousStatus, ctx);
@@ -190,7 +205,11 @@ export class JobPostingsService {
   private async insertAndEmit(
     input: {
       createdBy: string;
+      // Ops-created postings leave BOTH null; a payer-created posting stamps BOTH
+      // (payer_id = the session payer, org_id = the session-resolved org = the new
+      // ownership key). The org_id_when_payer CHECK ties them (payer_id set ⇒ org_id set).
       payerId: string | null;
+      orgId?: string | null;
       orgLabel: string;
       roleTitle: string;
       locationLabel: string | null;
