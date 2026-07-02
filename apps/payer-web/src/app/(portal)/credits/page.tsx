@@ -1,4 +1,4 @@
-import { getCreditTopUps, getDashboard } from "../../../lib/payer-api";
+import { getCreditLedger, getCreditTopUps, getDashboard } from "../../../lib/payer-api";
 import { requireOwner } from "../../../lib/auth/org-roles";
 import {
   creditValidityMonths,
@@ -6,10 +6,10 @@ import {
   offeredCreditPacks,
   unlockUnitPriceInr,
 } from "../../../lib/pricing-config";
-import { buildTransactionHistory, creditExpirySchedule } from "../../../lib/credit-history";
+import { buildLedgerHistory, creditExpirySchedule } from "../../../lib/credit-history";
 import { formatInr } from "../../../lib/format";
 import { opaqueId } from "../../../lib/masking";
-import type { CreditTopUp, Dashboard, UnlockHistoryItem } from "../../../lib/contracts";
+import type { CreditLedgerItem, CreditTopUp, Dashboard } from "../../../lib/contracts";
 import { Badge, Card, StatTile, Toast } from "../../../components/ds";
 import { RetryButton } from "../../../components/retry-button";
 import { CreditsPanel } from "./credits-panel";
@@ -48,19 +48,22 @@ export default async function CreditsPage() {
     error = e instanceof Error ? e.message : String(e);
   }
 
-  // The mock-ledger top-ups are a SEPARATE concern from the live balance — fetched in their
-  // own try/catch so a ledger hiccup never blanks the balance/packs (C2 decoupling).
+  // The LIVE credit ledger (#177) is the AUTHORITATIVE history — fetched in its own try/catch so
+  // a ledger hiccup never blanks the balance/packs (C2 decoupling). It contains BOTH pack
+  // purchases and unlock spends already, so there is NO client-side mock merge. The top-up subset
+  // (pack_purchase rows) feeds the 12-month expiry schedule (derived from the LIVE createdAt).
+  let ledger: CreditLedgerItem[] = [];
   let topUps: CreditTopUp[] = [];
   try {
-    topUps = await getCreditTopUps();
+    [ledger, topUps] = await Promise.all([getCreditLedger(), getCreditTopUps()]);
   } catch {
+    ledger = [];
     topUps = [];
   }
 
   // Credit validity window comes from config (default 12 months) — never a page literal.
   const validityMonths = creditValidityMonths();
-  const unlocks: UnlockHistoryItem[] = dashboard?.unlocks ?? [];
-  const history = buildTransactionHistory({ unlocks, topUps });
+  const history = buildLedgerHistory(ledger);
   const expiry = creditExpirySchedule(topUps, validityMonths);
   const balance = dashboard?.credits.balance ?? null;
   const lowBalance = balance !== null && balance < threshold;

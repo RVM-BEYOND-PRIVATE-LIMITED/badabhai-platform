@@ -6,25 +6,28 @@ import {
   unlockUnitPriceInr,
 } from "../../../lib/pricing-config";
 import { addMonthsIso } from "../../../lib/credit-history";
-import type { CreditTopUp, Dashboard, UnlockHistoryItem } from "../../../lib/contracts";
+import type { CreditLedgerItem, CreditTopUp, Dashboard, UnlockHistoryItem } from "../../../lib/contracts";
 
 /**
  * CREDITS PAGE render tests — assert the page actually surfaces the nudge / history / expiry
  * and that packs + unit price + the nudge threshold are PROVABLY config-sourced (not literals).
  *
- * The data seam (`payer-api`) is mocked so we control the balance + unlock/top-up ledger; but
+ * The data seam (`payer-api`) is mocked so we control the balance + the LIVE credit ledger; but
  * `pricing-config` is REAL — so the rendered packs/unit-price/threshold come from the
  * @badabhai/pricing catalog + the config functions, and the tests assert the rendered values
- * EQUAL those config outputs (drift-proof, i.e. not hardcoded). Env is node (no DOM): the async
- * server component is awaited to an element tree and walked. PII guard: no worker id / phone /
- * name / email may appear in any row.
+ * EQUAL those config outputs (drift-proof, i.e. not hardcoded). The AUTHORITATIVE history now
+ * derives from the LIVE `getCreditLedger` (#177 / FE-5) — there is NO client-side mock merge.
+ * Env is node (no DOM): the async server component is awaited to an element tree and walked. PII
+ * guard: no worker id / phone / name / email may appear in any row.
  */
 
 const getDashboard = vi.fn();
 const getCreditTopUps = vi.fn();
+const getCreditLedger = vi.fn();
 vi.mock("../../../lib/payer-api", () => ({
   getDashboard: () => getDashboard(),
   getCreditTopUps: () => getCreditTopUps(),
+  getCreditLedger: () => getCreditLedger(),
   topUp: vi.fn(), // transitively imported by ./credits-panel → ./actions; never called here.
 }));
 // Billing/wallet is an OWNER-only surface (org-RBAC). The page calls requireOwner() FIRST; mock
@@ -39,14 +42,6 @@ const PAYER = "11111111-1111-4111-8111-111111111111";
 const WORKER = "99999999-9999-4999-8999-999999999999"; // must NOT appear in any rendered row
 const UNLOCK = "22222222-2222-4222-8222-222222222222";
 
-const unlock = (over: Partial<UnlockHistoryItem> = {}): UnlockHistoryItem => ({
-  unlockId: UNLOCK,
-  workerId: WORKER,
-  status: "granted",
-  createdAt: "2026-01-12T00:00:00.000Z",
-  expiresAt: "2026-01-26T00:00:00.000Z",
-  ...over,
-});
 const topUp = (over: Partial<CreditTopUp> = {}): CreditTopUp => ({
   topUpId: "33333333-3333-4333-8333-333333333333",
   packCode: "pack_50",
@@ -56,13 +51,40 @@ const topUp = (over: Partial<CreditTopUp> = {}): CreditTopUp => ({
   ...over,
 });
 
+/** A LIVE credit-ledger purchase movement (positive delta; a config pack code + ₹). */
+const purchaseRow = (over: Partial<CreditLedgerItem> = {}): CreditLedgerItem => ({
+  id: "33333333-3333-4333-8333-333333333333",
+  reason: "pack_purchase",
+  delta: 50,
+  packCode: "pack_50",
+  priceInr: 2000,
+  createdAt: "2026-01-10T08:00:00.000Z",
+  ...over,
+});
+/** A LIVE credit-ledger unlock-debit movement (−1; the opaque unlock id, NEVER a worker id). */
+const debitRow = (over: Partial<CreditLedgerItem> = {}): CreditLedgerItem => ({
+  id: UNLOCK,
+  reason: "unlock_debit",
+  delta: -1,
+  packCode: null,
+  priceInr: null,
+  createdAt: "2026-01-12T00:00:00.000Z",
+  ...over,
+});
+
 function dashboard(balance: number, unlocks: UnlockHistoryItem[] = []): Dashboard {
   return { credits: { payerId: PAYER, balance }, unlocks, postings: [] };
 }
 
-function setData(opts: { balance: number; unlocks?: UnlockHistoryItem[]; topUps?: CreditTopUp[] }) {
+function setData(opts: {
+  balance: number;
+  unlocks?: UnlockHistoryItem[];
+  topUps?: CreditTopUp[];
+  ledger?: CreditLedgerItem[];
+}) {
   getDashboard.mockResolvedValue(dashboard(opts.balance, opts.unlocks ?? []));
   getCreditTopUps.mockResolvedValue(opts.topUps ?? []);
+  getCreditLedger.mockResolvedValue(opts.ledger ?? []);
 }
 
 interface Collected {
@@ -87,7 +109,12 @@ function collect(node: ReactNode, acc: Collected = { text: [], panelPacks: undef
   if (el.props && "children" in el.props) collect(el.props.children as ReactNode, acc);
   return acc;
 }
-async function render(opts: { balance: number; unlocks?: UnlockHistoryItem[]; topUps?: CreditTopUp[] }) {
+async function render(opts: {
+  balance: number;
+  unlocks?: UnlockHistoryItem[];
+  topUps?: CreditTopUp[];
+  ledger?: CreditLedgerItem[];
+}) {
   setData(opts);
   const tree = (await CreditsPage()) as ReactElement;
   const c = collect(tree);
@@ -97,6 +124,7 @@ async function render(opts: { balance: number; unlocks?: UnlockHistoryItem[]; to
 beforeEach(() => {
   getDashboard.mockReset();
   getCreditTopUps.mockReset();
+  getCreditLedger.mockReset();
   // Default: ADMIT an Owner so the render tests below exercise the page body.
   requireOwner.mockReset().mockResolvedValue({
     payerId: "11111111-1111-4111-8111-111111111111",
@@ -140,18 +168,18 @@ describe("credits page — (a) low-balance nudge shows ONLY below the CONFIG thr
   });
 });
 
-describe("credits page — (b) history renders unlock + top-up rows", () => {
-  it("renders a spend row per unlock and a top-up row from the mock ledger", async () => {
+describe("credits page — (b) history renders from the LIVE credit ledger (#177)", () => {
+  it("renders a spend row (unlock_debit) and a top-up row (pack_purchase) from the live ledger", async () => {
     const { joined } = await render({
       balance: 50,
-      unlocks: [unlock()],
-      topUps: [topUp({ credits: 50, priceInr: 2000 })],
+      // The AUTHORITATIVE history is the LIVE ledger — BOTH movements come from it (no mock merge).
+      ledger: [purchaseRow({ delta: 50, priceInr: 2000 }), debitRow()],
     });
     expect(joined).toMatch(/History/);
-    expect(joined).toContain("Unlock"); // spend row badge
-    expect(joined).toContain("Top-up"); // top-up row badge
+    expect(joined).toContain("Unlock"); // spend row badge (unlock_debit)
+    expect(joined).toContain("Top-up"); // top-up row badge (pack_purchase)
     expect(joined).toContain("-1"); // each unlock spends 1 credit
-    expect(joined).toContain("+50"); // top-up credits
+    expect(joined).toContain("+50"); // top-up credits (the ledger delta)
     expect(joined).toContain("₹2,000"); // config-priced amount, en-IN formatted
   });
 });
@@ -172,7 +200,8 @@ describe("credits page — (d) zero PII in any row (ids/amounts only)", () => {
   it("never renders the worker id, a phone, a name, or an email", async () => {
     const { joined } = await render({
       balance: 50,
-      unlocks: [unlock()],
+      // The live ledger's unlock_debit carries the opaque unlock id — NEVER a worker id.
+      ledger: [purchaseRow(), debitRow()],
       topUps: [topUp()],
     });
     // History rows reference the opaque UNLOCK id, never the worker id.

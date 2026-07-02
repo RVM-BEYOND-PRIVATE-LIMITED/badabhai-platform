@@ -1,12 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { addMonthsIso, buildTransactionHistory, creditExpirySchedule } from "./credit-history";
-import type { CreditTopUp, UnlockHistoryItem } from "./contracts";
+import {
+  addMonthsIso,
+  buildLedgerHistory,
+  buildTransactionHistory,
+  creditExpirySchedule,
+} from "./credit-history";
+import type { CreditLedgerItem, CreditTopUp, UnlockHistoryItem } from "./contracts";
 
 /**
  * Pure credit-history math tests — date/bucketing logic verified WITHOUT a render (same
  * discipline as toPayerJobPostingBody). Covers the 12-month expiry math (incl. short-month
- * clamping), the merge+sort of unlock spends + mock-ledger top-ups, and the PII-free shape.
+ * clamping), the LIVE credit-ledger → transaction mapping (FE-5), the legacy unlock+topup merge,
+ * and the PII-free shape.
  */
+
+/** A LIVE credit-ledger row (the PII-free camelCase projection the seam maps from #177). */
+const ledgerRow = (over: Partial<CreditLedgerItem> = {}): CreditLedgerItem => ({
+  id: "11111111-1111-4111-8111-111111111111",
+  reason: "pack_purchase",
+  delta: 50,
+  packCode: "pack_50",
+  priceInr: 2000,
+  createdAt: "2026-01-10T08:00:00.000Z",
+  ...over,
+});
 
 const topUp = (over: Partial<CreditTopUp> = {}): CreditTopUp => ({
   topUpId: "11111111-1111-4111-8111-111111111111",
@@ -79,6 +96,49 @@ describe("buildTransactionHistory — merge spends + top-ups, newest first, PII-
     const keys = Object.keys(history[0]!);
     expect(keys).not.toContain("workerId");
     expect(JSON.stringify(history)).not.toContain("99999999-9999-4999-8999-999999999999");
+  });
+});
+
+describe("buildLedgerHistory — LIVE credit-ledger → transactions (FE-5), newest first, PII-free", () => {
+  it("maps a pack_purchase to a +credits top-up (with config ₹) and an unlock_debit to a −1 spend", () => {
+    const history = buildLedgerHistory([
+      ledgerRow({ id: "p1", reason: "pack_purchase", delta: 50, priceInr: 2000, createdAt: "2026-01-10T00:00:00.000Z" }),
+      ledgerRow({ id: "u1", reason: "unlock_debit", delta: -1, packCode: null, priceInr: null, createdAt: "2026-01-12T00:00:00.000Z" }),
+    ]);
+    const top = history.find((t) => t.kind === "topup")!;
+    const spend = history.find((t) => t.kind === "spend")!;
+    expect(top.credits).toBe(50);
+    expect(top.priceInr).toBe(2000);
+    expect(top.packCode).toBe("pack_50");
+    expect(spend.credits).toBe(-1);
+    expect(spend.id).toBe("u1");
+    // A spend carries no ₹/pack (an unlock_debit has neither).
+    expect(spend.priceInr).toBeUndefined();
+    expect(spend.packCode).toBeUndefined();
+  });
+
+  it("sorts strictly newest-first by the LIVE createdAt", () => {
+    const history = buildLedgerHistory([
+      ledgerRow({ id: "old", createdAt: "2026-01-01T00:00:00.000Z" }),
+      ledgerRow({ id: "new", createdAt: "2026-03-01T00:00:00.000Z" }),
+      ledgerRow({ id: "mid", reason: "unlock_debit", delta: -1, createdAt: "2026-02-01T00:00:00.000Z" }),
+    ]);
+    expect(history.map((t) => t.id)).toEqual(["new", "mid", "old"]);
+  });
+
+  it("renders a grant/refund positive movement as a top-up (no ₹) — not a spend", () => {
+    const history = buildLedgerHistory([
+      ledgerRow({ id: "g1", reason: "grant", delta: 3, packCode: null, priceInr: null }),
+    ]);
+    expect(history[0]!.kind).toBe("topup");
+    expect(history[0]!.credits).toBe(3);
+    expect(history[0]!.priceInr).toBeUndefined(); // a grant carries no purchase ₹
+  });
+
+  it("carries NO worker identity — only opaque ids + amounts (PII-free)", () => {
+    const history = buildLedgerHistory([ledgerRow({ id: "u1", reason: "unlock_debit", delta: -1 })]);
+    expect(Object.keys(history[0]!)).not.toContain("workerId");
+    expect(JSON.stringify(history)).not.toMatch(/phone|\bemail\b|\d{10,}/i);
   });
 });
 

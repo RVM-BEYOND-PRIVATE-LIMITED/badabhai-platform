@@ -201,35 +201,128 @@ describe("topUp — buy-pack wiring (LIVE): POSTs ONLY { pack_code } + Bearer", 
     expect(JSON.stringify(body)).not.toMatch(/payer_id/);
   });
 
-  it("records the successful purchase on the session payer's mock ledger (config-priced)", async () => {
+  it("does NOT write a client-side mock ledger (FE-5: the backend records the authoritative ledger)", async () => {
     const PAYER = "11111111-1111-4111-8111-111111111111"; // the requirePayer-mocked session
     const store = await import("./mock-store");
     const before = store.getTopUps(PAYER).length;
     fetchMock.mockResolvedValue(
-      jsonResponse(
-        { payer_id: PAYER, balance: 107, credits: 50, pack_code: "pack_50" },
-        201,
-      ),
+      jsonResponse({ payer_id: PAYER, balance: 107, credits: 50, pack_code: "pack_50" }, 201),
     );
     const { topUp } = await import("./payer-api");
     await topUp({ packCode: "pack_50" });
-    const after = store.getTopUps(PAYER);
-    expect(after.length).toBe(before + 1);
-    // Newest-first; the amount is resolved from the catalog (XT5), never echoed from the client.
-    expect(after[0]!.packCode).toBe("pack_50");
-    expect(after[0]!.priceInr).toBe(2000);
+    // The purchase is recorded by the backend on the credit_ledger — the seam writes NO local mock.
+    expect(store.getTopUps(PAYER).length).toBe(before);
   });
 
-  it("maps an unknown-pack 404 to a neutral null and does NOT touch the ledger", async () => {
-    const PAYER = "11111111-1111-4111-8111-111111111111";
-    const store = await import("./mock-store");
-    const before = store.getTopUps(PAYER).length;
+  it("maps an unknown-pack 404 to a neutral null", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ message: "Unknown credit pack" }, 404));
     const { topUp } = await import("./payer-api");
-    const res = await topUp({ packCode: "does_not_exist" });
-    expect(res).toBeNull();
-    // The 404 returns before recordTopUp — the ledger is untouched.
-    expect(store.getTopUps(PAYER).length).toBe(before);
+    expect(await topUp({ packCode: "does_not_exist" })).toBeNull();
+  });
+});
+
+/**
+ * LIVE credit ledger (FE-5 / #177): GET /payer/credits/ledger. Asserts the swap off the mock
+ * store:
+ *  - GETs the payer-authed route with the Bearer token and NO body (the session scopes it, XB-A);
+ *  - maps every movement to the PII-free camelCase CreditLedgerItem (opaque ids + delta + reason);
+ *  - resolves ₹ from CONFIG by pack code for a pack_purchase (XT5) — never off the wire;
+ *  - getCreditTopUps derives the top-up subset (pack_purchase rows) from the SAME live ledger,
+ *    with the 12-month-expiry `createdAt` coming from the LIVE row (no mock merge).
+ */
+describe("getCreditLedger / getCreditTopUps — LIVE: derive from GET /payer/credits/ledger", () => {
+  const PAYER = "11111111-1111-4111-8111-111111111111";
+
+  function ledgerResponse(): Record<string, unknown> {
+    return {
+      payer_id: PAYER,
+      ledger: [
+        {
+          id: "aaaa1111-0000-4000-8000-000000000001",
+          delta: 50,
+          reason: "pack_purchase",
+          unlock_id: null,
+          pack_code: "pack_50",
+          payment_ref: "mockpay_1",
+          created_at: "2026-01-10T08:00:00.000Z",
+        },
+        {
+          id: "bbbb2222-0000-4000-8000-000000000002",
+          delta: -1,
+          reason: "unlock_debit",
+          unlock_id: "cccc3333-0000-4000-8000-000000000003",
+          pack_code: null,
+          payment_ref: null,
+          created_at: "2026-01-12T00:00:00.000Z",
+        },
+      ],
+    };
+  }
+
+  it("GETs /payer/credits/ledger (Bearer, no body) and maps rows with config-resolved ₹", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(ledgerResponse()));
+    const { getCreditLedger } = await import("./payer-api");
+    const rows = await getCreditLedger();
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/payer/credits/ledger");
+    expect(init.method).toBe("GET");
+    expect(init.body).toBeUndefined(); // a GET carries no body, hence no place for a client payer_id
+    expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
+
+    expect(rows).toHaveLength(2);
+    const purchase = rows.find((r) => r.reason === "pack_purchase")!;
+    expect(purchase.delta).toBe(50);
+    expect(purchase.packCode).toBe("pack_50");
+    expect(purchase.priceInr).toBe(2000); // config-resolved from pack_50 (XT5) — NOT off the wire
+    const debit = rows.find((r) => r.reason === "unlock_debit")!;
+    expect(debit.delta).toBe(-1);
+    expect(debit.priceInr).toBeNull(); // a spend carries no ₹
+    // Faceless: the row carries the opaque unlock id only — never a worker id/phone/name/email.
+    // (opaque UUIDs legitimately contain digit runs; a phone is +country-code or a bare 10+ run.)
+    expect(JSON.stringify(rows)).not.toMatch(/phone|\bemail\b/i);
+    expect(JSON.stringify(rows)).not.toMatch(/\+\d{7,}/);
+  });
+
+  it("getCreditTopUps returns ONLY the pack_purchase movements from the live ledger", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(ledgerResponse()));
+    const { getCreditTopUps } = await import("./payer-api");
+    const topUps = await getCreditTopUps();
+    // The unlock_debit is filtered out — only the purchase becomes a CreditTopUp.
+    expect(topUps).toHaveLength(1);
+    expect(topUps[0]).toEqual({
+      topUpId: "aaaa1111-0000-4000-8000-000000000001",
+      packCode: "pack_50",
+      credits: 50,
+      priceInr: 2000,
+      createdAt: "2026-01-10T08:00:00.000Z", // the LIVE createdAt drives the 12-month expiry
+    });
+  });
+
+  it("a phone-bearing ledger row fails to parse (no raw PII can surface)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ payer_id: PAYER, ledger: [{ id: "x", phone: "+919876543210" }] }),
+    );
+    const { getCreditLedger } = await import("./payer-api");
+    await expect(getCreditLedger()).rejects.toThrow();
+  });
+
+  it("PARITY: the wire row schema mirrors the backend CreditLedgerItem field set EXACTLY", async () => {
+    const { creditLedgerRowWireSchema, creditLedgerWireSchema } = await import("./contracts");
+    // The backend `CreditLedgerItem` (apps/api/src/unlocks/unlocks.repository.ts) fields — the
+    // frontend wire row must accept EXACTLY these (a drift here fails loudly, invariant #7).
+    const BACKEND_LEDGER_ROW_KEYS = [
+      "created_at",
+      "delta",
+      "id",
+      "pack_code",
+      "payment_ref",
+      "reason",
+      "unlock_id",
+    ];
+    expect(Object.keys(creditLedgerRowWireSchema.shape).sort()).toEqual(BACKEND_LEDGER_ROW_KEYS);
+    // The envelope mirrors `{ payer_id, ledger }` (getCreditLedger's response), not { ledger } alone.
+    expect(Object.keys(creditLedgerWireSchema.shape).sort()).toEqual(["ledger", "payer_id"]);
   });
 });
 

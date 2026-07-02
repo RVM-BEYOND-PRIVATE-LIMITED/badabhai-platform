@@ -9,6 +9,9 @@ import {
   buyCapacityWireSchema,
   buyPackResultWireSchema,
   capacitySchema,
+  creditLedgerItemSchema,
+  creditLedgerWireSchema,
+  creditTopUpSchema,
   creditsWireSchema,
   jobPostingListWireSchema,
   jobPostingWireSchema,
@@ -29,6 +32,7 @@ import {
   type Capacity,
   type CreatePostingInput,
   type CreditBalance,
+  type CreditLedgerItem,
   type CreditTopUp,
   type Dashboard,
   type FacelessApplicant,
@@ -245,16 +249,9 @@ export async function topUp(input: { packCode: string }): Promise<TopUpResult | 
     if (e instanceof Error && /returned 404/.test(e.message)) return null;
     throw e;
   }
-  // Record the successful (mock) purchase on the caller's OWN mock ledger so the credits
-  // page can show a top-up history + a 12-month expiry schedule. The authoritative balance
-  // stays the live backend; this is a PII-free local history record. `priceInr` is resolved
-  // from the @badabhai/pricing catalog (XT5: server-side amount, never client-supplied).
-  const { payerId } = await requirePayer();
-  store.recordTopUp(payerId, {
-    packCode: wire.pack_code,
-    credits: wire.credits,
-    priceInr: findCreditPack(wire.pack_code)?.priceInr ?? 0,
-  });
+  // The purchase is now recorded by the BACKEND on the authoritative credit_ledger (a
+  // `pack_purchase` movement) — the credits page reads it back via GET /payer/credits/ledger
+  // (FE-5). There is NO client-side mock-ledger record here anymore.
   return topUpResultSchema.parse({
     payerId: wire.payer_id,
     balance: wire.balance,
@@ -265,14 +262,54 @@ export async function topUp(input: { packCode: string }): Promise<TopUpResult | 
 }
 
 /**
- * The caller's OWN mock-ledger credit top-ups (newest first) — the top-up half of the
- * credit history + the source of the 12-month expiry schedule. Tenancy is the server-held
- * session (XB-A); PII-free (ids/amounts/config pack code only). WAITING-mock: there is no
- * payer-authed credit-ledger endpoint, so this reads the local ledger recorded on top-up.
+ * GET /payer/credits/ledger — the caller's OWN append-only credit movements (#177, LIVE),
+ * newest first. The AUTHORITATIVE credit history + the 12-month expiry both derive from THESE
+ * rows (never a client-side mock). Tenancy is the SESSION payer (XB-A: `@CurrentPayer()` scopes
+ * every row — cross-payer isolation is inherent, a payer only ever sees their own movements).
+ *
+ * Mapped to the PII-free camelCase {@link CreditLedgerItem}: opaque ids + a signed delta + a
+ * coarse reason enum + a config pack code + timestamp. For a `pack_purchase` we resolve `priceInr`
+ * from the @badabhai/pricing catalog by pack code (XT5: config amount, never the wire) — `null`
+ * otherwise (a spend/grant/refund carries no ₹). No worker PII exists on this table by design.
+ */
+export async function getCreditLedger(): Promise<CreditLedgerItem[]> {
+  const wire = await payerFetch("/payer/credits/ledger", { schema: creditLedgerWireSchema });
+  return wire.ledger.map((row) =>
+    creditLedgerItemSchema.parse({
+      id: row.id,
+      reason: row.reason,
+      delta: row.delta,
+      packCode: row.pack_code,
+      // ₹ is config-resolved by pack code for a purchase (XT5) — never read off the wire.
+      priceInr:
+        row.reason === "pack_purchase" && row.pack_code
+          ? (findCreditPack(row.pack_code)?.priceInr ?? null)
+          : null,
+      createdAt: row.created_at,
+    }),
+  );
+}
+
+/**
+ * The caller's OWN credit TOP-UPS (newest first) — the `pack_purchase` movements from the LIVE
+ * credit ledger, mapped onto {@link CreditTopUp}. The source of the top-up history + the 12-month
+ * expiry schedule (computed from each row's LIVE `createdAt`, never a mock). Tenancy is the
+ * server-held session (XB-A). A purchase with an unresolvable config price contributes `priceInr:
+ * 0` (display fallback) — the credits/₹ still come from the authoritative live ledger row.
  */
 export async function getCreditTopUps(): Promise<CreditTopUp[]> {
-  const { payerId } = await requirePayer();
-  return store.getTopUps(payerId);
+  const ledger = await getCreditLedger();
+  return ledger
+    .filter((r) => r.reason === "pack_purchase")
+    .map((r) =>
+      creditTopUpSchema.parse({
+        topUpId: r.id,
+        packCode: r.packCode ?? "",
+        credits: r.delta, // a purchase delta is the credits granted (positive)
+        priceInr: r.priceInr ?? 0,
+        createdAt: r.createdAt,
+      }),
+    );
 }
 
 /**

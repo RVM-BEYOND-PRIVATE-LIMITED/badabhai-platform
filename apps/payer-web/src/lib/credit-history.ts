@@ -1,16 +1,18 @@
-import type { CreditTopUp, UnlockHistoryItem } from "./contracts";
+import type { CreditLedgerItem, CreditTopUp, UnlockHistoryItem } from "./contracts";
 
 /**
- * PURE credit-history math — merge + sort + 12-month expiry bucketing (ADR-0019 Phase 1).
+ * PURE credit-history math — map + sort + 12-month expiry bucketing (ADR-0019 Phase 1 / FE-5).
  *
  * Exported and side-effect-free so the date/bucketing logic is unit-testable WITHOUT a
  * render (same discipline as `toPayerJobPostingBody`). No I/O, no `Date.now()` — every
  * function is a deterministic transform of its inputs. PII-FREE: it moves only ids, amounts,
  * config pack codes, and timestamps — NEVER a worker name/phone.
  *
- * The history aggregates the caller's OWN credit movements:
- *  - SPENDS: one per unlock from GET /payer/unlocks (each unlock spends exactly 1 credit).
- *  - TOP-UPS: from the mock ledger (a successful mock purchase).
+ * The AUTHORITATIVE history is the caller's OWN LIVE credit ledger (GET /payer/credits/ledger,
+ * #177): every movement (pack_purchase / unlock_debit / grant / refund) is one row already —
+ * so {@link buildLedgerHistory} renders it directly, with NO client-side merge of a separate
+ * mock top-up list. ({@link buildTransactionHistory} is the legacy unlock+mock-topup merge,
+ * retained only for its pure-math tests; the credits page uses the ledger path.)
  */
 
 /** A single PII-free credit movement on the caller's own ledger. */
@@ -89,6 +91,30 @@ export function buildTransactionHistory(input: {
     packCode: t.packCode,
   }));
   return [...tops, ...spends].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+}
+
+/**
+ * Map the LIVE credit ledger (GET /payer/credits/ledger, #177) into the PII-free transaction
+ * list, NEWEST FIRST — the AUTHORITATIVE history (no client-side merge). A positive-delta
+ * `pack_purchase`/`grant`/`refund` renders as a "topup" movement (with the config ₹ for a
+ * purchase); a `unlock_debit` renders as a "spend". Pure + deterministic (ISO strings sort
+ * chronologically). PII-free: opaque ids + amounts + a config pack code only.
+ */
+export function buildLedgerHistory(ledger: CreditLedgerItem[]): CreditTransaction[] {
+  return ledger
+    .map((r): CreditTransaction => {
+      const isSpend = r.reason === "unlock_debit";
+      return {
+        id: r.id,
+        kind: isSpend ? "spend" : "topup",
+        at: r.createdAt,
+        credits: r.delta,
+        // Only a resolvable pack_purchase carries a ₹ figure; everything else omits it.
+        ...(r.reason === "pack_purchase" && r.priceInr !== null ? { priceInr: r.priceInr } : {}),
+        ...(r.packCode ? { packCode: r.packCode } : {}),
+      };
+    })
+    .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
 }
 
 /**

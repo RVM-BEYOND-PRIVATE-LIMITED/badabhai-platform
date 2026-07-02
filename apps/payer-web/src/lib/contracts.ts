@@ -259,7 +259,7 @@ export const maskedResumeNeutralSchema = z.object({ status: z.literal("unavailab
 export const maskedResumeResultSchema = z.union([maskedResumeSchema, maskedResumeNeutralSchema]);
 export type MaskedResumeResult = z.infer<typeof maskedResumeResultSchema>;
 
-/* ── Credit top-up (MOCK ledger) ────────────────────────────────────────────── */
+/* ── Credit ledger (LIVE: GET /payer/credits/ledger) ─────────────────────────── */
 
 /** A credit pack offered for purchase — sourced from config, never hardcoded here. */
 export const creditPackSchema = z.object({
@@ -268,6 +268,54 @@ export const creditPackSchema = z.object({
   credits: z.number().int().positive(),
 });
 export type CreditPack = z.infer<typeof creditPackSchema>;
+
+/**
+ * GET /payer/credits/ledger — the caller's OWN append-only credit movements (#177, LIVE), newest
+ * first, bounded page size. Mirrors {@link
+ * import("../../api/src/unlocks/unlocks.service").UnlockService.getCreditLedger}: `{ payer_id,
+ * ledger: CreditLedgerItem[] }`, where a ledger row is {@link
+ * import("../../api/src/unlocks/unlocks.repository").CreditLedgerItem}: `{ id, delta, reason,
+ * unlock_id, pack_code, payment_ref, created_at }`. `created_at` is a `Date` column that
+ * serializes to an ISO string over the wire → `z.string()`.
+ *
+ * PII-free by TABLE design (invariant #2 / B-R2): opaque ids, a signed integer delta, a coarse
+ * reason enum, a config pack code, and a timestamp only — NEVER a worker name/phone. Tenancy is
+ * the SESSION payer (XB-A: `@CurrentPayer()` scopes every row — a payer only ever sees their own).
+ */
+export const creditLedgerRowWireSchema = z.object({
+  id: z.string().uuid(),
+  /** Signed credit delta: +N for a pack_purchase/grant/refund, −1 for an unlock_debit. */
+  delta: z.number().int(),
+  reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant"]),
+  unlock_id: z.string().uuid().nullable(),
+  pack_code: z.string().nullable(),
+  payment_ref: z.string().nullable(),
+  created_at: z.string(),
+});
+export const creditLedgerWireSchema = z.object({
+  payer_id: z.string().uuid(),
+  ledger: z.array(creditLedgerRowWireSchema),
+});
+
+/**
+ * One PII-free credit-ledger movement in the caller's OWN history (the LIVE #177 projection,
+ * mapped to camelCase). The AUTHORITATIVE history + the 12-month expiry schedule derive from
+ * these rows (never a client-side mock). `priceInr` is resolved from the @badabhai/pricing
+ * catalog by `packCode` at read time for a pack_purchase (XT5: config amount, never the wire) —
+ * `null` when it can't be resolved / is not a purchase. Opaque ids + amounts + a reason enum only.
+ */
+export const creditLedgerItemSchema = z.object({
+  id: z.string().uuid(),
+  reason: z.enum(["pack_purchase", "unlock_debit", "refund", "grant"]),
+  /** Signed credit delta (+N top-up/grant/refund, −1 unlock spend). */
+  delta: z.number().int(),
+  /** The config pack code for a pack_purchase; null otherwise. */
+  packCode: z.string().nullable(),
+  /** Config-resolved ₹ for a pack_purchase; null when not a resolvable purchase. */
+  priceInr: z.number().int().nonnegative().nullable(),
+  createdAt: z.string(),
+});
+export type CreditLedgerItem = z.infer<typeof creditLedgerItemSchema>;
 
 export const topUpResultSchema = z.object({
   payerId: z.string().uuid(),
@@ -280,11 +328,11 @@ export const topUpResultSchema = z.object({
 export type TopUpResult = z.infer<typeof topUpResultSchema>;
 
 /**
- * One MOCK-ledger top-up record for the caller's OWN credit history (ADR-0019 Phase 1).
- * Recorded locally on a successful mock purchase so the credits page can show a spend/
- * top-up history + a 12-month expiry schedule. PII-FREE by construction: ids + amounts
- * + a config pack code only — NEVER a worker name/phone. `priceInr` is resolved from the
- * @badabhai/pricing catalog at record time (never a client/hardcoded amount, XT5).
+ * One credit TOP-UP record for the caller's OWN credit history — a `pack_purchase` movement
+ * derived from the LIVE GET /payer/credits/ledger (#177). Feeds the credits page's top-up
+ * history + the 12-month expiry schedule (both computed from the LIVE `createdAt`, never a mock).
+ * PII-FREE by construction: ids + amounts + a config pack code only — NEVER a worker name/phone.
+ * `priceInr` is resolved from the @badabhai/pricing catalog by pack code (never the wire, XT5).
  */
 export const creditTopUpSchema = z.object({
   topUpId: z.string().uuid(),
