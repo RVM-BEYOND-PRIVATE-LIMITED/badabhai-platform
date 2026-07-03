@@ -236,9 +236,23 @@ describe("topUp — buy-pack wiring (LIVE): POSTs ONLY { pack_code } + Bearer", 
 describe("getCapacity — capacity wiring (LIVE): GETs /payer/capacity with Bearer, no payer_id", () => {
   const PAYER_A = "11111111-1111-4111-8111-111111111111";
 
+  const POSTING_2 = "bbbb2222-0000-4000-8000-000000000002";
+
+  /**
+   * A `GET /payer/job-postings/:id/plan` wire body (the `feat/be-posting-plan-read` shape).
+   * `over.plan` may override the nested plan or set it to null (a valid "no plan yet" 200).
+   */
+  function postingPlanBody(
+    jobPostingId: string,
+    plan: Record<string, unknown> | null,
+  ): Record<string, unknown> {
+    return { job_posting_id: jobPostingId, plan };
+  }
+
   it("GETs /payer/capacity (Bearer, no body) and maps max_active_vacancies to the allowance", async () => {
-    // getCapacity now fetches BOTH /payer/capacity AND /payer/job-postings (the per-posting
-    // DISPLAY rows are the LIVE postings). Branch the mock per URL.
+    // getCapacity now fetches /payer/capacity + /payer/job-postings + one /:id/plan per posting
+    // (the per-posting DISPLAY rows are the LIVE postings, enriched with the LIVE plan quota).
+    // Branch the mock per URL.
     fetchMock.mockImplementation((url: string) => {
       if (url.endsWith("/payer/capacity")) {
         return Promise.resolve(
@@ -254,12 +268,30 @@ describe("getCapacity — capacity wiring (LIVE): GETs /payer/capacity with Bear
           }),
         );
       }
+      // The per-posting plan reads (enrich the DISPLAY rows with the LIVE effective quota).
+      if (url.endsWith(`/payer/job-postings/${POSTING_ID}/plan`)) {
+        return Promise.resolve(
+          jsonResponse(
+            postingPlanBody(POSTING_ID, {
+              tier: "standard",
+              status: "active",
+              applicant_visibility_quota: 10,
+              quota_topup_count: 5,
+              effective_quota: 15, // base 10 + 5 top-ups — the number the row must show
+              applicants_viewed_count: 3,
+              paid_at: "2026-06-20T00:00:00.000Z",
+              expires_at: "2026-09-20T00:00:00.000Z",
+            }),
+          ),
+        );
+      }
+      if (url.endsWith(`/payer/job-postings/${POSTING_2}/plan`)) {
+        // A plan-less posting → a valid { plan: null } 200 → the row's quota degrades to 0.
+        return Promise.resolve(jsonResponse(postingPlanBody(POSTING_2, null)));
+      }
       // The per-posting DISPLAY rows are now the LIVE postings (2 rows ≠ the active_plan_count 4).
       return Promise.resolve(
-        jsonResponse([
-          jobPostingRow(),
-          jobPostingRow({ id: "bbbb2222-0000-4000-8000-000000000002", status: "open" }),
-        ]),
+        jsonResponse([jobPostingRow(), jobPostingRow({ id: POSTING_2, status: "open" })]),
       );
     });
     const { getCapacity } = await import("./payer-api");
@@ -276,6 +308,14 @@ describe("getCapacity — capacity wiring (LIVE): GETs /payer/capacity with Bear
     expect(cap.postings.length).toBe(2);
     expect(cap.postings.length).not.toBe(cap.activeVacancies);
 
+    // Each row's applicantQuota is the LIVE plan EFFECTIVE quota (base + top-ups), 0 for plan-less.
+    const row1 = cap.postings.find((p) => p.postingId === POSTING_ID)!;
+    const row2 = cap.postings.find((p) => p.postingId === POSTING_2)!;
+    expect(row1.applicantQuota).toBe(15); // effective_quota (base 10 + 5 top-ups)
+    expect(row2.applicantQuota).toBe(0); // { plan: null } → no plan yet → 0
+    // applicantQuotaTotal is the SUM of the enriched per-row effective quotas.
+    expect(cap.applicantQuotaTotal).toBe(15);
+
     const capCall = fetchMock.mock.calls.find((c) => (c[0] as string).endsWith("/payer/capacity")) as
       | [string, RequestInit]
       | undefined;
@@ -284,6 +324,112 @@ describe("getCapacity — capacity wiring (LIVE): GETs /payer/capacity with Bear
     expect((capCall![1].headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
     // A GET carries no body, hence no place for a client payer_id.
     expect(capCall![1].body).toBeUndefined();
+
+    // The per-posting plan reads were issued (one per posting), Bearer, no body (XB-A).
+    const planCall = fetchMock.mock.calls.find((c) =>
+      (c[0] as string).endsWith(`/payer/job-postings/${POSTING_ID}/plan`),
+    ) as [string, RequestInit] | undefined;
+    expect(planCall).toBeDefined();
+    expect((planCall![1].headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
+    expect(planCall![1].body).toBeUndefined();
+  });
+
+  it("PII-free: the enriched capacity payload carries no worker id / phone / name / email", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/payer/capacity")) {
+        return Promise.resolve(
+          jsonResponse({
+            payer_id: PAYER_A,
+            max_active_vacancies: 9,
+            active_plan_count: 1,
+            source_tier: null,
+            expires_at: null,
+          }),
+        );
+      }
+      if (url.endsWith(`/payer/job-postings/${POSTING_ID}/plan`)) {
+        return Promise.resolve(
+          jsonResponse(
+            postingPlanBody(POSTING_ID, {
+              tier: "pro",
+              status: "active",
+              applicant_visibility_quota: 20,
+              quota_topup_count: 0,
+              effective_quota: 20,
+              applicants_viewed_count: 2,
+              paid_at: null,
+              expires_at: null,
+            }),
+          ),
+        );
+      }
+      return Promise.resolve(jsonResponse([jobPostingRow()]));
+    });
+    const { getCapacity } = await import("./payer-api");
+    const cap = await getCapacity();
+    const json = JSON.stringify(cap);
+    // No worker identity of any kind, and no PII-looking key/value in the enriched payload.
+    // (The payer's OWN payerId is a legitimate UUID — a masked, hyphen-broken opaque id, NOT
+    // worker PII; assert on PII KEYS/labels instead of a bare digit-run that a UUID trips.)
+    expect(json).not.toMatch(/phone|\bemail\b|worker[_-]?id|employer|address/i);
+    expect(json).not.toMatch(/"name"/i);
+    // The row's ONLY worker-adjacent number is the config-derived quota — never an identity.
+    expect(cap.postings[0]!.applicantQuota).toBe(20);
+  });
+});
+
+describe("getPostingPlan — LIVE: GETs /payer/job-postings/:id/plan, maps the effective quota", () => {
+  const PLAN_POSTING = "bbbb2222-0000-4000-8000-0000000000aa";
+
+  it("GETs the plan (Bearer, no body) and surfaces the effective quota on the mapped view", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        job_posting_id: PLAN_POSTING,
+        plan: {
+          tier: "pro",
+          status: "active",
+          applicant_visibility_quota: 20,
+          quota_topup_count: 10,
+          effective_quota: 30,
+          applicants_viewed_count: 7,
+          paid_at: "2026-06-20T00:00:00.000Z",
+          expires_at: "2026-09-20T00:00:00.000Z",
+        },
+      }),
+    );
+    const { getPostingPlan } = await import("./payer-api");
+    const view = await getPostingPlan(PLAN_POSTING);
+
+    expect(view.jobPostingId).toBe(PLAN_POSTING);
+    expect(view.plan).not.toBeNull();
+    expect(view.plan!.effectiveQuota).toBe(30);
+    expect(view.plan!.applicantVisibilityQuota).toBe(20);
+    expect(view.plan!.quotaTopupCount).toBe(10);
+    expect(view.plan!.applicantsViewedCount).toBe(7);
+    expect(view.plan!.tier).toBe("pro");
+    expect(view.plan!.status).toBe("active");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://api.test/payer/job-postings/${PLAN_POSTING}/plan`);
+    expect(init.method).toBe("GET");
+    expect(init.body).toBeUndefined();
+    expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
+    // A GET carries no body, hence no place for a client payer_id (XB-A).
+    const json = JSON.stringify(view);
+    expect(json).not.toMatch(/payer_id|phone|\bemail\b|worker|name/i);
+  });
+
+  it("a { plan: null } body (owned, no plan yet) maps to { plan: null } — a valid 200, no throw", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ job_posting_id: PLAN_POSTING, plan: null }));
+    const { getPostingPlan } = await import("./payer-api");
+    const view = await getPostingPlan(PLAN_POSTING);
+    expect(view).toEqual({ jobPostingId: PLAN_POSTING, plan: null });
+  });
+
+  it("a neutral 404 (foreign/unknown posting) PROPAGATES — not special-cased (no-oracle upstream)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ message: "not found" }, 404));
+    const { getPostingPlan } = await import("./payer-api");
+    await expect(getPostingPlan(PLAN_POSTING)).rejects.toThrow();
   });
 });
 

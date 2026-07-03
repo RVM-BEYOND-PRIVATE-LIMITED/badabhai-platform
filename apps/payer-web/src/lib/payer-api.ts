@@ -15,6 +15,7 @@ import {
   maskedResumeResultSchema,
   payerCapacityWireSchema,
   payerMeWireSchema,
+  postingPlanViewWireSchema,
   postingSummarySchema,
   reachApplicantListWireSchema,
   topUpResultSchema,
@@ -33,6 +34,7 @@ import {
   type Dashboard,
   type FacelessApplicant,
   type MaskedResumeResult,
+  type PostingPlanView,
   type PostingSummary,
   type RevealResult,
   type TopUpResult,
@@ -276,6 +278,40 @@ export async function getCreditTopUps(): Promise<CreditTopUp[]> {
 }
 
 /**
+ * GET /payer/job-postings/:id/plan — one OWN posting's applicant-visibility PLAN (LIVE,
+ * Bearer only — XB-A: the session token is the identity; NEVER a client payer_id in the
+ * path/body). Ownership-gated + no-oracle 404 UPSTREAM: a foreign/unknown posting is a
+ * neutral 404 the transport surfaces as a thrown error (NOT special-cased here — it
+ * propagates so the caller's error state shows). A `{ plan: null }` body is a VALID 200 —
+ * "you own this posting but it has no plan yet" — mapped straight through to `{ plan: null }`.
+ *
+ * PII-free by construction: ids / counts / a tier + status enum / ISO timestamps only —
+ * NO worker identity, NO payer PII. `effectiveQuota` is base + top-ups (the number the
+ * capacity page shows as the row's applicant quota).
+ */
+export async function getPostingPlan(jobPostingId: string): Promise<PostingPlanView> {
+  const wire = await payerFetch(`/payer/job-postings/${jobPostingId}/plan`, {
+    schema: postingPlanViewWireSchema,
+  });
+  return {
+    jobPostingId: wire.job_posting_id,
+    plan:
+      wire.plan === null
+        ? null
+        : {
+            tier: wire.plan.tier,
+            status: wire.plan.status,
+            applicantVisibilityQuota: wire.plan.applicant_visibility_quota,
+            quotaTopupCount: wire.plan.quota_topup_count,
+            effectiveQuota: wire.plan.effective_quota,
+            applicantsViewedCount: wire.plan.applicants_viewed_count,
+            paidAt: wire.plan.paid_at,
+            expiresAt: wire.plan.expires_at,
+          },
+  };
+}
+
+/**
  * GET /payer/capacity — the caller's OWN concurrent active-vacancy ALLOWANCE (LIVE,
  * Bearer only — XB-A: no payer_id, no :payerId param). The backend
  * (`PayerCapacityController`) returns `{ payer_id, max_active_vacancies,
@@ -285,10 +321,11 @@ export async function getCreditTopUps(): Promise<CreditTopUp[]> {
  *
  * `activeVacancies` is the REAL `active_plan_count` (the enforcement engine's count), NOT a
  * count off the posting list — so the at-capacity signal (activeVacancies >= allowance) is
- * faithful. The per-posting applicant-quota ROWS are now the LIVE postings (GET
- * /payer/job-postings) — DISPLAY-only and they do NOT drive the count (the capacity page note
- * says so). The live posting row has no applicant count / quota in its projection, so those
- * columns read 0 (the count is the separate faceless reach feed's concern, not this row's).
+ * faithful. The per-posting applicant-quota ROWS are the LIVE postings (GET /payer/job-postings)
+ * — DISPLAY-only and they do NOT drive the count (the capacity page note says so). Each row's
+ * `applicantQuota` is now the REAL LIVE plan EFFECTIVE quota (base + top-ups), fetched per
+ * posting via {@link getPostingPlan} (GET /payer/job-postings/:id/plan); it is 0 ONLY for a
+ * posting that genuinely has no plan yet. `applicantsUsed` stays the row's applicant count.
  * All counts/codes; NO raw worker/payer PII (the seam mapper drops org_label/description).
  */
 export async function getCapacity(): Promise<Capacity> {
@@ -299,14 +336,22 @@ export async function getCapacity(): Promise<Capacity> {
     getPostings(),
   ]);
 
+  // Enrich each posting with its LIVE applicant-visibility plan quota. N+1: one plan read per
+  // posting (a real HTTP failure PROPAGATES so the page's error state shows — only a valid
+  // {plan:null} 200 degrades to 0). Acceptable at alpha posting counts; a bulk `plan` projection
+  // on the postings list is a future optimization.
+  const plans = await Promise.all(postings.map((p) => getPostingPlan(p.id)));
+
   // LIVE postings as DISPLAY-only rows; they do NOT drive `activeVacancies` (the REAL count below).
-  const rows = postings.map((p) => ({
+  // `applicantQuota` is the LIVE plan EFFECTIVE quota (immutable base + top-ups); it is 0 ONLY when
+  // the posting genuinely has no plan yet (a valid {plan:null} 200) — never a stale row default.
+  const rows = postings.map((p, i) => ({
     postingId: p.id,
     roleTitle: p.roleTitle,
     status: p.status,
     vacancyBand: p.vacancyBand,
     applicantsUsed: p.applicantCount,
-    applicantQuota: p.applicantQuota ?? 0,
+    applicantQuota: plans[i]!.plan?.effectiveQuota ?? 0,
   }));
   return capacitySchema.parse({
     payerId: wire.payer_id,

@@ -456,6 +456,52 @@ export const buyCapacityWireSchema = z.object({
 });
 
 /**
+ * GET /payer/job-postings/:id/plan — the posting's applicant-visibility PLAN (LIVE, Bearer
+ * only, ownership-gated + no-oracle 404 upstream). Mirrors the `feat/be-posting-plan-read`
+ * DTO EXACTLY (snake_case wire): a `job_posting_id` + a nullable `plan`. `plan: null` is a
+ * VALID 200 — "you own this posting but it has no plan yet" — NOT an error, NOT an oracle;
+ * a foreign/unknown posting is a neutral 404 the transport surfaces as a thrown error.
+ *
+ * PII-free by construction: ids / counts / a tier + status enum / ISO timestamps ONLY —
+ * NO worker identity, NO payer PII. `applicant_visibility_quota` is the immutable base;
+ * `effective_quota` == base + `quota_topup_count` (the number the capacity page shows).
+ * The enum values match the backend EXACTLY (`standard|pro`, `draft|active|expired|paused`).
+ */
+export const postingPlanWireSchema = z.object({
+  tier: z.enum(["standard", "pro"]),
+  status: z.enum(["draft", "active", "expired", "paused"]),
+  applicant_visibility_quota: z.number().int().nonnegative(),
+  quota_topup_count: z.number().int().nonnegative(),
+  effective_quota: z.number().int().nonnegative(),
+  applicants_viewed_count: z.number().int().nonnegative(),
+  paid_at: z.string().nullable(),
+  expires_at: z.string().nullable(),
+});
+export const postingPlanViewWireSchema = z.object({
+  job_posting_id: z.string().uuid(),
+  plan: postingPlanWireSchema.nullable(),
+});
+
+/**
+ * The camelCase VIEW the seam maps the {@link postingPlanViewWireSchema} wire onto. `plan:
+ * null` means the owned posting has no plan yet (→ the capacity row's quota reads 0). All
+ * ids / counts / tier / status / timestamps — PII-free (no worker/payer identity).
+ */
+export interface PostingPlanView {
+  jobPostingId: string;
+  plan: null | {
+    tier: "standard" | "pro";
+    status: "draft" | "active" | "expired" | "paused";
+    applicantVisibilityQuota: number;
+    quotaTopupCount: number;
+    effectiveQuota: number;
+    applicantsViewedCount: number;
+    paidAt: string | null;
+    expiresAt: string | null;
+  };
+}
+
+/**
  * GET /payer/reach/jobs/:jobId/applicants — faceless ranked rows (no PII).
  *
  * The backend reach projection (ApplicantRowDto) now also returns coarse, PII-free
