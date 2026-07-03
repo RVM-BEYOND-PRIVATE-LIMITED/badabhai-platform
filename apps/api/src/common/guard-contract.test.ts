@@ -76,6 +76,7 @@ const P = "PayerAuthGuard";
 const R = "PayerRoleGuard";
 const A = "AdminAuthGuard";
 const AR = "AdminRolesGuard";
+const CNR = "ConsentNotRevokedGuard";
 
 const CONTRACT: ControllerContract[] = [
   { name: "Actions", ctor: ActionsController, routes: { record: [], recordBatch: [] } },
@@ -86,6 +87,7 @@ const CONTRACT: ControllerContract[] = [
       feed: [C, W],
       apply: [C, W],
       skip: [C, W],
+      myApplications: [C, W],
       applicants: [I],
       workerApplications: [I],
     },
@@ -93,13 +95,16 @@ const CONTRACT: ControllerContract[] = [
   {
     name: "Auth",
     ctor: AuthController,
-    // ADR-0026 Phase 1: tokenRefresh is OPEN (the refresh token in the body is the
+    // ADR-0026 Phase 1: tokenRefresh stays guard-LESS (the refresh token in the body is the
     // credential — the access JWT may be expired); logoutAll + session are worker-authed.
+    // A5 (ADR-0026 amendment): /auth/refresh adds ConsentNotRevokedGuard (block a REVOKED-consent
+    // resume; a never-consented worker is still allowed). tokenRefresh enforces the SAME rule
+    // in-controller (the worker is resolved from the token, not an authed request) — stays [].
     routes: {
       requestOtp: [],
       verifyOtp: [],
       me: [W],
-      refresh: [W],
+      refresh: [CNR, W],
       logout: [W],
       tokenRefresh: [],
       logoutAll: [W],
@@ -123,7 +128,7 @@ const CONTRACT: ControllerContract[] = [
     routes: { createInvite: [W], recordClick: [], reengage: [I] },
   },
   { name: "Capacity", ctor: CapacityController, routes: { buyCapacity: [I] } },
-  { name: "PostingPlans", ctor: PostingPlansController, routes: { buyPlan: [], buyBoost: [] } },
+  { name: "PostingPlans", ctor: PostingPlansController, routes: { buyPlan: [I], buyBoost: [I] } },
   {
     name: "Pricing",
     ctor: PricingController,
@@ -144,7 +149,14 @@ const CONTRACT: ControllerContract[] = [
   {
     name: "PayerUnlocks",
     ctor: PayerUnlocksController,
-    routes: { requestUnlock: [P], reveal: [P], listOwn: [P], ownCredits: [P], buyPack: [P] },
+    routes: {
+      requestUnlock: [P],
+      reveal: [P],
+      listOwn: [P],
+      ownCredits: [P],
+      creditsLedger: [P],
+      buyPack: [P],
+    },
   },
   // Payer-self capacity view/buy (ADR-0019 + ADR-0016): session-bound, NO :payerId param.
   {

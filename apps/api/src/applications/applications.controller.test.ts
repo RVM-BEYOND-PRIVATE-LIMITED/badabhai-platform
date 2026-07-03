@@ -55,4 +55,13 @@ describe("ApplicationsController (thin) — worker from token", () => {
     await controller.workerApplications(WORKER.id);
     expect(applications.applicationsForWorker).toHaveBeenCalledWith(WORKER.id);
   });
+
+  it("myApplications reads the authed worker id from the token (no param, no IDOR)", async () => {
+    const { controller, applications } = make();
+    await controller.myApplications(WORKER);
+    // The only argument is the token-derived worker id — nothing from the request
+    // path/body can select another worker's rows.
+    expect(applications.applicationsForWorker).toHaveBeenCalledWith(WORKER.id);
+    expect(applications.applicationsForWorker).toHaveBeenCalledTimes(1);
+  });
 });

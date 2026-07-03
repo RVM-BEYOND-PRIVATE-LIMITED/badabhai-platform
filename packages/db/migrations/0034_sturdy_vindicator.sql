@@ -1,0 +1,2 @@
+ALTER TABLE "posting_plans" ADD COLUMN "quota_topup_count" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "posting_plans" ADD CONSTRAINT "posting_plans_topup_nonneg_chk" CHECK ("posting_plans"."quota_topup_count" >= 0);

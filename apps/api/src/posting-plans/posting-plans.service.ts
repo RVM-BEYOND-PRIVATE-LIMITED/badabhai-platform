@@ -15,12 +15,22 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { PricingService } from "../pricing/pricing.service";
 import { PostingPlansRepository } from "./posting-plans.repository";
-import type { BuyPlanDto, BuyBoostDto, BuyCapacityDto } from "./posting-plans.dto";
+import type {
+  BuyPlanDto,
+  BuyBoostDto,
+  BuyCapacityDto,
+  PayerBuyPlanDto,
+  PayerBuyBoostDto,
+  PayerTopUpQuotaDto,
+} from "./posting-plans.dto";
 
 const MS_PER_DAY = 86_400_000;
 
 /** The capacity product code in the pricing catalog (ADR-0016). */
 const CAPACITY_PRODUCT = "hiring_capacity";
+
+/** The quota top-up product code in the pricing catalog (B2). */
+const QUOTA_TOPUP_PRODUCT = "quota_topup";
 
 /**
  * A deferred event emission: a zero-arg thunk closing over already-computed, PII-FREE
@@ -191,6 +201,36 @@ export class PostingPlansService {
     return { plan, quote, paused, wouldPause };
   }
 
+  /**
+   * Payer self-serve buy-a-plan (B3 / LC-1 fix). The `payerId` is the VERIFIED SESSION payer
+   * (never a body value — XB-A), stamped into the internal {@link BuyPlanDto} and then run
+   * through {@link buyPlan} UNCHANGED (same price-resolve → mock pay → capacity chokepoint →
+   * spine events). OWNERSHIP of the posting is asserted by the caller (the payer controller's
+   * no-oracle `getOneForPayer`) BEFORE this runs, so a payer can only buy a plan for their own
+   * posting. This is a thin authz-narrowing wrapper — no new payment/event logic.
+   */
+  buyPlanForPayer(
+    jobPostingId: string,
+    payerId: string,
+    dto: PayerBuyPlanDto,
+    ctx: RequestContext,
+  ): Promise<BuyPlanResult> {
+    return this.buyPlan(jobPostingId, { payer_id: payerId, tier: dto.tier, coupon: dto.coupon }, ctx);
+  }
+
+  /**
+   * Payer self-serve buy-a-boost (B3 / LC-1 fix). Session `payerId` (XB-A) → {@link buyBoost}
+   * unchanged. Ownership asserted by the caller before this runs (see {@link buyPlanForPayer}).
+   */
+  buyBoostForPayer(
+    jobPostingId: string,
+    payerId: string,
+    dto: PayerBuyBoostDto,
+    ctx: RequestContext,
+  ): Promise<{ boost: PostingBoost; quote: Quote }> {
+    return this.buyBoost(jobPostingId, { payer_id: payerId, tier: dto.tier, coupon: dto.coupon }, ctx);
+  }
+
   async buyBoost(jobPostingId: string, dto: BuyBoostDto, ctx: RequestContext): Promise<{ boost: PostingBoost; quote: Quote }> {
     if (!(await this.repo.postingExists(jobPostingId))) {
       throw new NotFoundException(`Job posting ${jobPostingId} not found`);
@@ -237,6 +277,77 @@ export class PostingPlansService {
     await this.emitCouponIfApplied(quote, dto.payer_id, "job_boost", dto.tier, ctx);
 
     return { boost, quote };
+  }
+
+  /**
+   * Payer self-serve quota top-up (B2). Buys additional applicant-visibility views for one of
+   * the payer's OWN active posting plans ("view more → pay more"), resolved through the ONE
+   * pricing engine (ADR-0013 — a `quota_topup` catalog product). The `payerId` is the verified
+   * SESSION payer (never a body value — XB-A). Posting ownership is asserted by the caller
+   * (the payer controller's no-oracle `getOneForPayer`) BEFORE this runs.
+   *
+   * Flow (mirrors buyBoost — a single atomic write, no advisory lock needed): resolve price →
+   * find the payer's ACTIVE, unexpired plan for the posting (409 if none) → mock payment
+   * (`real_call` honest) → ATOMIC increment quota_topup_count (re-asserting active+owned in the
+   * WHERE, so a plan that expired since the read yields a 409, never a phantom grant) → emit
+   * posting_plan.quota_topped + payment.* + coupon (all PII-free). The ORIGINAL stamped
+   * `applicant_visibility_quota` receipt is never mutated; the top-up accumulates separately.
+   */
+  async topUpQuotaForPayer(
+    jobPostingId: string,
+    payerId: string,
+    dto: PayerTopUpQuotaDto,
+    ctx: RequestContext,
+  ): Promise<{ plan: PostingPlan; quote: Quote }> {
+    const quote = await this.resolve(QUOTA_TOPUP_PRODUCT, dto.tier, dto.coupon, payerId);
+    if (quote.grants.kind !== "quota_topup") {
+      throw new BadRequestException("resolved product is not a quota top-up");
+    }
+    const grants = quote.grants;
+    const realCall = areRealPaymentsEnabled(this.config);
+    const now = new Date();
+
+    // The plan to top up: the payer's active, unexpired plan for this posting (payer-scoped;
+    // a foreign/absent plan is invisible → 409, no oracle). You must own an active plan first.
+    const target = await this.repo.findActivePlanForPostingAndPayer(jobPostingId, payerId, now);
+    if (!target) throw new ConflictException("no active plan to top up for this posting");
+
+    // ATOMIC increment (re-guards active+owned+unexpired) BEFORE any payment emit, so a plan
+    // that raced to expiry yields a clean 409 and NO payment event is recorded for a no-op.
+    const updated = await this.repo.addQuotaTopup(
+      target.id,
+      payerId,
+      grants.additionalVisibilityQuota,
+      now,
+    );
+    if (!updated) throw new ConflictException("no active plan to top up for this posting");
+
+    await this.emitPayment("payment.authorized", jobPostingId, payerId, quote.finalInr, realCall, ctx);
+    await this.emitPayment("payment.captured", jobPostingId, payerId, quote.finalInr, realCall, ctx);
+
+    const payload: PayloadInputOf<"posting_plan.quota_topped"> = {
+      plan_id: updated.id,
+      job_posting_id: jobPostingId,
+      payer_id: payerId,
+      tier: dto.tier,
+      quota_added: grants.additionalVisibilityQuota,
+      quota_topup_total: updated.quotaTopupCount,
+      price_inr: quote.finalInr,
+      discount_inr: quote.discountInr,
+      coupon_applied: quote.couponApplied !== null,
+      real_call: realCall,
+    };
+    await this.events.emit({
+      event_name: "posting_plan.quota_topped",
+      actor: { actor_type: "payer", actor_id: payerId },
+      subject: { subject_type: "posting_plan", subject_id: updated.id },
+      payload,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+    await this.emitCouponIfApplied(quote, payerId, QUOTA_TOPUP_PRODUCT, dto.tier, ctx);
+
+    return { plan: updated, quote };
   }
 
   /**

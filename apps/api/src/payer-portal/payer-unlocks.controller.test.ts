@@ -19,6 +19,7 @@ function makeCtrl() {
     reveal: vi.fn(async () => ({ channel: "in_app_relay" })),
     listByPayer: vi.fn(async () => ({ unlocks: [] })),
     getCredits: vi.fn(async () => ({ payer_id: PAYER_A.id, balance: 0 })),
+    getCreditLedger: vi.fn(async () => ({ payer_id: PAYER_A.id, ledger: [] })),
     purchaseCredits: vi.fn(async () => ({
       payer_id: PAYER_A.id,
       balance: 50,
@@ -61,6 +62,14 @@ describe("PayerUnlocksController — identity from the session, never the body (
     expect(d.unlocks.listByPayer).toHaveBeenCalledWith(PAYER_A.id);
     await d.ctrl.ownCredits(PAYER_A);
     expect(d.unlocks.getCredits).toHaveBeenCalledWith(PAYER_A.id);
+  });
+
+  it("creditsLedger scopes to the SESSION payer + passes the clamped limit (B4; no body/param payer_id)", async () => {
+    // The only args are the token-derived payer id and the validated limit — nothing in the
+    // request can select another payer's ledger (cross-payer isolation is the repo WHERE clause).
+    await d.ctrl.creditsLedger({ limit: 25 }, PAYER_A);
+    expect(d.unlocks.getCreditLedger).toHaveBeenCalledWith(PAYER_A.id, 25);
+    expect(d.unlocks.getCreditLedger).toHaveBeenCalledTimes(1);
   });
 
   it("enforces the per-payer disclosure cap (XB-G) against the SESSION payer on request + reveal", async () => {

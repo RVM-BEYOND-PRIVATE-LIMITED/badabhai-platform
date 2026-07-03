@@ -236,15 +236,22 @@
     {
       "idx": 33,
       "version": "7",
-      "when": 1782899944436,
-      "tag": "0033_dark_crusher_hogan",
+      "when": 1782895372285,
+      "tag": "0033_volatile_venom",
       "breakpoints": true
     },
     {
       "idx": 34,
       "version": "7",
-      "when": 1782906049951,
-      "tag": "0034_wonderful_nico_minoru",
+      "when": 1782900596376,
+      "tag": "0034_sturdy_vindicator",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1783062252860,
+      "tag": "0035_acoustic_gateway",
       "breakpoints": true
     }
   ]

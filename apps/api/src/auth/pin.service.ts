@@ -20,6 +20,7 @@ import { SessionService } from "./session.service";
 import { DevicesRepository } from "./devices.repository";
 import { PinHasher } from "./pin-hasher.service";
 import { PinRepository } from "./pin.repository";
+import { ConsentRepository } from "../consent/consent.repository";
 import type { PinVerifyResponse } from "./pin.dto";
 
 /** Minimal typed view of the Redis commands the PIN throttle needs (ioredis at runtime). */
@@ -79,6 +80,7 @@ export class PinService {
     private readonly devices: DevicesRepository,
     private readonly otp: OtpService,
     private readonly auth: AuthService,
+    private readonly consents: ConsentRepository,
     @InjectQueue(RESUME_RENDER_QUEUE) private readonly queue: Queue,
   ) {}
 
@@ -230,7 +232,14 @@ export class PinService {
     // Rehydrate the transient throttle from the DURABLE lockout_cycles mirror on a Redis
     // miss (flush/eviction) so the exponential ladder + force-OTP progress cannot be reset
     // to cycle 0 with a zero-wait fresh attempt budget (security Finding 1).
-    const throttle = await this.readThrottle(redis, workerId, deviceId, cred.lockoutCycles, now);
+    const throttle = await this.readThrottle(
+      redis,
+      workerId,
+      deviceId,
+      cred.lockoutCycles,
+      cred.failedAttempts,
+      now,
+    );
 
     // (d) Redis transient lockout window still open ⇒ neutral failure. We deliberately still
     // run the scrypt verify below ONLY on the success/normal path; a locked path returns
@@ -245,6 +254,18 @@ export class PinService {
     const ok = this.hasher.verify(input.pin, cred.pinHash, cred.pepperVersion);
 
     if (ok) {
+      // A5 (ADR-0026 amendment): a correct PIN unlocks/RESUMES a session — but a worker whose
+      // consent was REVOKED must not resume (parity with /auth/token/refresh). Checked AFTER the
+      // scrypt verify so it is not a pre-scrypt oracle — only the legitimate PIN-holder reaches
+      // it — and returns the SAME neutral 401 as every other negative path (no consent oracle on
+      // this strict no-oracle surface). A never-consented worker is allowed (pre-consent
+      // onboarding); profiling stays ConsentGuard-blocked regardless.
+      const consent = await this.consents.findLatestByWorker(workerId);
+      if (consent && consent.revokedAt !== null) {
+        await this.emitVerifyFailed(workerId, deviceId, "consent_revoked", ctx);
+        throw PinService.neutralFailure();
+      }
+
       // SUCCESS — clear the transient + DB throttle (leave otp_cycle_count as-is), mint a
       // fresh device-bound session (the SAME shape OTP login returns), emit pin_verified.
       await this.clearThrottle(redis, workerId, deviceId);
@@ -332,6 +353,12 @@ export class PinService {
           otpCycleCount: current.cycle, // unchanged until the final cycle
         });
       }
+    } else {
+      // Non-lockout wrong attempt (still within a cycle): durably mirror the running failed
+      // count so a Redis flush/eviction at cycle 0 — before any lockout arms lockout_cycles —
+      // cannot hand back a fresh zero-attempt budget (security Finding 1). The lockout-step
+      // path above resets failed_attempts to 0 via recordFailureEscalation.
+      await this.pins.recordFailedAttempts(workerId, next.failed);
     }
 
     await this.writeThrottle(redis, workerId, deviceId, next);
@@ -379,6 +406,7 @@ export class PinService {
     workerId: string,
     deviceId: string,
     durableCycles: number,
+    durableFailed: number,
     now: number,
   ): Promise<ThrottleRecord> {
     try {
@@ -404,14 +432,25 @@ export class PinService {
         await this.writeThrottle(redis, workerId, deviceId, rehydrated);
         return rehydrated;
       }
+      // Cycle 0 (no lockout armed yet) but the worker has durably-mirrored failed attempts:
+      // rehydrate the running count so a flush at cycle 0 is NOT a fresh zero-attempt budget
+      // (security Finding 1). No lockout window is imposed (none was armed); the count simply
+      // resumes toward PIN_MAX_ATTEMPTS. Persist it so this window's transient view is stable.
+      if (durableFailed > 0) {
+        const rehydrated: ThrottleRecord = { failed: durableFailed, lockedUntil: null, cycle: 0 };
+        await this.writeThrottle(redis, workerId, deviceId, rehydrated);
+        return rehydrated;
+      }
       return { failed: 0, lockedUntil: null, cycle: 0 };
     } catch {
-      // A Redis read error reads as "no transient state" — but the DURABLE escalation must
-      // still hold: a mid-ladder worker stays conservatively locked (never a fresh budget)
-      // during a Redis outage; the DB force-OTP guard above already covers the final cycle.
-      return durableCycles > 0
-        ? this.rehydratedThrottle(durableCycles, now)
-        : { failed: 0, lockedUntil: null, cycle: 0 };
+      // A Redis read error reads as "no transient state" — but the DURABLE mirror must still
+      // hold during an outage: a mid-ladder worker stays conservatively locked (cycle≥1) and
+      // a cycle-0 worker keeps its durably-mirrored failed count (never a fresh budget)
+      // (security Finding 1). The DB force-OTP guard above already covers the final cycle. We
+      // do NOT write here (Redis is erroring).
+      if (durableCycles > 0) return this.rehydratedThrottle(durableCycles, now);
+      if (durableFailed > 0) return { failed: durableFailed, lockedUntil: null, cycle: 0 };
+      return { failed: 0, lockedUntil: null, cycle: 0 };
     }
   }
 

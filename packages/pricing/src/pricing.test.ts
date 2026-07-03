@@ -45,6 +45,14 @@ const baseCatalog: Catalog = parseCatalog({
         { code: "cap_15", priceInr: 12000, maxActiveVacancies: 15, validityDays: 30 },
       ],
     },
+    {
+      kind: "quota_topup",
+      code: "quota_topup",
+      tiers: [
+        { code: "topup_10", priceInr: 1000, additionalVisibilityQuota: 10 },
+        { code: "topup_30", priceInr: 2500, additionalVisibilityQuota: 30 },
+      ],
+    },
   ],
   offers: [],
   coupons: [],
@@ -187,6 +195,53 @@ describe("capacity product (ADR-0016) — discount + fail-closed parity with the
     expect(q.finalInr).toBe(4000); // 5000 − 20%
     expect(q.couponApplied).toBe("capsave");
     expect(q.grants).toEqual({ kind: "capacity", maxActiveVacancies: 5, validityDays: 30 });
+  });
+});
+
+describe("quota_topup product (B2) — additionalVisibilityQuota grant + fail-closed parity", () => {
+  it("resolves the seeded top-up tiers with the additionalVisibilityQuota grant", () => {
+    const topup = DEFAULT_CATALOG.products.find((p) => p.code === "quota_topup");
+    expect(topup?.kind).toBe("quota_topup");
+    const t10 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "quota_topup", tierCode: "topup_10", now: NOW }));
+    expect(t10).toMatchObject({
+      finalInr: 1000,
+      kind: "quota_topup",
+      grants: { kind: "quota_topup", additionalVisibilityQuota: 10 },
+    });
+    const t30 = ok(resolvePrice(DEFAULT_CATALOG, { productCode: "quota_topup", tierCode: "topup_30", now: NOW }));
+    expect(t30).toMatchObject({
+      finalInr: 2500,
+      grants: { kind: "quota_topup", additionalVisibilityQuota: 30 },
+    });
+  });
+
+  it("unknown top-up tier → unavailable (fail-closed, never a 0 price)", () => {
+    expect(
+      resolvePrice(baseCatalog, { productCode: "quota_topup", tierCode: "nope", now: NOW }),
+    ).toEqual({ ok: false, reason: "unavailable" });
+  });
+
+  it("applies a coupon to a top-up tier and still returns the quota_topup grant", () => {
+    const cat = parseCatalog({
+      ...baseCatalog,
+      coupons: [
+        {
+          code: "topsave",
+          scope: { productCode: "quota_topup", tierCode: "topup_10" },
+          kind: "percent",
+          value: 10,
+          totalUsageCap: 100,
+          perPayerLimit: 5,
+          ...WINDOW,
+        },
+      ],
+    });
+    const q = ok(
+      resolvePrice(cat, { productCode: "quota_topup", tierCode: "topup_10", couponCode: "topsave", now: NOW }),
+    );
+    expect(q.finalInr).toBe(900); // 1000 − 10%
+    expect(q.couponApplied).toBe("topsave");
+    expect(q.grants).toEqual({ kind: "quota_topup", additionalVisibilityQuota: 10 });
   });
 });
 
@@ -452,7 +507,7 @@ describe("safeParseCatalog — fail-closed gate", () => {
   it("valid raw → ok:true with the parsed catalog", () => {
     const res = safeParseCatalog(baseCatalog);
     expect(res.ok).toBe(true);
-    expect(res.catalog.products.length).toBe(4);
+    expect(res.catalog.products.length).toBe(5);
   });
 
   it("a negative price is rejected → falls back to DEFAULT, ok:false", () => {

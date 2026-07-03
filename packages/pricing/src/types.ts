@@ -87,8 +87,23 @@ export const capacityTierSchema = z.object({
 });
 export type CapacityTier = z.infer<typeof capacityTierSchema>;
 
-/** The four priced product kinds. */
-export const productKindSchema = z.enum(["posting", "boost", "credit_pack", "capacity"]);
+/**
+ * A quota top-up tier (B2). Buying it ADDS applicant-visibility views to an existing
+ * active posting plan (the "view more → pay more" refill), on top of the plan's original
+ * stamped `applicantVisibilityQuota`. The added views are consumed within the plan's
+ * EXISTING validity window (no separate window). PII-FREE: a stable code + integer ₹ +
+ * a positive view count only.
+ */
+export const quotaTopupTierSchema = z.object({
+  code: codeSchema,
+  priceInr: priceInrSchema,
+  /** How many additional applicant-visibility views this top-up grants the plan. */
+  additionalVisibilityQuota: positiveIntSchema,
+});
+export type QuotaTopupTier = z.infer<typeof quotaTopupTierSchema>;
+
+/** The five priced product kinds. */
+export const productKindSchema = z.enum(["posting", "boost", "credit_pack", "capacity", "quota_topup"]);
 export type ProductKind = z.infer<typeof productKindSchema>;
 
 /**
@@ -116,6 +131,11 @@ export const productSchema = z.discriminatedUnion("kind", [
     kind: z.literal("capacity"),
     code: codeSchema,
     tiers: z.array(capacityTierSchema).min(1),
+  }),
+  z.object({
+    kind: z.literal("quota_topup"),
+    code: codeSchema,
+    tiers: z.array(quotaTopupTierSchema).min(1),
   }),
 ]);
 export type Product = z.infer<typeof productSchema>;

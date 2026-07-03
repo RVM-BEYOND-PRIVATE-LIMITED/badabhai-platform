@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { ForbiddenException, UnauthorizedException, type ExecutionContext } from "@nestjs/common";
 import type { WorkerConsent } from "@badabhai/db";
 import type { ConsentRepository } from "../consent/consent.repository";
-import { ConsentGuard } from "./consent.guard";
+import { ConsentGuard, ConsentNotRevokedGuard } from "./consent.guard";
 
 /** ExecutionContext whose request carries the given (already-authenticated) worker. */
 function makeCtx(worker?: { id: string; sid: string }) {
@@ -60,5 +60,37 @@ describe("ConsentGuard", () => {
     await guard.canActivate(ctx);
     expect(consents.findLatestByWorker).toHaveBeenCalledWith("w-1");
     expect(consents.findLatestByWorker).not.toHaveBeenCalledWith("attacker-id");
+  });
+});
+
+describe("ConsentNotRevokedGuard (A5 — session resume/refresh, defense-in-depth)", () => {
+  it("ALLOWS a never-consented worker (no row) — the pre-consent onboarding window is not broken", async () => {
+    // KEY difference from ConsentGuard: a missing consent row is ALLOWED here (a worker logs in
+    // BEFORE consenting; the profiling routes still carry ConsentGuard to block processing).
+    const consents = makeConsents(undefined);
+    const guard = new ConsentNotRevokedGuard(consents);
+    await expect(guard.canActivate(makeCtx(WORKER))).resolves.toBe(true);
+    expect(consents.findLatestByWorker).toHaveBeenCalledWith("w-1");
+  });
+
+  it("ALLOWS a worker with active (not-revoked) consent", async () => {
+    const consents = makeConsents({ id: "c-1", workerId: "w-1", revokedAt: null });
+    const guard = new ConsentNotRevokedGuard(consents);
+    await expect(guard.canActivate(makeCtx(WORKER))).resolves.toBe(true);
+  });
+
+  it("DENIES (403) a worker whose latest consent has been REVOKED", async () => {
+    const consents = makeConsents({ id: "c-1", workerId: "w-1", revokedAt: new Date() });
+    const guard = new ConsentNotRevokedGuard(consents);
+    await expect(guard.canActivate(makeCtx(WORKER))).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("throws 401 when no authenticated worker is on the request (guard misordered) and does NOT query", async () => {
+    const consents = makeConsents({ id: "c-1", workerId: "w-1", revokedAt: null });
+    const guard = new ConsentNotRevokedGuard(consents);
+    await expect(guard.canActivate(makeCtx(undefined))).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    expect(consents.findLatestByWorker).not.toHaveBeenCalled();
   });
 });

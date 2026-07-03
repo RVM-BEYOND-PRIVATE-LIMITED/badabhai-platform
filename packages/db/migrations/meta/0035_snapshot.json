@@ -1,6 +1,6 @@
 {
-  "id": "d3d9a71c-c319-4803-9212-737f47f86228",
-  "prevId": "3dac0c3f-16fc-465b-b670-c878c030ce3b",
+  "id": "b4652146-2389-407c-a08c-7d2063ee0c70",
+  "prevId": "d3d9a71c-c319-4803-9212-737f47f86228",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -843,6 +843,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "org_id": {
+          "name": "org_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "delta": {
           "name": "delta",
           "type": "integer",
@@ -893,6 +899,21 @@
           "columns": [
             {
               "expression": "payer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "credit_ledger_org_id_idx": {
+          "name": "credit_ledger_org_id_idx",
+          "columns": [
+            {
+              "expression": "org_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1441,6 +1462,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "org_id": {
+          "name": "org_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "org_label": {
           "name": "org_label",
           "type": "text",
@@ -1541,6 +1568,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "job_postings_org_id_idx": {
+          "name": "job_postings_org_id_idx",
+          "columns": [
+            {
+              "expression": "org_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1603,6 +1645,12 @@
         },
         "payer_id": {
           "name": "payer_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "org_id": {
+          "name": "org_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -1671,6 +1719,21 @@
             },
             {
               "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "jobs_org_id_idx": {
+          "name": "jobs_org_id_idx",
+          "columns": [
+            {
+              "expression": "org_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1851,6 +1914,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "org_id": {
+          "name": "org_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "max_active_vacancies": {
           "name": "max_active_vacancies",
           "type": "integer",
@@ -1899,6 +1968,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "payer_capacity_org_id_uq": {
+          "name": "payer_capacity_org_id_uq",
+          "columns": [
+            {
+              "expression": "org_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1929,6 +2013,12 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
+        },
+        "org_id": {
+          "name": "org_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         },
         "balance": {
           "name": "balance",
@@ -1967,6 +2057,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "payer_credits_org_id_uq": {
+          "name": "payer_credits_org_id_uq",
+          "columns": [
+            {
+              "expression": "org_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1980,6 +2085,304 @@
         }
       },
       "isRLSEnabled": false
+    },
+    "public.payer_members": {
+      "name": "payer_members",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "org_id": {
+          "name": "org_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "member_payer_id": {
+          "name": "member_payer_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email_enc": {
+          "name": "email_enc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email_hash": {
+          "name": "email_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "org_role": {
+          "name": "org_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'recruiter'"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'invited'"
+        },
+        "invited_by": {
+          "name": "invited_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "invite_token_hash": {
+          "name": "invite_token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "invite_expires_at": {
+          "name": "invite_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "invited_at": {
+          "name": "invited_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "accepted_at": {
+          "name": "accepted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "removed_at": {
+          "name": "removed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "payer_members_org_id_idx": {
+          "name": "payer_members_org_id_idx",
+          "columns": [
+            {
+              "expression": "org_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "payer_members_member_payer_id_idx": {
+          "name": "payer_members_member_payer_id_idx",
+          "columns": [
+            {
+              "expression": "member_payer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "payer_members_org_email_uq": {
+          "name": "payer_members_org_email_uq",
+          "columns": [
+            {
+              "expression": "org_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "email_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "payer_members_org_id_payer_orgs_id_fk": {
+          "name": "payer_members_org_id_payer_orgs_id_fk",
+          "tableFrom": "payer_members",
+          "tableTo": "payer_orgs",
+          "columnsFrom": [
+            "org_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "payer_members_member_payer_id_payers_id_fk": {
+          "name": "payer_members_member_payer_id_payers_id_fk",
+          "tableFrom": "payer_members",
+          "tableTo": "payers",
+          "columnsFrom": [
+            "member_payer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "payer_members_invited_by_payers_id_fk": {
+          "name": "payer_members_invited_by_payers_id_fk",
+          "tableFrom": "payer_members",
+          "tableTo": "payers",
+          "columnsFrom": [
+            "invited_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "payer_members_role_chk": {
+          "name": "payer_members_role_chk",
+          "value": "\"payer_members\".\"org_role\" IN ('owner', 'recruiter')"
+        },
+        "payer_members_status_chk": {
+          "name": "payer_members_status_chk",
+          "value": "\"payer_members\".\"status\" IN ('invited', 'active', 'removed')"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "public.payer_orgs": {
+      "name": "payer_orgs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "root_payer_id": {
+          "name": "root_payer_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name_enc": {
+          "name": "name_enc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "payer_orgs_root_payer_id_uq": {
+          "name": "payer_orgs_root_payer_id_uq",
+          "columns": [
+            {
+              "expression": "root_payer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "payer_orgs_root_payer_id_payers_id_fk": {
+          "name": "payer_orgs_root_payer_id_payers_id_fk",
+          "tableFrom": "payer_orgs",
+          "tableTo": "payers",
+          "columnsFrom": [
+            "root_payer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "payer_orgs_status_chk": {
+          "name": "payer_orgs_status_chk",
+          "value": "\"payer_orgs\".\"status\" IN ('active', 'suspended')"
+        }
+      },
+      "isRLSEnabled": true
     },
     "public.payers": {
       "name": "payers",
@@ -2097,6 +2500,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "org_id": {
+          "name": "org_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "tier": {
           "name": "tier",
           "type": "text",
@@ -2168,6 +2577,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "posting_boosts_org_id_idx": {
+          "name": "posting_boosts_org_id_idx",
+          "columns": [
+            {
+              "expression": "org_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -2222,6 +2646,12 @@
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
+        },
+        "org_id": {
+          "name": "org_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         },
         "tier": {
           "name": "tier",
@@ -2304,6 +2734,21 @@
           "columns": [
             {
               "expression": "payer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "posting_plans_org_id_idx": {
+          "name": "posting_plans_org_id_idx",
+          "columns": [
+            {
+              "expression": "org_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -2707,6 +3152,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "org_id": {
+          "name": "org_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "worker_id": {
           "name": "worker_id",
           "type": "uuid",
@@ -2789,6 +3240,48 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "resume_disclosures_org_worker_posting_uq": {
+          "name": "resume_disclosures_org_worker_posting_uq",
+          "columns": [
+            {
+              "expression": "org_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "worker_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "job_posting_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "resume_disclosures_org_id_idx": {
+          "name": "resume_disclosures_org_id_idx",
+          "columns": [
+            {
+              "expression": "org_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -2995,6 +3488,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "org_id": {
+          "name": "org_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "worker_id": {
           "name": "worker_id",
           "type": "uuid",
@@ -3078,6 +3577,42 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "unlocks_org_worker_uq": {
+          "name": "unlocks_org_worker_uq",
+          "columns": [
+            {
+              "expression": "org_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "worker_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "unlocks_org_id_idx": {
+          "name": "unlocks_org_id_idx",
+          "columns": [
+            {
+              "expression": "org_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}

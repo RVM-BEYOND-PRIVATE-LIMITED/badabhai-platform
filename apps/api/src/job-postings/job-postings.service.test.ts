@@ -36,7 +36,7 @@ type Row = {
   locationLabel: string | null;
   description: string | null;
   vacancyBand: string;
-  status: "draft" | "open" | "closed";
+  status: "draft" | "open" | "paused" | "closed";
   createdAt: Date;
   updatedAt: Date;
   closedAt: Date | null;
@@ -90,6 +90,18 @@ function make(existing?: Row) {
     .mockImplementation((id: string, _orgId: string, _prev: "draft" | "open", closedAt: Date) =>
       Promise.resolve(row({ ...existing, id, status: "closed", closedAt })),
     );
+  // Owner + status-guarded transition (B1): only transitions when the existing row's status
+  // matches `fromStatus` (mirrors the DB WHERE guard); otherwise undefined → the service 409s.
+  const transitionOwned = vi
+    .fn()
+    .mockImplementation(
+      (id: string, _payerId: string, fromStatus: Row["status"], toStatus: Row["status"]) =>
+        Promise.resolve(
+          existing && existing.status === fromStatus
+            ? row({ ...existing, id, status: toStatus })
+            : undefined,
+        ),
+    );
   const svc = new JobPostingsService(
     {
       create,
@@ -101,6 +113,7 @@ function make(existing?: Row) {
       listByOrg,
       updateOwned,
       closeOwned,
+      transitionOwned,
     } as never,
     { emit } as never,
   );
@@ -116,6 +129,7 @@ function make(existing?: Row) {
     listByOrg,
     updateOwned,
     closeOwned,
+    transitionOwned,
   };
 }
 
@@ -347,6 +361,66 @@ describe("JobPostingsService.close", () => {
   it("409s when the posting is already closed and does not emit", async () => {
     const { svc, emit } = make(row({ status: "closed" }));
     await expect(svc.close(POSTING_ID, CTX as never)).rejects.toBeInstanceOf(ConflictException);
+    expect(emit).not.toHaveBeenCalled();
+  });
+});
+
+describe("JobPostingsService.pauseForPayer / resumeForPayer (B1)", () => {
+  const PAYER = "aaaaaaaa-0000-4000-8000-000000000001";
+
+  it("pauses an OPEN posting (open -> paused) and emits a PII-free job_posting.paused (payer actor)", async () => {
+    const { svc, emit, transitionOwned } = make(row({ status: "open" }));
+    const res = await svc.pauseForPayer(POSTING_ID, PAYER, CTX as never);
+    expect(res.status).toBe("paused");
+    expect(transitionOwned).toHaveBeenCalledWith(POSTING_ID, PAYER, "open", "paused");
+    const arg = emit.mock.calls[0]![0];
+    expect(arg.event_name).toBe("job_posting.paused");
+    expect(arg.actor).toEqual({ actor_type: "payer", actor_id: PAYER });
+    expect(arg.subject).toEqual({ subject_type: "job_posting", subject_id: POSTING_ID });
+    expect(arg.payload).toEqual({
+      job_posting_id: POSTING_ID,
+      previous_status: "open",
+      status: "paused",
+    });
+    assertNoFreeText(arg.payload);
+  });
+
+  it("resumes a PAUSED posting (paused -> open) and emits job_posting.resumed", async () => {
+    const { svc, emit, transitionOwned } = make(row({ status: "paused" }));
+    const res = await svc.resumeForPayer(POSTING_ID, PAYER, CTX as never);
+    expect(res.status).toBe("open");
+    expect(transitionOwned).toHaveBeenCalledWith(POSTING_ID, PAYER, "paused", "open");
+    const arg = emit.mock.calls[0]![0];
+    expect(arg.event_name).toBe("job_posting.resumed");
+    expect(arg.payload).toEqual({
+      job_posting_id: POSTING_ID,
+      previous_status: "paused",
+      status: "open",
+    });
+    assertNoFreeText(arg.payload);
+  });
+
+  it("409s when pausing a non-open posting (draft) and does not emit", async () => {
+    const { svc, emit } = make(row({ status: "draft" }));
+    await expect(svc.pauseForPayer(POSTING_ID, PAYER, CTX as never)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("409s when resuming a non-paused posting (open) and does not emit", async () => {
+    const { svc, emit } = make(row({ status: "open" }));
+    await expect(svc.resumeForPayer(POSTING_ID, PAYER, CTX as never)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("404s (no-oracle) when the posting is unknown OR another payer's, and does not emit", async () => {
+    const { svc, emit } = make(undefined); // findByIdAndPayer → undefined (not-found OR foreign)
+    await expect(svc.pauseForPayer(POSTING_ID, PAYER, CTX as never)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
     expect(emit).not.toHaveBeenCalled();
   });
 });

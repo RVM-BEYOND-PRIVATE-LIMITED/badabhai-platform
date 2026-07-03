@@ -1,6 +1,11 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { BadRequestException, ConflictException, UnauthorizedException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import type { Request } from "express";
 import type { ServerConfig } from "@badabhai/config";
 import { AuthController } from "./auth.controller";
@@ -11,6 +16,7 @@ import type { PiiCryptoService } from "../common/pii-crypto.service";
 import type { AccountDeletionService } from "./account-deletion.service";
 import type { WorkersRepository } from "../workers/workers.repository";
 import type { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
+import type { ConsentRepository } from "../consent/consent.repository";
 import type { AuthenticatedWorker } from "./worker-auth.guard";
 import type { RequestContext } from "../common/request-context";
 
@@ -32,6 +38,7 @@ function make() {
     refresh: vi.fn(async () => ({ token: "fresh", expiresInSeconds: 3600 })),
     revoke: vi.fn(async () => undefined),
     refreshByToken: vi.fn(async () => ({ ok: true, minted: MINTED })),
+    resolveRefreshToken: vi.fn(async () => ({ workerId: WORKER.id, sid: WORKER.sid, familyId: "fam-1" })),
     revokeAll: vi.fn(async () => 2),
     describe: vi.fn(async () => ({ tier: 1, expiresAtMs: Date.UTC(2026, 6, 27), requiresOtpAfterMs: null })),
   };
@@ -45,6 +52,7 @@ function make() {
   };
   const pii = { decrypt: vi.fn((t: string) => t.replace(/^ENC\(|\)$/g, "")) };
   const accountDeletion = { execute: vi.fn(async () => undefined) };
+  const consents = { findLatestByWorker: vi.fn(async () => undefined) };
   const config = { OTP_MAX_SENDS_PER_HOUR: 5 } as ServerConfig;
   const controller = new AuthController(
     auth as unknown as AuthService,
@@ -54,13 +62,54 @@ function make() {
     otp as unknown as OtpService,
     pii as unknown as PiiCryptoService,
     accountDeletion as unknown as AccountDeletionService,
+    consents as unknown as ConsentRepository,
     config,
   );
-  return { controller, auth, sessions, workers, ipRateLimit, otp, pii, accountDeletion };
+  return { controller, auth, sessions, workers, ipRateLimit, otp, pii, accountDeletion, consents };
 }
 
 const reqWith = (overrides: Partial<Request> = {}): Request =>
   ({ ip: "1.2.3.4", header: (k: string) => (k === "authorization" ? "Bearer tok" : undefined), ...overrides }) as unknown as Request;
+
+/** A request carrying the required Idempotency-Key header for POST /auth/token/refresh. */
+const reqIdem = (): Request =>
+  ({ ip: "1.2.3.4", header: (k: string) => (k === "idempotency-key" ? "idem-1" : undefined) }) as unknown as Request;
+
+describe("AuthController — consent-on-resume (A5 · ADR-0026 amendment)", () => {
+  it("token/refresh: REVOKED consent → 403 and the token is NOT rotated", async () => {
+    const { controller, sessions, consents } = make();
+    (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      revokedAt: new Date(),
+    });
+    await expect(
+      controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem()),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    // Denied BEFORE any rotation — the presented token is not consumed.
+    expect(sessions.refreshByToken).not.toHaveBeenCalled();
+  });
+
+  it("token/refresh: NEVER-consented (no row) is ALLOWED — onboarding window not broken", async () => {
+    const { controller, sessions, consents } = make();
+    (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+    await controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem());
+    expect(sessions.refreshByToken).toHaveBeenCalled();
+  });
+
+  it("token/refresh: ACTIVE consent (revokedAt null) is ALLOWED", async () => {
+    const { controller, sessions, consents } = make();
+    (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ revokedAt: null });
+    await controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem());
+    expect(sessions.refreshByToken).toHaveBeenCalled();
+  });
+
+  it("token/refresh: an UNRESOLVABLE token skips the consent check (no oracle) and falls through", async () => {
+    const { controller, sessions, consents } = make();
+    (sessions.resolveRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+    await controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem());
+    expect(consents.findLatestByWorker).not.toHaveBeenCalled();
+    expect(sessions.refreshByToken).toHaveBeenCalled();
+  });
+});
 
 describe("AuthController", () => {
   it("requestOtp applies the per-IP cap FIRST, then delegates the phone", async () => {

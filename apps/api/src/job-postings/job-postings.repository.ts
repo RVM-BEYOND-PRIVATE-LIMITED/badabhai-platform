@@ -156,4 +156,30 @@ export class JobPostingsRepository {
       .returning();
     return rows[0];
   }
+
+  /**
+   * Owner-scoped status transition (B1): guarded on `id` AND `payer_id` AND the current
+   * status, so a wrong-state / gone / not-owned row is a DB no-op → undefined (the service
+   * maps that to a 409, without leaking which). Mirrors {@link closeOwned} for the reversible
+   * open<->paused transitions (pause: open→paused, resume: paused→open).
+   */
+  async transitionOwned(
+    id: string,
+    payerId: string,
+    fromStatus: JobPostingStatus,
+    toStatus: JobPostingStatus,
+  ): Promise<JobPosting | undefined> {
+    const rows = await this.db
+      .update(jobPostings)
+      .set({ status: toStatus, updatedAt: new Date() })
+      .where(
+        and(
+          eq(jobPostings.id, id),
+          eq(jobPostings.payerId, payerId),
+          eq(jobPostings.status, fromStatus),
+        ),
+      )
+      .returning();
+    return rows[0];
+  }
 }

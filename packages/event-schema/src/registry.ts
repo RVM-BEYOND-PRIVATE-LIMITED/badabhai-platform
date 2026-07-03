@@ -228,6 +228,16 @@ export const EVENT_REGISTRY = {
     domain: "job_posting",
     payload: p.JobPostingClosedPayload,
   },
+  "job_posting.paused": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingPausedPayload,
+  },
+  "job_posting.resumed": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingResumedPayload,
+  },
   // Contact Unlock + Reveal (ADR-0010, Stream A) — PII-FREE, ids/enums/counts only.
   // The revealed contact / proxy number / relay destination NEVER appears in any
   // payload (CLAUDE.md invariant 2; threat-model F-5). All v1.
@@ -262,6 +272,12 @@ export const EVENT_REGISTRY = {
   "capacity.purchased": { version: 1, domain: "capacity", payload: p.CapacityPurchasedPayload },
   "posting_plan.paused": { version: 1, domain: "posting_plan", payload: p.PostingPlanPausedPayload },
   "posting_plan.resumed": { version: 1, domain: "posting_plan", payload: p.PostingPlanResumedPayload },
+  // Quota top-up (B2): a paid applicant-visibility refill on an active plan (pricing engine).
+  "posting_plan.quota_topped": {
+    version: 1,
+    domain: "posting_plan",
+    payload: p.PostingPlanQuotaToppedPayload,
+  },
 
   // WhatsApp invite funnel + re-engagement (ADR-0020). PII-FREE; mock provider in alpha.
   "invite.created": { version: 1, domain: "invite", payload: p.InviteCreatedPayload },

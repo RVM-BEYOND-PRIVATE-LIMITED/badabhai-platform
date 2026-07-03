@@ -139,14 +139,25 @@ function makePins(initial: ReturnType<typeof makeCred> | null) {
   const recordFailureEscalation = vi.fn(
     async (_workerId: string, args: { lockoutCycles: number; otpCycleCount: number }) => {
       if (state.row) {
+        state.row.failedAttempts = 0; // a lockout STEP resets the transient failed counter
         state.row.lockoutCycles = args.lockoutCycles;
         state.row.otpCycleCount = args.otpCycleCount;
       }
     },
   );
+  const recordFailedAttempts = vi.fn(async (_workerId: string, failedAttempts: number) => {
+    if (state.row) state.row.failedAttempts = failedAttempts;
+  });
   return {
     state,
-    repo: { upsertPin, findByWorkerId, clearThrottle, incrementOtpCycle, recordFailureEscalation },
+    repo: {
+      upsertPin,
+      findByWorkerId,
+      clearThrottle,
+      incrementOtpCycle,
+      recordFailureEscalation,
+      recordFailedAttempts,
+    },
   };
 }
 
@@ -174,6 +185,8 @@ interface BuildOpts {
   resolved?: { workerId: string; deviceId: string } | null;
   device?: { id: string } | null;
   otpVerifyThrows?: boolean;
+  /** Latest worker_consents row for the A5 consent-on-resume gate. undefined = never consented. */
+  consent?: { revokedAt: Date | null };
 }
 
 function build(opts: BuildOpts = {}) {
@@ -203,6 +216,7 @@ function build(opts: BuildOpts = {}) {
       : vi.fn().mockResolvedValue(undefined),
   };
   const auth = { requestOtp: vi.fn().mockResolvedValue({ success: true }) };
+  const consents = { findLatestByWorker: vi.fn(async () => opts.consent) };
 
   const svc = new PinService(
     config,
@@ -215,10 +229,11 @@ function build(opts: BuildOpts = {}) {
     devices as never,
     otp as never,
     auth as never,
+    consents as never,
     queue,
   );
 
-  return { svc, redis, emit, hasher, pins, sessions, devices, workers, otp, auth };
+  return { svc, redis, emit, hasher, pins, sessions, devices, workers, otp, auth, consents };
 }
 
 /** All event names emitted, in order. */
@@ -351,6 +366,23 @@ describe("PinService.verifyPin — happy path (trusted device)", () => {
     expect(json).not.toContain(GOOD_PIN);
     expect(json).not.toContain(`pin$${GOOD_PIN}`);
     expect(json).not.toContain(REFRESH);
+  });
+
+  it("A5: a correct PIN but REVOKED consent → neutral 401, NO session minted, no pin_verified", async () => {
+    const { svc, sessions, emit } = build({ consent: { revokedAt: new Date() } });
+    await expectNeutral401(svc.verifyPin(verifyInput(), ctx));
+    // A revoked-consent worker cannot resume via PIN, even with the correct PIN.
+    expect(sessions.create).not.toHaveBeenCalled();
+    expect(emittedNames(emit)).not.toContain("worker.pin_verified");
+    // Ops still gets the PII-free verify-failed fact (reason is a log-only static code).
+    expect(emittedNames(emit)).toContain("worker.pin_verify_failed");
+  });
+
+  it("A5: a correct PIN with never-consented (no row) still succeeds — onboarding not broken", async () => {
+    const { svc, sessions } = build({ consent: undefined });
+    const res = await svc.verifyPin(verifyInput(), ctx);
+    expect(res.worker_id).toBe(WORKER);
+    expect(sessions.create).toHaveBeenCalledWith(WORKER, DEVICE);
   });
 });
 
@@ -545,6 +577,35 @@ describe("PinService.verifyPin — force-OTP survives a Redis flush", () => {
     expect(rec.lockedUntil).toBeGreaterThan(Date.now());
     // Still a PII-free locked fact for ops.
     expect(emittedNames(emit)).toContain("worker.pin_verify_failed");
+  });
+
+  // CASE 6c — CYCLE-0 flush must NOT reset the attempt budget (security Finding 1). Before any
+  // lockout is armed, lockout_cycles is still 0, so the cycle-mirror rehydration above does not
+  // fire — the durable failed_attempts mirror is what stops a flush from handing back a fresh
+  // zero-attempt budget.
+  it("cycle-0 flush rehydrates failed_attempts from the durable mirror — the next wrong PIN arms the lockout, not a fresh budget", async () => {
+    // Worker sits one attempt below PIN_MAX_ATTEMPTS at cycle 0 (no lockout yet), but Redis is
+    // EMPTY (flushed/evicted). durable failed_attempts = MAX-1 must rehydrate so the next wrong
+    // PIN is the MAX-th failure and arms the lockout.
+    const { svc, redis, emit, pins } = build({
+      cred: makeCred({
+        failedAttempts: BASE_CONFIG.PIN_MAX_ATTEMPTS - 1,
+        lockoutCycles: 0,
+        otpCycleCount: 0,
+      }),
+    });
+    expect(redis.store.size).toBe(0); // flushed: no transient pin_throttle key survives
+
+    await expectNeutral401(svc.verifyPin(verifyInput({ pin: WRONG_PIN }), ctx));
+
+    // The (MAX-1 durable + 1 now) = MAX-th failure armed the lockout — proof the flush did NOT
+    // reset the budget to 0 (which would have given a non-lockout single failure instead).
+    expect(emittedNames(emit)).toContain("worker.pin_locked");
+    expect(pins.state.row?.lockoutCycles).toBe(1);
+    const key = [...redis.store.keys()].find((k) => k.startsWith("pin_throttle:"));
+    const rec = JSON.parse(redis.store.get(key!)!) as { cycle: number; lockedUntil: number };
+    expect(rec.cycle).toBe(1);
+    expect(rec.lockedUntil).toBeGreaterThan(Date.now());
   });
 });
 

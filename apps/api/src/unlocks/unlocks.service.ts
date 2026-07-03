@@ -10,7 +10,12 @@ import { ConsentRepository } from "../consent/consent.repository";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
-import { UnlocksRepository, type Tx, type UnlockProjection } from "./unlocks.repository";
+import {
+  UnlocksRepository,
+  type Tx,
+  type UnlockProjection,
+  type CreditLedgerItem,
+} from "./unlocks.repository";
 import { PaymentGateway } from "./payment-gateway";
 import {
   neutralUnavailable,
@@ -456,6 +461,22 @@ export class UnlockService {
     const orgId = await this.resolveOrgId(payerId);
     const balance = orgId === null ? 0 : await this.repo.getBalance(orgId);
     return { payer_id: payerId, balance };
+  }
+
+  /**
+   * The caller's ORG credit-ledger history (the append-only movements behind the shared org
+   * wallet), newest first, bounded by `limit`. ADR-0027 B5.x Inc 2: the ledger belongs to the
+   * ORG — resolve it from the SESSION payer (never a body value); a null org (no membership)
+   * reads as an EMPTY ledger (fail-closed, no oracle). `payer_id` stays the acting payer for
+   * response-shape stability. PII-free by table design. Read-only — no event.
+   */
+  async getCreditLedger(
+    payerId: string,
+    limit: number,
+  ): Promise<{ payer_id: string; ledger: CreditLedgerItem[] }> {
+    const orgId = await this.resolveOrgId(payerId);
+    const ledger = orgId === null ? [] : await this.repo.listCreditLedgerByOrg(orgId, limit);
+    return { payer_id: payerId, ledger };
   }
 
   // ===========================================================================

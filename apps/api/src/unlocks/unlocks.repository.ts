@@ -25,6 +25,17 @@ import { OPS_LIST_CAP } from "../common/pagination";
  */
 export type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
+/** PII-free projection of a credit_ledger movement (amounts + opaque ids only). */
+export interface CreditLedgerItem {
+  id: string;
+  delta: number;
+  reason: CreditReason;
+  unlock_id: string | null;
+  pack_code: string | null;
+  payment_ref: string | null;
+  created_at: Date;
+}
+
 /** PII-free ops/list projection of an unlock row (NO routing token resolved). */
 export interface UnlockProjection {
   unlock_id: string;
@@ -304,6 +315,30 @@ export class UnlocksRepository {
       .where(eq(payerCredits.orgId, orgId))
       .limit(1);
     return rows[0]?.balance ?? 0;
+  }
+
+  /**
+   * The ORG's credit-ledger movements, newest first, bounded by `limit`. The append-only
+   * source of truth behind the balance — amounts + opaque ids only (PII-free by table design;
+   * no currency/PAN/UPI). ADR-0027 B5.x Inc 2: scoped by `org_id` (the shared org wallet's
+   * ledger) so any org member sees the ORG's movements — resolved from the caller's session
+   * payer upstream, never a body value. Read-only.
+   */
+  async listCreditLedgerByOrg(orgId: string, limit: number): Promise<CreditLedgerItem[]> {
+    return this.db
+      .select({
+        id: creditLedger.id,
+        delta: creditLedger.delta,
+        reason: creditLedger.reason,
+        unlock_id: creditLedger.unlockId,
+        pack_code: creditLedger.packCode,
+        payment_ref: creditLedger.paymentRef,
+        created_at: creditLedger.createdAt,
+      })
+      .from(creditLedger)
+      .where(eq(creditLedger.orgId, orgId))
+      .orderBy(desc(creditLedger.createdAt))
+      .limit(limit);
   }
 
   /**

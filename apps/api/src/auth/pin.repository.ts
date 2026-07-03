@@ -55,7 +55,9 @@ export class PinRepository {
   /**
    * Durably mirror a transient-lockout escalation into the DB (a Redis flush cannot wipe
    * the force-OTP state). Writes the absolute lockout_cycles + otp_cycle_count the service
-   * computed (NOT increments) so a re-run is idempotent. Scoped by worker_id.
+   * computed (NOT increments) so a re-run is idempotent. Also zeroes failed_attempts — a
+   * lockout STEP resets the transient failed counter, so the durable mirror tracks that.
+   * Scoped by worker_id.
    */
   async recordFailureEscalation(
     workerId: string,
@@ -64,10 +66,26 @@ export class PinRepository {
     await this.db
       .update(workerCredentials)
       .set({
+        failedAttempts: 0,
         lockoutCycles: args.lockoutCycles,
         otpCycleCount: args.otpCycleCount,
         updatedAt: sql`now()`,
       })
+      .where(eq(workerCredentials.workerId, workerId));
+  }
+
+  /**
+   * Durably mirror the transient failed-attempt count on a NON-lockout wrong PIN (security
+   * Finding 1). Without this, a Redis flush/eviction DURING cycle 0 — before any lockout is
+   * armed, so lockout_cycles is still 0 and the cycle-mirror rehydration does not fire —
+   * would hand the attacker a fresh zero-attempt budget. Persisting the running count means a
+   * flush at cycle 0 costs the attacker their accumulated failures, never a reset. Cleared to
+   * 0 by upsertPin / clearThrottle / recordFailureEscalation. Scoped by worker_id.
+   */
+  async recordFailedAttempts(workerId: string, failedAttempts: number): Promise<void> {
+    await this.db
+      .update(workerCredentials)
+      .set({ failedAttempts, updatedAt: sql`now()` })
       .where(eq(workerCredentials.workerId, workerId));
   }
 

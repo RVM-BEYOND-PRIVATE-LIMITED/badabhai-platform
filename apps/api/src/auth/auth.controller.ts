@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   Inject,
@@ -22,6 +23,8 @@ import { AuthService } from "./auth.service";
 import { OtpService } from "./otp.service";
 import { SessionService } from "./session.service";
 import { AccountDeletionService } from "./account-deletion.service";
+import { ConsentNotRevokedGuard } from "./consent.guard";
+import { ConsentRepository } from "../consent/consent.repository";
 import {
   WorkerAuthGuard,
   CurrentWorker,
@@ -75,6 +78,7 @@ export class AuthController {
     private readonly otp: OtpService,
     private readonly pii: PiiCryptoService,
     private readonly accountDeletion: AccountDeletionService,
+    private readonly consents: ConsentRepository,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
@@ -115,7 +119,7 @@ export class AuthController {
   /** Mint a fresh rolling token for the current session. */
   @Post("refresh")
   @HttpCode(200)
-  @UseGuards(WorkerAuthGuard)
+  @UseGuards(WorkerAuthGuard, ConsentNotRevokedGuard)
   async refresh(@Req() req: Request): Promise<RefreshResponse> {
     const fresh = await this.sessions.refresh(bearer(req));
     if (!fresh) throw new UnauthorizedException("Invalid or expired session");
@@ -150,6 +154,20 @@ export class AuthController {
     const idempotencyKey = req.header("idempotency-key")?.trim();
     if (!idempotencyKey) {
       throw new BadRequestException("Idempotency-Key header is required");
+    }
+
+    // A5 (ADR-0026 amendment): block a session RESUME for a worker whose consent was REVOKED.
+    // Resolve the worker from the refresh token WITHOUT rotating/consuming it, then deny only on
+    // a REVOKED consent — a NEVER-consented worker (still in the pre-consent onboarding window)
+    // is allowed through, mirroring ConsentNotRevokedGuard on /auth/refresh. An unresolvable
+    // token skips the check and falls through to the neutral 401 below (no consent oracle for a
+    // token we cannot tie to a worker).
+    const resolved = await this.sessions.resolveRefreshToken(dto.refresh_token);
+    if (resolved) {
+      const latest = await this.consents.findLatestByWorker(resolved.workerId);
+      if (latest && latest.revokedAt !== null) {
+        throw new ForbiddenException("consent required");
+      }
     }
 
     const outcome = await this.sessions.refreshByToken(dto.refresh_token, idempotencyKey);
