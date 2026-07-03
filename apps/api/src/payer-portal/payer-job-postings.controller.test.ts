@@ -42,8 +42,12 @@ function makeCtrl() {
     getOneForPayer: vi.fn(async () => ({ id: POSTING })),
     updateForPayer: vi.fn(async () => ({ id: POSTING })),
     closeForPayer: vi.fn(async () => ({ id: POSTING })),
-    pauseForPayer: vi.fn(async () => ({ id: POSTING })),
-    resumeForPayer: vi.fn(async () => ({ id: POSTING })),
+    pauseForPayer: vi.fn(
+      async (_id: string, _orgId: string, _payerId: string, _ctx: unknown) => ({ id: POSTING }),
+    ),
+    resumeForPayer: vi.fn(
+      async (_id: string, _orgId: string, _payerId: string, _ctx: unknown) => ({ id: POSTING }),
+    ),
   };
   const plans = {
     buyPlanForPayer: vi.fn(
@@ -148,33 +152,38 @@ describe("PayerJobPostingsController — ownership is the session ORG, never the
     );
   });
 
-  it("pause forwards the SESSION payer as the ownership key (B1)", async () => {
-    await d.ctrl.pause(POSTING, PAYER_A, CTX);
-    expect(d.jobPostings.pauseForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id, CTX);
+  it("pause forwards the session ORG as the ownership key + the session payer as actor (B1; Inc 3)", async () => {
+    await d.ctrl.pause(POSTING, ORG_A, PAYER_A, CTX);
+    expect(d.jobPostings.pauseForPayer).toHaveBeenCalledWith(POSTING, ORG_A.orgId, PAYER_A.id, CTX);
   });
 
-  it("resume forwards the SESSION payer as the ownership key (B1)", async () => {
-    await d.ctrl.resume(POSTING, PAYER_B, CTX);
-    expect(d.jobPostings.resumeForPayer).toHaveBeenCalledWith(POSTING, PAYER_B.id, CTX);
+  it("resume forwards the session ORG as the ownership key + the session payer as actor (B1; Inc 3)", async () => {
+    await d.ctrl.resume(POSTING, ORG_B, PAYER_B, CTX);
+    expect(d.jobPostings.resumeForPayer).toHaveBeenCalledWith(POSTING, ORG_B.orgId, PAYER_B.id, CTX);
   });
 });
 
 /**
- * B3 / LC-1: the payer-authed money routes (buy-plan / buy-boost). The `payer_id` is the
- * SESSION payer (never the body), and OWNERSHIP is asserted via `getOneForPayer` BEFORE any
- * purchase. Proves a payer can only buy against their OWN posting and can never inject another
- * payer's id — the IDOR guarantee the ops routes lacked.
+ * B3 / LC-1 → ADR-0027 B5.x Inc 3: the payer-authed money routes (buy-plan / buy-boost).
+ * OWNERSHIP is asserted via `getOneForPayer(id, org.orgId)` BEFORE any purchase — this is the
+ * MERGE-BREAK FIX: the controller previously passed `payer.id` (≠ org_id) into the org-scoped
+ * `getOneForPayer`, which ALWAYS 404'd. The `payer_id` forwarded to the service stays the
+ * SESSION payer (the service resolves the SAME org from it). Proves a member can only buy
+ * against their OWN org's posting and can never inject another payer's/org's id.
  */
-describe("PayerJobPostingsController — buy plan/boost is session-scoped + ownership-gated (B3/LC-1)", () => {
+describe("PayerJobPostingsController — buy plan/boost is org-ownership-gated + session-payer-scoped (B3/LC-1, Inc 3 merge-break fix)", () => {
   let d: ReturnType<typeof makeCtrl>;
   beforeEach(() => {
     d = makeCtrl();
   });
 
-  it("buyPlan checks ownership FIRST, then buys with the SESSION payer id (no body payer_id)", async () => {
+  it("buyPlan checks ownership on the ORG key FIRST (the fix), then buys with the SESSION payer id", async () => {
     const dto = { tier: "standard" as const };
-    await d.ctrl.buyPlan(POSTING, dto, PAYER_A, CTX);
-    expect(d.jobPostings.getOneForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id);
+    await d.ctrl.buyPlan(POSTING, dto, ORG_A, PAYER_A, CTX);
+    // THE FIX: the ownership read keys on org.orgId (was payer.id → always-404 merge break).
+    expect(d.jobPostings.getOneForPayer).toHaveBeenCalledWith(POSTING, ORG_A.orgId);
+    expect(d.jobPostings.getOneForPayer).not.toHaveBeenCalledWith(POSTING, PAYER_A.id);
+    // The service still takes the SESSION payer id (it resolves the org internally).
     expect(d.plans.buyPlanForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id, dto, CTX);
     // The service is only reached AFTER the ownership read resolves.
     expect(d.jobPostings.getOneForPayer.mock.invocationCallOrder[0]!).toBeLessThan(
@@ -184,44 +193,54 @@ describe("PayerJobPostingsController — buy plan/boost is session-scoped + owne
     expect(d.plans.buyPlanForPayer.mock.calls[0]![2]).not.toHaveProperty("payer_id");
   });
 
-  it("buyBoost checks ownership FIRST, then buys with the SESSION payer id", async () => {
+  it("buyBoost checks ownership on the ORG key FIRST (the fix), then buys with the SESSION payer id", async () => {
     const dto = { tier: "all_candidates" as const };
-    await d.ctrl.buyBoost(POSTING, dto, PAYER_B, CTX);
-    expect(d.jobPostings.getOneForPayer).toHaveBeenCalledWith(POSTING, PAYER_B.id);
+    await d.ctrl.buyBoost(POSTING, dto, ORG_B, PAYER_B, CTX);
+    expect(d.jobPostings.getOneForPayer).toHaveBeenCalledWith(POSTING, ORG_B.orgId);
+    expect(d.jobPostings.getOneForPayer).not.toHaveBeenCalledWith(POSTING, PAYER_B.id);
     expect(d.plans.buyBoostForPayer).toHaveBeenCalledWith(POSTING, PAYER_B.id, dto, CTX);
     expect(d.plans.buyBoostForPayer.mock.calls[0]![2]).not.toHaveProperty("payer_id");
   });
 
-  it("buyPlan on an unknown OR foreign posting (404) NEVER reaches the money path", async () => {
+  it("MERGE-BREAK regression: buyPlan reaches the money path for the OWNER (no longer always-404)", async () => {
+    // With the fix, an owner's ownership read RESOLVES (the mock returns the posting) and the
+    // purchase proceeds — under the pre-fix payer.id arg this would have thrown a neutral 404.
+    d.jobPostings.getOneForPayer.mockResolvedValueOnce({ id: POSTING });
+    await d.ctrl.buyPlan(POSTING, { tier: "pro" as const }, ORG_A, PAYER_A, CTX);
+    expect(d.plans.buyPlanForPayer).toHaveBeenCalledTimes(1);
+  });
+
+  it("buyPlan on an unknown OR foreign-org posting (404) NEVER reaches the money path", async () => {
     d.jobPostings.getOneForPayer.mockRejectedValueOnce(new Error("Job posting not found"));
-    await expect(d.ctrl.buyPlan(POSTING, { tier: "pro" }, PAYER_A, CTX)).rejects.toThrow();
+    await expect(d.ctrl.buyPlan(POSTING, { tier: "pro" }, ORG_A, PAYER_A, CTX)).rejects.toThrow();
     expect(d.plans.buyPlanForPayer).not.toHaveBeenCalled();
   });
 
-  it("buyBoost on an unknown OR foreign posting (404) NEVER reaches the money path", async () => {
+  it("buyBoost on an unknown OR foreign-org posting (404) NEVER reaches the money path", async () => {
     d.jobPostings.getOneForPayer.mockRejectedValueOnce(new Error("Job posting not found"));
     await expect(
-      d.ctrl.buyBoost(POSTING, { tier: "all_candidates" }, PAYER_A, CTX),
+      d.ctrl.buyBoost(POSTING, { tier: "all_candidates" }, ORG_A, PAYER_A, CTX),
     ).rejects.toThrow();
     expect(d.plans.buyBoostForPayer).not.toHaveBeenCalled();
   });
 });
 
 /**
- * B2: quota top-up is session-scoped + ownership-gated. The `payer_id` is the SESSION payer
- * (never the body), and posting OWNERSHIP is asserted via `getOneForPayer` BEFORE the paid
- * top-up — an unknown/foreign posting can never reach the money path.
+ * B2 → ADR-0027 B5.x Inc 3: quota top-up is org-ownership-gated + session-payer-scoped. Posting
+ * OWNERSHIP is asserted via `getOneForPayer(id, org.orgId)` BEFORE the paid top-up (the same
+ * merge-break fix) — an unknown/foreign-org posting can never reach the money path.
  */
-describe("PayerJobPostingsController — quota top-up is session-scoped + ownership-gated (B2)", () => {
+describe("PayerJobPostingsController — quota top-up is org-ownership-gated + session-payer-scoped (B2, Inc 3 merge-break fix)", () => {
   let d: ReturnType<typeof makeCtrl>;
   beforeEach(() => {
     d = makeCtrl();
   });
 
-  it("checks ownership FIRST, then tops up with the SESSION payer id (no body payer_id)", async () => {
+  it("checks ownership on the ORG key FIRST (the fix), then tops up with the SESSION payer id", async () => {
     const dto = { tier: "topup_10" as const };
-    await d.ctrl.topUpQuota(POSTING, dto, PAYER_A, CTX);
-    expect(d.jobPostings.getOneForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id);
+    await d.ctrl.topUpQuota(POSTING, dto, ORG_A, PAYER_A, CTX);
+    expect(d.jobPostings.getOneForPayer).toHaveBeenCalledWith(POSTING, ORG_A.orgId);
+    expect(d.jobPostings.getOneForPayer).not.toHaveBeenCalledWith(POSTING, PAYER_A.id);
     expect(d.plans.topUpQuotaForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id, dto, CTX);
     expect(d.jobPostings.getOneForPayer.mock.invocationCallOrder[0]!).toBeLessThan(
       d.plans.topUpQuotaForPayer.mock.invocationCallOrder[0]!,
@@ -229,9 +248,15 @@ describe("PayerJobPostingsController — quota top-up is session-scoped + owners
     expect(d.plans.topUpQuotaForPayer.mock.calls[0]![2]).not.toHaveProperty("payer_id");
   });
 
-  it("on an unknown OR foreign posting (404) NEVER reaches the money path", async () => {
+  it("MERGE-BREAK regression: topUpQuota reaches the money path for the OWNER (no longer always-404)", async () => {
+    d.jobPostings.getOneForPayer.mockResolvedValueOnce({ id: POSTING });
+    await d.ctrl.topUpQuota(POSTING, { tier: "topup_10" as const }, ORG_A, PAYER_A, CTX);
+    expect(d.plans.topUpQuotaForPayer).toHaveBeenCalledTimes(1);
+  });
+
+  it("on an unknown OR foreign-org posting (404) NEVER reaches the money path", async () => {
     d.jobPostings.getOneForPayer.mockRejectedValueOnce(new Error("Job posting not found"));
-    await expect(d.ctrl.topUpQuota(POSTING, { tier: "topup_10" }, PAYER_A, CTX)).rejects.toThrow();
+    await expect(d.ctrl.topUpQuota(POSTING, { tier: "topup_10" }, ORG_A, PAYER_A, CTX)).rejects.toThrow();
     expect(d.plans.topUpQuotaForPayer).not.toHaveBeenCalled();
   });
 });

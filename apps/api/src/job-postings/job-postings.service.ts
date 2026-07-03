@@ -205,14 +205,21 @@ export class JobPostingsService {
   }
 
   /**
-   * Pause one of the caller's OWN LIVE postings (open -> paused; B1). The DB transition is
-   * guarded on id + payer_id + status='open', so a non-open / gone / not-owned row is a no-op
-   * → 409 (without leaking which). A paused posting is excluded from any open-filtered feed
-   * until resumed. Emits the PII-free `job_posting.paused`.
+   * Pause one of the caller's ORG's LIVE postings (open -> paused; B1). OWNERSHIP is the
+   * caller's ORG (ADR-0027 B5.x Inc 3, mirroring Inc 1's close/update): the DB transition is
+   * guarded on id + org_id + status='open', so a non-open / gone / not-in-org row is a no-op
+   * → 409 (without leaking which); an unknown OR foreign-org id → the SAME neutral 404. A
+   * paused posting is excluded from any open-filtered feed until resumed. The event ACTOR
+   * stays the acting session payer (opaque). Emits the PII-free `job_posting.paused`.
    */
-  async pauseForPayer(id: string, payerId: string, ctx: RequestContext): Promise<JobPosting> {
-    await this.getOneForPayer(id, payerId); // no-oracle 404 (unknown OR foreign id)
-    const paused = await this.repo.transitionOwned(id, payerId, "open", "paused");
+  async pauseForPayer(
+    id: string,
+    orgId: string,
+    payerId: string,
+    ctx: RequestContext,
+  ): Promise<JobPosting> {
+    await this.getOneForPayer(id, orgId); // no-oracle 404 (unknown OR foreign-org id)
+    const paused = await this.repo.transitionOwned(id, orgId, "open", "paused");
     if (!paused) throw new ConflictException("Only an open job posting can be paused");
 
     const actor: JobPostingActor = { actor_type: "payer", actor_id: payerId };
@@ -226,13 +233,19 @@ export class JobPostingsService {
   }
 
   /**
-   * Resume one of the caller's OWN paused postings (paused -> open; B1). Guarded on id +
-   * payer_id + status='paused' (non-paused / gone / not-owned → 409). Emits the PII-free
-   * `job_posting.resumed`.
+   * Resume one of the caller's ORG's paused postings (paused -> open; B1). OWNERSHIP is the
+   * caller's ORG: guarded on id + org_id + status='paused' (non-paused / gone / not-in-org →
+   * 409; unknown OR foreign-org id → the SAME neutral 404). The event ACTOR stays the acting
+   * session payer. Emits the PII-free `job_posting.resumed`.
    */
-  async resumeForPayer(id: string, payerId: string, ctx: RequestContext): Promise<JobPosting> {
-    await this.getOneForPayer(id, payerId); // no-oracle 404
-    const resumed = await this.repo.transitionOwned(id, payerId, "paused", "open");
+  async resumeForPayer(
+    id: string,
+    orgId: string,
+    payerId: string,
+    ctx: RequestContext,
+  ): Promise<JobPosting> {
+    await this.getOneForPayer(id, orgId); // no-oracle 404 (unknown OR foreign-org id)
+    const resumed = await this.repo.transitionOwned(id, orgId, "paused", "open");
     if (!resumed) throw new ConflictException("Only a paused job posting can be resumed");
 
     const actor: JobPostingActor = { actor_type: "payer", actor_id: payerId };

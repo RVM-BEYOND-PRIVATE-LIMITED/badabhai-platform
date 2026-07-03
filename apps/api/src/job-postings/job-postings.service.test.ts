@@ -90,12 +90,13 @@ function make(existing?: Row) {
     .mockImplementation((id: string, _orgId: string, _prev: "draft" | "open", closedAt: Date) =>
       Promise.resolve(row({ ...existing, id, status: "closed", closedAt })),
     );
-  // Owner + status-guarded transition (B1): only transitions when the existing row's status
-  // matches `fromStatus` (mirrors the DB WHERE guard); otherwise undefined → the service 409s.
+  // Org + status-guarded transition (B1; ADR-0027 B5.x Inc 3): only transitions when the
+  // existing row's status matches `fromStatus` (mirrors the DB WHERE guard); otherwise
+  // undefined → the service 409s. Ownership is now keyed on org_id (2nd arg), not payer_id.
   const transitionOwned = vi
     .fn()
     .mockImplementation(
-      (id: string, _payerId: string, fromStatus: Row["status"], toStatus: Row["status"]) =>
+      (id: string, _orgId: string, fromStatus: Row["status"], toStatus: Row["status"]) =>
         Promise.resolve(
           existing && existing.status === fromStatus
             ? row({ ...existing, id, status: toStatus })
@@ -365,17 +366,19 @@ describe("JobPostingsService.close", () => {
   });
 });
 
-describe("JobPostingsService.pauseForPayer / resumeForPayer (B1)", () => {
-  const PAYER = "aaaaaaaa-0000-4000-8000-000000000001";
-
-  it("pauses an OPEN posting (open -> paused) and emits a PII-free job_posting.paused (payer actor)", async () => {
-    const { svc, emit, transitionOwned } = make(row({ status: "open" }));
-    const res = await svc.pauseForPayer(POSTING_ID, PAYER, CTX as never);
+describe("JobPostingsService.pauseForPayer / resumeForPayer (B1 → ADR-0027 B5.x Inc 3 org-owned)", () => {
+  // Ownership is the caller's ORG (2nd arg); the acting session payer (3rd arg) is the event
+  // actor only. The DB transition + the ownership pre-read both key on org_id.
+  it("pauses an OPEN posting (open -> paused) keyed on ORG + emits a PII-free job_posting.paused (payer actor)", async () => {
+    const { svc, emit, transitionOwned, findByIdAndOrg } = make(row({ status: "open" }));
+    const res = await svc.pauseForPayer(POSTING_ID, ORG_ID, PAYER_ID, CTX as never);
     expect(res.status).toBe("paused");
-    expect(transitionOwned).toHaveBeenCalledWith(POSTING_ID, PAYER, "open", "paused");
+    // Ownership pre-read + the transition are BOTH org-scoped; the actor stays the payer.
+    expect(findByIdAndOrg).toHaveBeenCalledWith(POSTING_ID, ORG_ID);
+    expect(transitionOwned).toHaveBeenCalledWith(POSTING_ID, ORG_ID, "open", "paused");
     const arg = emit.mock.calls[0]![0];
     expect(arg.event_name).toBe("job_posting.paused");
-    expect(arg.actor).toEqual({ actor_type: "payer", actor_id: PAYER });
+    expect(arg.actor).toEqual({ actor_type: "payer", actor_id: PAYER_ID });
     expect(arg.subject).toEqual({ subject_type: "job_posting", subject_id: POSTING_ID });
     expect(arg.payload).toEqual({
       job_posting_id: POSTING_ID,
@@ -385,13 +388,14 @@ describe("JobPostingsService.pauseForPayer / resumeForPayer (B1)", () => {
     assertNoFreeText(arg.payload);
   });
 
-  it("resumes a PAUSED posting (paused -> open) and emits job_posting.resumed", async () => {
+  it("resumes a PAUSED posting (paused -> open) keyed on ORG + emits job_posting.resumed", async () => {
     const { svc, emit, transitionOwned } = make(row({ status: "paused" }));
-    const res = await svc.resumeForPayer(POSTING_ID, PAYER, CTX as never);
+    const res = await svc.resumeForPayer(POSTING_ID, ORG_ID, PAYER_ID, CTX as never);
     expect(res.status).toBe("open");
-    expect(transitionOwned).toHaveBeenCalledWith(POSTING_ID, PAYER, "paused", "open");
+    expect(transitionOwned).toHaveBeenCalledWith(POSTING_ID, ORG_ID, "paused", "open");
     const arg = emit.mock.calls[0]![0];
     expect(arg.event_name).toBe("job_posting.resumed");
+    expect(arg.actor).toEqual({ actor_type: "payer", actor_id: PAYER_ID });
     expect(arg.payload).toEqual({
       job_posting_id: POSTING_ID,
       previous_status: "paused",
@@ -400,9 +404,17 @@ describe("JobPostingsService.pauseForPayer / resumeForPayer (B1)", () => {
     assertNoFreeText(arg.payload);
   });
 
+  it("shared-org: a SECOND member of ORG_A can pause the org's posting (ownership is org, not payer)", async () => {
+    const { svc, transitionOwned } = make(row({ status: "open" }));
+    // PAYER_ID_2 is a different member of ORG_A; the transition still keys on ORG_ID.
+    const res = await svc.pauseForPayer(POSTING_ID, ORG_ID, PAYER_ID_2, CTX as never);
+    expect(res.status).toBe("paused");
+    expect(transitionOwned).toHaveBeenCalledWith(POSTING_ID, ORG_ID, "open", "paused");
+  });
+
   it("409s when pausing a non-open posting (draft) and does not emit", async () => {
     const { svc, emit } = make(row({ status: "draft" }));
-    await expect(svc.pauseForPayer(POSTING_ID, PAYER, CTX as never)).rejects.toBeInstanceOf(
+    await expect(svc.pauseForPayer(POSTING_ID, ORG_ID, PAYER_ID, CTX as never)).rejects.toBeInstanceOf(
       ConflictException,
     );
     expect(emit).not.toHaveBeenCalled();
@@ -410,17 +422,20 @@ describe("JobPostingsService.pauseForPayer / resumeForPayer (B1)", () => {
 
   it("409s when resuming a non-paused posting (open) and does not emit", async () => {
     const { svc, emit } = make(row({ status: "open" }));
-    await expect(svc.resumeForPayer(POSTING_ID, PAYER, CTX as never)).rejects.toBeInstanceOf(
+    await expect(svc.resumeForPayer(POSTING_ID, ORG_ID, PAYER_ID, CTX as never)).rejects.toBeInstanceOf(
       ConflictException,
     );
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it("404s (no-oracle) when the posting is unknown OR another payer's, and does not emit", async () => {
-    const { svc, emit } = make(undefined); // findByIdAndPayer → undefined (not-found OR foreign)
-    await expect(svc.pauseForPayer(POSTING_ID, PAYER, CTX as never)).rejects.toBeInstanceOf(
+  it("404s (no-oracle) when the posting is unknown OR another ORG's, and does not emit", async () => {
+    // findByIdAndOrg → undefined (not-found OR foreign-org): the ownership pre-read 404s before
+    // the transition. Using ORG_B_ID as the caller proves cross-org IDOR is closed.
+    const { svc, emit, transitionOwned } = make(undefined);
+    await expect(svc.pauseForPayer(POSTING_ID, ORG_B_ID, PAYER_ID, CTX as never)).rejects.toBeInstanceOf(
       NotFoundException,
     );
+    expect(transitionOwned).not.toHaveBeenCalled();
     expect(emit).not.toHaveBeenCalled();
   });
 });

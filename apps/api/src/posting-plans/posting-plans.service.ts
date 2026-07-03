@@ -14,6 +14,7 @@ import type { RequestContext } from "../common/request-context";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { PricingService } from "../pricing/pricing.service";
+import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import { PostingPlansRepository } from "./posting-plans.repository";
 import type {
   BuyPlanDto,
@@ -89,12 +90,25 @@ export interface BuyCapacityResult {
  * entitlement row (price/quota/window STAMPED, so a later catalog change can't rewrite
  * the receipt) → emit payment.* + the product event. PII-free, faceless (opaque payer_id).
  *
+ * TENANCY (ADR-0027 B5.x Inc 3): OWNERSHIP + the capacity ALLOWANCE + plan/boost rows key
+ * on `org_id`, resolved from the acting payer via {@link resolveOrgId} (BEFORE any
+ * advisory-locked tx — the deadlock rule) and threaded into the tx. The acting `payer_id`
+ * stays the event actor/subject AND is stamped on every row (both NOT-NULL from migration
+ * 0035) unchanged (events + the event schema DO NOT change). A payer acts ONLY within their
+ * own org: a foreign-org posting/plan fails closed into the SAME neutral 404 (no IDOR, no
+ * oracle); two payers in the SAME org share ONE capacity allowance + see each other's org
+ * plans. Response field names (e.g. `payer_id`) stay stable for the payer-web contract — the
+ * value is the acting/target payer; the counts are org-derived. BEHAVIOR-PRESERVING under
+ * today's solo orgs (org == the one payer).
+ *
  * CAPACITY CHOKEPOINT (ADR-0016, ADR-0010 F-2 discipline): a plan purchase counts the
- * payer's currently-active vacancies and writes status='active' ONLY if it stays within
- * the payer's allowance (their payer_capacity row, else the config default); otherwise
- * it writes status='paused'. The count-and-write is ONE transaction under a per-payer
- * `pg_advisory_xact_lock` so N concurrent buys can never each read "under cap" and all
- * activate (NEVER read-then-write across statements).
+ * ORG's currently-active vacancies and writes status='active' ONLY if it stays within the
+ * org's allowance (their payer_capacity row keyed on org, else the config default);
+ * otherwise it writes status='paused'. The count-and-write is ONE transaction under a
+ * per-ORG `pg_advisory_xact_lock` so N concurrent buys by ANY of the org's members can
+ * never each read "under cap" and all activate (NEVER read-then-write across statements).
+ * The advisory LOCK key == the active-plan COUNT key == the org — same key or the
+ * chokepoint stops being atomic.
  *
  * ENFORCEMENT FLAG (ADR-0016, posture B — CAPACITY_ENFORCEMENT_ENABLED, default OFF):
  * the over-cap decision is ALWAYS computed under the lock, but it only pauses when
@@ -124,11 +138,43 @@ export class PostingPlansService {
     private readonly repo: PostingPlansRepository,
     private readonly events: EventsService,
     private readonly pricing: PricingService,
+    // ADR-0027 B5.x Inc 3: resolves the OWNING org for an acting payer (the tenancy flip).
+    private readonly orgs: PayerOrgsRepository,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
+  /**
+   * Resolve the OWNING org for an acting payer (ADR-0027 B5.x Inc 3 — the tenancy pivot,
+   * mirroring UnlockService.resolveOrgId). Ownership + the capacity allowance + plan/boost
+   * rows key on `org_id`; the acting `payer_id` stays the event actor/subject + is stamped
+   * on every row. Returns null when the payer has no active org membership.
+   *
+   * HOT-PATH DISCIPLINE: uses `resolveOrgForPayer` ONLY (never `ensureSoloOrg`, which
+   * writes). It is ALWAYS resolved BEFORE `repo.withTransaction(...)` opens (the pool-vs-lock
+   * deadlock rule) and threaded INTO the tx closure, so the advisory-locked tx never needs a
+   * second pool connection.
+   *
+   * FAIL CLOSED: on a null result the CALLER returns the neutral/failure equivalent — a WRITE
+   * does not half-write a row; a READ (getCapacity view) reads zeros/default. Any error → null.
+   */
+  private async resolveOrgId(payerId: string): Promise<string | null> {
+    try {
+      return (await this.orgs.resolveOrgForPayer(payerId))?.orgId ?? null;
+    } catch {
+      return null; // fail closed
+    }
+  }
+
   async buyPlan(jobPostingId: string, dto: BuyPlanDto, ctx: RequestContext): Promise<BuyPlanResult> {
     if (!(await this.repo.postingExists(jobPostingId))) {
+      throw new NotFoundException(`Job posting ${jobPostingId} not found`);
+    }
+    // ADR-0027 B5.x Inc 3: resolve the OWNING org for the acting payer BEFORE the tx (the
+    // deadlock rule). Ownership + the capacity allowance key on org; payer_id stays stamped.
+    // Fail CLOSED on a write path if the org is unresolvable (never write a half/orphan row).
+    // The ops surface (body dto.payer_id) resolves the org from that advisory payer id.
+    const orgId = await this.resolveOrgId(dto.payer_id);
+    if (orgId === null) {
       throw new NotFoundException(`Job posting ${jobPostingId} not found`);
     }
     const quote = await this.resolve("job_posting", dto.tier, dto.coupon, dto.payer_id);
@@ -143,18 +189,19 @@ export class PostingPlansService {
     const now = new Date();
 
     // The whole [count active vacancies → decide status → insertPlan] is ONE transaction
-    // holding the per-payer advisory lock (ADR-0016 / F-2: count-and-write atomic, never
+    // holding the per-ORG advisory lock (ADR-0016 / F-2: count-and-write atomic, never
     // read-then-write). It does NOT emit (deadlock fix) — it returns deferred thunks.
     const { plan, paused, wouldPause, deferred } = await this.repo.withTransaction(async (tx) => {
       const deferred: DeferredEmit[] = [];
-      await this.repo.lockPayer(tx, dto.payer_id);
+      // Lock key == count key == org (chokepoint atomicity across the whole org team).
+      await this.repo.lockOrg(tx, orgId);
 
-      // allowed = the payer's row, else the config default (NO hard-coded number here).
+      // allowed = the ORG's row, else the config default (NO hard-coded number here).
       // Read on `tx` so it rides the advisory-locked connection — NEVER a second pool
       // connection while the lock is held (ADR-0016 / F-2 deadlock discipline).
-      const capacityRow = await this.repo.getCapacity(dto.payer_id, tx);
+      const capacityRow = await this.repo.getCapacity(orgId, tx);
       const allowed = capacityRow?.maxActiveVacancies ?? this.config.CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES;
-      const activeNow = await this.repo.countActivePlansForPayer(tx, dto.payer_id, now);
+      const activeNow = await this.repo.countActivePlansForOrg(tx, orgId, now);
       // Decision computed the SAME way under the lock for accuracy; whether it PAUSES
       // depends on the enforcement flag (posture B). A real pause only when enforce && over.
       const overCapacity = activeNow + 1 > allowed;
@@ -163,6 +210,8 @@ export class PostingPlansService {
       const plan = await this.repo.insertPlan(
         {
           jobPostingId,
+          // Ownership keys on org; payer_id is still stamped (acting buyer; both NOT-NULL).
+          orgId,
           payerId: dto.payer_id,
           tier: dto.tier,
           applicantVisibilityQuota: grants.applicantVisibilityQuota,
@@ -186,8 +235,8 @@ export class PostingPlansService {
         // a pause that did not happen). Record a PII-free would-pause log line instead:
         // opaque ids + counts only — never a name/phone (faceless invariant).
         this.logger.log(
-          `capacity shadow: plan WOULD pause under enforcement — payer_id=${dto.payer_id} plan_id=${plan.id} ` +
-            `job_posting_id=${jobPostingId} activeNow=${activeNow} allowed=${allowed}`,
+          `capacity shadow: plan WOULD pause under enforcement — org_id=${orgId} payer_id=${dto.payer_id} ` +
+            `plan_id=${plan.id} job_posting_id=${jobPostingId} activeNow=${activeNow} allowed=${allowed}`,
         );
       }
       return { plan, paused: enforce && overCapacity, wouldPause: overCapacity, deferred };
@@ -235,8 +284,14 @@ export class PostingPlansService {
     if (!(await this.repo.postingExists(jobPostingId))) {
       throw new NotFoundException(`Job posting ${jobPostingId} not found`);
     }
+    // ADR-0027 B5.x Inc 3: resolve the OWNING org for the acting payer (ownership by org;
+    // boost row stamps org + payer). Fail CLOSED on a write path if org unresolvable.
+    const orgId = await this.resolveOrgId(dto.payer_id);
+    if (orgId === null) {
+      throw new NotFoundException(`Job posting ${jobPostingId} not found`);
+    }
     const now = new Date();
-    // B-R3: no overlapping active boost.
+    // B-R3: no overlapping active boost (keyed on the posting; a posting belongs to one org).
     if (await this.repo.findActiveBoost(jobPostingId, now)) {
       throw new ConflictException("an active boost already exists for this posting");
     }
@@ -249,6 +304,8 @@ export class PostingPlansService {
     await this.emitPayment("payment.authorized", jobPostingId, dto.payer_id, quote.finalInr, realCall, ctx);
     const boost = await this.repo.insertBoost({
       jobPostingId,
+      // Ownership keys on org; payer_id is still stamped (acting buyer; both NOT-NULL).
+      orgId,
       payerId: dto.payer_id,
       tier: dto.tier,
       status: "active",
@@ -286,12 +343,14 @@ export class PostingPlansService {
    * SESSION payer (never a body value — XB-A). Posting ownership is asserted by the caller
    * (the payer controller's no-oracle `getOneForPayer`) BEFORE this runs.
    *
-   * Flow (mirrors buyBoost — a single atomic write, no advisory lock needed): resolve price →
-   * find the payer's ACTIVE, unexpired plan for the posting (409 if none) → mock payment
-   * (`real_call` honest) → ATOMIC increment quota_topup_count (re-asserting active+owned in the
-   * WHERE, so a plan that expired since the read yields a 409, never a phantom grant) → emit
-   * posting_plan.quota_topped + payment.* + coupon (all PII-free). The ORIGINAL stamped
-   * `applicant_visibility_quota` receipt is never mutated; the top-up accumulates separately.
+   * Flow (mirrors buyBoost — a single atomic write, no advisory lock needed): resolve org (the
+   * ownership key; ADR-0027 B5.x Inc 3) → resolve price → find the ORG's ACTIVE, unexpired plan
+   * for the posting (409 if none) → mock payment (`real_call` honest) → ATOMIC increment
+   * quota_topup_count (re-asserting active+owned-by-org in the WHERE, so a plan that expired
+   * since the read yields a 409, never a phantom grant) → emit posting_plan.quota_topped +
+   * payment.* + coupon (all PII-free). The ORIGINAL stamped `applicant_visibility_quota` receipt
+   * is never mutated; the top-up accumulates separately. `payer_id` stays the acting session
+   * payer (event actor/subject unchanged).
    */
   async topUpQuotaForPayer(
     jobPostingId: string,
@@ -299,6 +358,11 @@ export class PostingPlansService {
     dto: PayerTopUpQuotaDto,
     ctx: RequestContext,
   ): Promise<{ plan: PostingPlan; quote: Quote }> {
+    // Resolve the OWNING org for the acting session payer (ADR-0027 B5.x Inc 3). Fail CLOSED:
+    // no resolvable org → the SAME neutral 409 as "no active plan" (no oracle, no half-write).
+    const orgId = await this.resolveOrgId(payerId);
+    if (orgId === null) throw new ConflictException("no active plan to top up for this posting");
+
     const quote = await this.resolve(QUOTA_TOPUP_PRODUCT, dto.tier, dto.coupon, payerId);
     if (quote.grants.kind !== "quota_topup") {
       throw new BadRequestException("resolved product is not a quota top-up");
@@ -307,16 +371,17 @@ export class PostingPlansService {
     const realCall = areRealPaymentsEnabled(this.config);
     const now = new Date();
 
-    // The plan to top up: the payer's active, unexpired plan for this posting (payer-scoped;
-    // a foreign/absent plan is invisible → 409, no oracle). You must own an active plan first.
-    const target = await this.repo.findActivePlanForPostingAndPayer(jobPostingId, payerId, now);
+    // The plan to top up: the ORG's active, unexpired plan for this posting (org-scoped; a
+    // foreign-org/absent plan is invisible → 409, no oracle; a teammate's org plan IS
+    // reachable). You must own an active plan (within the org) first.
+    const target = await this.repo.findActivePlanForPostingAndOrg(jobPostingId, orgId, now);
     if (!target) throw new ConflictException("no active plan to top up for this posting");
 
-    // ATOMIC increment (re-guards active+owned+unexpired) BEFORE any payment emit, so a plan
-    // that raced to expiry yields a clean 409 and NO payment event is recorded for a no-op.
+    // ATOMIC increment (re-guards active+org-owned+unexpired) BEFORE any payment emit, so a
+    // plan that raced to expiry yields a clean 409 and NO payment event is recorded for a no-op.
     const updated = await this.repo.addQuotaTopup(
       target.id,
-      payerId,
+      orgId,
       grants.additionalVisibilityQuota,
       now,
     );
@@ -361,6 +426,13 @@ export class PostingPlansService {
    * upsert is keyed on payer_id with a GREATEST guard (a replay never lowers the grant).
    */
   async buyCapacity(payerId: string, dto: BuyCapacityDto, ctx: RequestContext): Promise<BuyCapacityResult> {
+    // ADR-0027 B5.x Inc 3: the capacity ALLOWANCE is an org-shared row. Resolve the OWNING org
+    // for the acting payer BEFORE the tx (the deadlock rule). Fail CLOSED on a write path if
+    // unresolvable — a capacity grant must never be minted against a phantom org.
+    const orgId = await this.resolveOrgId(payerId);
+    if (orgId === null) {
+      throw new NotFoundException(`Capacity target for payer ${payerId} not found`);
+    }
     const quote = await this.resolve(CAPACITY_PRODUCT, dto.tier, dto.coupon, payerId);
     if (quote.grants.kind !== "capacity") {
       throw new BadRequestException("resolved product is not a capacity grant");
@@ -370,15 +442,17 @@ export class PostingPlansService {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + grants.validityDays * MS_PER_DAY);
 
-    // Auto-resume runs under the per-payer advisory lock so it cannot race a concurrent
+    // Auto-resume runs under the per-ORG advisory lock so it cannot race a concurrent
     // buyPlan (count-and-write atomic; ADR-0016 / F-2). The upsert is performed INSIDE
     // the same locked tx so the recompute sees the raised allowance. NO emit in the tx.
+    // Lock key == count key == org (chokepoint atomicity across the whole org team).
     const { resumedPlanIds, deferred } = await this.repo.withTransaction(async (tx) => {
       const deferred: DeferredEmit[] = [];
-      await this.repo.lockPayer(tx, payerId);
+      await this.repo.lockOrg(tx, orgId);
 
       await this.repo.upsertCapacity(
-        { payerId, maxActiveVacancies: grants.maxActiveVacancies, sourceTier: dto.tier, expiresAt },
+        // Allowance keyed on org; payer_id stamped (acting buyer; both NOT-NULL).
+        { orgId, payerId, maxActiveVacancies: grants.maxActiveVacancies, sourceTier: dto.tier, expiresAt },
         tx,
       );
 
@@ -387,12 +461,12 @@ export class PostingPlansService {
       // upsert guard means the live allowance is at least this), avoiding a re-read of
       // our own in-tx write. The active count IS read tx-scoped under the advisory lock.
       const allowed = grants.maxActiveVacancies;
-      const activeNow = await this.repo.countActivePlansForPayer(tx, payerId, now);
+      const activeNow = await this.repo.countActivePlansForOrg(tx, orgId, now);
       let headroom = allowed - activeNow;
 
       const resumedPlanIds: string[] = [];
       if (headroom > 0) {
-        const paused = await this.repo.listPausedPlansForPayer(tx, payerId);
+        const paused = await this.repo.listPausedPlansForOrg(tx, orgId);
         for (const plan of paused) {
           if (headroom <= 0) break;
           // Skip a paused plan whose own validity window has expired — it should not
@@ -425,22 +499,33 @@ export class PostingPlansService {
   }
 
   /**
-   * The payer's current hiring-capacity allowance (ADR-0016) — a PII-free read for the
+   * The ORG's current hiring-capacity allowance (ADR-0016; ADR-0027 B5.x Inc 3 — the
+   * allowance + the active-plan count are now ORG-derived) — a PII-free read for the
    * payer-self portal. Returns the catalog grant + window only (opaque payer_id, codes,
-   * counts; no name/phone). When the payer has no row yet, reports the config default
-   * allowance so the portal always shows a coherent capacity (no NULL hole).
+   * counts; no name/phone). When the org has no row yet, reports the config default
+   * allowance so the portal always shows a coherent capacity (no NULL hole). `payer_id`
+   * is KEPT = the passed session payer (response-contract stability); the allowance +
+   * `active_plan_count` are the ORG's (shared across the team). A payer with no resolvable
+   * org reads the config default allowance + zero active plans (fail-closed read — never a
+   * distinguishable error).
    */
   async getCapacity(payerId: string): Promise<CapacityView> {
     const now = new Date();
+    // Resolve the OWNING org for the acting session payer (XB-A: from the session, never a
+    // body/param id). A null org (no membership) fails closed to the default view below.
+    const orgId = await this.resolveOrgId(payerId);
     // Read the allowance row AND the derived live count on ONE tx so the portal sees a
     // consistent snapshot (`active_plan_count` vs `max_active_vacancies`). countActive…
     // is tx-scoped by signature; this is a plain read tx (no advisory lock — display only,
     // not the buy chokepoint). Both reads are PII-free (counts/codes/timestamps only) and
-    // scoped to the AUTHENTICATED payerId (XB-A: never a body/param id).
-    const { row, activePlanCount } = await this.repo.withTransaction(async (tx) => ({
-      row: await this.repo.getCapacity(payerId, tx),
-      activePlanCount: await this.repo.countActivePlansForPayer(tx, payerId, now),
-    }));
+    // scoped to the resolved ORG.
+    const { row, activePlanCount } =
+      orgId === null
+        ? { row: undefined, activePlanCount: 0 }
+        : await this.repo.withTransaction(async (tx) => ({
+            row: await this.repo.getCapacity(orgId, tx),
+            activePlanCount: await this.repo.countActivePlansForOrg(tx, orgId, now),
+          }));
     const maxActiveVacancies =
       row?.maxActiveVacancies ?? this.config.CAPACITY_DEFAULT_MAX_ACTIVE_VACANCIES;
     return {

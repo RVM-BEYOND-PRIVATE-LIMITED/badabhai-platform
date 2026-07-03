@@ -130,51 +130,65 @@ export class PayerJobPostingsController {
     return this.jobPostings.closeForPayer(id, org.orgId, payer.id, ctx);
   }
 
-  /** Pause one of the caller's OWN LIVE postings (open -> paused; B1). Reversible. */
+  /**
+   * Pause one of the caller's ORG's LIVE postings (open -> paused; B1). Reversible. OWNERSHIP
+   * is the session ORG (ADR-0027 B5.x Inc 3): forwards `org.orgId` (the ownership key) + the
+   * session `payer.id` (the event actor) — never a body/param value.
+   */
   @Post(":id/pause")
   @HttpCode(200)
   pause(
     @Param("id", new ParseUUIDPipe()) id: string,
+    @CurrentOrg() org: PayerOrgContext,
     @CurrentPayer() payer: AuthenticatedPayer,
     @Ctx() ctx: RequestContext,
   ) {
-    return this.jobPostings.pauseForPayer(id, payer.id, ctx);
+    return this.jobPostings.pauseForPayer(id, org.orgId, payer.id, ctx);
   }
 
-  /** Resume one of the caller's OWN paused postings (paused -> open; B1). */
+  /**
+   * Resume one of the caller's ORG's paused postings (paused -> open; B1). OWNERSHIP is the
+   * session ORG: forwards `org.orgId` + the session `payer.id` (event actor).
+   */
   @Post(":id/resume")
   @HttpCode(200)
   resume(
     @Param("id", new ParseUUIDPipe()) id: string,
+    @CurrentOrg() org: PayerOrgContext,
     @CurrentPayer() payer: AuthenticatedPayer,
     @Ctx() ctx: RequestContext,
   ) {
-    return this.jobPostings.resumeForPayer(id, payer.id, ctx);
+    return this.jobPostings.resumeForPayer(id, org.orgId, payer.id, ctx);
   }
 
   /**
-   * Buy a paid plan for one of the caller's OWN postings (B3 / LC-1 fix; ADR-0013 Decision B).
-   * OWNERSHIP is asserted FIRST via the no-oracle `getOneForPayer` — an unknown OR another
-   * payer's posting returns the SAME neutral 404, so this route can never be turned into an
-   * IDOR oracle nor buy a plan against a foreign posting. The `payer_id` is the SESSION payer
-   * (XB-A) — never a body value. Delegates to {@link PostingPlansService.buyPlanForPayer} (the
-   * mock-pay + capacity chokepoint + spine events, reused unchanged). 201 on purchase.
+   * Buy a paid plan for one of the caller's ORG's postings (B3 / LC-1 fix; ADR-0013 Decision B).
+   * OWNERSHIP is asserted FIRST via the no-oracle `getOneForPayer(id, org.orgId)` — an unknown
+   * OR another ORG's posting returns the SAME neutral 404, so this route can never be turned into
+   * an IDOR oracle nor buy a plan against a foreign-org posting. ADR-0027 B5.x Inc 3 fixes the
+   * merge-break here: this passed `payer.id` (≠ org_id) into the org-scoped `getOneForPayer`,
+   * which ALWAYS 404'd — it now passes `org.orgId`. The service resolves the SAME org internally
+   * from `payer.id` and keys the capacity/plan on it; `payer_id` is the SESSION payer (XB-A),
+   * stamped alongside org_id. Delegates to {@link PostingPlansService.buyPlanForPayer}
+   * (mock-pay + capacity chokepoint + spine events, reused unchanged). 201 on purchase.
    */
   @Post(":id/plan")
   @HttpCode(201)
   async buyPlan(
     @Param("id", new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(PayerBuyPlanSchema)) dto: PayerBuyPlanDto,
+    @CurrentOrg() org: PayerOrgContext,
     @CurrentPayer() payer: AuthenticatedPayer,
     @Ctx() ctx: RequestContext,
   ) {
-    await this.jobPostings.getOneForPayer(id, payer.id); // no-oracle 404 (unknown OR foreign)
+    await this.jobPostings.getOneForPayer(id, org.orgId); // no-oracle 404 (unknown OR foreign-org)
     return this.plans.buyPlanForPayer(id, payer.id, dto, ctx);
   }
 
   /**
-   * Buy a booster for one of the caller's OWN postings (B3 / LC-1 fix; ADR-0013 Decision B).
-   * Same ownership-first no-oracle 404 + session `payer_id` (XB-A) as {@link buyPlan}. Delegates
+   * Buy a booster for one of the caller's ORG's postings (B3 / LC-1 fix; ADR-0013 Decision B).
+   * Same ownership-first no-oracle 404 (org-scoped) + session `payer_id` (XB-A) as {@link buyPlan}
+   * — also fixes the same merge-break (`getOneForPayer(id, org.orgId)`, not `payer.id`). Delegates
    * to {@link PostingPlansService.buyBoostForPayer} (reused unchanged; B-R3 no overlapping boost).
    */
   @Post(":id/boost")
@@ -182,20 +196,22 @@ export class PayerJobPostingsController {
   async buyBoost(
     @Param("id", new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(PayerBuyBoostSchema)) dto: PayerBuyBoostDto,
+    @CurrentOrg() org: PayerOrgContext,
     @CurrentPayer() payer: AuthenticatedPayer,
     @Ctx() ctx: RequestContext,
   ) {
-    await this.jobPostings.getOneForPayer(id, payer.id); // no-oracle 404 (unknown OR foreign)
+    await this.jobPostings.getOneForPayer(id, org.orgId); // no-oracle 404 (unknown OR foreign-org)
     return this.plans.buyBoostForPayer(id, payer.id, dto, ctx);
   }
 
   /**
-   * Top up applicant-visibility quota on the caller's OWN active plan for this posting (B2 —
+   * Top up applicant-visibility quota on the caller's ORG's active plan for this posting (B2 —
    * "view more → pay more"). OWNERSHIP of the posting is asserted FIRST via the no-oracle
-   * `getOneForPayer` (unknown OR foreign posting → the SAME neutral 404), and the plan lookup
-   * inside {@link PostingPlansService.topUpQuotaForPayer} is itself payer-scoped, so a payer
-   * can only top up their own plan. The `payer_id` is the SESSION payer (XB-A) — never a body
-   * value. Priced through the pricing engine + mock-paid. 201 on top-up; 409 if the posting has
+   * `getOneForPayer(id, org.orgId)` (unknown OR foreign-org posting → the SAME neutral 404 — the
+   * same merge-break fix as {@link buyPlan}), and the plan lookup inside
+   * {@link PostingPlansService.topUpQuotaForPayer} is itself org-scoped, so a member can top up
+   * any of their org's plans. The `payer_id` is the SESSION payer (XB-A), stamped alongside
+   * org_id. Priced through the pricing engine + mock-paid. 201 on top-up; 409 if the posting has
    * no active plan to top up.
    */
   @Post(":id/quota-topup")
@@ -203,10 +219,11 @@ export class PayerJobPostingsController {
   async topUpQuota(
     @Param("id", new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(PayerTopUpQuotaSchema)) dto: PayerTopUpQuotaDto,
+    @CurrentOrg() org: PayerOrgContext,
     @CurrentPayer() payer: AuthenticatedPayer,
     @Ctx() ctx: RequestContext,
   ) {
-    await this.jobPostings.getOneForPayer(id, payer.id); // no-oracle 404 (unknown OR foreign)
+    await this.jobPostings.getOneForPayer(id, org.orgId); // no-oracle 404 (unknown OR foreign-org)
     return this.plans.topUpQuotaForPayer(id, payer.id, dto, ctx);
   }
 }

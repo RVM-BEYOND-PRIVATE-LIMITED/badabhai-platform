@@ -12,10 +12,13 @@ import {
 import { randomUUID } from "node:crypto";
 
 /**
- * Per-payer hiring capacity (ADR-0016) end-to-end against a LIVE API + DB. This is the
- * ATOMICITY proof the unit suite cannot give: the unit tests mock `lockPayer`, so the
- * TRUE advisory-lock race (pg_advisory_xact_lock + DERIVED active-vacancy count, one
- * transaction) is only verifiable here, against a real Postgres.
+ * Per-org hiring capacity (ADR-0016; ADR-0027 B5.x Inc 3 flips the key payer→org)
+ * end-to-end against a LIVE API + DB. This is the ATOMICITY proof the unit suite cannot
+ * give: the unit tests mock `lockOrg`, so the TRUE advisory-lock race (pg_advisory_xact_lock
+ * on the ORG key + DERIVED org active-vacancy count, one transaction) is only verifiable
+ * here, against a real Postgres. NOTE: this suite is describe.skip (real-OTP-only, not CI);
+ * its seed helpers are payer-shaped and predate the org flip — refresh them (stamp org_id on
+ * payer_capacity, count per org) if/when it is un-skipped against a post-0035 DB.
  *
  * ENFORCEMENT POSTURE (ADR-0016 posture B, D5 — CAPACITY_ENFORCEMENT_ENABLED):
  *   The API DEFAULTS to enforcement OFF (shadow). The flag flips whether an over-cap

@@ -158,14 +158,15 @@ export class JobPostingsRepository {
   }
 
   /**
-   * Owner-scoped status transition (B1): guarded on `id` AND `payer_id` AND the current
-   * status, so a wrong-state / gone / not-owned row is a DB no-op → undefined (the service
-   * maps that to a 409, without leaking which). Mirrors {@link closeOwned} for the reversible
+   * Org-scoped status transition (B1; ADR-0027 B5.x Inc 3): guarded on `id` AND `org_id` AND
+   * the current status, so a wrong-state / gone / not-in-org row is a DB no-op → undefined
+   * (the service maps that to a 409/404, without leaking which — the ownership lives in the
+   * WHERE, no TOCTOU). Mirrors {@link updateOwned}/{@link closeOwned} for the reversible
    * open<->paused transitions (pause: open→paused, resume: paused→open).
    */
   async transitionOwned(
     id: string,
-    payerId: string,
+    orgId: string,
     fromStatus: JobPostingStatus,
     toStatus: JobPostingStatus,
   ): Promise<JobPosting | undefined> {
@@ -175,7 +176,7 @@ export class JobPostingsRepository {
       .where(
         and(
           eq(jobPostings.id, id),
-          eq(jobPostings.payerId, payerId),
+          eq(jobPostings.orgId, orgId),
           eq(jobPostings.status, fromStatus),
         ),
       )
