@@ -29,6 +29,10 @@ export type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 export interface UnlockProjection {
   unlock_id: string;
   payer_id: string;
+  // ADR-0027 B5.x Inc 2: the tenant-ownership key. `payer_id` STAYS in the projection
+  // (ops/audit still read the acting payer), but ownership/IDOR now key on `org_id`.
+  // NULLABLE only defensively (Inc 0 backfilled it NOT NULL for every payer-owned row).
+  org_id: string | null;
   // NULLABLE post-ADR-0026 Phase 5: a worker hard-delete (DSAR) SET-NULLs the identity join
   // while preserving this PII-free paid-grant row (migration 0030). The reveal path guards on
   // a null worker_id BEFORE relaying (a gone worker cannot be revealed).
@@ -72,12 +76,16 @@ export class UnlocksRepository {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${workerId}, 0))`);
   }
 
-  /** The existing unlock for (payer, worker), or undefined. Tx-scoped read. */
-  async findByPayerWorker(tx: Tx, payerId: string, workerId: string): Promise<Unlock | undefined> {
+  /**
+   * The existing unlock for (org, worker), or undefined. Tx-scoped read.
+   * ADR-0027 B5.x Inc 2: ownership/idempotency keys on `org_id` (replaces the
+   * payer-keyed lookup) — any member of the org converges on the same grant row.
+   */
+  async findByOrgWorker(tx: Tx, orgId: string, workerId: string): Promise<Unlock | undefined> {
     const rows = await tx
       .select()
       .from(unlocks)
-      .where(and(eq(unlocks.payerId, payerId), eq(unlocks.workerId, workerId)))
+      .where(and(eq(unlocks.orgId, orgId), eq(unlocks.workerId, workerId)))
       .limit(1);
     return rows[0];
   }
@@ -106,10 +114,18 @@ export class UnlocksRepository {
     return rows[0]?.total ?? 0;
   }
 
-  /** Count DISTINCT payers who hold a grant for a worker since `since` (weekly cap). */
-  async countDistinctPayersSince(tx: Tx, workerId: string, since: Date): Promise<number> {
+  /**
+   * Count DISTINCT ORGS that hold a grant for a worker since `since` (weekly cap).
+   * ADR-0027 B5.x Inc 2: worker-protection counts distinct EMPLOYERS (orgs), not distinct
+   * acting payers — so a whole recruiting team (many payers, one org) counts as ONE
+   * toward the weekly cap, while two DISTINCT orgs count as two. BEHAVIOR-PRESERVING under
+   * today's solo orgs (org == the one payer), where distinct orgs == distinct payers. The
+   * `"weekly_payers"` cap KIND string + the `unlock.cap_exceeded` payload are UNCHANGED
+   * (no schema change) — only the counted unit flips from payer to org.
+   */
+  async countDistinctOrgsSince(tx: Tx, workerId: string, since: Date): Promise<number> {
     const rows = await tx
-      .select({ count: sql<number>`count(distinct ${unlocks.payerId})::int` })
+      .select({ count: sql<number>`count(distinct ${unlocks.orgId})::int` })
       .from(unlocks)
       .where(
         and(
@@ -123,13 +139,16 @@ export class UnlocksRepository {
   }
 
   /**
-   * Upsert the GRANTED unlock for (payer, worker) — idempotent on the unique
-   * (payer_id, worker_id). Tx-scoped. Sets status=granted, the routing token ref,
-   * granted_at, expires_at, clears any prior deny_reason.
+   * Upsert the GRANTED unlock for (org, worker) — idempotent on the unique
+   * (org_id, worker_id) (ADR-0027 B5.x Inc 2). Tx-scoped. INSERT stamps BOTH `org_id`
+   * (the new ownership key) AND `payer_id` (still NOT NULL — the acting payer, kept for
+   * ops/audit + rollback). Sets status=granted, the routing token ref, granted_at,
+   * expires_at, clears any prior deny_reason.
    */
   async upsertGrant(
     tx: Tx,
     input: {
+      orgId: string;
       payerId: string;
       workerId: string;
       jobId: string | null;
@@ -141,6 +160,7 @@ export class UnlocksRepository {
     const rows = await tx
       .insert(unlocks)
       .values({
+        orgId: input.orgId,
         payerId: input.payerId,
         workerId: input.workerId,
         jobId: input.jobId,
@@ -151,7 +171,7 @@ export class UnlocksRepository {
         expiresAt: input.expiresAt,
       })
       .onConflictDoUpdate({
-        target: [unlocks.payerId, unlocks.workerId],
+        target: [unlocks.orgId, unlocks.workerId],
         set: {
           jobId: input.jobId,
           status: "granted" satisfies UnlockStatus,
@@ -169,13 +189,16 @@ export class UnlocksRepository {
   }
 
   /**
-   * Record a DENIED unlock for the audit spine — idempotent on (payer, worker). The
-   * deny_reason is INTERNAL only (CHECK enforces it is set only on status=denied). It
-   * never reaches the payer. Tx-scoped. Returns the row so the caller can event its id.
+   * Record a DENIED unlock for the audit spine — idempotent on (org, worker) (ADR-0027
+   * B5.x Inc 2). INSERT stamps BOTH `org_id` (ownership key) AND `payer_id` (still NOT
+   * NULL — the acting payer). The deny_reason is INTERNAL only (CHECK enforces it is set
+   * only on status=denied). It never reaches the payer. Tx-scoped. Returns the row so the
+   * caller can event its id.
    */
   async recordDeny(
     tx: Tx,
     input: {
+      orgId: string;
       payerId: string;
       workerId: string;
       jobId: string | null;
@@ -185,6 +208,7 @@ export class UnlocksRepository {
     const rows = await tx
       .insert(unlocks)
       .values({
+        orgId: input.orgId,
         payerId: input.payerId,
         workerId: input.workerId,
         jobId: input.jobId,
@@ -192,7 +216,7 @@ export class UnlocksRepository {
         denyReason: input.denyReason,
       })
       .onConflictDoUpdate({
-        target: [unlocks.payerId, unlocks.workerId],
+        target: [unlocks.orgId, unlocks.workerId],
         set: {
           // Preserve an existing GRANT — a deny must never downgrade a live grant.
           // We only stamp the deny when there is no granted/revealed row already.
@@ -258,46 +282,55 @@ export class UnlocksRepository {
   // atomic conditional decrement below guarantee balance never goes negative.
   // -------------------------------------------------------------------------
 
-  /** The payer's credit balance row, or undefined (tx-scoped, locked). */
-  async findCreditsForUpdate(tx: Tx, payerId: string): Promise<PayerCredit | undefined> {
+  /**
+   * The ORG's credit balance row, or undefined (tx-scoped, locked). ADR-0027 B5.x Inc 2:
+   * the wallet is keyed on `org_id` (one wallet per org — a whole team shares it).
+   */
+  async findCreditsForUpdate(tx: Tx, orgId: string): Promise<PayerCredit | undefined> {
     const rows = await tx
       .select()
       .from(payerCredits)
-      .where(eq(payerCredits.payerId, payerId))
+      .where(eq(payerCredits.orgId, orgId))
       .limit(1)
       .for("update");
     return rows[0];
   }
 
-  /** The payer's current balance (non-tx read), or 0 if no row. Ops read. */
-  async getBalance(payerId: string): Promise<number> {
+  /** The ORG's current balance (non-tx read), or 0 if no row. Ops read. */
+  async getBalance(orgId: string): Promise<number> {
     const rows = await this.db
       .select({ balance: payerCredits.balance })
       .from(payerCredits)
-      .where(eq(payerCredits.payerId, payerId))
+      .where(eq(payerCredits.orgId, orgId))
       .limit(1);
     return rows[0]?.balance ?? 0;
   }
 
   /**
-   * ATOMIC conditional debit of one credit (F-6): decrements balance only WHERE
-   * balance >= amount, returning the new balance — or undefined if there were
-   * insufficient credits (no row updated). Combined with the DB CHECK this makes a
-   * negative balance impossible even under concurrency. Tx-scoped.
+   * ATOMIC conditional debit of one credit from the ORG wallet (F-6): decrements balance
+   * only WHERE org_id = orgId AND balance >= amount, returning the new balance — or
+   * undefined if there were insufficient credits (no row updated). Combined with the DB
+   * CHECK (balance >= 0) this makes a negative balance impossible even under concurrency.
+   * Tx-scoped. ADR-0027 B5.x Inc 2: keys on `org_id` (the shared org wallet).
    */
-  async tryDebit(tx: Tx, payerId: string, amount: number): Promise<number | undefined> {
+  async tryDebit(tx: Tx, orgId: string, amount: number): Promise<number | undefined> {
     const rows = await tx
       .update(payerCredits)
       .set({ balance: sql`${payerCredits.balance} - ${amount}`, updatedAt: sql`now()` })
-      .where(and(eq(payerCredits.payerId, payerId), gte(payerCredits.balance, amount)))
+      .where(and(eq(payerCredits.orgId, orgId), gte(payerCredits.balance, amount)))
       .returning({ balance: payerCredits.balance });
     return rows[0]?.balance;
   }
 
-  /** Append a credit-ledger movement (tx-scoped — the source of truth). */
+  /**
+   * Append a credit-ledger movement (tx-scoped — the source of truth). ADR-0027 B5.x
+   * Inc 2: stamps BOTH `org_id` (the wallet key) AND `payer_id` (still NOT NULL — the
+   * acting payer, kept for ops/audit).
+   */
   async appendLedger(
     tx: Tx,
     input: {
+      orgId: string;
       payerId: string;
       delta: number;
       reason: CreditReason;
@@ -307,6 +340,7 @@ export class UnlocksRepository {
     },
   ): Promise<void> {
     await tx.insert(creditLedger).values({
+      orgId: input.orgId,
       payerId: input.payerId,
       delta: input.delta,
       reason: input.reason,
@@ -318,10 +352,12 @@ export class UnlocksRepository {
 
   /**
    * Credit a pack purchase / ops grant (NON-tx convenience for the mock top-up
-   * endpoint): upsert the balance row (+credits) and append the ledger in ONE
-   * transaction. Returns the new balance.
+   * endpoint): upsert the ORG's balance row (+credits) and append the ledger in ONE
+   * transaction. Returns the new balance. ADR-0027 B5.x Inc 2: the wallet upserts on
+   * (org_id) and both the wallet row + ledger row stamp `org_id` AND `payer_id`.
    */
   async creditPack(input: {
+    orgId: string;
     payerId: string;
     credits: number;
     reason: CreditReason;
@@ -331,13 +367,14 @@ export class UnlocksRepository {
     return this.db.transaction(async (tx) => {
       const updated = await tx
         .insert(payerCredits)
-        .values({ payerId: input.payerId, balance: input.credits })
+        .values({ orgId: input.orgId, payerId: input.payerId, balance: input.credits })
         .onConflictDoUpdate({
-          target: payerCredits.payerId,
+          target: payerCredits.orgId,
           set: { balance: sql`${payerCredits.balance} + ${input.credits}`, updatedAt: sql`now()` },
         })
         .returning({ balance: payerCredits.balance });
       await tx.insert(creditLedger).values({
+        orgId: input.orgId,
         payerId: input.payerId,
         delta: input.credits,
         reason: input.reason,
@@ -350,12 +387,15 @@ export class UnlocksRepository {
     });
   }
 
-  /** PII-free list of a payer's unlocks (ops read). NO routing token resolved. */
-  async listByPayer(payerId: string): Promise<UnlockProjection[]> {
+  /**
+   * PII-free list of an ORG's unlocks (ops read). NO routing token resolved. ADR-0027
+   * B5.x Inc 2: scoped on `org_id`, so any member sees the whole org's unlocks.
+   */
+  async listByOrg(orgId: string): Promise<UnlockProjection[]> {
     const rows = await this.db
       .select()
       .from(unlocks)
-      .where(eq(unlocks.payerId, payerId))
+      .where(eq(unlocks.orgId, orgId))
       .orderBy(desc(unlocks.createdAt)) // deterministic newest-first under the cap
       .limit(OPS_LIST_CAP); // bound an otherwise-unbounded ops read
     return rows.map((u) => this.project(u));
@@ -372,6 +412,7 @@ export class UnlocksRepository {
     return {
       unlock_id: u.id,
       payer_id: u.payerId,
+      org_id: u.orgId,
       worker_id: u.workerId,
       job_id: u.jobId,
       status: u.status,

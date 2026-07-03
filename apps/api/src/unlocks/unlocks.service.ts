@@ -9,6 +9,7 @@ import { EventsService } from "../events/events.service";
 import { ConsentRepository } from "../consent/consent.repository";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import { UnlocksRepository, type Tx, type UnlockProjection } from "./unlocks.repository";
 import { PaymentGateway } from "./payment-gateway";
 import {
@@ -47,9 +48,18 @@ interface TxResult<R> {
  * EXACTLY ONE step (reveal), transiently, and is NEVER returned, evented, logged, or
  * stored (F-5, CLAUDE.md invariant 2).
  *
+ * TENANCY (ADR-0027 B5.x Inc 2): OWNERSHIP + the credit WALLET key on `org_id`, resolved
+ * from the acting payer via {@link resolveOrgId} (BEFORE any advisory-locked tx — the
+ * deadlock rule) and threaded into the tx. The acting `payer_id` stays the event
+ * actor/subject unchanged (events + the event schema DO NOT change). A payer acts ONLY
+ * within their own org: a foreign-org unlock/reveal/list/spend fails closed into the SAME
+ * neutral/empty result (no IDOR, no oracle); two payers in the SAME org share ONE wallet +
+ * see each other's org unlocks. BEHAVIOR-PRESERVING under today's solo orgs.
+ *
  * FAIL-CLOSED ORDERING for POST /unlocks (every gate denies + discloses nothing on
  * failure):
- *   [F-1] credit precondition (worker-state INDEPENDENT) FIRST — a zero-credit payer
+ *   [F-0] resolve the OWNING org (fail closed → neutral if none) — pre-tx.
+ *   [F-1] credit precondition (worker-state INDEPENDENT) FIRST — a zero-credit ORG
  *         gets the SAME neutral body regardless of any worker's state (closes the
  *         payment_required consent oracle, BC-1).
  *   [1]   employer_sharing CONSENT gate (fail closed; no/revoked → neutral).
@@ -89,8 +99,32 @@ export class UnlockService {
     private readonly pii: PiiCryptoService,
     private readonly payments: PaymentGateway,
     private readonly events: EventsService,
+    // ADR-0027 B5.x Inc 2: resolves the OWNING org for an acting payer (the tenancy flip).
+    private readonly orgs: PayerOrgsRepository,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
+
+  /**
+   * Resolve the OWNING org for an acting payer (ADR-0027 B5.x Inc 2 — the tenancy pivot).
+   * Ownership + the wallet key on `org_id`; the acting `payer_id` stays the event
+   * actor/subject unchanged. Returns null when the payer has no active org membership.
+   *
+   * HOT-PATH DISCIPLINE: uses `resolveOrgForPayer` ONLY (never `ensureSoloOrg`, which
+   * writes) — the org is a foundation the auth path already established. It is ALWAYS
+   * resolved BEFORE `repo.withTransaction(...)` opens (the pool-vs-lock deadlock rule,
+   * same as the consent read) and threaded INTO the tx closure, so the advisory-locked
+   * tx never needs a second pool connection.
+   *
+   * FAIL CLOSED: on a null result the CALLER returns the neutral/empty equivalent — never
+   * a distinguishable error (no oracle). Any error → null (fail closed).
+   */
+  private async resolveOrgId(payerId: string): Promise<string | null> {
+    try {
+      return (await this.orgs.resolveOrgForPayer(payerId))?.orgId ?? null;
+    } catch {
+      return null; // fail closed
+    }
+  }
 
   // ===========================================================================
   // POST /unlocks  —  request an unlock (F-1 → [4])
@@ -106,11 +140,21 @@ export class UnlockService {
     // *granted* row id (if any) is carried by unlock.granted below.
     await this.emitRequested(payerId, workerId, jobId, ctx);
 
+    // ---- ADR-0027 B5.x Inc 2: resolve the OWNING org BEFORE the tx (deadlock rule) ---
+    // The wallet + ownership key on `org_id`, resolved from the acting payer here, OUTSIDE
+    // (before) `repo.withTransaction`, and threaded INTO the tx closure — never resolved
+    // inside the advisory-locked tx (that would need a 2nd pool connection while N
+    // concurrent same-worker requests hold theirs → pool-vs-lock deadlock, same discipline
+    // as the consent read). FAIL CLOSED on a write path: a payer with no resolvable org
+    // collapses into the IDENTICAL neutral body (no distinguishable error → no oracle).
+    const orgId = await this.resolveOrgId(payerId);
+    if (orgId === null) return neutralUnavailable();
+
     // ---- [F-1] worker-state-INDEPENDENT credit precondition (BC-1) -----------
-    // Checked BEFORE consent/caps/worker existence. A zero-balance payer can never
+    // Checked BEFORE consent/caps/worker existence. A zero-balance ORG can never
     // distinguish a consented-uncapped worker from a non-consented/unknown one: every
     // branch from here that ends in "no contact" returns the IDENTICAL neutral body.
-    const balance = await this.repo.getBalance(payerId);
+    const balance = await this.repo.getBalance(orgId);
     if (balance < 1) {
       // INSUFFICIENT CREDITS collapses into the neutral response (F-1 option (a)).
       // No worker state was consulted → no oracle. We do NOT record a per-worker deny
@@ -142,11 +186,14 @@ export class UnlockService {
       async (tx): Promise<TxResult<UnlockOutcome>> => {
         const events: DeferredEmit[] = [];
 
-        // Serialize all grants/reveals for this worker (F-2 atomicity).
+        // Serialize all grants/reveals for this worker (F-2 atomicity). The advisory lock
+        // stays keyed on WORKER_ID (unchanged) — worker-protection is per-worker.
         await this.repo.lockWorker(tx, workerId);
 
-        // Idempotency: a live grant for (payer, worker) → return it, no second debit (F-6).
-        const existing = await this.repo.findByPayerWorker(tx, payerId, workerId);
+        // Idempotency: a live grant for (org, worker) → return it, no second debit (F-6).
+        // ADR-0027 B5.x Inc 2: keyed on the OWNING org, so any member of the org converges
+        // on the same grant (a teammate re-requesting draws no second debit).
+        const existing = await this.repo.findByOrgWorker(tx, orgId, workerId);
         if (existing && (existing.status === "granted" || existing.status === "revealed")) {
           if (existing.expiresAt && existing.expiresAt.getTime() > Date.now()) {
             return { response: this.grantedResponse(existing.id, existing.expiresAt), events };
@@ -162,7 +209,7 @@ export class UnlockService {
           // distinguishable from non-consent at the HTTP layer.
           const reason: UnlockDenyReason = workerPresent ? "no_consent" : "unknown_worker";
           if (workerPresent) {
-            const row = await this.repo.recordDeny(tx, { payerId, workerId, jobId, denyReason: reason });
+            const row = await this.repo.recordDeny(tx, { orgId, payerId, workerId, jobId, denyReason: reason });
             events.push(() => this.emitDenied(row.id, payerId, workerId, jobId, reason, ctx));
           } else {
             // F-A (no-oracle): a non-existent worker_id would violate the
@@ -178,7 +225,7 @@ export class UnlockService {
         // ---- [2] worker CAPS (atomic, before payment) -------------------------
         const cap = await this.checkCaps(tx, workerId);
         if (cap) {
-          const row = await this.repo.recordDeny(tx, { payerId, workerId, jobId, denyReason: "capped" });
+          const row = await this.repo.recordDeny(tx, { orgId, payerId, workerId, jobId, denyReason: "capped" });
           // Order preserved: cap_exceeded THEN denied (unchanged from emit-in-tx).
           events.push(() => this.emitCapExceeded(payerId, workerId, cap, ctx));
           events.push(() => this.emitDenied(row.id, payerId, workerId, jobId, "capped", ctx));
@@ -186,7 +233,8 @@ export class UnlockService {
         }
 
         // ---- [3] PAYMENT / credit debit (atomic with [4] grant; F-6) ----------
-        const debit = await this.payments.debitOneCreditWithinTx(tx, payerId);
+        // ADR-0027 B5.x Inc 2: debits the ORG wallet (shared across the team).
+        const debit = await this.payments.debitOneCreditWithinTx(tx, orgId);
         if (!debit.ok) {
           // Lost a concurrent debit race after the precondition — collapse to neutral
           // (still no worker-state oracle; consent already passed but the BODY is neutral).
@@ -198,7 +246,10 @@ export class UnlockService {
         const now = new Date();
         const expiresAt = new Date(now.getTime() + UNLOCK_WINDOW_DAYS * 24 * 60 * 60 * 1000);
         const routingTokenRef = randomUUID(); // 122-bit, server-internal only (F-4)
+        // ADR-0027 B5.x Inc 2: the grant OWNERSHIP keys on org_id; payer_id is still
+        // stamped (acting payer, ops/audit + rollback + the org-not-null invariant).
         const granted = await this.repo.upsertGrant(tx, {
+          orgId,
           payerId,
           workerId,
           jobId,
@@ -206,8 +257,10 @@ export class UnlockService {
           grantedAt: now,
           expiresAt,
         });
-        // Ledger debit in the SAME tx (balance + ledger never drift; F-6).
+        // Ledger debit in the SAME tx (balance + ledger never drift; F-6). Stamps both
+        // org_id (wallet key) + payer_id (acting).
         await this.repo.appendLedger(tx, {
+          orgId,
           payerId,
           delta: -1,
           reason: "unlock_debit",
@@ -245,12 +298,18 @@ export class UnlockService {
     // eliminating the deadlock outweighs the marginal widening. A missing/own-by-other
     // unlock falls through to the tx, which returns the IDENTICAL neutral body (F-3).
     const pre = await this.repo.getProjection(unlockId);
-    // XB-A (payer-self path, ADR-0019): a payer may reveal ONLY their own unlock. A
-    // not-owned (or unknown) unlock returns the IDENTICAL neutral body — never a 403 —
-    // so a payer learns nothing about other tenants' unlocks (no-oracle, mirrors F-3).
-    // Ops callers (InternalServiceGuard) pass no expectedPayerId and are UNAFFECTED.
-    if (pre && expectedPayerId !== undefined && pre.payer_id !== expectedPayerId) {
-      return neutralUnavailable();
+    // XB-A (payer-self path, ADR-0019 → ADR-0027 B5.x Inc 2): a payer may reveal ONLY an
+    // unlock owned by THEIR OWN ORG. The ownership gate flips from payer to ORG: resolve
+    // the caller's org here (PRE-TX — the deadlock rule) and compare it to the unlock's
+    // org_id. A foreign-org (or unknown) unlock returns the IDENTICAL neutral body — never
+    // a 403 — so a payer learns nothing about other tenants' unlocks (no-oracle, mirrors
+    // F-3). A caller whose org cannot be resolved fails CLOSED (neutral). Two payers in the
+    // SAME org share ownership: a teammate CAN reveal the other's unlock. Ops callers
+    // (InternalServiceGuard) pass no expectedPayerId and are UNAFFECTED (can reveal any).
+    if (expectedPayerId !== undefined) {
+      const callerOrgId = await this.resolveOrgId(expectedPayerId);
+      if (callerOrgId === null) return neutralUnavailable(); // fail closed (no org)
+      if (pre && pre.org_id !== callerOrgId) return neutralUnavailable();
     }
     // ADR-0026 Phase 5: a worker hard-delete (DSAR) SET-NULLs unlocks.worker_id while keeping
     // the PII-free paid-grant row. A reveal cannot relay to a gone worker — return the SAME
@@ -371,16 +430,32 @@ export class UnlockService {
   // ===========================================================================
   // Ops reads (PII-free projections)
   // ===========================================================================
+  /**
+   * List the acting payer's ORG's unlocks (ADR-0027 B5.x Inc 2). Resolves the owning org
+   * and lists ON `org_id`, so any member sees the whole org's unlocks. A payer with no
+   * resolvable org gets an EMPTY list (fail-closed read — never a distinguishable error).
+   * Name kept (`listByPayer`) so both controller call sites compile unchanged.
+   */
   async listByPayer(payerId: string): Promise<{ unlocks: UnlockProjection[] }> {
-    return { unlocks: await this.repo.listByPayer(payerId) };
+    const orgId = await this.resolveOrgId(payerId);
+    if (orgId === null) return { unlocks: [] };
+    return { unlocks: await this.repo.listByOrg(orgId) };
   }
 
   async getOne(unlockId: string): Promise<UnlockProjection | undefined> {
     return this.repo.getProjection(unlockId);
   }
 
+  /**
+   * The acting payer's ORG credit balance (ADR-0027 B5.x Inc 2). The `payer_id` field is
+   * KEPT = the passed payer (response-contract stability), but `balance` is the ORG
+   * wallet (shared across the team). A payer with no resolvable org reads balance 0
+   * (fail-closed read — never a distinguishable error).
+   */
   async getCredits(payerId: string): Promise<{ payer_id: string; balance: number }> {
-    return { payer_id: payerId, balance: await this.repo.getBalance(payerId) };
+    const orgId = await this.resolveOrgId(payerId);
+    const balance = orgId === null ? 0 : await this.repo.getBalance(orgId);
+    return { payer_id: payerId, balance };
   }
 
   // ===========================================================================
@@ -394,7 +469,19 @@ export class UnlockService {
     const pack = this.payments.resolvePack(packCode);
     if (!pack) return null; // unknown pack → 404 (this is NOT the unlock no-oracle path)
 
-    const result = await this.payments.purchasePackMock(payerId, pack);
+    // ADR-0027 B5.x Inc 2: credit the OWNING org wallet. Resolve it BEFORE the credit
+    // (no advisory lock on this path, but keep the resolve-then-write shape). An
+    // unresolvable org is an internal invariant break (an authed payer should always
+    // have a solo org) — fail CLOSED: log (ids only, PII-free) + return null (→404), so
+    // no credit is minted against a phantom wallet. This null is indistinguishable from
+    // the unknown-pack null at the controller (both 404), which is acceptable here.
+    const orgId = await this.resolveOrgId(payerId);
+    if (orgId === null) {
+      this.logger.error(`purchaseCredits: unresolved org for payer=${payerId} (fail closed)`);
+      return null;
+    }
+
+    const result = await this.payments.purchasePackMock(orgId, payerId, pack);
     // Mock purchase audit: authorized + captured, real_call:false (mock honesty, F-6).
     await this.emitPaymentAuthorized(null, payerId, ctx, {
       packCode: pack.code,
@@ -443,6 +530,13 @@ export class UnlockService {
    * kind, or null if within all caps. Reads are tx-scoped + under the advisory lock so
    * the check-and-write is atomic (F-2). Counts are derived from `unlocks`/grants, not
    * a side counter (no drift).
+   *
+   * ADR-0027 B5.x Inc 2: the weekly cap counts DISTINCT EMPLOYERS (orgs), not distinct
+   * acting payers — worker-protection = "how many distinct employers hold this worker's
+   * contact this week", so a whole recruiting team (many payers, one org) counts as ONE.
+   * The `"weekly_payers"` cap KIND + the `unlock.cap_exceeded` payload are UNCHANGED (no
+   * schema change) — only the counted unit flips. BEHAVIOR-PRESERVING under today's solo
+   * orgs (org == the one payer), where distinct orgs == distinct payers.
    */
   private async checkCaps(
     tx: Tx,
@@ -455,8 +549,9 @@ export class UnlockService {
     const reveals = await this.repo.countRevealsSince(tx, workerId, dayAgo);
     if (reveals >= this.config.UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY) return "daily_reveals";
 
-    const payers = await this.repo.countDistinctPayersSince(tx, workerId, weekAgo);
-    if (payers >= this.config.UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK) return "weekly_payers";
+    // Distinct EMPLOYERS (orgs) — the KIND stays "weekly_payers" (no schema/payload change).
+    const orgs = await this.repo.countDistinctOrgsSince(tx, workerId, weekAgo);
+    if (orgs >= this.config.UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK) return "weekly_payers";
 
     return null;
   }

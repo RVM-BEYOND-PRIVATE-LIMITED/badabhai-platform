@@ -38,21 +38,25 @@ export class PaymentGateway {
   }
 
   /**
-   * Debit ONE credit for an unlock, inside the caller's transaction (F-6 atomicity).
-   * Returns `{ ok: true, balanceAfter }` on success, or `{ ok: false }` when the payer
-   * has insufficient credits (atomic conditional decrement updated no row). The caller
-   * (chokepoint) appends the ledger row in the SAME tx so balance + ledger never drift.
+   * Debit ONE credit from the ORG wallet for an unlock, inside the caller's transaction
+   * (F-6 atomicity). Returns `{ ok: true, balanceAfter }` on success, or `{ ok: false }`
+   * when the org has insufficient credits (atomic conditional decrement updated no row).
+   * The caller (chokepoint) appends the ledger row in the SAME tx so balance + ledger
+   * never drift.
+   *
+   * ADR-0027 B5.x Inc 2: the wallet is keyed on `org_id` (one shared org wallet), so a
+   * whole recruiting team debits the same balance.
    *
    * IDEMPOTENCY (F-6): the chokepoint only calls this on the grant path AFTER it has
-   * established there is no pre-existing live grant for (payer, worker) within the same
+   * established there is no pre-existing live grant for (org, worker) within the same
    * locked transaction — so a retried request converges on the existing grant and never
-   * debits twice. The unique (payer_id, worker_id) is the natural idempotency key.
+   * debits twice. The unique (org_id, worker_id) is the natural idempotency key.
    */
   async debitOneCreditWithinTx(
     tx: Tx,
-    payerId: string,
+    orgId: string,
   ): Promise<{ ok: true; balanceAfter: number } | { ok: false }> {
-    const balanceAfter = await this.repo.tryDebit(tx, payerId, 1);
+    const balanceAfter = await this.repo.tryDebit(tx, orgId, 1);
     if (balanceAfter === undefined) return { ok: false };
     return { ok: true, balanceAfter };
   }
@@ -63,16 +67,21 @@ export class PaymentGateway {
   }
 
   /**
-   * MOCK pack purchase / ops top-up (alpha). Grants the pack's credits + appends the
-   * ledger atomically. NO real money — `real_call` is false. A real Razorpay purchase
+   * MOCK pack purchase / ops top-up (alpha). Credits the ORG wallet + appends the ledger
+   * atomically. NO real money — `real_call` is false. A real Razorpay purchase
    * (authorize→capture against an order) is a LATER human-gated stream; the seam (this
    * method + the events) is what it slots into.
+   *
+   * ADR-0027 B5.x Inc 2: credits the org wallet (`org_id`); the acting `payer_id` is
+   * still stamped on the wallet row + ledger (ops/audit).
    */
   async purchasePackMock(
+    orgId: string,
     payerId: string,
     pack: CreditPack,
   ): Promise<{ balanceAfter: number; credits: number; priceInr: number; realCall: false }> {
     const balanceAfter = await this.repo.creditPack({
+      orgId,
       payerId,
       credits: pack.credits,
       reason: "pack_purchase",

@@ -6,6 +6,7 @@ import type { EventsService } from "../events/events.service";
 import type { ConsentRepository } from "../consent/consent.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
+import type { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import { UnlockService } from "./unlocks.service";
 import type { UnlocksRepository } from "./unlocks.repository";
 import { PaymentGateway } from "./payment-gateway";
@@ -14,6 +15,13 @@ const CTX = { correlationId: "corr-1", requestId: "req-1" } as RequestContext;
 const PAYER = "11111111-1111-1111-1111-111111111111";
 const WORKER = "22222222-2222-2222-2222-222222222222";
 const SENTINEL_PHONE = "+919876500000"; // a value that must NEVER appear in events/response
+
+// ADR-0027 B5.x Inc 2 — the tenancy flip. Each acting payer resolves to a STABLE org id
+// via PayerOrgsRepository.resolveOrgForPayer. The default single-payer tests map PAYER→ORG,
+// so ownership/wallet key on ORG while behavior is preserved (solo org == the one payer).
+const ORG = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"; // PAYER's solo org
+// Default payer→org map (multi-org / shared-org tests override it).
+const DEFAULT_ORG_MAP: Record<string, string> = { [PAYER]: ORG };
 
 const CAPS = {
   UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY: 5,
@@ -29,21 +37,29 @@ interface SetupOpts {
   workerExists?: boolean;
   existingUnlock?: Record<string, unknown>;
   reveals?: number; // countRevealsSince
-  payers?: number; // countDistinctPayersSince
+  orgs?: number; // countDistinctOrgsSince (the weekly cap unit, ADR-0027 B5.x Inc 2)
   debitOk?: boolean;
+  // ADR-0027 B5.x Inc 2: acting-payer → owning-org map (defaults to PAYER→ORG). A payer
+  // ABSENT from the map resolves to null (the fail-closed no-org case).
+  orgMap?: Record<string, string>;
+  // The org id stamped onto the projection returned by getProjection (the reveal IDOR
+  // gate compares it to the CALLER's resolved org). Defaults to ORG (owned by PAYER).
+  projectionOrgId?: string;
 }
 
 function setup(opts: SetupOpts = {}) {
   const balance = opts.balance ?? 5;
   const consentPurposes = opts.consentPurposes === undefined ? ["employer_sharing"] : opts.consentPurposes;
   const workerExists = opts.workerExists ?? true;
+  const orgMap = opts.orgMap ?? DEFAULT_ORG_MAP;
+  const projectionOrgId = opts.projectionOrgId ?? ORG;
 
   const txMethods = {
-    findByPayerWorker: vi.fn(async () => opts.existingUnlock),
+    findByOrgWorker: vi.fn(async () => opts.existingUnlock),
     findByIdForUpdate: vi.fn(async () => opts.existingUnlock),
     lockWorker: vi.fn(async () => undefined),
     countRevealsSince: vi.fn(async () => opts.reveals ?? 0),
-    countDistinctPayersSince: vi.fn(async () => opts.payers ?? 0),
+    countDistinctOrgsSince: vi.fn(async () => opts.orgs ?? 0),
     upsertGrant: vi.fn(async (_tx: unknown, input: Record<string, unknown>) => ({
       id: "unlock-1",
       ...input,
@@ -57,22 +73,23 @@ function setup(opts: SetupOpts = {}) {
     })),
     incrementReveal: vi.fn(async () => 1),
     createRouting: vi.fn(async () => ({ id: "routing-1" })),
-    appendLedger: vi.fn(async () => undefined),
+    // Typed (_tx, input) so the org_id + payer_id stamping assertions can read calls[0][1].
+    appendLedger: vi.fn(async (_tx: unknown, _input: Record<string, unknown>) => undefined),
     tryDebit: vi.fn(async () => ((opts.debitOk ?? true) ? balance - 1 : undefined)),
   };
 
   const repo = {
     withTransaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) => work(txMethods)),
     getBalance: vi.fn(async () => balance),
-    listByPayer: vi.fn(async () => []),
+    listByOrg: vi.fn(async () => []),
     // reveal() reads the projection (tx-external) BEFORE the lock to run the consent
-    // gate; return a worker_id-bearing projection whenever an unlock exists so that
-    // pre-lock consent check fires in the reveal tests.
+    // gate; return a worker_id + org_id bearing projection whenever an unlock exists so
+    // the pre-lock consent + ORG-ownership checks fire in the reveal tests.
     // worker_id is `string | null` post-ADR-0026 Phase 5 (DSAR SET NULL) — type the literal so
     // a test can mockResolvedValue a null-worker_id projection (the deleted-worker guard).
     getProjection: vi.fn(
-      async (): Promise<{ worker_id: string | null; payer_id: string } | undefined> =>
-        opts.existingUnlock ? { worker_id: WORKER, payer_id: PAYER } : undefined,
+      async (): Promise<{ worker_id: string | null; payer_id: string; org_id: string | null } | undefined> =>
+        opts.existingUnlock ? { worker_id: WORKER, payer_id: PAYER, org_id: projectionOrgId } : undefined,
     ),
     ...txMethods,
   };
@@ -93,6 +110,15 @@ function setup(opts: SetupOpts = {}) {
 
   const events = { emit: vi.fn(async (p: Record<string, unknown>) => p) };
 
+  // ADR-0027 B5.x Inc 2: the tenancy resolver. Maps each acting payer → its owning org (or
+  // null when absent — the fail-closed no-org case). resolveOrgForPayer ONLY (the hot path
+  // never calls ensureSoloOrg).
+  const orgs = {
+    resolveOrgForPayer: vi.fn(async (payerId: string) =>
+      payerId in orgMap ? { orgId: orgMap[payerId], orgRole: "owner" } : null,
+    ),
+  };
+
   const payments = new PaymentGateway(repo as unknown as UnlocksRepository, CAPS);
 
   const svc = new UnlockService(
@@ -102,9 +128,10 @@ function setup(opts: SetupOpts = {}) {
     pii as unknown as PiiCryptoService,
     payments,
     events as unknown as EventsService,
+    orgs as unknown as PayerOrgsRepository,
     CAPS,
   );
-  return { svc, repo, txMethods, consents, workers, pii, events };
+  return { svc, repo, txMethods, consents, workers, pii, events, orgs };
 }
 
 function emitted(events: { emit: { mock: { calls: unknown[][] } } }): string[] {
@@ -395,7 +422,7 @@ describe("UnlockService — reveal (F-5: sentinel phone never leaks)", () => {
     // The pre-lock projection reports a null worker_id (the SET-NULL result).
     txMethods.findByIdForUpdate.mockResolvedValue({ ...grantedUnlock(), workerId: null });
     (svc as unknown as { repo: { getProjection: ReturnType<typeof vi.fn> } }).repo.getProjection =
-      vi.fn(async () => ({ worker_id: null, payer_id: PAYER }));
+      vi.fn(async () => ({ worker_id: null, payer_id: PAYER, org_id: ORG }));
 
     const out = await svc.reveal("unlock-1", CTX);
     expect(out).toEqual({ status: "unavailable" }); // byte-identical neutral
@@ -413,7 +440,7 @@ describe("UnlockService — reveal (F-5: sentinel phone never leaks)", () => {
     const { svc, repo, txMethods } = setup({
       existingUnlock: { ...grantedUnlock(), workerId: null },
     });
-    repo.getProjection.mockResolvedValue({ worker_id: null, payer_id: PAYER });
+    repo.getProjection.mockResolvedValue({ worker_id: null, payer_id: PAYER, org_id: ORG });
     const out = await svc.reveal("unlock-1", CTX);
     expect(out).toEqual({ status: "unavailable" });
     expect(repo.withTransaction).not.toHaveBeenCalled(); // never opened the tx
@@ -453,14 +480,17 @@ describe("UnlockService — no PII anywhere in emitted events", () => {
   });
 });
 
-describe("UnlockService — reveal ownership (XB-A: payer-self path, ADR-0019)", () => {
-  const OWNER = PAYER;
+describe("UnlockService — reveal ownership (XB-A: payer-self path, ADR-0019 → ORG, ADR-0027 B5.x Inc 2)", () => {
+  const OWNER = PAYER; // resolves to ORG via DEFAULT_ORG_MAP
+  // A payer in a DIFFERENT org (mapped to ORG_B). The unlock's org_id (ORG) != caller's org.
   const OTHER_PAYER = "99999999-9999-4999-8999-999999999999";
+  const ORG_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
   function grantedOwnedByOwner() {
     return {
       id: "unlock-1",
       payerId: OWNER,
+      orgId: ORG,
       workerId: WORKER,
       status: "granted",
       routingTokenRef: "44444444-4444-4444-4444-444444444444",
@@ -469,26 +499,33 @@ describe("UnlockService — reveal ownership (XB-A: payer-self path, ADR-0019)",
     };
   }
 
-  it("a payer revealing ANOTHER payer's unlock gets the IDENTICAL neutral body (no 403, no routing, no contact.revealed)", async () => {
-    const r = setup({ consentPurposes: ["employer_sharing"], existingUnlock: grantedOwnedByOwner() });
-    // The projection (pre-lock read) reports the TRUE owner; the caller is someone else.
-    r.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: OWNER });
+  it("a payer in ANOTHER org revealing the org's unlock gets the IDENTICAL neutral body (no 403, no routing, no contact.revealed)", async () => {
+    // OTHER_PAYER resolves to ORG_B; the unlock's org_id is ORG → foreign-org → neutral.
+    const r = setup({
+      consentPurposes: ["employer_sharing"],
+      existingUnlock: grantedOwnedByOwner(),
+      orgMap: { [PAYER]: ORG, [OTHER_PAYER]: ORG_B },
+    });
+    // The projection (pre-lock read) reports the TRUE owning org (ORG); the caller is in ORG_B.
+    r.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: OWNER, org_id: ORG });
     const out = await r.svc.reveal("unlock-1", CTX, OTHER_PAYER);
     expect(out).toEqual({ status: "unavailable" }); // byte-identical neutral (no-oracle)
     expect(r.txMethods.createRouting).not.toHaveBeenCalled();
     expect(emitted(r.events)).not.toContain("contact.revealed");
   });
 
-  it("the OWNER revealing their OWN unlock succeeds (expectedPayerId matches)", async () => {
+  it("the OWNER revealing their OWN org's unlock succeeds (caller org == unlock org)", async () => {
     const r = setup({ consentPurposes: ["employer_sharing"], existingUnlock: grantedOwnedByOwner() });
-    r.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: OWNER });
+    r.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: OWNER, org_id: ORG });
     const out = await r.svc.reveal("unlock-1", CTX, OWNER);
     expect(out).toMatchObject({ channel: "in_app_relay" });
     expect(emitted(r.events)).toContain("contact.revealed");
   });
 
   it("an unknown unlock returns neutral for a payer too (no existence oracle) and never reaches the tx", async () => {
-    const r = setup({ existingUnlock: undefined });
+    // OTHER_PAYER RESOLVES to an org (ORG_B) so the null projection — not the no-org fail-
+    // closed — is what drives the neutral body (genuinely exercising the unknown-unlock path).
+    const r = setup({ existingUnlock: undefined, orgMap: { [PAYER]: ORG, [OTHER_PAYER]: ORG_B } });
     const out = await r.svc.reveal("33333333-3333-4333-8333-333333333333", CTX, OTHER_PAYER);
     expect(out).toEqual({ status: "unavailable" });
     expect(r.txMethods.createRouting).not.toHaveBeenCalled();
@@ -496,9 +533,204 @@ describe("UnlockService — reveal ownership (XB-A: payer-self path, ADR-0019)",
 
   it("OPS reveal (no expectedPayerId) is UNAFFECTED by the ownership gate (backward-compat)", async () => {
     const r = setup({ consentPurposes: ["employer_sharing"], existingUnlock: grantedOwnedByOwner() });
-    r.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: OWNER });
+    r.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: OWNER, org_id: ORG });
     const out = await r.svc.reveal("unlock-1", CTX); // ops path — no expectedPayerId
     expect(out).toMatchObject({ channel: "in_app_relay" });
+    // Ops path never resolves a caller org (expectedPayerId is undefined).
+    expect(r.orgs.resolveOrgForPayer).not.toHaveBeenCalled();
     expect(emitted(r.events)).toContain("contact.revealed");
+  });
+});
+
+// ===========================================================================
+// ADR-0027 B5.x Inc 2 — the payer_id→org_id tenancy flip
+// ===========================================================================
+
+const PAYER_A2 = "aaaaaaa2-aaa2-4aa2-8aa2-aaaaaaaaaaa2"; // a SECOND payer in PAYER's org (ORG)
+const ORG_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const PAYER_B = "bbbbbbb1-bbb1-4bb1-8bb1-bbbbbbbbbbb1"; // a payer in ORG_B
+
+function grantedOwnedBy(orgId: string) {
+  return {
+    id: "unlock-1",
+    payerId: PAYER,
+    orgId,
+    workerId: WORKER,
+    status: "granted",
+    routingTokenRef: "44444444-4444-4444-4444-444444444444",
+    revealCount: 0,
+    expiresAt: new Date(Date.now() + 60_000),
+  };
+}
+
+describe("UnlockService — cross-org IDOR (reveal keys ownership on ORG, no leak, no-oracle)", () => {
+  it("payerB (orgB) revealing payerA's (orgA) unlock gets the IDENTICAL neutral body, no data leak", async () => {
+    const r = setup({
+      consentPurposes: ["employer_sharing"],
+      existingUnlock: grantedOwnedBy(ORG), // owned by ORG (payer A's org)
+      orgMap: { [PAYER]: ORG, [PAYER_B]: ORG_B },
+    });
+    r.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: PAYER, org_id: ORG });
+    const out = await r.svc.reveal("unlock-1", CTX, PAYER_B); // caller is in ORG_B
+    expect(out).toEqual({ status: "unavailable" }); // no 403, byte-identical neutral
+    // No decrypt, no routing, no contact.revealed — nothing about ORG's unlock leaks.
+    expect(r.pii.decrypt).not.toHaveBeenCalled();
+    expect(r.txMethods.createRouting).not.toHaveBeenCalled();
+    expect(emitted(r.events)).not.toContain("contact.revealed");
+    // The IDOR gate short-circuits BEFORE the tx opens.
+    expect(r.repo.withTransaction).not.toHaveBeenCalled();
+  });
+
+  it("the foreign-org neutral body is BYTE-IDENTICAL to the unknown-unlock neutral body (no-oracle)", async () => {
+    const foreign = setup({
+      consentPurposes: ["employer_sharing"],
+      existingUnlock: grantedOwnedBy(ORG),
+      orgMap: { [PAYER]: ORG, [PAYER_B]: ORG_B },
+    });
+    foreign.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: PAYER, org_id: ORG });
+    const foreignBody = await foreign.svc.reveal("unlock-1", CTX, PAYER_B);
+
+    const unknown = setup({ existingUnlock: undefined, orgMap: { [PAYER_B]: ORG_B } });
+    const unknownBody = await unknown.svc.reveal("33333333-3333-4333-8333-333333333333", CTX, PAYER_B);
+
+    expect(JSON.stringify(foreignBody)).toBe(JSON.stringify(unknownBody));
+  });
+});
+
+describe("UnlockService — shared-org (two payers, one org: shared ownership + shared wallet)", () => {
+  it("payerA2 can reveal an unlock owned by payerA's org (same org == shared ownership)", async () => {
+    // PAYER and PAYER_A2 both resolve to ORG.
+    const r = setup({
+      consentPurposes: ["employer_sharing"],
+      existingUnlock: grantedOwnedBy(ORG),
+      orgMap: { [PAYER]: ORG, [PAYER_A2]: ORG },
+    });
+    r.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: PAYER, org_id: ORG });
+    const out = await r.svc.reveal("unlock-1", CTX, PAYER_A2); // teammate reveals A's unlock
+    expect(out).toMatchObject({ channel: "in_app_relay" });
+    expect(emitted(r.events)).toContain("contact.revealed");
+  });
+
+  it("a top-up by payerA then an unlock by payerA2 draw the SAME org wallet (org_id)", async () => {
+    // Top-up: payerA buys a pack → credits ORG's wallet (org_id=ORG stamped on creditPack).
+    const topUp = setup({ orgMap: { [PAYER]: ORG } });
+    // Spy on the underlying repo.creditPack (PaymentGateway.purchasePackMock delegates to it).
+    (topUp.repo as unknown as { creditPack: ReturnType<typeof vi.fn> }).creditPack = vi.fn(
+      async () => 12,
+    );
+    const bought = await topUp.svc.purchaseCredits(PAYER, "pack_10", CTX);
+    expect(bought).not.toBeNull();
+    const creditArgs = (topUp.repo as unknown as { creditPack: ReturnType<typeof vi.fn> }).creditPack
+      .mock.calls[0]![0] as { orgId: string; payerId: string };
+    expect(creditArgs.orgId).toBe(ORG); // credited the ORG wallet
+    expect(creditArgs.payerId).toBe(PAYER); // acting payer still stamped
+
+    // Unlock by payerA2 (same org) → getBalance + debit key on ORG, not the acting payer.
+    const spend = setup({ consentPurposes: ["employer_sharing"], orgMap: { [PAYER_A2]: ORG } });
+    await spend.svc.requestUnlock({ payerId: PAYER_A2, workerId: WORKER, jobId: null }, CTX);
+    expect(spend.repo.getBalance).toHaveBeenCalledWith(ORG); // balance read on the ORG wallet
+    expect(spend.txMethods.tryDebit).toHaveBeenCalledWith(expect.anything(), ORG, 1); // debit ORG wallet
+    // The grant + ledger stamp the ORG (ownership) AND the acting payer A2.
+    const grantArg = spend.txMethods.upsertGrant.mock.calls[0]![1] as { orgId: string; payerId: string };
+    expect(grantArg).toMatchObject({ orgId: ORG, payerId: PAYER_A2 });
+    const ledgerArg = spend.txMethods.appendLedger.mock.calls[0]![1] as { orgId: string; payerId: string };
+    expect(ledgerArg).toMatchObject({ orgId: ORG, payerId: PAYER_A2 });
+  });
+});
+
+describe("UnlockService — weekly cap counts DISTINCT ORGS (behavior-preserving under solo orgs)", () => {
+  it("the weekly cap reads countDistinctOrgsSince and denies with the UNCHANGED weekly_payers kind", async () => {
+    // countDistinctOrgsSince at the cap → capped. The KIND string stays weekly_payers.
+    const r = setup({ consentPurposes: ["employer_sharing"], orgs: 10 }); // == UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK
+    const out = await r.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    expect(out).toEqual({ status: "unavailable" });
+    expect(r.txMethods.countDistinctOrgsSince).toHaveBeenCalled();
+    const cap = r.events.emit.mock.calls.find(
+      (c) => (c[0] as { event_name: string }).event_name === "unlock.cap_exceeded",
+    );
+    expect(cap).toBeDefined();
+    // The counted unit changed (payer→org) but the payload KIND string is UNCHANGED.
+    expect((cap![0] as { payload: { cap: string; window: string } }).payload.cap).toBe("weekly_payers");
+    expect((cap![0] as { payload: { window: string } }).payload.window).toBe("week");
+    expect(r.txMethods.tryDebit).not.toHaveBeenCalled(); // caps precede payment
+  });
+
+  it("N distinct payers in the SAME org count as ONE org (under the cap → granted)", async () => {
+    // The repo count is what the DB returns (distinct org_id). Modelled as 1 for a single-org
+    // team of many payers → below the cap → the request proceeds to a grant.
+    const r = setup({ consentPurposes: ["employer_sharing"], orgs: 1 });
+    const out = await r.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    expect(out).toMatchObject({ ok: true, status: "granted" });
+    expect(r.txMethods.tryDebit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("UnlockService — fail-closed when the acting payer has NO resolvable org", () => {
+  it("requestUnlock with an unresolvable org returns neutral, never opens the tx, never reads balance", async () => {
+    // PAYER absent from the org map → resolveOrgForPayer returns null.
+    const r = setup({ orgMap: {} });
+    const out = await r.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    expect(out).toEqual({ status: "unavailable" }); // byte-identical neutral, no distinguishable error
+    expect(r.repo.getBalance).not.toHaveBeenCalled(); // org resolved BEFORE the balance read
+    expect(r.repo.withTransaction).not.toHaveBeenCalled();
+    expect(r.txMethods.tryDebit).not.toHaveBeenCalled();
+  });
+
+  it("reveal with an unresolvable caller org fails closed to the IDENTICAL neutral body", async () => {
+    const r = setup({
+      consentPurposes: ["employer_sharing"],
+      existingUnlock: grantedOwnedBy(ORG),
+      orgMap: {}, // the caller resolves to null
+    });
+    r.repo.getProjection.mockResolvedValue({ worker_id: WORKER, payer_id: PAYER, org_id: ORG });
+    const out = await r.svc.reveal("unlock-1", CTX, PAYER);
+    expect(out).toEqual({ status: "unavailable" });
+    expect(r.repo.withTransaction).not.toHaveBeenCalled();
+    expect(r.pii.decrypt).not.toHaveBeenCalled();
+  });
+
+  it("getCredits with an unresolvable org returns balance 0 (fail-closed read, keeps payer_id field)", async () => {
+    const r = setup({ orgMap: {} });
+    const out = await r.svc.getCredits(PAYER);
+    expect(out).toEqual({ payer_id: PAYER, balance: 0 });
+    expect(r.repo.getBalance).not.toHaveBeenCalled();
+  });
+
+  it("listByPayer with an unresolvable org returns an empty list (fail-closed read)", async () => {
+    const r = setup({ orgMap: {} });
+    const out = await r.svc.listByPayer(PAYER);
+    expect(out).toEqual({ unlocks: [] });
+    expect(r.repo.listByOrg).not.toHaveBeenCalled();
+  });
+
+  it("purchaseCredits with an unresolvable org returns null (→404) and never credits", async () => {
+    const r = setup({ orgMap: {} });
+    (r.repo as unknown as { creditPack: ReturnType<typeof vi.fn> }).creditPack = vi.fn(async () => 0);
+    const out = await r.svc.purchaseCredits(PAYER, "pack_10", CTX); // a KNOWN pack
+    expect(out).toBeNull(); // fail-closed, not because the pack is unknown
+    expect(
+      (r.repo as unknown as { creditPack: ReturnType<typeof vi.fn> }).creditPack,
+    ).not.toHaveBeenCalled();
+  });
+});
+
+describe("UnlockService — NOT-NULL stamping (grant/deny/wallet/ledger carry org_id + payer_id)", () => {
+  it("a grant stamps BOTH org_id (ownership) and payer_id (acting)", async () => {
+    const r = setup({ consentPurposes: ["employer_sharing"] });
+    await r.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    const grant = r.txMethods.upsertGrant.mock.calls[0]![1] as Record<string, unknown>;
+    expect(grant.orgId).toBe(ORG);
+    expect(grant.payerId).toBe(PAYER);
+    const ledger = r.txMethods.appendLedger.mock.calls[0]![1] as Record<string, unknown>;
+    expect(ledger.orgId).toBe(ORG);
+    expect(ledger.payerId).toBe(PAYER);
+  });
+
+  it("a deny stamps BOTH org_id and payer_id (no_consent branch)", async () => {
+    const r = setup({ consentPurposes: ["profiling"] }); // consented for profiling, NOT employer_sharing
+    await r.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    const deny = r.txMethods.recordDeny.mock.calls[0]![1] as Record<string, unknown>;
+    expect(deny.orgId).toBe(ORG);
+    expect(deny.payerId).toBe(PAYER);
   });
 });

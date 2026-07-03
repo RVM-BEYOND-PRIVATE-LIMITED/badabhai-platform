@@ -4,6 +4,8 @@ import { UnlocksModule } from "./unlocks.module";
 import { UnlocksController } from "./unlocks.controller";
 import { ConsentModule } from "../consent/consent.module";
 import { ConsentRepository } from "../consent/consent.repository";
+import { PayersModule } from "../payers/payers.module";
+import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 
 /**
@@ -24,6 +26,14 @@ describe("UnlocksModule wiring (cross-module DI regression guard)", () => {
 
   it("ConsentModule exports ConsentRepository (the disclosure-consent read dependency)", () => {
     expect(getMeta("exports", ConsentModule)).toContain(ConsentRepository);
+  });
+
+  it("imports PayersModule (source of PayerOrgsRepository for the org tenancy flip, ADR-0027 B5.x Inc 2)", () => {
+    expect(getMeta("imports", UnlocksModule)).toContain(PayersModule);
+  });
+
+  it("PayersModule exports PayerOrgsRepository (the resolveOrgForPayer dependency)", () => {
+    expect(getMeta("exports", PayersModule)).toContain(PayerOrgsRepository);
   });
 
   it("declares the controller + service + repository + payment gateway", () => {
