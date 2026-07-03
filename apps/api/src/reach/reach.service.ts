@@ -9,6 +9,7 @@ import {
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
+import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import { ReachRepository } from "./reach.repository";
 import {
   workerProfileRowToSignals,
@@ -43,7 +44,24 @@ export class ReachService {
     private readonly repo: ReachRepository,
     private readonly events: EventsService,
     @Inject(JOB_SOURCE) private readonly jobs: JobSource,
+    // ADR-0027 B5.x Inc 5: resolves the OWNING org for the payer-self owned reach read.
+    private readonly orgs: PayerOrgsRepository,
   ) {}
+
+  /**
+   * Resolve the OWNING org for an acting payer (ADR-0027 B5.x Inc 5 — the owned-reach tenancy
+   * pivot, mirroring `UnlockService.resolveOrgId`). Ownership keys on `org_id`; the acting
+   * `payer_id` stays the `feed.shown` actor unchanged. Uses `resolveOrgForPayer` ONLY (never
+   * `ensureSoloOrg`, which writes). FAIL CLOSED: a null result → the caller returns the SAME
+   * neutral 404 (no-oracle). Any error → null.
+   */
+  private async resolveOrgId(payerId: string): Promise<string | null> {
+    try {
+      return (await this.orgs.resolveOrgForPayer(payerId))?.orgId ?? null;
+    } catch {
+      return null; // fail closed
+    }
+  }
 
   /**
    * View A — payer applicant list (`GET /reach/jobs/:jobId/applicants`). Resolves the
@@ -88,13 +106,16 @@ export class ReachService {
   }
 
   /**
-   * PAYER-SELF View A (`GET /payer/reach/jobs/:jobId/applicants`, ADR-0019 R22 / PR2).
-   * IDENTICAL faceless ranking to {@link applicantsForJob} — the deltas are exactly two:
-   *  (1) OWNERSHIP: the job is resolved via the payer-scoped, no-oracle ownership read
-   *      (`findOwnedJobSignalRowById`) — a not-found job and another payer's job both
-   *      resolve to the SAME neutral 404, so a payer cannot enumerate jobs they do not
-   *      own (XB-A horizontal authz + F-3 no-oracle). `payer_id` is consumed only in the
-   *      ownership WHERE and NEVER enters the JobSpec/response/event.
+   * PAYER-SELF View A (`GET /payer/reach/jobs/:jobId/applicants`, ADR-0019 R22 / PR2 →
+   * ADR-0027 B5.x Inc 5). IDENTICAL faceless ranking to {@link applicantsForJob} — the deltas
+   * are exactly two:
+   *  (1) OWNERSHIP: the acting payer's org is resolved FIRST (fail-closed on a null org), then
+   *      the job is resolved via the ORG-scoped, no-oracle ownership read
+   *      (`findOwnedJobSignalRowById`) — a not-found job, another org's job, AND a caller with
+   *      no resolvable org ALL resolve to the SAME neutral 404, so a payer cannot enumerate
+   *      jobs their org does not own (XB-A horizontal authz + F-3 no-oracle). `org_id` (like
+   *      `payer_id`) is consumed only in the ownership WHERE and NEVER enters the
+   *      JobSpec/response/event. Two agency members in the SAME org see the same owned jobs.
    *  (2) ACTOR: each `feed.shown` carries `{actor_type:"payer", actor_id: payerId}` (bound
    *      to the verified session — never the body), vs the ops path's `system` actor.
    * The RANK core, the faceless worker projection, and the response shape are UNCHANGED
@@ -105,7 +126,13 @@ export class ReachService {
     payerId: string,
     ctx: RequestContext,
   ): Promise<ApplicantListResponseDto> {
-    const ownedRow = await this.repo.findOwnedJobSignalRowById(jobId, payerId);
+    // ADR-0027 B5.x Inc 5: resolve the OWNING org from the acting payer. A caller with no
+    // resolvable org fails closed into the SAME neutral 404 (no-oracle) — never distinguishable
+    // from an unknown/foreign-org job.
+    const orgId = await this.resolveOrgId(payerId);
+    if (orgId === null) throw new NotFoundException("Job not found");
+
+    const ownedRow = await this.repo.findOwnedJobSignalRowById(jobId, orgId);
     // Not-found AND not-owned both land here with the IDENTICAL body (no-oracle, F-3).
     if (!ownedRow) throw new NotFoundException("Job not found");
     const jobSpec = jobSignalRowToJobSpec(ownedRow);

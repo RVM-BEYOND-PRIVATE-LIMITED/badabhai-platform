@@ -6,10 +6,22 @@ import { CreateAgencyJobSchema, UpdateAgencyJobSchema } from "./agency.dto";
 
 const PAYER_A = "11111111-1111-4111-8111-111111111111";
 const PAYER_B = "22222222-2222-4222-8222-222222222222";
+// A second payer in the SAME org as PAYER_A (a teammate) — ADR-0027 B5.x Inc 5 shared-org.
+const PAYER_A2 = "1a1a1a1a-1a1a-4a1a-8a1a-1a1a1a1a1a1a";
 const JOB_ID = "33333333-3333-4333-8333-333333333333";
 const WORKER_ID = "44444444-4444-4444-8444-444444444444";
 const INVITE_ID = "55555555-5555-4555-8555-555555555555";
+// Org ids: PAYER_A + PAYER_A2 → ORG_A; PAYER_B → ORG_B (cross-org isolation).
+const ORG_A = "aaaa0000-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const ORG_B = "bbbb0000-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const CTX = { correlationId: "66666666-6666-4666-8666-666666666666", requestId: "req-1" };
+
+/** payer → owning org, mirroring `resolveOrgForPayer` (agencyA/A2 → orgA, agencyB → orgB). */
+const ORG_BY_PAYER: Record<string, string> = {
+  [PAYER_A]: ORG_A,
+  [PAYER_A2]: ORG_A,
+  [PAYER_B]: ORG_B,
+};
 
 // Free-text / identity values that must NEVER appear in an emitted payload.
 const TITLE = "CNC Operator — Night Shift";
@@ -17,6 +29,7 @@ const CITY = "Pune";
 
 type JobRow = {
   id: string;
+  orgId: string | null;
   payerId: string | null;
   tradeKey: string;
   title: string;
@@ -36,6 +49,7 @@ type JobRow = {
 function jobRow(overrides: Partial<JobRow> = {}): JobRow {
   return {
     id: JOB_ID,
+    orgId: ORG_A,
     payerId: PAYER_A,
     tradeKey: "cnc_operator",
     title: TITLE,
@@ -56,6 +70,8 @@ function jobRow(overrides: Partial<JobRow> = {}): JobRow {
 
 function make(opts?: {
   ownedJob?: JobRow | undefined;
+  /** When set, `resolveOrgForPayer` returns null for THIS payer (fail-closed null-org tests). */
+  noOrgForPayer?: string;
   invite?:
     | { id: string; inviterPayerId: string; invitedWorkerId: string | null; status: string }
     | undefined;
@@ -64,24 +80,49 @@ function make(opts?: {
 }) {
   const emit = vi.fn().mockResolvedValue(undefined);
 
+  // Org-scoped repo mocks: the seeded job is only visible to callers whose resolved orgId
+  // matches the job's orgId (mirrors the org-scoped WHERE) — cross-org callers see undefined.
+  const seeded = opts?.ownedJob;
+  const visibleTo = (orgId: string): JobRow | undefined =>
+    seeded && seeded.orgId === orgId ? seeded : undefined;
+
   const jobsRepo = {
     create: vi
       .fn()
       .mockImplementation((input: Partial<JobRow>, status: "open" | "closed") =>
         Promise.resolve(jobRow({ ...input, status })),
       ),
-    findOwnedById: vi.fn().mockResolvedValue(opts?.ownedJob),
-    listOwned: vi.fn().mockResolvedValue(opts?.ownedJob ? [opts.ownedJob] : []),
+    findOwnedById: vi
+      .fn()
+      .mockImplementation((_id: string, orgId: string) => Promise.resolve(visibleTo(orgId))),
+    listOwned: vi
+      .fn()
+      .mockImplementation((orgId: string) =>
+        Promise.resolve(visibleTo(orgId) ? [visibleTo(orgId)] : []),
+      ),
     updateOwned: vi
       .fn()
-      .mockImplementation((id: string, _p: string, patch: Partial<JobRow>) =>
-        Promise.resolve(jobRow({ ...opts?.ownedJob, ...patch, id })),
+      .mockImplementation((id: string, orgId: string, patch: Partial<JobRow>) =>
+        Promise.resolve(visibleTo(orgId) ? jobRow({ ...seeded, ...patch, id }) : undefined),
       ),
     closeOwnedIfOpen: vi
       .fn()
-      .mockImplementation((id: string) =>
-        Promise.resolve(jobRow({ ...opts?.ownedJob, id, status: "closed" })),
+      .mockImplementation((id: string, orgId: string) =>
+        Promise.resolve(visibleTo(orgId) ? jobRow({ ...seeded, id, status: "closed" }) : undefined),
       ),
+  };
+
+  // resolveOrgForPayer: agencyA/A2 → orgA, agencyB → orgB; noOrgForPayer → null (fail-closed).
+  const orgs = {
+    resolveOrgForPayer: vi.fn().mockImplementation((payerId: string) =>
+      Promise.resolve(
+        payerId === opts?.noOrgForPayer
+          ? null
+          : ORG_BY_PAYER[payerId]
+            ? { orgId: ORG_BY_PAYER[payerId], orgRole: "owner" }
+            : null,
+      ),
+    ),
   };
 
   const invitesRepo = {
@@ -107,8 +148,9 @@ function make(opts?: {
     invitesRepo as never,
     consent as never,
     { emit } as never,
+    orgs as never,
   );
-  return { svc, emit, jobsRepo, invitesRepo, consent };
+  return { svc, emit, jobsRepo, invitesRepo, consent, orgs };
 }
 
 /** The first emitted event (asserts a call happened) — typed loosely for the assertions. */
@@ -170,11 +212,86 @@ describe("AgencyService — no-oracle on owned reads/edits", () => {
     );
   });
 
-  it("readOwnedById throws 403 if the repo ever returns a row owned by another payer", async () => {
-    // Defense-in-depth: a (hypothetical) cross-tenant row from the repo is rejected by
-    // the payer-scope chokepoint — never silently returned.
-    const { svc } = make({ ownedJob: jobRow({ payerId: PAYER_B }) });
+  it("readOwnedByIdOrg throws 403 if the repo ever returns a row owned by another org", async () => {
+    // Defense-in-depth (ADR-0027 B5.x Inc 5): a (hypothetical) row whose org_id != the caller's
+    // resolved org is rejected by the org-scope chokepoint even if it slipped past the WHERE —
+    // never silently returned. Here we force the repo to return a foreign-org row directly.
+    const { svc, jobsRepo } = make({});
+    jobsRepo.findOwnedById.mockResolvedValueOnce(jobRow({ orgId: ORG_B }));
     await expect(svc.getOwnJob(PAYER_A, JOB_ID)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("readOwnedByIdOrg throws 403 for an org-LESS (null org_id) row (ops/seed leak guard)", async () => {
+    // A null-org row (an ops/seed job that was never org-stamped) is owned by NO org → 403,
+    // never returned to an agency caller.
+    const { svc, jobsRepo } = make({});
+    jobsRepo.findOwnedById.mockResolvedValueOnce(jobRow({ orgId: null, payerId: null }));
+    await expect(svc.getOwnJob(PAYER_A, JOB_ID)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
+
+describe("AgencyService — ADR-0027 B5.x Inc 5 org tenancy (jobs ownership flip)", () => {
+  it("createJob stamps BOTH org_id (resolved) + payer_id (session) on the row", async () => {
+    const { svc, jobsRepo } = make({});
+    const dto = CreateAgencyJobSchema.parse({ trade_key: "cnc_operator", title: TITLE, city: CITY });
+    await svc.createJob(PAYER_A, dto, CTX);
+    // The create INSERT carries org_id (the ownership key) + payer_id (the acting payer) —
+    // satisfying the partial CHECK jobs_org_id_when_payer_chk (payer_id NOT NULL ⇒ org_id NOT NULL).
+    expect(jobsRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: ORG_A, payerId: PAYER_A }),
+      "open",
+    );
+  });
+
+  it("createJob FAILS CLOSED (400, no INSERT) when the payer has no resolvable org", async () => {
+    const { svc, jobsRepo } = make({ noOrgForPayer: PAYER_A });
+    const dto = CreateAgencyJobSchema.parse({ trade_key: "cnc_operator", title: TITLE, city: CITY });
+    await expect(svc.createJob(PAYER_A, dto, CTX)).rejects.toBeInstanceOf(BadRequestException);
+    expect(jobsRepo.create).not.toHaveBeenCalled();
+  });
+
+  it("CROSS-ORG IDOR: agencyB cannot READ agencyA's job (identical neutral 404, no leak)", async () => {
+    // The job is owned by ORG_A; PAYER_B resolves to ORG_B → the org-scoped read returns
+    // undefined → the SAME neutral 404 as an unknown id (no oracle).
+    const { svc } = make({ ownedJob: jobRow({ orgId: ORG_A, payerId: PAYER_A }) });
+    await expect(svc.getOwnJob(PAYER_B, JOB_ID)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("CROSS-ORG IDOR: agencyB cannot UPDATE agencyA's job (neutral 404)", async () => {
+    const { svc } = make({ ownedJob: jobRow({ orgId: ORG_A, payerId: PAYER_A }) });
+    const dto = UpdateAgencyJobSchema.parse({ title: "New Title" });
+    await expect(svc.updateJob(PAYER_B, JOB_ID, dto, CTX)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("CROSS-ORG IDOR: agencyB cannot CLOSE agencyA's job (neutral 404)", async () => {
+    const { svc } = make({ ownedJob: jobRow({ orgId: ORG_A, payerId: PAYER_A }) });
+    await expect(svc.closeJob(PAYER_B, JOB_ID, CTX)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("SHARED-ORG: teammate agencyA2 SEES a job agencyA created (same org)", async () => {
+    const { svc } = make({ ownedJob: jobRow({ orgId: ORG_A, payerId: PAYER_A }) });
+    // PAYER_A2 is a different payer but resolves to the SAME ORG_A → the job is visible.
+    const view = await svc.getOwnJob(PAYER_A2, JOB_ID);
+    expect(view.id).toBe(JOB_ID);
+    const list = await svc.listOwnJobs(PAYER_A2);
+    expect(list.map((j) => j.id)).toContain(JOB_ID);
+  });
+
+  it("SHARED-ORG: teammate agencyA2 can EDIT a job agencyA created, event actor = A2", async () => {
+    const { svc, emit } = make({ ownedJob: jobRow({ orgId: ORG_A, payerId: PAYER_A }) });
+    const dto = UpdateAgencyJobSchema.parse({ title: "Edited by teammate" });
+    await svc.updateJob(PAYER_A2, JOB_ID, dto, CTX);
+    const evt = firstEmit(emit);
+    expect(evt.event_name).toBe("job.updated");
+    // The event actor + payload payer_id are the ACTING payer (A2), NOT repurposed to org_id.
+    expect(evt.actor).toEqual({ actor_type: "payer", actor_id: PAYER_A2 });
+    expect(evt.payload.payer_id).toBe(PAYER_A2);
+  });
+
+  it("FAIL-CLOSED reads: a payer with no resolvable org gets neutral 404 / empty list", async () => {
+    const { svc } = make({ ownedJob: jobRow(), noOrgForPayer: PAYER_A });
+    await expect(svc.getOwnJob(PAYER_A, JOB_ID)).rejects.toBeInstanceOf(NotFoundException);
+    expect(await svc.listOwnJobs(PAYER_A)).toEqual([]);
   });
 });
 

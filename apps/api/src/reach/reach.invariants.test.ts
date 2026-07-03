@@ -84,8 +84,11 @@ function makeSvc(rows: WorkerProfileSignalRow[], jobs: JobSpec[]) {
   // feed.shown rows are emitted as ONE emitMany batch per view (W1); count across batches.
   const emittedCount = (): number =>
     emitMany.mock.calls.reduce((sum, c) => sum + (c[0] as unknown[]).length, 0);
+  // The ops paths (applicantsForJob / feedForWorker) exercised here never resolve an org;
+  // pass a stub PayerOrgsRepository (never called on these paths) for the 4th ctor arg.
+  const orgs = { resolveOrgForPayer: vi.fn(async () => null) };
   return {
-    svc: new ReachService(repo as never, { emit, emitMany } as never, jobSource),
+    svc: new ReachService(repo as never, { emit, emitMany } as never, jobSource, orgs as never),
     emit,
     emittedCount,
   };

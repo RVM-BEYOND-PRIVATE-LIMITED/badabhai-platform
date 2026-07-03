@@ -63,24 +63,39 @@ function makeJobSource(jobs: JobSpec[]): JobSource {
   };
 }
 
-function make(rows: WorkerProfileSignalRow[], jobs: JobSpec[]) {
+function make(
+  rows: WorkerProfileSignalRow[],
+  jobs: JobSpec[],
+  // ADR-0027 B5.x Inc 5: payer→org map for the owned-reach ownership resolve. Default:
+  // the single payer used by the owned-read tests resolves to ORG_A.
+  orgByPayer: Record<string, string | null> = {
+    ["aaaaaaaa-0000-4000-8000-000000000001"]: "aaaa0000-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  },
+) {
   const emit = vi.fn().mockResolvedValue(undefined);
   const emitMany = vi.fn().mockResolvedValue([]);
   const repo = {
     listSignalRows: vi.fn().mockResolvedValue(rows),
     findSignalRowByWorkerId: vi.fn(async (id: string) => rows.find((r) => r.workerId === id)),
-    // Payer-scoped ownership read (PR2). Default: NOT owned (undefined) — the no-oracle
-    // resolution that maps absent AND other-payer to the same neutral 404. Tests that
-    // exercise ownership override it with mockResolvedValue(ownedRow(...)).
+    // ORG-scoped ownership read (PR2 → ADR-0027 B5.x Inc 5). Default: NOT owned (undefined) —
+    // the no-oracle resolution that maps absent AND other-org to the same neutral 404. Tests
+    // that exercise ownership override it with mockResolvedValue(ownedRow(...)).
     findOwnedJobSignalRowById: vi.fn(async () => undefined as JobSignalRow | undefined),
   };
   const jobSource = makeJobSource(jobs);
-  const svc = new ReachService(repo as never, { emit, emitMany } as never, jobSource);
+  // resolveOrgForPayer: from the payer→org map; an absent/null entry → null (fail closed).
+  const orgs = {
+    resolveOrgForPayer: vi.fn(async (payerId: string) => {
+      const orgId = orgByPayer[payerId] ?? null;
+      return orgId === null ? null : { orgId, orgRole: "owner" as const };
+    }),
+  };
+  const svc = new ReachService(repo as never, { emit, emitMany } as never, jobSource, orgs as never);
   // feed.shown is emitted as ONE emitMany batch per view (W1); flatten all batches to the
   // individual event params for assertions.
   const emitted = (): Record<string, unknown>[] =>
     emitMany.mock.calls.flatMap((c) => c[0] as Record<string, unknown>[]);
-  return { svc, emit, emitMany, emitted, repo, jobSource };
+  return { svc, emit, emitMany, emitted, repo, jobSource, orgs };
 }
 
 const PII_PATTERNS = ["full_name", "phone", "fullName", "address", "employer"];
@@ -213,10 +228,20 @@ describe("ReachService — View A (applicants for a job)", () => {
   });
 });
 
-describe("ReachService — Payer-self View A (applicantsForOwnedJob, ADR-0019 R22)", () => {
-  const PAYER = "aaaaaaaa-0000-4000-8000-000000000001";
+describe("ReachService — Payer-self View A (applicantsForOwnedJob, ADR-0019 R22 → ADR-0027 B5.x Inc 5)", () => {
+  const PAYER = "aaaaaaaa-0000-4000-8000-000000000001"; // → ORG_A (default map)
+  const ORG_A = "aaaa0000-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  // A teammate of PAYER in the SAME org, + a foreign-org payer, for the tenancy tests.
+  const PAYER_A2 = "aaaaaaaa-0000-4000-8000-0000000000a2";
+  const PAYER_B = "bbbbbbbb-0000-4000-8000-000000000001";
+  const ORG_B = "bbbb0000-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const ORG_MAP: Record<string, string | null> = {
+    [PAYER]: ORG_A,
+    [PAYER_A2]: ORG_A,
+    [PAYER_B]: ORG_B,
+  };
 
-  /** A faceless owned job signal row (the repo's payer-scoped read result). */
+  /** A faceless owned job signal row (the repo's org-scoped read result). */
   function ownedRow(jobId: string): JobSignalRow {
     return {
       jobId,
@@ -230,16 +255,51 @@ describe("ReachService — Payer-self View A (applicantsForOwnedJob, ADR-0019 R2
     };
   }
 
-  it("resolves the job via the PAYER-SCOPED ownership read (jobId + session payer)", async () => {
-    const { svc, repo } = make([row(1)], []);
+  it("resolves the job via the ORG-SCOPED ownership read (jobId + RESOLVED org, not the payer)", async () => {
+    const { svc, repo } = make([row(1)], [], ORG_MAP);
     repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
     await svc.applicantsForOwnedJob(JOB_A, PAYER, CTX as never);
-    expect(repo.findOwnedJobSignalRowById).toHaveBeenCalledWith(JOB_A, PAYER);
+    // The repo is keyed on the RESOLVED org id, never the raw payer id.
+    expect(repo.findOwnedJobSignalRowById).toHaveBeenCalledWith(JOB_A, ORG_A);
+    expect(repo.findOwnedJobSignalRowById).not.toHaveBeenCalledWith(JOB_A, PAYER);
+  });
+
+  it("SHARED-ORG: a teammate (same org) reads the job the ORG owns (org-scoped read returns it)", async () => {
+    const { svc, repo } = make([row(1)], [], ORG_MAP);
+    repo.findOwnedJobSignalRowById.mockResolvedValue(ownedRow(JOB_A));
+    const res = await svc.applicantsForOwnedJob(JOB_A, PAYER_A2, CTX as never);
+    // PAYER_A2 resolves to the SAME ORG_A → the read is keyed on ORG_A (shared ownership).
+    expect(repo.findOwnedJobSignalRowById).toHaveBeenCalledWith(JOB_A, ORG_A);
+    expect(res.jobId).toBe(JOB_A);
+  });
+
+  it("CROSS-ORG IDOR: a foreign-org payer → org-scoped read returns undefined → neutral 404", async () => {
+    // The repo, keyed on ORG_B, returns undefined for a job owned by ORG_A → the SAME neutral
+    // 404 as an unknown job (no oracle). The repo IS consulted with the foreign org id.
+    const { svc, emit, emitMany, repo } = make([row(1)], [], ORG_MAP);
+    repo.findOwnedJobSignalRowById.mockResolvedValue(undefined);
+    await expect(svc.applicantsForOwnedJob(JOB_A, PAYER_B, CTX as never)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(repo.findOwnedJobSignalRowById).toHaveBeenCalledWith(JOB_A, ORG_B);
+    expect(emit).not.toHaveBeenCalled();
+    expect(emitMany).not.toHaveBeenCalled();
+  });
+
+  it("FAIL-CLOSED: a payer with NO resolvable org → neutral 404, repo never consulted, emits nothing", async () => {
+    const { svc, emit, emitMany, repo } = make([row(1)], [], { [PAYER]: null });
+    await expect(svc.applicantsForOwnedJob(JOB_A, PAYER, CTX as never)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    // No org → the ownership read is skipped entirely (fail closed BEFORE the repo).
+    expect(repo.findOwnedJobSignalRowById).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+    expect(emitMany).not.toHaveBeenCalled();
   });
 
   it("an unknown OR not-owned job → IDENTICAL neutral 404, emits nothing (XB-A + no-oracle)", async () => {
-    const { svc, emit, emitMany, repo } = make([row(1), row(2)], []);
-    repo.findOwnedJobSignalRowById.mockResolvedValue(undefined); // absent OR other-payer
+    const { svc, emit, emitMany, repo } = make([row(1), row(2)], [], ORG_MAP);
+    repo.findOwnedJobSignalRowById.mockResolvedValue(undefined); // absent OR other-org
     await expect(svc.applicantsForOwnedJob(JOB_A, PAYER, CTX as never)).rejects.toBeInstanceOf(
       NotFoundException,
     );

@@ -110,26 +110,28 @@ export class ReachRepository {
   }
 
   /**
-   * PAYER-SCOPED ownership read (ADR-0019 R22 / PR2). Returns the FACELESS signal row
-   * ONLY when the job exists AND `jobs.payer_id == payerId` — otherwise `undefined`.
+   * ORG-SCOPED ownership read (ADR-0019 R22 / PR2 → ADR-0027 B5.x Inc 5). Returns the
+   * FACELESS signal row ONLY when the job exists AND `jobs.org_id == orgId` — otherwise
+   * `undefined`. The acting payer's org is resolved by the SERVICE and passed here; two
+   * agency members in the SAME org see each other's owned jobs.
    *
-   * NO-ORACLE (F-3): a not-found job and an other-payer's job both resolve to
-   * `undefined`, so the caller maps both to the SAME neutral response (a payer cannot
-   * tell whether a job UUID exists or merely belongs to someone else).
+   * NO-ORACLE (F-3): a not-found job and an other-ORG's job both resolve to `undefined`,
+   * so the caller maps both to the SAME neutral response (a payer cannot tell whether a job
+   * UUID exists or merely belongs to another org).
    *
-   * PII BOUNDARY (CLAUDE.md inv #2): `payer_id` is consumed ONLY in the WHERE predicate
-   * (the ownership filter); the SELECT is the same faceless `JOB_SIGNAL_COLUMNS`
-   * projection — `payer_id` (and title/area) NEVER enter the returned row, a `JobSpec`,
-   * a `feed.shown` payload, or a log.
+   * PII BOUNDARY (CLAUDE.md inv #2): `org_id` is consumed ONLY in the WHERE predicate (the
+   * ownership filter); the SELECT is the same faceless `JOB_SIGNAL_COLUMNS` projection —
+   * `org_id`/`payer_id` (and title/area) NEVER enter the returned row, a `JobSpec`, a
+   * `feed.shown` payload, or a log.
    */
   async findOwnedJobSignalRowById(
     jobId: string,
-    payerId: string,
+    orgId: string,
   ): Promise<JobSignalRow | undefined> {
     const rows = await this.db
       .select(ReachRepository.JOB_SIGNAL_COLUMNS)
       .from(jobs)
-      .where(and(eq(jobs.id, jobId), eq(jobs.payerId, payerId)))
+      .where(and(eq(jobs.id, jobId), eq(jobs.orgId, orgId)))
       .limit(1);
     return rows[0];
   }

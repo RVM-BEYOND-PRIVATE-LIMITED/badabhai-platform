@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { PayersModule } from "../payers/payers.module";
 import { ReachController } from "./reach.controller";
 import { ReachService } from "./reach.service";
 import { ReachRepository } from "./reach.repository";
@@ -17,6 +18,10 @@ import { JOB_SOURCE, JobsTableJobSource } from "./reach.job-source";
  * which inject a fake `JobSource` directly rather than booting this module.
  */
 @Module({
+  // ADR-0027 B5.x Inc 5: PayersModule exports PayerOrgsRepository — the ReachService owned-read
+  // resolves the acting payer's OWNING org through it (the jobs ownership flip). PayersModule
+  // imports only Database/Bull/Jwt, so no cycle with ReachModule.
+  imports: [PayersModule],
   controllers: [ReachController],
   providers: [
     ReachService,

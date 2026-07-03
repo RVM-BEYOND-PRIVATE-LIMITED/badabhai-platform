@@ -5,7 +5,8 @@ import type { Job, JobNeededBy, TradeKey } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { ConsentRepository } from "../consent/consent.repository";
-import { readOwnedById, assertOwnedRows } from "../payers/payer-scope";
+import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
+import { readOwnedByIdOrg, assertOwnedRowsByOrg } from "../payers/payer-scope";
 import { AgencyJobsRepository, type AgencyJobUpdate } from "./agency-jobs.repository";
 import {
   AgencyInvitesRepository,
@@ -48,14 +49,23 @@ export type AttributionResult =
 /**
  * Agency Supply Portal demand slice (ADR-0022, ACCEPTED) — backend business logic +
  * event emission. Repo/service split: data access lives in the two repositories; this
- * service owns the rules, the tenant chokepoint calls (`readOwnedById`/`assertOwnedRows`
- * on `jobs.payer_id` / `agency_invites.inviter_payer_id`), and the events.
+ * service owns the rules, the tenant chokepoint calls, and the events.
+ *
+ * TENANCY (ADR-0027 B5.x Inc 5 — the LAST resource-table flip): the JOBS surface OWNERSHIP
+ * keys on `org_id`, resolved from the acting SESSION payer via {@link resolveOrgId} FIRST in
+ * every job method (fail-closed on a null org). The tenant chokepoint calls flip to the org
+ * helpers (`readOwnedByIdOrg`/`assertOwnedRowsByOrg`/`assertOrgOwns` on `jobs.org_id`). The
+ * acting `payer_id` is UNCHANGED as the event actor/subject + is still stamped on create
+ * (the partial CHECK ties payer→org). Two agency members in the SAME org share the org's
+ * jobs; a foreign-org job is the SAME neutral 404. The INVITE surface stays payer-keyed on
+ * `agency_invites.inviter_payer_id` (unchanged). BEHAVIOR-PRESERVING under today's solo orgs.
  *
  * INVARIANTS enforced here:
  *  - `payerId` is ALWAYS the SESSION payer (passed in by the controller from the verified
- *    session — XB-A); it is never read from a body/param.
- *  - No-oracle: an unknown job and another payer's job both surface the IDENTICAL neutral
- *    404 (`readOwnedById` returns undefined for both → 404 here).
+ *    session — XB-A); it is never read from a body/param. The service resolves its org.
+ *  - No-oracle: an unknown job and another org's job both surface the IDENTICAL neutral
+ *    404 (`readOwnedByIdOrg` returns undefined/throws-then-mapped for both → 404 here);
+ *    a caller with no resolvable org fails closed into the same neutral shape.
  *  - Every write emits exactly one registry-validated event with the PAYER as actor.
  *  - Events are PII-FREE: opaque ids + enums + coarse bands + counts only.
  *  - The attribution write that sets `invited_worker_id`/emits `agency_invite.accepted` is
@@ -79,18 +89,47 @@ export class AgencyService {
     private readonly invitesRepo: AgencyInvitesRepository,
     private readonly consent: ConsentRepository,
     private readonly events: EventsService,
+    // ADR-0027 B5.x Inc 5: resolves the OWNING org for an acting payer (the jobs tenancy flip).
+    private readonly orgs: PayerOrgsRepository,
   ) {}
+
+  /**
+   * Resolve the OWNING org for an acting payer (ADR-0027 B5.x Inc 5 — the jobs tenancy pivot,
+   * mirroring `UnlockService`/`ResumeDisclosureService.resolveOrgId`). Ownership keys on
+   * `org_id`; the acting `payer_id` stays the event actor/subject + the create stamp unchanged.
+   * Returns null when the payer has no active org membership. Uses `resolveOrgForPayer` ONLY
+   * (never `ensureSoloOrg`, which writes) — the org is a foundation the auth path established.
+   *
+   * FAIL CLOSED: on a null result the CALLER returns the neutral/empty equivalent (createJob:
+   * the invalid-create error path; reads: neutral 404 / empty list) — never a distinguishable
+   * error (no oracle). Any error → null (fail closed).
+   */
+  private async resolveOrgId(payerId: string): Promise<string | null> {
+    try {
+      return (await this.orgs.resolveOrgForPayer(payerId))?.orgId ?? null;
+    } catch {
+      return null; // fail closed
+    }
+  }
 
   // ───────────────────────────── Demand CRUD on jobs ─────────────────────────────
 
-  /** Create an OWNED job (payer_id = session, status='open'). Emits job.created. */
+  /** Create an OWNED job (org_id + payer_id = session, status='open'). Emits job.created. */
   async createJob(
     payerId: string,
     dto: CreateAgencyJobDto,
     ctx: RequestContext,
   ): Promise<AgencyJobView> {
+    // ADR-0027 B5.x Inc 5: resolve the OWNING org FIRST + stamp it on the create. FAIL CLOSED:
+    // a payer with no resolvable org cannot create a job — the partial CHECK
+    // `jobs_org_id_when_payer_chk` would reject a payer-owned row without org_id anyway, so we
+    // reject BEFORE the write with the same invalid-create error path (never a phantom job).
+    const orgId = await this.resolveOrgId(payerId);
+    if (orgId === null) throw new BadRequestException("Unable to create job");
+
     const row = await this.jobsRepo.create(
       {
+        orgId,
         payerId,
         tradeKey: dto.trade_key,
         title: dto.title,
@@ -121,18 +160,26 @@ export class AgencyService {
     return AgencyService.toJobView(row);
   }
 
-  /** List the payer's OWN jobs (faceless projection). Defense-in-depth ownership re-check. */
+  /** List the org's OWN jobs (faceless projection). Defense-in-depth org ownership re-check. */
   async listOwnJobs(payerId: string): Promise<AgencyJobView[]> {
-    const rows = await this.jobsRepo.listOwned(payerId);
-    // Belt-and-braces: every returned row must belong to the payer (the WHERE already
-    // scopes this, but assertOwnedRows is the cross-tenant guarantee on list reads).
-    assertOwnedRows(payerId, rows.map((r) => ({ ...r, payerId: r.payerId ?? "" })));
+    // ADR-0027 B5.x Inc 5: resolve the OWNING org; a caller with no resolvable org reads an
+    // EMPTY list (fail-closed read — never a distinguishable error, no oracle).
+    const orgId = await this.resolveOrgId(payerId);
+    if (orgId === null) return [];
+
+    const rows = await this.jobsRepo.listOwned(orgId);
+    // Belt-and-braces: every returned row must belong to the org (the WHERE already scopes
+    // this, but assertOwnedRowsByOrg is the cross-tenant guarantee on list reads). A row with
+    // a null org_id (never expected from the org-scoped WHERE) normalizes to "" → 403.
+    assertOwnedRowsByOrg(orgId, rows.map((r) => ({ ...r, orgId: r.orgId ?? "" })));
     return rows.map(AgencyService.toJobView);
   }
 
   /** Get ONE owned job; neutral 404 for unknown-or-not-owned (no-oracle). */
   async getOwnJob(payerId: string, jobId: string): Promise<AgencyJobView> {
-    const row = await this.readOwnedJob(payerId, jobId);
+    const orgId = await this.resolveOrgId(payerId);
+    if (orgId === null) throw new NotFoundException("Job not found"); // fail closed, no oracle
+    const row = await this.readOwnedJob(orgId, jobId);
     if (!row) throw new NotFoundException("Job not found");
     return AgencyService.toJobView(row);
   }
@@ -144,7 +191,9 @@ export class AgencyService {
     dto: UpdateAgencyJobDto,
     ctx: RequestContext,
   ): Promise<AgencyJobView> {
-    const current = await this.readOwnedJob(payerId, jobId);
+    const orgId = await this.resolveOrgId(payerId);
+    if (orgId === null) throw new NotFoundException("Job not found"); // fail closed, no oracle
+    const current = await this.readOwnedJob(orgId, jobId);
     if (!current) throw new NotFoundException("Job not found");
     if (current.status === "closed") {
       // closed is terminal — no edits. (A neutral conflict, not a leak.)
@@ -213,7 +262,7 @@ export class AgencyService {
       throw new BadRequestException("max_experience_years must be >= min_experience_years");
     }
 
-    const updated = await this.jobsRepo.updateOwned(jobId, payerId, patch);
+    const updated = await this.jobsRepo.updateOwned(jobId, orgId, patch);
     if (!updated) throw new NotFoundException("Job not found");
 
     const payload: PayloadInputOf<"job.updated"> = {
@@ -229,13 +278,15 @@ export class AgencyService {
 
   /** Close an owned job (open -> closed, terminal). Emits job.closed. */
   async closeJob(payerId: string, jobId: string, ctx: RequestContext): Promise<AgencyJobView> {
-    const current = await this.readOwnedJob(payerId, jobId);
+    const orgId = await this.resolveOrgId(payerId);
+    if (orgId === null) throw new NotFoundException("Job not found"); // fail closed, no oracle
+    const current = await this.readOwnedJob(orgId, jobId);
     if (!current) throw new NotFoundException("Job not found");
     if (current.status === "closed") {
       throw new BadRequestException("Job is already closed");
     }
 
-    const closed = await this.jobsRepo.closeOwnedIfOpen(jobId, payerId, new Date());
+    const closed = await this.jobsRepo.closeOwnedIfOpen(jobId, orgId, new Date());
     if (!closed) {
       // Raced to closed (or no longer owned-open) — neutral conflict, no oracle.
       throw new BadRequestException("Job is already closed");
@@ -261,13 +312,15 @@ export class AgencyService {
    * distinct from a terminal close. Reopen is out of scope for this slice.
    */
   async pauseJob(payerId: string, jobId: string, ctx: RequestContext): Promise<AgencyJobView> {
-    const current = await this.readOwnedJob(payerId, jobId);
+    const orgId = await this.resolveOrgId(payerId);
+    if (orgId === null) throw new NotFoundException("Job not found"); // fail closed, no oracle
+    const current = await this.readOwnedJob(orgId, jobId);
     if (!current) throw new NotFoundException("Job not found");
     if (current.status === "closed") {
       throw new BadRequestException("Job is already closed/paused");
     }
 
-    const paused = await this.jobsRepo.closeOwnedIfOpen(jobId, payerId, new Date());
+    const paused = await this.jobsRepo.closeOwnedIfOpen(jobId, orgId, new Date());
     if (!paused) {
       throw new BadRequestException("Job is already closed/paused");
     }
@@ -407,16 +460,17 @@ export class AgencyService {
   // ──────────────────────────────── helpers ────────────────────────────────
 
   /**
-   * The single-resource owned read chokepoint for jobs. The repo already scopes by payer
-   * in the WHERE; `readOwnedById` is the tenant chokepoint that re-asserts ownership on the
-   * fetched row (defense-in-depth). Returns undefined for unknown-or-not-owned (no-oracle).
+   * The single-resource owned read chokepoint for jobs (ADR-0027 B5.x Inc 5 — org-keyed).
+   * The repo already scopes by ORG in the WHERE; `readOwnedByIdOrg` is the tenant chokepoint
+   * that re-asserts ORG ownership on the fetched row (defense-in-depth). Returns undefined for
+   * unknown-or-not-owned (no-oracle). Takes the RESOLVED `orgId` (never the payer directly).
    */
-  private readOwnedJob(payerId: string, jobId: string): Promise<Job | undefined> {
-    return readOwnedById(payerId, async () => {
-      const row = await this.jobsRepo.findOwnedById(jobId, payerId);
-      // `jobs.payerId` is nullable in the schema, but a row returned by the owner-scoped
-      // query always has it === payerId; normalize the type for the scope helper.
-      return row ? { ...row, payerId: row.payerId ?? "" } : undefined;
+  private readOwnedJob(orgId: string, jobId: string): Promise<Job | undefined> {
+    return readOwnedByIdOrg(orgId, async () => {
+      const row = await this.jobsRepo.findOwnedById(jobId, orgId);
+      // `jobs.orgId` is nullable in the schema, but a row returned by the org-scoped query
+      // always has it === orgId; normalize the type for the scope helper.
+      return row ? { ...row, orgId: row.orgId ?? "" } : undefined;
     });
   }
 

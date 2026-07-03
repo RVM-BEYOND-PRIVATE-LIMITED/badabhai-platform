@@ -45,3 +45,46 @@ export async function readOwnedById<T extends { payerId: string }>(
   assertPayerOwns(authPayerId, row.payerId);
   return row;
 }
+
+// ─────────────────────────────── ORG-native helpers ───────────────────────────────
+//
+// ADR-0027 B5.x: the exact org-keyed siblings of the payer helpers above (payer↔payer
+// isolation → org↔org isolation). The tenant chokepoint stays the same shape + the SAME
+// no-oracle rule — a cross-ORG access is a flat 403 (single-resource) / neutral (reads),
+// regardless of whether the row exists-but-belongs-to-another-org or the ids merely differ.
+// The acting `payer_id` is unchanged (still the event actor/subject); the SERVICE resolves
+// the acting payer's org BEFORE calling these (fail-closed on a null org). A row whose
+// `orgId` is null (an ops/seed row that was never org-stamped) is NEVER owned by ANY org, so
+// it fails closed here too. These are ADDITIVE — the payer helpers above are untouched.
+
+/** Throw 403 unless `rowOrgId` is non-null AND exactly the authenticated caller's org. */
+export function assertOrgOwns(authOrgId: string, rowOrgId: string | null): void {
+  if (!authOrgId || rowOrgId === null || authOrgId !== rowOrgId) {
+    throw new ForbiddenException("Resource does not belong to the authenticated payer");
+  }
+}
+
+/** Assert EVERY row in a list belongs to the org (defense-in-depth for list reads). */
+export function assertOwnedRowsByOrg<T extends { orgId: string | null }>(
+  authOrgId: string,
+  rows: readonly T[],
+): readonly T[] {
+  for (const row of rows) assertOrgOwns(authOrgId, row.orgId);
+  return rows;
+}
+
+/**
+ * The org-scoped single-resource read chokepoint: fetch an org-owned row, then enforce
+ * org ownership before returning it. A not-found row returns `undefined` (the caller
+ * surfaces a neutral 404); a found-but-other-org (or org-less) row throws 403 — so neither
+ * a direct fetch nor a cross-org IDOR can leak another org's data.
+ */
+export async function readOwnedByIdOrg<T extends { orgId: string | null }>(
+  authOrgId: string,
+  fetch: () => Promise<T | undefined>,
+): Promise<T | undefined> {
+  const row = await fetch();
+  if (row === undefined) return undefined;
+  assertOrgOwns(authOrgId, row.orgId);
+  return row;
+}
