@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { ConsentModule } from "../consent/consent.module";
+import { PayersModule } from "../payers/payers.module";
 import { StorageModule } from "../storage/storage.module";
 import { ResumeDisclosureController } from "./resume-disclosure.controller";
 import { ResumeDisclosureService } from "./resume-disclosure.service";
@@ -13,14 +14,15 @@ import { ResumeRenderer } from "../resume/resume-renderer.service";
  * fail-closed chokepoint + the single decrypt + masking + event emission) →
  * ResumeDisclosureRepository (resume_disclosures writes + the SHARED-cap reads).
  *
- * Imports ConsentModule (ConsentRepository — the employer_sharing gate) and
- * StorageModule (StorageService — masked-PDF upload + short-TTL signed URL). The
+ * Imports ConsentModule (ConsentRepository — the employer_sharing gate), StorageModule
+ * (StorageService — masked-PDF upload + short-TTL signed URL), and PayersModule
+ * (PayerOrgsRepository — the ADR-0027 B5.x Inc 4 payer→org tenancy resolver). The
  * ResumeRenderer is provided here (its only dep, PdfRenderer, is @Global via PdfModule).
  * EventsService, the Drizzle DATABASE, WorkersRepository, PiiCryptoService, and
  * SERVER_CONFIG are all @Global, so they need no import.
  */
 @Module({
-  imports: [ConsentModule, StorageModule],
+  imports: [ConsentModule, PayersModule, StorageModule],
   controllers: [ResumeDisclosureController],
   providers: [ResumeDisclosureService, ResumeDisclosureRepository, ResumeRenderer],
   // Exported so the payer portal can mount a PayerAuthGuard'd disclosure surface

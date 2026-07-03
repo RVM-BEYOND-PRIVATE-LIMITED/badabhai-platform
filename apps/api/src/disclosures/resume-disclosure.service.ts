@@ -8,6 +8,7 @@ import { EventsService } from "../events/events.service";
 import { ConsentRepository } from "../consent/consent.repository";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import { StorageService } from "../storage/storage.service";
 import { ResumeRenderer } from "../resume/resume-renderer.service";
 import { buildResumeRenderInput } from "../resume/resume-render-input";
@@ -45,6 +46,18 @@ type DisclosurePlan =
  * cap that spans unlock reveals AND disclosures (B-B), the same single neutral-response
  * no-oracle (B-C). It is FREE — there is no payment step.
  *
+ * TENANCY (ADR-0027 B5.x Inc 4 — the EXACT sibling of the Inc 2 unlocks flip): OWNERSHIP +
+ * the (org, worker, posting) idempotency key on `org_id`, resolved from the acting payer via
+ * {@link resolveOrgId} (BEFORE any advisory-locked tx — the deadlock rule) and threaded INTO
+ * the tx. The acting `payer_id` stays the event actor/subject UNCHANGED (events + the event
+ * schema DO NOT change) and is still stamped on every INSERT (org_id is NOT NULL after
+ * migration 0035; payer_id still NOT NULL). A payer acts ONLY within their own org: a
+ * foreign-org request/list fails closed into the SAME neutral/empty result (no IDOR, no
+ * oracle); two payers in the SAME org share one (org, worker, posting) disclosure. The worker
+ * advisory lock (per-worker, IDENTICAL derivation to the unlock lock) and the SHARED per-worker
+ * daily ceiling are UNCHANGED — only the distinct-payers WEEKLY cap flips to distinct-org.
+ * BEHAVIOR-PRESERVING under today's solo orgs (org == the one payer).
+ *
  * FAIL-CLOSED ORDERING (addendum §1; every gate denies + discloses nothing on failure):
  *   [1] employer_sharing consent  → fail → neutral "unavailable" (no oracle)
  *   [2] SHARED worker cap (atomic) → fail → neutral "unavailable"
@@ -71,14 +84,49 @@ export class ResumeDisclosureService {
     private readonly renderer: ResumeRenderer,
     private readonly storage: StorageService,
     private readonly events: EventsService,
+    // ADR-0027 B5.x Inc 4: resolves the OWNING org for an acting payer (the tenancy flip,
+    // the EXACT sibling of the Inc 2 unlocks flip).
+    private readonly orgs: PayerOrgsRepository,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
+
+  /**
+   * Resolve the OWNING org for an acting payer (ADR-0027 B5.x Inc 4 — the tenancy pivot,
+   * mirroring `UnlockService.resolveOrgId`). Ownership + the (org, worker, posting)
+   * idempotency key on `org_id`; the acting `payer_id` stays the event actor/subject
+   * unchanged. Returns null when the payer has no active org membership.
+   *
+   * HOT-PATH DISCIPLINE: uses `resolveOrgForPayer` ONLY (never `ensureSoloOrg`, which
+   * writes). It is ALWAYS resolved BEFORE `repo.withTransaction(...)` opens (the pool-vs-lock
+   * deadlock rule — the worker advisory lock) and threaded INTO the tx closure, so the
+   * advisory-locked tx never needs a second pool connection. FAIL CLOSED: on a null result
+   * the CALLER returns the neutral/empty equivalent (no distinguishable error → no oracle);
+   * any error → null.
+   */
+  private async resolveOrgId(payerId: string): Promise<string | null> {
+    try {
+      return (await this.orgs.resolveOrgForPayer(payerId))?.orgId ?? null;
+    } catch {
+      return null; // fail closed
+    }
+  }
 
   async requestDisclosure(
     input: { payerId: string; workerId: string; jobPostingId: string | null },
     ctx: RequestContext,
   ): Promise<DisclosureOutcome> {
     const { payerId, workerId, jobPostingId } = input;
+
+    // ---- ADR-0027 B5.x Inc 4: resolve the OWNING org BEFORE the tx (deadlock rule) ----
+    // Ownership + the (org, worker, posting) idempotency key on `org_id`, resolved from the
+    // acting payer here, OUTSIDE (before) `repo.withTransaction`, and threaded INTO the tx
+    // closure — never inside the advisory-locked tx (that would need a 2nd pool connection
+    // while N concurrent same-worker requests hold theirs → pool-vs-lock deadlock, same
+    // discipline as the consent read). FAIL CLOSED on this write path: a payer with no
+    // resolvable org collapses into the IDENTICAL neutral body (no distinguishable error →
+    // no oracle). Resolved before any tx-external read so nothing leaks for a no-org caller.
+    const orgId = await this.resolveOrgId(payerId);
+    if (orgId === null) return neutralUnavailable();
 
     // ---- [1] consent + render-source resolved BEFORE the lock (pool-vs-lock deadlock
     // fix; mirrors UnlockService). Both are tx-external reads on the global pool. ----
@@ -99,14 +147,14 @@ export class ResumeDisclosureService {
         // worker, writing a row would violate the worker_id FK → a 500 oracle, so we
         // write NOTHING and return the IDENTICAL neutral body (no_consent ≡ unknown).
         if (workerPresent) {
-          await this.recordDeny(tx, payerId, workerId, jobPostingId, "no_consent");
+          await this.recordDeny(tx, orgId, payerId, workerId, jobPostingId, "no_consent");
         }
         return { kind: "neutral" };
       }
 
       // ---- [2] SHARED worker-protection cap (atomic, under the lock) --------------
       if (await this.isOverSharedCap(tx, workerId)) {
-        await this.recordDeny(tx, payerId, workerId, jobPostingId, "capped");
+        await this.recordDeny(tx, orgId, payerId, workerId, jobPostingId, "capped");
         return { kind: "neutral" };
       }
 
@@ -114,9 +162,11 @@ export class ResumeDisclosureService {
       // consented worker with no resume looks identical to capped/no-consent/unknown).
       if (!source) return { kind: "neutral" };
 
-      // Idempotency: a LIVE disclosure for (payer, worker, posting) → reuse it; re-mint
-      // its link below WITHOUT a second grant or a second resume.disclosed event.
-      const existing = await this.repo.findByPayerWorkerPosting(tx, payerId, workerId, jobPostingId);
+      // Idempotency: a LIVE disclosure for (org, worker, posting) → reuse it; re-mint its
+      // link below WITHOUT a second grant or a second resume.disclosed event. ADR-0027
+      // B5.x Inc 4: keyed on the OWNING org, so any member of the org converges on the same
+      // disclosure row (a teammate re-requesting the same worker+posting draws no new grant).
+      const existing = await this.repo.findByOrgWorkerPosting(tx, orgId, workerId, jobPostingId);
       if (
         existing &&
         existing.status === "disclosed" &&
@@ -132,9 +182,10 @@ export class ResumeDisclosureService {
       }
 
       // ---- [4] GRANT (status=granted; clears any prior deny). -----------------------
+      // ADR-0027 B5.x Inc 4: a fresh insert stamps BOTH org_id (ownership) + payer_id (acting).
       const row = existing
         ? await this.repo.updateStatus(tx, existing.id, { status: "granted", denyReason: null })
-        : await this.repo.insertRow(tx, { payerId, workerId, jobPostingId, status: "granted" });
+        : await this.repo.insertRow(tx, { orgId, payerId, workerId, jobPostingId, status: "granted" });
       return { kind: "render", disclosureId: row.id };
     });
 
@@ -161,9 +212,18 @@ export class ResumeDisclosureService {
     return this.renderAndDisclose(plan.disclosureId, payerId, workerId, jobPostingId, source!, ctx);
   }
 
-  /** Ops: a payer's disclosures (PII-free projection). */
-  async listByPayer(payerId: string): Promise<{ disclosures: Awaited<ReturnType<ResumeDisclosureRepository["listByPayer"]>> }> {
-    return { disclosures: await this.repo.listByPayer(payerId) };
+  /**
+   * List the acting payer's ORG's disclosures (ADR-0027 B5.x Inc 4). Resolves the owning org
+   * and lists ON `org_id`, so any member sees the whole org's disclosures. A payer with no
+   * resolvable org gets an EMPTY list (fail-closed read — never a distinguishable error). Name
+   * kept (`listByPayer`) so both controller call sites (ops + payer-portal) compile unchanged.
+   */
+  async listByPayer(
+    payerId: string,
+  ): Promise<{ disclosures: Awaited<ReturnType<ResumeDisclosureRepository["listByOrg"]>> }> {
+    const orgId = await this.resolveOrgId(payerId);
+    if (orgId === null) return { disclosures: [] };
+    return { disclosures: await this.repo.listByOrg(orgId) };
   }
 
   // ---------------------------------------------------------------------------
@@ -252,7 +312,14 @@ export class ResumeDisclosureService {
   // helpers
   // ---------------------------------------------------------------------------
 
-  /** SHARED per-worker ceiling: unlock reveals + resume disclosures, in one budget. */
+  /**
+   * SHARED per-worker ceiling: unlock reveals + resume disclosures, in one budget.
+   * ADR-0027 B5.x Inc 4: the SHARED per-worker DAILY ceiling
+   * (`countDisclosuresToPayersSince` — counts by worker across all payers) is UNCHANGED;
+   * only the distinct-payers WEEKLY cap flips to distinct EMPLOYERS (orgs) via
+   * `countDistinctOrgsSince`, so a whole recruiting team (many payers, one org) counts as
+   * ONE org across the unlocks+disclosures union. BEHAVIOR-PRESERVING under solo orgs.
+   */
   private async isOverSharedCap(tx: Tx, workerId: string): Promise<boolean> {
     const now = Date.now();
     const dayAgo = new Date(now - 24 * 60 * 60 * 1000);
@@ -261,24 +328,30 @@ export class ResumeDisclosureService {
     const daily = await this.repo.countDisclosuresToPayersSince(tx, workerId, dayAgo);
     if (daily >= this.config.UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY) return true;
 
-    const payers = await this.repo.countDistinctPayersSince(tx, workerId, weekAgo);
-    if (payers >= this.config.UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK) return true;
+    const orgs = await this.repo.countDistinctOrgsSince(tx, workerId, weekAgo);
+    if (orgs >= this.config.UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK) return true;
 
     return false;
   }
 
+  /**
+   * Record a DENIED disclosure row for the audit spine — idempotent on (org, worker, posting)
+   * (ADR-0027 B5.x Inc 4). Threads `orgId` so the lookup + INSERT are org-keyed and stamp
+   * BOTH org_id (ownership) + payer_id (still NOT NULL — the acting payer).
+   */
   private async recordDeny(
     tx: Tx,
+    orgId: string,
     payerId: string,
     workerId: string,
     jobPostingId: string | null,
     reason: DisclosureDenyReason,
   ): Promise<void> {
-    const existing = await this.repo.findByPayerWorkerPosting(tx, payerId, workerId, jobPostingId);
+    const existing = await this.repo.findByOrgWorkerPosting(tx, orgId, workerId, jobPostingId);
     if (existing) {
       await this.repo.updateStatus(tx, existing.id, { status: "denied", denyReason: reason });
     } else {
-      await this.repo.insertRow(tx, { payerId, workerId, jobPostingId, status: "denied", denyReason: reason });
+      await this.repo.insertRow(tx, { orgId, payerId, workerId, jobPostingId, status: "denied", denyReason: reason });
     }
   }
 

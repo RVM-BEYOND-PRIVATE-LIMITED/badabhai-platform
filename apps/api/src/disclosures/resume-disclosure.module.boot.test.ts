@@ -4,6 +4,8 @@ import { ResumeDisclosureModule } from "./resume-disclosure.module";
 import { ResumeDisclosureController } from "./resume-disclosure.controller";
 import { ConsentModule } from "../consent/consent.module";
 import { ConsentRepository } from "../consent/consent.repository";
+import { PayersModule } from "../payers/payers.module";
+import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import { StorageModule } from "../storage/storage.module";
 import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 
@@ -18,14 +20,20 @@ const getMeta = (key: string, target: unknown): unknown[] =>
   (Reflect.getMetadata(key, target as object) as unknown[] | undefined) ?? [];
 
 describe("ResumeDisclosureModule wiring (cross-module DI regression guard)", () => {
-  it("imports ConsentModule (ConsentRepository for the employer_sharing gate) + StorageModule", () => {
+  it("imports ConsentModule (ConsentRepository for the employer_sharing gate) + StorageModule + PayersModule", () => {
     const imports = getMeta("imports", ResumeDisclosureModule);
     expect(imports).toContain(ConsentModule);
     expect(imports).toContain(StorageModule);
+    // ADR-0027 B5.x Inc 4: PayerOrgsRepository (the payer→org tenancy resolver) comes from PayersModule.
+    expect(imports).toContain(PayersModule);
   });
 
   it("ConsentModule exports ConsentRepository (the disclosure-consent read dependency)", () => {
     expect(getMeta("exports", ConsentModule)).toContain(ConsentRepository);
+  });
+
+  it("PayersModule exports PayerOrgsRepository (the ADR-0027 B5.x Inc 4 tenancy resolver dependency)", () => {
+    expect(getMeta("exports", PayersModule)).toContain(PayerOrgsRepository);
   });
 
   it("declares the controller + service + repository + the (PdfModule-global) ResumeRenderer", () => {

@@ -22,6 +22,10 @@ export type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 export interface DisclosureProjection {
   disclosure_id: string;
   payer_id: string;
+  // ADR-0027 B5.x Inc 4: the tenant-ownership key. `payer_id` STAYS in the projection
+  // (ops/audit still read the acting payer), but ownership/IDOR now key on `org_id`.
+  // NULLABLE only defensively (Inc 0 backfilled it NOT NULL for every payer-owned row).
+  org_id: string | null;
   // NULLABLE post-ADR-0026 Phase 5: a worker hard-delete (DSAR) SET-NULLs the identity join
   // while preserving this PII-free disclosure-history row (migration 0030).
   worker_id: string | null;
@@ -69,10 +73,16 @@ export class ResumeDisclosureRepository {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${workerId}, 0))`);
   }
 
-  /** The existing disclosure row for (payer, worker, posting), or undefined. Tx-scoped. */
-  async findByPayerWorkerPosting(
+  /**
+   * The existing disclosure row for (org, worker, posting), or undefined. Tx-scoped.
+   * ADR-0027 B5.x Inc 4: ownership/idempotency keys on `org_id` (replaces the payer-keyed
+   * lookup) — any member of the org converges on the same disclosure row. The org-scoped
+   * unique is `resume_disclosures_org_worker_posting_uq (org_id, worker_id, job_posting_id)`
+   * (migration 0035). NULLS DISTINCT is preserved so a null-posting search row never collides.
+   */
+  async findByOrgWorkerPosting(
     tx: Tx,
-    payerId: string,
+    orgId: string,
     workerId: string,
     jobPostingId: string | null,
   ): Promise<typeof resumeDisclosures.$inferSelect | undefined> {
@@ -81,7 +91,7 @@ export class ResumeDisclosureRepository {
       .from(resumeDisclosures)
       .where(
         and(
-          eq(resumeDisclosures.payerId, payerId),
+          eq(resumeDisclosures.orgId, orgId),
           eq(resumeDisclosures.workerId, workerId),
           jobPostingId === null
             ? isNull(resumeDisclosures.jobPostingId)
@@ -118,22 +128,31 @@ export class ResumeDisclosureRepository {
     return (reveals[0]?.total ?? 0) + (disclosures[0]?.count ?? 0);
   }
 
-  /** Distinct payers who got a contact OR a resume for a worker since `since` (shared weekly). */
-  async countDistinctPayersSince(tx: Tx, workerId: string, since: Date): Promise<number> {
+  /**
+   * Distinct ORGS that got a contact OR a resume for a worker since `since` (shared weekly).
+   * ADR-0027 B5.x Inc 4: worker-protection counts distinct EMPLOYERS (orgs), not distinct
+   * acting payers — so a whole recruiting team (many payers, one org) counts as ONE toward
+   * the shared weekly cap across BOTH SKUs (unlock reveals + resume disclosures), while two
+   * DISTINCT orgs count as two. BEHAVIOR-PRESERVING under today's solo orgs (org == the one
+   * payer), where distinct orgs == distinct payers. The UNION selects `unlocks.org_id`
+   * (Inc 2) + `resume_disclosures.org_id` (migration 0035) — both columns exist. Same
+   * `status` / timestamp filters as before; only the counted unit flips (payer → org).
+   */
+  async countDistinctOrgsSince(tx: Tx, workerId: string, since: Date): Promise<number> {
     const rows = await tx.execute(sql`
-      select count(distinct payer_id)::int as count from (
-        select ${unlocks.payerId} as payer_id
+      select count(distinct org_id)::int as count from (
+        select ${unlocks.orgId} as org_id
           from ${unlocks}
           where ${unlocks.workerId} = ${workerId}
             and ${unlocks.grantedAt} >= ${since}
             and ${unlocks.status} in ('granted','revealed')
         union
-        select ${resumeDisclosures.payerId} as payer_id
+        select ${resumeDisclosures.orgId} as org_id
           from ${resumeDisclosures}
           where ${resumeDisclosures.workerId} = ${workerId}
             and ${resumeDisclosures.disclosedAt} >= ${since}
             and ${resumeDisclosures.status} = 'disclosed'
-      ) p
+      ) o
     `);
     const row = (rows as unknown as Array<{ count: number }>)[0];
     return row?.count ?? 0;
@@ -141,10 +160,15 @@ export class ResumeDisclosureRepository {
 
   // ---- Grant / deny / disclose writes -------------------------------------------
 
-  /** Insert a fresh disclosure row. Tx-scoped. */
+  /**
+   * Insert a fresh disclosure row. Tx-scoped. ADR-0027 B5.x Inc 4: the INSERT stamps BOTH
+   * `org_id` (the new ownership key) AND `payer_id` (still NOT NULL — the acting payer, kept
+   * for ops/audit + rollback + the org-not-null invariant from migration 0035).
+   */
   async insertRow(
     tx: Tx,
     input: {
+      orgId: string;
       payerId: string;
       workerId: string;
       jobPostingId: string | null;
@@ -155,6 +179,7 @@ export class ResumeDisclosureRepository {
     const rows = await tx
       .insert(resumeDisclosures)
       .values({
+        orgId: input.orgId,
         payerId: input.payerId,
         workerId: input.workerId,
         jobPostingId: input.jobPostingId,
@@ -233,17 +258,21 @@ export class ResumeDisclosureRepository {
     };
   }
 
-  /** Ops: a payer's disclosures (PII-free projection — NO bytes / name / link). */
-  async listByPayer(payerId: string): Promise<DisclosureProjection[]> {
+  /**
+   * Ops: an ORG's disclosures (PII-free projection — NO bytes / name / link). ADR-0027
+   * B5.x Inc 4: scoped on `org_id`, so any org member sees the whole org's disclosures.
+   */
+  async listByOrg(orgId: string): Promise<DisclosureProjection[]> {
     const rows = await this.db
       .select()
       .from(resumeDisclosures)
-      .where(eq(resumeDisclosures.payerId, payerId))
+      .where(eq(resumeDisclosures.orgId, orgId))
       .orderBy(desc(resumeDisclosures.createdAt))
       .limit(500);
     return rows.map((r) => ({
       disclosure_id: r.id,
       payer_id: r.payerId,
+      org_id: r.orgId,
       worker_id: r.workerId,
       job_posting_id: r.jobPostingId,
       status: r.status,
