@@ -1,11 +1,12 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, ne } from "drizzle-orm";
 import {
   type Database,
   payers,
   payerOrgs,
   payerMembers,
   type OrgRole,
+  type PayerMember,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
@@ -13,6 +14,17 @@ import { DATABASE } from "../database/database.module";
 export interface ResolvedOrg {
   orgId: string;
   orgRole: OrgRole;
+}
+
+/** Input to invite a teammate — the email is already-validated + normalized by the DTO. */
+export interface InviteMemberInput {
+  orgId: string;
+  emailEnc: string;
+  emailHash: string;
+  orgRole: OrgRole;
+  invitedBy: string;
+  inviteTokenHash: string;
+  inviteExpiresAt: Date;
 }
 
 /**
@@ -86,5 +98,107 @@ export class PayerOrgsRepository {
       .orderBy(desc(payerMembers.acceptedAt))
       .limit(1);
     return row ?? null;
+  }
+
+  /**
+   * All NON-removed members of an org (invited + active), oldest-invited first — for the
+   * owner/member team list. Returns the raw rows (ciphertext email); the SERVICE decrypts +
+   * MASKS the email before it leaves the boundary (no plaintext in the response).
+   */
+  async listMembers(orgId: string): Promise<PayerMember[]> {
+    return this.db
+      .select()
+      .from(payerMembers)
+      .where(and(eq(payerMembers.orgId, orgId), ne(payerMembers.status, "removed")))
+      .orderBy(asc(payerMembers.invitedAt));
+  }
+
+  /** One member row scoped to its org (no-oracle: a foreign/absent id → undefined). */
+  async findMember(orgId: string, memberId: string): Promise<PayerMember | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(payerMembers)
+      .where(and(eq(payerMembers.id, memberId), eq(payerMembers.orgId, orgId)))
+      .limit(1);
+    return row;
+  }
+
+  /** The current NON-removed member for an email in an org (dup-invite / already-member guard). */
+  async findActiveOrInvitedByEmail(orgId: string, emailHash: string): Promise<PayerMember | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(payerMembers)
+      .where(
+        and(
+          eq(payerMembers.orgId, orgId),
+          eq(payerMembers.emailHash, emailHash),
+          ne(payerMembers.status, "removed"),
+        ),
+      )
+      .limit(1);
+    return row;
+  }
+
+  /**
+   * Invite (or re-invite) a teammate by email — upsert on the unique (org_id, email_hash) so a
+   * re-invite (of an invited OR previously-removed email) reuses the row with a fresh token +
+   * status='invited'. The caller ({@link import("../payer-portal/payer-org-members.service").PayerOrgMembersService})
+   * rejects re-inviting an ACTIVE member first. member_payer_id stays NULL until accept. PII:
+   * the email is written ONLY as ciphertext + keyed hash (never plaintext); the invite token is
+   * stored ONLY as its hash (bearer secret). Returns the invited row.
+   */
+  async inviteMember(input: InviteMemberInput): Promise<PayerMember> {
+    const [row] = await this.db
+      .insert(payerMembers)
+      .values({
+        orgId: input.orgId,
+        emailEnc: input.emailEnc,
+        emailHash: input.emailHash,
+        orgRole: input.orgRole,
+        status: "invited",
+        invitedBy: input.invitedBy,
+        inviteTokenHash: input.inviteTokenHash,
+        inviteExpiresAt: input.inviteExpiresAt,
+        invitedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [payerMembers.orgId, payerMembers.emailHash],
+        set: {
+          orgRole: input.orgRole,
+          status: "invited",
+          invitedBy: input.invitedBy,
+          inviteTokenHash: input.inviteTokenHash,
+          inviteExpiresAt: input.inviteExpiresAt,
+          invitedAt: new Date(),
+          removedAt: null,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    if (!row) throw new Error("failed to invite payer member");
+    return row;
+  }
+
+  /**
+   * SOFT-remove a member (status='removed' + removed_at) — scoped to its org, and NEVER an
+   * owner (owner removal / transfer is out of scope for B5.3). One guarded UPDATE (id + org_id
+   * + org_role='recruiter' + not-already-removed in the WHERE), so a foreign/owner/gone row is a
+   * no-op → returns undefined (the service 404/409s without leaking which). The row is kept
+   * (soft-delete) for audit; member_payer_id is preserved.
+   */
+  async softRemoveMember(orgId: string, memberId: string): Promise<PayerMember | undefined> {
+    const [row] = await this.db
+      .update(payerMembers)
+      .set({ status: "removed", removedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(payerMembers.id, memberId),
+          eq(payerMembers.orgId, orgId),
+          eq(payerMembers.orgRole, "recruiter"),
+          ne(payerMembers.status, "removed"),
+        ),
+      )
+      .returning();
+    return row;
   }
 }

@@ -28,7 +28,9 @@ import { PayerAuthController } from "./payer-auth.controller";
 import { PayerReachController } from "./payer-reach.controller";
 import { PayerDisclosureController } from "./payer-disclosure.controller";
 import { PayerJobPostingsController } from "./payer-job-postings.controller";
+import { PayerOrgMembersController } from "./payer-org-members.controller";
 import { PayerAuthService } from "./payer-auth.service";
+import { PayerOrgMembersService } from "./payer-org-members.service";
 
 /**
  * Payer portal route group (ADR-0019 Phase 1 — closes R16 / LC-1 / TD33).
@@ -79,9 +81,11 @@ import { PayerAuthService } from "./payer-auth.service";
     PayerReachController,
     PayerDisclosureController,
     PayerJobPostingsController,
+    PayerOrgMembersController,
   ],
   providers: [
     PayerAuthService,
+    PayerOrgMembersService,
     PayerOtpService,
     PayerDisclosureRateLimit,
     // The login channel implementations + the WhatsApp provider seam they ride.

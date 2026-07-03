@@ -1175,6 +1175,35 @@ export const PayerSessionStartedPayload = z.object({
 });
 export type PayerSessionStartedPayload = z.infer<typeof PayerSessionStartedPayload>;
 
+/** A member's role within a payer org (ADR-0027 / B5). Enum-only → no PII. */
+export const OrgRoleEnum = z.enum(["owner", "recruiter"]);
+export type OrgRoleEnum = z.infer<typeof OrgRoleEnum>;
+
+/**
+ * A teammate was INVITED to a payer org (ADR-0027 / B5). `member_id` is the opaque
+ * `payer_members` row id; `invited_by` is the acting owner. The invitee's EMAIL is NOT here
+ * (it lives encrypted in `payer_members`), nor is the invite token (a bearer secret — only its
+ * hash is stored). ids + the org_role enum ONLY.
+ */
+export const PayerMemberInvitedPayload = z.object({
+  member_id: uuidSchema,
+  org_id: uuidSchema,
+  org_role: OrgRoleEnum,
+  invited_by: uuidSchema,
+});
+export type PayerMemberInvitedPayload = z.infer<typeof PayerMemberInvitedPayload>;
+
+/**
+ * A teammate was REMOVED from a payer org (ADR-0027 / B5) — soft-deleted (status='removed').
+ * `removed_by` is the acting owner. ids ONLY (no email/PII).
+ */
+export const PayerMemberRemovedPayload = z.object({
+  member_id: uuidSchema,
+  org_id: uuidSchema,
+  removed_by: uuidSchema,
+});
+export type PayerMemberRemovedPayload = z.infer<typeof PayerMemberRemovedPayload>;
+
 /**
  * The field KEYS a payer may self-edit on `PATCH /payer/me` (PROF-3). Pinned as an
  * enum (not a free `z.string()`) so the registry STRUCTURALLY guarantees
