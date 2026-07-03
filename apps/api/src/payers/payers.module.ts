@@ -6,6 +6,7 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { DatabaseModule } from "../database/database.module";
 import { PayersRepository } from "./payers.repository";
+import { PayerOrgsRepository } from "./payer-orgs.repository";
 import { PayerSessionService } from "./payer-session.service";
 import { PayerAuthGuard } from "./payer-auth.guard";
 import { PayerRoleGuard } from "./payer-role.guard";
@@ -44,11 +45,18 @@ import { PayerAccountController } from "./payer-account.controller";
   controllers: [PayerAccountController],
   providers: [
     PayersRepository,
+    PayerOrgsRepository,
     PayerSessionService,
     PayerAuthGuard,
     PayerRoleGuard,
     PayerAccountService,
   ],
-  exports: [PayersRepository, PayerSessionService, PayerAuthGuard, PayerRoleGuard],
+  exports: [
+    PayersRepository,
+    PayerOrgsRepository,
+    PayerSessionService,
+    PayerAuthGuard,
+    PayerRoleGuard,
+  ],
 })
 export class PayersModule {}
