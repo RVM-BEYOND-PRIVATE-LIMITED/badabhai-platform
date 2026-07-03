@@ -136,6 +136,26 @@ export class PayerJobPostingsController {
   }
 
   /**
+   * Read the current plan of one of the caller's OWN postings (tier / quota / status) so the
+   * capacity/postings UI can show the REAL per-posting applicant-visibility quota (base +
+   * top-ups) instead of a `0` placeholder. OWNERSHIP is asserted FIRST via the no-oracle
+   * `getOneForPayer` — an unknown OR another payer's posting returns the SAME neutral 404, so
+   * this read can never be turned into an enumeration oracle (a posting with no plan yet returns
+   * `{ plan: null }` at 200 only AFTER ownership is confirmed). The `payer_id` is the SESSION
+   * payer (XB-A) — never a body/param value. Delegates to
+   * {@link PostingPlansService.getPlanForPayerPosting} (itself payer-scoped, defense in depth).
+   * READ-ONLY → emits NO event. PII-free: ids + tier code + status + counts + ISO timestamps only.
+   */
+  @Get(":id/plan")
+  async getPlan(
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @CurrentPayer() payer: AuthenticatedPayer,
+  ) {
+    await this.jobPostings.getOneForPayer(id, payer.id); // no-oracle 404 (unknown OR foreign)
+    return this.plans.getPlanForPayerPosting(id, payer.id);
+  }
+
+  /**
    * Buy a paid plan for one of the caller's OWN postings (B3 / LC-1 fix; ADR-0013 Decision B).
    * OWNERSHIP is asserted FIRST via the no-oracle `getOneForPayer` — an unknown OR another
    * payer's posting returns the SAME neutral 404, so this route can never be turned into an

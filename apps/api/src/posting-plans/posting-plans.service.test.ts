@@ -23,6 +23,9 @@ function make(
     // B2 quota top-up knobs:
     activeTopupPlan?: { id: string; quotaTopupCount: number } | null; // null → no active plan (409)
     topupRaced?: boolean; // addQuotaTopup returns undefined (plan raced to expiry) → 409
+    // Payer-self plan read knob (GET /payer/job-postings/:id/plan): the current plan row for the
+    // posting, or null/undefined → the posting has no plan yet ({ plan: null }, 200).
+    currentPlan?: Record<string, unknown> | null;
   } = {},
 ) {
   const emit = vi.fn().mockResolvedValue(undefined);
@@ -38,6 +41,7 @@ function make(
   const addQuotaTopup = vi.fn().mockImplementation(async (planId: string, _payerId: string, delta: number) =>
     opts.topupRaced || !topupPlan ? undefined : { id: planId, quotaTopupCount: topupPlan.quotaTopupCount + delta },
   );
+  const findCurrentPlanForPosting = vi.fn().mockResolvedValue(opts.currentPlan ?? undefined);
   // The transaction simply runs its callback with a sentinel tx (the repo methods below
   // are all mocked, so the sentinel is never really used by Drizzle).
   const withTransaction = vi.fn().mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => work({}));
@@ -64,6 +68,7 @@ function make(
       setPlanStatus,
       findActivePlanForPostingAndPayer,
       addQuotaTopup,
+      findCurrentPlanForPosting,
     } as never,
     { emit } as never,
     { getActiveCatalog } as never,
@@ -89,6 +94,7 @@ function make(
     countActivePlansForPayer,
     findActivePlanForPostingAndPayer,
     addQuotaTopup,
+    findCurrentPlanForPosting,
   };
 }
 
@@ -451,5 +457,104 @@ describe("PostingPlansService.getCapacity (ADR-0016 — payer-portal read, A3 ac
     const view = await service.getCapacity(PAYER);
     expect(view.max_active_vacancies).toBe(1);
     expect(view.active_plan_count).toBe(2);
+  });
+});
+
+describe("PostingPlansService.getPlanForPayerPosting (payer-self read of a posting's plan)", () => {
+  const PAID = new Date("2026-06-01T10:00:00.000Z");
+  const EXPIRES = new Date("2026-07-01T10:00:00.000Z");
+
+  it("returns the view with effective_quota = base + top-ups (base 10 + 2 top-ups → 12)", async () => {
+    const { service, findCurrentPlanForPosting } = make({
+      currentPlan: {
+        id: "p-1",
+        tier: "standard",
+        status: "active",
+        applicantVisibilityQuota: 10,
+        quotaTopupCount: 2,
+        applicantsViewedCount: 3,
+        paidAt: PAID,
+        expiresAt: EXPIRES,
+      },
+    });
+    const view = await service.getPlanForPayerPosting(POSTING, PAYER);
+    // payer-scoped read is called with BOTH the posting id and the payer id (defense in depth).
+    expect(findCurrentPlanForPosting).toHaveBeenCalledWith(POSTING, PAYER);
+    expect(view.job_posting_id).toBe(POSTING);
+    expect(view.plan).toEqual({
+      tier: "standard",
+      status: "active",
+      applicant_visibility_quota: 10,
+      quota_topup_count: 2,
+      effective_quota: 12, // computed in the service, NOT stored
+      applicants_viewed_count: 3,
+      paid_at: PAID.toISOString(),
+      expires_at: EXPIRES.toISOString(),
+    });
+    expect(view.plan!.effective_quota).toBe(
+      view.plan!.applicant_visibility_quota + view.plan!.quota_topup_count,
+    );
+  });
+
+  it("serializes a never-paid draft plan's null window as null (no crash on null paid_at/expires_at)", async () => {
+    const { service } = make({
+      currentPlan: {
+        id: "p-2",
+        tier: "pro",
+        status: "draft",
+        applicantVisibilityQuota: 30,
+        quotaTopupCount: 0,
+        applicantsViewedCount: 0,
+        paidAt: null,
+        expiresAt: null,
+      },
+    });
+    const view = await service.getPlanForPayerPosting(POSTING, PAYER);
+    expect(view.plan).toMatchObject({
+      tier: "pro",
+      status: "draft",
+      effective_quota: 30,
+      paid_at: null,
+      expires_at: null,
+    });
+  });
+
+  it("returns { plan: null } at the service layer when the posting has no plan yet", async () => {
+    const { service } = make({ currentPlan: null });
+    const view = await service.getPlanForPayerPosting(POSTING, PAYER);
+    expect(view).toEqual({ job_posting_id: POSTING, plan: null });
+  });
+
+  it("PII-free: the serialized view carries no worker id / phone / name / email", async () => {
+    const { service } = make({
+      currentPlan: {
+        id: "p-1",
+        tier: "standard",
+        status: "active",
+        applicantVisibilityQuota: 10,
+        quotaTopupCount: 2,
+        applicantsViewedCount: 0,
+        paidAt: PAID,
+        expiresAt: EXPIRES,
+      },
+    });
+    const view = await service.getPlanForPayerPosting(POSTING, PAYER);
+    const serialized = JSON.stringify(view);
+    for (const forbidden of ["worker", "phone", "name", "email", "payer_id"]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+    // The allowed keys are exactly the PII-free plan fields (no leak of the raw row's other cols).
+    expect(Object.keys(view.plan!).sort()).toEqual(
+      [
+        "applicant_visibility_quota",
+        "applicants_viewed_count",
+        "effective_quota",
+        "expires_at",
+        "paid_at",
+        "quota_topup_count",
+        "status",
+        "tier",
+      ].sort(),
+    );
   });
 });

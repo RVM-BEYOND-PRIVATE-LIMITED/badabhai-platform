@@ -69,3 +69,34 @@ export const PayerTopUpQuotaSchema = z.object({
   coupon: z.string().min(1).max(64).optional(),
 });
 export type PayerTopUpQuotaDto = z.infer<typeof PayerTopUpQuotaSchema>;
+
+/**
+ * The payer-self read view of a posting's current plan (GET /payer/job-postings/:id/plan).
+ * PII-FREE by construction: ids + a catalog tier code + a lifecycle status + integer counts
+ * + ISO window timestamps ONLY — never a worker field (no name/phone/worker_id) and never
+ * payer PII. It lets the portal show the REAL per-posting applicant-visibility quota (base +
+ * top-ups) instead of a `0` placeholder. Read-only — this shape is never persisted; the
+ * service maps a {@link import("@badabhai/db").PostingPlan} row into it (snake_case to match
+ * the other payer reads, e.g. {@link import("./posting-plans.service").CapacityView}).
+ *
+ * `plan` is `null` when the posting has no plan yet (ownership is confirmed by the caller
+ * BEFORE this read, so a null plan is NOT an enumeration oracle). `effective_quota` is the
+ * DERIVED cap the (future) view chokepoint enforces = applicant_visibility_quota (the immutable
+ * receipt) + quota_topup_count — computed in the service, never stored.
+ */
+export const PostingPlanViewSchema = z.object({
+  job_posting_id: uuidSchema,
+  plan: z
+    .object({
+      tier: z.enum(["standard", "pro"]),
+      status: z.enum(["draft", "active", "expired", "paused"]),
+      applicant_visibility_quota: z.number().int().nonnegative(),
+      quota_topup_count: z.number().int().nonnegative(),
+      effective_quota: z.number().int().nonnegative(),
+      applicants_viewed_count: z.number().int().nonnegative(),
+      paid_at: z.string().nullable(),
+      expires_at: z.string().nullable(),
+    })
+    .nullable(),
+});
+export type PostingPlanView = z.infer<typeof PostingPlanViewSchema>;

@@ -217,6 +217,34 @@ export class PostingPlansRepository {
   }
 
   /**
+   * The payer's current plan for a posting — backs the payer-self read view (GET
+   * /payer/job-postings/:id/plan). Scoped by BOTH `job_posting_id` AND `payer_id`
+   * (defense in depth: the controller already asserts posting ownership via the
+   * no-oracle `getOneForPayer`, so a foreign plan is doubly-unreachable here). A posting
+   * normally carries ONE plan; if more, return the latest deterministically — most
+   * recently PAID first, then most recently CREATED (a draft/never-paid plan has a null
+   * paid_at, so the created_at tiebreak orders those). A plain read (no lock — display
+   * only, not a write chokepoint). PII-free (ids/counts/codes/timestamps only).
+   */
+  async findCurrentPlanForPosting(
+    jobPostingId: string,
+    payerId: string,
+  ): Promise<PostingPlan | undefined> {
+    const rows = await this.db
+      .select()
+      .from(postingPlans)
+      .where(
+        and(
+          eq(postingPlans.jobPostingId, jobPostingId),
+          eq(postingPlans.payerId, payerId),
+        ),
+      )
+      .orderBy(desc(postingPlans.paidAt), desc(postingPlans.createdAt))
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
    * Atomically add `delta` applicant-visibility views to a plan's quota_topup_count (B2).
    * ONE UPDATE (`SET col = col + delta`) so concurrent top-ups COMPOSE without a lock. The
    * WHERE re-asserts the plan is still the payer's + active + unexpired (no TOCTOU vs the

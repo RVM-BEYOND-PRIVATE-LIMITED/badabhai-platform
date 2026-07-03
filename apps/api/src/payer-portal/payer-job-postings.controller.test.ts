@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PayerJobPostingsController } from "./payer-job-postings.controller";
 import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import type { RequestContext } from "../common/request-context";
+import type { PostingPlanView } from "../posting-plans/posting-plans.dto";
 
 // job-postings is a SHARED demand surface (any payer role); cover both an agent and an
 // employer session. `role` is required on AuthenticatedPayer since the ADR-0022 role claim.
@@ -48,6 +49,21 @@ function makeCtrl() {
     topUpQuotaForPayer: vi.fn(
       async (_id: string, _payerId: string, _dto: unknown, _ctx: unknown) => ({
         plan: { id: "plan-1", quotaTopupCount: 10 },
+      }),
+    ),
+    getPlanForPayerPosting: vi.fn(
+      async (_id: string, _payerId: string): Promise<PostingPlanView> => ({
+        job_posting_id: POSTING,
+        plan: {
+          tier: "standard",
+          status: "active",
+          applicant_visibility_quota: 10,
+          quota_topup_count: 2,
+          effective_quota: 12,
+          applicants_viewed_count: 3,
+          paid_at: "2026-06-01T10:00:00.000Z",
+          expires_at: "2026-07-01T10:00:00.000Z",
+        },
       }),
     ),
   };
@@ -183,5 +199,53 @@ describe("PayerJobPostingsController — quota top-up is session-scoped + owners
     d.jobPostings.getOneForPayer.mockRejectedValueOnce(new Error("Job posting not found"));
     await expect(d.ctrl.topUpQuota(POSTING, { tier: "topup_10" }, PAYER_A, CTX)).rejects.toThrow();
     expect(d.plans.topUpQuotaForPayer).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * GET /payer/job-postings/:id/plan — the payer-self READ of a posting's plan (tier/quota/
+ * status), so the portal shows the REAL applicant-visibility quota instead of a `0` placeholder.
+ * Ownership is asserted via `getOneForPayer` BEFORE the read (no-oracle 404 for unknown/foreign);
+ * the `payer_id` is the SESSION payer (XB-A). READ-ONLY — no event; PII-free.
+ */
+describe("PayerJobPostingsController — read a posting's plan is session-scoped + ownership-gated (read-only)", () => {
+  let d: ReturnType<typeof makeCtrl>;
+  beforeEach(() => {
+    d = makeCtrl();
+  });
+
+  it("owns a posting WITH a plan → returns the view (effective_quota = base + top-ups)", async () => {
+    const view = await d.ctrl.getPlan(POSTING, PAYER_A);
+    expect(d.jobPostings.getOneForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id);
+    expect(d.plans.getPlanForPayerPosting).toHaveBeenCalledWith(POSTING, PAYER_A.id);
+    expect(view.plan!.effective_quota).toBe(
+      view.plan!.applicant_visibility_quota + view.plan!.quota_topup_count,
+    );
+    expect(view.plan!.effective_quota).toBe(12); // base 10 + 2 top-ups
+    // Ownership read resolves BEFORE the plan read (no leak of a foreign posting's plan).
+    expect(d.jobPostings.getOneForPayer.mock.invocationCallOrder[0]!).toBeLessThan(
+      d.plans.getPlanForPayerPosting.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("owns a posting with NO plan → { plan: null } (getOneForPayer succeeds, service returns null)", async () => {
+    d.plans.getPlanForPayerPosting.mockResolvedValueOnce({ job_posting_id: POSTING, plan: null });
+    const view = await d.ctrl.getPlan(POSTING, PAYER_A);
+    expect(d.jobPostings.getOneForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id);
+    expect(view).toEqual({ job_posting_id: POSTING, plan: null });
+  });
+
+  it("unknown OR foreign posting (404) NEVER reaches the plan read (ownership gate first, no leak)", async () => {
+    d.jobPostings.getOneForPayer.mockRejectedValueOnce(new Error("Job posting not found"));
+    await expect(d.ctrl.getPlan(POSTING, PAYER_A)).rejects.toThrow();
+    expect(d.plans.getPlanForPayerPosting).not.toHaveBeenCalled();
+  });
+
+  it("PII-free: the serialized response carries no worker id / phone / name / email", async () => {
+    const view = await d.ctrl.getPlan(POSTING, PAYER_B);
+    const serialized = JSON.stringify(view);
+    for (const forbidden of ["worker", "phone", "name", "email", "payer_id"]) {
+      expect(serialized).not.toContain(forbidden);
+    }
   });
 });

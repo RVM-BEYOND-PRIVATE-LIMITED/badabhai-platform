@@ -22,6 +22,7 @@ import type {
   PayerBuyPlanDto,
   PayerBuyBoostDto,
   PayerTopUpQuotaDto,
+  PostingPlanView,
 } from "./posting-plans.dto";
 
 const MS_PER_DAY = 86_400_000;
@@ -449,6 +450,41 @@ export class PostingPlansService {
       active_plan_count: activePlanCount,
       source_tier: row?.sourceTier ?? null,
       expires_at: row?.expiresAt ? row.expiresAt.toISOString() : null,
+    };
+  }
+
+  /**
+   * The payer-self read of ONE of their postings' current plan (GET /payer/job-postings/:id/plan)
+   * — so the portal can show the REAL per-posting applicant-visibility quota (base + top-ups)
+   * instead of a `0` placeholder. Read-only: NO event (a GET is not a state change).
+   *
+   * OWNERSHIP + no-oracle: this mirrors {@link topUpQuotaForPayer}'s discipline — the caller
+   * (the payer controller) asserts posting ownership FIRST via the no-oracle `getOneForPayer`
+   * (an unknown OR another payer's posting → the SAME neutral 404, no enumeration oracle), and
+   * the plan lookup here is ITSELF payer-scoped (defense in depth: `findCurrentPlanForPosting`
+   * filters on job_posting_id AND payer_id). When the posting has no plan yet, returns
+   * `{ plan: null }` — ownership was already confirmed, so a null plan is NOT an oracle.
+   *
+   * PII-FREE: the view carries ids + a tier code + a lifecycle status + integer counts + ISO
+   * timestamps only — never a worker field, never payer PII. `effective_quota` is DERIVED here
+   * (the immutable `applicant_visibility_quota` receipt + the accumulated `quota_topup_count`),
+   * never stored.
+   */
+  async getPlanForPayerPosting(jobPostingId: string, payerId: string): Promise<PostingPlanView> {
+    const plan = await this.repo.findCurrentPlanForPosting(jobPostingId, payerId);
+    if (!plan) return { job_posting_id: jobPostingId, plan: null };
+    return {
+      job_posting_id: jobPostingId,
+      plan: {
+        tier: plan.tier,
+        status: plan.status,
+        applicant_visibility_quota: plan.applicantVisibilityQuota,
+        quota_topup_count: plan.quotaTopupCount,
+        effective_quota: plan.applicantVisibilityQuota + plan.quotaTopupCount,
+        applicants_viewed_count: plan.applicantsViewedCount,
+        paid_at: plan.paidAt ? plan.paidAt.toISOString() : null,
+        expires_at: plan.expiresAt ? plan.expiresAt.toISOString() : null,
+      },
     };
   }
 
