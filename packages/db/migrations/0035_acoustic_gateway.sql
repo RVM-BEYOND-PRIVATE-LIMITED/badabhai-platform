@@ -79,6 +79,15 @@ ALTER TABLE "payer_members" ADD CONSTRAINT "payer_members_member_payer_id_payers
 ALTER TABLE "payer_members" ADD CONSTRAINT "payer_members_invited_by_payers_id_fk" FOREIGN KEY ("invited_by") REFERENCES "public"."payers"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "payer_orgs" ADD CONSTRAINT "payer_orgs_root_payer_id_payers_id_fk" FOREIGN KEY ("root_payer_id") REFERENCES "public"."payers"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 
+-- ── 1b. Tenant indexes — created BEFORE the step-2 backfill because the two UNIQUE ones are the
+-- ON CONFLICT arbiters for the inserts below. Postgres validates the arbiter at statement time
+-- (SQLSTATE 42P10 if the matching unique index is absent), so they MUST precede the inserts —
+-- matching the original 0033_dark_crusher_hogan order.
+CREATE INDEX IF NOT EXISTS "payer_members_org_id_idx" ON "payer_members" USING btree ("org_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "payer_members_member_payer_id_idx" ON "payer_members" USING btree ("member_payer_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "payer_members_org_email_uq" ON "payer_members" USING btree ("org_id","email_hash");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "payer_orgs_root_payer_id_uq" ON "payer_orgs" USING btree ("root_payer_id");--> statement-breakpoint
+
 -- ── 2. Solo-org backfill (ADR-0027 B5.1, carried verbatim from 0033_dark_crusher_hogan).
 -- Each existing payer becomes a SOLO org (root_payer_id = the payer), carrying the payer's
 -- B2B org display name (ciphertext). Idempotent via the unique root_payer_id, so a re-run
@@ -97,15 +106,15 @@ ON CONFLICT ("org_id", "email_hash") DO NOTHING;--> statement-breakpoint
 
 -- ── 3. org_id on the 9 payer-owned tables (NULLABLE first, so the backfill can populate).
 -- (Carried from 0034_wonderful_nico_minoru.) ──────────────────────────────────────────
-ALTER TABLE "credit_ledger" ADD COLUMN "org_id" uuid;--> statement-breakpoint
-ALTER TABLE "job_postings" ADD COLUMN "org_id" uuid;--> statement-breakpoint
-ALTER TABLE "jobs" ADD COLUMN "org_id" uuid;--> statement-breakpoint
-ALTER TABLE "payer_capacity" ADD COLUMN "org_id" uuid;--> statement-breakpoint
-ALTER TABLE "payer_credits" ADD COLUMN "org_id" uuid;--> statement-breakpoint
-ALTER TABLE "posting_boosts" ADD COLUMN "org_id" uuid;--> statement-breakpoint
-ALTER TABLE "posting_plans" ADD COLUMN "org_id" uuid;--> statement-breakpoint
-ALTER TABLE "resume_disclosures" ADD COLUMN "org_id" uuid;--> statement-breakpoint
-ALTER TABLE "unlocks" ADD COLUMN "org_id" uuid;--> statement-breakpoint
+ALTER TABLE "credit_ledger" ADD COLUMN IF NOT EXISTS "org_id" uuid;--> statement-breakpoint
+ALTER TABLE "job_postings" ADD COLUMN IF NOT EXISTS "org_id" uuid;--> statement-breakpoint
+ALTER TABLE "jobs" ADD COLUMN IF NOT EXISTS "org_id" uuid;--> statement-breakpoint
+ALTER TABLE "payer_capacity" ADD COLUMN IF NOT EXISTS "org_id" uuid;--> statement-breakpoint
+ALTER TABLE "payer_credits" ADD COLUMN IF NOT EXISTS "org_id" uuid;--> statement-breakpoint
+ALTER TABLE "posting_boosts" ADD COLUMN IF NOT EXISTS "org_id" uuid;--> statement-breakpoint
+ALTER TABLE "posting_plans" ADD COLUMN IF NOT EXISTS "org_id" uuid;--> statement-breakpoint
+ALTER TABLE "resume_disclosures" ADD COLUMN IF NOT EXISTS "org_id" uuid;--> statement-breakpoint
+ALTER TABLE "unlocks" ADD COLUMN IF NOT EXISTS "org_id" uuid;--> statement-breakpoint
 
 -- ── 3b. Backfill: org_id = the solo org for this payer (payer_orgs.root_payer_id = payer_id).
 -- Only rows still NULL are touched (idempotent). Rows with NULL payer_id (ops/seed
@@ -147,20 +156,17 @@ DO $$ BEGIN
   END IF;
 END $$;--> statement-breakpoint
 
--- ── 5. Indexes (ADDITIVE — every existing payer_id index stays). Created AFTER the backfill
--- so the unique ones build on populated data. Unique-index NULLs stay distinct (NULLS-DISTINCT).
-CREATE INDEX "payer_members_org_id_idx" ON "payer_members" USING btree ("org_id");--> statement-breakpoint
-CREATE INDEX "payer_members_member_payer_id_idx" ON "payer_members" USING btree ("member_payer_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "payer_members_org_email_uq" ON "payer_members" USING btree ("org_id","email_hash");--> statement-breakpoint
-CREATE UNIQUE INDEX "payer_orgs_root_payer_id_uq" ON "payer_orgs" USING btree ("root_payer_id");--> statement-breakpoint
-CREATE INDEX "credit_ledger_org_id_idx" ON "credit_ledger" USING btree ("org_id");--> statement-breakpoint
-CREATE INDEX "job_postings_org_id_idx" ON "job_postings" USING btree ("org_id");--> statement-breakpoint
-CREATE INDEX "jobs_org_id_idx" ON "jobs" USING btree ("org_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "payer_capacity_org_id_uq" ON "payer_capacity" USING btree ("org_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "payer_credits_org_id_uq" ON "payer_credits" USING btree ("org_id");--> statement-breakpoint
-CREATE INDEX "posting_boosts_org_id_idx" ON "posting_boosts" USING btree ("org_id");--> statement-breakpoint
-CREATE INDEX "posting_plans_org_id_idx" ON "posting_plans" USING btree ("org_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "resume_disclosures_org_worker_posting_uq" ON "resume_disclosures" USING btree ("org_id","worker_id","job_posting_id");--> statement-breakpoint
-CREATE INDEX "resume_disclosures_org_id_idx" ON "resume_disclosures" USING btree ("org_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "unlocks_org_worker_uq" ON "unlocks" USING btree ("org_id","worker_id");--> statement-breakpoint
-CREATE INDEX "unlocks_org_id_idx" ON "unlocks" USING btree ("org_id");
+-- ── 5. Data-table org indexes (ADDITIVE — every existing payer_id index stays). Created AFTER
+-- the backfill so the unique ones build on populated data. Unique-index NULLs stay distinct
+-- (NULLS-DISTINCT). The tenant-table indexes were created in step 1b (they arbiter the backfill).
+CREATE INDEX IF NOT EXISTS "credit_ledger_org_id_idx" ON "credit_ledger" USING btree ("org_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "job_postings_org_id_idx" ON "job_postings" USING btree ("org_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "jobs_org_id_idx" ON "jobs" USING btree ("org_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "payer_capacity_org_id_uq" ON "payer_capacity" USING btree ("org_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "payer_credits_org_id_uq" ON "payer_credits" USING btree ("org_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "posting_boosts_org_id_idx" ON "posting_boosts" USING btree ("org_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "posting_plans_org_id_idx" ON "posting_plans" USING btree ("org_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "resume_disclosures_org_worker_posting_uq" ON "resume_disclosures" USING btree ("org_id","worker_id","job_posting_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "resume_disclosures_org_id_idx" ON "resume_disclosures" USING btree ("org_id");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "unlocks_org_worker_uq" ON "unlocks" USING btree ("org_id","worker_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "unlocks_org_id_idx" ON "unlocks" USING btree ("org_id");
