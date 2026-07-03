@@ -102,6 +102,15 @@ export class AdminActionsRepository {
    * the ledger row + balance (the SoR) — NEVER in the event. Returns the new balance + the
    * opaque ledger row id (the audit target). The CHECK (balance >= 0) holds (a grant is +ve).
    *
+   * ADR-0027 B5.x Inc 2 (wallet flip): the wallet keys on `org_id` — the balance row upserts ON
+   * CONFLICT (`payer_credits.org_id`) and the ledger row stamps BOTH `org_id` (the wallet key,
+   * NOT NULL from Inc 0's migration 0034) AND `payer_id` (still NOT NULL — the acting/target
+   * payer, kept for ops/audit). The read of the current balance on the idempotent-replay path is
+   * keyed on `org_id` so it returns the ORG wallet (converges with the org-keyed unlock debit).
+   * The `orgId` is resolved in the SERVICE (BEFORE this write, fail-closed on null) and passed in
+   * — this repo never resolves it. BEHAVIOR-PRESERVING under today's solo orgs (org == the one
+   * payer). Mirrors `unlocks.repository.ts` `creditPack` precisely.
+   *
    * EXACTLY-ONCE (H2): the ledger insert is `ON CONFLICT (idempotency_key) DO NOTHING` and the
    * balance is bumped ONLY when a NEW ledger row was actually inserted. So a retry with the SAME
    * `idempotencyKey` inserts NO second row and moves the balance ZERO times — `applied:false`,
@@ -113,6 +122,7 @@ export class AdminActionsRepository {
    * emit commit atomically; default opens its own tx.
    */
   async grantCredits(
+    orgId: string,
     payerId: string,
     amount: number,
     idempotencyKey: string,
@@ -122,16 +132,17 @@ export class AdminActionsRepository {
       tx ? cb(tx) : this.db.transaction(cb as (e: unknown) => Promise<T>);
     return run(async (tx) => {
       // 1) Append the ledger movement, deduped on the opaque idempotency key. A replay of the
-      //    same key inserts NO row and returns nothing (the SoR is the dedup authority).
+      //    same key inserts NO row and returns nothing (the SoR is the dedup authority). Stamps
+      //    BOTH org_id (the wallet key) + payer_id (acting/target — kept for ops/audit).
       const [ledger] = await tx
         .insert(creditLedger)
-        .values({ payerId, delta: amount, reason: "grant", idempotencyKey })
+        .values({ orgId, payerId, delta: amount, reason: "grant", idempotencyKey })
         .onConflictDoNothing({ target: creditLedger.idempotencyKey })
         .returning({ id: creditLedger.id });
 
       if (!ledger) {
         // Idempotent replay: the row already exists. Do NOT touch the balance. Return the
-        // existing (already-applied) ledger id + the current balance.
+        // existing (already-applied) ledger id + the current ORG balance (org-keyed read).
         const [existingLedger] = await tx
           .select({ id: creditLedger.id })
           .from(creditLedger)
@@ -140,18 +151,19 @@ export class AdminActionsRepository {
         const [cur] = await tx
           .select({ balance: payerCredits.balance })
           .from(payerCredits)
-          .where(eq(payerCredits.payerId, payerId))
+          .where(eq(payerCredits.orgId, orgId))
           .limit(1);
         if (!existingLedger) throw new Error("Failed to resolve idempotent credit grant");
         return { ledgerId: existingLedger.id, balance: cur?.balance ?? 0, applied: false };
       }
 
-      // 2) A new ledger row WAS inserted → move the balance exactly once.
+      // 2) A new ledger row WAS inserted → move the ORG wallet balance exactly once. The INSERT
+      //    stamps BOTH org_id (the conflict/ownership key) AND payer_id (still NOT NULL).
       const [bal] = await tx
         .insert(payerCredits)
-        .values({ payerId, balance: amount })
+        .values({ orgId, payerId, balance: amount })
         .onConflictDoUpdate({
-          target: payerCredits.payerId,
+          target: payerCredits.orgId,
           set: { balance: sql`${payerCredits.balance} + ${amount}`, updatedAt: sql`now()` },
         })
         .returning({ balance: payerCredits.balance });

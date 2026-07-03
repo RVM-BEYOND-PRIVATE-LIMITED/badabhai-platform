@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { describe, it, expect } from "vitest";
 import type { EventsService } from "../events/events.service";
 import type { RequestContext } from "../common/request-context";
+import type { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import type { AdminRepository } from "./admin.repository";
 import type { AdminActionsRepository } from "./admin-actions.repository";
 import { AdminActionsService } from "./admin-actions.service";
@@ -77,7 +78,11 @@ function makeHarness(opts: { failEmitOnce?: boolean } = {}) {
     },
   } as unknown as EventsService;
 
-  const service = new AdminActionsService(actions, admins, events);
+  // ADR-0027 B5.x Inc 2: the credit-grant path resolves the target payer's org. These atomicity
+  // tests only exercise suspendPayer (no grant), so an unused stub suffices.
+  const payerOrgs = {} as unknown as PayerOrgsRepository;
+
+  const service = new AdminActionsService(actions, admins, events, payerOrgs);
   return { service, world };
 }
 

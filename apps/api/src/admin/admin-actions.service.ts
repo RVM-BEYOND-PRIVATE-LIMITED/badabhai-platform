@@ -3,6 +3,7 @@ import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { Database } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
+import { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import { AdminRepository } from "./admin.repository";
 import { AdminActionsRepository } from "./admin-actions.repository";
 import type {
@@ -66,6 +67,9 @@ export class AdminActionsService {
     private readonly actions: AdminActionsRepository,
     private readonly admins: AdminRepository,
     private readonly events: EventsService,
+    // ADR-0027 B5.x Inc 2: resolves the OWNING org for the TARGET payer so a credit grant lands
+    // on the ORG wallet (org_id is NOT NULL from Inc 0's migration 0034).
+    private readonly payerOrgs: PayerOrgsRepository,
   ) {}
 
   // ----- payers: suspend / reinstate ----------------------------------------
@@ -117,6 +121,13 @@ export class AdminActionsService {
    * event — exactly-once on BOTH ledger and spine (no double-spend, no money-vs-spine divergence).
    * A genuinely new grant (new key) = one ledger row + one balance move + one event. The amount +
    * reason live on the ledger (the SoR); the event carries action_code + the opaque payer id ONLY.
+   *
+   * ADR-0027 B5.x Inc 2 (wallet flip): the grant lands on the TARGET payer's ORG wallet. The org
+   * is resolved BEFORE the transaction (mirrors the unlocks pre-tx resolve): `resolveOrgForPayer`
+   * first, falling back to `ensureSoloOrg` for a payer created after the B5.1 backfill (idempotent
+   * — a no-op when the solo org already exists). If NO org resolves the grant FAILS CLOSED (404,
+   * the same NotFound the invalid-target path uses) — we NEVER write a half row without org_id
+   * (which would 500 on the NOT-NULL column from Inc 0). BEHAVIOR-PRESERVING under solo orgs.
    */
   async grantCredits(
     adminId: string,
@@ -126,8 +137,20 @@ export class AdminActionsService {
   ): Promise<AdminActionResult & { ledger_id: string; balance: number }> {
     const exists = await this.actions.findPayerStatus(payerId);
     if (!exists) throw new NotFoundException("Payer not found");
+
+    // ADR-0027 B5.x Inc 2: resolve the TARGET payer's OWNING org BEFORE the tx (mirrors the
+    // unlocks pre-tx resolve). resolveOrgForPayer (read) first; ensureSoloOrg (idempotent write)
+    // is the backfill fallback for a payer created after B5.1. FAIL CLOSED on null — no org means
+    // no wallet to credit, so we do NOT write a half row (org_id is NOT NULL); a 404 mirrors the
+    // invalid-target path the admin grant already uses.
+    const orgId =
+      (await this.payerOrgs.resolveOrgForPayer(payerId))?.orgId ??
+      (await this.payerOrgs.ensureSoloOrg(payerId))?.orgId ??
+      null;
+    if (orgId === null) throw new NotFoundException("Payer org not found");
+
     const result = await this.actions.withTransaction(async (tx) => {
-      const grant = await this.actions.grantCredits(payerId, dto.amount, dto.idempotency_key, tx);
+      const grant = await this.actions.grantCredits(orgId, payerId, dto.amount, dto.idempotency_key, tx);
       // Emit ONLY when the grant actually applied (a new ledger row). A deduped replay
       // (`applied:false`) emits nothing — and the event is keyed on the SAME value, so even if it
       // were re-attempted the spine would dedup to ONE row. No divergence in any case.

@@ -6,6 +6,7 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
+import { PayersModule } from "../payers/payers.module";
 import { AdminRepository } from "./admin.repository";
 import { AdminSessionService } from "./admin-session.service";
 import { AdminOtpService } from "./admin-otp.service";
@@ -70,6 +71,10 @@ import { AdminKillSwitchController } from "./admin-kill-switch.controller";
   imports: [
     DatabaseModule,
     EventsModule,
+    // ADR-0027 B5.x Inc 2: PayersModule exports PayerOrgsRepository — the admin credit-grant
+    // resolves the TARGET payer's OWNING org so the grant lands on the org wallet (the payer_id→
+    // org_id wallet flip). No cycle: PayersModule imports only Database/Bull/Jwt (never AdminModule).
+    PayersModule,
     // Reuse BullMQ's Redis connection (client only) for the admin session/OTP/MFA-secret stores.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
     // The admin session is signed with ITS OWN secret — distinct from the worker/payer JWT.

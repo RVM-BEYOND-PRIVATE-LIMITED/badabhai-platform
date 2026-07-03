@@ -79,6 +79,8 @@ import {
   jobPostings,
   jobs,
   payers,
+  payerOrgs,
+  payerMembers,
   payerCredits,
   payerCapacity,
   postingPlans,
@@ -487,6 +489,10 @@ async function unseed(db: ReturnType<typeof createDbClient>["db"]): Promise<void
   await db.delete(workers).where(inArray(workers.id, wide("worker")));
   await db.delete(payerCredits).where(inArray(payerCredits.id, wide("credits")));
   await db.delete(payerCapacity).where(inArray(payerCapacity.id, wide("capacity")));
+  // ADR-0027 B5.x Inc 2: the solo org + owner member. FK order — members (→ payer_orgs, cascade)
+  // then payer_orgs (→ payers, RESTRICT) BEFORE payers, so the payer delete is not FK-blocked.
+  await db.delete(payerMembers).where(inArray(payerMembers.id, wide("member")));
+  await db.delete(payerOrgs).where(inArray(payerOrgs.id, wide("org")));
   await db.delete(payers).where(inArray(payers.id, wide("payer")));
 }
 
@@ -539,8 +545,13 @@ async function main(): Promise<void> {
 
     const plan = buildReachSeedPlan(counts);
 
-    // 1) Payers + credits + capacity (PII encrypted; org/email synthetic). ---------
+    // 1) Payers + SOLO org + owner member + credits + capacity (PII encrypted; org/email
+    //    synthetic). ADR-0027 B5.x Inc 2: the credit wallet keys on org_id (NOT NULL from Inc 0),
+    //    so each seeded payer needs a SOLO org (matching B5.1's shape: a payer_orgs row with
+    //    root_payer_id = the payer + an owner member) and the payer_credits row must carry that
+    //    org id. The org/member ids are deterministic from the payer index (disjoint namespaces).
     for (const p of plan.payers) {
+      const orgId = reachSeedUuid("org", p.index);
       await db
         .insert(payers)
         .values({
@@ -556,12 +567,34 @@ async function main(): Promise<void> {
           set: { emailEnc: encryptPii(p.email, key), orgNameEnc: encryptPii(p.orgName, key), updatedAt: now },
         });
 
+      // The SOLO org (root_payer_id = the payer). Idempotent on the org id.
+      await db
+        .insert(payerOrgs)
+        .values({ id: orgId, rootPayerId: p.payerId, nameEnc: encryptPii(p.orgName, key), status: "active" })
+        .onConflictDoNothing({ target: payerOrgs.id });
+
+      // The founding owner member (email mirrors the payer login email, ciphertext). Idempotent.
+      await db
+        .insert(payerMembers)
+        .values({
+          id: reachSeedUuid("member", p.index),
+          orgId,
+          memberPayerId: p.payerId,
+          emailEnc: encryptPii(p.email, key),
+          emailHash: hashPhone(p.email, pepper),
+          orgRole: "owner",
+          status: "active",
+          acceptedAt: now,
+        })
+        .onConflictDoNothing({ target: payerMembers.id });
+
+      // Credit wallet — stamps org_id (the wallet key) alongside payer_id (ops/audit).
       await db
         .insert(payerCredits)
-        .values({ id: reachSeedUuid("credits", p.index), payerId: p.payerId, balance: STARTING_CREDITS })
+        .values({ id: reachSeedUuid("credits", p.index), orgId, payerId: p.payerId, balance: STARTING_CREDITS })
         .onConflictDoUpdate({
           target: payerCredits.payerId,
-          set: { balance: STARTING_CREDITS, updatedAt: now },
+          set: { orgId, balance: STARTING_CREDITS, updatedAt: now },
         });
 
       await db

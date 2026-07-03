@@ -129,6 +129,8 @@ const PAYER_ID = "bbbbbbbb-0000-4000-8000-000000000002";
 const POSTING_ID = "cccccccc-0000-4000-8000-000000000003";
 const WORKER_ID = "dddddddd-0000-4000-8000-000000000004";
 const ADMIN_ID = "aaaaaaaa-0000-4000-8000-000000000001";
+// ADR-0027 B5.x Inc 2: the OWNING org (the credit-grant wallet key, stamped on both tables).
+const ORG_ID = "0c000000-0000-4000-8000-00000000000b";
 
 describe("AdminActionsRepository.suspendPayer — guarded active→suspended (idempotent)", () => {
   it("returns the new status when a row matched (active → suspended)", async () => {
@@ -163,19 +165,22 @@ describe("AdminActionsRepository.reinstatePayer — guarded suspended→active",
 
 const GRANT_KEY = "99999999-0000-4000-8000-00000000000a";
 
-describe("AdminActionsRepository.grantCredits — positive additive ledger movement (H2)", () => {
-  it("NEW key → appends a 'grant' ledger row (keyed) + bumps the balance (applied:true)", async () => {
+describe("AdminActionsRepository.grantCredits — positive additive ledger movement on the ORG wallet (H2)", () => {
+  it("NEW key → appends a 'grant' ledger row (org+payer stamped, keyed) + bumps the ORG balance (applied:true)", async () => {
     // The tx runs insert(creditLedger)->returning(id) FIRST (a new row), then the balance upsert.
     // Our mock returns `rows` for BOTH returning() calls; shape it to satisfy both reads.
     const m = makeDb([{ balance: 500, id: "ledger-1" }]);
-    const res = await new AdminActionsRepository(m.db).grantCredits(PAYER_ID, 500, GRANT_KEY);
+    const res = await new AdminActionsRepository(m.db).grantCredits(ORG_ID, PAYER_ID, 500, GRANT_KEY);
     expect(res).toEqual({ ledgerId: "ledger-1", balance: 500, applied: true });
 
     // Two inserts: the ledger movement (delta=+amount, grant, KEYED) then the balance upsert.
     expect(m.inserts).toHaveLength(2);
     const ledger = m.inserts.find((i) => i.values.reason === "grant");
     expect(ledger, "a 'grant' ledger movement was appended").toBeDefined();
+    // ADR-0027 B5.x Inc 2: the ledger row stamps BOTH org_id (the wallet key, NOT NULL from Inc 0)
+    // AND payer_id (the acting/target payer, still NOT NULL — kept for ops/audit).
     expect(ledger!.values).toMatchObject({
+      orgId: ORG_ID,
       payerId: PAYER_ID,
       delta: 500,
       reason: "grant",
@@ -185,22 +190,31 @@ describe("AdminActionsRepository.grantCredits — positive additive ledger movem
     expect(ledger!.values.delta).toBeGreaterThan(0);
     // It is ON CONFLICT DO NOTHING on the idempotency key (exactly-once on the ledger).
     expect(ledger!.onConflict).toBeDefined();
+
+    // The balance UPSERT stamps org_id + payer_id and conflicts ON the org_id (the org wallet).
+    const balance = m.inserts.find((i) => i.values.reason === undefined && i.values.balance === 500);
+    expect(balance, "the payer_credits upsert ran").toBeDefined();
+    expect(balance!.values).toMatchObject({ orgId: ORG_ID, payerId: PAYER_ID, balance: 500 });
+    // Conflict target is payer_credits.orgId (the wallet key), not the payer_id column.
+    expect((balance!.onConflict as { target: unknown }).target).toBe(payerCredits.orgId);
   });
 
   it("DUPLICATE key (ledger insert deduped) → NO balance bump, applied:false (exactly-once)", async () => {
     // Model the conflict: the keyed ledger insert returns [] (ON CONFLICT DO NOTHING suppressed it),
-    // then the existing-row + balance SELECTs resolve the already-applied state. The balance upsert
-    // must NOT run.
+    // then the existing-row + ORG balance SELECTs resolve the already-applied state. The balance
+    // upsert must NOT run.
     const m = makeDbSeq({
       ledgerInsert: [], // deduped: no new ledger row
       selects: [[{ id: "ledger-existing" }], [{ balance: 500 }]],
     });
-    const res = await new AdminActionsRepository(m.db).grantCredits(PAYER_ID, 500, GRANT_KEY);
+    const res = await new AdminActionsRepository(m.db).grantCredits(ORG_ID, PAYER_ID, 500, GRANT_KEY);
     expect(res).toEqual({ ledgerId: "ledger-existing", balance: 500, applied: false });
 
     // Exactly ONE insert was attempted (the ledger); the balance upsert was NOT reached.
     expect(m.inserts).toHaveLength(1);
     expect(m.inserts.find((i) => i.table === m.payerCreditsTable)).toBeUndefined();
+    // The deduped ledger insert still stamped BOTH org_id + payer_id.
+    expect(m.inserts[0]!.values).toMatchObject({ orgId: ORG_ID, payerId: PAYER_ID });
   });
 });
 

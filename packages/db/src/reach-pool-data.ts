@@ -77,6 +77,10 @@ const KIND_TAG: Record<string, string> = {
   payer: "20",
   credits: "21",
   capacity: "22",
+  // ADR-0027 B5.x Inc 2: each seeded payer's SOLO org + its owner member. Disjoint tag
+  // ranges (23/24) so ids never collide with the payer/credits/capacity rows.
+  org: "23",
+  member: "24",
   posting: "30",
   plan: "31",
   job: "40",

@@ -3,6 +3,7 @@ import { ConflictException, NotFoundException } from "@nestjs/common";
 import { createEvent, type CreateEventInput } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import type { EventsService } from "../events/events.service";
+import type { PayerOrgsRepository } from "../payers/payer-orgs.repository";
 import type { AdminRepository } from "./admin.repository";
 import type { AdminActionsRepository } from "./admin-actions.repository";
 import { AdminActionsService } from "./admin-actions.service";
@@ -18,6 +19,8 @@ const POSTING_ID = "cccccccc-0000-4000-8000-000000000003";
 const WORKER_ID = "dddddddd-0000-4000-8000-000000000004";
 const TARGET_ADMIN_ID = "eeeeeeee-0000-4000-8000-000000000005";
 const LEDGER_ID = "ffffffff-0000-4000-8000-000000000006";
+// ADR-0027 B5.x Inc 2: the TARGET payer's OWNING org (the credit-grant wallet key).
+const ORG_ID = "0c000000-0000-4000-8000-00000000000b";
 
 // The sanctioned action CODES (the ONLY free-form string the spine carries — the WHAT, not the
 // value). The no-value scan deliberately EXCLUDES action_code (a code like `payer_suspended`
@@ -73,6 +76,10 @@ interface Mocks {
     countActiveSuperAdmins: ReturnType<typeof vi.fn>;
     withTransaction: ReturnType<typeof vi.fn>;
   };
+  payerOrgs: {
+    resolveOrgForPayer: ReturnType<typeof vi.fn>;
+    ensureSoloOrg: ReturnType<typeof vi.fn>;
+  };
   events: { emit: ReturnType<typeof vi.fn> };
   service: AdminActionsService;
 }
@@ -100,13 +107,21 @@ function make(): Mocks {
     countActiveSuperAdmins: vi.fn(async () => 2),
     withTransaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(FAKE_TX)),
   };
+  // ADR-0027 B5.x Inc 2: the credit-grant path resolves the TARGET payer's owning org. Default:
+  // the payer already has a solo org (resolveOrgForPayer hits); ensureSoloOrg is the backfill
+  // fallback (per-test override for the fail-closed / backfill cases).
+  const payerOrgs = {
+    resolveOrgForPayer: vi.fn(async () => ({ orgId: ORG_ID, orgRole: "owner" as const })),
+    ensureSoloOrg: vi.fn(async () => ({ orgId: ORG_ID, orgRole: "owner" as const })),
+  };
   const events = { emit: vi.fn(async () => undefined) };
   const service = new AdminActionsService(
     actions as unknown as AdminActionsRepository,
     admins as unknown as AdminRepository,
     events as unknown as EventsService,
+    payerOrgs as unknown as PayerOrgsRepository,
   );
-  return { actions, admins, events, service };
+  return { actions, admins, payerOrgs, events, service };
 }
 
 /** The emit params the service passed to EventsService.emit (camelCase tracing ids). */
@@ -269,7 +284,7 @@ describe("reinstatePayer", () => {
 const GRANT_KEY = "99999999-0000-4000-8000-00000000000a";
 
 describe("grantCredits", () => {
-  it("grants the SoR ledger + emits ONE value-free credits_granted (amount NOT in the event)", async () => {
+  it("grants the SoR ledger on the ORG wallet + emits ONE value-free credits_granted (amount NOT in the event)", async () => {
     m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
     m.actions.grantCredits.mockResolvedValue({ ledgerId: LEDGER_ID, balance: 500, applied: true });
 
@@ -280,8 +295,11 @@ describe("grantCredits", () => {
       CTX,
     );
 
-    // The AMOUNT + reason go to the ledger SoR — NOT the event. The grant is keyed for H2.
-    expect(m.actions.grantCredits).toHaveBeenCalledWith(PAYER_ID, 500, GRANT_KEY, FAKE_TX);
+    // ADR-0027 B5.x Inc 2: the TARGET payer's org is resolved BEFORE the tx (read first), and the
+    // grant is keyed on that org (the wallet key) — the amount + reason go to the ledger SoR, NOT
+    // the event. The grant is keyed for H2.
+    expect(m.payerOrgs.resolveOrgForPayer).toHaveBeenCalledWith(PAYER_ID);
+    expect(m.actions.grantCredits).toHaveBeenCalledWith(ORG_ID, PAYER_ID, 500, GRANT_KEY, FAKE_TX);
     expect(res).toEqual({ target_id: PAYER_ID, changed: true, ledger_id: LEDGER_ID, balance: 500 });
     const emitted = soleEmit(m.events);
     assertValueFreeAction(emitted, {
@@ -289,8 +307,48 @@ describe("grantCredits", () => {
       subjectType: "payer",
       targetId: PAYER_ID,
     });
+    // The org id is the wallet key on the SoR — it must NEVER ride the value-free event payload.
+    expect(JSON.stringify(emitted.payload)).not.toContain(ORG_ID);
     // H2: the event is keyed on the SAME grant key as the ledger (ledger + spine agree).
     expect(emitted.idempotencyKey).toBe(`admin_action:credits_granted:${GRANT_KEY}`);
+  });
+
+  it("payer with no solo org yet → backfills via ensureSoloOrg, then grants on that org wallet", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    // Post-backfill payer: no active membership yet → resolveOrgForPayer misses, ensureSoloOrg mints.
+    m.payerOrgs.resolveOrgForPayer.mockResolvedValue(null);
+    m.payerOrgs.ensureSoloOrg.mockResolvedValue({ orgId: ORG_ID, orgRole: "owner" as const });
+    m.actions.grantCredits.mockResolvedValue({ ledgerId: LEDGER_ID, balance: 42, applied: true });
+
+    const res = await m.service.grantCredits(
+      ADMIN_ID,
+      PAYER_ID,
+      { amount: 42, reason_code: "goodwill", idempotency_key: GRANT_KEY },
+      CTX,
+    );
+
+    expect(m.payerOrgs.resolveOrgForPayer).toHaveBeenCalledWith(PAYER_ID);
+    expect(m.payerOrgs.ensureSoloOrg).toHaveBeenCalledWith(PAYER_ID);
+    expect(m.actions.grantCredits).toHaveBeenCalledWith(ORG_ID, PAYER_ID, 42, GRANT_KEY, FAKE_TX);
+    expect(res).toEqual({ target_id: PAYER_ID, changed: true, ledger_id: LEDGER_ID, balance: 42 });
+  });
+
+  it("org cannot be resolved → FAIL CLOSED (404), NO ledger write, NO event", async () => {
+    m.actions.findPayerStatus.mockResolvedValue({ id: PAYER_ID, status: "active" });
+    // Neither an existing membership nor a backfilled solo org — never write a half (org-less) row.
+    m.payerOrgs.resolveOrgForPayer.mockResolvedValue(null);
+    m.payerOrgs.ensureSoloOrg.mockResolvedValue(null);
+
+    await expect(
+      m.service.grantCredits(
+        ADMIN_ID,
+        PAYER_ID,
+        { amount: 500, reason_code: "goodwill", idempotency_key: GRANT_KEY },
+        CTX,
+      ),
+    ).rejects.toThrow(NotFoundException);
+    expect(m.actions.grantCredits).not.toHaveBeenCalled();
+    expect(m.events.emit).not.toHaveBeenCalled();
   });
 
   it("idempotent replay (applied:false) → NO event emitted, existing balance returned", async () => {

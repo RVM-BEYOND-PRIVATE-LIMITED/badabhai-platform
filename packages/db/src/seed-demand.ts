@@ -27,7 +27,16 @@
  */
 import { config } from "dotenv";
 import { createDbClient } from "./client";
-import { workers, workerProfiles, workerConsents, jobPostings, payerCredits } from "./schema";
+import {
+  workers,
+  workerProfiles,
+  workerConsents,
+  jobPostings,
+  payerCredits,
+  payers,
+  payerOrgs,
+  payerMembers,
+} from "./schema";
 import { encryptPii, hashPhone } from "./crypto";
 
 // Load the repo-root .env (CWD is packages/db when run via the package script).
@@ -43,6 +52,14 @@ const PAYER_ID = "5eeded00-0004-4a00-8000-000000000004";
 const CREDITS_ID = "5eeded00-0005-4a00-8000-000000000005";
 const JOB_POSTING_ID = "5eeded00-0006-4a00-8000-000000000006";
 const OPS_ACTOR_ID = "5eeded00-0007-4a00-8000-000000000007";
+// ADR-0027 B5.x Inc 2: the seeded payer's SOLO org (root_payer_id = PAYER_ID) + its owner member.
+// Stable ids so the payer_credits.org_id stamp is deterministic + the seed stays idempotent.
+const ORG_ID = "5eeded00-0008-4a00-8000-000000000008";
+const MEMBER_ID = "5eeded00-0009-4a00-8000-000000000009";
+
+// SYNTHETIC payer identity (B2B PII → encrypted at rest, never plaintext / never evented).
+const SYNTHETIC_PAYER_EMAIL = "seed-demand-payer@demand.test.invalid";
+const SYNTHETIC_ORG_NAME = "SYNTHETIC — Demand Seed Employer (not a real company)";
 
 // The cnc_operator job from seed-jobs.ts — aligns the worker's canonical trade so it
 // ranks in that job's applicant feed (run db:seed:jobs first; used for /reach).
@@ -123,14 +140,57 @@ async function main(): Promise<void> {
       })
       .onConflictDoNothing({ target: jobPostings.id });
 
-    // 5) Credited payer_credits — so the unlock debit (balance >= 1) succeeds. Re-top
-    //    on re-run so a prior verify (which spends one credit) doesn't drain the fixture.
+    // 5) The payer identity + its SOLO org (ADR-0027 B5.x Inc 2). The wallet keys on org_id
+    //    (NOT NULL from Inc 0's migration 0034), so the seeded credits below MUST carry the
+    //    seeded payer's solo org id. We create the org foundation here (matching B5.1's solo-org
+    //    shape: a payers row → a payer_orgs row with root_payer_id = the payer → an owner member)
+    //    so org_id is available + is a REAL org. PII: the payer email/org name are SYNTHETIC and
+    //    stored ONLY as ciphertext (never plaintext, never evented). All inserts idempotent.
+    await db
+      .insert(payers)
+      .values({
+        id: PAYER_ID,
+        role: "employer",
+        emailEnc: encryptPii(SYNTHETIC_PAYER_EMAIL, key),
+        emailHash: hashPhone(SYNTHETIC_PAYER_EMAIL, pepper), // peppered HMAC lookup key
+        orgNameEnc: encryptPii(SYNTHETIC_ORG_NAME, key),
+        status: "active",
+      })
+      .onConflictDoNothing({ target: payers.id });
+
+    await db
+      .insert(payerOrgs)
+      .values({
+        id: ORG_ID,
+        rootPayerId: PAYER_ID,
+        nameEnc: encryptPii(SYNTHETIC_ORG_NAME, key),
+        status: "active",
+      })
+      .onConflictDoNothing({ target: payerOrgs.id });
+
+    await db
+      .insert(payerMembers)
+      .values({
+        id: MEMBER_ID,
+        orgId: ORG_ID,
+        memberPayerId: PAYER_ID,
+        emailEnc: encryptPii(SYNTHETIC_PAYER_EMAIL, key),
+        emailHash: hashPhone(SYNTHETIC_PAYER_EMAIL, pepper),
+        orgRole: "owner",
+        status: "active",
+        acceptedAt: now,
+      })
+      .onConflictDoNothing({ target: payerMembers.id });
+
+    // 6) Credited payer_credits — so the unlock debit (balance >= 1) succeeds. Re-top on re-run
+    //    so a prior verify (which spends one credit) doesn't drain the fixture. ADR-0027 B5.x
+    //    Inc 2: stamps org_id (the wallet key) alongside payer_id (kept for ops/audit).
     await db
       .insert(payerCredits)
-      .values({ id: CREDITS_ID, payerId: PAYER_ID, balance: STARTING_CREDITS })
+      .values({ id: CREDITS_ID, orgId: ORG_ID, payerId: PAYER_ID, balance: STARTING_CREDITS })
       .onConflictDoUpdate({
         target: payerCredits.payerId,
-        set: { balance: STARTING_CREDITS, updatedAt: now },
+        set: { orgId: ORG_ID, balance: STARTING_CREDITS, updatedAt: now },
       });
 
     console.log("[seed:demand] synthetic demand fixture ready:");

@@ -85,6 +85,9 @@ describe("reachSeedUuid — namespaced, stable, v4-shaped", () => {
       "payer",
       "credits",
       "capacity",
+      // ADR-0027 B5.x Inc 2: the per-payer solo org + owner member (the wallet org_id source).
+      "org",
+      "member",
       "posting",
       "plan",
       "job",
@@ -98,7 +101,21 @@ describe("reachSeedUuid — namespaced, stable, v4-shaped", () => {
 
   it("never collides across kinds or indices (unique namespacing)", () => {
     const ids = new Set<string>();
-    const kinds = ["worker", "profile", "consent", "payer", "posting", "plan", "job"] as const;
+    // Include the ADR-0027 B5.x Inc 2 org + member kinds — their tag ranges must stay disjoint
+    // from payer/credits/capacity so the seeded solo-org id never clashes with a payer-scoped row.
+    const kinds = [
+      "worker",
+      "profile",
+      "consent",
+      "payer",
+      "credits",
+      "capacity",
+      "org",
+      "member",
+      "posting",
+      "plan",
+      "job",
+    ] as const;
     for (const kind of kinds) {
       for (let i = 0; i < 600; i++) {
         const id = reachSeedUuid(kind, i);
