@@ -9,6 +9,9 @@ import {
   realMessagingBlockedReason,
   areRealMessagesEnabled,
   assertMessagingConfig,
+  realMemberInvitesBlockedReason,
+  areRealMemberInvitesEnabled,
+  assertMemberInvitesConfig,
   isCapacityEnforcementEnabled,
   isRealOtpSmsActive,
   isRealPayerEmailActive,
@@ -190,6 +193,48 @@ describe("messaging config (ADR-0020 — mock WhatsApp in alpha, fail-closed boo
     expect(realMessagingBlockedReason(config)).toBeNull();
     expect(areRealMessagesEnabled(config)).toBe(true);
     expect(() => assertMessagingConfig(config)).not.toThrow();
+  });
+});
+
+describe("member-invite config (ADR-0027 B5.4 — mock mailer in alpha, fail-closed boot)", () => {
+  // A fully-satisfiable real email + accept-URL set (ZeptoMail default provider).
+  const REAL_ENV = {
+    MEMBER_INVITES_ENABLE_REAL: "true",
+    ZEPTOMAIL_API_TOKEN: "t",
+    ZEPTOMAIL_MAIL_AGENT: "a",
+    ZEPTOMAIL_API_URL: "https://api.zeptomail.example/send",
+    EMAIL_FROM_ADDRESS: "no-reply@badabhai.example",
+    MEMBER_INVITE_ACCEPT_URL: "https://app.badabhai.example/team/accept",
+  };
+
+  it("defaults to mock: MEMBER_INVITES_ENABLE_REAL false and real invites blocked", () => {
+    const config = loadServerConfig({});
+    expect(config.MEMBER_INVITES_ENABLE_REAL).toBe(false);
+    expect(areRealMemberInvitesEnabled(config)).toBe(false);
+    expect(realMemberInvitesBlockedReason(config)).toBe("MEMBER_INVITES_ENABLE_REAL is false");
+    expect(config.MEMBER_INVITE_MAX_PER_ORG).toBe(25);
+  });
+
+  it("assertMemberInvitesConfig is a no-op in the alpha mock default", () => {
+    expect(() => assertMemberInvitesConfig(loadServerConfig({}))).not.toThrow();
+  });
+
+  it("THROWS when real is enabled without the email provider creds (fail closed)", () => {
+    const config = loadServerConfig({ MEMBER_INVITES_ENABLE_REAL: "true" });
+    expect(() => assertMemberInvitesConfig(config)).toThrow(/ZEPTOMAIL_API_TOKEN/);
+  });
+
+  it("THROWS when real is enabled with email creds but no accept URL (fail closed)", () => {
+    const { MEMBER_INVITE_ACCEPT_URL: _drop, ...noUrl } = REAL_ENV;
+    const config = loadServerConfig(noUrl);
+    expect(() => assertMemberInvitesConfig(config)).toThrow(/MEMBER_INVITE_ACCEPT_URL/);
+  });
+
+  it("real invites are allowed only with the flag AND full email creds AND the accept URL", () => {
+    const config = loadServerConfig(REAL_ENV);
+    expect(realMemberInvitesBlockedReason(config)).toBeNull();
+    expect(areRealMemberInvitesEnabled(config)).toBe(true);
+    expect(() => assertMemberInvitesConfig(config)).not.toThrow();
   });
 });
 

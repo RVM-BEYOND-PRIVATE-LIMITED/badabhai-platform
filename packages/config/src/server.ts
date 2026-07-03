@@ -334,6 +334,30 @@ export const serverEnvSchema = z.object({
   EMAIL_FROM_ADDRESS: z.string().email().optional(),
   EMAIL_REPLY_TO: z.string().email().optional(),
 
+  // Payer org teammate INVITES — real accept-link email (ADR-0027 / B5.4). The invite
+  // ACCEPT flow (single-use token verify → member activation) is ALWAYS live; only the
+  // outbound real-email DELIVERY of the accept link is gated. MEMBER_INVITES_ENABLE_REAL
+  // is the master gate (mirrors AI_ENABLE_REAL_CALLS / PAYMENTS_ENABLE_REAL /
+  // MESSAGING_ENABLE_REAL) and DEFAULTS FALSE: the MOCK mailer (no send — the raw token /
+  // accept link never leaves the process) is the alpha default. Flipping it true reuses the
+  // REAL email provider (EMAIL_PROVIDER + its creds — ZeptoMail/SMTP, the SAME set the payer
+  // OTP channel requires) AND requires MEMBER_INVITE_ACCEPT_URL; it is human-gated +
+  // staging-first (CLAUDE.md §7). A real-enabled flag missing the email creds / accept URL
+  // fails CLOSED at boot via assertMemberInvitesConfig. booleanFromString so a falsey string
+  // stays OFF (fail-safe to mock), consistent with the other real-provider gates above.
+  MEMBER_INVITES_ENABLE_REAL: booleanFromString,
+  // Base URL of the payer-web invite-accept page (e.g. https://app.badabhai.in/team/accept).
+  // The single-use raw token is appended as `?token=…` to build the accept link that goes
+  // ONLY into the invite email body — never logged/evented (the bearer secret is stored only
+  // as a keyed hash). REQUIRED when MEMBER_INVITES_ENABLE_REAL is true (the guard fails closed
+  // without it); unused by the mock mailer. Server-only.
+  MEMBER_INVITE_ACCEPT_URL: z.string().url().optional(),
+  // Per-org cap on concurrently NON-removed members (active + invited). A backstop so a
+  // single org cannot mint unbounded invites (the spam / email-enumeration surface).
+  // Reaching it rejects further invites (409) until a seat frees up. Config-driven, tunable
+  // without a migration.
+  MEMBER_INVITE_MAX_PER_ORG: z.coerce.number().int().positive().default(25),
+
   // AI routing (direct providers — Gemini primary + Claude Haiku fallback; ADR-0008).
   // The AI service (Python) calls providers DIRECTLY over their own SDKs/REST; the
   // Node API does NOT make LLM calls (it forwards to the AI service), so these are
@@ -588,6 +612,27 @@ export function areRealMessagesEnabled(config: ServerConfig): boolean {
 }
 
 /**
+ * Guard for the "real org-invite email" path (ADR-0027 / B5.4) — the direct analogue of
+ * `realMessagingBlockedReason`. Fails CLOSED: a real accept-link email is sent only when
+ * explicitly enabled AND the email provider is fully configured (reuses EMAIL_PROVIDER +
+ * its creds — the SAME set the payer OTP channel requires) AND a MEMBER_INVITE_ACCEPT_URL
+ * base is set (so the link can be built). Returns the reason real sends are disabled, or
+ * null when allowed. In alpha this always returns a reason (mock mailer — the raw token /
+ * accept link never leaves the process).
+ */
+export function realMemberInvitesBlockedReason(config: ServerConfig): string | null {
+  if (!config.MEMBER_INVITES_ENABLE_REAL) return "MEMBER_INVITES_ENABLE_REAL is false";
+  const emailBlocked = emailProviderBlockedReason(config);
+  if (emailBlocked) return emailBlocked;
+  if (!config.MEMBER_INVITE_ACCEPT_URL) return "MEMBER_INVITE_ACCEPT_URL is not set";
+  return null;
+}
+
+export function areRealMemberInvitesEnabled(config: ServerConfig): boolean {
+  return realMemberInvitesBlockedReason(config) === null;
+}
+
+/**
  * True when the WORKER OTP path uses the REAL (spend-incurring) SMS provider (OTP-5).
  * Worker OTP is REAL-ONLY (Fast2SMS), so this is always true — the global daily send
  * circuit-breaker (OTP_GLOBAL_MAX_SENDS_PER_DAY) therefore always enforces. Retained as
@@ -673,6 +718,25 @@ export function assertMessagingConfig(config: ServerConfig): void {
       `MESSAGING_ENABLE_REAL is true but ${missing.join(" + ")} ${
         missing.length > 1 ? "are" : "is"
       } not set — refusing to boot a half-configured real WhatsApp provider (ADR-0020, fail closed)`,
+    );
+  }
+}
+
+/**
+ * Fail-closed boot guard for the payer org-invite email config (ADR-0027 / B5.4; mirrors
+ * `assertMessagingConfig` / `assertPaymentsConfig`). If real invite email is ENABLED but the
+ * email provider is half-configured or MEMBER_INVITE_ACCEPT_URL is unset, the path must NOT
+ * run silently as mock (or send a link-less email) — throw at boot so the mis-configuration is
+ * loud. (Alpha default: MEMBER_INVITES_ENABLE_REAL=false → no-op.) Real sends are additionally
+ * a HUMAN-GATED, staging-first escalation (CLAUDE.md §7); this guard only enforces the config
+ * invariant, not the human approval. Call once at boot (main.ts), after assertPayerAuthConfig.
+ */
+export function assertMemberInvitesConfig(config: ServerConfig): void {
+  if (!config.MEMBER_INVITES_ENABLE_REAL) return;
+  const reason = realMemberInvitesBlockedReason(config);
+  if (reason) {
+    throw new Error(
+      `MEMBER_INVITES_ENABLE_REAL is true but ${reason} — refusing to boot a half-configured real invite-email path (ADR-0027 B5.4, fail closed)`,
     );
   }
 }
