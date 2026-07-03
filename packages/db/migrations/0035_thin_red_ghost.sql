@@ -38,6 +38,18 @@ CREATE INDEX "payer_members_org_id_idx" ON "payer_members" USING btree ("org_id"
 CREATE INDEX "payer_members_member_payer_id_idx" ON "payer_members" USING btree ("member_payer_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "payer_members_org_email_uq" ON "payer_members" USING btree ("org_id","email_hash");--> statement-breakpoint
 CREATE UNIQUE INDEX "payer_orgs_root_payer_id_uq" ON "payer_orgs" USING btree ("root_payer_id");--> statement-breakpoint
+-- Spine RLS hardening (TD20): FORCE RLS + REVOKE the Data-API roles on both new PII tables,
+-- matching every other locked table (rls-spine.e2e). payer_members carries email_enc/email_hash.
+ALTER TABLE "payer_orgs" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+REVOKE ALL ON TABLE "payer_orgs" FROM PUBLIC;--> statement-breakpoint
+REVOKE ALL ON TABLE "payer_orgs" FROM anon;--> statement-breakpoint
+REVOKE ALL ON TABLE "payer_orgs" FROM authenticated;--> statement-breakpoint
+REVOKE ALL ON TABLE "payer_orgs" FROM service_role;--> statement-breakpoint
+ALTER TABLE "payer_members" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+REVOKE ALL ON TABLE "payer_members" FROM PUBLIC;--> statement-breakpoint
+REVOKE ALL ON TABLE "payer_members" FROM anon;--> statement-breakpoint
+REVOKE ALL ON TABLE "payer_members" FROM authenticated;--> statement-breakpoint
+REVOKE ALL ON TABLE "payer_members" FROM service_role;--> statement-breakpoint
 -- B5.1 backfill (ADR-0027): each existing payer becomes a SOLO org (root_payer_id = the
 -- payer), carrying the payer's B2B org display name (ciphertext). Idempotent via the unique
 -- root_payer_id, so a re-run is a no-op. Additive — no existing row is modified.

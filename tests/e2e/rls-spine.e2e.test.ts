@@ -71,6 +71,8 @@ const LOCKED_TABLES = [
   "worker_flags", // ADR-0025 (ADMIN-3a): admin worker flag/unflag metadata (faceless — opaque worker/admin ids + reason CODE, joins back to identity); RLS+FORCE+REVOKE in migration 0027
   "worker_devices", // ADR-0026 Phase 2: trusted-device binding registry (device_hash = keyed HMAC, push_token = opaque non-PII token — never surfaced); RLS+FORCE+REVOKE in migration 0029
   "worker_credentials", // ADR-0026 Phase 2 (schema only; PIN backend = Phase 3): device-unlock pin_hash + throttle state (secret-derived credential); RLS+FORCE+REVOKE in migration 0029
+  "payer_orgs", // ADR-0027 (B5.1): shared-org tenant root; org name = name_enc ciphertext; RLS+FORCE+REVOKE in migration 0035
+  "payer_members", // ADR-0027 (B5.1): org membership; email_enc/email_hash (TD21) + invite_token_hash; RLS+FORCE+REVOKE in migration 0035
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.
