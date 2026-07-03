@@ -189,8 +189,10 @@ async function main(): Promise<void> {
       .insert(payerCredits)
       .values({ id: CREDITS_ID, orgId: ORG_ID, payerId: PAYER_ID, balance: STARTING_CREDITS })
       .onConflictDoUpdate({
-        target: payerCredits.payerId,
-        set: { orgId: ORG_ID, balance: STARTING_CREDITS, updatedAt: now },
+        // org_id is the SOLE wallet uniqueness (ADR-0027 Inc 6 — the old payer_id unique is
+        // dropped in 0036), so the upsert arbiters on org_id.
+        target: payerCredits.orgId,
+        set: { balance: STARTING_CREDITS, updatedAt: now },
       });
 
     console.log("[seed:demand] synthetic demand fixture ready:");

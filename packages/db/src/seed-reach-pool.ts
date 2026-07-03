@@ -588,25 +588,30 @@ async function main(): Promise<void> {
         })
         .onConflictDoNothing({ target: payerMembers.id });
 
-      // Credit wallet — stamps org_id (the wallet key) alongside payer_id (ops/audit).
+      // Credit wallet — org_id is the SOLE wallet uniqueness (ADR-0027 Inc 6, the old
+      // payer_id unique is dropped in 0036), so the upsert now arbiters on org_id.
       await db
         .insert(payerCredits)
         .values({ id: reachSeedUuid("credits", p.index), orgId, payerId: p.payerId, balance: STARTING_CREDITS })
         .onConflictDoUpdate({
-          target: payerCredits.payerId,
-          set: { orgId, balance: STARTING_CREDITS, updatedAt: now },
+          target: payerCredits.orgId,
+          set: { balance: STARTING_CREDITS, updatedAt: now },
         });
 
+      // Capacity — stamps org_id (required NOT NULL as of Inc 6) alongside payer_id
+      // (ops/audit). org_id is the SOLE capacity uniqueness (the old payer_id unique is
+      // dropped in 0036), so the upsert arbiters on org_id.
       await db
         .insert(payerCapacity)
         .values({
           id: reachSeedUuid("capacity", p.index),
+          orgId,
           payerId: p.payerId,
           maxActiveVacancies: p.maxActiveVacancies,
           sourceTier: "reach-seed",
         })
         .onConflictDoUpdate({
-          target: payerCapacity.payerId,
+          target: payerCapacity.orgId,
           set: { maxActiveVacancies: p.maxActiveVacancies, updatedAt: now },
         });
     }
@@ -676,12 +681,17 @@ async function main(): Promise<void> {
     // 3) Job postings (employer demand) + a paid posting_plan each. ----------------
     for (const p of plan.postings) {
       const payer = plan.payers[p.payerIndex]!;
+      // The payer's SOLO org (same deterministic id as the payer loop above). Payer-owned
+      // seed rows MUST carry org_id — the 0035 partial CHECK requires org_id when payer_id
+      // is set (posting_plans.org_id is also NOT NULL as of Inc 6).
+      const payerOrgId = reachSeedUuid("org", payer.index);
       await db
         .insert(jobPostings)
         .values({
           id: p.postingId,
           createdBy: payer.payerId,
           payerId: payer.payerId,
+          orgId: payerOrgId,
           orgLabel: `SYNTHETIC — Reach Seed Posting ${p.index + 1}`,
           roleTitle: `${p.trade.title} — Reach Seed`,
           locationLabel: `${p.city.name} (seed)`,
@@ -699,6 +709,7 @@ async function main(): Promise<void> {
           id: reachSeedUuid("plan", p.index),
           jobPostingId: p.postingId,
           payerId: payer.payerId,
+          orgId: payerOrgId,
           tier: "standard",
           applicantVisibilityQuota: 10,
           status: "active",
@@ -713,6 +724,10 @@ async function main(): Promise<void> {
     // 4) Jobs (ADR-0009 reach demand rows). ----------------------------------------
     for (const j of plan.jobs) {
       const payer = plan.payers[j.payerIndex]!;
+      // Payer-owned seed job → must carry org_id (the 0035 jobs_org_id_when_payer_chk
+      // CHECK requires org_id when payer_id is set). jobs.org_id stays NULLABLE in the
+      // schema (ops/seed rows with NULL payer_id keep it NULL); here payer_id is set.
+      const payerOrgId = reachSeedUuid("org", payer.index);
       await db
         .insert(jobs)
         .values({
@@ -723,6 +738,7 @@ async function main(): Promise<void> {
           area: null,
           status: "open",
           payerId: payer.payerId,
+          orgId: payerOrgId,
           payMin: j.payMin,
           payMax: j.payMax,
           minExperienceYears: j.minExperienceYears,

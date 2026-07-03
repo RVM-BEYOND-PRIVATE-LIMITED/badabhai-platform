@@ -1041,11 +1041,12 @@ export const unlocks = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     // Opaque payer ref (employer OR agent) — faceless rails, NO FK, NO PII.
     payerId: uuid("payer_id").notNull(),
-    // Org tenancy (ADR-0027 B5.x Increment 0) — ADDITIVE, behaviorally INERT. Backfilled
-    // from payer_orgs.id WHERE root_payer_id = payer_id, then set NOT NULL (payer_id here
-    // is NOT NULL). No predicate reads it yet (the payer_id→org_id flip is a later B5.x increment). Opaque
+    // Org tenancy (ADR-0027) — org is now the owning tenant (Inc 2 flip). Backfilled
+    // from payer_orgs.id WHERE root_payer_id = payer_id (0035), then set NOT NULL
+    // (payer_id here is NOT NULL). Modeled NOT NULL as of B5.x Inc 6 (contract step) —
+    // the DB has been NOT NULL since 0035; this closes the ORM-vs-DB drift. Opaque
     // uuid, PII-free.
-    orgId: uuid("org_id"),
+    orgId: uuid("org_id").notNull(),
     // The ONLY join back to identity; PII stays in `workers` (RLS-locked).
     // NULLABLE + onDelete:"set null" — DSAR erasure nulls the join, keeps the
     // PII-free paid-grant row (ADR-0026 Phase 5 D3).
@@ -1093,18 +1094,24 @@ export const payerCredits = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     // Opaque payer ref (no FK, no PII). One balance row per payer.
     payerId: uuid("payer_id").notNull(),
-    // Org tenancy (ADR-0027 B5.x Increment 0) — ADDITIVE, behaviorally INERT. Backfilled
-    // from payer_orgs.id WHERE root_payer_id = payer_id, then set NOT NULL. No predicate
-    // reads it yet (the payer_id→org_id flip is a later B5.x increment). Opaque uuid, PII-free.
-    orgId: uuid("org_id"),
+    // Org tenancy (ADR-0027) — org is now the owning tenant (Inc 2 flip). Backfilled
+    // from payer_orgs.id WHERE root_payer_id = payer_id (0035), then set NOT NULL.
+    // Modeled NOT NULL as of B5.x Inc 6 (contract step) — the DB has been NOT NULL since
+    // 0035; this closes the ORM-vs-DB drift. Opaque uuid, PII-free.
+    orgId: uuid("org_id").notNull(),
     // Unlock credits available. Phase-0 F-6: must never go negative.
     balance: integer("balance").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("payer_credits_payer_id_uq").on(t.payerId),
-    // ADR-0027 B5.x-0: one balance row per org, ADDITIVE ALONGSIDE the payer_id one.
+    // ADR-0027 B5.x Inc 6 (contract): the OLD per-payer UNIQUE index is DROPPED — under
+    // multi-membership an org-keyed upsert could hit the retained payer_id arbiter and
+    // dup-violate. The org-scoped unique below is now the SOLE wallet uniqueness. The
+    // payer_id column is RETAINED (still NOT NULL) for rollback/audit; a plain (non-unique)
+    // index preserves payer_id lookups.
+    index("payer_credits_payer_id_idx").on(t.payerId),
+    // ADR-0027: one balance row per org — the SOLE wallet uniqueness as of Inc 6.
     uniqueIndex("payer_credits_org_id_uq").on(t.orgId),
     // F-6: balance is never negative (a debit below zero must fail closed).
     check("payer_credits_balance_nonneg_chk", sql`${t.balance} >= 0`),
@@ -1119,10 +1126,11 @@ export const creditLedger = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     payerId: uuid("payer_id").notNull(),
-    // Org tenancy (ADR-0027 B5.x Increment 0) — ADDITIVE, behaviorally INERT. Backfilled
-    // from payer_orgs.id WHERE root_payer_id = payer_id, then set NOT NULL. No predicate
-    // reads it yet (the payer_id→org_id flip is a later B5.x increment). Opaque uuid, PII-free.
-    orgId: uuid("org_id"),
+    // Org tenancy (ADR-0027) — org is now the owning tenant (Inc 2 flip). Backfilled
+    // from payer_orgs.id WHERE root_payer_id = payer_id (0035), then set NOT NULL.
+    // Modeled NOT NULL as of B5.x Inc 6 (contract step) — the DB has been NOT NULL since
+    // 0035; this closes the ORM-vs-DB drift. Opaque uuid, PII-free.
+    orgId: uuid("org_id").notNull(),
     // +grant / -debit. Signed credit movement.
     delta: integer("delta").notNull(),
     reason: text("reason").$type<CreditReason>().notNull(),
@@ -1249,10 +1257,11 @@ export const postingPlans = pgTable(
       .references(() => jobPostings.id, { onDelete: "cascade" }),
     // Opaque payer (employer OR agent) — faceless rails, NO FK, NO PII.
     payerId: uuid("payer_id").notNull(),
-    // Org tenancy (ADR-0027 B5.x Increment 0) — ADDITIVE, behaviorally INERT. Backfilled
-    // from payer_orgs.id WHERE root_payer_id = payer_id, then set NOT NULL. No predicate
-    // reads it yet (the payer_id→org_id flip is a later B5.x increment). Opaque uuid, PII-free.
-    orgId: uuid("org_id"),
+    // Org tenancy (ADR-0027) — org is now the owning tenant (Inc 3 flip). Backfilled
+    // from payer_orgs.id WHERE root_payer_id = payer_id (0035), then set NOT NULL.
+    // Modeled NOT NULL as of B5.x Inc 6 (contract step) — the DB has been NOT NULL since
+    // 0035; this closes the ORM-vs-DB drift. Opaque uuid, PII-free.
+    orgId: uuid("org_id").notNull(),
     tier: text("tier").$type<PostingPlanTier>().notNull(),
     // Stamped from the catalog at purchase (10 / 30); the cap on applicant views. This is the
     // IMMUTABLE original receipt — never mutated after purchase (a top-up adds to
@@ -1292,10 +1301,11 @@ export const postingBoosts = pgTable(
       .notNull()
       .references(() => jobPostings.id, { onDelete: "cascade" }),
     payerId: uuid("payer_id").notNull(),
-    // Org tenancy (ADR-0027 B5.x Increment 0) — ADDITIVE, behaviorally INERT. Backfilled
-    // from payer_orgs.id WHERE root_payer_id = payer_id, then set NOT NULL. No predicate
-    // reads it yet (the payer_id→org_id flip is a later B5.x increment). Opaque uuid, PII-free.
-    orgId: uuid("org_id"),
+    // Org tenancy (ADR-0027) — org is now the owning tenant (Inc 3 flip). Backfilled
+    // from payer_orgs.id WHERE root_payer_id = payer_id (0035), then set NOT NULL.
+    // Modeled NOT NULL as of B5.x Inc 6 (contract step) — the DB has been NOT NULL since
+    // 0035; this closes the ORM-vs-DB drift. Opaque uuid, PII-free.
+    orgId: uuid("org_id").notNull(),
     tier: text("tier").$type<BoostTier>().notNull().default("all_candidates"),
     boostStartsAt: timestamp("boost_starts_at", { withTimezone: true }),
     boostEndsAt: timestamp("boost_ends_at", { withTimezone: true }),
@@ -1329,11 +1339,12 @@ export const resumeDisclosures = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     payerId: uuid("payer_id").notNull(),
-    // Org tenancy (ADR-0027 B5.x Increment 0) — ADDITIVE, behaviorally INERT. Backfilled
-    // from payer_orgs.id WHERE root_payer_id = payer_id, then set NOT NULL (payer_id here
-    // is NOT NULL). No predicate reads it yet (the payer_id→org_id flip is a later B5.x increment). Opaque
+    // Org tenancy (ADR-0027) — org is now the owning tenant (Inc 4 flip). Backfilled
+    // from payer_orgs.id WHERE root_payer_id = payer_id (0035), then set NOT NULL
+    // (payer_id here is NOT NULL). Modeled NOT NULL as of B5.x Inc 6 (contract step) —
+    // the DB has been NOT NULL since 0035; this closes the ORM-vs-DB drift. Opaque
     // uuid, PII-free.
-    orgId: uuid("org_id"),
+    orgId: uuid("org_id").notNull(),
     // NULLABLE + onDelete:"set null" — DSAR erasure nulls the join, keeps the
     // PII-free disclosure row (ADR-0026 Phase 5 D3).
     workerId: uuid("worker_id").references(() => workers.id, { onDelete: "set null" }),
@@ -1391,10 +1402,11 @@ export const payerCapacity = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     // Opaque payer (employer OR agent) — faceless rails, NO FK, NO PII.
     payerId: uuid("payer_id").notNull(),
-    // Org tenancy (ADR-0027 B5.x Increment 0) — ADDITIVE, behaviorally INERT. Backfilled
-    // from payer_orgs.id WHERE root_payer_id = payer_id, then set NOT NULL. No predicate
-    // reads it yet (the payer_id→org_id flip is a later B5.x increment). Opaque uuid, PII-free.
-    orgId: uuid("org_id"),
+    // Org tenancy (ADR-0027) — org is now the owning tenant (Inc 3 flip). Backfilled
+    // from payer_orgs.id WHERE root_payer_id = payer_id (0035), then set NOT NULL.
+    // Modeled NOT NULL as of B5.x Inc 6 (contract step) — the DB has been NOT NULL since
+    // 0035; this closes the ORM-vs-DB drift. Opaque uuid, PII-free.
+    orgId: uuid("org_id").notNull(),
     // How many posting_plans this payer may hold in status='active' concurrently.
     maxActiveVacancies: integer("max_active_vacancies").notNull(),
     // The capacity-catalog tier code that granted this allowance (a stable code, NOT
@@ -1406,10 +1418,13 @@ export const payerCapacity = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    // One capacity row per payer (this unique index also serves payer_id lookups —
-    // no separate payer_id index needed).
-    uniqueIndex("payer_capacity_payer_id_uq").on(t.payerId),
-    // ADR-0027 B5.x-0: one capacity row per org, ADDITIVE ALONGSIDE the payer_id one.
+    // ADR-0027 B5.x Inc 6 (contract): the OLD per-payer UNIQUE index is DROPPED — under
+    // multi-membership an org-keyed upsert could hit the retained payer_id arbiter and
+    // dup-violate. The org-scoped unique below is now the SOLE capacity uniqueness. The
+    // payer_id column is RETAINED (still NOT NULL) for rollback/audit; a plain (non-unique)
+    // index preserves the payer_id lookups the old unique used to serve.
+    index("payer_capacity_payer_id_idx").on(t.payerId),
+    // ADR-0027: one capacity row per org — the SOLE capacity uniqueness as of Inc 6.
     uniqueIndex("payer_capacity_org_id_uq").on(t.orgId),
     check("payer_capacity_max_nonneg_chk", sql`${t.maxActiveVacancies} >= 0`),
   ],
