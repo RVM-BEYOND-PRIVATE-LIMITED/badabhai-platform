@@ -334,6 +334,38 @@ describe("getCapacity — capacity wiring (LIVE): GETs /payer/capacity with Bear
     expect(planCall![1].body).toBeUndefined();
   });
 
+  it("a real HTTP failure on a per-posting plan read PROPAGATES — getCapacity rejects (page error state, never a silent 0)", async () => {
+    // Pins the documented contract: getPostingPlan does NOT catch, so a hard failure (500/
+    // 404) on any one /:id/plan makes getCapacity's Promise.all reject and the page shows its
+    // error state. Only a VALID { plan: null } 200 degrades to 0 — a real error must never be
+    // swallowed. (Guards against a future try/catch→?? 0 regression that would invert this.)
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/payer/capacity")) {
+        return Promise.resolve(
+          jsonResponse({
+            payer_id: PAYER_A,
+            max_active_vacancies: 9,
+            active_plan_count: 4,
+            source_tier: null,
+            expires_at: null,
+          }),
+        );
+      }
+      // One posting's plan read HARD-fails (500) — not a valid { plan: null }.
+      if (url.endsWith(`/payer/job-postings/${POSTING_ID}/plan`)) {
+        return Promise.resolve(jsonResponse({ message: "boom" }, 500));
+      }
+      if (url.endsWith(`/payer/job-postings/${POSTING_2}/plan`)) {
+        return Promise.resolve(jsonResponse(postingPlanBody(POSTING_2, null)));
+      }
+      return Promise.resolve(
+        jsonResponse([jobPostingRow(), jobPostingRow({ id: POSTING_2, status: "open" })]),
+      );
+    });
+    const { getCapacity } = await import("./payer-api");
+    await expect(getCapacity()).rejects.toThrow();
+  });
+
   it("PII-free: the enriched capacity payload carries no worker id / phone / name / email", async () => {
     fetchMock.mockImplementation((url: string) => {
       if (url.endsWith("/payer/capacity")) {
@@ -408,6 +440,10 @@ describe("getPostingPlan — LIVE: GETs /payer/job-postings/:id/plan, maps the e
     expect(view.plan!.applicantsViewedCount).toBe(7);
     expect(view.plan!.tier).toBe("pro");
     expect(view.plan!.status).toBe("active");
+    // Pin the FULL wire→view field map: the nullable timestamps must land (a mapper that
+    // swapped paid_at↔expires_at or dropped one would otherwise slip through).
+    expect(view.plan!.paidAt).toBe("2026-06-20T00:00:00.000Z");
+    expect(view.plan!.expiresAt).toBe("2026-09-20T00:00:00.000Z");
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`http://api.test/payer/job-postings/${PLAN_POSTING}/plan`);
