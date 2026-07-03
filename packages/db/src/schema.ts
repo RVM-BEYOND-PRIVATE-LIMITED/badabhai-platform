@@ -122,6 +122,83 @@ export const payers = pgTable(
 ).enableRLS(); // RLS tracked in the model; REVOKE carried by the migration (ADR-0004 posture)
 
 // ---------------------------------------------------------------------------
+// payer_orgs — the TENANT ROOT for the payer surface (ADR-0027 / B5.1). An org owns the
+// shared postings/candidates/credits/pipeline; its members act on the org's data scoped
+// by their org_role. Each pre-B5 payer is backfilled to a SOLO org (root_payer_id = that
+// payer + one owner member), so the later payer_id→org_id re-scope (B5.2) is behaviorally
+// identical for a 1-member org. PII: org display name is B2B PII → ciphertext at rest
+// (name_enc), no lookup hash needed. Multi-org membership is deferred (one org per root).
+// ---------------------------------------------------------------------------
+export type PayerOrgStatus = "active" | "suspended";
+export const payerOrgs = pgTable(
+  "payer_orgs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The founding payer (the initial owner). One org per root payer in B5.
+    rootPayerId: uuid("root_payer_id")
+      .notNull()
+      .references(() => payers.id, { onDelete: "restrict" }),
+    // Org display name — B2B PII, ciphertext at rest (nullable; backfilled from the root
+    // payer's org_name_enc). No lookup hash needed.
+    nameEnc: text("name_enc"), // AES ciphertext token
+    status: text("status").$type<PayerOrgStatus>().notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One org per root payer (B5 single-org invariant; multi-org would drop this).
+    uniqueIndex("payer_orgs_root_payer_id_uq").on(t.rootPayerId),
+    check("payer_orgs_status_chk", sql`${t.status} IN ('active', 'suspended')`),
+  ],
+).enableRLS();
+
+// ---------------------------------------------------------------------------
+// payer_members — membership of a payer in an org (ADR-0027 / B5.1). One row per
+// invited/active/removed member; the invite→accept→remove lifecycle rides `status`
+// (soft-delete via removed_at for audit — the payer_member.* events are the audit trail).
+// A member is a `payers` login (member_payer_id, NULL until accept) linked to an org with
+// an org_role. PII: member email is B2B PII → email_enc (AES) + email_hash (keyed HMAC,
+// lookup/dedup within an org) per TD21. The invite token is a BEARER secret → only its
+// HASH is stored (invite_token_hash); the raw token rides the accept-link email ONLY and
+// is never persisted/logged/evented.
+// ---------------------------------------------------------------------------
+export type OrgRole = "owner" | "recruiter";
+export type PayerMemberStatus = "invited" | "active" | "removed";
+export const payerMembers = pgTable(
+  "payer_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => payerOrgs.id, { onDelete: "cascade" }),
+    // The member's payers login — NULL until they accept the invite and are linked.
+    memberPayerId: uuid("member_payer_id").references(() => payers.id, { onDelete: "set null" }),
+    emailEnc: text("email_enc").notNull(), // AES ciphertext token
+    emailHash: text("email_hash").notNull(), // keyed HMAC-SHA256 (lookup/dedup within an org)
+    orgRole: text("org_role").$type<OrgRole>().notNull().default("recruiter"),
+    status: text("status").$type<PayerMemberStatus>().notNull().default("invited"),
+    // The payer who sent the invite (opaque; audit). Nullable for the backfilled root owner.
+    invitedBy: uuid("invited_by").references(() => payers.id, { onDelete: "set null" }),
+    // HASH of the single-use accept token — NEVER the raw token (bearer secret).
+    inviteTokenHash: text("invite_token_hash"),
+    inviteExpiresAt: timestamp("invite_expires_at", { withTimezone: true }),
+    invitedAt: timestamp("invited_at", { withTimezone: true }).notNull().defaultNow(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("payer_members_org_id_idx").on(t.orgId),
+    index("payer_members_member_payer_id_idx").on(t.memberPayerId),
+    // One membership row per (org, email) — re-inviting the same email updates that row.
+    uniqueIndex("payer_members_org_email_uq").on(t.orgId, t.emailHash),
+    check("payer_members_role_chk", sql`${t.orgRole} IN ('owner', 'recruiter')`),
+    check("payer_members_status_chk", sql`${t.status} IN ('invited', 'active', 'removed')`),
+  ],
+).enableRLS();
+
+// ---------------------------------------------------------------------------
 // worker_consents — DPDP consent records (append-only; revoke via revoked_at)
 // ---------------------------------------------------------------------------
 export const workerConsents = pgTable(
@@ -1624,6 +1701,10 @@ export type AdminUser = typeof adminUsers.$inferSelect;
 export type NewAdminUser = typeof adminUsers.$inferInsert;
 export type WorkerFlag = typeof workerFlags.$inferSelect;
 export type NewWorkerFlag = typeof workerFlags.$inferInsert;
+export type PayerOrg = typeof payerOrgs.$inferSelect;
+export type NewPayerOrg = typeof payerOrgs.$inferInsert;
+export type PayerMember = typeof payerMembers.$inferSelect;
+export type NewPayerMember = typeof payerMembers.$inferInsert;
 
 /** All tables, handy for migrations/tests. */
 export const schema = {
@@ -1661,4 +1742,6 @@ export const schema = {
   workerFlags,
   workerDevices,
   workerCredentials,
+  payerOrgs,
+  payerMembers,
 };

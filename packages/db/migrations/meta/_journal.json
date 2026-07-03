@@ -246,6 +246,13 @@
       "when": 1782900596376,
       "tag": "0034_sturdy_vindicator",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1783065276524,
+      "tag": "0035_thin_red_ghost",
+      "breakpoints": true
     }
   ]
 }
