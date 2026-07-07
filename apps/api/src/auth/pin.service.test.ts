@@ -508,6 +508,66 @@ describe("PinService.verifyPin — throttle / lockout ladder", () => {
     });
   });
 
+  // #168-#4 — the DURABLE-ladder regression test the fast-follow was missing. Drives ONE fresh
+  // credential through the durable mirror across every NON-FINAL lockout cycle (the earlier
+  // "backoff doubles per cycle" test pre-seeds the TRANSIENT Redis cycle for a single step and
+  // never asserts the durable otp_cycle_count, so it does NOT cover this). Guards the #168-#2
+  // fix: force-OTP must fire at the configured K, never prematurely at cycle 2.
+  it("durable ladder: otp_cycle_count stays 0 across EVERY non-final cycle and only force-OTPs at the configured K", async () => {
+    const { svc, redis, hasher, pins, emit } = build();
+    const K = BASE_CONFIG.PIN_MAX_LOCKOUT_CYCLES; // 5
+    const KEY = `pin_throttle:${WORKER}:${DEVICE}`;
+
+    for (let cycle = 0; cycle < K; cycle += 1) {
+      const nextCycle = cycle + 1;
+      const isFinal = nextCycle >= K;
+
+      // Seed the transient at THIS cycle one attempt short of a lockout, no open window, so a
+      // single wrong PIN steps the ladder. The durable mirror (state.row) persists across the
+      // loop exactly like the real DB row — that is what this test exercises.
+      redis.store.set(
+        KEY,
+        JSON.stringify({ failed: BASE_CONFIG.PIN_MAX_ATTEMPTS - 1, lockedUntil: null, cycle }),
+      );
+      hasher.verify.mockClear();
+      emit.mockClear();
+      pins.repo.incrementOtpCycle.mockClear();
+
+      // (b) Going IN we were NOT pre-scrypt force-OTP'd — the wrong PIN reaches scrypt and steps
+      // the lockout. If the bug were live, cycle-2 onward would short-circuit here (no scrypt).
+      await expectNeutral401(svc.verifyPin(verifyInput({ pin: WRONG_PIN }), ctx));
+      expect(hasher.verify, `cycle ${cycle}: scrypt must be reached`).toHaveBeenCalled();
+
+      // The pin_locked event carries force_otp ONLY on the final cycle (neutral 401 to the
+      // client regardless — force_otp lives in the ops EVENT, never the HTTP response).
+      const locked = eventNamed(emit, "worker.pin_locked")!;
+      expect(locked.payload).toMatchObject({ lockout_cycle: nextCycle, force_otp: isFinal });
+
+      if (isFinal) {
+        // (c) ONLY nextCycle >= K bumps otp_cycle_count + emits force_otp:true.
+        expect(pins.repo.incrementOtpCycle).toHaveBeenCalledWith(WORKER);
+        expect(pins.state.row!.otpCycleCount).toBe(1);
+        expect(pins.state.row!.lockoutCycles).toBe(K);
+      } else {
+        // (a) The durable otp_cycle_count stays 0 on every non-final step (the #168-#2 fix); the
+        // force-OTP counter is NOT touched until the final cycle.
+        expect(pins.repo.incrementOtpCycle).not.toHaveBeenCalled();
+        expect(pins.state.row!.otpCycleCount, `cycle ${cycle}: otp_cycle_count must stay 0`).toBe(0);
+        expect(pins.state.row!.lockoutCycles).toBe(nextCycle);
+
+        // (b) A SUBSEQUENT verify is NOT pre-scrypt force-OTP'd: expire the transient window and
+        // confirm scrypt is reached (the durable guard did NOT short-circuit at this cycle).
+        redis.store.set(KEY, JSON.stringify({ failed: 0, lockedUntil: null, cycle: nextCycle }));
+        hasher.verify.mockClear();
+        await expectNeutral401(svc.verifyPin(verifyInput({ pin: WRONG_PIN }), ctx));
+        expect(
+          hasher.verify,
+          `cycle ${cycle}: subsequent verify must reach scrypt, not force_otp`,
+        ).toHaveBeenCalled();
+      }
+    }
+  });
+
   it("once force-OTP'd (otp_cycle_count>=1), a verify is neutral-failed BEFORE any scrypt (durable gate)", async () => {
     const { svc, hasher, emit } = build({ cred: makeCred({ otpCycleCount: 1 }) });
     await expectNeutral401(svc.verifyPin(verifyInput({ pin: GOOD_PIN }), ctx));
