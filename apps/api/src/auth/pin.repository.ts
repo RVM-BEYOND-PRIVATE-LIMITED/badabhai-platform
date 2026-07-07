@@ -54,10 +54,19 @@ export class PinRepository {
 
   /**
    * Durably mirror a transient-lockout escalation into the DB (a Redis flush cannot wipe
-   * the force-OTP state). Writes the absolute lockout_cycles + otp_cycle_count the service
-   * computed (NOT increments) so a re-run is idempotent. Also zeroes failed_attempts — a
-   * lockout STEP resets the transient failed counter, so the durable mirror tracks that.
-   * Scoped by worker_id.
+   * the force-OTP state). The two force-OTP latches — lockout_cycles + otp_cycle_count — are
+   * written MONOTONICALLY (`GREATEST(current, computed)`): a lockout only ever raises them.
+   * This is required for correctness, not just idempotence: a worker holds ONE
+   * `worker_credentials` row but can drive `verifyPin` from MULTIPLE trusted devices, each with
+   * its own transient (Redis) cycle counter. The guard-read → escalation-write window spans the
+   * slow scrypt KDF, so a lagging device's non-final escalation (otp_cycle_count=0,
+   * lockout_cycles<K) can land AFTER a concurrent device already latched force-OTP at the final
+   * cycle. A blind absolute write would clobber that latch back down and defeat the OTP cap
+   * (security: durable force-OTP mirror, multi-device reset vector). GREATEST makes a lagging
+   * write a no-op against a higher concurrent value; a re-run is still idempotent
+   * (GREATEST(x,x)=x). De-escalation is NEVER this method's job — it is done only by the
+   * OTP-gated upsertPin (full reset) and clearThrottle (success). failed_attempts is a blind 0:
+   * a lockout STEP resets the transient within-cycle counter by definition. Scoped by worker_id.
    */
   async recordFailureEscalation(
     workerId: string,
@@ -67,8 +76,8 @@ export class PinRepository {
       .update(workerCredentials)
       .set({
         failedAttempts: 0,
-        lockoutCycles: args.lockoutCycles,
-        otpCycleCount: args.otpCycleCount,
+        lockoutCycles: sql`greatest(${workerCredentials.lockoutCycles}, ${args.lockoutCycles})`,
+        otpCycleCount: sql`greatest(${workerCredentials.otpCycleCount}, ${args.otpCycleCount})`,
         updatedAt: sql`now()`,
       })
       .where(eq(workerCredentials.workerId, workerId));

@@ -338,10 +338,14 @@ export class PinService {
       lockoutStepped = true;
 
       // Durably mirror the lockout cycle count (a Redis flush can't wipe the escalation).
-      // INVARIANT: otp_cycle_count stays 0 through EVERY non-final cycle and is only bumped at
-      // the FINAL cycle (nextCycle >= PIN_MAX_LOCKOUT_CYCLES). This is provably safe: the durable
-      // force-OTP guard in verifyPin (~L220) returns BEFORE recordFailure whenever the DB row's
-      // otp_cycle_count is >= 1, so it is guaranteed 0 here on every non-final step.
+      // INVARIANT: otp_cycle_count is only BUMPED at the FINAL cycle (nextCycle >=
+      // PIN_MAX_LOCKOUT_CYCLES); a non-final step passes 0. Sequentially it IS 0 here — the
+      // durable force-OTP guard in verifyPin (~L220) returns before recordFailure once the row's
+      // otp_cycle_count is >= 1. But that guard-read → this write is NOT atomic and the row is
+      // shared across a worker's trusted devices, so a lagging non-final write can race a
+      // concurrent final-cycle latch. recordFailureEscalation writes these two latches
+      // MONOTONICALLY (GREATEST), so passing 0 here can never LOWER a concurrently-raised
+      // otp_cycle_count — the cap holds under multi-device concurrency, not just sequentially.
       let otpCycleCount = 0;
       if (nextCycle >= this.config.PIN_MAX_LOCKOUT_CYCLES) {
         // Final cycle reached ⇒ durably bump the force-OTP counter (atomic) + mirror cycles.
