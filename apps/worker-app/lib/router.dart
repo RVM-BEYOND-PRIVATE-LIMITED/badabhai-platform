@@ -166,8 +166,17 @@ String? _authRedirect(BuildContext context, GoRouterState state) {
       }
       return Routes.pin;
     case AuthStatus.authenticated:
-      // Authenticated workers must not sit on splash/login/pin — lift them into
-      // the shell (the worker's home tab). Onboarding + shell routes pass.
+      // DPDP consent gate (covers BOTH the OTP-verify AND the cold PIN-unlock
+      // entry — both land here as `authenticated`): a returning worker who has
+      // NOT completed profiling consent (server `consent_accepted == false`) is
+      // held at /consent before any shell/onboarding route. Mirrors how `locked`
+      // forces /pin. Released the instant consent is accepted
+      // (AuthSessionManager.markConsentAccepted flips the flag + notifies).
+      if (!auth.consentAccepted) {
+        return loc == Routes.consent ? null : Routes.consent;
+      }
+      // Consented: authenticated workers must not sit on splash/login/pin — lift
+      // them into the shell (the worker's home tab). Onboarding + shell pass.
       if (onAuthRoute) return Routes.resume;
       return null;
   }

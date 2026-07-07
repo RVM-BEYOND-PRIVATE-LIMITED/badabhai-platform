@@ -12,10 +12,11 @@ import '../../../core/widgets/bb_status_view.dart';
 import '../../../router.dart';
 import 'cubit/applications_cubit.dart';
 
-/// "Applied jobs" (Profile → Applied jobs). Mock-backed until GET /me/applications
-/// ships; lists the worker's APPLY decisions newest-first. Deliberately no
-/// filters, no status timeline, no real job-detail — the backend doesn't back
-/// them.
+/// "Applied jobs" (Profile → Applied jobs). Reads GET /workers/me/applications
+/// (worker-self, consent-gated); lists the worker's APPLY decisions newest-first.
+/// Deliberately no filters, no status timeline, no real job-detail — the backend
+/// doesn't back them. A 403 (never-consented) renders a calm "finish your profile"
+/// state rather than an error.
 class AppliedJobsScreen extends StatelessWidget {
   const AppliedJobsScreen({super.key});
 
@@ -55,6 +56,18 @@ class _AppliedJobsView extends StatelessWidget {
                 action: FilledButton(
                   onPressed: () => context.go(Routes.jobs),
                   child: const Text('Jobs dekhein'),
+                ),
+              ),
+            // 403 (consent-gated): a never-consented worker — a calm "finish your
+            // profile" nudge, not a scary error. Sends them to their profile home.
+            ApplicationsStatus.consentRequired => BbStatusView(
+                icon: Icons.assignment_ind_outlined,
+                title: 'Pehle apna profile poora karein',
+                subtitle:
+                    'Jobs apply karne ke liye pehle apni profile set up karein.',
+                action: FilledButton(
+                  onPressed: () => context.go(Routes.resume),
+                  child: const Text('Profile poori karein'),
                 ),
               ),
             ApplicationsStatus.ready => _list(context, state.jobs),

@@ -52,10 +52,11 @@ void main() {
       when(() => manager.verifyOtp(any(), any())).thenAnswer(
         (_) async => _result(isNewUser: false, pinSet: true),
       );
-      // Gate ON: a returning worker with a PIN resolves straight to
-      // `authenticated`.
+      // Gate ON: a returning worker with a PIN who HAS consented resolves
+      // straight to `authenticated`.
       when(() => manager.persistentAuthEnabled).thenReturn(true);
       when(() => manager.status).thenReturn(AuthStatus.authenticated);
+      when(() => manager.consentAccepted).thenReturn(true);
       return OtpVerifyCubit(manager);
     },
     act: (OtpVerifyCubit c) => c.verify(phone: '+919912345678', otp: '1234'),
@@ -63,6 +64,27 @@ void main() {
       OtpVerifyState(status: OtpVerifyStatus.submitting),
       OtpVerifyState(
           status: OtpVerifyStatus.success, next: OtpNext.authenticated),
+    ],
+  );
+
+  blocTest<OtpVerifyCubit, OtpVerifyState>(
+    'returning worker with PIN but UNCONSENTED -> routes to consent onboarding',
+    build: () {
+      when(() => manager.verifyOtp(any(), any())).thenAnswer(
+        (_) async => _result(isNewUser: false, pinSet: true),
+      );
+      // Gate ON, status authenticated, but consent_accepted=false: the cubit must
+      // route to the consent flow (onboarding), NOT flash the shell — the §6
+      // gate-ON bypass fix on the OTP-verify path.
+      when(() => manager.persistentAuthEnabled).thenReturn(true);
+      when(() => manager.status).thenReturn(AuthStatus.authenticated);
+      when(() => manager.consentAccepted).thenReturn(false);
+      return OtpVerifyCubit(manager);
+    },
+    act: (OtpVerifyCubit c) => c.verify(phone: '+919912345678', otp: '1234'),
+    expect: () => const <OtpVerifyState>[
+      OtpVerifyState(status: OtpVerifyStatus.submitting),
+      OtpVerifyState(status: OtpVerifyStatus.success, next: OtpNext.onboarding),
     ],
   );
 
@@ -115,6 +137,7 @@ void main() {
       );
       when(() => manager.persistentAuthEnabled).thenReturn(true);
       when(() => manager.status).thenReturn(AuthStatus.authenticated);
+      when(() => manager.consentAccepted).thenReturn(true);
       return OtpVerifyCubit(manager);
     },
     act: (OtpVerifyCubit c) {

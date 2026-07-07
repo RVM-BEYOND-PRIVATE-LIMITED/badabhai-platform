@@ -82,4 +82,19 @@ void main() {
           'status', ApplicationsStatus.error),
     ],
   );
+
+  blocTest<ApplicationsCubit, ApplicationsState>(
+    'load 403 (ConsentRequiredFailure) -> consentRequired, NOT a generic error',
+    build: () {
+      when(() => repo.appliedJobs()).thenThrow(const ConsentRequiredFailure());
+      return ApplicationsCubit(repo);
+    },
+    act: (ApplicationsCubit c) => c.load(),
+    expect: () => <Matcher>[
+      isA<ApplicationsState>().having((ApplicationsState s) => s.status,
+          'status', ApplicationsStatus.loading),
+      isA<ApplicationsState>().having((ApplicationsState s) => s.status,
+          'status', ApplicationsStatus.consentRequired),
+    ],
+  );
 }

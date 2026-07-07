@@ -106,7 +106,7 @@ class FeedItem extends Equatable {
   List<Object?> get props => <Object?>[jobId, tradeKey, title, city, area, rank];
 }
 
-/// A worker's apply/skip decision row from `GET /me/applications` (the "Applied
+/// A worker's apply/skip decision row from `GET /workers/me/applications` (the "Applied
 /// jobs" screen filters to `action == 'apply'`). Coarse, PII-free fields only —
 /// exactly the projection the ops service already returns. Parsing is defensive:
 /// missing optionals → null; a missing/bad date → epoch (never crashes).

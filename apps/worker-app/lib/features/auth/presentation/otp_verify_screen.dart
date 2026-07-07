@@ -55,11 +55,13 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
           // Route off the resolved next-step (exhaustive — all three arms):
           switch (state.next!) {
             case OtpNext.onboarding:
-              // Persistent-auth OFF (real/default build until the backend
-              // /auth/* contract lands): replicate main's OTP→consent flow —
-              // PUSH the consent gate, then the worker walks consent → name →
-              // chat → profile → resume. No PIN; the auth redirect is inert.
-              context.push(Routes.consent);
+              // Route into the consent onboarding (consent → name → chat →
+              // profile → resume). Reached with the gate OFF (real/default build:
+              // no PIN, inert redirect) AND for a gate-ON returning worker who
+              // never consented. Use `go` (not push) so it is IDEMPOTENT with the
+              // gate-ON router redirect, which also forces /consent on the status
+              // flip — otherwise a second /consent would stack on top.
+              context.go(Routes.consent);
             case OtpNext.setPin:
               // New user (gate ON) → choose a PIN before the shell.
               context.go(Routes.setPin);

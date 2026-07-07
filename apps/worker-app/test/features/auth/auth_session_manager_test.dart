@@ -19,6 +19,9 @@ class ScriptAuthApi extends AuthApi {
 
   bool pinIsSet = false;
   bool isNewUser = true;
+  /// The server `consent_accepted` flag this scripted api reports on every
+  /// token-minting response (login / pin-verify / refresh). Defaults false.
+  bool consentAccepted = false;
   AuthFailure? throwOnVerify;
   AuthFailure? throwOnPinVerify;
   int logoutCalls = 0;
@@ -28,6 +31,7 @@ class ScriptAuthApi extends AuthApi {
         access: access,
         refresh: refresh,
         accessExpiresAt: DateTime.now().add(const Duration(minutes: 15)),
+        consentAccepted: consentAccepted,
       );
 
   @override
@@ -342,6 +346,75 @@ void main() {
   test('revokeDevice delegates to the api', () async {
     await manager.revokeDevice('other');
     expect(api.revokeCalls, 1);
+  });
+
+  group('consent_accepted threading (the router consent gate reads this)', () {
+    test('verifyOtp stores consentAccepted=false for a never-consented worker',
+        () async {
+      api
+        ..isNewUser = false
+        ..pinIsSet = true
+        ..consentAccepted = false;
+      await manager.verifyOtp('+91999', '1234');
+      expect(manager.status, AuthStatus.authenticated);
+      expect(manager.consentAccepted, isFalse); // → router will force /consent
+    });
+
+    test('verifyOtp stores consentAccepted=true for a consented worker',
+        () async {
+      api
+        ..isNewUser = false
+        ..pinIsSet = true
+        ..consentAccepted = true;
+      await manager.verifyOtp('+91999', '1234');
+      expect(manager.consentAccepted, isTrue); // → router allows the shell
+    });
+
+    test('unlockWithPin stores consentAccepted from the pin-verify response',
+        () async {
+      await store.writeRefreshToken('refresh-1');
+      await store.writeWorkerId('worker-9');
+      await manager.bootstrap(); // locked
+      api.consentAccepted = false; // never-consented returning worker
+
+      await manager.unlockWithPin('7416');
+
+      expect(manager.status, AuthStatus.authenticated);
+      // The COLD PIN-unlock entry (never re-hits OTP) still carries the flag.
+      expect(manager.consentAccepted, isFalse);
+    });
+
+    test('markConsentAccepted flips false→true and notifies the router once',
+        () async {
+      api
+        ..isNewUser = false
+        ..pinIsSet = true
+        ..consentAccepted = false;
+      await manager.verifyOtp('+91999', '1234');
+      expect(manager.consentAccepted, isFalse);
+
+      int notifications = 0;
+      manager.addListener(() => notifications++);
+      manager.markConsentAccepted();
+      expect(manager.consentAccepted, isTrue);
+      expect(notifications, 1);
+
+      // Idempotent: a second call is a no-op (no extra redirect churn).
+      manager.markConsentAccepted();
+      expect(notifications, 1);
+    });
+
+    test('logout resets consentAccepted to false', () async {
+      api
+        ..isNewUser = false
+        ..pinIsSet = true
+        ..consentAccepted = true;
+      await manager.verifyOtp('+91999', '1234');
+      expect(manager.consentAccepted, isTrue);
+
+      await manager.logout();
+      expect(manager.consentAccepted, isFalse);
+    });
   });
 
   group('GAP A: the MANAGER persists tokens to SecureTokenStore', () {

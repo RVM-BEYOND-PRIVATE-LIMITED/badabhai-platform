@@ -56,6 +56,10 @@ class MockAuthApi extends AuthApi {
         access: 'mock-access-token',
         refresh: 'mock-refresh-token',
         accessExpiresAt: expiresAt,
+        // In mock mode "already has a PIN" stands in for "already onboarded", so
+        // a returning worker is consented while a brand-new one still walks the
+        // consent gate (keeps the mock-mode journey passing through /consent).
+        consentAccepted: _pinSet,
       ),
     );
   }
@@ -146,6 +150,9 @@ class MockAuthApi extends AuthApi {
       access: 'mock-access-token',
       refresh: 'mock-refresh-token',
       accessExpiresAt: expiresAt,
+      // PIN unlock / token refresh is a returning, already-onboarded worker →
+      // consented, so the mock unlock path lands in the shell (not /consent).
+      consentAccepted: true,
     );
   }
 }

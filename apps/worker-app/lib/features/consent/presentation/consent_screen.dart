@@ -10,6 +10,7 @@ import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_scaffold.dart';
 import '../../../router.dart';
+import '../../auth/domain/auth_session_manager.dart';
 import 'cubit/consent_cubit.dart';
 
 class ConsentScreen extends StatelessWidget {
@@ -33,6 +34,13 @@ class _ConsentView extends StatelessWidget {
       listenWhen: (prev, curr) => prev.status != curr.status,
       listener: (BuildContext context, ConsentState state) {
         if (state.status == ConsentStatus.success) {
+          // Release the router's consent gate immediately (gate ON): flip the
+          // local consent flag so the redirect stops forcing /consent and the
+          // forward push to /name is allowed. Guarded — the auth graph isn't
+          // wired under legacy widget tests, and it's inert with the gate OFF.
+          if (locator.isRegistered<AuthSessionManager>()) {
+            locator<AuthSessionManager>().markConsentAccepted();
+          }
           // Capture the worker's name once (consent-gated) before chat profiling.
           context.push(Routes.name);
         }

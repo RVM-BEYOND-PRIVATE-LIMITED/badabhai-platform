@@ -45,7 +45,8 @@ Map<String, dynamic> _row({
     };
 
 void main() {
-  test('GETs /me/applications with the bearer; drops skips; keeps nullables',
+  test(
+      'GETs /workers/me/applications with the bearer; drops skips; keeps nullables',
       () async {
     late http.Request captured;
     final ApplicationsRepositoryImpl repo =
@@ -73,7 +74,7 @@ void main() {
 
     // Worker-scoped GET, token-derived (no workerId param), bearer attached.
     expect(captured.method, 'GET');
-    expect(captured.url.path, '/me/applications');
+    expect(captured.url.path, '/workers/me/applications');
     expect(captured.url.queryParameters, isEmpty); // no filter params
     expect(captured.headers['authorization'], 'Bearer tok');
 
@@ -100,6 +101,16 @@ void main() {
       throw Exception('no network');
     }));
     expect(repo.appliedJobs(), throwsA(isA<Failure>()));
+  });
+
+  test('403 (consent gate) maps to ConsentRequiredFailure, not a ServerFailure',
+      () {
+    final ApplicationsRepositoryImpl repo = _repo(MockClient(
+        (http.Request req) async => http.Response(
+            jsonEncode(<String, String>{'message': 'consent required'}), 403)));
+    // The consent-gated GET /workers/me/applications 403s a never-consented
+    // worker; the cubit keys on this to show the "finish your profile" state.
+    expect(repo.appliedJobs(), throwsA(isA<ConsentRequiredFailure>()));
   });
 
   test('missing applications array -> empty list', () async {

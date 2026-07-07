@@ -260,13 +260,15 @@ class ApiClient {
   /// [getFeed]. Returns the raw list (apply + skip MIXED); the repository filters
   /// to `action == 'apply'`. Coarse, PII-free fields only.
   ///
-  /// ASSUMED / NOT-YET-BUILT endpoint — reconcile with backend when it ships
-  /// (mirrors the ops `applicationsForWorker` projection; today only the
-  /// ops-internal GET /workers/:workerId/applications exists, which the worker
-  /// app must NOT call). Runs on MockApiClient until then.
+  /// Route: GET /workers/me/applications — the worker-self projection (token-derived
+  /// id), guarded by WorkerAuthGuard + ConsentGuard. A 401 means re-login; a 403
+  /// means consent is required (a never-consented worker), which the repository /
+  /// cubit surface as a graceful "finish your profile" empty state, not an error.
+  /// (Distinct from the ops-internal GET /workers/:workerId/applications, which the
+  /// worker app must NOT call.)
   Future<List<AppliedJob>> getMyApplications({required String authToken}) async {
     final Map<String, dynamic> json =
-        await _get('/me/applications', authToken: authToken);
+        await _get('/workers/me/applications', authToken: authToken);
     final List<dynamic> apps =
         json['applications'] as List<dynamic>? ?? <dynamic>[];
     return apps

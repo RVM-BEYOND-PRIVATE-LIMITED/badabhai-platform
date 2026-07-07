@@ -25,25 +25,49 @@ class AuthTokens extends Equatable {
     required this.access,
     required this.refresh,
     required this.accessExpiresAt,
+    this.consentAccepted = false,
   });
 
   final String access;
   final String refresh;
   final DateTime accessExpiresAt;
 
-  /// Parses `{ access_token, refresh_token, expires_in_seconds }` (the shared
-  /// shape of /auth/otp/verify, /auth/token/refresh, /auth/pin/verify).
+  /// The server's DPDP ConsentGuard-admit flag (a PII-free boolean), returned
+  /// alongside the token set on every auth response that mints tokens —
+  /// LoginResponse (/auth/otp/verify), PinVerifyResponse (/auth/pin/verify), and
+  /// the /auth/token/refresh response. `true` iff the worker has completed the
+  /// profiling consent (== the server ConsentGuard admit).
+  ///
+  /// Carried on the token set (rather than only the login result) because it
+  /// rides the same response envelope on ALL three token-minting endpoints, and
+  /// the router needs it at EVERY entry point (OTP verify, PIN unlock, refresh)
+  /// to keep the consent gate correct on both the OTP-verify AND the cold
+  /// PIN-unlock path.
+  ///
+  /// SAFE DEFAULT: absent/null (older backend, or a mock response that lacks it)
+  /// → `false` (route to /consent). This fails safe toward capturing consent —
+  /// it never skips consent for a never-consented worker — and cannot loop a
+  /// legitimately-consented worker, because re-accepting consent is idempotent
+  /// and the manager flips the local flag on acceptance (see
+  /// AuthSessionManager.markConsentAccepted).
+  final bool consentAccepted;
+
+  /// Parses `{ access_token, refresh_token, expires_in_seconds, consent_accepted }`
+  /// (the shared shape of /auth/otp/verify, /auth/token/refresh, /auth/pin/verify).
   factory AuthTokens.fromJson(Map<String, dynamic> json) {
     final int expiresIn = (json['expires_in_seconds'] as num?)?.toInt() ?? 0;
     return AuthTokens(
       access: json['access_token'] as String? ?? '',
       refresh: json['refresh_token'] as String? ?? '',
       accessExpiresAt: DateTime.now().add(Duration(seconds: expiresIn)),
+      // Additive, back-compat: absent on older backends / mock bodies → false.
+      consentAccepted: json['consent_accepted'] as bool? ?? false,
     );
   }
 
   @override
-  List<Object?> get props => <Object?>[access, refresh, accessExpiresAt];
+  List<Object?> get props =>
+      <Object?>[access, refresh, accessExpiresAt, consentAccepted];
 }
 
 /// Result of POST /auth/otp/verify.
@@ -60,6 +84,13 @@ class OtpVerifyResult extends Equatable {
   final bool pinSet;
   final AuthTokens tokens;
 
+  /// The server ConsentGuard-admit flag for this worker (LoginResponse
+  /// `consent_accepted`). Forwarded from the token set, which parses it off the
+  /// SAME LoginResponse body — single wire-parse, no duplication. `true` iff the
+  /// worker has completed profiling consent; MISSING/null → `false` (see
+  /// [AuthTokens.consentAccepted]).
+  bool get consentAccepted => tokens.consentAccepted;
+
   factory OtpVerifyResult.fromJson(Map<String, dynamic> json) =>
       OtpVerifyResult(
         workerId: json['worker_id'] as String? ?? '',
@@ -68,6 +99,7 @@ class OtpVerifyResult extends Equatable {
         isNewUser: json['is_new_worker'] as bool? ?? false,
         // `pin_set` (LoginResponse) — does this worker already have a PIN.
         pinSet: json['pin_set'] as bool? ?? false,
+        // consent_accepted rides the same body; parsed inside AuthTokens.fromJson.
         tokens: AuthTokens.fromJson(json),
       );
 

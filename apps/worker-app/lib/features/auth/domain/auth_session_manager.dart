@@ -77,6 +77,17 @@ class AuthSessionManager extends ChangeNotifier {
   AuthStatus _status = AuthStatus.loggedOut;
   AuthStatus get status => _status;
 
+  /// Whether this worker has completed the DPDP profiling consent, per the
+  /// server's PII-free `consent_accepted` flag returned on every token-minting
+  /// auth response (OTP verify / PIN unlock / refresh). The router reads this at
+  /// redirect time to hold an authenticated-but-unconsented worker on /consent —
+  /// the consent gate that covers BOTH the OTP-verify and the cold PIN-unlock
+  /// path. Defaults false (fail-safe toward capturing consent). Flipped to true
+  /// locally by [markConsentAccepted] the moment the worker accepts, so the gate
+  /// releases without waiting for the next auth round-trip.
+  bool _consentAccepted = false;
+  bool get consentAccepted => _consentAccepted;
+
   /// Set true once [bootstrap] has resolved the cold-start state, so the router
   /// can hold on splash until the secure store has been read exactly once.
   bool _ready = false;
@@ -141,6 +152,10 @@ class AuthSessionManager extends ChangeNotifier {
       workerId: result.workerId,
       phone: phoneE164,
     );
+    // Thread the server consent flag so the router's consent gate is correct on
+    // the OTP-verify entry (a returning-but-never-consented worker is held at
+    // /consent instead of skipping into the shell).
+    _consentAccepted = result.consentAccepted;
     // With the layer OFF, OTP success goes straight to the shell. With it ON, a
     // returning worker with a PIN is authenticated immediately after OTP (the OTP
     // itself is the strong factor); a new user must set a PIN before the shell, so
@@ -180,6 +195,10 @@ class AuthSessionManager extends ChangeNotifier {
     await _persistTokens(tokens);
     final String? workerId = await _tokenStore.readWorkerId();
     _bridge(accessToken: tokens.access, workerId: workerId);
+    // Consent gate on the COLD PIN-UNLOCK entry (which never re-hits OTP verify):
+    // carry the server consent flag so a never-consented returning worker is held
+    // at /consent by the router rather than dropped into the shell.
+    _consentAccepted = tokens.consentAccepted;
     _setStatus(AuthStatus.authenticated);
   }
 
@@ -197,7 +216,21 @@ class AuthSessionManager extends ChangeNotifier {
     await _persistTokens(tokens);
     final String? workerId = await _tokenStore.readWorkerId();
     _bridge(accessToken: tokens.access, workerId: workerId);
+    // Keep the consent flag fresh on the refresh entry too.
+    _consentAccepted = tokens.consentAccepted;
     _setStatus(AuthStatus.authenticated);
+  }
+
+  /// Mark the DPDP consent as accepted locally, the moment the worker completes
+  /// the consent screen (POST /consent/accept succeeded). This releases the
+  /// router's consent gate without waiting for the next auth round-trip, so the
+  /// worker can walk consent → name → chat instead of being bounced back to
+  /// /consent. Idempotent + only notifies on a real change (so it never loops the
+  /// redirect). Safe with the persistent-auth layer OFF (the gate is inert then).
+  void markConsentAccepted() {
+    if (_consentAccepted) return;
+    _consentAccepted = true;
+    notifyListeners();
   }
 
   // --- Forgot-PIN (dedicated reset endpoints) -------------------------------
@@ -293,12 +326,14 @@ class AuthSessionManager extends ChangeNotifier {
   void _onReauthRequired() {
     // PASS 1's interceptor already cleared SecureTokenStore before firing.
     _session.clear();
+    _consentAccepted = false;
     _setStatus(AuthStatus.loggedOut);
   }
 
   Future<void> _wipeAndLogOut() async {
     await _tokenStore.clear();
     _session.clear();
+    _consentAccepted = false;
     _setStatus(AuthStatus.loggedOut);
   }
 

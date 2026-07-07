@@ -196,6 +196,54 @@ void main() {
         result.tokens.accessExpiresAt.isAfter(DateTime.now()),
         isTrue,
       );
+      // consent_accepted ABSENT (older backend / this body) → SAFE DEFAULT false
+      // (route the worker to /consent; never skip consent for the unconsented).
+      expect(result.consentAccepted, isFalse);
+      expect(result.tokens.consentAccepted, isFalse);
+    });
+
+    test('otpVerify parses consent_accepted:true (returning consented worker)',
+        () async {
+      final AuthApi api = _api(MockClient((http.Request req) async {
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'worker_id': 'w-1',
+            'is_new_worker': false,
+            'pin_set': true,
+            'access_token': 'a-1',
+            'refresh_token': 'r-1',
+            'expires_in_seconds': 900,
+            'consent_accepted': true,
+          }),
+          200,
+        );
+      }));
+
+      final OtpVerifyResult result = await api.otpVerify('+910000000000', '123456');
+
+      // The additive PII-free flag threads through OtpVerifyResult + its tokens.
+      expect(result.consentAccepted, isTrue);
+      expect(result.tokens.consentAccepted, isTrue);
+    });
+
+    test('pin/verify + token/refresh carry consent_accepted onto the tokens',
+        () async {
+      final AuthApi api = _api(MockClient((http.Request req) async {
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'access_token': 'a-2',
+            'refresh_token': 'r-2',
+            'expires_in_seconds': 900,
+            'consent_accepted': true,
+          }),
+          200,
+        );
+      }));
+
+      final AuthTokens pin = await api.pinVerify('1234', refreshToken: 'r-1');
+      final AuthTokens ref = await api.tokenRefresh('r-1');
+      expect(pin.consentAccepted, isTrue);
+      expect(ref.consentAccepted, isTrue);
     });
 
     test('otpVerify sends device_info bound to the X-Device-Id device id',
