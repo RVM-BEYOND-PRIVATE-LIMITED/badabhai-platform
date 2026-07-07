@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, count, desc, eq, gt, ne } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, ne, sql } from "drizzle-orm";
 import {
   type Database,
   payers,
@@ -26,6 +26,17 @@ export interface InviteMemberInput {
   inviteTokenHash: string;
   inviteExpiresAt: Date;
 }
+
+/**
+ * The result of {@link PayerOrgsRepository.inviteMemberAtomic}. A discriminated union so the
+ * caller (the service) keeps the HTTP-response + event mapping while the repo owns the atomic
+ * seat-cap decision. `already_active` / `capped` short-circuit with no write; `invited` carries
+ * the upserted row.
+ */
+export type InviteMemberOutcome =
+  | { outcome: "already_active" }
+  | { outcome: "capped" }
+  | { outcome: "invited"; member: PayerMember };
 
 /**
  * Data access for the payer org tenant model (ADR-0027 / B5). Keeps the invariant that
@@ -124,72 +135,86 @@ export class PayerOrgsRepository {
   }
 
   /**
-   * Count the NON-removed members of an org (active + invited) — the per-org seat cap the
-   * invite path enforces (a backstop against unbounded invite minting). Removed rows are
-   * excluded so freeing a seat re-opens the cap.
+   * Invite (or re-invite) a teammate by email, ATOMICALLY against the per-org seat cap.
+   *
+   * The seat-cap count and the insert run in ONE transaction under a per-ORG advisory lock
+   * (`pg_advisory_xact_lock` on the org — lock key == seat-count key == org, mirroring the
+   * capacity chokepoint idiom). So N concurrent invites for DIFFERENT new emails can never each
+   * read "under cap" and all insert — the TOCTOU a split count-then-insert allowed. The same lock
+   * serializes an invite against a concurrent accept of the SAME email, so a re-invite cannot
+   * silently downgrade a just-activated member back to `invited`. Org is already resolved by the
+   * caller (`@CurrentOrg`), so nothing is resolved inside the tx (no pool-vs-lock deadlock).
+   *
+   * Outcomes (the caller maps each to its HTTP response + event): `already_active` — the email is
+   * a current ACTIVE member (reject, no write); `capped` — a NEW seat would exceed `maxSeats`
+   * (reject, no write); `invited` — the row was upserted (a re-invite of an invited/removed email
+   * reuses the row with a fresh token + status='invited'; only a NEW email consumes a seat).
+   * PII: the email is written ONLY as ciphertext + keyed hash; the invite token ONLY as its hash;
+   * `member_payer_id` stays NULL until accept.
    */
-  async countActiveOrInvited(orgId: string): Promise<number> {
-    const [row] = await this.db
-      .select({ n: count() })
-      .from(payerMembers)
-      .where(and(eq(payerMembers.orgId, orgId), ne(payerMembers.status, "removed")));
-    return row?.n ?? 0;
-  }
+  async inviteMemberAtomic(
+    input: InviteMemberInput,
+    maxSeats: number,
+  ): Promise<InviteMemberOutcome> {
+    return this.db.transaction(async (tx) => {
+      // Serialize all invites for this org on the org advisory lock (== the seat-count key).
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.orgId}, 0))`);
 
-  /** The current NON-removed member for an email in an org (dup-invite / already-member guard). */
-  async findActiveOrInvitedByEmail(orgId: string, emailHash: string): Promise<PayerMember | undefined> {
-    const [row] = await this.db
-      .select()
-      .from(payerMembers)
-      .where(
-        and(
-          eq(payerMembers.orgId, orgId),
-          eq(payerMembers.emailHash, emailHash),
-          ne(payerMembers.status, "removed"),
-        ),
-      )
-      .limit(1);
-    return row;
-  }
+      const [existing] = await tx
+        .select()
+        .from(payerMembers)
+        .where(
+          and(
+            eq(payerMembers.orgId, input.orgId),
+            eq(payerMembers.emailHash, input.emailHash),
+            ne(payerMembers.status, "removed"),
+          ),
+        )
+        .limit(1);
+      if (existing?.status === "active") return { outcome: "already_active" };
 
-  /**
-   * Invite (or re-invite) a teammate by email — upsert on the unique (org_id, email_hash) so a
-   * re-invite (of an invited OR previously-removed email) reuses the row with a fresh token +
-   * status='invited'. The caller ({@link import("../payer-portal/payer-org-members.service").PayerOrgMembersService})
-   * rejects re-inviting an ACTIVE member first. member_payer_id stays NULL until accept. PII:
-   * the email is written ONLY as ciphertext + keyed hash (never plaintext); the invite token is
-   * stored ONLY as its hash (bearer secret). Returns the invited row.
-   */
-  async inviteMember(input: InviteMemberInput): Promise<PayerMember> {
-    const [row] = await this.db
-      .insert(payerMembers)
-      .values({
-        orgId: input.orgId,
-        emailEnc: input.emailEnc,
-        emailHash: input.emailHash,
-        orgRole: input.orgRole,
-        status: "invited",
-        invitedBy: input.invitedBy,
-        inviteTokenHash: input.inviteTokenHash,
-        inviteExpiresAt: input.inviteExpiresAt,
-        invitedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: [payerMembers.orgId, payerMembers.emailHash],
-        set: {
+      // Only a NEW seat (no existing non-removed row for this email) counts against the cap;
+      // a re-invite of an invited/removed email reuses its row and consumes no new seat. The
+      // count is under the lock, so it reflects committed state against concurrent invites.
+      if (!existing) {
+        const [seatRow] = await tx
+          .select({ n: count() })
+          .from(payerMembers)
+          .where(and(eq(payerMembers.orgId, input.orgId), ne(payerMembers.status, "removed")));
+        if ((seatRow?.n ?? 0) >= maxSeats) return { outcome: "capped" };
+      }
+
+      const now = new Date();
+      const [member] = await tx
+        .insert(payerMembers)
+        .values({
+          orgId: input.orgId,
+          emailEnc: input.emailEnc,
+          emailHash: input.emailHash,
           orgRole: input.orgRole,
           status: "invited",
           invitedBy: input.invitedBy,
           inviteTokenHash: input.inviteTokenHash,
           inviteExpiresAt: input.inviteExpiresAt,
-          invitedAt: new Date(),
-          removedAt: null,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
-    if (!row) throw new Error("failed to invite payer member");
-    return row;
+          invitedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [payerMembers.orgId, payerMembers.emailHash],
+          set: {
+            orgRole: input.orgRole,
+            status: "invited",
+            invitedBy: input.invitedBy,
+            inviteTokenHash: input.inviteTokenHash,
+            inviteExpiresAt: input.inviteExpiresAt,
+            invitedAt: now,
+            removedAt: null,
+            updatedAt: now,
+          },
+        })
+        .returning();
+      if (!member) throw new Error("failed to invite payer member");
+      return { outcome: "invited", member };
+    });
   }
 
   /**

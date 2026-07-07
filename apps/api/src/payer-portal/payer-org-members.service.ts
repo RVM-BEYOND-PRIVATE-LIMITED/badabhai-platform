@@ -83,34 +83,32 @@ export class PayerOrgMembersService {
     dto: InviteMemberDto,
     ctx: RequestContext,
   ): Promise<OrgMemberView> {
-    const emailHash = this.pii.hmac(dto.email);
+    // Bearer token — the RAW value goes ONLY into the accept-link email (the mailer input);
+    // only its keyed hash is persisted (single-use, consumed on accept). Minted before the
+    // atomic write; on a rejected outcome it is simply discarded (never persisted / mailed).
+    const rawToken = `${randomUUID()}${randomUUID()}`;
 
-    const existing = await this.orgs.findActiveOrInvitedByEmail(org.orgId, emailHash);
-    if (existing && existing.status === "active") {
+    // Seat cap + dup-active guard are enforced ATOMICALLY in the repo (per-org advisory lock +
+    // count + insert in one tx), so concurrent invites can't overshoot the cap (TOCTOU).
+    const result = await this.orgs.inviteMemberAtomic(
+      {
+        orgId: org.orgId,
+        emailEnc: this.pii.encrypt(dto.email),
+        emailHash: this.pii.hmac(dto.email),
+        orgRole: dto.org_role,
+        invitedBy,
+        inviteTokenHash: this.pii.hmac(rawToken),
+        inviteExpiresAt: new Date(Date.now() + INVITE_TTL_DAYS * MS_PER_DAY),
+      },
+      this.config.MEMBER_INVITE_MAX_PER_ORG,
+    );
+    if (result.outcome === "already_active") {
       throw new ConflictException("That email is already an active member of this org");
     }
-    // Seat cap: only a NEW seat (no existing non-removed row for this email) counts against it.
-    if (!existing) {
-      const seats = await this.orgs.countActiveOrInvited(org.orgId);
-      if (seats >= this.config.MEMBER_INVITE_MAX_PER_ORG) {
-        throw new ConflictException("This organization has reached its member limit");
-      }
+    if (result.outcome === "capped") {
+      throw new ConflictException("This organization has reached its member limit");
     }
-
-    // Bearer token — the RAW value goes ONLY into the accept-link email (the mailer input);
-    // only its keyed hash is persisted (single-use, consumed on accept).
-    const rawToken = `${randomUUID()}${randomUUID()}`;
-    const inviteTokenHash = this.pii.hmac(rawToken);
-
-    const member = await this.orgs.inviteMember({
-      orgId: org.orgId,
-      emailEnc: this.pii.encrypt(dto.email),
-      emailHash,
-      orgRole: dto.org_role,
-      invitedBy,
-      inviteTokenHash,
-      inviteExpiresAt: new Date(Date.now() + INVITE_TTL_DAYS * MS_PER_DAY),
-    });
+    const member = result.member;
 
     await this.events.emit({
       event_name: "payer_member.invited",

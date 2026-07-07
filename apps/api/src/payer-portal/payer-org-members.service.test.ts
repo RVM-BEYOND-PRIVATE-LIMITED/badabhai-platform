@@ -48,9 +48,10 @@ function make(configOver: Record<string, unknown> = {}) {
   const orgs = {
     listMembers: vi.fn(async () => [memberRow()]),
     findMember: vi.fn(async () => memberRow({ orgRole: "recruiter", status: "invited" })),
-    findActiveOrInvitedByEmail: vi.fn(async () => undefined),
-    countActiveOrInvited: vi.fn(async () => 1),
-    inviteMember: vi.fn(async (input: Record<string, unknown>) => memberRow({ ...input, id: "mem-1" })),
+    inviteMemberAtomic: vi.fn(async (input: Record<string, unknown>, _maxSeats: number) => ({
+      outcome: "invited" as const,
+      member: memberRow({ ...input, id: "mem-1" }),
+    })),
     findByInviteTokenHash: vi.fn(async (_tokenHash: string, _now: Date) => memberRow()),
     acceptInvite: vi.fn(async (_input: Record<string, unknown>) =>
       memberRow({ status: "active", memberPayerId: ACCEPTER, inviteTokenHash: null }),
@@ -111,10 +112,12 @@ describe("PayerOrgMembersService.invite (owner-only via guard)", () => {
 
   it("encrypts the email + stores only a token HASH, emits a PII-free payer_member.invited, and delivers via the mailer", async () => {
     const view = await d.svc.invite(ORG, OWNER, { email: EMAIL, org_role: "recruiter" }, CTX);
-    const insert = d.orgs.inviteMember.mock.calls[0]![0];
+    const insert = d.orgs.inviteMemberAtomic.mock.calls[0]![0];
     expect(insert.emailEnc).toBe(`enc<${EMAIL}>`);
     expect(insert.emailHash).toBe(`hmac<${EMAIL}>`);
     expect(insert.inviteTokenHash).toMatch(/^hmac</); // token stored as a HASH, not raw
+    // The cap is enforced atomically in the repo — the service passes the configured max.
+    expect(d.orgs.inviteMemberAtomic.mock.calls[0]![1]).toBe(25);
     // Event carries ids + role enum only.
     const evt = d.events.emit.mock.calls[0]![0];
     expect(evt.event_name).toBe("payer_member.invited");
@@ -127,21 +130,23 @@ describe("PayerOrgMembersService.invite (owner-only via guard)", () => {
     assertNoPiiInEvents(d.events);
   });
 
-  it("rejects re-inviting an already ACTIVE member (409)", async () => {
-    d.orgs.findActiveOrInvitedByEmail.mockResolvedValueOnce(memberRow({ status: "active" }) as never);
+  it("rejects re-inviting an already ACTIVE member (409) with no event / no delivery", async () => {
+    d.orgs.inviteMemberAtomic.mockResolvedValueOnce({ outcome: "already_active" } as never);
     await expect(
       d.svc.invite(ORG, OWNER, { email: EMAIL, org_role: "recruiter" }, CTX),
     ).rejects.toBeInstanceOf(ConflictException);
-    expect(d.orgs.inviteMember).not.toHaveBeenCalled();
+    // A rejected outcome short-circuits: no invited event, no mailer send.
+    expect(d.events.emit).not.toHaveBeenCalled();
+    expect(d.mailer.send).not.toHaveBeenCalled();
   });
 
-  it("rejects a NEW seat once the per-org member cap is reached (409)", async () => {
-    const c = make({ MEMBER_INVITE_MAX_PER_ORG: 2 });
-    c.orgs.countActiveOrInvited.mockResolvedValueOnce(2);
+  it("rejects a NEW seat once the per-org member cap is reached (409) with no event / no delivery", async () => {
+    d.orgs.inviteMemberAtomic.mockResolvedValueOnce({ outcome: "capped" } as never);
     await expect(
-      c.svc.invite(ORG, OWNER, { email: EMAIL, org_role: "recruiter" }, CTX),
+      d.svc.invite(ORG, OWNER, { email: EMAIL, org_role: "recruiter" }, CTX),
     ).rejects.toBeInstanceOf(ConflictException);
-    expect(c.orgs.inviteMember).not.toHaveBeenCalled();
+    expect(d.events.emit).not.toHaveBeenCalled();
+    expect(d.mailer.send).not.toHaveBeenCalled();
   });
 
   it("surfaces a delivery failure as 503 (the invite is still recorded + evented)", async () => {
@@ -149,7 +154,7 @@ describe("PayerOrgMembersService.invite (owner-only via guard)", () => {
     await expect(
       d.svc.invite(ORG, OWNER, { email: EMAIL, org_role: "recruiter" }, CTX),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
-    expect(d.orgs.inviteMember).toHaveBeenCalled();
+    expect(d.orgs.inviteMemberAtomic).toHaveBeenCalled();
     expect(d.events.emit).toHaveBeenCalled();
   });
 });
