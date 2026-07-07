@@ -338,7 +338,11 @@ export class PinService {
       lockoutStepped = true;
 
       // Durably mirror the lockout cycle count (a Redis flush can't wipe the escalation).
-      let otpCycleCount = current.cycle; // placeholder; recomputed below on force-OTP.
+      // INVARIANT: otp_cycle_count stays 0 through EVERY non-final cycle and is only bumped at
+      // the FINAL cycle (nextCycle >= PIN_MAX_LOCKOUT_CYCLES). This is provably safe: the durable
+      // force-OTP guard in verifyPin (~L220) returns BEFORE recordFailure whenever the DB row's
+      // otp_cycle_count is >= 1, so it is guaranteed 0 here on every non-final step.
+      let otpCycleCount = 0;
       if (nextCycle >= this.config.PIN_MAX_LOCKOUT_CYCLES) {
         // Final cycle reached ⇒ durably bump the force-OTP counter (atomic) + mirror cycles.
         otpCycleCount = await this.pins.incrementOtpCycle(workerId);
@@ -350,7 +354,10 @@ export class PinService {
       } else {
         await this.pins.recordFailureEscalation(workerId, {
           lockoutCycles: nextCycle,
-          otpCycleCount: current.cycle, // unchanged until the final cycle
+          // Stays 0 until the final cycle. Writing current.cycle here (the old bug) mirrored a
+          // non-zero count from cycle 2 onward, which tripped the durable force-OTP guard at
+          // cycle 2 instead of the configured K for any K >= 3.
+          otpCycleCount: 0,
         });
       }
     } else {
