@@ -24,7 +24,7 @@ import { OtpService } from "./otp.service";
 import { SessionService } from "./session.service";
 import { AccountDeletionService } from "./account-deletion.service";
 import { ConsentNotRevokedGuard } from "./consent.guard";
-import { ConsentRepository } from "../consent/consent.repository";
+import { ConsentRepository, isConsentAccepted } from "../consent/consent.repository";
 import {
   WorkerAuthGuard,
   CurrentWorker,
@@ -113,20 +113,34 @@ export class AuthController {
   @UseGuards(WorkerAuthGuard)
   async me(@CurrentWorker() worker: AuthenticatedWorker): Promise<MeResponse> {
     const row = await this.workers.findById(worker.id);
-    return { worker_id: worker.id, status: row?.status ?? "active" };
+    return {
+      worker_id: worker.id,
+      status: row?.status ?? "active",
+      // Finding #172-#1 — the KEY returning-worker signal: the cold-start PIN-unlock path resolves
+      // the session then reads /me, so the app gates routing to /consent from here. PII-free
+      // boolean (== ConsentGuard admit) via the shared ConsentRepository predicate.
+      consent_accepted: await this.consents.hasAcceptedConsent(worker.id),
+    };
   }
 
   /** Mint a fresh rolling token for the current session. */
   @Post("refresh")
   @HttpCode(200)
   @UseGuards(WorkerAuthGuard, ConsentNotRevokedGuard)
-  async refresh(@Req() req: Request): Promise<RefreshResponse> {
+  async refresh(
+    @Req() req: Request,
+    @CurrentWorker() worker: AuthenticatedWorker,
+  ): Promise<RefreshResponse> {
     const fresh = await this.sessions.refresh(bearer(req));
     if (!fresh) throw new UnauthorizedException("Invalid or expired session");
     return {
       access_token: fresh.token,
       token_type: "Bearer",
       expires_in_seconds: fresh.expiresInSeconds,
+      // Finding #172-#1 — additive, PII-free consent-gate signal (== ConsentGuard admit). Derived
+      // after the null-check so the 401 path skips the query. ConsentNotRevokedGuard already
+      // blocked a revoked worker, so this is only ever true/false (accepted / never-consented).
+      consent_accepted: await this.consents.hasAcceptedConsent(worker.id),
     };
   }
 
@@ -162,12 +176,16 @@ export class AuthController {
     // is allowed through, mirroring ConsentNotRevokedGuard on /auth/refresh. An unresolvable
     // token skips the check and falls through to the neutral 401 below (no consent oracle for a
     // token we cannot tie to a worker).
+    let consentAccepted = false;
     const resolved = await this.sessions.resolveRefreshToken(dto.refresh_token);
     if (resolved) {
       const latest = await this.consents.findLatestByWorker(resolved.workerId);
       if (latest && latest.revokedAt !== null) {
         throw new ForbiddenException("consent required");
       }
+      // Finding #172-#1 — reuse the row just read for the additive, PII-free consent_accepted
+      // signal (== ConsentGuard admit). Past the revoked check this is only true/false.
+      consentAccepted = isConsentAccepted(latest);
     }
 
     const outcome = await this.sessions.refreshByToken(dto.refresh_token, idempotencyKey);
@@ -184,6 +202,7 @@ export class AuthController {
       refresh_token: minted.refresh.token,
       refresh_expires_in_seconds: minted.refresh.expiresInSeconds,
       session: toSessionInfo(minted.session),
+      consent_accepted: consentAccepted,
     };
   }
 

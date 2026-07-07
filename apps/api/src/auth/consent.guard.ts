@@ -6,7 +6,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import type { Request } from "express";
-import { ConsentRepository } from "../consent/consent.repository";
+import { ConsentRepository, isConsentAccepted } from "../consent/consent.repository";
 
 /**
  * Gates worker actions behind an ACTIVE, accepted DPDP consent (CLAUDE.md §2
@@ -35,8 +35,12 @@ export class ConsentGuard implements CanActivate {
       throw new UnauthorizedException("No authenticated worker on request");
     }
 
+    // Admit via the SHARED predicate (consent.repository.isConsentAccepted) so this gate and the
+    // derived PII-free `consent_accepted` auth-response flag cannot drift: `!isConsentAccepted`
+    // is exactly the prior `!latest || latest.revokedAt !== null` (a missing OR revoked row →
+    // deny). Keeping ONE definition is what makes the client's routing byte-for-byte the gate.
     const latest = await this.consents.findLatestByWorker(worker.id);
-    if (!latest || latest.revokedAt !== null) {
+    if (!isConsentAccepted(latest)) {
       throw new ForbiddenException("worker has not accepted consent");
     }
     return true;

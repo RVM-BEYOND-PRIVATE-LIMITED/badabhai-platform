@@ -351,6 +351,9 @@ describe("PinService.verifyPin — happy path (trusted device)", () => {
     expect(res.refresh_expires_in_seconds).toBe(7776000);
     expect(res.session.tier).toBe(0);
     expect(typeof res.session.expires_at).toBe("string");
+    // finding #172-#1 — default build() consent is undefined (never consented) → false, matching
+    // ConsentGuard admit. The cold PIN-unlock carries it so the app can route to /consent.
+    expect(res.consent_accepted).toBe(false);
 
     // Session minted on the device-bound identity.
     expect(sessions.create).toHaveBeenCalledWith(WORKER, DEVICE);
@@ -383,6 +386,16 @@ describe("PinService.verifyPin — happy path (trusted device)", () => {
     const res = await svc.verifyPin(verifyInput(), ctx);
     expect(res.worker_id).toBe(WORKER);
     expect(sessions.create).toHaveBeenCalledWith(WORKER, DEVICE);
+    // finding #172-#1 — never-consented → consent_accepted false (gate would DENY on /consent).
+    expect(res.consent_accepted).toBe(false);
+  });
+
+  it("finding #172-#1: a correct PIN with ACTIVE consent (revokedAt null) reports consent_accepted=true", async () => {
+    const { svc } = build({ consent: { revokedAt: null } });
+    const res = await svc.verifyPin(verifyInput(), ctx);
+    expect(res.worker_id).toBe(WORKER);
+    // Reuses the same row the A5 revoked-gate read → mirrors ConsentGuard admit (accepted → true).
+    expect(res.consent_accepted).toBe(true);
   });
 });
 

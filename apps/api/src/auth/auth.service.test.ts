@@ -58,6 +58,15 @@ function makePins(credential?: unknown) {
   return { findByWorkerId: vi.fn().mockResolvedValue(credential) };
 }
 
+/**
+ * A ConsentRepository double (finding #172-#1). hasAcceptedConsent resolves to the given flag —
+ * the SAME predicate ConsentGuard admits on — so the login response's derived consent_accepted
+ * mirrors the server-side gate. Default false = never-consented (a brand-new worker).
+ */
+function makeConsents(accepted = false) {
+  return { hasAcceptedConsent: vi.fn().mockResolvedValue(accepted) };
+}
+
 describe("AuthService (real OTP)", () => {
   it("requestOtp issues+sends the code and emits worker.otp_requested without leaking the phone", async () => {
     const emit = vi.fn().mockResolvedValue(undefined);
@@ -70,6 +79,7 @@ describe("AuthService (real OTP)", () => {
       makeSessions() as never,
       makeDevices() as never,
       makePins() as never,
+      makeConsents() as never,
     );
 
     const res = await svc.requestOtp(PHONE, ctx);
@@ -97,6 +107,7 @@ describe("AuthService (real OTP)", () => {
       makeSessions() as never,
       makeDevices() as never,
       makePins() as never,
+      makeConsents() as never,
     );
 
     await expect(svc.requestOtp(PHONE, ctx)).rejects.toMatchObject({
@@ -119,6 +130,7 @@ describe("AuthService (real OTP)", () => {
       makeSessions() as never,
       makeDevices() as never,
       makePins() as never,
+      makeConsents() as never,
     );
 
     // The neutral 429 (same as a throttle) reaches the client — no new oracle.
@@ -169,6 +181,7 @@ describe("AuthService (real OTP)", () => {
       sessions as never,
       makeDevices() as never,
       makePins() as never,
+      makeConsents() as never,
     );
 
     await expect(svc.verifyOtp(PHONE, "000000", ctx)).rejects.toMatchObject({
@@ -198,6 +211,7 @@ describe("AuthService (real OTP)", () => {
       sessions as never,
       makeDevices() as never,
       makePins() as never,
+      makeConsents() as never,
     );
 
     const res = await svc.verifyOtp(PHONE, "123456", ctx);
@@ -237,6 +251,7 @@ describe("AuthService (real OTP)", () => {
       makeSessions() as never,
       makeDevices() as never,
       makePins() as never,
+      makeConsents() as never,
     );
 
     const res = await svc.verifyOtp(PHONE, "123456", ctx);
@@ -266,6 +281,7 @@ describe("AuthService (real OTP)", () => {
       makeSessions() as never,
       makeDevices() as never,
       pins as never,
+      makeConsents() as never,
     );
 
     const res = await svc.verifyOtp(PHONE, "123456", ctx);
@@ -297,6 +313,7 @@ describe("AuthService (real OTP)", () => {
       makeSessions() as never,
       makeDevices() as never,
       makePins() as never,
+      makeConsents() as never,
     );
 
     const res = await svc.verifyOtp(PHONE, "123456", ctx);
@@ -324,6 +341,7 @@ describe("AuthService (real OTP)", () => {
       sessions as never,
       devices as never,
       makePins() as never,
+      makeConsents() as never,
     );
 
     const deviceInfo = { device_id: "client-stable-id", platform: "android" as const };
@@ -333,5 +351,78 @@ describe("AuthService (real OTP)", () => {
     // device_info, and the returned device ROW id is threaded into the session as `did`.
     expect(devices.registerOnLogin).toHaveBeenCalledWith("worker-1", deviceInfo, ctx);
     expect(sessions.create).toHaveBeenCalledWith("worker-1", "device-row-1");
+  });
+
+  // ---- finding #172-#1 — consent_accepted on the LoginResponse (== ConsentGuard admit) ----
+
+  it("verifyOtp surfaces consent_accepted=false for a never-consented worker (derived from ConsentRepository)", async () => {
+    const workers = {
+      findByPhoneHash: vi.fn().mockResolvedValue({ id: "worker-1", status: "active" }),
+      createOrGetByPhoneHash: vi.fn(),
+    };
+    const consents = makeConsents(false); // never consented → gate would DENY → false
+    const svc = new AuthService(
+      { emit: vi.fn().mockResolvedValue(undefined) } as never,
+      workers as never,
+      pii,
+      makeOtp() as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+      consents as never,
+    );
+
+    const res = await svc.verifyOtp(PHONE, "123456", ctx);
+    expect(res.consent_accepted).toBe(false);
+    expect(consents.hasAcceptedConsent).toHaveBeenCalledWith("worker-1");
+    // PII-free: the boolean flag never smuggles consent text / phone / name.
+    const json = JSON.stringify(res);
+    expect(json).not.toContain("9876543210");
+    expect(json).not.toMatch(/consent_version|purposes|full_?name|phone/i);
+  });
+
+  it("verifyOtp surfaces consent_accepted=true for a worker with active (not-revoked) consent", async () => {
+    const workers = {
+      findByPhoneHash: vi.fn().mockResolvedValue({ id: "worker-1", status: "active" }),
+      createOrGetByPhoneHash: vi.fn(),
+    };
+    const consents = makeConsents(true); // active consent → gate would ADMIT → true
+    const svc = new AuthService(
+      { emit: vi.fn().mockResolvedValue(undefined) } as never,
+      workers as never,
+      pii,
+      makeOtp() as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+      consents as never,
+    );
+
+    const res = await svc.verifyOtp(PHONE, "123456", ctx);
+    expect(res.consent_accepted).toBe(true);
+  });
+
+  it("verifyOtp on a brand-new worker reports consent_accepted=false (a new worker cannot have consented)", async () => {
+    const workers = {
+      findByPhoneHash: vi.fn().mockResolvedValue(undefined),
+      createOrGetByPhoneHash: vi
+        .fn()
+        .mockResolvedValue({ worker: { id: "worker-new", status: "active" }, created: true }),
+    };
+    const consents = makeConsents(false);
+    const svc = new AuthService(
+      { emit: vi.fn().mockResolvedValue(undefined) } as never,
+      workers as never,
+      pii,
+      makeOtp() as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+      consents as never,
+    );
+
+    const res = await svc.verifyOtp(PHONE, "123456", ctx);
+    expect(res.is_new_worker).toBe(true);
+    expect(res.consent_accepted).toBe(false);
   });
 });

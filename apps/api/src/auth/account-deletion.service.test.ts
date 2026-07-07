@@ -194,6 +194,28 @@ describe("AccountDeletionService", () => {
     expect(tombstoneOrder).toBeLessThan(emitOrder);
   });
 
+  it("INVARIANT (finding #176): the ONLY consent revoker calls sessions.revokeAll BEFORE removing consent", async () => {
+    // THE COUPLING UNDER TEST. The `WorkerAuthGuard` slide/re-mint extends a live session on
+    // every [W] route WITHOUT reading consent (a hot-path Postgres read was deliberately rejected
+    // for perf/deadlock). So ANY writer that revokes a worker's consent MUST call
+    // `sessions.revokeAll(workerId)` in the SAME unit of work FIRST — otherwise a revoked-but-
+    // still-alive session would SELF-RENEW indefinitely (a launch-gate for a future DPDP
+    // consent-withdrawal endpoint). Today the ONLY revoker is account-deletion, which removes the
+    // `worker_consents` rows via the hardDelete cascade. This test LOCKS that revokeAll fires
+    // BEFORE the cascade (hardDelete) removes consent. A future `ConsentService.withdraw()` that
+    // stamps `revokedAt` must uphold the same ordering (see the seams in consent.repository.ts /
+    // consent.service.ts).
+    const h = make({ sessions: 4, resumeKeys: [] });
+    await h.svc.execute(WORKER_ID);
+
+    // revokeAll ran, against the authenticated worker id.
+    expect(h.sessions.revokeAll).toHaveBeenCalledWith(WORKER_ID);
+    // ...and it ran BEFORE hardDelete (the step whose cascade erases worker_consents).
+    const revokeOrder = h.sessions.revokeAll.mock.invocationCallOrder[0]!;
+    const hardDeleteOrder = h.workers.hardDelete.mock.invocationCallOrder[0]!;
+    expect(revokeOrder).toBeLessThan(hardDeleteOrder);
+  });
+
   it("had_pin=false variant: a worker with no PIN reports had_pin:false in the event", async () => {
     const h = make({ hadPin: false, sessions: 2, devices: 1 });
     await h.svc.execute(WORKER_ID);

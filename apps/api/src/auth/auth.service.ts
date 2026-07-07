@@ -8,6 +8,7 @@ import { OtpService } from "./otp.service";
 import { SessionService } from "./session.service";
 import { DevicesService } from "./devices.service";
 import { PinRepository } from "./pin.repository";
+import { ConsentRepository } from "../consent/consent.repository";
 import type { LoginResponse, OtpRequestResponse } from "./auth.dto";
 import type { DeviceInfoDto } from "./devices.dto";
 
@@ -35,6 +36,7 @@ export class AuthService {
     private readonly sessions: SessionService,
     private readonly devices: DevicesService,
     private readonly pins: PinRepository,
+    private readonly consents: ConsentRepository,
   ) {}
 
   async requestOtp(phone: string, ctx: RequestContext): Promise<OtpRequestResponse> {
@@ -146,6 +148,12 @@ export class AuthService {
     // worker_credentials row → false. Only the boolean is surfaced — never the PIN/hash.
     const pinSet = !!(await this.pins.findByWorkerId(worker.id));
 
+    // Finding #172-#1 — additive, PII-free consent-gate signal (== ConsentGuard admit). Lets the
+    // app route a returning-but-never-consented worker (set a PIN, bailed before consent) to
+    // /consent instead of skipping it. A brand-new worker is always false here. Only the boolean
+    // is surfaced — never any consent text/version.
+    const consentAccepted = await this.consents.hasAcceptedConsent(worker.id);
+
     // No idempotencyKey: a worker legitimately verifies/logs in many times, so
     // each otp_verified is a distinct fact (likewise otp_requested resends above).
     await this.events.emit({
@@ -166,6 +174,8 @@ export class AuthService {
       status: worker.status,
       // ADR-0026 Phase 4 — lets the app route enter-PIN (true) vs set-PIN (false).
       pin_set: pinSet,
+      // Finding #172-#1 — lets the app route a returning-but-never-consented worker to /consent.
+      consent_accepted: consentAccepted,
       // ADR-0026 additive fields — the opaque rotating refresh token + session view.
       refresh_token: minted.refresh.token,
       refresh_expires_in_seconds: minted.refresh.expiresInSeconds,

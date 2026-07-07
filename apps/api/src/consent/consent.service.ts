@@ -15,6 +15,19 @@ export class ConsentService {
     private readonly pii: PiiCryptoService,
   ) {}
 
+  // ---------------------------------------------------------------------------
+  // SEAM / INVARIANT (finding #176) — a future DPDP consent-WITHDRAWAL endpoint lives here.
+  //
+  // A `withdraw()` that stamps `worker_consents.revokedAt` MUST also call
+  // `SessionService.revokeAll(workerId)` in the SAME unit of work. The `WorkerAuthGuard` slide/
+  // re-mint extends a live session on every [W] route WITHOUT reading consent (a hot-path
+  // Postgres read was deliberately rejected for perf/deadlock), so a revoked-but-still-alive
+  // session would SELF-RENEW indefinitely. This coupling is a launch-gate for the withdrawal
+  // endpoint; it is locked by a regression test on the only current revoker (account-deletion).
+  // Wiring SessionService here means importing AuthModule's SessionService — mind the module
+  // cycle (AuthModule already imports ConsentModule), or place `revokeAll` in the caller.
+  // ---------------------------------------------------------------------------
+
   async accept(dto: AcceptConsentDto, ip: string | undefined, userAgent: string | undefined, ctx: RequestContext) {
     const worker = await this.workers.findById(dto.worker_id);
     if (!worker) throw new NotFoundException(`Worker ${dto.worker_id} not found`);

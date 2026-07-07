@@ -69,4 +69,12 @@ export interface PinVerifyResponse {
     expires_at: string;
     requires_otp_after: string | null;
   };
+  /**
+   * Additive, PII-free (finding #172-#1). TRUE iff the worker currently has ACCEPTED
+   * (not-revoked) consent — the SAME predicate `ConsentGuard` admits on. The cold-start PIN
+   * unlock carries it so the app can route a returning-but-never-consented worker to /consent.
+   * A revoked-consent worker never reaches this success response (the A5 gate above throws a
+   * neutral 401), so this is only ever `true` (accepted) or `false` (never consented).
+   */
+  consent_accepted: boolean;
 }

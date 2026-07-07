@@ -53,6 +53,14 @@ export interface LoginResponse {
   refresh_token: string;
   refresh_expires_in_seconds: number;
   session: SessionInfo;
+  /**
+   * Additive, PII-free (finding #172-#1). TRUE iff the worker currently has ACCEPTED
+   * (not-revoked) consent — the SAME predicate `ConsentGuard` admits on
+   * (`ConsentRepository.hasAcceptedConsent`). Lets the worker-app route a returning worker who
+   * set a PIN but never consented to /consent instead of skipping it. NEVER carries consent
+   * text/version — just the derived boolean.
+   */
+  consent_accepted: boolean;
 }
 
 /** Response of POST /auth/refresh (legacy rolling-token refresh — unchanged). */
@@ -60,6 +68,8 @@ export interface RefreshResponse {
   access_token: string;
   token_type: "Bearer";
   expires_in_seconds: number;
+  /** Additive, PII-free consent-gate signal (== `ConsentGuard` admit). See {@link LoginResponse}. */
+  consent_accepted: boolean;
 }
 
 /** Body of POST /auth/token/refresh — the opaque rotating refresh token (ADR-0026). */
@@ -90,6 +100,8 @@ export interface TokenRefreshResponse {
   refresh_token: string;
   refresh_expires_in_seconds: number;
   session: SessionInfo;
+  /** Additive, PII-free consent-gate signal (== `ConsentGuard` admit). See {@link LoginResponse}. */
+  consent_accepted: boolean;
 }
 
 /** Response of GET /auth/session — tier + expiry introspection (ADR-0026). */
@@ -107,4 +119,13 @@ export interface SessionResponse {
 export interface MeResponse {
   worker_id: string;
   status: string;
+  /**
+   * Additive, PII-free (finding #172-#1). TRUE iff the worker currently has ACCEPTED
+   * (not-revoked) consent — the SAME predicate `ConsentGuard` admits on. This is the KEY
+   * returning-worker signal: the cold-start PIN-unlock path resolves the session (PIN-verify /
+   * token-refresh) then reads GET /auth/me to bootstrap, so the app can gate routing to /consent
+   * here even when it didn't inspect the unlock response. NEVER carries consent text — just the
+   * boolean.
+   */
+  consent_accepted: boolean;
 }

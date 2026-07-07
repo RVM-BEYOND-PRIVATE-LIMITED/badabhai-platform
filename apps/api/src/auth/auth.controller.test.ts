@@ -52,7 +52,12 @@ function make() {
   };
   const pii = { decrypt: vi.fn((t: string) => t.replace(/^ENC\(|\)$/g, "")) };
   const accountDeletion = { execute: vi.fn(async () => undefined) };
-  const consents = { findLatestByWorker: vi.fn(async () => undefined) };
+  const consents = {
+    findLatestByWorker: vi.fn(async () => undefined),
+    // finding #172-#1 — the derived consent_accepted signal (== ConsentGuard admit). Default
+    // false (never-consented); a test overrides it to assert the true path.
+    hasAcceptedConsent: vi.fn(async () => false),
+  };
   const config = { OTP_MAX_SENDS_PER_HOUR: 5 } as ServerConfig;
   const controller = new AuthController(
     auth as unknown as AuthService,
@@ -95,11 +100,21 @@ describe("AuthController — consent-on-resume (A5 · ADR-0026 amendment)", () =
     expect(sessions.refreshByToken).toHaveBeenCalled();
   });
 
-  it("token/refresh: ACTIVE consent (revokedAt null) is ALLOWED", async () => {
+  it("token/refresh: ACTIVE consent (revokedAt null) is ALLOWED + reports consent_accepted=true", async () => {
     const { controller, sessions, consents } = make();
     (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ revokedAt: null });
-    await controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem());
+    const res = await controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem());
     expect(sessions.refreshByToken).toHaveBeenCalled();
+    // finding #172-#1 — the derived signal is computed from the SAME row the A5 gate read (no
+    // extra query) and mirrors ConsentGuard admit: an active-consent worker → true.
+    expect(res.consent_accepted).toBe(true);
+  });
+
+  it("token/refresh: NEVER-consented → allowed with consent_accepted=false", async () => {
+    const { controller, consents } = make();
+    (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+    const res = await controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem());
+    expect(res.consent_accepted).toBe(false);
   });
 
   it("token/refresh: an UNRESOLVABLE token skips the consent check (no oracle) and falls through", async () => {
@@ -137,24 +152,39 @@ describe("AuthController", () => {
     expect(res.pin_set).toBe(false);
   });
 
-  it("me returns the authed worker id + status (no PII)", async () => {
-    const { controller } = make();
+  it("me returns the authed worker id + status + consent_accepted (no PII)", async () => {
+    const { controller, consents } = make();
     const res = await controller.me(WORKER);
-    expect(res).toEqual({ worker_id: WORKER.id, status: "active" });
-    expect(JSON.stringify(res)).not.toMatch(/phone|full_?name/i);
+    // finding #172-#1 — /me carries the derived consent_accepted (default false here).
+    expect(res).toEqual({ worker_id: WORKER.id, status: "active", consent_accepted: false });
+    expect(consents.hasAcceptedConsent).toHaveBeenCalledWith(WORKER.id);
+    // PII-free: only the opaque id + status + boolean — no phone/name/consent text.
+    expect(JSON.stringify(res)).not.toMatch(/phone|full_?name|consent_version|purposes/i);
   });
 
-  it("refresh mints a fresh token from the bearer", async () => {
+  it("me reports consent_accepted=true for a worker the gate would ADMIT (the key returning-worker signal)", async () => {
+    const { controller, consents } = make();
+    (consents.hasAcceptedConsent as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true);
+    const res = await controller.me(WORKER);
+    expect(res.consent_accepted).toBe(true);
+  });
+
+  it("refresh mints a fresh token from the bearer (+ consent_accepted)", async () => {
     const { controller, sessions } = make();
-    const res = await controller.refresh(reqWith());
+    const res = await controller.refresh(reqWith(), WORKER);
     expect(sessions.refresh).toHaveBeenCalledWith("tok");
-    expect(res).toEqual({ access_token: "fresh", token_type: "Bearer", expires_in_seconds: 3600 });
+    expect(res).toEqual({
+      access_token: "fresh",
+      token_type: "Bearer",
+      expires_in_seconds: 3600,
+      consent_accepted: false,
+    });
   });
 
   it("refresh 401s when the session is invalid/expired", async () => {
     const { controller, sessions } = make();
     (sessions.refresh as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
-    await expect(controller.refresh(reqWith())).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(controller.refresh(reqWith(), WORKER)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it("logout revokes the current session id (and drops it from the worker set)", async () => {
@@ -192,6 +222,8 @@ describe("AuthController", () => {
     expect(res.session.tier).toBe(1);
     expect(typeof res.session.expires_at).toBe("string");
     expect(typeof res.session.requires_otp_after).toBe("string");
+    // finding #172-#1 — default consents double is never-consented → false.
+    expect(res.consent_accepted).toBe(false);
   });
 
   it("tokenRefresh 401s on an invalid/reused/expired refresh token (no oracle on which)", async () => {

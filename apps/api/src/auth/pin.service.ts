@@ -20,7 +20,7 @@ import { SessionService } from "./session.service";
 import { DevicesRepository } from "./devices.repository";
 import { PinHasher } from "./pin-hasher.service";
 import { PinRepository } from "./pin.repository";
-import { ConsentRepository } from "../consent/consent.repository";
+import { ConsentRepository, isConsentAccepted } from "../consent/consent.repository";
 import type { PinVerifyResponse } from "./pin.dto";
 
 /** Minimal typed view of the Redis commands the PIN throttle needs (ioredis at runtime). */
@@ -265,6 +265,11 @@ export class PinService {
         await this.emitVerifyFailed(workerId, deviceId, "consent_revoked", ctx);
         throw PinService.neutralFailure();
       }
+      // Finding #172-#1 — additive, PII-free consent-gate signal (== ConsentGuard admit), reusing
+      // the row just read (no extra query). Past the revoked gate this is only ever true (accepted)
+      // or false (never consented) — a revoked worker threw above. Lets the cold-start PIN unlock
+      // route a never-consented worker to /consent.
+      const consentAccepted = isConsentAccepted(consent);
 
       // SUCCESS — clear the transient + DB throttle (leave otp_cycle_count as-is), mint a
       // fresh device-bound session (the SAME shape OTP login returns), emit pin_verified.
@@ -296,6 +301,7 @@ export class PinService {
               ? null
               : new Date(minted.session.requiresOtpAfterMs).toISOString(),
         },
+        consent_accepted: consentAccepted,
       };
     }
 
