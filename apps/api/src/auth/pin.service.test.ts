@@ -140,8 +140,11 @@ function makePins(initial: ReturnType<typeof makeCred> | null) {
     async (_workerId: string, args: { lockoutCycles: number; otpCycleCount: number }) => {
       if (state.row) {
         state.row.failedAttempts = 0; // a lockout STEP resets the transient failed counter
-        state.row.lockoutCycles = args.lockoutCycles;
-        state.row.otpCycleCount = args.otpCycleCount;
+        // MUST mirror the real repo's GREATEST monotonic write (pin.repository.ts): the two
+        // force-OTP latches only ever RISE, so a lagging non-final write from a second device
+        // cannot clobber a concurrently-raised latch. pin.repository.test.ts pins the SQL side.
+        state.row.lockoutCycles = Math.max(state.row.lockoutCycles, args.lockoutCycles);
+        state.row.otpCycleCount = Math.max(state.row.otpCycleCount, args.otpCycleCount);
       }
     },
   );
@@ -566,6 +569,39 @@ describe("PinService.verifyPin — throttle / lockout ladder", () => {
         ).toHaveBeenCalled();
       }
     }
+  });
+
+  // A worker holds ONE worker_credentials row but can drive verifyPin from MULTIPLE trusted
+  // devices, each with its own transient (Redis) cycle. The durable guard-read → escalation-
+  // write is NOT atomic and straddles the slow scrypt KDF, so a second device can pass the
+  // guard at otp_cycle_count=0, enter scrypt, and land its non-final escalation AFTER a first
+  // device latched force-OTP at the final cycle. Guards F1: the durable mirror is written
+  // MONOTONICALLY (GREATEST), so the lagging non-final write can NEVER reset the latch. A blind
+  // absolute write (the earlier form) would clobber otp_cycle_count 1→0 and defeat the OTP cap.
+  it("multi-device race: a lagging non-final escalation cannot clobber a concurrently-latched force-OTP (F1)", async () => {
+    const K = BASE_CONFIG.PIN_MAX_LOCKOUT_CYCLES as number; // 5
+    // Both devices read the shared row pre-latch (otp_cycle_count=0) and enter scrypt.
+    const pins = makePins(makeCred({ lockoutCycles: K - 1, otpCycleCount: 0 }));
+
+    // Device D1 finishes first, steps to the FINAL cycle, and durably latches force-OTP.
+    await pins.repo.incrementOtpCycle();
+    await pins.repo.recordFailureEscalation(WORKER, { lockoutCycles: K, otpCycleCount: 1 });
+    expect(pins.state.row!.otpCycleCount).toBe(1);
+    expect(pins.state.row!.lockoutCycles).toBe(K);
+
+    // Device D2 was mid-scrypt with a STALE non-final throttle; its escalation lands AFTER D1's
+    // latch, carrying the pre-fix clobber values (lockout_cycles=2, otp_cycle_count=0).
+    await pins.repo.recordFailureEscalation(WORKER, { lockoutCycles: 2, otpCycleCount: 0 });
+
+    // The latch survives: GREATEST(1,0)=1, GREATEST(K,2)=K → force-OTP still armed, cap holds.
+    expect(
+      pins.state.row!.otpCycleCount,
+      "force-OTP latch must survive a lagging non-final write",
+    ).toBe(1);
+    expect(
+      pins.state.row!.lockoutCycles,
+      "lockout_cycles must not drop below the concurrent max",
+    ).toBe(K);
   });
 
   it("once force-OTP'd (otp_cycle_count>=1), a verify is neutral-failed BEFORE any scrypt (durable gate)", async () => {
