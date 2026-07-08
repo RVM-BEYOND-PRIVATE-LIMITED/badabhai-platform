@@ -179,6 +179,9 @@ export const WorkerProfileDraftSchema = z.object({
   materials_handled: z.array(z.string()).default([]),
   drawing_reading: z.boolean().nullable().default(null),
   current_city: z.string().nullable().default(null),
+  // State-level location, captured when the worker names a state (e.g. "Bihar")
+  // rather than a specific city. Additive (default null → backward compatible).
+  current_state: z.string().nullable().default(null),
   preferred_locations: z.array(z.string()).default([]),
   relocation_willingness: z.boolean().nullable().default(null),
   current_salary: z.number().int().nonnegative().nullable().default(null),
@@ -189,6 +192,11 @@ export const WorkerProfileDraftSchema = z.object({
   confidence_score: z.number().min(0).max(1).default(0),
   missing_fields: z.array(z.string()).default([]),
   clarification_questions: z.array(z.string()).default([]),
+  // Advisory adjacency flag: set (e.g. "outside_cnc_vmc_scope") when the profile
+  // canonicalizes to nothing matchable in the CNC/VMC taxonomy, so it is marked
+  // adjacent rather than silently half-empty. Additive (default null). Advisory
+  // ONLY — never used to rank/reject a worker.
+  unmatchable_reason: z.string().nullable().default(null),
 });
 export type WorkerProfileDraft = z.infer<typeof WorkerProfileDraftSchema>;
 

@@ -58,6 +58,9 @@ def build_call_metadata(
     success: bool,
     settings: Settings,
     error_code: str | None = None,
+    attempt_count: int = 0,
+    candidates_tried: list[str] | None = None,
+    failure_reason: str | None = None,
 ) -> AICallMetadata:
     """Assemble + log the metadata for one AI call."""
     estimated = estimate_cost_inr(model, input_tokens, output_tokens)
@@ -73,12 +76,17 @@ def build_call_metadata(
         latency_ms=latency_ms,
         success=success,
         error_code=error_code,
+        # Diagnostics: reconcile per-attempt vs per-call counts + the specific
+        # transport failure. All PII-free (int / model ids / closed-set reason).
+        attempt_count=attempt_count,
+        candidates_tried=candidates_tried or [],
+        failure_reason=failure_reason,
         # Guardrails: flagged but NOT sent anywhere externally in Phase 1.
         cost_alert=estimated > settings.ai_cost_alert_profile_inr,
         above_target=estimated > settings.ai_target_profile_cost_inr,
         created_at=datetime.now(UTC).isoformat(),
     )
-    # No PII here — only ids, model name, tokens, cost.
+    # No PII here — only ids, model name, tokens, cost, closed-set reason codes.
     logger.info("ai_call", extra={"extra": meta.model_dump()})
     return meta
 

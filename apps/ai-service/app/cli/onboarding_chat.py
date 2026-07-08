@@ -252,6 +252,12 @@ def _provider_note(meta: AICallMetadata) -> str | None:
     if not meta.real_call:
         return "[note: model unavailable — used offline fallback (mock) for this turn]"
     label = _PROVIDER_LABELS.get(meta.provider, meta.provider)
+    # Reconcile per-attempt vs per-call: a turn may have taken several failed
+    # attempts (across providers) before this one served. attempt_count counts
+    # every dispatch; the last was the success, so N-1 failed.
+    failed = max(meta.attempt_count - 1, 0)
+    if failed > 0:
+        return f"[note: this turn served by {label} after {failed} failed attempt(s)]"
     return f"[note: this turn served by {label}]"
 
 
@@ -450,6 +456,16 @@ async def _run_chat(
         # (keeps experience_years/machines/etc. even when other fields are malformed;
         # location/salary stay local — the model only saw masked text).
         rich = profile_extractor.merge_model_draft(rich, content)
+        # TODO(WS4 recall backfill, owner review): mirror the endpoint — once the
+        # staging --real NEGATIVE tier is verified unaffected, enable
+        #   legacy = profile_extractor.map_rich_to_legacy(rich, legacy)
+        # to fill in-scope machine/skill/role ids the raw-text detector missed.
+
+    # Honest-adjacency flag (advisory ONLY): mark the draft adjacent when it
+    # canonicalized to nothing matchable in the CNC/VMC taxonomy, so it is not
+    # silently half-empty. Additive; no matchable field is written here.
+    if profile_extractor.is_outside_cnc_vmc_scope(legacy):
+        rich.unmatchable_reason = profile_extractor.UNMATCHABLE_OUTSIDE_SCOPE
 
     return _build_resume_json(name, rich, legacy), calls
 
@@ -458,6 +474,27 @@ def _rupees(amount: float) -> str:
     """Format an INR amount with a PLAIN ``Rs `` prefix (never a unicode symbol),
     so it encodes cleanly on legacy Windows code pages (cp1252)."""
     return f"Rs {amount:.4f}"
+
+
+def _per_call_status(c: AICallMetadata) -> str:
+    """Truthful one-line outcome for a call, reconciling per-attempt vs per-call.
+
+    Success after retries reads ``ok via <model> after N failed attempt(s)``;
+    a terminal failure keeps the coarse ``error_code`` AND adds the specific
+    closed-set ``failure_reason`` plus the attempt count. PII-free (reads only
+    AICallMetadata: model ids, ints, closed-set reason codes)."""
+    if c.success:
+        failed = max(c.attempt_count - 1, 0)
+        if failed > 0:
+            return f"ok via {c.model_name} after {failed} failed attempt(s)"
+        return "ok"
+    detail = c.failure_reason or c.error_code or "unknown"
+    if c.attempt_count > 0:
+        return (
+            f"FAIL ({c.error_code or 'unknown'}) "
+            f"after {c.attempt_count} attempt(s) [{detail}]"
+        )
+    return f"FAIL ({c.error_code or 'unknown'})"
 
 
 def render_cost_metadata(calls: list[AICallMetadata]) -> str:
@@ -475,6 +512,7 @@ def render_cost_metadata(calls: list[AICallMetadata]) -> str:
 
     real_count = sum(1 for c in calls if c.real_call)
     mock_count = len(calls) - real_count
+    total_attempts = sum(c.attempt_count for c in calls)
     total_cost = sum(c.estimated_cost_inr for c in calls)
     total_in = sum(c.input_tokens for c in calls)
     total_out = sum(c.output_tokens for c in calls)
@@ -491,6 +529,11 @@ def render_cost_metadata(calls: list[AICallMetadata]) -> str:
     lines.append("SUMMARY")
     lines.append(f"  models    : {models_used}")
     lines.append(f"  calls     : {len(calls)} total ({real_count} real / {mock_count} mock)")
+    # Reconciles the confusing "28 failed attempts vs 11 calls" gap: attempts are
+    # per-dispatch (incl. retries + provider fallbacks); calls are per-turn.
+    lines.append(
+        f"  attempts  : {total_attempts} model attempt(s) across {len(calls)} call(s)"
+    )
     lines.append(f"  cost      : {_rupees(total_cost)} (total estimated)")
     lines.append(f"  tokens    : {total_in} in / {total_out} out")
     lines.append(f"  latency   : {total_latency} ms (total)")
@@ -502,7 +545,7 @@ def render_cost_metadata(calls: list[AICallMetadata]) -> str:
     lines.append("PER-CALL")
     for i, c in enumerate(calls, start=1):
         kind = "REAL" if c.real_call else "MOCK"
-        status = "ok" if c.success else f"FAIL ({c.error_code or 'unknown'})"
+        status = _per_call_status(c)
         lines.append(
             f"  {i}. {c.task_type} [{kind}] {c.model_name} "
             f"tok={c.input_tokens}/{c.output_tokens} "

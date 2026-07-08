@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from ..pseudonymize import KNOWN_CITIES
+from ..pseudonymize import CITY_ALIASES, KNOWN_CITIES
 
 KnowledgeLevel = str  # "none" | "basic" | "strong" | "unknown"
 
@@ -100,10 +100,78 @@ _ROLE_LABELS: dict[str, str] = {rid: label for _, label, rid, _ in _ROLES}
 _EXPERIENCE_RE = re.compile(
     r"(\d{1,2})\s*\+?\s*(?:years|year|yrs|yr|saal|sal|saal\b)", re.IGNORECASE
 )
+# Detect the canonical cities AND their Hinglish aliases (dilli, bombay, ...) so a
+# colloquial name is captured, then normalized to its canonical form.
+_CITY_TOKENS = sorted(set(KNOWN_CITIES) | set(CITY_ALIASES), key=len, reverse=True)
 _CITY_RE = re.compile(
-    r"\b(?:" + "|".join(re.escape(c) for c in sorted(KNOWN_CITIES, key=len, reverse=True)) + r")\b",
+    r"\b(?:" + "|".join(re.escape(c) for c in _CITY_TOKENS) + r")\b",
     re.IGNORECASE,
 )
+
+
+def _canonical_city(token: str) -> str:
+    """Normalize a matched city/alias token to its canonical KNOWN_CITIES member,
+    Title-cased (e.g. "dilli" -> "Delhi"). Aliases resolve INTO the closed set."""
+    low = token.strip().lower()
+    return CITY_ALIASES.get(low, low).title()
+
+
+# --- State-level location (captured instead of dropped) --------------------
+# Full state names -> canonical Title-cased label, matched case-INSENSITIVELY.
+_STATE_NAMES: dict[str, str] = {
+    "bihar": "Bihar",
+    "uttar pradesh": "Uttar Pradesh",
+    "madhya pradesh": "Madhya Pradesh",
+    "andhra pradesh": "Andhra Pradesh",
+    "himachal pradesh": "Himachal Pradesh",
+    "arunachal pradesh": "Arunachal Pradesh",
+    "west bengal": "West Bengal",
+    "tamil nadu": "Tamil Nadu",
+    "rajasthan": "Rajasthan",
+    "punjab": "Punjab",
+    "haryana": "Haryana",
+    "gujarat": "Gujarat",
+    "maharashtra": "Maharashtra",
+    "karnataka": "Karnataka",
+    "telangana": "Telangana",
+    "kerala": "Kerala",
+    "odisha": "Odisha",
+    "jharkhand": "Jharkhand",
+    "chhattisgarh": "Chhattisgarh",
+    "uttarakhand": "Uttarakhand",
+    "assam": "Assam",
+    "goa": "Goa",
+}
+# UPPERCASE-only 2-letter abbreviations, matched CASE-SENSITIVELY. Deliberately
+# strict: a case-insensitive "up"/"mp" would collide with common CNC phrasing like
+# "set up" / "setup", corrupting the profile. "UP" written in caps is a state.
+_STATE_ABBREVS: dict[str, str] = {
+    "UP": "Uttar Pradesh",
+    "MP": "Madhya Pradesh",
+    "AP": "Andhra Pradesh",
+    "HP": "Himachal Pradesh",
+    "WB": "West Bengal",
+}
+_STATE_NAME_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(s) for s in sorted(_STATE_NAMES, key=len, reverse=True)) + r")\b",
+    re.IGNORECASE,
+)
+_STATE_ABBREV_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(a) for a in _STATE_ABBREVS) + r")\b"
+)  # case-sensitive by design (see _STATE_ABBREVS)
+
+
+def _detect_state(text: str) -> str | None:
+    """Capture a NAMED state (or an UPPERCASE 2-letter abbrev) so a state-only
+    answer ("bihar mai hu") is no longer silently dropped. Full names win over
+    abbreviations. Returns the canonical Title-cased label, or None."""
+    match = _STATE_NAME_RE.search(text)
+    if match:
+        return _STATE_NAMES[match.group(0).lower()]
+    match = _STATE_ABBREV_RE.search(text)
+    if match:
+        return _STATE_ABBREVS[match.group(0)]
+    return None
 # Money like "22k", "22000", "22 thousand", "1.5 lakh".
 _SALARY_RE = re.compile(
     r"(?:₹|rs\.?|inr)?\s*(\d{1,3}(?:[,\d]*)(?:\.\d+)?)\s*(k|thousand|hazar|hzr|lakh|lac|l)?",
@@ -135,6 +203,7 @@ class Signals:
     inspection_tools: list[str] = field(default_factory=list)
     materials_handled: list[str] = field(default_factory=list)
     current_city: str | None = None
+    current_state: str | None = None
     preferred_locations: list[str] = field(default_factory=list)
     relocation_willingness: bool | None = None
     current_salary: int | None = None
@@ -249,14 +318,16 @@ def detect(text: str) -> Signals:
     ):
         _append_unique(sig.secondary_roles, "CNC Setter-Operator")
 
-    # Location
-    cities = [m.group(0).title() for m in _CITY_RE.finditer(text)]
+    # Location — cities (with alias normalization: dilli -> Delhi).
+    cities = [_canonical_city(m.group(0)) for m in _CITY_RE.finditer(text)]
     # de-dup preserving order
     seen: set[str] = set()
     ordered = [c for c in cities if not (c in seen or seen.add(c))]
     if ordered:
         sig.current_city = ordered[0]
         sig.preferred_locations = ordered[1:]
+    # State-level location (captured instead of dropped; does not replace a city).
+    sig.current_state = _detect_state(text)
     if any(c in lower for c in _RELOCATE_CUES) or sig.preferred_locations:
         sig.relocation_willingness = True
 
@@ -298,6 +369,52 @@ def _detect_salary(text: str, lower: str, sig: Signals) -> None:
                 sig.expected_salary = amount
         elif sig.current_salary is None:
             sig.current_salary = amount
+
+
+# --- Reverse label -> canonical id lookup (for the rich->legacy mapper) ------
+# The model emits human-readable LABELS ("VMC Operator", "Fanuc", "tool offset
+# setting"). These helpers map such a label back to a canonical gazetteer id by
+# reusing the SAME keyword tables as detect(), so no vocabulary is duplicated and
+# only real, closed-set ids are ever produced (never free text).
+
+
+def role_id_for_label(label: str) -> tuple[str, str] | None:
+    """Map a model-emitted role LABEL/phrase to its ``(role_id, trade_id)`` via the
+    gazetteer keywords, or None when no IN-SCOPE CNC/VMC role matches (e.g. welding).
+    First keyword match wins, mirroring detect()'s most-specific-first ordering."""
+    low = (label or "").lower()
+    for kw, _label, rid, tid in _ROLES:
+        if kw in low:
+            return rid, tid
+    return None
+
+
+def machine_ids_for_labels(labels: list[str]) -> list[str]:
+    """Map model-emitted machine LABELS to canonical machine ids (order-preserving,
+    de-duplicated). Unknown labels yield nothing."""
+    out: list[str] = []
+    for label in labels:
+        low = (label or "").lower()
+        for kw, _label, mid in _MACHINES:
+            if kw in low:
+                _append_unique(out, mid)
+    return out
+
+
+def skill_ids_for_labels(labels: list[str]) -> list[str]:
+    """Map model-emitted skill AND controller LABELS to canonical skill ids
+    (controllers feed a legacy skill id, e.g. Fanuc -> skill_fanuc), mirroring
+    detect(). Order-preserving, de-duplicated; unknown labels yield nothing."""
+    out: list[str] = []
+    for label in labels:
+        low = (label or "").lower()
+        for kw, _label, sid in _SKILLS:
+            if kw in low:
+                _append_unique(out, sid)
+        for kw, _label, sid in _CONTROLLERS:
+            if sid and kw in low:
+                _append_unique(out, sid)
+    return out
 
 
 def detect_answered_topics(text: str) -> dict[str, object]:

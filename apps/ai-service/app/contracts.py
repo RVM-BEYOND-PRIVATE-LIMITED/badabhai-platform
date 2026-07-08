@@ -35,6 +35,12 @@ class AICallMetadata(BaseModel):
     error_code: str | None = None
     cost_alert: bool = False
     above_target: bool = False
+    # Diagnostics (additive, defaulted → back-compat): reconcile per-attempt log
+    # volume vs per-call metadata and surface the specific transport failure.
+    # PII-free: an int count, model ids, and a closed-set reason code.
+    attempt_count: int = 0
+    candidates_tried: list[str] = Field(default_factory=list)
+    failure_reason: str | None = None
     created_at: str
 
 
@@ -162,6 +168,9 @@ class WorkerProfileDraft(BaseModel):
     materials_handled: list[str] = Field(default_factory=list)
     drawing_reading: bool | None = None
     current_city: str | None = None
+    # State-level location, captured when the worker names a state (e.g. "Bihar")
+    # rather than a specific city. Additive (default None → backward compatible).
+    current_state: str | None = None
     preferred_locations: list[str] = Field(default_factory=list)
     relocation_willingness: bool | None = None
     current_salary: int | None = None
@@ -172,6 +181,11 @@ class WorkerProfileDraft(BaseModel):
     confidence_score: float = 0.0
     missing_fields: list[str] = Field(default_factory=list)
     clarification_questions: list[str] = Field(default_factory=list)
+    # Advisory adjacency flag: set (e.g. "outside_cnc_vmc_scope") when the profile
+    # canonicalizes to nothing matchable in the CNC/VMC taxonomy, so it is marked
+    # adjacent rather than silently half-empty. Additive (default None). Advisory
+    # ONLY — never used to rank/reject a worker. Mirrors the Zod contract.
+    unmatchable_reason: str | None = None
 
 
 # --- Profile extraction ----------------------------------------------------

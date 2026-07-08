@@ -20,6 +20,7 @@ from ..config import Settings
 from ..contracts import AICallMetadata
 from ..logging_config import get_logger
 from . import cost_tracker, providers
+from .errors import LlmTransportError
 from .langfuse_tracing import LangfuseTracer
 from .model_config import get_route, provider_for_model, resolve_model
 
@@ -73,6 +74,13 @@ class AIRouter:
         ceiling_skipped_any = False
         spend_block_reason: str | None = None  # daily/cumulative cap hit (TD27)
         retry_budget_hit = False  # rolling retry budget exhausted (TD27)
+        # Diagnostics (reconcile per-attempt log volume vs per-call metadata, and
+        # attribute a terminal failure to the model that ACTUALLY failed last —
+        # not always the primary). All PII-free: model ids + closed-set reasons.
+        last_attempted_model: str | None = None
+        last_failure_reason: str | None = None
+        attempt_count = 0  # every dispatch to providers.complete across candidates
+        candidates_tried: list[str] = []  # each candidate that reached the network
         for model in candidates:
             worst_case_inr = cost_tracker.estimate_cost_inr(
                 model, cost_tracker.estimate_tokens(input_text), route.max_output_tokens
@@ -117,6 +125,7 @@ class AIRouter:
             # falls through to the full refund below.
             reconciled = False
             any_attempted = True
+            candidates_tried.append(model)  # once per candidate that reaches network
             try:
                 for attempt in range(route.max_retries + 1):
                     # 3. Retry budget (TD27): a RETRY (attempt > 0) must consume a
@@ -132,6 +141,7 @@ class AIRouter:
                             }},
                         )
                         break
+                    attempt_count += 1  # counts every dispatch (across candidates)
                     try:
                         result = await providers.complete(
                             settings=self._settings, model=model, messages=messages,
@@ -147,6 +157,7 @@ class AIRouter:
                             task_type=task_type, model=model, real_call=True,
                             input_tokens=in_tok, output_tokens=out_tok,
                             latency_ms=latency, success=True, settings=self._settings,
+                            attempt_count=attempt_count, candidates_tried=candidates_tried,
                         )
                         # Reconcile the reservation: refund worst_case - actual so
                         # the net recorded spend is the ACTUAL estimated cost.
@@ -158,12 +169,22 @@ class AIRouter:
                         return result.content, meta
                     except Exception as exc:
                         # NEVER log the exception body (may echo pseudonymized
-                        # content) — only its type, the attempt, task, and model.
+                        # content). A LlmTransportError carries a PII-free
+                        # closed-set reason_code; any other exception is reduced to
+                        # its type NAME. Track the last failing model + reason so
+                        # the terminal metadata attributes the failure truthfully.
+                        last_attempted_model = model
+                        reason = (
+                            exc.reason_code
+                            if isinstance(exc, LlmTransportError)
+                            else type(exc).__name__
+                        )
+                        last_failure_reason = reason
                         logger.warning(
                             "llm attempt failed",
                             extra={"extra": {
                                 "attempt": attempt, "task": task_type, "model": model,
-                                "error_type": type(exc).__name__,
+                                "reason": reason,
                             }},
                         )
             finally:
@@ -201,14 +222,21 @@ class AIRouter:
             real_flag, success, error_code = False, True, None
 
         latency = int((time.perf_counter() - start) * 1000)
+        # Attribute a terminal failure to the model that ACTUALLY failed last (e.g.
+        # the Haiku fallback), not always the primary — fixes the divergence where
+        # a Haiku-served attempt was mis-labelled as Gemini. When nothing was
+        # attempted (spend/ceiling/kill-switch/plain-mock) fall back to the primary.
+        report_model = last_attempted_model or primary_model
         meta = cost_tracker.build_call_metadata(
-            task_type=task_type, model=primary_model, real_call=real_flag,
+            task_type=task_type, model=report_model, real_call=real_flag,
             input_tokens=cost_tracker.estimate_tokens(input_text),
             output_tokens=cost_tracker.estimate_tokens(mock_response),
             latency_ms=latency, success=success, settings=self._settings,
             error_code=error_code,
+            attempt_count=attempt_count, candidates_tried=candidates_tried,
+            failure_reason=last_failure_reason,
         )
-        self._trace(task_type, primary_model, real_flag, input_text, mock_response, meta)
+        self._trace(task_type, report_model, real_flag, input_text, mock_response, meta)
         return mock_response, meta
 
     def _candidate_models(self, primary_model: str) -> list[str]:

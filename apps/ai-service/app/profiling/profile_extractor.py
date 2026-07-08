@@ -21,8 +21,15 @@ from ..contracts import (
     WorkerProfileDraft,
 )
 from . import signals
-from .canonical_roles import coerce_json_text
+from .canonical_roles import ROLE_TRADE, coerce_json_text, normalize_role_id
 from .signals import Signals
+
+# Adjacency flag value: the profile canonicalized to NOTHING in the CNC/VMC
+# taxonomy (e.g. a welder). Set on WorkerProfileDraft.unmatchable_reason so the
+# profile is explicitly marked adjacent rather than silently half-empty. Adopting
+# a broader occupation taxonomy (NCO-2015/ISCO-08) that brings such trades in-scope
+# is an ADR-gated backend workstream — out of scope for apps/ai-service.
+UNMATCHABLE_OUTSIDE_SCOPE = "outside_cnc_vmc_scope"
 
 # Allowed values for the enum-typed draft fields. Used by ``merge_model_draft`` to
 # reject a single loosely-typed value (e.g. experience_level "basic") WITHOUT
@@ -83,6 +90,7 @@ def _build_rich(sig: Signals, role_family: str) -> WorkerProfileDraft:
         materials_handled=sig.materials_handled,
         drawing_reading=sig.drawing_reading,
         current_city=sig.current_city,
+        current_state=sig.current_state,
         preferred_locations=sig.preferred_locations,
         relocation_willingness=sig.relocation_willingness,
         current_salary=sig.current_salary,
@@ -208,6 +216,56 @@ def merge_model_draft(base: WorkerProfileDraft, content: str) -> WorkerProfileDr
         out.drawing_reading = data["drawing_reading"]
 
     return out
+
+
+def map_rich_to_legacy(
+    rich: WorkerProfileDraft, base: DraftProfile | None = None
+) -> DraftProfile:
+    """Canonicalize the MODEL-emitted rich LABELS into the legacy DraftProfile's
+    closed-set ids, BACKFILLING only what the raw-text detector missed.
+
+    Reuses the gazetteer reverse-lookup helpers (``signals.role_id_for_label`` /
+    ``machine_ids_for_labels`` / ``skill_ids_for_labels``), so it only ever writes
+    real, closed-set ids — NEVER free text into the matchable fields. The role id
+    is additionally re-validated through ``normalize_role_id`` (defensive: only a
+    known canonical id can enter ``canonical_role_id``), and its trade id is derived
+    from ``ROLE_TRADE``.
+
+    - ``canonical_role_id``/``canonical_trade_id``: filled only when ``base`` has no
+      role yet AND the rich ``primary_role`` maps to an in-scope role.
+    - ``machines``/``skills``: UNION of the ids already on ``base`` and the ids mapped
+      from the rich labels (order-preserving, de-duplicated).
+
+    When nothing canonicalizes (e.g. welding "mig_tig_welder"), the canonical ids
+    stay null — the caller marks the profile adjacent via ``unmatchable_reason``.
+    ``base`` is copied, not mutated.
+    """
+    legacy = base.model_copy(deep=True) if base is not None else DraftProfile()
+
+    if legacy.canonical_role_id is None and rich.primary_role:
+        match = signals.role_id_for_label(rich.primary_role)
+        if match is not None:
+            rid = normalize_role_id(match[0])  # defensive: closed-set id only
+            if rid is not None:
+                legacy.canonical_role_id = rid
+                legacy.canonical_trade_id = ROLE_TRADE.get(rid, legacy.canonical_trade_id)
+
+    for mid in signals.machine_ids_for_labels(rich.machines):
+        if mid not in legacy.machines:
+            legacy.machines.append(mid)
+
+    for sid in signals.skill_ids_for_labels(rich.skills + rich.controllers):
+        if sid not in legacy.skills:
+            legacy.skills.append(sid)
+
+    return legacy
+
+
+def is_outside_cnc_vmc_scope(legacy: DraftProfile) -> bool:
+    """True when a profile canonicalized to NOTHING matchable in the CNC/VMC
+    taxonomy — no role, no skill ids, no machine ids. Used to set the advisory
+    ``unmatchable_reason`` adjacency flag (honest-adjacency, not a hard reject)."""
+    return not (legacy.canonical_role_id or legacy.skills or legacy.machines)
 
 
 def extract_worker_profile_draft(text: str, role_family: str = "cnc_vmc") -> WorkerProfileDraft:
