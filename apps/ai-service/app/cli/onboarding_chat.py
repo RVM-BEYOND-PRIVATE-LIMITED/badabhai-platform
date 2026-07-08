@@ -456,6 +456,16 @@ async def _run_chat(
         # (keeps experience_years/machines/etc. even when other fields are malformed;
         # location/salary stay local — the model only saw masked text).
         rich = profile_extractor.merge_model_draft(rich, content)
+        # TODO(WS4 recall backfill, owner review): mirror the endpoint — once the
+        # staging --real NEGATIVE tier is verified unaffected, enable
+        #   legacy = profile_extractor.map_rich_to_legacy(rich, legacy)
+        # to fill in-scope machine/skill/role ids the raw-text detector missed.
+
+    # Honest-adjacency flag (advisory ONLY): mark the draft adjacent when it
+    # canonicalized to nothing matchable in the CNC/VMC taxonomy, so it is not
+    # silently half-empty. Additive; no matchable field is written here.
+    if profile_extractor.is_outside_cnc_vmc_scope(legacy):
+        rich.unmatchable_reason = profile_extractor.UNMATCHABLE_OUTSIDE_SCOPE
 
     return _build_resume_json(name, rich, legacy), calls
 

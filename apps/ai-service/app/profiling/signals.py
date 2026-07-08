@@ -371,6 +371,52 @@ def _detect_salary(text: str, lower: str, sig: Signals) -> None:
             sig.current_salary = amount
 
 
+# --- Reverse label -> canonical id lookup (for the rich->legacy mapper) ------
+# The model emits human-readable LABELS ("VMC Operator", "Fanuc", "tool offset
+# setting"). These helpers map such a label back to a canonical gazetteer id by
+# reusing the SAME keyword tables as detect(), so no vocabulary is duplicated and
+# only real, closed-set ids are ever produced (never free text).
+
+
+def role_id_for_label(label: str) -> tuple[str, str] | None:
+    """Map a model-emitted role LABEL/phrase to its ``(role_id, trade_id)`` via the
+    gazetteer keywords, or None when no IN-SCOPE CNC/VMC role matches (e.g. welding).
+    First keyword match wins, mirroring detect()'s most-specific-first ordering."""
+    low = (label or "").lower()
+    for kw, _label, rid, tid in _ROLES:
+        if kw in low:
+            return rid, tid
+    return None
+
+
+def machine_ids_for_labels(labels: list[str]) -> list[str]:
+    """Map model-emitted machine LABELS to canonical machine ids (order-preserving,
+    de-duplicated). Unknown labels yield nothing."""
+    out: list[str] = []
+    for label in labels:
+        low = (label or "").lower()
+        for kw, _label, mid in _MACHINES:
+            if kw in low:
+                _append_unique(out, mid)
+    return out
+
+
+def skill_ids_for_labels(labels: list[str]) -> list[str]:
+    """Map model-emitted skill AND controller LABELS to canonical skill ids
+    (controllers feed a legacy skill id, e.g. Fanuc -> skill_fanuc), mirroring
+    detect(). Order-preserving, de-duplicated; unknown labels yield nothing."""
+    out: list[str] = []
+    for label in labels:
+        low = (label or "").lower()
+        for kw, _label, sid in _SKILLS:
+            if kw in low:
+                _append_unique(out, sid)
+        for kw, _label, sid in _CONTROLLERS:
+            if sid and kw in low:
+                _append_unique(out, sid)
+    return out
+
+
 def detect_answered_topics(text: str) -> dict[str, object]:
     """Map detected signals to interview topic ids -> a short collected value.
 

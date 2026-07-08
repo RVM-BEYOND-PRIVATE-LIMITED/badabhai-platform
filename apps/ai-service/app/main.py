@@ -226,6 +226,21 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
         # Field-by-field enrichment overlay: keep each well-formed model field even
         # when siblings are malformed (location/salary stay local — masked input).
         rich = profile_extractor.merge_model_draft(rich, content)
+        # TODO(WS4 recall backfill, owner review): once the real-eval NEGATIVE tier
+        # is confirmed unaffected, enable the rich->legacy canonical backfill here:
+        #   legacy = profile_extractor.map_rich_to_legacy(rich, legacy)
+        # It fills in-scope machine/skill/role ids the raw-text detector missed
+        # (writing only closed-set gazetteer ids). Deferred because backfilling the
+        # role from the model's free `primary_role` label could override the model's
+        # AUTHORITATIVE `canonical_role_id=null` on a helper/adjacent case and
+        # regress the negative tier — verify against the staging --real eval first.
+
+    # Honest-adjacency flag (advisory ONLY — never ranks/rejects): mark the draft
+    # adjacent when it canonicalized to nothing matchable in the CNC/VMC taxonomy
+    # (e.g. welding), so it is not silently half-empty. Additive; no matchable
+    # field is written here.
+    if profile_extractor.is_outside_cnc_vmc_scope(legacy):
+        rich.unmatchable_reason = profile_extractor.UNMATCHABLE_OUTSIDE_SCOPE
 
     logger.info("profile extracted", extra={"extra": {"is_mock": not meta.real_call}})
     return ProfileExtractionOutput(

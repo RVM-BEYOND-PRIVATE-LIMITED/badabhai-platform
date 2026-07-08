@@ -181,6 +181,11 @@ class WorkerProfileDraft(BaseModel):
     confidence_score: float = 0.0
     missing_fields: list[str] = Field(default_factory=list)
     clarification_questions: list[str] = Field(default_factory=list)
+    # Advisory adjacency flag: set (e.g. "outside_cnc_vmc_scope") when the profile
+    # canonicalizes to nothing matchable in the CNC/VMC taxonomy, so it is marked
+    # adjacent rather than silently half-empty. Additive (default None). Advisory
+    # ONLY — never used to rank/reject a worker. Mirrors the Zod contract.
+    unmatchable_reason: str | None = None
 
 
 # --- Profile extraction ----------------------------------------------------
