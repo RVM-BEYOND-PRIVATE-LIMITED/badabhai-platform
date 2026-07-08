@@ -179,6 +179,9 @@ export const WorkerProfileDraftSchema = z.object({
   materials_handled: z.array(z.string()).default([]),
   drawing_reading: z.boolean().nullable().default(null),
   current_city: z.string().nullable().default(null),
+  // State-level location, captured when the worker names a state (e.g. "Bihar")
+  // rather than a specific city. Additive (default null → backward compatible).
+  current_state: z.string().nullable().default(null),
   preferred_locations: z.array(z.string()).default([]),
   relocation_willingness: z.boolean().nullable().default(null),
   current_salary: z.number().int().nonnegative().nullable().default(null),

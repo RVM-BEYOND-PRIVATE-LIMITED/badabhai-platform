@@ -83,6 +83,7 @@ def _build_rich(sig: Signals, role_family: str) -> WorkerProfileDraft:
         materials_handled=sig.materials_handled,
         drawing_reading=sig.drawing_reading,
         current_city=sig.current_city,
+        current_state=sig.current_state,
         preferred_locations=sig.preferred_locations,
         relocation_willingness=sig.relocation_willingness,
         current_salary=sig.current_salary,

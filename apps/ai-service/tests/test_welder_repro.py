@@ -189,9 +189,9 @@ def test_repro_welder_canonical_gap_is_by_design():
     assert legacy.skills == []
 
 
-def test_repro_welder_city_is_dropped_before_ws3():
-    # BUG (pre-WS3): "dilli" is not a known-city alias and "bihar" is a state with
-    # no handling, so BOTH are silently dropped. WS3 flips these assertions.
+def test_repro_welder_city_and_state_captured_after_ws3():
+    # WS3 fixes the real bug: the Hinglish alias "dilli" normalizes to the canonical
+    # "Delhi", and "bihar" is captured as a state instead of being silently dropped.
     sig = signals.detect(_WELDER_TEXT)
-    assert sig.current_city is None
-    assert sig.preferred_locations == []
+    assert sig.current_city == "Delhi"
+    assert sig.current_state == "Bihar"

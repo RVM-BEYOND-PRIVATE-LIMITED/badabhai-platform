@@ -36,8 +36,27 @@ KNOWN_CITIES: frozenset[str] = frozenset(
         "bhopal", "manesar", "pithampur", "hosur", "peenya", "bawal", "sanand",
     }
 )
-# Longer names first so the regex alternation prefers multi-word matches.
-_CITIES = sorted(KNOWN_CITIES, key=len, reverse=True)
+
+# Hinglish / colloquial aliases + common misspellings that resolve INTO the closed
+# canonical KNOWN_CITIES set (alias -> canonical, both lowercased). This is NOT a
+# loosening of the closed set: an alias only ever normalizes to an EXISTING
+# canonical member (see signals._canonical_city). The pseudonymizer also matches
+# these keys so an aliased city name is still masked before any LLM call.
+CITY_ALIASES: dict[str, str] = {
+    "dilli": "delhi",
+    "dilly": "delhi",
+    "bombay": "mumbai",
+    "bengaluru": "bangalore",
+    "banglore": "bangalore",
+    "gurgaon": "gurugram",
+    "gudgaon": "gurugram",
+    "calcutta": "kolkata",
+    "poona": "pune",
+}
+# Every token the city detector should RECOGNIZE = the canonical set + the alias
+# keys. Longer names first so the regex alternation prefers multi-word matches.
+_CITY_TOKENS = sorted(set(KNOWN_CITIES) | set(CITY_ALIASES), key=len, reverse=True)
+_CITIES = _CITY_TOKENS  # kept name-stable for internal references
 
 # Words that look like a leading name but are greetings/fillers — do not mask.
 _NAME_STOPLIST = {

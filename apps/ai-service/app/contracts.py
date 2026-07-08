@@ -168,6 +168,9 @@ class WorkerProfileDraft(BaseModel):
     materials_handled: list[str] = Field(default_factory=list)
     drawing_reading: bool | None = None
     current_city: str | None = None
+    # State-level location, captured when the worker names a state (e.g. "Bihar")
+    # rather than a specific city. Additive (default None → backward compatible).
+    current_state: str | None = None
     preferred_locations: list[str] = Field(default_factory=list)
     relocation_willingness: bool | None = None
     current_salary: int | None = None
