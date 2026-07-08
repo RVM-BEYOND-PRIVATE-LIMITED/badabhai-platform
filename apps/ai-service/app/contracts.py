@@ -35,6 +35,12 @@ class AICallMetadata(BaseModel):
     error_code: str | None = None
     cost_alert: bool = False
     above_target: bool = False
+    # Diagnostics (additive, defaulted → back-compat): reconcile per-attempt log
+    # volume vs per-call metadata and surface the specific transport failure.
+    # PII-free: an int count, model ids, and a closed-set reason code.
+    attempt_count: int = 0
+    candidates_tried: list[str] = Field(default_factory=list)
+    failure_reason: str | None = None
     created_at: str
 
 

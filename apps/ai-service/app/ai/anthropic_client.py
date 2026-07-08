@@ -17,6 +17,7 @@ request or response bodies — only the router observes counts/status.
 from __future__ import annotations
 
 from ..config import Settings
+from .errors import REASON_MISSING_KEY, REASON_NO_TEXT_CONTENT, REASON_SDK_ERROR, LlmTransportError
 
 # Reuse the SAME result shape as the Gemini client so the router/cost tracker
 # treat every provider identically.
@@ -62,8 +63,9 @@ def _parse_anthropic_response(resp) -> LlmResult:
     """Extract content + token counts from an Anthropic Messages response.
 
     Response text = concatenation of ``.text`` over text blocks in
-    ``resp.content``. Raises ``RuntimeError`` if there is no text content (the
-    router catches and tries the next provider, else falls back to mock).
+    ``resp.content``. Raises :class:`LlmTransportError` (PII-free reason code) if
+    there is no text content (the router catches and tries the next provider, else
+    falls back to mock).
     """
     blocks = getattr(resp, "content", None) or []
     text_parts = [
@@ -73,7 +75,7 @@ def _parse_anthropic_response(resp) -> LlmResult:
     ]
     content = "".join(text_parts)
     if not content:
-        raise RuntimeError("anthropic response had no text content")
+        raise LlmTransportError(REASON_NO_TEXT_CONTENT)
 
     usage = getattr(resp, "usage", None)
     input_tokens = int(getattr(usage, "input_tokens", 0) or 0) if usage else 0
@@ -103,12 +105,12 @@ async def acomplete(
     """
     api_key = settings.anthropic_api_key
     if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY is not set; cannot make a real call")
+        raise LlmTransportError(REASON_MISSING_KEY)
 
     try:
         from anthropic import AsyncAnthropic
     except ImportError as exc:  # SDK not installed -> treat as a failed provider.
-        raise RuntimeError("anthropic SDK is not installed") from exc
+        raise LlmTransportError(REASON_SDK_ERROR) from exc
 
     system_text, anthropic_messages = _to_anthropic_request(messages, json_mode=json_mode)
 
@@ -123,9 +125,12 @@ async def acomplete(
             temperature=temperature,
         )
     except RuntimeError:
+        # Includes LlmTransportError (a RuntimeError) -> re-raise unchanged.
         raise
     except Exception as exc:
-        # Never include the body (may echo pseudonymized content) — type only.
-        raise RuntimeError(f"anthropic call failed: {type(exc).__name__}") from exc
+        # Never include the body (may echo pseudonymized content) — a PII-free
+        # reason code only. Chained via ``from exc`` for local tracebacks (the
+        # router logs only reason_code, never this chain).
+        raise LlmTransportError(REASON_SDK_ERROR) from exc
 
     return _parse_anthropic_response(resp)

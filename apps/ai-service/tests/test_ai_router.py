@@ -277,8 +277,12 @@ def test_both_providers_fail_falls_back_to_mock(monkeypatch):
     assert meta.real_call is True  # attempted real
     assert meta.success is False
     assert meta.error_code == "llm_call_failed"
-    # Metadata reports under the PRIMARY model.
-    assert meta.model_name == "gemini-2.5-flash"
+    # Terminal metadata now attributes to the model that ACTUALLY failed LAST (the
+    # Haiku fallback here), not always the primary — fixing the Haiku-attempt-but-
+    # Gemini-labelled divergence. Both providers appear in candidates_tried.
+    assert meta.model_name == "claude-haiku-4-5"
+    assert meta.candidates_tried == ["gemini-2.5-flash", "claude-haiku-4-5"]
+    assert meta.attempt_count >= 2
 
 
 def test_no_fallback_when_anthropic_key_absent(monkeypatch):

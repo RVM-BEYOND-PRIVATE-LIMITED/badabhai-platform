@@ -16,6 +16,14 @@ from dataclasses import dataclass
 import httpx
 
 from ..config import Settings
+from .errors import (
+    REASON_HTTP_429,
+    REASON_HTTP_ERROR,
+    REASON_MAX_TOKENS_NO_PARTS,
+    REASON_MISSING_KEY,
+    REASON_NO_CANDIDATES,
+    LlmTransportError,
+)
 
 _GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 _TIMEOUT_SECONDS = 30.0
@@ -119,15 +127,17 @@ def _to_gemini_request(
 def _parse_gemini_response(data: dict) -> LlmResult:
     """Extract content + token counts from a Gemini ``generateContent`` response.
 
-    Raises ``RuntimeError`` if there is no candidate text (the router catches and
-    falls back to mock — fail-safe).
+    Raises :class:`LlmTransportError` with a PII-free ``reason_code`` if there is
+    no candidate text (the router catches and falls back to mock — fail-safe).
     """
     candidates = data.get("candidates") or []
     if not candidates:
-        raise RuntimeError("gemini response had no candidates")
+        raise LlmTransportError(REASON_NO_CANDIDATES)
     parts = (candidates[0].get("content") or {}).get("parts") or []
     if not parts:
-        raise RuntimeError("gemini candidate had no content parts")
+        # No content parts => the (thinking-disabled) call still hit MAX_TOKENS or
+        # a safety stop before emitting an answer.
+        raise LlmTransportError(REASON_MAX_TOKENS_NO_PARTS)
     content = parts[0].get("text") or ""
 
     usage = data.get("usageMetadata") or {}
@@ -154,7 +164,7 @@ async def acomplete(
     """
     api_key = settings.gemini_flash_api_key
     if not api_key:
-        raise RuntimeError("GEMINI_FLASH_API_KEY is not set; cannot make a real call")
+        raise LlmTransportError(REASON_MISSING_KEY)
 
     model_id = _bare_model_id(model)
     url = f"{_GEMINI_API_BASE}/{model_id}:generateContent"
@@ -181,7 +191,9 @@ async def acomplete(
             await asyncio.sleep(_retry_after_seconds(resp, attempt))
 
     if resp.status_code < 200 or resp.status_code >= 300:
-        # Do NOT include the body (may echo pseudonymized content) — status only.
-        raise RuntimeError(f"gemini call failed with status {resp.status_code}")
+        # Do NOT include the body (may echo pseudonymized content) — a PII-free
+        # reason code + the numeric status only.
+        reason = REASON_HTTP_429 if resp.status_code == 429 else REASON_HTTP_ERROR
+        raise LlmTransportError(reason, status_code=resp.status_code)
 
     return _parse_gemini_response(resp.json())
