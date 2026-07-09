@@ -11,6 +11,51 @@ Do not overload: one primary task per developer per day.
 
 ---
 
+## 2026-07-09 — Alpha recovery (staging PAST DEADLINE — execute now)
+
+> **State:** 16 PRs merged (Jun 30–Jul 8), everything built. Alpha B1 deadline was Jul 4 — SLIPPED 5 days. Staging is the only P0. FE wiring (FE-1..FE-7) is parallelizable. `origin/main` HEAD: `a143a7d`.
+
+### Prakash — P0 CRITICAL: staging
+- **Provision Lightsail/EC2 TODAY** → Docker + WeasyPrint + `RESUME_RENDER_ENABLED=true` → `staging` GitHub Environment + all secrets → push → run 36 migrations → `/health` 200 → activate OTP-7 (capped, team-only). Keep AI/payments/WhatsApp OFF.
+- **Publish `STAGING_API_BASE_URL` to team the moment it's live.**
+- Evidence: `docs/qa/evidence/staging/2026-07-09-health.txt` + `-smoke.txt`.
+
+### Divyanshu — P1: FE wiring batch (parallelizable — no staging needed)
+- `git checkout main && git pull` + fresh-migrate local DB (drop/recreate local scoop DB; 14 e2e fails = stale schema).
+- Per [WEB_ALPHA_TASKS.md](WEB_ALPHA_TASKS.md): **FE-1** masked-résumé, **FE-2** pause/resume, **FE-4** quota, **FE-5** credit ledger, **FE-3** plan/boost net-new UI, **FE-7** kill stale comments + drop mock-store.
+- Gate: `pnpm --filter @badabhai/payer-web test` green + local click-through per wave.
+
+### Rishi — B1 handset (gated on staging)
+- Flutter analyze + test locally. Prep REAL-mode env + clean-logcat procedure. Confirm Applied Jobs tab calls `GET /workers/me/applications` (#173).
+- When `STAGING_API_BASE_URL` arrives: real handset REAL-mode → onboarding→chat→profile→resume PDF → 4 evidence artifacts. **Do NOT flip `kPersistentAuth` ON** (LAUNCH-GATED per #176).
+
+_Alpha done = all 6 gate scripts in [TEST_MATRIX.md](TEST_MATRIX.md) pass → B1 CLOSED._
+
+---
+
+## 2026-07-03 — Alpha final push (deadline 2026-07-04)
+
+Everything is built (ADR-0026, ADMIN, A/B batch #173–#180, B5 org/Team #182–#186 all on `main`, 36 migrations). **The only thing between ~74%-built and alpha is staging.** Three parallel tracks; evidence-gated.
+
+### Prakash — P0: staging (the whole deadline rides on this)
+- **Provision Lightsail/EC2 TODAY** → Docker + WeasyPrint + `RESUME_RENDER_ENABLED=true` → `staging` GitHub Env + secrets → CD fires → run migrations (36, incl. 0035) → `/health` 200 → activate OTP-7 (capped, team-only). Keep AI/payments/WhatsApp/`MEMBER_INVITES_ENABLE_REAL` OFF.
+- **Publish `STAGING_API_BASE_URL` to Rishi the moment it's up.** Commit the tracker.
+- Evidence: `docs/qa/evidence/staging/2026-07-03-health.txt` + `-smoke.txt`.
+- **If not up today → alpha slips to ~07-07/08.** This is the escalation.
+
+### Divyanshu / FE — Web alpha wiring (NOT staging-blocked — do now)
+- `git checkout main && git pull` first (local stale). Then, per [WEB_ALPHA_TASKS.md](WEB_ALPHA_TASKS.md): **FE-1** masked-résumé → `POST /payer/resume-disclosures`; **FE-2** pause/resume → `/pause`+`/resume`; **FE-4** quota → `/quota`; **FE-5** credit history → `GET /payer/credits/ledger`; **FE-3** plan/boost net-new UI → `/plan`+`/boost`; **FE-7** kill stale "no route yet" comments + drop the mock-store fallback.
+- Each: mock→live through the typed Zod seam; `pnpm --filter @badabhai/payer-web test` green + a local click-through (needs local DB fresh-migrate — Task C).
+
+### Rishi — B1 handset (gated on Prakash's staging)
+- Now: pull main; `flutter analyze && flutter test`; prep REAL-mode build + clean-logcat procedure + PDF-open verification. Confirm Applied Jobs tab calls the merged `GET /workers/me/applications` (A1).
+- When `STAGING_API_BASE_URL` lands: run B1 on a real handset → capture the 4 missing artifacts (staging health, `events` export, clean logcat, PDF-open + `resume.downloaded`).
+- **Do NOT flip `kPersistentAuth` ON** — the WorkerAuthGuard slide/re-mint consent-gate launch-gate is still open ([[pr176-consent-on-resume]]); run B1 with OTP each time.
+
+_Definition of alpha done: all 6 gate scripts in [TEST_MATRIX.md](TEST_MATRIX.md) pass with evidence → B1 CLOSED. Real-provider gates stay OFF._
+
+---
+
 ## 200% Mode — 2026-06-30
 
 Goal for today: convert the B1 sprint from "screenshots exist" to "runtime proof

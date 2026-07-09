@@ -2,7 +2,8 @@
 
 Each phase: goal · in-scope · out-of-scope · blockers · acceptance · **test gate** · owner · target.
 
-**Current position (2026-06-29):** Overall **72%** · Alpha **57%** · Release **28%**. Phase 0 nearly closed; **Phase 1 (B1 alpha-gate sprint) starts this week with a hard deadline of Friday 2026-07-04.** All decisions D1–D8 are closed. 9 PRs merged today (ADR-0026 all 5 phases + ADMIN-3a/3b/3c). The remaining gap to alpha is **staging + verification, not more code.**
+**Current position (2026-07-09):** Overall **~75%** · Alpha **~58%** · Release **~29%**. **Everything is built** — ADR-0026 (5 phases), ADMIN-3a/3b/3c, A/B batch #173–#180 (LC-1 closed for money routes), B5 org-tenancy + Team #182–#186 (ADR-0027), AI-service retry storm fix + ADR-0028. `origin/main` HEAD: `a143a7d` (Jul 8). 36 migrations. All decisions D1–D8 closed.
+> 🚨 **DEADLINE SLIPPED:** Alpha B1 deadline was **2026-07-04** — MISSED. As of 2026-07-09, staging still not provisioned (no `/health` proof, no events, no logcat, no PDF). Gap to alpha = **100% staging + FE wiring, 0% code**. Only Prakash provisioning the instance is on the critical path.
 
 Owners: Prakash (TL/PM, staging+infra), Divyanshu (backend/AI), Rishi Ojha (Android/Flutter), QA.
 
