@@ -1,23 +1,21 @@
 # BadaBhai Project Progress
 
-**Last updated:** 2026-06-30 (evidence-folder verification; no percentage move)
-**Updated by:** Control-room (evidence verification + 200% daily board)
-**Branch:** `main` (HEAD: `2f1de80`) — latest pulled; ADR-0026 all phases + ADMIN-3a/3b/3c + worker Applied Jobs are on main
-**Environment:** Local (Windows, no Docker). **Staging deployment pending (D1 decided: Lightsail/EC2).** Confidence basis = static + unit/integration tests plus partial screenshot artifacts in `docs/qa/evidence/b1`; **zero staging event/logcat proof yet.**
+**Last updated:** 2026-07-10 (PR #189 Flutter wiring + NEW payer-app, PR #190 evidence refresh; 60-screenshot audit; Worker App 67→69)
+**Updated by:** Control-room (evidence audit + tracker sync)
+**Branch:** `origin/main` (HEAD: `905fd1f` — B1 evidence screenshots, Jul 10) · Local: `docs/tracker-sync-and-b1-evidence`
+**Environment:** Local (Windows, no Docker). **Staging STILL NOT DEPLOYED — deadline slipped past 2026-07-04.** Confidence basis = static + unit tests + **60 emulator screenshots (local backend, 2026-07-09 session — audited, [QA_EVIDENCE 2026-07-10](QA_EVIDENCE.md))**; **zero staging/handset proof (no /health, no events chain, no logcat, no PDF).**
 
-> **Numbers are evidence-based and conservative.** Nothing has been verified on real
-> infrastructure, so by the honesty rule **no area exceeds 85%**. Phase weights are the
-> CLAUDE.md/owner defaults — `WEIGHTS_PENDING` ratification.
+> **Numbers are evidence-based and conservative.** Cap rule: **no area exceeds 85%** until staging + handset proof exists. Phase weights = CLAUDE.md/owner defaults.
 
-## BadaBhai Progress Snapshot (2026-06-29)
-- **Overall Project: 72%** · **Alpha Readiness: 57%** · **Release Readiness: 28%**
-- Payer Web 74% · Worker App 67% · Backend/API 80% · OTP/Auth/Security 78% · Agency Demand 68% · Resume+Kit 75% · Infra/Staging 45% · Docs/Process 80%
-- _Re-score driver (since 69% baseline): ADR-0026 all 5 phases + ADMIN-3a/3b/3c merged -> Worker Auth 35%->80%, lifting Backend 77->80, OTP/Auth 70->78, Worker App 62->67. **Caps unchanged: screenshot artifacts now exist, but there is still 0 staging event/logcat proof -> no area >85%; alpha gated by B1.**_
-- **P0 Blockers: 1** (staging not yet provisioned — D1 DECIDED: Lightsail/EC2, Prakash executing)
-- **P1 Blockers: 1** (unlock/reveal LC-1 auth — posting-plans D3 DECIDED: guard in progress)
-- **Decisions Needed: 0** — all decisions closed 2026-06-29 (D1–D8). **Alpha deadline: Friday 2026-07-04 (B1 sprint).**
+## BadaBhai Progress Snapshot (2026-07-10)
+- **Overall Project: 75%** · **Alpha Readiness: 58%** · **Release Readiness: 29%**
+- Payer Web 78% · Worker App 69% · Backend/API 84% · OTP/Auth/Security 80% · Agency Demand 70% · Resume+Kit 75% · Infra/Staging 45% · Docs/Process 85%
+- _Re-score driver (since 72% on Jun 29): 16 PRs merged — A-batch fixes (#173–#176), B-batch backend (#177–#180), B5 org-tenancy (#182–#186, ADR-0027), AI-service retry storm fixed (#187, ADR-0028). LC-1 closed for money routes (#179). Backend 80→84, Payer Web 74→78, OTP/Auth 78→80, Agency 68→70, AI-service 75→80, Docs 80→85. **Jul 10:** PR #189 (worker-app A1/A3/A4 wiring + NEW Flutter payer-app) + PR #190 (60-screenshot evidence refresh) → Worker App 67→69 (evidence: [QA_EVIDENCE 2026-07-10](QA_EVIDENCE.md)). **Infra/Staging unchanged (45%) — staging not deployed, slipped past deadline.**_
+- **P0 Blockers: 1** (staging not provisioned — PAST deadline 2026-07-04, now CRITICAL)
+- **P1 Blockers: 1** (unlock/reveal LC-1 — InternalServiceGuard + body payer_id still open; money routes closed by #179)
+- **Decisions Needed: 0** — all D1–D8 closed. **Alpha deadline SLIPPED — was 2026-07-04, now targeting ASAP (est. 2026-07-07/08 when staging lands).**
 
-**Build health (re-verified `0635aee`):** `pnpm lint` ✅ (0 errors, 1 pre-existing warning) · `pnpm typecheck` ✅ (23/23) · `pnpm test` ✅ · `pnpm build` ✅. **The branch is green.** (Earlier in this audit the tree was transiently red on uncommitted ADMIN-3b WIP — that work is now committed and clean.)
+**Build health (re-verified on `origin/main` `a143a7d`):** `pnpm lint` ✅ · `pnpm typecheck` ✅ · `pnpm test` ✅ (1289/1289 api tests, 129 files) · `pnpm build` ✅. AI-service: `ruff` ✅ · `pytest` ✅ (gates green per PR #187). **The branch is green.** 36 migrations (0000–0035).
 
 **What this means:** the codebase is **broad, green, and well-tested at the unit level** (api 1141 tests,
 payer-web 517, ai-service ~220, worker-app 46 files) but **not one flow is proven on real infrastructure**.
@@ -29,41 +27,43 @@ The gap to alpha is **verification + staging**, not "more code".
 
 | Area | Progress | Status | Confidence | P0/P1 Blockers | Evidence |
 | ---- | -------: | ------ | ---------- | -------------- | -------- |
-| Overall Project | 72% | IN_PROGRESS | Medium | 1 P0 / 1 P1 | [QA_EVIDENCE.md](QA_EVIDENCE.md) + [`docs/qa/evidence/`](../qa/evidence/) — gates green; screenshots present; no staging event/logcat proof |
-| Alpha Readiness | 57% | BLOCKED | Medium | 1 P0 (B1 handset / staging) — B1 sprint → 2026-07-04 | [registers/alpha-capstone-fixlist.md](../registers/alpha-capstone-fixlist.md) — NO-GO on B1; screenshot evidence partial |
-| Release Readiness | 28% | BLOCKED | High | RLS deferred, real providers off, no DR/cost doc, 4 PIN throttle fast-follows | [RELEASE_READINESS.md](RELEASE_READINESS.md) |
+| Overall Project | 75% | IN_PROGRESS | Medium | 1 P0 / 1 P1 | gates green; 18 PRs merged Jun 30–Jul 10; 60 audited emulator screenshots (local backend); no staging/handset proof |
+| Alpha Readiness | 58% | BLOCKED | Medium | 1 P0 — staging not deployed, PAST deadline 2026-07-04 | NO-GO on B1; 60 emulator/local screenshots audited (worker wiring real, payer-app mock-mode); still need staging /health + events + logcat + PDF |
+| Release Readiness | 29% | BLOCKED | High | RLS deferred, real providers off, no DR/cost doc, unlock/reveal LC-1 open | [RELEASE_READINESS.md](RELEASE_READINESS.md) |
 
 ## Phase Progress (weights = CLAUDE.md/owner defaults, WEIGHTS_PENDING)
 
 | Phase | Weight | Progress | Weighted | Status | Owner (proposed) | Top Blocker |
 | ----- | -----: | -------: | -------: | ------ | ---------------- | ----------- |
-| Payer Web Alpha | 25% | 74% | 18.5 | VERIFY | Prakash / Utkarsh | No staging run; Team-RBAC + Account-edit stubs |
-| Worker App Alpha | 20% | 67% | 13.4 | BLOCKED | Rishi (Flutter) | B1 handset run (P0); ADR-0026 mobile auth merged; tabs mock |
-| Backend/API/Event | 20% | 80% | 16.0 | VERIFY | Divyanshu | posting-plans guard in progress (D3); ADMIN + ADR-0026 backend merged |
-| OTP/Auth/Security | 10% | 78% | 7.8 | VERIFY | Divyanshu | PIN+device+rotation merged (scrypt); real-send unproven; 4 throttle fast-follows |
-| Agency Demand Alpha | 10% | 68% | 6.8 | VERIFY | Prakash | No staging run; payouts/KYC parked |
-| Resume + Interview Kit | 7% | 75% | 5.25 | VERIFY | Divyanshu | D5 DECIDED: PDF required for alpha; enable `RESUME_RENDER_ENABLED=true` + WeasyPrint on staging |
-| Infra/Staging/Release | 5% | 45% | 2.25 | PARTIAL | DevOps/Prakash | Staging CD inert/unwired (P0) |
-| Docs/Tracker/Process | 3% | 80% | 2.40 | IN_PROGRESS | TPM | — |
-| **TOTAL** | **100%** | **72%** | **72.4** | | | |
+| Payer Web Alpha | 25% | 78% | 19.5 | VERIFY | Prakash / Divyanshu | No staging run; FE wiring (FE-1..FE-7) in progress; B5 Team wired (#186) |
+| Worker App Alpha | 20% | 69% | 13.8 | BLOCKED | Rishi (Flutter) | B1 handset (P0 — staging not live); PR #189 wiring merged + emulator-run audit; no PDF/logcat/staging proof |
+| Backend/API/Event | 20% | 84% | 16.8 | VERIFY | Divyanshu | LC-1 closed for money routes (#179); unlock/reveal still InternalServiceGuard; B5 org API merged |
+| OTP/Auth/Security | 10% | 80% | 8.0 | VERIFY | Divyanshu | PIN throttle hardened (#175); consent-on-resume (#176); real-send unproven on staging |
+| Agency Demand Alpha | 10% | 70% | 7.0 | VERIFY | Prakash | B5 payer invites (#185) merged; no staging run |
+| Resume + Interview Kit | 7% | 75% | 5.25 | VERIFY | Divyanshu | PDF requires `RESUME_RENDER_ENABLED=true` + WeasyPrint on staging (D5) |
+| Infra/Staging/Release | 5% | 45% | 2.25 | BLOCKED | Prakash | **Staging STILL not deployed — PAST deadline. P0 CRITICAL.** |
+| Docs/Tracker/Process | 3% | 85% | 2.55 | IN_PROGRESS | TPM | ADR-0027 (#181) + ADR-0028 (#188) added; tracker updated |
+| **TOTAL** | **100%** | **75%** | **75.15** | | | |
 
 ## Main Task Progress
 
-### Payer Web Alpha (74%)
+### Payer Web Alpha (78%)
 | Main Task | Progress | Status | Evidence | Next Action |
 | --------- | -------: | ------ | -------- | ----------- |
-| Login / OTP (email) | 80% | VERIFY | `login/` real provider; 3 tests; OTP real-only | Prove real ZeptoMail send (staging, OTP-7) |
+| Login / OTP (email) | 80% | VERIFY | `login/` real provider; tests; OTP real-only | Prove real ZeptoMail send (staging, OTP-7) |
 | Dashboard (role-aware) | 82% | VERIFY | `dashboard/page.tsx` live credits/unlocks/postings; tests | Click-through on staging |
 | Post Job | 82% | VERIFY | `postings/new` → live `POST /payer/job-postings`; tests | Staging persist check |
-| Manage Postings | 65% | PARTIAL | list live; pause/resume/quota = mock store | Wire lifecycle routes |
+| Manage Postings — pause/resume | 78% | VERIFY | `POST /payer/job-postings/:id/pause|resume` merged #178; FE wiring = **FE-2** | Wire FE seam (pending FE wiring batch) |
+| Manage Postings — quota top-up | 78% | VERIFY | `POST /payer/job-postings/:id/quota` merged #180; FE wiring = **FE-4** | Wire FE seam (pending) |
+| Plan / Boost | 70% | PARTIAL | `POST /payer/job-postings/:id/plan|boost` merged #179 (LC-1 closed, payer-authed); **net-new UI needed = FE-3** | Build seam fn + UI |
 | Applicant Feed | 82% | VERIFY | live `reach/applicants`; faceless; tests | Staging click-through |
-| Unlock / Reveal | 70% | PARTIAL | live both; **rides InternalServiceGuard + body payer_id (LC-1)**; masked-resume mock | Close LC-1; live masked-resume |
-| Wallet / Credits | 65% | PARTIAL | balance live; top-up mock money; ledger/history mock | Wire credit ledger reads |
+| Unlock / Reveal | 72% | PARTIAL | masked-resume `POST /payer/resume-disclosures` live; FE still mock = **FE-1**; unlock/reveal InternalServiceGuard (LC-1 still open) | Wire FE-1; close LC-1 for unlock/reveal |
+| Wallet / Credits | 75% | PARTIAL | balance live; `GET /payer/credits/ledger` merged #177; FE still mock = **FE-5** | Wire FE-5 |
 | Capacity | 70% | PARTIAL | live buy (mock money); enforcement INERT | Confirm enforcement plan |
-| Team / Org RBAC | 45% | PARTIAL | `team/` stub; `listOrgMembers` STUBBED | Build org-member API |
-| Account / Profile | 55% | PARTIAL | read live; edit endpoint missing (PROFILE-4) | Build account-edit route |
+| Team / Org RBAC | 78% | VERIFY | B5.1–B5.5 all merged (#182–#186, ADR-0027); payer-web Team page wired (#186) | Staging click-through; account-edit (PROFILE-4) |
+| Account / Profile | 55% | PARTIAL | read live; `PATCH /payer/me` live; FE edit wiring = **FE-account** | Wire account edit |
 
-### Worker App Alpha (62%) — **P0: not runnable/verified on a real handset (B1)**
+### Worker App Alpha (69%) — **P0: not yet proven on real staging/handset (B1 PAST DEADLINE)**
 | Main Task | Progress | Status | Evidence | Next Action |
 | --------- | -------: | ------ | -------- | ----------- |
 | Scaffold + router (ADR-0023) | 85% | VERIFY | `router.dart` go_router stateful shell | Handset run |
@@ -74,13 +74,13 @@ The gap to alpha is **verification + staging**, not "more code".
 | Profile extraction | 78% | VERIFY | real enqueue+poll; test | Handset + real LLM (gated) |
 | Resume gen + download | 78% | VERIFY | real generate/download; tests | Handset PDF download |
 | Interview kit | 80% | VERIFY | real public download; tests | Handset |
-| Swipe feed + apply/skip | 65% | PARTIAL | feed+apply real; **job-detail = client-side mock synthesis** | Real job-detail endpoint (ADR) |
-| Profile tab | 45% | PARTIAL | mock-only repo | Real profile-summary endpoint |
+| Swipe feed + apply/skip | 70% | PARTIAL | feed+apply real; **Applied Jobs list wired to `GET /workers/me/applications` (#189, emulator-proven)**; job-detail = client-side mock synthesis | Real job-detail endpoint (ADR) |
+| Profile tab | 45% | PARTIAL | mock-only repo (audit: shows seed persona ≠ logged-in identity) | Real profile-summary endpoint |
 | Notifications | 40% | PARTIAL | mock-only (3 canned) | Real signal source |
-| Settings | 25% | PARTIAL | placeholder (logout/delete stub) | Real session/delete |
+| Settings | 45% | PARTIAL | **A3 referral + A4 DPDP delete + devices wired real (#189)**; language/WhatsApp rows static | Handset proof |
 | Voice note | 10% | PARKED | placeholder; STT deferred (§8) | Do not build (Phase-2) |
 
-### Backend / API / Event Foundation (77%)
+### Backend / API / Event Foundation (84%)
 | Main Task | Progress | Status | Evidence | Next Action |
 | --------- | -------: | ------ | -------- | ----------- |
 | Auth/OTP service (breaker+kill-switch) | 82% | VERIFY | `otp.service.ts`; real-only; PII-free logs; tests | Real-send proof |
@@ -89,16 +89,25 @@ The gap to alpha is **verification + staging**, not "more code".
 | Applications / feed API | 80% | VERIFY | `applications/`; consent-gated; tests | Staging |
 | Unlock / reveal API | 70% | PARTIAL | `unlocks/`; **InternalServiceGuard + body payer_id (LC-1)** | Close LC-1 |
 | Credits/wallet + ledger idempotency | 80% | VERIFY | migration 0028; ON CONFLICT DO NOTHING; tests | Staging |
-| Capacity / posting-plans API | 60% | PARTIAL | D3 DECIDED: InternalServiceGuard guard in progress (Divyanshu) | Guard PR + tests |
-| Agency API | 78% | VERIFY | `agency/`; PayerRoleGuard; tests | Staging |
-| Admin ops (1/2/3a/3b/3c committed) | 78% | VERIFY | All 4 committed + green; 3c kill-switch (#165) | D4 DECIDED: Prakash owns weekly review; enable 3b once cadence live |
+| Capacity / posting-plans API | 82% | VERIFY | InternalServiceGuard added (#174); payer-authed plan/boost merged (#179, LC-1 closed); quota (#180) | Staging verify |
+| Agency API | 80% | VERIFY | `agency/`; PayerRoleGuard; payer invites (#185); tests | Staging |
+| Payer Org / Team API | 82% | VERIFY | B5.1–B5.5 all merged — payer_orgs + payer_members; PayerOrgRoleGuard; invite accept; real email (gated) | Staging verify; account-edit (PROFILE-4) |
+| Admin ops (1/2/3a/3b/3c committed) | 78% | VERIFY | All committed + green; 3c kill-switch (#165) | D4: Prakash owns weekly review; enable 3b once cadence live |
+| AI Service — extraction + canonicalization | 80% | VERIFY | Retry storm fixed (#187); Hinglish city aliases; rich→legacy mapper; adjacency flag (ADR-0028) | Staging verify with real LLM (gated) |
 | Health (DB+Redis) | 85% | VERIFY | `health/`; no secret leak; tests | Staging probe |
 
-### Worker Auth (ADR-0026) — ALL 5 PHASES MERGED 2026-06-29
-Phase 1 (#162) + Phase 2 (#167) + Phase 3 (#168) + Phase 4 (#170) + Phase 5 (#169) — all merged by Divyanshu Pant. Rotating refresh tokens, trusted-device binding, device-bound PIN (scrypt), mobile↔backend contract reconciliation, and DPDP account deletion. Program rollup **~80%** (code complete + unit-tested; gated off by default pending staging proof). **D7 RESOLVED:** merged Phase 3 uses `crypto.scrypt` per ADR-0026 (`pin-hasher.service.ts`), Argon2id correctly deferred to TD55 — no §3 deviation. **Fast-follows before real-SMS/prod:** 4 deferred MEDIUM PIN throttle/rate-limit findings (PR #168), `PAYER-PIN-1` held pending amendment, account-deletion prod endpoint §7-deferred ([WORKER_AUTH_ADR0026.md](WORKER_AUTH_ADR0026.md)).
+### Worker Auth (ADR-0026) — ALL 5 PHASES MERGED + PIN throttle hardened
+Phase 1 (#162) + Phase 2 (#167) + Phase 3 (#168) + Phase 4 (#170) + Phase 5 (#169) — all merged. **PIN throttle hardened (#175 — Jul 1):** cycle-0 flush reset fixed, `/pin/reset` per-IP cap added. **Consent-on-resume (#176 — Jul 1):** defense-in-depth on every session-resume path; WorkerAuthGuard slide/re-mint **LAUNCH-GATED** — must close before `kPersistentAuth` flip. Program rollup **~83%**. **Remaining:** `PAYER-PIN-1` held; account-deletion prod endpoint §7-deferred; real-SMS unproven on staging.
 
-### Payer-Web Go-Live + Android API (delivered 2026-06-29)
-Verified API-surface extraction produced two docs: the **[payer/agency go-live plan](PAYER_WEB_GO_LIVE_PLAN.md)** (gap list + ordered backend/FE work + per-flow checklist) and the **[Android API reference](../api/payer-agency-api-reference.md)** for Rishi. Headline: payer mobile auth works **today** via Bearer (token in response body); the go-live blockers are posting-plans IDOR (G1/G2), company posting pause/resume + quota (G4/G5), and 3 mock→live wiring swaps (masked-resume, account-edit, credit-ledger).
+### Payer-Web Go-Live + Android API (backend COMPLETE — Jul 1)
+All backend endpoints shipped: A-batch fixes (#173–#176), B-batch (#177–#180), B5 org-tenancy (#182–#186). **LC-1 CLOSED for money routes** (#179). Remaining: **FE wiring batch (FE-1..FE-7)** — switching 5 mock shims to live endpoints; stale "no route yet" comments; drop dead mock-store code. [WEB_ALPHA_TASKS.md](WEB_ALPHA_TASKS.md) is the task board. Android API reference: [../api/payer-agency-api-reference.md](../api/payer-agency-api-reference.md).
+
+### AI Service (ADR-0028 — Jul 8)
+Retry storm root cause fixed (#187): transport failures now surface reason code; Hinglish city aliases normalized (dilli→delhi, bihar→patna); rich→legacy canonical mapper + adjacency flag added. **ADR-0028** (international occupation taxonomy — TD56/TD57) accepted (#188). AI-service gates: `ruff` ✅ · `pytest` ✅ · security review PASS (PR #187). **Follow-up (Jul 10):** #187 added `attempt_count`/`candidates_tried`/`failure_reason` to Pydantic `AICallMetadata` without the Zod mirror — parity fix (invariant #7, + `WorkerProfileDraft.canonical_role_id`) staged on `fix/ai-contracts-zod-pydantic-parity`, gates green, pending merge.
+
+### Flutter apps — worker wiring + NEW payer-app (PR #189/#190 — Jul 10)
+**PR #189 (client-only):** worker-app wired real for A1 applied-jobs (`GET /workers/me/applications` + apply→applied filter fix), A3 referral invite (HIGH empty-link bug fixed pre-merge), A4 DPDP account-delete, resume reuse on login, error-UX sweep (real failure reasons, never false "check internet"). **NEW `apps/payer-app`** — role-aware Flutter Company + Agency app: 14 screens on Desi Vernacular Pop, `kUseMocks` mock/real seam, REAL bindings written for auth/applicants/unlock/postings/credits/agency/team/capacity; home metrics + referred-workers + payouts + KYC are **design-only** (no backend route). Both apps `flutter analyze`/`test` green.
+**PR #190 + audit:** 60 emulator screenshots (2026-07-09 session) replace the 9 JPEGs; all 60 visually audited 2026-07-10 ([QA_EVIDENCE](QA_EVIDENCE.md) + [evidence README](../qa/evidence/README.md)). Verdicts: worker-app **local API wiring proven** (mock-OTP round-trip, identity-bearing resume, applied jobs, referral link); payer-app **mock-mode UI evidence only** (DEBUG/Mock ribbons, static timestamps, credits toast/balance mock bug). **Follow-ups:** payer unlocked-candidate screen shows a raw phone (dummy) — align with ADR-0010 in-app relay before real data; Razorpay copy overstates (payments mock); tester's real phone visible in 4 committed shots — re-shoot masked; PR #189 fast-follows (fetchCredits 0-mask, disclose) open.
 
 ## Final Task Progress (selected — full set rolls up above)
 
@@ -109,7 +118,7 @@ Verified API-surface extraction produced two docs: the **[payer/agency go-live p
 | Unlock/Reveal | Per-payer auth on money route | 40% | BLOCKED | LC-1 (TD33/TD50) | rides InternalServiceGuard | Caller payer_id from session, not body |
 | Posting plans | Guard the `/plan` + `/boost` routes | 50% | IN_PROGRESS | D3 decided (guard) | controller fix in progress | Auth guard + ownership check |
 | Admin PII reveal (3b) | Reason-gated reveal committed + green | 78% | VERIFY | D4: cadence must go live | merged green; D4 owner = Prakash (weekly review) | Weekly audit-stream review + 1-yr retention operational |
-| Worker app | Handset onboarding->resume on staging | 0% | BLOCKED | B1 / staging — **sprint -> 2026-07-04** | screenshots in `docs/qa/evidence/b1`; still missing staging events + clean logcat + PDF-open proof | 3 evidence families (screenshots + events + logcat), plus PDF `resume.downloaded` |
+| Worker app | Handset onboarding->resume on staging | 0% | BLOCKED | B1 / staging — **PAST deadline 2026-07-04** | 60 emulator/local screenshots audited (2026-07-10) — still missing staging /health + events + clean logcat + PDF-open proof | 3 evidence families (screenshots + events + logcat), plus PDF `resume.downloaded` |
 | Credits | Real credit-ledger history read | 50% | PARTIAL | endpoint | UI on mock store | History from live ledger |
 
 ---
@@ -118,7 +127,7 @@ Verified API-surface extraction produced two docs: the **[payer/agency go-live p
 
 **VERIFY** (built + unit-tested, needs runtime/staging proof): payer-web login/dashboard/post-job/applicants; backend auth/OTP/events/job-postings/applications/credits/health/agency/admin(1-3b); worker-app auth/consent/name/chat/profile/resume/kit; AI pseudonymization+extraction; design system.
 
-**PARTIAL** (some working, some missing): payer-web manage-postings, unlock/reveal, wallet, capacity, team-RBAC, account; backend unlock/reveal (LC-1), posting-plans (unguarded); worker-app swipe(job-detail), profile-tab, notifications, settings.
+**PARTIAL** (some working, some missing): payer-web manage-postings, unlock/reveal, wallet, capacity, team-RBAC, account; backend unlock/reveal (LC-1), posting-plans (unguarded); worker-app swipe(job-detail), profile-tab, notifications, settings; **payer-app (Flutter, #189): UI complete + real bindings written, live seam unverified (screenshots are mock-mode); payouts/KYC/home-metrics design-only**.
 
 **BLOCKED:** worker-app alpha (B1 handset/staging); staging CD (unwired).
 
@@ -131,4 +140,4 @@ Verified API-surface extraction produced two docs: the **[payer/agency go-live p
 **UNKNOWN (needs runtime check):** dark-theme parity completeness; formal WCAG/a11y conformance; e2e suite behaviour against real PG+Redis (only CI-run today).
 
 ---
-_Math: overall = Σ(phase% × weight) = 72.4 → reported 72% (conservative; no runtime/staging proof). Re-scored 2026-06-29 after 9 merges; next re-score after the first staging run (B1 sprint → 2026-07-04)._
+_Math: overall = Σ(phase% × weight) = 75.15 → reported 75% (conservative; no staging/handset proof). Re-scored 2026-07-09 after 16 PRs (Jun 30–Jul 8); Worker App 67→69 on 2026-07-10 (PR #189 wiring + 60-screenshot audit). Next re-score after staging /health 200 + B1 handset evidence. Staging P0 is the only gate._

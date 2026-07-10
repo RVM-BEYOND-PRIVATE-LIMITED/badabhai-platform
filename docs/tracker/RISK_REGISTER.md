@@ -8,11 +8,11 @@ Severity: Critical / High / Medium / Low · Status: Open / Mitigated / Accepted 
 
 | ID | Risk | Sev | Prob | Owner | Mitigation | Status |
 | -- | ---- | --- | ---- | ----- | ---------- | ------ |
-| RT-1 | **posting-plans money routes unguarded (IDOR)** | High | High | Divyanshu + security | D3 DECIDED 2026-06-29: InternalServiceGuard this week; PayerAuthGuard before prod | In progress (D3✅) |
-| RT-2 | Unlock/reveal + capacity trust body `payer_id` (LC-1, TD33/TD50) | High | Med | Divyanshu + security | PayerAuthGuard + session-derived id before prod payer surface (D3a) | Open (P1) |
-| RT-3 | **Staging not deployed** → alpha cannot be proven (B1) | High | High | Prakash | D1 DECIDED 2026-06-29: Lightsail/EC2; D2 DECIDED: real OTP approved | Open (P0 — implementation pending) |
-| RT-4 | ADMIN-3b PII-reveal — most sensitive op (decrypt phone) | High | Med | Prakash + security | D4 DECIDED 2026-06-29: Prakash owns weekly `admin.pii_viewed` review; 1-yr retention confirmed. Enable on staging once cadence operational. | Partially mitigated (D4✅) |
-| R1/TD4 | RLS not finalized; service-role BYPASSRLS | High | Med | database-architect | D6 DECIDED 2026-06-29: deferred confirmed for alpha; finalize before prod (Phase 6) | Accepted for alpha (D6✅) |
+| RT-1 | ~~posting-plans money routes unguarded (IDOR)~~ | High | ~~High~~ | Divyanshu | InternalServiceGuard (#174) → PayerAuthGuard + session payer_id (#179); LC-1 CLOSED for money routes | **CLOSED 2026-07-01** |
+| RT-2 | Unlock/reveal rides `InternalServiceGuard` + body `payer_id` (LC-1, TD33/TD50) | High | Med | Divyanshu + security | plan/boost closed (#179); unlock/reveal InternalServiceGuard still open — PayerAuthGuard before prod (D3a) | Open (P1 — partially mitigated) |
+| RT-3 | **Staging not deployed → alpha PAST DEADLINE** | High | **Critical** | Prakash | D1 DECIDED 2026-06-29 (Lightsail/EC2); implementation still pending 2026-07-09 | **ESCALATED — past deadline 2026-07-04** |
+| RT-4 | ADMIN-3b PII-reveal — most sensitive op (decrypt phone) | High | Med | Prakash + security | D4 DECIDED: Prakash owns weekly `admin.pii_viewed` review; 1-yr retention confirmed; enable once cadence live | Partially mitigated (D4✅ — cadence not yet established) |
+| R1/TD4 | RLS not finalized; service-role BYPASSRLS | High | Med | database-architect | D6 DECIDED 2026-06-29: deferred for alpha; finalize before prod (Phase 6) | Accepted for alpha (D6✅) |
 | R2 | Pseudonymization is heuristic (could miss a PII pattern) | High | Low | ai-engineer | Fail-closed gateway; oversize/parse/digit-run blocks LLM | Mitigated |
 | TD30 | CORS open to all origins | Med | Med | backend | Internal-only today; allow-list before cross-origin client | Open |
 | TD25 | `trust proxy` unset → `req.ip` = egress IP | Med | Med | backend | Rate-limit is coarse backstop; fix before prod | Open |

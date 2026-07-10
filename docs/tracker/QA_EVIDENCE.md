@@ -9,6 +9,59 @@ written index.
 
 ---
 
+## 2026-07-10 — B1 evidence refresh audit (60 PNG screenshots, PR #189/#190)
+
+**Source checked:** [`docs/qa/evidence/b1/`](../qa/evidence/b1/) at `origin/main` `905fd1f`.
+
+**Artifacts present:** 60 PNGs (`Screenshot from 2026-07-09 12-24-18.png` …
+`14-44-38.png`), committed by PR #190; the 9 numbered JPEGs from 2026-06-30 were
+**removed** in the same PR. Capture context: Android **emulator** inside VS Code on
+Rishi's Linux desktop, apps pointed at a **local backend** (API JSON logs visible in
+the IDE terminal). Two runs: worker-app 12:24–13:35 (25 shots), NEW Flutter
+payer-app (Company + Agency, PR #189) 14:20–14:44 (35 shots).
+
+**Method:** all 60 read + described by a 10-reader parallel visual audit
+(per-shot app / screen / visible data / wiring verdict / PII / anomalies); flow map
+now lives in [`docs/qa/evidence/README.md`](../qa/evidence/README.md).
+
+**Verdicts:**
+
+- **Worker-app: real client→local-API wiring evidenced** — mock-OTP round-trip
+  (screen shows "(mock — any 4-6 digits)", §8-compliant), returning-worker resume
+  carrying the tester's real name from the API, Applied Jobs list served by
+  `GET /workers/me/applications` (A1), referral share link populated
+  (`app.badabhai.in/i/2a4c2bcc5fdb` — the PR #189 HIGH empty-link fix proven).
+  Profile tab still mock (seed persona ≠ resume identity), job-detail synthesized.
+- **Payer-app: UI-complete, mock-mode** — Flutter DEBUG ribbon on every frame,
+  "Mock"-style ribbon on several; static activity timestamps across retakes; credits
+  buy shows a mock-state bug (balance 199→2199 vs toast "1,000 added", ledger
+  static); Team roster org-mismatched to the login; payouts/KYC internally
+  inconsistent (design-only surfaces per PR #189). Proves the 14 role-aware screens
+  render on-brand with masking (`R•••• K.`, last-4 phone, masked emails) — does NOT
+  prove live payer API wiring.
+- **Design-iteration captured mid-session:** dashboard stat-tile overflow at 14:20
+  fixed by the 14:30 retake; hand-redacted candidate names at 14:21 replaced by
+  in-app masking at 14:31.
+
+**Findings to act on:**
+
+| # | Finding | Class |
+| - | ------- | ----- |
+| 1 | Tester's real phone `+918946991002` fully visible in 4 committed shots | Evidence hygiene — redact/re-shoot next run |
+| 2 | Payer unlocked-candidate screen renders a **raw full phone** (dummy `+91 98765 43210`) | Design deviation from ADR-0010 in-app relay — fix in payer-app before real data |
+| 3 | "Secure checkout · Razorpay · UPI / card" copy while payments are mock (ADR-0013/0016) | Copy overstates — align before alpha payers see it |
+| 4 | Credits toast/balance/ledger mock bug (199→2199 vs "+1,000") | Payer-app mock-layer bug (adjacent to the PR #189 fetchCredits 0-mask fast-follow) |
+| 5 | Worker "ProFile" title casing; raw `cnc_operator` slug in Applied Jobs; seeded feed ignores distance filter | Polish (worker-app) |
+
+**Verdict:** B1 evidence remains **PARTIAL — NO-GO unchanged.** The screenshot
+family is refreshed and much richer, but all four missing families are the same:
+staging `/health`, staging `events` chain, clean logcat, PDF-open +
+`resume.downloaded`. Emulator+local ≠ handset+staging. **No % move from screenshots
+alone; Worker App +2 (67→69) comes from the merged PR #189 wiring itself, evidenced
+by this audit** (see [PROJECT_STATUS.md](PROJECT_STATUS.md)).
+
+---
+
 ## 2026-06-30 — Evidence-folder verification
 
 **Source checked:** [`docs/qa/evidence/b1/`](../qa/evidence/b1/)

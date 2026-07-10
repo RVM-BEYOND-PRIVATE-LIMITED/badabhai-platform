@@ -1,17 +1,18 @@
 # Test Matrix
 
 Module × test-type × command/steps × expected × current × owner × status.
-Current results from the 2026-06-29 baseline plus the 2026-06-30 evidence-folder
-check. Large artifacts live in [`docs/qa/evidence/`](../qa/evidence/); the written
+Current results from the 2026-06-29 baseline, the 2026-06-30 evidence-folder check,
+and the 2026-07-10 evidence audit ([QA_EVIDENCE.md](QA_EVIDENCE.md) 2026-07-10 row).
+Large artifacts live in [`docs/qa/evidence/`](../qa/evidence/); the written
 index is [QA_EVIDENCE.md](QA_EVIDENCE.md). Update both after each run.
 
 ## Automated gates
 
-| Module | Type | Command | Expected | Current (2026-06-29) | Owner | Status |
+| Module | Type | Command | Expected | Current | Owner | Status |
 | ------ | ---- | ------- | -------- | -------------------- | ----- | ------ |
-| Monorepo TS | lint | `pnpm lint` | exit 0 | ❌ 1 err+1 warn (ADMIN-3b WIP) | Divyanshu | BROKEN (WIP) |
-| Monorepo TS | typecheck | `pnpm typecheck` | exit 0 | ❌ TS2304 ×2 (ADMIN-3b WIP) | Divyanshu | BROKEN (WIP) |
-| Monorepo TS | unit/integration | `pnpm test` | all pass | ✅ api 1141, payer-web 517, +pkgs | all | DONE |
+| Monorepo TS | lint | `pnpm lint` | exit 0 | ✅ re-verified green (2026-06-29(b), committed ADMIN-3b) | Divyanshu | DONE |
+| Monorepo TS | typecheck | `pnpm typecheck` | exit 0 | ✅ re-verified green (2026-06-29(b)) | Divyanshu | DONE |
+| Monorepo TS | unit/integration | `pnpm test` | all pass | ✅ api 1289 (129 files, on `a143a7d`), payer-web 517, +pkgs | all | DONE |
 | Monorepo TS | build | `pnpm build` | exit 0 | ✅ 13/13 (nest transpile; not type-gate) | all | VERIFY |
 | payer-web | DS token gate | `pnpm lint:oxlint` | exit 0 | ✅ pass | Utkarsh | DONE |
 | Monorepo | format | `pnpm format:check` | exit 0 | ❌ 469 files (not a CI gate) | any | PARTIAL |
@@ -29,7 +30,7 @@ index is [QA_EVIDENCE.md](QA_EVIDENCE.md). Update both after each run.
 | - | ---- | ----- | -------- | ------ |
 | 1 | Payer company | signup/login → dashboard → post job → manage → applicants → unlock/reveal → wallet → capacity/top-up | each step works; faceless; mock credits move; routed handle only | BLOCKED (staging) |
 | 2 | Agency demand | agent login → agency dashboard → create vacancy → manage own → invite hook → faceless summaries → company blocked from agency | agent-only; `assertNoAgencyPII` holds; k-anon counts | BLOCKED (staging) |
-| 3 | Worker app (B1) | open app → real OTP login → consent → name → chat → profile extract → resume PDF | flow completes on handset; no PII to LLM/logs; PDF opens; event chain exists | PARTIAL evidence: screenshots in `docs/qa/evidence/b1`; still BLOCKED on staging events + clean logcat + PDF-open proof |
+| 3 | Worker app (B1) | open app → real OTP login → consent → name → chat → profile extract → resume PDF | flow completes on handset; no PII to LLM/logs; PDF opens; event chain exists | PARTIAL evidence: 60 audited **emulator/local** screenshots (2026-07-09 set, [QA_EVIDENCE 2026-07-10](QA_EVIDENCE.md)) — worker wiring real on local API, mock OTP; still BLOCKED on handset + staging /health + events + clean logcat + PDF-open proof |
 | 4 | OTP safety | request OTP → real send (capped) → wrong code neutral → breaker at cap=0 → kill-switch → logs show no phone/code | breaker fires; no raw phone/code in logs | BLOCKED (staging/OTP-7) |
 | 5 | RBAC | owner vs recruiter; agent vs employer; server-side fail-closed | recruiter 404s on billing/team; employer 404s on agency | PARTIAL (unit-tested; staging pending) |
 | 6 | Health/staging | `/health` → DB up → Redis up → smoke | 200 with up/up; no secrets | BLOCKED (staging) |
@@ -43,7 +44,7 @@ index is [QA_EVIDENCE.md](QA_EVIDENCE.md). Update both after each run.
 | RBAC fail-closed | unit tests `org-roles`, `roles` | ✅ tests green |
 | Agency no raw PII | `assert-no-agency-pii` tests | ✅ tests green |
 | Events PII-free | event-schema validation tests | ✅ tests green |
-| Money-route auth | guards on unlocks/posting-plans | ❌ posting-plans unguarded (P1) |
+| Money-route auth | guards on unlocks/posting-plans | ⚠️ posting-plans payer-authed (#179, LC-1 closed for money routes); payer unlock/reveal still InternalServiceGuard + body payer_id (LC-1 open, TD33/TD50) |
 | Circuit breaker / kill-switch | otp.service cap=0 path + tests | ✅ tests green |
 
 ---
