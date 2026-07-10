@@ -19,6 +19,18 @@ const WORKER_ROW = {
   phoneHash: "deadbeef",
 };
 
+const PROFILE_SUMMARY = {
+  profile_status: "confirmed",
+  confirmed_at: "2026-07-01T10:00:00.000Z",
+  trade: {
+    canonical_trade_id: "cnc_vmc",
+    canonical_role_id: "role_vmc_operator",
+    display_name: "VMC Operator",
+  },
+  city: "pune",
+  strength: 9,
+};
+
 function make() {
   const workers = {
     list: vi.fn(async () => [{ id: ID, status: "active" }]),
@@ -26,7 +38,10 @@ function make() {
     latestProfile: vi.fn(async () => null),
     latestResume: vi.fn(async () => null),
   };
-  const workersService = { setFullName: vi.fn(async () => ({ worker_id: ID })) };
+  const workersService = {
+    setFullName: vi.fn(async () => ({ worker_id: ID })),
+    getProfileSummary: vi.fn(async () => PROFILE_SUMMARY),
+  };
   return {
     controller: new WorkersController(
       workers as unknown as WorkersRepository,
@@ -68,6 +83,17 @@ describe("WorkersController — list/getProfile (read, no-PII) + setName", () =>
     const res = await controller.setName(ID, { full_name: "Asha" } as never, CTX);
     expect(workersService.setFullName).toHaveBeenCalledWith(ID, "Asha", CTX);
     expect(res).toEqual({ worker_id: ID });
+  });
+
+  it("getMyProfileSummary takes the worker from the token and returns a PII-free summary (TD54)", async () => {
+    const { controller, workersService } = make();
+    const worker = { id: ID, sid: "sess-1" };
+    const res = await controller.getMyProfileSummary(worker);
+    // identity: the service gets the TOKEN worker id (guard-provided) — never a path/body id
+    expect(workersService.getProfileSummary).toHaveBeenCalledWith(ID);
+    expect(res).toEqual(PROFILE_SUMMARY);
+    // the wire response never carries name/phone/hash material
+    expect(JSON.stringify(res)).not.toMatch(/ciphertext|deadbeef|phone|full_?name/i);
   });
 
   it("setMyName takes the worker from the token (not a body/path id) and returns only { ok: true }", async () => {

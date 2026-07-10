@@ -3,11 +3,15 @@ import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "./workers.repository";
+import { toProfileSummary } from "./profile-summary.mapper";
+import type { WorkerProfileSummary } from "./workers.dto";
 
 /**
- * Worker write-side logic (identity). Read-only ops queries stay on the
- * repository; mutations that touch PII go through here so encryption + the
- * event are never bypassed.
+ * Worker write-side logic (identity) + the worker SELF-view summary read.
+ * Plain read-only ops queries stay on the repository; mutations that touch PII
+ * go through here so encryption + the event are never bypassed, and the
+ * profile-summary read goes through here because it needs mapping (taxonomy
+ * display-name resolution + strength recompute), not a raw row.
  */
 @Injectable()
 export class WorkersService {
@@ -49,5 +53,26 @@ export class WorkersService {
 
     this.logger.log(`full_name recorded (encrypted) for worker ${workerId}`); // never logs the name
     return { worker_id: workerId };
+  }
+
+  /**
+   * Worker SELF-view profile summary (TD54 — the worker-app home "my profile"
+   * card). Projects the LATEST `worker_profiles` row via the pure
+   * {@link toProfileSummary} mapper: canonical trade ids + resolved display
+   * name, first preferred city, and a strength recomputed on read
+   * (countFields-equivalent — deliberately never stored). No profile row yet →
+   * the `"none"` summary, not a 404 (the app renders "complete your profile").
+   *
+   * NO PII: only the profile row is read — the worker's name/phone never enter
+   * this path (returning the name is an OPEN §2 escalation, see
+   * docs/worker-profile-summary-spec.md).
+   *
+   * DELIBERATELY NO EVENT: a read-only self-view is not a material state change
+   * (CLAUDE.md §1 — the event spine records state changes, not reads), so this
+   * emits nothing.
+   */
+  async getProfileSummary(workerId: string): Promise<WorkerProfileSummary> {
+    const profile = await this.workers.latestProfile(workerId);
+    return toProfileSummary(profile ?? null);
   }
 }
