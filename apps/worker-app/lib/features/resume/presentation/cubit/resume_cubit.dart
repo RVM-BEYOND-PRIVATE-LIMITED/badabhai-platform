@@ -4,7 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/error/failure.dart';
 import '../../domain/resume_repository.dart';
 
-enum ResumeStatus { loading, ready, failed }
+enum ResumeStatus { loading, ready, failed, noProfile }
 
 class ResumeState extends Equatable {
   const ResumeState({this.status = ResumeStatus.loading, this.resumeText = ''});
@@ -29,6 +29,9 @@ class ResumeCubit extends Cubit<ResumeState> {
       final String text = await _repo.generateResume();
       if (isClosed) return; // screen popped before generation resolved
       emit(ResumeState(status: ResumeStatus.ready, resumeText: text));
+    } on ProfileIncompleteFailure {
+      if (isClosed) return;
+      emit(const ResumeState(status: ResumeStatus.noProfile));
     } on Failure catch (_) {
       if (isClosed) return;
       emit(const ResumeState(status: ResumeStatus.failed));
@@ -45,11 +48,8 @@ class ResumeCubit extends Cubit<ResumeState> {
   /// not be fetched (the screen then shows a user-safe message). Does NOT change
   /// [ResumeState] — the resume is already shown; this is a side action. The url
   /// is returned for immediate launch only and is never stored or logged.
-  Future<String?> resolveDownloadUrl() async {
-    try {
-      return await _repo.resumeDownloadUrl();
-    } on Failure catch (_) {
-      return null;
-    }
-  }
+  /// Resolves the signed PDF url. Lets a [Failure] PROPAGATE (does not swallow it
+  /// to null) so `openSignedPdf` can surface the ACTUAL reason (server / 401 /
+  /// no-resume) instead of a blank generic line.
+  Future<String?> resolveDownloadUrl() => _repo.resumeDownloadUrl();
 }

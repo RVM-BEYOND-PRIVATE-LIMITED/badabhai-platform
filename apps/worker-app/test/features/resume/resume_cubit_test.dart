@@ -48,10 +48,10 @@ void main() {
     verify(() => repo.resumeDownloadUrl()).called(1);
   });
 
-  test('resolveDownloadUrl returns null on a Failure (user-safe, never throws)',
-      () async {
+  test('resolveDownloadUrl PROPAGATES the Failure (so the launcher shows the '
+      'real reason, not a blank generic line)', () {
     when(() => repo.resumeDownloadUrl()).thenThrow(const UnauthorizedFailure());
     final ResumeCubit cubit = ResumeCubit(repo);
-    expect(await cubit.resolveDownloadUrl(), isNull);
+    expect(() => cubit.resolveDownloadUrl(), throwsA(isA<UnauthorizedFailure>()));
   });
 }

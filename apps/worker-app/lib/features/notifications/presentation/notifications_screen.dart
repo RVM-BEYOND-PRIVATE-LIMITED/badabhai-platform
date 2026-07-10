@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/di/locator.dart';
+import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_list_row.dart';
@@ -44,9 +45,9 @@ class _NotificationsView extends StatelessWidget {
           return switch (state.status) {
             NotificationsStatus.loading => const BbStatusView.loading(),
             NotificationsStatus.failed => BbStatusView(
-                icon: Icons.cloud_off_rounded,
-                title: 'Could not load alerts.',
-                subtitle: 'Please check your internet and try again.',
+                icon: failureReason(state.failure).icon,
+                title: 'Alerts load nahi hue.',
+                subtitle: failureReason(state.failure).reason,
                 action: FilledButton(
                   onPressed: () => context.read<NotificationsCubit>().load(),
                   child: const Text('Try again'),

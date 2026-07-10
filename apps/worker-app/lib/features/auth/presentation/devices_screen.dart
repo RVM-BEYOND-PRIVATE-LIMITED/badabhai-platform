@@ -38,9 +38,12 @@ class _DevicesView extends StatelessWidget {
           return switch (state.status) {
             DevicesStatus.loading => const BbStatusView.loading(),
             DevicesStatus.failed => BbStatusView(
-                icon: Icons.cloud_off_rounded,
+                icon: Icons.error_outline_rounded,
                 title: 'Devices load nahi hue.',
-                subtitle: 'Internet check karke dobara try karein.',
+                // DevicesCubit surfaces an AuthFailure as a localized reason in
+                // state.message (via authErrorMessage) — show that honest cause,
+                // not a false "check internet".
+                subtitle: state.message ?? 'Dobara try karein.',
                 action: FilledButton(
                   onPressed: () => context.read<DevicesCubit>().load(),
                   child: const Text('Try again'),

@@ -11,13 +11,18 @@ class NotificationsState extends Equatable {
   const NotificationsState({
     this.status = NotificationsStatus.loading,
     this.items = const <AppNotification>[],
+    this.failure,
   });
 
   final NotificationsStatus status;
   final List<AppNotification> items;
 
+  /// The typed cause when [status] is `failed` — the failed view surfaces its
+  /// honest reason instead of a generic "check internet" line.
+  final Failure? failure;
+
   @override
-  List<Object?> get props => <Object?>[status, items];
+  List<Object?> get props => <Object?>[status, items, failure];
 }
 
 /// Drives the Alerts screen: load on open, mark-all-read on the app-bar action.
@@ -33,9 +38,9 @@ class NotificationsCubit extends Cubit<NotificationsState> {
       final List<AppNotification> items = await _repo.list();
       if (isClosed) return;
       _emitList(items);
-    } on Failure catch (_) {
+    } on Failure catch (f) {
       if (isClosed) return;
-      emit(const NotificationsState(status: NotificationsStatus.failed));
+      emit(NotificationsState(status: NotificationsStatus.failed, failure: f));
     }
   }
 

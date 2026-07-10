@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../error/failure.dart';
+import '../error/failure_reason.dart';
+
 /// Resolves a short-lived SIGNED PDF url via [resolve] and opens it in the
 /// device's browser / PDF viewer (an external VIEW intent). Shared by the resume
 /// and interview-kit download actions.
 ///
-/// On ANY failure — [resolve] yields null/empty, the url won't parse, or the OS
-/// refuses to launch — a single user-safe SnackBar is shown in the worker's
-/// voice (no server detail, no url). A stale/expired url simply fails to open
-/// and the worker can tap again to re-fetch.
+/// On failure it shows a SnackBar stating the ACTUAL reason (never a blank
+/// generic line): if [resolve] throws a typed [Failure] (server/network/401/…)
+/// that failure's honest reason is shown; if it yields null/empty the link
+/// couldn't be fetched; if the OS refuses to launch, no PDF-capable app was
+/// found. [resolve] should let its [Failure] propagate (do NOT swallow it to
+/// null) so the real cause reaches the worker.
 ///
 /// PRIVACY (CLAUDE.md §2): the signed url embeds a single-use token. It is
 /// launched immediately and is NEVER logged, persisted, or shown to the worker.
@@ -21,29 +26,40 @@ Future<void> openSignedPdf(
   final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
 
   String? url;
+  String? reason; // the actual failure reason to surface, or null on success
+
   try {
     url = await resolve();
+  } on Failure catch (f) {
+    // The typed cause (network / server 5xx / 401 / no-profile / rate-limit).
+    reason = failureReason(f).reason;
   } catch (_) {
-    url = null;
+    reason = 'PDF abhi nahi khul paya. Dobara koshish karein.';
   }
 
-  final Uri? uri = (url == null || url.isEmpty) ? null : Uri.tryParse(url);
-  bool opened = false;
-  if (uri != null) {
-    try {
-      opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (_) {
-      opened = false;
+  if (reason == null) {
+    final Uri? uri = (url == null || url.isEmpty) ? null : Uri.tryParse(url);
+    if (uri == null) {
+      // Fetched, but no usable url came back.
+      reason = 'PDF link abhi nahi mil paya. Dobara koshish karein.';
+    } else {
+      bool opened = false;
+      try {
+        opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } catch (_) {
+        opened = false;
+      }
+      if (!opened) {
+        // The link is fine; the device has no app to open it.
+        reason = 'PDF kholne wala app nahi mila. Ek browser install karke '
+            'dobara try karein.';
+      }
     }
   }
 
-  if (!opened) {
+  if (reason != null) {
     messenger
       ..clearSnackBars()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text('PDF abhi nahi khul paya. Dobara koshish karein.'),
-        ),
-      );
+      ..showSnackBar(SnackBar(content: Text(reason)));
   }
 }

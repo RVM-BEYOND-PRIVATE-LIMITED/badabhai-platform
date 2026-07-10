@@ -13,6 +13,7 @@ class ResumeEditState extends Equatable {
     this.fields,
     this.saving = false,
     this.savedNonce = 0,
+    this.failure,
   });
 
   final ResumeEditStatus status;
@@ -21,6 +22,10 @@ class ResumeEditState extends Equatable {
 
   /// Bumped on a successful save — the screen shows a snackbar + pops once.
   final int savedNonce;
+
+  /// The typed cause when [status] is `failed` — the failed view surfaces its
+  /// honest reason instead of a generic "check internet" line.
+  final Failure? failure;
 
   ResumeEditState copyWith({
     ResumeEditStatus? status,
@@ -33,11 +38,13 @@ class ResumeEditState extends Equatable {
       fields: fields ?? this.fields,
       saving: saving ?? this.saving,
       savedNonce: savedNonce ?? this.savedNonce,
+      failure: failure,
     );
   }
 
   @override
-  List<Object?> get props => <Object?>[status, fields, saving, savedNonce];
+  List<Object?> get props =>
+      <Object?>[status, fields, saving, savedNonce, failure];
 }
 
 /// Drives the resume safe-field edit screen (spec §5.2): load the editable
@@ -55,9 +62,9 @@ class ResumeEditCubit extends Cubit<ResumeEditState> {
       final ResumeSafeFields fields = await _repo.load();
       if (isClosed) return; // screen popped before load resolved
       emit(ResumeEditState(status: ResumeEditStatus.ready, fields: fields));
-    } on Failure catch (_) {
+    } on Failure catch (f) {
       if (isClosed) return;
-      emit(const ResumeEditState(status: ResumeEditStatus.failed));
+      emit(ResumeEditState(status: ResumeEditStatus.failed, failure: f));
     }
   }
 

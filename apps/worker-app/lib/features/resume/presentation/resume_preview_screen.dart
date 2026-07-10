@@ -51,6 +51,7 @@ class _ResumeView extends StatelessWidget {
           body: switch (state.status) {
             ResumeStatus.loading =>
               const Center(child: CircularProgressIndicator()),
+            ResumeStatus.noProfile => _buildNoProfile(context),
             ResumeStatus.failed => _buildFailed(context),
             ResumeStatus.ready => _buildResume(state.resumeText),
           },
@@ -132,6 +133,36 @@ class _ResumeView extends StatelessWidget {
     );
   }
 
+  /// Worker has no profile yet — nothing to build a resume from. Guide them to
+  /// finish profiling rather than showing a network error.
+  Widget _buildNoProfile(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const Icon(Icons.badge_outlined, size: 48, color: AppColors.textMuted),
+            const SizedBox(height: AppSpacing.s4),
+            Text('Abhi resume nahi ban sakta.',
+                textAlign: TextAlign.center,
+                style: AppTypography.display(size: AppTypography.sizeMd)),
+            const SizedBox(height: AppSpacing.s2),
+            Text('Pehle apna profile poora karein — fir resume apne aap ban jayega.',
+                textAlign: TextAlign.center,
+                style: AppTypography.body(color: AppColors.textSecondary)),
+            const SizedBox(height: AppSpacing.s6),
+            BbButton(
+              label: 'Profile poora karein',
+              iconLeft: Icons.arrow_forward_rounded,
+              onPressed: () => context.go(Routes.consent),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildFailed(BuildContext context) {
     return Center(
       child: Column(
@@ -139,11 +170,11 @@ class _ResumeView extends StatelessWidget {
         children: <Widget>[
           const Icon(Icons.cloud_off_rounded, size: 48, color: AppColors.textMuted),
           const SizedBox(height: AppSpacing.s4),
-          Text('Could not make your resume.',
+          Text('Resume abhi ban nahi paya.',
               textAlign: TextAlign.center,
               style: AppTypography.display(size: AppTypography.sizeMd)),
           const SizedBox(height: AppSpacing.s2),
-          Text('Please check your internet and try again.',
+          Text('Thodi der baad dobara try karein.',
               textAlign: TextAlign.center,
               style: AppTypography.body(color: AppColors.textSecondary)),
           const SizedBox(height: AppSpacing.s6),

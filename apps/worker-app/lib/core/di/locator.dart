@@ -28,6 +28,16 @@ import '../../features/chat/presentation/bloc/chat_bloc.dart';
 import '../../features/consent/data/consent_repository_impl.dart';
 import '../../features/consent/domain/consent_repository.dart';
 import '../../features/consent/presentation/cubit/consent_cubit.dart';
+import '../../features/invite/data/invite_repository_impl.dart';
+import '../../features/invite/domain/invite_repository.dart';
+import '../../features/invite/presentation/cubit/invite_cubit.dart';
+import '../../features/settings/presentation/cubit/account_delete_cubit.dart';
+import '../../features/voice/data/unavailable_voice_recorder.dart';
+import '../../features/voice/data/voice_note_repository_impl.dart';
+import '../../features/voice/data/voice_pipeline_impl.dart';
+import '../../features/voice/domain/voice_note_repository.dart';
+import '../../features/voice/domain/voice_pipeline.dart';
+import '../../features/voice/domain/voice_recorder.dart';
 import '../../features/name/data/name_repository_impl.dart';
 import '../../features/name/domain/name_repository.dart';
 import '../../features/name/presentation/cubit/name_cubit.dart';
@@ -160,6 +170,37 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
     () => ApplicationsRepositoryImpl(
         locator<ApiClient>(), locator<SessionRepository>()),
   );
+  locator.registerLazySingleton<InviteRepository>(
+    () => InviteRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
+  );
+
+  // --- Voice-note pipeline (A2) ---------------------------------------------
+  // MOCK vs REAL only differs on the two ROUTE-LESS legs (record→storage_path
+  // and transcript text): the real impls fail closed (VoiceUnavailableFailure),
+  // the mock impls return canned data so the flow is walkable offline. Everything
+  // else (upload/transcribe/poll/merge) runs against the factory-selected client.
+  locator.registerLazySingleton<VoiceRecorder>(() => const UnavailableVoiceRecorder());
+  locator.registerLazySingleton<VoiceStorageUploader>(
+    () => kUseMocks
+        ? const MockVoiceStorageUploader()
+        : const RealVoiceStorageUploader(),
+  );
+  locator.registerLazySingleton<VoiceTranscriptResolver>(
+    () => kUseMocks
+        ? const MockVoiceTranscriptResolver()
+        : const RealVoiceTranscriptResolver(),
+  );
+  locator.registerLazySingleton<VoiceNoteRepository>(
+    () => VoiceNoteRepositoryImpl(
+      recorder: locator<VoiceRecorder>(),
+      uploader: locator<VoiceStorageUploader>(),
+      resolver: locator<VoiceTranscriptResolver>(),
+      api: locator<ApiClient>(),
+      chat: locator<ChatRepository>(),
+      session: locator<SessionRepository>(),
+    ),
+  );
 
   // --- Blocs / Cubits (fresh instance per screen mount) ---------------------
   // Auth cubits resolve [AuthSessionManager] + [LocaleStore] LAZILY (the factory
@@ -234,6 +275,14 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerFactory<ApplicationsCubit>(
     () => ApplicationsCubit(locator<ApplicationsRepository>()),
+  );
+  locator.registerFactory<InviteCubit>(
+    () => InviteCubit(locator<InviteRepository>()),
+  );
+  // Deps resolved lazily inside the cubit (locator-backed), so a plain factory
+  // is enough; tests inject fakes directly.
+  locator.registerFactory<AccountDeleteCubit>(
+    () => AccountDeleteCubit(),
   );
 }
 

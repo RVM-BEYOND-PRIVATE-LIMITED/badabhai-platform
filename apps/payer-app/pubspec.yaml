@@ -1,0 +1,52 @@
+name: payer_app
+description: "BadaBhai Payer App (Company + Agency) — role-aware mobile app for the paying side."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.6.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  http: ^1.2.0
+  # Display (Baloo 2) + body (Mukta) of the "Desi Vernacular Pop" theme.
+  # Roboto Mono (data: ₹, IDs, phone) is self-hosted below so figures render
+  # identically offline.
+  google_fonts: ^6.2.1
+  # State management + DI: BLoC/Cubit for presentation, Equatable for immutable
+  # value states/models, get_it as the composition-root service locator.
+  flutter_bloc: ^8.1.6
+  equatable: ^2.0.5
+  get_it: ^7.7.0
+  # Persistent auth seam (not exercised in PASS A — mock session only).
+  flutter_secure_storage: ^9.2.4
+  # Random PII-free ids / idempotency keys for future API binding.
+  uuid: ^4.5.1
+  # Client-side QR rendering for the agency referral link (no PII, no network).
+  qr_flutter: ^4.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+
+  fonts:
+    # Data font — ₹, IDs, phone, counts. Self-hosted (real binaries) so numbers
+    # render identically with no network. Sourced from the BadaBhai Design System.
+    - family: Roboto Mono
+      fonts:
+        - asset: assets/fonts/RobotoMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/RobotoMono-Italic.ttf
+          weight: 400
+          style: italic
+        - asset: assets/fonts/RobotoMono-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/RobotoMono-BoldItalic.ttf
+          weight: 700
+          style: italic

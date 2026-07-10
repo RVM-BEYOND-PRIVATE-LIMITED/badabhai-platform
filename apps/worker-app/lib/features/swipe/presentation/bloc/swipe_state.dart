@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import '../../../../core/api/api_models.dart';
+import '../../../../core/error/failure.dart';
 
 enum SwipeStatus { loading, ready, empty, error, consentRequired }
 
@@ -12,9 +13,14 @@ class SwipeState extends Equatable {
     this.decisionError = 0,
     this.appliedNonce = 0,
     this.prioritizedNonce = 0,
+    this.failure,
   });
 
   final SwipeStatus status;
+
+  /// The typed cause when [status] is `error` — the error view surfaces its
+  /// honest reason instead of a generic "check internet" line.
+  final Failure? failure;
 
   /// Remaining cards; the worker's place is the head. A failed apply/skip leaves
   /// the head untouched so nothing is lost on a network drop.
@@ -47,6 +53,7 @@ class SwipeState extends Equatable {
     int? decisionError,
     int? appliedNonce,
     int? prioritizedNonce,
+    Failure? failure,
   }) {
     return SwipeState(
       status: status ?? this.status,
@@ -55,6 +62,7 @@ class SwipeState extends Equatable {
       decisionError: decisionError ?? this.decisionError,
       appliedNonce: appliedNonce ?? this.appliedNonce,
       prioritizedNonce: prioritizedNonce ?? this.prioritizedNonce,
+      failure: failure ?? this.failure,
     );
   }
 
@@ -66,5 +74,6 @@ class SwipeState extends Equatable {
         decisionError,
         appliedNonce,
         prioritizedNonce,
+        failure,
       ];
 }

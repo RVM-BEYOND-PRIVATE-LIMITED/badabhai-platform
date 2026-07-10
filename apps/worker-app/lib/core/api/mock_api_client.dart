@@ -132,6 +132,21 @@ class MockApiClient extends ApiClient {
   }
 
   @override
+  Future<WorkerProfileBundle> getWorkerProfile({
+    required String workerId,
+    required String authToken,
+  }) async {
+    await _delay();
+    // Mock worker always has a profile (+ a ready resume) so the Resume tab works
+    // straight from login, mirroring a returning worker on the real backend.
+    return WorkerProfileBundle(
+      profileId: 'mock-profile-0001',
+      resumeId: 'mock-resume-0001',
+      resumeText: _cannedResume,
+    );
+  }
+
+  @override
   Future<ResumeResult> generateResume({
     required String workerId,
     required String profileId,
@@ -214,10 +229,11 @@ class MockApiClient extends ApiClient {
   @override
   Future<List<AppliedJob>> getMyApplications({required String authToken}) async {
     await _delay();
-    // Canned, PII-FREE rows: several action:'apply' (kept) and a couple
-    // action:'skip' (filtered out by the repository) so the applied-only filter
-    // is exercised; varied created_at, with some area/reason/rank null to
+    // Canned, PII-FREE rows: several action:'applied' (kept) and a couple
+    // action:'skipped' (filtered out by the repository) so the applied-only
+    // filter is exercised; varied created_at, with some area/reason/rank null to
     // exercise the nullables. Oldest-first, matching the real API ordering.
+    // Values MATCH the API's ApplicationAction enum ('applied'|'skipped').
     final DateTime now = DateTime.now();
     return <AppliedJob>[
       AppliedJob(
@@ -226,7 +242,7 @@ class MockApiClient extends ApiClient {
         title: 'CNC Operator',
         city: 'Pune',
         area: 'Chakan',
-        action: 'apply',
+        action: 'applied',
         reason: null,
         sourceSurface: 'feed',
         rank: 3,
@@ -239,7 +255,7 @@ class MockApiClient extends ApiClient {
         title: 'Fitter',
         city: 'Nashik',
         area: null, // null area -> subtitle falls back to city only
-        action: 'skip', // filtered out
+        action: 'skipped', // filtered out
         reason: 'too_far',
         sourceSurface: 'feed',
         rank: 7,
@@ -252,7 +268,7 @@ class MockApiClient extends ApiClient {
         title: 'VMC Operator',
         city: 'Pune',
         area: null, // null area
-        action: 'apply',
+        action: 'applied',
         reason: null,
         sourceSurface: 'search',
         rank: null, // null rank
@@ -265,7 +281,7 @@ class MockApiClient extends ApiClient {
         title: 'Welder',
         city: 'Aurangabad',
         area: 'Waluj',
-        action: 'skip', // filtered out
+        action: 'skipped', // filtered out
         reason: 'low_pay',
         sourceSurface: 'feed',
         rank: null,
@@ -278,7 +294,7 @@ class MockApiClient extends ApiClient {
         title: 'CNC Setter',
         city: 'Pune',
         area: 'Hinjewadi',
-        action: 'apply',
+        action: 'applied',
         reason: null,
         sourceSurface: 'feed',
         rank: 1,
@@ -286,6 +302,84 @@ class MockApiClient extends ApiClient {
         updatedAt: now.subtract(const Duration(minutes: 25)),
       ),
     ];
+  }
+
+  // --- A2 voice note --------------------------------------------------------
+
+  @override
+  Future<VoiceUploadResult> uploadVoiceNote({
+    required String authToken,
+    required String sessionId,
+    required String storagePath,
+    required int durationSeconds,
+  }) async {
+    await _delay();
+    return VoiceUploadResult(
+      voiceNoteId: 'mock-voice-0001',
+      durationSeconds: durationSeconds,
+    );
+  }
+
+  @override
+  Future<TranscribeResult> transcribeVoiceNote({
+    required String authToken,
+    required String voiceNoteId,
+  }) async {
+    await _delay();
+    return const TranscribeResult(aiJobId: 'mock-voice-job-0001', status: 'queued');
+  }
+
+  @override
+  Future<AiJob> awaitAiJob(
+    String aiJobId, {
+    int maxAttempts = 40,
+    Duration pollInterval = const Duration(milliseconds: 350),
+  }) async {
+    await _delay();
+    // Canned COMPLETED transcription job — terminal on the first poll, no network.
+    return const AiJob(
+      id: 'mock-voice-job-0001',
+      jobType: 'transcription',
+      status: 'completed',
+      profileId: null,
+      errorMessage: null,
+      voiceNoteId: 'mock-voice-0001',
+    );
+  }
+
+  // --- A3 referral invite ---------------------------------------------------
+
+  @override
+  Future<InviteResult> createInvite({
+    required String authToken,
+    String? campaign,
+  }) async {
+    await _delay();
+    // 12-hex code, obviously-fake sentinel. Link mirrors the real `/i/<code>`.
+    return const InviteResult(
+      inviteId: 'mock-invite-0001',
+      code: 'abcdef012345',
+      link: '/i/abcdef012345',
+    );
+  }
+
+  // --- A4 DPDP account delete ----------------------------------------------
+
+  @override
+  Future<AccountDeleteRequestResult> requestAccountDelete({
+    required String authToken,
+  }) async {
+    await _delay();
+    return const AccountDeleteRequestResult(success: true, resendInSeconds: 30);
+  }
+
+  @override
+  Future<void> confirmAccountDelete({
+    required String authToken,
+    required String otp,
+  }) async {
+    await _delay();
+    // No-op success (204) in mock mode; the caller clears local session/tokens.
   }
 }
 

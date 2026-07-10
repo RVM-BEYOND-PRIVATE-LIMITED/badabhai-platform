@@ -19,7 +19,7 @@ AppliedJob _job(String id, {String? area, required String title}) => AppliedJob(
       title: title,
       city: 'Pune',
       area: area,
-      action: 'apply',
+      action: 'applied',
       reason: null,
       sourceSurface: 'feed',
       rank: null,

@@ -127,7 +127,13 @@ void main() {
     await tester.pumpWidget(_harness(bloc));
     await tester.pumpAndSettle();
 
-    expect(find.text('Could not load jobs.'), findsOneWidget);
+    expect(find.text('Jobs load nahi hue.'), findsOneWidget);
+    // The thrown Exception maps to UnknownFailure — the honest reason mapper
+    // renders its copy (not a false "check internet").
+    expect(
+      find.text('Kuch gadbad ho gayi. Dobara try karein.'),
+      findsOneWidget,
+    );
     expect(find.widgetWithText(FilledButton, 'Try again'), findsOneWidget);
   });
 

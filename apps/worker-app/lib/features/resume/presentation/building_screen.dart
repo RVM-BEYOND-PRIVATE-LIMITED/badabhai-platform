@@ -68,10 +68,13 @@ class _BuildingViewState extends State<_BuildingView> {
         },
         builder: (BuildContext context, ResumeState state) {
           if (state.status == ResumeStatus.failed) {
+            // ResumeCubit's failed state does not carry the typed cause
+            // (handled separately), so we use a cause-agnostic honest retry
+            // line rather than a false "check internet".
             return BbStatusView(
-              icon: Icons.cloud_off_rounded,
+              icon: Icons.error_outline_rounded,
               title: 'Resume nahi ban paya.',
-              subtitle: 'Internet check karein aur dobara koshish karein.',
+              subtitle: 'Thodi der baad dobara try karein.',
               action: FilledButton(
                 onPressed: () {
                   _navigated = false;

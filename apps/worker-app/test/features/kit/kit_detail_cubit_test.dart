@@ -49,7 +49,7 @@ void main() {
     act: (KitDetailCubit c) => c.load('cnc_operator'),
     expect: () => const <KitDetailState>[
       KitDetailState(status: KitDetailStatus.loading),
-      KitDetailState(status: KitDetailStatus.failed),
+      KitDetailState(status: KitDetailStatus.failed, failure: NetworkFailure()),
     ],
   );
 
@@ -62,10 +62,11 @@ void main() {
     verify(() => repo.downloadUrl('cnc_operator')).called(1);
   });
 
-  test('resolveDownloadUrl returns null on a Failure (user-safe, never throws)',
-      () async {
+  test('resolveDownloadUrl PROPAGATES the Failure (so the launcher shows the '
+      'real reason, not a blank generic line)', () {
     when(() => repo.downloadUrl(any())).thenThrow(const NetworkFailure());
     final KitDetailCubit cubit = KitDetailCubit(repo);
-    expect(await cubit.resolveDownloadUrl('cnc_operator'), isNull);
+    expect(() => cubit.resolveDownloadUrl('cnc_operator'),
+        throwsA(isA<NetworkFailure>()));
   });
 }

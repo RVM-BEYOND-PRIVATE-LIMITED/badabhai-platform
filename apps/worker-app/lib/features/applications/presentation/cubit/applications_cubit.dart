@@ -11,13 +11,18 @@ class ApplicationsState extends Equatable {
   const ApplicationsState({
     this.status = ApplicationsStatus.loading,
     this.jobs = const <AppliedJob>[],
+    this.failure,
   });
 
   final ApplicationsStatus status;
   final List<AppliedJob> jobs;
 
+  /// The typed cause when [status] is `error` — the error view surfaces its
+  /// honest reason instead of a generic "check internet" line.
+  final Failure? failure;
+
   @override
-  List<Object?> get props => <Object?>[status, jobs];
+  List<Object?> get props => <Object?>[status, jobs, failure];
 }
 
 /// Loads the worker's applied jobs for the Applied-jobs screen.
@@ -44,9 +49,9 @@ class ApplicationsCubit extends Cubit<ApplicationsState> {
         status: ApplicationsStatus.ready,
         jobs: applied.reversed.toList(),
       ));
-    } on Failure catch (_) {
+    } on Failure catch (f) {
       if (isClosed) return;
-      emit(const ApplicationsState(status: ApplicationsStatus.error));
+      emit(ApplicationsState(status: ApplicationsStatus.error, failure: f));
     }
   }
 }

@@ -60,7 +60,8 @@ void main() {
     act: (NotificationsCubit c) => c.load(),
     expect: () => const <NotificationsState>[
       NotificationsState(status: NotificationsStatus.loading),
-      NotificationsState(status: NotificationsStatus.failed),
+      NotificationsState(
+          status: NotificationsStatus.failed, failure: NetworkFailure()),
     ],
   );
 

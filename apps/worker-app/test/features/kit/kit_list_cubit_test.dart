@@ -46,7 +46,7 @@ void main() {
     act: (KitListCubit c) => c.load(),
     expect: () => const <KitListState>[
       KitListState(status: KitListStatus.loading),
-      KitListState(status: KitListStatus.failed),
+      KitListState(status: KitListStatus.failed, failure: NetworkFailure()),
     ],
   );
 }

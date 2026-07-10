@@ -194,6 +194,18 @@ class ApiClient {
     );
   }
 
+  /// GET /workers/:id/profile — worker + latest profile + latest generated
+  /// resume. Used to restore `profileId` (and reuse an existing resume) after a
+  /// login that skipped in-session profiling.
+  Future<WorkerProfileBundle> getWorkerProfile({
+    required String workerId,
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/$workerId/profile', authToken: authToken);
+    return WorkerProfileBundle.fromJson(json);
+  }
+
   Future<ResumeResult> generateResume({
     required String workerId,
     required String profileId,
@@ -255,24 +267,128 @@ class ApiClient {
         .toList();
   }
 
-  /// Fetches the worker's own applied/skipped jobs for the "Applied jobs" screen.
-  /// Worker-scoped — the worker is derived from [authToken] (never a param), like
-  /// [getFeed]. Returns the raw list (apply + skip MIXED); the repository filters
-  /// to `action == 'apply'`. Coarse, PII-free fields only.
-  ///
-  /// ASSUMED / NOT-YET-BUILT endpoint — reconcile with backend when it ships
-  /// (mirrors the ops `applicationsForWorker` projection; today only the
-  /// ops-internal GET /workers/:workerId/applications exists, which the worker
-  /// app must NOT call). Runs on MockApiClient until then.
+  /// Fetches the worker's own applied/skipped jobs for the "Applied jobs" screen
+  /// (GET /workers/me/applications — WorkerAuthGuard + ConsentGuard). Worker-scoped
+  /// — the worker is derived from [authToken] (never a param), like [getFeed]. The
+  /// response is an OBJECT `{worker_id, applications:[...]}`, NOT a bare array;
+  /// the list mixes applied + skipped, and the repository filters to
+  /// `action == 'applied'`. Coarse, PII-free fields only.
   Future<List<AppliedJob>> getMyApplications({required String authToken}) async {
     final Map<String, dynamic> json =
-        await _get('/me/applications', authToken: authToken);
+        await _get('/workers/me/applications', authToken: authToken);
     final List<dynamic> apps =
         json['applications'] as List<dynamic>? ?? <dynamic>[];
     return apps
         .whereType<Map<String, dynamic>>()
         .map(AppliedJob.fromJson)
         .toList();
+  }
+
+  /// Registers an already-stored voice clip (POST /voice/upload — A2a,
+  /// WorkerAuthGuard + ConsentGuard). Worker-scoped: requires [authToken]. The
+  /// server derives the worker from the token; the body carries only the
+  /// [sessionId], the server-side [storagePath] (≤512 chars), and
+  /// [durationSeconds] (>0, ≤120). PII-FREE — no audio bytes, no transcript.
+  ///
+  /// NOTE (A2-storage MISSING): there is NO backend route that turns a recorded
+  /// audio FILE into a [storagePath]. This method registers a clip that is
+  /// ALREADY at [storagePath]; producing that path is the blocked leg (see
+  /// VoiceNoteRepository). Wired here so the rest of the pipeline is real.
+  Future<VoiceUploadResult> uploadVoiceNote({
+    required String authToken,
+    required String sessionId,
+    required String storagePath,
+    required int durationSeconds,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/voice/upload',
+      <String, dynamic>{
+        'session_id': sessionId,
+        'storage_path': storagePath,
+        'duration_seconds': durationSeconds,
+      },
+      authToken: authToken,
+    );
+    return VoiceUploadResult.fromJson(json);
+  }
+
+  /// Enqueues an STT job for a registered voice note (POST /voice/transcribe —
+  /// A2b, same guard). Worker-scoped: requires [authToken]. Poll [getAiJob] on
+  /// the returned `ai_job_id` until it is terminal.
+  Future<TranscribeResult> transcribeVoiceNote({
+    required String authToken,
+    required String voiceNoteId,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/voice/transcribe',
+      <String, dynamic>{'voice_note_id': voiceNoteId},
+      authToken: authToken,
+    );
+    return TranscribeResult.fromJson(json);
+  }
+
+  /// Polls [getAiJob] until the job reaches a terminal state (completed OR
+  /// failed) and returns it. Bounded: [maxAttempts] tries spaced [pollInterval]
+  /// apart. Throws [ProfileExtractionTimeout] (reused as a generic AI-job
+  /// timeout) if the budget is exhausted while still queued/running.
+  Future<AiJob> awaitAiJob(
+    String aiJobId, {
+    int maxAttempts = 40,
+    Duration pollInterval = const Duration(milliseconds: 350),
+  }) async {
+    for (int attempt = 0; attempt < maxAttempts; attempt++) {
+      final AiJob job = await getAiJob(aiJobId);
+      if (job.isTerminal) return job;
+      await Future<void>.delayed(pollInterval);
+    }
+    throw ProfileExtractionTimeout(aiJobId);
+  }
+
+  /// Creates a worker referral invite (POST /invites — A3, WorkerAuthGuard only,
+  /// NO consent gate). Worker-scoped: requires [authToken]. An empty body is
+  /// valid; [campaign] (1–64 chars) is optional. Returns the invite id + code +
+  /// server-relative link. PII-FREE.
+  Future<InviteResult> createInvite({
+    required String authToken,
+    String? campaign,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/invites',
+      <String, dynamic>{
+        if (campaign != null && campaign.isNotEmpty) 'campaign': campaign,
+      },
+      authToken: authToken,
+    );
+    return InviteResult.fromJson(json);
+  }
+
+  /// Starts the DPDP account-delete flow (POST /auth/account/delete/request —
+  /// A4, WorkerAuthGuard). Worker-scoped: requires [authToken]; no body. Returns
+  /// `{success, resend_in_seconds}` (the OTP cooldown).
+  Future<AccountDeleteRequestResult> requestAccountDelete({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/auth/account/delete/request',
+      <String, dynamic>{},
+      authToken: authToken,
+    );
+    return AccountDeleteRequestResult.fromJson(json);
+  }
+
+  /// Confirms the account delete with the OTP (POST /auth/account/delete/confirm
+  /// — A4, WorkerAuthGuard). Worker-scoped: requires [authToken]. The API returns
+  /// 204 (no body). FAIL-CLOSED: a 401 (bad OTP) / 429 (rate) / 503 surfaces as
+  /// an [ApiException] the caller maps to honest copy.
+  Future<void> confirmAccountDelete({
+    required String authToken,
+    required String otp,
+  }) async {
+    await _post(
+      '/auth/account/delete/confirm',
+      <String, dynamic>{'otp': otp},
+      authToken: authToken,
+    );
   }
 
   /// Records an APPLY decision on [jobId] (idempotent server-side). Worker-scoped

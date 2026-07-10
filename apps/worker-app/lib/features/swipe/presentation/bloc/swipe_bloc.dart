@@ -61,10 +61,12 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
     } on Failure catch (failure) {
       // 403 routes to consent; everything else (network / unknown / 401 / 5xx)
       // is the generic error view.
+      final bool isConsent = failure is ConsentRequiredFailure;
       emit(state.copyWith(
-        status: failure is ConsentRequiredFailure
-            ? SwipeStatus.consentRequired
-            : SwipeStatus.error,
+        status: isConsent ? SwipeStatus.consentRequired : SwipeStatus.error,
+        // Only the error view surfaces the honest reason; consent routes to its
+        // own view, so keep its state shape unchanged.
+        failure: isConsent ? null : failure,
       ));
     }
   }
@@ -140,7 +142,8 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
       // Mirror the load path: a missing/invalid token is a full-screen error,
       // not a transient snackbar. Currently unreachable (the session token is
       // never cleared once set), but kept in parity with _onFeedRequested.
-      emit(state.copyWith(deciding: false, status: SwipeStatus.error));
+      emit(state.copyWith(
+          deciding: false, status: SwipeStatus.error, failure: failure));
     } else {
       emit(state.copyWith(
         deciding: false,

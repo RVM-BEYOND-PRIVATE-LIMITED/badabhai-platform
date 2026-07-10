@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_models.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_list_row.dart';
@@ -41,9 +42,9 @@ class _AppliedJobsView extends StatelessWidget {
           return switch (state.status) {
             ApplicationsStatus.loading => const BbStatusView.loading(),
             ApplicationsStatus.error => BbStatusView(
-                icon: Icons.cloud_off_rounded,
-                title: 'Could not load your applied jobs.',
-                subtitle: 'Please check your internet and try again.',
+                icon: failureReason(state.failure).icon,
+                title: 'Applied jobs load nahi hui.',
+                subtitle: failureReason(state.failure).reason,
                 action: FilledButton(
                   onPressed: () => context.read<ApplicationsCubit>().load(),
                   child: const Text('Try again'),

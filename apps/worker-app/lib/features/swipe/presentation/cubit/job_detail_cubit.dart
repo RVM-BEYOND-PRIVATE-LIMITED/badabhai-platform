@@ -15,11 +15,16 @@ class JobDetailState extends Equatable {
     this.applying = false,
     this.appliedNonce = 0,
     this.applyErrorNonce = 0,
+    this.failure,
   });
 
   final JobDetailStatus status;
   final JobDetail? detail;
   final bool applying;
+
+  /// The typed cause when [status] is `failed` — the failed view surfaces its
+  /// honest reason instead of a generic "check internet" line.
+  final Failure? failure;
 
   /// Bumped on a successful apply — the screen navigates to Applied once.
   final int appliedNonce;
@@ -40,12 +45,19 @@ class JobDetailState extends Equatable {
       applying: applying ?? this.applying,
       appliedNonce: appliedNonce ?? this.appliedNonce,
       applyErrorNonce: applyErrorNonce ?? this.applyErrorNonce,
+      failure: failure,
     );
   }
 
   @override
-  List<Object?> get props =>
-      <Object?>[status, detail, applying, appliedNonce, applyErrorNonce];
+  List<Object?> get props => <Object?>[
+        status,
+        detail,
+        applying,
+        appliedNonce,
+        applyErrorNonce,
+        failure,
+      ];
 }
 
 /// Drives the job-detail screen: load the posting on open, then apply (through
@@ -63,9 +75,9 @@ class JobDetailCubit extends Cubit<JobDetailState> {
       final JobDetail detail = await _jobs.jobDetail(jobId);
       if (isClosed) return;
       emit(JobDetailState(status: JobDetailStatus.ready, detail: detail));
-    } on Failure catch (_) {
+    } on Failure catch (f) {
       if (isClosed) return;
-      emit(const JobDetailState(status: JobDetailStatus.failed));
+      emit(JobDetailState(status: JobDetailStatus.failed, failure: f));
     }
   }
 
