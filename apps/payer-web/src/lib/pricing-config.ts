@@ -94,6 +94,30 @@ export function applicantQuotaStep(): number | null {
 }
 
 /**
+ * The catalog `quota_topup` TIER one top-up purchases (B2 "view more → pay more") —
+ * the SMALLEST tier, straight from config (no literal code/price/amount here). The
+ * LIVE `POST /payer/job-postings/:id/quota-topup` body carries ONLY this tier CODE;
+ * the backend re-resolves price + grant through the pricing engine (XT5: the client
+ * can never supply an amount). Returns null if the catalog has no top-up tiers.
+ */
+export function quotaTopUpTier(): { code: string; priceInr: number; additionalViews: number } | null {
+  const product = DEFAULT_CATALOG.products.find(
+    (p) => p.kind === "quota_topup" && p.code === "quota_topup",
+  );
+  if (!product || product.kind !== "quota_topup") return null;
+  const smallest = [...product.tiers].sort(
+    (a, b) => a.additionalVisibilityQuota - b.additionalVisibilityQuota,
+  )[0];
+  return smallest
+    ? {
+        code: smallest.code,
+        priceInr: smallest.priceInr,
+        additionalViews: smallest.additionalVisibilityQuota,
+      }
+    : null;
+}
+
+/**
  * The BASE applicant quota a posting in a given vacancy band starts with. Derived
  * from the catalog quota steps scaled by the band's index (band 0 → smallest step,
  * higher bands → proportionally more). Config-driven: no literal quota in pages.

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { AgencyJob } from "../../../../lib/contracts";
@@ -157,6 +158,12 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                     <span aria-hidden="true">·</span>
                     <span>
                       Posted <span className="bb-mono">{day(j.createdAt)}</span>
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span>
+                      <Link className="postings-link" href={`/agency/jobs/${j.id}`}>
+                        Details
+                      </Link>
                     </span>
                   </div>
                 </div>

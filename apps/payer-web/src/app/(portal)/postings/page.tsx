@@ -15,10 +15,9 @@ export const dynamic = "force-dynamic";
  * server-held session id) via the LIVE `GET /payer/job-postings` read. `postings/new`
  * owns CREATE; each row links to its own faceless applicant feed.
  *
- * The PAUSE / RESUME + applicant-quota TOP-UP lifecycle stays GATED: there is no
- * payer-authed company lifecycle/quota endpoint yet (the job-postings controller is
- * InternalServiceGuard — see payer-api.ts ESCALATE notes), so the manager renders those
- * actions as disabled "coming soon" DS Buttons rather than wiring a fake live route.
+ * The PAUSE / RESUME / quota TOP-UP / CLOSE lifecycle is LIVE: the payer-authed
+ * `POST /payer/job-postings/:id/{pause|resume|quota-topup|close}` routes (#178/#180),
+ * wired in the manager with per-row busy state + inline retryable errors.
  *
  * The quota top-up STEP copy is config-derived (catalog posting-quota tier) — this page
  * never hardcodes a quota number.

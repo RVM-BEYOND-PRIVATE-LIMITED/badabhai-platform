@@ -56,8 +56,12 @@ export type RevealView =
   | {
       kind: "masked";
       disclosureId: string;
-      /** Masked initials only — e.g. "R***** K." NEVER a full name (XB-E). */
-      displayInitials: string;
+      /**
+       * Masked initials only — e.g. "R***** K." NEVER a full name (XB-E). OPTIONAL:
+       * the LIVE disclosure wire has no initials field (masking lives inside the PDF
+       * artifact); the card renders a neutral label when absent.
+       */
+      displayInitials?: string;
       /** Short-TTL signed URL to the MASKED PDF. No phone in the artifact. */
       resumeUrl: string;
       expiresAt: string;
