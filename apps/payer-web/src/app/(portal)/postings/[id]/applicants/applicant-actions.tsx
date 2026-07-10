@@ -185,7 +185,8 @@ export function ApplicantActions({
 
   async function onMaskedResume(unlockId: string, workerId: string) {
     patch(workerId, { resumeBusy: true, resumeError: null });
-    const res = await maskedResumeAction({ unlockId, workerId });
+    // postingId = the disclosure's audit context (the posting whose applicants these are).
+    const res = await maskedResumeAction({ unlockId, workerId, postingId });
     if (res.ok) patch(workerId, { resumeBusy: false, resume: res.view });
     else patch(workerId, { resumeBusy: false, resumeError: res.error });
   }

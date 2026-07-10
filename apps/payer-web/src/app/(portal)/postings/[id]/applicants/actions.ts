@@ -65,8 +65,10 @@ export async function revealContactAction(input: {
 }
 
 /**
- * WAITING (mock shim): the MASKED resume. No payer-authed disclosure endpoint exists
- * (resume-disclosures is InternalServiceGuard) — this is a clearly-flagged mock.
+ * LIVE: the MASKED resume via the payer-authed `POST /payer/resume-disclosures`
+ * (XB-E). The posting id rides along as the disclosure's audit context (optional on
+ * the wire — validated here when present). Every deny cause maps to the SAME neutral
+ * view (XB-C); a transport failure is a retryable error, never fake data.
  */
 export type RevealActionResult =
   | { ok: true; view: RevealView }
@@ -75,8 +77,12 @@ export type RevealActionResult =
 export async function maskedResumeAction(input: {
   unlockId: string;
   workerId: string;
+  postingId?: string;
 }): Promise<RevealActionResult> {
   if (!uuid.safeParse(input.unlockId).success || !uuid.safeParse(input.workerId).success) {
+    return { ok: false, error: "Invalid request." };
+  }
+  if (input.postingId !== undefined && !uuid.safeParse(input.postingId).success) {
     return { ok: false, error: "Invalid request." };
   }
   try {

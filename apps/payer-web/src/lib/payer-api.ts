@@ -1,5 +1,4 @@
 import "server-only";
-import { requirePayer } from "./auth";
 import {
   agencyInviteWireSchema,
   agencyJobListWireSchema,
@@ -9,10 +8,14 @@ import {
   buyCapacityWireSchema,
   buyPackResultWireSchema,
   capacitySchema,
+  creditLedgerWireSchema,
   creditsWireSchema,
+  creditTopUpSchema,
   jobPostingListWireSchema,
   jobPostingWireSchema,
   maskedResumeResultSchema,
+  maskedResumeWireSchema,
+  quotaTopUpWireSchema,
   payerCapacityWireSchema,
   payerMeWireSchema,
   postingSummarySchema,
@@ -38,12 +41,12 @@ import {
   type TopUpResult,
   type UnlockHistoryItem,
   type UnlockResult,
+  type UpdatePostingInput,
 } from "./contracts";
 import { revealResultSchema } from "./contracts";
 import { assertNoAgencyPII } from "./assert-no-agency-pii";
-import * as store from "./mock-store";
 import { payerFetch } from "./payer-http";
-import { findCreditPack } from "./pricing-config";
+import { findCreditPack, quotaTopUpTier } from "./pricing-config";
 
 /**
  * The PAYER DATA SEAM (ADR-0019 Phase 1).
@@ -245,16 +248,8 @@ export async function topUp(input: { packCode: string }): Promise<TopUpResult | 
     if (e instanceof Error && /returned 404/.test(e.message)) return null;
     throw e;
   }
-  // Record the successful (mock) purchase on the caller's OWN mock ledger so the credits
-  // page can show a top-up history + a 12-month expiry schedule. The authoritative balance
-  // stays the live backend; this is a PII-free local history record. `priceInr` is resolved
-  // from the @badabhai/pricing catalog (XT5: server-side amount, never client-supplied).
-  const { payerId } = await requirePayer();
-  store.recordTopUp(payerId, {
-    packCode: wire.pack_code,
-    credits: wire.credits,
-    priceInr: findCreditPack(wire.pack_code)?.priceInr ?? 0,
-  });
+  // The purchase is recorded server-side on the authoritative credit_ledger (the same
+  // ledger `GET /payer/credits/ledger` reads) — no client-side history record anymore.
   return topUpResultSchema.parse({
     payerId: wire.payer_id,
     balance: wire.balance,
@@ -265,14 +260,28 @@ export async function topUp(input: { packCode: string }): Promise<TopUpResult | 
 }
 
 /**
- * The caller's OWN mock-ledger credit top-ups (newest first) — the top-up half of the
- * credit history + the source of the 12-month expiry schedule. Tenancy is the server-held
- * session (XB-A); PII-free (ids/amounts/config pack code only). WAITING-mock: there is no
- * payer-authed credit-ledger endpoint, so this reads the local ledger recorded on top-up.
+ * GET /payer/credits/ledger — the caller's OWN credit top-ups (newest first), the top-up
+ * half of the credit history + the source of the 12-month expiry schedule (LIVE; XB-A:
+ * Bearer only, the ledger is payer-scoped server-side). The AUTHORITATIVE `credit_ledger`
+ * rows replace the old client-recorded mock history: positive pack movements (delta > 0
+ * with a pack_code) ARE the top-ups. PII-free (ids/amounts/config pack code only);
+ * `priceInr` is resolved from the @badabhai/pricing catalog (XT5 — never a wire amount).
  */
 export async function getCreditTopUps(): Promise<CreditTopUp[]> {
-  const { payerId } = await requirePayer();
-  return store.getTopUps(payerId);
+  const wire = await payerFetch("/payer/credits/ledger?limit=50", {
+    schema: creditLedgerWireSchema,
+  });
+  return wire.ledger
+    .filter((row) => row.delta > 0 && row.pack_code !== null)
+    .map((row) =>
+      creditTopUpSchema.parse({
+        topUpId: row.id,
+        packCode: row.pack_code,
+        credits: row.delta,
+        priceInr: findCreditPack(row.pack_code!)?.priceInr ?? 0,
+        createdAt: row.created_at,
+      }),
+    );
 }
 
 /**
@@ -610,6 +619,26 @@ export async function createPosting(input: CreatePostingInput): Promise<PostingS
 }
 
 /**
+ * GET /payer/job-postings/:id — the caller's OWN posting as an EDIT DRAFT (LIVE): the
+ * faceless summary PLUS the payer's OWN description (their registered text, needed to
+ * prefill the edit form — it is the caller's data, the sibling of GET /payer/me). Same
+ * neutral 404 → `null` contract as {@link getPosting}. Still NO worker PII by design.
+ */
+export async function getPostingDraft(
+  postingId: string,
+): Promise<{ summary: PostingSummary; description: string | null } | null> {
+  try {
+    const wire = await payerFetch(`/payer/job-postings/${postingId}`, {
+      schema: jobPostingWireSchema,
+    });
+    return { summary: toPostingSummary(wire), description: wire.description };
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
+}
+
+/**
  * GET /payer/job-postings/:id — one of the caller's OWN postings (LIVE). An unknown OR
  * not-owned id returns the SAME neutral 404 (no-oracle) → mapped to `null` so a manage page
  * renders a neutral not-found. Faceless mapping (org_label/description dropped).
@@ -632,8 +661,9 @@ export async function getPosting(postingId: string): Promise<PostingSummary | nu
  * sends the RAW `vacancies` count (at most one of vacancy_band|vacancies — the backend derives
  * its band and discards the integer). Pure + exported so the wire contract is unit-pinned, the
  * sibling of {@link toPayerJobPostingBody}. Optional labels are omitted when absent.
+ * Accepts the {@link UpdatePostingInput} subset (a CreatePostingInput satisfies it unchanged).
  */
-export function toPayerJobPostingPatchBody(input: CreatePostingInput): Record<string, unknown> {
+export function toPayerJobPostingPatchBody(input: UpdatePostingInput): Record<string, unknown> {
   const body: Record<string, unknown> = {
     role_title: input.roleTitle,
     vacancies: input.vacancies, // RAW count — the backend derives its own band.
@@ -650,7 +680,7 @@ export function toPayerJobPostingPatchBody(input: CreatePostingInput): Record<st
  */
 export async function updatePosting(
   postingId: string,
-  input: CreatePostingInput,
+  input: UpdatePostingInput,
 ): Promise<PostingSummary | null> {
   try {
     const wire = await payerFetch(`/payer/job-postings/${postingId}`, {
@@ -685,91 +715,121 @@ export async function closePosting(postingId: string): Promise<PostingSummary | 
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
- * WAITING — clearly-seamed MOCK shims. NO payer-authed endpoint exists yet.
- * ESCALATE to backend (see REPORT). Tenancy still server-held (XB-A). These are the
- * masked-resume disclosure + the posting PAUSE/RESUME/quota-top-up lifecycle — kept
- * MOCK on purpose. (createPosting / getPostings / getPosting / updatePosting /
- * closePosting + topUp + getCapacity are now LIVE above.)
+ * LIVE — the FINAL mock seams swapped onto their payer-authed endpoints:
+ * masked-resume disclosure (POST /payer/resume-disclosures) + the posting
+ * PAUSE/RESUME/quota-top-up lifecycle (#178/#180). The mock store is GONE from
+ * this seam — a backend error surfaces as an error, never as fake data.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
- * WAITING (mock): MASKED resume disclosure. The backend `resume-disclosures` route is
- * InternalServiceGuard (NO payer-authed disclosure endpoint), so this stays a mock
- * shim. The LIVE reveal above already returns the routed CONTACT handle; the masked
- * RESUME is a separate surface. ESCALATE: payer-authed POST /payer/resume-disclosures.
- *
- * The masked initials are MOCK-derived from the opaque worker id (no real name is read
- * anywhere in this app). No phone, no full name in the artifact.
+ * POST /payer/resume-disclosures — the identity-MASKED resume for one worker the caller
+ * is entitled to (LIVE; resume-disclosure addendum B-C/XB-E). The body carries ONLY
+ * `{ worker_id, job_posting_id }` — the payer is the SESSION (XB-A), never a body value.
+ * EVERY deny cause (no consent / capped / unknown / no resume / render-unavailable)
+ * returns the SAME neutral `{ status: "unavailable" }` (no-oracle); success carries an
+ * opaque disclosure id + a short-TTL signed URL to the MASKED PDF. There is NO initials
+ * field on the live wire (masking lives inside the artifact) — the card renders a
+ * neutral label. No phone, no full name, no deny reason anywhere.
  */
 export async function revealMaskedResume(input: {
   unlockId: string;
   workerId: string;
+  /** The posting context for the disclosure audit row (optional — null is valid). */
+  postingId?: string;
 }): Promise<MaskedResumeResult> {
-  await requirePayer();
-  const initials = mockMaskedInitials(input.workerId);
-  return maskedResumeResultSchema.parse({
-    ok: true,
-    disclosureId: input.unlockId,
-    status: "disclosed",
-    displayInitials: initials,
-    resumeUrl: `https://staging.badabhai.example/masked-resume/${input.unlockId}.pdf`,
-    expiresAt: new Date(Date.now() + 14 * 86400_000).toISOString(),
+  const wire = await payerFetch("/payer/resume-disclosures", {
+    method: "POST",
+    body: { worker_id: input.workerId, job_posting_id: input.postingId ?? null },
+    schema: maskedResumeWireSchema,
   });
+  if ("ok" in wire && wire.ok === true) {
+    return maskedResumeResultSchema.parse({
+      ok: true,
+      disclosureId: wire.disclosure_id,
+      status: "disclosed",
+      resumeUrl: wire.resume_url,
+      expiresAt: wire.expires_at,
+    });
+  }
+  return maskedResumeResultSchema.parse({ status: "unavailable" });
 }
 
 /**
- * WAITING (mock): PAUSE one of the payer's OWN postings (open → paused). The LIVE
- * `PATCH /payer/job-postings/:id` only PUBLISHES (draft → open) and the backend lifecycle
- * has NO `paused` state, so there is no live route for this — kept on the mock store.
- * Tenancy (XB-A): the payerId is the SERVER-HELD session, never client input. A posting
- * that isn't the caller's returns null ⇒ a NEUTRAL not-found.
- *
- * // LIVE-SWAP BLOCKED: no payer-authed company pause/resume/quota route yet (ask Divyanshu)
+ * POST /payer/job-postings/:id/pause — pause one of the caller's OWN LIVE postings
+ * (open → paused; LIVE, #178). Session identity only (XB-A); empty body. Unknown OR
+ * not-owned → the SAME neutral 404 (no-oracle) → `null`. A 409 (not in `open`)
+ * propagates — the action maps it to a retryable error message.
  */
 export async function pausePosting(input: { postingId: string }): Promise<PostingSummary | null> {
-  const { payerId } = await requirePayer();
-  const updated = store.pausePosting(payerId, input.postingId);
-  return updated ? postingSummarySchema.parse(updated) : null;
+  try {
+    const wire = await payerFetch(`/payer/job-postings/${input.postingId}/pause`, {
+      method: "POST",
+      body: {},
+      schema: jobPostingWireSchema,
+    });
+    return toPostingSummary(wire);
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
 }
 
 /**
- * WAITING (mock): RESUME one of the payer's OWN postings (paused → open). Same missing
- * route as pause (no `paused` state on the backend lifecycle). Tenancy server-held (XB-A);
- * not-owned → null.
- *
- * // LIVE-SWAP BLOCKED: no payer-authed company pause/resume/quota route yet (ask Divyanshu)
+ * POST /payer/job-postings/:id/resume — resume one of the caller's OWN paused postings
+ * (paused → open; LIVE, #178). Same neutral-404 → `null` + 409-propagates contract as
+ * {@link pausePosting}.
  */
 export async function resumePosting(input: { postingId: string }): Promise<PostingSummary | null> {
-  const { payerId } = await requirePayer();
-  const updated = store.resumePosting(payerId, input.postingId);
-  return updated ? postingSummarySchema.parse(updated) : null;
+  try {
+    const wire = await payerFetch(`/payer/job-postings/${input.postingId}/resume`, {
+      method: "POST",
+      body: {},
+      schema: jobPostingWireSchema,
+    });
+    return toPostingSummary(wire);
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
 }
 
 /**
- * WAITING (mock): TOP-UP a posting's applicant quota by ONE CONFIG'd step (catalog
- * posting-quota tier; never a client/hardcoded amount — "view more → pay more"). There is
- * no payer-authed quota endpoint (applicant quota is a payer-portal concept the backend
- * job_postings row does not model yet). Tenancy server-held (XB-A); the step is resolved
- * by code from config (XT5-style server-side amount), not a client value.
- *
- * // LIVE-SWAP BLOCKED: no payer-authed company pause/resume/quota route yet (ask Divyanshu)
+ * POST /payer/job-postings/:id/quota-topup — top up applicant-visibility quota on the
+ * caller's OWN ACTIVE PLAN for this posting (LIVE, B2 #180 — "view more → pay more").
+ * The body carries ONLY the config'd catalog tier CODE ({@link quotaTopUpTier} — XT5:
+ * the backend re-resolves price + grant through the pricing engine; the client can
+ * never send an amount). Session identity only (XB-A). Unknown/not-owned → neutral 404
+ * → `null`; a 409 (NO ACTIVE PLAN to top up) throws `QuotaTopUpNoPlanError` so the
+ * action can say "buy a plan first" without weakening the not-found neutrality. The
+ * wire returns the topped-up plan `{ plan, quote }`; the fresh posting row is re-read
+ * so the action keeps its PostingSummary contract.
  */
 export async function topUpPostingQuota(input: {
   postingId: string;
 }): Promise<PostingSummary | null> {
-  const { payerId } = await requirePayer();
-  const updated = store.topUpPostingQuota(payerId, input.postingId);
-  return updated ? postingSummarySchema.parse(updated) : null;
+  const tier = quotaTopUpTier();
+  if (!tier) throw new Error("no quota top-up tier configured"); // fail-closed, config-sourced
+  try {
+    await payerFetch(`/payer/job-postings/${input.postingId}/quota-topup`, {
+      method: "POST",
+      body: { tier: tier.code },
+      schema: quotaTopUpWireSchema,
+    });
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    if (e instanceof Error && /returned 409/.test(e.message)) {
+      throw new QuotaTopUpNoPlanError();
+    }
+    throw e;
+  }
+  // Success → return the fresh posting row (the action's stable PostingSummary contract).
+  return getPosting(input.postingId);
 }
 
-/**
- * Deterministic PII-FREE mock masked initials from an opaque id ("R***** K.") — never
- * a real name (there is none in this app). Used only by the WAITING masked-resume shim.
- */
-function mockMaskedInitials(workerId: string): string {
-  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  const hex = workerId.replace(/-/g, "");
-  const first = letters[parseInt(hex.slice(0, 2), 16) % 26]!;
-  const last = letters[parseInt(hex.slice(2, 4), 16) % 26]!;
-  return `${first}***** ${last}.`;
+/** 409 from quota-topup: the posting has no ACTIVE PLAN to top up (buy a plan first). */
+export class QuotaTopUpNoPlanError extends Error {
+  constructor() {
+    super("no active plan to top up");
+    this.name = "QuotaTopUpNoPlanError";
+  }
 }

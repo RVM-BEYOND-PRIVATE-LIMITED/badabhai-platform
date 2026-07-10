@@ -201,35 +201,68 @@ describe("topUp — buy-pack wiring (LIVE): POSTs ONLY { pack_code } + Bearer", 
     expect(JSON.stringify(body)).not.toMatch(/payer_id/);
   });
 
-  it("records the successful purchase on the session payer's mock ledger (config-priced)", async () => {
-    const PAYER = "11111111-1111-4111-8111-111111111111"; // the requirePayer-mocked session
-    const store = await import("./mock-store");
-    const before = store.getTopUps(PAYER).length;
-    fetchMock.mockResolvedValue(
-      jsonResponse(
-        { payer_id: PAYER, balance: 107, credits: 50, pack_code: "pack_50" },
-        201,
-      ),
-    );
-    const { topUp } = await import("./payer-api");
-    await topUp({ packCode: "pack_50" });
-    const after = store.getTopUps(PAYER);
-    expect(after.length).toBe(before + 1);
-    // Newest-first; the amount is resolved from the catalog (XT5), never echoed from the client.
-    expect(after[0]!.packCode).toBe("pack_50");
-    expect(after[0]!.priceInr).toBe(2000);
-  });
-
-  it("maps an unknown-pack 404 to a neutral null and does NOT touch the ledger", async () => {
-    const PAYER = "11111111-1111-4111-8111-111111111111";
-    const store = await import("./mock-store");
-    const before = store.getTopUps(PAYER).length;
+  it("maps an unknown-pack 404 to a neutral null (no client-side ledger side effects)", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ message: "Unknown credit pack" }, 404));
     const { topUp } = await import("./payer-api");
     const res = await topUp({ packCode: "does_not_exist" });
     expect(res).toBeNull();
-    // The 404 returns before recordTopUp — the ledger is untouched.
-    expect(store.getTopUps(PAYER).length).toBe(before);
+    // ONE call only — no follow-up write anywhere (the ledger is server-side now).
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("getCreditTopUps — LIVE credit history: GET /payer/credits/ledger (XB-A, Bearer only)", () => {
+  const PAYER = "11111111-1111-4111-8111-111111111111";
+
+  it("GETs the ledger with the Bearer token and maps ONLY positive pack movements to top-ups", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        payer_id: PAYER,
+        ledger: [
+          {
+            id: "cccc3333-0000-4000-8000-000000000001",
+            delta: 50,
+            reason: "pack_purchase",
+            unlock_id: null,
+            pack_code: "pack_50",
+            payment_ref: "mock_ref_1",
+            created_at: "2026-07-01T00:00:00.000Z",
+          },
+          {
+            // A SPEND row (negative, no pack) — must NOT appear as a top-up.
+            id: "cccc3333-0000-4000-8000-000000000002",
+            delta: -1,
+            reason: "unlock",
+            unlock_id: "dddd4444-0000-4000-8000-000000000001",
+            pack_code: null,
+            payment_ref: null,
+            created_at: "2026-07-02T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    const { getCreditTopUps } = await import("./payer-api");
+    const topUps = await getCreditTopUps();
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/payer/credits/ledger?limit=50");
+    expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
+    expect(init.body).toBeUndefined(); // a GET carries no body → no place for a payer_id
+
+    expect(topUps).toHaveLength(1);
+    expect(topUps[0]!.topUpId).toBe("cccc3333-0000-4000-8000-000000000001");
+    expect(topUps[0]!.packCode).toBe("pack_50");
+    expect(topUps[0]!.credits).toBe(50);
+    // The price is resolved from the @badabhai/pricing catalog (XT5), never from the wire.
+    expect(topUps[0]!.priceInr).toBe(2000);
+    expect(topUps[0]!.createdAt).toBe("2026-07-01T00:00:00.000Z");
+  });
+
+  it("surfaces no PII from the ledger payload", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ payer_id: PAYER, ledger: [] }));
+    const { getCreditTopUps } = await import("./payer-api");
+    const res = await getCreditTopUps();
+    expect(JSON.stringify(res)).not.toMatch(/name|phone|employer|email|address/i);
   });
 });
 
@@ -390,43 +423,121 @@ describe("buyCapacity — capacity BUY (A1, LIVE): POSTs ONLY { tier } + Bearer 
 });
 
 /**
- * WAITING-mock seam: the posting PAUSE / RESUME / quota-top-up lifecycle. These bind to the
- * SERVER-HELD session payer (the mocked `requirePayer` above → PAYER_A) and never accept a
- * client payer id. They serve from the in-memory mock store, so they do NOT hit fetch.
- * (createPosting / getPostings / get-one / edit / close are now LIVE — covered below.)
+ * LIVE posting lifecycle: PAUSE / RESUME / quota-top-up on the payer-authed
+ * `POST /payer/job-postings/:id/{pause|resume|quota-topup}` routes (#178/#180).
+ * TENANCY (XB-A): Bearer-only — the bodies never carry a payer_id; the quota body
+ * carries ONLY the config'd catalog tier CODE (XT5 — never a price/amount).
+ * No-oracle: an unknown-or-not-owned id (neutral 404) maps to `null`.
  */
-describe("job-management seam — server-held payer, config-driven (WAITING mock)", () => {
-  const PAYER_A = "11111111-1111-4111-8111-111111111111";
+describe("posting lifecycle — LIVE pause/resume/quota-topup (XB-A, Bearer only)", () => {
+  it("POSTs pause then resume with the Bearer token, empty body, and maps the fresh row", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(jobPostingRow({ status: "paused" })))
+      .mockResolvedValueOnce(jsonResponse(jobPostingRow({ status: "open" })));
+    const { pausePosting, resumePosting } = await import("./payer-api");
 
-  it("pause/resume/top-up operate only on the session payer's own postings", async () => {
-    const store = await import("./mock-store");
-    store.__resetForTest(PAYER_A, true);
-    const { pausePosting, resumePosting, topUpPostingQuota } = await import("./payer-api");
-
-    // The lifecycle shims still operate on the MOCK store; source the seed id from it DIRECTLY
-    // (getPostings is now LIVE and would hit fetch). These three never call fetch themselves.
-    const seeded = store.getPostings(PAYER_A);
-    const id = seeded[0]!.id;
-
-    const paused = await pausePosting({ postingId: id });
+    const paused = await pausePosting({ postingId: POSTING_ID });
     expect(paused?.status).toBe("paused");
-    const resumed = await resumePosting({ postingId: id });
+    const resumed = await resumePosting({ postingId: POSTING_ID });
     expect(resumed?.status).toBe("open");
 
-    const beforeQuota = seeded[0]!.applicantQuota ?? 0;
-    const topped = await topUpPostingQuota({ postingId: id });
-    expect(topped!.applicantQuota!).toBeGreaterThan(beforeQuota);
-
-    // None of these touched fetch (they are mock-store shims, not LIVE calls).
-    expect(fetchMock).not.toHaveBeenCalled();
+    const [pauseUrl, pauseInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(pauseUrl).toBe(`http://api.test/payer/job-postings/${POSTING_ID}/pause`);
+    expect(pauseInit.method).toBe("POST");
+    expect((pauseInit.headers as Record<string, string>).authorization).toBe(`Bearer ${TOKEN}`);
+    expect(JSON.parse(pauseInit.body as string)).toEqual({}); // empty body — no payer_id
+    const [resumeUrl] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(resumeUrl).toBe(`http://api.test/payer/job-postings/${POSTING_ID}/resume`);
+    // The faceless mapping still drops org_label/description.
+    expect(JSON.stringify(paused)).not.toMatch(/orgLabel|description/);
   });
 
-  it("returns null (neutral not-found) for a posting id the session payer doesn't own", async () => {
-    const store = await import("./mock-store");
-    store.__resetForTest(PAYER_A, true);
+  it("quota-topup POSTs ONLY the config'd tier code, then re-reads the fresh posting row", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ plan: { id: "p1" }, quote: { total: 1000 } }, 201))
+      .mockResolvedValueOnce(jsonResponse(jobPostingRow({ status: "open" })));
+    const { topUpPostingQuota } = await import("./payer-api");
+    const topped = await topUpPostingQuota({ postingId: POSTING_ID });
+    expect(topped?.id).toBe(POSTING_ID);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`http://api.test/payer/job-postings/${POSTING_ID}/quota-topup`);
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    // ONLY the catalog tier CODE (from @badabhai/pricing config) — no payer_id/price/amount.
+    expect(Object.keys(body)).toEqual(["tier"]);
+    expect(body.tier).toBe("topup_10");
+  });
+
+  it("maps a 409 (no active plan) to QuotaTopUpNoPlanError — actionable, not neutral", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ message: "no active plan" }, 409));
+    const { topUpPostingQuota, QuotaTopUpNoPlanError } = await import("./payer-api");
+    await expect(topUpPostingQuota({ postingId: POSTING_ID })).rejects.toBeInstanceOf(
+      QuotaTopUpNoPlanError,
+    );
+  });
+
+  it("returns null (neutral not-found) for an unknown-or-not-owned posting id", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ message: "Not found" }, 404));
     const { pausePosting } = await import("./payer-api");
     const res = await pausePosting({ postingId: "99999999-9999-4999-8999-999999999999" });
     expect(res).toBeNull();
+  });
+});
+
+/**
+ * LIVE masked-resume disclosure: POST /payer/resume-disclosures (XB-E / B-C).
+ * TENANCY (XB-A): the body carries ONLY worker_id + job_posting_id — never a payer_id.
+ * No-oracle: the neutral `unavailable` body maps to the SAME neutral result.
+ */
+describe("revealMaskedResume — LIVE disclosure (XB-A body, no-oracle neutral)", () => {
+  const WORKER = "eeee5555-0000-4000-8000-000000000001";
+  const UNLOCK = "ffff6666-0000-4000-8000-000000000001";
+
+  it("POSTs ONLY worker_id + job_posting_id and maps the granted wire (no initials field)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        ok: true,
+        disclosure_id: "aaaa7777-0000-4000-8000-000000000001",
+        status: "disclosed",
+        resume_url: "https://api.test/signed/masked.pdf",
+        expires_at: "2026-07-20T00:00:00.000Z",
+      }),
+    );
+    const { revealMaskedResume } = await import("./payer-api");
+    const res = await revealMaskedResume({
+      unlockId: UNLOCK,
+      workerId: WORKER,
+      postingId: POSTING_ID,
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/payer/resume-disclosures");
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(["job_posting_id", "worker_id"]);
+    expect(body.worker_id).toBe(WORKER);
+    expect(body.job_posting_id).toBe(POSTING_ID);
+    expect(JSON.stringify(body)).not.toMatch(/payer_id|unlock/);
+
+    expect(res).toEqual({
+      ok: true,
+      disclosureId: "aaaa7777-0000-4000-8000-000000000001",
+      status: "disclosed",
+      resumeUrl: "https://api.test/signed/masked.pdf",
+      expiresAt: "2026-07-20T00:00:00.000Z",
+    });
+    // NO name/phone/initials on the live wire result (masking lives inside the PDF).
+    expect(JSON.stringify(res)).not.toMatch(/name|phone|initials/i);
+  });
+
+  it("maps the neutral unavailable body to the SAME neutral result (B-C no-oracle)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ status: "unavailable" }));
+    const { revealMaskedResume } = await import("./payer-api");
+    const res = await revealMaskedResume({ unlockId: UNLOCK, workerId: WORKER });
+    expect(res).toEqual({ status: "unavailable" });
+    // Omitted postingId → an explicit null job_posting_id (the DTO default), never absent.
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string).job_posting_id).toBeNull();
   });
 });
 
@@ -563,8 +674,8 @@ describe("getPosting / updatePosting / closePosting — LIVE: faceless, no-oracl
   it("updatePosting PATCHes :id with a faceless body (no org_label/payer_id), maps the row", async () => {
     fetchMock.mockResolvedValue(jsonResponse(jobPostingRow({ roleTitle: "CNC Machinist II" })));
     const { updatePosting } = await import("./payer-api");
+    // updatePosting takes the PATCHable subset only (UpdatePostingInput — no tradeKey).
     const res = await updatePosting(POSTING_ID, {
-      tradeKey: "cnc_operator",
       roleTitle: "CNC Machinist II",
       vacancies: 3,
     });
@@ -585,7 +696,7 @@ describe("getPosting / updatePosting / closePosting — LIVE: faceless, no-oracl
   it("updatePosting maps a 404 to a neutral null", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ message: "not found" }, 404));
     const { updatePosting } = await import("./payer-api");
-    const res = await updatePosting(POSTING_ID, { tradeKey: "fitter", roleTitle: "Fitter", vacancies: 1 });
+    const res = await updatePosting(POSTING_ID, { roleTitle: "Fitter", vacancies: 1 });
     expect(res).toBeNull();
   });
 });
@@ -675,17 +786,17 @@ describe("getApplicantFeed — surfaces faceless taxonomy bands (PR-4), null -> 
 
 /**
  * SOURCE-LEVEL GUARDRAILS — the live-swap is enforced statically, so a regression that
- * re-points a swapped function at the mock store (or drops the gated-trio flag) fails CI
+ * re-points a swapped function at a mock (or resurrects the mock store) fails CI
  * rather than slipping through. Reads the seam source as text (no execution).
  */
-describe("live-swap guardrails (source) — swapped funcs are live, gated trio flagged", () => {
+describe("live-swap guardrails (source) — the seam is FULLY live, no mock fallback", () => {
   const src = readFileSync(fileURLToPath(new URL("./payer-api.ts", import.meta.url)), "utf8");
 
-  it("the swapped company-posting reads/writes no longer route through the mock store", () => {
-    // After the swap there is NO store.getPostings / store.createPosting anywhere in the seam —
-    // create/list (and the dashboard/capacity reads) are payer-authed fetches now.
-    expect(src).not.toMatch(/store\.getPostings/);
-    expect(src).not.toMatch(/store\.createPosting/);
+  it("NOTHING routes through the mock store anymore (the module is deleted)", () => {
+    expect(src).not.toMatch(/mock-store/);
+    expect(src).not.toMatch(/store\./);
+    expect(src).not.toMatch(/LIVE-SWAP BLOCKED/);
+    expect(src).not.toMatch(/WAITING \(mock\)/);
   });
 
   it("the live posting CRUD goes to the payer-authed /payer/job-postings routes", () => {
@@ -695,16 +806,11 @@ describe("live-swap guardrails (source) — swapped funcs are live, gated trio f
     expect(src).toMatch(/payerFetch\(`\/payer\/job-postings\/\$\{postingId\}\/close`/); // close
   });
 
-  it("the gated lifecycle trio is EXPLICITLY flagged (LIVE-SWAP BLOCKED), not silently broken", () => {
-    // One marker per pausePosting / resumePosting / topUpPostingQuota — the trio is knowingly
-    // deferred (no payer-authed route), never quietly left half-working.
-    const markers = src.match(/LIVE-SWAP BLOCKED/g) ?? [];
-    expect(markers).toHaveLength(3);
-  });
-
-  it("the gated trio STILL routes to the mock store (it is intact, not removed)", () => {
-    expect(src).toMatch(/store\.pausePosting/);
-    expect(src).toMatch(/store\.resumePosting/);
-    expect(src).toMatch(/store\.topUpPostingQuota/);
+  it("the lifecycle trio + disclosure + ledger are LIVE payer-authed routes", () => {
+    expect(src).toMatch(/\/payer\/job-postings\/\$\{input\.postingId\}\/pause/);
+    expect(src).toMatch(/\/payer\/job-postings\/\$\{input\.postingId\}\/resume/);
+    expect(src).toMatch(/\/payer\/job-postings\/\$\{input\.postingId\}\/quota-topup/);
+    expect(src).toMatch(/payerFetch\("\/payer\/resume-disclosures"/);
+    expect(src).toMatch(/payerFetch\("\/payer\/credits\/ledger/);
   });
 });

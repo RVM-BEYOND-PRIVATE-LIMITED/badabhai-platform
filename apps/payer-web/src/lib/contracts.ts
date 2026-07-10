@@ -159,6 +159,27 @@ export const createPostingInputSchema = z
   );
 export type CreatePostingInput = z.infer<typeof createPostingInputSchema>;
 
+/**
+ * The EDITABLE subset of a posting — exactly the fields the LIVE
+ * `PATCH /payer/job-postings/:id` body carries (role_title / vacancies /
+ * location_label? / description?; see `toPayerJobPostingPatchBody`). A structural
+ * subset of {@link CreatePostingInput}, so create-form inputs satisfy it unchanged.
+ */
+export const updatePostingInputSchema = z.object({
+  roleTitle: z.string().min(2).max(120),
+  vacancies: z.number().int().positive(),
+  locationLabel: z.string().max(120).optional(),
+  description: z
+    .string()
+    .min(1)
+    .max(2000)
+    .refine((s) => !looksLikePii(s), {
+      message: "Remove contact details (phone/email) from the description.",
+    })
+    .optional(),
+});
+export type UpdatePostingInput = z.infer<typeof updatePostingInputSchema>;
+
 /* ── Applicant feed (FACELESS, banded) ──────────────────────────────────────── */
 
 /**
@@ -247,8 +268,12 @@ export const maskedResumeSchema = z.object({
   ok: z.literal(true),
   disclosureId: z.string().uuid(),
   status: z.literal("disclosed"),
-  /** Masked initials only — e.g. "R***** K." NEVER a full name. */
-  displayInitials: z.string(),
+  /**
+   * Masked initials only — e.g. "R***** K." NEVER a full name. OPTIONAL: the LIVE
+   * disclosure response carries no initials field (the masking lives inside the PDF
+   * artifact itself); the card renders a neutral label when absent.
+   */
+  displayInitials: z.string().optional(),
   /** Short-TTL signed URL to the MASKED PDF. No phone anywhere in the artifact. */
   resumeUrl: z.string().url(),
   expiresAt: z.string(),
@@ -258,6 +283,24 @@ export const maskedResumeNeutralSchema = z.object({ status: z.literal("unavailab
 
 export const maskedResumeResultSchema = z.union([maskedResumeSchema, maskedResumeNeutralSchema]);
 export type MaskedResumeResult = z.infer<typeof maskedResumeResultSchema>;
+
+/**
+ * LIVE wire of `POST /payer/resume-disclosures` (payer-authed; XB-A — the body carries
+ * only worker_id + job_posting_id, never a payer_id). EXACTLY the backend
+ * `DisclosureGrantedResponse` | the byte-identical neutral body (B-C no-oracle): every
+ * deny cause (no consent / capped / unknown / no resume) is the SAME `unavailable`.
+ * PII-free: an opaque id + a short-TTL signed URL — no name, no phone, no deny reason.
+ */
+export const maskedResumeWireSchema = z.union([
+  z.object({
+    ok: z.literal(true),
+    disclosure_id: z.string().uuid(),
+    status: z.literal("disclosed"),
+    resume_url: z.string().url(),
+    expires_at: z.string(),
+  }),
+  z.object({ status: z.literal("unavailable") }),
+]);
 
 /* ── Credit top-up (MOCK ledger) ────────────────────────────────────────────── */
 
@@ -280,11 +323,11 @@ export const topUpResultSchema = z.object({
 export type TopUpResult = z.infer<typeof topUpResultSchema>;
 
 /**
- * One MOCK-ledger top-up record for the caller's OWN credit history (ADR-0019 Phase 1).
- * Recorded locally on a successful mock purchase so the credits page can show a spend/
- * top-up history + a 12-month expiry schedule. PII-FREE by construction: ids + amounts
- * + a config pack code only — NEVER a worker name/phone. `priceInr` is resolved from the
- * @badabhai/pricing catalog at record time (never a client/hardcoded amount, XT5).
+ * One top-up record for the caller's OWN credit history (ADR-0019 Phase 1). NOW LIVE:
+ * derived from the authoritative `GET /payer/credits/ledger` rows (positive pack
+ * movements), the source of the 12-month expiry schedule. PII-FREE by construction:
+ * ids + amounts + a config pack code only — NEVER a worker name/phone. `priceInr` is
+ * resolved from the @badabhai/pricing catalog (never a client/hardcoded amount, XT5).
  */
 export const creditTopUpSchema = z.object({
   topUpId: z.string().uuid(),
@@ -294,6 +337,37 @@ export const creditTopUpSchema = z.object({
   createdAt: z.string(),
 });
 export type CreditTopUp = z.infer<typeof creditTopUpSchema>;
+
+/**
+ * LIVE wire of `GET /payer/credits/ledger` (payer-authed; XB-A — the ledger is the
+ * SESSION payer's own movements, `limit` bounded server-side at 1..50). EXACTLY the
+ * backend `{ payer_id, ledger: CreditLedgerItem[] }` projection: amounts + opaque ids
+ * + a closed reason set only — PII-free by table design. `reason` is passed through as
+ * a string (a closed backend enum; the page renders known labels + a fallback).
+ */
+export const creditLedgerEntryWireSchema = z.object({
+  id: z.string().uuid(),
+  delta: z.number().int(),
+  reason: z.string(),
+  unlock_id: z.string().uuid().nullable(),
+  pack_code: z.string().nullable(),
+  payment_ref: z.string().nullable(),
+  created_at: z.string(),
+});
+export const creditLedgerWireSchema = z.object({
+  payer_id: z.string().uuid(),
+  ledger: z.array(creditLedgerEntryWireSchema),
+});
+
+/**
+ * LIVE wire of `POST /payer/job-postings/:id/quota-topup` (B2 #180): the topped-up plan
+ * + the engine quote. Parsed loosely — the seam only needs the call to succeed (the page
+ * re-reads the posting row); plan/quote internals stay server-side concepts. PII-free.
+ */
+export const quotaTopUpWireSchema = z.object({
+  plan: z.record(z.string(), z.unknown()),
+  quote: z.record(z.string(), z.unknown()),
+});
 
 /* ── Capacity view (WAITING — no payer-authed endpoint; capacity.controller is
  *    InternalServiceGuard, ESCALATE GET /payer/capacity). PII-free counts only. ──── */
@@ -508,7 +582,8 @@ export const jobPostingWireSchema = z.object({
   // The BACKEND vacancy band-set ('1'/'2-5'/'6-10'/'11-25'/'25+') — distinct from the FRONTEND
   // {@link VACANCY_BANDS}; `postingSummarySchema.vacancyBand` is a plain string so it passes through.
   vacancyBand: z.string(),
-  status: z.enum(["draft", "open", "closed"]),
+  // `paused` landed with the payer pause/resume lifecycle (#178) — the live wire can return it.
+  status: z.enum(["draft", "open", "closed", "paused"]),
   createdAt: z.string(),
   updatedAt: z.string(),
   closedAt: z.string().nullable(),
