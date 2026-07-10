@@ -26,6 +26,16 @@ const bool kUseMocks = bool.fromEnvironment('USE_MOCKS', defaultValue: false);
 const bool kPersistentAuth =
     kUseMocks || bool.fromEnvironment('PERSISTENT_AUTH', defaultValue: false);
 
+/// Absolute base for referral invite links (A3). The `POST /invites` response
+/// carries a SERVER-RELATIVE `link` (`/i/<code>`); the share sheet prepends this
+/// so the shared text is a tappable URL. Overridable per build:
+///   flutter run --dart-define=INVITE_LINK_BASE=https://app.badabhai.in
+/// Trailing slash is trimmed by the caller. PII-free — the code is opaque.
+const String kInviteLinkBase = String.fromEnvironment(
+  'INVITE_LINK_BASE',
+  defaultValue: 'https://app.badabhai.in',
+);
+
 /// The single place that picks the API client.
 ///
 /// Screens construct their client through this factory so the [kUseMocks] switch

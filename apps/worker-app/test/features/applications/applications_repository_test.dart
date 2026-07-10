@@ -45,7 +45,8 @@ Map<String, dynamic> _row({
     };
 
 void main() {
-  test('GETs /me/applications with the bearer; drops skips; keeps nullables',
+  test(
+      'GETs /workers/me/applications with the bearer; drops skips; keeps nullables',
       () async {
     late http.Request captured;
     final ApplicationsRepositoryImpl repo =
@@ -55,11 +56,11 @@ void main() {
         jsonEncode(<String, dynamic>{
           'worker_id': 'w1',
           'applications': <Map<String, dynamic>>[
-            _row(jobId: 'a1', action: 'apply'),
-            _row(jobId: 's1', action: 'skip', reason: 'too_far'), // dropped
+            _row(jobId: 'a1', action: 'applied'),
+            _row(jobId: 's1', action: 'skipped', reason: 'too_far'), // dropped
             _row(
                 jobId: 'a2',
-                action: 'apply',
+                action: 'applied',
                 area: null,
                 reason: null,
                 rank: null), // nullables
@@ -73,7 +74,7 @@ void main() {
 
     // Worker-scoped GET, token-derived (no workerId param), bearer attached.
     expect(captured.method, 'GET');
-    expect(captured.url.path, '/me/applications');
+    expect(captured.url.path, '/workers/me/applications');
     expect(captured.url.queryParameters, isEmpty); // no filter params
     expect(captured.headers['authorization'], 'Bearer tok');
 

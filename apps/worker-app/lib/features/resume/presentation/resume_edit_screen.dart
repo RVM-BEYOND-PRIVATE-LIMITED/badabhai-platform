@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
+import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -63,9 +64,9 @@ class _ResumeEditViewState extends State<_ResumeEditView> {
           ResumeEditStatus.failed => BbScaffold(
               appBar: const BbAppBar(title: 'Aap control karte hain'),
               body: BbStatusView(
-                icon: Icons.cloud_off_rounded,
-                title: 'Could not load your details.',
-                subtitle: 'Please check your internet and try again.',
+                icon: failureReason(state.failure).icon,
+                title: 'Details load nahi hue.',
+                subtitle: failureReason(state.failure).reason,
                 action: FilledButton(
                   onPressed: cubit.load,
                   child: const Text('Try again'),

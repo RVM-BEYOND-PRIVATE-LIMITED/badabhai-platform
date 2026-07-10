@@ -11,13 +11,18 @@ class KitListState extends Equatable {
   const KitListState({
     this.status = KitListStatus.loading,
     this.items = const <KitListItem>[],
+    this.failure,
   });
 
   final KitListStatus status;
   final List<KitListItem> items;
 
+  /// The typed cause when [status] is `failed` — the failed view surfaces its
+  /// honest reason instead of a generic "check internet" line.
+  final Failure? failure;
+
   @override
-  List<Object?> get props => <Object?>[status, items];
+  List<Object?> get props => <Object?>[status, items, failure];
 }
 
 /// Drives the interview-kit list: load the available kits on open. A failure
@@ -33,9 +38,9 @@ class KitListCubit extends Cubit<KitListState> {
       final List<KitListItem> items = await _repo.listKits();
       if (isClosed) return; // screen popped before the list resolved
       emit(KitListState(status: KitListStatus.ready, items: items));
-    } on Failure catch (_) {
+    } on Failure catch (f) {
       if (isClosed) return;
-      emit(const KitListState(status: KitListStatus.failed));
+      emit(KitListState(status: KitListStatus.failed, failure: f));
     }
   }
 }

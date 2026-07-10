@@ -48,7 +48,8 @@ void main() {
     act: (ProfileTabCubit c) => c.load(),
     expect: () => const <ProfileTabState>[
       ProfileTabState(status: ProfileTabStatus.loading),
-      ProfileTabState(status: ProfileTabStatus.failed),
+      ProfileTabState(
+          status: ProfileTabStatus.failed, failure: NetworkFailure()),
     ],
   );
 

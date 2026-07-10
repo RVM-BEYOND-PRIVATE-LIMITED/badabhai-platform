@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_models.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -126,7 +127,7 @@ class _FeedViewState extends State<_FeedView> {
           builder: (BuildContext context, SwipeState state) {
             return switch (state.status) {
               SwipeStatus.loading => const BbStatusView.loading(),
-              SwipeStatus.error => _error(context),
+              SwipeStatus.error => _error(context, state),
               SwipeStatus.consentRequired => _consentRequired(context),
               SwipeStatus.empty => _empty(context),
               SwipeStatus.ready => _feed(context, state),
@@ -282,11 +283,11 @@ class _FeedViewState extends State<_FeedView> {
     );
   }
 
-  Widget _error(BuildContext context) {
+  Widget _error(BuildContext context, SwipeState state) {
     return BbStatusView(
-      icon: Icons.cloud_off_rounded,
-      title: 'Could not load jobs.',
-      subtitle: 'Please check your internet and try again.',
+      icon: failureReason(state.failure).icon,
+      title: 'Jobs load nahi hue.',
+      subtitle: failureReason(state.failure).reason,
       action: FilledButton(
         onPressed: () =>
             context.read<SwipeBloc>().add(const SwipeFeedRequested()),

@@ -15,7 +15,7 @@ AppliedJob _job(String id, DateTime createdAt) => AppliedJob(
       title: 'CNC',
       city: 'Pune',
       area: null,
-      action: 'apply',
+      action: 'applied',
       reason: null,
       sourceSurface: 'feed',
       rank: null,

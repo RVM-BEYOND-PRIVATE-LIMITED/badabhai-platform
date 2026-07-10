@@ -76,7 +76,7 @@ void main() {
       act: (SwipeBloc b) => b.add(const SwipeFeedRequested()),
       expect: () => const <SwipeState>[
         SwipeState(status: SwipeStatus.loading),
-        SwipeState(status: SwipeStatus.error),
+        SwipeState(status: SwipeStatus.error, failure: NetworkFailure()),
       ],
     );
   });

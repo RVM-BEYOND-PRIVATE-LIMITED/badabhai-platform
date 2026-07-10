@@ -30,6 +30,13 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- Disable Impeller: its Vulkan backend renders corrupted output (blue
+             diagonal streaks) on some Android emulators/GPU drivers. Falls back to
+             the Skia (OpenGL) renderer. Flutter defaults Impeller ON for Android
+             since 3.27; re-evaluate when emulator Vulkan drivers stabilise. -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

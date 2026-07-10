@@ -8,13 +8,21 @@ import '../../domain/interview_kit_repository.dart';
 enum KitDetailStatus { loading, ready, failed }
 
 class KitDetailState extends Equatable {
-  const KitDetailState({this.status = KitDetailStatus.loading, this.kit});
+  const KitDetailState({
+    this.status = KitDetailStatus.loading,
+    this.kit,
+    this.failure,
+  });
 
   final KitDetailStatus status;
   final InterviewKit? kit;
 
+  /// The typed cause when [status] is `failed` — the failed view surfaces its
+  /// honest reason instead of a generic "check internet" line.
+  final Failure? failure;
+
   @override
-  List<Object?> get props => <Object?>[status, kit];
+  List<Object?> get props => <Object?>[status, kit, failure];
 }
 
 /// Drives the interview-kit detail: load a single trade's kit on open. A
@@ -30,9 +38,9 @@ class KitDetailCubit extends Cubit<KitDetailState> {
       final InterviewKit kit = await _repo.kit(tradeKey);
       if (isClosed) return; // screen popped before the kit resolved
       emit(KitDetailState(status: KitDetailStatus.ready, kit: kit));
-    } on Failure catch (_) {
+    } on Failure catch (f) {
       if (isClosed) return;
-      emit(const KitDetailState(status: KitDetailStatus.failed));
+      emit(KitDetailState(status: KitDetailStatus.failed, failure: f));
     }
   }
 
@@ -40,11 +48,8 @@ class KitDetailCubit extends Cubit<KitDetailState> {
   /// null if it could not be fetched (the screen then shows a user-safe
   /// message). Does NOT change [KitDetailState]. The url is returned for
   /// immediate launch only and is never stored or logged.
-  Future<String?> resolveDownloadUrl(String tradeKey) async {
-    try {
-      return await _repo.downloadUrl(tradeKey);
-    } on Failure catch (_) {
-      return null;
-    }
-  }
+  /// Lets a [Failure] PROPAGATE (does not swallow it to null) so `openSignedPdf`
+  /// surfaces the ACTUAL reason instead of a blank generic line.
+  Future<String?> resolveDownloadUrl(String tradeKey) =>
+      _repo.downloadUrl(tradeKey);
 }

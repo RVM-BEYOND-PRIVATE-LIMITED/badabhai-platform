@@ -36,7 +36,7 @@ void main() {
     act: (ProfileCubit c) => c.extract(),
     expect: () => const <ProfileState>[
       ProfileState(status: ProfileStatus.extracting),
-      ProfileState(status: ProfileStatus.failed),
+      ProfileState(status: ProfileStatus.failed, failure: NetworkFailure()),
     ],
   );
 

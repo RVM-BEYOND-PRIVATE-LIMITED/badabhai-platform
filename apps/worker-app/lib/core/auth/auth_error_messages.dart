@@ -23,10 +23,10 @@ const Map<String, Map<String, String>> kAuthErrorMessages =
     'en': 'Wrong code. Please re-enter.',
   },
   AuthErrorCode.otpRateLimited: <String, String>{
-    'hi': 'Thodi der baad try karein.',
-    'mr': 'Thodi der baad try karein.', // TODO l10n: mr
-    'bho': 'Thodi der baad try karein.', // TODO l10n: bho
-    'en': 'Please try again in a little while.',
+    'hi': 'OTP bhejne ki limit ho gayi — thodi der baad dobara try karein.',
+    'mr': 'OTP bhejne ki limit ho gayi — thodi der baad dobara try karein.', // TODO l10n: mr
+    'bho': 'OTP bhejne ki limit ho gayi — thodi der baad dobara try karein.', // TODO l10n: bho
+    'en': 'OTP send limit reached. Please try again after some time.',
   },
   AuthErrorCode.pinVerifyFailed: <String, String>{
     'hi': 'PIN sahi nahi — dobara try karein, ya \'PIN bhool gaye?\'',

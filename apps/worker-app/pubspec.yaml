@@ -39,6 +39,16 @@ dependencies:
   flutter_secure_storage: ^9.2.4
   shared_preferences: ^2.3.5
   uuid: ^4.5.1
+  # Referral-invite sharing (A3): hands the composed invite link to the platform
+  # share sheet. No PII in the shared text — only the opaque invite code/link.
+  share_plus: ^10.1.4
+  # NOTE (A2 voice): the mic-capture packages (record / permission_handler /
+  # path_provider) were REMOVED — the record→upload leg is backend-blocked (no
+  # route turns audio into a `storage_path`, see A2-storage MISSING) AND `record`
+  # pulled a broken desktop federated impl (record_linux 0.7.2 vs
+  # record_platform_interface 1.6.0) that failed the Android build. The mic seam
+  # (VoiceRecorder) now uses UnavailableVoiceRecorder (fail-closed with an honest
+  # message). Re-add a recorder + these deps once the storage-upload route lands.
 
 dev_dependencies:
   flutter_test:

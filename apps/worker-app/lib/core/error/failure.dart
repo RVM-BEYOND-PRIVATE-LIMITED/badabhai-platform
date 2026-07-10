@@ -48,6 +48,14 @@ class ConsentRequiredFailure extends Failure {
   const ConsentRequiredFailure([super.message = 'Please accept consent to continue.']);
 }
 
+/// HTTP 401 on an OTP-check step (e.g. account-delete confirm) — the code the
+/// worker typed is wrong/expired. DISTINCT from [UnauthorizedFailure]: the
+/// session is fine; only the OTP was wrong, so the copy says "OTP sahi nahi",
+/// never "log in again".
+class OtpInvalidFailure extends Failure {
+  const OtpInvalidFailure([super.message = 'OTP sahi nahi. Dobara daalein.']);
+}
+
 /// HTTP 429 — too many requests. The per-IP hourly cap on the download routes
 /// (interview-kit + resume PDF, 20/hr) and any other rate-limited endpoint. The
 /// copy asks the worker to wait and retry rather than blaming the network.
@@ -66,6 +74,24 @@ class ProfileTimeoutFailure extends Failure {
 
   @override
   List<Object?> get props => <Object?>[message, aiJobId];
+}
+
+/// The worker has no profile yet (has not completed profiling), so there is
+/// nothing to build a resume from. Distinct from a network/server failure so the
+/// UI can guide the worker to finish their profile instead of blaming the net.
+class ProfileIncompleteFailure extends Failure {
+  const ProfileIncompleteFailure(
+      [super.message = 'Pehle apna profile poora karein.']);
+}
+
+/// The voice-note pipeline cannot complete against the real backend: there is no
+/// route that turns a recorded audio file into a `storage_path` (A2-storage
+/// MISSING), so the record→upload leg fails closed. Honest copy tells the worker
+/// voice capture is not available yet instead of dead-ending or blaming the net.
+class VoiceUnavailableFailure extends Failure {
+  const VoiceUnavailableFailure([
+    super.message = 'Voice note abhi available nahi hai. Type karke bhejein.',
+  ]);
 }
 
 /// Anything not otherwise classified.

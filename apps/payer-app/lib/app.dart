@@ -1,0 +1,56 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import 'core/config/app_config.dart';
+import 'core/di/locator.dart';
+import 'core/session/app_session.dart';
+import 'core/session/app_session_cubit.dart';
+import 'core/theme/app_theme.dart';
+import 'features/auth/presentation/login_screen.dart';
+import 'features/shell/presentation/app_shell.dart';
+
+/// The payer-app root. A single [AppSessionCubit] (provided here) drives the
+/// top-level switch: `null` session → Login; a signed-in session → the
+/// role-aware [AppShell]. The role is fixed for the session — there is no
+/// in-app switch, so re-mounting the shell on sign-in carries the locked role.
+class PayerApp extends StatelessWidget {
+  const PayerApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocProvider<AppSessionCubit>.value(
+      value: locator<AppSessionCubit>(),
+      child: MaterialApp(
+        title: 'BadaBhai · Payer',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light(),
+        home: const _Root(),
+        builder: kUseMocks
+            ? (BuildContext context, Widget? child) => Banner(
+                  message: 'MOCK',
+                  location: BannerLocation.topEnd,
+                  color: Colors.deepOrange,
+                  child: child ?? const SizedBox.shrink(),
+                )
+            : null,
+      ),
+    );
+  }
+}
+
+class _Root extends StatelessWidget {
+  const _Root();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<AppSessionCubit, AppSession?>(
+      builder: (BuildContext context, AppSession? session) {
+        if (session == null) {
+          return const LoginScreen();
+        }
+        // Keyed by role so a fresh sign-in rebuilds the shell with the right nav.
+        return AppShell(key: ValueKey<PayerRole>(session.role), session: session);
+      },
+    );
+  }
+}

@@ -21,6 +21,7 @@ import 'features/kit/presentation/kit_detail_screen.dart';
 import 'features/kit/presentation/kit_screen.dart';
 import 'features/notifications/presentation/notifications_screen.dart';
 import 'features/profile/presentation/profile_preview_screen.dart';
+import 'features/invite/presentation/invite_screen.dart';
 import 'features/applications/presentation/applied_jobs_screen.dart';
 import 'features/profile_tab/presentation/profile_tab_screen.dart';
 import 'features/settings/presentation/settings_screen.dart';
@@ -56,6 +57,9 @@ class Routes {
 
   static const String consent = '/consent';
   static const String name = '/name'; // "Your name" step (after consent, before chat)
+
+  /// Referral invite (A3) — pushed full-screen from Profile / Settings.
+  static const String invite = '/invite';
   static const String chatProfiling = '/chat';
   static const String voiceNote = '/voice';
 
@@ -227,6 +231,10 @@ GoRouter _buildRouter() {
       GoRoute(
         path: Routes.voiceNote,
         builder: (_, __) => const VoiceNotePlaceholderScreen(),
+      ),
+      GoRoute(
+        path: Routes.invite,
+        builder: (_, __) => const InviteScreen(),
       ),
       GoRoute(
         path: Routes.profilePreview,

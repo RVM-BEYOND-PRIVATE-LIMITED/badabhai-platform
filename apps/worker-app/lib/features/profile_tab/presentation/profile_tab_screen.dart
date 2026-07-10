@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
+import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -52,9 +53,9 @@ class _ProfileTabView extends StatelessWidget {
           return switch (state.status) {
             ProfileTabStatus.loading => const BbStatusView.loading(),
             ProfileTabStatus.failed => BbStatusView(
-                icon: Icons.cloud_off_rounded,
-                title: 'Could not load your profile.',
-                subtitle: 'Please check your internet and try again.',
+                icon: failureReason(state.failure).icon,
+                title: 'Profile load nahi hui.',
+                subtitle: failureReason(state.failure).reason,
                 action: FilledButton(
                   onPressed: () => context.read<ProfileTabCubit>().load(),
                   child: const Text('Try again'),

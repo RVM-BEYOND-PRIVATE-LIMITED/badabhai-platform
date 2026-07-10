@@ -13,14 +13,41 @@ class ResumeRepositoryImpl implements ResumeRepository {
   @override
   Future<String> generateResume() async {
     final String? workerId = _session.workerId;
-    final String? profileId = _session.profileId;
-    if (workerId == null || profileId == null) {
+    final String? token = _session.sessionToken;
+    if (workerId == null || token == null) {
       throw const UnauthorizedFailure();
     }
+
+    String? profileId = _session.profileId;
+
+    // A worker who logged in (OTP/PIN) without re-running profiling this session
+    // has no in-memory profileId. Restore it from the server, and reuse an
+    // already-generated resume if one exists (auto-generated on profile.confirmed)
+    // instead of regenerating. No profile at all → guide them to finish profiling.
+    if (profileId == null) {
+      try {
+        final WorkerProfileBundle bundle =
+            await _api.getWorkerProfile(workerId: workerId, authToken: token);
+        if (!bundle.hasProfile) {
+          throw const ProfileIncompleteFailure();
+        }
+        _session.setProfile(bundle.profileId!);
+        profileId = bundle.profileId;
+        if (bundle.hasResume) {
+          _session.setResume(bundle.resumeId!);
+          return bundle.resumeText!;
+        }
+      } on Failure {
+        rethrow;
+      } catch (error) {
+        throw mapError(error);
+      }
+    }
+
     try {
       final ResumeResult result = await _api.generateResume(
         workerId: workerId,
-        profileId: profileId,
+        profileId: profileId!,
       );
       _session.setResume(result.resumeId);
       return result.resumeText;

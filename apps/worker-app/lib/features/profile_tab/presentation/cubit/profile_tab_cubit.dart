@@ -12,13 +12,21 @@ import '../../domain/profile_summary_repository.dart';
 enum ProfileTabStatus { loading, ready, failed }
 
 class ProfileTabState extends Equatable {
-  const ProfileTabState({this.status = ProfileTabStatus.loading, this.summary});
+  const ProfileTabState({
+    this.status = ProfileTabStatus.loading,
+    this.summary,
+    this.failure,
+  });
 
   final ProfileTabStatus status;
   final ProfileSummary? summary;
 
+  /// The typed cause when [status] is `failed` — the failed view surfaces its
+  /// honest reason instead of a generic "check internet" line.
+  final Failure? failure;
+
   @override
-  List<Object?> get props => <Object?>[status, summary];
+  List<Object?> get props => <Object?>[status, summary, failure];
 }
 
 /// Loads the tabbed Profile summary on open and owns the logout flow.
@@ -46,9 +54,9 @@ class ProfileTabCubit extends Cubit<ProfileTabState> {
       final ProfileSummary summary = await _repo.summary();
       if (isClosed) return;
       emit(ProfileTabState(status: ProfileTabStatus.ready, summary: summary));
-    } on Failure catch (_) {
+    } on Failure catch (f) {
       if (isClosed) return;
-      emit(const ProfileTabState(status: ProfileTabStatus.failed));
+      emit(ProfileTabState(status: ProfileTabStatus.failed, failure: f));
     }
   }
 
