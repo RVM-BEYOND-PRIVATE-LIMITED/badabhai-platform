@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { z } from "zod";
 import { getPosting } from "../../../../lib/payer-api";
 import { requirePayer } from "../../../../lib/auth";
 import { Badge, Card } from "../../../../components/ds";
@@ -32,6 +33,8 @@ export default async function PostingDetailPage({
 }) {
   await requirePayer();
   const { id } = await params;
+  // Fail closed on a non-uuid segment BEFORE it reaches the authed API path.
+  if (!z.string().uuid().safeParse(id).success) notFound();
   const posting = await getPosting(id);
   if (!posting) notFound();
 

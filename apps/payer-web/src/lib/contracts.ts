@@ -166,8 +166,15 @@ export type CreatePostingInput = z.infer<typeof createPostingInputSchema>;
  * subset of {@link CreatePostingInput}, so create-form inputs satisfy it unchanged.
  */
 export const updatePostingInputSchema = z.object({
-  roleTitle: z.string().min(2).max(120),
-  vacancies: z.number().int().positive(),
+  // max 200 (NOT the create form's 120): the backend PATCH accepts up to 200, and an
+  // ops-created posting with a 121–200-char title must stay saveable in the edit form.
+  roleTitle: z.string().min(2).max(200),
+  /**
+   * OPTIONAL: omitted when the user did not touch the count, so an edit of another
+   * field can NEVER silently re-derive (and possibly downgrade) the stored vacancy
+   * band — the backend re-bands ONLY when a count is actually submitted.
+   */
+  vacancies: z.number().int().positive().optional(),
   locationLabel: z.string().max(120).optional(),
   description: z
     .string()
@@ -256,8 +263,8 @@ export const revealNeutralSchema = z.object({ status: z.literal("unavailable") }
 export const revealResultSchema = z.union([revealRoutedSchema, revealNeutralSchema]);
 export type RevealResult = z.infer<typeof revealResultSchema>;
 
-/* ── Masked resume reveal (WAITING — no payer-authed endpoint; resume-disclosure
- *    is InternalServiceGuard, ESCALATE). Kept for the clearly-seamed shim. ───────── */
+/* ── Masked resume reveal (LIVE — the payer-authed POST /payer/resume-disclosures;
+ *    see maskedResumeWireSchema below for the exact wire union). ────────────────── */
 
 /**
  * The masked employer-facing resume (resume-disclosure addendum B-G / XB-E):
@@ -296,7 +303,15 @@ export const maskedResumeWireSchema = z.union([
     ok: z.literal(true),
     disclosure_id: z.string().uuid(),
     status: z.literal("disclosed"),
-    resume_url: z.string().url(),
+    // Rendered as an <a href> — fail CLOSED on a non-https scheme (javascript:/data:)
+    // so the no-XSS property is structural, not backend trust. http://localhost is
+    // allowed for local dev (a local Supabase signed URL).
+    resume_url: z
+      .string()
+      .url()
+      .refine((u) => /^https:\/\//.test(u) || /^http:\/\/(localhost|127\.0\.0\.1)[:/]/.test(u), {
+        message: "resume_url must be https (or localhost in dev)",
+      }),
     expires_at: z.string(),
   }),
   z.object({ status: z.literal("unavailable") }),
@@ -333,7 +348,9 @@ export const creditTopUpSchema = z.object({
   topUpId: z.string().uuid(),
   packCode: z.string(),
   credits: z.number().int().positive(),
-  priceInr: z.number().int().nonnegative(),
+  /** Catalog price at render time; ABSENT when the pack code has left the catalog
+   * (catalog drift) — the page renders a dash, never a fake ₹0. */
+  priceInr: z.number().int().nonnegative().optional(),
   createdAt: z.string(),
 });
 export type CreditTopUp = z.infer<typeof creditTopUpSchema>;
@@ -369,8 +386,8 @@ export const quotaTopUpWireSchema = z.object({
   quote: z.record(z.string(), z.unknown()),
 });
 
-/* ── Capacity view (WAITING — no payer-authed endpoint; capacity.controller is
- *    InternalServiceGuard, ESCALATE GET /payer/capacity). PII-free counts only. ──── */
+/* ── Capacity view (LIVE — GET /payer/capacity under PayerAuthGuard). PII-free
+ *    counts only. ─────────────────────────────────────────────────────────────── */
 
 /** One posting's applicant-quota usage row (quota purchased vs profiles disclosed). */
 export const postingCapacityRowSchema = z.object({
@@ -451,7 +468,10 @@ export const creditsWireSchema = z.object({
 export const unlockProjectionWireSchema = z.object({
   unlock_id: z.string().uuid(),
   payer_id: z.string().uuid(),
-  worker_id: z.string().uuid(),
+  // NULLABLE post-ADR-0026 Phase 5: a worker hard-delete (DSAR) SET-NULLs the identity
+  // join — a non-nullable uuid here made the WHOLE unlock history fail parse after any
+  // deletion. Null rows are skipped in getUnlocks (the candidate no longer exists).
+  worker_id: z.string().uuid().nullable(),
   job_id: z.string().uuid().nullable(),
   status: z.enum(["granted", "revealed", "expired", "revoked"]),
   reveal_count: z.number().int().nonnegative(),
@@ -561,8 +581,8 @@ export const reachApplicantListWireSchema = z.object({
  * the `JobPosting` Drizzle row the payer-authed {@link
  * import("../../api/src/payer-portal/payer-job-postings.controller").PayerJobPostingsController}
  * returns (camelCase keys; `Date` columns serialize to ISO strings → `z.string()`). Status is
- * `draft|open|closed` (the backend lifecycle — NO `paused`; the {@link postingSummarySchema}
- * superset adds `paused` only for the WAITING-mock pause shim).
+ * the FULL four-state backend lifecycle `draft|open|paused|closed` (`paused` landed with the
+ * payer pause/resume routes, #178).
  *
  * PII NOTE (invariant #2 / B-R2): this WIRE shape carries the payer's OWN identity fields
  * (`payerId`/`createdBy` — the session payer's own id) plus the payer's OWN `orgLabel` +

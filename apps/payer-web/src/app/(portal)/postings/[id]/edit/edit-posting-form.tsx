@@ -59,7 +59,10 @@ export function EditPostingForm({
       const res = await updatePostingAction({
         postingId,
         roleTitle: roleTitle.trim(),
-        vacancies: Number(vacancies),
+        // OMIT the count when untouched: the stored row keeps only the BAND, and
+        // re-submitting the prefill hint would make the backend re-derive (and for a
+        // "25+" posting DOWNGRADE) the band on an unrelated edit.
+        vacancies: vacancies === String(initial.vacanciesHint) ? undefined : Number(vacancies),
         locationLabel: locationLabel.trim() === "" ? undefined : locationLabel.trim(),
         description: description.trim() === "" ? undefined : description.trim(),
       });
@@ -84,6 +87,7 @@ export function EditPostingForm({
           label="Location (optional)"
           value={locationLabel}
           onChange={(e) => setLocationLabel(e.target.value)}
+          hint="Leaving this blank keeps the current value (clearing is not supported yet)."
         />
         <Input
           label="Vacancies"
@@ -91,7 +95,7 @@ export function EditPostingForm({
           min={1}
           value={vacancies}
           onChange={(e) => setVacancies(e.target.value)}
-          hint="The stored posting keeps a vacancy BAND — this count re-derives it server-side."
+          hint="Left unchanged, the stored vacancy band is kept as-is; a new count re-derives the band server-side."
           required
         />
         <Textarea
@@ -99,6 +103,7 @@ export function EditPostingForm({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={4}
+          hint="Leaving this blank keeps the current description (clearing is not supported yet)."
         />
         {/* Announceable, retryable error region — the form never blanks on failure. */}
         <div aria-live="polite">{error !== null && <p className="posting-card__soon">{error}</p>}</div>

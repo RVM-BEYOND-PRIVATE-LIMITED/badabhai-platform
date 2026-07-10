@@ -457,8 +457,10 @@ describe("posting lifecycle — LIVE pause/resume/quota-topup (XB-A, Bearer only
       .mockResolvedValueOnce(jsonResponse({ plan: { id: "p1" }, quote: { total: 1000 } }, 201))
       .mockResolvedValueOnce(jsonResponse(jobPostingRow({ status: "open" })));
     const { topUpPostingQuota } = await import("./payer-api");
-    const topped = await topUpPostingQuota({ postingId: POSTING_ID });
-    expect(topped?.id).toBe(POSTING_ID);
+    const outcome = await topUpPostingQuota({ postingId: POSTING_ID });
+    expect(outcome?.posting?.id).toBe(POSTING_ID);
+    // The added views come from the CATALOG tier (config), never the wire (XT5).
+    expect(outcome?.addedViews).toBe(10);
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`http://api.test/payer/job-postings/${POSTING_ID}/quota-topup`);
@@ -466,6 +468,21 @@ describe("posting lifecycle — LIVE pause/resume/quota-topup (XB-A, Bearer only
     // ONLY the catalog tier CODE (from @badabhai/pricing config) — no payer_id/price/amount.
     expect(Object.keys(body)).toEqual(["tier"]);
     expect(body.tier).toBe("topup_10");
+  });
+
+  it("a post-charge re-read failure degrades to posting:null — NEVER a thrown 'retry' (double-purchase guard)", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ plan: { id: "p1" }, quote: { total: 1000 } }, 201))
+      .mockResolvedValueOnce(jsonResponse({ message: "boom" }, 503));
+    const { topUpPostingQuota } = await import("./payer-api");
+    const outcome = await topUpPostingQuota({ postingId: POSTING_ID });
+    // The charge committed on the FIRST call; the failed re-read must not look like a failure.
+    expect(outcome).toEqual({ posting: null, addedViews: 10 });
+    // Exactly ONE quota-topup POST — the degrade path never re-buys.
+    const topupCalls = fetchMock.mock.calls.filter((c) =>
+      (c[0] as string).endsWith("/quota-topup"),
+    );
+    expect(topupCalls).toHaveLength(1);
   });
 
   it("maps a 409 (no active plan) to QuotaTopUpNoPlanError — actionable, not neutral", async () => {
@@ -797,6 +814,8 @@ describe("live-swap guardrails (source) — the seam is FULLY live, no mock fall
     expect(src).not.toMatch(/store\./);
     expect(src).not.toMatch(/LIVE-SWAP BLOCKED/);
     expect(src).not.toMatch(/WAITING \(mock\)/);
+    // Seam docs may never again claim a surface "stays MOCK" while the code is live.
+    expect(src).not.toMatch(/stay MOCK|stays MOCK/);
   });
 
   it("the live posting CRUD goes to the payer-authed /payer/job-postings routes", () => {

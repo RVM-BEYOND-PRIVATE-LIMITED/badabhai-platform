@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { z } from "zod";
 import { getAgencyJob } from "../../../../../lib/payer-api";
 import { requireAgent } from "../../../../../lib/auth/roles";
 import {
@@ -30,6 +31,8 @@ export default async function AgencyJobDetailPage({
 }) {
   await requireAgent();
   const { jobId } = await params;
+  // Fail closed on a non-uuid segment BEFORE it reaches the authed API path.
+  if (!z.string().uuid().safeParse(jobId).success) notFound();
   const job = await getAgencyJob(jobId);
   if (!job) notFound();
 

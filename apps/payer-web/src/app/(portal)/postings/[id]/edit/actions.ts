@@ -23,7 +23,9 @@ const postingIdSchema = z.string().uuid();
 export async function updatePostingAction(input: {
   postingId: string;
   roleTitle: string;
-  vacancies: number;
+  /** OMITTED when the user did not touch the count — an untouched edit must never
+   * re-derive (and possibly downgrade) the stored vacancy band. */
+  vacancies?: number;
   locationLabel?: string;
   description?: string;
 }): Promise<EditPostingActionResult> {
@@ -32,7 +34,7 @@ export async function updatePostingAction(input: {
   }
   const parsed = updatePostingInputSchema.safeParse({
     roleTitle: input.roleTitle,
-    vacancies: input.vacancies,
+    ...(input.vacancies !== undefined ? { vacancies: input.vacancies } : {}),
     ...(input.locationLabel !== undefined && input.locationLabel !== ""
       ? { locationLabel: input.locationLabel }
       : {}),
@@ -52,7 +54,17 @@ export async function updatePostingAction(input: {
     revalidatePath("/postings");
     revalidatePath(`/postings/${input.postingId}`);
     return { ok: true, posting };
-  } catch {
+  } catch (e) {
+    // Distinguishable, ACTIONABLE denies (neither is an existence oracle — ownership
+    // already collapsed to the neutral 404/null above): a no-op save (backend 400
+    // "no effective changes") and an immutable lifecycle state (409). Everything else
+    // is the one retryable transport message.
+    if (e instanceof Error && /returned 400/.test(e.message)) {
+      return { ok: false, error: "No changes to save." };
+    }
+    if (e instanceof Error && /returned 409/.test(e.message)) {
+      return { ok: false, error: "This posting can no longer be edited." };
+    }
     return { ok: false, error: "Could not save the changes right now. Please retry." };
   }
 }

@@ -51,14 +51,14 @@ import { findCreditPack, quotaTopUpTier } from "./pricing-config";
 /**
  * The PAYER DATA SEAM (ADR-0019 Phase 1).
  *
- * The SINGLE boundary the pages/actions call. Each function either:
- *  - LIVE: calls a payer-AUTHED backend endpoint via {@link payerFetch} (the payer
- *    JWT carries the tenant identity; NO client `payer_id` is ever sent — XB-A), or
- *  - WAITING (clearly flagged): serves from the mock store because NO payer-authed
- *    endpoint exists yet — see the per-function notes + the REPORT escalation list.
+ * The SINGLE boundary the pages/actions call. Every function is LIVE: it calls a
+ * payer-AUTHED backend endpoint via {@link payerFetch} (the payer JWT carries the
+ * tenant identity; NO client `payer_id` is ever sent — XB-A). There is NO mock
+ * fallback left in this seam — a backend failure surfaces as an error, never as
+ * fake data (the mock store is deleted).
  *
- * Tenancy (XB-A): the payer is ALWAYS the server-held session. LIVE calls derive it
- * from the Bearer token; mock calls pass the session `payerId` (never a client value).
+ * Tenancy (XB-A): the payer is ALWAYS the server-held session, derived from the
+ * Bearer token — never a client value.
  * PII (invariant #2): no raw worker/payer PII crosses this boundary; reveal returns a
  * ROUTED handle only (never a phone), and applicants are faceless.
  */
@@ -108,15 +108,19 @@ export async function getCredits(): Promise<CreditBalance> {
 /** GET /payer/unlocks — the caller's OWN unlock history (PII-free projection). */
 export async function getUnlocks(): Promise<UnlockHistoryItem[]> {
   const wire = await payerFetch("/payer/unlocks", { schema: unlocksListWireSchema });
-  return wire.unlocks.map((u) => ({
-    unlockId: u.unlock_id,
-    workerId: u.worker_id,
-    // The UI history shows granted vs expired; a revealed/revoked grant maps to its
-    // nearest user-facing state (no-oracle: cause is never surfaced beyond this).
-    status: u.status === "granted" || u.status === "revealed" ? "granted" : "expired",
-    createdAt: u.created_at,
-    expiresAt: u.expires_at ?? u.created_at,
-  }));
+  return wire.unlocks
+    // A DSAR-deleted worker SET-NULLs the identity join (ADR-0026 Phase 5): the row
+    // stays for audit, but there is no candidate to show — skip it in the UI history.
+    .filter((u) => u.worker_id !== null)
+    .map((u) => ({
+      unlockId: u.unlock_id,
+      workerId: u.worker_id!,
+      // The UI history shows granted vs expired; a revealed/revoked grant maps to its
+      // nearest user-facing state (no-oracle: cause is never surfaced beyond this).
+      status: u.status === "granted" || u.status === "revealed" ? "granted" : "expired",
+      createdAt: u.created_at,
+      expiresAt: u.expires_at ?? u.created_at,
+    }));
 }
 
 /**
@@ -271,17 +275,23 @@ export async function getCreditTopUps(): Promise<CreditTopUp[]> {
   const wire = await payerFetch("/payer/credits/ledger?limit=50", {
     schema: creditLedgerWireSchema,
   });
+  // KNOWN CAP: the read is the newest 50 MOVEMENTS (the server's max page; no cursor
+  // exists on PayerLedgerQuerySchema yet), so a very active payer's oldest top-ups age
+  // out of this view. A cursor-paged ledger read is a small backend follow-up.
   return wire.ledger
     .filter((row) => row.delta > 0 && row.pack_code !== null)
-    .map((row) =>
-      creditTopUpSchema.parse({
+    .map((row) => {
+      // A pack that has left the catalog (drift) has NO current price — omit it (the
+      // page renders a dash), never a fake ₹0 (XT5: prices come from config or not at all).
+      const pack = findCreditPack(row.pack_code!);
+      return creditTopUpSchema.parse({
         topUpId: row.id,
         packCode: row.pack_code,
         credits: row.delta,
-        priceInr: findCreditPack(row.pack_code!)?.priceInr ?? 0,
+        ...(pack ? { priceInr: pack.priceInr } : {}),
         createdAt: row.created_at,
-      }),
-    );
+      });
+    });
 }
 
 /**
@@ -385,7 +395,7 @@ export async function buyCapacity({ tier }: { tier: string }): Promise<BuyCapaci
  * is faceless/coarse and crosses {@link assertNoAgencyPII} (defence-in-depth) before it
  * reaches a page. Unknown-or-not-owned → the backend's IDENTICAL neutral 404 → `null`
  * (no-oracle). These are the AGENCY `jobs.payer_id` entity — distinct from the EMPLOYER
- * `posting_plans` WAITING mock below (that stays escalated, untouched).
+ * job-postings surface below (also fully LIVE).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** Map the camelCase UI input to the backend's snake_case agency-job body. */
@@ -538,8 +548,8 @@ export async function createAgencyInvite(input: {
  * stamps them from `@CurrentPayer`). Every payload is PII-free — the wire row carries
  * the payer's OWN org_label/description, which {@link toPostingSummary} DROPS so only the
  * faceless {@link postingSummarySchema} fields reach the UI. Unknown-or-not-owned →
- * the backend's IDENTICAL neutral 404 → `null` (no-oracle). The lifecycle PAUSE/RESUME/
- * quota-top-up surfaces stay MOCK below (no payer-authed route yet).
+ * the backend's IDENTICAL neutral 404 → `null` (no-oracle). The lifecycle
+ * PAUSE/RESUME/quota-top-up surfaces are LIVE below too (#178/#180).
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
@@ -804,9 +814,20 @@ export async function resumePosting(input: { postingId: string }): Promise<Posti
  * wire returns the topped-up plan `{ plan, quote }`; the fresh posting row is re-read
  * so the action keeps its PostingSummary contract.
  */
+export interface QuotaTopUpOutcome {
+  /**
+   * The fresh posting row when the post-charge re-read succeeded; null when that
+   * re-read failed. Either way the top-up itself IS applied — the caller must never
+   * message a null posting as a retryable failure (that invites a double purchase).
+   */
+  posting: PostingSummary | null;
+  /** The config'd views this top-up added (catalog tier — display copy only, XT5). */
+  addedViews: number;
+}
+
 export async function topUpPostingQuota(input: {
   postingId: string;
-}): Promise<PostingSummary | null> {
+}): Promise<QuotaTopUpOutcome | null> {
   const tier = quotaTopUpTier();
   if (!tier) throw new Error("no quota top-up tier configured"); // fail-closed, config-sourced
   try {
@@ -822,8 +843,14 @@ export async function topUpPostingQuota(input: {
     }
     throw e;
   }
-  // Success → return the fresh posting row (the action's stable PostingSummary contract).
-  return getPosting(input.postingId);
+  // The charge is COMMITTED past this line (payment + quota events emitted server-side).
+  // A transient failure on the fresh-row re-read must NOT propagate as an error — the
+  // action would say "retry" and a retry would buy a SECOND top-up. Degrade to null.
+  try {
+    return { posting: await getPosting(input.postingId), addedViews: tier.additionalViews };
+  } catch {
+    return { posting: null, addedViews: tier.additionalViews };
+  }
 }
 
 /** 409 from quota-topup: the posting has no ACTIVE PLAN to top up (buy a plan first). */

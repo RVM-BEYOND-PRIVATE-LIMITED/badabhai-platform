@@ -94,3 +94,36 @@ describe("contact reveal (LIVE routed handle — NO RAW PHONE, ADR-0010 F-4 / XB
     expect(v).toEqual({ kind: "unavailable", message: NEUTRAL_CONTACT_MESSAGE });
   });
 });
+
+describe("mapRevealResult — the LIVE wire shape (no initials field)", () => {
+  it("maps a disclosed result WITHOUT displayInitials (the live wire never carries it)", async () => {
+    const { mapRevealResult } = await import("./unlock-view");
+    const v = mapRevealResult({
+      ok: true,
+      disclosureId: "aaaa7777-0000-4000-8000-000000000001",
+      status: "disclosed",
+      resumeUrl: "https://api.test/signed/masked.pdf",
+      expiresAt: "2026-07-20T00:00:00.000Z",
+    });
+    expect(v.kind).toBe("masked");
+    if (v.kind === "masked") {
+      expect(v.displayInitials).toBeUndefined();
+      expect(v.resumeUrl).toBe("https://api.test/signed/masked.pdf");
+    }
+  });
+
+  it("MaskedResumeCard renders the neutral 'Masked candidate' fallback (no name/phone)", async () => {
+    const { MaskedResumeCard } = await import("../components/unlock/routed-contact-card");
+    const tree = MaskedResumeCard({
+      view: {
+        kind: "masked",
+        disclosureId: "aaaa7777-0000-4000-8000-000000000001",
+        resumeUrl: "https://api.test/signed/masked.pdf",
+        expiresAt: "2026-07-20T00:00:00.000Z",
+      },
+    });
+    const text = JSON.stringify(tree);
+    expect(text).toContain("Masked candidate");
+    expect(text).not.toMatch(/\+?\d{7,}/); // never a phone-like run
+  });
+});

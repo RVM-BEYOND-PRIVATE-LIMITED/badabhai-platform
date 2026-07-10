@@ -46,15 +46,20 @@ function statusTone(status: PostingSummary["status"]): "success" | "warning" | "
 interface RowState {
   busy: boolean;
   error: string | null;
+  /** A per-row SUCCESS note (e.g. the paid top-up confirmation — the faceless row
+   * itself shows no quota column, so the effect must be said out loud). */
+  notice: string | null;
 }
 
-const IDLE: RowState = { busy: false, error: null };
+const IDLE: RowState = { busy: false, error: null, notice: null };
 
 export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
-  // Rows are seeded from the server payload and patched with each action's returned
-  // posting (the fresh backend row) so status/quota reflect reality without a reload.
-  const [rows, setRows] = useState<PostingSummary[]>(postings);
+  // Rows RENDER FROM PROPS (each action's revalidatePath refreshes the RSC payload —
+  // a local full copy would silently discard it). Only per-row action results are
+  // held locally: fresher rows returned by an action overlay their prop row by id.
+  const [freshRows, setFreshRows] = useState<Record<string, PostingSummary>>({});
   const [state, setState] = useState<Record<string, RowState>>({});
+  const rows = postings.map((p) => freshRows[p.id] ?? p);
 
   function rowState(id: string): RowState {
     return state[id] ?? IDLE;
@@ -66,16 +71,26 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
   async function run(
     id: string,
     action: (input: { postingId: string }) => Promise<
-      { ok: true; posting: PostingSummary } | { ok: false; error: string }
+      | { ok: true; posting: PostingSummary | null; notice?: string }
+      | { ok: false; error: string }
     >,
   ) {
-    patchState(id, { busy: true, error: null });
-    const res = await action({ postingId: id });
-    if (res.ok) {
-      setRows((prev) => prev.map((p) => (p.id === id ? res.posting : p)));
-      patchState(id, { busy: false });
-    } else {
-      patchState(id, { busy: false, error: res.error });
+    patchState(id, { busy: true, error: null, notice: null });
+    try {
+      const res = await action({ postingId: id });
+      if (res.ok) {
+        if (res.posting !== null) {
+          const posting = res.posting;
+          setFreshRows((prev) => ({ ...prev, [id]: posting }));
+        }
+        patchState(id, { busy: false, notice: res.notice ?? null });
+      } else {
+        patchState(id, { busy: false, error: res.error });
+      }
+    } catch {
+      // A rejected Server Action promise (offline / deploy mid-session) must not
+      // strand the row busy-forever with every button disabled.
+      patchState(id, { busy: false, error: "Could not reach the server. Please retry." });
     }
   }
 
@@ -180,9 +195,11 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
                   </Button>
                 )}
               </div>
-              {/* B8 — the per-row error region is announceable (aria-live) + retryable. */}
+              {/* B8 — the per-row result region is announceable (aria-live): a retryable
+                  error OR the success notice (e.g. the paid top-up confirmation). */}
               <div aria-live="polite">
                 {rs.error !== null && <p className="posting-card__soon">{rs.error}</p>}
+                {rs.notice !== null && <p className="posting-card__soon">{rs.notice}</p>}
               </div>
             </div>
           </Card>

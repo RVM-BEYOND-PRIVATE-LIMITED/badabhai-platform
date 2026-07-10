@@ -122,8 +122,10 @@ function collect(tree: ReactNode): Collected {
 }
 
 function render(postings: PostingSummary[], rowState: Record<string, unknown> = {}) {
-  // Seed the two useState slots (rows, per-row action state) for this render.
-  stateQueue = [postings, rowState];
+  // Seed the two useState slots for this render — source order in the component:
+  // (1) freshRows overlay (Record<id, PostingSummary>), (2) per-row action state.
+  // Rows themselves render FROM PROPS (the freshRows overlay only patches by id).
+  stateQueue = [{}, rowState];
   stateCursor = 0;
   return PostingsManager({ postings }) as ReactElement;
 }
@@ -204,9 +206,26 @@ describe("PostingsManager — LIVE lifecycle trio + close (per the real lifecycl
     expect(topUpQuotaAction).toHaveBeenCalledWith({ postingId: OPEN.id });
 
     const errored = render([OPEN], {
-      [OPEN.id]: { busy: false, error: "This posting has no active plan yet — buy a plan first." },
+      [OPEN.id]: { busy: false, error: "This posting has no active plan yet — buy a plan first.", notice: null },
     });
     expect(textOf(errored)).toContain("no active plan");
+  });
+
+  it("a DRAFT posting offers ENABLED Close (Pause disabled); clicking Close fires ITS action", () => {
+    const { buttons } = collect(render([{ ...OPEN, status: "draft" }]));
+    const close = buttons.find((b) => b.text === "Close");
+    expect(close?.disabled).toBe(false);
+    // Pause requires an OPEN posting — a draft renders it disabled, never a fake action.
+    expect(buttons.find((b) => b.text === "Pause")?.disabled).toBe(true);
+    close!.onClick!();
+    expect(closePostingAction).toHaveBeenCalledWith({ postingId: OPEN.id });
+  });
+
+  it("a seeded SUCCESS notice (the paid top-up confirmation) renders in the aria-live row region", () => {
+    const tree = render([OPEN], {
+      [OPEN.id]: { busy: false, error: null, notice: "Top-up applied — added 10 applicant views." },
+    });
+    expect(textOf(tree)).toContain("added 10 applicant views");
   });
 });
 

@@ -65,14 +65,28 @@ export async function resumePostingAction(input: {
   }
 }
 
-export async function topUpQuotaAction(input: { postingId: string }): Promise<PostingActionResult> {
+/** Quota top-up result: success carries a NOTICE (the paid effect is otherwise invisible
+ * on the faceless row) and the fresh posting when the re-read succeeded. */
+export type TopUpQuotaActionResult =
+  | { ok: true; posting: PostingSummary | null; notice: string }
+  | { ok: false; error: string };
+
+export async function topUpQuotaAction(input: {
+  postingId: string;
+}): Promise<TopUpQuotaActionResult> {
   const valid = parseId(input.postingId);
   if (!valid.ok) return valid;
   try {
-    const posting = await topUpPostingQuota({ postingId: input.postingId });
-    if (!posting) return { ok: false, error: "That posting could not be found." };
+    const outcome = await topUpPostingQuota({ postingId: input.postingId });
+    if (!outcome) return { ok: false, error: "That posting could not be found." };
     revalidatePath("/postings");
-    return { ok: true, posting };
+    // The charge is committed — say what it bought. A failed fresh-row re-read is NOT a
+    // failure (never invite a retry that would double-purchase); tell the user to refresh.
+    const notice =
+      outcome.posting !== null
+        ? `Top-up applied — added ${outcome.addedViews} applicant views.`
+        : `Top-up applied (added ${outcome.addedViews} applicant views) — refresh to see it.`;
+    return { ok: true, posting: outcome.posting, notice };
   } catch (e) {
     // The ONE distinguishable business deny (409, no active plan): actionable copy.
     // Not an existence oracle — the neutral not-found above already covered ownership.

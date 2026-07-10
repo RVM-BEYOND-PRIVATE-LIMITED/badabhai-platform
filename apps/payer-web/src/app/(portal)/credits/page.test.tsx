@@ -202,3 +202,16 @@ describe("credits page — (e) packs + unit price resolve from @badabhai/pricing
     expect(joined).toMatch(/no real payment is taken/i);
   });
 });
+
+describe("credits page — ledger degrade (C2 decoupling)", () => {
+  it("a REJECTED getCreditTopUps (live fetch failure) never blanks the balance/packs", async () => {
+    getDashboard.mockResolvedValue(dashboard(7, []));
+    getCreditTopUps.mockRejectedValue(new Error("ledger unavailable"));
+    const tree = (await CreditsPage()) as ReactElement;
+    const { text } = collect(tree);
+    const joined = text.join(" ");
+    // The page still renders (balance section present), with an empty history — no crash.
+    expect(joined.length).toBeGreaterThan(0);
+    expect(joined).not.toMatch(/ledger unavailable/);
+  });
+});

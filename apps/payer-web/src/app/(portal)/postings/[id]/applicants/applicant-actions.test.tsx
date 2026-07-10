@@ -672,3 +672,18 @@ describe("ApplicantActions — (h) zero PII (no phone digits / email) in ANY row
     expect(joined).not.toMatch(/@/); // no email
   });
 });
+
+describe("ApplicantActions — masked-resume threads the POSTING context (disclosure audit)", () => {
+  it("fires maskedResumeAction with { unlockId, workerId, postingId } — the page's posting id", async () => {
+    maskedResumeAction.mockResolvedValue({ ok: false, error: "x" });
+    const { buttons } = collect(render({ rows: routedRowState() }));
+    const masked = buttons.find((b) => b.text.includes("View masked resume"));
+    expect(masked).toBeDefined();
+    await masked!.onClick!();
+    expect(maskedResumeAction).toHaveBeenCalledWith({
+      unlockId: "44444444-4444-4444-8444-444444444444",
+      workerId: WORKER,
+      postingId: "33333333-3333-4333-8333-333333333333",
+    });
+  });
+});

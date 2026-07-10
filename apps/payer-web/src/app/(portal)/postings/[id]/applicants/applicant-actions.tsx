@@ -412,7 +412,7 @@ export function ApplicantActions({
                               ? "Loading…"
                               : row.resumeError
                                 ? "Retry — view masked resume"
-                                : "View masked resume (preview)"}
+                                : "View masked resume"}
                           </Button>
                         )}
                         <div aria-live="polite">
