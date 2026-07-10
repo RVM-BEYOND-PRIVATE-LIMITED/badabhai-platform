@@ -5,6 +5,59 @@ Newest day on top. Copy the template block each working day. Every % move needs 
 
 ---
 
+# Daily Tracker — 2026-07-10
+
+## BadaBhai Progress Snapshot
+- **Overall Project: 75%** · **Alpha Readiness: 58%** · **Release Readiness: 29%**
+- Payer Web 78% · Worker App 69% · Backend/API 84% · OTP/Auth/Security 80% · Agency 70% · AI-Service 80% · Infra/Staging 45% · Docs/Process 85%
+- **P0: 1** (staging PAST DEADLINE) · **P1: 2** (FE wiring, LC-1 unlock/reveal) · **Decisions Needed: 0**
+
+## Progress Movement
+| Area | Yesterday | Today | Change | Reason |
+| ---- | --------: | ----: | -----: | ------ |
+| Worker App | 67% | 69% | **+2%** | PR #189 merged: A1 applied-jobs + A3 referral + A4 delete wired real; emulator run audited ([QA_EVIDENCE 2026-07-10](QA_EVIDENCE.md)) |
+| Overall Project | 75% | 75% | 0 | +0.4 weighted from Worker App — rounds to 75% |
+| Alpha Readiness | 58% | 58% | 0 | Evidence refreshed (60 shots) but emulator+local, not handset+staging — B1 families unchanged |
+| Infra/Staging | 45% | 45% | 0 | **Staging STILL not deployed — 6 days past deadline** |
+
+## Developer Progress
+| Developer | Assigned | Status | Blocker |
+| --------- | -------- | ------ | ------- |
+| Prakash | Staging provisioning (P0 — past deadline) | OVERDUE | AWS instance not provisioned |
+| Divyanshu | FE wiring batch FE-1..FE-7 | READY | Local DB stale (fresh migrate first) |
+| Rishi | B1 handset run when staging lands; payer-app real-seam verification | WAITING | Needs `STAGING_API_BASE_URL` |
+
+## What moved today
+- **PR #189 merged** — worker-app backend wiring (A1 applied-jobs, A3 referral, A4 DPDP delete, resume reuse, error-UX sweep) + **NEW role-aware Flutter payer-app** (Company + Agency, 14 screens, mock/real seam). Client-only; 1 HIGH (empty referral link) fixed pre-merge.
+- **PR #190 merged** — `docs/qa/evidence/b1` refreshed: 60 PNGs from the 2026-07-09 emulator session replace the 9 JPEGs.
+- **All 60 screenshots audited** (10-reader visual audit) → indexed in [QA_EVIDENCE.md](QA_EVIDENCE.md) + flow map in [`docs/qa/evidence/README.md`](../qa/evidence/README.md). Worker-app local wiring proven; payer-app confirmed mock-mode UI evidence.
+- **Stranded tracker re-score recovered** — the 2026-07-09 re-score commit (`ba625ab`, 72→75%) was committed on the old ai-service fix branch and never reached main; cherry-picked onto this docs branch.
+- **Zod↔Pydantic parity fix** (invariant #7) on branch `fix/ai-contracts-zod-pydantic-parity`: `AICallMetadata` diagnostics trio + `WorkerProfileDraft.canonical_role_id` mirrored into `packages/ai-contracts`; gates green. Awaiting merge decision.
+
+## What did NOT move
+- **Staging (P0)** — still not provisioned; every B1 family (staging /health, events chain, clean logcat, PDF-open) still missing.
+- **B1 verdict** — PARTIAL/NO-GO unchanged: emulator ≠ handset, local ≠ staging.
+- Payer-app real-seam verification — screenshots are mock-mode; live payer API round-trip unproven.
+
+## Evidence-hygiene follow-ups (from the audit)
+- Tester's real phone visible in 4 committed shots → redact/re-shoot next capture.
+- Payer unlocked-candidate screen shows a raw phone (dummy) → align with ADR-0010 in-app relay before real data.
+- "Razorpay" checkout copy while payments are mock → soften copy.
+- Payer-app mock credits toast/balance bug (199→2199 vs "+1,000").
+
+## Tests run today
+- ai-contracts: build ✅ · 10 tests ✅ · eslint ✅ · api typecheck ✅ · 30 consuming api tests ✅ (parity branch). No staging tests possible.
+
+## Decisions needed
+- None new. Staging execution (P0) remains the only gate.
+
+## Tomorrow's target
+- **Prakash:** staging `/health` 200 → evidence row. Only gate to B1.
+- **Rishi:** re-shoot evidence with masked test number once staging lands (real handset).
+- **Divyanshu:** FE wiring FE-1..FE-5 against local API.
+
+---
+
 # Daily Tracker — 2026-07-09
 
 ## BadaBhai Progress Snapshot
