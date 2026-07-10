@@ -1,11 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
+  AICallMetadataSchema,
   DraftProfileSchema,
   ProfileExtractionInputSchema,
   ProfileExtractionOutputSchema,
   PseudonymizationOutputSchema,
   TranscriptionInputSchema,
   TranscriptionOutputSchema,
+  WorkerProfileDraftSchema,
 } from "./index";
 
 describe("DraftProfileSchema", () => {
@@ -15,6 +17,43 @@ describe("DraftProfileSchema", () => {
     expect(profile.salary_expectation.currency).toBe("INR");
     expect(profile.availability.status).toBe("unknown");
     expect(profile.canonical_role_id).toBeNull();
+  });
+});
+
+describe("AICallMetadataSchema (contracts.py parity)", () => {
+  const minimal = {
+    ai_call_id: "c1",
+    task_type: "profile_extraction",
+    model_name: "gemini-2.5-flash",
+    provider: "google",
+    real_call: false,
+    created_at: "2026-07-10T00:00:00Z",
+  };
+  it("defaults the transport-diagnostics trio (attempt_count/candidates_tried/failure_reason)", () => {
+    const meta = AICallMetadataSchema.parse(minimal);
+    expect(meta.attempt_count).toBe(0);
+    expect(meta.candidates_tried).toEqual([]);
+    expect(meta.failure_reason).toBeNull();
+  });
+  it("round-trips a populated diagnostics set without stripping fields", () => {
+    const meta = AICallMetadataSchema.parse({
+      ...minimal,
+      attempt_count: 6,
+      candidates_tried: ["gemini-2.5-flash", "claude-haiku-4-5"],
+      failure_reason: "no_text_content",
+    });
+    expect(meta.attempt_count).toBe(6);
+    expect(meta.candidates_tried).toEqual(["gemini-2.5-flash", "claude-haiku-4-5"]);
+    expect(meta.failure_reason).toBe("no_text_content");
+  });
+});
+
+describe("WorkerProfileDraftSchema (contracts.py parity)", () => {
+  it("defaults canonical_role_id to null and round-trips a set id", () => {
+    expect(WorkerProfileDraftSchema.parse({}).canonical_role_id).toBeNull();
+    expect(
+      WorkerProfileDraftSchema.parse({ canonical_role_id: "vmc_operator" }).canonical_role_id,
+    ).toBe("vmc_operator");
   });
 });
 
