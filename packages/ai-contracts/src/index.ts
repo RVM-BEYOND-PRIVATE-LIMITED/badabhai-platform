@@ -40,6 +40,13 @@ export const AICallMetadataSchema = z.object({
   error_code: z.string().nullable().default(null),
   cost_alert: z.boolean().default(false),
   above_target: z.boolean().default(false),
+  // Diagnostics (additive, defaulted → back-compat): reconcile per-attempt log
+  // volume vs per-call metadata and surface the specific transport failure.
+  // PII-free: an int count, model ids, and a closed-set reason code. Mirrors the
+  // Pydantic AICallMetadata in apps/ai-service/app/contracts.py.
+  attempt_count: z.number().int().nonnegative().default(0),
+  candidates_tried: z.array(z.string()).default([]),
+  failure_reason: z.string().nullable().default(null),
   created_at: z.string(),
 });
 export type AICallMetadata = z.infer<typeof AICallMetadataSchema>;
@@ -166,6 +173,10 @@ const experienceLevel = z.enum(["fresher", "junior", "experienced", "senior", "u
 export const WorkerProfileDraftSchema = z.object({
   role_family: z.string().default("cnc_vmc"),
   primary_role: z.string().nullable().default(null),
+  // The model's canonicalized role id (one of canonical_roles.ROLE_IDS or null).
+  // Additive (default null → backward compatible); VALIDATED against the closed
+  // set before use. Mirrors the Pydantic WorkerProfileDraft in contracts.py.
+  canonical_role_id: z.string().nullable().default(null),
   secondary_roles: z.array(z.string()).default([]),
   machines: z.array(z.string()).default([]),
   controllers: z.array(z.string()).default([]),
