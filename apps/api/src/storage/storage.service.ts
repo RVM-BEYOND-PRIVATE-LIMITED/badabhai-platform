@@ -219,6 +219,46 @@ export class StorageService {
   }
 
   /**
+   * Mint a signed UPLOAD URL for `${bucket}/${objectKey}` (the voice-note client
+   * PUTs the audio bytes to it directly — the API never proxies audio). Returns
+   * an ABSOLUTE url + its lifetime. Throws a PII-free error on failure. The URL
+   * embeds a bearer token: callers must NEVER log or emit it (same rule as
+   * createSignedUrl).
+   */
+  async createSignedUploadUrl(
+    objectKey: string,
+    bucket?: string,
+  ): Promise<{ url: string; expiresIn: number }> {
+    const { url, serviceKey, bucket: b } = this.requireStorage(bucket);
+    const target = `${url}/storage/v1/object/upload/sign/${b}/${encodeURI(objectKey)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    try {
+      const res = await fetch(target, {
+        method: "POST",
+        headers: { authorization: `Bearer ${serviceKey}` },
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        throw new Error(`storage sign-upload-url failed with status ${res.status}`);
+      }
+      // Supabase has returned this as `url` (REST) and `signedURL` (older SDKs);
+      // accept either defensively.
+      const body = (await res.json()) as { url?: string; signedURL?: string };
+      const relative = body.url ?? body.signedURL;
+      if (!relative) {
+        throw new Error("storage sign-upload-url response missing url");
+      }
+      // The upload-sign token lifetime is FIXED server-side by Supabase (~2h) and
+      // not configurable per request, so we surface a conservative constant
+      // rather than a config knob that could not actually change anything.
+      return { url: `${url}/storage/v1${relative}`, expiresIn: 7200 };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  /**
    * Guard: Storage requires both SUPABASE_URL and the service-role key. `bucket`
    * defaults to RESUMES_BUCKET (the existing resume callers); pass another bucket
    * (e.g. INTERVIEW_KIT_BUCKET) explicitly.

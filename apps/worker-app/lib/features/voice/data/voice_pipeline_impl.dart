@@ -1,52 +1,124 @@
-import '../../../core/api/api_models.dart';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:http/http.dart' as http;
+
+import '../../../core/api/api_client.dart';
 import '../../../core/error/failure.dart';
 import '../domain/voice_models.dart';
 import '../domain/voice_pipeline.dart';
 
-/// REAL storage uploader — fails closed. There is NO backend route that turns a
-/// recorded audio file into a `storage_path` (A2-storage MISSING), so uploading
-/// cannot complete. Throwing here keeps raw audio ON the device and surfaces the
-/// honest [VoiceUnavailableFailure] instead of fabricating a path the API rejects.
+/// Honest copy for a transcript that is not (yet) available. A client-side
+/// constant — safe to show; never a server body.
+const String _kTranscriptNotReady =
+    'Transcript ready nahi hua. Thodi der baad dobara try karein.';
+
+/// REAL storage uploader: mints a signed slot (POST /voice/upload-url), PUTs
+/// the clip bytes to the signed url (`Content-Type: audio/mp4`), deletes the
+/// on-device temp file, and returns the minted `storage_path` — exactly the
+/// path POST /voice/upload accepts (the API rejects anything outside
+/// `voice-notes/<workerId>/`).
+///
+/// FAIL-CLOSED: a 503 from upload-url (voice not enabled server-side) surfaces
+/// as [VoiceUnavailableFailure] BEFORE any audio leaves the device. PRIVACY:
+/// the signed url and the on-device path are never logged; thrown messages
+/// carry no url/path/body detail.
 class RealVoiceStorageUploader implements VoiceStorageUploader {
-  const RealVoiceStorageUploader();
+  RealVoiceStorageUploader({required ApiClient api, http.Client? client})
+      : _api = api,
+        _client = client ?? http.Client();
+
+  final ApiClient _api;
+  final http.Client _client;
 
   @override
-  Future<String> upload(RecordedClip clip) async {
-    // TODO(storage): no backend upload route yet — see A2-storage MISSING.
-    throw const VoiceUnavailableFailure();
+  Future<String> upload(RecordedClip clip, {required String authToken}) async {
+    final VoiceUploadTicket ticket;
+    try {
+      ticket = await _api.requestVoiceUploadUrl(authToken: authToken);
+    } on ApiException catch (error) {
+      if (error.statusCode == 503) {
+        // Voice uploads not enabled server-side — honest "not available yet".
+        throw const VoiceUnavailableFailure();
+      }
+      rethrow;
+    }
+
+    final Uint8List bytes = await File(clip.path).readAsBytes();
+    final http.Response res = await _client.put(
+      Uri.parse(ticket.uploadUrl),
+      headers: const <String, String>{'content-type': 'audio/mp4'},
+      body: bytes,
+    );
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      // Generic message on purpose: the signed url embeds a token and the
+      // storage body could echo it — neither may reach a log or the UI.
+      throw ApiException(res.statusCode, 'voice clip upload failed');
+    }
+
+    // Uploaded — the on-device temp copy is no longer needed (best-effort).
+    try {
+      await File(clip.path).delete();
+    } catch (_) {
+      // Cleanup only; the cache dir is app-private and OS-evictable anyway.
+    }
+    return ticket.storagePath;
   }
 }
 
-/// REAL transcript resolver — fails closed. `GET /ai-jobs/:id` returns only the
-/// `voice_note_id` for a completed transcription (no transcript body, no route to
-/// fetch it), so the text cannot be resolved. Unreachable in practice because the
-/// uploader above throws first; kept honest for when the storage route lands.
+/// REAL transcript resolver: reads `voice_note_id` off the completed
+/// transcription [AiJob] and fetches GET /voice/:id, preferring
+/// `transcript_text` (source language) over `transcript_english`. Fails closed
+/// with the honest "transcript ready nahi hua" copy when neither has landed.
 class RealVoiceTranscriptResolver implements VoiceTranscriptResolver {
-  const RealVoiceTranscriptResolver();
+  const RealVoiceTranscriptResolver(this._api);
+
+  final ApiClient _api;
 
   @override
-  Future<String> resolve(AiJob job) async {
-    // TODO(storage): no route returns transcript text yet — see A2-storage MISSING.
-    throw const VoiceUnavailableFailure();
+  Future<String> resolve(AiJob job, {required String authToken}) async {
+    final String? voiceNoteId = job.voiceNoteId;
+    if (voiceNoteId == null || voiceNoteId.isEmpty) {
+      throw const VoiceUnavailableFailure(_kTranscriptNotReady);
+    }
+    final VoiceNoteDetail note = await _api.fetchVoiceNote(
+      authToken: authToken,
+      voiceNoteId: voiceNoteId,
+    );
+    final String text = _firstNonEmpty(note.transcriptText) ??
+        _firstNonEmpty(note.transcriptEnglish) ??
+        (throw const VoiceUnavailableFailure(_kTranscriptNotReady));
+    return text;
+  }
+
+  static String? _firstNonEmpty(String? value) {
+    final String? trimmed = value?.trim();
+    return (trimmed == null || trimmed.isEmpty) ? null : trimmed;
   }
 }
 
-/// MOCK storage uploader — returns a canned, obviously-fake `storage_path` so the
+/// MOCK storage uploader — returns a canned, obviously-fake `storage_path`
+/// (mirroring the real `voice-notes/<workerId>/<uuid>.m4a` shape) so the
 /// pipeline is walkable offline. No real audio is ever uploaded.
 class MockVoiceStorageUploader implements VoiceStorageUploader {
   const MockVoiceStorageUploader();
 
   @override
-  Future<String> upload(RecordedClip clip) async =>
-      'mock/voice-notes/mock-clip-0001.m4a';
+  Future<String> upload(RecordedClip clip, {required String authToken}) async =>
+      'voice-notes/mock-worker-0001/mock-clip-0001.m4a';
 }
 
 /// MOCK transcript resolver — returns a generic, PII-FREE canned transcript so
-/// the merge-into-chat step completes in mock mode.
+/// the merge-into-chat step completes in mock mode. KEEP IN SYNC with
+/// MockApiClient.fetchVoiceNote's `transcript_text` (a parity test asserts it).
 class MockVoiceTranscriptResolver implements VoiceTranscriptResolver {
   const MockVoiceTranscriptResolver();
 
-  @override
-  Future<String> resolve(AiJob job) async =>
+  /// The canned transcript — also what MockApiClient.fetchVoiceNote returns.
+  static const String cannedTranscript =
       'Main CNC machine par 4 saal se kaam kar raha hoon, Fanuc control aata hai.';
+
+  @override
+  Future<String> resolve(AiJob job, {required String authToken}) async =>
+      cannedTranscript;
 }

@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_client.dart';
@@ -33,14 +35,23 @@ class _FakeRecorder implements VoiceRecorder {
 }
 
 class _FakeUploader implements VoiceStorageUploader {
+  String? seenAuthToken;
+
   @override
-  Future<String> upload(RecordedClip clip) async => 'mock/voice/clip.m4a';
+  Future<String> upload(RecordedClip clip, {required String authToken}) async {
+    seenAuthToken = authToken;
+    return 'voice-notes/w1/clip.m4a';
+  }
 }
 
 class _FakeResolver implements VoiceTranscriptResolver {
+  String? seenAuthToken;
+
   @override
-  Future<String> resolve(AiJob job) async =>
-      'CNC machine par 4 saal ka anubhav.';
+  Future<String> resolve(AiJob job, {required String authToken}) async {
+    seenAuthToken = authToken;
+    return 'CNC machine par 4 saal ka anubhav.';
+  }
 }
 
 SessionRepository _session() => SessionRepository()
@@ -81,24 +92,30 @@ void main() {
   test(
       'pipeline: upload → transcribe → poll → resolve → merge into chat, '
       'bearer-scoped and PII-free', () async {
+    final _FakeUploader uploader = _FakeUploader();
+    final _FakeResolver resolver = _FakeResolver();
     final VoiceNoteRepositoryImpl repo = VoiceNoteRepositoryImpl(
       recorder: _FakeRecorder(
           const RecordedClip(path: '/tmp/clip.m4a', durationSeconds: 12)),
-      uploader: _FakeUploader(),
-      resolver: _FakeResolver(),
+      uploader: uploader,
+      resolver: resolver,
       api: api,
       chat: chat,
       session: _session(),
     );
 
-    final String reply = await repo.stopRecordingAndTranscribe();
+    final VoiceNoteOutcome outcome = await repo.stopRecordingAndTranscribe();
 
-    expect(reply, 'bhai reply');
-    // Bearer + session id are token-derived, never widget-supplied.
+    expect(outcome.reply, 'bhai reply');
+    expect(outcome.transcript, 'CNC machine par 4 saal ka anubhav.');
+    // Bearer + session id are token-derived, never widget-supplied — and the
+    // SAME bearer rides through both route-less legs.
+    expect(uploader.seenAuthToken, 'tok');
+    expect(resolver.seenAuthToken, 'tok');
     verify(() => api.uploadVoiceNote(
           authToken: 'tok',
           sessionId: 'sess-1',
-          storagePath: 'mock/voice/clip.m4a',
+          storagePath: 'voice-notes/w1/clip.m4a',
           durationSeconds: 12,
         )).called(1);
     verify(() => api.transcribeVoiceNote(authToken: 'tok', voiceNoteId: 'vn1'))
@@ -109,13 +126,22 @@ void main() {
         .called(1);
   });
 
-  test('REAL storage leg fails closed with VoiceUnavailableFailure (no upload)',
+  test(
+      'REAL uploader: a 503 from /voice/upload-url fails closed with '
+      'VoiceUnavailableFailure — no bytes leave, nothing is registered',
       () async {
+    when(() => api.requestVoiceUploadUrl(authToken: any(named: 'authToken')))
+        .thenThrow(ApiException(503, 'voice uploads not enabled'));
     final VoiceNoteRepositoryImpl repo = VoiceNoteRepositoryImpl(
       recorder: _FakeRecorder(
           const RecordedClip(path: '/tmp/clip.m4a', durationSeconds: 12)),
-      uploader: const RealVoiceStorageUploader(), // the blocked leg
-      resolver: const RealVoiceTranscriptResolver(),
+      uploader: RealVoiceStorageUploader(
+        api: api,
+        // Any PUT would be a privacy bug — fail the test loudly.
+        client: MockClient((http.Request req) async =>
+            fail('no bytes may leave the device on a 503')),
+      ),
+      resolver: _FakeResolver(),
       api: api,
       chat: chat,
       session: _session(),
@@ -125,7 +151,7 @@ void main() {
       repo.stopRecordingAndTranscribe(),
       throwsA(isA<VoiceUnavailableFailure>()),
     );
-    // Nothing left the device: no upload/transcribe/merge happened.
+    // Nothing was registered / transcribed / merged.
     verifyNever(() => api.uploadVoiceNote(
           authToken: any(named: 'authToken'),
           sessionId: any(named: 'sessionId'),
@@ -150,5 +176,22 @@ void main() {
       repo.stopRecordingAndTranscribe(),
       throwsA(isA<UnauthorizedFailure>()),
     );
+  });
+
+  test('a null clip from the recorder fails closed with honest copy', () async {
+    final VoiceNoteRepositoryImpl repo = VoiceNoteRepositoryImpl(
+      recorder: _FakeRecorder(null),
+      uploader: _FakeUploader(),
+      resolver: _FakeResolver(),
+      api: api,
+      chat: chat,
+      session: _session(),
+    );
+
+    await expectLater(
+      repo.stopRecordingAndTranscribe(),
+      throwsA(isA<VoiceUnavailableFailure>()),
+    );
+    verifyNever(() => chat.sendMessage(any()));
   });
 }

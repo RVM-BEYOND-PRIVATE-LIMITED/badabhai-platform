@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Voice-note capture (A2): mic access for the `record` plugin. Runtime-
+         gated — the OS prompt fires on first use via AudioRecorder.hasPermission();
+         a denial degrades honestly to "type karke bhejein" (never a crash). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <application
         android:label="badabhai_worker_app"
         android:name="${applicationName}"

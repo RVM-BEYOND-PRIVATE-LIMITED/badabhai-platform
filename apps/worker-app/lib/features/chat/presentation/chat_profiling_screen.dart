@@ -11,6 +11,7 @@ import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_bubble.dart';
 import '../../../router.dart';
+import '../../voice/domain/voice_models.dart';
 import '../domain/chat_message.dart';
 import 'bloc/chat_bloc.dart';
 
@@ -128,6 +129,21 @@ class _ChatViewState extends State<_ChatView> {
     setState(() => _hasUnreadBelow = false);
   }
 
+  /// Opens the voice-note screen and, when it pops with a completed
+  /// [VoiceNoteOutcome], appends the transcript + reply bubbles. The pipeline
+  /// already sent the transcript server-side, so this is a LOCAL append only
+  /// (see [ChatVoiceMerged]).
+  Future<void> _openVoiceNote() async {
+    final ChatBloc bloc = context.read<ChatBloc>();
+    final VoiceNoteOutcome? outcome =
+        await context.push<VoiceNoteOutcome>(Routes.voiceNote);
+    if (outcome == null) return;
+    bloc.add(ChatVoiceMerged(
+      transcript: outcome.transcript,
+      reply: outcome.reply,
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -135,9 +151,9 @@ class _ChatViewState extends State<_ChatView> {
         title: 'Profiling',
         actions: <Widget>[
           IconButton(
-            tooltip: 'Add voice note',
+            tooltip: 'Voice note bhejein',
             icon: const Icon(Icons.mic_none, color: AppColors.brand),
-            onPressed: () => context.push(Routes.voiceNote),
+            onPressed: _openVoiceNote,
           ),
         ],
       ),

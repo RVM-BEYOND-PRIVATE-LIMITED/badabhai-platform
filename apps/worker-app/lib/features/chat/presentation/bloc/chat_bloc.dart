@@ -29,6 +29,20 @@ class ChatMessageSent extends ChatEvent {
   List<Object?> get props => <Object?>[text];
 }
 
+/// A voice note completed on the voice screen: its transcript was ALREADY sent
+/// server-side (merged like a typed message by the voice pipeline) and [reply]
+/// is bada bhai's answer. This appends both bubbles locally — NO network call,
+/// or the message would be sent twice.
+class ChatVoiceMerged extends ChatEvent {
+  const ChatVoiceMerged({required this.transcript, required this.reply});
+
+  final String transcript;
+  final String reply;
+
+  @override
+  List<Object?> get props => <Object?>[transcript, reply];
+}
+
 // ---------------- State ----------------
 
 class ChatState extends Equatable {
@@ -64,6 +78,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       : super(const ChatState(messages: <ChatMessage>[_openingMessage])) {
     on<ChatStarted>(_onStarted);
     on<ChatMessageSent>(_onMessageSent);
+    on<ChatVoiceMerged>(_onVoiceMerged);
   }
 
   final ChatRepository _repo;
@@ -101,5 +116,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // The frozen UI has no send-failure affordance — keep the worker's
       // message and no-op rather than inventing new error copy.
     }
+  }
+
+  /// Appends the already-server-merged voice transcript + reply. Local only —
+  /// the voice pipeline sent the transcript through ChatRepository.sendMessage.
+  void _onVoiceMerged(ChatVoiceMerged event, Emitter<ChatState> emit) {
+    emit(state.copyWith(messages: <ChatMessage>[
+      ...state.messages,
+      ChatMessage(text: event.transcript, fromWorker: true),
+      ChatMessage(text: event.reply, fromWorker: false),
+    ]));
   }
 }

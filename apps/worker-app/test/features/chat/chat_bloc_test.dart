@@ -76,6 +76,31 @@ void main() {
   );
 
   blocTest<ChatBloc, ChatState>(
+    'ChatVoiceMerged appends transcript + reply LOCALLY (no network resend)',
+    build: () => ChatBloc(repo),
+    seed: () =>
+        const ChatState(messages: <ChatMessage>[_opening], initializing: false),
+    act: (ChatBloc b) => b.add(const ChatVoiceMerged(
+      transcript: 'CNC par 4 saal ka anubhav.',
+      reply: 'Badhiya! Kaunsa control chalate ho?',
+    )),
+    expect: () => const <ChatState>[
+      ChatState(
+        messages: <ChatMessage>[
+          _opening,
+          ChatMessage(text: 'CNC par 4 saal ka anubhav.', fromWorker: true),
+          ChatMessage(
+              text: 'Badhiya! Kaunsa control chalate ho?', fromWorker: false),
+        ],
+        initializing: false,
+      ),
+    ],
+    // The voice pipeline already sent the transcript server-side — a resend
+    // here would double the message.
+    verify: (_) => verifyNever(() => repo.sendMessage(any())),
+  );
+
+  blocTest<ChatBloc, ChatState>(
     'a send failure keeps the worker message and adds no reply (frozen UI)',
     build: () {
       when(() => repo.ensureSession()).thenAnswer((_) async {});

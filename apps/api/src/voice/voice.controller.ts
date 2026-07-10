@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, Post, UseGuards } from "@nestjs/common";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import {
@@ -9,10 +9,13 @@ import {
 import { ConsentGuard } from "../auth/consent.guard";
 import { VoiceService } from "./voice.service";
 import {
+  CreateUploadUrlSchema,
+  type CreateUploadUrlDto,
   UploadVoiceNoteSchema,
   type UploadVoiceNoteDto,
   TranscribeVoiceNoteSchema,
   type TranscribeVoiceNoteDto,
+  VoiceNoteIdParamSchema,
 } from "./voice.dto";
 
 /**
@@ -25,6 +28,20 @@ import {
 @UseGuards(WorkerAuthGuard, ConsentGuard)
 export class VoiceController {
   constructor(private readonly voice: VoiceService) {}
+
+  /**
+   * Mint a signed upload URL (server-controlled object key). 503 while
+   * VOICE_NOTES_BUCKET is unset (fail-closed dormancy). Body is empty by
+   * design — the client chooses nothing about the destination.
+   */
+  @Post("upload-url")
+  @HttpCode(201)
+  createUploadUrl(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Body(new ZodValidationPipe(CreateUploadUrlSchema)) _dto: CreateUploadUrlDto,
+  ) {
+    return this.voice.createUploadUrl(worker.id);
+  }
 
   @Post("upload")
   @HttpCode(201)
@@ -45,5 +62,14 @@ export class VoiceController {
     @Ctx() ctx: RequestContext,
   ) {
     return this.voice.requestTranscription(worker.id, dto, ctx);
+  }
+
+  /** Read one voice note incl. transcript fields (owner only; read-only → no event). */
+  @Get(":voiceNoteId")
+  get(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Param(new ZodValidationPipe(VoiceNoteIdParamSchema)) params: { voiceNoteId: string },
+  ) {
+    return this.voice.getNote(worker.id, params.voiceNoteId);
   }
 }

@@ -24,7 +24,10 @@ android {
         applicationId = "com.example.badabhai_worker_app"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        // minSdk 23 (Android 6.0, 2015): required by record_android 1.x (the A2
+        // voice recorder). Flutter's own default (flutter.minSdkVersion = 21)
+        // fails the manifest merge once `record` is a dependency.
+        minSdk = 23
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

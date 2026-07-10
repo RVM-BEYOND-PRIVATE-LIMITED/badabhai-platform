@@ -204,7 +204,11 @@ const CONTRACT: ControllerContract[] = [
     },
   },
   // P0 fix (PR #91).
-  { name: "Voice", ctor: VoiceController, routes: { upload: [C, W], transcribe: [C, W] } },
+  {
+    name: "Voice",
+    ctor: VoiceController,
+    routes: { createUploadUrl: [C, W], upload: [C, W], transcribe: [C, W], get: [C, W] },
+  },
   // setName (PUT :id/name) is the ops-style open route; setMyName (PATCH me/name)
   // is the worker-self capture — consent-gated (invariant #6), worker from the token.
   {

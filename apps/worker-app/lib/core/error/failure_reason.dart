@@ -37,9 +37,16 @@ import 'failure.dart';
           icon: Icons.badge_outlined,
           reason: 'Pehle apna profile poora karein.',
         ),
-      VoiceUnavailableFailure() => (
+      // Voice failures carry step-specific honest copy in [Failure.message]
+      // (e.g. "Transcript ready nahi hua…"), which is ALWAYS a client-side
+      // constant — never a server body (see mapError) — so it is safe to show.
+      VoiceUnavailableFailure(:final String message) => (
           icon: Icons.mic_off_rounded,
-          reason: 'Voice note abhi available nahi hai. Type karke bhejein.',
+          reason: message,
+        ),
+      MicPermissionFailure(:final String message) => (
+          icon: Icons.mic_off_rounded,
+          reason: message,
         ),
       ServerFailure(:final int statusCode) => (
           icon: Icons.error_outline_rounded,

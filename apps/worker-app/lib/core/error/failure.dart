@@ -84,13 +84,25 @@ class ProfileIncompleteFailure extends Failure {
       [super.message = 'Pehle apna profile poora karein.']);
 }
 
-/// The voice-note pipeline cannot complete against the real backend: there is no
-/// route that turns a recorded audio file into a `storage_path` (A2-storage
-/// MISSING), so the record→upload leg fails closed. Honest copy tells the worker
-/// voice capture is not available yet instead of dead-ending or blaming the net.
+/// The voice-note pipeline cannot complete right now: the server said voice
+/// uploads are not enabled (503 on `/voice/upload-url`), the recording could
+/// not be captured, or the transcript is not ready. Honest copy tells the
+/// worker what to do instead of dead-ending or blaming the net.
 class VoiceUnavailableFailure extends Failure {
   const VoiceUnavailableFailure([
     super.message = 'Voice note abhi available nahi hai. Type karke bhejein.',
+  ]);
+}
+
+/// The worker declined (or the OS blocked) the microphone permission, so
+/// recording cannot start. DISTINCT from [VoiceUnavailableFailure]: voice works
+/// — the phone just needs mic access — so the copy points at settings, not at
+/// the feature.
+class MicPermissionFailure extends Failure {
+  const MicPermissionFailure([
+    super.message =
+        'Mic ki permission nahi mili. Phone settings mein mic allow karein, '
+        'ya type karke bhejein.',
   ]);
 }
 

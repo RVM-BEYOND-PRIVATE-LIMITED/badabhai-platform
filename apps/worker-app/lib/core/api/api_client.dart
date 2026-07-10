@@ -284,16 +284,48 @@ class ApiClient {
         .toList();
   }
 
+  /// Mints a signed upload slot for a voice clip (POST /voice/upload-url —
+  /// A2-storage, WorkerAuthGuard + ConsentGuard). Worker-scoped: requires
+  /// [authToken]; the body is empty JSON — the server derives the worker from
+  /// the token and returns `{storage_path, upload_url, expires_in}`. The clip
+  /// bytes are then PUT to `upload_url` (see RealVoiceStorageUploader) and the
+  /// returned `storage_path` is registered via [uploadVoiceNote].
+  ///
+  /// A 503 means voice uploads are not enabled server-side — the caller maps it
+  /// to the honest [VoiceUnavailableFailure] copy. PRIVACY: the returned url is
+  /// SIGNED — never log it.
+  Future<VoiceUploadTicket> requestVoiceUploadUrl({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/voice/upload-url',
+      <String, dynamic>{},
+      authToken: authToken,
+    );
+    return VoiceUploadTicket.fromJson(json);
+  }
+
+  /// Fetches a registered voice note + its transcript once STT has landed
+  /// (GET /voice/:voiceNoteId — WorkerAuthGuard). Worker-scoped: requires
+  /// [authToken]; the server checks the note belongs to the token's worker.
+  /// `transcript_text`/`transcript_english` are null while transcription is
+  /// still pending. PRIVACY: the transcript is worker content — never log it.
+  Future<VoiceNoteDetail> fetchVoiceNote({
+    required String authToken,
+    required String voiceNoteId,
+  }) async {
+    final Map<String, dynamic> json =
+        await _get('/voice/$voiceNoteId', authToken: authToken);
+    return VoiceNoteDetail.fromJson(json);
+  }
+
   /// Registers an already-stored voice clip (POST /voice/upload — A2a,
   /// WorkerAuthGuard + ConsentGuard). Worker-scoped: requires [authToken]. The
   /// server derives the worker from the token; the body carries only the
-  /// [sessionId], the server-side [storagePath] (≤512 chars), and
-  /// [durationSeconds] (>0, ≤120). PII-FREE — no audio bytes, no transcript.
-  ///
-  /// NOTE (A2-storage MISSING): there is NO backend route that turns a recorded
-  /// audio FILE into a [storagePath]. This method registers a clip that is
-  /// ALREADY at [storagePath]; producing that path is the blocked leg (see
-  /// VoiceNoteRepository). Wired here so the rest of the pipeline is real.
+  /// [sessionId], the server-side [storagePath] (≤512 chars, must be the exact
+  /// path minted by [requestVoiceUploadUrl] — the API rejects paths outside
+  /// `voice-notes/<workerId>/`), and [durationSeconds] (>0, ≤120). PII-FREE —
+  /// no audio bytes, no transcript.
   Future<VoiceUploadResult> uploadVoiceNote({
     required String authToken,
     required String sessionId,

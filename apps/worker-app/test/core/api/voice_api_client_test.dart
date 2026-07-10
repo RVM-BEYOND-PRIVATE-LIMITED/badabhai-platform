@@ -142,6 +142,109 @@ void main() {
       expect(job.voiceNoteId, 'vn1');
     });
 
+    test(
+        'requestVoiceUploadUrl POSTs /voice/upload-url with bearer + EMPTY '
+        'JSON body and parses the ticket', () async {
+      late http.Request captured;
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async {
+          captured = req;
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'storage_path': 'voice-notes/w1/abc.m4a',
+              'upload_url': 'https://storage.test/signed-slot',
+              'expires_in': 7200,
+            }),
+            201,
+          );
+        }),
+      );
+
+      final VoiceUploadTicket ticket =
+          await api.requestVoiceUploadUrl(authToken: 'tok');
+
+      expect(captured.method, 'POST');
+      expect(captured.url.path, '/voice/upload-url');
+      expect(captured.headers['authorization'], 'Bearer tok');
+      expect(jsonDecode(captured.body), <String, dynamic>{});
+      expect(ticket.storagePath, 'voice-notes/w1/abc.m4a');
+      expect(ticket.uploadUrl, 'https://storage.test/signed-slot');
+      expect(ticket.expiresInSeconds, 7200);
+    });
+
+    test('requestVoiceUploadUrl surfaces a 503 as ApiException(503)', () {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async => http.Response(
+              jsonEncode(<String, dynamic>{'message': 'not enabled'}),
+              503,
+            )),
+      );
+
+      expect(
+        () => api.requestVoiceUploadUrl(authToken: 'tok'),
+        throwsA(isA<ApiException>()
+            .having((ApiException e) => e.statusCode, 'statusCode', 503)),
+      );
+    });
+
+    test('fetchVoiceNote GETs /voice/:id with bearer and parses transcripts',
+        () async {
+      late http.Request captured;
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async {
+          captured = req;
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'voice_note_id': 'vn1',
+              'duration_seconds': 12,
+              'transcript_text': 'CNC par 4 saal.',
+              'transcript_english': '4 years on CNC.',
+              'transcript_confidence': 0.92,
+            }),
+            200,
+          );
+        }),
+      );
+
+      final VoiceNoteDetail note =
+          await api.fetchVoiceNote(authToken: 'tok', voiceNoteId: 'vn1');
+
+      expect(captured.method, 'GET');
+      expect(captured.url.path, '/voice/vn1');
+      expect(captured.headers['authorization'], 'Bearer tok');
+      expect(note.voiceNoteId, 'vn1');
+      expect(note.transcriptText, 'CNC par 4 saal.');
+      expect(note.transcriptEnglish, '4 years on CNC.');
+      expect(note.transcriptConfidence, 0.92);
+    });
+
+    test('fetchVoiceNote tolerates null transcripts (STT still pending)',
+        () async {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async => http.Response(
+              jsonEncode(<String, dynamic>{
+                'voice_note_id': 'vn1',
+                'duration_seconds': 12,
+                'transcript_text': null,
+                'transcript_english': null,
+                'transcript_confidence': null,
+              }),
+              200,
+            )),
+      );
+
+      final VoiceNoteDetail note =
+          await api.fetchVoiceNote(authToken: 'tok', voiceNoteId: 'vn1');
+
+      expect(note.transcriptText, isNull);
+      expect(note.transcriptEnglish, isNull);
+      expect(note.transcriptConfidence, isNull);
+    });
+
     test('awaitAiJob times out (bounded budget) while still queued', () {
       final ApiClient api = ApiClient(
         baseUrl: 'http://test',
