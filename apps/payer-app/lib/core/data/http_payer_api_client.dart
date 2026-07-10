@@ -393,6 +393,13 @@ class HttpPayerApiClient implements PayerApiClient {
         if (campaign != null && campaign.isNotEmpty) 'campaign': campaign,
       },
     );
+    // A non-2xx (e.g. the fail-closed per-payer invite-mint 429, or a 5xx) must
+    // NOT decode to an empty ReferralLink('', '') shown as success. Throwing here
+    // both surfaces the real error to ReferralCubit AND prevents the empty link
+    // from being written into the process-level _sessionLink cache (the assign
+    // never completes), so a later open retries the mint instead of re-serving a
+    // broken code/QR for the rest of the session.
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
     final String code = res.body['code'] as String? ?? '';
     final String link = res.body['link'] as String? ?? '';
     return ReferralLink(code: code, url: link);
