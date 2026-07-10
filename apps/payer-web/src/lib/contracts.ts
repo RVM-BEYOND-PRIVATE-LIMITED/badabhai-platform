@@ -309,7 +309,7 @@ export const maskedResumeWireSchema = z.union([
     resume_url: z
       .string()
       .url()
-      .refine((u) => /^https:\/\//.test(u) || /^http:\/\/(localhost|127\.0\.0\.1)[:/]/.test(u), {
+      .refine((u) => u.startsWith("https://") || /^http:\/\/(localhost|127\.0\.0\.1)[:/]/.test(u), {
         message: "resume_url must be https (or localhost in dev)",
       }),
     expires_at: z.string(),
