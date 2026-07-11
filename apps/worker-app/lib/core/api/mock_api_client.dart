@@ -27,22 +27,6 @@ class MockApiClient extends ApiClient {
   Future<void> _delay() => Future<void>.delayed(_latency);
 
   @override
-  Future<void> requestOtp(String phoneE164) async {
-    await _delay();
-  }
-
-  @override
-  Future<VerifyOtpResult> verifyOtp(String phoneE164, String otp) async {
-    await _delay();
-    return VerifyOtpResult(
-      workerId: 'mock-worker-0001',
-      accessToken: 'mock-token',
-      isNewWorker: true,
-      status: 'active',
-    );
-  }
-
-  @override
   Future<void> acceptConsent({
     required String workerId,
     required List<String> purposes,

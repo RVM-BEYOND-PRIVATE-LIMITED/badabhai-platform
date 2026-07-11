@@ -38,18 +38,6 @@ class ApiClient {
   /// session stays alive without a separate refresh call. Never logs the token.
   final void Function(String freshToken)? onSessionTokenRefreshed;
 
-  Future<void> requestOtp(String phoneE164) async {
-    await _post('/auth/otp/request', <String, dynamic>{'phone': phoneE164});
-  }
-
-  Future<VerifyOtpResult> verifyOtp(String phoneE164, String otp) async {
-    final Map<String, dynamic> json = await _post(
-      '/auth/otp/verify',
-      <String, dynamic>{'phone': phoneE164, 'otp': otp},
-    );
-    return VerifyOtpResult.fromJson(json);
-  }
-
   Future<void> acceptConsent({
     required String workerId,
     required List<String> purposes,

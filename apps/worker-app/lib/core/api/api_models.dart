@@ -35,37 +35,6 @@ class ProfileExtractionTimeout implements Exception {
       'ProfileExtractionTimeout: job $aiJobId did not complete in time';
 }
 
-/// Result of POST /auth/otp/verify.
-///
-/// Carries the bearer [accessToken] the API mints for the worker session. The
-/// app stores it (in-memory, in the SessionRepository) and sends it as
-/// `Authorization: Bearer <token>` on worker-scoped routes (feed / apply /
-/// skip). It is the worker's own session credential — never logged, never
-/// persisted to disk.
-class VerifyOtpResult extends Equatable {
-  const VerifyOtpResult({
-    required this.workerId,
-    required this.accessToken,
-    required this.isNewWorker,
-    required this.status,
-  });
-
-  final String workerId;
-  final String accessToken;
-  final bool isNewWorker;
-  final String status;
-
-  factory VerifyOtpResult.fromJson(Map<String, dynamic> json) => VerifyOtpResult(
-        workerId: json['worker_id'] as String,
-        accessToken: json['access_token'] as String? ?? '',
-        isNewWorker: json['is_new_worker'] as bool? ?? false,
-        status: json['status'] as String? ?? 'active',
-      );
-
-  @override
-  List<Object?> get props => <Object?>[workerId, accessToken, isNewWorker, status];
-}
-
 /// One job card the worker swipes on. Result item of GET /feed.
 ///
 /// PII-free by contract: coarse [tradeKey] / [title] / [city] / [area] only —

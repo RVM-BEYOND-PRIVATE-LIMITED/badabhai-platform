@@ -66,6 +66,15 @@ const Map<String, Map<String, String>> kAuthErrorMessages =
     'bho': 'Kuch gadbad ho gayi. Dobara try karein.', // TODO l10n: bho
     'en': 'Something went wrong. Please try again.',
   },
+  // Honest parse-failure copy: the server replied but in a shape we could not
+  // read — say so, never a false "check internet". (Sole caller today:
+  // AuthApi.listDevices on a missing/non-list `devices` key.)
+  AuthErrorCode.contractError: <String, String>{
+    'hi': 'Device list theek se nahi mili — dobara try karein.',
+    'mr': 'Device list theek se nahi mili — dobara try karein.', // TODO l10n: mr
+    'bho': 'Device list theek se nahi mili — dobara try karein.', // TODO l10n: bho
+    'en': "Couldn't read the device list. Please try again.",
+  },
 };
 
 /// Codes whose backend `message` is meaningful + safe to surface directly when

@@ -49,14 +49,24 @@ class _DevicesView extends StatelessWidget {
                   child: const Text('Try again'),
                 ),
               ),
-            DevicesStatus.ready => ListView.separated(
-                padding: const EdgeInsets.all(AppSpacing.gutter),
-                itemCount: state.devices.length,
-                separatorBuilder: (_, __) =>
-                    const SizedBox(height: AppSpacing.s3),
-                itemBuilder: (BuildContext context, int i) =>
-                    _DeviceTile(device: state.devices[i]),
-              ),
+            // Empty ≠ failed: a valid 2xx with no other devices shows an honest
+            // "only this phone" note, NOT a blank list — and never the failed
+            // view's parse/unauthorized reason. (A shape drift now throws
+            // contractError upstream, so it lands in DevicesStatus.failed.)
+            DevicesStatus.ready => state.devices.isEmpty
+                ? const BbStatusView(
+                    icon: Icons.devices_other_rounded,
+                    title: 'Koi doosra device nahi.',
+                    subtitle: 'Sirf yeh phone is account mein logged-in hai.',
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.all(AppSpacing.gutter),
+                    itemCount: state.devices.length,
+                    separatorBuilder: (_, __) =>
+                        const SizedBox(height: AppSpacing.s3),
+                    itemBuilder: (BuildContext context, int i) =>
+                        _DeviceTile(device: state.devices[i]),
+                  ),
           };
         },
       ),
