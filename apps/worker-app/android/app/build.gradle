@@ -3,10 +3,14 @@ plugins {
     id "kotlin-android"
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id "dev.flutter.flutter-gradle-plugin"
+    // Firebase (native Android) — google-services must be applied after Android/Kotlin/Flutter plugins.
+    id "com.google.gms.google-services"
+    id "com.google.firebase.crashlytics"
+    id "com.google.firebase.firebase-perf"
 }
 
 android {
-    namespace = "com.example.badabhai_worker_app"
+    namespace = "com.badabhai.workerapp"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -21,13 +25,14 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.badabhai_worker_app"
+        applicationId = "com.badabhai.workerapp"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // minSdk 23 (Android 6.0, 2015): required by record_android 1.x (the A2
         // voice recorder). Flutter's own default (flutter.minSdkVersion = 21)
         // fails the manifest merge once `record` is a dependency.
-        minSdk = 23
+        // Bumped to 24 on Flutter 3.35 (its default min; also ≥ Firebase's 23 floor).
+        minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -44,4 +49,13 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Firebase BoM pins all Firebase SDK versions to one tested set (native Android; no FlutterFire).
+    implementation platform("com.google.firebase:firebase-bom:34.15.0")
+    implementation "com.google.firebase:firebase-analytics"
+    implementation "com.google.firebase:firebase-crashlytics"
+    implementation "com.google.firebase:firebase-perf"
+    implementation "com.google.firebase:firebase-messaging"
 }

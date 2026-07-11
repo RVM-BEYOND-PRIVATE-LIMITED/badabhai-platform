@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "694010882767",
+    "project_id": "badabhai-b580b",
+    "storage_bucket": "badabhai-b580b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:694010882767:android:4ccc65cf95647b57cd65ba",
+        "android_client_info": {
+          "package_name": "com.badabhai.payerapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAFqEWG5QY7wEdTHtGPjeAD6NvBlc3JIBc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

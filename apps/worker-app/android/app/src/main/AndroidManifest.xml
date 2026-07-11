@@ -3,6 +3,9 @@
          gated — the OS prompt fires on first use via AudioRecorder.hasPermission();
          a denial degrades honestly to "type karke bhejein" (never a crash). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- Firebase Cloud Messaging (native): network + show notifications on Android 13+. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="badabhai_worker_app"
         android:name="${applicationName}"
@@ -41,6 +44,20 @@
         <meta-data
             android:name="io.flutter.embedding.android.EnableImpeller"
             android:value="false" />
+
+        <!-- Firebase Cloud Messaging: receives console test pushes; shows foreground
+             notifications. Background/killed notification-messages are shown by the OS. -->
+        <service
+            android:name=".MyFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT"/>
+            </intent-filter>
+        </service>
+        <!-- Channel id used for background/system-tray FCM notifications (created in FirebaseManager). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="@string/default_notification_channel_id" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
