@@ -27,6 +27,7 @@ import {
   type SetWorkerNameDto,
   SetMyNameSchema,
   type SetMyNameDto,
+  type WorkerProfileSummary,
 } from "./workers.dto";
 
 @Controller("workers")
@@ -40,6 +41,29 @@ export class WorkersController {
   @Get()
   async list(@Query("limit") limit?: string) {
     return { workers: await this.workers.list(clampLimit(limit)) };
+  }
+
+  /**
+   * Worker SELF-view profile summary (TD54 — the app's home "my profile" card).
+   * The worker is taken from the bearer token via @CurrentWorker — NEVER from a
+   * path/body id (no IDOR). Consent-gated like every worker-self read of profile
+   * data (CLAUDE.md §2 invariant #6) — hence WorkerAuthGuard THEN ConsentGuard
+   * (ConsentGuard reads `req.worker`, which WorkerAuthGuard attaches).
+   *
+   * NO PII in the response (no name — an OPEN escalation, see
+   * docs/worker-profile-summary-spec.md — and never phone/hash) and NO event:
+   * a read-only self-view is not a material state change (§1).
+   *
+   * ROUTE ORDER: declared BEFORE the `:id/profile` param route below so a literal
+   * "me" path segment is never captured as an `:id` (Nest matches in declaration
+   * order within a controller).
+   */
+  @Get("me/profile-summary")
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  async getMyProfileSummary(
+    @CurrentWorker() worker: AuthenticatedWorker,
+  ): Promise<WorkerProfileSummary> {
+    return this.workersService.getProfileSummary(worker.id);
   }
 
   /** Worker + latest profile + latest generated resume. */

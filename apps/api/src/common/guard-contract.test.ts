@@ -207,10 +207,18 @@ const CONTRACT: ControllerContract[] = [
   { name: "Voice", ctor: VoiceController, routes: { upload: [C, W], transcribe: [C, W] } },
   // setName (PUT :id/name) is the ops-style open route; setMyName (PATCH me/name)
   // is the worker-self capture — consent-gated (invariant #6), worker from the token.
+  // getMyProfileSummary (GET me/profile-summary, TD54) is the worker-self summary
+  // read — same [WorkerAuthGuard, ConsentGuard] posture, worker from the token.
   {
     name: "Workers",
     ctor: WorkersController,
-    routes: { list: [], getProfile: [], setName: [], setMyName: [C, W] },
+    routes: {
+      list: [],
+      getProfile: [],
+      setName: [],
+      setMyName: [C, W],
+      getMyProfileSummary: [C, W],
+    },
   },
   // Admin Ops Portal auth (ADR-0025 ADMIN-1, the 4th principal). The ONLY public routes are
   // the login request/verify + MFA verify (external untrusted boundary, IP-rate-limited);
@@ -310,6 +318,13 @@ describe("API authz contract — guards on every controller route", () => {
     it("WorkersController.setMyName runs [WorkerAuthGuard, ConsentGuard] in order", () => {
       const handler = (WorkersController.prototype as unknown as Record<string, object>)
         .setMyName;
+      expect(guardNames(handler)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);
+    });
+
+    // Same method-level posture for the TD54 worker-self summary read.
+    it("WorkersController.getMyProfileSummary runs [WorkerAuthGuard, ConsentGuard] in order", () => {
+      const handler = (WorkersController.prototype as unknown as Record<string, object>)
+        .getMyProfileSummary;
       expect(guardNames(handler)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);
     });
   });

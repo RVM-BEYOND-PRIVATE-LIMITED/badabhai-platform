@@ -1,0 +1,150 @@
+import type { ProfileStatus } from "@badabhai/types";
+import { getRole } from "@badabhai/taxonomy";
+import { resolveTradeContent } from "../resume/trade-content";
+import type { WorkerProfileSummary } from "./workers.dto";
+
+/**
+ * PURE mapper: latest `worker_profiles` row → the TD54 self-view summary
+ * (`GET /workers/me/profile-summary`). Mirrors the defensive-narrowing posture of
+ * `reach.mappers.ts`: the JSONB columns are `unknown` at the DB boundary, so every
+ * read narrows the shape, optional-accesses the key, and falls back to `null`/`0`
+ * on anything missing or unparseable — a malformed row must NEVER throw a 500 at
+ * the worker.
+ *
+ * FACELESS BY CONSTRUCTION: the input is the profile row only (canonical ids +
+ * signal JSONB). Name/phone live on `workers` and never enter this mapper — the
+ * "Namaste, <name>" field is an OPEN §2 escalation
+ * (docs/worker-profile-summary-spec.md) and ships only if ruled allowed.
+ */
+
+/** The structural subset of `WorkerProfile` the summary reads (D8-style projection —
+ * never `embedding`/`rawProfile`). */
+export interface ProfileSummarySource {
+  profileStatus: ProfileStatus;
+  canonicalTradeId: string | null;
+  canonicalRoleId: string | null;
+  skills: unknown;
+  machines: unknown;
+  experience: unknown;
+  salaryExpectation: unknown;
+  locationPreference: unknown;
+  availability: unknown;
+  confirmedAt: Date | string | null;
+}
+
+type Json = Record<string, unknown>;
+
+/** True only for a plain object we can safely key into (mirrors reach.mappers). */
+function asObject(value: unknown): Json | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Json)
+    : null;
+}
+
+/** A non-blank trimmed string or `null` (a blank string is "unknown", not ""). */
+function nonBlankStringOrNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/** `confirmed_at` → ISO-8601 string. Tolerates a driver-returned string; an
+ * unparseable value maps to `null` rather than throwing. */
+function toIsoOrNull(value: Date | string | null): string | null {
+  if (value == null) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+/**
+ * `location_preference` JSONB → the summary city: first non-blank entry of the
+ * canonical `preferred_cities` (LocationPreferenceSchema). `null` when the JSONB
+ * is absent, not an object, or the array is missing/empty/malformed.
+ */
+function readCity(locationPreference: unknown): string | null {
+  const cities = asObject(locationPreference)?.preferred_cities;
+  if (!Array.isArray(cities)) return null;
+  for (const c of cities) {
+    const city = nonBlankStringOrNull(c);
+    if (city) return city;
+  }
+  return null;
+}
+
+/** `availability` JSONB → the status string (canonical `{ status }` shape;
+ * tolerate a bare string, like reach's readAvailability). `null` = unknown. */
+function readAvailabilityStatus(availability: unknown): string | null {
+  if (typeof availability === "string") return nonBlankStringOrNull(availability);
+  return nonBlankStringOrNull(asObject(availability)?.status);
+}
+
+/**
+ * Human display name for the trade block: taxonomy first
+ * (`getRole(canonicalRoleId).name`), then the authored trade-content fallback
+ * (`resolveTradeContent(...).display_name`), else `null`. Null ids never reach
+ * the resolvers.
+ */
+function readDisplayName(roleId: string | null, tradeId: string | null): string | null {
+  if (roleId) {
+    const role = getRole(roleId);
+    if (role) return role.name;
+  }
+  if (!roleId && !tradeId) return null;
+  return resolveTradeContent(roleId, tradeId)?.display_name ?? null;
+}
+
+/**
+ * Profile strength, RECOMPUTED on read — the exact `countFields` algorithm from
+ * profile-extraction.processor.ts, re-derived over the STORED row's JSONB (with
+ * defensive narrowing instead of the processor's typed DraftProfile):
+ * +1 canonical_role_id, +1 canonical_trade_id, +skills.length, +machines.length,
+ * +1 experience.total_years != null, +1 salary amount_min/amount_max present,
+ * +1 preferred_cities non-empty, +1 availability.status !== "unknown".
+ * Deliberately NOT stored (no new column, no drift with the processor's value).
+ */
+function computeStrength(p: ProfileSummarySource): number {
+  let n = 0;
+  if (p.canonicalRoleId) n += 1;
+  if (p.canonicalTradeId) n += 1;
+  n += Array.isArray(p.skills) ? p.skills.length : 0;
+  n += Array.isArray(p.machines) ? p.machines.length : 0;
+  if (asObject(p.experience)?.total_years != null) n += 1;
+  const salary = asObject(p.salaryExpectation);
+  if (salary != null && (salary.amount_min != null || salary.amount_max != null)) n += 1;
+  const cities = asObject(p.locationPreference)?.preferred_cities;
+  if (Array.isArray(cities) && cities.length > 0) n += 1;
+  const status = readAvailabilityStatus(p.availability);
+  if (status != null && status !== "unknown") n += 1;
+  return n;
+}
+
+/** No-profile-yet summary: everything null/zero, `profile_status: "none"`. */
+const NO_PROFILE: WorkerProfileSummary = {
+  profile_status: "none",
+  confirmed_at: null,
+  trade: { canonical_trade_id: null, canonical_role_id: null, display_name: null },
+  city: null,
+  strength: 0,
+};
+
+/** Map the latest profile row (or its absence) to the wire summary. */
+export function toProfileSummary(
+  profile: ProfileSummarySource | null | undefined,
+): WorkerProfileSummary {
+  if (!profile) return NO_PROFILE;
+
+  const canonicalRoleId = profile.canonicalRoleId ?? null;
+  const canonicalTradeId = profile.canonicalTradeId ?? null;
+
+  return {
+    profile_status: profile.profileStatus,
+    confirmed_at: toIsoOrNull(profile.confirmedAt),
+    trade: {
+      canonical_trade_id: canonicalTradeId,
+      canonical_role_id: canonicalRoleId,
+      display_name: readDisplayName(canonicalRoleId, canonicalTradeId),
+    },
+    city: readCity(profile.locationPreference),
+    strength: computeStrength(profile),
+  };
+}
