@@ -1,7 +1,10 @@
 # ADR-0027: Payer org members — full shared-org tenancy + real email invites (on existing primitives)
 
-- Status: Proposed (owner-directed; awaiting sign-off before build)
-- Date: 2026-07-01
+- Status: **Accepted — BUILT + MERGED** (the full B5.1–B5.5 program: #182 db tenant
+  foundation `payer_orgs`+`payer_members` (migration 0035) · #183 solo-org guarantee ·
+  #184 member-management API + `PayerOrgRoleGuard` + MOCK invites · #185 invite ACCEPT +
+  per-org cap + gated real invite email · #186 payer-web Team page wired)
+- Date: 2026-07-01 (proposed) · 2026-07-02..07 (built, #182–#186) · header synced 2026-07-11
 - Scope: `packages/db` (org tenant root + `payer_members` + `org_id` on payer-owned
   tables + backfill), `apps/api` payer surface (`apps/api/src/payers/*`,
   `apps/api/src/payer-portal/*`, the tenant chokepoint), `packages/event-schema`
