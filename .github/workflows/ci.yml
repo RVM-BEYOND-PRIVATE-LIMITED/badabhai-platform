@@ -136,6 +136,9 @@ jobs:
       # backstop, meaningless for a single shared CI IP) doesn't 429 the suite. Real
       # deployments keep the default; this only affects the CI e2e job.
       OTP_MAX_SENDS_PER_HOUR: "1000"
+      # Same reasoning for the per-phone DAILY backstop (TD60): one CI run shares
+      # phones/IPs across the whole suite, so keep it out of the way here too.
+      OTP_MAX_SENDS_PER_DAY: "1000"
       # Shared secret for InternalServiceGuard on the ops/backend-only resume routes
       # (GET /resume/:id, …). Job-level so the API process AND the e2e test both see it;
       # the test sends it as x-internal-service-token.

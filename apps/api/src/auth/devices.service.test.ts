@@ -126,6 +126,27 @@ describe("DevicesService (ADR-0026 Phase 2 — trusted-device binding)", () => {
     expect(json).not.toContain("push_token");
   });
 
+  it("PINS the GET /auth/devices wire contract — exact root + item keys (D8)", async () => {
+    // The Flutter client falls back to `?? []` on shape drift (a rename would surface
+    // as a silently EMPTY device list, not an error) — this pin makes server-side
+    // drift loud. Field names are the client contract; change = version, not rename.
+    const listActiveByWorker = vi.fn().mockResolvedValue([makeDeviceRow({ id: "device-1" })]);
+    const { svc } = build({ repo: { listActiveByWorker } });
+
+    const res = await svc.listForWorker("worker-1", "device-1");
+
+    expect(Object.keys(res)).toEqual(["devices"]);
+    expect(Object.keys(res.devices[0]!).sort()).toEqual([
+      "app_version",
+      "id",
+      "is_current",
+      "last_seen_at",
+      "model",
+      "platform",
+      "trusted_at",
+    ]);
+  });
+
   it("revokeForWorker(owned) revokes the device, cuts its sessions, and emits worker.device_revoked", async () => {
     const revoke = vi.fn().mockResolvedValue(makeDeviceRow({ revokedAt: new Date() }));
     const revokeByDevice = vi.fn().mockResolvedValue(2);
