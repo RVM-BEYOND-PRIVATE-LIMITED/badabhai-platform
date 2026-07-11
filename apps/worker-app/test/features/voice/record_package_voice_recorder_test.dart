@@ -122,6 +122,62 @@ void main() {
     verifyNever(() => plugin.cancel());
   });
 
+  test(
+      'REGRESSION (orphans): start() after the cap fired deletes the '
+      'uncollected pending clip file instead of orphaning it', () async {
+    // Simulate the plugin having finalised a cap-stopped clip on disk.
+    final File pendingClip = File(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}bb-test-pending-'
+        '${DateTime.now().microsecondsSinceEpoch}.m4a');
+    when(() => plugin.stop()).thenAnswer((_) async {
+      await pendingClip.writeAsBytes(<int>[1]);
+      return pendingClip.path;
+    });
+
+    final RecordPackageVoiceRecorder recorder = RecordPackageVoiceRecorder(
+      recorder: plugin,
+      maxDuration: const Duration(milliseconds: 50),
+    );
+    await recorder.start();
+    // Cap fires, finalising the clip — and NOBODY collects it (no stop, no
+    // cancel: the buggy flow).
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(await pendingClip.exists(), isTrue);
+
+    // A fresh start() must clean the orphan up, not silently drop it.
+    await recorder.start();
+    expect(await pendingClip.exists(), isFalse);
+    verify(() => plugin.start(any(), path: any(named: 'path'))).called(2);
+
+    await recorder.cancel();
+  });
+
+  test(
+      'start() sweeps stale bb-voice-* clips from crashed flows but leaves '
+      'other files alone', () async {
+    final String temp = Directory.systemTemp.path;
+    final String sep = Platform.pathSeparator;
+    // A stale clip matching the recorder's own naming — MUST be swept.
+    final File stale = File('$temp${sep}bb-voice-11111.m4a');
+    await stale.writeAsBytes(<int>[1]);
+    // A neighbour that does NOT match — must be untouched.
+    final File other = File('$temp${sep}bb-keep-me-11111.m4a');
+    await other.writeAsBytes(<int>[1]);
+    addTearDown(() async {
+      if (await stale.exists()) await stale.delete();
+      if (await other.exists()) await other.delete();
+    });
+
+    final RecordPackageVoiceRecorder recorder =
+        RecordPackageVoiceRecorder(recorder: plugin);
+    await recorder.start();
+
+    expect(await stale.exists(), isFalse);
+    expect(await other.exists(), isTrue);
+
+    await recorder.cancel();
+  });
+
   test('dispose releases the plugin', () async {
     final RecordPackageVoiceRecorder recorder =
         RecordPackageVoiceRecorder(recorder: plugin);

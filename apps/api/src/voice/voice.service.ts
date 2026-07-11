@@ -75,10 +75,16 @@ export class VoiceService {
       throw new NotFoundException(`Session ${dto.session_id} not found`);
     }
 
-    // The path must be one WE minted for THIS worker (createUploadUrl): a worker
-    // may not register an object under another worker's prefix (or an arbitrary
-    // bucket location). The prefix carries only opaque UUIDs — no PII.
-    if (!dto.storage_path.startsWith(`voice-notes/${workerId}/`)) {
+    // The path must be one WE minted for THIS worker (createUploadUrl): full-shape
+    // match, not just the prefix — a worker may not register an object under
+    // another worker's prefix, an arbitrary bucket location, a `..` traversal,
+    // or a free-text suffix (which would let self-chosen text reach the
+    // voice_note.uploaded event payload). workerId is a UUID (hex+dashes only),
+    // so interpolating it into the pattern is safe.
+    const mintedKeyShape = new RegExp(
+      `^voice-notes/${workerId}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.m4a$`,
+    );
+    if (!mintedKeyShape.test(dto.storage_path)) {
       throw new BadRequestException("storage_path not owned by caller");
     }
 

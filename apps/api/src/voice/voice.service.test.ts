@@ -51,9 +51,11 @@ function setup(configOverrides: Partial<ServerConfig> = {}) {
   return { svc, voice, chat, events, aiJobs, queue, storage };
 }
 
+// A minted-shape key: exactly what createUploadUrl produces for THIS worker.
+const MINTED_UUID = "0f3d2a1b-4c5d-4e6f-8a9b-0c1d2e3f4a5b";
 const UPLOAD_BASE = {
   session_id: SESSION,
-  storage_path: `voice-notes/${WORKER}/a.m4a`,
+  storage_path: `voice-notes/${WORKER}/${MINTED_UUID}.m4a`,
   duration_seconds: 12,
 };
 const UPLOAD = UPLOAD_BASE as never;
@@ -102,7 +104,10 @@ describe("VoiceService.upload — ownership + PII-free event", () => {
   it("400s when storage_path is under ANOTHER worker's prefix (no note created/emitted)", async () => {
     const { svc, chat, voice, events } = setup();
     chat.findSession.mockResolvedValueOnce({ id: SESSION, workerId: WORKER });
-    const foreign = { ...UPLOAD_BASE, storage_path: `voice-notes/${OTHER}/a.m4a` } as never;
+    const foreign = {
+      ...UPLOAD_BASE,
+      storage_path: `voice-notes/${OTHER}/${MINTED_UUID}.m4a`,
+    } as never;
     await expect(svc.upload(WORKER, foreign, CTX)).rejects.toBeInstanceOf(BadRequestException);
     expect(voice.create).not.toHaveBeenCalled();
     expect(events.emit).not.toHaveBeenCalled();
@@ -113,6 +118,28 @@ describe("VoiceService.upload — ownership + PII-free event", () => {
     chat.findSession.mockResolvedValueOnce({ id: SESSION, workerId: WORKER });
     const arbitrary = { ...UPLOAD_BASE, storage_path: "p/a.m4a" } as never;
     await expect(svc.upload(WORKER, arbitrary, CTX)).rejects.toBeInstanceOf(BadRequestException);
+    expect(voice.create).not.toHaveBeenCalled();
+  });
+
+  it("400s on dot-segment traversal under the caller's own prefix (full-shape match, not prefix)", async () => {
+    const { svc, chat, voice } = setup();
+    // voice-notes/<me>/../<other>/<uuid>.m4a passes a naive startsWith() and,
+    // via WHATWG URL dot-segment collapsing in fetch, would target ANOTHER
+    // worker's object on delete/fetch. The minted-key regex rejects it.
+    chat.findSession.mockResolvedValue({ id: SESSION, workerId: WORKER });
+    const traversal = {
+      ...UPLOAD_BASE,
+      storage_path: `voice-notes/${WORKER}/../${OTHER}/${MINTED_UUID}.m4a`,
+    } as never;
+    await expect(svc.upload(WORKER, traversal, CTX)).rejects.toBeInstanceOf(BadRequestException);
+
+    // Free-text suffix under the caller's own prefix is equally rejected
+    // (self-chosen text must never reach the voice_note.uploaded payload).
+    const freeText = {
+      ...UPLOAD_BASE,
+      storage_path: `voice-notes/${WORKER}/mera-number-9876543210.m4a`,
+    } as never;
+    await expect(svc.upload(WORKER, freeText, CTX)).rejects.toBeInstanceOf(BadRequestException);
     expect(voice.create).not.toHaveBeenCalled();
   });
 

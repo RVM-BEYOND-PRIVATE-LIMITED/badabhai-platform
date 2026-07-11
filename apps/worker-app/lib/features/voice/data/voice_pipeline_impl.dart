@@ -14,55 +14,80 @@ const String _kTranscriptNotReady =
     'Transcript ready nahi hua. Thodi der baad dobara try karein.';
 
 /// REAL storage uploader: mints a signed slot (POST /voice/upload-url), PUTs
-/// the clip bytes to the signed url (`Content-Type: audio/mp4`), deletes the
-/// on-device temp file, and returns the minted `storage_path` — exactly the
-/// path POST /voice/upload accepts (the API rejects anything outside
-/// `voice-notes/<workerId>/`).
+/// the clip bytes to the signed url (`Content-Type: audio/mp4`, bounded by
+/// [defaultPutTimeout]), deletes the on-device temp file (success OR failure —
+/// raw audio never outlives the attempt), and returns the minted
+/// `storage_path` — exactly the path POST /voice/upload accepts (the API
+/// rejects anything outside `voice-notes/<workerId>/`).
 ///
 /// FAIL-CLOSED: a 503 from upload-url (voice not enabled server-side) surfaces
 /// as [VoiceUnavailableFailure] BEFORE any audio leaves the device. PRIVACY:
 /// the signed url and the on-device path are never logged; thrown messages
 /// carry no url/path/body detail.
 class RealVoiceStorageUploader implements VoiceStorageUploader {
-  RealVoiceStorageUploader({required ApiClient api, http.Client? client})
-      : _api = api,
-        _client = client ?? http.Client();
+  /// [putTimeout] is a test seam; production uses [defaultPutTimeout].
+  RealVoiceStorageUploader({
+    required ApiClient api,
+    http.Client? client,
+    Duration putTimeout = defaultPutTimeout,
+  })  : _api = api,
+        _client = client ?? http.Client(),
+        _putTimeout = putTimeout;
+
+  /// Cap on the signed-url PUT. 30s (not the usual ~8s): a full 120s AAC-LC
+  /// mono clip is ~1–2MB, and our workers are often on 2G/EDGE uplinks — but a
+  /// STALLED socket must not park them on the Processing spinner forever.
+  static const Duration defaultPutTimeout = Duration(seconds: 30);
 
   final ApiClient _api;
   final http.Client _client;
+  final Duration _putTimeout;
 
   @override
   Future<String> upload(RecordedClip clip, {required String authToken}) async {
-    final VoiceUploadTicket ticket;
     try {
-      ticket = await _api.requestVoiceUploadUrl(authToken: authToken);
-    } on ApiException catch (error) {
-      if (error.statusCode == 503) {
-        // Voice uploads not enabled server-side — honest "not available yet".
-        throw const VoiceUnavailableFailure();
+      final VoiceUploadTicket ticket;
+      try {
+        ticket = await _api.requestVoiceUploadUrl(authToken: authToken);
+      } on ApiException catch (error) {
+        if (error.statusCode == 503) {
+          // Voice uploads not enabled server-side — honest "not available yet".
+          throw const VoiceUnavailableFailure();
+        }
+        rethrow;
       }
-      rethrow;
-    }
 
-    final Uint8List bytes = await File(clip.path).readAsBytes();
-    final http.Response res = await _client.put(
-      Uri.parse(ticket.uploadUrl),
-      headers: const <String, String>{'content-type': 'audio/mp4'},
-      body: bytes,
-    );
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      // Generic message on purpose: the signed url embeds a token and the
-      // storage body could echo it — neither may reach a log or the UI.
-      throw ApiException(res.statusCode, 'voice clip upload failed');
+      final Uint8List bytes = await File(clip.path).readAsBytes();
+      final http.Response res = await _client
+          .put(
+            Uri.parse(ticket.uploadUrl),
+            headers: const <String, String>{'content-type': 'audio/mp4'},
+            body: bytes,
+          )
+          // mapError turns the 408 into an honest, retryable ServerFailure —
+          // no url/token in the message (the signed url must never leak).
+          .timeout(
+            _putTimeout,
+            onTimeout: () =>
+                throw ApiException(408, 'voice clip upload timed out'),
+          );
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        // Generic message on purpose: the signed url embeds a token and the
+        // storage body could echo it — neither may reach a log or the UI.
+        throw ApiException(res.statusCode, 'voice clip upload failed');
+      }
+      return ticket.storagePath;
+    } finally {
+      // Success OR failure, raw audio never outlives the upload attempt: the
+      // on-device temp copy is outside server-side DSAR, so a failed attempt
+      // must not leave it behind (a retry re-records). Best-effort — the cache
+      // dir is app-private and OS-evictable anyway.
+      try {
+        await File(clip.path).delete();
+      } catch (_) {
+        // Cleanup only.
+      }
     }
-
-    // Uploaded — the on-device temp copy is no longer needed (best-effort).
-    try {
-      await File(clip.path).delete();
-    } catch (_) {
-      // Cleanup only; the cache dir is app-private and OS-evictable anyway.
-    }
-    return ticket.storagePath;
   }
 }
 

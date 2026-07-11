@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -17,17 +19,24 @@ class MockApiClient extends Mock implements ApiClient {}
 
 class MockChatRepository extends Mock implements ChatRepository {}
 
-/// A recorder that hands back a preset clip on [stop].
+/// A recorder that hands back a preset clip on [stop] and tracks whether the
+/// mic was released.
 class _FakeRecorder implements VoiceRecorder {
   _FakeRecorder(this._clip);
   final RecordedClip? _clip;
+
+  bool stopCalled = false;
 
   @override
   Future<bool> ensurePermission() async => true;
   @override
   Future<void> start() async {}
   @override
-  Future<RecordedClip?> stop() async => _clip;
+  Future<RecordedClip?> stop() async {
+    stopCalled = true;
+    return _clip;
+  }
+
   @override
   Future<void> cancel() async {}
   @override
@@ -159,6 +168,41 @@ void main() {
           durationSeconds: any(named: 'durationSeconds'),
         ));
     verifyNever(() => chat.sendMessage(any()));
+  });
+
+  test(
+      'REGRESSION (mic release): ensureSession throws → recorder.stop() was '
+      'still called FIRST and the orphaned clip file is deleted', () async {
+    // A real temp file standing in for the recorded clip. Named OUTSIDE the
+    // recorder's bb-voice-* pattern so no concurrent sweep can touch it.
+    final File clipFile = File(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}bb-repo-clip-'
+        '${DateTime.now().microsecondsSinceEpoch}.m4a');
+    await clipFile.writeAsBytes(<int>[1, 2, 3]);
+    addTearDown(() async {
+      if (await clipFile.exists()) await clipFile.delete();
+    });
+
+    when(() => chat.ensureSession()).thenThrow(const NetworkFailure());
+    final _FakeRecorder recorder = _FakeRecorder(
+        RecordedClip(path: clipFile.path, durationSeconds: 12));
+    final VoiceNoteRepositoryImpl repo = VoiceNoteRepositoryImpl(
+      recorder: recorder,
+      uploader: _FakeUploader(),
+      resolver: _FakeResolver(),
+      api: api,
+      chat: chat,
+      session: _session(),
+    );
+
+    await expectLater(
+      repo.stopRecordingAndTranscribe(),
+      throwsA(isA<NetworkFailure>()),
+    );
+    // The mic was released even though the session leg failed…
+    expect(recorder.stopCalled, isTrue);
+    // …and the clip that never reached the uploader did not linger on disk.
+    expect(await clipFile.exists(), isFalse);
   });
 
   test('missing session token fails closed (UnauthorizedFailure)', () async {

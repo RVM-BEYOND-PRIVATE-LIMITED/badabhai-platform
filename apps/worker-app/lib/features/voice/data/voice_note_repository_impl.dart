@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import '../../../core/api/api_client.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
@@ -72,7 +74,15 @@ class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
 
   @override
   Future<VoiceNoteOutcome> stopRecordingAndTranscribe() async {
+    RecordedClip? clip;
+    bool uploadStarted = false;
     try {
+      // ALWAYS release the mic FIRST. If the session/auth legs below threw
+      // while the plugin was still capturing, the error screen would sit over
+      // a LIVE mic the cubit can no longer cancel (its state is Error, not
+      // Recording), and a retry would call start() on an active plugin.
+      clip = await _recorder.stop();
+
       // A chat session must exist to both register the clip and merge the
       // transcript back in.
       await _chat.ensureSession();
@@ -82,7 +92,6 @@ class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
         throw const UnauthorizedFailure();
       }
 
-      final RecordedClip? clip = await _recorder.stop();
       if (clip == null) {
         throw const VoiceUnavailableFailure(
           'Recording save nahi hui. Dobara try karein.',
@@ -90,7 +99,10 @@ class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
       }
 
       // record → storage_path: mint the signed slot + PUT the bytes (REAL) or
-      // a canned path (MOCK). Registers EXACTLY the minted path below.
+      // a canned path (MOCK). Registers EXACTLY the minted path below. From
+      // here the UPLOADER owns the temp file — it deletes it in a `finally`
+      // (success OR failure), so raw audio never outlives the attempt.
+      uploadStarted = true;
       final String storagePath = await _uploader.upload(clip, authToken: token);
 
       final VoiceUploadResult uploaded = await _api.uploadVoiceNote(
@@ -117,6 +129,16 @@ class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
       final String reply = await _chat.sendMessage(transcript);
       return VoiceNoteOutcome(transcript: transcript, reply: reply);
     } catch (error) {
+      // A clip that never reached the uploader is raw audio on disk with no
+      // owner (the uploader's own `finally` only covers its leg) — delete it,
+      // best-effort. A retry re-records.
+      if (clip != null && !uploadStarted) {
+        try {
+          await File(clip.path).delete();
+        } catch (_) {
+          // Cleanup only — the cache dir is app-private and OS-evictable.
+        }
+      }
       throw mapError(error);
     }
   }

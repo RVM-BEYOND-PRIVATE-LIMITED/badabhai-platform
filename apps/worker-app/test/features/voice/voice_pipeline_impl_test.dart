@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -74,8 +75,9 @@ void main() {
       expect(await clipFile.exists(), isFalse);
     });
 
-    test('503 on upload-url → VoiceUnavailableFailure, no PUT, file kept',
-        () async {
+    test(
+        '503 on upload-url → VoiceUnavailableFailure, no PUT, and the temp '
+        'clip is DELETED (raw audio never outlives the attempt)', () async {
       when(() => api.requestVoiceUploadUrl(authToken: any(named: 'authToken')))
           .thenThrow(ApiException(503, 'not enabled'));
       final RealVoiceStorageUploader uploader = RealVoiceStorageUploader(
@@ -91,7 +93,7 @@ void main() {
         ),
         throwsA(isA<VoiceUnavailableFailure>()),
       );
-      expect(await clipFile.exists(), isTrue);
+      expect(await clipFile.exists(), isFalse);
     });
 
     test('non-503 mint failure rethrows the ApiException unchanged', () async {
@@ -112,8 +114,9 @@ void main() {
       );
     });
 
-    test('a failed PUT throws ApiException(status) and keeps the file',
-        () async {
+    test(
+        'a failed PUT throws ApiException(status) and the temp clip is '
+        'DELETED (failure must not leave raw audio behind)', () async {
       when(() => api.requestVoiceUploadUrl(authToken: any(named: 'authToken')))
           .thenAnswer((_) async => const VoiceUploadTicket(
                 storagePath: 'voice-notes/w1/abc.m4a',
@@ -134,7 +137,35 @@ void main() {
         throwsA(isA<ApiException>()
             .having((ApiException e) => e.statusCode, 'statusCode', 500)),
       );
-      expect(await clipFile.exists(), isTrue);
+      expect(await clipFile.exists(), isFalse);
+    });
+
+    test(
+        'a HANGING PUT times out honestly: ApiException(408), never a forever '
+        'spinner; the temp clip is deleted', () async {
+      when(() => api.requestVoiceUploadUrl(authToken: any(named: 'authToken')))
+          .thenAnswer((_) async => const VoiceUploadTicket(
+                storagePath: 'voice-notes/w1/abc.m4a',
+                uploadUrl: 'https://storage.test/signed-slot',
+                expiresInSeconds: 7200,
+              ));
+      final RealVoiceStorageUploader uploader = RealVoiceStorageUploader(
+        api: api,
+        // A stalled socket: the response future never completes.
+        client: MockClient(
+            (http.Request req) => Completer<http.Response>().future),
+        putTimeout: const Duration(milliseconds: 50),
+      );
+
+      await expectLater(
+        uploader.upload(
+          RecordedClip(path: clipFile.path, durationSeconds: 12),
+          authToken: 'tok',
+        ),
+        throwsA(isA<ApiException>()
+            .having((ApiException e) => e.statusCode, 'statusCode', 408)),
+      );
+      expect(await clipFile.exists(), isFalse);
     });
   });
 

@@ -79,10 +79,22 @@ class VoiceNoteCubit extends Cubit<VoiceNoteState> {
 
   Timer? _ticker;
 
+  /// True from the FIRST synchronous line of [startRecording] until it
+  /// settles. The state alone can't guard reentrancy — it stays
+  /// [VoiceNoteIdle] across the permission/start awaits, so a double-tap
+  /// would start the plugin twice and stack two tickers (elapsed counting 2x,
+  /// auto-send at ~60s wall time).
+  bool _starting = false;
+
   /// Checks the mic permission (OS prompt on first ask) and starts recording.
   /// A denied permission is an honest [MicPermissionFailure], never a crash.
   Future<void> startRecording() async {
-    if (state is VoiceNoteRecording || state is VoiceNoteProcessing) return;
+    if (_starting ||
+        state is VoiceNoteRecording ||
+        state is VoiceNoteProcessing) {
+      return;
+    }
+    _starting = true; // set BEFORE the first await — the double-tap guard.
     try {
       final bool granted = await _repo.ensureMicPermission();
       if (isClosed) return;
@@ -91,13 +103,21 @@ class VoiceNoteCubit extends Cubit<VoiceNoteState> {
         return;
       }
       await _repo.startRecording();
-      if (isClosed) return;
+      if (isClosed) {
+        // The screen died while the plugin was starting — a mic with no
+        // owner. Release it (best-effort; close() also covers this window
+        // and cancel is idempotent).
+        await _repo.cancelRecording();
+        return;
+      }
       emit(const VoiceNoteRecording(0));
       _ticker = Timer.periodic(_tick, _onTick);
     } on Failure catch (failure) {
       if (!isClosed) emit(VoiceNoteError(failure));
     } catch (error) {
       if (!isClosed) emit(VoiceNoteError(mapError(error)));
+    } finally {
+      _starting = false;
     }
   }
 
@@ -153,8 +173,11 @@ class VoiceNoteCubit extends Cubit<VoiceNoteState> {
   @override
   Future<void> close() async {
     _stopTicker();
-    // Screen disposed mid-recording → discard, never leave the mic running.
-    if (state is VoiceNoteRecording) {
+    // Screen disposed mid-recording OR mid-start → discard, never leave the
+    // mic running. `_starting` covers the window where startRecording() is
+    // still awaiting the plugin (state not yet Recording); the in-flight
+    // start also self-cancels on isClosed, and cancel is idempotent.
+    if (_starting || state is VoiceNoteRecording) {
       await _repo.cancelRecording();
     }
     return super.close();
