@@ -16,6 +16,9 @@ const config = {
   OTP_MAX_ATTEMPTS: 5,
   OTP_RESEND_COOLDOWN_SECONDS: 30,
   OTP_MAX_SENDS_PER_HOUR: 5,
+  // High enough that only the suites explicitly targeting the DAILY cap trip it (the
+  // hourly-cap test issues 6 sends against one phone — well under 50). TD60.
+  OTP_MAX_SENDS_PER_DAY: 50,
   // Worker OTP is REAL-ONLY (fast2sms; no console fallback), so isRealOtpSmsActive is always
   // true and the global daily breaker ALWAYS enforces. Default a HIGH global cap so the
   // breaker never trips for the throttle/verify suites (each test gets a fresh Redis store,
@@ -152,6 +155,48 @@ describe("OtpService.issueAndSend", () => {
     await expect(svc.issueAndSend(PHONE)).rejects.toMatchObject({
       status: HttpStatus.TOO_MANY_REQUESTS,
     });
+  });
+
+  it("429s when the per-phone DAILY send cap trips — SAME neutral message as the hourly cap (TD60)", async () => {
+    // Hourly cap set high so only the daily backstop can trip (an abuser pacing just
+    // under the hourly cap). The tripped attempt must be indistinguishable from an
+    // hourly trip — byte-identical message, no oracle on WHICH window fired.
+    const redis = makeRedis();
+    const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
+    const sms: SmsProvider = { sendOtp: vi.fn().mockResolvedValue(undefined) };
+    const dailyCfg = {
+      ...(config as unknown as Record<string, unknown>),
+      OTP_MAX_SENDS_PER_HOUR: 100,
+      OTP_MAX_SENDS_PER_DAY: 3,
+    } as unknown as ServerConfig;
+    const svc = new OtpService(dailyCfg, pii, sms, queue);
+
+    for (let i = 0; i < 3; i += 1) {
+      redis.store.delete(cooldownKey);
+      await svc.issueAndSend(PHONE);
+    }
+    redis.store.delete(cooldownKey);
+    redis.store.delete(codeKey); // so we can prove the tripped attempt reserves nothing
+
+    let err: HttpException | undefined;
+    try {
+      await svc.issueAndSend(PHONE);
+    } catch (e) {
+      err = e as HttpException;
+    }
+    expect(err).toBeDefined();
+    expect(err!.getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
+    expect(err!.message).toBe("Too many codes requested; please try again later");
+    // Never reached the provider; reserved no code (the daily check runs BEFORE code
+    // generation/storage — nothing to roll back).
+    expect((sms.sendOtp as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(3);
+    expect(redis.store.has(codeKey)).toBe(false);
+    // The daily counter rides its own day-stamped key, separate from the hourly one.
+    const dayKeys = [...redis.store.keys()].filter((k) =>
+      k.startsWith(`otp:sendcount:day:${phoneHash}:`),
+    );
+    expect(dayKeys).toHaveLength(1);
+    expect(dayKeys[0]).toMatch(/^otp:sendcount:day:phash_13:\d{8}$/);
   });
 
   it("on send failure deletes the code key and throws 502", async () => {
