@@ -102,6 +102,21 @@ export class OtpService {
         );
       }
 
+      // 3b. DAILY send cap (per phone) — backstops the hourly cap (pacing just under it
+      // could still burn paid SMS all day against one number). Same INCR+expire idiom,
+      // checked BEFORE any code is generated/stored (nothing to roll back), and throws
+      // the SAME neutral 429 as the hourly cap — no new oracle on which window tripped.
+      const day = utcDayStamp();
+      const dailyKey = OtpService.dailySendCountKey(phoneHash, day);
+      const dailySends = await redis.incr(dailyKey);
+      await redis.expire(dailyKey, secondsUntilEndOfUtcDay());
+      if (dailySends > this.config.OTP_MAX_SENDS_PER_DAY) {
+        throw new HttpException(
+          "Too many codes requested; please try again later",
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+
       // 4. Generate a cryptographically-random numeric code (no modulo bias).
       const code = OtpService.generateCode(this.config.OTP_LENGTH);
 
@@ -273,6 +288,10 @@ export class OtpService {
   }
   private static sendCountKey(phoneHash: string, hour: string): string {
     return `otp:sendcount:${phoneHash}:${hour}`;
+  }
+  /** Per-phone DAILY send counter (backstops the hourly cap). */
+  private static dailySendCountKey(phoneHash: string, day: string): string {
+    return `otp:sendcount:day:${phoneHash}:${day}`;
   }
   /** Global daily REAL-send counter (OTP-5 spend ceiling) — NOT keyed by phone. */
   private static globalSendCountKey(day: string): string {

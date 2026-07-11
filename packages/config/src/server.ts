@@ -189,6 +189,11 @@ export const serverEnvSchema = z.object({
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(30),
   OTP_MAX_SENDS_PER_HOUR: z.coerce.number().int().positive().default(5),
+  // Per-phone DAILY send ceiling backstopping the hourly cap: an abuser pacing just
+  // under OTP_MAX_SENDS_PER_HOUR could still burn paid SMS all day against one number.
+  // Generous default — a legit worker re-logging in stays far below it. Trips the SAME
+  // neutral 429 as the hourly cap (no new oracle); fail-closed like every OTP throttle.
+  OTP_MAX_SENDS_PER_DAY: z.coerce.number().int().positive().default(10),
   // GLOBAL daily send circuit-breaker for the worker SMS path (OTP-5 — the SPEND
   // ceiling). A backstop ABOVE the per-phone cooldown/cap + the per-IP cap: it bounds
   // the TOTAL number of REAL Fast2SMS sends platform-wide per UTC day, so a distributed
@@ -465,6 +470,13 @@ export const serverEnvSchema = z.object({
 
   // Service URLs / ports
   API_PORT: portSchema.default(3001),
+  // TD25 — number of reverse-proxy hops in front of the API whose X-Forwarded-For is
+  // trusted when deriving req.ip (feeds every per-IP rate cap). 0 (default) = disabled:
+  // Express keeps the socket peer — the fail-safe posture when the edge topology is
+  // unknown. Set to the REAL hop count at deploy; NEVER a blanket `true` (a spoofable
+  // XFF header would let an abuser rotate their rate-limit identity at will) — see
+  // docs/post-alpha-hardening-plan.md (Wave 1).
+  TRUST_PROXY_HOP_COUNT: z.coerce.number().int().nonnegative().default(0),
   AI_SERVICE_URL: z.string().url().default("http://localhost:8000"),
 
   // Browser CORS allow-list for the API — comma-separated EXACT origins

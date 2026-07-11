@@ -53,6 +53,17 @@ async function bootstrap(): Promise<void> {
     logger: new StructuredLogger("api"),
   });
 
+  // TD25 — trust exactly the configured number of reverse-proxy hops when deriving
+  // req.ip from X-Forwarded-For (feeds every per-IP rate cap). A hop COUNT, never a
+  // blanket `true` (spoofable XFF = rotatable rate-limit identity). Default 0 keeps
+  // the fail-safe socket-peer behavior until the deploy edge is known.
+  if (config.TRUST_PROXY_HOP_COUNT > 0) {
+    const express = app.getHttpAdapter().getInstance() as {
+      set: (setting: string, value: number) => void;
+    };
+    express.set("trust proxy", config.TRUST_PROXY_HOP_COUNT);
+  }
+
   app.useGlobalFilters(new AllExceptionsFilter());
   // Env-scoped CORS allow-list (no `*`): permissive in dev, explicit
   // CORS_ALLOWED_ORIGINS allow-list outside dev, deny-all if unset (fail closed).
