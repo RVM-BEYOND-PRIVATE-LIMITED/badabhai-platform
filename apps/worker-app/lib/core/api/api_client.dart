@@ -229,6 +229,42 @@ class ApiClient {
     return InterviewKitDownload.fromJson(json);
   }
 
+  /// Lists the wired interview kits (GET /interview-kits). PUBLIC route — content
+  /// is per-trade and PII-free, so NO auth token is sent (per-IP rate-limited
+  /// server-side; a 429 surfaces as RateLimitedFailure via mapError). Response is
+  /// `{ kits: [{trade_key, display_name}] }`; an empty list is a valid "no kits".
+  Future<List<InterviewKitListItem>> getInterviewKits() async {
+    final Map<String, dynamic> json = await _get('/interview-kits');
+    final List<dynamic> kits = json['kits'] as List<dynamic>? ?? <dynamic>[];
+    return kits
+        .whereType<Map<String, dynamic>>()
+        .map(InterviewKitListItem.fromJson)
+        .toList();
+  }
+
+  /// Fetches the full static kit for one trade (GET /interview-kits/:tradeKey).
+  /// PUBLIC + PII-free; NO auth token. [tradeKey] is a lowercase slug. A 404
+  /// (unknown trade) / 429 (rate cap) surfaces as a typed [Failure] via mapError.
+  Future<InterviewKitContentDto> getInterviewKit(String tradeKey) async {
+    final Map<String, dynamic> json = await _get('/interview-kits/$tradeKey');
+    return InterviewKitContentDto.fromJson(json);
+  }
+
+  /// Fetches the worker's own profile-summary card
+  /// (GET /workers/me/profile-summary — WorkerAuthGuard + ConsentGuard).
+  /// Worker-scoped: the worker is derived from [authToken], never a param (a 401
+  /// means re-login, a 403 means consent is required). The response is PII-FREE
+  /// by contract — there is NO name (an open §2 escalation, omitted server-side)
+  /// and never a phone; `city` is the only sensitive field and must NEVER be
+  /// logged. `strength` is an integer signal count, not a fraction.
+  Future<ProfileSummaryDto> getProfileSummary({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/profile-summary', authToken: authToken);
+    return ProfileSummaryDto.fromJson(json);
+  }
+
   /// Logs the worker out — best-effort token revocation. Worker-scoped: sends
   /// the bearer [authToken]; the API returns 204 (no body). The caller should
   /// clear local session state regardless of the outcome (offline-safe).

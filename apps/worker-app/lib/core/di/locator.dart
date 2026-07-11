@@ -155,7 +155,8 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
     () => InterviewKitRepositoryImpl(locator<ApiClient>()),
   );
   locator.registerLazySingleton<ProfileSummaryRepository>(
-    () => const ProfileSummaryRepositoryImpl(),
+    () => ProfileSummaryRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
   );
   // Single instance app-wide so the Alerts screen and the nav badge share the
   // same reactive unread count.

@@ -3,15 +3,16 @@ import '../../../core/error/failure_mapper.dart';
 import '../domain/interview_kit.dart';
 import '../domain/interview_kit_repository.dart';
 
-/// Interview-kit source.
+/// Live interview-kit source — all three legs go through [ApiClient] to the real
+/// PUBLIC, PII-free interview-kit routes:
+///   * [listKits]     → GET /interview-kits           (the wired trade list)
+///   * [kit]          → GET /interview-kits/:tradeKey  (the per-trade prep pack)
+///   * [downloadUrl]  → GET /interview-kit/:tradeKey/download (signed PDF url)
 ///
-/// The kit LIST and the inline Q&A CONTENT are static, curated client-side, and
-/// carry no PII — and there is NO backend for them (no list route, and the
-/// `/interview-kit/:tradeKey/download` route returns a PDF, not inline Q&A), so
-/// [listKits]/[kit] stay hard-coded. BLOCKED on a worker confirmed-trade source
-/// (to drive the list) + a Q&A endpoint; tracked as a §7 follow-up.
-///
-/// [downloadUrl] IS wired to the real public endpoint via [ApiClient].
+/// The kit content is per-TRADE and carries no worker PII. A wrong/missing trade
+/// (404) or rate-limit (429) is mapped to a typed [Failure] so the screen shows
+/// the real reason. `tradeKey` is a lowercase slug sourced from the live list
+/// selection — never hardcoded and never derived from a jobId.
 class InterviewKitRepositoryImpl implements InterviewKitRepository {
   InterviewKitRepositoryImpl(this._api);
 
@@ -19,44 +20,43 @@ class InterviewKitRepositoryImpl implements InterviewKitRepository {
 
   @override
   Future<List<KitListItem>> listKits() async {
-    // Mock network latency so the loading state renders.
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    return const <KitListItem>[
-      KitListItem(
-        tradeKey: 'cnc_operator',
-        title: 'CNC Operator',
-        subtitle: '15 sawaal · jawaab ke saath',
-      ),
-    ];
+    try {
+      final List<InterviewKitListItem> kits = await _api.getInterviewKits();
+      return kits
+          .map((InterviewKitListItem k) => KitListItem(
+                tradeKey: k.tradeKey,
+                title: k.displayName,
+                // The list route carries no per-trade counts; keep a stable,
+                // honest subtitle describing what the kit contains.
+                subtitle: 'Common sawaal · checklist · documents',
+              ))
+          .toList();
+    } catch (error) {
+      throw mapError(error);
+    }
   }
 
   @override
   Future<InterviewKit> kit(String tradeKey) async {
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    return InterviewKit(
-      tradeKey: tradeKey,
-      title: 'CNC Operator',
-      qas: const <KitQa>[
-        KitQa(
-          question: 'Fanuc aur Siemens control mein kya farq hai?',
-          answer:
-              'Dono CNC controllers hain — Fanuc zyada common hai India mein. '
-              'G-code thoda alag hota hai; main dono pe kaam kar chuka hoon.',
-        ),
-        KitQa(
-          question: 'Tool offset kaise set karte hain?',
-          answer:
-              'Tool ko reference par le jaakar, offset page mein X aur Z values '
-              'daalte hain; phir trial cut se verify karte hain.',
-        ),
-        KitQa(
-          question: 'Job reject ho jaye to kya karein?',
-          answer:
-              'Pehle drawing aur GD&T check karte hain, phir tool wear aur '
-              'program dekhte hain. Supervisor ko turant batate hain.',
-        ),
-      ],
-    );
+    try {
+      final InterviewKitContentDto c = await _api.getInterviewKit(tradeKey);
+      return InterviewKit(
+        tradeKey: c.tradeKey,
+        title: c.displayName,
+        overview: c.overview,
+        commonQuestions: c.commonQuestions,
+        practicalQuestions: c.practicalQuestions,
+        safetyQuestions: c.safetyQuestions,
+        drawingMeasurementQuestions: c.drawingMeasurementQuestions,
+        skillChecklist: c.skillChecklist,
+        reviseBefore: c.reviseBefore,
+        documentsToCarry: c.documentsToCarry,
+        commonMistakes: c.commonMistakes,
+        hinglishNote: c.hinglishNote,
+      );
+    } catch (error) {
+      throw mapError(error);
+    }
   }
 
   @override

@@ -13,12 +13,16 @@ class MockInterviewKitRepository extends Mock
 const InterviewKit _kit = InterviewKit(
   tradeKey: 'cnc_operator',
   title: 'CNC Operator',
-  qas: <KitQa>[
-    KitQa(
-      question: 'Tool offset kaise set karte hain?',
-      answer: 'Tool ko reference par le jaakar offset daalte hain.',
-    ),
-  ],
+  overview: 'Machine, drawing aur safety ki samajh check hoti hai.',
+  commonQuestions: <String>['Tool offset kaise set karte hain?'],
+  practicalQuestions: <String>['Saved program se job kaise start karte hain?'],
+  safetyQuestions: <String>['Kaun sa PPE pehnte hain?'],
+  drawingMeasurementQuestions: <String>['Tolerance kaise padhte hain?'],
+  skillChecklist: <String>['Fanuc control'],
+  reviseBefore: <String>['Basic G/M codes'],
+  documentsToCarry: <String>['Aadhaar card'],
+  commonMistakes: <String>['First piece inspection skip karna'],
+  hinglishNote: 'Aaram se saaf jawaab dein.',
 );
 
 void main() {

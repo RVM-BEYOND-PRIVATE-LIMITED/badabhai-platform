@@ -1,11 +1,12 @@
 import 'interview_kit.dart';
 
-/// Interview-kit boundary. Lists the kits available to the worker and loads a
-/// single per-trade kit. Implementations throw a [Failure] on error.
+/// Interview-kit boundary. Lists the wired kits and loads a single per-trade
+/// prep pack. Implementations throw a [Failure] on error.
 ///
-/// NOTE: [listKits]/[kit] are static curated content with NO backend (there is
-/// no list route and no inline-Q&A endpoint) — they stay client-side. Only
-/// [downloadUrl] is backed by a real endpoint (GET /interview-kit/:tradeKey/download).
+/// All three legs are backed by REAL, PUBLIC, PII-free routes: [listKits] →
+/// GET /interview-kits, [kit] → GET /interview-kits/:tradeKey (a prep pack —
+/// overview + question lists + checklist + documents, NO model answers), and
+/// [downloadUrl] → GET /interview-kit/:tradeKey/download.
 abstract interface class InterviewKitRepository {
   Future<List<KitListItem>> listKits();
   Future<InterviewKit> kit(String tradeKey);

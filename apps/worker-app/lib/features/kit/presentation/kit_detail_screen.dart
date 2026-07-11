@@ -74,43 +74,113 @@ class _KitDetailView extends StatelessWidget {
           vertical: AppSpacing.s4,
         ),
         children: <Widget>[
-          for (int i = 0; i < kit.qas.length; i++)
-            _qaCard(i, kit.qas[i], last: i == kit.qas.length - 1),
+          if (kit.overview.isNotEmpty) ...<Widget>[
+            Text(
+              kit.overview,
+              style: AppTypography.body(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: AppSpacing.s5),
+          ],
+          // The four question LISTS (no model answers on the wire — a prep pack).
+          _questionSection('Aam sawaal', kit.commonQuestions),
+          _questionSection('Practical sawaal', kit.practicalQuestions),
+          _questionSection('Safety sawaal', kit.safetyQuestions),
+          _questionSection(
+              'Drawing aur measurement', kit.drawingMeasurementQuestions),
+          _listSection('Skill checklist', kit.skillChecklist,
+              Icons.check_circle_outline),
+          _listSection('Interview se pehle dohraayein', kit.reviseBefore,
+              Icons.menu_book_outlined),
+          _listSection('Documents saath le jaayein', kit.documentsToCarry,
+              Icons.description_outlined),
+          _listSection(
+              'Aam galtiyan', kit.commonMistakes, Icons.error_outline),
+          if (kit.hinglishNote.isNotEmpty) _note(kit.hinglishNote),
         ],
       ),
     );
   }
 
-  Widget _qaCard(int index, KitQa qa, {required bool last}) {
-    return Container(
-      decoration: BoxDecoration(
-        border: last
-            ? null
-            : const Border(bottom: BorderSide(color: AppColors.divider)),
-      ),
-      padding: EdgeInsets.only(
-        bottom: last ? AppSpacing.s2 : AppSpacing.s5,
-        top: index == 0 ? 0 : AppSpacing.s5,
-      ),
+  Widget _sectionTitle(String title) => Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+        child: Text(
+          title,
+          style: AppTypography.display(
+              size: AppTypography.sizeBase, weight: FontWeight.w800),
+        ),
+      );
+
+  /// A numbered list of interview questions for a category (omitted if empty).
+  Widget _questionSection(String title, List<String> items) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.s5),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(
-            'Q${index + 1}. ${qa.question}',
-            style: AppTypography.display(
-              size: AppTypography.sizeBase,
-              weight: FontWeight.w700,
+          _sectionTitle(title),
+          for (int i = 0; i < items.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.s2),
+              child: Text(
+                '${i + 1}. ${items[i]}',
+                style: AppTypography.body(color: AppColors.textSecondary),
+              ),
             ),
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          Text(
-            qa.answer,
-            style: AppTypography.body(color: AppColors.textSecondary),
-          ),
         ],
       ),
     );
   }
+
+  /// An icon-bulleted list (checklist / documents / mistakes; omitted if empty).
+  Widget _listSection(String title, List<String> items, IconData icon) {
+    if (items.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.s5),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _sectionTitle(title),
+          for (final String item in items)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.s2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Icon(icon, size: 18, color: AppColors.success),
+                  const SizedBox(width: AppSpacing.s2),
+                  Expanded(
+                    child: Text(
+                      item,
+                      style:
+                          AppTypography.body(color: AppColors.textSecondary),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _note(String text) => Container(
+        margin: const EdgeInsets.only(top: AppSpacing.s2, bottom: AppSpacing.s4),
+        padding: const EdgeInsets.all(AppSpacing.s4),
+        decoration: BoxDecoration(
+          color: AppColors.successTint,
+          borderRadius: BorderRadius.circular(AppRadii.lg),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Icon(Icons.lightbulb_outline,
+                size: 20, color: AppColors.success),
+            const SizedBox(width: AppSpacing.s2),
+            Expanded(child: Text(text, style: AppTypography.body())),
+          ],
+        ),
+      );
 }
 
 /// AppBar "Download PDF" action for the kit (GET /interview-kit/:tradeKey/download
