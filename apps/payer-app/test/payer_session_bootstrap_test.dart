@@ -28,6 +28,27 @@ class _FakeAccountApi implements PayerAccountApi {
   Future<void> logout() async {}
 }
 
+/// Mimics PayerHttp's force-reauth on an unrecoverable 401: the `/payer/me`
+/// probe WIPES the bearer (and would fire signOut) before throwing. Bootstrap
+/// must not then flash a logged-in shell over the emptied store.
+class _ReauthClearingAccountApi implements PayerAccountApi {
+  _ReauthClearingAccountApi(this._tokens);
+  final PayerTokenStore _tokens;
+
+  @override
+  Future<PayerMe> fetchMe() async {
+    await _tokens.clear();
+    throw Exception('401');
+  }
+
+  @override
+  Future<PayerMe> updateMe({String? orgName, String? phone}) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> logout() async {}
+}
+
 PayerLoginResult _login(String role) => PayerLoginResult(
       accessToken: 't',
       payerId: 'p',
@@ -132,8 +153,8 @@ void main() {
       expect(cubit.state, isNull);
     });
 
-    test('persisted bearer but /payer/me fails → restores via canned fallback',
-        () async {
+    test('persisted bearer but /payer/me fails (transient) → restores via canned '
+        'fallback (offline-friendly, token intact)', () async {
       final PayerTokenStore tokens = PayerTokenStore(InMemoryKeyValueStore());
       await tokens.save(accessToken: 'tok', payerId: 'p1', role: 'employer');
       final AppSessionCubit cubit = AppSessionCubit(
@@ -145,6 +166,22 @@ void main() {
 
       expect(cubit.state!.role, PayerRole.company);
       expect(cubit.state!.account.name, 'Kalyani Industries');
+    });
+
+    test('expired token: /payer/me 401 clears the bearer mid-resolve → stays '
+        'signed out (no broken logged-in flash over an empty store)', () async {
+      final PayerTokenStore tokens = PayerTokenStore(InMemoryKeyValueStore());
+      await tokens.save(accessToken: 'stale', payerId: 'p1', role: 'employer');
+      final AppSessionCubit cubit = AppSessionCubit(
+        accountApi: _ReauthClearingAccountApi(tokens),
+        tokenStore: tokens,
+      );
+
+      await cubit.bootstrap();
+
+      // The bearer was wiped during resolution → land on Login, not a shell.
+      expect(cubit.state, isNull);
+      expect(tokens.hasSession, isFalse);
     });
   });
 }

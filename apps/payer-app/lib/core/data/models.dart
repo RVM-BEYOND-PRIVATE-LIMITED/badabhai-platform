@@ -628,7 +628,10 @@ class PayerDisclosure extends Equatable {
   });
 
   final String disclosureId;
-  final String workerId;
+
+  /// Opaque worker UUID, or `null` after a DSAR worker hard-delete SET NULL the
+  /// column (migration 0030). Mirrors the backend `worker_id: string | null`.
+  final String? workerId;
   final String? jobPostingId;
   final String status;
   final String? resumeRef;
@@ -639,7 +642,7 @@ class PayerDisclosure extends Equatable {
   factory PayerDisclosure.fromJson(Map<String, dynamic> json) =>
       PayerDisclosure(
         disclosureId: json['disclosure_id'] as String? ?? '',
-        workerId: json['worker_id'] as String? ?? '',
+        workerId: json['worker_id'] as String?,
         jobPostingId: json['job_posting_id'] as String?,
         status: json['status'] as String? ?? '',
         resumeRef: json['resume_ref'] as String?,

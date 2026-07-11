@@ -44,7 +44,7 @@ class AppSessionCubit extends Cubit<AppSession?> {
   /// [_resolveAccount]).
   Future<void> signInFromLogin(PayerLoginResult result) async {
     final PayerRole role = result.payerRole;
-    emit(AppSession(role: role, account: await _resolveAccount(role)));
+    _emitResolved(role, await _resolveAccount(role));
   }
 
   /// Cold-start rehydrate: if a bearer is persisted (survived an app kill),
@@ -57,7 +57,21 @@ class AppSessionCubit extends Cubit<AppSession?> {
     if (store == null || !store.hasSession) return; // stay null → Login
     final PayerRole role =
         store.role == 'agent' ? PayerRole.agency : PayerRole.company;
-    emit(AppSession(role: role, account: await _resolveAccount(role)));
+    _emitResolved(role, await _resolveAccount(role));
+  }
+
+  /// Emits [account] as a live session for [role] — but ONLY if the bearer is
+  /// still present. A 401 during identity resolution triggers PayerHttp's
+  /// force-reauth, which clears the token store and starts [signOut]; emitting a
+  /// logged-in shell over an already-empty store would flash a broken screen and
+  /// fire a burst of doomed authed calls before signOut converges to Login. So
+  /// when the session died mid-resolve, stay signed out and let Login render. A
+  /// transient error / timeout leaves the token intact → resume normally. With
+  /// no token store wired (mock / unit tests) it always emits.
+  void _emitResolved(PayerRole role, PayerAccount account) {
+    final PayerTokenStore? store = _tokenStore;
+    if (store != null && !store.hasSession) return; // session died mid-resolve
+    emit(AppSession(role: role, account: account));
   }
 
   /// REAL (`kUseMocks` false + an account api wired) → `GET /payer/me` mapped to
@@ -67,7 +81,11 @@ class AppSessionCubit extends Cubit<AppSession?> {
   Future<PayerAccount> _resolveAccount(PayerRole role) async {
     if (kUseMocks || _accountApi == null) return accountFor(role);
     try {
-      return _accountFromMe(await _accountApi.fetchMe());
+      // Bounded so a captive-portal / black-hole server can never pin the
+      // cold-start splash open — a timeout falls through to the canned identity.
+      final PayerMe me =
+          await _accountApi.fetchMe().timeout(const Duration(seconds: 8));
+      return _accountFromMe(me);
     } catch (_) {
       return accountFor(role);
     }
