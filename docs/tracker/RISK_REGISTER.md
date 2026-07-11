@@ -1,7 +1,7 @@
 # Risk Register (alpha control-room view)
 
 **Source of truth is [docs/registers/risks-register.md](../registers/risks-register.md)** (R1–R25) and
-[tech-debt-register.md](../registers/tech-debt-register.md) (TD1–TD55). This file is the **alpha-facing
+[tech-debt-register.md](../registers/tech-debt-register.md) (TD1–TD57; check the register for the live tail). This file is the **alpha-facing
 slice** — the risks that gate alpha/staging right now. Do not duplicate; link back.
 
 Severity: Critical / High / Medium / Low · Status: Open / Mitigated / Accepted / Closed.
