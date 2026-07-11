@@ -1,10 +1,20 @@
-import { Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
+import type { ServerConfig } from "@badabhai/config";
+import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { ChatRepository } from "../chat/chat.repository";
 import { AiJobsRepository } from "../profiles/ai-jobs.repository";
+import { StorageService } from "../storage/storage.service";
 import {
   VOICE_TRANSCRIPTION_QUEUE,
   type VoiceTranscriptionJobData,
@@ -30,7 +40,31 @@ export class VoiceService {
     private readonly aiJobs: AiJobsRepository,
     @InjectQueue(VOICE_TRANSCRIPTION_QUEUE)
     private readonly transcriptionQueue: Queue<VoiceTranscriptionJobData>,
+    private readonly storage: StorageService,
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
+
+  /**
+   * Mint a signed upload URL into the private voice-notes bucket. The object key
+   * is SERVER-controlled (opaque UUIDs only — never a client-chosen path), and
+   * the same `voice-notes/<workerId>/` prefix is what `upload` later requires,
+   * so a worker can only register objects minted for them. Fail-closed dormancy:
+   * with VOICE_NOTES_BUCKET unset (the default) this surface is OFF (503).
+   * NO event: issuance is not a state change — `voice_note.uploaded` (emitted by
+   * `upload`) remains the registration event. The signed URL embeds a token and
+   * is NEVER logged or emitted (same rule as the resume download URL).
+   */
+  async createUploadUrl(workerId: string) {
+    const bucket = this.config.VOICE_NOTES_BUCKET;
+    if (!bucket) {
+      throw new ServiceUnavailableException("voice uploads not enabled");
+    }
+
+    const objectKey = `voice-notes/${workerId}/${randomUUID()}.m4a`;
+    const { url, expiresIn } = await this.storage.createSignedUploadUrl(objectKey, bucket);
+
+    return { storage_path: objectKey, upload_url: url, expires_in: expiresIn };
+  }
 
   async upload(workerId: string, dto: UploadVoiceNoteDto, ctx: RequestContext) {
     // The worker is authenticated (WorkerAuthGuard); ownership is what matters.
@@ -39,6 +73,19 @@ export class VoiceService {
     const session = await this.chat.findSession(dto.session_id);
     if (!session || session.workerId !== workerId) {
       throw new NotFoundException(`Session ${dto.session_id} not found`);
+    }
+
+    // The path must be one WE minted for THIS worker (createUploadUrl): full-shape
+    // match, not just the prefix — a worker may not register an object under
+    // another worker's prefix, an arbitrary bucket location, a `..` traversal,
+    // or a free-text suffix (which would let self-chosen text reach the
+    // voice_note.uploaded event payload). workerId is a UUID (hex+dashes only),
+    // so interpolating it into the pattern is safe.
+    const mintedKeyShape = new RegExp(
+      `^voice-notes/${workerId}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.m4a$`,
+    );
+    if (!mintedKeyShape.test(dto.storage_path)) {
+      throw new BadRequestException("storage_path not owned by caller");
     }
 
     const note = await this.voice.create({
@@ -142,5 +189,27 @@ export class VoiceService {
     }
 
     return { ai_job_id: job.id, status: "queued" as const };
+  }
+
+  /**
+   * Read one voice note (the client polls this after transcription completes).
+   * Ownership: 404 for both not-found and not-owner (no existence oracle for
+   * another worker's note). Transcript text is raw worker free-text returned
+   * ONLY to its owner over the authenticated channel — it never enters events,
+   * ai_jobs, or logs. Read-only → NO event.
+   */
+  async getNote(workerId: string, voiceNoteId: string) {
+    const note = await this.voice.findById(voiceNoteId);
+    if (!note || note.workerId !== workerId) {
+      throw new NotFoundException(`Voice note ${voiceNoteId} not found`);
+    }
+
+    return {
+      voice_note_id: note.id,
+      duration_seconds: note.durationSeconds,
+      transcript_text: note.transcriptText,
+      transcript_english: note.transcriptEnglish,
+      transcript_confidence: note.transcriptConfidence,
+    };
   }
 }

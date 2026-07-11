@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:badabhai_worker_app/core/api/api_client.dart';
 import 'package:badabhai_worker_app/core/api/mock_api_client.dart';
+import 'package:badabhai_worker_app/features/voice/data/voice_pipeline_impl.dart';
 
 /// Maintenance invariant (CLAUDE.md §2): every NEW public ApiClient method MUST
 /// have a MockApiClient override, else mock mode falls through to the real
@@ -38,6 +39,26 @@ void main() {
         await api.transcribeVoiceNote(authToken: 'mock', voiceNoteId: 'vn');
     expect(r.aiJobId, isNotEmpty);
     expect(r.status, 'queued');
+  });
+
+  test(
+      'requestVoiceUploadUrl (A2-storage) returns a canned ticket mirroring '
+      'the real voice-notes/<workerId>/ path shape', () async {
+    final VoiceUploadTicket t =
+        await api.requestVoiceUploadUrl(authToken: 'mock');
+    expect(t.storagePath, startsWith('voice-notes/'));
+    expect(t.storagePath, endsWith('.m4a'));
+    expect(t.uploadUrl, isNotEmpty);
+    expect(t.expiresInSeconds, greaterThan(0));
+  });
+
+  test(
+      'fetchVoiceNote (A2-storage) returns the canned transcript, IN SYNC '
+      'with MockVoiceTranscriptResolver', () async {
+    final VoiceNoteDetail n =
+        await api.fetchVoiceNote(authToken: 'mock', voiceNoteId: 'vn');
+    expect(n.transcriptText, MockVoiceTranscriptResolver.cannedTranscript);
+    expect(n.transcriptEnglish, isNotEmpty);
   });
 
   test('createInvite (A3) returns a PII-free code + relative link', () async {

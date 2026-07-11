@@ -359,6 +359,75 @@ class VoiceUploadResult extends Equatable {
   List<Object?> get props => <Object?>[voiceNoteId, durationSeconds];
 }
 
+/// Result of POST /voice/upload-url (A2-storage). The server mints a
+/// worker-scoped storage slot: [storagePath] (`voice-notes/<workerId>/<uuid>.m4a`
+/// — the exact value POST /voice/upload expects back) plus a short-lived signed
+/// [uploadUrl] the clip bytes are PUT to.
+///
+/// PRIVACY: [uploadUrl] embeds a signing token — never log or persist it; use it
+/// immediately and re-mint on expiry. [storagePath] is PII-free (opaque ids).
+class VoiceUploadTicket extends Equatable {
+  const VoiceUploadTicket({
+    required this.storagePath,
+    required this.uploadUrl,
+    required this.expiresInSeconds,
+  });
+
+  final String storagePath;
+  final String uploadUrl;
+  final int expiresInSeconds;
+
+  factory VoiceUploadTicket.fromJson(Map<String, dynamic> json) =>
+      VoiceUploadTicket(
+        storagePath: json['storage_path'] as String? ?? '',
+        uploadUrl: json['upload_url'] as String? ?? '',
+        expiresInSeconds: (json['expires_in'] as num?)?.toInt() ?? 0,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[storagePath, uploadUrl, expiresInSeconds];
+}
+
+/// Result of GET /voice/:voiceNoteId — the registered clip + its transcript once
+/// the STT job has landed. [transcriptText] (source language) is preferred over
+/// [transcriptEnglish]; both are null while transcription is pending.
+///
+/// PII NOTE: the transcript is worker-authored content (may carry personal
+/// detail). It is held transiently to merge into the chat — NEVER logged.
+class VoiceNoteDetail extends Equatable {
+  const VoiceNoteDetail({
+    required this.voiceNoteId,
+    required this.durationSeconds,
+    required this.transcriptText,
+    required this.transcriptEnglish,
+    required this.transcriptConfidence,
+  });
+
+  final String voiceNoteId;
+  final int durationSeconds;
+  final String? transcriptText;
+  final String? transcriptEnglish;
+  final double? transcriptConfidence;
+
+  factory VoiceNoteDetail.fromJson(Map<String, dynamic> json) =>
+      VoiceNoteDetail(
+        voiceNoteId: json['voice_note_id'] as String? ?? '',
+        durationSeconds: (json['duration_seconds'] as num?)?.toInt() ?? 0,
+        transcriptText: json['transcript_text'] as String?,
+        transcriptEnglish: json['transcript_english'] as String?,
+        transcriptConfidence: (json['transcript_confidence'] as num?)?.toDouble(),
+      );
+
+  @override
+  List<Object?> get props => <Object?>[
+        voiceNoteId,
+        durationSeconds,
+        transcriptText,
+        transcriptEnglish,
+        transcriptConfidence,
+      ];
+}
+
 /// Result of POST /voice/transcribe (A2b). Enqueues an STT job for a registered
 /// voice note; poll GET /ai-jobs/{id} on [aiJobId] until it is terminal.
 class TranscribeResult extends Equatable {

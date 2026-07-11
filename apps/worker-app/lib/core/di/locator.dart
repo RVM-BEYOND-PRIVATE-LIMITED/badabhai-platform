@@ -32,12 +32,13 @@ import '../../features/invite/data/invite_repository_impl.dart';
 import '../../features/invite/domain/invite_repository.dart';
 import '../../features/invite/presentation/cubit/invite_cubit.dart';
 import '../../features/settings/presentation/cubit/account_delete_cubit.dart';
-import '../../features/voice/data/unavailable_voice_recorder.dart';
+import '../../features/voice/data/record_package_voice_recorder.dart';
 import '../../features/voice/data/voice_note_repository_impl.dart';
 import '../../features/voice/data/voice_pipeline_impl.dart';
 import '../../features/voice/domain/voice_note_repository.dart';
 import '../../features/voice/domain/voice_pipeline.dart';
 import '../../features/voice/domain/voice_recorder.dart';
+import '../../features/voice/presentation/cubit/voice_note_cubit.dart';
 import '../../features/name/data/name_repository_impl.dart';
 import '../../features/name/domain/name_repository.dart';
 import '../../features/name/presentation/cubit/name_cubit.dart';
@@ -176,20 +177,22 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
 
   // --- Voice-note pipeline (A2) ---------------------------------------------
-  // MOCK vs REAL only differs on the two ROUTE-LESS legs (record→storage_path
-  // and transcript text): the real impls fail closed (VoiceUnavailableFailure),
-  // the mock impls return canned data so the flow is walkable offline. Everything
-  // else (upload/transcribe/poll/merge) runs against the factory-selected client.
-  locator.registerLazySingleton<VoiceRecorder>(() => const UnavailableVoiceRecorder());
+  // The recorder is a DEVICE capability, not backend-dependent — the real
+  // `record`-package recorder is wired in BOTH modes (it lazily constructs the
+  // plugin, so registering it here never touches a platform channel). Only the
+  // two network legs stay MOCK/REAL-split: storage upload (signed-url mint +
+  // PUT vs canned path) and transcript resolve (GET /voice/:id vs canned text).
+  locator.registerLazySingleton<VoiceRecorder>(
+      () => RecordPackageVoiceRecorder());
   locator.registerLazySingleton<VoiceStorageUploader>(
     () => kUseMocks
         ? const MockVoiceStorageUploader()
-        : const RealVoiceStorageUploader(),
+        : RealVoiceStorageUploader(api: locator<ApiClient>()),
   );
   locator.registerLazySingleton<VoiceTranscriptResolver>(
     () => kUseMocks
         ? const MockVoiceTranscriptResolver()
-        : const RealVoiceTranscriptResolver(),
+        : RealVoiceTranscriptResolver(locator<ApiClient>()),
   );
   locator.registerLazySingleton<VoiceNoteRepository>(
     () => VoiceNoteRepositoryImpl(
@@ -278,6 +281,9 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerFactory<InviteCubit>(
     () => InviteCubit(locator<InviteRepository>()),
+  );
+  locator.registerFactory<VoiceNoteCubit>(
+    () => VoiceNoteCubit(locator<VoiceNoteRepository>()),
   );
   // Deps resolved lazily inside the cubit (locator-backed), so a plain factory
   // is enough; tests inject fakes directly.

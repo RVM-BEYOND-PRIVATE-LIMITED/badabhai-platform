@@ -307,6 +307,41 @@ class MockApiClient extends ApiClient {
   // --- A2 voice note --------------------------------------------------------
 
   @override
+  Future<VoiceUploadTicket> requestVoiceUploadUrl({
+    required String authToken,
+  }) async {
+    await _delay();
+    // Mirrors the real shape (`voice-notes/<workerId>/<uuid>.m4a`) with
+    // obviously-fake sentinels. The upload_url is never PUT to in mock mode —
+    // the mock-mode pipeline uses MockVoiceStorageUploader, which skips it.
+    return const VoiceUploadTicket(
+      storagePath: 'voice-notes/mock-worker-0001/mock-clip-0001.m4a',
+      uploadUrl: 'https://mock.local/upload/mock-clip-0001',
+      expiresInSeconds: 7200,
+    );
+  }
+
+  @override
+  Future<VoiceNoteDetail> fetchVoiceNote({
+    required String authToken,
+    required String voiceNoteId,
+  }) async {
+    await _delay();
+    // Canned, PII-FREE transcript — KEEP IN SYNC with the string returned by
+    // MockVoiceTranscriptResolver (features/voice/data/voice_pipeline_impl.dart);
+    // a parity test asserts they match.
+    return const VoiceNoteDetail(
+      voiceNoteId: 'mock-voice-0001',
+      durationSeconds: 12,
+      transcriptText:
+          'Main CNC machine par 4 saal se kaam kar raha hoon, Fanuc control aata hai.',
+      transcriptEnglish:
+          'I have worked on CNC machines for 4 years and know Fanuc controls.',
+      transcriptConfidence: 0.92,
+    );
+  }
+
+  @override
   Future<VoiceUploadResult> uploadVoiceNote({
     required String authToken,
     required String sessionId,

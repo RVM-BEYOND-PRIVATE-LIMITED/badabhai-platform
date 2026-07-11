@@ -16,7 +16,7 @@ import 'features/auth/presentation/devices_screen.dart';
 import 'features/consent/presentation/consent_screen.dart';
 import 'features/name/presentation/name_screen.dart';
 import 'features/chat/presentation/chat_profiling_screen.dart';
-import 'features/voice/presentation/voice_note_placeholder_screen.dart';
+import 'features/voice/presentation/voice_note_screen.dart';
 import 'features/kit/presentation/kit_detail_screen.dart';
 import 'features/kit/presentation/kit_screen.dart';
 import 'features/notifications/presentation/notifications_screen.dart';
@@ -230,7 +230,7 @@ GoRouter _buildRouter() {
       ),
       GoRoute(
         path: Routes.voiceNote,
-        builder: (_, __) => const VoiceNotePlaceholderScreen(),
+        builder: (_, __) => const VoiceNoteScreen(),
       ),
       GoRoute(
         path: Routes.invite,

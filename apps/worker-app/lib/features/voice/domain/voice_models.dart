@@ -8,8 +8,9 @@ import 'package:equatable/equatable.dart';
 class RecordedClip extends Equatable {
   const RecordedClip({required this.path, required this.durationSeconds});
 
-  /// On-device file path of the recording. Never sent to the API or logged
-  /// (the API needs a server-side `storage_path`, which is the blocked leg).
+  /// On-device file path of the recording. Never sent to the API or logged —
+  /// only the raw BYTES are PUT to the signed upload url; the server-side
+  /// `storage_path` (minted by POST /voice/upload-url) crosses the wire.
   final String path;
 
   /// Clip length in seconds. Bounded to (0, 120] by the recorder + API contract.
@@ -17,4 +18,21 @@ class RecordedClip extends Equatable {
 
   @override
   List<Object?> get props => <Object?>[path, durationSeconds];
+}
+
+/// Terminal result of the voice-note pipeline: the resolved [transcript] (what
+/// the worker said, merged into the chat as their message) plus bada bhai's
+/// [reply]. The voice screen pops back to chat with this so both bubbles render
+/// immediately without a refetch.
+///
+/// PII NOTE: the transcript is worker-authored content — held transiently in
+/// state to display, never logged or persisted on device.
+class VoiceNoteOutcome extends Equatable {
+  const VoiceNoteOutcome({required this.transcript, required this.reply});
+
+  final String transcript;
+  final String reply;
+
+  @override
+  List<Object?> get props => <Object?>[transcript, reply];
 }
