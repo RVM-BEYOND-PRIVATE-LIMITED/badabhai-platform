@@ -98,5 +98,33 @@ void main() {
       // Two mints: the initial load + the explicit refresh.
       expect(_mintCount(h.router), 2);
     });
+
+    test('recordClick → POST /payer/agency/invites/:code/click for the code',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/agency/invites': _json(<String, dynamic>{
+          'agency_invite_id': 'inv-1',
+          'code': 'APEX-7K2',
+          'link': '/i/APEX-7K2',
+        }),
+        'POST /payer/agency/invites/APEX-7K2/click':
+            _json(<String, dynamic>{'ok': true}),
+      });
+      final ReferralCubit cubit = ReferralCubit(h.api);
+      await cubit.load();
+      await cubit.recordClick();
+
+      expect(
+        h.router.seen.any((http.Request r) =>
+            r.url.path == '/payer/agency/invites/APEX-7K2/click'),
+        isTrue,
+      );
+    });
+
+    test('recordClick with no loaded link is a no-op (no request)', () async {
+      final h = _harness(<String, http.Response>{});
+      await ReferralCubit(h.api).recordClick();
+      expect(h.router.seen, isEmpty);
+    });
   });
 }

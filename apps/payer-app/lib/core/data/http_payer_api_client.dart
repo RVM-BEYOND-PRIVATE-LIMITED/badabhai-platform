@@ -362,6 +362,30 @@ class HttpPayerApiClient implements PayerApiClient {
   }
 
   @override
+  Future<List<PayerDisclosure>> listDisclosures() async {
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/resume-disclosures');
+    // A non-2xx (401/5xx) must NOT decode to an empty list shown as "no
+    // disclosures" — surface it so the caller shows the real error state.
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final List<dynamic> rows =
+        (res.body['disclosures'] as List<dynamic>?) ?? const <dynamic>[];
+    return rows
+        .whereType<Map<String, dynamic>>()
+        .map(PayerDisclosure.fromJson)
+        .toList();
+  }
+
+  @override
+  Future<void> recordInviteClick(String code) async {
+    // AGENT-only, no body; the server returns 200 {ok:true} ALWAYS (neutral
+    // no-op on an unknown code — no oracle). This is a best-effort funnel
+    // signal: we do not gate on the status, and the caller fires-and-forgets so
+    // a transport failure never blocks the share action.
+    await _http.send(PayerMethod.post, '/payer/agency/invites/$code/click');
+  }
+
+  @override
   Future<int> unlockCandidate(int candidateId) async {
     // LEGACY / MOCK path — keyed by the in-memory candidate int id. The REAL
     // unlock flow uses [unlock] with the opaque worker UUID from

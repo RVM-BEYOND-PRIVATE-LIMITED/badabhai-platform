@@ -38,19 +38,58 @@ class PayerApp extends StatelessWidget {
   }
 }
 
-class _Root extends StatelessWidget {
+class _Root extends StatefulWidget {
   const _Root();
 
   @override
+  State<_Root> createState() => _RootState();
+}
+
+class _RootState extends State<_Root> {
+  /// Runs ONCE: cold-start rehydrate. Until it resolves the root shows a splash
+  /// (never a Login flash) — then null→Login / session→AppShell. Mirrors the
+  /// worker app's `bootstrap()` + `isReady` gate.
+  Future<void>? _boot;
+
+  @override
+  void initState() {
+    super.initState();
+    _boot = context.read<AppSessionCubit>().bootstrap();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return BlocBuilder<AppSessionCubit, AppSession?>(
-      builder: (BuildContext context, AppSession? session) {
-        if (session == null) {
-          return const LoginScreen();
+    return FutureBuilder<void>(
+      future: _boot,
+      builder: (BuildContext context, AsyncSnapshot<void> snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const _SplashScreen();
         }
-        // Keyed by role so a fresh sign-in rebuilds the shell with the right nav.
-        return AppShell(key: ValueKey<PayerRole>(session.role), session: session);
+        return BlocBuilder<AppSessionCubit, AppSession?>(
+          builder: (BuildContext context, AppSession? session) {
+            if (session == null) {
+              return const LoginScreen();
+            }
+            // Keyed by role so a fresh sign-in rebuilds the shell with the
+            // right nav.
+            return AppShell(
+                key: ValueKey<PayerRole>(session.role), session: session);
+          },
+        );
       },
+    );
+  }
+}
+
+/// Neutral boot splash shown while [AppSessionCubit.bootstrap] resolves the
+/// persisted session on cold start.
+class _SplashScreen extends StatelessWidget {
+  const _SplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator()),
     );
   }
 }

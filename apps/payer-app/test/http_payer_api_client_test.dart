@@ -269,4 +269,73 @@ void main() {
       expect(h.router.seen, isEmpty);
     });
   });
+
+  group('P5 — the two newly-wired routes', () {
+    test('listDisclosures → GET /payer/resume-disclosures, parses rows + bearer',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'GET /payer/resume-disclosures': _json(<String, dynamic>{
+          'disclosures': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'disclosure_id': 'd1',
+              'payer_id': 'p',
+              'worker_id': 'w-uuid-1',
+              'job_posting_id': 'j1',
+              'status': 'disclosed',
+              'resume_ref': 'ref/masked-1.pdf',
+              'disclosed_at': '2026-07-01T10:00:00Z',
+              'expires_at': '2026-12-31T00:00:00Z',
+              'created_at': '2026-07-01T10:00:00Z',
+            },
+          ],
+        }),
+      });
+
+      final List<PayerDisclosure> rows = await h.api.listDisclosures();
+
+      expect(rows, hasLength(1));
+      expect(rows.single.disclosureId, 'd1');
+      expect(rows.single.workerId, 'w-uuid-1');
+      expect(rows.single.status, 'disclosed');
+      final http.Request req = h.router.seen.single;
+      expect(req.method, 'GET');
+      expect(req.url.path, '/payer/resume-disclosures');
+      expect(req.headers['authorization'], 'Bearer tok-abc');
+      // PII-free by construction: the row is opaque ids + timestamps only — the
+      // worker id is a UUID, never a name/phone (no such field exists).
+      expect(rows.single.workerId, 'w-uuid-1');
+      expect(rows.single.resumeRef, 'ref/masked-1.pdf');
+    });
+
+    test('listDisclosures non-2xx → PayerApiException (never a blank list)',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'GET /payer/resume-disclosures': _json(<String, dynamic>{}, 401),
+      });
+      expect(h.api.listDisclosures(), throwsA(isA<PayerApiException>()));
+    });
+
+    test('listDisclosures missing key → empty list (valid "no disclosures")',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'GET /payer/resume-disclosures': _json(<String, dynamic>{}),
+      });
+      expect(await h.api.listDisclosures(), isEmpty);
+    });
+
+    test('recordInviteClick → POST /payer/agency/invites/:code/click, no body',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/agency/invites/ABC123/click':
+            _json(<String, dynamic>{'ok': true}),
+      });
+
+      await h.api.recordInviteClick('ABC123');
+
+      final http.Request req = h.router.seen.single;
+      expect(req.method, 'POST');
+      expect(req.url.path, '/payer/agency/invites/ABC123/click');
+      expect(req.headers['authorization'], 'Bearer tok-abc');
+    });
+  });
 }

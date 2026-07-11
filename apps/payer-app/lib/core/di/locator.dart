@@ -34,8 +34,19 @@ final GetIt locator = GetIt.instance;
 /// Registers the whole graph. Idempotent across tests (a second call no-ops once
 /// the session is registered). Pass [apiClient] to force a specific client in a
 /// widget test without the compile-time `kUseMocks` define.
-void setupLocator({PayerApiClient? apiClient, SecureKeyValueStore? secureStore}) {
+void setupLocator({
+  PayerApiClient? apiClient,
+  PayerAuthApi? authApi,
+  PayerAccountApi? accountApi,
+  SecureKeyValueStore? secureStore,
+}) {
   if (locator.isRegistered<AppSessionCubit>()) return;
+
+  // A test that injects a mock [apiClient] wants the WHOLE data+auth+account
+  // seam mocked (no real HTTP under `flutter test`), regardless of the
+  // compile-time [kUseMocks] default. This keeps every widget/integration test
+  // green after P3 flips kUseMocks to false, with no per-test wiring.
+  final bool mockSeam = apiClient != null;
 
   // --- Auth seam (token store + authed HTTP) --------------------------------
   // The token store holds the bearer in secure storage (in-memory fake under
@@ -59,16 +70,24 @@ void setupLocator({PayerApiClient? apiClient, SecureKeyValueStore? secureStore})
     ),
   );
   locator.registerLazySingleton<PayerAuthApi>(
-    () => createPayerAuthApi(http: locator<PayerHttp>()),
+    () =>
+        authApi ??
+        (mockSeam
+            ? MockPayerAuthApi()
+            : createPayerAuthApi(http: locator<PayerHttp>())),
   );
   // Account (`/payer/me`) seam — MOCK (role-aware canned) vs REAL, behind
   // kUseMocks, mirroring createPayerApiClient. Not on PayerApiClient (that seam
   // carries no `/me`), so binding it is additive.
   locator.registerLazySingleton<PayerAccountApi>(
-    () => createPayerAccountApi(
-      http: locator<PayerHttp>(),
-      tokens: locator<PayerTokenStore>(),
-    ),
+    () =>
+        accountApi ??
+        (mockSeam
+            ? MockPayerAccountApi(locator<PayerTokenStore>())
+            : createPayerAccountApi(
+                http: locator<PayerHttp>(),
+                tokens: locator<PayerTokenStore>(),
+              )),
   );
 
   // --- Cross-cutting singletons ---------------------------------------------
@@ -84,6 +103,7 @@ void setupLocator({PayerApiClient? apiClient, SecureKeyValueStore? secureStore})
   locator.registerLazySingleton<AppSessionCubit>(
     () => AppSessionCubit(
       authApi: locator<PayerAuthApi>(),
+      accountApi: locator<PayerAccountApi>(),
       tokenStore: locator<PayerTokenStore>(),
     ),
   );
@@ -96,7 +116,11 @@ void setupLocator({PayerApiClient? apiClient, SecureKeyValueStore? secureStore})
     () => HomeCubit(locator<PayerApiClient>()),
   );
   locator.registerFactory<FindCubit>(
-    () => FindCubit(locator<PayerApiClient>()),
+    // In the mock seam (a test injected the client) force the global MOCK feed
+    // so the faceless candidate list renders without a per-job context; in
+    // production the feed follows kUseMocks (REAL = per-job applicants).
+    () => FindCubit(locator<PayerApiClient>(),
+        useRealFeed: mockSeam ? false : null),
   );
   locator.registerFactory<RevealCubit>(
     () => RevealCubit(locator<PayerApiClient>()),

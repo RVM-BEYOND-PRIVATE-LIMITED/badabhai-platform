@@ -39,6 +39,9 @@ class _ReferralView extends StatelessWidget {
   final VoidCallback onBack;
 
   Future<void> _copy(BuildContext context, String url) async {
+    // Record the share as a funnel click (best-effort, fire-and-forget) the
+    // moment the minted link leaves the app.
+    context.read<ReferralCubit>().recordClick();
     await Clipboard.setData(ClipboardData(text: url));
     if (!context.mounted) return;
     showBbToast(
