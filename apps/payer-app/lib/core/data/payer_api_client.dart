@@ -241,6 +241,18 @@ abstract class PayerApiClient {
     String? jobPostingId,
   });
 
+  /// The caller's OWN masked-resume disclosure history
+  /// (`GET /payer/resume-disclosures` → `{disclosures:[...]}`, newest-first,
+  /// ≤500). PII-free rows (opaque ids + timestamps). Session-scoped — the
+  /// `payer_id` is derived from the bearer, never a body/param.
+  Future<List<PayerDisclosure>> listDisclosures();
+
+  /// Record an agency invite-link click/share
+  /// (`POST /payer/agency/invites/:code/click`, AGENT-only, no body → HTTP 200
+  /// `{ok:true}` always, a neutral no-op on an unknown code). Best-effort funnel
+  /// signal; carries no PII. Callers treat it as fire-and-forget.
+  Future<void> recordInviteClick(String code);
+
   /// Add a pack's worth of credits. Returns the new balance.
   Future<int> buyCredits(int count);
 

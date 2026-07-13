@@ -35,37 +35,6 @@ class ProfileExtractionTimeout implements Exception {
       'ProfileExtractionTimeout: job $aiJobId did not complete in time';
 }
 
-/// Result of POST /auth/otp/verify.
-///
-/// Carries the bearer [accessToken] the API mints for the worker session. The
-/// app stores it (in-memory, in the SessionRepository) and sends it as
-/// `Authorization: Bearer <token>` on worker-scoped routes (feed / apply /
-/// skip). It is the worker's own session credential — never logged, never
-/// persisted to disk.
-class VerifyOtpResult extends Equatable {
-  const VerifyOtpResult({
-    required this.workerId,
-    required this.accessToken,
-    required this.isNewWorker,
-    required this.status,
-  });
-
-  final String workerId;
-  final String accessToken;
-  final bool isNewWorker;
-  final String status;
-
-  factory VerifyOtpResult.fromJson(Map<String, dynamic> json) => VerifyOtpResult(
-        workerId: json['worker_id'] as String,
-        accessToken: json['access_token'] as String? ?? '',
-        isNewWorker: json['is_new_worker'] as bool? ?? false,
-        status: json['status'] as String? ?? 'active',
-      );
-
-  @override
-  List<Object?> get props => <Object?>[workerId, accessToken, isNewWorker, status];
-}
-
 /// One job card the worker swipes on. Result item of GET /feed.
 ///
 /// PII-free by contract: coarse [tradeKey] / [title] / [city] / [area] only —
@@ -591,4 +560,160 @@ class WorkerProfileBundle extends Equatable {
 
   @override
   List<Object?> get props => <Object?>[profileId, resumeId, resumeText];
+}
+
+/// Response of GET /workers/me/profile-summary (WorkerProfileSummary,
+/// apps/api workers.dto.ts). Mirrors the wire shape EXACTLY: a flat object with
+/// a nested `trade` block.
+///
+/// PII posture (CLAUDE.md §2): there is NO name field — the `Namaste, <name>`
+/// line is an OPEN §2 escalation and is deliberately omitted server-side, so the
+/// client never receives (and never fabricates) a name. `city` is the only
+/// sensitive field here and must NEVER be logged. `strength` is an integer
+/// SIGNAL COUNT (countFields-equivalent), 0 when no profile — not a fraction.
+class ProfileSummaryDto extends Equatable {
+  const ProfileSummaryDto({
+    required this.profileStatus,
+    required this.confirmedAt,
+    required this.tradeDisplayName,
+    required this.canonicalTradeId,
+    required this.canonicalRoleId,
+    required this.city,
+    required this.strength,
+  });
+
+  /// `"none"` when the worker has no profile row yet; else a ProfileStatus.
+  final String profileStatus;
+
+  /// ISO-8601, `null` until the profile is confirmed.
+  final String? confirmedAt;
+
+  /// `trade.display_name` — `null` until the trade is canonicalized.
+  final String? tradeDisplayName;
+  final String? canonicalTradeId;
+  final String? canonicalRoleId;
+
+  /// First of `location_preference.preferred_cities`; `null` when absent. PII.
+  final String? city;
+
+  /// Recomputed-on-read signal COUNT; `0` when no profile. NOT a 0..1 fraction.
+  final int strength;
+
+  factory ProfileSummaryDto.fromJson(Map<String, dynamic> json) {
+    final Map<String, dynamic> trade =
+        (json['trade'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    return ProfileSummaryDto(
+      profileStatus: json['profile_status'] as String? ?? 'none',
+      confirmedAt: json['confirmed_at'] as String?,
+      tradeDisplayName: trade['display_name'] as String?,
+      canonicalTradeId: trade['canonical_trade_id'] as String?,
+      canonicalRoleId: trade['canonical_role_id'] as String?,
+      city: json['city'] as String?,
+      strength: (json['strength'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[
+        profileStatus,
+        confirmedAt,
+        tradeDisplayName,
+        canonicalTradeId,
+        canonicalRoleId,
+        city,
+        strength,
+      ];
+}
+
+/// One row of GET /interview-kits (InterviewKitListItem, apps/api
+/// interview-kit.dto.ts). PII-FREE by construction (per-trade, never per-worker).
+class InterviewKitListItem extends Equatable {
+  const InterviewKitListItem({
+    required this.tradeKey,
+    required this.displayName,
+  });
+
+  final String tradeKey;
+  final String displayName;
+
+  factory InterviewKitListItem.fromJson(Map<String, dynamic> json) =>
+      InterviewKitListItem(
+        tradeKey: json['trade_key'] as String? ?? '',
+        displayName: json['display_name'] as String? ?? '',
+      );
+
+  @override
+  List<Object?> get props => <Object?>[tradeKey, displayName];
+}
+
+/// Response of GET /interview-kits/:tradeKey (InterviewKitContent, apps/api
+/// interview-kit-content.ts). A per-trade PREP PACK — an overview, four question
+/// LISTS (there are NO model answers on the wire — this is not a Q&A-with-answers
+/// set), a skill checklist, revise-before / documents-to-carry / common-mistakes
+/// lists, and a Hinglish note. PII-FREE by construction. Mirrors the DTO exactly.
+class InterviewKitContentDto extends Equatable {
+  const InterviewKitContentDto({
+    required this.tradeKey,
+    required this.displayName,
+    required this.overview,
+    required this.commonQuestions,
+    required this.practicalQuestions,
+    required this.safetyQuestions,
+    required this.drawingMeasurementQuestions,
+    required this.skillChecklist,
+    required this.reviseBefore,
+    required this.documentsToCarry,
+    required this.commonMistakes,
+    required this.hinglishNote,
+  });
+
+  final String tradeKey;
+  final String displayName;
+  final String overview;
+  final List<String> commonQuestions;
+  final List<String> practicalQuestions;
+  final List<String> safetyQuestions;
+  final List<String> drawingMeasurementQuestions;
+  final List<String> skillChecklist;
+  final List<String> reviseBefore;
+  final List<String> documentsToCarry;
+  final List<String> commonMistakes;
+  final String hinglishNote;
+
+  static List<String> _strList(Object? value) => value is List
+      ? value.whereType<String>().toList(growable: false)
+      : const <String>[];
+
+  factory InterviewKitContentDto.fromJson(Map<String, dynamic> json) =>
+      InterviewKitContentDto(
+        tradeKey: json['trade_key'] as String? ?? '',
+        displayName: json['display_name'] as String? ?? '',
+        overview: json['overview'] as String? ?? '',
+        commonQuestions: _strList(json['common_questions']),
+        practicalQuestions: _strList(json['practical_questions']),
+        safetyQuestions: _strList(json['safety_questions']),
+        drawingMeasurementQuestions:
+            _strList(json['drawing_measurement_questions']),
+        skillChecklist: _strList(json['skill_checklist']),
+        reviseBefore: _strList(json['revise_before']),
+        documentsToCarry: _strList(json['documents_to_carry']),
+        commonMistakes: _strList(json['common_mistakes']),
+        hinglishNote: json['hinglish_note'] as String? ?? '',
+      );
+
+  @override
+  List<Object?> get props => <Object?>[
+        tradeKey,
+        displayName,
+        overview,
+        commonQuestions,
+        practicalQuestions,
+        safetyQuestions,
+        drawingMeasurementQuestions,
+        skillChecklist,
+        reviseBefore,
+        documentsToCarry,
+        commonMistakes,
+        hinglishNote,
+      ];
 }

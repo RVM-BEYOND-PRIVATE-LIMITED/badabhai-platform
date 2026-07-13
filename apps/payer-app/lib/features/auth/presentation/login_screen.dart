@@ -120,7 +120,7 @@ class _LoginScreenState extends State<LoginScreen> {
         role: result.role,
       );
       if (!mounted) return;
-      context.read<AppSessionCubit>().signInFromLogin(result);
+      await context.read<AppSessionCubit>().signInFromLogin(result);
     } catch (_) {
       if (!mounted) return;
       setState(() {

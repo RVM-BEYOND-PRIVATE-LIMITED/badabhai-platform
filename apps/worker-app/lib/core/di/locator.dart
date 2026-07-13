@@ -14,8 +14,6 @@ import '../session/session_repository.dart';
 import '../../features/applications/data/applications_repository_impl.dart';
 import '../../features/applications/domain/applications_repository.dart';
 import '../../features/applications/presentation/cubit/applications_cubit.dart';
-import '../../features/auth/data/auth_repository_impl.dart';
-import '../../features/auth/domain/auth_repository.dart';
 import '../../features/auth/domain/auth_session_manager.dart';
 import '../../features/auth/presentation/cubit/devices_cubit.dart';
 import '../../features/auth/presentation/cubit/enter_pin_cubit.dart';
@@ -129,9 +127,6 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
 
   // --- Repositories (stateless singletons) ----------------------------------
-  locator.registerLazySingleton<AuthRepository>(
-    () => AuthRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
-  );
   locator.registerLazySingleton<ConsentRepository>(
     () => ConsentRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
   );
@@ -160,7 +155,8 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
     () => InterviewKitRepositoryImpl(locator<ApiClient>()),
   );
   locator.registerLazySingleton<ProfileSummaryRepository>(
-    () => const ProfileSummaryRepositoryImpl(),
+    () => ProfileSummaryRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
   );
   // Single instance app-wide so the Alerts screen and the nav badge share the
   // same reactive unread count.
@@ -208,8 +204,7 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // --- Blocs / Cubits (fresh instance per screen mount) ---------------------
   // Auth cubits resolve [AuthSessionManager] + [LocaleStore] LAZILY (the factory
   // closure runs on demand, after [initAuthLocator] has registered both). The
-  // [AuthRepository] above stays wired for backward compat (existing tests),
-  // even though the live flows now route through the manager.
+  // live flows route through the manager, not a repository.
   locator.registerFactory<PhoneLoginCubit>(
     () => PhoneLoginCubit(
       locator<AuthSessionManager>(),

@@ -611,6 +611,59 @@ class DisclosureResult extends Equatable {
       <Object?>[available, disclosureId, resumeUrl, expiresAt];
 }
 
+/// One row of `GET /payer/resume-disclosures` — the caller's OWN masked-resume
+/// disclosure history (newest-first, ≤500). PII-FREE: opaque worker/posting ids
+/// + a masked resume ref + timestamps, NEVER a name or phone. The `payer_id` on
+/// the wire is always the caller's own id, so it is not surfaced here.
+class PayerDisclosure extends Equatable {
+  const PayerDisclosure({
+    required this.disclosureId,
+    required this.workerId,
+    required this.jobPostingId,
+    required this.status,
+    required this.resumeRef,
+    required this.disclosedAt,
+    required this.expiresAt,
+    required this.createdAt,
+  });
+
+  final String disclosureId;
+
+  /// Opaque worker UUID, or `null` after a DSAR worker hard-delete SET NULL the
+  /// column (migration 0030). Mirrors the backend `worker_id: string | null`.
+  final String? workerId;
+  final String? jobPostingId;
+  final String status;
+  final String? resumeRef;
+  final String? disclosedAt;
+  final String? expiresAt;
+  final String createdAt;
+
+  factory PayerDisclosure.fromJson(Map<String, dynamic> json) =>
+      PayerDisclosure(
+        disclosureId: json['disclosure_id'] as String? ?? '',
+        workerId: json['worker_id'] as String?,
+        jobPostingId: json['job_posting_id'] as String?,
+        status: json['status'] as String? ?? '',
+        resumeRef: json['resume_ref'] as String?,
+        disclosedAt: json['disclosed_at'] as String?,
+        expiresAt: json['expires_at'] as String?,
+        createdAt: json['created_at'] as String? ?? '',
+      );
+
+  @override
+  List<Object?> get props => <Object?>[
+        disclosureId,
+        workerId,
+        jobPostingId,
+        status,
+        resumeRef,
+        disclosedAt,
+        expiresAt,
+        createdAt,
+      ];
+}
+
 /// A non-2xx from a WRITE endpoint the caller must handle honestly rather than
 /// blindly retry — e.g. a 409 illegal lifecycle transition (already closed /
 /// no active plan / active boost exists), a 400 no-op update, or a 404 unknown

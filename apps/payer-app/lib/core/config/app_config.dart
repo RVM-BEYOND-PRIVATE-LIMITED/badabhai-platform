@@ -6,14 +6,16 @@ import '../data/mock_payer_api_client.dart';
 import '../data/payer_account_api.dart';
 import '../data/payer_api_client.dart';
 
-/// Single switch: MOCK (canned, PII-free data) vs REAL (live API).
+/// Single switch: REAL (live API) vs MOCK (canned, PII-free data).
 ///
-/// MOCK is the DEFAULT so the whole UI is walkable with no backend — same as the
-/// worker app's mock-mode seam. Flip to the real API with:
-///   flutter run --dart-define=USE_MOCKS=false \
-///               --dart-define=PAYER_API_BASE_URL=http://10.0.2.2:3001
-/// (10.0.2.2 is the Android emulator's alias for the host machine.)
-const bool kUseMocks = bool.fromEnvironment('USE_MOCKS', defaultValue: true);
+/// REAL is the DEFAULT (matches the worker app) so the app runs against the live
+/// payer API out of the box; it needs [kPayerApiBaseUrl] (defaults to the
+/// Android emulator host alias). Walk the UI with no backend via:
+///   flutter run --dart-define=USE_MOCKS=true
+/// Backend-blocked features (ADR-0022 parked: Home/Earn/Payouts/KYC/Referred)
+/// still return canned data even in REAL — HttpPayerApiClient delegates those to
+/// its bundled mock — so REAL mode never dead-ends on a missing endpoint.
+const bool kUseMocks = bool.fromEnvironment('USE_MOCKS', defaultValue: false);
 
 /// Base URL of the NestJS payer API. Defaults to the Android emulator host alias
 /// on the API's port (3001).

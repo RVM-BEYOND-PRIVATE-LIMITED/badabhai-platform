@@ -711,6 +711,26 @@ class MockPayerApiClient implements PayerApiClient {
       );
 
   @override
+  Future<List<PayerDisclosure>> listDisclosures() async =>
+      const <PayerDisclosure>[
+        PayerDisclosure(
+          disclosureId: 'mock-disc-1',
+          workerId: 'mock-worker-uuid-1',
+          jobPostingId: 'mock-job-1',
+          status: 'disclosed',
+          resumeRef: 'mock/resume/masked-1.pdf',
+          disclosedAt: '2026-07-01T10:00:00Z',
+          expiresAt: '2026-12-31T00:00:00Z',
+          createdAt: '2026-07-01T10:00:00Z',
+        ),
+      ];
+
+  @override
+  Future<void> recordInviteClick(String code) async {
+    // Neutral no-op mock — mirrors the server's always-200 funnel signal.
+  }
+
+  @override
   Future<int> buyCredits(int count) async {
     _credits += count;
     return _credits;

@@ -127,6 +127,17 @@ class _ProfileTabView extends StatelessWidget {
   }
 
   Widget _header(ProfileSummary s) {
+    // The worker's NAME is an open §2 escalation and is NOT on the wire today —
+    // lead with the trade label (then a neutral generic) rather than fabricate a
+    // name. Only repeat the trade in the subline when a name IS the headline.
+    final String headline = s.displayName ?? s.tradeLabel ?? 'Aapki profile';
+    final List<String> subParts = <String>[
+      if (s.displayName != null && (s.tradeLabel?.isNotEmpty ?? false))
+        s.tradeLabel!,
+      if (s.city?.isNotEmpty ?? false) s.city!,
+    ];
+    final String? subline = subParts.isEmpty ? null : subParts.join(' · ');
+
     return Row(
       children: <Widget>[
         SizedBox(
@@ -147,13 +158,18 @@ class _ProfileTabView extends StatelessWidget {
                   ),
                 ),
                 alignment: Alignment.center,
-                child: Text(
-                  s.initials,
-                  style: AppTypography.display(
-                      size: AppTypography.size2xl,
-                      weight: FontWeight.w800,
-                      color: AppColors.vermilion800),
-                ),
+                // Initials when a name exists; else a neutral avatar icon (no
+                // fabricated monogram).
+                child: s.initials != null
+                    ? Text(
+                        s.initials!,
+                        style: AppTypography.display(
+                            size: AppTypography.size2xl,
+                            weight: FontWeight.w800,
+                            color: AppColors.vermilion800),
+                      )
+                    : const Icon(Icons.person_rounded,
+                        size: 36, color: AppColors.vermilion800),
               ),
               if (s.verified)
                 const Positioned(
@@ -169,12 +185,14 @@ class _ProfileTabView extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text(s.displayName,
+              Text(headline,
                   style: AppTypography.display(
                       size: AppTypography.sizeXl, weight: FontWeight.w800)),
-              const SizedBox(height: 2),
-              Text('${s.tradeLabel} · ${s.city}',
-                  style: AppTypography.body(color: AppColors.textMuted)),
+              if (subline != null) ...<Widget>[
+                const SizedBox(height: 2),
+                Text(subline,
+                    style: AppTypography.body(color: AppColors.textMuted)),
+              ],
               if (s.verified) ...<Widget>[
                 const SizedBox(height: AppSpacing.s2),
                 const BbVerifiedBadge(),

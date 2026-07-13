@@ -36,6 +36,12 @@ abstract final class AuthErrorCode {
 
   /// Catch-all when the (endpoint, status) pair has no specific mapping.
   static const String unknown = 'UNKNOWN';
+
+  /// A 2xx response whose BODY does not match the confirmed contract (e.g. the
+  /// GET /auth/devices `devices` key missing or not a list). Surfaced as an
+  /// EXPLICIT failure so a shape drift never masquerades as an empty result —
+  /// the empty view can then distinguish "no devices" from "couldn't parse".
+  static const String contractError = 'CONTRACT_ERROR';
 }
 
 /// A typed auth error built by [AuthApi]'s `(endpoint, status)` mapper.

@@ -27,22 +27,6 @@ class MockApiClient extends ApiClient {
   Future<void> _delay() => Future<void>.delayed(_latency);
 
   @override
-  Future<void> requestOtp(String phoneE164) async {
-    await _delay();
-  }
-
-  @override
-  Future<VerifyOtpResult> verifyOtp(String phoneE164, String otp) async {
-    await _delay();
-    return VerifyOtpResult(
-      workerId: 'mock-worker-0001',
-      accessToken: 'mock-token',
-      isNewWorker: true,
-      status: 'active',
-    );
-  }
-
-  @override
   Future<void> acceptConsent({
     required String workerId,
     required List<String> purposes,
@@ -178,6 +162,84 @@ class MockApiClient extends ApiClient {
     return const InterviewKitDownload(
       url: 'https://mock.local/interview-kit/mock-kit-0001.pdf',
       expiresInSeconds: 900,
+    );
+  }
+
+  @override
+  Future<List<InterviewKitListItem>> getInterviewKits() async {
+    await _delay();
+    // A few real trade_keys (a subset of the 15 wired kits), PII-free.
+    return const <InterviewKitListItem>[
+      InterviewKitListItem(tradeKey: 'cnc_operator', displayName: 'CNC Operator'),
+      InterviewKitListItem(tradeKey: 'vmc_operator', displayName: 'VMC Operator'),
+      InterviewKitListItem(tradeKey: 'fitter', displayName: 'Fitter'),
+    ];
+  }
+
+  @override
+  Future<InterviewKitContentDto> getInterviewKit(String tradeKey) async {
+    await _delay();
+    // Canned PREP PACK (mirrors the real content shape: question LISTS, NO
+    // answers). Echoes the requested tradeKey. PII-free.
+    return InterviewKitContentDto(
+      tradeKey: tradeKey,
+      displayName: 'CNC Operator',
+      overview:
+          'Yeh interview aapki machine chalane, drawing padhne aur safety ki '
+          'samajh check karta hai. Neeche ke sawaal aur checklist se taiyari karein.',
+      commonQuestions: const <String>[
+        'Aapne kaun kaun si CNC machine chalayi hai?',
+        'Tool offset kaise set karte hain aur first piece kaise check karte hain?',
+        'G-code aur M-code mein kya farq hai?',
+      ],
+      practicalQuestions: const <String>[
+        'Saved program se job kaise start karte hain?',
+        'Cycle start dabane se pehle kya check karte hain?',
+      ],
+      safetyQuestions: const <String>[
+        'Shop floor par kaun sa PPE pehnte hain?',
+        'Machine se ajeeb awaaz aaye to kya karte hain?',
+      ],
+      drawingMeasurementQuestions: const <String>[
+        'Drawing par tolerance kaise padhte hain?',
+        'Outer diameter kaise measure karte hain?',
+      ],
+      skillChecklist: const <String>[
+        'Fanuc / Siemens control',
+        'GD&T reading',
+        'Micrometer aur vernier',
+      ],
+      reviseBefore: const <String>[
+        'Tool offset aur work offset',
+        'Basic G/M codes',
+      ],
+      documentsToCarry: const <String>[
+        'Aadhaar card (original + photocopy)',
+        'ITI / Diploma certificate',
+        'BadaBhai resume printout',
+      ],
+      commonMistakes: const <String>[
+        'Bina drawing padhe job start karna',
+        'First piece inspection skip karna',
+      ],
+      hinglishNote:
+          'Aaram se, saaf jawaab dein. Jo aata hai wahi bolein — bluff mat karein.',
+    );
+  }
+
+  @override
+  Future<ProfileSummaryDto> getProfileSummary({required String authToken}) async {
+    await _delay();
+    // Mirrors the real (NAMELESS) contract: no name field, canonical taxonomy ids
+    // + a display name, `strength` as a signal COUNT. Obviously-generic, PII-free.
+    return const ProfileSummaryDto(
+      profileStatus: 'confirmed',
+      confirmedAt: '2026-06-01T00:00:00.000Z',
+      tradeDisplayName: 'CNC Operator',
+      canonicalTradeId: 'dom_cnc_machining',
+      canonicalRoleId: 'role_cnc_turner_operator',
+      city: 'Pune',
+      strength: 8,
     );
   }
 

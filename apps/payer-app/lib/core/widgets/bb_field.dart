@@ -101,7 +101,7 @@ class BbSelect<T> extends StatelessWidget {
           const SizedBox(height: AppSpacing.s2),
         ],
         DropdownButtonFormField<T>(
-          value: value,
+          initialValue: value,
           isExpanded: true,
           icon: const Icon(Icons.expand_more, color: AppColors.textMuted),
           style: AppTypography.body(size: AppTypography.sizeBase),

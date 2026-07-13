@@ -57,6 +57,20 @@ class ReferralCubit extends Cubit<ReferralState> {
 
   /// Explicit "get a fresh link" action — mints a new code on purpose.
   Future<void> refreshLink() => load(forceNewLink: true);
+
+  /// Records an invite-link click/share for the currently-loaded link
+  /// (`POST /payer/agency/invites/:code/click`). FIRE-AND-FORGET: a failure must
+  /// never block the share action, so it swallows errors and never emits. No-op
+  /// until a link is loaded.
+  Future<void> recordClick() async {
+    final String? code = state.link?.code;
+    if (code == null || code.isEmpty) return;
+    try {
+      await _api.recordInviteClick(code);
+    } catch (_) {
+      // Best-effort funnel signal — silently ignore transport/API errors.
+    }
+  }
 }
 
 enum ReferralLoadStatus { initial, loading, ready, error }

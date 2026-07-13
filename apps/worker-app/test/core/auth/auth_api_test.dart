@@ -231,6 +231,70 @@ void main() {
       expect(deviceInfo['platform'], isNotNull);
     });
 
+    // --- GET /auth/devices parse (A2: silent-empty-list bug) ----------------
+
+    test('listDevices parses the confirmed {devices:[...]} shape → populated',
+        () async {
+      final AuthApi api = _api(MockClient((http.Request req) async {
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'devices': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'id': 'd-1',
+                'platform': 'android',
+                'model': 'Pixel 6',
+                'app_version': '1.2.0',
+                'trusted_at': '2026-07-01T00:00:00.000Z',
+                'last_seen_at': '2026-07-10T00:00:00.000Z',
+                'is_current': true,
+              },
+            ],
+          }),
+          200,
+        );
+      }));
+
+      final List<AuthDevice> devices = await api.listDevices();
+      expect(devices, hasLength(1));
+      expect(devices.first.id, 'd-1');
+      expect(devices.first.platform, 'android');
+      expect(devices.first.model, 'Pixel 6');
+      expect(devices.first.isCurrent, isTrue);
+    });
+
+    test(
+        'listDevices on a WRONG root key (e.g. `data`) throws contractError '
+        '— NOT a silent empty list', () async {
+      final AuthApi api = _api(MockClient((http.Request req) async =>
+          http.Response(
+              jsonEncode(<String, dynamic>{'data': <dynamic>[]}), 200)));
+      await expectLater(
+        () => api.listDevices(),
+        throwsA(isA<AuthFailure>().having(
+            (AuthFailure f) => f.code, 'code', AuthErrorCode.contractError)),
+      );
+    });
+
+    test('listDevices on a null/non-list `devices` throws contractError',
+        () async {
+      final AuthApi api = _api(MockClient((http.Request req) async =>
+          http.Response(
+              jsonEncode(<String, dynamic>{'devices': null}), 200)));
+      await expectLater(
+        () => api.listDevices(),
+        throwsA(isA<AuthFailure>().having(
+            (AuthFailure f) => f.code, 'code', AuthErrorCode.contractError)),
+      );
+    });
+
+    test('listDevices returns [] for a present, EMPTY devices list (valid)',
+        () async {
+      final AuthApi api = _api(MockClient((http.Request req) async =>
+          http.Response(
+              jsonEncode(<String, dynamic>{'devices': <dynamic>[]}), 200)));
+      expect(await api.listDevices(), isEmpty);
+    });
+
     test('revokeDevice issues DELETE /auth/devices/{id}', () async {
       late final String method;
       late final String path;

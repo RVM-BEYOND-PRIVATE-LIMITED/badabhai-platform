@@ -1,7 +1,8 @@
 import 'package:equatable/equatable.dart';
 
 /// A row in the interview-kit list (spec §5.3 / `.aw-kitrow`). Points at a
-/// per-trade [InterviewKit] via [tradeKey].
+/// per-trade [InterviewKit] via [tradeKey] (a lowercase slug from
+/// GET /interview-kits).
 class KitListItem extends Equatable {
   const KitListItem({
     required this.tradeKey,
@@ -29,48 +30,56 @@ class KitListItem extends Equatable {
   List<Object?> get props => <Object?>[tradeKey, title, subtitle];
 }
 
-/// One interview question paired with its model answer (spec §5.4 / `.aw-q`).
-class KitQa extends Equatable {
-  const KitQa({required this.question, required this.answer});
-
-  final String question;
-  final String answer;
-
-  KitQa copyWith({String? question, String? answer}) {
-    return KitQa(
-      question: question ?? this.question,
-      answer: answer ?? this.answer,
-    );
-  }
-
-  @override
-  List<Object?> get props => <Object?>[question, answer];
-}
-
-/// The full interview kit for a trade — its title and ordered Q&A (spec §5.4).
+/// The full interview kit for a trade — a per-trade PREP PACK from
+/// GET /interview-kits/:tradeKey. It is an overview + four categorized question
+/// LISTS (there are NO model answers on the wire — this is a preparation pack,
+/// not a Q&A-with-answers set), a skill checklist, revise-before / documents /
+/// common-mistakes lists, and a Hinglish note. Mirrors the backend
+/// InterviewKitContent shape. PII-free (per-trade, never per-worker).
 class InterviewKit extends Equatable {
   const InterviewKit({
     required this.tradeKey,
     required this.title,
-    required this.qas,
+    required this.overview,
+    required this.commonQuestions,
+    required this.practicalQuestions,
+    required this.safetyQuestions,
+    required this.drawingMeasurementQuestions,
+    required this.skillChecklist,
+    required this.reviseBefore,
+    required this.documentsToCarry,
+    required this.commonMistakes,
+    required this.hinglishNote,
   });
 
   final String tradeKey;
-  final String title;
-  final List<KitQa> qas;
 
-  InterviewKit copyWith({
-    String? tradeKey,
-    String? title,
-    List<KitQa>? qas,
-  }) {
-    return InterviewKit(
-      tradeKey: tradeKey ?? this.tradeKey,
-      title: title ?? this.title,
-      qas: qas ?? this.qas,
-    );
-  }
+  /// Trade display name (`display_name`).
+  final String title;
+  final String overview;
+  final List<String> commonQuestions;
+  final List<String> practicalQuestions;
+  final List<String> safetyQuestions;
+  final List<String> drawingMeasurementQuestions;
+  final List<String> skillChecklist;
+  final List<String> reviseBefore;
+  final List<String> documentsToCarry;
+  final List<String> commonMistakes;
+  final String hinglishNote;
 
   @override
-  List<Object?> get props => <Object?>[tradeKey, title, qas];
+  List<Object?> get props => <Object?>[
+        tradeKey,
+        title,
+        overview,
+        commonQuestions,
+        practicalQuestions,
+        safetyQuestions,
+        drawingMeasurementQuestions,
+        skillChecklist,
+        reviseBefore,
+        documentsToCarry,
+        commonMistakes,
+        hinglishNote,
+      ];
 }

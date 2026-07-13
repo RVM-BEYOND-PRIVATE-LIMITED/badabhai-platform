@@ -56,11 +56,30 @@ class RevealCubit extends Cubit<RevealState> {
       return const DisclosureResult.unavailable();
     }
   }
+
+  /// Load the caller's OWN masked-resume disclosure history
+  /// (`GET /payer/resume-disclosures`, newest-first). PII-free rows. A failure
+  /// surfaces as [DisclosureHistoryStatus.error] (the real reason — never a
+  /// silent empty list).
+  Future<void> loadDisclosures() async {
+    emit(state.copyWith(historyStatus: DisclosureHistoryStatus.loading));
+    try {
+      final List<PayerDisclosure> rows = await _api.listDisclosures();
+      emit(state.copyWith(
+        historyStatus: DisclosureHistoryStatus.ready,
+        disclosures: rows,
+      ));
+    } catch (_) {
+      emit(state.copyWith(historyStatus: DisclosureHistoryStatus.error));
+    }
+  }
 }
 
 enum RevealStatus { initial, loading, ready, unavailable, error }
 
 enum DisclosureStatus { idle, loading, ready, unavailable }
+
+enum DisclosureHistoryStatus { idle, loading, ready, error }
 
 class RevealState extends Equatable {
   const RevealState({
@@ -70,6 +89,8 @@ class RevealState extends Equatable {
     this.expiresAt,
     this.disclosure = DisclosureStatus.idle,
     this.resumeUrl,
+    this.historyStatus = DisclosureHistoryStatus.idle,
+    this.disclosures = const <PayerDisclosure>[],
   });
 
   final RevealStatus status;
@@ -78,6 +99,10 @@ class RevealState extends Equatable {
   final String? expiresAt;
   final DisclosureStatus disclosure;
   final String? resumeUrl;
+
+  /// The caller's own disclosure history (`GET /payer/resume-disclosures`).
+  final DisclosureHistoryStatus historyStatus;
+  final List<PayerDisclosure> disclosures;
 
   /// Human channel label — the relay is an in-app address, never a raw phone.
   String get channelLabel => switch (channel) {
@@ -92,6 +117,8 @@ class RevealState extends Equatable {
     String? expiresAt,
     DisclosureStatus? disclosure,
     String? resumeUrl,
+    DisclosureHistoryStatus? historyStatus,
+    List<PayerDisclosure>? disclosures,
   }) {
     return RevealState(
       status: status ?? this.status,
@@ -100,10 +127,20 @@ class RevealState extends Equatable {
       expiresAt: expiresAt ?? this.expiresAt,
       disclosure: disclosure ?? this.disclosure,
       resumeUrl: resumeUrl ?? this.resumeUrl,
+      historyStatus: historyStatus ?? this.historyStatus,
+      disclosures: disclosures ?? this.disclosures,
     );
   }
 
   @override
-  List<Object?> get props =>
-      <Object?>[status, relayHandle, channel, expiresAt, disclosure, resumeUrl];
+  List<Object?> get props => <Object?>[
+        status,
+        relayHandle,
+        channel,
+        expiresAt,
+        disclosure,
+        resumeUrl,
+        historyStatus,
+        disclosures,
+      ];
 }

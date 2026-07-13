@@ -8,6 +8,7 @@ import 'package:payer_app/core/auth/payer_http.dart';
 import 'package:payer_app/core/auth/payer_token_store.dart';
 import 'package:payer_app/core/data/http_payer_api_client.dart';
 import 'package:payer_app/core/data/models.dart';
+import 'package:payer_app/features/find/presentation/cubit/reveal_cubit.dart';
 
 /// PASS P2 — the REAL candidate feed + unlock + reveal + masked-résumé
 /// disclosure over `HttpPayerApiClient`, driven by a mock `http.Client`.
@@ -276,6 +277,44 @@ void main() {
 
       expect(result.disclosed, isFalse);
       expect(result.resumeUrl, isNull);
+    });
+  });
+
+  group('P5 — disclosure history (RevealCubit host)', () {
+    test('loadDisclosures → GET /payer/resume-disclosures → ready + PII-free rows',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'GET /payer/resume-disclosures': _json(<String, dynamic>{
+          'disclosures': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'disclosure_id': 'd1',
+              'worker_id': 'w-uuid-1',
+              'status': 'disclosed',
+              'created_at': '2026-07-01T10:00:00Z',
+            },
+          ],
+        }),
+      });
+      final RevealCubit cubit = RevealCubit(h.api);
+
+      await cubit.loadDisclosures();
+
+      expect(cubit.state.historyStatus, DisclosureHistoryStatus.ready);
+      expect(cubit.state.disclosures, hasLength(1));
+      expect(cubit.state.disclosures.single.workerId, 'w-uuid-1');
+    });
+
+    test('loadDisclosures on a 401 → error state (real reason, not empty)',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'GET /payer/resume-disclosures': _json(<String, dynamic>{}, 401),
+      });
+      final RevealCubit cubit = RevealCubit(h.api);
+
+      await cubit.loadDisclosures();
+
+      expect(cubit.state.historyStatus, DisclosureHistoryStatus.error);
+      expect(cubit.state.disclosures, isEmpty);
     });
   });
 }

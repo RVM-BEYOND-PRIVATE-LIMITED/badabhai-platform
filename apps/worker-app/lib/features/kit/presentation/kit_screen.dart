@@ -67,11 +67,21 @@ class _KitView extends StatelessWidget {
         ),
         children: <Widget>[
           Text(
-            'Aapke trade ke common sawaal aur jawaab. '
+            'Har trade ke common sawaal aur interview taiyari. '
             'Interview se pehle padhein.',
             style: AppTypography.body(color: AppColors.textSecondary),
           ),
           const SizedBox(height: AppSpacing.s4),
+          if (items.isEmpty)
+            // Honest empty state — the list loaded but returned no kits (not a
+            // fake kit, not a false "check internet").
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.s5),
+              child: Text(
+                'Abhi koi interview kit available nahi. Thodi der baad dekhein.',
+                style: AppTypography.body(color: AppColors.textMuted),
+              ),
+            ),
           for (final KitListItem item in items)
             BbListRow.kit(
               icon: Icons.build_outlined,

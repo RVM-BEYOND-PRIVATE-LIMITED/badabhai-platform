@@ -14,17 +14,20 @@ const bool kUseMocks = bool.fromEnvironment('USE_MOCKS', defaultValue: false);
 
 /// Persistent-auth / PIN layer (PASS 2) enable gate.
 ///
-/// OFF by default in REAL builds: the backend `/auth/pin/*`, `/auth/token/refresh`,
-/// `/auth/devices` contract is not live yet and the `/auth/otp/verify` response
-/// shape differs from this client's ASSUMED shape, so running the PIN gate against
-/// the real backend dead-ends the worker after OTP. With the layer OFF, OTP login
-/// falls back to the proven OTP→shell flow (exactly as on main).
+/// ON by default now that the ADR-0026 backend contract is LIVE + reconciled
+/// (Phase 4): `/auth/otp/verify` (with `pin_set` + `is_new_worker`),
+/// `/auth/pin/{set,verify,reset/request,reset/confirm}`, `/auth/token/refresh`,
+/// and `/auth/devices` are all wired, and `auth_api.dart` matches the real wire
+/// shapes (no more `// ASSUMED`). With the layer ON, a persisted refresh token
+/// lets a returning worker resume (locked → enter-PIN) instead of re-doing OTP,
+/// so restarts survive. It NEVER auto-unlocks: bootstrap resolves to `locked`
+/// when a token is present, else `loggedOut`; the first cold start is still
+/// `loggedOut` until one OTP login persists a token.
 ///
-/// ON automatically in mock mode (the full PIN flow is walkable), and switchable
-/// for staging via `--dart-define=PERSISTENT_AUTH=true` once the backend contract
-/// lands and `auth_api.dart`'s `// ASSUMED` shapes are reconciled.
+/// Always ON in mock mode; switch OFF for a build via
+/// `--dart-define=PERSISTENT_AUTH=false` if ever needed.
 const bool kPersistentAuth =
-    kUseMocks || bool.fromEnvironment('PERSISTENT_AUTH', defaultValue: false);
+    kUseMocks || bool.fromEnvironment('PERSISTENT_AUTH', defaultValue: true);
 
 /// Absolute base for referral invite links (A3). The `POST /invites` response
 /// carries a SERVER-RELATIVE `link` (`/i/<code>`); the share sheet prepends this

@@ -302,7 +302,13 @@ class AuthApi {
     _check(res, _AuthEndpoint.authed);
   }
 
-  /// GET /auth/devices (bearer) → {devices:[...]}.
+  /// GET /auth/devices (bearer) → `{ devices: [...] }` — the CONFIRMED
+  /// DeviceListResponse shape (apps/api/src/auth/devices.dto.ts; root key
+  /// `devices`, items = DeviceListItem). A non-2xx throws via [_check] (401 →
+  /// reauthRequired). A 2xx whose `devices` value is MISSING or not a list is a
+  /// contract violation → an EXPLICIT [AuthErrorCode.contractError], never a
+  /// silent empty list (which would read as "no devices"). A present-but-empty
+  /// list is valid and returns `[]`.
   Future<List<AuthDevice>> listDevices() async {
     final AuthResponse res = await _client.send(
       HttpMethod.get,
@@ -310,8 +316,15 @@ class AuthApi {
       authed: true,
     );
     _check(res, _AuthEndpoint.authed);
-    final List<dynamic> devices =
-        res.body['devices'] as List<dynamic>? ?? <dynamic>[]; // ASSUMED key
+    final Object? devices = res.body['devices'];
+    if (devices is! List) {
+      // Shape drift (e.g. wrong root key / null) — fail loud, don't swallow it
+      // into an empty list. The devices view then shows the honest parse reason.
+      throw AuthFailure(
+        AuthErrorCode.contractError,
+        statusCode: res.statusCode,
+      );
+    }
     return devices
         .whereType<Map<String, dynamic>>()
         .map(AuthDevice.fromJson)
