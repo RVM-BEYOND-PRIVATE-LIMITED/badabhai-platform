@@ -2,7 +2,7 @@
 
 Each phase: goal · in-scope · out-of-scope · blockers · acceptance · **test gate** · owner · target.
 
-**Current position (2026-07-09):** Overall **~75%** · Alpha **~58%** · Release **~29%**. **Everything is built** — ADR-0026 (5 phases), ADMIN-3a/3b/3c, A/B batch #173–#180 (LC-1 closed for money routes), B5 org-tenancy + Team #182–#186 (ADR-0027), AI-service retry storm fix + ADR-0028. `origin/main` HEAD: `a143a7d` (Jul 8). 36 migrations. All decisions D1–D8 closed.
+**Current position (2026-07-14):** Overall **~75%** · Alpha **~58%** · Release **~29%** (unchanged — no new staging/handset evidence). Since Jul 9: #193–#218 merged — payer-web all-seams-live, voice pipeline (ADR-0029, mock), throttle residuals, worker-app kPersistentAuth ON (#201, TD62 open), AI cost/persona series (#203–#210), **ADR-0030 skills taxonomy TAX-0..4 (#211–#215) + roadmap (#217)**, CI-1 action bumps (#218); fork-B runner PR #219 in review. `origin/main` HEAD: `5f4a274` (Jul 14). **38 migrations (0000–0037, applied)**. Decisions D1–**D10** closed.
 > 🚨 **DEADLINE SLIPPED:** Alpha B1 deadline was **2026-07-04** — MISSED. As of 2026-07-09, staging still not provisioned (no `/health` proof, no events, no logcat, no PDF). Gap to alpha = **100% staging + FE wiring, 0% code**. Only Prakash provisioning the instance is on the critical path.
 
 Owners: Prakash (TL/PM, staging+infra), Divyanshu (backend/AI), Rishi Ojha (Android/Flutter), QA.
