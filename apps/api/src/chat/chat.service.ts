@@ -7,12 +7,18 @@ import {
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
+import { PiiCryptoService } from "../common/pii-crypto.service";
 import { AiService } from "../ai/ai.service";
 import { ProfilesService } from "../profiles/profiles.service";
 import { ChatRepository } from "./chat.repository";
 import type { PostMessageDto } from "./chat.dto";
 
 const DEFAULT_ROLE_FAMILY = "cnc_vmc";
+
+// AI-PERSONA-2: the ai-service emits this literal token (never a real name) at the
+// vocative slots. The real first name is interpolated over it here in the API,
+// POST-emit, only in the value returned to the client — see renderWorkerName.
+const WORKER_NAME_PLACEHOLDER = "{{worker_name}}";
 
 @Injectable()
 export class ChatService {
@@ -21,6 +27,7 @@ export class ChatService {
   constructor(
     private readonly chat: ChatRepository,
     private readonly workers: WorkersRepository,
+    private readonly pii: PiiCryptoService,
     private readonly events: EventsService,
     private readonly ai: AiService,
     // forwardRef: ProfilesModule imports ChatModule (for the transcript), so the
@@ -130,6 +137,12 @@ export class ChatService {
       workerId: workerId,
       direction: "outbound",
       messageType: "text",
+      // ⚠️ SG-1 / PII-TRAP (AI-PERSONA-2): store the RAW reply_text — it carries the
+      // literal {{worker_name}} placeholder, NEVER the worker's real name. Do NOT
+      // interpolate the name before this insert or before the event emit below:
+      // this row is the audit spine (its history also feeds the next AI turn) and
+      // must stay PII-free. The real name is stitched in ONLY at the client return
+      // (step 7, renderWorkerName). Keep interpolation OUT of this path.
       bodyText: aiResult.reply_text,
       metadata: { is_mock: aiResult.is_mock, blocked: aiResult.blocked },
     });
@@ -217,9 +230,12 @@ export class ChatService {
       await this.chat.touchSession(dto.session_id, now);
     }
 
+    // 7. Personalize ONLY the client-returned reply — post-store, post-emit — by
+    //    interpolating the worker's real first name over the {{worker_name}} token.
+    //    The stored message (step 4) + every event above still hold the placeholder.
     return {
       session_id: dto.session_id,
-      reply: aiResult.reply_text,
+      reply: await this.renderWorkerName(aiResult.reply_text, workerId),
       blocked: aiResult.blocked,
       is_mock: aiResult.is_mock,
       suggested_followups: aiResult.suggested_followups,
@@ -227,6 +243,48 @@ export class ChatService {
       asked_question_id: aiResult.asked_question_id,
       extraction_ready: aiResult.extraction_ready,
     };
+  }
+
+  /**
+   * AI-PERSONA-2 — replace the ai-service's ``{{worker_name}}`` placeholder with
+   * the worker's real FIRST name, deterministically and PII-safely. Called ONLY on
+   * the value returned to the client (never on the stored message or any event —
+   * SG-1). The name is decrypted SERVER-SIDE (TD21: `workers.full_name` is
+   * encrypted at rest) and is NEVER logged, evented, put in `ai_jobs`, or sent to
+   * the ai-service/LLM.
+   *
+   * Null / not-yet-set / undecryptable name → strip the token AND its trailing
+   * " ji, " so the reply degrades to a clean no-vocative line (no stray "{{ }}").
+   */
+  private async renderWorkerName(reply: string, workerId: string): Promise<string> {
+    // Fast path: nothing to interpolate (e.g. a mid-interview ack turn) → no DB read.
+    if (!reply.includes(WORKER_NAME_PLACEHOLDER)) return reply;
+
+    let firstName = "";
+    const worker = await this.workers.findById(workerId);
+    if (worker?.fullName) {
+      try {
+        // full_name is encrypted at rest (TD21) — decrypt here, never log the value.
+        firstName = this.pii.decrypt(worker.fullName).trim().split(/\s+/)[0] ?? "";
+      } catch {
+        // Malformed / rotated-key / tampered token must NOT 500 the chat reply
+        // (a key rotation would otherwise break every worker at once). Degrade to
+        // the name-less line, same as no name set. Never log the token/error.
+        this.logger.warn(
+          `could not decrypt full_name for worker ${workerId}; reply stays name-less`,
+        );
+      }
+    }
+
+    if (firstName) {
+      return reply
+        .replaceAll(`${WORKER_NAME_PLACEHOLDER} ji, `, `${firstName} ji, `)
+        .replaceAll(WORKER_NAME_PLACEHOLDER, firstName);
+    }
+    // No usable name: drop the vocative token and its trailing " ji, " cleanly.
+    return reply
+      .replaceAll(`${WORKER_NAME_PLACEHOLDER} ji, `, "")
+      .replaceAll(WORKER_NAME_PLACEHOLDER, "");
   }
 
   /**

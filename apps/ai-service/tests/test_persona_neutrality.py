@@ -119,36 +119,58 @@ def test_chat_turn_instruction_is_capped_and_forbids_praise():
     assert "waah" in instr
 
 
-def test_name_is_rendered_only_at_open_and_close_and_inert_by_default():
-    # Name given -> "{name} ji, " prefixes the OPENING and the CLOSE only.
+_PLACEHOLDER = interview_engine.WORKER_NAME_PLACEHOLDER  # "{{worker_name}}"
+
+_FULL_ANSWER = (
+    "vmc operator, 4 saal, setting aur drawing reading karta hu, "
+    "faridabad me hu pune chalega"
+)
+
+
+def test_default_emits_placeholder_token_at_open_and_close_never_a_real_name():
+    # AI-PERSONA-2 (SG-1): the ai-service NEVER emits a real name — only the
+    # {{worker_name}} TOKEN, at the OPEN (turn 1 / first_question) and CLOSE only.
+    # The real name is interpolated downstream in NestJS, post-emit.
+    _tid, opening = interview_engine.first_question("cnc_vmc")
+    assert opening.startswith(f"{_PLACEHOLDER} ji, ")
+
+    open_turn, asked_open, _st, ready_open = interview_engine.next_turn(None, "namaste", "cnc_vmc")
+    assert ready_open is False and asked_open is not None
+    assert open_turn.startswith(f"{_PLACEHOLDER} ji, ")  # turn 1 = open slot
+
+    close, asked_close, _st2, ready_close = interview_engine.next_turn(
+        None, _FULL_ANSWER, "cnc_vmc"
+    )
+    assert ready_close is True and asked_close is None
+    assert close.startswith(f"{_PLACEHOLDER} ji, ")
+
+    # A MID-interview ack turn (turn >= 2) carries NO vocative — ack only.
+    _r1, _a1, st1, _rd1 = interview_engine.next_turn(None, "namaste", "cnc_vmc")  # turn 1
+    mid, mid_asked, _st3, mid_ready = interview_engine.next_turn(
+        st1, "cnc turner hoon", "cnc_vmc"
+    )  # turn 2
+    assert mid_ready is False and mid_asked is not None
+    assert _PLACEHOLDER not in mid and "ji," not in mid
+    assert mid.startswith("Theek hai.")
+
+
+def test_worker_name_none_opts_out_of_the_vocative_cleanly():
+    # Explicit opt-out: no vocative, and no stray token left behind.
+    _tid, opening = interview_engine.first_question("cnc_vmc", worker_name=None)
+    assert "ji," not in opening and _PLACEHOLDER not in opening
+
+    close, _asked, _st, ready = interview_engine.next_turn(
+        None, _FULL_ANSWER, "cnc_vmc", worker_name=None
+    )
+    assert ready is True
+    assert "ji," not in close and _PLACEHOLDER not in close
+
+
+def test_explicit_name_still_renders_but_no_production_caller_passes_one():
+    # The param still accepts a literal name (used only by tests); production
+    # callers rely on the placeholder default, so no real name is ever emitted.
     _tid, opening = interview_engine.first_question("cnc_vmc", worker_name="Nitin")
     assert opening.startswith("Nitin ji, ")
-
-    full = (
-        "vmc operator, 4 saal, setting aur drawing reading karta hu, "
-        "faridabad me hu pune chalega"
-    )
-    close_named, asked, _st, ready = interview_engine.next_turn(
-        None, full, "cnc_vmc", worker_name="Nitin"
-    )
-    assert ready is True and asked is None
-    assert close_named.startswith("Nitin ji, ")
-
-    # Default (no name) — TODAY'S production caller (main.py) — renders no vocative
-    # anywhere. This is the G1 guarantee: no real name is ever composed into the
-    # reply, so none can reach an LLM, an event, or a log.
-    _tid2, opening_anon = interview_engine.first_question("cnc_vmc")
-    close_anon, _a, _s, _r = interview_engine.next_turn(None, full, "cnc_vmc")
-    assert "ji," not in opening_anon
-    assert "ji," not in close_anon
-
-    # A mid-interview ack turn NEVER carries the name, even when one is passed.
-    mid, mid_asked, _s3, mid_ready = interview_engine.next_turn(
-        None, "vmc chalata hu", "cnc_vmc", worker_name="Nitin"
-    )
-    assert mid_ready is False and mid_asked is not None
-    assert "Nitin" not in mid
-    assert mid.startswith("Theek hai.")
 
 
 def test_profiling_chat_turn_output_is_capped_for_cost():

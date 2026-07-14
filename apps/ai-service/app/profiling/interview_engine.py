@@ -34,28 +34,33 @@ _FOLLOWUPS = [
     "Kis sheher mein kaam kar sakte hain?",
 ]
 
+# AI-PERSONA-2: the ai-service NEVER emits a real worker name — only this literal
+# placeholder token at the open/close vocative slots. It is NOT PII (safe to reach
+# the LLM / event / Langfuse); the real first name is fetched (decrypted) and
+# interpolated over it DOWNSTREAM in the NestJS ``ChatService.renderWorkerName`` —
+# post-emit, only in the value returned to the client. Personalization is the
+# DEFAULT; pass ``worker_name=None`` to opt out (renders no vocative).
+WORKER_NAME_PLACEHOLDER = "{{worker_name}}"
+
 
 def _vocative(worker_name: str | None) -> str:
-    """Opening/close vocative — ``"{name} ji, "`` only when a name is given, else
-    empty. Today's production caller (``app/main.py``) passes NO name, so no
-    vocative renders and no name is ever composed into the reply.
+    """Opening/close vocative — ``"{worker_name} ji, "`` when a name/token is given,
+    else empty. Callers default to :data:`WORKER_NAME_PLACEHOLDER`, so the reply
+    carries the ``{{worker_name}}`` TOKEN, never a real name.
 
-    SAFETY (CLAUDE.md §2 #2 / G1) — this is a CALLER-DISCIPLINE guarantee, not a
-    structural one: the composed reply is later handed to ``build_chat_messages``
-    as ``next_question``, so a real name passed here WOULD reach the LLM (and the
-    Langfuse trace), and it would do so AFTER pseudonymization has run. Do NOT
-    wire a real worker name in here. The safe way to personalize is the
-    placeholder seam — emit a literal ``{{worker_name}}`` token and interpolate
-    the real name downstream in the NestJS layer, post-emit (AI-PERSONA-2)."""
+    SAFETY (CLAUDE.md §2 #2 / G1 / AI-PERSONA-2 SG-1): the ai-service must only ever
+    emit the placeholder token — which is NOT PII and is safe to reach the LLM /
+    event / Langfuse. The real name is interpolated over the token downstream in the
+    NestJS layer, after the event is emitted. Do NOT pass a real worker name here."""
     return f"{worker_name} ji, " if worker_name else ""
 
 
 def first_question(
     role_family: str = "cnc_vmc",
-    worker_name: str | None = None,
+    worker_name: str | None = WORKER_NAME_PLACEHOLDER,
 ) -> tuple[str, str]:
-    """Return (topic_id, question) for the opening question. A name (when given)
-    prefixes the opening only."""
+    """Return (topic_id, question) for the opening question. The vocative
+    (placeholder by default) prefixes the opening only."""
     first = topics_for(role_family)[0]
     return first.id, _vocative(worker_name) + first.question
 
@@ -64,13 +69,14 @@ def next_turn(
     state: ConversationState | None,
     worker_message_raw: str,
     role_family: str = "cnc_vmc",
-    worker_name: str | None = None,
+    worker_name: str | None = WORKER_NAME_PLACEHOLDER,
 ) -> tuple[str, str | None, ConversationState, bool]:
     """Advance the interview by one turn.
 
     Returns ``(assistant_message_mock, asked_question_id, updated_state,
-    extraction_ready)``. ``worker_message_raw`` is read locally only. A name
-    (when given) prefixes the CLOSE only — never the mid-interview ack turns.
+    extraction_ready)``. ``worker_message_raw`` is read locally only. The vocative
+    (placeholder by default) prefixes the OPEN (turn 1) and the CLOSE only — never
+    the mid-interview ack turns.
     """
     topics = topics_for(role_family)
     st = (
@@ -97,6 +103,10 @@ def next_turn(
 
     if next_topic.id not in st.asked_question_ids:
         st.asked_question_ids.append(next_topic.id)
+    # Turn 1 is the OPEN vocative slot: greet by name/token, then the first
+    # question (no ack — the greeting IS the opener). Later turns ack only.
+    if st.turn_count == 1:
+        return _vocative(worker_name) + next_topic.question, next_topic.id, st, extraction_ready
     return _ACK + next_topic.question, next_topic.id, st, extraction_ready
 
 

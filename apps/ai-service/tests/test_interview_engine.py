@@ -6,10 +6,11 @@ from app.profiling import interview_engine
 def test_first_question_is_role_and_neutral_toned():
     topic_id, question = interview_engine.first_question("cnc_vmc")
     assert topic_id == "role"
-    # Mentor persona (AI-PERSONA-1): no vocative when no name, no gush, <=20 words.
+    # AI-PERSONA-2: default emits the placeholder token, never a real name; no gush.
     low = question.lower()
     for banned in ("bhai", "bhaiya", "beta", "behen", "yaar", "waah", "zabardast"):
         assert banned not in low
+    assert question.startswith("{{worker_name}} ji, ")
     assert len(question.split()) <= 20
 
 
@@ -29,7 +30,8 @@ def test_messy_vmc_answer_updates_state():
     # Not enough core topics yet -> keep interviewing.
     assert ready is False
     assert asked_id is not None
-    assert reply.startswith("Theek hai.")
+    # AI-PERSONA-2: turn 1 is the OPEN vocative slot → placeholder token, no ack.
+    assert reply.startswith("{{worker_name}} ji, ")
 
 
 def test_extraction_ready_after_essential_info():
