@@ -33,6 +33,7 @@ import { AdminAuthController } from "../admin/admin-auth.controller";
 import { AdminEventsController } from "../admin/admin-events.controller";
 import { AdminActionsController } from "../admin/admin-actions.controller";
 import { AdminPiiRevealController } from "../admin/admin-pii-reveal.controller";
+import { SkillsController } from "../skills/skills.controller";
 
 /**
  * AUTHZ CONTRACT — the single source of truth for which guards protect every
@@ -77,6 +78,7 @@ const R = "PayerRoleGuard";
 const A = "AdminAuthGuard";
 const AR = "AdminRolesGuard";
 const CNR = "ConsentNotRevokedGuard";
+const SI = "SkillsInternalGuard";
 
 const CONTRACT: ControllerContract[] = [
   { name: "Actions", ctor: ActionsController, routes: { record: [], recordBatch: [] } },
@@ -277,6 +279,14 @@ const CONTRACT: ControllerContract[] = [
     name: "AdminPiiReveal",
     ctor: AdminPiiRevealController,
     routes: { revealContact: [A, AR] },
+  },
+  // FORK-B-1 seam A (ADR-0030): the ai-service's ONLY api credential. SCOPED
+  // SkillsInternalGuard (SKILLS_INTERNAL_TOKEN) by design — NOT InternalServiceGuard,
+  // so this credential can never open the resume-PII/money routes (#222 review).
+  {
+    name: "Skills",
+    ctor: SkillsController,
+    routes: { nearestAliases: [SI], recordUnresolved: [SI] },
   },
 ];
 

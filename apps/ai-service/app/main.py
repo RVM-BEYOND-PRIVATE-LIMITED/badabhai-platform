@@ -11,6 +11,7 @@ Langfuse tracing all live behind ``app.ai.router.AIRouter``.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from fastapi import FastAPI
@@ -325,7 +326,12 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
     # Inert unless BOTH the flag is on AND the seam is configured (get_skill_store
     # returns the NullSkillStore otherwise) — the TD65 activation chain.
     if settings.skill_canonicalize_enabled:
-        assigned, _unresolved = canonicalize_labels(
+        # OFF the event loop (#222 HIGH): the store + a real embed are SYNC httpx calls
+        # (per label). Inline they would freeze the whole service (health checks, every
+        # concurrent turn) for up to timeout x labels when the api/provider is slow —
+        # to_thread keeps the loop serving while the pass runs.
+        assigned, _unresolved = await asyncio.to_thread(
+            canonicalize_labels,
             rich.skills + rich.controllers,
             settings.skill_canonicalize_default_domain,
             get_skill_store(settings),

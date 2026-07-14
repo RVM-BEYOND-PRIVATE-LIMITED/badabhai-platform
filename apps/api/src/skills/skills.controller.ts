@@ -1,6 +1,6 @@
 import { Body, Controller, HttpCode, Post, UseGuards } from "@nestjs/common";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
-import { InternalServiceGuard } from "../common/guards/internal-service.guard";
+import { SkillsInternalGuard } from "./skills-internal.guard";
 import { SkillsService } from "./skills.service";
 import {
   NearestAliasesDtoSchema,
@@ -15,11 +15,13 @@ import {
  * `skill_alias`/`unresolved_phrase` are RLS-locked + REVOKE'd, so the authorized reads/
  * writes live here on the api's owner connection.
  *
- * InternalServiceGuard (shared secret, FAIL CLOSED when unconfigured): these are
- * service-to-service routes — no user principal, no worker identity anywhere in them.
+ * SkillsInternalGuard (SCOPED secret SKILLS_INTERNAL_TOKEN, FAIL CLOSED when
+ * unconfigured): service-to-service only — no user principal anywhere. Deliberately NOT
+ * the all-routes INTERNAL_SERVICE_TOKEN (least privilege: the ai-service's credential
+ * must not open the resume-PII/money routes — #222 review finding).
  */
 @Controller("internal/skills")
-@UseGuards(InternalServiceGuard)
+@UseGuards(SkillsInternalGuard)
 export class SkillsController {
   constructor(private readonly skills: SkillsService) {}
 

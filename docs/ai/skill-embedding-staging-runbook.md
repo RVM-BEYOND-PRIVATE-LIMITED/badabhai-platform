@@ -28,16 +28,18 @@
    **silently MOCK** — and those hash vectors persist (recovery = step 2's reset).
 5. **Throwaway 768/model check.** One gated `embedContent` call (single-row batch:
    `EMBED_BATCH_SIZE=1 pnpm db:embed:skills`); confirm the runner log shows
-   `mock=false`, `model=text-embedding-004`, and a successful 768-dim write.
+   `mock=false`, `model=gemini-embedding-001`, and a successful 768-dim write.
    `_real_embedding` raises on dim/model mismatch — good, but check BEFORE the full run.
 6. **Backfill.** `EMBED_BATCH_SIZE=20 pnpm db:embed:skills` → fills real vectors into
    NULL rows only. Bounded one-time job; the endpoint stops each request at
    `AI_MAX_CALL_COST_INR` (`budget_stopped` → the runner halts; re-run resumes), and the
    runner aborts on any malformed response or zero-progress batch.
    **Assert the final report shows `mock=false` before accepting the run.**
-7. **Enable the request path.** `SKILL_CANONICALIZE_ENABLED=true`; restart the ai-service
-   so the DB-backed store replaces NullSkillStore (TD65 activation chain: store +
-   call-site + flag).
+7. **Enable the request path.** On the ai-service env set ALL THREE —
+   `BACKEND_API_URL` (the NestJS api base), `SKILLS_INTERNAL_TOKEN` (the SCOPED skills
+   secret, same value as the api's `SKILLS_INTERNAL_TOKEN` — deliberately NOT
+   `INTERNAL_SERVICE_TOKEN`), and `SKILL_CANONICALIZE_ENABLED=true` — then restart. The
+   flag alone is inert (the factory returns NullSkillStore without url+token; TD65).
 8. **Verify.** In-vocab phrase ("VMC operator") → correct `skill_id` ≥ floor; a novel
    phrase → UNRESOLVED + a pseudonymized `unresolved_phrase` row; domain mismatch → no
    cross-domain match. Confirm the ai-service made **no direct DB connection** (seam A).

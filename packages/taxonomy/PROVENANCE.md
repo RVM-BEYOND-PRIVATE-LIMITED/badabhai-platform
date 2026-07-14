@@ -51,9 +51,10 @@ pnpm db:embed:skills       # fork-B runner: fills skill_alias.embedding via the 
 
 `skill_alias.embedding` is a **`vector(768)`** column — confirmed to match the ai-service
 embedder (`apps/ai-service/app/ai/embeddings.py`, `EMBEDDING_DIMENSION = 768`) and the
-existing `worker_profiles.embedding`. The configured real model is `text-embedding-004`
-(Gemini Developer API, 768-dim; `Settings.embedding_model`); the **default path is a
-deterministic MOCK embedding** (zero spend). The real embedding call is **§7-gated**
-(`AI_ENABLE_REAL_CALLS` + key + the `skill_embedding` task allowlist, staging-first) — the
-exact model + 768-dim output are **confirmed at the first gated staging run** (TAX-3/TAX-4).
+existing `worker_profiles.embedding`. The configured real model is `gemini-embedding-001`
+(Gemini Developer API, `outputDimensionality: 768`, L2-normalized client-side;
+`Settings.embedding_model`) — **verified live at the first gated run, 2026-07-14**
+(`text-embedding-004` is retired; the provider 404s it). The **default path is a
+deterministic MOCK embedding** (zero spend); the real call is **§7-gated**
+(`AI_ENABLE_REAL_CALLS` + key + the `skill_embedding` task allowlist).
 

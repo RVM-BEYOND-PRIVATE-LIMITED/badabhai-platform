@@ -25,7 +25,8 @@ class _FakeResponse:
 
 
 class _FakeClient:
-    """Stands in for httpx.Client — records calls, returns a scripted response."""
+    """Stands in for httpx.Client (shared per store instance) — records calls,
+    returns a scripted response."""
 
     calls: list[tuple[str, dict]] = []
     response: _FakeResponse = _FakeResponse(200, {"candidates": []})
@@ -33,12 +34,6 @@ class _FakeClient:
 
     def __init__(self, *a, **k):
         pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        return False
 
     def post(self, url, headers=None, json=None):
         _FakeClient.calls.append((url, {"headers": headers, "json": json}))
@@ -65,10 +60,10 @@ def test_factory_returns_null_store_unless_fully_configured():
         get_skill_store(Settings(backend_api_url="http://x")), NullSkillStore
     )  # token missing
     assert isinstance(
-        get_skill_store(Settings(internal_service_token="t")), NullSkillStore
+        get_skill_store(Settings(skills_internal_token="t")), NullSkillStore
     )  # url missing
     assert isinstance(
-        get_skill_store(Settings(backend_api_url="http://x", internal_service_token="t")),
+        get_skill_store(Settings(backend_api_url="http://x", skills_internal_token="t")),
         HttpSkillStore,
     )
 
@@ -92,8 +87,20 @@ def test_nearest_aliases_passes_token_and_parses_candidates(monkeypatch):
     assert out == [("skill_vmc_operator", 0.93)]
     url, req = _FakeClient.calls[0]
     assert url == "http://api.internal:3001/internal/skills/nearest-aliases"
-    assert req["headers"]["x-internal-service-token"] == "test-token"
+    # SCOPED token header (never the all-routes x-internal-service-token — #222 review).
+    assert req["headers"]["x-skills-internal-token"] == "test-token"
     assert req["json"]["domain_id"] == "cnc-machining" and req["json"]["k"] == 5
+
+
+def test_k_is_clamped_to_the_api_dto_bounds(monkeypatch):
+    # A mis-set SKILL_CANONICALIZE_TOP_K (e.g. 50) must NOT become a silent 400 -> []
+    # -> UNRESOLVED-everything: the store clamps k to the api contract (1..20).
+    _use_fake_client(monkeypatch)
+    _store().nearest_aliases("d", [0.1] * 768, 50)
+    assert _FakeClient.calls[0][1]["json"]["k"] == 20
+    _use_fake_client(monkeypatch)
+    _store().nearest_aliases("d", [0.1] * 768, 0)
+    assert _FakeClient.calls[0][1]["json"]["k"] == 1
 
 
 def test_nearest_aliases_fails_open_to_unresolved_on_http_error(monkeypatch):
@@ -172,3 +179,24 @@ def test_extract_wiring_inert_when_flag_off(monkeypatch):
     )
     assert resp.status_code == 200
     assert called == []  # default path: canonicalization never ran (status quo)
+
+
+def test_extract_wiring_flag_on_but_store_unconfigured_is_inert(monkeypatch):
+    # TD65 "the flag alone is inert": flag ON but seam NOT configured -> the factory
+    # returns the NullSkillStore -> no network, no ids added, extraction unchanged.
+    from fastapi.testclient import TestClient
+
+    from app import main as app_main
+
+    enabled = Settings(skill_canonicalize_enabled=True)  # url + token both unset
+    monkeypatch.setattr(app_main, "settings", enabled)
+    # NOTE: get_skill_store deliberately NOT patched — the real factory must pick Null.
+
+    client = TestClient(app_main.app)
+    resp = client.post(
+        "/profile/extract", json={"transcript": "I know cnc programming and setting"}
+    )
+    assert resp.status_code == 200
+    skills = resp.json()["profile"]["skills"]
+    # Only gazetteer ids — nothing vector-assigned (the factory picked NullSkillStore).
+    assert all(s.startswith("skill_") for s in skills)

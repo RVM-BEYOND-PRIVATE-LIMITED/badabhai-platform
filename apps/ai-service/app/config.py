@@ -62,11 +62,13 @@ class Settings(BaseSettings):
 
     # ADR-0030 / TAX-3: embedding model for the skill-vocabulary embed (offline corpus +
     # later the request-path resolver). MUST output the 768-dim vector skill_alias.embedding
-    # + worker_profiles.embedding store. `text-embedding-004` is the Gemini Developer API
-    # 768-dim model; the exact model + dim are CONFIRMED at the gated staging real run (§7).
+    # + worker_profiles.embedding store. VERIFIED LIVE at the first gated run (2026-07-14):
+    # `gemini-embedding-001` + outputDimensionality=768 -> HTTP 200, 768 dims (the request
+    # sets the dimensionality; vectors are L2-normalized client-side since truncated dims
+    # come back unnormalized). `text-embedding-004` is RETIRED (provider 404s it).
     # Real embedding calls are gated by AI_ENABLE_REAL_CALLS + the per-task allowlist
     # ("skill_embedding"); the default path is a deterministic MOCK embedding (zero spend).
-    embedding_model: str = "text-embedding-004"
+    embedding_model: str = "gemini-embedding-001"
 
     # ADR-0030 / TAX-4: skill-phrase canonicalization (vector match against skill_alias,
     # floor-gated). `enabled` is the WIRING flag — when False the extraction path keeps the
@@ -81,13 +83,16 @@ class Settings(BaseSettings):
     # finer per-label domain is known yet (per-label multi-domain resolution is TAX-5/6).
     skill_canonicalize_default_domain: str = "cnc-machining"
 
-    # FORK-B-1 seam A: the NestJS api base URL + the shared internal-service secret the
+    # FORK-B-1 seam A: the NestJS api base URL + the SCOPED skills-seam secret the
     # HttpSkillStore uses for the INTERNAL skill routes (nearest-aliases / unresolved).
-    # The ai-service stays DB-FREE — the api runs the authorized vector/upsert queries.
-    # Both unset by default → get_skill_store() returns the NullSkillStore (inert), so the
-    # canonicalize wiring cannot activate by flag alone (TD65 chain: store + flag).
+    # SKILLS_INTERNAL_TOKEN is deliberately NOT the api's all-routes
+    # INTERNAL_SERVICE_TOKEN (least privilege, #222 review): this credential opens ONLY
+    # the two skills routes — never resume-PII/money routes. The ai-service stays
+    # DB-FREE — the api runs the authorized vector/upsert queries. Both unset by
+    # default → get_skill_store() returns the NullSkillStore (inert), so the wiring
+    # cannot activate by flag alone (TD65 chain: store + flag).
     backend_api_url: str | None = None
-    internal_service_token: str | None = None
+    skills_internal_token: str | None = None
 
     # Per-profile cost guardrails (INR). Used for alerting only in Phase 1.
     ai_cost_alert_profile_inr: float = 6.0

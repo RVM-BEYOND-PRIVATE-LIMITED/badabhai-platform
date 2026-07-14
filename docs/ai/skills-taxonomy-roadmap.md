@@ -53,11 +53,12 @@ never-invents, miss records pseudonymized text, wired into `map_rich_to_legacy` 
 `canonicalize_skill` now has a REAL store: `HttpSkillStore` (ai-service) → the api's
 INTERNAL routes `POST /internal/skills/nearest-aliases` (owner-connection HNSW query) +
 `POST /internal/skills/unresolved` (upsert + hash-only `skill.phrase_unresolved` event),
-guarded by `InternalServiceGuard`. Fails OPEN to UNRESOLVED (an api outage degrades to
+guarded by the SCOPED `SkillsInternalGuard` (`SKILLS_INTERNAL_TOKEN` — never the
+all-routes secret). Fails OPEN to UNRESOLVED (an api outage degrades to
 the raw-phrase status quo — canonicalization never blocks extraction); SG-2 stays
 fail-closed. Extraction wiring canonicalizes **skills only** (WS4 role-backfill deferral
 unchanged). Activation = vectors backfilled + `BACKEND_API_URL` +
-`INTERNAL_SERVICE_TOKEN` on the ai-service + `SKILL_CANONICALIZE_ENABLED=true`
+`SKILLS_INTERNAL_TOKEN` on the ai-service + `SKILL_CANONICALIZE_ENABLED=true`
 ([SR-1 runbook](skill-embedding-staging-runbook.md); ADR-0030 addendum records seam A).
 `--reset-embeddings` on the runner is the mixed-vector-space recovery.
 

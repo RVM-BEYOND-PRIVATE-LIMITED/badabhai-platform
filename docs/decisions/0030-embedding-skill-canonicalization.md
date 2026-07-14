@@ -210,7 +210,9 @@ REJECTED — the ai-service stays DB-free.
 **Decision 2 — request path = seam A (FORK-B-1).** At profiling time `canonicalize_skill`
 needs `nearest_aliases` (domain-scoped HNSW) + `record_unresolved`. Chosen:
 **HTTP-back-to-NestJS** — the ai-service `HttpSkillStore` calls two INTERNAL NestJS routes
-(`InternalServiceGuard`, shared secret):
+(`SkillsInternalGuard`, SCOPED `SKILLS_INTERNAL_TOKEN` — deliberately NOT the all-routes
+`INTERNAL_SERVICE_TOKEN`, so the ai-service's credential opens ONLY these two routes,
+never resume-PII/money routes — #222 review finding):
 
 - `POST /internal/skills/nearest-aliases` — the api runs the cosine ANN query on its owner
   connection; returns `(skill_id, score)` candidates only (SG-3: the closed set).
@@ -231,4 +233,4 @@ invariant and adds a second raw-DB authority for no capability gain.
   role-backfill deferral (negative-tier risk) is unchanged.
 - The TD65 activation chain is now: backfilled vectors
   ([SR-1 runbook](../ai/skill-embedding-staging-runbook.md)) + these routes deployed +
-  `BACKEND_API_URL`/`INTERNAL_SERVICE_TOKEN` on the ai-service + `SKILL_CANONICALIZE_ENABLED=true`.
+  `BACKEND_API_URL`/`SKILLS_INTERNAL_TOKEN` on the ai-service + `SKILL_CANONICALIZE_ENABLED=true`.

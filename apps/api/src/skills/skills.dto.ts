@@ -7,8 +7,10 @@ import { z } from "zod";
  * defensively re-checked for residual numeric PII at this boundary too (fail closed).
  */
 
-/** Matches the pseudonymizer's residual-digit fail-closed rule (7+ digit run). */
-const RESIDUAL_DIGITS = /\d{7,}/;
+/** Matches the pseudonymizer's residual-digit fail-closed rule (7+ digit run).
+ * Includes Devanagari digits: JS \d is ASCII-only, but the Python pseudonymizer's \d is
+ * Unicode-aware — this boundary must not be looser than the upstream gate. */
+const RESIDUAL_DIGITS = /[\d०-९]{7,}/;
 
 export const NearestAliasesDtoSchema = z.object({
   domain_id: z.string().min(1).max(64),
