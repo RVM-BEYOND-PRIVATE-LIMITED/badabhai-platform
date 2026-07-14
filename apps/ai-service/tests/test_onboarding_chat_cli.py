@@ -278,7 +278,7 @@ def test_loop_ends_when_model_signals_ready_to_extract():
     router = _ScriptedRouter(
         chat_scripts=[
             ("Achha! Kaunsi machine pe kaam kiya hai?", False),
-            ("Badhiya bhai, itni jaankari kaafi hai.", True),  # model ends the loop
+            ("Theek hai, itni jaankari kaafi hai.", True),  # model ends the loop
         ]
     )
     answers = [

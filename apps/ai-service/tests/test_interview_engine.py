@@ -3,10 +3,19 @@
 from app.profiling import interview_engine
 
 
-def test_first_question_is_role_and_bada_bhai_toned():
+def test_first_question_is_role_and_neutral_toned():
     topic_id, question = interview_engine.first_question("cnc_vmc")
     assert topic_id == "role"
-    assert "bhai" in question.lower()
+    # Mentor persona (AI-PERSONA-1): no vocative when no name, no gush, <=20 words.
+    low = question.lower()
+    for banned in ("bhai", "bhaiya", "beta", "behen", "yaar", "waah", "zabardast"):
+        assert banned not in low
+    assert len(question.split()) <= 20
+
+
+def test_first_question_prefixes_name_when_given():
+    _topic_id, question = interview_engine.first_question("cnc_vmc", worker_name="Nitin")
+    assert question.startswith("Nitin ji, ")
 
 
 def test_messy_vmc_answer_updates_state():
@@ -20,7 +29,7 @@ def test_messy_vmc_answer_updates_state():
     # Not enough core topics yet -> keep interviewing.
     assert ready is False
     assert asked_id is not None
-    assert reply.startswith("Badhiya bhai.")
+    assert reply.startswith("Theek hai.")
 
 
 def test_extraction_ready_after_essential_info():
