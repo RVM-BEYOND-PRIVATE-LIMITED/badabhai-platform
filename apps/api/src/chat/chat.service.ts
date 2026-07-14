@@ -276,15 +276,18 @@ export class ChatService {
       }
     }
 
+    // Function replacements (not string) so a worker-controlled name containing
+    // `$&`, `$'`, `$$`, etc. is inserted literally — String.replaceAll interprets
+    // those special patterns only in a STRING replacement, never a function one.
     if (firstName) {
       return reply
-        .replaceAll(`${WORKER_NAME_PLACEHOLDER} ji, `, `${firstName} ji, `)
-        .replaceAll(WORKER_NAME_PLACEHOLDER, firstName);
+        .replaceAll(`${WORKER_NAME_PLACEHOLDER} ji, `, () => `${firstName} ji, `)
+        .replaceAll(WORKER_NAME_PLACEHOLDER, () => firstName);
     }
     // No usable name: drop the vocative token and its trailing " ji, " cleanly.
     return reply
-      .replaceAll(`${WORKER_NAME_PLACEHOLDER} ji, `, "")
-      .replaceAll(WORKER_NAME_PLACEHOLDER, "");
+      .replaceAll(`${WORKER_NAME_PLACEHOLDER} ji, `, () => "")
+      .replaceAll(WORKER_NAME_PLACEHOLDER, () => "");
   }
 
   /**

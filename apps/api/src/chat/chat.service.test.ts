@@ -182,6 +182,13 @@ describe("ChatService — AI-PERSONA-2 worker-name seam (SG-1 PII boundary)", ()
     expect(JSON.stringify(ai.profilingRespond.mock.calls)).not.toContain("Nitin");
   });
 
+  it("inserts a name with `$` special-replacement chars literally (no pattern expansion)", async () => {
+    // Worker-controlled name may contain $&, $', $$ — a STRING replacement would
+    // expand these; the function replacement must insert them verbatim.
+    const { res } = await run({ replyText: PLACEHOLDER_REPLY, workerName: "Om$'" });
+    expect(res.reply).toBe("Om$' ji, Aap kaunsa kaam karte hain?");
+  });
+
   it("null name → clean no-vocative reply, no residual {{ }} token", async () => {
     const { res, chat } = await run({ replyText: PLACEHOLDER_REPLY, workerName: null });
     expect(res.reply).toBe("Aap kaunsa kaam karte hain?");
