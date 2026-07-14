@@ -208,6 +208,38 @@ class SkillCanonicalization(BaseModel):
     score: float | None = None
 
 
+# --- Skill-alias embedding batch (ADR-0030 / TAX-3 fork-B runner seam) ------
+class SkillAliasEmbedItem(BaseModel):
+    """One alias to embed. ``text`` is reference vocabulary (no worker PII by design)
+    and is STILL pseudonymized before any embed (SG-2)."""
+
+    alias_id: str
+    text: str
+
+
+class SkillAliasEmbedInput(BaseModel):
+    """A batch from the db-side runner (packages/db embed-skill-aliases.ts — the
+    owner-chosen fork-B: DB read/write stays on the runner, this service stays DB-free).
+    Capped so one request never smuggles an unbounded corpus."""
+
+    items: list[SkillAliasEmbedItem] = Field(max_length=200)
+
+
+class SkillAliasEmbedResult(BaseModel):
+    """``vector`` is None iff the text was blocked (fail-closed) — the runner leaves
+    that row NULL and excludes it from later fetches this run."""
+
+    alias_id: str
+    vector: list[float] | None = None
+    blocked: bool = False
+
+
+class SkillAliasEmbedOutput(BaseModel):
+    results: list[SkillAliasEmbedResult]
+    is_mock: bool = True
+    model: str
+
+
 # --- Profile extraction ----------------------------------------------------
 class ProfileExtractionInput(BaseModel):
     worker_ref: str | None = None

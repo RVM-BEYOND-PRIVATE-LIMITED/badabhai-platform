@@ -27,7 +27,7 @@ ranks** — a skills factor in RANK is a *separate future ADR*, explicitly out o
 | TAX-2 | Corpus import (ESCO/O*NET/NCO) + seed | — | **MERGED** | TAX-1 | #213 |
 | TAX-3 | AI — alias embedding (mock default, real §7) | — | **MERGED** | TAX-2 | #214 |
 | TAX-4 | AI — `canonicalize_skill` (floor-gated) | — | **MERGED** | TAX-3 | #215 |
-| **fork-B runner** | DB-side runner + ai embed endpoint | — | **NEXT** (owner chose B) | TAX-3/4 | — |
+| **fork-B runner** | DB-side runner + ai embed endpoint | — | **BUILT** (mock path; real §7) | TAX-3/4 | — |
 | TAX-5 | Data/AI — wedge aliases + floor calibration | **P1** | Unblocked · **2 gates** | TAX-4 | — |
 | TAX-6 | Backend+AI — job side shares id space | P2 | Unblocked | TAX-4 | — |
 | TAX-7 | AI — growth loop (cluster unresolved) | P2 | Unblocked | TAX-4 | — |
@@ -54,6 +54,27 @@ vector read/write lives in a **`packages/db` runner (owner connection)** that ca
 ai-service embed over HTTP — **not** a psycopg client inside the ai-service (option A rejected).
 Populates `skill_alias.embedding` (mock by default → runnable now with no spend; real is SG-4).
 Prerequisite for TAX-5's *real* calibration and TAX-7's *real* clustering.
+
+**Built (this PR):** `POST /embeddings/skill-alias` on the ai-service (batch ≤200, SG-2
+pseudonymize-first per item, SG-4 mock-default) + `packages/db/src/embed-skill-aliases.ts`
+(`pnpm db:embed:skills`, prod-guarded, NULL-only resumable, blocked rows excluded per-run,
+batch INR budget stop — TD64 interim guard).
+
+**Live-activation chain (do not assume the flag alone activates anything):** a real
+`SkillCanonicalStore` + enabling the `map_rich_to_legacy` call-site
+(`apps/ai-service/app/main.py` WS4 owner-review TODO) + `SKILL_CANONICALIZE_ENABLED=true`
+are ALL required before any label canonicalizes on the live path (TD65).
+
+**Staging REAL-run runbook (§7):**
+1. Requires `AI_ENABLE_REAL_CALLS=true` + `GEMINI_FLASH_API_KEY` + `AI_REAL_CALL_TASKS`
+   **empty or containing `skill_embedding`** — the staging default pin
+   `AI_REAL_CALL_TASKS=profile_extraction` makes the run silently MOCK and persists
+   deterministic hash vectors.
+2. Assert the runner report shows `mock=false` before accepting the run.
+3. Recovery from a misconfigured run: `UPDATE skill_alias SET embedding = NULL` for the
+   mock rows, then re-run (the batch is NULL-only resumable).
+4. Precondition: wire the SpendLedger (TD64) — the interim batch budget alone is not the
+   staging-approved cap story.
 
 ## TAX-5 — Wedge aliases + floor calibration · **P1** · owner: ai + RVM
 

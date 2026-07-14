@@ -16,6 +16,7 @@ import json
 from fastapi import FastAPI
 
 from .ai import cost_tracker
+from .ai.embeddings import EMBEDDING_TASK_TYPE, MOCK_MODEL, embed_text
 from .ai.router import AIRouter
 from .config import get_settings
 from .contracts import (
@@ -29,6 +30,9 @@ from .contracts import (
     PseudonymizationOutput,
     ResumeGenerationInput,
     ResumeGenerationOutput,
+    SkillAliasEmbedInput,
+    SkillAliasEmbedOutput,
+    SkillAliasEmbedResult,
     TranscriptionInput,
     TranscriptionOutput,
     WorkerProfileDraft,
@@ -124,6 +128,40 @@ def pseudonymize_endpoint(body: PseudonymizationInput) -> PseudonymizationOutput
         blocked_reason=result.blocked_reason,
         replaced_entities=result.replaced_entities,
         placeholder_tokens=result.placeholder_tokens,
+    )
+
+
+@app.post("/embeddings/skill-alias", response_model=SkillAliasEmbedOutput)
+def embed_skill_aliases(body: SkillAliasEmbedInput) -> SkillAliasEmbedOutput:
+    """ADR-0030 fork-B seam: the db-side runner (packages/db/src/embed-skill-aliases.ts,
+    owner connection) POSTs alias-text batches; this service embeds and returns vectors —
+    the DB read/write stays on the runner so the ai-service remains DB-free.
+
+    SG-2: every text is pseudonymized before the embed (inside ``embed_text``, fail-closed
+    → ``vector=None, blocked=True`` and the runner leaves that row NULL). SG-4: mock by
+    default (zero spend); the real provider additionally needs the master flag + key +
+    the ``skill_embedding`` task allowlist. Never logs alias text."""
+    settings = get_settings()
+    results = [
+        SkillAliasEmbedResult(alias_id=item.alias_id, vector=res.vector, blocked=res.blocked)
+        for item in body.items
+        for res in (embed_text(item.text, settings),)
+    ]
+    is_mock = not settings.real_call_enabled_for(EMBEDDING_TASK_TYPE)
+    logger.info(
+        "embed skill-alias batch",
+        extra={
+            "extra": {
+                "items": len(results),
+                "blocked": sum(1 for r in results if r.blocked),
+                "is_mock": is_mock,
+            }
+        },
+    )
+    return SkillAliasEmbedOutput(
+        results=results,
+        is_mock=is_mock,
+        model=settings.embedding_model if not is_mock else MOCK_MODEL,
     )
 
 

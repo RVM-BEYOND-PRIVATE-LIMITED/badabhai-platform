@@ -5,6 +5,8 @@ import {
   ProfileExtractionInputSchema,
   ProfileExtractionOutputSchema,
   PseudonymizationOutputSchema,
+  SkillAliasEmbedInputSchema,
+  SkillAliasEmbedOutputSchema,
   SkillCanonicalizationInputSchema,
   SkillCanonicalizationSchema,
   TranscriptionInputSchema,
@@ -131,6 +133,27 @@ describe("SkillCanonicalizationSchema (contracts.py parity — ADR-0030/TAX-4)",
   it("input defaults lang to en", () => {
     const inp = SkillCanonicalizationInputSchema.parse({ phrase: "VMC operator", domain_id: "vmc-machining" });
     expect(inp.lang).toBe("en");
+  });
+});
+
+describe("SkillAliasEmbed schemas (contracts.py parity — ADR-0030 fork-B seam)", () => {
+  it("caps the batch at 200 items (matches Pydantic max_length)", () => {
+    const items = Array.from({ length: 201 }, (_, i) => ({ alias_id: `a${i}`, text: "milling" }));
+    expect(SkillAliasEmbedInputSchema.safeParse({ items }).success).toBe(false);
+    expect(SkillAliasEmbedInputSchema.safeParse({ items: items.slice(0, 200) }).success).toBe(true);
+  });
+  it("blocked result carries a null vector; defaults mirror Pydantic", () => {
+    const out = SkillAliasEmbedOutputSchema.parse({
+      results: [
+        { alias_id: "ok", vector: [0.1, 0.2], blocked: false },
+        { alias_id: "bad" }, // vector defaults null, blocked defaults false
+      ],
+      model: "mock-embedding",
+    });
+    expect(out.is_mock).toBe(true);
+    const bad = out.results[1];
+    expect(bad?.vector).toBeNull();
+    expect(bad?.blocked).toBe(false);
   });
 });
 

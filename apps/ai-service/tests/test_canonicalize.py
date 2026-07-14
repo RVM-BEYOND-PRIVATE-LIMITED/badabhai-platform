@@ -190,6 +190,25 @@ def test_floor_is_inclusive_and_below_is_never_forced():
     assert just_under.unresolved  # the borderline miss is recorded
 
 
+# --- the top candidate is the MAX score, not positional (store order untrusted) -
+def test_top_candidate_is_max_score_even_if_store_returns_unsorted():
+    class UnsortedStore:
+        unresolved: list = []
+
+        def nearest_aliases(self, domain_id, query_vector, k):
+            # DESC contract violated (e.g. a runner that dropped ORDER BY) — the code
+            # must still pick the true max, not candidates[0].
+            return [("skill_low", 0.50), ("skill_high", 0.95)]
+
+        def record_unresolved(self, phrase, domain_id, lang):
+            self.unresolved.append(phrase)
+
+    res = canonicalize_skill("x", "d", UnsortedStore(), _settings())
+    assert res.status == "matched"
+    assert res.skill_id == "skill_high" and res.score is not None
+    assert abs(res.score - 0.95) < 1e-9
+
+
 # --- extraction wiring (flagged, default off) --------------------------------
 def test_map_rich_to_legacy_vector_canonicalizes_when_enabled():
     from app.contracts import WorkerProfileDraft
