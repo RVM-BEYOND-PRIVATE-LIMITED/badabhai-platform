@@ -235,9 +235,21 @@ class SkillAliasEmbedResult(BaseModel):
 
 
 class SkillAliasEmbedOutput(BaseModel):
+    """``results`` may be SHORTER than ``items``: an item is OMITTED when the request's
+    real-spend budget stopped (``budget_stopped``) or its provider call errored
+    (counted in ``errors``) — those rows stay NULL on the runner side and a later run
+    resumes them. Already-paid embeds in the same request are always returned."""
+
     results: list[SkillAliasEmbedResult]
     is_mock: bool = True
     model: str
+    # True when the per-request INR ceiling (ai_max_call_cost_inr) stopped the real batch
+    # early (TD64 interim guard — enforced HERE, on the path the runner actually hits).
+    budget_stopped: bool = False
+    # Per-item real-provider failures skipped (item omitted; batch continues).
+    errors: int = 0
+    # Accumulated estimate for THIS request's real embeds (0.0 on the mock path).
+    estimated_cost_inr: float = 0.0
 
 
 # --- Profile extraction ----------------------------------------------------

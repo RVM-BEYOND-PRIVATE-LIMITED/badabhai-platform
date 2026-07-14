@@ -234,6 +234,20 @@ def test_terminates_even_when_store_ignores_exclude_ids(monkeypatch):
     assert sorted(report.blocked_alias_ids) == ["bad1", "bad2"]
     assert report.embedded <= 1  # the clean row may be starved behind the clogged window,
     # but the batch must still TERMINATE (this test hanging = regression)
+    # …and the contract violation is SURFACED, not silent (operator can fix the SQL).
+    assert report.store_nonconforming is True
+
+
+def test_conforming_store_never_flags_nonconforming(monkeypatch):
+    def selective(text, *args, **kwargs):
+        if "12345678" in text:
+            return _pseudo(blocked=True, reason="residual_digits")
+        return _pseudo(text=text)
+
+    monkeypatch.setattr(embeddings, "pseudonymize", selective)
+    store = MemStore({"ok": ["milling", None], "bad": ["ref 12345678", None]})
+    report = embed_aliases(store, _mock_settings(), batch_size=1)
+    assert report.store_nonconforming is False
 
 
 def test_real_batch_budget_stops_spend(monkeypatch):

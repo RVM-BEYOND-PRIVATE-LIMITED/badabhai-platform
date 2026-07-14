@@ -254,10 +254,17 @@ export const SkillAliasEmbedResultSchema = z.object({
 });
 export type SkillAliasEmbedResult = z.infer<typeof SkillAliasEmbedResultSchema>;
 
+// `results` may be SHORTER than `items`: budget-stopped or provider-errored items are
+// OMITTED (rows stay NULL; a later run resumes). Already-paid embeds are always returned.
 export const SkillAliasEmbedOutputSchema = z.object({
   results: z.array(SkillAliasEmbedResultSchema),
   is_mock: z.boolean().default(true),
   model: z.string(),
+  // Per-request INR ceiling fired on the REAL path (TD64 interim guard).
+  budget_stopped: z.boolean().default(false),
+  // Per-item real-provider failures skipped (batch continued).
+  errors: z.number().int().nonnegative().default(0),
+  estimated_cost_inr: z.number().nonnegative().default(0),
 });
 export type SkillAliasEmbedOutput = z.infer<typeof SkillAliasEmbedOutputSchema>;
 

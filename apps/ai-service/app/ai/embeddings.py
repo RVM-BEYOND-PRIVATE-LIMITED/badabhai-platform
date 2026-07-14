@@ -160,6 +160,10 @@ class EmbedBatchReport:
     # True when the REAL batch stopped early because the projected spend would exceed
     # the batch budget (TD64 interim guard). Remaining rows stay NULL — resume later.
     budget_stopped: bool = False
+    # True when the store violated the exclude_ids contract (a fetch window contained
+    # ONLY already-blocked ids): the batch still terminates, but rows behind the clogged
+    # window were NOT processed this run — the store's SQL needs fixing.
+    store_nonconforming: bool = False
 
 
 def embed_aliases(
@@ -205,6 +209,15 @@ def embed_aliases(
         # the contract (a mis-written SQL runner must not hang or double-count).
         rows = [(aid, text) for aid, text in fetched if aid not in blocked]
         if not rows:
+            if fetched:
+                # The window held ONLY already-blocked ids — the store ignored exclude_ids.
+                # Terminate (never hang), but SAY so: rows behind the clog were skipped.
+                report.store_nonconforming = True
+                logger.warning(
+                    "embed_aliases: store ignored exclude_ids — terminating with "
+                    "unprocessed rows behind a blocked window",
+                    extra={"extra": {"blocked": len(blocked)}},
+                )
             break
         for alias_id, text in rows:
             processed += 1

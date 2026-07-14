@@ -56,9 +56,11 @@ Populates `skill_alias.embedding` (mock by default → runnable now with no spen
 Prerequisite for TAX-5's *real* calibration and TAX-7's *real* clustering.
 
 **Built (this PR):** `POST /embeddings/skill-alias` on the ai-service (batch ≤200, SG-2
-pseudonymize-first per item, SG-4 mock-default) + `packages/db/src/embed-skill-aliases.ts`
-(`pnpm db:embed:skills`, prod-guarded, NULL-only resumable, blocked rows excluded per-run,
-batch INR budget stop — TD64 interim guard).
+pseudonymize-first per item, SG-4 mock-default, **per-request INR ceiling enforced IN the
+endpoint** — `AI_MAX_CALL_COST_INR`, `budget_stopped` + per-item failure isolation, TD64
+interim guard) + `packages/db/src/embed-skill-aliases.ts` (`pnpm db:embed:skills`,
+prod-guarded, NULL-only resumable, blocked rows excluded per-run, response shape-validated,
+progress-or-abort, halts on `budget_stopped`; `EMBED_BATCH_SIZE` env for small real batches).
 
 **Live-activation chain (do not assume the flag alone activates anything):** a real
 `SkillCanonicalStore` + enabling the `map_rich_to_legacy` call-site
@@ -73,8 +75,8 @@ are ALL required before any label canonicalizes on the live path (TD65).
 2. Assert the runner report shows `mock=false` before accepting the run.
 3. Recovery from a misconfigured run: `UPDATE skill_alias SET embedding = NULL` for the
    mock rows, then re-run (the batch is NULL-only resumable).
-4. Precondition: wire the SpendLedger (TD64) — the interim batch budget alone is not the
-   staging-approved cap story.
+4. Precondition: wire the SpendLedger (TD64) — the endpoint's per-request ceiling bounds one
+   request, not the day/user totals; ledger wiring is the staging-approved cap story.
 
 ## TAX-5 — Wedge aliases + floor calibration · **P1** · owner: ai + RVM
 
