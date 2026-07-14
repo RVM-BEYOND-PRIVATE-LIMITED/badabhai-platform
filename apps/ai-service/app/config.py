@@ -20,6 +20,14 @@ class Settings(BaseSettings):
     # compatible). The master flag + key are still required regardless.
     ai_real_call_tasks: str = ""
 
+    # COST-4: the profiling chat turn returns the deterministic question_bank
+    # question DIRECTLY (already ≤20 words, on-persona) and skips the chat LLM
+    # entirely on the straight-line path — zero output tokens on the ask. When TRUE,
+    # an off-script/clarifying worker message (interview_engine.needs_rephrase) MAY
+    # spend one real LLM call to phrase a contextual reply — still gated by the
+    # master real-call flag + key. Off by default: templated-only, no chat LLM call.
+    ai_profiling_rephrase_enabled: bool = False
+
     # Direct Google AI Studio (Gemini) API key. The PRIMARY real-call credential
     # and the master gate for real calls (see real_calls_blocked_reason). The
     # field name maps to the env var GEMINI_FLASH_API_KEY (pydantic-settings is
