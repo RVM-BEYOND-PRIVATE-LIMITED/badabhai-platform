@@ -136,3 +136,16 @@ def test_embed_aliases_skips_blocked_rows_leaving_them_null(monkeypatch):
     assert report.blocked_alias_ids == ["bad"]
     assert store.rows["ok"][1] is not None  # embedded
     assert store.rows["bad"][1] is None  # left NULL for a later re-run
+
+
+def test_all_blocked_batch_terminates_not_infinite_loop(monkeypatch):
+    # A full batch of blocked rows stays NULL; without a no-progress break the batch would
+    # re-fetch the same rows forever. Assert it TERMINATES (no hang) and does not re-embed.
+    monkeypatch.setattr(
+        embeddings, "pseudonymize", lambda *_a, **_k: _pseudo(blocked=True, reason="x")
+    )
+    store = MemStore({"a": ["ref 111", None], "b": ["ref 222", None]})
+    report = embed_aliases(store, _mock_settings(), batch_size=2)
+    assert report.embedded == 0
+    assert report.blocked == 2  # each blocked row counted ONCE (not looped)
+    assert all(store.rows[a][1] is None for a in store.rows)

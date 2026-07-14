@@ -163,6 +163,7 @@ def embed_aliases(
         rows = store.fetch_unembedded(limit)
         if not rows:
             break
+        embedded_before = report.embedded
         for alias_id, text in rows:
             processed += 1
             res = embed_text(text, settings)
@@ -176,7 +177,11 @@ def embed_aliases(
                 report.estimated_cost_inr += cost_tracker.estimate_cost_inr(
                     settings.embedding_model, cost_tracker.estimate_tokens(text), 0
                 )
-        if len(rows) < limit:
+        # Termination: stop if the store is drained (short batch) OR this batch made NO
+        # progress — a full batch of BLOCKED rows stays NULL, so `fetch_unembedded` would
+        # return the SAME rows forever otherwise (infinite loop). No progress ⇒ the rest
+        # are unembeddable; leave them NULL for a later re-run once the blocker is fixed.
+        if len(rows) < limit or report.embedded == embedded_before:
             break
     logger.info(
         "embed_aliases done",
