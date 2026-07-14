@@ -17,11 +17,15 @@ request or response bodies — only the router observes counts/status.
 from __future__ import annotations
 
 from ..config import Settings
+from ..logging_config import get_logger
 from .errors import REASON_MISSING_KEY, REASON_NO_TEXT_CONTENT, REASON_SDK_ERROR, LlmTransportError
 
 # Reuse the SAME result shape as the Gemini client so the router/cost tracker
 # treat every provider identically.
 from .gemini_client import LlmResult
+from .model_config import ANTHROPIC_CACHE_MIN_TOKENS, should_cache_system
+
+logger = get_logger("ai.anthropic")
 
 _MAX_TOKENS_FLOOR = 1
 
@@ -30,16 +34,17 @@ def _to_anthropic_request(
     messages: list[dict[str, str]],
     *,
     json_mode: bool,
-) -> tuple[str, list[dict[str, str]]]:
+) -> tuple[list[str], list[dict[str, str]]]:
     """Map OpenAI-style messages to Anthropic's (system, messages) shape.
 
-    - ``system`` messages are concatenated into the TOP-LEVEL ``system`` string
-      (Anthropic has no ``system`` role inside ``messages``).
+    - ``system`` messages become an ordered LIST of system texts (kept separate,
+      not pre-joined, so the caller can cache-mark only the stable first block —
+      Anthropic has no ``system`` role inside ``messages``).
     - ``user`` -> role "user"; ``assistant`` -> role "assistant", order preserved.
-    - In ``json_mode`` a 'reply with only valid JSON' instruction is appended to
-      the system string (Anthropic has no responseMimeType toggle).
+    - In ``json_mode`` a 'reply with only valid JSON' instruction is appended as a
+      final system text (Anthropic has no responseMimeType toggle).
 
-    Returns ``(system_text, anthropic_messages)``.
+    Returns ``(system_texts, anthropic_messages)``.
     """
     system_texts: list[str] = []
     anthropic_messages: list[dict[str, str]] = []
@@ -52,11 +57,42 @@ def _to_anthropic_request(
         anthropic_role = "assistant" if role == "assistant" else "user"
         anthropic_messages.append({"role": anthropic_role, "content": text})
 
-    system_text = "\n".join(system_texts)
     if json_mode:
-        instruction = "Reply with ONLY valid JSON."
-        system_text = f"{system_text}\n{instruction}" if system_text else instruction
-    return system_text, anthropic_messages
+        system_texts.append("Reply with ONLY valid JSON.")
+    return system_texts, anthropic_messages
+
+
+def _anthropic_system_param(system_texts: list[str]):
+    """Build the Anthropic ``system`` param, prompt-caching the STABLE block (COST-2).
+
+    Only ``system_texts[0]`` — the static persona / extraction prompt — is stable
+    across calls and therefore cacheable; a per-turn instruction block (which carries
+    the turn's question) is never cached. When that stable block clears the provider
+    minimum we return a structured block list with a ``cache_control: ephemeral``
+    breakpoint on it (Anthropic caches the prefix up to and including that block);
+    otherwise we return the plain concatenated string and emit a skip diagnostic.
+
+    SG-1: only static prompt text is ever placed in ``system`` — never a worker
+    message or name — so nothing PII-bearing is ever cached. The diagnostic logs
+    only a provider label + token minimum, never any content.
+    """
+    if not system_texts:
+        return ""
+    stable = system_texts[0]
+    if should_cache_system(stable, ANTHROPIC_CACHE_MIN_TOKENS):
+        blocks: list[dict] = [
+            {"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}}
+        ]
+        blocks.extend({"type": "text", "text": t} for t in system_texts[1:])
+        return blocks
+    # debug, not info: below-min is the steady state today (persona ~200 tok), so an
+    # info line every real turn is pure repetition. The 'eligible' transition (Gemini)
+    # stays at info because it is the state change worth surfacing.
+    logger.debug(
+        "prompt-cache skipped: system block below cache minimum",
+        extra={"extra": {"provider": "anthropic", "min_tokens": ANTHROPIC_CACHE_MIN_TOKENS}},
+    )
+    return "\n".join(system_texts)
 
 
 def _parse_anthropic_response(resp) -> LlmResult:
@@ -112,7 +148,8 @@ async def acomplete(
     except ImportError as exc:  # SDK not installed -> treat as a failed provider.
         raise LlmTransportError(REASON_SDK_ERROR) from exc
 
-    system_text, anthropic_messages = _to_anthropic_request(messages, json_mode=json_mode)
+    system_texts, anthropic_messages = _to_anthropic_request(messages, json_mode=json_mode)
+    system_param = _anthropic_system_param(system_texts)
 
     try:
         client = AsyncAnthropic(api_key=api_key)
@@ -120,7 +157,7 @@ async def acomplete(
         resp = await client.messages.create(
             model=model,
             max_tokens=max(max_output_tokens, _MAX_TOKENS_FLOOR),
-            system=system_text,
+            system=system_param,
             messages=anthropic_messages,
             temperature=temperature,
         )

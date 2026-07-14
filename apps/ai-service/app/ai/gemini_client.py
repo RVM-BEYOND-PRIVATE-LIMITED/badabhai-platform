@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import httpx
 
 from ..config import Settings
+from ..logging_config import get_logger
 from .errors import (
     REASON_HTTP_429,
     REASON_HTTP_ERROR,
@@ -24,6 +25,9 @@ from .errors import (
     REASON_NO_CANDIDATES,
     LlmTransportError,
 )
+from .model_config import GEMINI_CACHE_MIN_TOKENS, should_cache_system
+
+logger = get_logger("ai.gemini")
 
 _GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 _TIMEOUT_SECONDS = 30.0
@@ -121,7 +125,36 @@ def _to_gemini_request(
     body: dict = {"contents": contents, "generationConfig": generation_config}
     if system_texts:
         body["systemInstruction"] = {"parts": [{"text": t} for t in system_texts]}
+        _gemini_cache_diagnostic(system_texts[0])
     return body
+
+
+def _gemini_cache_diagnostic(stable_system_text: str) -> None:
+    """Emit a prompt-cache diagnostic for the STABLE system block (COST-2).
+
+    Gemini 2.5 Flash uses IMPLICIT caching — it caches a long stable prefix
+    automatically with NO request change — and EXPLICIT ``cachedContent`` requires a
+    separately-created cache resource (its own create/TTL lifecycle, deferred). So
+    unlike Anthropic there is no inline directive to add here; we only surface
+    whether the block is large enough to benefit, so an over-trimmed (uncacheable)
+    prompt is never silently assumed cached. SG-1: only the static persona/extraction
+    block is passed here — never a worker message or name. Logs a label + minimum
+    only, never content.
+    """
+    if should_cache_system(stable_system_text, GEMINI_CACHE_MIN_TOKENS):
+        # info: the block clearing the implicit floor is the state change worth surfacing.
+        logger.info(
+            "prompt-cache eligible: Gemini implicit caching applies (explicit "
+            "cachedContent lifecycle deferred)",
+            extra={"extra": {"provider": "google", "min_tokens": GEMINI_CACHE_MIN_TOKENS}},
+        )
+    else:
+        # debug: below-min is the steady state today (persona ~200 tok) — an info line
+        # every real turn is pure repetition until the prompt grows past the floor.
+        logger.debug(
+            "prompt-cache skipped: system block below cache minimum",
+            extra={"extra": {"provider": "google", "min_tokens": GEMINI_CACHE_MIN_TOKENS}},
+        )
 
 
 def _parse_gemini_response(data: dict) -> LlmResult:

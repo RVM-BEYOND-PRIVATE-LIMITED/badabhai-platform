@@ -29,7 +29,7 @@ def _run(coro):
 
 # --- Pure mapping/parsing (no SDK) -----------------------------------------
 
-def test_request_mapping_system_top_level_and_alternation():
+def test_request_mapping_system_texts_list_and_alternation():
     messages = [
         {"role": "system", "content": "be brief"},
         {"role": "system", "content": "stay factual"},
@@ -37,10 +37,12 @@ def test_request_mapping_system_top_level_and_alternation():
         {"role": "assistant", "content": "badhiya"},
         {"role": "user", "content": "fanuc bhi"},
     ]
-    system_text, anth_messages = _to_anthropic_request(messages, json_mode=False)
+    system_texts, anth_messages = _to_anthropic_request(messages, json_mode=False)
 
-    # System messages concatenated into ONE top-level string (not a message).
-    assert system_text == "be brief\nstay factual"
+    # System messages kept as an ORDERED LIST (not pre-joined) so the caller can
+    # cache-mark only the stable first block (COST-2). _anthropic_system_param
+    # joins them when the block is below the cache minimum.
+    assert system_texts == ["be brief", "stay factual"]
     # user -> user, assistant -> assistant; order preserved; no system role here.
     assert anth_messages == [
         {"role": "user", "content": "vmc 4 saal"},
@@ -50,18 +52,18 @@ def test_request_mapping_system_top_level_and_alternation():
     assert all(m["role"] in {"user", "assistant"} for m in anth_messages)
 
 
-def test_json_mode_appends_instruction_to_system():
-    system_text, _ = _to_anthropic_request(
+def test_json_mode_appends_instruction_as_final_system_text():
+    system_texts, _ = _to_anthropic_request(
         [{"role": "user", "content": "x"}], json_mode=True
     )
-    # With no system messages, the instruction stands alone.
-    assert system_text == "Reply with ONLY valid JSON."
+    # With no system messages, the instruction stands alone as the only block.
+    assert system_texts == ["Reply with ONLY valid JSON."]
 
-    system_text2, _ = _to_anthropic_request(
+    system_texts2, _ = _to_anthropic_request(
         [{"role": "system", "content": "be brief"}, {"role": "user", "content": "x"}],
         json_mode=True,
     )
-    assert system_text2 == "be brief\nReply with ONLY valid JSON."
+    assert system_texts2 == ["be brief", "Reply with ONLY valid JSON."]
 
 
 class _Block:
