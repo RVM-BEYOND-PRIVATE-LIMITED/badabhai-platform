@@ -115,6 +115,22 @@ def test_below_floor_phrase_is_unresolved_and_recorded():
     assert "astrophysics" in phrase  # the (pseudonymized) miss text is recorded for learning
 
 
+# --- SG-1 discriminator: the RECORDED miss text is masked, never the raw phrase ---
+def test_below_floor_miss_records_masked_text_not_raw_pii():
+    # An employer name MASKS but does NOT block (no residual digit run). This is the only
+    # assertion that actually proves record_unresolved gets emb.text (masked), not the raw
+    # `phrase` — a PII-free miss phrase can't distinguish the two.
+    store = MemCanonStore()
+    store.seed("skill_vmc_operator", "vmc-machining", "VMC operator")
+
+    res = canonicalize_skill("welder at Tata Motors", "vmc-machining", store, _settings())
+    assert res.status == "unresolved"
+    assert len(store.unresolved) == 1
+    recorded = store.unresolved[0][0]
+    assert "Tata" not in recorded and "Motors" not in recorded  # raw employer never stored
+    assert "[EMPLOYER_1]" in recorded  # the pseudonymized placeholder is what got recorded
+
+
 # --- (3) domain mismatch → no cross-domain match -----------------------------
 def test_same_phrase_in_wrong_domain_does_not_match():
     store = MemCanonStore()

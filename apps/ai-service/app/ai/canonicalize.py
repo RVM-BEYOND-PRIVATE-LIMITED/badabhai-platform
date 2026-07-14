@@ -32,10 +32,7 @@ from typing import Protocol
 
 from ..config import Settings
 from ..contracts import SkillCanonicalization
-from ..logging_config import get_logger
 from .embeddings import embed_text
-
-logger = get_logger("ai.canonicalize")
 
 MATCHED = "matched"
 UNRESOLVED = "unresolved"
@@ -105,9 +102,11 @@ def canonicalize_skill(
 
     candidates = store.nearest_aliases(domain_id, emb.vector, top_k)
     if candidates:
-        top_skill_id, top_score = candidates[0]
+        # Defensive: take the true max rather than trusting the store's DESC order — a future
+        # runner that drops ORDER BY must not cause a valid >=floor match to be missed. SG-3
+        # holds either way: any id chosen is still one the store returned, never invented.
+        top_skill_id, top_score = max(candidates, key=lambda c: c[1])
         if top_score >= floor:
-            # SG-3: the id comes ONLY from the store's closed alias set — never invented here.
             return SkillCanonicalization(
                 status=MATCHED, skill_id=top_skill_id, score=round(float(top_score), 6)
             )
