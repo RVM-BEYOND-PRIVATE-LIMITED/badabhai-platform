@@ -20,10 +20,21 @@ this expands on them.
     re-sends the transcript each turn (`build_chat_messages` is stateless by
     design), cutting per-interview input from O(n²) → O(n). Extraction keeps full
     context. Owner: ai.
-  - **COST-2 — prompt caching (min-threshold guarded)** *(blocked-by COST-3)*: mark
-    the static persona system block cacheable via the provider seam, but only when
-    it clears the Gemini/Anthropic cache minimum — else log a skip diagnostic.
-    Effective only in real mode. Owner: ai.
+  - **COST-2 — prompt caching (min-threshold guarded)** ✅ *landed*: the static
+    system block is cache-marked via the provider seam **only when it clears the
+    provider minimum** (`should_cache_system` in `model_config.py`; Anthropic Haiku
+    4.5 = 4096 tok, Gemini 2.5 Flash **implicit** floor = 1024 tok — what the Gemini
+    diagnostic checks; explicit `cachedContent` = 2048 tok, deferred — sourced 2026-07-14).
+    Anthropic gets a real `cache_control: ephemeral` breakpoint on the STABLE persona
+    block only (the per-turn question block is never cached); Gemini gets the guard +
+    diagnostic (2.5 implicit caching is automatic — no request field — and the
+    explicit `cachedContent` lifecycle is deferred). After AI-PERSONA-1's trim the
+    persona is ~200 tok — **below every minimum — so it honestly logs "below cache
+    minimum — skipped" today** and arms automatically if the prompt grows. Effective
+    only in real mode. Owner: ai.
+    - **Deferred (§7-adjacent):** Gemini explicit `cachedContent` create/TTL/reference
+      lifecycle — only worth building if the cached block ever clears the 2048-tok
+      minimum; the guard already gates it.
   - **COST-4 — templated-question default, LLM interprets-only** ✅ *landed*: the
     profiling chat turn returns the deterministic `question_bank` question directly
     (the engine already chose it, ≤20 words, on-persona) and skips the chat LLM on
