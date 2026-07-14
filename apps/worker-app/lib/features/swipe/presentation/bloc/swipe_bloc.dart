@@ -35,6 +35,18 @@ class SwipePrioritized extends SwipeEvent {
   const SwipePrioritized();
 }
 
+/// The worker changed the trade filter in the "Filter jobs" sheet. [trades] is
+/// the selected trade-label set (empty = show all). Recomputes the visible deck
+/// client-side over the already-loaded queue — no refetch.
+class SwipeFiltersChanged extends SwipeEvent {
+  const SwipeFiltersChanged(this.trades);
+
+  final Set<String> trades;
+
+  @override
+  List<Object?> get props => <Object?>[trades];
+}
+
 // ---------------- Bloc ----------------
 
 class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
@@ -43,6 +55,7 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
     on<SwipeApplied>(_onApplied);
     on<SwipeSkipped>(_onSkipped);
     on<SwipePrioritized>(_onPrioritized);
+    on<SwipeFiltersChanged>(_onFiltersChanged);
   }
 
   final SwipeRepository _repo;
@@ -114,15 +127,33 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
     }
   }
 
-  /// Drop the head card; show the empty state when the queue drains. [applied]
-  /// bumps `appliedNonce` (apply toast); [prioritized] bumps `prioritizedNonce`
-  /// (Priority toast) — both only on real success.
+  /// Recompute the visible deck for a new trade filter. Pure client-side over the
+  /// loaded queue (no refetch, no `/feed` filter contract). Keeps the queue and
+  /// all decision state intact — only what is VISIBLE changes.
+  Future<void> _onFiltersChanged(
+    SwipeFiltersChanged event,
+    Emitter<SwipeState> emit,
+  ) async {
+    emit(state.copyWith(tradeFilter: event.trades));
+  }
+
+  /// Drop the DECIDED card (the filtered head) by id, not by position — with a
+  /// filter active the visible head is not necessarily `queue.first`. `status`
+  /// tracks the undecided queue draining; a non-empty queue whose remainder is
+  /// all filtered out stays `ready` and renders the "no jobs match" state.
+  /// [applied] bumps `appliedNonce` (apply toast); [prioritized] bumps
+  /// `prioritizedNonce` (Priority toast) — both only on real success.
   void _advance(
     Emitter<SwipeState> emit, {
     bool applied = false,
     bool prioritized = false,
   }) {
-    final List<FeedItem> next = state.queue.sublist(1);
+    final FeedItem? decided = state.current;
+    final List<FeedItem> next = decided == null
+        ? state.queue
+        : state.queue
+            .where((FeedItem job) => job.jobId != decided.jobId)
+            .toList();
     emit(state.copyWith(
       queue: next,
       deciding: false,

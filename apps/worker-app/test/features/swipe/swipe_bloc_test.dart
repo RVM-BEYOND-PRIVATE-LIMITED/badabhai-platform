@@ -19,6 +19,16 @@ FeedItem _item(String id) => FeedItem(
       rank: 1,
     );
 
+/// A feed item whose trade is filterable (tradeKey doubles as the title source).
+FeedItem _job(String id, String tradeKey) => FeedItem(
+      jobId: id,
+      tradeKey: tradeKey,
+      title: tradeKey,
+      city: 'C',
+      area: null,
+      rank: 1,
+    );
+
 void main() {
   late MockSwipeRepository repo;
   setUp(() => repo = MockSwipeRepository());
@@ -193,6 +203,91 @@ void main() {
             prioritizedNonce: 1),
       ],
       verify: (_) => verify(() => repo.prioritizeJob('j1')).called(1),
+    );
+  });
+
+  group('filters', () {
+    blocTest<SwipeBloc, SwipeState>(
+      'SwipeFiltersChanged narrows the visible deck; the queue stays intact',
+      build: () => SwipeBloc(repo),
+      seed: () => SwipeState(
+        status: SwipeStatus.ready,
+        queue: <FeedItem>[
+          _job('cnc1', 'cnc_operator'),
+          _job('vmc1', 'vmc_setter'),
+          _job('weld1', 'welder'),
+        ],
+      ),
+      act: (SwipeBloc b) =>
+          b.add(const SwipeFiltersChanged(<String>{'CNC', 'VMC'})),
+      verify: (SwipeBloc b) {
+        expect(b.state.tradeFilter, <String>{'CNC', 'VMC'});
+        expect(b.state.visibleQueue.map((FeedItem j) => j.jobId).toList(),
+            <String>['cnc1', 'vmc1']);
+        expect(b.state.queue.length, 3); // unfiltered queue untouched
+        expect(b.state.current?.jobId, 'cnc1');
+        expect(b.state.filteredOut, isFalse);
+      },
+    );
+
+    blocTest<SwipeBloc, SwipeState>(
+      'apply acts on the FILTERED head, not queue.first',
+      build: () {
+        when(() => repo.applyToJob(any(), rank: any(named: 'rank')))
+            .thenAnswer((_) async {});
+        return SwipeBloc(repo);
+      },
+      // vmc is first in the queue, but the CNC filter makes cnc the head.
+      seed: () => SwipeState(
+        status: SwipeStatus.ready,
+        queue: <FeedItem>[
+          _job('vmc1', 'vmc_setter'),
+          _job('cnc1', 'cnc_operator'),
+        ],
+        tradeFilter: const <String>{'CNC'},
+      ),
+      act: (SwipeBloc b) => b.add(const SwipeApplied()),
+      verify: (SwipeBloc b) {
+        verify(() => repo.applyToJob('cnc1', rank: 1)).called(1);
+        expect(b.state.queue.map((FeedItem j) => j.jobId).toList(),
+            <String>['vmc1']);
+        expect(b.state.filteredOut, isTrue); // vmc1 does not match CNC
+        expect(b.state.current, isNull);
+      },
+    );
+
+    blocTest<SwipeBloc, SwipeState>(
+      'a filter matching nothing sets filteredOut with no current',
+      build: () => SwipeBloc(repo),
+      seed: () => SwipeState(
+        status: SwipeStatus.ready,
+        queue: <FeedItem>[_job('weld1', 'welder')],
+      ),
+      act: (SwipeBloc b) => b.add(const SwipeFiltersChanged(<String>{'CNC'})),
+      verify: (SwipeBloc b) {
+        expect(b.state.filteredOut, isTrue);
+        expect(b.state.visibleQueue, isEmpty);
+        expect(b.state.current, isNull);
+        expect(b.state.queue.length, 1); // still there once the filter clears
+      },
+    );
+
+    blocTest<SwipeBloc, SwipeState>(
+      'clearing the filter restores the full deck',
+      build: () => SwipeBloc(repo),
+      seed: () => SwipeState(
+        status: SwipeStatus.ready,
+        queue: <FeedItem>[
+          _job('cnc1', 'cnc_operator'),
+          _job('vmc1', 'vmc_setter'),
+        ],
+        tradeFilter: const <String>{'CNC'},
+      ),
+      act: (SwipeBloc b) => b.add(const SwipeFiltersChanged(<String>{})),
+      verify: (SwipeBloc b) {
+        expect(b.state.visibleQueue.length, 2);
+        expect(b.state.filteredOut, isFalse);
+      },
     );
   });
 }

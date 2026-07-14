@@ -7,9 +7,15 @@ import { z } from "zod";
  * every request schema below.
  */
 
-/** GET /feed query — a bounded page (R-A: limit ≤ 50, default 20). */
+/**
+ * GET /feed query — a bounded page. The feed is LIBERAL for the alpha (every
+ * open job, no location/trade filter), so the default is generous (50) — early
+ * on, with few seeded jobs, a no-`limit` request returns them ALL. Still bounded
+ * (`max 50`) so the page can never be unbounded; a client may request a smaller
+ * page. Raise the cap alongside the default if job volume outgrows 50.
+ */
 export const FeedQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(50).default(20),
+  limit: z.coerce.number().int().min(1).max(50).default(50),
 });
 export type FeedQueryDto = z.infer<typeof FeedQuerySchema>;
 
