@@ -130,6 +130,24 @@ export class WorkersRepository {
     return rows[0];
   }
 
+  /**
+   * Patch the worker's resume display prefs (a partial set — only the provided
+   * flags are written). NON-PII booleans; the service reads back the returned row
+   * for the resulting values it emits. Returns the updated row, or undefined if no
+   * worker matched.
+   */
+  async updateResumePrefs(
+    id: string,
+    patch: { resumeShowPhoto?: boolean; resumeNightShiftReady?: boolean },
+  ): Promise<Worker | undefined> {
+    const rows = await this.db
+      .update(workers)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(workers.id, id))
+      .returning();
+    return rows[0];
+  }
+
   async latestProfile(workerId: string): Promise<WorkerProfile | undefined> {
     const rows = await this.db
       .select()

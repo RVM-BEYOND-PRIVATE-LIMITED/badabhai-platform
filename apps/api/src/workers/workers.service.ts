@@ -4,7 +4,11 @@ import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "./workers.repository";
 import { toProfileSummary } from "./profile-summary.mapper";
-import type { WorkerProfileSummary } from "./workers.dto";
+import type {
+  WorkerProfileSummary,
+  WorkerResumeFields,
+  UpdateResumePrefsDto,
+} from "./workers.dto";
 
 /**
  * Worker write-side logic (identity) + the worker SELF-view summary read.
@@ -74,5 +78,77 @@ export class WorkersService {
   async getProfileSummary(workerId: string): Promise<WorkerProfileSummary> {
     const profile = await this.workers.latestProfile(workerId);
     return toProfileSummary(profile ?? null);
+  }
+
+  /**
+   * The worker-editable resume "safe fields" (GET /workers/me/resume-fields). Unlike
+   * the faceless profile-summary, this DOES decrypt and return the worker's OWN name
+   * so they can correct its spelling — a self-read of one's own name is not a
+   * cross-actor leak (§2 ruling recorded 2026-07-14, TD21). The plaintext name is
+   * returned to the owner over TLS only; it never enters an event, log, ai_jobs, or
+   * LLM input — the name is captured in a SEPARATE step precisely so it never reaches
+   * an LLM. `full_name` is null until set.
+   *
+   * Decrypt failure (corrupt/wrong-key/legacy-plaintext row) DEGRADES to a name-less
+   * response — never a thrown error that could 500 the edit screen or embed PII —
+   * mirroring the payer-disclosure path (resume-disclosure.service.ts). Fails closed.
+   *
+   * DELIBERATELY NO EVENT: a read-only self-view is not a state change (§1).
+   */
+  async getResumeFields(workerId: string): Promise<WorkerResumeFields> {
+    const worker = await this.workers.findById(workerId);
+    if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
+
+    let fullName: string | null = null;
+    if (worker.fullName) {
+      try {
+        fullName = this.pii.decrypt(worker.fullName);
+      } catch {
+        // Degrade name-less; never log the ciphertext/key/plaintext (§2).
+        this.logger.warn(`could not decrypt full_name for worker ${workerId}; name-less resume fields`);
+      }
+    }
+
+    return {
+      full_name: fullName,
+      show_photo: worker.resumeShowPhoto,
+      night_shift_ready: worker.resumeNightShiftReady,
+    };
+  }
+
+  /**
+   * Update the worker's resume display prefs (PATCH /workers/me/resume-prefs). Only
+   * the provided flags are written; the event carries the RESULTING values of both
+   * flags (read back from the updated row) — PII-free booleans only.
+   */
+  async updateResumePrefs(
+    workerId: string,
+    dto: UpdateResumePrefsDto,
+    ctx: RequestContext,
+  ): Promise<{ worker_id: string }> {
+    const worker = await this.workers.findById(workerId);
+    if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
+
+    const updated = await this.workers.updateResumePrefs(workerId, {
+      resumeShowPhoto: dto.show_photo,
+      resumeNightShiftReady: dto.night_shift_ready,
+    });
+    if (!updated) throw new NotFoundException(`Worker ${workerId} not found`);
+
+    await this.events.emit({
+      event_name: "worker.resume_prefs_updated",
+      actor: { actor_type: "worker", actor_id: workerId },
+      subject: { subject_type: "worker", subject_id: workerId },
+      payload: {
+        worker_id: workerId,
+        show_photo: updated.resumeShowPhoto,
+        night_shift_ready: updated.resumeNightShiftReady,
+      },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+
+    this.logger.log(`resume prefs updated for worker ${workerId}`);
+    return { worker_id: workerId };
   }
 }

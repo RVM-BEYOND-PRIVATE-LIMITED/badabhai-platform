@@ -74,6 +74,13 @@ export const workers = pgTable(
     // any code writes a real name here — do not store a name in plaintext.
     fullName: text("full_name"),
     preferredLanguage: text("preferred_language").$type<LanguageCode>(),
+    // Worker-controlled resume display prefs (the "Aap control karte hain" edit
+    // screen's safe fields). NON-PII booleans — worker-scoped so they persist
+    // across profile regeneration, and safe to carry in events. `show_photo`
+    // gates the (deferred) profile-photo on the worker's own resume/app avatar;
+    // `night_shift_ready` is the worker-asserted availability flag.
+    resumeShowPhoto: boolean("resume_show_photo").notNull().default(true),
+    resumeNightShiftReady: boolean("resume_night_shift_ready").notNull().default(false),
     status: text("status").$type<WorkerStatus>().notNull().default("pending"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

@@ -253,6 +253,13 @@
       "when": 1783065276524,
       "tag": "0035_thin_red_ghost",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1784007454200,
+      "tag": "0036_worker_resume_prefs",
+      "breakpoints": true
     }
   ]
 }

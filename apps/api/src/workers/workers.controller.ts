@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   NotFoundException,
   Param,
@@ -27,7 +28,10 @@ import {
   type SetWorkerNameDto,
   SetMyNameSchema,
   type SetMyNameDto,
+  UpdateResumePrefsSchema,
+  type UpdateResumePrefsDto,
   type WorkerProfileSummary,
+  type WorkerResumeFields,
 } from "./workers.dto";
 
 @Controller("workers")
@@ -64,6 +68,27 @@ export class WorkersController {
     @CurrentWorker() worker: AuthenticatedWorker,
   ): Promise<WorkerProfileSummary> {
     return this.workersService.getProfileSummary(worker.id);
+  }
+
+  /**
+   * Worker SELF-view of the editable resume "safe fields" (the "Aap control karte
+   * hain" edit screen loads this): the worker's OWN name spelling + the two display
+   * prefs. Worker from @CurrentWorker (never a path/body id); consent-gated like
+   * every worker-self profile read (WorkerAuthGuard THEN ConsentGuard).
+   *
+   * Returns the worker's OWN name — a self-read, not a cross-actor leak; it never
+   * enters an event/log/ai_jobs/LLM. NO event (a read is not a state change, §1).
+   *
+   * ROUTE ORDER: declared BEFORE the `:id/profile` param route so the literal "me"
+   * segment is never captured as an `:id` (Nest matches in declaration order).
+   */
+  @Get("me/resume-fields")
+  @Header("Cache-Control", "no-store") // response carries the worker's own name (PII) — never cache
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  async getMyResumeFields(
+    @CurrentWorker() worker: AuthenticatedWorker,
+  ): Promise<WorkerResumeFields> {
+    return this.workersService.getResumeFields(worker.id);
   }
 
   /** Worker + latest profile + latest generated resume. */
@@ -125,6 +150,23 @@ export class WorkersController {
     @Ctx() ctx: RequestContext,
   ): Promise<{ ok: true }> {
     await this.workersService.setFullName(worker.id, dto.full_name, ctx);
+    return { ok: true };
+  }
+
+  /**
+   * Update the worker's resume display prefs (show-photo / night-shift-ready) from
+   * the edit screen. Worker from @CurrentWorker (never body/path); consent-gated.
+   * Emits a PII-free `worker.resume_prefs_updated`. Response is only `{ ok: true }`.
+   */
+  @Patch("me/resume-prefs")
+  @HttpCode(200)
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  async updateMyResumePrefs(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Body(new ZodValidationPipe(UpdateResumePrefsSchema)) dto: UpdateResumePrefsDto,
+    @Ctx() ctx: RequestContext,
+  ): Promise<{ ok: true }> {
+    await this.workersService.updateResumePrefs(worker.id, dto, ctx);
     return { ok: true };
   }
 }

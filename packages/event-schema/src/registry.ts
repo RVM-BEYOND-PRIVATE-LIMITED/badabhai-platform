@@ -23,6 +23,11 @@ export const EVENT_REGISTRY = {
   "worker.otp_requested": { version: 1, domain: "worker", payload: p.WorkerOtpRequestedPayload },
   "worker.otp_verified": { version: 1, domain: "worker", payload: p.WorkerOtpVerifiedPayload },
   "worker.name_recorded": { version: 1, domain: "worker", payload: p.WorkerNameRecordedPayload },
+  "worker.resume_prefs_updated": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerResumePrefsUpdatedPayload,
+  },
   // ADR-0026 Phase 1 — opaque rotating-refresh-token reuse detection + logout-all.
   // PII-FREE: opaque worker/family ids + a count only (never the refresh token value
   // or its sha256, never a phone). Routine token rotation is NOT emitted (it is not a

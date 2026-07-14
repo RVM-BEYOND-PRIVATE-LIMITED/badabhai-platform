@@ -182,6 +182,34 @@ class ApiClient {
     );
   }
 
+  /// GET /workers/me/resume-fields — the worker-editable "safe fields" (their OWN
+  /// name spelling + display prefs) for the edit screen. Worker-scoped
+  /// (WorkerAuthGuard + ConsentGuard); the worker is taken from [authToken], never
+  /// the body. `full_name` is a self-read of the owner's own name (never logged).
+  Future<ResumeFieldsDto> getResumeFields({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/resume-fields', authToken: authToken);
+    return ResumeFieldsDto.fromJson(json);
+  }
+
+  /// PATCH /workers/me/resume-prefs — persist the resume display prefs. Sends both
+  /// flags (the backend requires at least one). Worker from [authToken]; the
+  /// response is only `{ ok: true }`, so nothing is parsed back.
+  Future<void> updateResumePrefs({
+    required bool showPhoto,
+    required bool nightShiftReady,
+    required String authToken,
+  }) async {
+    await _patch(
+      '/workers/me/resume-prefs',
+      <String, dynamic>{
+        'show_photo': showPhoto,
+        'night_shift_ready': nightShiftReady,
+      },
+      authToken: authToken,
+    );
+  }
+
   /// GET /workers/:id/profile — worker + latest profile + latest generated
   /// resume. Used to restore `profileId` (and reuse an existing resume) after a
   /// login that skipped in-session profiling.

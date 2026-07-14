@@ -530,6 +530,30 @@ class ResumeResult extends Equatable {
   List<Object?> get props => <Object?>[resumeId, version, resumeText, isMock];
 }
 
+/// The worker-editable resume "safe fields" (GET /workers/me/resume-fields) — the
+/// worker's OWN name spelling + the two display prefs. `fullName` is null until a
+/// name is set; the edit screen renders it as an empty spelling to fill in.
+class ResumeFieldsDto extends Equatable {
+  const ResumeFieldsDto({
+    required this.fullName,
+    required this.showPhoto,
+    required this.nightShiftReady,
+  });
+
+  final String? fullName;
+  final bool showPhoto;
+  final bool nightShiftReady;
+
+  factory ResumeFieldsDto.fromJson(Map<String, dynamic> json) => ResumeFieldsDto(
+        fullName: json['full_name'] as String?,
+        showPhoto: json['show_photo'] as bool? ?? true,
+        nightShiftReady: json['night_shift_ready'] as bool? ?? false,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[fullName, showPhoto, nightShiftReady];
+}
+
 /// Worker's current profile + latest resume (GET /workers/:id/profile). Used to
 /// restore the session's profileId (and reuse an already-generated resume) for a
 /// worker who logged in without re-running profiling this session. Any field is

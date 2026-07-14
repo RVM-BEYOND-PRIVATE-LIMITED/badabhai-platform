@@ -40,6 +40,17 @@ export const WorkerNameRecordedPayload = z.object({
   worker_id: uuidSchema,
 });
 
+// The worker updated their resume display prefs on the "Aap control karte hain"
+// edit screen. PII-FREE: only worker_id + the two boolean flags — never the
+// name/phone/photo. Carries the RESULTING values (post-update) of both flags.
+export const WorkerResumePrefsUpdatedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    show_photo: z.boolean(),
+    night_shift_ready: z.boolean(),
+  })
+  .strict(); // no extra fields — a stray name/phone can never ride along (§2)
+
 // ADR-0026 Phase 1 — opaque rotating refresh token reuse detection. A previously
 // USED refresh token was replayed (token theft / a leaked token re-presented) ⇒ the
 // whole token FAMILY is revoked and the worker is forced back to OTP. PII-FREE: the

@@ -41,6 +41,12 @@ function make() {
   const workersService = {
     setFullName: vi.fn(async () => ({ worker_id: ID })),
     getProfileSummary: vi.fn(async () => PROFILE_SUMMARY),
+    getResumeFields: vi.fn(async () => ({
+      full_name: "Asha",
+      show_photo: true,
+      night_shift_ready: false,
+    })),
+    updateResumePrefs: vi.fn(async () => ({ worker_id: ID })),
   };
   return {
     controller: new WorkersController(
@@ -105,5 +111,24 @@ describe("WorkersController — list/getProfile (read, no-PII) + setName", () =>
     // response NEVER carries the name (or even the id): only { ok: true }
     expect(res).toEqual({ ok: true });
     expect(JSON.stringify(res)).not.toMatch(/Asha/i);
+  });
+
+  it("getMyResumeFields takes the worker from the token and returns the service projection", async () => {
+    const { controller, workersService } = make();
+    const worker = { id: ID, sid: "sess-1" };
+    const res = await controller.getMyResumeFields(worker);
+    // identity: the service gets the TOKEN worker id — never a path/body id
+    expect(workersService.getResumeFields).toHaveBeenCalledWith(ID);
+    expect(res).toEqual({ full_name: "Asha", show_photo: true, night_shift_ready: false });
+  });
+
+  it("updateMyResumePrefs takes the worker from the token and returns only { ok: true }", async () => {
+    const { controller, workersService } = make();
+    const worker = { id: ID, sid: "sess-1" };
+    const dto = { show_photo: false, night_shift_ready: true };
+    const res = await controller.updateMyResumePrefs(worker, dto as never, CTX);
+    // worker id from @CurrentWorker; the dto is passed through untouched
+    expect(workersService.updateResumePrefs).toHaveBeenCalledWith(ID, dto, CTX);
+    expect(res).toEqual({ ok: true });
   });
 });

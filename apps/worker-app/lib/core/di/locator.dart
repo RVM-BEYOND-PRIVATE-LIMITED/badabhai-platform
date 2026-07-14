@@ -149,7 +149,7 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
     () => const JobsRepositoryImpl(),
   );
   locator.registerLazySingleton<ResumeEditRepository>(
-    () => const ResumeEditRepositoryImpl(),
+    () => ResumeEditRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
   );
   locator.registerLazySingleton<InterviewKitRepository>(
     () => InterviewKitRepositoryImpl(locator<ApiClient>()),
