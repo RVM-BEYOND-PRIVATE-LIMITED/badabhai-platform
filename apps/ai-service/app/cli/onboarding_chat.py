@@ -70,9 +70,9 @@ from ..pseudonymize import pseudonymize
 _MAX_TURNS = 10
 
 _INTRO = (
-    "\nNamaste bhai! Main aapka Bada Bhai hoon. Chaliye 2 minute me "
+    "\nNamaste. Main Bada Bhai hoon. Chaliye 2 minute mein "
     "aapka kaam ka profile bana lete hain.\n"
-    "(Tip: jab aapko lage baat poori ho gayi, 'done' likh dena. Apna phone number "
+    "(Tip: jab aapko lage baat poori ho gayi, 'done' likh dein. Apna phone number "
     "ya company ka naam likhne ki zaroorat nahi hai.)\n"
 )
 
@@ -81,11 +81,16 @@ _INTRO = (
 # the loop can read both the line to show AND the readiness flag. Every worker
 # turn in the history is pseudonymized; the name is never present here.
 _CHAT_SYSTEM_PROMPT = (
-    "You are 'Bada Bhai', a warm, friendly big brother interviewing a blue/grey-"
-    "collar CNC/VMC manufacturing worker in India to build their job profile.\n"
+    "You are 'Bada Bhai', a senior who has worked the CNC/VMC shop floor and is "
+    "interviewing a worker in India to build their job profile. On their side — "
+    "not an examiner, not a salesman.\n"
     "Style:\n"
-    "- Ask EXACTLY ONE short question at a time and REACT warmly to the previous "
-    "answer first.\n"
+    "- Ask EXACTLY ONE question at a time, under 20 words. Acknowledge the "
+    "previous answer in MAX 2 words (\"Theek hai.\" / \"Achha.\"), never praise "
+    "or gush (no \"waah\", \"zabardast\", \"bahut acha\", \"bilkul\"), never "
+    "restate their answer.\n"
+    "- NEVER use bhai, bhaiya, beta, behen, yaar. Never assume gender. Always use "
+    "\"aap\". Prefer present tense.\n"
     "- MATCH THE WORKER'S LANGUAGE: if they write in Hindi, reply in Hindi; in "
     "English, reply English; in Hinglish, reply Hinglish. Mirror their words.\n"
     "- Never sound like an exam. Never reject, judge, or rank the worker.\n"
@@ -93,8 +98,9 @@ _CHAT_SYSTEM_PROMPT = (
     "controllers (Fanuc, Siemens, etc.), years of experience, skills (setting, "
     "programming, drawing reading), current + preferred location, current + "
     "expected salary, and joining availability.\n"
-    "STOP CONDITION — set ready_to_extract=true (and send a short warm closing "
-    "line in the worker's language) as soon as EITHER:\n"
+    "STOP CONDITION — set ready_to_extract=true (and send a short closing "
+    "line in the worker's language, telling them their resume is being made) as "
+    "soon as EITHER:\n"
     "  (a) you have reasonable coverage of the areas above, OR\n"
     "  (b) the worker signals they are done / disengaging / want a job now (e.g. "
     "'bas', 'itna hi', 'ho gaya', 'done', 'aur nahi', 'naukri laga do'). Do NOT "
@@ -119,10 +125,7 @@ _CHAT_SYSTEM_PROMPT = (
 # the lenient parser always succeeds even with no model available.
 _CHAT_MOCK_JSON = json.dumps(
     {
-        "message": (
-            "Badhiya bhai. Thoda aur batao — kaunsi machine pe kaam kiya hai, "
-            "kitne saal ka experience hai, aur abhi kis city me ho?"
-        ),
+        "message": "Theek hai. Kaunsi machine par kaam karte hain?",
         "ready_to_extract": False,
     },
     ensure_ascii=False,
@@ -197,7 +200,7 @@ def _fallback_message(content: str) -> str:
             text = text[4:].strip()
     # Bare JSON we already failed to read, or nothing -> a closing-oriented nudge.
     if not text or text.startswith("{") or text.startswith("["):
-        return "Theek hai bhai. Aur kuch batana ho to batao, warna 'done' likh do."
+        return "Theek hai. Aur kuch batana ho to batayein, warna 'done' likh dein."
     return text
 
 
@@ -344,7 +347,7 @@ async def _run_chat(
     history: list[dict[str, str]] = []  # [{role: user/assistant, text: <pseudonymized>}]
     transcript_lines: list[str] = []  # RAW answers, local-only (never sent anywhere)
 
-    print_fn("\nBada Bhai: Bhai, sabse pehle batao — aap kya kaam karte ho?")
+    print_fn("\nBada Bhai: Sabse pehle — aap kaunsa kaam karte hain?")
 
     last_message: str | None = None  # for the no-repeat guard
     for _turn in range(_MAX_TURNS):
@@ -358,9 +361,9 @@ async def _run_chat(
         safe = pseudonymize(answer)
         if safe.blocked:
             print_fn(
-                "\nBada Bhai: Bhai, ismein kuch personal detail (jaise phone ya "
+                "\nBada Bhai: Ismein kuch personal detail (jaise phone ya "
                 "company ka naam) lag rahi hai — usse hata ke, sirf kaam ke baare "
-                "me dobara likho. "
+                "mein dobara likhein. "
                 f"(reason: {safe.blocked_reason})"
             )
             continue
@@ -415,8 +418,8 @@ async def _run_chat(
     safe = pseudonymize(transcript)
     if safe.blocked:
         print_fn(
-            "\nBada Bhai: Sorry bhai, kuch personal detail (jaise phone ya company "
-            "ka naam) aa gayi — please usse hata ke dobara batao. "
+            "\nBada Bhai: Kuch personal detail (jaise phone ya company "
+            "ka naam) aa gayi — usse hata ke dobara likhein. "
             f"(reason: {safe.blocked_reason})"
         )
         # Return a minimal resume with just the name; nothing was sent to the

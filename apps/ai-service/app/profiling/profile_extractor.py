@@ -38,15 +38,16 @@ _EXPERIENCE_LEVELS = {"fresher", "junior", "experienced", "senior", "unknown"}
 _KNOWLEDGE_LEVELS = {"none", "basic", "strong", "unknown"}
 _AVAILABILITY = {"immediate", "notice_period", "not_looking", "unknown"}
 
-# missing-field -> Hinglish clarification question.
+# missing-field -> neutral mentor clarification question (AI-PERSONA-1: no
+# vocative, no gush, "aap"/present tense, one question, <=20 words).
 _CLARIFY: dict[str, str] = {
-    "primary_role": "Aap mainly operator ho, setter ho ya programmer?",
-    "experience_years": "Kitne saal ka experience hai bhai?",
-    "current_city": "Abhi aap kis city me ho?",
-    "current_salary": "Abhi current salary kitni hai?",
-    "expected_salary": "Expected salary kitni chahiye bhai?",
-    "availability": "Joining ke liye kitne din lagenge?",
-    "controllers": "Controller kaunsa chalaya hai — Fanuc ya Siemens?",
+    "primary_role": "Aap operator, setter ya programmer — kaunsa kaam karte hain?",
+    "experience_years": "Kitne saal ka experience hai?",
+    "current_city": "Abhi kis sheher mein hain?",
+    "current_salary": "Abhi salary kitni hai?",
+    "expected_salary": "Kitni salary expect karte hain?",
+    "availability": "Join karne mein kitne din?",
+    "controllers": "Controller kaunsa — Fanuc ya Siemens?",
 }
 
 # Fields tracked for completeness (order = priority for clarification questions).

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 class Topic:
     id: str
     label: str
-    question: str  # warm bada-bhai Hinglish phrasing (used directly in mock mode)
+    question: str  # neutral mentor Hinglish phrasing (used directly in mock mode)
     why: str | None = None  # short reason, surfaced if the worker asks "why"
     core: bool = False  # required to consider the profile ready for extraction
 
@@ -38,46 +38,46 @@ ROLE_FAMILIES: dict[str, dict] = {
 _CNC_VMC_TOPICS: list[Topic] = [
     Topic(
         "role", "Role / trade",
-        "Bhai, aap mainly kya kaam karte ho — CNC, VMC, HMC operator, setter ya programmer?",
+        "Aap kaunsa kaam karte hain — CNC, VMC, HMC operator, setter ya programmer?",
         core=True,
     ),
     Topic(
         "machines", "Machine exposure",
-        "Kaunsi machine pe sabse zyada kaam kiya hai — VMC, CNC lathe, HMC ya grinding?",
+        "Kaunsi machine — VMC, CNC lathe, HMC ya grinding?",
         core=True,
     ),
     Topic(
         "experience", "Experience",
-        "Total kitne saal ka experience hai is line me?",
+        "Kitne saal ka experience hai?",
         core=True,
     ),
     Topic(
         "skills", "Skills",
-        "Setting khud karte ho ya sirf operation? Tool offset, program edit ya "
-        "drawing reading me se kya aata hai?",
+        "Setting khud karte hain ya sirf operation? Tool offset, program edit, "
+        "drawing reading — kya aata hai?",
         why="Taaki aapke liye sahi role match kar sakein.",
         core=True,
     ),
     Topic(
         "location", "Location",
-        "Abhi aap kis city me ho, aur kahan kaam karne ke liye ready ho?",
+        "Abhi kis sheher mein hain, aur kahan kaam kar sakte hain?",
         core=True,
     ),
     Topic(
         "controllers", "Controller knowledge",
-        "Controller kaunsa chalaya hai — Fanuc, Siemens, Mitsubishi, Haas ya Heidenhain?",
+        "Controller kaunsa — Fanuc, Siemens, Mitsubishi, Haas ya Heidenhain?",
     ),
     Topic(
         "salary", "Salary",
-        "Abhi salary kitni hai aur kitni expect kar rahe ho?",
+        "Abhi salary kitni hai, aur kitni expect karte hain?",
     ),
     Topic(
         "availability", "Availability",
-        "Join karne me kitne din lagenge — abhi free ho ya notice chal raha hai?",
+        "Join karne mein kitne din — abhi free hain ya notice chal raha hai?",
     ),
     Topic(
         "education", "Education / training",
-        "ITI ya diploma kiya hai? RVM CAD ya koi aur training li hai?",
+        "ITI ya diploma kiya hai? Koi training li hai?",
     ),
 ]
 

@@ -1,7 +1,7 @@
 """Worker interview engine (deterministic core).
 
 Tracks which topics the worker has answered and chooses the next question. In
-mock mode the assistant reply IS the next question (a warm bada-bhai line). In
+mock mode the assistant reply IS the next question (a neutral mentor line). In
 real mode the same engine-chosen question is handed to the LLM for natural
 phrasing — so the model controls tone, the engine controls coverage + cost.
 
@@ -16,10 +16,11 @@ from ..contracts import ConversationState
 from . import signals
 from .question_bank import Topic, topics_for
 
-_ACK = "Badhiya bhai. "
+# A senior's acknowledgement: two words, no praise (persona rule G4).
+_ACK = "Theek hai. "
 _WRAP_UP = (
-    "Bahut badhiya bhai \U0001f44d itni jaankari kaafi hai — main aapka profile bana "
-    "deta hoon. Kuch chhoti detail baad me confirm kar lenge."
+    "Itni jaankari kaafi hai. Aapka resume ban raha hai — kuch detail baad mein "
+    "confirm karenge."
 )
 
 # The topics that MUST be answered before we offer extraction. Location is
@@ -29,26 +30,40 @@ ESSENTIAL_TOPICS: tuple[str, ...] = ("role", "machines", "experience", "location
 # Topic-specific follow-up nudges used as suggested_followups.
 _FOLLOWUPS = [
     "Controller kaunsa — Fanuc ya Siemens?",
-    "Setting karte ho ya sirf operation?",
-    "Kis city me kaam karna pasand karoge?",
+    "Setting karte hain ya sirf operation?",
+    "Kis sheher mein kaam kar sakte hain?",
 ]
 
 
-def first_question(role_family: str = "cnc_vmc") -> tuple[str, str]:
-    """Return (topic_id, question) for the opening question."""
+def _vocative(worker_name: str | None) -> str:
+    """Opening/close vocative — ``"{name} ji, "`` only when a name is given, else
+    empty (today's caller passes no name, so no vocative renders). The name is a
+    display-only decoration of the MOCK reply string; it is never sent to an LLM,
+    an event, or a log (CLAUDE.md §2 #2 / guardrail G1)."""
+    return f"{worker_name} ji, " if worker_name else ""
+
+
+def first_question(
+    role_family: str = "cnc_vmc",
+    worker_name: str | None = None,
+) -> tuple[str, str]:
+    """Return (topic_id, question) for the opening question. A name (when given)
+    prefixes the opening only."""
     first = topics_for(role_family)[0]
-    return first.id, first.question
+    return first.id, _vocative(worker_name) + first.question
 
 
 def next_turn(
     state: ConversationState | None,
     worker_message_raw: str,
     role_family: str = "cnc_vmc",
+    worker_name: str | None = None,
 ) -> tuple[str, str | None, ConversationState, bool]:
     """Advance the interview by one turn.
 
     Returns ``(assistant_message_mock, asked_question_id, updated_state,
-    extraction_ready)``. ``worker_message_raw`` is read locally only.
+    extraction_ready)``. ``worker_message_raw`` is read locally only. A name
+    (when given) prefixes the CLOSE only — never the mid-interview ack turns.
     """
     topics = topics_for(role_family)
     st = (
@@ -71,7 +86,7 @@ def next_turn(
     # 2. Choose the next question (core first, then optional, don't re-nag).
     next_topic = _next_topic(topics, st)
     if next_topic is None or extraction_ready:
-        return _WRAP_UP, None, st, True
+        return _vocative(worker_name) + _WRAP_UP, None, st, True
 
     if next_topic.id not in st.asked_question_ids:
         st.asked_question_ids.append(next_topic.id)
