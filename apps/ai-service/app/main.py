@@ -17,7 +17,7 @@ import json
 from fastapi import FastAPI
 
 from .ai import cost_tracker
-from .ai.canonicalize import canonicalize_labels
+from .ai.canonicalize import canonicalize_labels, canonicalize_skill
 from .ai.embeddings import EMBEDDING_TASK_TYPE, MOCK_MODEL, embed_text
 from .ai.model_config import rate_inr_per_1k
 from .ai.router import AIRouter
@@ -37,6 +37,8 @@ from .contracts import (
     SkillAliasEmbedInput,
     SkillAliasEmbedOutput,
     SkillAliasEmbedResult,
+    SkillCanonicalization,
+    SkillCanonicalizationInput,
     TranscriptionInput,
     TranscriptionOutput,
     WorkerProfileDraft,
@@ -200,6 +202,30 @@ def embed_skill_aliases(body: SkillAliasEmbedInput) -> SkillAliasEmbedOutput:
         budget_stopped=budget_stopped,
         errors=errors,
         estimated_cost_inr=round(cost_inr, 6),
+    )
+
+
+@app.post("/skills/canonicalize", response_model=SkillCanonicalization)
+def skills_canonicalize(body: SkillCanonicalizationInput) -> SkillCanonicalization:
+    """ADR-0030 / TAX-6: the JOB side canonicalizes through the SAME pipeline as the
+    worker side — one shared id space. The NestJS api calls this at job-posting
+    create/update for each posting skill phrase; `canonicalize_skill` runs
+    pseudonymize -> embed (SG-2/SG-4) -> domain-scoped nearest-alias (seam A store) ->
+    floor gate. SG-3 holds: the id can only come from the closed skill_alias set.
+
+    Honors SKILL_CANONICALIZE_ENABLED: flag off -> UNRESOLVED (inert — rollback for the
+    job side is the same single flag as the worker side). Plain `def` (threadpool):
+    the store + a real embed are SYNC httpx calls and must not block the event loop.
+    Never logs the phrase."""
+    settings = get_settings()
+    if not settings.skill_canonicalize_enabled:
+        return SkillCanonicalization(status="unresolved")
+    return canonicalize_skill(
+        body.phrase,
+        body.domain_id,
+        get_skill_store(settings),
+        settings,
+        lang=body.lang,
     )
 
 

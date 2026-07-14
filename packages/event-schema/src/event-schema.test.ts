@@ -1984,3 +1984,40 @@ describe("skill.phrase_unresolved payload (ADR-0030 / FORK-B-1) — hash-only, s
     expect(() => make({ ...base, count: 0 })).toThrow(EventValidationException);
   });
 });
+
+describe("job_posting.updated changed_fields — TAX-6 additive enum member", () => {
+  it("accepts the new 'skills' field NAME (names only — phrases/ids never ride the spine)", () => {
+    const event = createEvent({
+      event_name: "job_posting.updated",
+      actor: { actor_type: "ops", actor_id: UUID_A },
+      subject: { subject_type: "job_posting", subject_id: UUID_A },
+      source: "api",
+      metadata: { environment: "test", service: "api" },
+      payload: {
+        job_posting_id: UUID_A,
+        changed_fields: ["skills"],
+        status: "open",
+        vacancy_band: null,
+      },
+    });
+    expect(validateEvent(event).success).toBe(true);
+  });
+
+  it("still rejects an unknown changed-field name (closed enum, additively extended)", () => {
+    expect(() =>
+      createEvent({
+        event_name: "job_posting.updated",
+        actor: { actor_type: "ops", actor_id: UUID_A },
+        subject: { subject_type: "job_posting", subject_id: UUID_A },
+        source: "api",
+        metadata: { environment: "test", service: "api" },
+        payload: {
+          job_posting_id: UUID_A,
+          changed_fields: ["salary_text"] as never,
+          status: "open",
+          vacancy_band: null,
+        },
+      }),
+    ).toThrow(EventValidationException);
+  });
+});

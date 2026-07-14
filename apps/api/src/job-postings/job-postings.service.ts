@@ -9,6 +9,7 @@ import { bandForCount } from "@badabhai/validators";
 import type { JobPosting } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
+import { AiService } from "../ai/ai.service";
 import { JobPostingsRepository, type JobPostingUpdate } from "./job-postings.repository";
 import type {
   CreateJobPostingDto,
@@ -65,7 +66,39 @@ export class JobPostingsService {
   constructor(
     private readonly repo: JobPostingsRepository,
     private readonly events: EventsService,
+    private readonly ai: AiService,
   ) {}
+
+  /**
+   * ADR-0030 / TAX-6: canonicalize the posting's skill PHRASES into closed-set
+   * skill_ids through the SAME `canonicalize_skill` pipeline the worker side uses —
+   * one shared id space (the ADR-0028 promise on the skills dimension).
+   *
+   * BEST-EFFORT by design: an unreachable AI service / a disabled flag yields []
+   * (the raw phrases are still stored) — canonicalization NEVER blocks or fails a
+   * posting. SG-3: only ids the vector layer returned are stored; the anchor domain
+   * mirrors the worker-side default until per-label domain resolution lands.
+   * NOT a RANK input (invariant #4) — the reach-engine guard test locks that.
+   */
+  private async canonicalizeSkills(phrases: string[] | undefined): Promise<string[]> {
+    if (!phrases?.length) return [];
+    const ids: string[] = [];
+    for (const phrase of phrases) {
+      try {
+        const res = await this.ai.canonicalizeSkill({
+          phrase,
+          domain_id: "cnc-machining",
+          lang: "en",
+        });
+        if (res?.status === "matched" && res.skill_id && !ids.includes(res.skill_id)) {
+          ids.push(res.skill_id);
+        }
+      } catch {
+        // Never let canonicalization break a posting write.
+      }
+    }
+    return ids;
+  }
 
   // ----- OPS surface (ADR-0012, unchanged) ----------------------------------
 
@@ -79,6 +112,8 @@ export class JobPostingsService {
         locationLabel: dto.location_label ?? null,
         description: dto.description ?? null,
         vacancyBand: resolveCreateBand(dto),
+        skillPhrases: dto.skills ?? [],
+        skillIds: await this.canonicalizeSkills(dto.skills),
       },
       { actor_type: "ops", actor_id: dto.created_by },
       ctx,
@@ -98,6 +133,9 @@ export class JobPostingsService {
   async update(id: string, dto: UpdateJobPostingDto, ctx: RequestContext): Promise<JobPosting> {
     const current = await this.getOne(id);
     const prepared = this.prepareUpdate(current, dto);
+    if (prepared.changedFields.includes("skills")) {
+      prepared.patch.skillIds = await this.canonicalizeSkills(dto.skills);
+    }
 
     const updated = await this.repo.update(id, prepared.patch);
     if (!updated) throw new NotFoundException(`Job posting ${id} not found`);
@@ -145,6 +183,8 @@ export class JobPostingsService {
         locationLabel: dto.location_label ?? null,
         description: dto.description ?? null,
         vacancyBand: resolveCreateBand(dto),
+        skillPhrases: dto.skills ?? [],
+        skillIds: await this.canonicalizeSkills(dto.skills),
       },
       { actor_type: "payer", actor_id: payerId },
       ctx,
@@ -170,6 +210,9 @@ export class JobPostingsService {
   ): Promise<JobPosting> {
     const current = await this.getOneForPayer(id, payerId); // no-oracle 404
     const prepared = this.prepareUpdate(current, dto);
+    if (prepared.changedFields.includes("skills")) {
+      prepared.patch.skillIds = await this.canonicalizeSkills(dto.skills);
+    }
 
     const updated = await this.repo.updateOwned(id, payerId, prepared.patch);
     if (!updated) throw new NotFoundException("Job posting not found");
@@ -242,6 +285,9 @@ export class JobPostingsService {
       locationLabel: string | null;
       description: string | null;
       vacancyBand: JobPosting["vacancyBand"];
+      // ADR-0030 / TAX-6: poster phrases + their vector-assigned closed-set ids.
+      skillPhrases: string[];
+      skillIds: string[];
     },
     actor: JobPostingActor,
     ctx: RequestContext,
@@ -306,6 +352,18 @@ export class JobPostingsService {
       patch.vacancyBand = requestedBand;
       changedFields.push("vacancy_band");
       bandChanged = true;
+    }
+
+    // ADR-0030 / TAX-6: replace-all semantics when `skills` is provided. Only the
+    // PHRASES are patched here (sync); the caller re-canonicalizes the ids (async)
+    // when this field changed. Order-sensitive compare is fine — the input order is
+    // the poster's order and a reorder IS a change.
+    if (
+      dto.skills !== undefined &&
+      JSON.stringify(dto.skills) !== JSON.stringify(current.skillPhrases)
+    ) {
+      patch.skillPhrases = dto.skills;
+      changedFields.push("skills");
     }
 
     if (dto.status === "open" && current.status !== "open") {
