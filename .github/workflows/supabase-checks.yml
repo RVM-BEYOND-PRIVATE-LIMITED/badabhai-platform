@@ -46,15 +46,15 @@ jobs:
     name: Migration drift (schema.ts vs committed migrations)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install pnpm
         # No `version:` — packageManager (pnpm@11.5.2) in package.json is the source,
         # matching .github/workflows/ci.yml.
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -101,10 +101,10 @@ jobs:
     name: Migration sequence (unique, contiguous, journal-consistent)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 

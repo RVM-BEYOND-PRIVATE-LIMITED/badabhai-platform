@@ -124,18 +124,18 @@ jobs:
 
       - name: Checkout
         if: steps.guard.outputs.wired == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install pnpm
         if: steps.guard.outputs.wired == 'true'
         # No `version:` on purpose — it would conflict with the `packageManager` field
         # in package.json (ERR_PNPM_BAD_PM_VERSION). package.json's
         # `packageManager: pnpm@11.5.2` is the single source. (Mirrors ci.yml.)
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node
         if: steps.guard.outputs.wired == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm

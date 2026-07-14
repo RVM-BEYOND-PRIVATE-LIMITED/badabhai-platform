@@ -59,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Full history so gitleaks can scan every commit, not just the tip —
           # a secret committed and later removed still lives in the object graph.
@@ -96,7 +96,7 @@ jobs:
     container:
       image: semgrep/semgrep:latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # `semgrep scan` (the OSS subcommand) with open-source rulesets. `--error`
       # makes findings exit non-zero so the STEP reflects them; `continue-on-error`
@@ -118,15 +118,15 @@ jobs:
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install pnpm
         # No `version:` — `packageManager: pnpm@11.5.2` in package.json is the
         # single source of truth (same convention as ci.yml's node job).
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
