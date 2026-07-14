@@ -37,9 +37,16 @@ _FOLLOWUPS = [
 
 def _vocative(worker_name: str | None) -> str:
     """Opening/close vocative — ``"{name} ji, "`` only when a name is given, else
-    empty (today's caller passes no name, so no vocative renders). The name is a
-    display-only decoration of the MOCK reply string; it is never sent to an LLM,
-    an event, or a log (CLAUDE.md §2 #2 / guardrail G1)."""
+    empty. Today's production caller (``app/main.py``) passes NO name, so no
+    vocative renders and no name is ever composed into the reply.
+
+    SAFETY (CLAUDE.md §2 #2 / G1) — this is a CALLER-DISCIPLINE guarantee, not a
+    structural one: the composed reply is later handed to ``build_chat_messages``
+    as ``next_question``, so a real name passed here WOULD reach the LLM (and the
+    Langfuse trace), and it would do so AFTER pseudonymization has run. Do NOT
+    wire a real worker name in here. The safe way to personalize is the
+    placeholder seam — emit a literal ``{{worker_name}}`` token and interpolate
+    the real name downstream in the NestJS layer, post-emit (AI-PERSONA-2)."""
     return f"{worker_name} ji, " if worker_name else ""
 
 

@@ -560,9 +560,9 @@ def render_cost_metadata(calls: list[AICallMetadata]) -> str:
 
 
 def main() -> None:
-    # Hinglish replies (and the engine's wrap-up emoji) are UTF-8; make stdout
-    # tolerant on legacy Windows code pages (cp1252) so the tool never crashes
-    # on an un-encodable char.
+    # Hinglish replies are UTF-8 (em-dashes, Devanagari); make stdout tolerant on
+    # legacy Windows code pages (cp1252) so the tool never crashes on an
+    # un-encodable char.
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is not None:

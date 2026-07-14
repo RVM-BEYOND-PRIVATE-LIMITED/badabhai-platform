@@ -36,10 +36,15 @@ _ROUTES: dict[str, TaskRoute] = {
     # intermittently exhausts the token budget (MAX_TOKENS -> empty/truncated
     # candidate -> the whole turn fails over to the fallback). json_mode forces a
     # pure JSON object (the reply lives INSIDE "message"). The mentor persona caps
-    # a turn at a 2-word ack + one <=20-word question (~30-45 tokens), so 48
-    # output tokens is safe headroom AND ~80% cheaper per turn than the old 512
-    # (COST-1); low temperature 0.3 keeps the terse voice on-rails; one retry
-    # smooths a transient blip before the router escalates to the next provider.
+    # a turn at a 2-word ack + one <=20-word question, so 48 output tokens is
+    # ~80% cheaper per turn than the old 512 (COST-1); low temperature 0.3 keeps
+    # the terse voice on-rails; one retry smooths a transient blip before the
+    # router escalates to the next provider. NOTE: 48 is sized for the SHIPPED
+    # mock path (no real call → cap unused). Before enabling real
+    # profiling_chat_turn, validate the headroom against a live Gemini tokenizer:
+    # the JSON envelope (~12-15 tok) + a worst-case 20-word Hinglish line (subword
+    # splits ~2 tok/word) can approach the cap → MAX_TOKENS → graceful mock
+    # fallback (never a leak). Raise the cap then if it bites.
     "profiling_chat_turn": TaskRoute(
         "profiling_chat_turn", "cheap", max_output_tokens=48, temperature=0.3,
         json_mode=True, max_retries=1,
