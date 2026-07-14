@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
+import { Logger } from "@nestjs/common";
 import { ChatService } from "./chat.service";
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
@@ -22,6 +23,11 @@ function make(
     extractionReady?: boolean;
     latestProfile?: unknown;
     extractThrows?: boolean;
+    // AI-PERSONA-2: reply_text the (mock) ai-service returns; the DECRYPTED name to
+    // simulate (null = not set), and whether decrypt throws (rotated/tampered key).
+    replyText?: string;
+    workerName?: string | null;
+    decryptThrows?: boolean;
   } = {},
 ) {
   const session = {
@@ -37,11 +43,24 @@ function make(
     saveConversationState: vi.fn().mockResolvedValue(undefined),
     touchSession: vi.fn().mockResolvedValue(undefined),
   };
-  const workers = { latestProfile: vi.fn().mockResolvedValue(opts.latestProfile ?? undefined) };
+  const workers = {
+    latestProfile: vi.fn().mockResolvedValue(opts.latestProfile ?? undefined),
+    // full_name is stored ENCRYPTED (TD21); the plaintext lives only behind pii.decrypt.
+    findById: vi.fn().mockResolvedValue({
+      id: WORKER,
+      fullName: opts.workerName == null ? null : "ENC_FULL_NAME_TOKEN",
+    }),
+  };
+  const pii = {
+    decrypt: vi.fn((_token: string) => {
+      if (opts.decryptThrows) throw new Error("bad/rotated key");
+      return opts.workerName ?? "";
+    }),
+  };
   const events = { emit: vi.fn().mockResolvedValue(undefined) };
   const ai = {
     profilingRespond: vi.fn().mockResolvedValue({
-      reply_text: "Thanks!",
+      reply_text: opts.replyText ?? "Thanks!",
       blocked: false,
       is_mock: true,
       suggested_followups: [],
@@ -60,11 +79,12 @@ function make(
   const svc = new ChatService(
     chat as never,
     workers as never,
+    pii as never,
     events as never,
     ai as never,
     profiles as never,
   );
-  return { svc, chat, workers, events, ai, profiles };
+  return { svc, chat, workers, pii, events, ai, profiles };
 }
 
 const emittedNames = (events: { emit: ReturnType<typeof vi.fn> }): string[] =>
@@ -135,3 +155,82 @@ describe("ChatService.postMessage — query-count / N+1 guard (per turn)", () =>
     expect(chat.listMessages).toHaveBeenCalledTimes(1);
   });
 });
+
+// AI-PERSONA-2 — the real-name seam. The ai-service emits a {{worker_name}} token;
+// the API interpolates the real first name POST-emit, ONLY in the client reply.
+const PLACEHOLDER_REPLY = "{{worker_name}} ji, Aap kaunsa kaam karte hain?";
+// Second insertMessage call is the OUTBOUND (assistant) message — the audit spine.
+const outboundBody = (chat: { insertMessage: ReturnType<typeof vi.fn> }): string =>
+  (chat.insertMessage.mock.calls[1]?.[0] as { bodyText: string }).bodyText;
+
+describe("ChatService — AI-PERSONA-2 worker-name seam (SG-1 PII boundary)", () => {
+  it("interpolates the real FIRST name into the client reply only", async () => {
+    const { res, chat, events, ai } = await run({
+      replyText: PLACEHOLDER_REPLY,
+      workerName: "Nitin Kumar",
+    });
+    // Client sees the personalized reply (first name only, not the full name).
+    expect(res.reply).toBe("Nitin ji, Aap kaunsa kaam karte hain?");
+
+    // SG-1: the stored outbound message keeps the PLACEHOLDER, never the name.
+    expect(outboundBody(chat)).toContain("{{worker_name}}");
+    expect(outboundBody(chat)).not.toContain("Nitin");
+
+    // The name is in NO event payload…
+    expect(JSON.stringify(events.emit.mock.calls)).not.toContain("Nitin");
+    // …and was NEVER sent to the ai-service (LLM input) — only worker_ref + message.
+    expect(JSON.stringify(ai.profilingRespond.mock.calls)).not.toContain("Nitin");
+  });
+
+  it("inserts a name with `$` special-replacement chars literally (no pattern expansion)", async () => {
+    // Worker-controlled name may contain $&, $', $$ — a STRING replacement would
+    // expand these; the function replacement must insert them verbatim.
+    const { res } = await run({ replyText: PLACEHOLDER_REPLY, workerName: "Om$'" });
+    expect(res.reply).toBe("Om$' ji, Aap kaunsa kaam karte hain?");
+  });
+
+  it("null name → clean no-vocative reply, no residual {{ }} token", async () => {
+    const { res, chat } = await run({ replyText: PLACEHOLDER_REPLY, workerName: null });
+    expect(res.reply).toBe("Aap kaunsa kaam karte hain?");
+    expect(res.reply).not.toContain("{{");
+    expect(res.reply).not.toContain("ji,");
+    // The stored placeholder is untouched regardless of the name being absent.
+    expect(outboundBody(chat)).toContain("{{worker_name}}");
+  });
+
+  it("undecryptable name (rotated/tampered key) degrades to no-vocative, never 500s", async () => {
+    const { res } = await run({
+      replyText: PLACEHOLDER_REPLY,
+      workerName: "Nitin Kumar",
+      decryptThrows: true,
+    });
+    expect(res.reply).toBe("Aap kaunsa kaam karte hain?");
+    expect(res.reply).not.toContain("{{");
+  });
+
+  it("never passes the worker name to the logger", async () => {
+    const logSpy = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      await run({ replyText: PLACEHOLDER_REPLY, workerName: "Nitin Kumar" });
+      const logged = JSON.stringify([...logSpy.mock.calls, ...warnSpy.mock.calls]);
+      expect(logged).not.toContain("Nitin");
+    } finally {
+      logSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("no DB name read for a reply without the placeholder (mid-interview ack turn)", async () => {
+    const { workers } = await run({ replyText: "Theek hai. Kaunsi machine?" });
+    // Fast path: renderWorkerName short-circuits, so no worker/name fetch happens.
+    expect(workers.findById).not.toHaveBeenCalled();
+  });
+});
+
+/** Run one postMessage turn and return the harness + response. */
+async function run(opts: Parameters<typeof make>[0]) {
+  const h = make(opts);
+  const res = await h.svc.postMessage(WORKER, DTO as never, CTX);
+  return { ...h, res };
+}

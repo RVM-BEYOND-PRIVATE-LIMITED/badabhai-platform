@@ -83,7 +83,10 @@ def build_chat_messages(
             "content": (
                 "Reply in under 20 words: at most a 2-word acknowledgement, then "
                 "ask exactly this question. No praise, no \"waah\", do not restate "
-                f"their answer, do not explain why: {next_question}"
+                "their answer, do not explain why. If the question contains a "
+                "literal {{worker_name}} token, keep it EXACTLY as-is — do not "
+                "translate, fill, or drop it (it is filled in downstream): "
+                f"{next_question}"
             ),
         }
     )
