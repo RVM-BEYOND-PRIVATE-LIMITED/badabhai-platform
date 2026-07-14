@@ -27,6 +27,12 @@ from app.profiling import interview_engine
         "fanuc controller, setting bhi karta hu",
         "matlab main operator hu",  # filler 'matlab' — NOT interrogative
         "",
+        # CNC/VMC domain terms that must NOT trip the say-again markers (F1):
+        "main repeat order ke VMC parts banata hu, 5 saal",  # 'repeat order', not 'repeat kar'
+        "repeatability check karta hu",  # 'repeat' substring — still an answer
+        "company chhodi, phir se dusri join ki",  # 'phir se' join, not 'phir se bol'
+        # A LONG answer that happens to end uncertainly is NOT a clarification:
+        "main VMC aur CNC dono chala leta hu setting ke saath, theek hai kya?",
     ],
 )
 def test_needs_rephrase_false_for_straight_answers(msg):

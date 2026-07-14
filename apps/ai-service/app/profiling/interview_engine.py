@@ -110,11 +110,14 @@ def next_turn(
     return _ACK + next_topic.question, next_topic.id, st, extraction_ready
 
 
-# COST-4: clarification markers. A worker asking a question BACK (a "?" or one of
-# these confusion phrases) is the narrow case where an LLM rephrase of the templated
-# question might genuinely help. Kept deliberately TIGHT — a false positive costs a
-# real LLM call — so filler uses of "matlab" ("matlab main VMC chalata hu") do NOT
-# trip it; only the interrogative "matlab kya" / "kya matlab" forms do.
+# COST-4: clarification markers — each is an INTERROGATIVE phrase, never a bare word
+# that also occurs in a straight answer. Kept deliberately TIGHT because the false-
+# positive cost is asymmetric: a false positive spends a real LLM call, while a false
+# negative just serves the safe templated question. So filler "matlab" ("matlab main
+# VMC chalata hu") does NOT trip it (only "matlab kya"/"kya matlab" do); and the
+# say-again markers carry their verb ("repeat kar", "phir se bol") so CNC/VMC domain
+# terms — "repeat order", "repeatability", "company chhodi phir se dusri join ki" —
+# do NOT match.
 _REPHRASE_MARKERS = (
     "matlab kya",
     "kya matlab",
@@ -122,32 +125,44 @@ _REPHRASE_MARKERS = (
     "samjha nahi",
     "nahi samjha",
     "samajh nhi",
-    "phir se",
+    "phir se bol",
+    "phir se bata",
+    "phir se samjha",
     "dobara bol",
     "dubara bol",
-    "repeat",
+    "dobara bata",
+    "repeat kar",  # "repeat karo/karna/kariye" — NOT "repeat order" (a domain term)
+    "repeat kijiye",
     "kya bola",
     "kya kaha",
     "samjhao",
     "samjha do",
 )
 
+# A clarification is SHORT — a worker asking back, not describing their work. A long
+# message ending in "?" is an uncertain ANSWER, not a request to rephrase; treating it
+# as clarification would waste a real call, so the bare trailing-"?" rule is gated on
+# a short word count.
+_MAX_CLARIFY_QUESTION_WORDS = 4
+
 
 def needs_rephrase(message: str) -> bool:
     """COST-4: conservative LOCAL predicate — True only when the worker seems to be
-    asking for clarification (a question back / an explicit confusion phrase), the
-    narrow case where a real-mode LLM rephrase of the templated question might help.
+    asking for clarification (a SHORT question back / an explicit confusion phrase),
+    the narrow case where a real-mode LLM rephrase of the templated question helps.
 
-    Never calls the network. Kept tight on purpose: the straight-line answer path
-    must stay templated-only (zero chat LLM call, zero output tokens), so a false
-    positive here is a wasted real call. The rephrase branch is additionally gated by
+    Never calls the network. Kept tight on purpose: the straight-line answer path must
+    stay templated-only (zero chat LLM call, zero output tokens), so a false positive
+    here is a wasted real call. The rephrase branch is additionally gated by
     ``settings.ai_profiling_rephrase_enabled`` (off by default) + the master real-call
     flag, so this predicate alone never causes a real call.
     """
     m = (message or "").strip().lower()
     if not m:
         return False
-    if m.endswith("?"):
+    # A SHORT question back ("matlab?", "Fanuc kya?") — not a long answer that happens
+    # to end uncertainly ("...5 saal chala hu, theek hai kya?").
+    if m.endswith("?") and len(m.split()) <= _MAX_CLARIFY_QUESTION_WORDS:
         return True
     return any(marker in m for marker in _REPHRASE_MARKERS)
 
