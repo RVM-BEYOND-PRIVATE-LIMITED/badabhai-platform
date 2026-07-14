@@ -15,6 +15,15 @@ this expands on them.
   tables for semantic candidate↔role matching.
 
 ## AI / data
+- **LLM cost-efficiency workstream** (real-mode input spend):
+  - **COST-3 — stateless chat turn** ✅ *landed*: the profiling chat turn no longer
+    re-sends the transcript each turn (`build_chat_messages` is stateless by
+    design), cutting per-interview input from O(n²) → O(n). Extraction keeps full
+    context. Owner: ai.
+  - **COST-2 — prompt caching (min-threshold guarded)** *(blocked-by COST-3)*: mark
+    the static persona system block cacheable via the provider seam, but only when
+    it clears the Gemini/Anthropic cache minimum — else log a skip diagnostic.
+    Effective only in real mode. Owner: ai.
 - **Real NER pseudonymization** replacing the heuristic gateway (pays down TD3).
 - **Langfuse** wired for real LLM observability + eval (placeholder today).
 - **Self-hosted / fine-tuned model** only if cost/latency/privacy demands it —

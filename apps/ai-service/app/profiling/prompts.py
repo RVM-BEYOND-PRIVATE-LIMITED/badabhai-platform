@@ -69,15 +69,24 @@ def build_chat_messages(
 ) -> list[dict[str, str]]:
     """Build OpenAI-style messages for one chat turn (mapped to Gemini downstream).
 
-    Every string here is pseudonymized. The engine has already chosen the next
-    question; the model only rephrases it — tightly, in the mentor voice.
+    STATELESS BY DESIGN (COST-3). The chat turn does NOT re-send prior history.
+    `interview_engine` already chose the next question from LOCAL signals, so the
+    model only has to *phrase* one templated question — it needs no cross-turn
+    memory. Re-sending the whole transcript every turn made per-interview input
+    cost grow O(n²) across a ~9-question interview; sending only
+    {system persona, this message, this question} makes it O(n).
+
+    `history` is kept in the signature for caller compatibility but is
+    INTENTIONALLY UNUSED here — do not re-thread it into the chat turn. The full
+    transcript still reaches the model on the EXTRACTION path (a separate
+    assembly), which genuinely needs the whole conversation.
+
+    Every string here is pseudonymized.
     """
-    messages: list[dict[str, str]] = [{"role": "system", "content": BADA_BHAI_SYSTEM_PROMPT}]
-    for item in history:
-        role = "assistant" if item.role == "assistant" else "user"
-        messages.append({"role": role, "content": item.text})
-    messages.append({"role": "user", "content": pseudonymized_message})
-    messages.append(
+    # NOTE: `history` deliberately not iterated — see the stateless-by-design note.
+    return [
+        {"role": "system", "content": BADA_BHAI_SYSTEM_PROMPT},
+        {"role": "user", "content": pseudonymized_message},
         {
             "role": "system",
             "content": (
@@ -88,6 +97,5 @@ def build_chat_messages(
                 "translate, fill, or drop it (it is filled in downstream): "
                 f"{next_question}"
             ),
-        }
-    )
-    return messages
+        },
+    ]
