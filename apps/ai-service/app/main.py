@@ -146,18 +146,24 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
         body.conversation_state, body.message_text, body.role_family
     )
 
-    # 3. Route through the model (mock vs real); LLM only sees pseudonymized text.
-    #    The engine already chose the question; the model only rephrases it warmly.
+    # 3. COST-4: the straight-line path returns the deterministic templated question
+    #    DIRECTLY — the engine already chose it (≤20 words, on-persona), so there is
+    #    nothing for the LLM to phrase. We only allow a real chat LLM call when the
+    #    worker seems to be asking for clarification (needs_rephrase) AND the rephrase
+    #    flag is on. On the straight path real_call_allowed=False → the router takes
+    #    its mock path and returns the templated question with ZERO output tokens.
     #    COST-3: the chat turn is STATELESS — prior history is NOT sent to the model
-    #    (build_chat_messages ignores it), so there is nothing to pseudonymize/thread
-    #    here. Only the current (already-pseudonymized) message + the engine's
-    #    question reach the LLM. History still persists in the API for extraction.
+    #    (build_chat_messages ignores it); only the current (already-pseudonymized)
+    #    message + the engine's question reach the LLM if a rephrase call does fire.
+    wants_rephrase = settings.ai_profiling_rephrase_enabled and interview_engine.needs_rephrase(
+        body.message_text
+    )
     messages = build_chat_messages([], mock_reply, result.text)
     reply_text, meta = await router.run(
         "profiling_chat_turn",
         messages=messages,
         mock_response=mock_reply,
-        real_call_allowed=body.real_call_allowed,
+        real_call_allowed=body.real_call_allowed and wants_rephrase,
         user_ref=body.worker_ref,
     )
 

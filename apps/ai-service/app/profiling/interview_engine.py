@@ -110,6 +110,48 @@ def next_turn(
     return _ACK + next_topic.question, next_topic.id, st, extraction_ready
 
 
+# COST-4: clarification markers. A worker asking a question BACK (a "?" or one of
+# these confusion phrases) is the narrow case where an LLM rephrase of the templated
+# question might genuinely help. Kept deliberately TIGHT — a false positive costs a
+# real LLM call — so filler uses of "matlab" ("matlab main VMC chalata hu") do NOT
+# trip it; only the interrogative "matlab kya" / "kya matlab" forms do.
+_REPHRASE_MARKERS = (
+    "matlab kya",
+    "kya matlab",
+    "samajh nahi",
+    "samjha nahi",
+    "nahi samjha",
+    "samajh nhi",
+    "phir se",
+    "dobara bol",
+    "dubara bol",
+    "repeat",
+    "kya bola",
+    "kya kaha",
+    "samjhao",
+    "samjha do",
+)
+
+
+def needs_rephrase(message: str) -> bool:
+    """COST-4: conservative LOCAL predicate — True only when the worker seems to be
+    asking for clarification (a question back / an explicit confusion phrase), the
+    narrow case where a real-mode LLM rephrase of the templated question might help.
+
+    Never calls the network. Kept tight on purpose: the straight-line answer path
+    must stay templated-only (zero chat LLM call, zero output tokens), so a false
+    positive here is a wasted real call. The rephrase branch is additionally gated by
+    ``settings.ai_profiling_rephrase_enabled`` (off by default) + the master real-call
+    flag, so this predicate alone never causes a real call.
+    """
+    m = (message or "").strip().lower()
+    if not m:
+        return False
+    if m.endswith("?"):
+        return True
+    return any(marker in m for marker in _REPHRASE_MARKERS)
+
+
 def suggested_followups(role_family: str = "cnc_vmc") -> list[str]:
     return list(_FOLLOWUPS)
 

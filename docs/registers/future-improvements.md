@@ -24,6 +24,14 @@ this expands on them.
     the static persona system block cacheable via the provider seam, but only when
     it clears the Gemini/Anthropic cache minimum — else log a skip diagnostic.
     Effective only in real mode. Owner: ai.
+  - **COST-4 — templated-question default, LLM interprets-only** ✅ *landed*: the
+    profiling chat turn returns the deterministic `question_bank` question directly
+    (the engine already chose it, ≤20 words, on-persona) and skips the chat LLM on
+    the straight-line path — **zero output tokens on the ask** in both mock and real
+    mode. A real rephrase call fires only for a clarifying worker message
+    (`interview_engine.needs_rephrase`) AND with `ai_profiling_rephrase_enabled`
+    (**off by default**) + the master real-call flag. Extraction is untouched.
+    Owner: ai.
 - **Real NER pseudonymization** replacing the heuristic gateway (pays down TD3).
 - **Langfuse** wired for real LLM observability + eval (placeholder today).
 - **Self-hosted / fine-tuned model** only if cost/latency/privacy demands it —
