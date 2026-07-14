@@ -1,82 +1,89 @@
 # BadaBhai — Project Memory
 
-> Stable, high-value knowledge for fast session onboarding. Pairs with **CLAUDE.md**
-> (the operating contract + invariants) and **team-memory.md** (ownership + active work).
-> Trust this file; verify a fact only if code/docs contradict it. Source of truth for
-> live detail = `docs/decisions/` (ADRs) and `docs/registers/`.
+> Rebuilt 2026-07-14 from a full repo re-audit (schema, ADRs, registers, git, tracker).
+> Pairs with **CLAUDE.md** (invariants) and **team-memory.md** (ownership + active work).
+> Live detail: ADRs in `docs/decisions/` (0001–0031), registers in `docs/registers/`,
+> daily execution state in `docs/tracker/` (PROJECT_STATUS, BLOCKERS, DECISION_LOG, …).
 
 # Project Overview
-- AI "placement-team" product for blue/grey-collar India; launches with industrial manufacturing (CNC/VMC) roles. Turns workers into live, profiled, contactable candidates via a **chat-first worker app**.
-- **Business domains:** worker profiling · consent (DPDP) · chat/voice intake · AI profile extraction · resume generation · interview kit · events/audit spine · ops job postings + alpha swipe-to-apply (Phase‑2 leaning). Deferred: reach/matching, contact unlock, payments.
-- **Phase: Phase 1 — Worker Profiling + Profile Generation (locked).** Exit criteria: worker logs in (mock OTP) → consent → chat → extracted + confirmed profile → generated resume; every step emits a validated event; no PII reaches an LLM; ops have read-only views.
+
+- AI "placement-team" for blue/grey-collar India; launch vertical = CNC/VMC manufacturing (15 trades built). Hospitality vertical: PRD **CEO-signed 2026-06-18**, all 9 `hosp_*` trades' resume + interview-kit content drafted in code — **not live pending per-trade RVM ratification PASS**. Faceless data-exchange: workers stay anonymous until a payer **pays to unlock** (₹40 flat, CEO-locked). North star = weekly PAID unlocks. Workers are free.
+- **Phase 1 (worker profiling + resume) is the locked core; Phase-2 alpha-gate streams have landed additively behind launch gates** — swipe-to-apply, Reach feed, job postings, monetization/pricing, contact unlock, payer/agency portal, WhatsApp funnel (mock), PACE, admin portal, worker PIN auth, org tenancy, skills taxonomy. Real-money / real-provider / production-legal portions remain deferred (CLAUDE.md §8).
+- **Status 2026-07-14: alpha NO-GO.** Sole capstone blocker = **B1 real-handset run against staging** (emulator evidence from PR #190 does not count). **P0: staging API not deployed — past the 2026-07-04 deadline** (owner Prakash; runbook `docs/ops/staging-service-deploy-runbook.md`). Alpha target 2026-08-15, soft launch Sep.
 
 # Architecture
-- **Event-first:** every important state change emits a `createEvent`-built, schema-validated event into the append-only `events` table (the audit spine). No important change without an event.
-- **Three services:** NestJS **API** (`apps/api`) ↔ Python FastAPI **AI service** (`apps/ai-service`) ↔ **Supabase Postgres** via Drizzle (`packages/db`). Next.js ops console and Flutter worker app are API clients.
-- **AI privacy boundary:** API sends only pseudonymized/opaque data to the AI service; `pseudonymize.py` runs before every LLM call and **fails closed**.
-- **Async AI work:** extraction/transcription run as **BullMQ** jobs (Redis); endpoints return a job id; clients poll `GET /ai-jobs/:id`.
-- **Layering (every API module):** controller (HTTP only) → service (logic, emits events) → repository (Drizzle) + dto (Zod) + module (DI).
-- **Data flow:** worker app → API (validate DTO → persist → emit event); AI path = enqueue job → AI service (pseudonymize → optional LLM → typed contract) → API persists result + emits completion event → ops console reads.
+
+- **Event-first:** every important endpoint emits a `createEvent`-built, registry-validated event into append-only `events`. **100 event names across 28 domains, all v1.**
+- **Services:** NestJS API (`apps/api`, **32 module dirs**) ↔ FastAPI AI service (`apps/ai-service`) ↔ single Supabase Postgres via Drizzle. Frontends: `apps/payer-web` (external payer+agency portal), `apps/web` (internal ops console), `apps/worker-app` (Flutter, 4 tabs: Jobs/Resume/Profile/Alerts).
+- **AI privacy boundary:** `pseudonymize.py` before every LLM call, fail-closed. Direct Gemini (primary) + Claude Haiku (fallback) behind `LlmAdapter`/`AIRouter` (ADR-0008). Recent cost work: prompt-cache (COST-2), O(n) stateless chat turns (COST-3), templated questions (COST-4); mentor persona (AI-PERSONA-1/2).
+- **Async:** BullMQ on Redis (extraction, transcription, deletion sweeps); clients poll `ai_jobs`.
+- **Layering:** controller → service (emits events) → repository (Drizzle) + Zod dto + module. 9 guards: WorkerAuthGuard, ConsentGuard, ConsentNotRevokedGuard, PayerAuthGuard, PayerRoleGuard, PayerOrgRoleGuard, AdminAuthGuard, AdminRolesGuard, InternalServiceGuard.
+- **Deterministic ranking:** `packages/reach-engine` (RANK core — scoring/ranking, ADR-0006/0011/0015); LLMs never rank. `packages/reach-learn` = **offline-only** calibration (ADR-0017), no live influence.
 
 # Tech Stack
-- Monorepo: **pnpm + Turborepo**. API: **NestJS** (TS strict). AI service: **FastAPI**. Ops console: **Next.js**. Worker app: **Flutter** (Android-first).
-- DB: **Supabase Postgres + Drizzle** (16 tables; **pgvector** 768-dim embeddings). Queue/cache: **Redis + BullMQ**.
-- AI routing: **direct Gemini (primary) + Claude Haiku (fallback)** behind `LlmAdapter`/`AIRouter` (ADR-0008; no LiteLLM proxy). Real calls gated by `AI_ENABLE_REAL_CALLS` (default off).
-- External: Sarvam STT (gated), Langfuse (observability placeholder), Vertex embeddings.
-- Shared packages: `event-schema`, `db`, `config`, `types`, `validators`, `taxonomy`, `ai-contracts`. `reach-engine` is a placeholder (Phase 1).
 
-# Domain Models
-- **Worker identity & consent:** `workers` (the *only* table with raw PII — phone/name, encrypted/hashed) → `worker_consents` (append-only DPDP records; revoke via `revoked_at`, never delete).
-- **Chat & voice:** `chat_sessions` (`conversation_state` JSONB, no PII) → `chat_messages` (worker/system). `voice_notes` (storage path, ≤120s, transcript is PII-equivalent, `retain_indefinitely`).
-- **Profiling:** `worker_profiles` (canonical profile; status `draft→extracting→extracted→confirmed`; `embedding` vector(768); `ai_job_id` unique). Questionnaire: `profiles` (per trade) ↔ `questions` (reusable catalog) via `profile_questions`; `worker_answers` (one per worker+question, upsert; free text pseudonymized before persist).
-- **AI & resume:** `ai_jobs` (async tracker + cost metadata; refs only, no FK). `generated_resumes` (one per profile; render `pending/rendered/failed`; v1 idempotent).
-- **Events & audit:** `events` (insert-only spine; `idempotency_key` dedup). `audit_logs` (who/what; no raw PII).
-- **Jobs (alpha / Phase-2):** `job_postings` (ops vacancy register, vacancy-banded, zero employer PII), `jobs` (seeded alpha trades), `applications` (apply/skip, idempotent per worker+job).
+- pnpm 11 + Turborepo · NestJS (TS strict) · FastAPI · Next.js ×2 (payer-web external, web ops) · Flutter (go_router shell, ADR-0023; Flutter 3.35.7 vs older CI pin = TD61).
+- **DB: ONE Supabase Postgres project (`Badabhai-DB`, ap-south-1) — the `main` DB is the only database. No localhost/dev/staging DB.** Drizzle authors the schema; **38 migrations** (0000–0037). CI/e2e use a throwaway per-run Postgres container, never the real DB.
+- Redis + BullMQ (live). Vertex `text-multilingual-embedding-002` (768-dim) for profiling embeddings + skill aliases. Sarvam STT (mock default, ADR-0029 voice-at-rest Proposed). ZeptoMail (sandbox gate) for member invites. Langfuse placeholder.
+- **Packages (10):** event-schema, db, config, types, validators, taxonomy, ai-contracts (Zod↔Pydantic mirror), **pricing (BUILT: fail-closed `resolvePrice`, ADR-0013)**, **reach-engine (BUILT)**, **reach-learn (BUILT, offline)**.
+- **CI (6 workflows):** ci.yml (lint/typecheck/test/build + ruff/pytest + full-chain e2e on ephemeral pgvector Postgres), security-scan.yml, supabase-checks.yml, worker-app.yml (Flutter, blocking), staging-cd.yml + staging-demand-verify.yml (both `workflow_dispatch`). Dependabot enabled (CI-1, #218).
 
-# Business Rules (the ones that recur in implementation)
-- **Consent gate:** no profiling/AI/disclosure before `consent.accepted` (fail-closed). Consent append-only. Disclosure consent is *separate* from profiling consent (ADR-0010).
-- **No raw PII** in LLM input, events, payloads, `ai_jobs`, `audit_logs`, or logs — opaque ids / `*_hash` only. Raw PII lives only in `workers`.
-- **Pseudonymization runs before every LLM call and fails closed.** LLMs assist, never decide (no rank/score/reject).
-- Profile lifecycle is **async** (BullMQ); extraction **idempotent per `ai_job_id`**; triggers when `conversation_state.extraction_ready` flips (emits `profile.extraction_ready`).
-- Resume **v1 idempotent per `profile_id`**; `full_name` injected **server-side at render**, never via the LLM.
-- Voice notes ≤ **120s**; `retain_indefinitely` in Phase 1.
-- `is_required` on questions drives **interview readiness only** — never blocks matching.
-- Event emission is at-least-once; `idempotency_key` makes it retry-safe (NULL keys never collide).
-- **Backward compat:** never mutate a shipped event payload schema or drop an in-use column — version it.
+# Domain Models (39 tables — source of truth `packages/db/src/schema.ts`)
+
+- **Worker identity/auth (4):** `workers` (PII root: phone AES-256-GCM + HMAC hash, full_name, deletion_scheduled_at pending ADR-0031), `worker_consents` (append-only DPDP), `worker_devices` (device_hash HMAC, push_token — ADR-0026), `worker_credentials` (scrypt PIN + lockout throttle, 1/worker).
+- **Payer tenancy (3, ADR-0019/0022/0027):** `payers` (role employer|agent; email/phone/org **encrypted**), `payer_orgs` (tenant root), `payer_members` (invite→accept→remove; token hashed).
+- **Chat/voice (3):** `chat_sessions` (conversation_state JSONB + archive storage path), `chat_messages`, `voice_notes` (transcripts = PII-class, never in events/LLM).
+- **Profiling (5, ADR-0005):** `worker_profiles` (ai_job_id unique = idempotent extraction; embedding vector(768) HNSW), `profiles`/`questions`/`profile_questions`/`worker_answers` (1 per worker+question; free text pseudonymized pre-persist).
+- **Resume (1):** `generated_resumes` (v1 idempotent per profile; pdf_storage_key; render_status).
+- **Spine (3):** `events` (idempotency_key), `ai_jobs` (+ model/tokens/cost_inr), `audit_logs` — refs only.
+- **Jobs (3):** `job_postings` (ops+payer, vacancy **band**), `jobs` (faceless feed jobs, banded pay/exp), `applications` (apply/skip unique per worker+job). Two job-shaped entities is known debt (TD37).
+- **Unlock/credits (4, ADR-0010):** `unlocks` (worker_id SET NULL for DSAR), `payer_credits`, `credit_ledger` (append-only), `unlock_routing` (relay handle, never phone).
+- **Pricing/monetization (5, ADR-0013/0016):** `pricing_catalog` (1 active JSONB row), `posting_plans`, `posting_boosts`, `resume_disclosures`, `payer_capacity` (enforcement INERT).
+- **Invites/PACE (3, ADR-0020/0021/0022):** `invites`, `agency_invites`, `pace_states`.
+- **Admin (2, ADR-0025):** `admin_users` (encrypted email, roles, MFA flag), `worker_flags` (code-only reason).
+- **Skills taxonomy (3, ADR-0030 "TAX"):** `skill` (immutable text PK), `skill_alias` (embedding + HNSW), `unresolved_phrase` (pseudonymized aggregate, no worker_id).
+- **PII map:** raw worker PII **only** in `workers`; encrypted B2B/admin PII in payers/payer_orgs/payer_members/admin_users; PII-adjacent: transcripts, chat bodies, worker_answers.answer_text, push tokens. RLS ENABLE+FORCE on **all 39 tables** (deny-all posture, no policies yet); backend connects with service role/BYPASSRLS (Q5/Q11 open).
+
+# Business Rules (recurring)
+
+- Consent is a hard gate; **disclosure (`employer_sharing`) consent is separate from profiling consent** (ADR-0010). Consent append-only; revoke via `revoked_at`.
+- **§2 ruling (2026-07-14): a worker MAY decrypt-and-read their OWN full_name into their own session** (`GET /workers/me/resume-fields`); name still never reaches an LLM — don't re-escalate.
+- Resume full_name injected server-side at render, never via LLM. Masking is **payer-only**; workers see their own data.
+- **Money never ranks.** RANK weights are **CEO-locked (2026-06-19): Trade 35 / Location 20 / Skills 15 / Experience 15 / Salary 10 / Availability 5** — code must be reconciled TO these (add Skills, drop Activity); the older 06-12 "implemented weights authoritative" row is superseded. Ship flat, no demographics.
+- Unlock price ₹40 flat; posting free-through-launch (verification-gated); capacity enforcement INERT by default.
+- Extraction idempotent per ai_job_id; events idempotent per idempotency_key; voice ≤120s, retention indefinite (TD58, ADR-0029 pending); `is_required` = interview readiness only, never blocks matching.
+- **Dead decisions (never rebuild):** Employer entity, 100-pt score, RVM-as-ranking, hire/no-show signals, BGE-M3 self-host, employer-specific prep, price ranges (→₹40), mobile-only surface.
 
 # Event System
-- **Naming:** `domain.action` (snake_case action), e.g. `worker.created`, `profile.extraction_completed`, `ai.llm_call_failed`.
-- **Domains/prefixes:** worker · consent · chat · voice_note · profile · resume · interview_kit · action · ai · job_posting · feed (P2) · application (P2).
-- **Envelope fields:** `event_id, event_name, event_version, occurred_at, actor{type,id,…}, subject{type,id}, source, correlation_id, causation_id, payload, metadata`. Payloads carry ids/hashes/enums only.
-- **Build/validate:** `createEvent` / `validateEvent` / `assertValidEvent` — Zod, registry-driven, two-stage (envelope, then payload keyed by `event_name`). Throws `EventValidationException` on invalid.
-- **Versioning:** one current version per `event_name` in the registry; incompatible change → bump + keep old schema (full multi-version handling deferred).
-- **Storage:** append-only `events` table; rows threaded with `correlation_id` + `request_id`.
+
+- `domain.action` naming; envelope: event_id/name/version, occurred_at, actor{}, subject{}, source, correlation_id, causation_id, payload, metadata. Payloads = ids/hashes/enums only.
+- **100 events, 28 domains** (top: worker 16, ai 9, job_posting 7, admin 6, resume 5, profile 5, payer 5). All version 1; incompatible change ⇒ version bump, never mutate.
+- `createEvent`/`validateEvent` (registry-driven, two-stage Zod). ADR-0031 will add `worker.deletion_scheduled/cancelled` (→102) when accepted.
 
 # Security & Privacy Rules
-- **PII set:** phone, full name, address, employer names, ID-doc tokens. Never in LLM input / events / `ai_jobs` / `audit_logs` / logs. Only in `workers`, encrypted at rest (ADR-0004).
-- **DPDP consent is a hard gate** (ADR-0010); `model_training` lawful basis captured from day one.
-- Pseudonymization fail-closed (`apps/ai-service/app/pseudonymize.py`) — never add an LLM path that bypasses it.
-- Real LLM/OTP/STT calls are flag-gated and **off by default**; staging first.
-- **Access control:** backend uses the Supabase **service role / BYPASSRLS** today. RLS hardened on spine tables (migration 0009) but **not platform-wide**; per-worker isolation deferred (TD4).
-- AI I/O contracts mirrored **Zod (`packages/ai-contracts`) ↔ Pydantic (`apps/ai-service/app/contracts.py`)** — keep in parity.
+
+- CLAUDE.md §2 invariants govern. PII set: phone, full name, address, employer names, ID tokens — never in LLM input/events/ai_jobs/audit_logs/logs.
+- **Launch gates — 11 boolean env vars, ALL default false:** AI_ENABLE_REAL_CALLS, PAYMENTS_ENABLE_REAL, MESSAGING_ENABLE_REAL, MEMBER_INVITES_ENABLE_REAL, RESUME_RENDER_ENABLED, AUTH_ROLLING_TIERS_ENABLED, ADMIN_PII_REVEAL_ENABLED, ZEPTOMAIL_SANDBOX_MODE, CAPACITY_ENFORCEMENT_ENABLED, PACE_ENABLED, PACE_ADJACENCY_ENABLED. Payments/messaging/invites **refuse to boot** if true without provider creds. Flips need human sign-off, staging first.
+- Worker auth = ADR-0026 (OTP + device PIN, scrypt, lockout cycles; TD62 kPersistentAuth is HIGH debt). Payer auth = PayerAuthGuard + org roles (ADR-0027). Admin = ADR-0025 (roles + MFA flag). **Money routes (unlock/reveal, posting plan) still ride InternalServiceGuard + body payer_id — LC-1 open (TD33/TD50).**
+- Top open risks: R1 RLS unfinalized, R3 mock providers, R4/R19 DPDP legal copy, R10 conversation-bucket erasure, R24 admin privilege, R25 PIN/session.
 
 # Coding Conventions
-- **Validation:** Zod DTO (`*.dto.ts`) + `@Body(new ZodValidationPipe(Schema))`; shared schemas in `@badabhai/validators`.
-- **Error handling:** global `AllExceptionsFilter` → `{statusCode, error, requestId, path, timestamp}`. `RequestIdMiddleware` sets `requestId` + `correlationId` (honors `x-request-id`/`x-correlation-id`), surfaced via `@Ctx()` and threaded into events. Structured logger; never log raw PII.
-- **Testing:** Vitest (TS unit + e2e under `tests/e2e/*.e2e.test.ts`), Pytest (AI service), `flutter analyze && flutter test` (blocking since 2026-06-15). CI gate: `pnpm lint && typecheck && test && build`; `ruff check . && pytest`.
-- **Repository rule:** data access only in `*.repository.ts` (Drizzle, PII-excluding projections); business logic + event emission only in services; controllers stay thin.
 
-# Current Workstreams
-- **Active branch:** `feat/job-posting-alpha-gate` — ADR-0012 ops job postings (vacancy-banded, stored-only).
-- **Recently shipped:** async extraction/transcription (BullMQ), resume PDF render (WeasyPrint, ADR-0007), Sarvam STT gated (PR #32), direct providers (ADR-0008), event + profile idempotency, RLS hardening (mig 0009), `full_name` encryption, AI spend caps, Flutter CI blocking.
-- **Open tech debt (high-value):** TD2 mock OTP · TD3 heuristic pseudonymization · TD4 RLS not platform-wide · TD12 in-process extraction worker · TD15 untyped/unauthz `GET /ai-jobs/:id` · TD29 worker-app alpha flows incomplete · TD30 CORS open · TD17/TD31 duplicated question bank/trade enums · TD34 job-posting deferrals.
-- **Open questions:** real OTP provider (Q1) · unlock pricing (Q2) · Sarvam contract (Q4) · RLS model (Q5) · DPDP data residency (Q6) · scale targets (Q7).
-- **Decisions of record:** ADRs **0001–0012** in `docs/decisions/` (key: 0004 PII/RLS · 0005 metadata profiling · 0007 resume render · 0008 direct providers · 0009 alpha swipe · 0010 contact unlock · 0012 job postings).
+- Zod DTO + `ZodValidationPipe`; global `AllExceptionsFilter` (`{statusCode,error,requestId,path,timestamp}`); RequestIdMiddleware threads request/correlation ids into events; never log PII.
+- Vitest (unit + `tests/e2e` against ephemeral PG), Pytest, `flutter analyze && flutter test` (blocking). Gate: `pnpm lint && typecheck && test && build` + `ruff check . && pytest`.
+- Repos = Drizzle only, PII-excluding projections; services emit events; controllers thin. AI contracts stay Zod↔Pydantic mirrored (recent parity PRs #191/#193).
+
+# Current Workstreams (2026-07-14)
+
+- **Worker Alerts/notifications feed merged 2026-07-14 (#221):** API `GET /workers/me/notifications` (faceless event projection) + Flutter Alerts tab; #216 liberal jobs feed merged earlier. Uncommitted on `feat/worker-feed-liberal-no-location`: **ADR-0031 draft** (7-day deletion grace, PENDING Prakash/Akshit — reverses ADR-0026 D1/D2/D4; build §7-gated) + interview-kit test edits.
+- **No open PRs** (gh-verified 2026-07-14 afternoon); **#222 FORK-B-1** request-path DB skill store (ADR-0030) merged 2026-07-14.
+- **Recently shipped (#182–#222):** payer org tenancy B5.x, TAX-0..4 skills taxonomy + fork-B embed runner + FORK-B-1, COST-2/3/4, AI-PERSONA-1/2, worker-app backend wiring + Flutter 3.35.7 (Rishi), TD54 self-serve reads, resume name-edit + PDF-409 UX, TD25 trust-proxy, voice unblock (mock STT), CI-1 + Dependabot, Alerts feed (#221).
+- **Blockers:** P0 staging deploy (overdue 07-04) → B1 capstone (needs PDF download working on staging, `RESUME_RENDER_ENABLED=true`); P1 payer-web FE wiring (FE-1..7), LC-1 money-route auth.
+- **Pending decisions:** ADR-0031 (deletion grace), ADR-0005/0028/0029 Proposed; Q5/Q11 RLS identity; Q13 PACE adjacency (CEO); hospitality per-trade RVM ratification.
+- Key dates: DPAs ≤07-07 (check status), alpha 2026-08-15, soft launch Sep 2026.
 
 # Developer Notes (token-savers)
-- Read **CLAUDE.md**, this file, and **team-memory.md** first — don't rediscover architecture/ownership/rules.
-- **Windows/pnpm:** pnpm not on PATH → use `corepack pnpm`; prefix builds with `PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false`; turbo can't find pnpm → build via `corepack pnpm --filter "@badabhai/<pkg>..." run build`.
-- **DB:** remote Supabase = **Session pooler host `:5432` + `?sslmode=require`** (direct host is IPv6-only); `DATABASE_URL` in root `.env`; load it before `pnpm db:migrate`. **Drizzle is the schema source of truth — do not `supabase db push`.**
-- **API:** no global prefix, port **3001**, CORS open, **no auth/JWT in Phase 1** (mock OTP returns a `worker_id`, not a token).
-- `docs/registers/` is project memory — update the relevant register in the same PR as the change.
-- **Escalate (stop & ask)** on: changing a §2 CLAUDE.md invariant, a stack change, a destructive migration, real provider keys/spend, or anything touching production data.
+
+- Windows: `corepack pnpm` (pnpm not on PATH); `PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false`; build via `corepack pnpm --filter "@badabhai/<pkg>..." run build`; clear `*.tsbuildinfo` before API builds; e2e Postgres on **5433** (host PG owns 5432).
+- **DB connect:** Session pooler `aws-1-ap-south-1.pooler.supabase.com:5432` + `?sslmode=require` (direct host IPv6-only); `DATABASE_URL` in root `.env` — load into shell before `pnpm db:migrate`. Never `supabase db push` (Drizzle owns migrations). **Check the latest migration number (0037) before `db:generate` — never collide.**
+- `docs/tracker/` = daily execution state; `docs/registers/` = project memory; update in the same PR. Escalate per CLAUDE.md §7 (invariants, stack, destructive migrations, real keys/spend, production data).
