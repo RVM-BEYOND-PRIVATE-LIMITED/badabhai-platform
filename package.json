@@ -22,6 +22,7 @@
     "db:migrate": "pnpm --filter @badabhai/db db:migrate",
     "db:seed:demand": "pnpm --filter @badabhai/db db:seed:demand",
     "db:verify:demand": "pnpm --filter @badabhai/db db:verify:demand",
+    "db:seed:skills": "pnpm --filter @badabhai/db db:seed:skills",
     "db:seed:reach": "pnpm --filter @badabhai/db db:seed:reach",
     "db:seed:reach:large": "pnpm --filter @badabhai/db db:seed:reach:large",
     "db:unseed:reach": "pnpm --filter @badabhai/db db:unseed:reach",
