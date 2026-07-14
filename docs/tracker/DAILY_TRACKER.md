@@ -5,6 +5,30 @@ Newest day on top. Copy the template block each working day. Every % move needs 
 
 ---
 
+# Daily Tracker — 2026-07-14
+
+## BadaBhai Progress Snapshot
+- **Overall Project: 75%** · **Alpha Readiness: 58%** · **Release Readiness: 29%** — **NO % moves** (code breadth grew again, but the evidence posture is unchanged: no staging, no handset proof; the cap rule holds)
+- **P0: 1** (staging PAST DEADLINE — 10 days) · **P1: 2** (TD62 consent-routing before handset GA; unlock/reveal LC-1 residual)
+- **Decisions:** D9 (ADR-0030 accepted) + D10 (fork-B runner) DECIDED 2026-07-14 — see [DECISION_LOG](DECISION_LOG.md)
+
+## Merged since 2026-07-10 (code catch-up — verification posture unchanged)
+| PRs | What landed |
+| --- | ----------- |
+| #193–#196 | ai-contracts parity tests; payer-web all-seams-live (LC-1 closed on main); interview-kit read routes; worker self profile-summary |
+| #197–#199 | auth throttle residuals (TD25 trust-proxy, TD60 per-phone OTP daily cap); voice pipeline end-to-end (ADR-0029, mock STT, DORMANT until bucket); register sync |
+| #201–#202 | worker-app kPersistentAuth ON (W1) + payer P1/P2/P3/P5 REAL mode; TD61/TD62 logged |
+| #203–#210 | AI cost/persona series: PERSONA-1/2 (bada-bhai voice + {{worker_name}} seam), COST-2 (prompt caching), COST-3 (stateless turns), COST-4 (templated questions, LLM-skip straight path) |
+| #211–#215 | **ADR-0030 skills taxonomy TAX-0..4**: ADR accepted; skill/skill_alias/unresolved_phrase (migration 0037, applied); curated ESCO/O\*NET/NCO corpus + `db:seed:skills`; mock-default embeddings (pseudonymize-first); `canonicalize_skill` floor-gated (flag OFF, TD65) |
+| #216–#218 | worker-app liberal jobs feed (concurrent session); TAX-5..9 roadmap pinned; **CI-1** Node-24 action bumps + Dependabot (0 deprecation annotations verified) |
+| #219 (open) | fork-B embed runner + `POST /embeddings/skill-alias` — in adversarial review |
+
+## Blockers
+- **P0 staging unchanged** — nothing above adds runtime proof; the alpha gap remains verification + staging, not code.
+- New launch gates logged: **TD64** (embed spend outside SpendLedger — precondition for the §7 staging embed run) · **TD65** (SKILL_CANONICALIZE_ENABLED stays OFF until staging verify + TAX-5 calibration).
+
+---
+
 # Daily Tracker — 2026-07-10
 
 ## BadaBhai Progress Snapshot

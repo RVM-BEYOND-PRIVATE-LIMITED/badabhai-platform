@@ -62,6 +62,14 @@ Status: `OPEN · DECIDED · DEFERRED`.
 - **Owner:** Prakash + security-engineer (+ Divyanshu) · **Deadline:** before T2 (PIN hashing) lands.
 - **Status:** ✅ RESOLVED (2026-06-29) — **Built on `crypto.scrypt` per the accepted ADR** (option a). Verified in the merged Phase 3 (#168): `apps/api/src/auth/pin-hasher.service.ts` uses scrypt + per-user salt + env pepper, behind a versioned interface (`pin_algo`), with Argon2id correctly **deferred to TD55** ("Argon2id stays TD55, NOT built here"). No §3 deviation merged. **Follow-up:** the 4 deferred MEDIUM PIN throttle/rate-limit findings (PR #168 fast-follows) must be fixed before real-SMS/prod.
 
+### D9 — ADR-0030: embedding-based skill canonicalization (TAX program)
+- **Why needed:** ADR-0028 OQ#1 — a standard-backed skill id space (ESCO + O\*NET + NCO-2015 + RVM wedge) with vector canonicalization; gates a new vocabulary layer + phased TAX-1..9.
+- **Status:** ✅ DECIDED (2026-07-14) — **ACCEPTED** (owner ratified after the security BLOCK was corrected). TAX-1..4 merged same day (#212–#215), mock-default; real-provider/licensing/RVM gates still §7. Launch preconditions TD64/TD65.
+
+### D10 — fork-B: where the skill_alias vector read/write lives
+- **Why needed:** the ai-service is DB-free and `skill_alias` is REVOKE'd from the Data-API role — the real embed/vector-search runner needed a home: (A) psycopg inside the ai-service vs (B) a `packages/db` runner (owner connection) calling the ai-service over HTTP.
+- **Status:** ✅ DECIDED (2026-07-14) — **B (db-side runner)**. Keeps the ai-service DB-free; runner = `pnpm db:embed:skills` + `POST /embeddings/skill-alias` (PR #219). Option A rejected.
+
 ### D8 — Alpha target date (B1 sprint deadline)
 - **Why needed:** B1 handset run (staging onboarding→resume) is the alpha gate. A deadline forces the staging provisioning, OTP activation, and handset verification to run in parallel this week rather than sequentially over multiple weeks.
 - **Owner:** Prakash · **Deadline:** 2026-07-04
