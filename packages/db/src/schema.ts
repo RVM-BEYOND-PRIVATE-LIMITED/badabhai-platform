@@ -1747,6 +1747,8 @@ export const skills = pgTable(
     skillId: text("skill_id").primaryKey(),
     labelEn: text("label_en").notNull(),
     labelHi: text("label_hi"),
+    // IMMUTABLE alongside skill_id (a re-domain = deprecate + recreate). skill_alias
+    // denormalizes this for the domain-scoped ANN filter and relies on it not changing.
     domainId: text("domain_id").notNull(),
     source: text("source").$type<SkillSource>().notNull(),
     status: text("status").$type<SkillStatus>().notNull().default("provisional"),
@@ -1781,8 +1783,10 @@ export const skillAliases = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    // Domain-scoped filter (ADR-0030) + FK-referencing-column index.
-    index("skill_alias_domain_skill_idx").on(t.domainId, t.skillId),
+    // Domain-scoped ANN filter (ADR-0030); domain_id alone suffices (the HNSW does the
+    // vector order, this pre-filters the domain).
+    index("skill_alias_domain_id_idx").on(t.domainId),
+    // FK-referencing column (Postgres does not auto-index it; the ON DELETE cascade needs it).
     index("skill_alias_skill_id_idx").on(t.skillId),
     // Second HNSW cosine index (the §7(a) capacity item) over alias embeddings.
     index("skill_alias_embedding_hnsw").using("hnsw", t.embedding.op("vector_cosine_ops")),
@@ -1807,7 +1811,11 @@ export const unresolvedPhrases = pgTable(
     embedding: vector("embedding", { dimensions: 768 }),
   },
   (t) => [
-    index("unresolved_phrase_domain_id_idx").on(t.domainId),
+    // One row per distinct phrase — enables the atomic count-increment upsert
+    // (INSERT ... ON CONFLICT (phrase, domain_id, lang) DO UPDATE count = count + 1).
+    // The migration adds NULLS NOT DISTINCT (PG15) by hand — this drizzle version
+    // can't model it — so NULL domain/lang phrases still dedupe to one row.
+    uniqueIndex("unresolved_phrase_uq").on(t.phrase, t.domainId, t.lang),
     index("unresolved_phrase_status_idx").on(t.status),
     check(
       "unresolved_phrase_status_chk",

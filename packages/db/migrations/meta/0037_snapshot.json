@@ -1,5 +1,5 @@
 {
-  "id": "0ef77bc7-e83a-4e6c-aefd-0fb3c1287064",
+  "id": "c33f24ad-4934-48b8-b0a5-360a2be23141",
   "prevId": "d93f76ad-a0ec-4e20-8e1b-9edff4ff3498",
   "version": "7",
   "dialect": "postgresql",
@@ -3230,17 +3230,11 @@
         }
       },
       "indexes": {
-        "skill_alias_domain_skill_idx": {
-          "name": "skill_alias_domain_skill_idx",
+        "skill_alias_domain_id_idx": {
+          "name": "skill_alias_domain_id_idx",
           "columns": [
             {
               "expression": "domain_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "skill_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -3746,17 +3740,29 @@
         }
       },
       "indexes": {
-        "unresolved_phrase_domain_id_idx": {
-          "name": "unresolved_phrase_domain_id_idx",
+        "unresolved_phrase_uq": {
+          "name": "unresolved_phrase_uq",
           "columns": [
+            {
+              "expression": "phrase",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
             {
               "expression": "domain_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
+            },
+            {
+              "expression": "lang",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
             }
           ],
-          "isUnique": false,
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
