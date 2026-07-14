@@ -11,6 +11,7 @@ import { AuthModule } from "./auth/auth.module";
 import { ConsentModule } from "./consent/consent.module";
 import { ChatModule } from "./chat/chat.module";
 import { VoiceModule } from "./voice/voice.module";
+import { SkillsModule } from "./skills/skills.module";
 import { ProfilesModule } from "./profiles/profiles.module";
 import { ResumeModule } from "./resume/resume.module";
 import { InterviewKitModule } from "./interview-kit/interview-kit.module";
@@ -50,6 +51,7 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     ConsentModule,
     ChatModule,
     VoiceModule,
+    SkillsModule,
     ProfilesModule,
     ResumeModule,
     InterviewKitModule,

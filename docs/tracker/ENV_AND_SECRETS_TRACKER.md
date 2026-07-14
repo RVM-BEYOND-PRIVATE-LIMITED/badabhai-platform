@@ -51,6 +51,7 @@ Status: `OK` (set & validated) / `MISSING` / `DEFAULT` (dev default) / `STAGING-
 | `SKILL_CANONICALIZE_ENABLED` | 🌐 | false | OK (off — **launch gate TD65**: stays OFF until §7 staging embed verify + TAX-5 floor calibration; flag alone is inert, needs store + call-site) |
 | `SKILL_CANONICALIZE_FLOOR` / `SKILL_CANONICALIZE_TOP_K` / `SKILL_CANONICALIZE_DEFAULT_DOMAIN` | 🌐 | 0.82 / 5 / cnc-machining | OK (defaults; floor uncalibrated until TAX-5) |
 | `EMBEDDING_MODEL` | 🌐 | text-embedding-004 | OK (real embed also needs `GEMINI_FLASH_API_KEY` + `skill_embedding` in `AI_REAL_CALL_TASKS` — the staging `profile_extraction` pin makes an embed run silently MOCK) |
+| `BACKEND_API_URL` + `INTERNAL_SERVICE_TOKEN` (ai-service) | 🔒 token | unset | OK (unset → NullSkillStore, canonicalize inert; FORK-B-1 seam A — the ai-service calls the api's /internal/skills/* with the SAME shared secret the api already holds) |
 
 ## AI / STT / observability (gated; not needed for alpha mock path)
 | Var | Secret | Needed for | Status |

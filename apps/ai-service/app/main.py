@@ -16,9 +16,11 @@ import json
 from fastapi import FastAPI
 
 from .ai import cost_tracker
+from .ai.canonicalize import canonicalize_labels
 from .ai.embeddings import EMBEDDING_TASK_TYPE, MOCK_MODEL, embed_text
 from .ai.model_config import rate_inr_per_1k
 from .ai.router import AIRouter
+from .ai.skill_store import get_skill_store
 from .config import get_settings
 from .contracts import (
     DraftProfile,
@@ -315,6 +317,23 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
         # role from the model's free `primary_role` label could override the model's
         # AUTHORITATIVE `canonical_role_id=null` on a helper/adjacent case and
         # regress the negative tier — verify against the staging --real eval first.
+
+    # TAX-4/FORK-B-1: vector-canonicalize the SKILL labels (SG-3 — the vector layer
+    # assigns ids from the closed skill_alias set; below-floor phrases are recorded
+    # pseudonymized + stay raw). SKILLS ONLY — deliberately NOT map_rich_to_legacy's
+    # role backfill, which the WS4 TODO above still defers (negative-tier risk).
+    # Inert unless BOTH the flag is on AND the seam is configured (get_skill_store
+    # returns the NullSkillStore otherwise) — the TD65 activation chain.
+    if settings.skill_canonicalize_enabled:
+        assigned, _unresolved = canonicalize_labels(
+            rich.skills + rich.controllers,
+            settings.skill_canonicalize_default_domain,
+            get_skill_store(settings),
+            settings,
+        )
+        for sid in assigned:
+            if sid not in legacy.skills:
+                legacy.skills.append(sid)
 
     # Honest-adjacency flag (advisory ONLY — never ranks/rejects): mark the draft
     # adjacent when it canonicalized to nothing matchable in the CNC/VMC taxonomy

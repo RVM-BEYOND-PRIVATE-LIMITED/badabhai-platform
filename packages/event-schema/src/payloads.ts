@@ -1520,3 +1520,20 @@ export const AdminKillSwitchPauseRequestedPayload = z
 export type AdminKillSwitchPauseRequestedPayload = z.infer<
   typeof AdminKillSwitchPauseRequestedPayload
 >;
+
+/**
+ * A skill phrase missed the canonicalization confidence floor and was recorded to the
+ * `unresolved_phrase` growth queue (ADR-0030 / FORK-B-1 seam A). PII-FREE BY CONSTRUCTION:
+ * the phrase itself (already pseudonymized, SG-1) is NOT carried — only its sha256 hex
+ * `phrase_hash` (correlate-able, never reversible), the skill domain, the language tag,
+ * and the row's occurrence `count` after the upsert. `.strict()` blocks smuggling the text.
+ */
+export const SkillPhraseUnresolvedPayload = z
+  .object({
+    phrase_hash: z.string().regex(/^[0-9a-f]{64}$/),
+    domain_id: z.string().min(1),
+    lang: z.string().min(2).max(8),
+    count: z.number().int().positive(),
+  })
+  .strict();
+export type SkillPhraseUnresolvedPayload = z.infer<typeof SkillPhraseUnresolvedPayload>;

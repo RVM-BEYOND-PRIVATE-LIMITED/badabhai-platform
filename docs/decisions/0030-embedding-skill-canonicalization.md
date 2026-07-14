@@ -190,3 +190,45 @@ Each phase is additive behind the `skill_id` space; legacy `skill_*` ids (crossw
 - CLAUDE.md §2 invariants 1/2/3/4/5/7/8, §3 locked stack, §7 escalation; the `migration` + `bb-architecture-review` + `bb-security-review` skills.
 
 *This ADR records the architecture decision to resolve ADR-0028 Open Question #1 by adopting a standard-backed (ESCO + O\*NET + NCO-2015 + RVM), embedding-canonicalized, immutable SKILL id space behind the existing mapper seam (2026-07-14). It authorizes a phased, additive, versioned, gated rollout (TAX-1…TAX-9); it produces **no code, schema, migration, extension, import, or embedding call**. **Skills-in-ranking is explicitly out of scope and requires its own ADR — invariant #4 is untouched.** Accepted by owner directive (2026-07-14) after the security-engineer read's blocking corrections were folded in; downstream phases (TAX-2…TAX-9) still hold at their §7 gates (b–e).*
+
+---
+
+## Addendum (2026-07-14) — fork-B boundary + seam A for the request path
+
+**Context.** TAX-3/TAX-4 shipped DB-free behind two seams (`AliasStore`,
+`SkillCanonicalStore`); `skill_alias`/`unresolved_phrase` are RLS-locked + REVOKE'd from
+the Data-API roles, so both halves of the real path needed a home for the authorized DB
+access.
+
+**Decision 1 — corpus embed = fork B (owner-chosen 2026-07-14, tracker D10, PR #219).**
+The `skill_alias.embedding` write runner lives in `packages/db`
+(`src/embed-skill-aliases.ts`, owner connection, `pnpm db:embed:skills`, with
+`--reset-embeddings` as the mixed-vector-space recovery) and calls the ai-service
+`POST /embeddings/skill-alias` for vectors. A psycopg client inside the ai-service was
+REJECTED — the ai-service stays DB-free.
+
+**Decision 2 — request path = seam A (FORK-B-1).** At profiling time `canonicalize_skill`
+needs `nearest_aliases` (domain-scoped HNSW) + `record_unresolved`. Chosen:
+**HTTP-back-to-NestJS** — the ai-service `HttpSkillStore` calls two INTERNAL NestJS routes
+(`InternalServiceGuard`, shared secret):
+
+- `POST /internal/skills/nearest-aliases` — the api runs the cosine ANN query on its owner
+  connection; returns `(skill_id, score)` candidates only (SG-3: the closed set).
+- `POST /internal/skills/unresolved` — upsert of the ALREADY-pseudonymized miss phrase
+  (count + last_seen), emitting `skill.phrase_unresolved` v1 (**hash-only** — even the
+  pseudonymized text never rides the event spine).
+
+Rejected: a scoped read-only owner connection inside the ai-service — breaks the DB-free
+invariant and adds a second raw-DB authority for no capability gain.
+
+**Consequences.**
+- The ai-service remains DB-free; each boundary keeps its own authority (vectors from the
+  AI boundary, rows from the DB boundary); both directions are internal + secret-gated.
+- Failure posture: the store FAILS OPEN TO UNRESOLVED (an api outage degrades to the
+  status-quo raw-phrase profile — canonicalization never blocks extraction, the TAX-8
+  guarantee), while the pseudonymize/embed half stays FAIL-CLOSED (SG-2).
+- The extraction wiring canonicalizes **skills only** (`canonicalize_labels`) — the WS4
+  role-backfill deferral (negative-tier risk) is unchanged.
+- The TD65 activation chain is now: backfilled vectors
+  ([SR-1 runbook](../ai/skill-embedding-staging-runbook.md)) + these routes deployed +
+  `BACKEND_API_URL`/`INTERNAL_SERVICE_TOKEN` on the ai-service + `SKILL_CANONICALIZE_ENABLED=true`.

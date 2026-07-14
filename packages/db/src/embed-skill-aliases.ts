@@ -19,14 +19,15 @@
  *   from the response (stay NULL, retried next run); a batch that makes NO progress at
  *   all aborts hard rather than looping.
  *
- *   pnpm db:embed:skills
+ *   pnpm db:embed:skills                      # backfill NULL rows
+ *   pnpm db:embed:skills --reset-embeddings    # NULL ALL vectors (mixed-space recovery)
  *   (DATABASE_URL from env/.env; AI_SERVICE_URL defaults to http://localhost:8000 —
  *    start the ai-service first: cd apps/ai-service && uvicorn app.main:app.
  *    EMBED_BATCH_SIZE overrides the 100-row batch — use a SMALLER batch, e.g. 20, for
  *    REAL runs so one HTTP request stays well under the 10-minute timeout.)
  */
 import { config } from "dotenv";
-import { isNull, and, eq, notInArray } from "drizzle-orm";
+import { isNull, isNotNull, and, eq, notInArray } from "drizzle-orm";
 
 import { createDbClient } from "./client";
 import { skillAliases } from "./schema";
@@ -96,6 +97,25 @@ async function main(): Promise<void> {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("[embed:skills] DATABASE_URL is not set");
   const aiBase = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
+
+  // --reset-embeddings: NULL out ALL skill_alias embeddings and exit. The recovery for a
+  // mixed vector space (mock hash vectors are indistinguishable at rest from real ones —
+  // no provenance column), run BEFORE a real backfill if a prior mock run persisted
+  // vectors (SR-1 step 2). Re-embedding the corpus afterwards is cheap.
+  if (process.argv.includes("--reset-embeddings")) {
+    const { db, sql } = createDbClient(url, { max: 1 });
+    try {
+      const reset = await db
+        .update(skillAliases)
+        .set({ embedding: null })
+        .where(isNotNull(skillAliases.embedding))
+        .returning({ id: skillAliases.id });
+      console.log(`[embed:skills] reset — ${reset.length} embeddings set to NULL; re-run the backfill.`);
+    } finally {
+      await sql.end();
+    }
+    return;
+  }
 
   const { db, sql } = createDbClient(url, { max: 1 });
   const blocked: string[] = [];

@@ -387,6 +387,14 @@ export const EVENT_REGISTRY = {
     domain: "admin",
     payload: p.AdminKillSwitchPauseRequestedPayload,
   },
+  // ADR-0030 / FORK-B-1 (seam A): a below-floor skill phrase was recorded to the
+  // unresolved_phrase growth queue. Hash-only (never the text — even pseudonymized),
+  // domain + lang + post-upsert count. v1.
+  "skill.phrase_unresolved": {
+    version: 1,
+    domain: "skill",
+    payload: p.SkillPhraseUnresolvedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

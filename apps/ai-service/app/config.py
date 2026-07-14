@@ -81,6 +81,14 @@ class Settings(BaseSettings):
     # finer per-label domain is known yet (per-label multi-domain resolution is TAX-5/6).
     skill_canonicalize_default_domain: str = "cnc-machining"
 
+    # FORK-B-1 seam A: the NestJS api base URL + the shared internal-service secret the
+    # HttpSkillStore uses for the INTERNAL skill routes (nearest-aliases / unresolved).
+    # The ai-service stays DB-FREE — the api runs the authorized vector/upsert queries.
+    # Both unset by default → get_skill_store() returns the NullSkillStore (inert), so the
+    # canonicalize wiring cannot activate by flag alone (TD65 chain: store + flag).
+    backend_api_url: str | None = None
+    internal_service_token: str | None = None
+
     # Per-profile cost guardrails (INR). Used for alerting only in Phase 1.
     ai_cost_alert_profile_inr: float = 6.0
     ai_target_profile_cost_inr: float = 4.0

@@ -27,7 +27,8 @@ ranks** — a skills factor in RANK is a *separate future ADR*, explicitly out o
 | TAX-2 | Corpus import (ESCO/O*NET/NCO) + seed | — | **MERGED** | TAX-1 | #213 |
 | TAX-3 | AI — alias embedding (mock default, real §7) | — | **MERGED** | TAX-2 | #214 |
 | TAX-4 | AI — `canonicalize_skill` (floor-gated) | — | **MERGED** | TAX-3 | #215 |
-| **fork-B runner** | DB-side runner + ai embed endpoint | — | **BUILT** (mock path; real §7) | TAX-3/4 | — |
+| **fork-B runner** | DB-side runner + ai embed endpoint | — | **MERGED** | TAX-3/4 | #219 |
+| **FORK-B-1** | Request-path DB store (seam A) + reset flag + SR-1 runbook | **P1** | **BUILT** (flag off; real §7) | fork-B | — |
 | TAX-5 | Data/AI — wedge aliases + floor calibration | **P1** | Unblocked · **2 gates** | TAX-4 | — |
 | TAX-6 | Backend+AI — job side shares id space | P2 | Unblocked | TAX-4 | — |
 | TAX-7 | AI — growth loop (cluster unresolved) | P2 | Unblocked | TAX-4 | — |
@@ -46,6 +47,19 @@ real Gemini §7-gated). TAX-4 added `apps/ai-service/app/ai/canonicalize.py`
 (`canonicalize_skill(phrase, domain_id) → {skill_id, score} | UNRESOLVED`, floor 0.82,
 never-invents, miss records pseudonymized text, wired into `map_rich_to_legacy` behind
 `skill_canonicalize_enabled`, default OFF).
+
+## FORK-B-1 — request-path store (seam A) + SR-1
+
+`canonicalize_skill` now has a REAL store: `HttpSkillStore` (ai-service) → the api's
+INTERNAL routes `POST /internal/skills/nearest-aliases` (owner-connection HNSW query) +
+`POST /internal/skills/unresolved` (upsert + hash-only `skill.phrase_unresolved` event),
+guarded by `InternalServiceGuard`. Fails OPEN to UNRESOLVED (an api outage degrades to
+the raw-phrase status quo — canonicalization never blocks extraction); SG-2 stays
+fail-closed. Extraction wiring canonicalizes **skills only** (WS4 role-backfill deferral
+unchanged). Activation = vectors backfilled + `BACKEND_API_URL` +
+`INTERNAL_SERVICE_TOKEN` on the ai-service + `SKILL_CANONICALIZE_ENABLED=true`
+([SR-1 runbook](skill-embedding-staging-runbook.md); ADR-0030 addendum records seam A).
+`--reset-embeddings` on the runner is the mixed-vector-space recovery.
 
 ## fork-B — DB-side runner (owner-chosen 2026-07-14)
 
