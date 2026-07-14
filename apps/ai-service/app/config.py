@@ -77,12 +77,16 @@ class Settings(BaseSettings):
     # recorded. `top_k` bounds the nearest-alias fetch.
     #
     # FLOOR = 0.75 — CALIBRATED on the TAX-5 labeled wedge set (2026-07-14, REAL
-    # gemini-embedding-001@768 vectors, tests/wedge_eval/scores_2026_07_14.json):
-    # precision 1.000 / recall 0.800 (vs 0.750 at the prior 0.82 guess). The safe band is
-    # [0.73, 0.78]: worst NEGATIVE tops out at 0.598, worst sibling-CONFUSION at 0.722
-    # ("g code likhna"→program_editing), first true positive above the band at 0.7815
-    # ("job set karna"). 0.75 is the band midpoint. Re-sweep (embed_wedge + score-wedge)
-    # whenever the corpus/model changes; never hand-tune to make a case pass (overfit risk).
+    # gemini-embedding-001@768 vectors, tests/wedge_eval/scores_2026_07_14.json).
+    # TWO recall numbers, honestly scoped (#225 review M1):
+    #   ORACLE (each phrase scored in its correct domain): precision 1.000/recall 0.800.
+    #   SHIPPED anchor-domain path (every label queried in the default domain until
+    #   per-label domain resolution, TAX-6): precision 1.000 / recall 0.350 — the
+    #   number that applies when the flag flips TODAY. Do not cite 0.800 for launch.
+    # Floor safety: labeled-domain negative ceiling 0.598, sibling-confusion ceiling
+    # 0.722, ANCHOR-path negative ceiling 0.7263 — 0.75 clears all three (next TP
+    # 0.7815). Re-sweep (embed_wedge + score-wedge) on any corpus/model change; the
+    # wedge tests pin snapshot-model == this config's embedding_model. Never hand-tune.
     skill_canonicalize_enabled: bool = False
     skill_canonicalize_floor: float = 0.75
     skill_canonicalize_top_k: int = 5

@@ -118,9 +118,12 @@ different text and 1.0 for identical, so a mock sweep only validates plumbing (s
 resolve, hard negatives stay UNRESOLVED), not the value. Buildable now: labeled wedge eval set,
 `pytest -k wedge` harness, **proposed** `source=rvm` lang-tagged aliases, and sweep tooling;
 **CALIBRATED 2026-07-14 on REAL vectors** (33-phrase labeled set,
-`tests/wedge_eval/scores_2026_07_14.json`): **floor 0.82 → 0.75** — precision 1.000 /
-recall 0.800 (0.82 lost two real hits); safe band [0.73, 0.78] (negative ceiling 0.598,
-sibling-confusion ceiling 0.722, next TP 0.7815). Vernacular tier all ≤ 0.61 → the RVM
+`tests/wedge_eval/scores_2026_07_14.json`): **floor 0.82 → 0.75** — precision 1.000 in
+BOTH scoring modes; recall is **0.800 ORACLE** (phrase scored in its correct domain) vs
+**0.350 on the SHIPPED anchor-domain path** (every label queried in `cnc-machining`
+until TAX-6 per-label domains — cite THIS number for launch, #225 review M1). Floor
+clears all ceilings: labeled-negative 0.598, sibling-confusion 0.722, anchor-negative
+0.7263; next TP 0.7815. Vernacular tier all ≤ 0.61 → the RVM
 wedge aliases are REQUIRED and PROPOSED (22, `ratified: false`) — the human gate is the
 [ratification packet](../registers/skill-vernacular-ratification-packet.md) (Q-A chhilai,
 Q-B drawing padhna open). Re-sweep on any corpus/model change (`embed_wedge.py` →

@@ -1,6 +1,49 @@
 {
  "model": "gemini-embedding-001",
- "scored_at": "2026-07-14T11:30:51.187Z",
+ "scored_at": "2026-07-14T11:54:50.628Z",
+ "anchor_domain": "cnc-machining",
+ "corpus_fingerprint": [
+  {
+   "domain_id": "cnc-machining",
+   "embedded": 22
+  },
+  {
+   "domain_id": "cnc-programming",
+   "embedded": 11
+  },
+  {
+   "domain_id": "fabrication",
+   "embedded": 6
+  },
+  {
+   "domain_id": "fitting-assembly",
+   "embedded": 5
+  },
+  {
+   "domain_id": "general-machining",
+   "embedded": 2
+  },
+  {
+   "domain_id": "grinding",
+   "embedded": 3
+  },
+  {
+   "domain_id": "maintenance",
+   "embedded": 4
+  },
+  {
+   "domain_id": "metrology-quality",
+   "embedded": 11
+  },
+  {
+   "domain_id": "vmc-machining",
+   "embedded": 3
+  },
+  {
+   "domain_id": "welding",
+   "embedded": 9
+  }
+ ],
  "cases": [
   {
    "phrase": "CNC programming",
@@ -23,6 +66,23 @@
      "skill_id": "skill_program_editing",
      "alias": "G-code editing",
      "score": 0.690333189696063
+    }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_turning",
+     "alias": "CNC turning",
+     "score": 0.726337048251986
+    },
+    {
+     "skill_id": "skill_fanuc",
+     "alias": "Fanuc controller",
+     "score": 0.686073323669235
+    },
+    {
+     "skill_id": "skill_fanuc",
+     "alias": "Fanuc",
+     "score": 0.666668434937848
     }
    ]
   },
@@ -48,6 +108,23 @@
      "alias": "part programming",
      "score": 0.731505725399857
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_tapping_threading",
+     "alias": "threading",
+     "score": 0.580677526613421
+    },
+    {
+     "skill_id": "skill_tool_offset_setting",
+     "alias": "tool offset",
+     "score": 0.574941065153645
+    },
+    {
+     "skill_id": "skill_tapping_threading",
+     "alias": "tapping",
+     "score": 0.562512872743314
+    }
    ]
   },
   {
@@ -57,6 +134,23 @@
    "tier": "exact",
    "requires_wedge": false,
    "candidates": [
+    {
+     "skill_id": "skill_turning",
+     "alias": "turning",
+     "score": 1
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "CNC turning",
+     "score": 0.789188231326558
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "lathe operation",
+     "score": 0.703866085525337
+    }
+   ],
+   "candidates_anchor": [
     {
      "skill_id": "skill_turning",
      "alias": "turning",
@@ -96,6 +190,23 @@
      "alias": "turning",
      "score": 0.703866085525337
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_turning",
+     "alias": "lathe operation",
+     "score": 1
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "CNC turning",
+     "score": 0.720603043979142
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "turning",
+     "score": 0.703866085525337
+    }
    ]
   },
   {
@@ -120,6 +231,23 @@
      "alias": "VMC operation",
      "score": 0.589017874984342
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_drilling",
+     "alias": "drilling",
+     "score": 0.680735271020846
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "turning",
+     "score": 0.652217288381377
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "CNC turning",
+     "score": 0.63888460646112
+    }
    ]
   },
   {
@@ -129,6 +257,23 @@
    "tier": "exact",
    "requires_wedge": false,
    "candidates": [
+    {
+     "skill_id": "skill_drilling",
+     "alias": "drilling",
+     "score": 1
+    },
+    {
+     "skill_id": "skill_boring",
+     "alias": "boring",
+     "score": 0.75561921331997
+    },
+    {
+     "skill_id": "skill_tapping_threading",
+     "alias": "tapping",
+     "score": 0.676070273763264
+    }
+   ],
+   "candidates_anchor": [
     {
      "skill_id": "skill_drilling",
      "alias": "drilling",
@@ -168,6 +313,23 @@
      "alias": "cylindrical grinding",
      "score": 0.79885787970676
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_drilling",
+     "alias": "drilling",
+     "score": 0.607992058277847
+    },
+    {
+     "skill_id": "skill_fixture_setup",
+     "alias": "workholding",
+     "score": 0.606521373404148
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "lathe operation",
+     "score": 0.602814382063063
+    }
    ]
   },
   {
@@ -192,6 +354,23 @@
      "alias": "TIG welding",
      "score": 0.800200963026314
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_fixture_setup",
+     "alias": "workholding",
+     "score": 0.598270034686925
+    },
+    {
+     "skill_id": "skill_mitsubishi",
+     "alias": "Mitsubishi",
+     "score": 0.578549794425052
+    },
+    {
+     "skill_id": "skill_drilling",
+     "alias": "drilling",
+     "score": 0.575073514883132
+    }
    ]
   },
   {
@@ -201,6 +380,23 @@
    "tier": "exact",
    "requires_wedge": false,
    "candidates": [
+    {
+     "skill_id": "skill_fixture_setup",
+     "alias": "fixture setup",
+     "score": 1
+    },
+    {
+     "skill_id": "skill_fixture_setup",
+     "alias": "job setup",
+     "score": 0.72691313784797
+    },
+    {
+     "skill_id": "skill_tool_offset_setting",
+     "alias": "offset setting",
+     "score": 0.605920172090542
+    }
+   ],
+   "candidates_anchor": [
     {
      "skill_id": "skill_fixture_setup",
      "alias": "fixture setup",
@@ -240,6 +436,23 @@
      "alias": "dimensional inspection",
      "score": 0.608890377945282
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_turning",
+     "alias": "lathe operation",
+     "score": 0.672845920111118
+    },
+    {
+     "skill_id": "skill_gdt_reading",
+     "alias": "GD&T",
+     "score": 0.605924367904663
+    },
+    {
+     "skill_id": "skill_tool_offset_setting",
+     "alias": "tool offset",
+     "score": 0.597360670566559
+    }
    ]
   },
   {
@@ -249,6 +462,23 @@
    "tier": "exact",
    "requires_wedge": false,
    "candidates": [
+    {
+     "skill_id": "skill_tool_offset_setting",
+     "alias": "offset setting",
+     "score": 1
+    },
+    {
+     "skill_id": "skill_tool_offset_setting",
+     "alias": "tool offset",
+     "score": 0.750436186790466
+    },
+    {
+     "skill_id": "skill_fixture_setup",
+     "alias": "job setup",
+     "score": 0.665186762809753
+    }
+   ],
+   "candidates_anchor": [
     {
      "skill_id": "skill_tool_offset_setting",
      "alias": "offset setting",
@@ -288,6 +518,23 @@
      "alias": "QC",
      "score": 0.732817844580552
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_gdt_reading",
+     "alias": "geometric dimensioning and tolerancing",
+     "score": 0.570800040411953
+    },
+    {
+     "skill_id": "skill_boring",
+     "alias": "boring",
+     "score": 0.570473602754498
+    },
+    {
+     "skill_id": "skill_gdt_reading",
+     "alias": "GD&T",
+     "score": 0.556830260564701
+    }
    ]
   },
   {
@@ -297,6 +544,23 @@
    "tier": "paraphrase",
    "requires_wedge": false,
    "candidates": [
+    {
+     "skill_id": "skill_turning",
+     "alias": "lathe operation",
+     "score": 0.823504542603957
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "CNC turning",
+     "score": 0.697953576215463
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "turning",
+     "score": 0.66862424203013
+    }
+   ],
+   "candidates_anchor": [
     {
      "skill_id": "skill_turning",
      "alias": "lathe operation",
@@ -336,6 +600,23 @@
      "alias": "M-code",
      "score": 0.602945542511079
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_turning",
+     "alias": "turning",
+     "score": 0.565994177221906
+    },
+    {
+     "skill_id": "skill_boring",
+     "alias": "boring",
+     "score": 0.563821246965639
+    },
+    {
+     "skill_id": "skill_fanuc",
+     "alias": "Fanuc",
+     "score": 0.556680848301725
+    }
    ]
   },
   {
@@ -360,6 +641,23 @@
      "alias": "cylindrical grinding",
      "score": 0.729924809323218
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_turning",
+     "alias": "lathe operation",
+     "score": 0.580522802550021
+    },
+    {
+     "skill_id": "skill_drilling",
+     "alias": "drilling",
+     "score": 0.558844649619559
+    },
+    {
+     "skill_id": "skill_boring",
+     "alias": "boring",
+     "score": 0.556324445653626
+    }
    ]
   },
   {
@@ -369,6 +667,23 @@
    "tier": "paraphrase",
    "requires_wedge": false,
    "candidates": [
+    {
+     "skill_id": "skill_tapping_threading",
+     "alias": "threading",
+     "score": 0.721929464110205
+    },
+    {
+     "skill_id": "skill_tapping_threading",
+     "alias": "tapping",
+     "score": 0.618452824261954
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "turning",
+     "score": 0.60438483953476
+    }
+   ],
+   "candidates_anchor": [
     {
      "skill_id": "skill_tapping_threading",
      "alias": "threading",
@@ -408,6 +723,23 @@
      "alias": "dimensional inspection",
      "score": 0.647276005311252
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_tool_offset_setting",
+     "alias": "offset setting",
+     "score": 0.585436582565308
+    },
+    {
+     "skill_id": "skill_fixture_setup",
+     "alias": "fixture setup",
+     "score": 0.580095087295479
+    },
+    {
+     "skill_id": "skill_siemens",
+     "alias": "Siemens",
+     "score": 0.574034333229065
+    }
    ]
   },
   {
@@ -431,6 +763,23 @@
      "skill_id": "skill_cnc_programming",
      "alias": "part programming",
      "score": 0.632176236173658
+    }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_fanuc",
+     "alias": "Fanuc",
+     "score": 0.555276503140614
+    },
+    {
+     "skill_id": "skill_gdt_reading",
+     "alias": "GD&T",
+     "score": 0.551598998999537
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "turning",
+     "score": 0.551511141747901
     }
    ]
   },
@@ -456,6 +805,23 @@
      "alias": "stick welding",
      "score": 0.696427366031032
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_tapping_threading",
+     "alias": "threading",
+     "score": 0.604031133171189
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "CNC turning",
+     "score": 0.591940690047663
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "turning",
+     "score": 0.590127885341644
+    }
    ]
   },
   {
@@ -465,6 +831,23 @@
    "tier": "paraphrase",
    "requires_wedge": false,
    "candidates": [
+    {
+     "skill_id": "skill_fixture_setup",
+     "alias": "job setup",
+     "score": 0.781490610926785
+    },
+    {
+     "skill_id": "skill_tool_offset_setting",
+     "alias": "offset setting",
+     "score": 0.613955534336302
+    },
+    {
+     "skill_id": "skill_fixture_setup",
+     "alias": "fixture setup",
+     "score": 0.573431321791568
+    }
+   ],
+   "candidates_anchor": [
     {
      "skill_id": "skill_fixture_setup",
      "alias": "job setup",
@@ -504,6 +887,23 @@
      "alias": "tapping",
      "score": 0.551904949659405
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_boring",
+     "alias": "boring",
+     "score": 0.575020032376648
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "turning",
+     "score": 0.569204092025757
+    },
+    {
+     "skill_id": "skill_tapping_threading",
+     "alias": "tapping",
+     "score": 0.551904949659405
+    }
    ]
   },
   {
@@ -513,6 +913,23 @@
    "tier": "vernacular",
    "requires_wedge": true,
    "candidates": [
+    {
+     "skill_id": "skill_turning",
+     "alias": "lathe operation",
+     "score": 0.603380304474228
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "turning",
+     "score": 0.585323120038324
+    },
+    {
+     "skill_id": "skill_boring",
+     "alias": "boring",
+     "score": 0.543678148279247
+    }
+   ],
+   "candidates_anchor": [
     {
      "skill_id": "skill_turning",
      "alias": "lathe operation",
@@ -552,6 +969,23 @@
      "alias": "CNC milling",
      "score": 0.467399561536235
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_boring",
+     "alias": "boring",
+     "score": 0.536607107014525
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "turning",
+     "score": 0.535255376727034
+    },
+    {
+     "skill_id": "skill_tapping_threading",
+     "alias": "tapping",
+     "score": 0.530985033092208
+    }
    ]
   },
   {
@@ -576,6 +1010,23 @@
      "alias": "cylindrical grinding",
      "score": 0.471378351100389
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_boring",
+     "alias": "boring",
+     "score": 0.563007140607708
+    },
+    {
+     "skill_id": "skill_drilling",
+     "alias": "drilling",
+     "score": 0.548360429459876
+    },
+    {
+     "skill_id": "skill_mitsubishi",
+     "alias": "Mitsubishi",
+     "score": 0.548088290945583
+    }
    ]
   },
   {
@@ -585,6 +1036,23 @@
    "tier": "vernacular",
    "requires_wedge": true,
    "candidates": [
+    {
+     "skill_id": "skill_tapping_threading",
+     "alias": "tapping",
+     "score": 0.586275612489917
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "turning",
+     "score": 0.576894402503967
+    },
+    {
+     "skill_id": "skill_boring",
+     "alias": "boring",
+     "score": 0.573076861294415
+    }
+   ],
+   "candidates_anchor": [
     {
      "skill_id": "skill_tapping_threading",
      "alias": "tapping",
@@ -624,6 +1092,23 @@
      "alias": "threading",
      "score": 0.508346735436117
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_boring",
+     "alias": "boring",
+     "score": 0.542690412482334
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "turning",
+     "score": 0.535773754119873
+    },
+    {
+     "skill_id": "skill_tapping_threading",
+     "alias": "threading",
+     "score": 0.508346735436117
+    }
    ]
   },
   {
@@ -633,6 +1118,23 @@
    "tier": "negative",
    "requires_wedge": false,
    "candidates": [
+    {
+     "skill_id": "skill_fixture_setup",
+     "alias": "job setup",
+     "score": 0.529045939445496
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "lathe operation",
+     "score": 0.527456597311992
+    },
+    {
+     "skill_id": "skill_drilling",
+     "alias": "drilling",
+     "score": 0.515570059882702
+    }
+   ],
+   "candidates_anchor": [
     {
      "skill_id": "skill_fixture_setup",
      "alias": "job setup",
@@ -672,6 +1174,23 @@
      "alias": "program editing",
      "score": 0.551284872186916
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_drilling",
+     "alias": "drilling",
+     "score": 0.563075559230911
+    },
+    {
+     "skill_id": "skill_tapping_threading",
+     "alias": "tapping",
+     "score": 0.561115417546954
+    },
+    {
+     "skill_id": "skill_gdt_reading",
+     "alias": "drawing reading",
+     "score": 0.557168900966644
+    }
    ]
   },
   {
@@ -681,6 +1200,23 @@
    "tier": "negative",
    "requires_wedge": false,
    "candidates": [
+    {
+     "skill_id": "skill_fixture_setup",
+     "alias": "job setup",
+     "score": 0.51827597618103
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "lathe operation",
+     "score": 0.502321854302939
+    },
+    {
+     "skill_id": "skill_gdt_reading",
+     "alias": "GD&T",
+     "score": 0.498235821723938
+    }
+   ],
+   "candidates_anchor": [
     {
      "skill_id": "skill_fixture_setup",
      "alias": "job setup",
@@ -720,6 +1256,23 @@
      "alias": "drawing reading",
      "score": 0.522430119224776
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_drilling",
+     "alias": "drilling",
+     "score": 0.540176879747795
+    },
+    {
+     "skill_id": "skill_boring",
+     "alias": "boring",
+     "score": 0.524743808083796
+    },
+    {
+     "skill_id": "skill_gdt_reading",
+     "alias": "drawing reading",
+     "score": 0.522430119224776
+    }
    ]
   },
   {
@@ -744,6 +1297,23 @@
      "alias": "QC",
      "score": 0.520529029306293
     }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_boring",
+     "alias": "boring",
+     "score": 0.562925117103014
+    },
+    {
+     "skill_id": "skill_turning",
+     "alias": "turning",
+     "score": 0.551801919937134
+    },
+    {
+     "skill_id": "skill_gdt_reading",
+     "alias": "drawing reading",
+     "score": 0.533171534538269
+    }
    ]
   },
   {
@@ -753,6 +1323,23 @@
    "tier": "cross_domain",
    "requires_wedge": false,
    "candidates": [
+    {
+     "skill_id": "skill_fixture_setup",
+     "alias": "workholding",
+     "score": 0.598270034686925
+    },
+    {
+     "skill_id": "skill_mitsubishi",
+     "alias": "Mitsubishi",
+     "score": 0.578549794425052
+    },
+    {
+     "skill_id": "skill_drilling",
+     "alias": "drilling",
+     "score": 0.575073514883132
+    }
+   ],
+   "candidates_anchor": [
     {
      "skill_id": "skill_fixture_setup",
      "alias": "workholding",
@@ -791,6 +1378,23 @@
      "skill_id": "skill_arc_welding",
      "alias": "arc welding",
      "score": 0.569095015525818
+    }
+   ],
+   "candidates_anchor": [
+    {
+     "skill_id": "skill_turning",
+     "alias": "CNC turning",
+     "score": 0.726337048251986
+    },
+    {
+     "skill_id": "skill_fanuc",
+     "alias": "Fanuc controller",
+     "score": 0.686073323669235
+    },
+    {
+     "skill_id": "skill_fanuc",
+     "alias": "Fanuc",
+     "score": 0.666668434937848
     }
    ]
   }

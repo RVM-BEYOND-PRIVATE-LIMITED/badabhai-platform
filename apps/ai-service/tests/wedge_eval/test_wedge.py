@@ -45,7 +45,11 @@ def _predict(case_scores: dict, floor: float) -> str:
 
 def test_wedge_set_is_fully_scored_on_real_vectors():
     data, by_key = _load()
-    assert data["model"] == "gemini-embedding-001"  # REAL space, not mock hashes
+    # The snapshot must come from the CONFIGURED model — a config model bump (exactly
+    # what the text-embedding-004 retirement forced) makes this fail until a re-sweep
+    # commits a fresh snapshot (#225 review M2: no silent cross-space calibration).
+    assert data["model"] == Settings().embedding_model
+    assert data["model"] != "mock-embedding"  # REAL space, not hash noise
     for case in WEDGE_SET:
         assert (case.phrase, case.domain_id) in by_key, f"unscored: {case.phrase}"
     assert len(data["cases"]) == len(WEDGE_SET)
@@ -120,3 +124,39 @@ def test_recorded_floor_sits_inside_the_measured_safe_band():
                 worst_confusion = max(worst_confusion, top["score"])
     assert floor > worst_negative, "floor does not clear the negative ceiling"
     assert floor > worst_confusion, "floor does not clear the sibling-confusion ceiling"
+
+
+def test_shipped_anchor_path_truth_is_disclosed_not_overclaimed():
+    """#225 review M1: the 0.800 recall is DOMAIN-ORACLE recall (each phrase scored in
+    its labeled domain). The SHIPPED wiring queries ONE anchor domain for every label
+    until per-label domain resolution (TAX-6) — this test pins the shipped-path truth so
+    the launch gate can't cite the oracle number for the path that actually runs:
+    on this set, anchor-path recall is 0.35 (7/20) with ZERO false assigns, and the
+    floor still clears the anchor-path negative ceiling."""
+    data, by_key = _load()
+    floor = Settings().skill_canonicalize_floor
+    assert data["anchor_domain"] == "cnc-machining"
+
+    correct = false_assigns = total = 0
+    anchor_negative_ceiling = 0.0
+    for case in WEDGE_SET:
+        row = by_key[(case.phrase, case.domain_id)]
+        cands = row["candidates_anchor"]
+        top = max(cands, key=lambda c: c["score"]) if cands else None
+        pred = top["skill_id"] if (top and top["score"] >= floor) else UNRESOLVED
+        if case.expected == UNRESOLVED:
+            if top:
+                anchor_negative_ceiling = max(anchor_negative_ceiling, top["score"])
+            assert pred == UNRESOLVED, f"anchor-path FALSE ASSIGN on negative: {case.phrase}"
+            continue
+        if case.requires_wedge:
+            continue
+        total += 1
+        if pred == case.expected:
+            correct += 1
+        elif pred != UNRESOLVED:
+            false_assigns += 1
+
+    assert false_assigns == 0  # precision TRANSFERS to the shipped path
+    assert correct / total == 0.35  # recall does NOT (7/20) — the honest shipped number
+    assert floor > anchor_negative_ceiling  # 0.75 still clears the anchor ceiling (0.7263)
