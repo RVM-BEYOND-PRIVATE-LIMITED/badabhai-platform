@@ -16,7 +16,13 @@
  *   (DATABASE_URL is read from the environment / repo-root .env, like the other seeds.
  *    Build @badabhai/taxonomy first — `pnpm build` — so the corpus resolves.)
  */
-import { SKILL_CORPUS, validateSkillCorpus, type SkillSeed } from "@badabhai/taxonomy";
+import {
+  SKILL_CORPUS,
+  ratifiedWedgeAliases,
+  validateSkillCorpus,
+  validateWedgeAliases,
+  type SkillSeed,
+} from "@badabhai/taxonomy";
 import { config } from "dotenv";
 
 import { createDbClient } from "./client";
@@ -38,6 +44,11 @@ async function main(): Promise<void> {
   const problems = validateSkillCorpus();
   if (problems.length > 0) {
     throw new Error(`[seed:skills] corpus invalid:\n  - ${problems.join("\n  - ")}`);
+  }
+  // TAX-5 wedge aliases must target existing corpus ids (additive, SG-5).
+  const wedgeProblems = validateWedgeAliases(new Set(SKILL_CORPUS.map((c) => c.skillId)));
+  if (wedgeProblems.length > 0) {
+    throw new Error(`[seed:skills] wedge aliases invalid:\n  - ${wedgeProblems.join("\n  - ")}`);
   }
 
   const now = new Date();
@@ -91,9 +102,31 @@ async function main(): Promise<void> {
       }
     }
 
+    // 3) TAX-5 wedge aliases — RATIFIED ONLY (TAX-0 gate d: the RVM human flips
+    //    `ratified` in packages/taxonomy/src/wedge-aliases.ts; proposed rows never seed).
+    //    Same deterministic-id + DO NOTHING idempotency; domain denormalized from the skill.
+    let wedgeCount = 0;
+    const domainBySkill = new Map(SKILL_CORPUS.map((c) => [c.skillId, c.domainId]));
+    for (const w of ratifiedWedgeAliases()) {
+      await db
+        .insert(skillAliases)
+        .values({
+          id: aliasId(w.skillId, w.alias.text, w.alias.lang),
+          skillId: w.skillId,
+          text: w.alias.text,
+          lang: w.alias.lang,
+          source: w.alias.source,
+          domainId: domainBySkill.get(w.skillId)!,
+          // embedding stays NULL — run `pnpm db:embed:skills` after seeding.
+        })
+        .onConflictDoNothing({ target: skillAliases.id });
+      wedgeCount += 1;
+    }
+
     console.log("[seed:skills] skill vocabulary seeded (embeddings NULL — TAX-3/4 populates):");
     console.log(`  skills  = ${skillCount}`);
     console.log(`  aliases = ${aliasCount} (deterministic ids; re-run is a no-op)`);
+    console.log(`  wedge   = ${wedgeCount} ratified vernacular aliases (proposed ones stay out)`);
   } finally {
     await sql.end({ timeout: 5 });
   }

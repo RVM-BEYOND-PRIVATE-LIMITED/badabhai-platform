@@ -73,11 +73,18 @@ class Settings(BaseSettings):
     # ADR-0030 / TAX-4: skill-phrase canonicalization (vector match against skill_alias,
     # floor-gated). `enabled` is the WIRING flag — when False the extraction path keeps the
     # status quo (local gazetteer only, raw phrase preserved); rollback = flip it off. `floor`
-    # is the min cosine similarity to ASSIGN an id (measured on the wedge set, TAX-5); below it
-    # the phrase is UNRESOLVED and recorded. `top_k` bounds the nearest-alias fetch. The real
-    # embedding + DB store are still §7-gated (mock/NullSkillStore by default → no spend, no DB).
+    # is the min cosine similarity to ASSIGN an id; below it the phrase is UNRESOLVED and
+    # recorded. `top_k` bounds the nearest-alias fetch.
+    #
+    # FLOOR = 0.75 — CALIBRATED on the TAX-5 labeled wedge set (2026-07-14, REAL
+    # gemini-embedding-001@768 vectors, tests/wedge_eval/scores_2026_07_14.json):
+    # precision 1.000 / recall 0.800 (vs 0.750 at the prior 0.82 guess). The safe band is
+    # [0.73, 0.78]: worst NEGATIVE tops out at 0.598, worst sibling-CONFUSION at 0.722
+    # ("g code likhna"→program_editing), first true positive above the band at 0.7815
+    # ("job set karna"). 0.75 is the band midpoint. Re-sweep (embed_wedge + score-wedge)
+    # whenever the corpus/model changes; never hand-tune to make a case pass (overfit risk).
     skill_canonicalize_enabled: bool = False
-    skill_canonicalize_floor: float = 0.82
+    skill_canonicalize_floor: float = 0.75
     skill_canonicalize_top_k: int = 5
     # Anchor skill domain for the wedge when the extraction wiring canonicalizes labels and no
     # finer per-label domain is known yet (per-label multi-domain resolution is TAX-5/6).
