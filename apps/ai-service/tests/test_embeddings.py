@@ -20,8 +20,16 @@ class MemStore:
     def __init__(self, rows: dict[str, list]):
         self.rows = rows
 
-    def fetch_unembedded(self, limit: int) -> list[tuple[str, str]]:
-        out = [(aid, v[0]) for aid, v in self.rows.items() if v[1] is None]
+    def fetch_unembedded(
+        self, limit: int, exclude_ids: frozenset[str] = frozenset()
+    ) -> list[tuple[str, str]]:
+        # Mirrors the SQL seam: NULL embedding AND id not in the run's blocked set. Excluding
+        # `exclude_ids` is what lets the window advance past blocked NULL rows (F1 fix).
+        out = [
+            (aid, v[0])
+            for aid, v in self.rows.items()
+            if v[1] is None and aid not in exclude_ids
+        ]
         return out[:limit]
 
     def save_embedding(self, alias_id: str, vector: list[float]) -> None:
@@ -87,6 +95,28 @@ def test_blocked_phrase_is_not_embedded(monkeypatch):
     assert real_calls == []  # provider never called on a blocked phrase
 
 
+# --- SG-2 masking half: the embedder receives the MASKED text, never raw ------
+def test_mock_embedder_receives_pseudonymized_text_not_raw(monkeypatch):
+    # An entity that MASKS but does NOT block (employer) must reach the embedder already
+    # masked. A regression passing raw `text` would egress "Sharma Industries" to the
+    # provider and every other test would stay green — this closes that gap.
+    seen: list[str] = []
+    monkeypatch.setattr(embeddings, "_mock_embedding", lambda t: seen.append(t) or [0.0] * 768)
+    res = embed_text("operator at Sharma Industries Pvt Ltd", _mock_settings())
+    assert res.blocked is False
+    assert seen and "Sharma" not in seen[0] and "[EMPLOYER_1]" in seen[0]
+    assert res.text == seen[0]  # the safe text on the result == exactly what was embedded
+
+
+def test_real_embedder_receives_pseudonymized_text_not_raw(monkeypatch):
+    seen: list[str] = []
+    monkeypatch.setattr(embeddings, "_real_embedding", lambda t, s: seen.append(t) or [0.1] * 768)
+    res = embed_text("worked at Kumar Engineering Works", _real_settings())
+    assert res.is_mock is False and res.blocked is False
+    assert seen and "Kumar" not in seen[0] and "[EMPLOYER_1]" in seen[0]
+    assert res.text == seen[0]
+
+
 # --- (5) real path guarded by the flag (off -> no provider call) -------------
 def test_real_path_is_gated_off_by_default(monkeypatch):
     called: list[str] = []
@@ -136,6 +166,34 @@ def test_embed_aliases_skips_blocked_rows_leaving_them_null(monkeypatch):
     assert report.blocked_alias_ids == ["bad"]
     assert store.rows["ok"][1] is not None  # embedded
     assert store.rows["bad"][1] is None  # left NULL for a later re-run
+
+
+def test_embed_aliases_crosses_batches_without_double_counting_blocked(monkeypatch):
+    # >1 batch (batch_size=2) with a blocked row wedged in the middle. A blocked row stays
+    # NULL, so a naive `WHERE embedding IS NULL LIMIT n` re-returns it every batch — double-
+    # counting it and starving rows behind it. The exclude-set seam must count it ONCE and
+    # still drain every clean row (F1).
+    def selective(text, *args, **kwargs):
+        if "12345678" in text:
+            return _pseudo(blocked=True, reason="residual_digits")
+        return _pseudo(text=text)
+
+    monkeypatch.setattr(embeddings, "pseudonymize", selective)
+    store = MemStore(
+        {
+            "c1": ["milling", None],
+            "c2": ["welding", None],
+            "bad": ["ref 12345678", None],
+            "c3": ["grinding", None],
+            "c4": ["turning", None],
+        }
+    )
+    report = embed_aliases(store, _mock_settings(), batch_size=2)
+    assert report.embedded == 4  # every clean row drained across batches
+    assert report.blocked == 1  # counted ONCE despite spanning batches
+    assert report.blocked_alias_ids == ["bad"]  # no duplicate ids
+    assert store.rows["bad"][1] is None  # left NULL for a later re-run
+    assert all(store.rows[c][1] is not None for c in ["c1", "c2", "c3", "c4"])
 
 
 def test_all_blocked_batch_terminates_not_infinite_loop(monkeypatch):

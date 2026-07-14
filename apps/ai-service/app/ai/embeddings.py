@@ -51,12 +51,19 @@ _TIMEOUT_SECONDS = 30.0
 @dataclass
 class EmbeddingResult:
     """One embed outcome. ``vector`` is None iff the text was blocked (fail-closed) —
-    the caller SKIPS that row, leaving its embedding NULL for a later re-run."""
+    the caller SKIPS that row, leaving its embedding NULL for a later re-run.
+
+    ``text`` is the PSEUDONYMIZED (safe) text that was actually embedded — the single
+    place SG-2's output surfaces, so a caller (TAX-4 unresolved_phrase, cost accounting)
+    reuses it WITHOUT re-pseudonymizing. It is None when blocked: a blocked phrase's
+    ``pseudonymize().text`` still holds the residual PII that TRIGGERED the block, so it
+    must never be handed back (fail-closed for the record path too)."""
 
     vector: list[float] | None
     blocked: bool
     is_mock: bool
     model: str
+    text: str | None = None
 
 
 def _mock_embedding(text: str) -> list[float]:
@@ -103,19 +110,19 @@ def embed_text(text: str, settings: Settings) -> EmbeddingResult:
     # SG-2: pseudonymize FIRST — a blocked phrase is never sent to the provider.
     result = pseudonymize(text)
     if result.blocked:
-        return EmbeddingResult(vector=None, blocked=True, is_mock=True, model=MOCK_MODEL)
+        return EmbeddingResult(vector=None, blocked=True, is_mock=True, model=MOCK_MODEL, text=None)
 
+    # ``result.text`` is the masked text — the ONLY thing the embedder ever sees, and the
+    # safe text the caller reuses (never the raw ``text``).
+    safe = result.text
     if settings.real_call_enabled_for(EMBEDDING_TASK_TYPE):
-        vector = _real_embedding(result.text, settings)
-        # Cost-track the real call (input tokens only — embeddings have no output tokens).
-        in_tok = cost_tracker.estimate_tokens(result.text)
-        cost_tracker.estimate_cost_inr(settings.embedding_model, in_tok, 0)
+        vector = _real_embedding(safe, settings)
         return EmbeddingResult(
-            vector=vector, blocked=False, is_mock=False, model=settings.embedding_model
+            vector=vector, blocked=False, is_mock=False, model=settings.embedding_model, text=safe
         )
 
     return EmbeddingResult(
-        vector=_mock_embedding(result.text), blocked=False, is_mock=True, model=MOCK_MODEL
+        vector=_mock_embedding(safe), blocked=False, is_mock=True, model=MOCK_MODEL, text=safe
     )
 
 
@@ -124,8 +131,16 @@ class AliasStore(Protocol):
     (a db-side runner with the owner connection) supplies this. `fetch_unembedded` MUST
     return only rows whose embedding is NULL, which is what makes the batch resumable."""
 
-    def fetch_unembedded(self, limit: int) -> list[tuple[str, str]]:
-        """Return up to ``limit`` (alias_id, text) rows whose embedding is NULL."""
+    def fetch_unembedded(
+        self, limit: int, exclude_ids: frozenset[str] = frozenset()
+    ) -> list[tuple[str, str]]:
+        """Return up to ``limit`` (alias_id, text) rows whose embedding is NULL AND whose
+        id is NOT in ``exclude_ids``. The exclude set carries the rows this run already
+        attempted-and-BLOCKED: a blocked row is never embedded, so it stays NULL and a
+        naive ``WHERE embedding IS NULL LIMIT n`` would re-return it every batch — clogging
+        the window (starving rows behind it) and re-counting it. Excluding them makes the
+        batch strictly progress-or-stop. SQL shape: ``... WHERE embedding IS NULL AND id <>
+        ALL($exclude) ORDER BY id LIMIT $limit``."""
         ...
 
     def save_embedding(self, alias_id: str, vector: list[float]) -> None:
@@ -154,35 +169,37 @@ def embed_aliases(
     report = EmbedBatchReport(is_mock=not settings.real_call_enabled_for(EMBEDDING_TASK_TYPE))
     report.model = settings.embedding_model if not report.is_mock else MOCK_MODEL
     processed = 0
+    # Rows attempted this run and BLOCKED. They stay NULL (never embedded), so they must be
+    # excluded from every subsequent fetch — otherwise a window of blocked NULL rows would
+    # be re-returned forever (infinite loop) or re-counted each batch. Each iteration then
+    # strictly makes progress: it either embeds >=1 clean row (that row leaves the NULL set)
+    # or adds >=1 id to `blocked` (that id leaves the fetchable set) — so the loop always
+    # drains and terminates.
+    blocked: set[str] = set()
     while True:
         limit = batch_size
         if max_rows is not None:
             limit = min(limit, max_rows - processed)
         if limit <= 0:
             break
-        rows = store.fetch_unembedded(limit)
+        rows = store.fetch_unembedded(limit, frozenset(blocked))
         if not rows:
             break
-        embedded_before = report.embedded
         for alias_id, text in rows:
             processed += 1
             res = embed_text(text, settings)
             if res.blocked or res.vector is None:
                 report.blocked += 1
                 report.blocked_alias_ids.append(alias_id)
+                blocked.add(alias_id)  # exclude from future fetches — no re-count, no loop
                 continue
             store.save_embedding(alias_id, res.vector)
             report.embedded += 1
             if not res.is_mock:
+                # Cost on the PSEUDONYMIZED text actually sent (res.text), not the raw input.
                 report.estimated_cost_inr += cost_tracker.estimate_cost_inr(
-                    settings.embedding_model, cost_tracker.estimate_tokens(text), 0
+                    settings.embedding_model, cost_tracker.estimate_tokens(res.text or ""), 0
                 )
-        # Termination: stop if the store is drained (short batch) OR this batch made NO
-        # progress — a full batch of BLOCKED rows stays NULL, so `fetch_unembedded` would
-        # return the SAME rows forever otherwise (infinite loop). No progress ⇒ the rest
-        # are unembeddable; leave them NULL for a later re-run once the blocker is fixed.
-        if len(rows) < limit or report.embedded == embedded_before:
-            break
     logger.info(
         "embed_aliases done",
         extra={
