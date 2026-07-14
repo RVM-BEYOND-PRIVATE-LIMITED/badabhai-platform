@@ -5,6 +5,8 @@ import {
   ProfileExtractionInputSchema,
   ProfileExtractionOutputSchema,
   PseudonymizationOutputSchema,
+  SkillCanonicalizationInputSchema,
+  SkillCanonicalizationSchema,
   TranscriptionInputSchema,
   TranscriptionOutputSchema,
   WorkerProfileDraftSchema,
@@ -104,6 +106,31 @@ describe("TranscriptionOutputSchema", () => {
     expect(
       TranscriptionOutputSchema.safeParse({ transcript_text: "x", confidence: 1.5 }).success,
     ).toBe(false);
+  });
+});
+
+describe("SkillCanonicalizationSchema (contracts.py parity — ADR-0030/TAX-4)", () => {
+  it("defaults an unresolved result to null skill_id + null score", () => {
+    const out = SkillCanonicalizationSchema.parse({ status: "unresolved" });
+    expect(out.skill_id).toBeNull();
+    expect(out.score).toBeNull();
+  });
+  it("round-trips a matched result with an assigned id + score", () => {
+    const out = SkillCanonicalizationSchema.parse({
+      status: "matched",
+      skill_id: "skill_vmc_operator",
+      score: 0.91,
+    });
+    expect(out.status).toBe("matched");
+    expect(out.skill_id).toBe("skill_vmc_operator");
+    expect(out.score).toBeCloseTo(0.91);
+  });
+  it("rejects a status outside the closed set", () => {
+    expect(SkillCanonicalizationSchema.safeParse({ status: "ranked" }).success).toBe(false);
+  });
+  it("input defaults lang to en", () => {
+    const inp = SkillCanonicalizationInputSchema.parse({ phrase: "VMC operator", domain_id: "vmc-machining" });
+    expect(inp.lang).toBe("en");
   });
 });
 
