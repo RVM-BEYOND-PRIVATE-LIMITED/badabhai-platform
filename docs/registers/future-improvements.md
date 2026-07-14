@@ -23,7 +23,8 @@ this expands on them.
   - **COST-2 — prompt caching (min-threshold guarded)** ✅ *landed*: the static
     system block is cache-marked via the provider seam **only when it clears the
     provider minimum** (`should_cache_system` in `model_config.py`; Anthropic Haiku
-    4.5 = 4096 tok, Gemini explicit cachedContent = 2048 tok — sourced 2026-07-14).
+    4.5 = 4096 tok, Gemini 2.5 Flash **implicit** floor = 1024 tok — what the Gemini
+    diagnostic checks; explicit `cachedContent` = 2048 tok, deferred — sourced 2026-07-14).
     Anthropic gets a real `cache_control: ephemeral` breakpoint on the STABLE persona
     block only (the per-turn question block is never cached); Gemini gets the guard +
     diagnostic (2.5 implicit caching is automatic — no request field — and the

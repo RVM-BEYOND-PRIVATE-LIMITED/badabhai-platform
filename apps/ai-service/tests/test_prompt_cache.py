@@ -47,7 +47,8 @@ def test_anthropic_marks_only_the_stable_block_cacheable_when_over_min():
 
 
 def test_anthropic_skips_cache_and_logs_diagnostic_when_under_min(caplog):
-    with caplog.at_level(logging.INFO):
+    # The skip diagnostic is DEBUG-level (below-min is the steady state — not info spam).
+    with caplog.at_level(logging.DEBUG):
         param = _anthropic_system_param([_SMALL_SYSTEM, "per-turn instruction"])
     assert isinstance(param, str)  # plain string, no directive
     assert "cache_control" not in param
@@ -68,7 +69,7 @@ def test_anthropic_cached_block_contains_no_worker_message_or_name():
 
 # --- Gemini: diagnostic reflects eligibility; no explicit-cache field fabricated --
 def test_gemini_logs_skip_diagnostic_and_adds_no_cache_field_when_under_min(caplog):
-    with caplog.at_level(logging.INFO):
+    with caplog.at_level(logging.DEBUG):  # skip diagnostic is debug-level
         body = _to_gemini_request(
             [{"role": "system", "content": _SMALL_SYSTEM}, {"role": "user", "content": "hi"}],
             max_output_tokens=48,
@@ -79,12 +80,38 @@ def test_gemini_logs_skip_diagnostic_and_adds_no_cache_field_when_under_min(capl
     assert any("below cache minimum" in r.getMessage() for r in caplog.records)
 
 
-def test_gemini_logs_eligible_diagnostic_when_over_min(caplog):
-    with caplog.at_level(logging.INFO):
-        _to_gemini_request(
+def test_gemini_logs_eligible_diagnostic_over_min_and_still_adds_no_cache_field(caplog):
+    with caplog.at_level(logging.INFO):  # the eligible transition stays at info
+        body = _to_gemini_request(
             [{"role": "system", "content": _BIG_SYSTEM}, {"role": "user", "content": "hi"}],
             max_output_tokens=48,
             temperature=0.3,
             json_mode=False,
         )
     assert any("eligible" in r.getMessage().lower() for r in caplog.records)
+    # Guard the deferred-explicit-cache contract on the EXACT regression branch: the
+    # eligible path must NOT fabricate a cachedContent reference (a non-existent cache
+    # name would 400 INVALID_ARGUMENT in real mode). Implicit caching needs no field.
+    assert "cachedContent" not in body
+
+
+# --- Regression anchor: the REAL production prompts, not just synthetic stubs -----
+def test_real_system_prompts_are_below_cache_min_today():
+    # Anchors the ACTUAL persona/extraction prompts to their current classification, so
+    # a future prompt-size change that crosses a provider floor flips this test and
+    # forces a conscious review of what gets cached (the synthetic _BIG/_SMALL stubs
+    # above prove the mechanism; this proves today's honest no-op state on real text).
+    from app.profiling.prompts import BADA_BHAI_SYSTEM_PROMPT, EXTRACTION_SYSTEM_PROMPT
+
+    # Chat persona (cached on the Anthropic path) — below EVERY floor today → no-op.
+    assert not model_config.should_cache_system(
+        BADA_BHAI_SYSTEM_PROMPT, model_config.ANTHROPIC_CACHE_MIN_TOKENS
+    )
+    assert not model_config.should_cache_system(
+        BADA_BHAI_SYSTEM_PROMPT, model_config.GEMINI_CACHE_MIN_TOKENS
+    )
+    # Extraction base prompt — below the Anthropic floor today (the composed prompt
+    # adds the canonicalization rubric + schema hint, so it starts from at least this).
+    assert not model_config.should_cache_system(
+        EXTRACTION_SYSTEM_PROMPT, model_config.ANTHROPIC_CACHE_MIN_TOKENS
+    )

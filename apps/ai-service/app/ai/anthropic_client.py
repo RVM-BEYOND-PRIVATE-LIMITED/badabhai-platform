@@ -85,7 +85,10 @@ def _anthropic_system_param(system_texts: list[str]):
         ]
         blocks.extend({"type": "text", "text": t} for t in system_texts[1:])
         return blocks
-    logger.info(
+    # debug, not info: below-min is the steady state today (persona ~200 tok), so an
+    # info line every real turn is pure repetition. The 'eligible' transition (Gemini)
+    # stays at info because it is the state change worth surfacing.
+    logger.debug(
         "prompt-cache skipped: system block below cache minimum",
         extra={"extra": {"provider": "anthropic", "min_tokens": ANTHROPIC_CACHE_MIN_TOKENS}},
     )

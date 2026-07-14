@@ -111,15 +111,21 @@ _MODEL_RATES_INR: dict[str, tuple[float, float]] = {
 #   - Anthropic prompt caching min = 4096 tokens for Claude Haiku 4.5 (our fallback
 #     provider); 1024 for most models, 2048 for Haiku 3/3.5.
 #     https://platform.claude.com/docs/en/build-with-claude/prompt-caching
-#   - Gemini explicit cachedContent min = 2048 tokens (2.5 Flash); implicit caching
-#     (automatic, no request change) applies from ~1024 tokens on 2.5 Flash.
+#   - Gemini 2.5 Flash IMPLICIT caching (automatic, no request change — the ONLY
+#     Gemini mechanism this file reasons about) applies from ~1024 tokens. Gemini
+#     EXPLICIT cachedContent (a separate resource, DEFERRED) has a higher 2048-token
+#     floor (2.5 Flash) / is the 2.5 Pro figure. We gate the Gemini diagnostic on the
+#     IMPLICIT floor, since that is what actually caches today.
 #     https://ai.google.dev/gemini-api/docs/caching
 #
 # NOTE (honest state): after AI-PERSONA-1 trimmed the persona, BADA_BHAI_SYSTEM_PROMPT
 # is ~200 tokens — far below every minimum here — so caching is a no-op today and the
 # guard takes the skip-diagnostic path. It arms automatically if the prompt ever grows.
 ANTHROPIC_CACHE_MIN_TOKENS = 4096
-GEMINI_CACHE_MIN_TOKENS = 2048
+# Gemini 2.5 Flash implicit-cache floor (what _gemini_cache_diagnostic checks).
+GEMINI_CACHE_MIN_TOKENS = 1024
+# Deferred: the explicit cachedContent lifecycle would gate on this higher floor.
+GEMINI_EXPLICIT_CACHE_MIN_TOKENS = 2048
 
 
 def should_cache_system(system_text: str, min_tokens: int) -> bool:

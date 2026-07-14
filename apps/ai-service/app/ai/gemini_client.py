@@ -142,13 +142,16 @@ def _gemini_cache_diagnostic(stable_system_text: str) -> None:
     only, never content.
     """
     if should_cache_system(stable_system_text, GEMINI_CACHE_MIN_TOKENS):
+        # info: the block clearing the implicit floor is the state change worth surfacing.
         logger.info(
             "prompt-cache eligible: Gemini implicit caching applies (explicit "
             "cachedContent lifecycle deferred)",
             extra={"extra": {"provider": "google", "min_tokens": GEMINI_CACHE_MIN_TOKENS}},
         )
     else:
-        logger.info(
+        # debug: below-min is the steady state today (persona ~200 tok) — an info line
+        # every real turn is pure repetition until the prompt grows past the floor.
+        logger.debug(
             "prompt-cache skipped: system block below cache minimum",
             extra={"extra": {"provider": "google", "min_tokens": GEMINI_CACHE_MIN_TOKENS}},
         )
