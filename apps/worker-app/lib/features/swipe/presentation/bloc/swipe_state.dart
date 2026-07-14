@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 
 import '../../../../core/api/api_models.dart';
 import '../../../../core/error/failure.dart';
+import '../../domain/job_filter.dart';
 
 enum SwipeStatus { loading, ready, empty, error, consentRequired }
 
@@ -9,6 +10,7 @@ class SwipeState extends Equatable {
   const SwipeState({
     this.status = SwipeStatus.loading,
     this.queue = const <FeedItem>[],
+    this.tradeFilter = const <String>{},
     this.deciding = false,
     this.decisionError = 0,
     this.appliedNonce = 0,
@@ -22,9 +24,23 @@ class SwipeState extends Equatable {
   /// honest reason instead of a generic "check internet" line.
   final Failure? failure;
 
-  /// Remaining cards; the worker's place is the head. A failed apply/skip leaves
-  /// the head untouched so nothing is lost on a network drop.
+  /// ALL remaining undecided cards (unfiltered). A failed apply/skip leaves the
+  /// decided card untouched so nothing is lost on a network drop.
   final List<FeedItem> queue;
+
+  /// Active trade filter (from the "Filter jobs" sheet). EMPTY = show all, which
+  /// preserves the unfiltered feed on load. Only trade is filtered — it is the
+  /// sole PII-free real field on [FeedItem]; distance/shift are not on the wire.
+  final Set<String> tradeFilter;
+
+  /// [queue] narrowed to [tradeFilter]. This is what the deck renders AND what
+  /// apply/skip act on (via [current]), so the visible head is always the card
+  /// the worker actually decides.
+  List<FeedItem> get visibleQueue => applyTradeFilter(queue, tradeFilter);
+
+  /// True when jobs remain but none match the active filter — a distinct empty
+  /// state ("no jobs match") from the drained-queue empty state ("no more jobs").
+  bool get filteredOut => queue.isNotEmpty && visibleQueue.isEmpty;
 
   /// True while an apply/skip call for the current card is in flight (blocks a
   /// double-decision).
@@ -44,11 +60,13 @@ class SwipeState extends Equatable {
   /// listens on this to toast "Priority" once the local record succeeded.
   final int prioritizedNonce;
 
-  FeedItem? get current => queue.isEmpty ? null : queue.first;
+  /// The head of the FILTERED deck — the card apply/skip target.
+  FeedItem? get current => visibleQueue.isEmpty ? null : visibleQueue.first;
 
   SwipeState copyWith({
     SwipeStatus? status,
     List<FeedItem>? queue,
+    Set<String>? tradeFilter,
     bool? deciding,
     int? decisionError,
     int? appliedNonce,
@@ -58,6 +76,7 @@ class SwipeState extends Equatable {
     return SwipeState(
       status: status ?? this.status,
       queue: queue ?? this.queue,
+      tradeFilter: tradeFilter ?? this.tradeFilter,
       deciding: deciding ?? this.deciding,
       decisionError: decisionError ?? this.decisionError,
       appliedNonce: appliedNonce ?? this.appliedNonce,
@@ -70,6 +89,7 @@ class SwipeState extends Equatable {
   List<Object?> get props => <Object?>[
         status,
         queue,
+        tradeFilter,
         deciding,
         decisionError,
         appliedNonce,

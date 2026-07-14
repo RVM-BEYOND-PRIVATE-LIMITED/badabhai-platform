@@ -256,6 +256,29 @@ describe("ApplicationsService — feed", () => {
     expect(out.jobs).toEqual([]);
     expect(events.emitMany).not.toHaveBeenCalled();
   });
+
+  it("returns ALL open jobs regardless of city — the alpha feed is LIBERAL (no location filter, no drop)", async () => {
+    // Jobs spread across different cities: every one must come back, in order,
+    // proving the feed applies no location/city filter and drops nothing.
+    const acrossCities = [
+      { id: "b0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC" },
+      { id: "b0000000-0000-0000-0000-000000000002", tradeKey: "fitter", title: "T2", city: "Chennai", area: null },
+      { id: "b0000000-0000-0000-0000-000000000003", tradeKey: "welder", title: "T3", city: "Rajkot", area: "GIDC" },
+      { id: "b0000000-0000-0000-0000-000000000004", tradeKey: "vmc_setter", title: "T4", city: "Coimbatore", area: null },
+    ];
+    const { svc, repo, events } = setup({ openJobs: acrossCities });
+    const out = await svc.getFeed(WORKER_ID, 50, CTX);
+
+    // Every job returned (no drop), in the repository's deterministic order.
+    expect(out.jobs).toHaveLength(acrossCities.length);
+    expect(out.jobs.map((j) => j.job_id)).toEqual(acrossCities.map((j) => j.id));
+    expect(out.jobs.map((j) => j.city)).toEqual(["Pune", "Chennai", "Rajkot", "Coimbatore"]);
+    // The limit is passed straight through — no city/coords argument is invented.
+    expect(repo.findOpenJobs).toHaveBeenCalledWith(50);
+    // One impression per returned job (no dedupe, no filtering).
+    const batch = events.emitMany.mock.calls[0]![0] as unknown[];
+    expect(batch).toHaveLength(acrossCities.length);
+  });
 });
 
 describe("ApplicationsService — PII-free guarantees + ownership", () => {

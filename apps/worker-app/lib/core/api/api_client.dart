@@ -306,9 +306,13 @@ class ApiClient {
   /// ConsentGuard, so a 401 means re-login and a 403 means consent is required.
   ///
   /// Returns PII-free coarse job fields only (no employer, no pay).
+  ///
+  /// [limit] defaults to 50 (the backend's cap) so the LIBERAL alpha feed shows
+  /// every open job while volume is small — the feed applies no location/trade
+  /// filter server-side, so nothing is dropped between here and the deck.
   Future<List<FeedItem>> getFeed({
     required String authToken,
-    int limit = 20,
+    int limit = 50,
   }) async {
     final Map<String, dynamic> json =
         await _get('/feed?limit=$limit', authToken: authToken);

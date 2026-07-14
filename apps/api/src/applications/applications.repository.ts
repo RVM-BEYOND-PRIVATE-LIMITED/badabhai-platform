@@ -69,6 +69,10 @@ export class ApplicationsRepository {
         area: jobs.area,
       })
       .from(jobs)
+      // LOCATION SEAM: when the location feature lands, an OPTIONAL city/coords
+      // filter goes HERE, default-off so the feed stays liberal until a worker
+      // opts into a location. Do NOT implement it now — the alpha feed returns
+      // every open job with no location filter (see the worker-app Filters sheet).
       .where(eq(jobs.status, "open"))
       .orderBy(asc(jobs.createdAt), asc(jobs.id))
       .limit(limit);

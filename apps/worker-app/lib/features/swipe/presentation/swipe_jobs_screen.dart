@@ -67,7 +67,8 @@ class _FeedViewState extends State<_FeedView> {
   /// longer the head and no new decision error landed, we toast "Skipped".
   String? _pendingSkipId;
 
-  /// Session-only filter selection (real filtered-feed query is a follow-up).
+  /// The active filter selection. Drives the visible deck via
+  /// [SwipeFiltersChanged] and seeds the sheet when it is reopened.
   FilterSelection _filters = FilterSelection.initial;
 
   @override
@@ -81,12 +82,17 @@ class _FeedViewState extends State<_FeedView> {
   }
 
   Future<void> _openFilters(BuildContext context) async {
+    final SwipeBloc bloc = context.read<SwipeBloc>();
     final FilterSelection? result = await showBbBottomSheet<FilterSelection>(
       context: context,
-      builder: (_) => FiltersSheet(initial: _filters),
+      // Pass the loaded queue so "Show N jobs" is the real filtered count.
+      builder: (_) => FiltersSheet(initial: _filters, jobs: bloc.state.queue),
     );
-    // Remember the selection (real filtered-feed query is a follow-up, §7).
-    if (result != null && mounted) setState(() => _filters = result);
+    if (result != null && mounted) {
+      setState(() => _filters = result);
+      // Apply the selection to the visible deck (trade filter; client-side).
+      bloc.add(SwipeFiltersChanged(result.trades));
+    }
   }
 
   @override
@@ -130,7 +136,8 @@ class _FeedViewState extends State<_FeedView> {
               SwipeStatus.error => _error(context, state),
               SwipeStatus.consentRequired => _consentRequired(context),
               SwipeStatus.empty => _empty(context),
-              SwipeStatus.ready => _feed(context, state),
+              SwipeStatus.ready =>
+                state.filteredOut ? _noMatch(context) : _feed(context, state),
             };
           },
         ),
@@ -140,7 +147,9 @@ class _FeedViewState extends State<_FeedView> {
 
   Widget _feed(BuildContext context, SwipeState state) {
     final SwipeBloc bloc = context.read<SwipeBloc>();
-    final List<JobDeckItem> cards = state.queue
+    // Render the FILTERED deck — the head matches [SwipeState.current], the card
+    // apply/skip act on, so the visible top card is always the decided one.
+    final List<JobDeckItem> cards = state.visibleQueue
         .map((FeedItem i) => JobDeckItem(id: i.jobId, data: _mockCardData(i)))
         .toList();
 
@@ -279,6 +288,24 @@ class _FeedViewState extends State<_FeedView> {
         onPressed: () =>
             context.read<SwipeBloc>().add(const SwipeFeedRequested()),
         child: const Text('Refresh'),
+      ),
+    );
+  }
+
+  /// Jobs exist but none match the active filter — distinct from the drained
+  /// "No more jobs" state. Clearing the trade filter restores the full deck.
+  Widget _noMatch(BuildContext context) {
+    return BbStatusView(
+      icon: Icons.filter_alt_off_outlined,
+      iconColor: AppColors.brand,
+      title: 'No jobs match your filters.',
+      subtitle: 'Try removing a filter to see more jobs.',
+      action: FilledButton(
+        onPressed: () {
+          setState(() => _filters = _filters.copyWith(trades: <String>{}));
+          context.read<SwipeBloc>().add(SwipeFiltersChanged(const <String>{}));
+        },
+        child: const Text('Clear filters'),
       ),
     );
   }
