@@ -123,21 +123,37 @@ def test_voice_transcribe_requires_storage_path():
     assert res.status_code == 422  # storage_path is required
 
 
-def test_conversation_history_is_pseudonymized_before_llm():
-    # Privacy: prior turns must be pseudonymized before they can reach an LLM
-    # (real mode) or a Langfuse trace. A phone in history is masked; a turn that
-    # can't be safely pseudonymized is dropped (fail closed).
-    from app.contracts import ConversationMessage
-    from app.main import _pseudonymized_history
+def test_chat_turn_sends_no_history_so_history_pii_cannot_reach_the_llm(monkeypatch):
+    # Privacy (COST-3): the chat turn is stateless — prior history is never sent to
+    # the model. This is STRONGER than pseudonymizing history: even a raw phone in a
+    # prior turn cannot reach LLM input / a Langfuse trace, because history is not in
+    # the assembled messages at all. Capture what the endpoint hands the model.
+    from app import main
+    from app.contracts import AICallMetadata
 
-    safe = _pseudonymized_history(
-        [
-            ConversationMessage(role="worker", text="my number is 9876543210"),
-            ConversationMessage(role="worker", text="I run a VMC machine"),
-            ConversationMessage(role="worker", text="ref 12345678"),  # residual digits -> blocked
-        ]
+    captured: dict[str, list[dict[str, str]]] = {}
+
+    async def _fake_run(task_type, *, messages, mock_response, **_kwargs):
+        captured[task_type] = messages
+        return mock_response, AICallMetadata(
+            ai_call_id="t",
+            task_type=task_type,
+            model_name="mock",
+            provider="mock",
+            real_call=False,
+            created_at="1970-01-01T00:00:00Z",
+        )
+
+    monkeypatch.setattr(main.router, "run", _fake_run)
+    res = client.post(
+        "/profiling/respond",
+        json={
+            "session_id": "s1",
+            "message_text": "I run a VMC machine",
+            "history": [{"role": "worker", "text": "my number is 9876543210"}],
+        },
     )
-    joined = " ".join(m.text for m in safe)
-    assert "9876543210" not in joined  # phone masked
-    assert "12345678" not in joined  # unsafe turn dropped
-    assert any("VMC" in m.text for m in safe)  # safe technical turn kept
+    assert res.status_code == 200
+    blob = " ".join(m["content"] for m in captured["profiling_chat_turn"])
+    assert "9876543210" not in blob  # the history phone never reaches the model
+    assert len(captured["profiling_chat_turn"]) == 3  # flat: no history threaded

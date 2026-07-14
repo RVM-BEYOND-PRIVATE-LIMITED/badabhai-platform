@@ -19,7 +19,6 @@ from .ai import cost_tracker
 from .ai.router import AIRouter
 from .config import get_settings
 from .contracts import (
-    ConversationMessage,
     DraftProfile,
     ProfileExtractionInput,
     ProfileExtractionOutput,
@@ -149,8 +148,11 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
 
     # 3. Route through the model (mock vs real); LLM only sees pseudonymized text.
     #    The engine already chose the question; the model only rephrases it warmly.
-    #    History is pseudonymized too — prior turns must never reach the LLM/trace raw.
-    messages = build_chat_messages(_pseudonymized_history(body.history), mock_reply, result.text)
+    #    COST-3: the chat turn is STATELESS — prior history is NOT sent to the model
+    #    (build_chat_messages ignores it), so there is nothing to pseudonymize/thread
+    #    here. Only the current (already-pseudonymized) message + the engine's
+    #    question reach the LLM. History still persists in the API for extraction.
+    messages = build_chat_messages([], mock_reply, result.text)
     reply_text, meta = await router.run(
         "profiling_chat_turn",
         messages=messages,
@@ -317,22 +319,6 @@ async def voice_transcribe(body: TranscriptionInput) -> TranscriptionOutput:
         is_mock=result.is_mock,
         english_text=english_text,
     )
-
-
-def _pseudonymized_history(history: list[ConversationMessage]) -> list[ConversationMessage]:
-    """Pseudonymize prior turns BEFORE they enter LLM input / Langfuse traces.
-
-    The current message is gated separately; history must be gated too or a prior
-    turn's PII would reach the model in real mode. Any turn that can't be safely
-    pseudonymized is dropped (fail closed) — history is only phrasing context.
-    """
-    safe: list[ConversationMessage] = []
-    for msg in history:
-        result = pseudonymize(msg.text)
-        if result.blocked:
-            continue
-        safe.append(ConversationMessage(role=msg.role, text=result.text))
-    return safe
 
 
 def _schema_hint() -> str:
