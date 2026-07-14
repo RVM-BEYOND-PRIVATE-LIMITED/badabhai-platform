@@ -43,3 +43,14 @@ data-owner must confirm before the full NCO bulk import.
 pnpm build                 # build @badabhai/taxonomy so the corpus resolves
 pnpm db:seed:skills        # idempotent, prod-guarded; double-run → identical row counts
 ```
+
+## Embedding model (TAX-3)
+
+`skill_alias.embedding` is a **`vector(768)`** column — confirmed to match the ai-service
+embedder (`apps/ai-service/app/ai/embeddings.py`, `EMBEDDING_DIMENSION = 768`) and the
+existing `worker_profiles.embedding`. The configured real model is `text-embedding-004`
+(Gemini Developer API, 768-dim; `Settings.embedding_model`); the **default path is a
+deterministic MOCK embedding** (zero spend). The real embedding call is **§7-gated**
+(`AI_ENABLE_REAL_CALLS` + key + the `skill_embedding` task allowlist, staging-first) — the
+exact model + 768-dim output are **confirmed at the first gated staging run** (TAX-3/TAX-4).
+

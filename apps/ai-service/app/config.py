@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     # suffix per the Anthropic API).
     default_fallback_model: str = "claude-haiku-4-5"
 
+    # ADR-0030 / TAX-3: embedding model for the skill-vocabulary embed (offline corpus +
+    # later the request-path resolver). MUST output the 768-dim vector skill_alias.embedding
+    # + worker_profiles.embedding store. `text-embedding-004` is the Gemini Developer API
+    # 768-dim model; the exact model + dim are CONFIRMED at the gated staging real run (§7).
+    # Real embedding calls are gated by AI_ENABLE_REAL_CALLS + the per-task allowlist
+    # ("skill_embedding"); the default path is a deterministic MOCK embedding (zero spend).
+    embedding_model: str = "text-embedding-004"
+
     # Per-profile cost guardrails (INR). Used for alerting only in Phase 1.
     ai_cost_alert_profile_inr: float = 6.0
     ai_target_profile_cost_inr: float = 4.0
