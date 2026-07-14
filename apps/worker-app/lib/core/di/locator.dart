@@ -161,7 +161,8 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // Single instance app-wide so the Alerts screen and the nav badge share the
   // same reactive unread count.
   locator.registerLazySingleton<NotificationsRepository>(
-    () => NotificationsRepositoryImpl(),
+    () => NotificationsRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
   );
   locator.registerLazySingleton<ApplicationsRepository>(
     () => ApplicationsRepositoryImpl(

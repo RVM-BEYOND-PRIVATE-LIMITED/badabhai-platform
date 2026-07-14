@@ -348,22 +348,35 @@ GoRouter _buildRouter() {
 
 /// The persistent shell: tab bodies + the spec 4-tab [BbBottomNav]. The Alerts
 /// unread badge tracks the shared [NotificationsRepository]'s reactive count.
-class _ShellScaffold extends StatelessWidget {
+class _ShellScaffold extends StatefulWidget {
   const _ShellScaffold({required this.shell});
 
   final StatefulNavigationShell shell;
 
   @override
+  State<_ShellScaffold> createState() => _ShellScaffoldState();
+}
+
+class _ShellScaffoldState extends State<_ShellScaffold> {
+  @override
+  void initState() {
+    super.initState();
+    // Populate the Alerts badge on app open (before the Alerts tab is opened).
+    // Best-effort + fire-and-forget — refresh() never throws.
+    locator<NotificationsRepository>().refresh();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: shell,
+      body: widget.shell,
       bottomNavigationBar: ValueListenableBuilder<int>(
         valueListenable: locator<NotificationsRepository>().unreadCount,
         builder: (BuildContext context, int unread, Widget? _) => BbBottomNav(
-          currentIndex: shell.currentIndex,
+          currentIndex: widget.shell.currentIndex,
           // Re-tapping the active tab resets it to its branch root.
-          onTap: (int i) =>
-              shell.goBranch(i, initialLocation: i == shell.currentIndex),
+          onTap: (int i) => widget.shell
+              .goBranch(i, initialLocation: i == widget.shell.currentIndex),
           alertsUnread: unread,
         ),
       ),

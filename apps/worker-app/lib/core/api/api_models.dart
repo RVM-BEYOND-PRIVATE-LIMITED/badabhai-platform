@@ -155,6 +155,39 @@ class AppliedJob extends Equatable {
       ];
 }
 
+/// One worker Alerts row (GET /workers/me/notifications). PII-FREE by contract:
+/// only an opaque event id, a coarse [type], faceless server copy, and a timestamp
+/// — never an employer, pay, name, or phone. [type] is one of `resume_ready`,
+/// `resume_updated`, `profile_ready`, `voice_processed`, `security`.
+class WorkerNotification extends Equatable {
+  const WorkerNotification({
+    required this.id,
+    required this.type,
+    required this.title,
+    required this.body,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String type;
+  final String title;
+  final String body;
+  final DateTime createdAt;
+
+  factory WorkerNotification.fromJson(Map<String, dynamic> json) =>
+      WorkerNotification(
+        id: json['id'] as String? ?? '',
+        type: json['type'] as String? ?? '',
+        title: json['title'] as String? ?? '',
+        body: json['body'] as String? ?? '',
+        createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0),
+      );
+
+  @override
+  List<Object?> get props => <Object?>[id, type, title, body, createdAt];
+}
+
 /// Result of POST /applications/:jobId/apply.
 class ApplyResult extends Equatable {
   const ApplyResult({
