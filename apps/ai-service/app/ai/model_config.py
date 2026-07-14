@@ -100,6 +100,42 @@ _MODEL_RATES_INR: dict[str, tuple[float, float]] = {
 }
 
 
+# --- Prompt-cache thresholds (COST-2) --------------------------------------
+# Providers bill cached input at ~10% of the normal rate, but they ONLY cache a
+# system block that clears a minimum size — a smaller block is silently ignored,
+# so a cache directive on it is a pure no-op. Before adding a directive we check
+# the STATIC block against these minimums and otherwise emit a skip diagnostic.
+#
+# Sources read 2026-07-14 (update HERE if a provider changes them — do not scatter
+# the number):
+#   - Anthropic prompt caching min = 4096 tokens for Claude Haiku 4.5 (our fallback
+#     provider); 1024 for most models, 2048 for Haiku 3/3.5.
+#     https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+#   - Gemini explicit cachedContent min = 2048 tokens (2.5 Flash); implicit caching
+#     (automatic, no request change) applies from ~1024 tokens on 2.5 Flash.
+#     https://ai.google.dev/gemini-api/docs/caching
+#
+# NOTE (honest state): after AI-PERSONA-1 trimmed the persona, BADA_BHAI_SYSTEM_PROMPT
+# is ~200 tokens — far below every minimum here — so caching is a no-op today and the
+# guard takes the skip-diagnostic path. It arms automatically if the prompt ever grows.
+ANTHROPIC_CACHE_MIN_TOKENS = 4096
+GEMINI_CACHE_MIN_TOKENS = 2048
+
+
+def should_cache_system(system_text: str, min_tokens: int) -> bool:
+    """True iff the static system block is large enough to clear a provider's
+    prompt-cache minimum (else a cache directive is a silent no-op).
+
+    Uses the shared token ESTIMATE (~chars/4); a wrong guess only means we skip an
+    ineffective cache, never a correctness or privacy issue. SG-1: only the STATIC
+    persona/extraction prompt is ever passed here — never a worker message or name,
+    so nothing PII-bearing is ever marked cacheable. Imported lazily to avoid a
+    module cycle (cost_tracker imports this module)."""
+    from .cost_tracker import estimate_tokens
+
+    return estimate_tokens(system_text) >= min_tokens
+
+
 def provider_for_model(model: str) -> str:
     """Coarse provider label used for BOTH cost/observability metadata AND the
     router's provider dispatch: "google" -> direct Gemini (``gemini_client``),
