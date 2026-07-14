@@ -11,4 +11,9 @@ abstract interface class NotificationsRepository {
   Future<List<AppNotification>> list();
 
   Future<void> markAllRead();
+
+  /// Best-effort background fetch to populate [unreadCount] BEFORE the Alerts
+  /// screen is opened (the nav badge shows the count on app open). Never throws —
+  /// a fetch failure leaves the current count.
+  Future<void> refresh();
 }

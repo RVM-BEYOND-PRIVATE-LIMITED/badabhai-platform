@@ -340,6 +340,24 @@ class ApiClient {
         .toList();
   }
 
+  /// Fetches the worker's Alerts feed (GET /workers/me/notifications —
+  /// WorkerAuthGuard + ConsentGuard). Worker-scoped: the worker is derived from
+  /// [authToken], never a param. The response is an OBJECT `{notifications:[...]}`.
+  /// Rows are faceless + PII-free by contract (server-rendered copy — never an
+  /// employer, pay, name, or phone).
+  Future<List<WorkerNotification>> getMyNotifications({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/notifications', authToken: authToken);
+    final List<dynamic> rows =
+        json['notifications'] as List<dynamic>? ?? <dynamic>[];
+    return rows
+        .whereType<Map<String, dynamic>>()
+        .map(WorkerNotification.fromJson)
+        .toList();
+  }
+
   /// Mints a signed upload slot for a voice clip (POST /voice/upload-url —
   /// A2-storage, WorkerAuthGuard + ConsentGuard). Worker-scoped: requires
   /// [authToken]; the body is empty JSON — the server derives the worker from

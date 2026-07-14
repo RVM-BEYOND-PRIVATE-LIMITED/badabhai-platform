@@ -6,6 +6,7 @@ import { QueueModule } from "./queue/queue.module";
 import { EventsModule } from "./events/events.module";
 import { AiModule } from "./ai/ai.module";
 import { WorkersModule } from "./workers/workers.module";
+import { NotificationsModule } from "./notifications/notifications.module";
 import { HealthModule } from "./health/health.module";
 import { AuthModule } from "./auth/auth.module";
 import { ConsentModule } from "./consent/consent.module";
@@ -42,6 +43,7 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     EventsModule,
     AiModule,
     WorkersModule,
+    NotificationsModule,
     RateLimitModule,
     PdfModule,
     // Feature modules:

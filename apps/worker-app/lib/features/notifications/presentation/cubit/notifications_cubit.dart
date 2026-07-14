@@ -47,9 +47,16 @@ class NotificationsCubit extends Cubit<NotificationsState> {
   Future<void> markAllRead() async {
     await _repo.markAllRead();
     if (isClosed) return;
-    final List<AppNotification> items = await _repo.list();
-    if (isClosed) return;
-    _emitList(items);
+    try {
+      // The re-list now hits the network and CAN throw — surface it (don't leak
+      // an unhandled async Failure) rather than leaving the rows inconsistent.
+      final List<AppNotification> items = await _repo.list();
+      if (isClosed) return;
+      _emitList(items);
+    } on Failure catch (f) {
+      if (isClosed) return;
+      emit(NotificationsState(status: NotificationsStatus.failed, failure: f));
+    }
   }
 
   void _emitList(List<AppNotification> items) {

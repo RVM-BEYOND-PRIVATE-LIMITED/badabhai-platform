@@ -56,7 +56,7 @@ class _NotificationsView extends StatelessWidget {
             NotificationsStatus.empty => const BbStatusView(
                 icon: Icons.notifications_none_rounded,
                 title: 'Abhi koi alert nahi',
-                subtitle: 'Naye job aur updates yahin dikhenge.',
+                subtitle: 'Resume, profile aur account updates yahin dikhenge.',
               ),
             NotificationsStatus.ready => ListView(
                 padding: const EdgeInsets.symmetric(
@@ -74,12 +74,13 @@ class _NotificationsView extends StatelessWidget {
 
   Widget _row(AppNotification n) {
     final (IconData icon, BbNotiTone tone) = switch (n.kind) {
-      NotificationKind.newJob => (Icons.work, BbNotiTone.green),
-      NotificationKind.profileViewed => (
-          Icons.visibility_outlined,
-          BbNotiTone.saffron
-        ),
       NotificationKind.resumeReady => (Icons.description, BbNotiTone.brand),
+      NotificationKind.profileReady => (Icons.badge_outlined, BbNotiTone.green),
+      NotificationKind.voiceProcessed => (
+          Icons.graphic_eq_rounded,
+          BbNotiTone.brand
+        ),
+      NotificationKind.security => (Icons.security_rounded, BbNotiTone.saffron),
     };
     return BbListRow.notification(
       icon: icon,
