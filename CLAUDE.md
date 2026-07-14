@@ -72,17 +72,17 @@ compiles and tests pass. If a task requires breaking one, **stop and escalate** 
 
 ## 3. Locked tech stack
 
-| Layer           | Tech                                                                                    | Location                             |
-| --------------- | --------------------------------------------------------------------------------------- | ------------------------------------ |
-| Monorepo        | pnpm + Turborepo                                                                        | root                                 |
-| Backend API     | NestJS (TS strict)                                                                      | [`apps/api`](apps/api)               |
-| AI service      | Python FastAPI                                                                          | [`apps/ai-service`](apps/ai-service) |
-| Web ops console | Next.js (internal only)                                                                 | [`apps/web`](apps/web)               |
-| Payer/Agency portal | Next.js (external, self-serve — [ADR-0019](docs/decisions/0019-self-serve-payer-portal.md)/[0022](docs/decisions/0022-agency-supply-portal.md)) | [`apps/payer-web`](apps/payer-web) |
-| Worker app      | Flutter (Android-first)                                                                 | [`apps/worker-app`](apps/worker-app) |
-| Database        | Supabase Postgres + Drizzle                                                             | [`packages/db`](packages/db)         |
-| Queue/cache     | Redis + BullMQ (deferred wiring)                                                        | [`infra/redis`](infra/redis)         |
-| AI routing      | Direct Gemini + Claude ([ADR-0008](docs/decisions/0008-litellm-to-direct-providers.md)) | `apps/ai-service/app/ai/router.py`   |
+| Layer               | Tech                                                                                                                                            | Location                             |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| Monorepo            | pnpm + Turborepo                                                                                                                                | root                                 |
+| Backend API         | NestJS (TS strict)                                                                                                                              | [`apps/api`](apps/api)               |
+| AI service          | Python FastAPI                                                                                                                                  | [`apps/ai-service`](apps/ai-service) |
+| Web ops console     | Next.js (internal only)                                                                                                                         | [`apps/web`](apps/web)               |
+| Payer/Agency portal | Next.js (external, self-serve — [ADR-0019](docs/decisions/0019-self-serve-payer-portal.md)/[0022](docs/decisions/0022-agency-supply-portal.md)) | [`apps/payer-web`](apps/payer-web)   |
+| Worker app          | Flutter (Android-first)                                                                                                                         | [`apps/worker-app`](apps/worker-app) |
+| Database            | Supabase Postgres + Drizzle                                                                                                                     | [`packages/db`](packages/db)         |
+| Queue/cache         | Redis + BullMQ (deferred wiring)                                                                                                                | [`infra/redis`](infra/redis)         |
+| AI routing          | Direct Gemini + Claude ([ADR-0008](docs/decisions/0008-litellm-to-direct-providers.md))                                                         | `apps/ai-service/app/ai/router.py`   |
 
 Stack is **locked** for Phase 1 (see [ADR-0001](docs/decisions/0001-mvp-infra-decision.md),
 [ADR-0008](docs/decisions/0008-litellm-to-direct-providers.md)). The AI service calls
@@ -121,7 +121,7 @@ HTTP only) → `<domain>.service.ts` (business logic, emits events) →
 `<domain>.module.ts` (DI wiring). Do not put data access in controllers or business
 logic in repositories.
 
-**DB tables (34):** the full set is the source of truth in
+**DB tables (39):** the full set is the source of truth in
 [`packages/db/src/schema.ts`](packages/db/src/schema.ts). Raw worker PII lives **only**
 in `workers`; the only other PII at rest is **encrypted** payer contact in `payers` (TD21).
 
@@ -217,14 +217,15 @@ Reach Engine **learned** ranking, advanced matching, finalized RLS (backend uses
 role today — see [infra/supabase/rls-plan.md](infra/supabase/rls-plan.md)), BullMQ job queues,
 real OTP/STT/LLM/payment providers, real telephony/proxy + raw-phone reveal, production DPDP
 legal copy. **Note:** the _alpha-gate_ forms of employer postings, contact unlock (mock credits
-+ in-app relay, [ADR-0010](docs/decisions/0010-contact-unlock-and-reveal.md) Stream A), Reach
-feed serving, config-driven pricing/boosts, **per-payer hiring capacity**
-([ADR-0016](docs/decisions/0016-payer-hiring-capacity.md): faceless cap, mock payments,
-**enforcement INERT by default** behind `CAPACITY_ENFORCEMENT_ENABLED`), the **self-serve
-payer/agency portal** (ADR-0019/0022) and the **WhatsApp invite funnel** (ADR-0020, mock) have
-**landed additively behind launch gates** (§1) — it is their **real-money / real-provider /
-production-legal** portions (tracked: TD33/TD34/TD35/TD43 + the threat-model LC items) that
-remain deferred here.
+
+- in-app relay, [ADR-0010](docs/decisions/0010-contact-unlock-and-reveal.md) Stream A), Reach
+  feed serving, config-driven pricing/boosts, **per-payer hiring capacity**
+  ([ADR-0016](docs/decisions/0016-payer-hiring-capacity.md): faceless cap, mock payments,
+  **enforcement INERT by default** behind `CAPACITY_ENFORCEMENT_ENABLED`), the **self-serve
+  payer/agency portal** (ADR-0019/0022) and the **WhatsApp invite funnel** (ADR-0020, mock) have
+  **landed additively behind launch gates** (§1) — it is their **real-money / real-provider /
+  production-legal** portions (tracked: TD33/TD34/TD35/TD43 + the threat-model LC items) that
+  remain deferred here.
 
 **`PayerAuthGuard` has LANDED** for the self-serve payer/agency portal (R16/LC-1, PR #110); but
 the **money routes** — Contact Unlock unlock/reveal and `POST /job-postings/:id/plan` — still ride
