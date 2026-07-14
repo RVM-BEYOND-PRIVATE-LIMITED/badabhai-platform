@@ -28,7 +28,7 @@ ranks** — a skills factor in RANK is a *separate future ADR*, explicitly out o
 | TAX-3 | AI — alias embedding (mock default, real §7) | — | **MERGED** | TAX-2 | #214 |
 | TAX-4 | AI — `canonicalize_skill` (floor-gated) | — | **MERGED** | TAX-3 | #215 |
 | **fork-B runner** | DB-side runner + ai embed endpoint | — | **MERGED** | TAX-3/4 | #219 |
-| **FORK-B-1** | Request-path DB store (seam A) + reset flag + SR-1 runbook | **P1** | **BUILT** (flag off; real §7) | fork-B | — |
+| **FORK-B-1** | Request-path DB store (seam A) + reset flag + SR-1 runbook | **P1** | **MERGED + E2E-VERIFIED** | fork-B | #222 |
 | TAX-5 | Data/AI — wedge aliases + floor calibration | **P1** | Unblocked · **2 gates** | TAX-4 | — |
 | TAX-6 | Backend+AI — job side shares id space | P2 | Unblocked | TAX-4 | — |
 | TAX-7 | AI — growth loop (cluster unresolved) | P2 | Unblocked | TAX-4 | — |
@@ -61,6 +61,20 @@ unchanged). Activation = vectors backfilled + `BACKEND_API_URL` +
 `SKILLS_INTERNAL_TOKEN` on the ai-service + `SKILL_CANONICALIZE_ENABLED=true`
 ([SR-1 runbook](skill-embedding-staging-runbook.md); ADR-0030 addendum records seam A).
 `--reset-embeddings` on the runner is the mixed-vector-space recovery.
+
+**Executed + verified 2026-07-14 (SR-1 steps 1–8, local stack):** corpus seeded (33/76,
+idempotent); **REAL backfill complete — 76/76 `gemini-embedding-001`@768 vectors,
+₹0.0025, 0 blocked/errors** (`text-embedding-004` found RETIRED → 404 at the gated
+first call — the staging-unverified gate did its job; model swapped + L2-normalized);
+self-similarity 1.0000 / sibling gradient 0.85→0.65 / domain isolation confirmed at
+rest. End-to-end: guarded route 401 tokenless; `0.9890 → skill_cnc_programming` via
+the scoped token; extract loop live — below-floor miss upserted (`count` 1→2) +
+hash-only `skill.phrase_unresolved` on the spine; ai-service made zero DB connections.
+Floor probes for TAX-5: exact aliases score 0.99–1.0; paraphrases 0.67–0.74 (below
+0.82 → honest UNRESOLVED); `kharad ka kaam` top-hit is WRONG (grinding, 0.61) → the
+floor correctly refuses it — the TAX-5 vernacular alias (`kharad`→turning) is the cure.
+Known limitation (empirical): extract queries the DEFAULT domain only — a 1.0 alias in
+another domain is refused; per-label domain resolution is TAX-5/6.
 
 ## fork-B — DB-side runner (owner-chosen 2026-07-14)
 
