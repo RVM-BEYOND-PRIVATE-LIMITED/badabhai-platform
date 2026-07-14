@@ -23,13 +23,23 @@
 - **`verified`** — no such flag exists anywhere in the schema; do not invent one.
 - **`name`** — ESCALATED, see below. The route ships **without** it; adding it later is additive.
 
-## ESCALATION (Prakash/Akshit — invariant §2 boundary ruling)
-`workers.full_name` is AES-256-GCM ciphertext; **no route returns it today** and the only decrypt
-site is the payer-disclosure masked-initials path (InternalServiceGuard). Question: **may the API
-decrypt `full_name` to return it to the worker's OWN authenticated session** (`/workers/me/*`)?
-Arguments for: it's the worker's own datum; the mobile home card wants "Namaste, <name>".
+## ESCALATION (invariant §2 boundary ruling) — **RULED 2026-07-14 · ALLOWED (narrow)**
+`workers.full_name` is AES-256-GCM ciphertext. Question: **may the API decrypt `full_name` to
+return it to the worker's OWN authenticated session** (`/workers/me/*`)?
+Arguments for: it's the worker's own datum; the worker-app resume-edit screen must show the current
+name so the worker can correct its spelling.
 Arguments against: it creates the FIRST worker-session decrypt-and-return path — a new §2
 egress class that widens the blast radius of a stolen worker token from opaque ids to raw PII.
-**Recommendation:** allow it narrowly (own-session only, never in events/logs, response field
-documented as PII-bearing) — but this needs an explicit ruling before any code decrypts it.
-Until ruled: the summary ships name-less.
+
+**RULING (2026-07-14, recorded by Divyanshu — schema co-owner):** **ALLOWED, narrowly.**
+The name is captured in a **separate, LLM-free step** precisely so it never reaches an LLM; the
+§2 invariant it protects is **name → never LLM/event/`ai_jobs`/`audit_logs`/log**, which this path
+upholds. Constraints on the allowance:
+- **Own-session only** — identity from `@CurrentWorker`, never a path/body id; consent-gated.
+- **Response-only egress** — the decrypted name appears in the HTTP response to the owner over TLS
+  and **nowhere else**: never in an event, log, `ai_jobs`, `audit_logs`, or LLM input.
+- **Fail closed** — decrypt failure DEGRADES name-less (no throw, no PII in logs).
+- **First consumer:** `GET /workers/me/resume-fields` (this PR). This `profile-summary` route may
+  stay name-less; adding the name to it later is additive and covered by the same ruling.
+
+Supersedes TD21's "never RETURNED" wording for this own-session read (see TD21 note).

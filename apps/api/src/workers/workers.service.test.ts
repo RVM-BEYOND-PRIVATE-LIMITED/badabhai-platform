@@ -171,3 +171,147 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
     expect(events.emit).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// getResumeFields / updateResumePrefs — the worker-editable resume "safe fields"
+// ---------------------------------------------------------------------------
+
+function resumeFieldsSetup(
+  worker:
+    | { id: string; fullName: string | null; resumeShowPhoto: boolean; resumeNightShiftReady: boolean }
+    | undefined,
+  updatedRow?: unknown,
+) {
+  const repo = {
+    findById: vi.fn(async (_id: string) => worker),
+    updateResumePrefs: vi.fn(async (_id: string, _patch: unknown) => updatedRow),
+  };
+  const pii = {
+    encrypt: vi.fn(),
+    // decrypt maps the stored ciphertext token back to a readable name
+    decrypt: vi.fn((_token: string) => NAME),
+  };
+  const events = { emit: vi.fn(async (_e: unknown) => true) };
+  const svc = new WorkersService(
+    repo as unknown as WorkersRepository,
+    pii as unknown as PiiCryptoService,
+    events as unknown as EventsService,
+  );
+  return { svc, repo, pii, events };
+}
+
+describe("WorkersService.getResumeFields", () => {
+  it("decrypts and returns the worker's OWN name + prefs; emits NO event (read)", async () => {
+    const { svc, pii, events } = resumeFieldsSetup({
+      id: "w-1",
+      fullName: TOKEN,
+      resumeShowPhoto: true,
+      resumeNightShiftReady: true,
+    });
+    const res = await svc.getResumeFields("w-1");
+
+    expect(pii.decrypt).toHaveBeenCalledWith(TOKEN); // the stored ciphertext, not a name
+    expect(res).toEqual({ full_name: NAME, show_photo: true, night_shift_ready: true });
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("returns full_name null (and never decrypts) when no name is set", async () => {
+    const { svc, pii } = resumeFieldsSetup({
+      id: "w-1",
+      fullName: null,
+      resumeShowPhoto: false,
+      resumeNightShiftReady: false,
+    });
+    const res = await svc.getResumeFields("w-1");
+    expect(res).toEqual({ full_name: null, show_photo: false, night_shift_ready: false });
+    expect(pii.decrypt).not.toHaveBeenCalled();
+  });
+
+  it("throws NotFound for an unknown worker", async () => {
+    const { svc } = resumeFieldsSetup(undefined);
+    await expect(svc.getResumeFields("missing")).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("DEGRADES name-less (never throws) when decrypt fails — corrupt/legacy-plaintext row", async () => {
+    const { svc, pii, events } = resumeFieldsSetup({
+      id: "w-1",
+      fullName: TOKEN,
+      resumeShowPhoto: true,
+      resumeNightShiftReady: false,
+    });
+    // A corrupt / wrong-key / legacy-plaintext token: decryptPii throws.
+    pii.decrypt = vi.fn(() => {
+      throw new Error("decrypt failed"); // must NOT leak to the client or crash the edit screen
+    });
+
+    const res = await svc.getResumeFields("w-1");
+
+    // Fails closed: name-less, prefs intact, no event, no re-throw.
+    expect(res).toEqual({ full_name: null, show_photo: true, night_shift_ready: false });
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+});
+
+describe("WorkersService.updateResumePrefs", () => {
+  const WORKER = {
+    id: "w-1",
+    fullName: TOKEN,
+    resumeShowPhoto: true,
+    resumeNightShiftReady: false,
+  };
+
+  it("maps the dto to repo fields and emits the RESULTING values (PII-free)", async () => {
+    // repo returns the post-update row: show_photo flipped off, night-shift on
+    const updated = { ...WORKER, resumeShowPhoto: false, resumeNightShiftReady: true };
+    const { svc, repo, events } = resumeFieldsSetup(WORKER, updated);
+
+    const res = await svc.updateResumePrefs(
+      "w-1",
+      { show_photo: false, night_shift_ready: true },
+      CTX,
+    );
+
+    expect(repo.updateResumePrefs).toHaveBeenCalledWith("w-1", {
+      resumeShowPhoto: false,
+      resumeNightShiftReady: true,
+    });
+    const emitArg = events.emit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(emitArg.event_name).toBe("worker.resume_prefs_updated");
+    expect(emitArg.payload).toEqual({
+      worker_id: "w-1",
+      show_photo: false,
+      night_shift_ready: true,
+    });
+    // no name/phone/ciphertext anywhere in the emitted event
+    expect(JSON.stringify(emitArg)).not.toMatch(/Asha|ciphertext|phone|full_?name/i);
+    expect(res).toEqual({ worker_id: "w-1" });
+  });
+
+  it("emits only the resulting flags even on a partial patch (one flag)", async () => {
+    const updated = { ...WORKER, resumeShowPhoto: false };
+    const { svc, repo, events } = resumeFieldsSetup(WORKER, updated);
+
+    await svc.updateResumePrefs("w-1", { show_photo: false }, CTX);
+
+    // only the provided flag is written (night-shift stays undefined in the patch)
+    expect(repo.updateResumePrefs).toHaveBeenCalledWith("w-1", {
+      resumeShowPhoto: false,
+      resumeNightShiftReady: undefined,
+    });
+    const emitArg = events.emit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(emitArg.payload).toEqual({
+      worker_id: "w-1",
+      show_photo: false,
+      night_shift_ready: false, // read back from the (unchanged) row
+    });
+  });
+
+  it("throws NotFound for an unknown worker — no write, no event", async () => {
+    const { svc, repo, events } = resumeFieldsSetup(undefined);
+    await expect(
+      svc.updateResumePrefs("missing", { show_photo: true }, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(repo.updateResumePrefs).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+});

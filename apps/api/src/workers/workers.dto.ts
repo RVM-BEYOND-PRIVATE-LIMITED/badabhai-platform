@@ -41,6 +41,37 @@ export const SetMyNameSchema = z.object({
 });
 export type SetMyNameDto = z.infer<typeof SetMyNameSchema>;
 
+/**
+ * Update the worker's resume display prefs (PATCH /workers/me/resume-prefs — the
+ * "Aap control karte hain" edit screen). Both flags optional; at least one must be
+ * present so an empty PATCH is a 400 rather than a silent no-op event. NON-PII.
+ */
+export const UpdateResumePrefsSchema = z
+  .object({
+    show_photo: z.boolean().optional(),
+    night_shift_ready: z.boolean().optional(),
+  })
+  .strict()
+  .refine(
+    (o) => o.show_photo !== undefined || o.night_shift_ready !== undefined,
+    "at least one of show_photo / night_shift_ready is required",
+  );
+export type UpdateResumePrefsDto = z.infer<typeof UpdateResumePrefsSchema>;
+
+/**
+ * Response of `GET /workers/me/resume-fields` — the worker-editable "safe fields"
+ * loaded into the edit screen. Unlike the faceless profile-summary, this DOES
+ * return the worker's OWN name (`full_name`) so they can correct its spelling —
+ * a self-read of one's own name is not a cross-actor PII leak, and it never
+ * reaches an LLM/event/log/ai_jobs. `full_name` is `null` until a name is set.
+ * Not a Zod schema: an output projection, not boundary input.
+ */
+export interface WorkerResumeFields {
+  full_name: string | null;
+  show_photo: boolean;
+  night_shift_ready: boolean;
+}
+
 /** The `trade` block of {@link WorkerProfileSummary}. Every part is nullable —
  * extraction may not have canonicalized yet; the client shows a "complete your
  * profile" hint on nulls. */

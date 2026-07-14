@@ -116,6 +116,27 @@ class MockApiClient extends ApiClient {
   }
 
   @override
+  Future<ResumeFieldsDto> getResumeFields({required String authToken}) async {
+    await _delay();
+    // Canned safe fields so the edit screen renders in mock mode.
+    return const ResumeFieldsDto(
+      fullName: 'Ramesh Kumar',
+      showPhoto: true,
+      nightShiftReady: false,
+    );
+  }
+
+  @override
+  Future<void> updateResumePrefs({
+    required bool showPhoto,
+    required bool nightShiftReady,
+    required String authToken,
+  }) async {
+    // No-op: nothing is persisted in mock mode.
+    await _delay();
+  }
+
+  @override
   Future<WorkerProfileBundle> getWorkerProfile({
     required String workerId,
     required String authToken,

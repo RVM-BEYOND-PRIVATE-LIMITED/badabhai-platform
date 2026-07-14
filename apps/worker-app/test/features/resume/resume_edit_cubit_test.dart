@@ -2,6 +2,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_edit_cubit.dart';
@@ -11,7 +12,6 @@ class MockResumeEditRepository extends Mock implements ResumeEditRepository {}
 const ResumeSafeFields _fields = ResumeSafeFields(
   displayName: 'Ramesh Kumar',
   showPhoto: true,
-  showPhone: true,
   nightShiftReady: false,
 );
 
@@ -74,5 +74,30 @@ void main() {
       ),
     ],
     verify: (_) => verify(() => repo.save(_fields)).called(1),
+  );
+
+  blocTest<ResumeEditCubit, ResumeEditState>(
+    'save failure -> saving:false + saveErrorNonce bumped (surfaces, not swallowed)',
+    build: () {
+      when(() => repo.save(any()))
+          .thenThrow(const NetworkFailure());
+      return ResumeEditCubit(repo);
+    },
+    seed: () =>
+        const ResumeEditState(status: ResumeEditStatus.ready, fields: _fields),
+    act: (ResumeEditCubit c) => c.save(),
+    expect: () => <ResumeEditState>[
+      const ResumeEditState(
+        status: ResumeEditStatus.ready,
+        fields: _fields,
+        saving: true,
+      ),
+      const ResumeEditState(
+        status: ResumeEditStatus.ready,
+        fields: _fields,
+        saveErrorNonce: 1,
+        saveFailure: NetworkFailure(),
+      ),
+    ],
   );
 }
