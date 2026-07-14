@@ -53,6 +53,59 @@ services:
       postgres:
         condition: service_healthy
 
+  # ---- Optional: the API with the WeasyPrint resume-render pipeline ENABLED ----
+  # NOT started by `docker compose up` / `pnpm db:up` — it is guarded by a compose
+  # profile, so it only comes up when you ask for it explicitly. This is the local
+  # way to make the resume PDF download actually work (WeasyPrint runs INSIDE this
+  # Linux container, so it renders even on a Windows host — unlike bare `pnpm dev`).
+  #
+  #   pnpm db:up && pnpm db:migrate                 # postgres+redis + schema
+  #   export SUPABASE_URL=...  SUPABASE_SERVICE_ROLE_KEY=...   # your project; PRIVATE worker-resumes bucket must exist
+  #   docker compose --profile api up --build api
+  #
+  # Full runbook + bucket provisioning: docs/resume-pdf-render-local.md
+  api:
+    profiles: ["api"]
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: badabhai-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "3001:3001"
+    environment:
+      # NODE_ENV=development keeps the dev-default PII/JWT/admin config guards happy
+      # (the Dockerfile sets production). DEV-ONLY container — NOT production-safe
+      # (dev secrets); a staging image must supply real PII/JWT/admin secrets.
+      NODE_ENV: development
+      DATABASE_URL: postgresql://badabhai:badabhai@postgres:5432/badabhai
+      REDIS_URL: redis://redis:6379
+      # Boot guards require these present, but the render path never sends SMS/email —
+      # dummy values satisfy the guards. `PAYER_LOGIN_METHOD=whatsapp` avoids needing
+      # real ZeptoMail email creds just to boot.
+      FAST2SMS_API_KEY: ${FAST2SMS_API_KEY:-dev-dummy}
+      FAST2SMS_SENDER_ID: ${FAST2SMS_SENDER_ID:-BBHAII}
+      FAST2SMS_DLT_TEMPLATE_ID: ${FAST2SMS_DLT_TEMPLATE_ID:-0000000000000000000}
+      PAYER_LOGIN_METHOD: whatsapp
+      # ---- Resume PDF render (the point of this service) ----
+      RESUME_RENDER_ENABLED: "true"
+      RESUMES_BUCKET: ${RESUMES_BUCKET:-worker-resumes}
+      # REQUIRED for rendering — your Supabase project + a PRIVATE `worker-resumes`
+      # bucket. Left as empty defaults (NOT `${..:?}`) on purpose: compose interpolates
+      # the WHOLE file before profile filtering, so a `:?` here would break plain
+      # `pnpm db:up` for anyone without these set. Instead the API fails closed at the
+      # first render ("Supabase Storage is not configured") — which only happens under
+      # `--profile api`. Export these before `docker compose --profile api up`.
+      # See docs/resume-pdf-render-local.md.
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-token}
+
 volumes:
   badabhai_pgdata:
   badabhai_redisdata:

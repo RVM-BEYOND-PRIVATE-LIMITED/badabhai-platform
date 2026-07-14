@@ -84,6 +84,19 @@ class ProfileIncompleteFailure extends Failure {
       [super.message = 'Pehle apna profile poora karein.']);
 }
 
+/// HTTP 409 on the resume PDF download — the PDF isn't rendered yet: the async
+/// render is still `pending` (or rendering isn't enabled in this environment), so
+/// there's no PDF to sign a URL for. DISTINCT from a server/network error: the
+/// resume itself exists (the TEXT is already on screen); only the PDF is pending.
+/// The copy tells the worker to retry shortly instead of dead-ending on a generic
+/// error.
+class ResumeNotReadyFailure extends Failure {
+  const ResumeNotReadyFailure([
+    super.message =
+        'Aapki PDF abhi taiyaar ho rahi hai. Thodi der mein dobara try karein.',
+  ]);
+}
+
 /// The voice-note pipeline cannot complete right now: the server said voice
 /// uploads are not enabled (503 on `/voice/upload-url`), the recording could
 /// not be captured, or the transcript is not ready. Honest copy tells the
