@@ -212,6 +212,25 @@ export const WorkerProfileDraftSchema = z.object({
 export type WorkerProfileDraft = z.infer<typeof WorkerProfileDraftSchema>;
 
 // ---------------------------------------------------------------------------
+// Skill canonicalization (ADR-0030 / TAX-4) — mirrors contracts.py
+// ---------------------------------------------------------------------------
+export const SkillCanonicalizationInputSchema = z.object({
+  phrase: z.string(),
+  domain_id: z.string(),
+  lang: z.string().default("en"),
+});
+export type SkillCanonicalizationInput = z.infer<typeof SkillCanonicalizationInputSchema>;
+
+// Result: an ASSIGNED skill_id (top match >= floor) or UNRESOLVED. No PII. SG-3 /
+// LLM-never-invents: skill_id is null unless the vector layer assigned it.
+export const SkillCanonicalizationSchema = z.object({
+  status: z.enum(["matched", "unresolved"]),
+  skill_id: z.string().nullable().default(null),
+  score: z.number().nullable().default(null),
+});
+export type SkillCanonicalization = z.infer<typeof SkillCanonicalizationSchema>;
+
+// ---------------------------------------------------------------------------
 // Profile extraction
 // ---------------------------------------------------------------------------
 export const ProfileExtractionInputSchema = z

@@ -68,6 +68,19 @@ class Settings(BaseSettings):
     # ("skill_embedding"); the default path is a deterministic MOCK embedding (zero spend).
     embedding_model: str = "text-embedding-004"
 
+    # ADR-0030 / TAX-4: skill-phrase canonicalization (vector match against skill_alias,
+    # floor-gated). `enabled` is the WIRING flag — when False the extraction path keeps the
+    # status quo (local gazetteer only, raw phrase preserved); rollback = flip it off. `floor`
+    # is the min cosine similarity to ASSIGN an id (measured on the wedge set, TAX-5); below it
+    # the phrase is UNRESOLVED and recorded. `top_k` bounds the nearest-alias fetch. The real
+    # embedding + DB store are still §7-gated (mock/NullSkillStore by default → no spend, no DB).
+    skill_canonicalize_enabled: bool = False
+    skill_canonicalize_floor: float = 0.82
+    skill_canonicalize_top_k: int = 5
+    # Anchor skill domain for the wedge when the extraction wiring canonicalizes labels and no
+    # finer per-label domain is known yet (per-label multi-domain resolution is TAX-5/6).
+    skill_canonicalize_default_domain: str = "cnc-machining"
+
     # Per-profile cost guardrails (INR). Used for alerting only in Phase 1.
     ai_cost_alert_profile_inr: float = 6.0
     ai_target_profile_cost_inr: float = 4.0

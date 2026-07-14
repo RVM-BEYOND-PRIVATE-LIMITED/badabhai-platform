@@ -188,6 +188,26 @@ class WorkerProfileDraft(BaseModel):
     unmatchable_reason: str | None = None
 
 
+# --- Skill canonicalization (ADR-0030 / TAX-4) -----------------------------
+class SkillCanonicalizationInput(BaseModel):
+    """One skill phrase to canonicalize within a domain. ``phrase`` is a skill LABEL the
+    extraction proposed; it is pseudonymized before the embed regardless (SG-2)."""
+
+    phrase: str
+    domain_id: str
+    lang: str = "en"
+
+
+class SkillCanonicalization(BaseModel):
+    """Canonicalization outcome: either an ASSIGNED ``skill_id`` (top match >= floor) or
+    UNRESOLVED. Carries NO PII. SG-3 / LLM-never-invents: ``skill_id`` is None unless the
+    vector layer assigned it. Mirrors ``SkillCanonicalizationSchema`` in ai-contracts."""
+
+    status: Literal["matched", "unresolved"]
+    skill_id: str | None = None
+    score: float | None = None
+
+
 # --- Profile extraction ----------------------------------------------------
 class ProfileExtractionInput(BaseModel):
     worker_ref: str | None = None
