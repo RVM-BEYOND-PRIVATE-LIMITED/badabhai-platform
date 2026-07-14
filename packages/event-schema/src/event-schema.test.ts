@@ -1857,8 +1857,9 @@ describe("worker PIN events (ADR-0026 Phase 3 — device-bound PIN, PII-free, id
 });
 
 describe("registry", () => {
-  it("exposes all 100 event names (93 prior + job_posting.paused/resumed [B1] + posting_plan.quota_topped [B2] + payer_member.invited/accepted/removed [ADR-0027 / B5] + worker.resume_prefs_updated)", () => {
-    expect(EVENT_NAMES).toHaveLength(100);
+  it("exposes all 101 event names (100 prior + skill.phrase_unresolved [ADR-0030/FORK-B-1])", () => {
+    expect(EVENT_NAMES).toHaveLength(101);
+    expect(isEventName("skill.phrase_unresolved")).toBe(true);
     expect(isEventName("worker.resume_prefs_updated")).toBe(true);
     expect(isEventName("job_posting.paused")).toBe(true);
     expect(isEventName("job_posting.resumed")).toBe(true);
@@ -1947,5 +1948,39 @@ describe("registry", () => {
     for (const name of EVENT_NAMES) {
       expect(EVENT_REGISTRY[name].version).toBe(1);
     }
+  });
+});
+
+describe("skill.phrase_unresolved payload (ADR-0030 / FORK-B-1) — hash-only, strict", () => {
+  const HASH = "a".repeat(64);
+  const base = { phrase_hash: HASH, domain_id: "cnc-machining", lang: "hi", count: 3 };
+  const make = (payload: object) =>
+    createEvent({
+      event_name: "skill.phrase_unresolved",
+      actor: { actor_type: "ai_service" },
+      subject: { subject_type: "skill_phrase", subject_id: UUID_A },
+      source: "api",
+      metadata: { environment: "test", service: "api" },
+      payload: payload as never,
+    });
+
+  it("accepts the hash-only shape (and the produced event validates)", () => {
+    const event = make(base);
+    expect(event.event_name).toBe("skill.phrase_unresolved");
+    expect(validateEvent(event).success).toBe(true);
+  });
+
+  it("rejects a smuggled phrase field (.strict() blocks text riding the spine)", () => {
+    expect(() => make({ ...base, phrase: "[EMPLOYER_1] polish work" })).toThrow(
+      EventValidationException,
+    );
+  });
+
+  it("rejects a non-sha256 phrase_hash and a non-positive count", () => {
+    expect(() => make({ ...base, phrase_hash: "not-a-hash" })).toThrow(EventValidationException);
+    expect(() => make({ ...base, phrase_hash: HASH.slice(0, 63) })).toThrow(
+      EventValidationException,
+    );
+    expect(() => make({ ...base, count: 0 })).toThrow(EventValidationException);
   });
 });

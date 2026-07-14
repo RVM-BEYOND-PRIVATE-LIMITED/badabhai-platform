@@ -101,6 +101,9 @@ _MODEL_RATES_INR: dict[str, tuple[float, float]] = {
     # only (~$0.15/1M ~= Rs 0.0125/1k at ~Rs 83/USD; output tokens do not exist). Without
     # this entry the batch estimate fell back to _DEFAULT_RATE_INR (~4x too high).
     "text-embedding-004": (0.0125, 0.0),
+    # gemini-embedding-001 — the LIVE embedding model (text-embedding-004 retired; verified
+    # 2026-07-14). Same $0.15/1M-input list price ~= Rs 0.0125/1k; embeddings have no output.
+    "gemini-embedding-001": (0.0125, 0.0),
 }
 
 

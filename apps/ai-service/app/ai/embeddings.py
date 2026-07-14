@@ -24,6 +24,7 @@ caller. Resumable = ``fetch_unembedded`` only ever returns rows whose embedding 
 from __future__ import annotations
 
 import hashlib
+import math
 import struct
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -84,15 +85,24 @@ def _mock_embedding(text: str) -> list[float]:
 
 def _real_embedding(text: str, settings: Settings) -> list[float]:
     """Call the configured real embedding provider (Gemini ``embedContent``). Reached
-    ONLY when SG-4 is satisfied. STAGING-UNVERIFIED until the first gated staging run
-    (§7): the request/response shape + the exact model + 768-dim output are confirmed
-    there. Never logs the text (pseudonymized, but still content)."""
+    ONLY when SG-4 is satisfied. VERIFIED LIVE 2026-07-14 (first gated run):
+    ``gemini-embedding-001`` + ``outputDimensionality: 768`` → HTTP 200, 768 dims
+    (``text-embedding-004`` is retired — the provider 404s it). Truncated-dimension
+    embeddings come back UNNORMALIZED, so we L2-normalize before storing: cosine ops are
+    scale-invariant either way, but stored vectors stay comparable if anything ever uses
+    an inner product. Never logs the text (pseudonymized, but still content)."""
     api_key = settings.gemini_flash_api_key
     if not api_key:
         raise RuntimeError("skill_embedding: real call enabled but GEMINI_FLASH_API_KEY unset")
     model = settings.embedding_model
     url = f"{_GEMINI_EMBED_BASE}/{model}:embedContent"
-    body = {"model": f"models/{model}", "content": {"parts": [{"text": text}]}}
+    body = {
+        "model": f"models/{model}",
+        "content": {"parts": [{"text": text}]},
+        # Pin the house dimension — without this the model returns its native width
+        # (3072 for gemini-embedding-001) and the dim check below rejects it.
+        "outputDimensionality": EMBEDDING_DIMENSION,
+    }
     headers = {"x-goog-api-key": api_key}  # header, never a ?key= (avoids URL-log leak)
     with httpx.Client(timeout=_TIMEOUT_SECONDS) as client:
         resp = client.post(url, headers=headers, json=body)
@@ -103,7 +113,11 @@ def _real_embedding(text: str, settings: Settings) -> list[float]:
         raise RuntimeError(
             f"skill_embedding dim mismatch: got {len(values)}, expected {EMBEDDING_DIMENSION}"
         )
-    return [float(v) for v in values]
+    vector = [float(v) for v in values]
+    norm = math.sqrt(sum(v * v for v in vector))
+    if norm <= 0.0:
+        raise RuntimeError("skill_embedding: zero-norm vector from provider")
+    return [v / norm for v in vector]
 
 
 def embed_text(text: str, settings: Settings) -> EmbeddingResult:

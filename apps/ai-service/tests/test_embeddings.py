@@ -132,7 +132,7 @@ def test_real_path_used_when_flag_on(monkeypatch):
     res = embed_text("milling", _real_settings())
     assert res.is_mock is False
     assert res.vector == [0.5] * EMBEDDING_DIMENSION
-    assert res.model == "text-embedding-004"
+    assert res.model == "gemini-embedding-001"
 
 
 # --- (3) batch: idempotent on NULL-only, resumable, fail-closed counted ------
