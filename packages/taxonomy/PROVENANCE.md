@@ -42,6 +42,9 @@ data-owner must confirm before the full NCO bulk import.
 ```bash
 pnpm build                 # build @badabhai/taxonomy so the corpus resolves
 pnpm db:seed:skills        # idempotent, prod-guarded; double-run → identical row counts
+pnpm db:embed:skills       # fork-B runner: fills skill_alias.embedding via the ai-service
+                           # (start it first; MOCK vectors by default — real is §7-gated,
+                           # see docs/ai/skills-taxonomy-roadmap.md staging runbook)
 ```
 
 ## Embedding model (TAX-3)

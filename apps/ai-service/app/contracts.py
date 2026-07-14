@@ -208,6 +208,50 @@ class SkillCanonicalization(BaseModel):
     score: float | None = None
 
 
+# --- Skill-alias embedding batch (ADR-0030 / TAX-3 fork-B runner seam) ------
+class SkillAliasEmbedItem(BaseModel):
+    """One alias to embed. ``text`` is reference vocabulary (no worker PII by design)
+    and is STILL pseudonymized before any embed (SG-2)."""
+
+    alias_id: str
+    text: str
+
+
+class SkillAliasEmbedInput(BaseModel):
+    """A batch from the db-side runner (packages/db embed-skill-aliases.ts — the
+    owner-chosen fork-B: DB read/write stays on the runner, this service stays DB-free).
+    Capped so one request never smuggles an unbounded corpus."""
+
+    items: list[SkillAliasEmbedItem] = Field(max_length=200)
+
+
+class SkillAliasEmbedResult(BaseModel):
+    """``vector`` is None iff the text was blocked (fail-closed) — the runner leaves
+    that row NULL and excludes it from later fetches this run."""
+
+    alias_id: str
+    vector: list[float] | None = None
+    blocked: bool = False
+
+
+class SkillAliasEmbedOutput(BaseModel):
+    """``results`` may be SHORTER than ``items``: an item is OMITTED when the request's
+    real-spend budget stopped (``budget_stopped``) or its provider call errored
+    (counted in ``errors``) — those rows stay NULL on the runner side and a later run
+    resumes them. Already-paid embeds in the same request are always returned."""
+
+    results: list[SkillAliasEmbedResult]
+    is_mock: bool = True
+    model: str
+    # True when the per-request INR ceiling (ai_max_call_cost_inr) stopped the real batch
+    # early (TD64 interim guard — enforced HERE, on the path the runner actually hits).
+    budget_stopped: bool = False
+    # Per-item real-provider failures skipped (item omitted; batch continues).
+    errors: int = 0
+    # Accumulated estimate for THIS request's real embeds (0.0 on the mock path).
+    estimated_cost_inr: float = 0.0
+
+
 # --- Profile extraction ----------------------------------------------------
 class ProfileExtractionInput(BaseModel):
     worker_ref: str | None = None

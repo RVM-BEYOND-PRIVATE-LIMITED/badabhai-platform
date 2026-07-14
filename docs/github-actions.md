@@ -32,7 +32,7 @@ Phase-4 security/drift gates added alongside this doc (`security-scan.yml`,
 the same ref cancels the older run.
 **Blocking:** yes. All three jobs gate the merge.
 
-pnpm is set up via `pnpm/action-setup@v4` with **no `version:`** — the
+pnpm is set up via `pnpm/action-setup@v6` with **no `version:`** — the
 `packageManager` field in `package.json` (`pnpm@11.5.2`) is the single source;
 pinning it twice triggers `ERR_PNPM_BAD_PM_VERSION`. Node is **22**.
 

@@ -97,6 +97,10 @@ _MODEL_RATES_INR: dict[str, tuple[float, float]] = {
     # Claude Haiku 4.5 (fallback provider): $1/1M in, $5/1M out ~= Rs 0.083 in /
     # Rs 0.415 out per 1k at ~Rs 83/USD.
     "claude-haiku-4-5": (0.083, 0.415),
+    # Gemini text-embedding-004 (ADR-0030 skill_embedding, TAX-3): embeddings bill input
+    # only (~$0.15/1M ~= Rs 0.0125/1k at ~Rs 83/USD; output tokens do not exist). Without
+    # this entry the batch estimate fell back to _DEFAULT_RATE_INR (~4x too high).
+    "text-embedding-004": (0.0125, 0.0),
 }
 
 

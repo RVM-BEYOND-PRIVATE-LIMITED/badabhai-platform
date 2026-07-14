@@ -50,6 +50,17 @@ this expands on them.
 - **BullMQ job pipeline** for extraction/transcription/embedding (pays down TD1).
 
 ## Platform & ops
+- **CI-2 — CI cost path-filters (parked 2026-07-14, needs owner branch-protection flip).**
+  Gate `ci.yml`'s `ai-service` (Python) + `e2e` jobs by changed paths so TS-only/docs-only
+  PRs stop paying for them, using the **required-check-safe** pattern: a changes-detection
+  job (`dorny/paths-filter`) + a single always-running `ci-required` aggregator job that
+  passes on success-or-skipped; branch protection then requires only `ci-required` — a
+  **repo-admin flip the owner must approve before merge** (naively `if:`-skipping a
+  required job wedges the PR on "Expected — waiting"). The `node` job always runs.
+- **CI-3 — path-gate / schedule `security-scan.yml` (parked "Later" by owner 2026-07-14).**
+  It runs 3 non-blocking scanners (gitleaks full-history, semgrep OSS, pnpm audit) on
+  EVERY push+PR to main — real private-repo minutes. Un-park: path-gate semgrep/audit and
+  move the gitleaks full-history sweep to a weekly `schedule:`, keeping coverage.
 - **Finalized RLS** + per-worker isolation (pays down R1/TD4).
 - **Disaster-recovery runbook** + tested restore (pays down R5).
 - **Secrets manager** + multi-environment promotion (pays down R8 / TD10).

@@ -29,6 +29,7 @@
     "db:seed:jobs": "tsx src/seed-jobs.ts",
     "db:seed:demand": "tsx src/seed-demand.ts",
     "db:seed:skills": "tsx src/seed-skills.ts",
+    "db:embed:skills": "tsx src/embed-skill-aliases.ts",
     "db:verify:demand": "tsx src/verify-demand.ts",
     "db:seed:reach": "tsx src/seed-reach-pool.ts",
     "db:seed:reach:large": "tsx src/seed-reach-pool.ts",

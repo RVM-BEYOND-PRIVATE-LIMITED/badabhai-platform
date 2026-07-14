@@ -231,6 +231,44 @@ export const SkillCanonicalizationSchema = z.object({
 export type SkillCanonicalization = z.infer<typeof SkillCanonicalizationSchema>;
 
 // ---------------------------------------------------------------------------
+// Skill-alias embedding batch (ADR-0030 / TAX-3 fork-B runner seam) — mirrors
+// contracts.py. The db-side runner (packages/db embed-skill-aliases.ts) POSTs
+// alias-text batches to the ai-service /embeddings/skill-alias endpoint.
+// ---------------------------------------------------------------------------
+export const SkillAliasEmbedItemSchema = z.object({
+  alias_id: z.string(),
+  text: z.string(),
+});
+export type SkillAliasEmbedItem = z.infer<typeof SkillAliasEmbedItemSchema>;
+
+export const SkillAliasEmbedInputSchema = z.object({
+  items: z.array(SkillAliasEmbedItemSchema).max(200), // request cap == Pydantic max_length
+});
+export type SkillAliasEmbedInput = z.infer<typeof SkillAliasEmbedInputSchema>;
+
+// vector null ⇔ blocked (pseudonymize fail-closed) — the runner leaves that row NULL.
+export const SkillAliasEmbedResultSchema = z.object({
+  alias_id: z.string(),
+  vector: z.array(z.number()).nullable().default(null),
+  blocked: z.boolean().default(false),
+});
+export type SkillAliasEmbedResult = z.infer<typeof SkillAliasEmbedResultSchema>;
+
+// `results` may be SHORTER than `items`: budget-stopped or provider-errored items are
+// OMITTED (rows stay NULL; a later run resumes). Already-paid embeds are always returned.
+export const SkillAliasEmbedOutputSchema = z.object({
+  results: z.array(SkillAliasEmbedResultSchema),
+  is_mock: z.boolean().default(true),
+  model: z.string(),
+  // Per-request INR ceiling fired on the REAL path (TD64 interim guard).
+  budget_stopped: z.boolean().default(false),
+  // Per-item real-provider failures skipped (batch continued).
+  errors: z.number().int().nonnegative().default(0),
+  estimated_cost_inr: z.number().nonnegative().default(0),
+});
+export type SkillAliasEmbedOutput = z.infer<typeof SkillAliasEmbedOutputSchema>;
+
+// ---------------------------------------------------------------------------
 // Profile extraction
 // ---------------------------------------------------------------------------
 export const ProfileExtractionInputSchema = z

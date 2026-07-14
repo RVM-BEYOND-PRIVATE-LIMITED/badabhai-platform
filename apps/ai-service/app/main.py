@@ -16,6 +16,8 @@ import json
 from fastapi import FastAPI
 
 from .ai import cost_tracker
+from .ai.embeddings import EMBEDDING_TASK_TYPE, MOCK_MODEL, embed_text
+from .ai.model_config import rate_inr_per_1k
 from .ai.router import AIRouter
 from .config import get_settings
 from .contracts import (
@@ -29,6 +31,9 @@ from .contracts import (
     PseudonymizationOutput,
     ResumeGenerationInput,
     ResumeGenerationOutput,
+    SkillAliasEmbedInput,
+    SkillAliasEmbedOutput,
+    SkillAliasEmbedResult,
     TranscriptionInput,
     TranscriptionOutput,
     WorkerProfileDraft,
@@ -124,6 +129,74 @@ def pseudonymize_endpoint(body: PseudonymizationInput) -> PseudonymizationOutput
         blocked_reason=result.blocked_reason,
         replaced_entities=result.replaced_entities,
         placeholder_tokens=result.placeholder_tokens,
+    )
+
+
+@app.post("/embeddings/skill-alias", response_model=SkillAliasEmbedOutput)
+def embed_skill_aliases(body: SkillAliasEmbedInput) -> SkillAliasEmbedOutput:
+    """ADR-0030 fork-B seam: the db-side runner (packages/db/src/embed-skill-aliases.ts,
+    owner connection) POSTs alias-text batches; this service embeds and returns vectors —
+    the DB read/write stays on the runner so the ai-service remains DB-free.
+
+    SG-2: every text is pseudonymized before the embed (inside ``embed_text``, fail-closed
+    → ``vector=None, blocked=True`` and the runner leaves that row NULL). SG-4: mock by
+    default (zero spend); the real provider additionally needs the master flag + key +
+    the ``skill_embedding`` task allowlist. Never logs alias text.
+
+    REAL-path guards (TD64 interim — enforced HERE, on the path the runner actually
+    hits; the SpendLedger reserve/record wiring stays the §7 staging precondition):
+    - Per-request INR ceiling: real-embed cost is accumulated UNROUNDED per item
+      (alias texts are ~3-token strings whose individually-rounded estimate is 0.0)
+      against ``ai_max_call_cost_inr``; on breach the batch STOPS, remaining items are
+      OMITTED (rows stay NULL — a later run resumes), ``budget_stopped=True``.
+    - Per-item failure isolation: one provider error skips THAT item (counted in
+      ``errors``) instead of 500ing the request and discarding already-paid embeds.
+    """
+    settings = get_settings()
+    is_mock = not settings.real_call_enabled_for(EMBEDDING_TASK_TYPE)
+    in_rate, _out = rate_inr_per_1k(settings.embedding_model)
+    results: list[SkillAliasEmbedResult] = []
+    cost_inr = 0.0
+    errors = 0
+    budget_stopped = False
+    for item in body.items:
+        if not is_mock and cost_inr >= settings.ai_max_call_cost_inr:
+            budget_stopped = True
+            break
+        try:
+            res = embed_text(item.text, settings)
+        except Exception:
+            # Real-provider failure (HTTP error / timeout / dim mismatch). Skip the item —
+            # it stays NULL for a later run; keep the embeds this request already paid for.
+            # Never logs the text.
+            errors += 1
+            continue
+        results.append(
+            SkillAliasEmbedResult(alias_id=item.alias_id, vector=res.vector, blocked=res.blocked)
+        )
+        if not is_mock and not res.blocked:
+            cost_inr += (cost_tracker.estimate_tokens(res.text or "") / 1000.0) * in_rate
+    logger.info(
+        "embed skill-alias batch",
+        extra={
+            "extra": {
+                "items": len(body.items),
+                "returned": len(results),
+                "blocked": sum(1 for r in results if r.blocked),
+                "errors": errors,
+                "budget_stopped": budget_stopped,
+                "estimated_cost_inr": round(cost_inr, 6),
+                "is_mock": is_mock,
+            }
+        },
+    )
+    return SkillAliasEmbedOutput(
+        results=results,
+        is_mock=is_mock,
+        model=settings.embedding_model if not is_mock else MOCK_MODEL,
+        budget_stopped=budget_stopped,
+        errors=errors,
+        estimated_cost_inr=round(cost_inr, 6),
     )
 
 

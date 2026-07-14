@@ -207,3 +207,62 @@ def test_all_blocked_batch_terminates_not_infinite_loop(monkeypatch):
     assert report.embedded == 0
     assert report.blocked == 2  # each blocked row counted ONCE (not looped)
     assert all(store.rows[a][1] is None for a in store.rows)
+
+
+class NonConformingStore(MemStore):
+    """A BUGGY store that ignores ``exclude_ids`` (e.g. a runner whose SQL dropped the
+    exclusion clause). Termination must not depend on the store honoring the contract."""
+
+    def fetch_unembedded(self, limit, exclude_ids=frozenset()):
+        return super().fetch_unembedded(limit, frozenset())  # contract violation
+
+
+def test_terminates_even_when_store_ignores_exclude_ids(monkeypatch):
+    def selective(text, *args, **kwargs):
+        if "12345678" in text:
+            return _pseudo(blocked=True, reason="residual_digits")
+        return _pseudo(text=text)
+
+    monkeypatch.setattr(embeddings, "pseudonymize", selective)
+    store = NonConformingStore(
+        {"bad1": ["ref 12345678", None], "bad2": ["no 12345678", None], "ok": ["milling", None]}
+    )
+    report = embed_aliases(store, _mock_settings(), batch_size=2)
+    # No hang, each blocked row counted once, and blocked ids never duplicated —
+    # even though the buggy store re-returns them every fetch.
+    assert report.blocked == 2
+    assert sorted(report.blocked_alias_ids) == ["bad1", "bad2"]
+    assert report.embedded <= 1  # the clean row may be starved behind the clogged window,
+    # but the batch must still TERMINATE (this test hanging = regression)
+    # …and the contract violation is SURFACED, not silent (operator can fix the SQL).
+    assert report.store_nonconforming is True
+
+
+def test_conforming_store_never_flags_nonconforming(monkeypatch):
+    def selective(text, *args, **kwargs):
+        if "12345678" in text:
+            return _pseudo(blocked=True, reason="residual_digits")
+        return _pseudo(text=text)
+
+    monkeypatch.setattr(embeddings, "pseudonymize", selective)
+    store = MemStore({"ok": ["milling", None], "bad": ["ref 12345678", None]})
+    report = embed_aliases(store, _mock_settings(), batch_size=1)
+    assert report.store_nonconforming is False
+
+
+def test_real_batch_budget_stops_spend(monkeypatch):
+    # TD64 interim guard: an unattended REAL corpus batch must stop at the INR budget —
+    # remaining rows stay NULL for a later resume. Mock batches are never budget-stopped.
+    monkeypatch.setattr(embeddings, "_real_embedding", lambda t, s: [0.1] * EMBEDDING_DIMENSION)
+    store = MemStore({f"a{i}": [f"skill number {i}", None] for i in range(10)})
+    report = embed_aliases(store, _real_settings(), batch_size=3, budget_inr=0.000001)
+    assert report.budget_stopped is True
+    assert report.embedded == 1  # stopped right after the first paid embed
+    assert report.estimated_cost_inr > 0  # real cost accumulated (rate entry exists)
+    remaining = [a for a, v in store.rows.items() if v[1] is None]
+    assert len(remaining) == 9  # the rest untouched, resumable
+
+    # Mock: same store shape, zero spend, never budget-stopped even with a zero budget.
+    mock_store = MemStore({"m1": ["milling", None]})
+    mock_report = embed_aliases(mock_store, _mock_settings(), budget_inr=0.0)
+    assert mock_report.budget_stopped is False and mock_report.embedded == 1
