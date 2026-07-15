@@ -32,7 +32,7 @@ ranks** — a skills factor in RANK is a *separate future ADR*, explicitly out o
 | TAX-5 | Data/AI — wedge aliases + floor calibration | **P1** | **CALIBRATED (floor 0.75)** · RVM gate open | TAX-4 | — |
 | TAX-6 | Backend+AI — job side shares id space | P2 | Unblocked | TAX-4 | — |
 | TAX-7 | AI — growth loop (cluster unresolved) | P2 | Unblocked | TAX-4 | — |
-| TAX-8 | QA+AI — off-wedge résumé verify | P2 | Unblocked | TAX-4 | — |
+| TAX-8 | QA+AI — off-wedge résumé verify | P2 | **VERIFIED + LOCKED** (`pytest -k resume`; raw-phrase gap → Q14) | TAX-4 | — |
 | TAX-9 | DB+AI — versioning + offline re-tag | P3 | Unblocked | TAX-4/6 | — |
 
 ## Done (TAX-0…TAX-4)
@@ -162,6 +162,14 @@ untouched (AI-PERSONA-1 scope). **Do NOT** build a separate off-wedge generator 
 canonicalization. Tests (`pytest -k resume`): launch-role (ids resolve), adjacent-trade
 (out-of-scope id), novel skill (UNRESOLVED) — all produce a complete résumé; baseline snapshot
 unchanged. OQ#3 (out-of-scope worker experience) is a product decision — flag, don't decide.
+
+**Verified 2026-07-15 (`tests/test_resume_offwedge.py`):** launch-role ids render; off-wedge
+degrades to "(to be confirmed)" and the résumé ALWAYS completes; the résumé path is
+structurally independent of canonicalization (both entry points forced to raise → 200);
+`RESUME_SYSTEM_PROMPT` pinned by sha256 tripwire (deliberate edits must touch the test).
+HONEST FINDING: the spec's "renders from worker-confirmed raw phrases" is NOT today's
+behavior — the résumé renders closed-set ids or nothing; the raw-phrase gap is **Q14**
+(open-questions register, product decision — flagged, not decided).
 
 ## TAX-9 — Versioning + offline re-tag discipline · P3 · owner: db + ai
 
