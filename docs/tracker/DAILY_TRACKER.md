@@ -5,6 +5,25 @@ Newest day on top. Copy the template block each working day. Every % move needs 
 
 ---
 
+# Daily Tracker — 2026-07-15
+
+## BadaBhai Progress Snapshot
+- **No % moves** (cap rule: no staging/handset evidence added today)
+- **P0: 1** (staging past deadline) · Owner queue grew: migration 0038 apply · vernacular ratification (Q-A/Q-B) · SR-1 step-7 activation env · **Q14** (off-wedge résumé raw phrases — product)
+
+## Merged today
+| PR | What |
+| -- | ---- |
+| #225 | **TAX-5**: floor calibrated 0.82→0.75 on REAL vectors — precision 1.000; recall 0.800 ORACLE vs **0.350 shipped anchor-path** (both pinned by `pytest -k wedge`); 22 vernacular aliases PROPOSED (RVM gate) |
+| #226 | **TAX-6**: job side shares the skill id space (`skill_phrases`/`skill_ids`, migration 0038 — APPLY PENDING); review M1/M2/M3 fixed (parallel-bounded canonicalize, widened RANK lock, outage backfill retry) |
+| #227 | **TAX-8**: off-wedge résumé guard locked (canonicalization can't raise into résumés); raw-phrase gap → Q14 |
+
+## Notes
+- Root-caused yesterday's "CI dispatch stall": #226 went CONFLICTING after #225 merged — GitHub silently skips PR workflows when the merge ref can't build. Not a billing/incident issue.
+- ADR-0030 series now: TAX-0..6 + TAX-8 DONE; TAX-7 (growth loop) in build; TAX-9 P3.
+
+---
+
 # Daily Tracker — 2026-07-14
 
 ## BadaBhai Progress Snapshot

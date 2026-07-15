@@ -2,7 +2,9 @@
 
 Each phase: goal · in-scope · out-of-scope · blockers · acceptance · **test gate** · owner · target.
 
-**Current position (2026-07-14):** Overall **~75%** · Alpha **~58%** · Release **~29%** (unchanged — no new staging/handset evidence). Since Jul 9: #193–#218 merged — payer-web all-seams-live, voice pipeline (ADR-0029, mock), throttle residuals, worker-app kPersistentAuth ON (#201, TD62 open), AI cost/persona series (#203–#210), **ADR-0030 skills taxonomy TAX-0..4 (#211–#215) + roadmap (#217)**, CI-1 action bumps (#218); fork-B runner PR #219 in review. `origin/main` HEAD: `5f4a274` (Jul 14). **38 migrations (0000–0037, applied)**. Decisions D1–**D10** closed.
+**Current position (2026-07-15):** TAX series through **TAX-8** merged (#211–#227): shared skill id space live on BOTH worker + job sides (mock-default, flag-gated), REAL 76/76 vector backfill done, floor calibrated 0.75, résumé guard locked. 39 migrations (0000–0038; **0038 apply pending — owner**). Owner queue: 0038 · ratification Q-A/Q-B · SR-1 step-7 env · Q14.
+
+**Prior position (2026-07-14):** Overall **~75%** · Alpha **~58%** · Release **~29%** (unchanged — no new staging/handset evidence). Since Jul 9: #193–#218 merged — payer-web all-seams-live, voice pipeline (ADR-0029, mock), throttle residuals, worker-app kPersistentAuth ON (#201, TD62 open), AI cost/persona series (#203–#210), **ADR-0030 skills taxonomy TAX-0..4 (#211–#215) + roadmap (#217)**, CI-1 action bumps (#218); fork-B runner PR #219 in review. `origin/main` HEAD: `5f4a274` (Jul 14). **38 migrations (0000–0037, applied)**. Decisions D1–**D10** closed.
 > 🚨 **DEADLINE SLIPPED:** Alpha B1 deadline was **2026-07-04** — MISSED. As of 2026-07-09, staging still not provisioned (no `/health` proof, no events, no logcat, no PDF). Gap to alpha = **100% staging + FE wiring, 0% code**. Only Prakash provisioning the instance is on the critical path.
 
 Owners: Prakash (TL/PM, staging+infra), Divyanshu (backend/AI), Rishi Ojha (Android/Flutter), QA.
