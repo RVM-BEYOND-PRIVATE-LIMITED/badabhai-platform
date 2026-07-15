@@ -78,6 +78,25 @@ class AuthSessionManager extends ChangeNotifier {
   AuthStatus _status = AuthStatus.loggedOut;
   AuthStatus get status => _status;
 
+  /// TD62 — the DPDP consent signal riding the OTP/PIN verify responses.
+  ///
+  /// TRI-STATE by design: `true`/`false` when the server sent a definitive
+  /// `consent_accepted`; `null` when unknown (old server without the field, or
+  /// no login yet). The router forces `/consent` ONLY on a definitive `false` —
+  /// null passes through, so an older API can never brick routing.
+  bool? _consentAccepted;
+  bool? get consentAccepted => _consentAccepted;
+
+  /// Marks consent as accepted CLIENT-SIDE right after a successful
+  /// `consent.accepted` submit (ConsentCubit), so the router's consent gate
+  /// releases without waiting for a re-login. Notifies the router's
+  /// `refreshListenable` on change.
+  void markConsentAccepted() {
+    if (_consentAccepted == true) return;
+    _consentAccepted = true;
+    notifyListeners();
+  }
+
   /// Set true once [bootstrap] has resolved the cold-start state, so the router
   /// can hold on splash until the secure store has been read exactly once.
   bool _ready = false;
@@ -137,6 +156,9 @@ class AuthSessionManager extends ChangeNotifier {
       await _persistTokens(result.tokens);
       await _tokenStore.writeWorkerId(result.workerId);
     }
+    // TD62: capture the server's consent signal BEFORE the status flip so the
+    // router redirect that fires on the notify sees both together.
+    _consentAccepted = result.consentAccepted;
     _bridge(
       accessToken: result.tokens.access,
       workerId: result.workerId,
@@ -175,12 +197,15 @@ class AuthSessionManager extends ChangeNotifier {
       await _wipeAndLogOut();
       throw const AuthFailure(AuthErrorCode.reauthRequired);
     }
-    final AuthTokens tokens = await _authApi.pinVerify(pin, refreshToken: refresh);
+    final PinVerifyResult result =
+        await _authApi.pinVerify(pin, refreshToken: refresh);
     // GAP A: persist the rotated tokens so the next cold start stays on the fast
     // path with the freshest refresh token.
-    await _persistTokens(tokens);
+    await _persistTokens(result.tokens);
+    // TD62: capture the consent signal before the status flip (see verifyOtp).
+    _consentAccepted = result.consentAccepted;
     final String? workerId = await _tokenStore.readWorkerId();
-    _bridge(accessToken: tokens.access, workerId: workerId);
+    _bridge(accessToken: result.tokens.access, workerId: workerId);
     _setStatus(AuthStatus.authenticated);
   }
 
@@ -297,12 +322,14 @@ class AuthSessionManager extends ChangeNotifier {
   void _onReauthRequired() {
     // PASS 1's interceptor already cleared SecureTokenStore before firing.
     _session.clear();
+    _consentAccepted = null; // TD62: unknown again until the next login
     _setStatus(AuthStatus.loggedOut);
   }
 
   Future<void> _wipeAndLogOut() async {
     await _tokenStore.clear();
     _session.clear();
+    _consentAccepted = null; // TD62: unknown again until the next login
     _setStatus(AuthStatus.loggedOut);
   }
 

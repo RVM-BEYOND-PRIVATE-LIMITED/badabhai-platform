@@ -120,15 +120,19 @@ class _CreditBalanceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<CreditsCubit, int?>(
+    return BlocBuilder<CreditsCubit, CreditsState>(
       bloc: locator<CreditsCubit>(),
-      builder: (BuildContext context, int? credits) {
+      builder: (BuildContext context, CreditsState credits) {
         return BbStat(
           label: 'Credit balance',
-          value: '${credits ?? '—'}',
+          // A failed refresh renders an honest '—', never a fabricated 0
+          // (#189 fast-follow); the retry affordance re-loads server truth.
+          value: credits.error ? '—' : '${credits.balance ?? '—'}',
           icon: Icons.lock_open,
-          deltaText: 'View ledger',
-          onDeltaTap: onOpenCredits,
+          deltaText: credits.error ? 'Retry' : 'View ledger',
+          onDeltaTap: credits.error
+              ? () => locator<CreditsCubit>().load()
+              : onOpenCredits,
         );
       },
     );

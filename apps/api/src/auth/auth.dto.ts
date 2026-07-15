@@ -53,6 +53,15 @@ export interface LoginResponse {
   refresh_token: string;
   refresh_expires_in_seconds: number;
   session: SessionInfo;
+  // TD62 — ADDITIVE + OPTIONAL: does this worker hold an ACTIVE (non-revoked) DPDP
+  // consent? The app's router gates the shell on a definitive `false` (→ /consent);
+  // it is a boolean derived from worker_consents, never PII, and no event changes
+  // with it. OPTIONAL (review F1): the compose runs AFTER the OTP is consumed + the
+  // session minted, so a consent-read blip must not 500 a login that server-side
+  // succeeded (the worker would burn another OTP against the TD60 daily cap) — the
+  // controller OMITS the field on a read failure, and the app's tri-state treats
+  // absent as unknown/pass-through (ConsentGuard stays authoritative server-side).
+  consent_accepted?: boolean;
 }
 
 /** Response of POST /auth/refresh (legacy rolling-token refresh — unchanged). */

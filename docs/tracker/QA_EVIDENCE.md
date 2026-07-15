@@ -50,7 +50,7 @@ now lives in [`docs/qa/evidence/README.md`](../qa/evidence/README.md).
 | 1 | Tester's real phone `+918946991002` fully visible in 4 committed shots | Evidence hygiene — redact/re-shoot next run |
 | 2 | Payer unlocked-candidate screen renders a **raw full phone** (dummy `+91 98765 43210`) | Design deviation from ADR-0010 in-app relay — fix in payer-app before real data |
 | 3 | "Secure checkout · Razorpay · UPI / card" copy while payments are mock (ADR-0013/0016) | Copy overstates — align before alpha payers see it |
-| 4 | Credits toast/balance/ledger mock bug (199→2199 vs "+1,000") | Payer-app mock-layer bug (adjacent to the PR #189 fetchCredits 0-mask fast-follow) |
+| 4 | Credits toast/balance/ledger mock bug (199→2199 vs "+1,000") | Payer-app mock-layer bug (adjacent to the PR #189 fetchCredits 0-mask fast-follow — the 0-mask itself was FIXED 2026-07-15 on `fix/td62-consent-routing-and-payer-fastfollows`: CreditsCubit now keeps last-known balance + error flag, never emits a fabricated 0) |
 | 5 | Worker "ProFile" title casing; raw `cnc_operator` slug in Applied Jobs; seeded feed ignores distance filter | Polish (worker-app) |
 
 **Verdict:** B1 evidence remains **PARTIAL — NO-GO unchanged.** The screenshot

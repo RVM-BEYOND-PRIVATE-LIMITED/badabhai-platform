@@ -13,7 +13,6 @@ Classification: **P0** blocks alpha/runtime proof · **P1** blocks an important 
 | Admin PII-reveal (3b) — process cadence not yet operational (R24/OQ-7) — D4 DECIDED | Security/Process | **P2** | Treating reveal as production-ready | 78% | 90% | Prakash | No — establish weekly review cadence |
 | E2E local: 14 fails (stale local scoop DB — missing ADR-0026 tables; `db:migrate` blocked by 42P07) | Technical | **P2** | Local e2e proof | n/a | — | Divyanshu | No (drop/recreate local DB; local-only) |
 | Resume PDF render — D5 DECIDED: `RESUME_RENDER_ENABLED=true` + WeasyPrint on staging | Product/Infra | **P1** | Alpha B1 PDF download (B1 now requires PDF per D5) | 75% | 90% | Prakash (infra) | No — decided 2026-06-29 |
-| `kPersistentAuth` ON (flipped PR #201) but TD62 consent-routing gap is HIGH — never-onboarded worker routes to chat shell not `/consent` | Security/Mobile | **P1** | Consent routing fix before GA | n/a | — | Rishi + Divyanshu | No — add `consent_accepted` signal to `GET /workers/me` + gate router.dart |
 | Worker-app tabs mock (profile-tab/notifications/settings) | Frontend | **P2** | Worker app polish | 25–45% | 75% | Rishi | No |
 | Account-edit FE wiring missing (`PATCH /payer/me` live; FE seam not wired) | Frontend | **P2** | Payer profile edit | 55% | 75% | Divyanshu | No |
 | `format:check` — files unformatted | Quality | **P3** | none (not a CI gate) | n/a | — | any dev | No (`pnpm format`) |
@@ -31,13 +30,14 @@ Classification: **P0** blocks alpha/runtime proof · **P1** blocks an important 
 | AI-service retry storm (transport failures + city canonicalization) | **2026-07-08** | #187 (ADR-0028; ruff✅ pytest✅ security PASS) |
 | **FE wiring batch (FE-1..FE-7)** — all mock shims replaced with live API calls | **2026-07-10** | #194 (`feat(payer-web): final mock→live seams + missing-caller pages, no mock fallback left`) |
 | Sign-up / login bug (`payer_type NOT NULL` drift) | **2026-06-30** | `ca83b51` (migration 0032 + root-env loader) |
+| **TD62 `kPersistentAuth` consent-routing gap (P1 HIGH)** — never-onboarded worker routed to shell, not `/consent` | **2026-07-15** | `fix/td62-consent-routing-and-payer-fastfollows` (additive `consent_accepted` on `/auth/otp/verify` + `/auth/pin/verify`; tri-state client parse; router consent gate; ConsentCubit release) |
 
 ## Blockers by category
 
 **Technical:** e2e 14 local fails (stale local scoop DB — drop/recreate to fix; local-only). Build green: lint ✅ / typecheck ✅ / test ✅ / build ✅ on `origin/main` `548acd4` (verify count on local pull).
 **Product:** PDF render required for alpha (D5 — install WeasyPrint on staging + `RESUME_RENDER_ENABLED=true`); worker-app mock tabs (polish, Phase-2).
 **Backend/API:** Ops `/unlocks*` LC-1 residual (InternalServiceGuard retire blocked on ADMIN-4..8). Payer-facing routes ARE PayerAuthGuard-protected — not a payer blocker. Everything else merged.
-**Frontend:** FE wiring batch (FE-1..FE-7) CLOSED by PR #194. Worker-app mock tabs (polish, Phase-2). TD62 kPersistentAuth consent-routing fix open (HIGH).
+**Frontend:** FE wiring batch (FE-1..FE-7) CLOSED by PR #194. Worker-app mock tabs (polish, Phase-2). TD62 kPersistentAuth consent-routing fix RESOLVED 2026-07-15 (`fix/td62-consent-routing-and-payer-fastfollows`).
 **Legal:** DPDP production consent copy + erasure (LEGAL_GATE); real-money payments; admin PII-reveal process cadence.
 **Infra:** **staging not deployed (P0 CRITICAL — PAST deadline 2026-07-04)**; security-scan advisory; no DR plan; no cost doc.
 **Env/secrets:** staging GitHub Environment + secrets not created; see [ENV_AND_SECRETS_TRACKER.md](ENV_AND_SECRETS_TRACKER.md).

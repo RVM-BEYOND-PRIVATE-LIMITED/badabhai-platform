@@ -53,12 +53,19 @@ class OtpVerifyResult extends Equatable {
     required this.isNewUser,
     required this.pinSet,
     required this.tokens,
+    this.consentAccepted,
   });
 
   final String workerId;
   final bool isNewUser;
   final bool pinSet;
   final AuthTokens tokens;
+
+  /// TD62 — does this worker hold an ACTIVE DPDP consent (`consent_accepted` on
+  /// LoginResponse)? TRI-STATE by design: `null` when the field is ABSENT (an
+  /// older server) — NEVER defaulted to true/false, so an old API can't brick
+  /// routing. Only a definitive `false` forces the consent gate.
+  final bool? consentAccepted;
 
   factory OtpVerifyResult.fromJson(Map<String, dynamic> json) =>
       OtpVerifyResult(
@@ -69,10 +76,34 @@ class OtpVerifyResult extends Equatable {
         // `pin_set` (LoginResponse) — does this worker already have a PIN.
         pinSet: json['pin_set'] as bool? ?? false,
         tokens: AuthTokens.fromJson(json),
+        // TD62: absent (old server) → null; present → the definitive boolean.
+        consentAccepted: json['consent_accepted'] as bool?,
       );
 
   @override
-  List<Object?> get props => <Object?>[workerId, isNewUser, pinSet, tokens];
+  List<Object?> get props =>
+      <Object?>[workerId, isNewUser, pinSet, tokens, consentAccepted];
+}
+
+/// Result of POST /auth/pin/verify — the minted token pair plus the TD62
+/// consent signal (`consent_accepted` on PinVerifyResponse, same tri-state
+/// semantics as [OtpVerifyResult.consentAccepted]).
+class PinVerifyResult extends Equatable {
+  const PinVerifyResult({required this.tokens, this.consentAccepted});
+
+  final AuthTokens tokens;
+
+  /// `null` when the server didn't send the field (older API) — pass-through.
+  final bool? consentAccepted;
+
+  factory PinVerifyResult.fromJson(Map<String, dynamic> json) =>
+      PinVerifyResult(
+        tokens: AuthTokens.fromJson(json),
+        consentAccepted: json['consent_accepted'] as bool?,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[tokens, consentAccepted];
 }
 
 /// Result of POST /auth/otp/request.
@@ -255,12 +286,14 @@ class AuthApi {
     _check(res, _AuthEndpoint.pinSet);
   }
 
-  /// POST /auth/pin/verify {pin} (+ persisted refresh token) → tokens.
+  /// POST /auth/pin/verify {pin} (+ persisted refresh token) → tokens (+ the
+  /// TD62 `consent_accepted` signal).
   ///
   /// ASSUMED: the server reads the refresh token from secure storage via the
   /// body field `refresh_token`; if the backend instead reads it from a cookie /
   /// header, change it here. The verified PIN mints a fresh token pair.
-  Future<AuthTokens> pinVerify(String pin, {required String refreshToken}) async {
+  Future<PinVerifyResult> pinVerify(String pin,
+      {required String refreshToken}) async {
     final AuthResponse res = await _client.send(
       HttpMethod.post,
       '/auth/pin/verify',
@@ -271,7 +304,7 @@ class AuthApi {
       idempotent: true,
     );
     _check(res, _AuthEndpoint.pinVerify);
-    return AuthTokens.fromJson(res.body);
+    return PinVerifyResult.fromJson(res.body);
   }
 
   /// POST /auth/token/refresh {refresh_token} → tokens.

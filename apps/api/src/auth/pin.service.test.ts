@@ -386,6 +386,14 @@ describe("PinService.verifyPin — happy path (trusted device)", () => {
     const res = await svc.verifyPin(verifyInput(), ctx);
     expect(res.worker_id).toBe(WORKER);
     expect(sessions.create).toHaveBeenCalledWith(WORKER, DEVICE);
+    // TD62: never-consented → a definitive false so the app routes to /consent.
+    expect(res.consent_accepted).toBe(false);
+  });
+
+  it("TD62: a correct PIN with an ACTIVE consent (revokedAt null) → consent_accepted true", async () => {
+    const { svc } = build({ consent: { revokedAt: null } });
+    const res = await svc.verifyPin(verifyInput(), ctx);
+    expect(res.consent_accepted).toBe(true);
   });
 });
 

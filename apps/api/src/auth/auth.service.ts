@@ -123,12 +123,15 @@ export class AuthService {
     }
   }
 
+  // TD62: the service returns the login payload MINUS `consent_accepted` — the
+  // controller composes that additive field from ConsentRepository (the same
+  // pattern as the A5 consent-on-resume check), keeping this method single-purpose.
   async verifyOtp(
     phone: string,
     otp: string,
     ctx: RequestContext,
     deviceInfo?: DeviceInfoDto,
-  ): Promise<LoginResponse> {
+  ): Promise<Omit<LoginResponse, "consent_accepted">> {
     // Verify the code FIRST — throws 401/429 on a bad/expired code or 503 if Redis
     // is down (fail closed). No worker is created on a failed verify.
     await this.otp.verify(phone, otp);

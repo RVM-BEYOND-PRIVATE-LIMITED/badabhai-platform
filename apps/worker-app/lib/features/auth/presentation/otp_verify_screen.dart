@@ -10,6 +10,7 @@ import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_scaffold.dart';
 import '../../../router.dart';
+import '../domain/auth_session_manager.dart';
 import 'cubit/otp_verify_cubit.dart';
 
 class OtpVerifyScreen extends StatelessWidget {
@@ -65,8 +66,12 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
               context.go(Routes.setPin);
             case OtpNext.authenticated:
               // Returning worker with a PIN (gate ON) → straight to the shell
-              // (no re-profiling). The redirect blocks onboarding routes anyway.
-              context.go(Routes.resume);
+              // (no re-profiling) — unless the server said this worker has NO
+              // active consent (TD62): then the consent gate comes first. Only
+              // a definitive false routes there (null = old server, pass).
+              final bool needsConsent =
+                  locator<AuthSessionManager>().consentAccepted == false;
+              context.go(needsConsent ? Routes.consent : Routes.resume);
           }
         } else if (state.status == OtpVerifyStatus.failure) {
           // Surface the verify failure instead of silently reverting the button.

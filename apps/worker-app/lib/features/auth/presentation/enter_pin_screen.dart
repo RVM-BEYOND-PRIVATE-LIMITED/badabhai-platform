@@ -8,6 +8,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_scaffold.dart';
 import '../../../router.dart';
+import '../domain/auth_session_manager.dart';
 import 'cubit/enter_pin_cubit.dart';
 import 'widgets/bb_pin_keypad.dart';
 import 'widgets/bb_pin_view.dart';
@@ -71,8 +72,12 @@ class _EnterPinViewState extends State<_EnterPinView> {
       listener: (BuildContext context, EnterPinState state) {
         if (state.status == EnterPinStatus.done) {
           // Authenticated — the router redirect lifts us into the shell. Nudge
-          // it toward the Resume tab (the worker's home after unlock).
-          context.go(Routes.resume);
+          // it toward the Resume tab (the worker's home after unlock) — unless
+          // the server said this worker has NO active consent (TD62): then the
+          // consent gate comes first. Only a definitive false routes there.
+          final bool needsConsent =
+              locator<AuthSessionManager>().consentAccepted == false;
+          context.go(needsConsent ? Routes.consent : Routes.resume);
         }
       },
       builder: (BuildContext context, EnterPinState state) {

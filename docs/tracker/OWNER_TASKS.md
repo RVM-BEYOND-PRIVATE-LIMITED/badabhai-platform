@@ -22,11 +22,9 @@ Do not overload: one primary task per developer per day.
 - See [staging-service-deploy-runbook.md](../ops/staging-service-deploy-runbook.md) (updated 2026-07-15 — Mode A is DEPRECATED).
 - Evidence: `docs/qa/evidence/staging/2026-07-15-health.txt`.
 
-### Divyanshu — P1: TD62 kPersistentAuth consent-routing fix
-- `kPersistentAuth` is ON (PR #201) but a never-onboarded worker routes to chat shell not `/consent`.
-- Expose `consent_accepted` (or `onboarding_complete`) in `GET /workers/me` response.
-- Rishi gates `router.dart`'s `authenticated` routing on it.
-- Precondition for GA (§6 holds server-side; this is a UX fix).
+### Divyanshu — ~~P1: TD62 kPersistentAuth consent-routing fix~~ DONE 2026-07-15
+- **RESOLVED** on `fix/td62-consent-routing-and-payer-fastfollows` (production-residuals PR C).
+- Seam shipped: additive `consent_accepted` on `/auth/otp/verify` + `/auth/pin/verify` (not `GET /workers/me` — the verify responses are where the client routes from); tri-state client parse (null = old server, pass-through); `router.dart` authenticated arm gates on a definitive `false`; ConsentCubit releases the gate on accept-success.
 
 ### Rishi — Prep B1 real-handset run (gated on Prakash's staging)
 - `flutter analyze && flutter test` locally.

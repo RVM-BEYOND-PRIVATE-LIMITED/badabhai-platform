@@ -1,7 +1,9 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/di/locator.dart';
 import '../../../../core/error/failure.dart';
+import '../../../auth/domain/auth_session_manager.dart';
 import '../../domain/consent_repository.dart';
 
 enum ConsentStatus { idle, submitting, success, failure }
@@ -50,6 +52,12 @@ class ConsentCubit extends Cubit<ConsentState> {
     try {
       await _repo.acceptConsent(purposes: _purposes);
       if (isClosed) return;
+      // TD62: release the router's consent gate immediately after a successful
+      // consent.accepted — guarded lookup so plain cubit tests (no auth graph
+      // in the locator) keep constructing ConsentCubit directly.
+      if (locator.isRegistered<AuthSessionManager>()) {
+        locator<AuthSessionManager>().markConsentAccepted();
+      }
       emit(state.copyWith(status: ConsentStatus.success));
     } on Failure catch (failure) {
       if (isClosed) return;

@@ -325,6 +325,10 @@ class HttpPayerApiClient implements PayerApiClient {
         if (jobPostingId != null) 'job_posting_id': jobPostingId,
       },
     );
+    // The backend's NEUTRAL deny is HTTP 200 {status:'unavailable'} — so any
+    // non-2xx here is genuinely transport/server failure and must NOT decode to
+    // the neutral-deny copy (mirrors the listDisclosures guard below).
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
     // Disclosed only when a signed resume_url is present; else neutral deny.
     final String? url = res.body['resume_url'] as String?;
     if (url == null || url.isEmpty) {

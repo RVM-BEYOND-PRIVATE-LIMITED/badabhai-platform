@@ -278,6 +278,84 @@ void main() {
       expect(result.disclosed, isFalse);
       expect(result.resumeUrl, isNull);
     });
+
+    test('a non-2xx (outage) THROWS — never decoded as the neutral deny',
+        () async {
+      // The backend's neutral deny is HTTP 200 {status:'unavailable'}; a 500 is
+      // genuinely transport/server failure and must surface as a typed error
+      // (mirrors the listDisclosures guard).
+      final h = _harness(<String, http.Response>{
+        'POST /payer/resume-disclosures': _json(<String, dynamic>{}, 500),
+      });
+
+      await expectLater(
+        () => h.api.disclose(workerId: _workerId),
+        throwsA(isA<PayerApiException>()),
+      );
+    });
+  });
+
+  group('RevealCubit.discloseResume — outage vs neutral deny', () {
+    test('a 500 outage → DisclosureStatus.error (retryable), NOT unavailable',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/resume-disclosures': _json(<String, dynamic>{}, 500),
+      });
+      final RevealCubit cubit = RevealCubit(h.api);
+
+      final DisclosureResult result =
+          await cubit.discloseResume(workerId: _workerId);
+
+      expect(cubit.state.disclosure, DisclosureStatus.error);
+      expect(result.disclosed, isFalse);
+    });
+
+    test(
+        'a 429 (XB-G per-payer cap) → DisclosureStatus.limited — NON-retry '
+        'copy, never the retryable error state (F3)', () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/resume-disclosures': _json(<String, dynamic>{}, 429),
+      });
+      final RevealCubit cubit = RevealCubit(h.api);
+
+      final DisclosureResult result =
+          await cubit.discloseResume(workerId: _workerId);
+
+      expect(cubit.state.disclosure, DisclosureStatus.limited);
+      expect(cubit.state.disclosure, isNot(DisclosureStatus.error));
+      expect(result.disclosed, isFalse);
+    });
+
+    test('the genuine 200 deny → DisclosureStatus.unavailable (neutral copy)',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/resume-disclosures':
+            _json(<String, dynamic>{'status': 'unavailable'}, 200),
+      });
+      final RevealCubit cubit = RevealCubit(h.api);
+
+      await cubit.discloseResume(workerId: _workerId);
+
+      expect(cubit.state.disclosure, DisclosureStatus.unavailable);
+    });
+
+    test('a granted disclosure → DisclosureStatus.ready with the signed URL',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/resume-disclosures': _json(<String, dynamic>{
+          'ok': true,
+          'disclosure_id': 'disc-2',
+          'status': 'disclosed',
+          'resume_url': 'https://signed.example/resume2.pdf',
+        }),
+      });
+      final RevealCubit cubit = RevealCubit(h.api);
+
+      await cubit.discloseResume(workerId: _workerId);
+
+      expect(cubit.state.disclosure, DisclosureStatus.ready);
+      expect(cubit.state.resumeUrl, 'https://signed.example/resume2.pdf');
+    });
   });
 
   group('P5 — disclosure history (RevealCubit host)', () {

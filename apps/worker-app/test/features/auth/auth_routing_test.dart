@@ -19,17 +19,31 @@ import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_ke
 
 import '../../core/auth/fakes.dart';
 
-/// A MockAuthApi whose pinVerify can be scripted to fail (lockout / invalid).
+/// A MockAuthApi whose pinVerify can be scripted to fail (lockout / invalid)
+/// or to return a scripted TD62 `consent_accepted` signal.
 class ScriptablePinApi extends MockAuthApi {
   ScriptablePinApi(super.tokenStore);
 
   AuthFailure? pinVerifyFailure;
 
+  /// When [scriptConsent] is true, [consentAccepted] overrides the mock's
+  /// default `consentAccepted: true` on pinVerify (TD62). `false` simulates a
+  /// never-onboarded worker; `null` simulates an OLD server (field absent).
+  bool scriptConsent = false;
+  bool? consentAccepted;
+
   @override
-  Future<AuthTokens> pinVerify(String pin, {required String refreshToken}) {
+  Future<PinVerifyResult> pinVerify(String pin,
+      {required String refreshToken}) async {
     final AuthFailure? f = pinVerifyFailure;
     if (f != null) throw f;
-    return super.pinVerify(pin, refreshToken: refreshToken);
+    final PinVerifyResult result =
+        await super.pinVerify(pin, refreshToken: refreshToken);
+    if (!scriptConsent) return result;
+    return PinVerifyResult(
+      tokens: result.tokens,
+      consentAccepted: consentAccepted,
+    );
   }
 }
 
@@ -171,6 +185,49 @@ void main() {
     // Straight into the shell (Resume tab). The onboarding never re-ran.
     expect(find.text('Your resume'), findsOneWidget);
     expect(find.text('Your privacy'), findsNothing); // consent never shown
+  });
+
+  testWidgets(
+      'TD62: unlock with consent_accepted=false -> the CONSENT gate, not the '
+      'shell', (WidgetTester tester) async {
+    bigCanvas(tester);
+    final _Wired w = await _wire(seedRefresh: true, scriptPin: true);
+    // A never-onboarded worker: the server says there is NO active consent.
+    w.pinApi!
+      ..scriptConsent = true
+      ..consentAccepted = false;
+
+    await tester.pumpWidget(const BadaBhaiApp());
+    await _pumpUntil(tester, find.text('PIN daalein'));
+
+    await _enterPin(tester, '7416');
+    await _pumpUntil(tester, find.text('Your privacy'));
+
+    // Forced to /consent (DPDP gate) — the shell is NOT reachable yet.
+    expect(find.text('Your privacy'), findsOneWidget);
+    expect(find.text('Your resume'), findsNothing);
+  });
+
+  testWidgets(
+      'TD62: unlock against an OLD server (consent_accepted ABSENT -> null) '
+      'passes through to the shell (never bricks routing)',
+      (WidgetTester tester) async {
+    bigCanvas(tester);
+    final _Wired w = await _wire(seedRefresh: true, scriptPin: true);
+    // Old-server shape: the field is absent — the tri-state stays null.
+    w.pinApi!
+      ..scriptConsent = true
+      ..consentAccepted = null;
+
+    await tester.pumpWidget(const BadaBhaiApp());
+    await _pumpUntil(tester, find.text('PIN daalein'));
+
+    await _enterPin(tester, '7416');
+    await _pumpUntil(tester, find.text('Your resume'));
+
+    // Null = unknown → no consent bounce; the proven unlock→shell flow holds.
+    expect(find.text('Your resume'), findsOneWidget);
+    expect(find.text('Your privacy'), findsNothing);
   });
 
   testWidgets(
