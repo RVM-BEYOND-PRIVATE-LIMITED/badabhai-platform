@@ -5,13 +5,27 @@ import { EventsService, type EmitParams } from "../events/events.service";
 import { ApplicationsRepository, type FeedJob } from "./applications.repository";
 import type { ApplyJobDto, SkipJobDto } from "./applications.dto";
 
-/** A feed item the worker sees — PII-free (no pay, no employer). */
+/**
+ * A feed item the worker sees — PII-free (no pay, no employer). The experience
+ * window is year counts only, which the schema classes PII-FREE alongside pay
+ * bands (never an employer, never a worker identity).
+ *
+ * `min_experience_years`/`max_experience_years` are passed through HONESTLY,
+ * nulls included: null min = "no floor", null max = "open-ended". A client
+ * filtering on experience reads the window as [min ?? 0, max ?? infinity], so a
+ * job with NO experience data spans [0, infinity] and matches EVERY band — it is
+ * never silently dropped. That is deliberate, and consistent with this alpha
+ * feed's liberal philosophy (cf. the LOCATION SEAM in the repository): a blank
+ * field must never cost a job its impressions. Do NOT coerce these nulls to 0.
+ */
 export interface FeedItem {
   job_id: string;
   trade_key: string;
   title: string;
   city: string;
   area: string | null;
+  min_experience_years: number | null;
+  max_experience_years: number | null;
   rank: number;
 }
 
@@ -45,6 +59,10 @@ export class ApplicationsService {
       title: job.title,
       city: job.city,
       area: job.area,
+      // Straight pass-through, nulls preserved (see FeedItem) — the window is the
+      // job's own data, not a ranking signal; nothing here scores or drops a job.
+      min_experience_years: job.minExperienceYears,
+      max_experience_years: job.maxExperienceYears,
       rank: index + 1, // 1-based seed display position
     }));
 

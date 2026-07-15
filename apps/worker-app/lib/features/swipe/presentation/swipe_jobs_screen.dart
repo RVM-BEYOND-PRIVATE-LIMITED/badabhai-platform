@@ -13,6 +13,7 @@ import '../../../core/widgets/bb_job_card.dart';
 import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../router.dart';
+import '../domain/job_filter.dart';
 import 'bloc/swipe_bloc.dart';
 import 'bloc/swipe_state.dart';
 import 'widgets/filters_sheet.dart';
@@ -54,10 +55,6 @@ class _FeedView extends StatefulWidget {
 }
 
 class _FeedViewState extends State<_FeedView> {
-  // Filter chips are visual-only on the Feed (real filtering lives in the
-  // Filters sheet, stage 4). CNC is pre-selected to match the spec.
-  final Set<String> _chips = <String>{'CNC'};
-
   int _shownAppliedNonce = 0;
   int _shownPrioritizedNonce = 0;
   int _shownDecisionError = 0;
@@ -67,8 +64,11 @@ class _FeedViewState extends State<_FeedView> {
   /// longer the head and no new decision error landed, we toast "Skipped".
   String? _pendingSkipId;
 
-  /// The active filter selection. Drives the visible deck via
-  /// [SwipeFiltersChanged] and seeds the sheet when it is reopened.
+  /// The ONE source of truth for filter state on this screen. BOTH the top chip
+  /// row and the Filters sheet read and write it, and every write dispatches
+  /// [SwipeFiltersChanged] — so a chip tap narrows the deck exactly like the
+  /// sheet does. (The chips were previously visual-only, tracked in a separate
+  /// set that nothing filtered on; that divergence was the bug.)
   FilterSelection _filters = FilterSelection.initial;
 
   @override
@@ -77,21 +77,34 @@ class _FeedViewState extends State<_FeedView> {
     context.read<SwipeBloc>().add(const SwipeFeedRequested());
   }
 
-  void _toggleChip(String key) {
-    setState(() => _chips.contains(key) ? _chips.remove(key) : _chips.add(key));
+  /// The single write path for filter state: hold it locally (to seed the sheet
+  /// and paint the chips) AND push it to the bloc (to narrow the deck). Takes the
+  /// bloc rather than a [BuildContext] so callers can resolve it BEFORE an async
+  /// gap (see [_openFilters]).
+  void _setFilters(SwipeBloc bloc, FilterSelection next) {
+    setState(() => _filters = next);
+    bloc.add(SwipeFiltersChanged(next));
+  }
+
+  /// Toggle one trade from the top chip row — the same path the sheet takes.
+  void _toggleTradeChip(BuildContext context, String trade) {
+    final Set<String> trades = <String>{..._filters.trades};
+    trades.contains(trade) ? trades.remove(trade) : trades.add(trade);
+    _setFilters(context.read<SwipeBloc>(), _filters.copyWith(trades: trades));
   }
 
   Future<void> _openFilters(BuildContext context) async {
     final SwipeBloc bloc = context.read<SwipeBloc>();
     final FilterSelection? result = await showBbBottomSheet<FilterSelection>(
       context: context,
-      // Pass the loaded queue so "Show N jobs" is the real filtered count.
+      // Pass the loaded queue so "Show N jobs" is the real filtered count AND
+      // the City options are derived from jobs that actually exist.
       builder: (_) => FiltersSheet(initial: _filters, jobs: bloc.state.queue),
     );
     if (result != null && mounted) {
-      setState(() => _filters = result);
-      // Apply the selection to the visible deck (trade filter; client-side).
-      bloc.add(SwipeFiltersChanged(result.trades));
+      // Apply the whole selection (trade/city/experience) client-side. `bloc` was
+      // resolved before the await, so nothing crosses the async gap.
+      _setFilters(bloc, result);
     }
   }
 
@@ -157,7 +170,7 @@ class _FeedViewState extends State<_FeedView> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         _header(context),
-        _chipRow(),
+        _chipRow(context),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(
@@ -209,14 +222,17 @@ class _FeedViewState extends State<_FeedView> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text('JOBS NEAR YOU', style: AppTypography.eyebrow()),
+                // "JOBS FOR YOU", not "NEAR YOU": the feed applies NO location
+                // filter (it is deliberately liberal), so "near" would be a
+                // claim the backend does not make.
+                Text('JOBS FOR YOU', style: AppTypography.eyebrow()),
                 const SizedBox(height: 2),
                 Row(
                   children: <Widget>[
                     const Icon(Icons.place_outlined,
                         size: 20, color: AppColors.brand),
                     const SizedBox(width: AppSpacing.s1),
-                    Text('Pune · 15 km',
+                    Text(_cityLabel(),
                         style: AppTypography.display(
                             size: AppTypography.sizeMd,
                             weight: FontWeight.w800)),
@@ -235,12 +251,31 @@ class _FeedViewState extends State<_FeedView> {
     );
   }
 
-  Widget _chipRow() {
+  /// The header's location line, driven by the REAL city filter state — never a
+  /// hardcoded place or distance. There is no distance/radius data anywhere in
+  /// the stack, so a "· 15 km" claim would be a lie; the honest statement is
+  /// simply which cities the deck is narrowed to.
+  String _cityLabel() {
+    final List<String> cities = _filters.cities.toList()..sort();
+    return switch (cities.length) {
+      0 => 'All cities',
+      1 => cities.first,
+      _ => '${cities.first} +${cities.length - 1}',
+    };
+  }
+
+  /// The Feed's quick-filter row: REAL trade chips only. Each reads its selected
+  /// state from [_filters] and writes through the same path as the sheet, so the
+  /// two can never disagree.
+  ///
+  /// ("Verified" and "Day shift" chips used to sit here. Both are deleted: no
+  /// backing field exists for either — verification is not on the `/feed` wire
+  /// and shift is frozen mock-only display data per ADR-0024 — so they could
+  /// only ever have been decorative.)
+  Widget _chipRow(BuildContext context) {
     const List<(String, IconData)> chips = <(String, IconData)>[
       ('CNC', Icons.build_outlined),
       ('VMC', Icons.build_outlined),
-      ('Verified', Icons.verified_user_outlined),
-      ('Day shift', Icons.schedule),
     ];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -252,8 +287,8 @@ class _FeedViewState extends State<_FeedView> {
             BbChip(
               label: label,
               icon: icon,
-              selected: _chips.contains(label),
-              onTap: () => _toggleChip(label),
+              selected: _filters.trades.contains(label),
+              onTap: () => _toggleTradeChip(context, label),
             ),
             const SizedBox(width: AppSpacing.s2),
           ],
@@ -293,7 +328,10 @@ class _FeedViewState extends State<_FeedView> {
   }
 
   /// Jobs exist but none match the active filter — distinct from the drained
-  /// "No more jobs" state. Clearing the trade filter restores the full deck.
+  /// "No more jobs" state. Clearing resets EVERY dimension (trade, city and
+  /// experience) back to [FilterSelection.initial], so the full deck really does
+  /// come back and the chips stop reading as selected. (It previously cleared
+  /// only trades, leaving city/experience live and the chips visually stuck.)
   Widget _noMatch(BuildContext context) {
     return BbStatusView(
       icon: Icons.filter_alt_off_outlined,
@@ -301,10 +339,8 @@ class _FeedViewState extends State<_FeedView> {
       title: 'No jobs match your filters.',
       subtitle: 'Try removing a filter to see more jobs.',
       action: FilledButton(
-        onPressed: () {
-          setState(() => _filters = _filters.copyWith(trades: <String>{}));
-          context.read<SwipeBloc>().add(SwipeFiltersChanged(const <String>{}));
-        },
+        onPressed: () =>
+            _setFilters(context.read<SwipeBloc>(), FilterSelection.initial),
         child: const Text('Clear filters'),
       ),
     );

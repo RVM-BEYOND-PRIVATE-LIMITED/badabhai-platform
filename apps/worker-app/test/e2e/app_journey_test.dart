@@ -195,8 +195,9 @@ void main() {
     //     IndexedStack offstages inactive branches, so default finders only see
     //     the active tab. ──
     await tester.tap(find.text('Jobs'));
-    await _pumpUntil(tester, find.text('JOBS NEAR YOU'));
-    expect(find.text('JOBS NEAR YOU'), findsOneWidget);
+    // "FOR YOU", not "NEAR YOU": the feed applies no location filter.
+    await _pumpUntil(tester, find.text('JOBS FOR YOU'));
+    expect(find.text('JOBS FOR YOU'), findsOneWidget);
 
     await tester.tap(find.text('Profile'));
     await _pumpUntil(tester, find.text('Profile strength'));

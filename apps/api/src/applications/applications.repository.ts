@@ -20,6 +20,11 @@ export interface FeedJob {
   title: string;
   city: string;
   area: string | null;
+  // The experience window the job targets (years). NULLABLE both ends — a blank is
+  // "unbounded on that side", never a zero. PII-FREE: year counts (schema.ts §
+  // demand-side ranking signals), never an employer or a worker identity.
+  minExperienceYears: number | null;
+  maxExperienceYears: number | null;
 }
 
 /** An application row joined with its (coarse, PII-free) job fields. */
@@ -67,6 +72,8 @@ export class ApplicationsRepository {
         title: jobs.title,
         city: jobs.city,
         area: jobs.area,
+        minExperienceYears: jobs.minExperienceYears,
+        maxExperienceYears: jobs.maxExperienceYears,
       })
       .from(jobs)
       // LOCATION SEAM: when the location feature lands, an OPTIONAL city/coords

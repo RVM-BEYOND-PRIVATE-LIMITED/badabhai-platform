@@ -108,10 +108,23 @@ describe.skip("Alpha swipe-to-apply (e2e, ADR-0009)", () => {
     expect(items.length).toBeGreaterThan(0);
     expect(items.length).toBeLessThanOrEqual(5);
 
-    // Coarse shape only: job_id/trade_key/title/city/area/rank — and rank is 1-based.
+    // Coarse shape only: job_id/trade_key/title/city/area/rank + the job's
+    // experience window — and rank is 1-based. The window is year counts, which
+    // the schema classes PII-FREE alongside pay bands (never an employer, never
+    // a worker identity); it backs the Jobs-tab Experience filter (ADR-0024
+    // addendum 2026-07-15). Still NO employer and NO pay on this path.
     items.forEach((item, i) => {
       expect(Object.keys(item).sort()).toEqual(
-        ["area", "city", "job_id", "rank", "title", "trade_key"].sort(),
+        [
+          "area",
+          "city",
+          "job_id",
+          "max_experience_years",
+          "min_experience_years",
+          "rank",
+          "title",
+          "trade_key",
+        ].sort(),
       );
       expect(item.rank).toBe(i + 1);
       for (const k of PII_KEYS) expect(item).not.toHaveProperty(k);
