@@ -6,9 +6,10 @@ sync. PRIVACY: these never carry raw identity (no phone, name, address, employer
 
 from __future__ import annotations
 
+import math
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # --- Conversation ----------------------------------------------------------
@@ -250,6 +251,92 @@ class SkillAliasEmbedOutput(BaseModel):
     errors: int = 0
     # Accumulated estimate for THIS request's real embeds (0.0 on the mock path).
     estimated_cost_inr: float = 0.0
+
+
+# --- Growth-loop clustering (ADR-0030 / TAX-7 — pure compute, human-gated) --
+_GROWTH_VECTOR_DIM = 768  # the house embedding dimension (mirrors skill_alias/worker_profiles)
+
+
+def _validate_growth_vector(vec: list[float]) -> list[float]:
+    """Exactly the 768 house dim and finite — a foreign-dim or NaN/inf vector would
+    silently poison every cosine in the batch. On the MODEL (not just the batch input)
+    so a standalone GrowthPhrase/GrowthAnchor holds the same guarantee as the Zod mirror."""
+    if len(vec) != _GROWTH_VECTOR_DIM:
+        raise ValueError(f"vector must be {_GROWTH_VECTOR_DIM}-dim (got {len(vec)})")
+    if not all(math.isfinite(v) for v in vec):
+        raise ValueError("vector contains a non-finite value")
+    return vec
+
+
+class GrowthPhrase(BaseModel):
+    """One OPEN ``unresolved_phrase`` row. ``phrase`` is ALREADY pseudonymized at rest
+    (SG-1); the growth endpoint never logs it and never sends it to an LLM."""
+
+    id: str
+    phrase: str
+    count: int = Field(ge=1)
+    vector: list[float]
+
+    @field_validator("vector")
+    @classmethod
+    def _check_vector(cls, vec: list[float]) -> list[float]:
+        return _validate_growth_vector(vec)
+
+
+class GrowthAnchor(BaseModel):
+    """One embedded ``skill_alias`` row — the CLOSED id space cluster centroids are
+    compared against. An anchor ``skill_id`` is the ONLY id a proposal may carry (SG-3)."""
+
+    skill_id: str
+    vector: list[float]
+
+    @field_validator("vector")
+    @classmethod
+    def _check_vector(cls, vec: list[float]) -> list[float]:
+        return _validate_growth_vector(vec)
+
+
+class GrowthClusterInput(BaseModel):
+    """A per-domain batch from the db-side growth runner (fork-B pattern). Capped so one
+    request never smuggles an unbounded queue; ``None`` params fall back to Settings.
+    Vector hygiene (768-dim, finite) is enforced on GrowthPhrase/GrowthAnchor."""
+
+    domain_id: str
+    phrases: list[GrowthPhrase] = Field(max_length=500)
+    anchors: list[GrowthAnchor] = Field(max_length=5000)
+    min_cluster_size: int | None = Field(default=None, ge=1)
+    min_total_count: int | None = Field(default=None, ge=1)
+    cluster_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    band_low: float | None = Field(default=None, ge=0.0, le=1.0)
+    floor: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class GrowthProposal(BaseModel):
+    """One human-gated proposal. ``kind=alias`` → ``skill_id`` is set and is ALWAYS one of
+    the request's anchors (SG-3). ``kind=provisional_skill`` → ``skill_id`` is None: NO id
+    is minted here (SG-5) — creating one is a human taxonomy decision. ``nearest_*`` are
+    diagnostics for the reviewer on both kinds. Carries no PII (phrases are SG-1 text)."""
+
+    kind: Literal["alias", "provisional_skill"]
+    skill_id: str | None = None
+    leader_phrase: str
+    member_ids: list[str]
+    member_phrases: list[str]
+    total_count: int
+    nearest_skill_id: str | None = None
+    nearest_score: float | None = None
+    note: str | None = None
+
+
+class GrowthClusterOutput(BaseModel):
+    """Report-only output — the runner renders it into the proposals packet; the existing
+    ratification flow is the ONLY activation path."""
+
+    proposals: list[GrowthProposal]
+    phrases_in: int
+    clusters_total: int
+    clusters_eligible: int
+    skipped_below_guards: int
 
 
 # --- Profile extraction ----------------------------------------------------

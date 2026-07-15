@@ -269,6 +269,69 @@ export const SkillAliasEmbedOutputSchema = z.object({
 export type SkillAliasEmbedOutput = z.infer<typeof SkillAliasEmbedOutputSchema>;
 
 // ---------------------------------------------------------------------------
+// Growth-loop clustering (ADR-0030 / TAX-7 — pure compute, human-gated) — mirrors
+// contracts.py. The db-side runner (packages/db growth-cluster.ts) POSTs per-domain
+// batches of OPEN unresolved_phrase rows (SG-1 pseudonymized text + vectors) and the
+// embedded skill_alias anchors to /growth/cluster; the output is REPORT-ONLY — the
+// human ratification flow is the only activation path.
+// ---------------------------------------------------------------------------
+const GROWTH_VECTOR_DIM = 768; // the house embedding dimension
+
+// .finite(): z.number() alone accepts +/-Infinity — the Pydantic side 422s any
+// non-finite component (it would silently poison every cosine), so the mirror must too.
+const growthVector = z.array(z.number().finite()).length(GROWTH_VECTOR_DIM);
+
+export const GrowthPhraseSchema = z.object({
+  id: z.string(),
+  phrase: z.string(), // ALREADY pseudonymized at rest (SG-1)
+  count: z.number().int().min(1),
+  vector: growthVector,
+});
+export type GrowthPhrase = z.infer<typeof GrowthPhraseSchema>;
+
+export const GrowthAnchorSchema = z.object({
+  skill_id: z.string(), // the CLOSED id space — the only id a proposal may carry (SG-3)
+  vector: growthVector,
+});
+export type GrowthAnchor = z.infer<typeof GrowthAnchorSchema>;
+
+export const GrowthClusterInputSchema = z.object({
+  domain_id: z.string(),
+  phrases: z.array(GrowthPhraseSchema).max(500), // request caps == Pydantic max_length
+  anchors: z.array(GrowthAnchorSchema).max(5000),
+  min_cluster_size: z.number().int().min(1).nullable().default(null),
+  min_total_count: z.number().int().min(1).nullable().default(null),
+  cluster_threshold: z.number().min(0).max(1).nullable().default(null),
+  band_low: z.number().min(0).max(1).nullable().default(null),
+  floor: z.number().min(0).max(1).nullable().default(null),
+});
+export type GrowthClusterInput = z.infer<typeof GrowthClusterInputSchema>;
+
+// kind=alias → skill_id set (ALWAYS one of the request's anchors — SG-3);
+// kind=provisional_skill → skill_id null (NO id is minted here — SG-5).
+export const GrowthProposalSchema = z.object({
+  kind: z.enum(["alias", "provisional_skill"]),
+  skill_id: z.string().nullable().default(null),
+  leader_phrase: z.string(),
+  member_ids: z.array(z.string()),
+  member_phrases: z.array(z.string()),
+  total_count: z.number().int(),
+  nearest_skill_id: z.string().nullable().default(null),
+  nearest_score: z.number().nullable().default(null),
+  note: z.string().nullable().default(null),
+});
+export type GrowthProposal = z.infer<typeof GrowthProposalSchema>;
+
+export const GrowthClusterOutputSchema = z.object({
+  proposals: z.array(GrowthProposalSchema),
+  phrases_in: z.number().int().nonnegative(),
+  clusters_total: z.number().int().nonnegative(),
+  clusters_eligible: z.number().int().nonnegative(),
+  skipped_below_guards: z.number().int().nonnegative(),
+});
+export type GrowthClusterOutput = z.infer<typeof GrowthClusterOutputSchema>;
+
+// ---------------------------------------------------------------------------
 // Profile extraction
 // ---------------------------------------------------------------------------
 export const ProfileExtractionInputSchema = z
