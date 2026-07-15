@@ -1,0 +1,3 @@
+ALTER TABLE "skill" ADD COLUMN "replaced_by" text;--> statement-breakpoint
+ALTER TABLE "skill" ADD CONSTRAINT "skill_replaced_by_skill_skill_id_fk" FOREIGN KEY ("replaced_by") REFERENCES "public"."skill"("skill_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "skill" ADD CONSTRAINT "skill_replaced_by_chk" CHECK ("skill"."replaced_by" IS NULL OR "skill"."status" = 'deprecated');

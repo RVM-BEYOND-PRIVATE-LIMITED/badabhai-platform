@@ -332,6 +332,53 @@ export const GrowthClusterOutputSchema = z.object({
 export type GrowthClusterOutput = z.infer<typeof GrowthClusterOutputSchema>;
 
 // ---------------------------------------------------------------------------
+// Offline skill re-tag plan (ADR-0030 / TAX-9 — pure compute, dry-run first) —
+// mirrors contracts.py. The db-side runner (packages/db retag-skills.ts) supplies
+// the skill.replaced_by crosswalk + affected rows to /skills/retag-plan and applies
+// the returned changes only under --apply. row_ref is an opaque row uuid — no PII.
+// ---------------------------------------------------------------------------
+export const RetagCrosswalkEntrySchema = z.object({
+  deprecated_id: z.string(),
+  replaced_by: z.string(),
+});
+export type RetagCrosswalkEntry = z.infer<typeof RetagCrosswalkEntrySchema>;
+
+export const RetagRowSchema = z.object({
+  row_ref: z.string(),
+  skill_ids: z.array(z.string()).max(100), // caps == Pydantic max_length
+});
+export type RetagRow = z.infer<typeof RetagRowSchema>;
+
+export const RetagPlanInputSchema = z.object({
+  crosswalk: z.array(RetagCrosswalkEntrySchema).max(1000),
+  rows: z.array(RetagRowSchema).max(5000),
+});
+export type RetagPlanInput = z.infer<typeof RetagPlanInputSchema>;
+
+export const RetagResolvedEntrySchema = z.object({
+  deprecated_id: z.string(),
+  terminal_id: z.string(),
+  hops: z.number().int().min(1),
+});
+export type RetagResolvedEntry = z.infer<typeof RetagResolvedEntrySchema>;
+
+export const RetagChangeSchema = z.object({
+  row_ref: z.string(),
+  before: z.array(z.string()),
+  after: z.array(z.string()),
+});
+export type RetagChange = z.infer<typeof RetagChangeSchema>;
+
+export const RetagPlanOutputSchema = z.object({
+  resolved: z.array(RetagResolvedEntrySchema),
+  dropped: z.array(z.string()), // crosswalk ids on a CYCLE — fail-safe, not re-tagged
+  changes: z.array(RetagChangeSchema),
+  rows_in: z.number().int().nonnegative(),
+  rows_changed: z.number().int().nonnegative(),
+});
+export type RetagPlanOutput = z.infer<typeof RetagPlanOutputSchema>;
+
+// ---------------------------------------------------------------------------
 // Profile extraction
 // ---------------------------------------------------------------------------
 export const ProfileExtractionInputSchema = z

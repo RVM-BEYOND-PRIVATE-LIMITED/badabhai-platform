@@ -42,6 +42,11 @@ export interface SkillSeed {
   domainId: string;
   source: SkillSource;
   status: SkillStatus;
+  /** TAX-9 crosswalk: the immutable successor id — ONLY valid with status 'deprecated'
+   * (deprecated-without-successor = retired, nothing to re-tag to). Ids are never
+   * reused/renamed (SG-5); deprecation lives HERE (the reviewed source of truth), the
+   * seed upserts it, and `pnpm db:retag:skills` re-tags affected rows OFFLINE. */
+  replacedBy?: string;
   aliases: SkillAliasSeed[];
 }
 
@@ -421,6 +426,34 @@ export function validateSkillCorpus(corpus: readonly SkillSeed[] = SKILL_CORPUS)
     for (const a of s.aliases) {
       if (!a.text.trim()) problems.push(`${s.skillId}: empty alias text`);
       if (!SOURCES.has(a.source)) problems.push(`${s.skillId}: alias invalid source ${a.source}`);
+    }
+  }
+  // TAX-9 crosswalk discipline (mirrors the DB CHECK + FK): replacedBy only on a
+  // deprecated skill, must point at a DIFFERENT corpus skill, and must not be cyclic
+  // (chains A→B→C are legal; the retag runner resolves to the terminal id).
+  for (const s of corpus) {
+    if (s.replacedBy === undefined) continue;
+    if (s.status !== "deprecated") {
+      problems.push(`${s.skillId}: replacedBy set but status is ${s.status} (must be deprecated)`);
+    }
+    if (s.replacedBy === s.skillId) problems.push(`${s.skillId}: replacedBy points at itself`);
+    if (!seen.has(s.replacedBy)) {
+      problems.push(`${s.skillId}: replacedBy targets unknown skill_id ${s.replacedBy}`);
+    }
+  }
+  const successor = new Map(
+    corpus.filter((s) => s.replacedBy !== undefined).map((s) => [s.skillId, s.replacedBy as string]),
+  );
+  for (const start of successor.keys()) {
+    let cur: string | undefined = start;
+    const hops = new Set<string>();
+    while (cur !== undefined && successor.has(cur)) {
+      if (hops.has(cur)) {
+        problems.push(`replacedBy cycle involving ${start}`);
+        break;
+      }
+      hops.add(cur);
+      cur = successor.get(cur);
     }
   }
   return problems;

@@ -21,6 +21,7 @@ from .ai.canonicalize import canonicalize_labels, canonicalize_skill
 from .ai.embeddings import EMBEDDING_TASK_TYPE, MOCK_MODEL, embed_text
 from .ai.growth import growth_cluster
 from .ai.model_config import rate_inr_per_1k
+from .ai.retag import plan_retag
 from .ai.router import AIRouter
 from .ai.skill_store import get_skill_store
 from .config import get_settings
@@ -37,6 +38,8 @@ from .contracts import (
     PseudonymizationOutput,
     ResumeGenerationInput,
     ResumeGenerationOutput,
+    RetagPlanInput,
+    RetagPlanOutput,
     SkillAliasEmbedInput,
     SkillAliasEmbedOutput,
     SkillAliasEmbedResult,
@@ -263,6 +266,30 @@ def growth_cluster_endpoint(body: GrowthClusterInput) -> GrowthClusterOutput:
                 "clusters_total": out.clusters_total,
                 "clusters_eligible": out.clusters_eligible,
                 "proposals": len(out.proposals),
+            }
+        },
+    )
+    return out
+
+
+@app.post("/skills/retag-plan", response_model=RetagPlanOutput)
+def skills_retag_plan(body: RetagPlanInput) -> RetagPlanOutput:
+    """ADR-0030 / TAX-9: compute the OFFLINE re-tag plan for deprecated skill ids.
+    PURE COMPUTE — no LLM, no DB, no PII (row_refs are opaque uuids; ids are closed-set).
+    The db-side runner (packages/db/src/retag-skills.ts, owner connection) supplies the
+    ``skill.replaced_by`` crosswalk + the affected rows and APPLIES the plan only under
+    ``--apply`` after a human reads the dry-run report. Chains resolve to the terminal
+    id; cycles are dropped fail-safe (SG-5: ids immutable, plan never invents one).
+    Same internal-only exposure posture as every ai-service route (TD67)."""
+    out = plan_retag(body)
+    logger.info(
+        "skills retag plan",
+        extra={
+            "extra": {
+                "crosswalk": len(body.crosswalk),
+                "rows_in": out.rows_in,
+                "rows_changed": out.rows_changed,
+                "dropped_cyclic": len(out.dropped),
             }
         },
     )

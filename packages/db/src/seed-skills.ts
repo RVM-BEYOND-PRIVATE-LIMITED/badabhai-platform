@@ -24,6 +24,7 @@ import {
   type SkillSeed,
 } from "@badabhai/taxonomy";
 import { config } from "dotenv";
+import { and, eq, isNotNull, sql as dsql } from "drizzle-orm";
 
 import { createDbClient } from "./client";
 import { skillAliases, skills } from "./schema";
@@ -59,6 +60,8 @@ async function main(): Promise<void> {
 
     for (const s of SKILL_CORPUS as readonly SkillSeed[]) {
       // 1) The canonical skill — upsert on the immutable skill_id (id never changes).
+      //    replaced_by is deliberately NOT written here: the self-FK needs every
+      //    successor row to exist first, so the crosswalk is synced in PASS 2 below.
       await db
         .insert(skills)
         .values({
@@ -123,10 +126,30 @@ async function main(): Promise<void> {
       wedgeCount += 1;
     }
 
+    // 4) PASS 2 — TAX-9 crosswalk sync (after every skill row exists, so the self-FK
+    //    always resolves). Full sync: sets replaced_by where the corpus declares it and
+    //    CLEARS a stale pointer the corpus no longer carries. The DB CHECK enforces
+    //    pointer-only-on-deprecated; corpus validation catches it earlier with a name.
+    let crosswalkCount = 0;
+    for (const s of SKILL_CORPUS as readonly SkillSeed[]) {
+      const target = s.replacedBy ?? null;
+      const updated = await db
+        .update(skills)
+        .set({ replacedBy: target, updatedAt: now })
+        .where(
+          target === null
+            ? and(eq(skills.skillId, s.skillId), isNotNull(skills.replacedBy))
+            : and(eq(skills.skillId, s.skillId), dsql`${skills.replacedBy} IS DISTINCT FROM ${target}`),
+        )
+        .returning({ id: skills.skillId });
+      if (updated.length > 0 && target !== null) crosswalkCount += 1;
+    }
+
     console.log("[seed:skills] skill vocabulary seeded (embeddings NULL — TAX-3/4 populates):");
     console.log(`  skills  = ${skillCount}`);
     console.log(`  aliases = ${aliasCount} (deterministic ids; re-run is a no-op)`);
     console.log(`  wedge   = ${wedgeCount} ratified vernacular aliases (proposed ones stay out)`);
+    console.log(`  crosswalk = ${crosswalkCount} replaced_by pointer(s) synced (TAX-9)`);
   } finally {
     await sql.end({ timeout: 5 });
   }
