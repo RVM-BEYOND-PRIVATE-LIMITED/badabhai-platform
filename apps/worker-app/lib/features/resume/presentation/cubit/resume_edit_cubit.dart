@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/error/failure.dart';
+import '../../../../core/error/failure_mapper.dart';
 import '../../domain/resume_edit_repository.dart';
 import '../../domain/resume_safe_fields.dart';
 
@@ -118,14 +119,21 @@ class ResumeEditCubit extends Cubit<ResumeEditState> {
       await _repo.save(fields);
       if (isClosed) return;
       emit(state.copyWith(saving: false, savedNonce: state.savedNonce + 1));
-    } on Failure catch (f) {
+    } catch (error) {
       if (isClosed) return;
       // Surface the failure so the screen can show an honest error (and let the
       // worker retry) — a real PATCH can 400/401/drop; don't swallow it silently.
+      //
+      // A CATCH-ALL rather than `on Failure`: the screen fires save() from
+      // onPressed, which DISCARDS the returned Future, so anything the
+      // repository failed to map would reach the zone unhandled instead of
+      // reaching the worker. [mapError] is total and passes a [Failure] through
+      // unchanged, so this stays honest (a raw socket drop still reads as
+      // "server se connect nahi ho pa raha") and never forwards a server body.
       emit(state.copyWith(
         saving: false,
         saveErrorNonce: state.saveErrorNonce + 1,
-        saveFailure: f,
+        saveFailure: mapError(error),
       ));
     } finally {
       _saving = false;

@@ -139,42 +139,68 @@ class _ResumeEditViewState extends State<_ResumeEditView> {
     ResumeEditCubit cubit,
     String current,
   ) async {
-    final TextEditingController controller =
-        TextEditingController(text: current);
     final String? value = await showDialog<String>(
       context: context,
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          title: Text(
-            'Naam ki spelling',
-            style: AppTypography.display(size: AppTypography.sizeLg),
-          ),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            textCapitalization: TextCapitalization.words,
-            decoration: const InputDecoration(hintText: 'Naam'),
-            onSubmitted: (String v) => Navigator.of(dialogContext).pop(v),
-          ),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(controller.text),
-              child: const Text('OK'),
-            ),
-          ],
-        );
-      },
+      builder: (_) => _NameDialog(initial: current),
     );
-    controller.dispose();
+    if (!mounted) return; // popped while the dialog was open
     if (value == null) return;
     final String trimmed = value.trim();
     if (trimmed.isEmpty) return;
     cubit.setDisplayName(trimmed);
+  }
+}
+
+/// The name-spelling dialog. It OWNS its [TextEditingController] so the
+/// controller's lifetime is tied to this widget rather than to the awaiting
+/// caller: `showDialog`'s future completes the instant the route is popped —
+/// while the route is still mounted and animating out — so disposing it from the
+/// caller would tear the controller out from under a live [TextField] ("A
+/// TextEditingController was used after being disposed").
+class _NameDialog extends StatefulWidget {
+  const _NameDialog({required this.initial});
+
+  final String initial;
+
+  @override
+  State<_NameDialog> createState() => _NameDialogState();
+}
+
+class _NameDialogState extends State<_NameDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(
+        'Naam ki spelling',
+        style: AppTypography.display(size: AppTypography.sizeLg),
+      ),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        textCapitalization: TextCapitalization.words,
+        decoration: const InputDecoration(hintText: 'Naam'),
+        onSubmitted: (String v) => Navigator.of(context).pop(v),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: const Text('OK'),
+        ),
+      ],
+    );
   }
 }
 
