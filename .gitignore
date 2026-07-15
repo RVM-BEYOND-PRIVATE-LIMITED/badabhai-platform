@@ -62,3 +62,4 @@ logs/
 # ---- Redis (local dev dumps — may contain OTP/session/PII; NEVER commit) ----
 dump.rdb
 *.rdb
+.claude/worktrees/
