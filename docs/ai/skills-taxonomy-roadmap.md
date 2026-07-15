@@ -29,7 +29,7 @@ ranks** — a skills factor in RANK is a *separate future ADR*, explicitly out o
 | TAX-4 | AI — `canonicalize_skill` (floor-gated) | — | **MERGED** | TAX-3 | #215 |
 | **fork-B runner** | DB-side runner + ai embed endpoint | — | **MERGED** | TAX-3/4 | #219 |
 | **FORK-B-1** | Request-path DB store (seam A) + reset flag + SR-1 runbook | **P1** | **MERGED + E2E-VERIFIED** | fork-B | #222 |
-| TAX-5 | Data/AI — wedge aliases + floor calibration | **P1** | Unblocked · **2 gates** | TAX-4 | — |
+| TAX-5 | Data/AI — wedge aliases + floor calibration | **P1** | **CALIBRATED (floor 0.75)** · RVM gate open | TAX-4 | — |
 | TAX-6 | Backend+AI — job side shares id space | P2 | Unblocked | TAX-4 | — |
 | TAX-7 | AI — growth loop (cluster unresolved) | P2 | Unblocked | TAX-4 | — |
 | TAX-8 | QA+AI — off-wedge résumé verify | P2 | Unblocked | TAX-4 | — |
@@ -117,8 +117,18 @@ sweep needs **real semantic embeddings** (SG-4/§7) — on the mock embedder cos
 different text and 1.0 for identical, so a mock sweep only validates plumbing (seeded terms
 resolve, hard negatives stay UNRESOLVED), not the value. Buildable now: labeled wedge eval set,
 `pytest -k wedge` harness, **proposed** `source=rvm` lang-tagged aliases, and sweep tooling;
-floor stays the recorded default **0.82** until calibrated. **Do NOT** seed non-launch trades
-(TAX-7/8) or touch ranking. Files: `packages/taxonomy/src/wedge-aliases.*`,
+**CALIBRATED 2026-07-14 on REAL vectors** (33-phrase labeled set,
+`tests/wedge_eval/scores_2026_07_14.json`): **floor 0.82 → 0.75** — precision 1.000 in
+BOTH scoring modes; recall is **0.800 ORACLE** (phrase scored in its correct domain) vs
+**0.350 on the SHIPPED anchor-domain path** (every label queried in `cnc-machining`
+until TAX-6 per-label domains — cite THIS number for launch, #225 review M1). Floor
+clears all ceilings: labeled-negative 0.598, sibling-confusion 0.722, anchor-negative
+0.7263; next TP 0.7815. Vernacular tier all ≤ 0.61 → the RVM
+wedge aliases are REQUIRED and PROPOSED (22, `ratified: false`) — the human gate is the
+[ratification packet](../registers/skill-vernacular-ratification-packet.md) (Q-A chhilai,
+Q-B drawing padhna open). Re-sweep on any corpus/model change (`embed_wedge.py` →
+`score-wedge.ts`); `pytest -k wedge` locks the conclusions offline. **Do NOT** seed
+non-launch trades (TAX-7/8) or touch ranking. Files: `packages/taxonomy/src/wedge-aliases.*`,
 `apps/ai-service/tests/wedge_eval/*`, floor config.
 
 ## TAX-6 — Job side shares the id space · P2 · owner: backend + ai
