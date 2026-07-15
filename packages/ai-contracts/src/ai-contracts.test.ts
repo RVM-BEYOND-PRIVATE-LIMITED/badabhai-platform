@@ -5,6 +5,19 @@ import {
   ProfileExtractionInputSchema,
   ProfileExtractionOutputSchema,
   PseudonymizationOutputSchema,
+  GrowthAnchorSchema,
+  GrowthClusterInputSchema,
+  GrowthClusterOutputSchema,
+  GrowthPhraseSchema,
+  GrowthProposalSchema,
+  RetagPlanInputSchema,
+  RetagPlanOutputSchema,
+  RetagResolvedEntrySchema,
+  RetagRowSchema,
+  SkillAliasEmbedInputSchema,
+  SkillAliasEmbedOutputSchema,
+  SkillCanonicalizationInputSchema,
+  SkillCanonicalizationSchema,
   TranscriptionInputSchema,
   TranscriptionOutputSchema,
   WorkerProfileDraftSchema,
@@ -103,6 +116,190 @@ describe("TranscriptionOutputSchema", () => {
   it("rejects confidence outside 0..1", () => {
     expect(
       TranscriptionOutputSchema.safeParse({ transcript_text: "x", confidence: 1.5 }).success,
+    ).toBe(false);
+  });
+});
+
+describe("SkillCanonicalizationSchema (contracts.py parity — ADR-0030/TAX-4)", () => {
+  it("defaults an unresolved result to null skill_id + null score", () => {
+    const out = SkillCanonicalizationSchema.parse({ status: "unresolved" });
+    expect(out.skill_id).toBeNull();
+    expect(out.score).toBeNull();
+  });
+  it("round-trips a matched result with an assigned id + score", () => {
+    const out = SkillCanonicalizationSchema.parse({
+      status: "matched",
+      skill_id: "skill_vmc_operator",
+      score: 0.91,
+    });
+    expect(out.status).toBe("matched");
+    expect(out.skill_id).toBe("skill_vmc_operator");
+    expect(out.score).toBeCloseTo(0.91);
+  });
+  it("rejects a status outside the closed set", () => {
+    expect(SkillCanonicalizationSchema.safeParse({ status: "ranked" }).success).toBe(false);
+  });
+  it("input defaults lang to en", () => {
+    const inp = SkillCanonicalizationInputSchema.parse({ phrase: "VMC operator", domain_id: "vmc-machining" });
+    expect(inp.lang).toBe("en");
+  });
+});
+
+describe("SkillAliasEmbed schemas (contracts.py parity — ADR-0030 fork-B seam)", () => {
+  it("caps the batch at 200 items (matches Pydantic max_length)", () => {
+    const items = Array.from({ length: 201 }, (_, i) => ({ alias_id: `a${i}`, text: "milling" }));
+    expect(SkillAliasEmbedInputSchema.safeParse({ items }).success).toBe(false);
+    expect(SkillAliasEmbedInputSchema.safeParse({ items: items.slice(0, 200) }).success).toBe(true);
+  });
+  it("blocked result carries a null vector; defaults mirror Pydantic", () => {
+    const out = SkillAliasEmbedOutputSchema.parse({
+      results: [
+        { alias_id: "ok", vector: [0.1, 0.2], blocked: false },
+        { alias_id: "bad" }, // vector defaults null, blocked defaults false
+      ],
+      model: "mock-embedding",
+    });
+    expect(out.is_mock).toBe(true);
+    // TD64 interim-guard fields default off/zero (mirror Pydantic).
+    expect(out.budget_stopped).toBe(false);
+    expect(out.errors).toBe(0);
+    expect(out.estimated_cost_inr).toBe(0);
+    const bad = out.results[1];
+    expect(bad?.vector).toBeNull();
+    expect(bad?.blocked).toBe(false);
+  });
+  it("round-trips a budget-stopped partial batch", () => {
+    const out = SkillAliasEmbedOutputSchema.parse({
+      results: [{ alias_id: "a1", vector: [0.1], blocked: false }],
+      model: "text-embedding-004",
+      is_mock: false,
+      budget_stopped: true,
+      errors: 2,
+      estimated_cost_inr: 0.000038,
+    });
+    expect(out.budget_stopped).toBe(true);
+    expect(out.errors).toBe(2);
+    expect(out.estimated_cost_inr).toBeCloseTo(0.000038);
+  });
+});
+
+describe("Growth cluster schemas (contracts.py parity — ADR-0030/TAX-7)", () => {
+  const vec = (): number[] => new Array(768).fill(0);
+  it("enforces the 768 house dim on phrase + anchor vectors", () => {
+    expect(
+      GrowthPhraseSchema.safeParse({ id: "p1", phrase: "x", count: 1, vector: [0.1, 0.2] })
+        .success,
+    ).toBe(false);
+    expect(
+      GrowthAnchorSchema.safeParse({ skill_id: "s", vector: vec() }).success,
+    ).toBe(true);
+  });
+  it("rejects non-finite vector components (matches Pydantic isfinite — NaN AND Infinity)", () => {
+    const v = vec();
+    v[0] = Infinity;
+    expect(GrowthAnchorSchema.safeParse({ skill_id: "s", vector: v }).success).toBe(false);
+    v[0] = NaN;
+    expect(GrowthAnchorSchema.safeParse({ skill_id: "s", vector: v }).success).toBe(false);
+    v[0] = 0.5;
+    expect(GrowthAnchorSchema.safeParse({ skill_id: "s", vector: v }).success).toBe(true);
+  });
+  it("caps phrases at 500 and anchors at 5000 (matches Pydantic max_length)", () => {
+    const phrase = { id: "p", phrase: "x", count: 1, vector: vec() };
+    const phrases = Array.from({ length: 501 }, (_, i) => ({ ...phrase, id: `p${i}` }));
+    expect(
+      GrowthClusterInputSchema.safeParse({ domain_id: "d", phrases, anchors: [] }).success,
+    ).toBe(false);
+    expect(
+      GrowthClusterInputSchema.safeParse({
+        domain_id: "d",
+        phrases: phrases.slice(0, 500),
+        anchors: [],
+      }).success,
+    ).toBe(true);
+  });
+  it("defaults all tuning params to null (service Settings decide)", () => {
+    const inp = GrowthClusterInputSchema.parse({ domain_id: "d", phrases: [], anchors: [] });
+    expect(inp.min_cluster_size).toBeNull();
+    expect(inp.cluster_threshold).toBeNull();
+    expect(inp.floor).toBeNull();
+  });
+  it("rejects a proposal kind outside the closed set (SG-3: never a rank/score kind)", () => {
+    expect(
+      GrowthProposalSchema.safeParse({
+        kind: "auto_activate",
+        leader_phrase: "x",
+        member_ids: [],
+        member_phrases: [],
+        total_count: 1,
+      }).success,
+    ).toBe(false);
+  });
+  it("provisional proposal carries no skill_id (SG-5 — defaults null)", () => {
+    const p = GrowthProposalSchema.parse({
+      kind: "provisional_skill",
+      leader_phrase: "unobtainium polishing",
+      member_ids: ["p1"],
+      member_phrases: ["unobtainium polishing"],
+      total_count: 4,
+    });
+    expect(p.skill_id).toBeNull();
+  });
+  it("round-trips an alias proposal + report counters", () => {
+    const out = GrowthClusterOutputSchema.parse({
+      proposals: [
+        {
+          kind: "alias",
+          skill_id: "skill_grinding_ops",
+          leader_phrase: "ghisai jaisa kaam",
+          member_ids: ["p1", "p2"],
+          member_phrases: ["ghisai jaisa kaam", "ghisai type"],
+          total_count: 5,
+          nearest_skill_id: "skill_grinding_ops",
+          nearest_score: 0.68,
+        },
+      ],
+      phrases_in: 3,
+      clusters_total: 2,
+      clusters_eligible: 1,
+      skipped_below_guards: 1,
+    });
+    expect(out.proposals[0]?.skill_id).toBe("skill_grinding_ops");
+    expect(out.skipped_below_guards).toBe(1);
+  });
+});
+
+describe("Retag plan schemas (contracts.py parity — ADR-0030/TAX-9)", () => {
+  it("caps crosswalk at 1000, rows at 5000, ids-per-row at 100 (matches Pydantic)", () => {
+    const entry = { deprecated_id: "d", replaced_by: "t" };
+    expect(
+      RetagPlanInputSchema.safeParse({
+        crosswalk: Array.from({ length: 1001 }, () => entry),
+        rows: [],
+      }).success,
+    ).toBe(false);
+    expect(
+      RetagRowSchema.safeParse({
+        row_ref: "r",
+        skill_ids: Array.from({ length: 101 }, (_, i) => `s${i}`),
+      }).success,
+    ).toBe(false);
+    expect(RetagRowSchema.safeParse({ row_ref: "r", skill_ids: ["s1"] }).success).toBe(true);
+  });
+  it("round-trips a plan output (chain terminal + cycle drop + change)", () => {
+    const out = RetagPlanOutputSchema.parse({
+      resolved: [{ deprecated_id: "a", terminal_id: "c", hops: 2 }],
+      dropped: ["x", "y"],
+      changes: [{ row_ref: "r1", before: ["a", "k"], after: ["c", "k"] }],
+      rows_in: 10,
+      rows_changed: 1,
+    });
+    expect(out.resolved[0]?.terminal_id).toBe("c");
+    expect(out.dropped).toEqual(["x", "y"]);
+  });
+  it("rejects zero-hop resolved entries (a terminal is never its own crosswalk key)", () => {
+    expect(
+      RetagResolvedEntrySchema.safeParse({ deprecated_id: "a", terminal_id: "a", hops: 0 })
+        .success,
     ).toBe(false);
   });
 });

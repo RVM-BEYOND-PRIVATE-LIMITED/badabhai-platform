@@ -20,6 +20,14 @@ class Settings(BaseSettings):
     # compatible). The master flag + key are still required regardless.
     ai_real_call_tasks: str = ""
 
+    # COST-4: the profiling chat turn returns the deterministic question_bank
+    # question DIRECTLY (already ≤20 words, on-persona) and skips the chat LLM
+    # entirely on the straight-line path — zero output tokens on the ask. When TRUE,
+    # an off-script/clarifying worker message (interview_engine.needs_rephrase) MAY
+    # spend one real LLM call to phrase a contextual reply — still gated by the
+    # master real-call flag + key. Off by default: templated-only, no chat LLM call.
+    ai_profiling_rephrase_enabled: bool = False
+
     # Direct Google AI Studio (Gemini) API key. The PRIMARY real-call credential
     # and the master gate for real calls (see real_calls_blocked_reason). The
     # field name maps to the env var GEMINI_FLASH_API_KEY (pydantic-settings is
@@ -51,6 +59,65 @@ class Settings(BaseSettings):
     # model's provider differs from the primary's. Claude Haiku 4.5 (no date
     # suffix per the Anthropic API).
     default_fallback_model: str = "claude-haiku-4-5"
+
+    # ADR-0030 / TAX-3: embedding model for the skill-vocabulary embed (offline corpus +
+    # later the request-path resolver). MUST output the 768-dim vector skill_alias.embedding
+    # + worker_profiles.embedding store. VERIFIED LIVE at the first gated run (2026-07-14):
+    # `gemini-embedding-001` + outputDimensionality=768 -> HTTP 200, 768 dims (the request
+    # sets the dimensionality; vectors are L2-normalized client-side since truncated dims
+    # come back unnormalized). `text-embedding-004` is RETIRED (provider 404s it).
+    # Real embedding calls are gated by AI_ENABLE_REAL_CALLS + the per-task allowlist
+    # ("skill_embedding"); the default path is a deterministic MOCK embedding (zero spend).
+    embedding_model: str = "gemini-embedding-001"
+
+    # ADR-0030 / TAX-4: skill-phrase canonicalization (vector match against skill_alias,
+    # floor-gated). `enabled` is the WIRING flag — when False the extraction path keeps the
+    # status quo (local gazetteer only, raw phrase preserved); rollback = flip it off. `floor`
+    # is the min cosine similarity to ASSIGN an id; below it the phrase is UNRESOLVED and
+    # recorded. `top_k` bounds the nearest-alias fetch.
+    #
+    # FLOOR = 0.75 — CALIBRATED on the TAX-5 labeled wedge set (2026-07-14, REAL
+    # gemini-embedding-001@768 vectors, tests/wedge_eval/scores_2026_07_14.json).
+    # TWO recall numbers, honestly scoped (#225 review M1):
+    #   ORACLE (each phrase scored in its correct domain): precision 1.000/recall 0.800.
+    #   SHIPPED anchor-domain path (every label queried in the default domain until
+    #   per-label domain resolution, TAX-6): precision 1.000 / recall 0.350 — the
+    #   number that applies when the flag flips TODAY. Do not cite 0.800 for launch.
+    # Floor safety: labeled-domain negative ceiling 0.598, sibling-confusion ceiling
+    # 0.722, ANCHOR-path negative ceiling 0.7263 — 0.75 clears all three (next TP
+    # 0.7815). Re-sweep (embed_wedge + score-wedge) on any corpus/model change; the
+    # wedge tests pin snapshot-model == this config's embedding_model. Never hand-tune.
+    skill_canonicalize_enabled: bool = False
+    skill_canonicalize_floor: float = 0.75
+    skill_canonicalize_top_k: int = 5
+    # Anchor skill domain for the wedge when the extraction wiring canonicalizes labels and no
+    # finer per-label domain is known yet (per-label multi-domain resolution is TAX-5/6).
+    skill_canonicalize_default_domain: str = "cnc-machining"
+
+    # ADR-0030 / TAX-7: growth-loop clustering defaults (/growth/cluster — pure compute,
+    # REPORT-ONLY; the ratification flow is the only activation path, so these tune what
+    # gets PROPOSED to a human, never what activates). Eligibility: cluster size >=
+    # min_cluster_size OR summed count >= min_total_count. cluster_threshold is the
+    # leader-cosine to join a cluster. band_low..floor is the "near-skill" band → an
+    # alias-on-existing-skill proposal; below band_low → provisional-skill proposal
+    # (calibration 2026-07-14: negative ceiling 0.598, sibling confusion 0.722 — 0.60
+    # keeps genuinely-unrelated phrases out of alias proposals while catching the
+    # kharad-at-0.61 class the wedge evidence is built on).
+    skill_growth_min_cluster_size: int = 2
+    skill_growth_min_total_count: int = 3
+    skill_growth_cluster_threshold: float = 0.80
+    skill_growth_band_low: float = 0.60
+
+    # FORK-B-1 seam A: the NestJS api base URL + the SCOPED skills-seam secret the
+    # HttpSkillStore uses for the INTERNAL skill routes (nearest-aliases / unresolved).
+    # SKILLS_INTERNAL_TOKEN is deliberately NOT the api's all-routes
+    # INTERNAL_SERVICE_TOKEN (least privilege, #222 review): this credential opens ONLY
+    # the two skills routes — never resume-PII/money routes. The ai-service stays
+    # DB-FREE — the api runs the authorized vector/upsert queries. Both unset by
+    # default → get_skill_store() returns the NullSkillStore (inert), so the wiring
+    # cannot activate by flag alone (TD65 chain: store + flag).
+    backend_api_url: str | None = None
+    skills_internal_token: str | None = None
 
     # Per-profile cost guardrails (INR). Used for alerting only in Phase 1.
     ai_cost_alert_profile_inr: float = 6.0

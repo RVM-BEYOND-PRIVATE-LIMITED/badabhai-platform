@@ -15,6 +15,34 @@ this expands on them.
   tables for semantic candidate↔role matching.
 
 ## AI / data
+- **LLM cost-efficiency workstream** (real-mode input spend):
+  - **COST-3 — stateless chat turn** ✅ *landed*: the profiling chat turn no longer
+    re-sends the transcript each turn (`build_chat_messages` is stateless by
+    design), cutting per-interview input from O(n²) → O(n). Extraction keeps full
+    context. Owner: ai.
+  - **COST-2 — prompt caching (min-threshold guarded)** ✅ *landed*: the static
+    system block is cache-marked via the provider seam **only when it clears the
+    provider minimum** (`should_cache_system` in `model_config.py`; Anthropic Haiku
+    4.5 = 4096 tok, Gemini 2.5 Flash **implicit** floor = 1024 tok — what the Gemini
+    diagnostic checks; explicit `cachedContent` = 2048 tok, deferred — sourced 2026-07-14).
+    Anthropic gets a real `cache_control: ephemeral` breakpoint on the STABLE persona
+    block only (the per-turn question block is never cached); Gemini gets the guard +
+    diagnostic (2.5 implicit caching is automatic — no request field — and the
+    explicit `cachedContent` lifecycle is deferred). After AI-PERSONA-1's trim the
+    persona is ~200 tok — **below every minimum — so it honestly logs "below cache
+    minimum — skipped" today** and arms automatically if the prompt grows. Effective
+    only in real mode. Owner: ai.
+    - **Deferred (§7-adjacent):** Gemini explicit `cachedContent` create/TTL/reference
+      lifecycle — only worth building if the cached block ever clears the 2048-tok
+      minimum; the guard already gates it.
+  - **COST-4 — templated-question default, LLM interprets-only** ✅ *landed*: the
+    profiling chat turn returns the deterministic `question_bank` question directly
+    (the engine already chose it, ≤20 words, on-persona) and skips the chat LLM on
+    the straight-line path — **zero output tokens on the ask** in both mock and real
+    mode. A real rephrase call fires only for a clarifying worker message
+    (`interview_engine.needs_rephrase`) AND with `ai_profiling_rephrase_enabled`
+    (**off by default**) + the master real-call flag. Extraction is untouched.
+    Owner: ai.
 - **Real NER pseudonymization** replacing the heuristic gateway (pays down TD3).
 - **Langfuse** wired for real LLM observability + eval (placeholder today).
 - **Self-hosted / fine-tuned model** only if cost/latency/privacy demands it —
@@ -22,6 +50,17 @@ this expands on them.
 - **BullMQ job pipeline** for extraction/transcription/embedding (pays down TD1).
 
 ## Platform & ops
+- **CI-2 — CI cost path-filters (parked 2026-07-14, needs owner branch-protection flip).**
+  Gate `ci.yml`'s `ai-service` (Python) + `e2e` jobs by changed paths so TS-only/docs-only
+  PRs stop paying for them, using the **required-check-safe** pattern: a changes-detection
+  job (`dorny/paths-filter`) + a single always-running `ci-required` aggregator job that
+  passes on success-or-skipped; branch protection then requires only `ci-required` — a
+  **repo-admin flip the owner must approve before merge** (naively `if:`-skipping a
+  required job wedges the PR on "Expected — waiting"). The `node` job always runs.
+- **CI-3 — path-gate / schedule `security-scan.yml` (parked "Later" by owner 2026-07-14).**
+  It runs 3 non-blocking scanners (gitleaks full-history, semgrep OSS, pnpm audit) on
+  EVERY push+PR to main — real private-repo minutes. Un-park: path-gate semgrep/audit and
+  move the gitleaks full-history sweep to a weekly `schedule:`, keeping coverage.
 - **Finalized RLS** + per-worker isolation (pays down R1/TD4).
 - **Disaster-recovery runbook** + tested restore (pays down R5).
 - **Secrets manager** + multi-environment promotion (pays down R8 / TD10).

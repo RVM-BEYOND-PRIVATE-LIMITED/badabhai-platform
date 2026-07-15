@@ -29,6 +29,9 @@
 | `audit_logs`         | **none**                | insert only            | internal                           |
 | `payers`             | **none** (B2B PII)      | full                   | payer **own** account only (Phase 2 payer-RLS); migration 0020 already `ENABLE`+`FORCE ROW LEVEL SECURITY`+`REVOKE ALL` so it is deny-by-default today |
 | `agency_invites`     | **none**                | full                   | faceless agency supply-attribution INTENT (ADR-0022); `invited_worker_id` is a payer→worker handle, so migration 0025 ships `ENABLE`+`FORCE ROW LEVEL SECURITY`+`REVOKE ALL` (deny-by-default today). Phase-1 isolation = app-layer `assertPayerOwns(inviter_payer_id)`; per-payer DB-RLS is the open-GA gate (payer tenancy axis below) |
+| `skill`              | **none**                | full                   | ADR-0030/TAX-1 canonical skill vocabulary (migration 0037); reference data, not per-worker. Ships `ENABLE ROW LEVEL SECURITY` in-model (deny-by-default; **RLS policies NOT finalized here** — service role today) |
+| `skill_alias`        | **none**                | full                   | ADR-0030/TAX-1 embedded aliases (migration 0037); reference data + a `vector(768)` embedding, no worker link. `ENABLE ROW LEVEL SECURITY` in-model (RLS not finalized) |
+| `unresolved_phrase`  | **none**                | full                   | ADR-0030/TAX-1 below-floor growth queue (migration 0037); **PSEUDONYMIZED phrase + count, NO `worker_id`** (aggregate → not a per-worker DSAR surface, ADR-0026). `ENABLE ROW LEVEL SECURITY` in-model (RLS not finalized) |
 
 ## Payer tenancy axis (ADR-0019 Decision C — added 2026-06-20)
 

@@ -1,0 +1,10 @@
+# Dependabot — keep GitHub Actions on Node-24 majors automatically (CI-1).
+# Scope is intentionally github-actions ONLY (per the CI-1 ask); npm/pip ecosystems
+# are a separate future decision. Weekly PRs bump any action whose major falls behind,
+# so the Node-runtime deprecation warnings never recur.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

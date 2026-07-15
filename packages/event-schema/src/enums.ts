@@ -85,6 +85,10 @@ export const EVENT_DOMAINS = [
   // `admin.action_performed`/`admin.pii_viewed` carry an action/reason CODE + a target/
   // subject id — NEVER a changed value or the revealed PII (CLAUDE.md invariant #2).
   "admin",
+  // Skill-canonicalization vocabulary (ADR-0030 / FORK-B-1) — the unresolved-phrase
+  // growth queue. PII-FREE & hash-only: the phrase text (already pseudonymized at rest,
+  // SG-1) NEVER rides the spine — only its sha256, the domain slug, lang, and a count.
+  "skill",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;
@@ -166,6 +170,9 @@ export const SUBJECT_TYPES = [
   // only; never enable). The switch is named by the closed `switch_key` enum IN the payload,
   // so the subject_id is null (a switch is not a uuid entity). Carries NO PII / NO value.
   "kill_switch",
+  // An unresolved_phrase growth-queue row (ADR-0030/FORK-B-1). subject_id = the row uuid;
+  // the phrase text (pseudonymized at rest) NEVER rides the spine — hash-only payload.
+  "skill_phrase",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;

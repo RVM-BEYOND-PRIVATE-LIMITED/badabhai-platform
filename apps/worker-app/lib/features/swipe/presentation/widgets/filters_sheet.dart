@@ -1,57 +1,44 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/api/api_models.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_chip.dart';
-
-/// The Feed filter selection (spec §5.7). Session-only — persistence (saved
-/// filters) is a follow-up. Trades are multi-select; distance + shift single.
-class FilterSelection {
-  const FilterSelection({
-    required this.trades,
-    required this.distance,
-    required this.shift,
-  });
-
-  final Set<String> trades;
-  final String distance;
-  final String shift;
-
-  /// Spec defaults: CNC + VMC, 15 km, Day.
-  static const FilterSelection initial = FilterSelection(
-    trades: <String>{'CNC', 'VMC'},
-    distance: '15 km',
-    shift: 'Day',
-  );
-
-  FilterSelection copyWith({
-    Set<String>? trades,
-    String? distance,
-    String? shift,
-  }) {
-    return FilterSelection(
-      trades: trades ?? this.trades,
-      distance: distance ?? this.distance,
-      shift: shift ?? this.shift,
-    );
-  }
-}
+import '../../domain/job_filter.dart';
 
 /// The "Filter jobs" bottom-sheet body (opened via `showBbBottomSheet` from the
-/// Feed). Pops with the chosen [FilterSelection]; the live "Show N jobs" count
-/// is a MOCK figure for the alpha (real filtered-feed query is a follow-up).
+/// Feed). Pops with the chosen [FilterSelection] — which lives in the DOMAIN
+/// layer (`domain/job_filter.dart`), not here, so the sheet, the Feed's chip row
+/// and the bloc all bind to ONE selection type.
+///
+/// Three groups, one per real filter dimension: Trade, City, Experience. The
+/// live "Show N jobs" count is the REAL count over the loaded queue across ALL
+/// THREE dimensions (see [jobs]), so the number never over-promises.
 class FiltersSheet extends StatefulWidget {
-  const FiltersSheet({super.key, required this.initial});
+  const FiltersSheet({
+    super.key,
+    required this.initial,
+    this.jobs = const <FeedItem>[],
+  });
 
   final FilterSelection initial;
+
+  /// The loaded feed queue. Two jobs here: it makes "Show N jobs" the REAL
+  /// filtered count (not a mock), and it DERIVES the City options — a city the
+  /// queue doesn't contain is never offered. Defaults to empty for isolated
+  /// widget tests.
+  final List<FeedItem> jobs;
 
   @override
   State<FiltersSheet> createState() => _FiltersSheetState();
 }
 
 class _FiltersSheetState extends State<FiltersSheet> {
+  /// Trade options are a fixed vocabulary — the labels [kTradeFilterKeywords]
+  /// knows how to match. (Unlike cities, these are not derived: the keyword map
+  /// is what gives a label meaning, so an underived label could not match.)
   static const List<String> _trades = <String>[
     'CNC',
     'VMC',
@@ -59,38 +46,39 @@ class _FiltersSheetState extends State<FiltersSheet> {
     'Fitter',
     'QC'
   ];
-  static const List<String> _distances = <String>['5 km', '15 km', '30 km'];
-  static const List<String> _shifts = <String>['Day', 'Night', 'Rotational'];
 
   late Set<String> _selectedTrades;
-  late String _distance;
-  late String _shift;
+  late Set<String> _selectedCities;
+  late Set<String> _selectedBands;
+
+  /// City options DERIVED from the loaded queue's distinct cities — never a
+  /// hardcoded list, which would invent options the feed cannot honour. The
+  /// already-selected cities are unioned in so an active filter always keeps a
+  /// chip to switch it off with, even once its jobs have drained from the queue.
+  late final List<String> _cities =
+      availableCities(widget.jobs, selected: widget.initial.cities);
 
   @override
   void initState() {
     super.initState();
     _selectedTrades = <String>{...widget.initial.trades};
-    _distance = widget.initial.distance;
-    _shift = widget.initial.shift;
+    _selectedCities = <String>{...widget.initial.cities};
+    _selectedBands = <String>{...widget.initial.experienceBands};
   }
 
-  // MOCK count — a plausible figure that reacts to the selection. The real
-  // filtered-feed query is a follow-up (§7).
-  int get _count {
-    if (_selectedTrades.isEmpty) return 0;
-    final int base = 6 * _selectedTrades.length;
-    final int byDistance = switch (_distance) {
-      '30 km' => 8,
-      '15 km' => 4,
-      _ => 0,
-    };
-    return (base + byDistance).clamp(0, 99);
-  }
+  FilterSelection get _selection => FilterSelection(
+        trades: _selectedTrades,
+        cities: _selectedCities,
+        experienceBands: _selectedBands,
+      );
 
-  void _toggleTrade(String t) {
-    setState(() => _selectedTrades.contains(t)
-        ? _selectedTrades.remove(t)
-        : _selectedTrades.add(t));
+  // The REAL count over the loaded queue, across ALL THREE dimensions — so the
+  // number is honest for every selection. An empty selection means "show all",
+  // matching the feed's no-filter semantics.
+  int get _count => applyJobFilters(widget.jobs, _selection).length;
+
+  void _toggle(Set<String> set, String value) {
+    setState(() => set.contains(value) ? set.remove(value) : set.add(value));
   }
 
   @override
@@ -106,63 +94,65 @@ class _FiltersSheetState extends State<FiltersSheet> {
           const SizedBox(height: AppSpacing.s4),
           _group(
             'Trade',
-            Wrap(
-              spacing: AppSpacing.s2,
-              runSpacing: AppSpacing.s2,
-              children: <Widget>[
-                for (final String t in _trades)
-                  BbChip(
-                    label: t,
-                    selected: _selectedTrades.contains(t),
-                    onTap: () => _toggleTrade(t),
-                  ),
-              ],
+            _chipWrap(
+              options: _trades,
+              isSelected: _selectedTrades.contains,
+              onTap: (String t) => _toggle(_selectedTrades, t),
             ),
           ),
-          _group(
-            'Distance',
-            Wrap(
-              spacing: AppSpacing.s2,
-              runSpacing: AppSpacing.s2,
-              children: <Widget>[
-                for (final String d in _distances)
-                  BbChip(
-                    label: d,
-                    selected: _distance == d,
-                    onTap: () => setState(() => _distance = d),
-                  ),
-              ],
+          // TODO(location): re-add a location/distance filter when the location
+          // feature lands. Removed for the alpha because the feed is LIBERAL (no
+          // location filter) — a distance chip filtered nothing and misled the
+          // worker. City below is the honest location control. Pairs with the
+          // LOCATION SEAM in ApplicationsRepository.findOpenJobs. Location is PII
+          // (§2/§6) → it needs a location plugin + runtime permission + DPDP
+          // consent first.
+          // Omitted entirely (not rendered empty) when the queue yields no
+          // cities: an empty group reads as a broken filter.
+          if (_cities.isNotEmpty)
+            _group(
+              'City',
+              _chipWrap(
+                options: _cities,
+                isSelected: _selectedCities.contains,
+                onTap: (String c) => _toggle(_selectedCities, c),
+              ),
             ),
-          ),
           _group(
-            'Shift',
-            Wrap(
-              spacing: AppSpacing.s2,
-              runSpacing: AppSpacing.s2,
-              children: <Widget>[
-                for (final String s in _shifts)
-                  BbChip(
-                    label: s,
-                    selected: _shift == s,
-                    onTap: () => setState(() => _shift = s),
-                  ),
-              ],
+            'Experience',
+            _chipWrap(
+              options: kExperienceBandLabels,
+              isSelected: _selectedBands.contains,
+              onTap: (String b) => _toggle(_selectedBands, b),
             ),
           ),
           const SizedBox(height: AppSpacing.s5),
           BbButton(
             label: 'Show $_count jobs',
             block: true,
-            onPressed: () => Navigator.of(context).pop(
-              FilterSelection(
-                trades: _selectedTrades,
-                distance: _distance,
-                shift: _shift,
-              ),
-            ),
+            onPressed: () => Navigator.of(context).pop(_selection),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _chipWrap({
+    required List<String> options,
+    required bool Function(String) isSelected,
+    required void Function(String) onTap,
+  }) {
+    return Wrap(
+      spacing: AppSpacing.s2,
+      runSpacing: AppSpacing.s2,
+      children: <Widget>[
+        for (final String option in options)
+          BbChip(
+            label: option,
+            selected: isSelected(option),
+            onTap: () => onTap(option),
+          ),
+      ],
     );
   }
 

@@ -93,6 +93,9 @@ function make(existing?: Row) {
             : undefined,
         ),
     );
+  const canonicalize = vi
+    .fn()
+    .mockResolvedValue({ status: "unresolved", skill_id: null, score: null });
   const svc = new JobPostingsService(
     {
       create,
@@ -107,10 +110,13 @@ function make(existing?: Row) {
       transitionOwned,
     } as never,
     { emit } as never,
+    // TAX-6: AiService stub — canonicalize returns UNRESOLVED unless a test overrides.
+    { canonicalizeSkill: canonicalize } as never,
   );
   return {
     svc,
     emit,
+    canonicalize,
     create,
     findById,
     update,
@@ -618,5 +624,98 @@ describe("JobPostingsService — payer self-serve (*ForPayer)", () => {
     await expect(svc.closeForPayer(POSTING_ID, PAYER_ID, CTX as never)).rejects.toBeInstanceOf(
       ConflictException,
     );
+  });
+});
+
+describe("TAX-6 — job-side skill canonicalization (shared id space, ADR-0030)", () => {
+  const SKILLS = ["VMC operator", "Fanuc", "VMC operator"]; // dup on purpose
+
+  it("create canonicalizes each phrase and stores DEDUPED vector-assigned ids + the raw phrases", async () => {
+    const { svc, create, canonicalize } = make();
+    canonicalize
+      .mockResolvedValueOnce({ status: "matched", skill_id: "skill_milling", score: 0.9 })
+      .mockResolvedValueOnce({ status: "matched", skill_id: "skill_fanuc", score: 0.88 })
+      .mockResolvedValueOnce({ status: "matched", skill_id: "skill_milling", score: 0.9 });
+    await svc.create(
+      { created_by: CREATED_BY, org_label: ORG, role_title: ROLE, vacancy_band: "2-5", skills: SKILLS } as never,
+      CTX as never,
+    );
+    expect(canonicalize).toHaveBeenCalledTimes(3);
+    expect(canonicalize).toHaveBeenCalledWith({
+      phrase: "VMC operator",
+      domain_id: "cnc-machining",
+      lang: "en",
+    });
+    const values = create.mock.calls[0]![0] as Record<string, unknown>;
+    expect(values.skillPhrases).toEqual(SKILLS); // poster text kept verbatim
+    expect(values.skillIds).toEqual(["skill_milling", "skill_fanuc"]); // deduped, store-assigned only
+  });
+
+  it("UNRESOLVED phrases store NO id (SG-3: never free text into matchable fields)", async () => {
+    const { svc, create, canonicalize } = make();
+    canonicalize.mockResolvedValue({ status: "unresolved", skill_id: null, score: null });
+    await svc.create(
+      { created_by: CREATED_BY, org_label: ORG, role_title: ROLE, vacancy_band: "1", skills: ["kharad"] } as never,
+      CTX as never,
+    );
+    const values = create.mock.calls[0]![0] as Record<string, unknown>;
+    expect(values.skillPhrases).toEqual(["kharad"]);
+    expect(values.skillIds).toEqual([]); // no id invented for a miss
+  });
+
+  it("an AI-service outage NEVER blocks the posting (best-effort: ids empty, phrases kept)", async () => {
+    const { svc, create, canonicalize } = make();
+    canonicalize.mockRejectedValue(new Error("ai-service down"));
+    await svc.create(
+      { created_by: CREATED_BY, org_label: ORG, role_title: ROLE, vacancy_band: "1", skills: ["milling"] } as never,
+      CTX as never,
+    );
+    const values = create.mock.calls[0]![0] as Record<string, unknown>;
+    expect(values.skillIds).toEqual([]);
+    expect(values.skillPhrases).toEqual(["milling"]); // raw phrase survives (status quo)
+  });
+
+  it("update with changed skills re-canonicalizes, patches ids, and emits changed_fields [skills] — names only", async () => {
+    const existing = row({ status: "open" } as Partial<Row>);
+    const { svc, update, emit, canonicalize } = make(existing);
+    canonicalize.mockResolvedValueOnce({ status: "matched", skill_id: "skill_turning", score: 0.91 });
+    await svc.update(POSTING_ID, { skills: ["lathe operation"] } as never, CTX as never);
+    const patch = update.mock.calls[0]![1] as Record<string, unknown>;
+    expect(patch.skillPhrases).toEqual(["lathe operation"]);
+    expect(patch.skillIds).toEqual(["skill_turning"]);
+    const arg = emit.mock.calls[0]![0] as { payload: { changed_fields: string[] } };
+    expect(arg.payload.changed_fields).toContain("skills");
+    // The PHRASE/id values never ride the spine — field NAMES only.
+    expect(JSON.stringify(arg)).not.toContain("lathe operation");
+    expect(JSON.stringify(arg)).not.toContain("skill_turning");
+  });
+
+  it("resending IDENTICAL phrases while stored ids are empty re-canonicalizes (outage backfill, #226 M3)", async () => {
+    // Created during an ai-service outage: phrases stored, ids []. Re-PATCHing the SAME
+    // skills must be a valid retry (previously 400 'no effective changes' — ids were
+    // unbackfillable forever without editing the phrases).
+    const existing = row({
+      status: "open",
+      skillPhrases: ["milling"],
+      skillIds: [],
+    } as Partial<Row>);
+    const { svc, update, canonicalize } = make(existing);
+    canonicalize.mockResolvedValueOnce({ status: "matched", skill_id: "skill_milling", score: 0.9 });
+    await svc.update(POSTING_ID, { skills: ["milling"] } as never, CTX as never);
+    const patch = update.mock.calls[0]![1] as Record<string, unknown>;
+    expect(patch.skillIds).toEqual(["skill_milling"]); // backfilled on retry
+  });
+
+  it("resending identical phrases when ids are ALREADY stored is still a no-op 400", async () => {
+    const existing = row({
+      status: "open",
+      skillPhrases: ["milling"],
+      skillIds: ["skill_milling"],
+    } as Partial<Row>);
+    const { svc, canonicalize } = make(existing);
+    await expect(
+      svc.update(POSTING_ID, { skills: ["milling"] } as never, CTX as never),
+    ).rejects.toThrow(/no effective changes/i);
+    expect(canonicalize).not.toHaveBeenCalled(); // no wasted round-trips on a true no-op
   });
 });

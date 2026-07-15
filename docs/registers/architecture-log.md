@@ -8,6 +8,31 @@ boundary moved).
 
 ---
 
+## 2026-07-14 — Skills-taxonomy vocabulary layer + canonicalization seam (ADR-0030, TAX-1..4 + fork-B)
+- **New vocabulary tables** (migration 0037, #212): `skill` (immutable `skill_id`, status
+  active/provisional/deprecated), `skill_alias` (embedded alias variants, denormalized
+  `domain_id`, `embedding vector(768)` + a **second HNSW cosine index**), `unresolved_phrase`
+  (pseudonymized below-floor miss queue). All three RLS-spined (FORCE + REVOKE, in
+  `LOCKED_TABLES`). pgvector was already enabled (0001); 768 stays the house dimension.
+- **New AI module** [`app/ai/embeddings.py`](../../apps/ai-service/app/ai/embeddings.py)
+  (#214): `embed_text` pseudonymizes FIRST (SG-2, fail-closed), deterministic MOCK vector by
+  default, real Gemini `embedContent` §7-gated (SG-4: master flag + key + `skill_embedding`
+  allowlist). Batch `embed_aliases` over an **`AliasStore` Protocol** — the ai-service stays
+  DB-free by design.
+- **New canonicalization seam** [`app/ai/canonicalize.py`](../../apps/ai-service/app/ai/canonicalize.py)
+  (#215): `canonicalize_skill(phrase, domain_id) → {skill_id, score} | UNRESOLVED` —
+  pseudonymize → embed → domain-scoped nearest-alias → floor gate (0.82, inclusive). SG-3:
+  assigns ids from the closed alias set, **never invents, never ranks** (invariant #4: no
+  skills signal in RANK). Wired into `map_rich_to_legacy` behind
+  `SKILL_CANONICALIZE_ENABLED=false`; the flag alone is inert (TD65 activation chain).
+- **fork-B boundary decision (owner, 2026-07-14):** the `skill_alias` vector read/write
+  lives in a **`packages/db` runner** (owner connection, `pnpm db:embed:skills`) calling a
+  new ai-service endpoint `POST /embeddings/skill-alias` over HTTP; a psycopg client inside
+  the ai-service was REJECTED. Contract surface `SkillAliasEmbed*`/`SkillCanonicalization*`
+  mirrored Zod↔Pydantic in [`packages/ai-contracts`](../../packages/ai-contracts/) (invariant #7).
+- **References:** [ADR-0030](../decisions/0030-embedding-skill-canonicalization.md) ·
+  [roadmap](../ai/skills-taxonomy-roadmap.md) (TAX-5..9 pinned) · TD64/TD65 (launch gates).
+
 ## 2026-06-24 — BUG-2 staging demand-loop PASS (backend proof DONE; pending §1.3 + formal close)
 - **What happened:** the guarded CD workflow
   ([staging-demand-verify.yml](../../.github/workflows/staging-demand-verify.yml)) ran **GREEN** on

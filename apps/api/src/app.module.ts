@@ -6,11 +6,13 @@ import { QueueModule } from "./queue/queue.module";
 import { EventsModule } from "./events/events.module";
 import { AiModule } from "./ai/ai.module";
 import { WorkersModule } from "./workers/workers.module";
+import { NotificationsModule } from "./notifications/notifications.module";
 import { HealthModule } from "./health/health.module";
 import { AuthModule } from "./auth/auth.module";
 import { ConsentModule } from "./consent/consent.module";
 import { ChatModule } from "./chat/chat.module";
 import { VoiceModule } from "./voice/voice.module";
+import { SkillsModule } from "./skills/skills.module";
 import { ProfilesModule } from "./profiles/profiles.module";
 import { ResumeModule } from "./resume/resume.module";
 import { InterviewKitModule } from "./interview-kit/interview-kit.module";
@@ -42,6 +44,7 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     EventsModule,
     AiModule,
     WorkersModule,
+    NotificationsModule,
     RateLimitModule,
     PdfModule,
     // Feature modules:
@@ -50,6 +53,7 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     ConsentModule,
     ChatModule,
     VoiceModule,
+    SkillsModule,
     ProfilesModule,
     ResumeModule,
     InterviewKitModule,

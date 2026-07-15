@@ -7,6 +7,9 @@ import {
   ResumeGenerationOutputSchema,
   DraftProfileSchema,
   TranscriptionOutputSchema,
+  SkillCanonicalizationSchema,
+  type SkillCanonicalizationInput,
+  type SkillCanonicalization,
   type ProfilingTurnInput,
   type ProfilingTurnOutput,
   type ProfileExtractionInput,
@@ -116,6 +119,19 @@ export class AiService {
     const remote = await this.post("/voice/transcribe", input, TranscriptionOutputSchema);
     if (remote) return remote;
     return TranscriptionOutputSchema.parse({ transcript_text: "", confidence: 0, english_text: "", is_mock: true });
+  }
+
+  /**
+   * ADR-0030 / TAX-6: canonicalize ONE skill phrase through the SAME pipeline the
+   * worker side uses (shared id space). Returns null when the AI service is
+   * unreachable — the caller treats null exactly like UNRESOLVED (a posting is
+   * NEVER blocked or failed by canonicalization; the raw phrase is kept either way).
+   * SG-3 rides the contract: skill_id is only ever a vector-layer-assigned id.
+   */
+  async canonicalizeSkill(
+    input: SkillCanonicalizationInput,
+  ): Promise<SkillCanonicalization | null> {
+    return this.post("/skills/canonicalize", input, SkillCanonicalizationSchema);
   }
 
   /**

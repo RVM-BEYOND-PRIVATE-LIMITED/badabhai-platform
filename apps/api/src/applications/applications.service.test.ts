@@ -223,9 +223,11 @@ describe("ApplicationsService — skip", () => {
 });
 
 describe("ApplicationsService — feed", () => {
+  // Job 1 carries a bounded experience window; job 2 carries NONE (both ends null)
+  // — the two shapes the worker app's experience filter must handle.
   const OPEN_JOBS = [
-    { id: "a0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC" },
-    { id: "a0000000-0000-0000-0000-000000000002", tradeKey: "fitter", title: "T2", city: "Pune", area: null },
+    { id: "a0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", minExperienceYears: 2, maxExperienceYears: 5 },
+    { id: "a0000000-0000-0000-0000-000000000002", tradeKey: "fitter", title: "T2", city: "Pune", area: null, minExperienceYears: null, maxExperienceYears: null },
   ];
 
   it("returns coarse PII-free items with 1-based rank and emits one feed.shown per item", async () => {
@@ -233,8 +235,8 @@ describe("ApplicationsService — feed", () => {
     const out = await svc.getFeed(WORKER_ID, 20, CTX);
 
     expect(out.jobs).toEqual([
-      { job_id: OPEN_JOBS[0]!.id, trade_key: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", rank: 1 },
-      { job_id: OPEN_JOBS[1]!.id, trade_key: "fitter", title: "T2", city: "Pune", area: null, rank: 2 },
+      { job_id: OPEN_JOBS[0]!.id, trade_key: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", min_experience_years: 2, max_experience_years: 5, rank: 1 },
+      { job_id: OPEN_JOBS[1]!.id, trade_key: "fitter", title: "T2", city: "Pune", area: null, min_experience_years: null, max_experience_years: null, rank: 2 },
     ]);
 
     // One feed.shown per returned job (per-impression), batched via emitMany.
@@ -255,6 +257,72 @@ describe("ApplicationsService — feed", () => {
     const out = await svc.getFeed(WORKER_ID, 20, CTX);
     expect(out.jobs).toEqual([]);
     expect(events.emitMany).not.toHaveBeenCalled();
+  });
+
+  it("returns ALL open jobs regardless of city — the alpha feed is LIBERAL (no location filter, no drop)", async () => {
+    // Jobs spread across different cities: every one must come back, in order,
+    // proving the feed applies no location/city filter and drops nothing.
+    const acrossCities = [
+      { id: "b0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC" },
+      { id: "b0000000-0000-0000-0000-000000000002", tradeKey: "fitter", title: "T2", city: "Chennai", area: null },
+      { id: "b0000000-0000-0000-0000-000000000003", tradeKey: "welder", title: "T3", city: "Rajkot", area: "GIDC" },
+      { id: "b0000000-0000-0000-0000-000000000004", tradeKey: "vmc_setter", title: "T4", city: "Coimbatore", area: null },
+    ];
+    const { svc, repo, events } = setup({ openJobs: acrossCities });
+    const out = await svc.getFeed(WORKER_ID, 50, CTX);
+
+    // Every job returned (no drop), in the repository's deterministic order.
+    expect(out.jobs).toHaveLength(acrossCities.length);
+    expect(out.jobs.map((j) => j.job_id)).toEqual(acrossCities.map((j) => j.id));
+    expect(out.jobs.map((j) => j.city)).toEqual(["Pune", "Chennai", "Rajkot", "Coimbatore"]);
+    // The limit is passed straight through — no city/coords argument is invented.
+    expect(repo.findOpenJobs).toHaveBeenCalledWith(50);
+    // One impression per returned job (no dedupe, no filtering).
+    const batch = events.emitMany.mock.calls[0]![0] as unknown[];
+    expect(batch).toHaveLength(acrossCities.length);
+  });
+
+  it("carries the job's experience window, passing BOTH nulls through un-coerced", async () => {
+    // A missing window must stay null — NOT 0. A client reads [min ?? 0, max ??
+    // infinity], so coercing a null min to 0 would be lossless here but coercing a
+    // null max to 0 would collapse the window and hide the job from every band.
+    const { svc } = setup({ openJobs: OPEN_JOBS });
+    const out = await svc.getFeed(WORKER_ID, 20, CTX);
+
+    expect(out.jobs[0]).toMatchObject({ min_experience_years: 2, max_experience_years: 5 });
+    expect(out.jobs[1]!.min_experience_years).toBeNull();
+    expect(out.jobs[1]!.max_experience_years).toBeNull();
+  });
+
+  it("carries a HALF-OPEN window (min set, max null = open-ended) without inventing a ceiling", async () => {
+    const openEnded = [
+      { id: "c0000000-0000-0000-0000-000000000001", tradeKey: "welder", title: "T1", city: "Rajkot", area: null, minExperienceYears: 5, maxExperienceYears: null },
+    ];
+    const { svc } = setup({ openJobs: openEnded });
+    const out = await svc.getFeed(WORKER_ID, 20, CTX);
+
+    // '5+ yrs' jobs are stored as [5, null]; the null max means infinity, and the
+    // feed must not substitute a finite bound for it.
+    expect(out.jobs[0]).toMatchObject({ min_experience_years: 5, max_experience_years: null });
+  });
+
+  it("does NOT add the experience window to the feed.shown payload (no event change, no version bump)", async () => {
+    const { svc, events } = setup({ openJobs: OPEN_JOBS });
+    await svc.getFeed(WORKER_ID, 20, CTX);
+
+    // The payload contract stays exactly {worker_id, job_id, rank, score, hot} —
+    // this is a RESPONSE-only field, so the events spine is unchanged and
+    // feed.shown stays at version 1.
+    const batch = events.emitMany.mock.calls[0]![0] as Array<Record<string, unknown>>;
+    for (const e of batch) {
+      expect(Object.keys(e.payload as Record<string, unknown>).sort()).toEqual([
+        "hot",
+        "job_id",
+        "rank",
+        "score",
+        "worker_id",
+      ]);
+    }
   });
 });
 

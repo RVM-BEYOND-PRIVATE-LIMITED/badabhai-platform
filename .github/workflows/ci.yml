@@ -16,16 +16,16 @@ jobs:
     name: Node (lint / typecheck / test / build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install pnpm
         # No `version:` here on purpose — it would conflict with the
         # `packageManager` field in package.json (ERR_PNPM_BAD_PM_VERSION).
         # package.json's `packageManager: pnpm@11.5.2` is the single source.
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -67,10 +67,10 @@ jobs:
       run:
         working-directory: apps/ai-service
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -156,13 +156,13 @@ jobs:
       ZEPTOMAIL_MAIL_AGENT: ci-dummy-mail-agent
       EMAIL_FROM_ADDRESS: ci-dummy@example.test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm

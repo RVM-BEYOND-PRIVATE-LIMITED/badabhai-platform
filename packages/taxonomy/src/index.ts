@@ -88,3 +88,9 @@ export const getDomain = byId(DOMAINS);
 export const getRole = byId(ROLES);
 export const getSkill = byId(SKILLS);
 export const getMachine = byId(MACHINES);
+
+// ADR-0030 / TAX-2 — the canonical SKILL corpus + domain map + validators.
+export * from "./skill-corpus";
+
+// ADR-0030 / TAX-5 — PROPOSED vernacular wedge aliases (RVM ratification-gated).
+export * from "./wedge-aliases";

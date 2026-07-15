@@ -5,6 +5,53 @@ Newest day on top. Copy the template block each working day. Every % move needs 
 
 ---
 
+# Daily Tracker — 2026-07-15
+
+## BadaBhai Progress Snapshot
+- **No % moves** (cap rule: no staging/handset evidence added today)
+- **P0: 1** (staging past deadline) · Owner queue: ~~migration 0038 apply~~ **APPLIED today** · vernacular ratification (Q-A/Q-B) · SR-1 step-7 activation env · **Q14** (off-wedge résumé raw phrases — product)
+
+## Merged today
+| PR | What |
+| -- | ---- |
+| #225 | **TAX-5**: floor calibrated 0.82→0.75 on REAL vectors — precision 1.000; recall 0.800 ORACLE vs **0.350 shipped anchor-path** (both pinned by `pytest -k wedge`); 22 vernacular aliases PROPOSED (RVM gate) |
+| #226 | **TAX-6**: job side shares the skill id space (`skill_phrases`/`skill_ids`, migration 0038 — **applied by owner same day**); review M1/M2/M3 fixed (parallel-bounded canonicalize, widened RANK lock, outage backfill retry) |
+| #227 | **TAX-8**: off-wedge résumé guard locked (canonicalization can't raise into résumés); raw-phrase gap → Q14 |
+| #229 | Register/tracker sync to #225–#227 |
+| #230 | **TAX-7**: growth loop — `/growth/cluster` (pure compute, SG-5: NO id minted) + `db:growth:cluster` runner (sanitized human packet, `--apply`/`--reopen-clustered` status machine, PARTIAL-embed refusal, mock-persist guard). Adversarial review: 13 raised / 9 confirmed **fixed in-PR** (markdown-injection HIGH, one-way-door HIGH) / 4 refuted; TD67 logged (ai-service-wide auth posture) |
+| #232 | **TAX-9 — SERIES COMPLETE**: `skill.replaced_by` crosswalk (migration **0039 — owner apply pending**), corpus-homed state machine (reactivation-safe seed), `/skills/retag-plan` + `db:retag:skills` (dry-run default; ids-only audit report). Review: 13 raised / 8 **fixed in-PR** (headline: the jsonb `?|` discovery query was UNEXECUTABLE under drizzle — caught before any run; DB-derived SG-5 gate; cycle-safe alias moves; seed deadlock live-repro'd) / 5 refuted |
+
+## Notes
+- Root-caused yesterday's "CI dispatch stall": #226 went CONFLICTING after #225 merged — GitHub silently skips PR workflows when the merge ref can't build. Not a billing/incident issue.
+- ADR-0030 series: **COMPLETE — TAX-0..9 all merged** (#211–#232). Owner queue gains: apply migration 0039.
+- New ops capability (dormant until queue volume): `pnpm db:growth:cluster` — proposals land in `docs/registers/skill-growth-proposals.md`, activation stays human-only via the ratification flow.
+
+---
+
+# Daily Tracker — 2026-07-14
+
+## BadaBhai Progress Snapshot
+- **Overall Project: 75%** · **Alpha Readiness: 58%** · **Release Readiness: 29%** — **NO % moves** (code breadth grew again, but the evidence posture is unchanged: no staging, no handset proof; the cap rule holds)
+- **P0: 1** (staging PAST DEADLINE — 10 days) · **P1: 2** (TD62 consent-routing before handset GA; unlock/reveal LC-1 residual)
+- **Decisions:** D9 (ADR-0030 accepted) + D10 (fork-B runner) DECIDED 2026-07-14 — see [DECISION_LOG](DECISION_LOG.md)
+
+## Merged since 2026-07-10 (code catch-up — verification posture unchanged)
+| PRs | What landed |
+| --- | ----------- |
+| #193–#196 | ai-contracts parity tests; payer-web all-seams-live (LC-1 closed on main); interview-kit read routes; worker self profile-summary |
+| #197–#199 | auth throttle residuals (TD25 trust-proxy, TD60 per-phone OTP daily cap); voice pipeline end-to-end (ADR-0029, mock STT, DORMANT until bucket); register sync |
+| #201–#202 | worker-app kPersistentAuth ON (W1) + payer P1/P2/P3/P5 REAL mode; TD61/TD62 logged |
+| #203–#210 | AI cost/persona series: PERSONA-1/2 (bada-bhai voice + {{worker_name}} seam), COST-2 (prompt caching), COST-3 (stateless turns), COST-4 (templated questions, LLM-skip straight path) |
+| #211–#215 | **ADR-0030 skills taxonomy TAX-0..4**: ADR accepted; skill/skill_alias/unresolved_phrase (migration 0037, applied); curated ESCO/O\*NET/NCO corpus + `db:seed:skills`; mock-default embeddings (pseudonymize-first); `canonicalize_skill` floor-gated (flag OFF, TD65) |
+| #216–#218 | worker-app liberal jobs feed (concurrent session); TAX-5..9 roadmap pinned; **CI-1** Node-24 action bumps + Dependabot (0 deprecation annotations verified) |
+| #219 (open) | fork-B embed runner + `POST /embeddings/skill-alias` — in adversarial review |
+
+## Blockers
+- **P0 staging unchanged** — nothing above adds runtime proof; the alpha gap remains verification + staging, not code.
+- New launch gates logged: **TD64** (embed spend outside SpendLedger — precondition for the §7 staging embed run) · **TD65** (SKILL_CANONICALIZE_ENABLED stays OFF until staging verify + TAX-5 calibration).
+
+---
+
 # Daily Tracker — 2026-07-10
 
 ## BadaBhai Progress Snapshot

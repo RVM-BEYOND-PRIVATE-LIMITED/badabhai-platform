@@ -30,16 +30,23 @@ class TaskRoute:
 
 # Routing rules per the Phase-1 spec.
 _ROUTES: dict[str, TaskRoute] = {
-    # High-volume chat: cheap model, short + warm. The persona MUST return strict
-    # JSON ({"message", "ready_to_extract"}), so json_mode is ON — without it the
-    # model writes a chatty prose preamble BEFORE the JSON and intermittently
-    # exhausts the token budget (MAX_TOKENS -> empty/truncated candidate -> the
-    # whole turn fails over to the fallback). json_mode forces a pure JSON object
-    # (the warm reaction lives INSIDE "message"); 512 tokens give a comfortable
-    # margin for a Hinglish line; one retry smooths a transient blip before the
-    # router escalates to the next provider.
+    # High-volume chat: cheap model, short + efficient. The persona MUST return
+    # strict JSON ({"message", "ready_to_extract"}), so json_mode is ON — without
+    # it the model writes a chatty prose preamble BEFORE the JSON and
+    # intermittently exhausts the token budget (MAX_TOKENS -> empty/truncated
+    # candidate -> the whole turn fails over to the fallback). json_mode forces a
+    # pure JSON object (the reply lives INSIDE "message"). The mentor persona caps
+    # a turn at a 2-word ack + one <=20-word question, so 48 output tokens is
+    # ~80% cheaper per turn than the old 512 (COST-1); low temperature 0.3 keeps
+    # the terse voice on-rails; one retry smooths a transient blip before the
+    # router escalates to the next provider. NOTE: 48 is sized for the SHIPPED
+    # mock path (no real call → cap unused). Before enabling real
+    # profiling_chat_turn, validate the headroom against a live Gemini tokenizer:
+    # the JSON envelope (~12-15 tok) + a worst-case 20-word Hinglish line (subword
+    # splits ~2 tok/word) can approach the cap → MAX_TOKENS → graceful mock
+    # fallback (never a leak). Raise the cap then if it bites.
     "profiling_chat_turn": TaskRoute(
-        "profiling_chat_turn", "cheap", max_output_tokens=512, temperature=0.6,
+        "profiling_chat_turn", "cheap", max_output_tokens=48, temperature=0.3,
         json_mode=True, max_retries=1,
     ),
     # Extraction: capable model, strict JSON, retries allowed.
@@ -90,7 +97,56 @@ _MODEL_RATES_INR: dict[str, tuple[float, float]] = {
     # Claude Haiku 4.5 (fallback provider): $1/1M in, $5/1M out ~= Rs 0.083 in /
     # Rs 0.415 out per 1k at ~Rs 83/USD.
     "claude-haiku-4-5": (0.083, 0.415),
+    # Gemini text-embedding-004 (ADR-0030 skill_embedding, TAX-3): embeddings bill input
+    # only (~$0.15/1M ~= Rs 0.0125/1k at ~Rs 83/USD; output tokens do not exist). Without
+    # this entry the batch estimate fell back to _DEFAULT_RATE_INR (~4x too high).
+    "text-embedding-004": (0.0125, 0.0),
+    # gemini-embedding-001 — the LIVE embedding model (text-embedding-004 retired; verified
+    # 2026-07-14). Same $0.15/1M-input list price ~= Rs 0.0125/1k; embeddings have no output.
+    "gemini-embedding-001": (0.0125, 0.0),
 }
+
+
+# --- Prompt-cache thresholds (COST-2) --------------------------------------
+# Providers bill cached input at ~10% of the normal rate, but they ONLY cache a
+# system block that clears a minimum size — a smaller block is silently ignored,
+# so a cache directive on it is a pure no-op. Before adding a directive we check
+# the STATIC block against these minimums and otherwise emit a skip diagnostic.
+#
+# Sources read 2026-07-14 (update HERE if a provider changes them — do not scatter
+# the number):
+#   - Anthropic prompt caching min = 4096 tokens for Claude Haiku 4.5 (our fallback
+#     provider); 1024 for most models, 2048 for Haiku 3/3.5.
+#     https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+#   - Gemini 2.5 Flash IMPLICIT caching (automatic, no request change — the ONLY
+#     Gemini mechanism this file reasons about) applies from ~1024 tokens. Gemini
+#     EXPLICIT cachedContent (a separate resource, DEFERRED) has a higher 2048-token
+#     floor (2.5 Flash) / is the 2.5 Pro figure. We gate the Gemini diagnostic on the
+#     IMPLICIT floor, since that is what actually caches today.
+#     https://ai.google.dev/gemini-api/docs/caching
+#
+# NOTE (honest state): after AI-PERSONA-1 trimmed the persona, BADA_BHAI_SYSTEM_PROMPT
+# is ~200 tokens — far below every minimum here — so caching is a no-op today and the
+# guard takes the skip-diagnostic path. It arms automatically if the prompt ever grows.
+ANTHROPIC_CACHE_MIN_TOKENS = 4096
+# Gemini 2.5 Flash implicit-cache floor (what _gemini_cache_diagnostic checks).
+GEMINI_CACHE_MIN_TOKENS = 1024
+# Deferred: the explicit cachedContent lifecycle would gate on this higher floor.
+GEMINI_EXPLICIT_CACHE_MIN_TOKENS = 2048
+
+
+def should_cache_system(system_text: str, min_tokens: int) -> bool:
+    """True iff the static system block is large enough to clear a provider's
+    prompt-cache minimum (else a cache directive is a silent no-op).
+
+    Uses the shared token ESTIMATE (~chars/4); a wrong guess only means we skip an
+    ineffective cache, never a correctness or privacy issue. SG-1: only the STATIC
+    persona/extraction prompt is ever passed here — never a worker message or name,
+    so nothing PII-bearing is ever marked cacheable. Imported lazily to avoid a
+    module cycle (cost_tracker imports this module)."""
+    from .cost_tracker import estimate_tokens
+
+    return estimate_tokens(system_text) >= min_tokens
 
 
 def provider_for_model(model: str) -> str:

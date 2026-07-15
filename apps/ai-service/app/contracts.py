@@ -6,9 +6,10 @@ sync. PRIVACY: these never carry raw identity (no phone, name, address, employer
 
 from __future__ import annotations
 
+import math
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # --- Conversation ----------------------------------------------------------
@@ -186,6 +187,207 @@ class WorkerProfileDraft(BaseModel):
     # adjacent rather than silently half-empty. Additive (default None). Advisory
     # ONLY — never used to rank/reject a worker. Mirrors the Zod contract.
     unmatchable_reason: str | None = None
+
+
+# --- Skill canonicalization (ADR-0030 / TAX-4) -----------------------------
+class SkillCanonicalizationInput(BaseModel):
+    """One skill phrase to canonicalize within a domain. ``phrase`` is a skill LABEL the
+    extraction proposed; it is pseudonymized before the embed regardless (SG-2)."""
+
+    phrase: str
+    domain_id: str
+    lang: str = "en"
+
+
+class SkillCanonicalization(BaseModel):
+    """Canonicalization outcome: either an ASSIGNED ``skill_id`` (top match >= floor) or
+    UNRESOLVED. Carries NO PII. SG-3 / LLM-never-invents: ``skill_id`` is None unless the
+    vector layer assigned it. Mirrors ``SkillCanonicalizationSchema`` in ai-contracts."""
+
+    status: Literal["matched", "unresolved"]
+    skill_id: str | None = None
+    score: float | None = None
+
+
+# --- Skill-alias embedding batch (ADR-0030 / TAX-3 fork-B runner seam) ------
+class SkillAliasEmbedItem(BaseModel):
+    """One alias to embed. ``text`` is reference vocabulary (no worker PII by design)
+    and is STILL pseudonymized before any embed (SG-2)."""
+
+    alias_id: str
+    text: str
+
+
+class SkillAliasEmbedInput(BaseModel):
+    """A batch from the db-side runner (packages/db embed-skill-aliases.ts — the
+    owner-chosen fork-B: DB read/write stays on the runner, this service stays DB-free).
+    Capped so one request never smuggles an unbounded corpus."""
+
+    items: list[SkillAliasEmbedItem] = Field(max_length=200)
+
+
+class SkillAliasEmbedResult(BaseModel):
+    """``vector`` is None iff the text was blocked (fail-closed) — the runner leaves
+    that row NULL and excludes it from later fetches this run."""
+
+    alias_id: str
+    vector: list[float] | None = None
+    blocked: bool = False
+
+
+class SkillAliasEmbedOutput(BaseModel):
+    """``results`` may be SHORTER than ``items``: an item is OMITTED when the request's
+    real-spend budget stopped (``budget_stopped``) or its provider call errored
+    (counted in ``errors``) — those rows stay NULL on the runner side and a later run
+    resumes them. Already-paid embeds in the same request are always returned."""
+
+    results: list[SkillAliasEmbedResult]
+    is_mock: bool = True
+    model: str
+    # True when the per-request INR ceiling (ai_max_call_cost_inr) stopped the real batch
+    # early (TD64 interim guard — enforced HERE, on the path the runner actually hits).
+    budget_stopped: bool = False
+    # Per-item real-provider failures skipped (item omitted; batch continues).
+    errors: int = 0
+    # Accumulated estimate for THIS request's real embeds (0.0 on the mock path).
+    estimated_cost_inr: float = 0.0
+
+
+# --- Growth-loop clustering (ADR-0030 / TAX-7 — pure compute, human-gated) --
+_GROWTH_VECTOR_DIM = 768  # the house embedding dimension (mirrors skill_alias/worker_profiles)
+
+
+def _validate_growth_vector(vec: list[float]) -> list[float]:
+    """Exactly the 768 house dim and finite — a foreign-dim or NaN/inf vector would
+    silently poison every cosine in the batch. On the MODEL (not just the batch input)
+    so a standalone GrowthPhrase/GrowthAnchor holds the same guarantee as the Zod mirror."""
+    if len(vec) != _GROWTH_VECTOR_DIM:
+        raise ValueError(f"vector must be {_GROWTH_VECTOR_DIM}-dim (got {len(vec)})")
+    if not all(math.isfinite(v) for v in vec):
+        raise ValueError("vector contains a non-finite value")
+    return vec
+
+
+class GrowthPhrase(BaseModel):
+    """One OPEN ``unresolved_phrase`` row. ``phrase`` is ALREADY pseudonymized at rest
+    (SG-1); the growth endpoint never logs it and never sends it to an LLM."""
+
+    id: str
+    phrase: str
+    count: int = Field(ge=1)
+    vector: list[float]
+
+    @field_validator("vector")
+    @classmethod
+    def _check_vector(cls, vec: list[float]) -> list[float]:
+        return _validate_growth_vector(vec)
+
+
+class GrowthAnchor(BaseModel):
+    """One embedded ``skill_alias`` row — the CLOSED id space cluster centroids are
+    compared against. An anchor ``skill_id`` is the ONLY id a proposal may carry (SG-3)."""
+
+    skill_id: str
+    vector: list[float]
+
+    @field_validator("vector")
+    @classmethod
+    def _check_vector(cls, vec: list[float]) -> list[float]:
+        return _validate_growth_vector(vec)
+
+
+class GrowthClusterInput(BaseModel):
+    """A per-domain batch from the db-side growth runner (fork-B pattern). Capped so one
+    request never smuggles an unbounded queue; ``None`` params fall back to Settings.
+    Vector hygiene (768-dim, finite) is enforced on GrowthPhrase/GrowthAnchor."""
+
+    domain_id: str
+    phrases: list[GrowthPhrase] = Field(max_length=500)
+    anchors: list[GrowthAnchor] = Field(max_length=5000)
+    min_cluster_size: int | None = Field(default=None, ge=1)
+    min_total_count: int | None = Field(default=None, ge=1)
+    cluster_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    band_low: float | None = Field(default=None, ge=0.0, le=1.0)
+    floor: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class GrowthProposal(BaseModel):
+    """One human-gated proposal. ``kind=alias`` → ``skill_id`` is set and is ALWAYS one of
+    the request's anchors (SG-3). ``kind=provisional_skill`` → ``skill_id`` is None: NO id
+    is minted here (SG-5) — creating one is a human taxonomy decision. ``nearest_*`` are
+    diagnostics for the reviewer on both kinds. Carries no PII (phrases are SG-1 text)."""
+
+    kind: Literal["alias", "provisional_skill"]
+    skill_id: str | None = None
+    leader_phrase: str
+    member_ids: list[str]
+    member_phrases: list[str]
+    total_count: int
+    nearest_skill_id: str | None = None
+    nearest_score: float | None = None
+    note: str | None = None
+
+
+class GrowthClusterOutput(BaseModel):
+    """Report-only output — the runner renders it into the proposals packet; the existing
+    ratification flow is the ONLY activation path."""
+
+    proposals: list[GrowthProposal]
+    phrases_in: int
+    clusters_total: int
+    clusters_eligible: int
+    skipped_below_guards: int
+
+
+# --- Offline skill re-tag plan (ADR-0030 / TAX-9 — pure compute, dry-run first) ---
+class RetagCrosswalkEntry(BaseModel):
+    """One ``skill.replaced_by`` edge: a DEPRECATED id and its immutable successor."""
+
+    deprecated_id: str
+    replaced_by: str
+
+
+class RetagRow(BaseModel):
+    """One stored row to plan against. ``row_ref`` is an OPAQUE row uuid — no PII."""
+
+    row_ref: str
+    skill_ids: list[str] = Field(max_length=100)
+
+
+class RetagPlanInput(BaseModel):
+    """A batch from the db-side retag runner (fork-B pattern; caps bound one request)."""
+
+    crosswalk: list[RetagCrosswalkEntry] = Field(max_length=1000)
+    rows: list[RetagRow] = Field(max_length=5000)
+
+
+class RetagResolvedEntry(BaseModel):
+    """A crosswalk edge resolved to its TERMINAL id (chains A→B→C collapse; ``hops`` =
+    edges walked). SG-5: terminal ids come from the caller-supplied crosswalk only."""
+
+    deprecated_id: str
+    terminal_id: str
+    hops: int
+
+
+class RetagChange(BaseModel):
+    """One row whose ids change: ``after`` = crosswalk-mapped + first-seen de-duplicated.
+    Rows the crosswalk does not touch are never listed (no dedup-only rewrites)."""
+
+    row_ref: str
+    before: list[str]
+    after: list[str]
+
+
+class RetagPlanOutput(BaseModel):
+    """The dry-run plan. ``dropped`` = crosswalk ids on a CYCLE — fail-safe, not
+    re-tagged, fix the corpus. The runner applies ``changes`` only under ``--apply``."""
+
+    resolved: list[RetagResolvedEntry]
+    dropped: list[str]
+    changes: list[RetagChange]
+    rows_in: int
+    rows_changed: int
 
 
 # --- Profile extraction ----------------------------------------------------

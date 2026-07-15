@@ -1,0 +1,179 @@
+"""Permanent persona-neutrality regression net (AI-PERSONA-1).
+
+The profiling bot must sound like an efficient senior, not a gushing one. This
+locks the WORKER-FACING output strings — the interview questions, the
+acknowledgement, the wrap-up, the follow-up nudges, the extractor clarifications,
+and the CLI's own copy — against every banned vocative, gush token, and tum-form,
+and caps each question at 20 words.
+
+Two subtleties this test bakes in on purpose:
+
+- The persona is NAMED "Bada Bhai", so the proper noun legitimately appears in
+  worker-facing copy (the bot introduces itself). We strip the bigram "Bada Bhai"
+  before scanning, so the brand name is exempt but a bare "bhai" VOCATIVE is not.
+- The SYSTEM PROMPTS must literally list the banned words to forbid them, so they
+  are checked differently: we assert they ENFORCE the rules (mandate "aap", cap
+  the words, forbid praise/restating) rather than that they are free of the words
+  they ban.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+
+from app.ai.model_config import get_route
+from app.cli import onboarding_chat
+from app.profiling import interview_engine, prompts
+from app.profiling.profile_extractor import _CLARIFY
+from app.profiling.question_bank import topics_for
+
+# Banned in any worker-facing line (checked AFTER stripping the "Bada Bhai" brand).
+_BANNED_VOCATIVE = ("bhai", "bhaiya", "beta", "behen", "yaar")
+_BANNED_INFORMAL = ("tu", "tum")  # whole word only
+_BANNED_GUSH = ("waah", "zabardast", "bahut acha", "bahut accha", "bilkul", "shabaash")
+_BANNED_TUMFORM = ("karte ho", "karoge", "karna pasand karoge")
+
+_BRAND = re.compile(r"bada\s+bhai", re.IGNORECASE)
+
+
+def _strip_brand(text: str) -> str:
+    """Remove the proper-noun 'Bada Bhai' so the brand name never trips the
+    vocative scan (only a bare 'bhai' addressed AT the worker is banned)."""
+    return _BRAND.sub("", text)
+
+
+def _has_word(text: str, word: str) -> bool:
+    return re.search(rf"\b{re.escape(word)}\b", text, re.IGNORECASE) is not None
+
+
+def _worker_facing_strings() -> dict[str, str]:
+    """Every string the WORKER reads as the bot's own words."""
+    out: dict[str, str] = {}
+    for topic in topics_for("cnc_vmc"):
+        out[f"question:{topic.id}"] = topic.question
+    out["ack"] = interview_engine._ACK
+    out["wrap_up"] = interview_engine._WRAP_UP
+    for i, f in enumerate(interview_engine.suggested_followups("cnc_vmc")):
+        out[f"followup:{i}"] = f
+    for field, q in _CLARIFY.items():
+        out[f"clarify:{field}"] = q
+    # The CLI's own worker-facing copy (a separate model-driven path).
+    out["cli_intro"] = onboarding_chat._INTRO
+    out["cli_mock_message"] = json.loads(onboarding_chat._CHAT_MOCK_JSON)["message"]
+    return out
+
+
+def test_no_worker_facing_string_contains_a_banned_token():
+    for name, raw in _worker_facing_strings().items():
+        scanned = _strip_brand(raw)
+        low = scanned.lower()
+        for w in _BANNED_VOCATIVE:
+            assert not _has_word(scanned, w), f"{name}: banned vocative {w!r} in {raw!r}"
+        for w in _BANNED_INFORMAL:
+            assert not _has_word(scanned, w), f"{name}: informal {w!r} in {raw!r}"
+        for g in _BANNED_GUSH:
+            assert g not in low, f"{name}: gush {g!r} in {raw!r}"
+        for tf in _BANNED_TUMFORM:
+            assert tf not in low, f"{name}: tum-form {tf!r} in {raw!r}"
+
+
+def test_every_interview_question_is_under_20_words():
+    for topic in topics_for("cnc_vmc"):
+        n = len(topic.question.split())
+        assert n <= 20, f"{topic.id} question is {n} words: {topic.question!r}"
+
+
+def test_clarify_and_followup_questions_are_under_20_words():
+    for field, q in _CLARIFY.items():
+        assert len(q.split()) <= 20, f"clarify {field}: {q!r}"
+    for f in interview_engine.suggested_followups("cnc_vmc"):
+        assert len(f.split()) <= 20, f"followup: {f!r}"
+
+
+def test_ack_is_at_most_two_words():
+    assert len(interview_engine._ACK.split()) <= 2, interview_engine._ACK
+
+
+def test_system_prompts_enforce_the_neutrality_rules():
+    # These are INSTRUCTIONS: they must name the banned words to forbid them, so
+    # we assert they ENFORCE the persona rather than that they are token-free.
+    for label, p in (
+        ("engine", prompts.BADA_BHAI_SYSTEM_PROMPT.lower()),
+        ("cli", onboarding_chat._CHAT_SYSTEM_PROMPT.lower()),
+    ):
+        assert "aap" in p, label
+        assert "20 word" in p, label
+        assert "gender" in p, label  # "Never assume gender"
+        assert "bhai" in p, label  # names the banned vocatives in a NEVER clause
+        assert "waah" in p, label  # names the banned gush tokens
+        assert "praise" in p or "gush" in p, label
+
+
+def test_chat_turn_instruction_is_capped_and_forbids_praise():
+    msgs = prompts.build_chat_messages([], "Kitne saal ka experience hai?", "vmc operator")
+    instr = msgs[-1]["content"].lower()
+    assert "20 word" in instr
+    assert "no praise" in instr
+    assert "restate" in instr
+    assert "waah" in instr
+
+
+_PLACEHOLDER = interview_engine.WORKER_NAME_PLACEHOLDER  # "{{worker_name}}"
+
+_FULL_ANSWER = (
+    "vmc operator, 4 saal, setting aur drawing reading karta hu, "
+    "faridabad me hu pune chalega"
+)
+
+
+def test_default_emits_placeholder_token_at_open_and_close_never_a_real_name():
+    # AI-PERSONA-2 (SG-1): the ai-service NEVER emits a real name — only the
+    # {{worker_name}} TOKEN, at the OPEN (turn 1 / first_question) and CLOSE only.
+    # The real name is interpolated downstream in NestJS, post-emit.
+    _tid, opening = interview_engine.first_question("cnc_vmc")
+    assert opening.startswith(f"{_PLACEHOLDER} ji, ")
+
+    open_turn, asked_open, _st, ready_open = interview_engine.next_turn(None, "namaste", "cnc_vmc")
+    assert ready_open is False and asked_open is not None
+    assert open_turn.startswith(f"{_PLACEHOLDER} ji, ")  # turn 1 = open slot
+
+    close, asked_close, _st2, ready_close = interview_engine.next_turn(
+        None, _FULL_ANSWER, "cnc_vmc"
+    )
+    assert ready_close is True and asked_close is None
+    assert close.startswith(f"{_PLACEHOLDER} ji, ")
+
+    # A MID-interview ack turn (turn >= 2) carries NO vocative — ack only.
+    _r1, _a1, st1, _rd1 = interview_engine.next_turn(None, "namaste", "cnc_vmc")  # turn 1
+    mid, mid_asked, _st3, mid_ready = interview_engine.next_turn(
+        st1, "cnc turner hoon", "cnc_vmc"
+    )  # turn 2
+    assert mid_ready is False and mid_asked is not None
+    assert _PLACEHOLDER not in mid and "ji," not in mid
+    assert mid.startswith("Theek hai.")
+
+
+def test_worker_name_none_opts_out_of_the_vocative_cleanly():
+    # Explicit opt-out: no vocative, and no stray token left behind.
+    _tid, opening = interview_engine.first_question("cnc_vmc", worker_name=None)
+    assert "ji," not in opening and _PLACEHOLDER not in opening
+
+    close, _asked, _st, ready = interview_engine.next_turn(
+        None, _FULL_ANSWER, "cnc_vmc", worker_name=None
+    )
+    assert ready is True
+    assert "ji," not in close and _PLACEHOLDER not in close
+
+
+def test_explicit_name_still_renders_but_no_production_caller_passes_one():
+    # The param still accepts a literal name (used only by tests); production
+    # callers rely on the placeholder default, so no real name is ever emitted.
+    _tid, opening = interview_engine.first_question("cnc_vmc", worker_name="Nitin")
+    assert opening.startswith("Nitin ji, ")
+
+
+def test_profiling_chat_turn_output_is_capped_for_cost():
+    route = get_route("profiling_chat_turn")
+    assert route.max_output_tokens == 48
+    assert route.temperature == 0.3

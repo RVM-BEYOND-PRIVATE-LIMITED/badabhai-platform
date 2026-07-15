@@ -373,16 +373,15 @@ class _ShellScaffoldState extends State<_ShellScaffold> {
 
   @override
   Widget build(BuildContext context) {
-    final StatefulNavigationShell shell = widget.shell;
     return Scaffold(
-      body: shell,
+      body: widget.shell,
       bottomNavigationBar: ValueListenableBuilder<int>(
         valueListenable: locator<NotificationsRepository>().unreadCount,
         builder: (BuildContext context, int unread, Widget? _) => BbBottomNav(
-          currentIndex: shell.currentIndex,
+          currentIndex: widget.shell.currentIndex,
           // Re-tapping the active tab resets it to its branch root.
-          onTap: (int i) =>
-              shell.goBranch(i, initialLocation: i == shell.currentIndex),
+          onTap: (int i) => widget.shell
+              .goBranch(i, initialLocation: i == widget.shell.currentIndex),
           alertsUnread: unread,
         ),
       ),

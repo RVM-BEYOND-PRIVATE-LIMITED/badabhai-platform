@@ -40,6 +40,17 @@ export const WorkerNameRecordedPayload = z.object({
   worker_id: uuidSchema,
 });
 
+// The worker updated their resume display prefs on the "Aap control karte hain"
+// edit screen. PII-FREE: only worker_id + the two boolean flags — never the
+// name/phone/photo. Carries the RESULTING values (post-update) of both flags.
+export const WorkerResumePrefsUpdatedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    show_photo: z.boolean(),
+    night_shift_ready: z.boolean(),
+  })
+  .strict(); // no extra fields — a stray name/phone can never ride along (§2)
+
 // ADR-0026 Phase 1 — opaque rotating refresh token reuse detection. A previously
 // USED refresh token was replayed (token theft / a leaked token re-presented) ⇒ the
 // whole token FAMILY is revoked and the worker is forced back to OTP. PII-FREE: the
@@ -656,6 +667,9 @@ const JOB_POSTING_CHANGED_FIELDS = [
   "description",
   "vacancy_band",
   "status",
+  // ADR-0030 / TAX-6 (ADDITIVE enum member): the posting's skill inputs changed
+  // (names only — the PHRASES/ids never enter the payload).
+  "skills",
 ] as const;
 
 /**
@@ -1509,3 +1523,20 @@ export const AdminKillSwitchPauseRequestedPayload = z
 export type AdminKillSwitchPauseRequestedPayload = z.infer<
   typeof AdminKillSwitchPauseRequestedPayload
 >;
+
+/**
+ * A skill phrase missed the canonicalization confidence floor and was recorded to the
+ * `unresolved_phrase` growth queue (ADR-0030 / FORK-B-1 seam A). PII-FREE BY CONSTRUCTION:
+ * the phrase itself (already pseudonymized, SG-1) is NOT carried — only its sha256 hex
+ * `phrase_hash` (correlate-able, never reversible), the skill domain, the language tag,
+ * and the row's occurrence `count` after the upsert. `.strict()` blocks smuggling the text.
+ */
+export const SkillPhraseUnresolvedPayload = z
+  .object({
+    phrase_hash: z.string().regex(/^[0-9a-f]{64}$/),
+    domain_id: z.string().min(1),
+    lang: z.string().min(2).max(8),
+    count: z.number().int().positive(),
+  })
+  .strict();
+export type SkillPhraseUnresolvedPayload = z.infer<typeof SkillPhraseUnresolvedPayload>;

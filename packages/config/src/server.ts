@@ -109,6 +109,14 @@ export const serverEnvSchema = z.object({
   // (R8/TD10). The ops console reads resumes via /workers/:id/profile and is unaffected.
   INTERNAL_SERVICE_TOKEN: z.string().min(1).optional(),
 
+  // SCOPED service secret for the FORK-B-1 skill-canonicalization seam ONLY
+  // (POST /internal/skills/nearest-aliases + /unresolved — SkillsInternalGuard).
+  // DELIBERATELY distinct from INTERNAL_SERVICE_TOKEN (least privilege): the
+  // ai-service holds THIS token and can reach nothing but the two skills routes —
+  // never the resume-PII or money routes. Unset => the skills routes deny ALL
+  // callers (fail closed). Treat as a secret.
+  SKILLS_INTERNAL_TOKEN: z.string().min(1).optional(),
+
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER
   // touches the database. Dev defaults keep local boot/tests working; production

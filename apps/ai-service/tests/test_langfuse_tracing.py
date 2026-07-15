@@ -17,7 +17,7 @@ def test_trace_is_noop_and_never_raises_when_disabled():
         model="gemini-flash-lite",
         real_call=False,
         input_text="[CITY_1] me vmc operator",
-        output_text="Badhiya bhai.",
+        output_text="Theek hai.",
         metadata={"estimated_cost_inr": 0.0},
     )
 

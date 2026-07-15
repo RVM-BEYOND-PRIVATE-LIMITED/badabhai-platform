@@ -73,6 +73,9 @@ const LOCKED_TABLES = [
   "worker_credentials", // ADR-0026 Phase 2 (schema only; PIN backend = Phase 3): device-unlock pin_hash + throttle state (secret-derived credential); RLS+FORCE+REVOKE in migration 0029
   "payer_orgs", // ADR-0027 (B5.1): shared-org tenant root; org name = name_enc ciphertext; RLS+FORCE+REVOKE in migration 0035
   "payer_members", // ADR-0027 (B5.1): org membership; email_enc/email_hash (TD21) + invite_token_hash; RLS+FORCE+REVOKE in migration 0035
+  "skill", // ADR-0030/TAX-1: canonical skill vocabulary (reference data); RLS+FORCE+REVOKE in migration 0037
+  "skill_alias", // ADR-0030/TAX-1: embedded aliases + vector(768) (reference data); RLS+FORCE+REVOKE in migration 0037
+  "unresolved_phrase", // ADR-0030/TAX-1: below-floor growth queue — PSEUDONYMIZED phrase + count, NO worker_id; RLS+FORCE+REVOKE in migration 0037
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

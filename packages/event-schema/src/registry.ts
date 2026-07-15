@@ -23,6 +23,11 @@ export const EVENT_REGISTRY = {
   "worker.otp_requested": { version: 1, domain: "worker", payload: p.WorkerOtpRequestedPayload },
   "worker.otp_verified": { version: 1, domain: "worker", payload: p.WorkerOtpVerifiedPayload },
   "worker.name_recorded": { version: 1, domain: "worker", payload: p.WorkerNameRecordedPayload },
+  "worker.resume_prefs_updated": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerResumePrefsUpdatedPayload,
+  },
   // ADR-0026 Phase 1 — opaque rotating-refresh-token reuse detection + logout-all.
   // PII-FREE: opaque worker/family ids + a count only (never the refresh token value
   // or its sha256, never a phone). Routine token rotation is NOT emitted (it is not a
@@ -381,6 +386,14 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "admin",
     payload: p.AdminKillSwitchPauseRequestedPayload,
+  },
+  // ADR-0030 / FORK-B-1 (seam A): a below-floor skill phrase was recorded to the
+  // unresolved_phrase growth queue. Hash-only (never the text — even pseudonymized),
+  // domain + lang + post-upsert count. v1.
+  "skill.phrase_unresolved": {
+    version: 1,
+    domain: "skill",
+    payload: p.SkillPhraseUnresolvedPayload,
   },
 } as const satisfies Record<string, EventDefinition>;
 

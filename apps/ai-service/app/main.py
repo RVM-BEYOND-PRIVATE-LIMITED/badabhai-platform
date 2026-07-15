@@ -11,16 +11,24 @@ Langfuse tracing all live behind ``app.ai.router.AIRouter``.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from fastapi import FastAPI
 
 from .ai import cost_tracker
+from .ai.canonicalize import canonicalize_labels, canonicalize_skill
+from .ai.embeddings import EMBEDDING_TASK_TYPE, MOCK_MODEL, embed_text
+from .ai.growth import growth_cluster
+from .ai.model_config import rate_inr_per_1k
+from .ai.retag import plan_retag
 from .ai.router import AIRouter
+from .ai.skill_store import get_skill_store
 from .config import get_settings
 from .contracts import (
-    ConversationMessage,
     DraftProfile,
+    GrowthClusterInput,
+    GrowthClusterOutput,
     ProfileExtractionInput,
     ProfileExtractionOutput,
     ProfilingTurnInput,
@@ -30,6 +38,13 @@ from .contracts import (
     PseudonymizationOutput,
     ResumeGenerationInput,
     ResumeGenerationOutput,
+    RetagPlanInput,
+    RetagPlanOutput,
+    SkillAliasEmbedInput,
+    SkillAliasEmbedOutput,
+    SkillAliasEmbedResult,
+    SkillCanonicalization,
+    SkillCanonicalizationInput,
     TranscriptionInput,
     TranscriptionOutput,
     WorkerProfileDraft,
@@ -128,6 +143,159 @@ def pseudonymize_endpoint(body: PseudonymizationInput) -> PseudonymizationOutput
     )
 
 
+@app.post("/embeddings/skill-alias", response_model=SkillAliasEmbedOutput)
+def embed_skill_aliases(body: SkillAliasEmbedInput) -> SkillAliasEmbedOutput:
+    """ADR-0030 fork-B seam: the db-side runner (packages/db/src/embed-skill-aliases.ts,
+    owner connection) POSTs alias-text batches; this service embeds and returns vectors —
+    the DB read/write stays on the runner so the ai-service remains DB-free.
+
+    SG-2: every text is pseudonymized before the embed (inside ``embed_text``, fail-closed
+    → ``vector=None, blocked=True`` and the runner leaves that row NULL). SG-4: mock by
+    default (zero spend); the real provider additionally needs the master flag + key +
+    the ``skill_embedding`` task allowlist. Never logs alias text.
+
+    REAL-path guards (TD64 interim — enforced HERE, on the path the runner actually
+    hits; the SpendLedger reserve/record wiring stays the §7 staging precondition):
+    - Per-request INR ceiling: real-embed cost is accumulated UNROUNDED per item
+      (alias texts are ~3-token strings whose individually-rounded estimate is 0.0)
+      against ``ai_max_call_cost_inr``; on breach the batch STOPS, remaining items are
+      OMITTED (rows stay NULL — a later run resumes), ``budget_stopped=True``.
+    - Per-item failure isolation: one provider error skips THAT item (counted in
+      ``errors``) instead of 500ing the request and discarding already-paid embeds.
+    """
+    settings = get_settings()
+    is_mock = not settings.real_call_enabled_for(EMBEDDING_TASK_TYPE)
+    in_rate, _out = rate_inr_per_1k(settings.embedding_model)
+    results: list[SkillAliasEmbedResult] = []
+    cost_inr = 0.0
+    errors = 0
+    budget_stopped = False
+    for item in body.items:
+        if not is_mock and cost_inr >= settings.ai_max_call_cost_inr:
+            budget_stopped = True
+            break
+        try:
+            res = embed_text(item.text, settings)
+        except Exception:
+            # Real-provider failure (HTTP error / timeout / dim mismatch). Skip the item —
+            # it stays NULL for a later run; keep the embeds this request already paid for.
+            # Never logs the text.
+            errors += 1
+            continue
+        results.append(
+            SkillAliasEmbedResult(alias_id=item.alias_id, vector=res.vector, blocked=res.blocked)
+        )
+        if not is_mock and not res.blocked:
+            cost_inr += (cost_tracker.estimate_tokens(res.text or "") / 1000.0) * in_rate
+    logger.info(
+        "embed skill-alias batch",
+        extra={
+            "extra": {
+                "items": len(body.items),
+                "returned": len(results),
+                "blocked": sum(1 for r in results if r.blocked),
+                "errors": errors,
+                "budget_stopped": budget_stopped,
+                "estimated_cost_inr": round(cost_inr, 6),
+                "is_mock": is_mock,
+            }
+        },
+    )
+    return SkillAliasEmbedOutput(
+        results=results,
+        is_mock=is_mock,
+        model=settings.embedding_model if not is_mock else MOCK_MODEL,
+        budget_stopped=budget_stopped,
+        errors=errors,
+        estimated_cost_inr=round(cost_inr, 6),
+    )
+
+
+@app.post("/skills/canonicalize", response_model=SkillCanonicalization)
+def skills_canonicalize(body: SkillCanonicalizationInput) -> SkillCanonicalization:
+    """ADR-0030 / TAX-6: the JOB side canonicalizes through the SAME pipeline as the
+    worker side — one shared id space. The NestJS api calls this at job-posting
+    create/update for each posting skill phrase; `canonicalize_skill` runs
+    pseudonymize -> embed (SG-2/SG-4) -> domain-scoped nearest-alias (seam A store) ->
+    floor gate. SG-3 holds: the id can only come from the closed skill_alias set.
+
+    Honors SKILL_CANONICALIZE_ENABLED: flag off -> UNRESOLVED (inert — rollback for the
+    job side is the same single flag as the worker side). Plain `def` (threadpool):
+    the store + a real embed are SYNC httpx calls and must not block the event loop.
+    Never logs the phrase."""
+    settings = get_settings()
+    if not settings.skill_canonicalize_enabled:
+        return SkillCanonicalization(status="unresolved")
+    return canonicalize_skill(
+        body.phrase,
+        body.domain_id,
+        get_skill_store(settings),
+        settings,
+        lang=body.lang,
+    )
+
+
+@app.post("/growth/cluster", response_model=GrowthClusterOutput)
+def growth_cluster_endpoint(body: GrowthClusterInput) -> GrowthClusterOutput:
+    """ADR-0030 / TAX-7 growth loop — PURE COMPUTE, REPORT-ONLY. The db-side runner
+    (packages/db/src/growth-cluster.ts, fork-B pattern) POSTs a per-domain batch of OPEN
+    ``unresolved_phrase`` rows (SG-1 pseudonymized text + vectors) and the embedded
+    ``skill_alias`` anchors; this clusters them and proposes alias-on-near-skill or
+    provisional-skill entries for the HUMAN ratification flow — the only activation path.
+
+    No LLM, no DB, no flag needed (inert unless the ops runner calls it; nothing it
+    returns changes live behavior). SG-3: a proposal's ``skill_id`` can only be one of the
+    supplied anchors; SG-5: provisional proposals carry NO id. Plain ``def`` (threadpool):
+    the greedy clustering is CPU-bound and must not block the event loop. Never logs
+    phrase text — counts only.
+
+    EXPOSURE: unauthenticated like every ai-service route — the service is internal-only
+    (the same posture as /profile/extract, which spends real LLM money). This is the
+    CPU-heaviest route (worst case at the contract caps is minutes, in the threadpool);
+    vectors are unit-normalized ONCE so the O(n²) loop is pure dots. Service-level auth
+    for the ai-service as a whole is tracked as TD67 — do not bolt a one-off scheme onto
+    this route alone."""
+    out = growth_cluster(body, get_settings())
+    logger.info(
+        "growth cluster batch",
+        extra={
+            "extra": {
+                "domain_id": body.domain_id,
+                "phrases_in": out.phrases_in,
+                "anchors": len(body.anchors),
+                "clusters_total": out.clusters_total,
+                "clusters_eligible": out.clusters_eligible,
+                "proposals": len(out.proposals),
+            }
+        },
+    )
+    return out
+
+
+@app.post("/skills/retag-plan", response_model=RetagPlanOutput)
+def skills_retag_plan(body: RetagPlanInput) -> RetagPlanOutput:
+    """ADR-0030 / TAX-9: compute the OFFLINE re-tag plan for deprecated skill ids.
+    PURE COMPUTE — no LLM, no DB, no PII (row_refs are opaque uuids; ids are closed-set).
+    The db-side runner (packages/db/src/retag-skills.ts, owner connection) supplies the
+    ``skill.replaced_by`` crosswalk + the affected rows and APPLIES the plan only under
+    ``--apply`` after a human reads the dry-run report. Chains resolve to the terminal
+    id; cycles are dropped fail-safe (SG-5: ids immutable, plan never invents one).
+    Same internal-only exposure posture as every ai-service route (TD67)."""
+    out = plan_retag(body)
+    logger.info(
+        "skills retag plan",
+        extra={
+            "extra": {
+                "crosswalk": len(body.crosswalk),
+                "rows_in": out.rows_in,
+                "rows_changed": out.rows_changed,
+                "dropped_cyclic": len(out.dropped),
+            }
+        },
+    )
+    return out
+
+
 @app.post("/profiling/respond", response_model=ProfilingTurnOutput)
 async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
     # 1. Pseudonymize FIRST — gate for any external LLM call.
@@ -147,15 +315,24 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
         body.conversation_state, body.message_text, body.role_family
     )
 
-    # 3. Route through the model (mock vs real); LLM only sees pseudonymized text.
-    #    The engine already chose the question; the model only rephrases it warmly.
-    #    History is pseudonymized too — prior turns must never reach the LLM/trace raw.
-    messages = build_chat_messages(_pseudonymized_history(body.history), mock_reply, result.text)
+    # 3. COST-4: the straight-line path returns the deterministic templated question
+    #    DIRECTLY — the engine already chose it (≤20 words, on-persona), so there is
+    #    nothing for the LLM to phrase. We only allow a real chat LLM call when the
+    #    worker seems to be asking for clarification (needs_rephrase) AND the rephrase
+    #    flag is on. On the straight path real_call_allowed=False → the router takes
+    #    its mock path and returns the templated question with ZERO output tokens.
+    #    COST-3: the chat turn is STATELESS — prior history is NOT sent to the model
+    #    (build_chat_messages ignores it); only the current (already-pseudonymized)
+    #    message + the engine's question reach the LLM if a rephrase call does fire.
+    wants_rephrase = settings.ai_profiling_rephrase_enabled and interview_engine.needs_rephrase(
+        body.message_text
+    )
+    messages = build_chat_messages([], mock_reply, result.text)
     reply_text, meta = await router.run(
         "profiling_chat_turn",
         messages=messages,
         mock_response=mock_reply,
-        real_call_allowed=body.real_call_allowed,
+        real_call_allowed=body.real_call_allowed and wants_rephrase,
         user_ref=body.worker_ref,
     )
 
@@ -234,6 +411,28 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
         # role from the model's free `primary_role` label could override the model's
         # AUTHORITATIVE `canonical_role_id=null` on a helper/adjacent case and
         # regress the negative tier — verify against the staging --real eval first.
+
+    # TAX-4/FORK-B-1: vector-canonicalize the SKILL labels (SG-3 — the vector layer
+    # assigns ids from the closed skill_alias set; below-floor phrases are recorded
+    # pseudonymized + stay raw). SKILLS ONLY — deliberately NOT map_rich_to_legacy's
+    # role backfill, which the WS4 TODO above still defers (negative-tier risk).
+    # Inert unless BOTH the flag is on AND the seam is configured (get_skill_store
+    # returns the NullSkillStore otherwise) — the TD65 activation chain.
+    if settings.skill_canonicalize_enabled:
+        # OFF the event loop (#222 HIGH): the store + a real embed are SYNC httpx calls
+        # (per label). Inline they would freeze the whole service (health checks, every
+        # concurrent turn) for up to timeout x labels when the api/provider is slow —
+        # to_thread keeps the loop serving while the pass runs.
+        assigned, _unresolved = await asyncio.to_thread(
+            canonicalize_labels,
+            rich.skills + rich.controllers,
+            settings.skill_canonicalize_default_domain,
+            get_skill_store(settings),
+            settings,
+        )
+        for sid in assigned:
+            if sid not in legacy.skills:
+                legacy.skills.append(sid)
 
     # Honest-adjacency flag (advisory ONLY — never ranks/rejects): mark the draft
     # adjacent when it canonicalized to nothing matchable in the CNC/VMC taxonomy
@@ -317,22 +516,6 @@ async def voice_transcribe(body: TranscriptionInput) -> TranscriptionOutput:
         is_mock=result.is_mock,
         english_text=english_text,
     )
-
-
-def _pseudonymized_history(history: list[ConversationMessage]) -> list[ConversationMessage]:
-    """Pseudonymize prior turns BEFORE they enter LLM input / Langfuse traces.
-
-    The current message is gated separately; history must be gated too or a prior
-    turn's PII would reach the model in real mode. Any turn that can't be safely
-    pseudonymized is dropped (fail closed) — history is only phrasing context.
-    """
-    safe: list[ConversationMessage] = []
-    for msg in history:
-        result = pseudonymize(msg.text)
-        if result.blocked:
-            continue
-        safe.append(ConversationMessage(role=msg.role, text=result.text))
-    return safe
 
 
 def _schema_hint() -> str:

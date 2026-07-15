@@ -1,6 +1,6 @@
 # Web Apps — Tasks Left for Alpha (payer-web Company + Agency, + ops web)
 
-**Date:** 2026-07-01 · **Verified against `origin/main` `07ebe36`** (A/B batch #173–#181 all merged; no open PRs; B5.1–B5.5 exist as **branches, NOT merged**).
+**Date:** 2026-07-01 (planning doc) · **Status 2026-07-15:** B5.1–B5.5 ALL MERGED (#182–#186, 2026-07-03; ADR-0027 org tenancy live). FE wiring batch (FE-1..FE-7) **CLOSED** by PR #194 (2026-07-10 — all mock shims replaced with live API calls, no mock fallback remaining). This doc is a historical task list; the alpha gap is now **staging deployment** only (P0).
 **Contract SoT:** [../api/payer-agency-api-reference.md](../api/payer-agency-api-reference.md). **Scope:** the Next.js **payer-web** (Company `employer` + Agency `agent`) and the internal **ops web** (`apps/web`). *(The Flutter worker app is the separate mobile B1 gate — not "web".)*
 
 ## Headline

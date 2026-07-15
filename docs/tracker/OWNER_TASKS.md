@@ -11,6 +11,37 @@ Do not overload: one primary task per developer per day.
 
 ---
 
+## 2026-07-15 — TAX-7 merged; staging STILL P0 (11 days past deadline)
+
+> **State:** HEAD `548acd4` (#231 docs sync). 39 migrations (0000–0038, **0038 applied**). ADR-0030 P1+P2 COMPLETE (TAX-0..8 merged). kPersistentAuth ON (PR #201). FE wiring CLOSED (PR #194). No open PRs. **OTP is REAL-ONLY** — `SMS_PROVIDER: z.literal("fast2sms")`; `SMS_PROVIDER=console` fails boot. Staging requires Fast2SMS creds.
+
+### Prakash — P0 CRITICAL: staging (11 days past deadline)
+- **Provision Lightsail/EC2** → Docker + WeasyPrint + `RESUME_RENDER_ENABLED=true` → `staging` GitHub Environment + secrets.
+- **Critical env change vs old runbook:** set `NODE_ENV=staging` (NOT `development`) + `SMS_PROVIDER=fast2sms` (NOT `console`). Set `FAST2SMS_API_KEY` + DLT params — the API **won't boot without them**.
+- Push → run **39 migrations** (0000–0038) → `/health` 200 → activate OTP-7 (capped, team allowlist only).
+- See [staging-service-deploy-runbook.md](../ops/staging-service-deploy-runbook.md) (updated 2026-07-15 — Mode A is DEPRECATED).
+- Evidence: `docs/qa/evidence/staging/2026-07-15-health.txt`.
+
+### Divyanshu — P1: TD62 kPersistentAuth consent-routing fix
+- `kPersistentAuth` is ON (PR #201) but a never-onboarded worker routes to chat shell not `/consent`.
+- Expose `consent_accepted` (or `onboarding_complete`) in `GET /workers/me` response.
+- Rishi gates `router.dart`'s `authenticated` routing on it.
+- Precondition for GA (§6 holds server-side; this is a UX fix).
+
+### Rishi — Prep B1 real-handset run (gated on Prakash's staging)
+- `flutter analyze && flutter test` locally.
+- Prep REAL-mode build (`--dart-define=USE_MOCKS=false --dart-define=API_BASE_URL=https://<staging-api>`).
+- When `STAGING_API_BASE_URL` arrives: onboarding→chat→profile→PDF download → 4 evidence artifacts.
+- **Note:** OTP is REAL (SMS to your number via Fast2SMS — no `dev_otp`). You need to be on the team allowlist.
+
+### All
+- **TAX-9 P3 versioning/re-tag** (ADR-0030): pick up when staging P0 is cleared.
+- **RVM vernacular ratification** (skill-vernacular-ratification-packet.md): human gate, owner decision.
+- **ADR-0031 deletion grace**: Prakash+Akshit sign-off pending.
+- **TD61 CI pin bump** (Flutter 3.27.4→3.35.7 + payer-app CI gate): DevOps + Rishi.
+
+---
+
 ## 2026-07-09 — Alpha recovery (staging PAST DEADLINE — execute now)
 
 > **State:** 16 PRs merged (Jun 30–Jul 8), everything built. Alpha B1 deadline was Jul 4 — SLIPPED 5 days. Staging is the only P0. FE wiring (FE-1..FE-7) is parallelizable. `origin/main` HEAD: `a143a7d`.

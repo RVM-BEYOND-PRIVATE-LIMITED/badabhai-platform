@@ -27,11 +27,11 @@ Engine), and production legal flows are **out of scope for Phase 1**. See
 > per-payer hiring capacity ([ADR-0016](docs/decisions/0016-payer-hiring-capacity.md):
 > faceless concurrent-active-vacancy cap, mock payments, **enforcement INERT by default**),
 > and **Contact Unlock + Reveal — "Stream A"** ([ADR-0010](docs/decisions/0010-contact-unlock-and-reveal.md):
-> mock credits + in-app relay, built + verified 2026-06-17). Further streams have since landed (each its own ADR — full set in [docs/decisions/](docs/decisions/) through ADR-0022): the **self-serve payer/agency portal** ([ADR-0019](docs/decisions/0019-self-serve-payer-portal.md) → [`apps/payer-web`](apps/payer-web); agency = `payers.role='agent'`, [ADR-0022](docs/decisions/0022-agency-supply-portal.md)), the **WhatsApp invite funnel** ([ADR-0020](docs/decisions/0020-whatsapp-invite-funnel-and-reengagement.md), MOCK provider), **PACE supply-widening + ops alert** ([ADR-0021](docs/decisions/0021-pace-supply-widening-and-ops-alert.md)), and the **OFFLINE-only** learn layer ([ADR-0017](docs/decisions/0017-learn-layer-offline-rank-calibration.md)) + model-training corpus ([ADR-0018](docs/decisions/0018-model-training-corpus-and-finetune.md)) — both **offline-built / live-deferred**, so no learned ranking touches the live path (**invariant #4 holds**). The **real-money / real-provider /
+> mock credits + in-app relay, built + verified 2026-06-17). Further streams have since landed (each its own ADR — full set in [docs/decisions/](docs/decisions/) through ADR-0030; ADR-0023..0030 cover: go_router nav, worker-visible job fields, admin portal, worker PIN+session, payer org tenancy, taxonomy adoption, voice audio, skill canonicalization): the **self-serve payer/agency portal** ([ADR-0019](docs/decisions/0019-self-serve-payer-portal.md) → [`apps/payer-web`](apps/payer-web); agency = `payers.role='agent'`, [ADR-0022](docs/decisions/0022-agency-supply-portal.md)), the **WhatsApp invite funnel** ([ADR-0020](docs/decisions/0020-whatsapp-invite-funnel-and-reengagement.md), MOCK provider), **PACE supply-widening + ops alert** ([ADR-0021](docs/decisions/0021-pace-supply-widening-and-ops-alert.md)), and the **OFFLINE-only** learn layer ([ADR-0017](docs/decisions/0017-learn-layer-offline-rank-calibration.md)) + model-training corpus ([ADR-0018](docs/decisions/0018-model-training-corpus-and-finetune.md)) — both **offline-built / live-deferred**, so no learned ranking touches the live path (**invariant #4 holds**). The **real-money / real-provider /
 > per-payer-auth / production-legal** portions of these remain **deferred / launch-gated** (§8).
 
 **Phase 1 exit criteria (what we are optimizing for right now):**
-A worker can log in (mock OTP) → give consent → chat → get an extracted, confirmed
+A worker can log in (real OTP via Fast2SMS — `SMS_PROVIDER: z.literal("fast2sms")`, no console/mock path) → give consent → chat → get an extracted, confirmed
 profile → get a generated resume — with **every step emitting a validated event** and
 **no PII ever reaching an LLM**. Ops can view workers / events / AI jobs (read-only).
 
@@ -72,17 +72,17 @@ compiles and tests pass. If a task requires breaking one, **stop and escalate** 
 
 ## 3. Locked tech stack
 
-| Layer           | Tech                                                                                    | Location                             |
-| --------------- | --------------------------------------------------------------------------------------- | ------------------------------------ |
-| Monorepo        | pnpm + Turborepo                                                                        | root                                 |
-| Backend API     | NestJS (TS strict)                                                                      | [`apps/api`](apps/api)               |
-| AI service      | Python FastAPI                                                                          | [`apps/ai-service`](apps/ai-service) |
-| Web ops console | Next.js (internal only)                                                                 | [`apps/web`](apps/web)               |
-| Payer/Agency portal | Next.js (external, self-serve — [ADR-0019](docs/decisions/0019-self-serve-payer-portal.md)/[0022](docs/decisions/0022-agency-supply-portal.md)) | [`apps/payer-web`](apps/payer-web) |
-| Worker app      | Flutter (Android-first)                                                                 | [`apps/worker-app`](apps/worker-app) |
-| Database        | Supabase Postgres + Drizzle                                                             | [`packages/db`](packages/db)         |
-| Queue/cache     | Redis + BullMQ (deferred wiring)                                                        | [`infra/redis`](infra/redis)         |
-| AI routing      | Direct Gemini + Claude ([ADR-0008](docs/decisions/0008-litellm-to-direct-providers.md)) | `apps/ai-service/app/ai/router.py`   |
+| Layer               | Tech                                                                                                                                            | Location                             |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| Monorepo            | pnpm + Turborepo                                                                                                                                | root                                 |
+| Backend API         | NestJS (TS strict)                                                                                                                              | [`apps/api`](apps/api)               |
+| AI service          | Python FastAPI                                                                                                                                  | [`apps/ai-service`](apps/ai-service) |
+| Web ops console     | Next.js (internal only)                                                                                                                         | [`apps/web`](apps/web)               |
+| Payer/Agency portal | Next.js (external, self-serve — [ADR-0019](docs/decisions/0019-self-serve-payer-portal.md)/[0022](docs/decisions/0022-agency-supply-portal.md)) | [`apps/payer-web`](apps/payer-web)   |
+| Worker app          | Flutter (Android-first)                                                                                                                         | [`apps/worker-app`](apps/worker-app) |
+| Database            | Supabase Postgres + Drizzle                                                                                                                     | [`packages/db`](packages/db)         |
+| Queue/cache         | Redis + BullMQ (live — extraction/transcription/deletion sweeps queued)                                                                        | [`infra/redis`](infra/redis)         |
+| AI routing          | Direct Gemini + Claude ([ADR-0008](docs/decisions/0008-litellm-to-direct-providers.md))                                                         | `apps/ai-service/app/ai/router.py`   |
 
 Stack is **locked** for Phase 1 (see [ADR-0001](docs/decisions/0001-mvp-infra-decision.md),
 [ADR-0008](docs/decisions/0008-litellm-to-direct-providers.md)). The AI service calls
@@ -103,7 +103,7 @@ apps/
   worker-app/  Flutter scaffold — Splash → … → ResumePreview, ApiClient
 packages/
   event-schema/  Artifact #1 — envelope, registry, payloads, validate
-  db/            Drizzle schema + migrations + client (34 tables — full set in schema.ts)
+  db/            Drizzle schema + migrations + client (39 tables — full set in schema.ts)
   config/        Typed env (server vs public split)
   pricing/       config-driven pricing + credit-pack catalog (ADR-0013)
   reach-engine/  BUILT — deterministic RANK core (scoring.ts / types.ts / ranking.ts, ADR-0011/0015)
@@ -121,7 +121,7 @@ HTTP only) → `<domain>.service.ts` (business logic, emits events) →
 `<domain>.module.ts` (DI wiring). Do not put data access in controllers or business
 logic in repositories.
 
-**DB tables (34):** the full set is the source of truth in
+**DB tables (39):** the full set is the source of truth in
 [`packages/db/src/schema.ts`](packages/db/src/schema.ts). Raw worker PII lives **only**
 in `workers`; the only other PII at rest is **encrypted** payer contact in `payers` (TD21).
 
@@ -217,22 +217,17 @@ Reach Engine **learned** ranking, advanced matching, finalized RLS (backend uses
 role today — see [infra/supabase/rls-plan.md](infra/supabase/rls-plan.md)), BullMQ job queues,
 real OTP/STT/LLM/payment providers, real telephony/proxy + raw-phone reveal, production DPDP
 legal copy. **Note:** the _alpha-gate_ forms of employer postings, contact unlock (mock credits
-+ in-app relay, [ADR-0010](docs/decisions/0010-contact-unlock-and-reveal.md) Stream A), Reach
-feed serving, config-driven pricing/boosts, **per-payer hiring capacity**
-([ADR-0016](docs/decisions/0016-payer-hiring-capacity.md): faceless cap, mock payments,
-**enforcement INERT by default** behind `CAPACITY_ENFORCEMENT_ENABLED`), the **self-serve
-payer/agency portal** (ADR-0019/0022) and the **WhatsApp invite funnel** (ADR-0020, mock) have
-**landed additively behind launch gates** (§1) — it is their **real-money / real-provider /
-production-legal** portions (tracked: TD33/TD34/TD35/TD43 + the threat-model LC items) that
-remain deferred here.
 
-**`PayerAuthGuard` has LANDED** for the self-serve payer/agency portal (R16/LC-1, PR #110); but
-the **money routes** — Contact Unlock unlock/reveal and `POST /job-postings/:id/plan` — still ride
-`InternalServiceGuard` + body `payer_id` (see
-[unlocks.controller.ts](apps/api/src/unlocks/unlocks.controller.ts)), so LC-1 for that surface
-remains **open** (TD33/TD50). **Still pending:** a **cost** strategy doc + a **disaster-recovery**
-plan (monitoring/rollback have runbooks — [observability-runbook.md](docs/observability-runbook.md),
-[rollback-guide.md](docs/rollback-guide.md)).
+- in-app relay, [ADR-0010](docs/decisions/0010-contact-unlock-and-reveal.md) Stream A), Reach
+  feed serving, config-driven pricing/boosts, **per-payer hiring capacity**
+  ([ADR-0016](docs/decisions/0016-payer-hiring-capacity.md): faceless cap, mock payments,
+  **enforcement INERT by default** behind `CAPACITY_ENFORCEMENT_ENABLED`), the **self-serve
+  payer/agency portal** (ADR-0019/0022) and the **WhatsApp invite funnel** (ADR-0020, mock) have
+  **landed additively behind launch gates** (§1) — it is their **real-money / real-provider /
+  production-legal** portions (tracked: TD33/TD34/TD35/TD43 + the threat-model LC items) that
+  remain deferred here.
+
+**`PayerAuthGuard` is the payer-facing auth gate.** `POST /payer/unlocks`, `POST /payer/unlocks/:id/reveal`, `GET /payer/unlocks`, `GET /payer/credits`, `POST /payer/credits` — all at [`payer-portal/payer-unlocks.controller.ts`](apps/api/src/payer-portal/payer-unlocks.controller.ts) — ride `PayerAuthGuard` with `payer_id` from the **session**, not the body (XB-A, verified PR #110/#119). `POST /payer/job-postings/:id/plan|boost` likewise `PayerAuthGuard` (PR #179). **LC-1 is CLOSED on the payer-facing surface.** The residual is OPS-INTERNAL only: the ops [`unlocks.controller.ts`](apps/api/src/unlocks/unlocks.controller.ts) (`POST /unlocks`, `POST /unlocks/:id/reveal`) keeps `InternalServiceGuard` as a deliberate safe-interim (TD33/TD50) — it is NOT called by payer-web; retiring it is blocked on ADMIN-4..8. **Still pending:** a **cost** strategy doc + a **disaster-recovery** plan (monitoring/rollback have runbooks — [observability-runbook.md](docs/observability-runbook.md), [rollback-guide.md](docs/rollback-guide.md)).
 
 ## 9. Claude Efficiency Rules
 

@@ -28,7 +28,7 @@ jobs:
       run:
         working-directory: apps/worker-app
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Pin the Flutter version so CI is reproducible and the analyzer ruleset
       # (flutter_lints 5.x, resolved against this SDK's bundled Dart 3.6) is stable.

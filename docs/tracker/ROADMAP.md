@@ -2,7 +2,9 @@
 
 Each phase: goal · in-scope · out-of-scope · blockers · acceptance · **test gate** · owner · target.
 
-**Current position (2026-07-09):** Overall **~75%** · Alpha **~58%** · Release **~29%**. **Everything is built** — ADR-0026 (5 phases), ADMIN-3a/3b/3c, A/B batch #173–#180 (LC-1 closed for money routes), B5 org-tenancy + Team #182–#186 (ADR-0027), AI-service retry storm fix + ADR-0028. `origin/main` HEAD: `a143a7d` (Jul 8). 36 migrations. All decisions D1–D8 closed.
+**Current position (2026-07-15):** ADR-0030 TAX program **P1+P2 COMPLETE** (#211–#230): shared skill id space live on BOTH worker + job sides (mock-default, flag-gated), REAL 76/76 vector backfill done, floor calibrated 0.75, résumé guard locked, and the **TAX-7 growth loop merged (#230)** — unresolved phrases cluster into human-gated proposals (report-only; ratification = only activation path). **TAX-9 merged too (#232) — the ADR-0030 TAX series is COMPLETE (TAX-0..9).** 40 migrations (0000–0039; **0039 apply pending — owner**). Owner queue: ratification Q-A/Q-B · SR-1 step-7 env · Q14.
+
+**Prior position (2026-07-14):** Overall **~75%** · Alpha **~58%** · Release **~29%** (unchanged — no new staging/handset evidence). Since Jul 9: #193–#218 merged — payer-web all-seams-live, voice pipeline (ADR-0029, mock), throttle residuals, worker-app kPersistentAuth ON (#201, TD62 open), AI cost/persona series (#203–#210), **ADR-0030 skills taxonomy TAX-0..4 (#211–#215) + roadmap (#217)**, CI-1 action bumps (#218); fork-B runner PR #219 in review. `origin/main` HEAD: `5f4a274` (Jul 14). **38 migrations (0000–0037, applied)**. Decisions D1–**D10** closed.
 > 🚨 **DEADLINE SLIPPED:** Alpha B1 deadline was **2026-07-04** — MISSED. As of 2026-07-09, staging still not provisioned (no `/health` proof, no events, no logcat, no PDF). Gap to alpha = **100% staging + FE wiring, 0% code**. Only Prakash provisioning the instance is on the critical path.
 
 Owners: Prakash (TL/PM, staging+infra), Divyanshu (backend/AI), Rishi Ojha (Android/Flutter), QA.
@@ -22,7 +24,7 @@ Owners: Prakash (TL/PM, staging+infra), Divyanshu (backend/AI), Rishi Ojha (Andr
 - **In scope (decisions all closed):** D1 staging (AWS Lightsail/EC2) + `staging` GitHub Environment + secrets → CD fires → `/health` 200; D2 real OTP (Fast2SMS + ZeptoMail, capped, team allowlist); D5 resume PDF (`RESUME_RENDER_ENABLED=true` + WeasyPrint); B1 handset onboarding→chat→profile→resume **PDF**; payer company gate; agency demand gate; OTP safety gate; RBAC gate; admin ops smoke.
 - **Out of scope:** real money; learned ranking; production legal copy; payer PIN unlock (`PAYER-PIN-1` held).
 - **Day-by-day (Mon–Fri):**
-  - **Mon–Tue** — Prakash: provision Lightsail/EC2 → Docker + WeasyPrint → GitHub Environment + secrets → CD fires → `/health` 200; run migrations (now 31, incl. ADR-0026 tables).
+  - **Mon–Tue** — Prakash: provision Lightsail/EC2 → Docker + WeasyPrint → GitHub Environment + secrets → CD fires → `/health` 200; run migrations (now **39**, 0000–0038, incl. ADR-0026..0030 tables; `NODE_ENV=staging`, `SMS_PROVIDER=fast2sms` — see updated runbook).
   - **Tue** — Prakash/DevOps: activate OTP-7 (capped) → real OTP send verified (team recipients only).
   - **Wed** — Rishi: real-handset REAL-mode build against staging API → onboarding → chat → profile → **resume PDF** download.
   - **Thu** — QA/Prakash: payer company gate + agency gate on staging; admin ops smoke (3a/3b/3c).

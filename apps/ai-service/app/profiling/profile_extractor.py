@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 
+from ..ai.canonicalize import SkillCanonicalStore, canonicalize_labels
+from ..config import Settings
 from ..contracts import (
     Availability,
     DraftProfile,
@@ -38,15 +40,16 @@ _EXPERIENCE_LEVELS = {"fresher", "junior", "experienced", "senior", "unknown"}
 _KNOWLEDGE_LEVELS = {"none", "basic", "strong", "unknown"}
 _AVAILABILITY = {"immediate", "notice_period", "not_looking", "unknown"}
 
-# missing-field -> Hinglish clarification question.
+# missing-field -> neutral mentor clarification question (AI-PERSONA-1: no
+# vocative, no gush, "aap"/present tense, one question, <=20 words).
 _CLARIFY: dict[str, str] = {
-    "primary_role": "Aap mainly operator ho, setter ho ya programmer?",
-    "experience_years": "Kitne saal ka experience hai bhai?",
-    "current_city": "Abhi aap kis city me ho?",
-    "current_salary": "Abhi current salary kitni hai?",
-    "expected_salary": "Expected salary kitni chahiye bhai?",
-    "availability": "Joining ke liye kitne din lagenge?",
-    "controllers": "Controller kaunsa chalaya hai — Fanuc ya Siemens?",
+    "primary_role": "Aap operator, setter ya programmer — kaunsa kaam karte hain?",
+    "experience_years": "Kitne saal ka experience hai?",
+    "current_city": "Abhi kis sheher mein hain?",
+    "current_salary": "Abhi salary kitni hai?",
+    "expected_salary": "Kitni salary expect karte hain?",
+    "availability": "Join karne mein kitne din?",
+    "controllers": "Controller kaunsa — Fanuc ya Siemens?",
 }
 
 # Fields tracked for completeness (order = priority for clarification questions).
@@ -219,7 +222,11 @@ def merge_model_draft(base: WorkerProfileDraft, content: str) -> WorkerProfileDr
 
 
 def map_rich_to_legacy(
-    rich: WorkerProfileDraft, base: DraftProfile | None = None
+    rich: WorkerProfileDraft,
+    base: DraftProfile | None = None,
+    *,
+    skill_store: SkillCanonicalStore | None = None,
+    settings: Settings | None = None,
 ) -> DraftProfile:
     """Canonicalize the MODEL-emitted rich LABELS into the legacy DraftProfile's
     closed-set ids, BACKFILLING only what the raw-text detector missed.
@@ -235,6 +242,14 @@ def map_rich_to_legacy(
       role yet AND the rich ``primary_role`` maps to an in-scope role.
     - ``machines``/``skills``: UNION of the ids already on ``base`` and the ids mapped
       from the rich labels (order-preserving, de-duplicated).
+
+    TAX-4 (ADR-0030): when ``skill_store`` + ``settings`` are supplied AND
+    ``settings.skill_canonicalize_enabled`` is on, the model-emitted skill LABELS are
+    ADDITIONALLY vector-canonicalized against ``skill_alias`` — assigning skill_ids the
+    local gazetteer missed and recording misses (pseudonymized) for later learning. Only
+    vector-ASSIGNED ids are added (SG-3: the LLM proposes phrases, this layer assigns ids;
+    an LLM phrase can never inject an id the vector layer did not assign). Default (no store
+    / flag off) → unchanged gazetteer-only behavior, so the raw phrase is preserved (rollback).
 
     When nothing canonicalizes (e.g. welding "mig_tig_welder"), the canonical ids
     stay null — the caller marks the profile adjacent via ``unmatchable_reason``.
@@ -257,6 +272,16 @@ def map_rich_to_legacy(
     for sid in signals.skill_ids_for_labels(rich.skills + rich.controllers):
         if sid not in legacy.skills:
             legacy.skills.append(sid)
+
+    # TAX-4: flagged vector canonicalization over the DB seam (default off → no-op).
+    if skill_store is not None and settings is not None and settings.skill_canonicalize_enabled:
+        domain_id = settings.skill_canonicalize_default_domain
+        assigned, _unresolved = canonicalize_labels(
+            rich.skills + rich.controllers, domain_id, skill_store, settings
+        )
+        for sid in assigned:
+            if sid not in legacy.skills:
+                legacy.skills.append(sid)
 
     return legacy
 

@@ -20,6 +20,11 @@ export interface FeedJob {
   title: string;
   city: string;
   area: string | null;
+  // The experience window the job targets (years). NULLABLE both ends — a blank is
+  // "unbounded on that side", never a zero. PII-FREE: year counts (schema.ts §
+  // demand-side ranking signals), never an employer or a worker identity.
+  minExperienceYears: number | null;
+  maxExperienceYears: number | null;
 }
 
 /** An application row joined with its (coarse, PII-free) job fields. */
@@ -67,8 +72,14 @@ export class ApplicationsRepository {
         title: jobs.title,
         city: jobs.city,
         area: jobs.area,
+        minExperienceYears: jobs.minExperienceYears,
+        maxExperienceYears: jobs.maxExperienceYears,
       })
       .from(jobs)
+      // LOCATION SEAM: when the location feature lands, an OPTIONAL city/coords
+      // filter goes HERE, default-off so the feed stays liberal until a worker
+      // opts into a location. Do NOT implement it now — the alpha feed returns
+      // every open job with no location filter (see the worker-app Filters sheet).
       .where(eq(jobs.status, "open"))
       .orderBy(asc(jobs.createdAt), asc(jobs.id))
       .limit(limit);

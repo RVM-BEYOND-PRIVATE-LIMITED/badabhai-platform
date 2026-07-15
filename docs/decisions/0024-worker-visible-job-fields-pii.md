@@ -94,3 +94,45 @@ built:
 - **Ship the rich fields on a real PII-free-by-omission feed** — rejected:
   there is no PII-free way to show the *exact* employer/pay, which is the whole
   point of the rich card; masking/banding (Option 3) is the honest middle.
+
+## Addendum (2026-07-15) — `FeedItem` gained the experience window
+
+The **freeze above still stands unchanged**. This note only keeps the Context
+section truthful after an additive, PII-free contract change.
+
+`FeedItem` now carries two more fields — `min_experience_years` and
+`max_experience_years` (nullable ints, from `jobs.min_experience_years` /
+`jobs.max_experience_years`). So the Context line describing the contract as
+"`trade_key`, `title`, `city`, `area`, `rank` **only**" is **no longer literal**;
+read it as the PII-free set, which these join.
+
+Why this does **not** touch this ADR's decision:
+
+- Experience is **not** one of the frozen fields. The freeze covers *employer /
+  company name, exact pay band, "spots left", requirement tags, and shift* —
+  every one of which is still fabricated client-side and still frozen. Nothing
+  in `_mockCardData` or `jobs_repository_impl.dart` was touched.
+- Year counts are **PII-FREE by the schema's own classification** (`schema.ts`
+  jobs: *"PII-FREE: pay bands / year counts / a coarse timing enum — never an
+  employer or a worker identity"*), so no §2 boundary moves.
+- The change is **additive and backward-compatible** (§8): a response field only.
+  The `feed.shown` event payload is untouched and needs no version bump.
+- No LLM, no ranking, no decision (§4). The window is passed through honestly —
+  nulls preserved, never coerced to `0`.
+
+**Shipped alongside it** (worker-app Jobs tab): real Trade / City / Experience
+filters, matched client-side over the loaded page. The dead controls were
+removed — the top-row `Verified` and `Day shift` chips (no backing field exists
+for either), the inert `Shift` group in the Filters sheet (shift is not on the
+wire), and the hardcoded `Pune · 15 km` header (no distance data exists anywhere
+in the stack). Area is deliberately **not** a filter dimension: `jobs.area` is
+NULL for the entire reach pool, so an area filter would silently drop those jobs;
+`jobs.city` is NOT NULL and is the honest location control.
+
+**Still blocked on this ADR's ratification:** pay band and the masked employer
+descriptor. Note the ambiguity flagged during that review — this ADR's header
+reads *Accepted*, but its **Decision** ratifies only the mock-only freeze, while
+the Option-3 field ruling sits under **Recommendation** in recommendation
+language, and TD53's un-defer trigger reads *"ADR-0024 **ratified**"*. Whether
+Option 3 is binding or merely recommended is **UNKNOWN** and needs an owner call
+before any pay/employer field is built.
