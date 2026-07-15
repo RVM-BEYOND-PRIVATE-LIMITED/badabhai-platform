@@ -24,7 +24,7 @@ import {
   type SkillSeed,
 } from "@badabhai/taxonomy";
 import { config } from "dotenv";
-import { and, eq, isNotNull, sql as dsql } from "drizzle-orm";
+import { and, eq, sql as dsql } from "drizzle-orm";
 
 import { createDbClient } from "./client";
 import { skillAliases, skills } from "./schema";
@@ -60,8 +60,16 @@ async function main(): Promise<void> {
 
     for (const s of SKILL_CORPUS as readonly SkillSeed[]) {
       // 1) The canonical skill — upsert on the immutable skill_id (id never changes).
-      //    replaced_by is deliberately NOT written here: the self-FK needs every
-      //    successor row to exist first, so the crosswalk is synced in PASS 2 below.
+      //    replaced_by handling is SPLIT across the two passes to satisfy both the
+      //    self-FK and the CHECK (`replaced_by IS NULL OR status='deprecated'`):
+      //    - corpus carries NO pointer → clear it HERE, in the SAME update as the
+      //      status write. Without this, REACTIVATING a deprecated skill deadlocks:
+      //      PASS 1's status:='active' with the old pointer still set violates the
+      //      CHECK (it evaluates the full new tuple) before PASS 2 could clear it.
+      //      Clearing to NULL is always FK-safe.
+      //    - corpus carries a pointer → left untouched here (the successor row may
+      //      not exist yet); PASS 2 sets it after every skill row exists.
+      const clearsPointer = s.replacedBy === undefined;
       await db
         .insert(skills)
         .values({
@@ -71,6 +79,7 @@ async function main(): Promise<void> {
           domainId: s.domainId,
           source: s.source,
           status: s.status,
+          replacedBy: null, // PASS 2 sets pointers once all rows exist
           updatedAt: now,
         })
         .onConflictDoUpdate({
@@ -81,6 +90,7 @@ async function main(): Promise<void> {
             domainId: s.domainId,
             source: s.source,
             status: s.status,
+            ...(clearsPointer ? { replacedBy: null } : {}),
             updatedAt: now,
           },
         });
@@ -126,23 +136,25 @@ async function main(): Promise<void> {
       wedgeCount += 1;
     }
 
-    // 4) PASS 2 — TAX-9 crosswalk sync (after every skill row exists, so the self-FK
-    //    always resolves). Full sync: sets replaced_by where the corpus declares it and
-    //    CLEARS a stale pointer the corpus no longer carries. The DB CHECK enforces
-    //    pointer-only-on-deprecated; corpus validation catches it earlier with a name.
+    // 4) PASS 2 — TAX-9 crosswalk sync: SET pointers only (clearing happened in PASS 1
+    //    alongside the status write — see the CHECK note there). Runs after every skill
+    //    row exists, so the self-FK always resolves on a fresh DB. IS DISTINCT FROM
+    //    keeps the re-run a no-op. Corpus validation already guaranteed the target
+    //    exists and status is 'deprecated' (the DB CHECK backstops it by name).
     let crosswalkCount = 0;
     for (const s of SKILL_CORPUS as readonly SkillSeed[]) {
-      const target = s.replacedBy ?? null;
+      if (s.replacedBy === undefined) continue;
       const updated = await db
         .update(skills)
-        .set({ replacedBy: target, updatedAt: now })
+        .set({ replacedBy: s.replacedBy, updatedAt: now })
         .where(
-          target === null
-            ? and(eq(skills.skillId, s.skillId), isNotNull(skills.replacedBy))
-            : and(eq(skills.skillId, s.skillId), dsql`${skills.replacedBy} IS DISTINCT FROM ${target}`),
+          and(
+            eq(skills.skillId, s.skillId),
+            dsql`${skills.replacedBy} IS DISTINCT FROM ${s.replacedBy}`,
+          ),
         )
         .returning({ id: skills.skillId });
-      if (updated.length > 0 && target !== null) crosswalkCount += 1;
+      if (updated.length > 0) crosswalkCount += 1;
     }
 
     console.log("[seed:skills] skill vocabulary seeded (embeddings NULL — TAX-3/4 populates):");

@@ -26,6 +26,19 @@
  * IMMUTABILITY (SG-5): ids are never reused/renamed; `skill` rows are never deleted.
  * GUARDED: refuses NODE_ENV === "production" (prod re-tag is a deliberate, gated step).
  *
+ * OPERATOR NOTES (from the TAX-9 adversarial review):
+ * - `--apply` RE-PLANS from live state — the dry-run report is advisory, not a signed
+ *   plan. The gap is bounded by determinism (same DB state → same plan) + the
+ *   optimistic-concurrency guard; if the crosswalk changed between runs, re-read the
+ *   fresh report it writes.
+ * - NO spine events are emitted (the runner is offline ops on derived id columns; a
+ *   packages/db runner has no event pipeline). The git-tracked report IS the audit
+ *   artifact — commit it with the run. Api-mediated retag events = future work if
+ *   retag ever becomes routine.
+ * - Cycle / dead-end crosswalk chains (possible only via hand DB edits — the corpus
+ *   validator + CHECK block them at seed time) are EXCLUDED fail-safe everywhere:
+ *   row re-tag, SG-5 gate, and alias moves all use one runner-derived terminal map.
+ *
  *   pnpm db:retag:skills            # dry-run (report only)
  *   pnpm db:retag:skills --apply    # apply row changes + alias moves
  *   (DATABASE_URL from env/.env; AI_SERVICE_URL defaults to http://localhost:8000;
@@ -69,12 +82,14 @@ interface RetagPlan {
 }
 
 /** Validate the /skills/retag-plan response: shape + the SG-5 property — every "after"
- * id must be either an id that row already had or a terminal WE derived from the
- * crosswalk we sent. A violation aborts (a re-tag must never write an invented id). */
+ * id must be either an id that row already had or the terminal the RUNNER derived from
+ * the DB crosswalk (`dbTerminalOf`, computed from the skill table BEFORE planning — the
+ * response is NEVER the source of the allow-set, so a buggy/skewed ai-service cannot
+ * smuggle an invented id past this gate). A violation aborts. */
 function parseRetagResponse(
   raw: unknown,
   sentRows: Map<string, string[]>,
-  sentCrosswalkKeys: Set<string>,
+  dbTerminalOf: Map<string, string>,
 ): RetagPlan {
   const bad = (why: string): never => {
     throw new Error(`[retag] malformed ai-service response — ${why}`);
@@ -85,7 +100,7 @@ function parseRetagResponse(
     bad("resolved/dropped/changes missing");
   }
   const resolved: ResolvedEntry[] = [];
-  const terminals = new Set<string>();
+  const terminals = new Set<string>(dbTerminalOf.values());
   for (const r of o.resolved as unknown[]) {
     const it = r as Record<string, unknown>;
     if (
@@ -95,13 +110,16 @@ function parseRetagResponse(
     ) {
       bad("resolved entry malformed");
     }
-    if (!sentCrosswalkKeys.has(it.deprecated_id as string)) {
+    const expected = dbTerminalOf.get(it.deprecated_id as string);
+    if (expected === undefined) {
       bad(`resolved deprecated_id ${String(it.deprecated_id)} was not in the sent crosswalk`);
     }
-    if (sentCrosswalkKeys.has(it.terminal_id as string)) {
-      bad(`terminal ${String(it.terminal_id)} is itself a crosswalk key (not terminal)`);
+    if (it.terminal_id !== expected) {
+      bad(
+        `terminal for ${String(it.deprecated_id)} is ${String(it.terminal_id)} but the DB ` +
+          `crosswalk resolves to ${String(expected)} — service/runner skew, refusing to apply`,
+      );
     }
-    terminals.add(it.terminal_id as string);
     resolved.push(it as unknown as ResolvedEntry);
   }
   const changes: Change[] = [];
@@ -148,11 +166,26 @@ interface Surface {
   applyOne: (rowId: string, before: string[], after: string[]) => Promise<boolean>;
 }
 
+/** Per-row contract cap (mirrors RetagRow.skill_ids max_length) — an oversize row would
+ * 422 the WHOLE request with no row identification; skip it up front with its uuid. */
+const MAX_IDS_PER_ROW = 100;
+
 async function planSurface(
   aiBase: string,
+  surfaceName: string,
   crosswalk: { deprecated_id: string; replaced_by: string }[],
+  dbTerminalOf: Map<string, string>,
   rows: { id: string; ids: string[] }[],
 ): Promise<RetagPlan> {
+  const oversize = rows.filter((r) => r.ids.length > MAX_IDS_PER_ROW);
+  if (oversize.length > 0) {
+    console.log(
+      `[retag] WARNING: ${surfaceName}: skipping ${oversize.length} row(s) with >` +
+        `${MAX_IDS_PER_ROW} skill ids (contract cap — inspect by uuid): ` +
+        oversize.map((r) => r.id).join(", "),
+    );
+    rows = rows.filter((r) => r.ids.length <= MAX_IDS_PER_ROW);
+  }
   const merged: RetagPlan = { resolved: [], dropped: [], changes: [], rows_in: 0, rows_changed: 0 };
   for (let i = 0; i < rows.length; i += MAX_ROWS_PER_REQUEST) {
     const chunk = rows.slice(i, i + MAX_ROWS_PER_REQUEST);
@@ -169,7 +202,7 @@ async function planSurface(
     const plan = parseRetagResponse(
       await resp.json(),
       new Map(chunk.map((r) => [r.id, r.ids])),
-      new Set(crosswalk.map((c) => c.deprecated_id)),
+      dbTerminalOf,
     );
     merged.resolved = plan.resolved; // identical across chunks (same crosswalk)
     merged.dropped = plan.dropped;
@@ -207,39 +240,65 @@ async function main(): Promise<void> {
       console.log("[retag] no deprecated skills with a successor — nothing to do.");
       return;
     }
-    // Dead-end guard: a terminal that is itself deprecated WITHOUT a successor would
-    // re-tag rows onto a retired id — exclude those chains fail-safe.
+    // Resolve every crosswalk key to its terminal RUNNER-SIDE from the skill table —
+    // this map is the single source of truth for the whole run: the SG-5 response gate
+    // validates against it AND the alias pass moves with it. Excluded fail-safe (rows
+    // and aliases stay untouched, reported for a human):
+    //   - CYCLES (A→B→A — representable only via a hand DB edit; the corpus validator
+    //     blocks them at seed time),
+    //   - DEAD-END chains (terminal itself deprecated/missing — retagging onto a
+    //     retired id would defeat the crosswalk's purpose).
     const allSkills = await db
       .select({ skillId: skills.skillId, status: skills.status, replacedBy: skills.replacedBy, domainId: skills.domainId })
       .from(skills);
     const byId = new Map(allSkills.map((s) => [s.skillId, s]));
     const keys = new Set(deprecated.map((d) => d.skillId));
-    const deadEnd = (start: string): boolean => {
-      let cur = start;
+    const terminalOf = new Map<string, string>();
+    const excluded: { id: string; why: string }[] = [];
+    for (const d of deprecated) {
+      let cur = d.skillId;
       const seen = new Set<string>();
+      let cyclic = false;
       while (keys.has(cur)) {
-        if (seen.has(cur)) return false; // cycle — the service drops it
+        if (seen.has(cur)) {
+          cyclic = true;
+          break;
+        }
         seen.add(cur);
         cur = byId.get(cur)?.replacedBy ?? "";
       }
+      if (cyclic) {
+        excluded.push({ id: d.skillId, why: "replaced_by cycle" });
+        continue;
+      }
       const terminal = byId.get(cur);
-      return terminal === undefined || terminal.status === "deprecated";
-    };
-    const excluded = deprecated.filter((d) => deadEnd(d.skillId)).map((d) => d.skillId);
+      if (terminal === undefined || terminal.status === "deprecated") {
+        excluded.push({ id: d.skillId, why: "dead-end terminal (deprecated/missing)" });
+        continue;
+      }
+      terminalOf.set(d.skillId, cur);
+    }
     const crosswalk = deprecated
-      .filter((d) => !excluded.includes(d.skillId))
+      .filter((d) => terminalOf.has(d.skillId))
       .map((d) => ({ deprecated_id: d.skillId, replaced_by: d.replacedBy as string }));
     if (excluded.length > 0) {
       console.log(
-        `[retag] WARNING: ${excluded.length} crosswalk id(s) excluded — their chain dead-ends ` +
-          `on a deprecated/missing terminal (fix the corpus): ${excluded.join(", ")}`,
+        `[retag] WARNING: ${excluded.length} crosswalk id(s) EXCLUDED fail-safe (rows + aliases ` +
+          `left untouched; fix the corpus): ${excluded.map((e) => `${e.id} [${e.why}]`).join(", ")}`,
       );
     }
     if (crosswalk.length === 0) {
-      console.log("[retag] every crosswalk chain dead-ends — nothing safe to re-tag.");
+      console.log("[retag] no safely-resolvable crosswalk chain — nothing to re-tag.");
       return;
     }
     const deprecatedIds = crosswalk.map((c) => c.deprecated_id);
+    // `?|` needs a REAL text[] operand: interpolating a JS array into the sql template
+    // renders a comma-list (unexecutable row constructor) — build ARRAY[$1,$2,…]::text[]
+    // with one bind parameter per id (verified against drizzle's array expansion).
+    const deprecatedIdArray = sql`ARRAY[${sql.join(
+      deprecatedIds.map((d) => sql`${d}`),
+      sql`, `,
+    )}]::text[]`;
 
     // 2) Affected rows per surface (jsonb string-array overlap via ?|).
     const surfaces: Surface[] = [
@@ -250,7 +309,7 @@ async function main(): Promise<void> {
             await db
               .select({ id: workerProfiles.id, ids: workerProfiles.skills })
               .from(workerProfiles)
-              .where(sql`${workerProfiles.skills} ?| ${deprecatedIds}`)
+              .where(sql`${workerProfiles.skills} ?| ${deprecatedIdArray}`)
               .orderBy(workerProfiles.id)
           ).map((r) => ({ id: r.id, ids: r.ids })),
         applyOne: async (rowId, before, after) => {
@@ -274,7 +333,7 @@ async function main(): Promise<void> {
             await db
               .select({ id: jobPostings.id, ids: jobPostings.skillIds })
               .from(jobPostings)
-              .where(sql`${jobPostings.skillIds} ?| ${deprecatedIds}`)
+              .where(sql`${jobPostings.skillIds} ?| ${deprecatedIdArray}`)
               .orderBy(jobPostings.id)
           ).map((r) => ({ id: r.id, ids: r.ids })),
         applyOne: async (rowId, before, after) => {
@@ -307,7 +366,12 @@ async function main(): Promise<void> {
         return `- \`${c.deprecated_id}\` → \`${c.replaced_by}\`${t && keys.has(c.replaced_by) ? " (chain — service resolves the terminal)" : ""}`;
       }),
       ...(excluded.length > 0
-        ? ["", `Excluded dead-end chains (fix the corpus): ${excluded.map((e) => `\`${e}\``).join(", ")}`]
+        ? [
+            "",
+            `Excluded fail-safe (rows + aliases untouched — fix the corpus): ${excluded
+              .map((e) => `\`${e.id}\` (${e.why})`)
+              .join(", ")}`,
+          ]
         : []),
       "",
     ];
@@ -316,7 +380,7 @@ async function main(): Promise<void> {
     const applyStats: string[] = [];
     for (const surface of surfaces) {
       const rows = await surface.fetch();
-      const plan = await planSurface(aiBase, crosswalk, rows);
+      const plan = await planSurface(aiBase, surface.name, crosswalk, terminalOf, rows);
       totalChanges += plan.changes.length;
       console.log(
         `[retag] ${surface.name}: scanned=${rows.length} changes=${plan.changes.length} ` +
@@ -361,16 +425,11 @@ async function main(): Promise<void> {
     // 3) Alias moves (apply only): re-point the deprecated skills' aliases to their
     //    terminal so future canonicalization assigns the successor. New deterministic
     //    id + the TERMINAL's domain_id; embedding copied (no re-embed); old row deleted.
-    const terminalOf = new Map<string, string>();
-    for (const c of crosswalk) {
-      let cur = c.deprecated_id;
-      const seen = new Set<string>();
-      while (keys.has(cur) && !seen.has(cur)) {
-        seen.add(cur);
-        cur = byId.get(cur)?.replacedBy ?? cur;
-      }
-      terminalOf.set(c.deprecated_id, cur);
-    }
+    //    Uses THE SAME `terminalOf` the crosswalk/SG-5 gate was built from — cycle and
+    //    dead-end members were excluded up front, so `deprecatedIds` contains only ids
+    //    with a verified non-deprecated terminal (the review's alias-deletion hazard:
+    //    a cycle member would otherwise "move" onto its own id — insert no-ops on the
+    //    identical deterministic id and the delete would destroy the row + embedding).
     const aliasRows = await db
       .select()
       .from(skillAliases)
@@ -385,9 +444,14 @@ async function main(): Promise<void> {
     );
     if (apply) {
       let moved = 0;
+      let held = 0;
       for (const a of aliasRows) {
         const terminal = terminalOf.get(a.skillId);
-        if (terminal === undefined) continue;
+        // Defense in depth: never "move" onto the same id (delete would be destructive).
+        if (terminal === undefined || terminal === a.skillId) {
+          held += 1;
+          continue;
+        }
         const targetDomain = byId.get(terminal)?.domainId ?? a.domainId;
         await db
           .insert(skillAliases)
@@ -404,7 +468,10 @@ async function main(): Promise<void> {
         await db.delete(skillAliases).where(eq(skillAliases.id, a.id));
         moved += 1;
       }
-      applyStats.push(`skill_alias: moved=${moved}`);
+      applyStats.push(`skill_alias: moved=${moved}${held > 0 ? ` held=${held}` : ""}`);
+      if (held > 0) {
+        console.log(`[retag] skill_alias: ${held} alias row(s) HELD (no safe terminal) — untouched.`);
+      }
     }
 
     if (apply) {
