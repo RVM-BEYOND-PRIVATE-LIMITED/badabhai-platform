@@ -15,7 +15,7 @@
 - **P1 Blockers: 1** (unlock/reveal LC-1 — InternalServiceGuard + body payer_id still open; money routes closed by #179)
 - **Decisions Needed: 0** — all D1–D8 closed. **Alpha deadline SLIPPED — was 2026-07-04, now targeting ASAP (est. 2026-07-07/08 when staging lands).**
 
-**Build health (re-verified on `origin/main` `a143a7d`):** `pnpm lint` ✅ · `pnpm typecheck` ✅ · `pnpm test` ✅ (1289/1289 api tests, 129 files) · `pnpm build` ✅. AI-service: `ruff` ✅ · `pytest` ✅ (gates green per PR #187). **The branch is green.** 40 migrations (0000–0039; 0039 apply pending — owner; 0038 applied 2026-07-15).
+**Build health (re-verified on `origin/main` `a143a7d`):** `pnpm lint` ✅ · `pnpm typecheck` ✅ · `pnpm test` ✅ (1289/1289 api tests, 129 files) · `pnpm build` ✅. AI-service: `ruff` ✅ · `pytest` ✅ (gates green per PR #187). **The branch is green.** 40 migrations (0000–0039, all applied — 0038+0039 applied by owner 2026-07-15).
 
 **What this means:** the codebase is **broad, green, and well-tested at the unit level** (api 1141 tests,
 payer-web 517, ai-service ~220, worker-app 46 files) but **not one flow is proven on real infrastructure**.
