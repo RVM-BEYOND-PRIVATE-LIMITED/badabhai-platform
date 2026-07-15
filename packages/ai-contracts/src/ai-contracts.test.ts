@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   AICallMetadataSchema,
+  ConversationStateSchema,
   DraftProfileSchema,
   ProfileExtractionInputSchema,
   ProfileExtractionOutputSchema,
@@ -30,6 +31,28 @@ describe("DraftProfileSchema", () => {
     expect(profile.salary_expectation.currency).toBe("INR");
     expect(profile.availability.status).toBe("unknown");
     expect(profile.canonical_role_id).toBeNull();
+  });
+});
+
+describe("ConversationStateSchema (contracts.py parity — COST-4 clarify bound)", () => {
+  it("defaults clarify_count to 0 (additive => backward compatible for old states)", () => {
+    const st = ConversationStateSchema.parse({});
+    expect(st.clarify_count).toBe(0);
+    expect(st.turn_count).toBe(0);
+    expect(st.asked_question_ids).toEqual([]);
+  });
+  it("round-trips a bounded clarify_count without stripping sibling fields", () => {
+    const st = ConversationStateSchema.parse({
+      clarify_count: 2,
+      turn_count: 3,
+      asked_question_ids: ["role"],
+      answered_topics: [],
+    });
+    expect(st.clarify_count).toBe(2);
+    expect(st.asked_question_ids).toEqual(["role"]);
+  });
+  it("rejects a negative clarify_count (same int().nonnegative() convention as turn_count)", () => {
+    expect(() => ConversationStateSchema.parse({ clarify_count: -1 })).toThrow();
   });
 });
 

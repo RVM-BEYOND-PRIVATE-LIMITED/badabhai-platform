@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from ..contracts import ConversationState
 from . import signals
-from .question_bank import Topic, topics_for
+from .question_bank import Topic, topic_by_id, topics_for
 
 # A senior's acknowledgement: two words, no praise (persona rule G4).
 _ACK = "Theek hai. "
@@ -86,6 +86,9 @@ def next_turn(
     )
     st.role_family = role_family
     st.turn_count += 1
+    # COST-4 clarify bound: ANY engine advance ends a clarify streak — the counter
+    # only ever grows inside clarify_turn (consecutive re-serves of one question).
+    st.clarify_count = 0
 
     # 1. Update progress from what the worker just said.
     for topic_id, value in signals.detect_answered_topics(worker_message_raw).items():
@@ -108,6 +111,68 @@ def next_turn(
     if st.turn_count == 1:
         return _vocative(worker_name) + next_topic.question, next_topic.id, st, extraction_ready
     return _ACK + next_topic.question, next_topic.id, st, extraction_ready
+
+
+# COST-4 clarify bound: max CONSECUTIVE re-serves of one question. The predicate has
+# false-positive classes (short "?"-answers, marker-bearing honest answers with no
+# extractable signal), so an unbounded re-serve could loop the interview forever —
+# after this many the turn falls through to next_turn and the interview moves on.
+_MAX_CONSECUTIVE_CLARIFIES = 2
+
+
+def clarify_turn(
+    state: ConversationState | None,
+    worker_message_raw: str,
+    role_family: str = "cnc_vmc",
+) -> tuple[str, str, ConversationState, bool] | None:
+    """COST-4 clarify fix: RE-SERVE the last asked question instead of advancing.
+
+    A clarifying message ("matlab kya?") is not an answer — running :func:`next_turn`
+    on it would advance the engine (the confused topic lands in ``asked_question_ids``
+    and ``_next_topic`` skips it FOREVER, ``ESSENTIAL_TOPICS`` included) and hand the
+    NEXT question to the rephrase branch instead of the confusing one.
+
+    TWO guards keep the clarify path from EATING answers (the #238 review HIGH —
+    ``needs_rephrase`` has false-positive classes):
+
+    - **Answer-trumps-clarify**: if :func:`signals.detect_answered_topics` finds ANY
+      extractable signal in ``worker_message_raw`` (the same detector + args
+      :func:`next_turn` runs), this returns None — a short "?"-suffixed answer
+      ("Fanuc?", "2 saal?", "Pune?") or a marker-bearing honest answer ("program edit
+      samajh nahi aata, baaki sab aata hai") always advances the engine.
+    - **Bounded clarifies**: at most ``_MAX_CONSECUTIVE_CLARIFIES`` consecutive
+      re-serves (``state.clarify_count``, reset by every :func:`next_turn`); past the
+      bound this returns None so the interview can never loop on one question.
+
+    Returns the SAME tuple shape as :func:`next_turn` —
+    ``(assistant_message_mock, asked_question_id, updated_state, extraction_ready)`` —
+    where the mock reply is the LAST asked question verbatim and the updated state is
+    a deep copy advanced by ``turn_count`` + ``clarify_count`` ONLY
+    (``asked_question_ids`` / ``answered_topics`` / ``collected`` unchanged, so the
+    topic stays re-askable and answerable). Returns None when there is nothing
+    re-servable (no state, nothing asked yet, an unknown question id, an extractable
+    answer, or a spent clarify budget) — the caller falls through to
+    :func:`next_turn`. Reads no network; never sees raw PII beyond the local state.
+    """
+    if state is None or not state.asked_question_ids:
+        return None
+    # Answer-trumps-clarify (#238 HIGH layer 1): an extractable answer must NEVER be
+    # eaten by a clarify false positive — fall through to next_turn, which runs the
+    # same detector and records the topic.
+    if signals.detect_answered_topics(worker_message_raw):
+        return None
+    # Bounded clarifies (#238 HIGH layer 2): refuse past the consecutive budget.
+    if state.clarify_count >= _MAX_CONSECUTIVE_CLARIFIES:
+        return None
+    last_id = state.asked_question_ids[-1]
+    topic = topic_by_id(role_family, last_id)
+    if topic is None:
+        return None
+    st = state.model_copy(deep=True)
+    st.turn_count += 1  # progress advances; the topic itself remains re-askable
+    st.clarify_count += 1  # the consecutive-streak counter (next_turn resets it)
+    extraction_ready = all(t in st.answered_topics for t in ESSENTIAL_TOPICS)
+    return topic.question, last_id, st, extraction_ready
 
 
 # COST-4: clarification markers — each is an INTERROGATIVE phrase, never a bare word

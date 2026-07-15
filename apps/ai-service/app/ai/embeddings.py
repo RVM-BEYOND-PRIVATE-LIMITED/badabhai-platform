@@ -198,6 +198,11 @@ def embed_aliases(
     = ``settings.ai_max_daily_cost_inr``. When the accumulated estimate reaches it the
     batch STOPS (``budget_stopped=True``); remaining rows stay NULL and a later run
     resumes. The mock path spends nothing and is never budget-stopped.
+
+    TD68: any future AliasStore caller of THIS library batch must do the TD27 SpendLedger
+    reserve/record itself (``would_exceed_spend`` -> ``record_spend``) — ``budget_inr``
+    alone is NOT the TD27 cap (the live ``/embeddings/skill-alias`` endpoint path already
+    wires the ledger).
     """
     report = EmbedBatchReport(is_mock=not settings.real_call_enabled_for(EMBEDDING_TASK_TYPE))
     report.model = settings.embedding_model if not report.is_mock else MOCK_MODEL

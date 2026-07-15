@@ -63,6 +63,11 @@ class ConversationState(BaseModel):
     answered_topics: list[str] = Field(default_factory=list)
     asked_question_ids: list[str] = Field(default_factory=list)
     collected: dict = Field(default_factory=dict)
+    # COST-4 clarify bound (additive, defaulted => backward compatible; mirrored in
+    # @badabhai/ai-contracts ConversationStateSchema): CONSECUTIVE clarify re-serves
+    # of the same question. clarify_turn increments it and refuses past 2 (falls
+    # through to next_turn); every next_turn resets it to 0.
+    clarify_count: int = 0
 
 
 # --- Profiling turn --------------------------------------------------------
