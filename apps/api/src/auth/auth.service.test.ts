@@ -202,6 +202,54 @@ describe("AuthService (real OTP)", () => {
     expect(built.success).toBe(true);
   });
 
+  it("issueAndSendWithSignals (the seam the account-delete step-up uses) emits exactly one worker.otp_send_failed and re-throws the 502", async () => {
+    // The account-delete request path (auth.controller accountDeleteRequest) calls THIS
+    // seam directly — so a Fast2SMS failure there emits the same event as the login path.
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const otp = makeOtp();
+    otp.issueAndSend = vi.fn().mockRejectedValue(
+      new OtpSendFailedException({ provider: "fast2sms", reason: "provider_rejected" }),
+    );
+    const svc = new AuthService(
+      { emit } as never,
+      {} as never,
+      pii,
+      otp as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+
+    await expect(svc.issueAndSendWithSignals(PHONE, ctx)).rejects.toMatchObject({
+      status: HttpStatus.BAD_GATEWAY,
+      message: "Could not send the code, please retry",
+    });
+
+    expect(emit).toHaveBeenCalledTimes(1);
+    const arg = emit.mock.calls[0]![0] as { event_name: string; payload: Record<string, unknown> };
+    expect(arg.event_name).toBe("worker.otp_send_failed");
+    expect(arg.payload).toEqual({ provider: "fast2sms", reason: "provider_rejected" });
+    expect(JSON.stringify(arg)).not.toContain("9876543210");
+  });
+
+  it("issueAndSendWithSignals resolves the cooldown untouched on success and emits nothing", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const otp = makeOtp();
+    const svc = new AuthService(
+      { emit } as never,
+      {} as never,
+      pii,
+      otp as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+    await expect(svc.issueAndSendWithSignals(PHONE, ctx)).resolves.toEqual({
+      resendInSeconds: 30,
+    });
+    expect(emit).not.toHaveBeenCalled();
+  });
+
   it("verifyOtp rejects a bad code (otp.verify throws) and never touches the worker table", async () => {
     const emit = vi.fn().mockResolvedValue(undefined);
     const findByPhoneHash = vi.fn();

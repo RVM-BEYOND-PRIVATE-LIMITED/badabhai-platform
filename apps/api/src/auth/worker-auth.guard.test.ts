@@ -133,6 +133,26 @@ describe("WorkerAuthGuard", () => {
       expect(setHeader).toHaveBeenCalledWith("x-session-token", "fresh.jwt");
     });
 
+    it("consent read THROWS ⇒ no x-session-token, but the already-authenticated request STILL PASSES (fail-safe, never a 500)", async () => {
+      // The consent read is this guard's ONLY Postgres dependency — a PG blip must not
+      // 500 logout/logout-all past the half-life. Unknown consent state ⇒ withhold the
+      // extension (security property holds), let the request through.
+      const session = makeSession({
+        workerId: "w1",
+        sid: "s1",
+        remainingSeconds: FULL_TTL / 2 - 1,
+      });
+      const consents = {
+        findLatestByWorker: vi.fn().mockRejectedValue(new Error("pg down")),
+      } as unknown as ConsentRepository;
+      const guard = new WorkerAuthGuard(session, config, consents);
+      const { ctx, req, setHeader } = makeCtx("Bearer aging.token");
+      await expect(guard.canActivate(ctx)).resolves.toBe(true);
+      expect(req.worker).toEqual({ id: "w1", sid: "s1" });
+      expect(session.mint).not.toHaveBeenCalled();
+      expect(setHeader).not.toHaveBeenCalled();
+    });
+
     it("NEVER-consented (no row) ⇒ x-session-token present — the pre-consent onboarding window is not broken", async () => {
       // Same asymmetry as ConsentNotRevokedGuard: a worker logs in BEFORE consenting;
       // the profiling routes still carry ConsentGuard, so §6 is never relaxed.

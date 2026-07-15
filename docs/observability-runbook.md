@@ -217,8 +217,11 @@ delivery failing = **workers cannot log in**. Two PII-free event-spine signals
   `{provider: "fast2sms", reason}` with `reason` ∈ `transport` (network/DNS/TLS to
   the provider) · `http_error` (provider answered non-2xx) · `provider_rejected`
   (provider answered 200 but `return:false`, or an unparseable body). Emitted by
-  [`auth.service.ts`](../apps/api/src/auth/auth.service.ts) from the tagged 502;
-  the worker sees the same neutral "Could not send the code, please retry".
+  the shared `issueAndSendWithSignals` seam in
+  [`auth.service.ts`](../apps/api/src/auth/auth.service.ts) from the tagged 502 —
+  every send surface routes through it (login + PIN-reset `requestOtp`, and the
+  account-delete step-up request); the worker sees the same neutral
+  "Could not send the code, please retry".
 - **`worker.otp_send_cap_exceeded`** — the OTP-5 **global daily send
   circuit-breaker** (the spend ceiling / kill-switch `OTP_GLOBAL_MAX_SENDS_PER_DAY`,
   `0` = paused) tripped. One per breach, payload `{channel, cap, limit, window}`.

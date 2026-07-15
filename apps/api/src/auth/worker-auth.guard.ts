@@ -46,6 +46,15 @@ declare global {
  * NEVER-consented worker keeps the re-mint (the pre-consent onboarding window — the
  * same asymmetry as ConsentNotRevokedGuard). Cost: ONE consent read at most once per
  * half-life, never on the ordinary per-request path.
+ *
+ * FAIL-SAFE BOTH WAYS: the consent read is the guard's ONLY Postgres dependency
+ * (validateAndTouch is Redis-only, mint is pure JWT), so a read error must never turn
+ * into a 500 on `[W]`-only routes — POST /auth/logout and /auth/logout-all are exactly
+ * the routes that must survive a DB incident. On ANY consent-read error the guard
+ * WITHHOLDS the extension (no re-mint without proof of not-revoked — the security
+ * property holds) and lets the already-authenticated request pass, the same
+ * degradation shape validateAndTouch applies to a Redis error (request outcome,
+ * never a 500).
  */
 @Injectable()
 export class WorkerAuthGuard implements CanActivate {
@@ -73,8 +82,17 @@ export class WorkerAuthGuard implements CanActivate {
     if (validated.remainingSeconds < fullTtl / 2) {
       // A5 residual: SKIP the re-mint for a REVOKED-consent worker (latest row exists AND
       // revokedAt is stamped). Never-consented (no row) and active consent both re-mint.
-      const latest = await this.consents.findLatestByWorker(validated.workerId);
-      if (!latest || latest.revokedAt === null) {
+      // FAIL-SAFE: a consent-read error also SKIPS the re-mint (consent state unknown →
+      // withhold the extension) but never fails the already-authenticated request — a
+      // PG blip must not 500 logout/logout-all past the token half-life.
+      let allowRemint = false;
+      try {
+        const latest = await this.consents.findLatestByWorker(validated.workerId);
+        allowRemint = !latest || latest.revokedAt === null;
+      } catch {
+        allowRemint = false;
+      }
+      if (allowRemint) {
         const fresh = await this.session.mint(
           validated.workerId,
           validated.sid,

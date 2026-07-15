@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import type { Request } from "express";
 import type { ServerConfig } from "@badabhai/config";
+import { OtpSendFailedException } from "../common/otp-send-failure";
 import { AuthController } from "./auth.controller";
 import type { AuthService } from "./auth.service";
 import type { SessionService } from "./session.service";
@@ -28,6 +29,9 @@ function make() {
     requestOtp: vi.fn(async () => ({ success: true, channel: "sms" })),
     // pin_set is surfaced on the login response (ADR-0026 Phase 4) — the controller passes it through.
     verifyOtp: vi.fn(async () => ({ worker_id: WORKER.id, access_token: "tok", pin_set: false })),
+    // F4 (#168): the shared failure-signal seam — the account-delete step-up request
+    // routes its Fast2SMS send through this so a delivery failure emits worker.otp_send_failed.
+    issueAndSendWithSignals: vi.fn(async () => ({ resendInSeconds: 30 })),
   };
   const MINTED = {
     access: { token: "fresh", expiresInSeconds: 3600 },
@@ -228,20 +232,37 @@ describe("AuthController", () => {
 
   // ---- ADR-0026 Phase 5 — DPDP account deletion (step-up OTP) ----
 
-  it("accountDeleteRequest resolves the TOKEN worker's phone (never a body) and sends the OTP", async () => {
-    const { controller, workers, pii, otp } = make();
-    const res = await controller.accountDeleteRequest(WORKER);
+  it("accountDeleteRequest resolves the TOKEN worker's phone (never a body) and sends the OTP via the F4 signal seam", async () => {
+    const { controller, workers, pii, auth } = make();
+    const res = await controller.accountDeleteRequest(WORKER, CTX);
     expect(workers.findById).toHaveBeenCalledWith(WORKER.id);
     expect(pii.decrypt).toHaveBeenCalledWith("ENC(+91999)");
-    expect(otp.issueAndSend).toHaveBeenCalledWith("+91999");
+    // The send rides the SHARED AuthService seam (never otp.issueAndSend directly), so a
+    // delivery failure emits worker.otp_send_failed exactly like the login path.
+    expect(auth.issueAndSendWithSignals).toHaveBeenCalledWith("+91999", CTX);
     expect(res).toEqual({ success: true, resend_in_seconds: 30 });
   });
 
   it("accountDeleteRequest 401s when the token worker row is gone (no oracle, fail closed)", async () => {
-    const { controller, workers, otp } = make();
+    const { controller, workers, auth } = make();
     (workers.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
-    await expect(controller.accountDeleteRequest(WORKER)).rejects.toBeInstanceOf(UnauthorizedException);
-    expect(otp.issueAndSend).not.toHaveBeenCalled();
+    await expect(controller.accountDeleteRequest(WORKER, CTX)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(auth.issueAndSendWithSignals).not.toHaveBeenCalled();
+  });
+
+  it("accountDeleteRequest on a send failure surfaces the neutral 502 THROUGH the emitting seam (F4)", async () => {
+    // The seam (AuthService.issueAndSendWithSignals) emits worker.otp_send_failed once and
+    // re-throws — proven in auth.service.test.ts. Here: the delete-request path delegates to
+    // that exact seam and propagates the SAME neutral 502 unchanged.
+    const { controller, auth } = make();
+    (auth.issueAndSendWithSignals as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new OtpSendFailedException({ provider: "fast2sms", reason: "transport" }),
+    );
+    await expect(controller.accountDeleteRequest(WORKER, CTX)).rejects.toMatchObject({
+      status: 502,
+      message: "Could not send the code, please retry",
+    });
+    expect(auth.issueAndSendWithSignals).toHaveBeenCalledWith("+91999", CTX);
   });
 
   it("accountDeleteConfirm verifies the step-up OTP THEN runs the erasure (204)", async () => {
@@ -282,17 +303,17 @@ describe("AuthController", () => {
   it("accountDeleteRequest resolves the phone from the GUARD worker (not a body) — body is unused", async () => {
     // /request takes no body param at all; the phone is derived from the token worker's
     // decrypted ciphertext. A would-be body worker_id can never redirect the OTP send.
-    const { controller, workers, otp } = make();
+    const { controller, workers, auth } = make();
     const VICTIM = "99999999-9999-4999-8999-999999999999";
-    await controller.accountDeleteRequest(WORKER);
+    await controller.accountDeleteRequest(WORKER, CTX);
     expect(workers.findById).toHaveBeenCalledWith(WORKER.id);
     expect(workers.findById).not.toHaveBeenCalledWith(VICTIM);
-    expect(otp.issueAndSend).toHaveBeenCalledWith("+91999");
+    expect(auth.issueAndSendWithSignals).toHaveBeenCalledWith("+91999", CTX);
   });
 
   it("accountDeleteRequest NEVER returns the phone or the OTP — only success + resend_in_seconds", async () => {
     const { controller } = make();
-    const res = await controller.accountDeleteRequest(WORKER);
+    const res = await controller.accountDeleteRequest(WORKER, CTX);
     expect(res).toEqual({ success: true, resend_in_seconds: 30 });
     const json = JSON.stringify(res);
     // No decrypted phone, no E.164 run, no OTP code in the response body.
