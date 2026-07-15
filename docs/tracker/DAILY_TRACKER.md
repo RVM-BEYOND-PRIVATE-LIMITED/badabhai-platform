@@ -9,18 +9,21 @@ Newest day on top. Copy the template block each working day. Every % move needs 
 
 ## BadaBhai Progress Snapshot
 - **No % moves** (cap rule: no staging/handset evidence added today)
-- **P0: 1** (staging past deadline) · Owner queue grew: migration 0038 apply · vernacular ratification (Q-A/Q-B) · SR-1 step-7 activation env · **Q14** (off-wedge résumé raw phrases — product)
+- **P0: 1** (staging past deadline) · Owner queue: ~~migration 0038 apply~~ **APPLIED today** · vernacular ratification (Q-A/Q-B) · SR-1 step-7 activation env · **Q14** (off-wedge résumé raw phrases — product)
 
 ## Merged today
 | PR | What |
 | -- | ---- |
 | #225 | **TAX-5**: floor calibrated 0.82→0.75 on REAL vectors — precision 1.000; recall 0.800 ORACLE vs **0.350 shipped anchor-path** (both pinned by `pytest -k wedge`); 22 vernacular aliases PROPOSED (RVM gate) |
-| #226 | **TAX-6**: job side shares the skill id space (`skill_phrases`/`skill_ids`, migration 0038 — APPLY PENDING); review M1/M2/M3 fixed (parallel-bounded canonicalize, widened RANK lock, outage backfill retry) |
+| #226 | **TAX-6**: job side shares the skill id space (`skill_phrases`/`skill_ids`, migration 0038 — **applied by owner same day**); review M1/M2/M3 fixed (parallel-bounded canonicalize, widened RANK lock, outage backfill retry) |
 | #227 | **TAX-8**: off-wedge résumé guard locked (canonicalization can't raise into résumés); raw-phrase gap → Q14 |
+| #229 | Register/tracker sync to #225–#227 |
+| #230 | **TAX-7**: growth loop — `/growth/cluster` (pure compute, SG-5: NO id minted) + `db:growth:cluster` runner (sanitized human packet, `--apply`/`--reopen-clustered` status machine, PARTIAL-embed refusal, mock-persist guard). Adversarial review: 13 raised / 9 confirmed **fixed in-PR** (markdown-injection HIGH, one-way-door HIGH) / 4 refuted; TD67 logged (ai-service-wide auth posture) |
 
 ## Notes
 - Root-caused yesterday's "CI dispatch stall": #226 went CONFLICTING after #225 merged — GitHub silently skips PR workflows when the merge ref can't build. Not a billing/incident issue.
-- ADR-0030 series now: TAX-0..6 + TAX-8 DONE; TAX-7 (growth loop) in build; TAX-9 P3.
+- ADR-0030 series: **P1+P2 COMPLETE** (TAX-0..8 all done); only TAX-9 (P3 versioning/re-tag) remains.
+- New ops capability (dormant until queue volume): `pnpm db:growth:cluster` — proposals land in `docs/registers/skill-growth-proposals.md`, activation stays human-only via the ratification flow.
 
 ---
 
