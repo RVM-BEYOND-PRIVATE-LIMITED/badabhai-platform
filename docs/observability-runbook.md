@@ -207,6 +207,52 @@ called**; a safe fallback is returned. This is correct, protective behavior, not
 outage. An **elevated `blocked` rate** is the signal: SEV3 (workers still get a
 fallback), but investigate the input shape driving blocks.
 
+### OTP / SMS delivery (F4 — worker login path)
+
+Real Fast2SMS is the **only** worker-OTP send path (no console/mock), so SMS
+delivery failing = **workers cannot log in**. Two PII-free event-spine signals
+(both `actor_type: "system"`, aggregate payloads — never a phone/hash/code):
+
+- **`worker.otp_send_failed`** — one per failed real send, payload
+  `{provider: "fast2sms", reason}` with `reason` ∈ `transport` (network/DNS/TLS to
+  the provider) · `http_error` (provider answered non-2xx) · `provider_rejected`
+  (provider answered 200 but `return:false`, or an unparseable body). Emitted by
+  the shared `issueAndSendWithSignals` seam in
+  [`auth.service.ts`](../apps/api/src/auth/auth.service.ts) from the tagged 502 —
+  every send surface routes through it (login + PIN-reset `requestOtp`, and the
+  account-delete step-up request); the worker sees the same neutral
+  "Could not send the code, please retry".
+- **`worker.otp_send_cap_exceeded`** — the OTP-5 **global daily send
+  circuit-breaker** (the spend ceiling / kill-switch `OTP_GLOBAL_MAX_SENDS_PER_DAY`,
+  `0` = paused) tripped. One per breach, payload `{channel, cap, limit, window}`.
+
+**What to watch:** the **send-failure rate** — `worker.otp_send_failed` count vs
+`worker.otp_requested` count over the same window — plus any
+`worker.otp_send_cap_exceeded` occurrence (the breaker firing is always
+notable: either real abuse pressure or the cap/kill-switch engaged).
+
+**Suggested alert threshold** (wire when alerting lands, §8): send-failure rate
+**> 10% over 15 minutes with ≥ 5 failures**, or **≥ 3 consecutive** failures with
+zero successes → treat as **SEV2** (core worker flow broken — login is blocked for
+new/returning devices). A lone `transport` blip that recovers is SEV4-noise.
+
+**First response:**
+
+1. Split by `reason` (the events list / ops console filter on
+   `worker.otp_send_failed`): `transport` → egress/DNS/provider reachability;
+   `http_error` → check the Fast2SMS status page + the API key/quota (a sudden
+   401/402-shaped burst after a deploy = credential/config regression);
+   `provider_rejected` → DLT template/sender-id/route problem or provider-side
+   balance — check the Fast2SMS dashboard delivery report.
+2. Correlate with `worker.otp_send_cap_exceeded`: if the breaker fired, failures
+   may be the cap (by design), not the provider — confirm
+   `OTP_GLOBAL_MAX_SENDS_PER_DAY` wasn't left at `0` (kill-switch) unintentionally.
+3. Cross-check the API logs for the paired `Fast2SMS …` / `OTP send failed`
+   `logger.error` lines (phone-hash prefix + status only) for the HTTP status
+   detail the event deliberately omits.
+4. If the provider is down hard: there is no fallback SMS provider (locked stack,
+   §3) — escalate to human per CLAUDE.md §7 before touching provider config.
+
 ---
 
 ## 8. Plan (NOT integrated — env placeholders only)

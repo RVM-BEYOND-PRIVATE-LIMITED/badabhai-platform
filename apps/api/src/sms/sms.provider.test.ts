@@ -4,6 +4,7 @@ import { Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import { Fast2SmsProvider } from "./fast2sms.provider";
+import { SmsSendError } from "./sms.provider";
 
 const PHONE = "+919876543210";
 const CODE = "428913";
@@ -67,7 +68,7 @@ describe("Fast2SmsProvider.sendOtp", () => {
     expect(init.headers.authorization).toBe("test-api-key");
   });
 
-  it("throws when the provider returns return:false", async () => {
+  it("throws when the provider returns return:false — SmsSendError('provider_rejected') (F4)", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -75,10 +76,12 @@ describe("Fast2SmsProvider.sendOtp", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const provider = new Fast2SmsProvider(fast2smsConfig, pii);
-    await expect(provider.sendOtp({ phoneE164: PHONE, code: CODE })).rejects.toThrow();
+    const err = await provider.sendOtp({ phoneE164: PHONE, code: CODE }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SmsSendError);
+    expect((err as SmsSendError).reason).toBe("provider_rejected");
   });
 
-  it("throws on a non-2xx response", async () => {
+  it("throws on a non-2xx response — SmsSendError('http_error') (F4)", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
       status: 401,
@@ -86,7 +89,33 @@ describe("Fast2SmsProvider.sendOtp", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const provider = new Fast2SmsProvider(fast2smsConfig, pii);
-    await expect(provider.sendOtp({ phoneE164: PHONE, code: CODE })).rejects.toThrow();
+    const err = await provider.sendOtp({ phoneE164: PHONE, code: CODE }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SmsSendError);
+    expect((err as SmsSendError).reason).toBe("http_error");
+  });
+
+  it("throws on a network failure — SmsSendError('transport') (F4)", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new Fast2SmsProvider(fast2smsConfig, pii);
+    const err = await provider.sendOtp({ phoneE164: PHONE, code: CODE }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SmsSendError);
+    expect((err as SmsSendError).reason).toBe("transport");
+  });
+
+  it("throws on an unparseable 200 body — SmsSendError('provider_rejected') (F4)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new SyntaxError("not json");
+      },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const provider = new Fast2SmsProvider(fast2smsConfig, pii);
+    const err = await provider.sendOtp({ phoneE164: PHONE, code: CODE }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SmsSendError);
+    expect((err as SmsSendError).reason).toBe("provider_rejected");
   });
 
   it("the thrown error never contains the code or the raw number", async () => {

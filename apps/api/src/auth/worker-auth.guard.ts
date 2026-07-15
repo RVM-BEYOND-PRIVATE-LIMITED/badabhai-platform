@@ -9,6 +9,7 @@ import {
 import type { Request, Response } from "express";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
+import { ConsentRepository } from "../consent/consent.repository";
 import { SessionService } from "./session.service";
 
 /** The authenticated worker attached to the request by {@link WorkerAuthGuard}. */
@@ -37,12 +38,30 @@ declare global {
  * ROLLING TOKEN: when the current token is past its half-life, a fresh JWT is
  * minted and returned in the `x-session-token` response header so an active
  * client transparently keeps a fresh token without a separate refresh call.
+ *
+ * A5 residual (ADR-0026 amendment): the half-life re-mint is CONSENT-GATED — a worker
+ * whose latest consent is REVOKED no longer gets a silent fresh full-TTL token, so a
+ * revoked worker's residual access is bounded by the CURRENT token's remaining TTL.
+ * The request itself still passes (logout keeps working for revoked workers), and a
+ * NEVER-consented worker keeps the re-mint (the pre-consent onboarding window — the
+ * same asymmetry as ConsentNotRevokedGuard). Cost: ONE consent read at most once per
+ * half-life, never on the ordinary per-request path.
+ *
+ * FAIL-SAFE BOTH WAYS: the consent read is the guard's ONLY Postgres dependency
+ * (validateAndTouch is Redis-only, mint is pure JWT), so a read error must never turn
+ * into a 500 on `[W]`-only routes — POST /auth/logout and /auth/logout-all are exactly
+ * the routes that must survive a DB incident. On ANY consent-read error the guard
+ * WITHHOLDS the extension (no re-mint without proof of not-revoked — the security
+ * property holds) and lets the already-authenticated request pass, the same
+ * degradation shape validateAndTouch applies to a Redis error (request outcome,
+ * never a 500).
  */
 @Injectable()
 export class WorkerAuthGuard implements CanActivate {
   constructor(
     private readonly session: SessionService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    private readonly consents: ConsentRepository,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -61,8 +80,26 @@ export class WorkerAuthGuard implements CanActivate {
     // the device binding (`did`) so the rolled token stays bound to the same device.
     const fullTtl = this.config.SESSION_TTL_DAYS * 86400;
     if (validated.remainingSeconds < fullTtl / 2) {
-      const fresh = await this.session.mint(validated.workerId, validated.sid, validated.deviceId);
-      res.setHeader("x-session-token", fresh.token);
+      // A5 residual: SKIP the re-mint for a REVOKED-consent worker (latest row exists AND
+      // revokedAt is stamped). Never-consented (no row) and active consent both re-mint.
+      // FAIL-SAFE: a consent-read error also SKIPS the re-mint (consent state unknown →
+      // withhold the extension) but never fails the already-authenticated request — a
+      // PG blip must not 500 logout/logout-all past the token half-life.
+      let allowRemint = false;
+      try {
+        const latest = await this.consents.findLatestByWorker(validated.workerId);
+        allowRemint = !latest || latest.revokedAt === null;
+      } catch {
+        allowRemint = false;
+      }
+      if (allowRemint) {
+        const fresh = await this.session.mint(
+          validated.workerId,
+          validated.sid,
+          validated.deviceId,
+        );
+        res.setHeader("x-session-token", fresh.token);
+      }
     }
 
     return true;

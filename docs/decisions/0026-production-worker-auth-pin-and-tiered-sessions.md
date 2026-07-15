@@ -569,15 +569,26 @@ never-consented worker still succeeds). OTP `verifyOtp` mints a **fresh login** 
 a resume) and precedes consent in onboarding, so it is intentionally NOT gated here — the profiling
 routes' per-request `ConsentGuard` is the gate for that worker.
 
-**Known uncovered path — launch gate (do NOT read the list above as "every" mint/extend path).**
-`WorkerAuthGuard` itself extends a session on **every** `[W]` route: `validateAndTouch` slides the
+**Formerly-uncovered path — half-life re-mint, now consent-gated (correction 2026-07-15).**
+`WorkerAuthGuard` extends a session on **every** `[W]` route: `validateAndTouch` slides the
 idle TTL and, past the token half-life, silently re-mints a fresh full-TTL JWT via the
-`x-session-token` response header — and that slide/re-mint is **NOT** gated on consent. It is **not
-exploitable today**: the only path that stamps `revokedAt` is account deletion, which calls
-`SessionService.revokeAll(workerId)` **first**, so the session record is already gone before the
-slide (`validateAndTouch` returns null → 401). Enforcement therefore rests on the invariant that
-**any future consent-withdrawal path MUST call `revokeAll` atomically with stamping `revokedAt`**.
-**Before a standalone consent-withdrawal endpoint ships — or before the Flutter `kPersistentAuth`
-flip — either gate the `WorkerAuthGuard` slide/re-mint on revoked consent, or land that coupling as
-a tested invariant.** Together with the explicit paths above, this closes the resume surface ahead
-of the flip.
+`x-session-token` response header. **The re-mint is now consent-gated**: inside the half-life
+branch only (one `ConsentRepository.findLatestByWorker` read at most once per half-life, never
+on the ordinary per-request path), a worker whose LATEST consent row has `revokedAt` stamped is
+**skipped** — no `x-session-token` is set, so a revoked worker's residual access is bounded by
+the current token's remaining TTL. The request itself still passes (logout keeps working), and a
+never-consented worker keeps the re-mint (the same asymmetry as `ConsentNotRevokedGuard` — the
+pre-consent onboarding window is not broken; the profiling routes' `ConsentGuard` still gates §6).
+
+**Correction of the earlier claim.** A previous revision stated "the only path that stamps
+`revokedAt` is account deletion" — that was **FALSE**. **Nothing stamps `revokedAt` today: no
+consent-withdrawal path exists.** Account deletion never touches `revokedAt` — its actual
+ordering ([`account-deletion.service.ts`](../../apps/api/src/auth/account-deletion.service.ts))
+is: (1) `SessionService.revokeAll(workerId)` **first** (a deleting worker can never be
+re-authenticated), (2) capture pre-delete facts + erase storage objects, (3) **hard-delete the
+`workers` row**, whose transactional cascade **deletes the `worker_consents` rows outright**
+(there is no row left to stamp), then tombstone + the PII-free `worker.account_deleted` event.
+The durable invariant stands regardless of the guard gate: **any future consent-withdrawal path
+MUST stamp `revokedAt` AND await `sessions.revokeAll` in the same service method, with a
+strict-order test** (tracked as TD69 in the tech-debt register). Together with the explicit
+paths above, this closes the resume surface ahead of the `kPersistentAuth` flip.

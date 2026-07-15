@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { OtpSendCapExceededException } from "../common/otp-send-cap";
+import { OtpSendFailedException } from "../common/otp-send-failure";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { OtpService } from "./otp.service";
@@ -38,35 +39,12 @@ export class AuthService {
   ) {}
 
   async requestOtp(phone: string, ctx: RequestContext): Promise<OtpRequestResponse> {
-    // Issue + send first; OtpService throws (cooldown/cap/send-fail/Redis) and we
-    // do NOT emit on failure. Only a real, sent code produces the event.
-    let issued: { resendInSeconds: number };
-    try {
-      issued = await this.otp.issueAndSend(phone);
-    } catch (err) {
-      // OTP-5: the GLOBAL daily send circuit-breaker (the spend ceiling) tripped — emit
-      // the PII-free breach event ONCE (so ops can alert on the spend ceiling), then
-      // re-throw the SAME neutral 429 the throttle returns (no new oracle). This fires
-      // ONLY on the global breach, never on ordinary per-phone cooldowns/caps (those
-      // throw a plain HttpException). The payload is AGGREGATE — no phone/IP/code/id.
-      if (err instanceof OtpSendCapExceededException) {
-        await this.events.emit({
-          event_name: "worker.otp_send_cap_exceeded",
-          actor: { actor_type: "system" },
-          subject: { subject_type: "worker" },
-          payload: {
-            channel: err.breach.channel,
-            cap: "global_daily",
-            limit: err.breach.limit,
-            window: err.breach.window,
-          },
-          correlationId: ctx.correlationId,
-          requestId: ctx.requestId,
-        });
-      }
-      throw err;
-    }
-    const { resendInSeconds } = issued;
+    // Issue + send through the SHARED failure-signal seam; OtpService throws
+    // (cooldown/cap/send-fail/Redis) and we do NOT emit worker.otp_requested on
+    // failure — only a real, sent code produces that event. The seam's two MONITORING
+    // events (cap breach, send failure) are the only failure-path emissions, and both
+    // are aggregate/PII-free.
+    const { resendInSeconds } = await this.issueAndSendWithSignals(phone, ctx);
 
     const phoneHash = this.pii.hashPhone(phone);
     // NOTE: the raw phone is never logged or put into an event — only its hash.
@@ -86,6 +64,63 @@ export class AuthService {
       channel: "sms",
       resend_in_seconds: resendInSeconds,
     };
+  }
+
+  /**
+   * Issue + send a worker OTP through the SHARED failure-signal seam. EVERY caller
+   * that triggers a real Fast2SMS send MUST route through here (today: {@link requestOtp}
+   * — which also serves the PIN-reset step-up via PinService — and the account-delete
+   * step-up request in AuthController), so every send-failure outcome signals the event
+   * spine identically:
+   *
+   *   - OTP-5 global-cap breach → ONE PII-free `worker.otp_send_cap_exceeded`
+   *     (channel/cap/limit/window — no phone/IP/code/id), then the SAME neutral 429
+   *     the throttle returns (no new oracle; per-phone cooldowns/caps throw a plain
+   *     HttpException and are NOT emitted).
+   *   - F4 (#168) provider send failure → ONE PII-free `worker.otp_send_failed`
+   *     (provider literal + failure-kind enum — no phone/hash/code/status), then the
+   *     SAME neutral 502 the send failure already returned.
+   *
+   * The original error is ALWAYS re-thrown unchanged — this seam adds observability,
+   * never a response change.
+   */
+  async issueAndSendWithSignals(
+    phone: string,
+    ctx: RequestContext,
+  ): Promise<{ resendInSeconds: number }> {
+    try {
+      return await this.otp.issueAndSend(phone);
+    } catch (err) {
+      if (err instanceof OtpSendCapExceededException) {
+        await this.events.emit({
+          event_name: "worker.otp_send_cap_exceeded",
+          actor: { actor_type: "system" },
+          subject: { subject_type: "worker" },
+          payload: {
+            channel: err.breach.channel,
+            cap: "global_daily",
+            limit: err.breach.limit,
+            window: err.breach.window,
+          },
+          correlationId: ctx.correlationId,
+          requestId: ctx.requestId,
+        });
+      }
+      if (err instanceof OtpSendFailedException) {
+        await this.events.emit({
+          event_name: "worker.otp_send_failed",
+          actor: { actor_type: "system" },
+          subject: { subject_type: "worker" },
+          payload: {
+            provider: err.failure.provider,
+            reason: err.failure.reason,
+          },
+          correlationId: ctx.correlationId,
+          requestId: ctx.requestId,
+        });
+      }
+      throw err;
+    }
   }
 
   async verifyOtp(

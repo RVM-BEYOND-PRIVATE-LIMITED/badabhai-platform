@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { HttpException, HttpStatus } from "@nestjs/common";
 import { validateEvent } from "@badabhai/event-schema";
 import { OtpSendCapExceededException } from "../common/otp-send-cap";
+import { OtpSendFailedException } from "../common/otp-send-failure";
 import { AuthService } from "./auth.service";
 
 const ctx = { requestId: "req-1", correlationId: "11111111-1111-4111-8111-111111111111" };
@@ -153,6 +154,100 @@ describe("AuthService (real OTP)", () => {
       metadata: { environment: "test", service: "api" },
     });
     expect(built.success).toBe(true);
+  });
+
+  it("requestOtp on a provider send failure emits exactly one PII-free worker.otp_send_failed and re-throws 502 (F4)", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const otp = makeOtp();
+    otp.issueAndSend = vi
+      .fn()
+      .mockRejectedValue(new OtpSendFailedException({ provider: "fast2sms", reason: "transport" }));
+    const svc = new AuthService(
+      { emit } as never,
+      {} as never,
+      pii,
+      otp as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+
+    // The SAME neutral 502 the send-failure path already returned reaches the client.
+    await expect(svc.requestOtp(PHONE, ctx)).rejects.toMatchObject({
+      status: HttpStatus.BAD_GATEWAY,
+    });
+
+    // Exactly ONE monitoring event, with the AGGREGATE PII-free payload — and it validates.
+    expect(emit).toHaveBeenCalledTimes(1);
+    const arg = emit.mock.calls[0]![0] as { event_name: string; payload: Record<string, unknown> };
+    expect(arg.event_name).toBe("worker.otp_send_failed");
+    expect(arg.payload).toEqual({ provider: "fast2sms", reason: "transport" });
+    // No phone / hash / code anywhere in the emitted event.
+    expect(JSON.stringify(arg)).not.toContain("9876543210");
+    expect(JSON.stringify(arg)).not.toContain("hmac:");
+    // The emitted shape validates against @badabhai/event-schema.
+    const built = validateEvent({
+      event_id: "11111111-1111-4111-8111-111111111111",
+      event_name: arg.event_name,
+      event_version: 1,
+      occurred_at: "2026-07-15T00:00:00.000Z",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "worker", subject_id: null },
+      source: "api",
+      correlation_id: "22222222-2222-4222-8222-222222222222",
+      causation_id: null,
+      payload: arg.payload,
+      metadata: { environment: "test", service: "api" },
+    });
+    expect(built.success).toBe(true);
+  });
+
+  it("issueAndSendWithSignals (the seam the account-delete step-up uses) emits exactly one worker.otp_send_failed and re-throws the 502", async () => {
+    // The account-delete request path (auth.controller accountDeleteRequest) calls THIS
+    // seam directly — so a Fast2SMS failure there emits the same event as the login path.
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const otp = makeOtp();
+    otp.issueAndSend = vi.fn().mockRejectedValue(
+      new OtpSendFailedException({ provider: "fast2sms", reason: "provider_rejected" }),
+    );
+    const svc = new AuthService(
+      { emit } as never,
+      {} as never,
+      pii,
+      otp as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+
+    await expect(svc.issueAndSendWithSignals(PHONE, ctx)).rejects.toMatchObject({
+      status: HttpStatus.BAD_GATEWAY,
+      message: "Could not send the code, please retry",
+    });
+
+    expect(emit).toHaveBeenCalledTimes(1);
+    const arg = emit.mock.calls[0]![0] as { event_name: string; payload: Record<string, unknown> };
+    expect(arg.event_name).toBe("worker.otp_send_failed");
+    expect(arg.payload).toEqual({ provider: "fast2sms", reason: "provider_rejected" });
+    expect(JSON.stringify(arg)).not.toContain("9876543210");
+  });
+
+  it("issueAndSendWithSignals resolves the cooldown untouched on success and emits nothing", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const otp = makeOtp();
+    const svc = new AuthService(
+      { emit } as never,
+      {} as never,
+      pii,
+      otp as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+    await expect(svc.issueAndSendWithSignals(PHONE, ctx)).resolves.toEqual({
+      resendInSeconds: 30,
+    });
+    expect(emit).not.toHaveBeenCalled();
   });
 
   it("verifyOtp rejects a bad code (otp.verify throws) and never touches the worker table", async () => {

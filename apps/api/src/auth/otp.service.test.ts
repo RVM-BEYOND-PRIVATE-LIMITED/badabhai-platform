@@ -5,7 +5,8 @@ import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import { OtpSendCapExceededException } from "../common/otp-send-cap";
-import type { SmsProvider } from "../sms/sms.provider";
+import { OtpSendFailedException } from "../common/otp-send-failure";
+import { SmsSendError, type SmsProvider } from "../sms/sms.provider";
 import { OtpService } from "./otp.service";
 
 const PHONE = "+919876543210";
@@ -205,6 +206,30 @@ describe("OtpService.issueAndSend", () => {
       status: HttpStatus.BAD_GATEWAY,
     });
     // No dangling code left behind.
+    expect(redis.store.has(codeKey)).toBe(false);
+  });
+
+  // F4 (#168): a TYPED provider failure (SmsSendError) re-throws as the TAGGED 502
+  // (OtpSendFailedException) carrying the PII-free failure metadata, so AuthService
+  // can emit worker.otp_send_failed once. Same status + copy — no new oracle.
+  it("on a typed SmsSendError re-throws the TAGGED 502 carrying the PII-free reason (F4)", async () => {
+    const redis = makeRedis();
+    const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
+    const sms: SmsProvider = {
+      sendOtp: vi
+        .fn()
+        .mockRejectedValue(new SmsSendError("http_error", "SMS delivery failed (HTTP 500)")),
+    };
+    const svc = new OtpService(config, pii, sms, queue);
+    const err = await svc.issueAndSend(PHONE).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(OtpSendFailedException);
+    expect((err as OtpSendFailedException).getStatus()).toBe(HttpStatus.BAD_GATEWAY);
+    expect((err as OtpSendFailedException).message).toBe("Could not send the code, please retry");
+    expect((err as OtpSendFailedException).failure).toEqual({
+      provider: "fast2sms",
+      reason: "http_error",
+    });
+    // Same rollback as the untyped path — no dangling code.
     expect(redis.store.has(codeKey)).toBe(false);
   });
 

@@ -216,6 +216,39 @@ export const PayerOtpSendCapExceededPayload = z.object(otpSendCapExceededShape);
 export type PayerOtpSendCapExceededPayload = z.infer<typeof PayerOtpSendCapExceededPayload>;
 
 // ---------------------------------------------------------------------------
+// worker.otp_send_failed — F4 (#168): provider-side SMS send-failure signal on the
+// worker OTP path. Fast2SMS is the ONLY send path (real-only, no console/mock), so a
+// send failure was previously visible only as a logger.error — invisible to the event
+// spine ops watches. AGGREGATE / PII-FREE BY CONSTRUCTION: the provider LITERAL + a
+// failure-KIND enum ONLY — no phone, no phone_hash, no worker id, no OTP code, no HTTP
+// status code, and no free text a status/response body could smuggle PII through
+// (CLAUDE.md invariant #2 — "record the fact, not the value"). Emitted ONCE per failed
+// send, in addition to (never instead of) the neutral 502 the caller already returns.
+// ---------------------------------------------------------------------------
+
+/**
+ * How the real send failed. Enum-only → no PII / no status-code free text:
+ *   - "transport"          the HTTPS request itself failed (network/DNS/TLS)
+ *   - "http_error"         the provider answered with a non-2xx HTTP status
+ *   - "provider_rejected"  the provider answered 200 but did not accept the message
+ *                          (`return:false`) or returned an unparseable body
+ */
+export const OTP_SEND_FAILURE_REASONS = ["transport", "http_error", "provider_rejected"] as const;
+export const OtpSendFailureReason = z.enum(OTP_SEND_FAILURE_REASONS);
+export type OtpSendFailureReason = z.infer<typeof OtpSendFailureReason>;
+
+/** The aggregate, PII-free send-failure payload. `.strict()` backstop. */
+export const WorkerOtpSendFailedPayload = z
+  .object({
+    // Pinned literal — Fast2SMS is the only worker-SMS provider (§1 exit criteria).
+    // Keeping it a literal (not free text) STRUCTURALLY guarantees no PII here.
+    provider: z.literal("fast2sms"),
+    reason: OtpSendFailureReason,
+  })
+  .strict();
+export type WorkerOtpSendFailedPayload = z.infer<typeof WorkerOtpSendFailedPayload>;
+
+// ---------------------------------------------------------------------------
 // consent.*
 // ---------------------------------------------------------------------------
 export const ConsentAcceptedPayload = z.object({

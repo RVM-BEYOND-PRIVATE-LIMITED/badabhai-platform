@@ -2,14 +2,23 @@
 
 **Owner:** Divyanshu Pant · **Status:** ALL 5 PHASES MERGED 2026-06-29 (code-complete + unit-tested; gated OFF pending staging proof) · **Program rollup ~82%** · **Scope class:** Phase-2 production hardening (NOT an alpha-gate).
 **Decision of record:** [ADR-0026](../decisions/0026-production-worker-auth-pin-and-tiered-sessions.md) · **Risk:** [R25](../registers/risks-register.md) · **Deferred-hardening:** [TD55](../registers/tech-debt-register.md).
-**Last updated:** 2026-07-11 (register sync — post-#175/#176 reconciliation).
+**Last updated:** 2026-07-15 (PIN residuals sweep — F4 closed + the two unmerged PIN follow-ons cherry-picked in).
 
 > ✅ **D7 RESOLVED (2026-06-29):** built on **`crypto.scrypt` + env pepper** per the accepted ADR-0026
 > (verified `apps/api/src/auth/pin-hasher.service.ts`, PR #168) — Argon2id + KMS correctly **deferred to
 > TD55**, no §3 deviation merged.
-> ✅ **The 4 MEDIUM PIN throttle fast-follows were DISPOSITIONED by #175** (`d809e09`, A4): F1
-> cycle-0-flush + F2 `/pin/reset` per-IP cap **fixed**; F3 **accepted**; F4 (provider-side anomalies)
-> **deferred to the real-SMS flip** (re-verify there — see TD58 in the tech-debt register).
+> ✅ **The 4 MEDIUM PIN throttle fast-follows are now ALL CLOSED**: F1 cycle-0-flush + F2
+> `/pin/reset` per-IP cap **fixed** by #175 (`d809e09`, A4); F3 **accepted**; F4 (provider-side
+> anomalies) **CLOSED 2026-07-15** (PR `fix/pin-residuals-f4-and-consent-remint`): every Fast2SMS
+> delivery failure emits a PII-free `worker.otp_send_failed` v1 event + an "OTP / SMS delivery"
+> watch section in the observability runbook — TD60's F4 residual is paid (was mis-cited as TD58
+> here; TD58/59 belong to ADR-0029 voice). The same PR **merged the two previously-unmerged PIN
+> follow-ons** (cherry-picked from `fix/pin-lockout-cycle-escalation`): the lockout ladder now
+> force-OTPs at the configured K, not cycle 2 (#168-#2 + #4, with the multi-cycle durable-ladder
+> regression test), and the durable force-OTP mirror is MONOTONIC (`GREATEST(column, value)`) so a
+> lagging multi-device escalation can't clobber a latched force-OTP (#168 F1 race) — and
+> **consent-gated the `WorkerAuthGuard` half-life re-mint** (A5 residual: a REVOKED-consent worker
+> no longer gets a silent fresh full-TTL token; see TD69 for the withdrawal-coupling invariant).
 > ➕ **#176** (`787ac13`) added **consent-on-resume defense-in-depth** on every session-resume path
 > (A5, an ADR-0026 amendment). Still held: `PAYER-PIN-1` (payer PIN unlock) pending an ADR amendment
 > + security review; account-deletion prod endpoint + voice-audio DSAR erase stay §7/launch-gate
@@ -23,11 +32,11 @@
 | ----- | ---- | ------ | -------: | -------- |
 | 1 | Session core: access/refresh split, opaque rotating refresh + reuse detection, engagement tiers + 90d absolute cap, `/auth/token/refresh`, `/auth/logout-all`, `/auth/session` | ✅ MERGED (VERIFY) | 80% | #162 `03410ee`; `session.service.ts`, `session-tiers.ts` + tests |
 | 2 | **Devices:** `worker_devices` table + registration on OTP verify + `did` claim + `GET`/`DELETE /auth/devices` | ✅ MERGED (VERIFY) | 80% | #167 `ce8f65a`; `worker_devices` in schema (l.161); trusted-device gate |
-| 3 | **PIN:** `worker_credentials` + scrypt set/verify/reset + throttle/lockout + SIM-swap PIN gate + weak-PIN denylist | ✅ MERGED (VERIFY) | 82% | #168 `0aff7d5`; `worker_credentials` (l.218), `pin-hasher.service.ts` (scrypt), `pin.controller.ts`; **throttle fast-follows dispositioned by #175** (F1/F2 fixed, F3 accepted, F4 → real-SMS flip); +#176 consent-on-resume (A5) |
+| 3 | **PIN:** `worker_credentials` + scrypt set/verify/reset + throttle/lockout + SIM-swap PIN gate + weak-PIN denylist | ✅ MERGED (VERIFY) | 82% | #168 `0aff7d5`; `worker_credentials` (l.218), `pin-hasher.service.ts` (scrypt), `pin.controller.ts`; **throttle fast-follows dispositioned by #175** (F1/F2 fixed, F3 accepted, F4 closed 2026-07-15 — `worker.otp_send_failed` + runbook) + the K-ladder/monotonic-mirror follow-ons merged 2026-07-15; +#176 consent-on-resume (A5), re-mint consent-gated 2026-07-15 |
 | 4 | Mobile (worker app): persistent auth (phone+OTP+PIN), silent refresh, splash resume, refresh-on-401 + mobile↔backend reconcile | ✅ MERGED (VERIFY) | 75% | #166 `78622e5` + Phase-4 reconcile `d305877`; not handset-proven (B1) |
 | 5 | DPDP account deletion (`DELETE /account`, step-up OTP, actor-scoped cascade) | ✅ MERGED (VERIFY) | 78% | #169; migration 0031; voice-audio DSAR erase DORMANT (launch-gate); prod endpoint §7-deferred |
 
-**Workstream rollup: ~82%** (all 5 phases MERGED + unit-tested, Confidence Medium). Cap: security-sensitive auth → **cannot exceed 90% without bb-security-review + staging proof**, and held below that by **no-handset-proof** (the PIN throttle fast-follows were dispositioned by #175). Remaining to 100%: B1 handset verification and the launch-gate items (payer PIN amendment, voice DSAR erase, prod account-deletion endpoint, F4 re-verify at the real-SMS flip).
+**Workstream rollup: ~82%** (all 5 phases MERGED + unit-tested, Confidence Medium). Cap: security-sensitive auth → **cannot exceed 90% without bb-security-review + staging proof**, and held below that by **no-handset-proof** (the PIN throttle fast-follows were dispositioned by #175). Remaining to 100%: B1 handset verification and the launch-gate items (payer PIN amendment, voice DSAR erase, prod account-deletion endpoint; F4 is CLOSED — the real-SMS flip run should just confirm `worker.otp_send_failed` fires against the live provider).
 
 ---
 

@@ -140,8 +140,11 @@ function makePins(initial: ReturnType<typeof makeCred> | null) {
     async (_workerId: string, args: { lockoutCycles: number; otpCycleCount: number }) => {
       if (state.row) {
         state.row.failedAttempts = 0; // a lockout STEP resets the transient failed counter
-        state.row.lockoutCycles = args.lockoutCycles;
-        state.row.otpCycleCount = args.otpCycleCount;
+        // MUST mirror the real repo's GREATEST monotonic write (pin.repository.ts): the two
+        // force-OTP latches only ever RISE, so a lagging non-final write from a second device
+        // cannot clobber a concurrently-raised latch. pin.repository.test.ts pins the SQL side.
+        state.row.lockoutCycles = Math.max(state.row.lockoutCycles, args.lockoutCycles);
+        state.row.otpCycleCount = Math.max(state.row.otpCycleCount, args.otpCycleCount);
       }
     },
   );
@@ -506,6 +509,99 @@ describe("PinService.verifyPin — throttle / lockout ladder", () => {
       lockout_cycle: BASE_CONFIG.PIN_MAX_LOCKOUT_CYCLES,
       force_otp: true,
     });
+  });
+
+  // #168-#4 — the DURABLE-ladder regression test the fast-follow was missing. Drives ONE fresh
+  // credential through the durable mirror across every NON-FINAL lockout cycle (the earlier
+  // "backoff doubles per cycle" test pre-seeds the TRANSIENT Redis cycle for a single step and
+  // never asserts the durable otp_cycle_count, so it does NOT cover this). Guards the #168-#2
+  // fix: force-OTP must fire at the configured K, never prematurely at cycle 2.
+  it("durable ladder: otp_cycle_count stays 0 across EVERY non-final cycle and only force-OTPs at the configured K", async () => {
+    const { svc, redis, hasher, pins, emit } = build();
+    const K = BASE_CONFIG.PIN_MAX_LOCKOUT_CYCLES; // 5
+    const KEY = `pin_throttle:${WORKER}:${DEVICE}`;
+
+    for (let cycle = 0; cycle < K; cycle += 1) {
+      const nextCycle = cycle + 1;
+      const isFinal = nextCycle >= K;
+
+      // Seed the transient at THIS cycle one attempt short of a lockout, no open window, so a
+      // single wrong PIN steps the ladder. The durable mirror (state.row) persists across the
+      // loop exactly like the real DB row — that is what this test exercises.
+      redis.store.set(
+        KEY,
+        JSON.stringify({ failed: BASE_CONFIG.PIN_MAX_ATTEMPTS - 1, lockedUntil: null, cycle }),
+      );
+      hasher.verify.mockClear();
+      emit.mockClear();
+      pins.repo.incrementOtpCycle.mockClear();
+
+      // (b) Going IN we were NOT pre-scrypt force-OTP'd — the wrong PIN reaches scrypt and steps
+      // the lockout. If the bug were live, cycle-2 onward would short-circuit here (no scrypt).
+      await expectNeutral401(svc.verifyPin(verifyInput({ pin: WRONG_PIN }), ctx));
+      expect(hasher.verify, `cycle ${cycle}: scrypt must be reached`).toHaveBeenCalled();
+
+      // The pin_locked event carries force_otp ONLY on the final cycle (neutral 401 to the
+      // client regardless — force_otp lives in the ops EVENT, never the HTTP response).
+      const locked = eventNamed(emit, "worker.pin_locked")!;
+      expect(locked.payload).toMatchObject({ lockout_cycle: nextCycle, force_otp: isFinal });
+
+      if (isFinal) {
+        // (c) ONLY nextCycle >= K bumps otp_cycle_count + emits force_otp:true.
+        expect(pins.repo.incrementOtpCycle).toHaveBeenCalledWith(WORKER);
+        expect(pins.state.row!.otpCycleCount).toBe(1);
+        expect(pins.state.row!.lockoutCycles).toBe(K);
+      } else {
+        // (a) The durable otp_cycle_count stays 0 on every non-final step (the #168-#2 fix); the
+        // force-OTP counter is NOT touched until the final cycle.
+        expect(pins.repo.incrementOtpCycle).not.toHaveBeenCalled();
+        expect(pins.state.row!.otpCycleCount, `cycle ${cycle}: otp_cycle_count must stay 0`).toBe(0);
+        expect(pins.state.row!.lockoutCycles).toBe(nextCycle);
+
+        // (b) A SUBSEQUENT verify is NOT pre-scrypt force-OTP'd: expire the transient window and
+        // confirm scrypt is reached (the durable guard did NOT short-circuit at this cycle).
+        redis.store.set(KEY, JSON.stringify({ failed: 0, lockedUntil: null, cycle: nextCycle }));
+        hasher.verify.mockClear();
+        await expectNeutral401(svc.verifyPin(verifyInput({ pin: WRONG_PIN }), ctx));
+        expect(
+          hasher.verify,
+          `cycle ${cycle}: subsequent verify must reach scrypt, not force_otp`,
+        ).toHaveBeenCalled();
+      }
+    }
+  });
+
+  // A worker holds ONE worker_credentials row but can drive verifyPin from MULTIPLE trusted
+  // devices, each with its own transient (Redis) cycle. The durable guard-read → escalation-
+  // write is NOT atomic and straddles the slow scrypt KDF, so a second device can pass the
+  // guard at otp_cycle_count=0, enter scrypt, and land its non-final escalation AFTER a first
+  // device latched force-OTP at the final cycle. Guards F1: the durable mirror is written
+  // MONOTONICALLY (GREATEST), so the lagging non-final write can NEVER reset the latch. A blind
+  // absolute write (the earlier form) would clobber otp_cycle_count 1→0 and defeat the OTP cap.
+  it("multi-device race: a lagging non-final escalation cannot clobber a concurrently-latched force-OTP (F1)", async () => {
+    const K = BASE_CONFIG.PIN_MAX_LOCKOUT_CYCLES as number; // 5
+    // Both devices read the shared row pre-latch (otp_cycle_count=0) and enter scrypt.
+    const pins = makePins(makeCred({ lockoutCycles: K - 1, otpCycleCount: 0 }));
+
+    // Device D1 finishes first, steps to the FINAL cycle, and durably latches force-OTP.
+    await pins.repo.incrementOtpCycle();
+    await pins.repo.recordFailureEscalation(WORKER, { lockoutCycles: K, otpCycleCount: 1 });
+    expect(pins.state.row!.otpCycleCount).toBe(1);
+    expect(pins.state.row!.lockoutCycles).toBe(K);
+
+    // Device D2 was mid-scrypt with a STALE non-final throttle; its escalation lands AFTER D1's
+    // latch, carrying the pre-fix clobber values (lockout_cycles=2, otp_cycle_count=0).
+    await pins.repo.recordFailureEscalation(WORKER, { lockoutCycles: 2, otpCycleCount: 0 });
+
+    // The latch survives: GREATEST(1,0)=1, GREATEST(K,2)=K → force-OTP still armed, cap holds.
+    expect(
+      pins.state.row!.otpCycleCount,
+      "force-OTP latch must survive a lagging non-final write",
+    ).toBe(1);
+    expect(
+      pins.state.row!.lockoutCycles,
+      "lockout_cycles must not drop below the concurrent max",
+    ).toBe(K);
   });
 
   it("once force-OTP'd (otp_cycle_count>=1), a verify is neutral-failed BEFORE any scrypt (durable gate)", async () => {

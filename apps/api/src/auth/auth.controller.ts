@@ -216,17 +216,22 @@ export class AuthController {
    * Step-up OTP request for DPDP account deletion (ADR-0026 Phase 5). Identity ALWAYS from
    * the guard's `worker.id` — never a body — so a worker can only ever target their OWN
    * account. Decrypts the token-bound worker's phone (mirrors how login resolves it) and
-   * reuses the existing gated Fast2SMS OtpService (no new provider, no fork). Reuses OTP, so
-   * it emits no new event; the deletion event is emitted by /confirm. 200 with the cooldown.
+   * sends via the SHARED AuthService failure-signal seam over the existing gated Fast2SMS
+   * OtpService (no new provider, no fork). A successful send emits nothing here
+   * (`worker.otp_requested` is a login event; the deletion event is emitted by /confirm),
+   * but a delivery failure emits the same PII-free `worker.otp_send_failed` — and a
+   * global-cap breach the same `worker.otp_send_cap_exceeded` — monitoring event as the
+   * login path (F4, #168). 200 with the cooldown.
    */
   @Post("account/delete/request")
   @HttpCode(200)
   @UseGuards(WorkerAuthGuard)
   async accountDeleteRequest(
     @CurrentWorker() worker: AuthenticatedWorker,
+    @Ctx() ctx: RequestContext,
   ): Promise<AccountDeleteRequestResponse> {
     const phone = await this.resolvePhone(worker.id);
-    const { resendInSeconds } = await this.otp.issueAndSend(phone);
+    const { resendInSeconds } = await this.auth.issueAndSendWithSignals(phone, ctx);
     return { success: true, resend_in_seconds: resendInSeconds };
   }
 
