@@ -7,12 +7,51 @@ service stays DB-free. Mock by default (zero spend); real is SG-4-gated.
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
-from app.ai import embeddings
+from app.ai import cost_tracker, embeddings
 from app.main import app
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _fresh_inprocess_ledger():
+    """TD68: the real-path tests now reach ``cost_tracker.get_ledger()``. Force a
+    fresh, deterministic IN-PROCESS ledger (ignore any ambient REDIS_URL / .env —
+    a dev box's unreachable Redis would fail-closed and flip these tests) and never
+    leak state across tests. Same idiom as test_spend_cap.py."""
+    from app.config import Settings
+
+    cost_tracker._ledger = cost_tracker.SpendLedger(Settings(_env_file=None, redis_url=None))
+    yield
+    cost_tracker._ledger = None
+
+
+class _FakeLedger:
+    """TD68 spy standing in for the TD27 SpendLedger: records every reserve /
+    reconcile the endpoint makes; optionally blocks the reserve."""
+
+    def __init__(self, block_reason: str | None = None) -> None:
+        self.block_reason = block_reason
+        self.reserves: list[float] = []
+        self.records: list[tuple[float, float]] = []
+
+    async def would_exceed_spend(self, projected_inr, settings, *, user_ref=None):
+        self.reserves.append(projected_inr)
+        return self.block_reason
+
+    async def record_spend(self, reserved_inr, actual_inr, *, user_ref=None):
+        self.records.append((reserved_inr, actual_inr))
+
+
+def _install_ledger(monkeypatch, block_reason: str | None = None) -> _FakeLedger:
+    """Swap the process SpendLedger singleton for the spy (main.py resolves it via
+    ``cost_tracker.get_ledger()`` per request)."""
+    fake = _FakeLedger(block_reason)
+    monkeypatch.setattr(cost_tracker, "get_ledger", lambda: fake)
+    return fake
 
 
 def test_mock_batch_returns_768_dim_vector_per_item():
@@ -106,6 +145,71 @@ def test_real_budget_ceiling_stops_batch_with_partial_results(monkeypatch):
     assert body["budget_stopped"] is True
     assert len(body["results"]) == 1  # stopped right after the first paid embed
     assert body["estimated_cost_inr"] > 0  # unrounded accumulation (not zeroed)
+
+
+# --- TD68: the real path rides the TD27 SpendLedger -------------------------
+def test_real_path_ledger_block_stops_batch_before_any_embed(monkeypatch):
+    # TD68 (i): a SpendLedger block (daily/cumulative/global caps) must stop the REAL
+    # batch BEFORE any provider call — budget_stopped=True, results=[] (rows stay
+    # NULL; the runner resumes later), and nothing to reconcile.
+    _force_real(monkeypatch)
+    fake = _install_ledger(monkeypatch, block_reason="daily_cap_exceeded")
+    embed_calls: list[str] = []
+    monkeypatch.setattr(
+        embeddings, "_real_embedding", lambda t, s: embed_calls.append(t) or [0.1] * 768
+    )
+    resp = client.post(
+        "/embeddings/skill-alias",
+        json={
+            "items": [
+                {"alias_id": "a1", "text": "cnc milling"},
+                {"alias_id": "a2", "text": "surface grinding"},
+            ]
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["budget_stopped"] is True
+    assert body["results"] == []
+    assert body["is_mock"] is False
+    assert body["estimated_cost_inr"] == 0.0
+    assert embed_calls == []  # blocked BEFORE any provider call
+    assert len(fake.reserves) == 1 and fake.reserves[0] > 0  # projected batch cost
+    assert fake.records == []  # a block reserves nothing -> nothing to reconcile
+
+
+def test_real_path_success_records_actual_spend_on_ledger(monkeypatch):
+    # TD68 (ii): a successful REAL batch reserves the projected cost, then reconciles
+    # the SAME reservation to the ACTUAL accumulated estimate via record_spend.
+    _force_real(monkeypatch)
+    fake = _install_ledger(monkeypatch)
+    monkeypatch.setattr(embeddings, "_real_embedding", lambda t, s: [0.1] * 768)
+    resp = client.post(
+        "/embeddings/skill-alias",
+        json={"items": [{"alias_id": "a1", "text": "cnc milling machine operation"}]},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["is_mock"] is False and body["budget_stopped"] is False
+    assert len(fake.reserves) == 1
+    assert len(fake.records) == 1
+    reserved, actual = fake.records[0]
+    assert reserved == pytest.approx(fake.reserves[0])  # the same reservation reconciled
+    assert actual > 0  # the accumulated (unrounded) estimate was recorded
+    assert actual == pytest.approx(body["estimated_cost_inr"], abs=1e-6)
+
+
+def test_mock_path_never_touches_the_ledger(monkeypatch):
+    # TD68 (iii): the mock (default) path makes ZERO ledger traffic — no reserve, no
+    # record — exactly the pre-TD68 behavior.
+    fake = _install_ledger(monkeypatch)
+    resp = client.post(
+        "/embeddings/skill-alias",
+        json={"items": [{"alias_id": "a1", "text": "milling"}]},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["is_mock"] is True
+    assert fake.reserves == [] and fake.records == []
 
 
 def test_real_per_item_failure_skips_item_keeps_paid_embeds(monkeypatch):

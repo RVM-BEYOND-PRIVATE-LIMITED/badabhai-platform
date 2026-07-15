@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from ..contracts import ConversationState
 from . import signals
-from .question_bank import Topic, topics_for
+from .question_bank import Topic, topic_by_id, topics_for
 
 # A senior's acknowledgement: two words, no praise (persona rule G4).
 _ACK = "Theek hai. "
@@ -108,6 +108,38 @@ def next_turn(
     if st.turn_count == 1:
         return _vocative(worker_name) + next_topic.question, next_topic.id, st, extraction_ready
     return _ACK + next_topic.question, next_topic.id, st, extraction_ready
+
+
+def clarify_turn(
+    state: ConversationState | None,
+    role_family: str = "cnc_vmc",
+) -> tuple[str, str, ConversationState, bool] | None:
+    """COST-4 clarify fix: RE-SERVE the last asked question instead of advancing.
+
+    A clarifying message ("matlab kya?") is not an answer — running :func:`next_turn`
+    on it would advance the engine (the confused topic lands in ``asked_question_ids``
+    and ``_next_topic`` skips it FOREVER, ``ESSENTIAL_TOPICS`` included) and hand the
+    NEXT question to the rephrase branch instead of the confusing one.
+
+    Returns the SAME tuple shape as :func:`next_turn` —
+    ``(assistant_message_mock, asked_question_id, updated_state, extraction_ready)`` —
+    where the mock reply is the LAST asked question verbatim and the updated state is
+    a deep copy advanced by ``turn_count`` ONLY (``asked_question_ids`` /
+    ``answered_topics`` / ``collected`` unchanged, so the topic stays re-askable and
+    answerable). Returns None when there is nothing re-servable (no state, nothing
+    asked yet, or an unknown question id) — the caller falls through to
+    :func:`next_turn`. Reads no network; never sees raw PII beyond the local state.
+    """
+    if state is None or not state.asked_question_ids:
+        return None
+    last_id = state.asked_question_ids[-1]
+    topic = topic_by_id(role_family, last_id)
+    if topic is None:
+        return None
+    st = state.model_copy(deep=True)
+    st.turn_count += 1  # the ONLY state advance — the topic must remain re-askable
+    extraction_ready = all(t in st.answered_topics for t in ESSENTIAL_TOPICS)
+    return topic.question, last_id, st, extraction_ready
 
 
 # COST-4: clarification markers — each is an INTERROGATIVE phrase, never a bare word

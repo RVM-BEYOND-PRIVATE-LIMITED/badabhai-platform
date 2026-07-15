@@ -26,7 +26,7 @@ from .ai.model_config import rate_inr_per_1k
 from .ai.retag import plan_retag
 from .ai.router import AIRouter
 from .ai.skill_store import get_skill_store
-from .config import get_settings
+from .config import Settings, get_settings
 from .contracts import (
     DraftProfile,
     GrowthClusterInput,
@@ -43,6 +43,7 @@ from .contracts import (
     RetagPlanInput,
     RetagPlanOutput,
     SkillAliasEmbedInput,
+    SkillAliasEmbedItem,
     SkillAliasEmbedOutput,
     SkillAliasEmbedResult,
     SkillCanonicalization,
@@ -180,34 +181,23 @@ def pseudonymize_endpoint(body: PseudonymizationInput) -> PseudonymizationOutput
     )
 
 
-@app.post("/embeddings/skill-alias", response_model=SkillAliasEmbedOutput)
-def embed_skill_aliases(body: SkillAliasEmbedInput) -> SkillAliasEmbedOutput:
-    """ADR-0030 fork-B seam: the db-side runner (packages/db/src/embed-skill-aliases.ts,
-    owner connection) POSTs alias-text batches; this service embeds and returns vectors —
-    the DB read/write stays on the runner so the ai-service remains DB-free.
-
-    SG-2: every text is pseudonymized before the embed (inside ``embed_text``, fail-closed
-    → ``vector=None, blocked=True`` and the runner leaves that row NULL). SG-4: mock by
-    default (zero spend); the real provider additionally needs the master flag + key +
-    the ``skill_embedding`` task allowlist. Never logs alias text.
-
-    REAL-path guards (TD64 interim — enforced HERE, on the path the runner actually
-    hits; the SpendLedger reserve/record wiring stays the §7 staging precondition):
-    - Per-request INR ceiling: real-embed cost is accumulated UNROUNDED per item
-      (alias texts are ~3-token strings whose individually-rounded estimate is 0.0)
-      against ``ai_max_call_cost_inr``; on breach the batch STOPS, remaining items are
-      OMITTED (rows stay NULL — a later run resumes), ``budget_stopped=True``.
-    - Per-item failure isolation: one provider error skips THAT item (counted in
-      ``errors``) instead of 500ing the request and discarding already-paid embeds.
-    """
-    settings = get_settings()
-    is_mock = not settings.real_call_enabled_for(EMBEDDING_TASK_TYPE)
-    in_rate, _out = rate_inr_per_1k(settings.embedding_model)
+def _embed_batch_sync(
+    items: list[SkillAliasEmbedItem],
+    settings: Settings,
+    is_mock: bool,
+    in_rate: float,
+) -> tuple[list[SkillAliasEmbedResult], float, int, bool]:
+    """Per-item embed loop for POST /embeddings/skill-alias. SYNC on purpose
+    (``embed_text`` is a sync httpx call) and dispatched via ``asyncio.to_thread``
+    so the event loop keeps serving while a real batch runs (same posture as the
+    #222 fix). Returns ``(results, cost_inr, errors, budget_stopped)``. The
+    per-request INR ceiling stays enforced INSIDE the loop — belt + suspenders
+    under the TD68 SpendLedger reserve done by the caller. Never logs alias text."""
     results: list[SkillAliasEmbedResult] = []
     cost_inr = 0.0
     errors = 0
     budget_stopped = False
-    for item in body.items:
+    for item in items:
         if not is_mock and cost_inr >= settings.ai_max_call_cost_inr:
             budget_stopped = True
             break
@@ -224,6 +214,85 @@ def embed_skill_aliases(body: SkillAliasEmbedInput) -> SkillAliasEmbedOutput:
         )
         if not is_mock and not res.blocked:
             cost_inr += (cost_tracker.estimate_tokens(res.text or "") / 1000.0) * in_rate
+    return results, cost_inr, errors, budget_stopped
+
+
+@app.post("/embeddings/skill-alias", response_model=SkillAliasEmbedOutput)
+async def embed_skill_aliases(body: SkillAliasEmbedInput) -> SkillAliasEmbedOutput:
+    """ADR-0030 fork-B seam: the db-side runner (packages/db/src/embed-skill-aliases.ts,
+    owner connection) POSTs alias-text batches; this service embeds and returns vectors —
+    the DB read/write stays on the runner so the ai-service remains DB-free.
+
+    SG-2: every text is pseudonymized before the embed (inside ``embed_text``, fail-closed
+    → ``vector=None, blocked=True`` and the runner leaves that row NULL). SG-4: mock by
+    default (zero spend); the real provider additionally needs the master flag + key +
+    the ``skill_embedding`` task allowlist. Never logs alias text.
+
+    REAL-path guards (enforced HERE, on the path the runner actually hits):
+    - TD68 (TD27 SpendLedger wiring): the projected batch cost is atomically
+      check-AND-RESERVED (``would_exceed_spend``) BEFORE any provider call, so embed
+      spend shares the daily / cumulative / per-user-global (Redis) INR caps with every
+      other real call. A block returns immediately with ``budget_stopped=True`` and NO
+      results (rows stay NULL — the runner resumes later). After the batch the
+      reservation is reconciled to the ACTUAL accumulated estimate (``record_spend``).
+    - Per-request INR ceiling (belt + suspenders under the ledger): real-embed cost is
+      accumulated UNROUNDED per item (alias texts are ~3-token strings whose
+      individually-rounded estimate is 0.0) against ``ai_max_call_cost_inr``; on breach
+      the batch STOPS, remaining items are OMITTED (rows stay NULL — a later run
+      resumes), ``budget_stopped=True``.
+    - Per-item failure isolation: one provider error skips THAT item (counted in
+      ``errors``) instead of 500ing the request and discarding already-paid embeds.
+    Mock path: zero spend, ZERO ledger traffic, behavior unchanged.
+    """
+    settings = get_settings()
+    is_mock = not settings.real_call_enabled_for(EMBEDDING_TASK_TYPE)
+    in_rate, _out = rate_inr_per_1k(settings.embedding_model)
+
+    # TD68: all ledger awaits happen HERE on the handler's own loop (the ledger
+    # singleton's Redis backend binds to the running loop — never asyncio.run /
+    # a new loop from the worker thread).
+    reserved_inr = 0.0
+    if not is_mock:
+        projected = (
+            sum(cost_tracker.estimate_tokens(item.text) for item in body.items) / 1000.0
+        ) * in_rate
+        reason = await cost_tracker.get_ledger().would_exceed_spend(projected, settings)
+        if reason is not None:
+            # Counts only — never alias text.
+            logger.warning(
+                "embed skill-alias batch blocked by spend ledger",
+                extra={
+                    "extra": {
+                        "items": len(body.items),
+                        "reason": reason,
+                        "projected_inr": round(projected, 6),
+                    }
+                },
+            )
+            return SkillAliasEmbedOutput(
+                results=[],
+                is_mock=False,
+                model=settings.embedding_model,
+                budget_stopped=True,
+                errors=0,
+                estimated_cost_inr=0.0,
+            )
+        reserved_inr = projected
+
+    results: list[SkillAliasEmbedResult] = []
+    cost_inr = 0.0
+    errors = 0
+    budget_stopped = False
+    try:
+        results, cost_inr, errors, budget_stopped = await asyncio.to_thread(
+            _embed_batch_sync, list(body.items), settings, is_mock, in_rate
+        )
+    finally:
+        if not is_mock:
+            # Reconcile reserved -> ACTUAL accumulated estimate: leaves +cost_inr
+            # recorded on every counter; if the batch raised, cost_inr stayed 0.0 =>
+            # full refund — no path leaks a reservation. record_spend never raises.
+            await cost_tracker.get_ledger().record_spend(reserved_inr, cost_inr)
     logger.info(
         "embed skill-alias batch",
         extra={
@@ -249,7 +318,7 @@ def embed_skill_aliases(body: SkillAliasEmbedInput) -> SkillAliasEmbedOutput:
 
 
 @app.post("/skills/canonicalize", response_model=SkillCanonicalization)
-def skills_canonicalize(body: SkillCanonicalizationInput) -> SkillCanonicalization:
+async def skills_canonicalize(body: SkillCanonicalizationInput) -> SkillCanonicalization:
     """ADR-0030 / TAX-6: the JOB side canonicalizes through the SAME pipeline as the
     worker side — one shared id space. The NestJS api calls this at job-posting
     create/update for each posting skill phrase; `canonicalize_skill` runs
@@ -257,19 +326,53 @@ def skills_canonicalize(body: SkillCanonicalizationInput) -> SkillCanonicalizati
     floor gate. SG-3 holds: the id can only come from the closed skill_alias set.
 
     Honors SKILL_CANONICALIZE_ENABLED: flag off -> UNRESOLVED (inert — rollback for the
-    job side is the same single flag as the worker side). Plain `def` (threadpool):
-    the store + a real embed are SYNC httpx calls and must not block the event loop.
-    Never logs the phrase."""
+    job side is the same single flag as the worker side). ``async def`` + ``to_thread``:
+    the store + a real embed are SYNC httpx calls and must not block the event loop
+    (same posture as the #222 fix).
+
+    TD68 (TD27 SpendLedger wiring, REAL embed path only): the single-phrase projected
+    cost is reserved BEFORE the embed and reconciled after. A ledger block returns
+    UNRESOLVED — canonicalization NEVER blocks the caller (the same posture as every
+    other failure). Mock embed path (``real_call_enabled_for`` false): zero ledger
+    traffic. Never logs the phrase."""
     settings = get_settings()
     if not settings.skill_canonicalize_enabled:
         return SkillCanonicalization(status="unresolved")
-    return canonicalize_skill(
-        body.phrase,
-        body.domain_id,
-        get_skill_store(settings),
-        settings,
-        lang=body.lang,
-    )
+
+    embed_is_mock = not settings.real_call_enabled_for(EMBEDDING_TASK_TYPE)
+    reserved_inr = 0.0
+    if not embed_is_mock:
+        in_rate, _out = rate_inr_per_1k(settings.embedding_model)
+        reserved_inr = (cost_tracker.estimate_tokens(body.phrase) / 1000.0) * in_rate
+        reason = await cost_tracker.get_ledger().would_exceed_spend(reserved_inr, settings)
+        if reason is not None:
+            # Counts/reason only — never the phrase.
+            logger.warning(
+                "skills canonicalize blocked by spend ledger",
+                extra={
+                    "extra": {"reason": reason, "projected_inr": round(reserved_inr, 6)}
+                },
+            )
+            return SkillCanonicalization(status="unresolved")
+
+    actual_inr = 0.0
+    try:
+        out = await asyncio.to_thread(
+            canonicalize_skill,
+            body.phrase,
+            body.domain_id,
+            get_skill_store(settings),
+            settings,
+            lang=body.lang,
+        )
+        # Leave the full reservation recorded as the actual spend (conservative:
+        # one real embed ran; a pseudonymize-blocked phrase slightly over-records).
+        actual_inr = reserved_inr
+        return out
+    finally:
+        if not embed_is_mock:
+            # On a raise, actual_inr stayed 0.0 => full refund (no reservation leak).
+            await cost_tracker.get_ledger().record_spend(reserved_inr, actual_inr)
 
 
 @app.post("/growth/cluster", response_model=GrowthClusterOutput)
@@ -347,23 +450,39 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
             pseudonymization_metadata=_pseudonymization_meta(result),
         )
 
-    # 2. Engine decides next question + progress (reads raw locally, no network).
-    mock_reply, asked_id, updated_state, extraction_ready = interview_engine.next_turn(
-        body.conversation_state, body.message_text, body.role_family
+    # 2. COST-4 clarify fix: evaluate the clarify predicate BEFORE advancing the
+    #    engine. A clarifying message ("matlab kya?") is NOT an answer — next_turn
+    #    would mis-advance the state (the confused topic lands in asked_question_ids
+    #    and _next_topic skips it forever, ESSENTIAL_TOPICS included) and hand the
+    #    NEXT question to the rephrase branch instead of the confusing one.
+    #    clarify_turn re-serves the LAST asked question (turn_count is the only state
+    #    advance, so the topic stays re-askable); when there is nothing to re-serve
+    #    (no state / nothing asked yet) it returns None and the engine runs normally.
+    is_clarify = interview_engine.needs_rephrase(body.message_text)
+    turn = (
+        interview_engine.clarify_turn(body.conversation_state, body.role_family)
+        if is_clarify
+        else None
     )
+    if turn is None:
+        # Engine decides next question + progress (reads raw locally, no network).
+        turn = interview_engine.next_turn(
+            body.conversation_state, body.message_text, body.role_family
+        )
+    mock_reply, asked_id, updated_state, extraction_ready = turn
 
     # 3. COST-4: the straight-line path returns the deterministic templated question
     #    DIRECTLY — the engine already chose it (≤20 words, on-persona), so there is
     #    nothing for the LLM to phrase. We only allow a real chat LLM call when the
     #    worker seems to be asking for clarification (needs_rephrase) AND the rephrase
-    #    flag is on. On the straight path real_call_allowed=False → the router takes
-    #    its mock path and returns the templated question with ZERO output tokens.
+    #    flag is on — and mock_reply is then the RE-SERVED confusing question, so the
+    #    LLM rephrases the right one. On the straight path real_call_allowed=False →
+    #    the router takes its mock path and returns the templated question with ZERO
+    #    output tokens.
     #    COST-3: the chat turn is STATELESS — prior history is NOT sent to the model
     #    (build_chat_messages ignores it); only the current (already-pseudonymized)
     #    message + the engine's question reach the LLM if a rephrase call does fire.
-    wants_rephrase = settings.ai_profiling_rephrase_enabled and interview_engine.needs_rephrase(
-        body.message_text
-    )
+    wants_rephrase = settings.ai_profiling_rephrase_enabled and is_clarify
     messages = build_chat_messages([], mock_reply, result.text)
     reply_text, meta = await router.run(
         "profiling_chat_turn",
@@ -456,20 +575,52 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
     # Inert unless BOTH the flag is on AND the seam is configured (get_skill_store
     # returns the NullSkillStore otherwise) — the TD65 activation chain.
     if settings.skill_canonicalize_enabled:
-        # OFF the event loop (#222 HIGH): the store + a real embed are SYNC httpx calls
-        # (per label). Inline they would freeze the whole service (health checks, every
-        # concurrent turn) for up to timeout x labels when the api/provider is slow —
-        # to_thread keeps the loop serving while the pass runs.
-        assigned, _unresolved = await asyncio.to_thread(
-            canonicalize_labels,
-            rich.skills + rich.controllers,
-            settings.skill_canonicalize_default_domain,
-            get_skill_store(settings),
-            settings,
-        )
-        for sid in assigned:
-            if sid not in legacy.skills:
-                legacy.skills.append(sid)
+        labels = rich.skills + rich.controllers
+        # TD68 (TD27 SpendLedger wiring, REAL embed path only): reserve the projected
+        # cost of the WHOLE label pass before it runs; on a ledger block SKIP the pass
+        # entirely — labels stay raw, the NullSkillStore status quo (extraction is
+        # never blocked by canonicalization). Mock embed path: zero ledger traffic.
+        embed_is_mock = not settings.real_call_enabled_for(EMBEDDING_TASK_TYPE)
+        reserved_inr = 0.0
+        ledger_blocked = False
+        if not embed_is_mock and labels:
+            in_rate, _out = rate_inr_per_1k(settings.embedding_model)
+            reserved_inr = (
+                sum(cost_tracker.estimate_tokens(label) for label in labels) / 1000.0
+            ) * in_rate
+            reason = await cost_tracker.get_ledger().would_exceed_spend(reserved_inr, settings)
+            if reason is not None:
+                ledger_blocked = True
+                reserved_inr = 0.0  # nothing was reserved on a block
+                # Counts/reason only — never label text.
+                logger.warning(
+                    "extract canonicalize pass skipped by spend ledger",
+                    extra={"extra": {"labels": len(labels), "reason": reason}},
+                )
+        if not ledger_blocked:
+            actual_inr = 0.0
+            try:
+                # OFF the event loop (#222 HIGH): the store + a real embed are SYNC httpx
+                # calls (per label). Inline they would freeze the whole service (health
+                # checks, every concurrent turn) for up to timeout x labels when the
+                # api/provider is slow — to_thread keeps the loop serving while the pass
+                # runs.
+                assigned, _unresolved = await asyncio.to_thread(
+                    canonicalize_labels,
+                    labels,
+                    settings.skill_canonicalize_default_domain,
+                    get_skill_store(settings),
+                    settings,
+                )
+                # Leave the full reservation recorded as the actual spend (conservative).
+                actual_inr = reserved_inr
+            finally:
+                if reserved_inr > 0.0:
+                    # On a raise, actual_inr stayed 0.0 => full refund (no leak).
+                    await cost_tracker.get_ledger().record_spend(reserved_inr, actual_inr)
+            for sid in assigned:
+                if sid not in legacy.skills:
+                    legacy.skills.append(sid)
 
     # Honest-adjacency flag (advisory ONLY — never ranks/rejects): mark the draft
     # adjacent when it canonicalized to nothing matchable in the CNC/VMC taxonomy

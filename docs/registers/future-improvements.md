@@ -43,6 +43,18 @@ this expands on them.
     (`interview_engine.needs_rephrase`) AND with `ai_profiling_rephrase_enabled`
     (**off by default**) + the master real-call flag. Extraction is untouched.
     Owner: ai.
+    - **Clarify-target fix** ✅ *landed 2026-07-15*
+      (`fix/td68-spendledger-and-cost4-clarify`): closed the open MEDIUM from the
+      COST-4 review — the endpoint evaluated `needs_rephrase` AFTER `next_turn`, so a
+      clarifying message advanced the engine and the (dormant) rephrase branch
+      targeted the NEXT question instead of the confusing one; even flag-OFF
+      templated mode mis-advanced state, permanently skipping the confused topic
+      (`asked_question_ids` excluded it from `_next_topic`, `ESSENTIAL_TOPICS`
+      included). Now `interview_engine.clarify_turn` re-serves the LAST asked
+      question (deep-copied state advanced by `turn_count` ONLY, so the topic stays
+      re-askable) and the rephrase LLM branch receives the confusing question.
+      Regression-locked in `test_cost4_templated_default.py`. Flipping
+      `ai_profiling_rephrase_enabled` ON is no longer blocked on this.
 - **Real NER pseudonymization** replacing the heuristic gateway (pays down TD3).
 - **Langfuse** wired for real LLM observability + eval (placeholder today).
 - **Self-hosted / fine-tuned model** only if cost/latency/privacy demands it —

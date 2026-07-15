@@ -81,3 +81,69 @@ def test_worker_and_job_paths_share_one_id_space(monkeypatch):
 
     assert worker_side.status == "matched" and job_side["status"] == "matched"
     assert worker_side.skill_id == job_side["skill_id"] == "skill_turning"
+
+
+# --- TD68: the REAL embed path rides the TD27 SpendLedger --------------------
+class _FakeLedger:
+    def __init__(self, block_reason=None):
+        self.block_reason = block_reason
+        self.reserves: list[float] = []
+        self.records: list[tuple[float, float]] = []
+
+    async def would_exceed_spend(self, projected_inr, settings, *, user_ref=None):
+        self.reserves.append(projected_inr)
+        return self.block_reason
+
+    async def record_spend(self, reserved_inr, actual_inr, *, user_ref=None):
+        self.records.append((reserved_inr, actual_inr))
+
+
+def _install_ledger(monkeypatch, block_reason=None):
+    from app.ai import cost_tracker
+
+    fake = _FakeLedger(block_reason)
+    monkeypatch.setattr(cost_tracker, "get_ledger", lambda: fake)
+    return fake
+
+
+def test_real_embed_ledger_block_returns_unresolved_without_embedding(monkeypatch):
+    # TD68: a SpendLedger block on the REAL embed path returns UNRESOLVED (the caller
+    # is NEVER blocked — same posture as every other failure) BEFORE any provider call.
+    from app.ai import embeddings
+
+    enabled = Settings(
+        skill_canonicalize_enabled=True, ai_enable_real_calls=True, gemini_flash_api_key="k"
+    )
+    monkeypatch.setattr(app_main, "get_settings", lambda: enabled)
+    monkeypatch.setattr(app_main, "get_skill_store", lambda s: OneHitStore())
+    fake = _install_ledger(monkeypatch, block_reason="cumulative_cap_exceeded")
+    embed_calls: list[str] = []
+    monkeypatch.setattr(
+        embeddings, "_real_embedding", lambda t, s: embed_calls.append(t) or [0.1] * 768
+    )
+
+    resp = client.post(
+        "/skills/canonicalize",
+        json={"phrase": "lathe operation", "domain_id": "cnc-machining"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "unresolved"
+    assert embed_calls == []  # blocked BEFORE the provider
+    assert len(fake.reserves) == 1 and fake.reserves[0] > 0
+    assert fake.records == []  # a block reserves nothing -> nothing to reconcile
+
+
+def test_mock_embed_path_never_touches_the_ledger(monkeypatch):
+    # TD68: mock embeds (real_call_enabled_for false) make ZERO ledger traffic.
+    enabled = Settings(skill_canonicalize_enabled=True)  # no real flag/key -> mock embed
+    monkeypatch.setattr(app_main, "get_settings", lambda: enabled)
+    monkeypatch.setattr(app_main, "get_skill_store", lambda s: OneHitStore())
+    fake = _install_ledger(monkeypatch)
+
+    resp = client.post(
+        "/skills/canonicalize",
+        json={"phrase": "lathe operation", "domain_id": "cnc-machining"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "matched"
+    assert fake.reserves == [] and fake.records == []
