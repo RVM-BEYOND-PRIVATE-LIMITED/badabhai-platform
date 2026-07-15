@@ -92,10 +92,15 @@ def test_resume_path_is_structurally_independent_of_canonicalization(monkeypatch
 
     monkeypatch.setattr(canon, "canonicalize_skill", boom)
     monkeypatch.setattr(canon, "canonicalize_labels", boom)
-    # Also the wired-through references in main (worker-extract wiring imports them).
+    # Also every module-level BINDING of the entry points (a bound name dodges a patch
+    # on the source module): main.py's worker-extract wiring AND profile_extractor's
+    # import — the plausible future route ("re-canonicalize before rendering") would go
+    # through profile_extractor.canonicalize_labels (#227 review LOW).
     from app import main as app_main
+    from app.profiling import profile_extractor
 
     monkeypatch.setattr(app_main, "canonicalize_labels", boom, raising=False)
+    monkeypatch.setattr(profile_extractor, "canonicalize_labels", boom, raising=False)
 
     resp = client.post(
         "/resume/generate",
