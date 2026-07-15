@@ -7,32 +7,50 @@
  *      `POST /embeddings/skill-alias` (SG-2 pseudonymize-first fail-closed happens
  *      in-service; phrase text at rest is ALREADY pseudonymized — SG-1) and the vectors
  *      are written back to `unresolved_phrase.embedding` (DB write stays HERE — the
- *      ai-service is DB-free).
+ *      ai-service is DB-free). Rows that fail to embed (blocked / provider errors /
+ *      budget stop) stay NULL; the run CONTINUES on what did embed and the packet is
+ *      stamped PARTIAL (see below).
  *   2. CLUSTER: per domain, open embedded rows + the embedded `skill_alias` anchors are
  *      POSTed to `POST /growth/cluster` (pure compute — greedy cosine clustering; guards:
  *      cluster size OR summed frequency). Proposals: alias-on-NEAR-skill (centroid in the
  *      [band_low, floor) band) or provisional-skill (no near anchor, NO id minted — SG-5).
  *   3. REPORT: proposals are rendered into docs/registers/skill-growth-proposals.md as
- *      paste-ready `wedge-aliases.ts` entries (`ratified: false`). THE ONLY ACTIVATION
- *      PATH is the existing ratification flow: human pastes → RVM flips `ratified` →
- *      `db:seed:skills` inserts → `db:embed:skills` backfills. This runner activates
- *      NOTHING (SG-3: any proposed skill_id came from the closed anchor set).
+ *      paste-ready `wedge-aliases.ts` entries (`ratified: false`). An existing packet is
+ *      first backed up to skill-growth-proposals.prev.md (one slot) — and because the
+ *      packet is DERIVED data (the DB rows are the source), any lost packet can always be
+ *      regenerated via `--reopen-clustered` + a re-run. Phrase text is SANITIZED at
+ *      render (control chars stripped, backticks replaced, length-clamped): the queue
+ *      stores payer/worker free text, i.e. HOSTILE input — it must not be able to forge
+ *      markdown structure (e.g. close the ```ts fence and inject a fake "paste-ready"
+ *      block) in the packet a human ratifies from.
  *   4. `--apply` (optional): member rows of EMITTED proposals move `open` → `clustered`
  *      (the TAX-1 status machine) so the next run only re-clusters what's still open.
- *      Default is REPORT-ONLY — no status change, re-runnable.
+ *      Default is REPORT-ONLY. `--apply` is REFUSED on a PARTIAL embed run (clusters
+ *      formed without their unembedded relatives must stay reproposable). Run `--apply`
+ *      only AFTER the packet is committed/triaged; for rejected proposals (or to
+ *      regenerate anything), `--reopen-clustered` moves ALL clustered rows back to open —
+ *      clustering is deterministic, so the same proposals re-emerge plus any new ones.
+ *
+ * THE ONLY ACTIVATION PATH is the existing ratification flow: human pastes → RVM flips
+ * `ratified` → `db:seed:skills` inserts → `db:embed:skills` backfills. This runner
+ * activates NOTHING (SG-3: any proposed skill_id came from the closed anchor set —
+ * re-verified on the response).
  *
  * GUARDED: refuses NODE_ENV === "production" (ops action; prod run is a deliberate,
  *   gated step) and refuses to PERSIST mock phrase vectors unless `--allow-mock`:
  *   mock vectors written next to a REAL-embedded alias corpus would poison every
  *   centroid-vs-anchor comparison (there is no provenance column — the SR-1 lesson).
+ *   `--reset-embeddings` is the mixed-space recovery (NULL ALL phrase vectors).
  *
- *   pnpm db:growth:cluster                 # report-only (writes the packet + vectors)
- *   pnpm db:growth:cluster --apply         # also mark proposal members 'clustered'
- *   pnpm db:growth:cluster --allow-mock    # dev only: permit persisting MOCK vectors
+ *   pnpm db:growth:cluster                     # report-only (writes packet + vectors)
+ *   pnpm db:growth:cluster --apply             # also mark proposal members 'clustered'
+ *   pnpm db:growth:cluster --allow-mock        # dev only: permit persisting MOCK vectors
+ *   pnpm db:growth:cluster --reset-embeddings  # NULL all phrase vectors (mixed-space recovery)
+ *   pnpm db:growth:cluster --reopen-clustered  # clustered → open (rejected/lost proposals)
  *   (DATABASE_URL from env/.env; AI_SERVICE_URL defaults to http://localhost:8000;
  *    GROWTH_REPORT_PATH overrides the packet location.)
  */
-import { writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { config } from "dotenv";
@@ -49,6 +67,19 @@ const REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 /** Request caps — MUST match the Pydantic/Zod GrowthClusterInput caps. */
 const MAX_PHRASES_PER_DOMAIN = 500;
 const MAX_ANCHORS = 5000;
+/** Render caps for packet display strings (parse rejects anything longer). */
+const MAX_DISPLAY_LEN = 500;
+
+/** Sanitize QUEUE-DERIVED text before it enters the markdown packet. The phrase column
+ * is pseudonymized (SG-1) but otherwise HOSTILE free text: strip control chars/newlines
+ * (no forged headings/blockquotes/fences), replace backticks (cannot close the ```ts
+ * paste-ready fence or open inline code), clamp length. Applied at RENDER — the DB keeps
+ * the original text. */
+function safeText(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  const cleaned = s.replace(/[\u0000-\u001F\u007F]/g, " ").replace(/`/g, "'");
+  return cleaned.length > 120 ? `${cleaned.slice(0, 120)}…` : cleaned;
+}
 
 interface GrowthProposal {
   kind: "alias" | "provisional_skill";
@@ -71,8 +102,9 @@ interface GrowthResponse {
 
 /** Validate the /growth/cluster response SHAPE + the SG-3/SG-5 properties at runtime:
  * every member_id must be a phrase id we sent; an alias skill_id must be an anchor
- * skill_id we sent; a provisional proposal must carry NO skill_id. A violation aborts —
- * a proposal packet must never contain an id the closed set didn't supply. */
+ * skill_id we sent; a provisional proposal must carry NO skill_id; display strings are
+ * length-capped (they feed the packet renderer). A violation aborts — a proposal packet
+ * must never contain an id the closed set didn't supply. */
 function parseGrowthResponse(
   raw: unknown,
   sentPhraseIds: Set<string>,
@@ -80,6 +112,12 @@ function parseGrowthResponse(
 ): GrowthResponse {
   const bad = (why: string): never => {
     throw new Error(`[growth] malformed ai-service response — ${why}`);
+  };
+  const displayString = (v: unknown, field: string): string => {
+    if (typeof v !== "string" || v.length > MAX_DISPLAY_LEN) {
+      bad(`${field} is not a string <= ${MAX_DISPLAY_LEN} chars`);
+    }
+    return v as string;
   };
   if (typeof raw !== "object" || raw === null) bad("not an object");
   const o = raw as Record<string, unknown>;
@@ -105,22 +143,26 @@ function parseGrowthResponse(
         bad(`member id ${String(id)} was not in the request`);
       }
     }
-    if (!Array.isArray(it.member_phrases) || !(it.member_phrases as unknown[]).every((s) => typeof s === "string")) {
-      bad("member_phrases is not a string array");
+    if (
+      !Array.isArray(it.member_phrases) ||
+      it.member_phrases.length !== (it.member_ids as unknown[]).length
+    ) {
+      bad("member_phrases does not pair 1:1 with member_ids");
     }
-    if (typeof it.leader_phrase !== "string" || typeof it.total_count !== "number") {
-      bad("leader_phrase/total_count malformed");
-    }
+    const memberPhrases = (it.member_phrases as unknown[]).map((s, i) =>
+      displayString(s, `member_phrases[${i}]`),
+    );
+    if (typeof it.total_count !== "number") bad("total_count malformed");
     proposals.push({
       kind: it.kind as "alias" | "provisional_skill",
       skill_id: skillId as string | null,
-      leader_phrase: it.leader_phrase as string,
+      leader_phrase: displayString(it.leader_phrase, "leader_phrase"),
       member_ids: it.member_ids as string[],
-      member_phrases: it.member_phrases as string[],
+      member_phrases: memberPhrases,
       total_count: it.total_count as number,
       nearest_skill_id: typeof it.nearest_skill_id === "string" ? it.nearest_skill_id : null,
       nearest_score: typeof it.nearest_score === "number" ? it.nearest_score : null,
-      note: typeof it.note === "string" ? it.note : null,
+      note: it.note == null ? null : displayString(it.note, "note"),
     });
   }
   const num = (v: unknown): number => (typeof v === "number" ? v : 0);
@@ -141,16 +183,19 @@ interface PhraseRow {
   embedding: number[] | null;
 }
 
-/** Phase 1: embed open rows whose vector is NULL (mirrors embed-skill-aliases.ts —
- * progress-or-abort, blocked rows excluded this run, budget stop halts). Refuses to
- * persist MOCK vectors unless allowed (mixed vector space poisons clustering). */
+/** Phase 1: embed open rows whose vector is NULL. Refuses to persist MOCK vectors unless
+ * allowed (mixed vector space poisons clustering). NEVER throws on a no-progress batch:
+ * rows that fail to embed stay NULL and the RUN CONTINUES on the embedded subset — the
+ * caller detects the leftovers and stamps the packet PARTIAL (+ refuses --apply). The
+ * loop still cannot spin: every iteration either progresses, grows `blocked`, or breaks. */
 async function embedOpenPhrases(
   db: ReturnType<typeof createDbClient>["db"],
   aiBase: string,
   allowMock: boolean,
-): Promise<{ embedded: number; blocked: string[] }> {
+): Promise<{ embedded: number; blocked: string[]; embedIncomplete: boolean }> {
   const blocked: string[] = [];
   let embedded = 0;
+  let embedIncomplete = false;
   for (;;) {
     const rows = await db
       .select({ id: unresolvedPhrases.id, phrase: unresolvedPhrases.phrase })
@@ -183,7 +228,7 @@ async function embedOpenPhrases(
         "[growth] the ai-service returned MOCK vectors — refusing to persist them next to " +
           "a (possibly real-embedded) alias corpus; there is no provenance column, so a " +
           "mixed space silently poisons clustering. Enable real embeds (SG-4 gates) or " +
-          "pass --allow-mock in a fully-mock dev DB.",
+          "pass --allow-mock in a fully-mock dev DB (--reset-embeddings recovers a mix).",
       );
     }
 
@@ -204,21 +249,31 @@ async function embedOpenPhrases(
     }
 
     if (data.budget_stopped) {
-      console.log("[growth] BUDGET STOP on embed — remaining rows stay NULL; re-run to resume.");
+      console.log(
+        "[growth] BUDGET STOP on embed — remaining rows stay NULL; continuing PARTIAL " +
+          "(re-run later to embed the rest).",
+      );
+      embedIncomplete = true;
       break;
     }
     if (savedThisBatch === 0 && blockedThisBatch === 0) {
-      throw new Error(
-        `[growth] embed batch made no progress (provider errors=${data.errors}) — aborting`,
+      // Every item errored on the provider: refetching would return the same rows.
+      // Do NOT throw — the already-embedded rows are still clusterable; continue PARTIAL.
+      console.log(
+        `[growth] embed batch made no progress (provider errors=${data.errors}) — ` +
+          "leaving remaining rows NULL and continuing PARTIAL.",
       );
+      embedIncomplete = true;
+      break;
     }
     if (rows.length < EMBED_BATCH_SIZE) break;
   }
-  return { embedded, blocked };
+  return { embedded, blocked, embedIncomplete };
 }
 
 function renderPacket(
   generatedAt: string,
+  partial: boolean,
   sections: {
     domainId: string;
     phrases: PhraseRow[];
@@ -231,7 +286,8 @@ function renderPacket(
     "",
     `> Generated by \`pnpm db:growth:cluster\` at ${generatedAt}. REPORT-ONLY — nothing in`,
     "> this file is active. All phrase text below is SG-1 PSEUDONYMIZED (that is what the",
-    "> queue stores); no worker identity exists in this pipeline (aggregate counts only).",
+    "> queue stores) and SANITIZED for display; no worker identity exists in this pipeline",
+    "> (aggregate counts only).",
     ">",
     "> **The only activation path:** copy an alias entry into",
     "> `packages/taxonomy/src/wedge-aliases.ts` (it ships `ratified: false`), the RVM domain",
@@ -240,6 +296,14 @@ function renderPacket(
     "> taxonomy decision in `packages/taxonomy` — NO skill id was minted for them (SG-5).",
     "",
   ];
+  if (partial) {
+    lines.push(
+      "> ⚠️ **PARTIAL RUN** — some open phrases could not be embedded (blocked / provider",
+      "> errors / budget stop) and are missing from these clusters. `--apply` was refused;",
+      "> re-run after the embed gap clears before treating this packet as complete.",
+      "",
+    );
+  }
   for (const s of sections) {
     const byId = new Map(s.phrases.map((p) => [p.id, p]));
     const aliasProps = s.result.proposals.filter((p) => p.kind === "alias");
@@ -256,22 +320,23 @@ function renderPacket(
       p.member_ids
         .map((id, i) => {
           const row = byId.get(id);
-          const text = p.member_phrases[i] ?? row?.phrase ?? "?";
+          const text = safeText(p.member_phrases[i] ?? row?.phrase ?? "?");
           return `"${text}" (${row?.lang ?? "?"}, ×${row?.count ?? "?"})`;
         })
         .join(" · ");
     if (aliasProps.length > 0) {
       lines.push("### Alias proposals (near an EXISTING skill)", "");
       aliasProps.forEach((p, i) => {
-        const lang = byId.get(p.member_ids[0] ?? "")?.lang ?? "hi";
+        const leader = safeText(p.leader_phrase);
+        const lang = safeText(byId.get(p.member_ids[0] ?? "")?.lang ?? "hi");
         lines.push(
-          `#### A${i + 1}. "${p.leader_phrase}" → \`${p.skill_id}\` (score ${p.nearest_score ?? "?"}, total ×${p.total_count})`,
+          `#### A${i + 1}. "${leader}" → \`${p.skill_id}\` (score ${p.nearest_score ?? "?"}, total ×${p.total_count})`,
           "",
           `Members: ${memberLine(p)}`,
-          ...(p.note ? ["", `> ${p.note}`] : []),
+          ...(p.note ? ["", `> ${safeText(p.note)}`] : []),
           "",
           "```ts",
-          `{ skillId: ${JSON.stringify(p.skill_id)}, alias: { text: ${JSON.stringify(p.leader_phrase)}, lang: ${JSON.stringify(lang)}, source: "rvm" }, ratified: false },`,
+          `{ skillId: ${JSON.stringify(p.skill_id)}, alias: { text: ${JSON.stringify(leader)}, lang: ${JSON.stringify(lang)}, source: "rvm" }, ratified: false },`,
           "```",
           "",
         );
@@ -286,12 +351,12 @@ function renderPacket(
         const nearest =
           p.nearest_skill_id === null
             ? "none"
-            : `\`${p.nearest_skill_id}\` @ ${p.nearest_score ?? "?"}`;
+            : `\`${safeText(p.nearest_skill_id)}\` @ ${p.nearest_score ?? "?"}`;
         lines.push(
-          `#### P${i + 1}. "${p.leader_phrase}" (total ×${p.total_count}, nearest existing: ${nearest})`,
+          `#### P${i + 1}. "${safeText(p.leader_phrase)}" (total ×${p.total_count}, nearest existing: ${nearest})`,
           "",
           `Members: ${memberLine(p)}`,
-          ...(p.note ? ["", `> ${p.note}`] : []),
+          ...(p.note ? ["", `> ${safeText(p.note)}`] : []),
           "",
         );
       });
@@ -312,19 +377,51 @@ async function main(): Promise<void> {
   const aiBase = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
   const apply = process.argv.includes("--apply");
   const allowMock = process.argv.includes("--allow-mock");
+  // Anchored to THIS FILE, not cwd — `tsx src/growth-cluster.ts` from the repo root must
+  // not resolve outside the repo. __dirname = packages/db/src (CJS via tsx).
   const reportPath =
     process.env.GROWTH_REPORT_PATH ??
-    path.resolve(process.cwd(), "../../docs/registers/skill-growth-proposals.md");
+    path.resolve(__dirname, "../../../docs/registers/skill-growth-proposals.md");
 
   const { db, sql } = createDbClient(url, { max: 1 });
   try {
-    // Phase 1 — embed NULL-vector open rows.
-    const { embedded, blocked } = await embedOpenPhrases(db, aiBase, allowMock);
+    // --reset-embeddings: NULL ALL phrase vectors and exit — the mixed-vector-space
+    // recovery (mirrors embed-skill-aliases.ts; no provenance column exists).
+    if (process.argv.includes("--reset-embeddings")) {
+      const reset = await db
+        .update(unresolvedPhrases)
+        .set({ embedding: null })
+        .where(isNotNull(unresolvedPhrases.embedding))
+        .returning({ id: unresolvedPhrases.id });
+      console.log(`[growth] reset — ${reset.length} phrase embeddings set to NULL; re-run to re-embed.`);
+      return;
+    }
+
+    // --reopen-clustered: clustered → open and exit. The recovery for REJECTED proposals
+    // and for any lost/overwritten packet: clustering is deterministic, so reopening +
+    // re-running regenerates the same proposals (plus new arrivals). Without this the
+    // status machine would be a one-way door (nothing else writes 'clustered' back).
+    if (process.argv.includes("--reopen-clustered")) {
+      const reopened = await db
+        .update(unresolvedPhrases)
+        .set({ status: "open" })
+        .where(eq(unresolvedPhrases.status, "clustered"))
+        .returning({ id: unresolvedPhrases.id });
+      console.log(`[growth] reopened ${reopened.length} clustered row(s) → open; re-run to re-propose.`);
+      return;
+    }
+
+    // Phase 1 — embed NULL-vector open rows (continues PARTIAL on embed gaps).
+    const { embedded, blocked, embedIncomplete } = await embedOpenPhrases(db, aiBase, allowMock);
     console.log(`[growth] embed phase — embedded=${embedded} blocked=${blocked.length}`);
     if (blocked.length > 0) {
       console.log("[growth] blocked phrase ids (left NULL, pseudonymize fail-closed):");
       for (const id of blocked) console.log(`  - ${id}`);
     }
+    // PARTIAL when an embed gap remains: provider/budget leftovers (embedIncomplete) or
+    // fail-closed blocked rows from THIS run. Blocked rows never embed until their text
+    // is fixed, so they keep the packet honest rather than silently absent.
+    const partial = embedIncomplete || blocked.length > 0;
 
     // Phase 2 — cluster per domain.
     const open = await db
@@ -349,7 +446,7 @@ async function main(): Promise<void> {
     }
     const domains = [...new Set(open.map((r) => r.domainId).filter((d): d is string => d !== null))].sort();
 
-    const sections: Parameters<typeof renderPacket>[1] = [];
+    const sections: Parameters<typeof renderPacket>[2] = [];
     const emittedMemberIds: string[] = [];
     for (const domainId of domains) {
       let phrases = open
@@ -358,7 +455,7 @@ async function main(): Promise<void> {
       if (phrases.length > MAX_PHRASES_PER_DOMAIN) {
         console.log(
           `[growth] WARNING: domain ${domainId} has ${phrases.length} open phrases — ` +
-            `clustering the top ${MAX_PHRASES_PER_DOMAIN} by count this run (re-run after --apply for the rest).`,
+            `clustering the top ${MAX_PHRASES_PER_DOMAIN} by count this run (commit+triage this packet, --apply, then re-run for the rest).`,
         );
         phrases = [...phrases]
           .sort((a, b) => b.count - a.count || a.id.localeCompare(b.id))
@@ -405,22 +502,34 @@ async function main(): Promise<void> {
     }
 
     // Phase 3 — write the packet (even when empty: the empty packet is the evidence).
-    const packet = renderPacket(new Date().toISOString(), sections);
+    // Back the previous packet up first (one slot): the packet is derived data — full
+    // recovery for anything older is --reopen-clustered + re-run — but the single backup
+    // keeps an un-triaged previous run visible after an accidental re-run.
+    if (existsSync(reportPath)) {
+      const backupPath = reportPath.replace(/\.md$/, ".prev.md");
+      copyFileSync(reportPath, backupPath);
+      console.log(`[growth] previous packet backed up → ${backupPath}`);
+    }
+    const packet = renderPacket(new Date().toISOString(), partial, sections);
     writeFileSync(reportPath, packet, "utf8");
-    console.log(`[growth] packet written → ${reportPath}`);
+    console.log(`[growth] packet written → ${reportPath}${partial ? " (PARTIAL)" : ""}`);
 
     // Phase 4 — optional status transition open → clustered for EMITTED members only.
-    if (apply && emittedMemberIds.length > 0) {
+    // Refused on a PARTIAL run: clusters formed without their unembedded relatives must
+    // stay reproposable once the embed gap clears.
+    if (apply && partial) {
+      console.log("[growth] --apply REFUSED — PARTIAL embed run; clear the embed gap and re-run.");
+    } else if (apply && emittedMemberIds.length > 0) {
       const updated = await db
         .update(unresolvedPhrases)
         .set({ status: "clustered" })
         .where(and(inArray(unresolvedPhrases.id, emittedMemberIds), eq(unresolvedPhrases.status, "open")))
         .returning({ id: unresolvedPhrases.id });
-      console.log(`[growth] --apply: ${updated.length} row(s) open → clustered`);
+      console.log(`[growth] --apply: ${updated.length} row(s) open → clustered (undo: --reopen-clustered)`);
     } else if (apply) {
       console.log("[growth] --apply: no proposals emitted — nothing to mark");
     } else {
-      console.log("[growth] report-only (pass --apply to mark proposal members 'clustered')");
+      console.log("[growth] report-only (pass --apply AFTER committing/triaging the packet)");
     }
   } finally {
     await sql.end();

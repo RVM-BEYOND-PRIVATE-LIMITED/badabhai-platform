@@ -57,17 +57,18 @@ def _dot(a: list[float], b: list[float]) -> float:
     return sum(x * y for x, y in zip(a, b, strict=True))
 
 
-def _cosine(a: list[float], b: list[float]) -> float:
-    na = math.sqrt(_dot(a, a))
-    nb = math.sqrt(_dot(b, b))
-    if na == 0.0 or nb == 0.0:
-        return 0.0
-    return _dot(a, b) / (na * nb)
+def _normalized(v: list[float]) -> list[float]:
+    """L2-normalize; a (near-)zero vector normalizes to the zero vector (cosine 0 vs
+    everything — it can never join a cluster or clear a band)."""
+    norm = math.sqrt(sum(x * x for x in v))
+    if norm < 1e-12:
+        return [0.0] * len(v)
+    return [x / norm for x in v]
 
 
 def _centroid(members: list[GrowthPhrase]) -> list[float]:
-    """Count-weighted mean of member vectors, L2-normalized. Falls back to the leader's
-    vector if the weighted sum degenerates to (near-)zero norm."""
+    """Count-weighted mean of member (unit) vectors, L2-normalized. Falls back to the
+    leader's vector if the weighted sum degenerates to (near-)zero norm."""
     dim = len(members[0].vector)
     acc = [0.0] * dim
     for m in members:
@@ -81,7 +82,10 @@ def _centroid(members: list[GrowthPhrase]) -> list[float]:
 
 
 def _cluster(phrases: list[GrowthPhrase], threshold: float) -> list[list[GrowthPhrase]]:
-    """Deterministic greedy leader clustering (see module docstring)."""
+    """Deterministic greedy leader clustering (see module docstring). Expects UNIT
+    vectors (normalized once by the caller) so cosine == dot — the O(n²) inner loop
+    never recomputes norms (the endpoint is unauthenticated-internal CPU; keep the
+    worst case at the contract caps well under the runner's request timeout)."""
     ordered = sorted(phrases, key=lambda p: (-p.count, p.id))
     assigned: set[str] = set()
     clusters: list[list[GrowthPhrase]] = []
@@ -93,7 +97,7 @@ def _cluster(phrases: list[GrowthPhrase], threshold: float) -> list[list[GrowthP
         for cand in ordered:
             if cand.id in assigned:
                 continue
-            if _cosine(leader.vector, cand.vector) >= threshold:
+            if _dot(leader.vector, cand.vector) >= threshold:
                 assigned.add(cand.id)
                 members.append(cand)
         clusters.append(members)
@@ -121,7 +125,12 @@ def growth_cluster(inp: GrowthClusterInput, settings: Settings) -> GrowthCluster
     band_low = settings.skill_growth_band_low if inp.band_low is None else inp.band_low
     floor = settings.skill_canonicalize_floor if inp.floor is None else inp.floor
 
-    clusters = _cluster(list(inp.phrases), threshold)
+    # Normalize ONCE (unit vectors) so every downstream comparison is a plain dot —
+    # semantics identical (cosine is scale-invariant), worst-case CPU ~2-3x lower.
+    phrases = [p.model_copy(update={"vector": _normalized(p.vector)}) for p in inp.phrases]
+    anchors = [a.model_copy(update={"vector": _normalized(a.vector)}) for a in inp.anchors]
+
+    clusters = _cluster(phrases, threshold)
     proposals: list[GrowthProposal] = []
     eligible = 0
     for members in clusters:
@@ -133,8 +142,8 @@ def growth_cluster(inp: GrowthClusterInput, settings: Settings) -> GrowthCluster
 
         nearest_skill_id: str | None = None
         nearest_score: float | None = None
-        for anchor in inp.anchors:
-            score = _cosine(centroid, anchor.vector)
+        for anchor in anchors:
+            score = _dot(centroid, anchor.vector)
             # Strict > keeps the winner stable for ties: anchors keep input order.
             if nearest_score is None or score > nearest_score:
                 nearest_skill_id = anchor.skill_id

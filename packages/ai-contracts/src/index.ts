@@ -277,17 +277,21 @@ export type SkillAliasEmbedOutput = z.infer<typeof SkillAliasEmbedOutputSchema>;
 // ---------------------------------------------------------------------------
 const GROWTH_VECTOR_DIM = 768; // the house embedding dimension
 
+// .finite(): z.number() alone accepts +/-Infinity — the Pydantic side 422s any
+// non-finite component (it would silently poison every cosine), so the mirror must too.
+const growthVector = z.array(z.number().finite()).length(GROWTH_VECTOR_DIM);
+
 export const GrowthPhraseSchema = z.object({
   id: z.string(),
   phrase: z.string(), // ALREADY pseudonymized at rest (SG-1)
   count: z.number().int().min(1),
-  vector: z.array(z.number()).length(GROWTH_VECTOR_DIM),
+  vector: growthVector,
 });
 export type GrowthPhrase = z.infer<typeof GrowthPhraseSchema>;
 
 export const GrowthAnchorSchema = z.object({
   skill_id: z.string(), // the CLOSED id space — the only id a proposal may carry (SG-3)
-  vector: z.array(z.number()).length(GROWTH_VECTOR_DIM),
+  vector: growthVector,
 });
 export type GrowthAnchor = z.infer<typeof GrowthAnchorSchema>;
 

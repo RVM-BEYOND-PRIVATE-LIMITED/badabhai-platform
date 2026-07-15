@@ -190,6 +190,15 @@ describe("Growth cluster schemas (contracts.py parity — ADR-0030/TAX-7)", () =
       GrowthAnchorSchema.safeParse({ skill_id: "s", vector: vec() }).success,
     ).toBe(true);
   });
+  it("rejects non-finite vector components (matches Pydantic isfinite — NaN AND Infinity)", () => {
+    const v = vec();
+    v[0] = Infinity;
+    expect(GrowthAnchorSchema.safeParse({ skill_id: "s", vector: v }).success).toBe(false);
+    v[0] = NaN;
+    expect(GrowthAnchorSchema.safeParse({ skill_id: "s", vector: v }).success).toBe(false);
+    v[0] = 0.5;
+    expect(GrowthAnchorSchema.safeParse({ skill_id: "s", vector: v }).success).toBe(true);
+  });
   it("caps phrases at 500 and anchors at 5000 (matches Pydantic max_length)", () => {
     const phrase = { id: "p", phrase: "x", count: 1, vector: vec() };
     const phrases = Array.from({ length: 501 }, (_, i) => ({ ...phrase, id: `p${i}` }));

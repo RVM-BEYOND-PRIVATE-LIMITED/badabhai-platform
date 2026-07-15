@@ -244,7 +244,14 @@ def growth_cluster_endpoint(body: GrowthClusterInput) -> GrowthClusterOutput:
     returns changes live behavior). SG-3: a proposal's ``skill_id`` can only be one of the
     supplied anchors; SG-5: provisional proposals carry NO id. Plain ``def`` (threadpool):
     the greedy clustering is CPU-bound and must not block the event loop. Never logs
-    phrase text — counts only."""
+    phrase text — counts only.
+
+    EXPOSURE: unauthenticated like every ai-service route — the service is internal-only
+    (the same posture as /profile/extract, which spends real LLM money). This is the
+    CPU-heaviest route (worst case at the contract caps is minutes, in the threadpool);
+    vectors are unit-normalized ONCE so the O(n²) loop is pure dots. Service-level auth
+    for the ai-service as a whole is tracked as TD67 — do not bolt a one-off scheme onto
+    this route alone."""
     out = growth_cluster(body, get_settings())
     logger.info(
         "growth cluster batch",

@@ -257,6 +257,17 @@ class SkillAliasEmbedOutput(BaseModel):
 _GROWTH_VECTOR_DIM = 768  # the house embedding dimension (mirrors skill_alias/worker_profiles)
 
 
+def _validate_growth_vector(vec: list[float]) -> list[float]:
+    """Exactly the 768 house dim and finite — a foreign-dim or NaN/inf vector would
+    silently poison every cosine in the batch. On the MODEL (not just the batch input)
+    so a standalone GrowthPhrase/GrowthAnchor holds the same guarantee as the Zod mirror."""
+    if len(vec) != _GROWTH_VECTOR_DIM:
+        raise ValueError(f"vector must be {_GROWTH_VECTOR_DIM}-dim (got {len(vec)})")
+    if not all(math.isfinite(v) for v in vec):
+        raise ValueError("vector contains a non-finite value")
+    return vec
+
+
 class GrowthPhrase(BaseModel):
     """One OPEN ``unresolved_phrase`` row. ``phrase`` is ALREADY pseudonymized at rest
     (SG-1); the growth endpoint never logs it and never sends it to an LLM."""
@@ -266,6 +277,11 @@ class GrowthPhrase(BaseModel):
     count: int = Field(ge=1)
     vector: list[float]
 
+    @field_validator("vector")
+    @classmethod
+    def _check_vector(cls, vec: list[float]) -> list[float]:
+        return _validate_growth_vector(vec)
+
 
 class GrowthAnchor(BaseModel):
     """One embedded ``skill_alias`` row — the CLOSED id space cluster centroids are
@@ -274,10 +290,16 @@ class GrowthAnchor(BaseModel):
     skill_id: str
     vector: list[float]
 
+    @field_validator("vector")
+    @classmethod
+    def _check_vector(cls, vec: list[float]) -> list[float]:
+        return _validate_growth_vector(vec)
+
 
 class GrowthClusterInput(BaseModel):
     """A per-domain batch from the db-side growth runner (fork-B pattern). Capped so one
-    request never smuggles an unbounded queue; ``None`` params fall back to Settings."""
+    request never smuggles an unbounded queue; ``None`` params fall back to Settings.
+    Vector hygiene (768-dim, finite) is enforced on GrowthPhrase/GrowthAnchor."""
 
     domain_id: str
     phrases: list[GrowthPhrase] = Field(max_length=500)
@@ -287,19 +309,6 @@ class GrowthClusterInput(BaseModel):
     cluster_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     band_low: float | None = Field(default=None, ge=0.0, le=1.0)
     floor: float | None = Field(default=None, ge=0.0, le=1.0)
-
-    @field_validator("phrases", "anchors")
-    @classmethod
-    def _vectors_are_house_dim(cls, value: list) -> list:
-        """Every vector must be exactly the 768 house dim and finite — a foreign-dim or
-        NaN vector would silently poison every cosine in the batch."""
-        for item in value:
-            vec = item.vector
-            if len(vec) != _GROWTH_VECTOR_DIM:
-                raise ValueError(f"vector must be {_GROWTH_VECTOR_DIM}-dim (got {len(vec)})")
-            if not all(math.isfinite(v) for v in vec):
-                raise ValueError("vector contains a non-finite value")
-        return value
 
 
 class GrowthProposal(BaseModel):

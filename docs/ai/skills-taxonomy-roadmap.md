@@ -158,11 +158,20 @@ greedy leader clustering over caller-supplied vectors; guards `size >= min_clust
 below → provisional; settings `skill_growth_*`) + `packages/db/src/growth-cluster.ts`
 (`pnpm db:growth:cluster`, fork-B pattern: embeds NULL `unresolved_phrase.embedding` via the
 existing embed endpoint — **refuses to persist MOCK vectors** unless `--allow-mock` (no provenance
-column: a mixed space poisons centroid-vs-anchor) — then clusters per domain and writes the
-proposals packet to `docs/registers/skill-growth-proposals.md` as paste-ready `wedge-aliases.ts`
-entries, `ratified: false`; `--apply` marks emitted members `open → clustered`, default
-report-only). The runner re-verifies SG-3/SG-5 on the response (alias ids ⊆ sent anchors;
-provisional carries NO id). **Two deliberate tightenings vs this spec:** (1) a provisional-skill
+column: a mixed space poisons centroid-vs-anchor; `--reset-embeddings` recovers a mix) — then
+clusters per domain and writes the proposals packet to `docs/registers/skill-growth-proposals.md`
+as paste-ready `wedge-aliases.ts` entries, `ratified: false`; `--apply` marks emitted members
+`open → clustered`, default report-only). The runner re-verifies SG-3/SG-5 on the response (alias
+ids ⊆ sent anchors; provisional carries NO id). **Adversarial-review hardening (9 confirmed
+findings fixed in-PR):** phrase text is SANITIZED at packet render (control chars/backticks/length
+— queue text is hostile free text; it cannot forge the ```ts paste-ready fence) and display
+strings are length-capped at parse; the status machine is NOT a one-way door — `--reopen-clustered`
+moves `clustered → open` (rejected/lost proposals regenerate deterministically) and the previous
+packet is backed up (one slot) before overwrite; an embed gap (blocked / provider errors / budget
+stop) no longer aborts the run — it continues PARTIAL, stamps the packet, and **refuses
+`--apply`**; the report path is anchored to the module (not cwd); vectors are unit-normalized once
+in the endpoint (~2-3x worst-case CPU cut; service-wide auth posture = TD67); Zod mirrors gained
+`.finite()` and the Pydantic dim/finite check moved onto `GrowthPhrase`/`GrowthAnchor` themselves. **Two deliberate tightenings vs this spec:** (1) a provisional-skill
 proposal mints **NO id** — `status='provisional'` id creation stays a HUMAN act in
 `packages/taxonomy` (SG-5: ids are immutable, so wrong ids are forever; the automation ceiling
 is the *proposal*, not the provisional row); (2) the "review surface" is the generated packet +
