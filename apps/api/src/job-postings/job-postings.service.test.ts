@@ -689,4 +689,33 @@ describe("TAX-6 — job-side skill canonicalization (shared id space, ADR-0030)"
     expect(JSON.stringify(arg)).not.toContain("lathe operation");
     expect(JSON.stringify(arg)).not.toContain("skill_turning");
   });
+
+  it("resending IDENTICAL phrases while stored ids are empty re-canonicalizes (outage backfill, #226 M3)", async () => {
+    // Created during an ai-service outage: phrases stored, ids []. Re-PATCHing the SAME
+    // skills must be a valid retry (previously 400 'no effective changes' — ids were
+    // unbackfillable forever without editing the phrases).
+    const existing = row({
+      status: "open",
+      skillPhrases: ["milling"],
+      skillIds: [],
+    } as Partial<Row>);
+    const { svc, update, canonicalize } = make(existing);
+    canonicalize.mockResolvedValueOnce({ status: "matched", skill_id: "skill_milling", score: 0.9 });
+    await svc.update(POSTING_ID, { skills: ["milling"] } as never, CTX as never);
+    const patch = update.mock.calls[0]![1] as Record<string, unknown>;
+    expect(patch.skillIds).toEqual(["skill_milling"]); // backfilled on retry
+  });
+
+  it("resending identical phrases when ids are ALREADY stored is still a no-op 400", async () => {
+    const existing = row({
+      status: "open",
+      skillPhrases: ["milling"],
+      skillIds: ["skill_milling"],
+    } as Partial<Row>);
+    const { svc, canonicalize } = make(existing);
+    await expect(
+      svc.update(POSTING_ID, { skills: ["milling"] } as never, CTX as never),
+    ).rejects.toThrow(/no effective changes/i);
+    expect(canonicalize).not.toHaveBeenCalled(); // no wasted round-trips on a true no-op
+  });
 });

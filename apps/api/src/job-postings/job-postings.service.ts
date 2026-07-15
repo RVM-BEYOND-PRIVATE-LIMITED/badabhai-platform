@@ -82,19 +82,22 @@ export class JobPostingsService {
    */
   private async canonicalizeSkills(phrases: string[] | undefined): Promise<string[]> {
     if (!phrases?.length) return [];
+    // PARALLEL by design (#226 review M1): sequential awaits made the worst case
+    // N x timeout (10 x 8s = 80s of a held-open posting write against a blackholed
+    // ai-service). allSettled bounds the whole pass at ONE client timeout (~8s) and a
+    // single slow phrase can't serialize the rest. Order is preserved via the results
+    // array; failures resolve null (canonicalizeSkill never rejects, belt+braces here).
+    const results = await Promise.allSettled(
+      phrases.map((phrase) =>
+        this.ai.canonicalizeSkill({ phrase, domain_id: "cnc-machining", lang: "en" }),
+      ),
+    );
     const ids: string[] = [];
-    for (const phrase of phrases) {
-      try {
-        const res = await this.ai.canonicalizeSkill({
-          phrase,
-          domain_id: "cnc-machining",
-          lang: "en",
-        });
-        if (res?.status === "matched" && res.skill_id && !ids.includes(res.skill_id)) {
-          ids.push(res.skill_id);
-        }
-      } catch {
-        // Never let canonicalization break a posting write.
+    for (const r of results) {
+      if (r.status !== "fulfilled") continue; // never let canonicalization break a write
+      const res = r.value;
+      if (res?.status === "matched" && res.skill_id && !ids.includes(res.skill_id)) {
+        ids.push(res.skill_id);
       }
     }
     return ids;
@@ -358,9 +361,15 @@ export class JobPostingsService {
     // PHRASES are patched here (sync); the caller re-canonicalizes the ids (async)
     // when this field changed. Order-sensitive compare is fine — the input order is
     // the poster's order and a reorder IS a change.
+    //
+    // BACKFILL EXCEPTION (#226 review M3): identical phrases RESENT while the stored
+    // ids are empty also count as a change — a posting created during an ai-service
+    // outage stores phrases with ids [] and would otherwise 400 ("no effective
+    // changes") forever; re-PATCHing the same skills is the operator's retry.
     if (
       dto.skills !== undefined &&
-      JSON.stringify(dto.skills) !== JSON.stringify(current.skillPhrases)
+      (JSON.stringify(dto.skills) !== JSON.stringify(current.skillPhrases) ||
+        (dto.skills.length > 0 && current.skillIds.length === 0))
     ) {
       patch.skillPhrases = dto.skills;
       changedFields.push("skills");
