@@ -110,8 +110,16 @@ export class AuthController {
     // (§6's server gate — ConsentGuard — is unchanged and still authoritative).
     // Same pattern as the A5 check in tokenRefresh below: ACTIVE = a latest row
     // exists and is not revoked. No event changes; the boolean is never PII.
-    const latest = await this.consents.findLatestByWorker(login.worker_id);
-    return { ...login, consent_accepted: latest != null && latest.revokedAt === null };
+    // Review F1: at this point the OTP is CONSUMED and the session MINTED — a
+    // consent-read blip must not 500 a login that server-side succeeded (the worker
+    // would burn another OTP against the TD60 daily cap to recover). On failure the
+    // field is OMITTED: the app's tri-state treats absent as unknown/pass-through.
+    try {
+      const latest = await this.consents.findLatestByWorker(login.worker_id);
+      return { ...login, consent_accepted: latest != null && latest.revokedAt === null };
+    } catch {
+      return { ...login };
+    }
   }
 
   /** Current worker identity + status (worker-authenticated). */

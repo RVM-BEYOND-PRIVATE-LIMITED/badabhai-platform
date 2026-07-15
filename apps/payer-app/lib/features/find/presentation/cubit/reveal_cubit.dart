@@ -39,6 +39,12 @@ class RevealCubit extends Cubit<RevealState> {
   /// A thrown [PayerApiException]/transport failure is an OUTAGE, not a deny —
   /// it emits [DisclosureStatus.error] (retryable copy), never `unavailable`
   /// (the neutral-deny copy is reserved for the genuine 200-deny).
+  ///
+  /// EXCEPT a 429 (review F3): the per-payer disclosure cap (XB-G — a
+  /// harvest-VELOCITY limiter) returns 429 before the neutral-deny chokepoint;
+  /// retry-inviting copy would actively encourage hammering it, so 429 maps to
+  /// the distinct NON-retry [DisclosureStatus.limited]. (A Redis outage also
+  /// surfaces as 429 by design — "try later" is the safe message for both.)
   Future<DisclosureResult> discloseResume({
     required String workerId,
     String? jobPostingId,
@@ -55,6 +61,13 @@ class RevealCubit extends Cubit<RevealState> {
         resumeUrl: result.resumeUrl,
       ));
       return result;
+    } on PayerApiException catch (e) {
+      emit(state.copyWith(
+        disclosure: e.statusCode == 429
+            ? DisclosureStatus.limited
+            : DisclosureStatus.error,
+      ));
+      return const DisclosureResult.unavailable();
     } catch (_) {
       emit(state.copyWith(disclosure: DisclosureStatus.error));
       return const DisclosureResult.unavailable();
@@ -81,7 +94,7 @@ class RevealCubit extends Cubit<RevealState> {
 
 enum RevealStatus { initial, loading, ready, unavailable, error }
 
-enum DisclosureStatus { idle, loading, ready, unavailable, error }
+enum DisclosureStatus { idle, loading, ready, unavailable, error, limited }
 
 enum DisclosureHistoryStatus { idle, loading, ready, error }
 

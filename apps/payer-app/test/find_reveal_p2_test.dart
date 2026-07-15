@@ -310,6 +310,22 @@ void main() {
       expect(result.disclosed, isFalse);
     });
 
+    test(
+        'a 429 (XB-G per-payer cap) → DisclosureStatus.limited — NON-retry '
+        'copy, never the retryable error state (F3)', () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/resume-disclosures': _json(<String, dynamic>{}, 429),
+      });
+      final RevealCubit cubit = RevealCubit(h.api);
+
+      final DisclosureResult result =
+          await cubit.discloseResume(workerId: _workerId);
+
+      expect(cubit.state.disclosure, DisclosureStatus.limited);
+      expect(cubit.state.disclosure, isNot(DisclosureStatus.error));
+      expect(result.disclosed, isFalse);
+    });
+
     test('the genuine 200 deny → DisclosureStatus.unavailable (neutral copy)',
         () async {
       final h = _harness(<String, http.Response>{

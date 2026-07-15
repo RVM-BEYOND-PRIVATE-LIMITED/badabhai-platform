@@ -69,9 +69,14 @@ export interface PinVerifyResponse {
     expires_at: string;
     requires_otp_after: string | null;
   };
-  // TD62 — ADDITIVE: does this worker hold an ACTIVE (non-revoked) DPDP consent?
-  // Mirrors LoginResponse.consent_accepted so a PIN unlock routes the never-onboarded
-  // worker to /consent, not the shell. Derived from the consent row the A5 gate already
-  // fetched on the success path — no extra query, never PII.
-  consent_accepted: boolean;
+  // TD62 — ADDITIVE + OPTIONAL: does this worker hold an ACTIVE (non-revoked) DPDP
+  // consent? Mirrors LoginResponse.consent_accepted so a PIN unlock routes the
+  // never-onboarded worker to /consent, not the shell. Derived from the consent row
+  // the A5 gate already fetched on the success path — no extra query, never PII.
+  // OPTIONAL for contract symmetry with LoginResponse (review F1). NOTE the PIN path
+  // has no post-commit failure mode: the A5 consent read runs BEFORE the session is
+  // minted (a blip fails the unlock before anything is consumed — the PIN is freely
+  // retryable, no OTP is burned), and this field reuses that already-fetched row, so
+  // the service always sets it on success.
+  consent_accepted?: boolean;
 }

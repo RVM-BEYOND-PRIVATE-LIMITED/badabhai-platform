@@ -169,6 +169,20 @@ describe("AuthController", () => {
     expect(res.consent_accepted).toBe(false);
   });
 
+  it("verifyOtp: a consent-read FAILURE still returns the 200 login — field OMITTED (F1)", async () => {
+    // The OTP is consumed + session minted by the time the compose runs; a repo blip
+    // must not 500 the succeeded login (the worker would burn another OTP against the
+    // TD60 daily cap). The field is omitted; the app's tri-state passes through.
+    const { controller, consents } = make();
+    (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("db blip"),
+    );
+    const res = await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, CTX);
+    expect(res.worker_id).toBe(WORKER.id);
+    expect(res.access_token).toBe("tok");
+    expect("consent_accepted" in res).toBe(false); // omitted, never a defaulted value
+  });
+
   it("me returns the authed worker id + status (no PII)", async () => {
     const { controller } = make();
     const res = await controller.me(WORKER);
