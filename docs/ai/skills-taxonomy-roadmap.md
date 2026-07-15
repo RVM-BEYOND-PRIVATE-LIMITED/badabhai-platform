@@ -29,8 +29,8 @@ ranks** — a skills factor in RANK is a *separate future ADR*, explicitly out o
 | TAX-4 | AI — `canonicalize_skill` (floor-gated) | — | **MERGED** | TAX-3 | #215 |
 | **fork-B runner** | DB-side runner + ai embed endpoint | — | **MERGED** | TAX-3/4 | #219 |
 | **FORK-B-1** | Request-path DB store (seam A) + reset flag + SR-1 runbook | **P1** | **MERGED + E2E-VERIFIED** | fork-B | #222 |
-| TAX-5 | Data/AI — wedge aliases + floor calibration | **P1** | **CALIBRATED (floor 0.75)** · RVM gate open | TAX-4 | — |
-| TAX-6 | Backend+AI — job side shares id space | P2 | Unblocked | TAX-4 | — |
+| TAX-5 | Data/AI — wedge aliases + floor calibration | **P1** | **CALIBRATED (floor 0.75)** · RVM gate open | TAX-4 | #225 |
+| TAX-6 | Backend+AI — job side shares id space | P2 | **BUILT** (flag-gated; RANK locked; review PASS, M1-M3 fixed) | TAX-4 | #226 |
 | TAX-7 | AI — growth loop (cluster unresolved) | P2 | Unblocked | TAX-4 | — |
 | TAX-8 | QA+AI — off-wedge résumé verify | P2 | **VERIFIED + LOCKED** (`pytest -k resume`; raw-phrase gap → Q14) | TAX-4 | — |
 | TAX-9 | DB+AI — versioning + offline re-tag | P3 | Unblocked | TAX-4/6 | — |

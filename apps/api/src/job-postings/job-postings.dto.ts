@@ -51,6 +51,15 @@ const vacancies = z.number().int().positive();
  * a band. Both are optional on the object; the refine enforces "exactly one".
  * Existing callers that pass `vacancy_band` keep working unchanged.
  */
+
+/**
+ * ADR-0030 / TAX-6: optional skill PHRASES on a posting. Free text from the poster
+ * (like `description`) — canonicalized into closed-set skill_ids by the SAME
+ * canonicalize_skill pipeline the worker side uses; the ids stored are only ever
+ * vector-layer-assigned (SG-3). Bounded: <=10 phrases, each 1..80 chars.
+ */
+const skillsInput = z.array(z.string().min(1).max(80)).max(10);
+
 export const CreateJobPostingSchema = z
   .object({
     created_by: uuidSchema,
@@ -60,6 +69,7 @@ export const CreateJobPostingSchema = z
     description: description.optional(),
     vacancy_band: z.enum(VACANCY_BANDS).optional(),
     vacancies: vacancies.optional(),
+    skills: skillsInput.optional(),
   })
   .refine((o) => (o.vacancy_band !== undefined) !== (o.vacancies !== undefined), {
     message: "provide exactly one of vacancy_band or vacancies",
@@ -81,6 +91,7 @@ export const PayerCreateJobPostingSchema = z
     description: description.optional(),
     vacancy_band: z.enum(VACANCY_BANDS).optional(),
     vacancies: vacancies.optional(),
+    skills: skillsInput.optional(),
   })
   .refine((o) => (o.vacancy_band !== undefined) !== (o.vacancies !== undefined), {
     message: "provide exactly one of vacancy_band or vacancies",
@@ -107,6 +118,7 @@ export const UpdateJobPostingSchema = z
     description: description.optional(),
     vacancy_band: z.enum(VACANCY_BANDS).optional(),
     vacancies: vacancies.optional(),
+    skills: skillsInput.optional(),
     // Only "open" is a valid status transition via PATCH (publish a draft).
     status: z.literal("open").optional(),
   })

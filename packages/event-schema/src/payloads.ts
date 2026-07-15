@@ -667,6 +667,9 @@ const JOB_POSTING_CHANGED_FIELDS = [
   "description",
   "vacancy_band",
   "status",
+  // ADR-0030 / TAX-6 (ADDITIVE enum member): the posting's skill inputs changed
+  // (names only — the PHRASES/ids never enter the payload).
+  "skills",
 ] as const;
 
 /**

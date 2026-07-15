@@ -8,7 +8,15 @@ import { DATABASE } from "../database/database.module";
 export type JobPostingUpdate = Partial<
   Pick<
     NewJobPosting,
-    "orgLabel" | "roleTitle" | "locationLabel" | "description" | "vacancyBand" | "status"
+    | "orgLabel"
+    | "roleTitle"
+    | "locationLabel"
+    | "description"
+    | "vacancyBand"
+    | "status"
+    // ADR-0030 / TAX-6: the posting's skill phrases + their canonicalized closed-set ids.
+    | "skillPhrases"
+    | "skillIds"
   >
 > & { updatedAt: Date };
 

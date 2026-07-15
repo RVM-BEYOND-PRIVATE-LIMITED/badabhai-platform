@@ -744,6 +744,15 @@ export const jobPostings = pgTable(
     payerId: uuid("payer_id"),
     orgLabel: text("org_label").notNull(),
     roleTitle: text("role_title").notNull(),
+    // ADR-0030 / TAX-6 — the JOB side of the shared skill id space (ADDITIVE, SG-5).
+    // `skill_phrases` = what the poster typed (free text, non-matchable, like
+    // `description`); `skill_ids` = ONLY vector-layer-assigned closed-set ids from the
+    // SAME canonicalize_skill pipeline the worker side uses (SG-3 — never free text,
+    // never invented). Both default '[]' so every existing row/reader is untouched.
+    // NOT a RANK input (invariant #4): the reach path never reads these — the
+    // reach-engine guard test locks that. Rollback = flag off (ids stop being stored).
+    skillPhrases: jsonb("skill_phrases").$type<string[]>().notNull().default(jsonArray),
+    skillIds: jsonb("skill_ids").$type<string[]>().notNull().default(jsonArray),
     locationLabel: text("location_label"),
     description: text("description"),
     vacancyBand: text("vacancy_band").$type<VacancyBand>().notNull(),
