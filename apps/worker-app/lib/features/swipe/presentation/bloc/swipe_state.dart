@@ -10,7 +10,7 @@ class SwipeState extends Equatable {
   const SwipeState({
     this.status = SwipeStatus.loading,
     this.queue = const <FeedItem>[],
-    this.tradeFilter = const <String>{},
+    this.filters = FilterSelection.initial,
     this.deciding = false,
     this.decisionError = 0,
     this.appliedNonce = 0,
@@ -28,15 +28,20 @@ class SwipeState extends Equatable {
   /// decided card untouched so nothing is lost on a network drop.
   final List<FeedItem> queue;
 
-  /// Active trade filter (from the "Filter jobs" sheet). EMPTY = show all, which
-  /// preserves the unfiltered feed on load. Only trade is filtered — it is the
-  /// sole PII-free real field on [FeedItem]; distance/shift are not on the wire.
-  final Set<String> tradeFilter;
+  /// The active filter selection — Trade, City and Experience (from the "Filter
+  /// jobs" sheet AND the Feed's top chip row, which share this one source of
+  /// truth). [FilterSelection.initial] (all three empty) = show all, which
+  /// preserves the unfiltered feed on load.
+  ///
+  /// Every dimension maps to a real PII-free [FeedItem] field; distance and
+  /// shift are deliberately absent because neither is on the wire. See
+  /// `domain/job_filter.dart` for the matching rules.
+  final FilterSelection filters;
 
-  /// [queue] narrowed to [tradeFilter]. This is what the deck renders AND what
-  /// apply/skip act on (via [current]), so the visible head is always the card
-  /// the worker actually decides.
-  List<FeedItem> get visibleQueue => applyTradeFilter(queue, tradeFilter);
+  /// [queue] narrowed to [filters] (AND across dimensions, OR within one). This
+  /// is what the deck renders AND what apply/skip act on (via [current]), so the
+  /// visible head is always the card the worker actually decides.
+  List<FeedItem> get visibleQueue => applyJobFilters(queue, filters);
 
   /// True when jobs remain but none match the active filter — a distinct empty
   /// state ("no jobs match") from the drained-queue empty state ("no more jobs").
@@ -66,7 +71,7 @@ class SwipeState extends Equatable {
   SwipeState copyWith({
     SwipeStatus? status,
     List<FeedItem>? queue,
-    Set<String>? tradeFilter,
+    FilterSelection? filters,
     bool? deciding,
     int? decisionError,
     int? appliedNonce,
@@ -76,7 +81,7 @@ class SwipeState extends Equatable {
     return SwipeState(
       status: status ?? this.status,
       queue: queue ?? this.queue,
-      tradeFilter: tradeFilter ?? this.tradeFilter,
+      filters: filters ?? this.filters,
       deciding: deciding ?? this.deciding,
       decisionError: decisionError ?? this.decisionError,
       appliedNonce: appliedNonce ?? this.appliedNonce,
@@ -89,7 +94,7 @@ class SwipeState extends Equatable {
   List<Object?> get props => <Object?>[
         status,
         queue,
-        tradeFilter,
+        filters,
         deciding,
         decisionError,
         appliedNonce,

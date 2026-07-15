@@ -37,9 +37,13 @@ class ProfileExtractionTimeout implements Exception {
 
 /// One job card the worker swipes on. Result item of GET /feed.
 ///
-/// PII-free by contract: coarse [tradeKey] / [title] / [city] / [area] only —
-/// the API returns NO employer name and NO pay, so this model carries none.
-/// [rank] is the 1-based seed display position (not a relevance rank).
+/// PII-free by contract: coarse [tradeKey] / [title] / [city] / [area] plus the
+/// job's experience window in YEAR COUNTS — the API returns NO employer name and
+/// NO pay, so this model carries none. Year counts are PII-free by the same rule
+/// the schema applies to pay bands (`packages/db/src/schema.ts` jobs: "PII-FREE:
+/// pay bands / year counts / a coarse timing enum" — never an employer, never a
+/// worker identity). [rank] is the 1-based seed display position (not a
+/// relevance rank).
 class FeedItem extends Equatable {
   const FeedItem({
     required this.jobId,
@@ -48,6 +52,8 @@ class FeedItem extends Equatable {
     required this.city,
     required this.area,
     required this.rank,
+    this.minExperienceYears,
+    this.maxExperienceYears,
   });
 
   final String jobId;
@@ -57,6 +63,15 @@ class FeedItem extends Equatable {
 
   /// Coarse area/locality bucket. Nullable — not every job has one.
   final String? area;
+
+  /// Experience window the job targets, in years — passed through HONESTLY by
+  /// the API, nulls included: a null [minExperienceYears] means "no floor" and a
+  /// null [maxExperienceYears] means "open-ended". Read the window as
+  /// [min ?? 0, max ?? infinity]; do NOT coerce either null to 0 (that would
+  /// invent a floor the employer never set). See `jobMatchesExperience` in
+  /// features/swipe/domain/job_filter.dart for the matching rule.
+  final int? minExperienceYears;
+  final int? maxExperienceYears;
 
   /// 1-based seed display position the card was shown at. Sent back on apply so
   /// the server can record the position the decision was taken from.
@@ -68,11 +83,23 @@ class FeedItem extends Equatable {
         title: json['title'] as String? ?? '',
         city: json['city'] as String? ?? '',
         area: json['area'] as String?,
+        // Absent key and explicit null both land on null — "no bound stated".
+        minExperienceYears: (json['min_experience_years'] as num?)?.toInt(),
+        maxExperienceYears: (json['max_experience_years'] as num?)?.toInt(),
         rank: (json['rank'] as num?)?.toInt() ?? 0,
       );
 
   @override
-  List<Object?> get props => <Object?>[jobId, tradeKey, title, city, area, rank];
+  List<Object?> get props => <Object?>[
+        jobId,
+        tradeKey,
+        title,
+        city,
+        area,
+        minExperienceYears,
+        maxExperienceYears,
+        rank,
+      ];
 }
 
 /// A worker's apply/skip decision row from `GET /workers/me/applications` (the

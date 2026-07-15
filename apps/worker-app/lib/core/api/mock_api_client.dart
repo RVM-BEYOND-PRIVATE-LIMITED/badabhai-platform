@@ -580,9 +580,17 @@ Location: Pune (open to relocate)
 
 This is mock data for UI development — it contains no real worker information.''';
 
-/// PII-free seed feed for mock mode: coarse trade / title / city / area only —
-/// no employer, no pay (mirrors the real `/feed` contract). Item 3 leaves
-/// [FeedItem.area] null to exercise the nullable path.
+/// PII-free seed feed for mock mode: coarse trade / title / city / area plus the
+/// job's experience window — no employer, no pay (mirrors the real `/feed`
+/// contract). Item 3 leaves [FeedItem.area] null to exercise the nullable path.
+///
+/// The experience windows are DELIBERATELY varied, and item 4 leaves them null:
+/// the Jobs-tab filters match on trade/city/experience, so a canned feed with a
+/// uniform (or absent) window would make the Experience filter look broken in
+/// mock mode — every band would match everything. Mock data has to mirror the
+/// contract closely enough that the controls behave the same as against the real
+/// feed. The null window is the honest "no bound stated" case, which by contract
+/// matches EVERY band (see `jobMatchesExperience`).
 final List<FeedItem> _cannedFeed = <FeedItem>[
   FeedItem(
     jobId: 'mock-job-0001',
@@ -590,6 +598,8 @@ final List<FeedItem> _cannedFeed = <FeedItem>[
     title: 'CNC Operator',
     city: 'Pune',
     area: 'Chakan',
+    minExperienceYears: 0,
+    maxExperienceYears: 2,
     rank: 1,
   ),
   FeedItem(
@@ -598,6 +608,8 @@ final List<FeedItem> _cannedFeed = <FeedItem>[
     title: 'VMC Setter',
     city: 'Pune',
     area: 'Hinjewadi',
+    minExperienceYears: 2,
+    maxExperienceYears: 5,
     rank: 2,
   ),
   FeedItem(
@@ -606,6 +618,8 @@ final List<FeedItem> _cannedFeed = <FeedItem>[
     title: 'Welder',
     city: 'Nashik',
     area: null,
+    minExperienceYears: 5,
+    maxExperienceYears: null,
     rank: 3,
   ),
   FeedItem(

@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/api/api_models.dart';
 import '../../../../core/error/failure.dart';
+import '../../domain/job_filter.dart';
 import '../../domain/swipe_repository.dart';
 import 'swipe_state.dart';
 
@@ -35,16 +36,18 @@ class SwipePrioritized extends SwipeEvent {
   const SwipePrioritized();
 }
 
-/// The worker changed the trade filter in the "Filter jobs" sheet. [trades] is
-/// the selected trade-label set (empty = show all). Recomputes the visible deck
-/// client-side over the already-loaded queue — no refetch.
+/// The worker changed the filters — from the "Filter jobs" sheet OR the Feed's
+/// top chip row, which both dispatch this one event. [filters] is the whole
+/// selection across Trade/City/Experience ([FilterSelection.initial] = show
+/// all). Recomputes the visible deck client-side over the already-loaded queue
+/// — no refetch.
 class SwipeFiltersChanged extends SwipeEvent {
-  const SwipeFiltersChanged(this.trades);
+  const SwipeFiltersChanged(this.filters);
 
-  final Set<String> trades;
+  final FilterSelection filters;
 
   @override
-  List<Object?> get props => <Object?>[trades];
+  List<Object?> get props => <Object?>[filters];
 }
 
 // ---------------- Bloc ----------------
@@ -90,7 +93,7 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
     emit(state.copyWith(deciding: true));
     try {
       await _repo.applyToJob(job.jobId, rank: job.rank);
-      _advance(emit, applied: true);
+      _advance(emit, job, applied: true);
     } on Failure catch (failure) {
       _onDecisionError(emit, failure);
     }
@@ -104,7 +107,7 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
       // A single-tap skip means "not interested"; richer reasons are a later
       // refinement. Still a coarse, PII-free enum.
       await _repo.skipJob(job.jobId, reason: 'not_interested');
-      _advance(emit);
+      _advance(emit, job);
     } on Failure catch (failure) {
       _onDecisionError(emit, failure);
     }
@@ -121,39 +124,46 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
       // Flutter-only seam for now (the prioritize backend is being built
       // separately). Records the intent and advances — NOT marked applied.
       await _repo.prioritizeJob(job.jobId);
-      _advance(emit, prioritized: true);
+      _advance(emit, job, prioritized: true);
     } on Failure catch (failure) {
       _onDecisionError(emit, failure);
     }
   }
 
-  /// Recompute the visible deck for a new trade filter. Pure client-side over the
-  /// loaded queue (no refetch, no `/feed` filter contract). Keeps the queue and
-  /// all decision state intact — only what is VISIBLE changes.
+  /// Recompute the visible deck for a new filter selection. Pure client-side over
+  /// the loaded queue (no refetch, no `/feed` filter contract). Keeps the queue
+  /// and all decision state intact — only what is VISIBLE changes.
   Future<void> _onFiltersChanged(
     SwipeFiltersChanged event,
     Emitter<SwipeState> emit,
   ) async {
-    emit(state.copyWith(tradeFilter: event.trades));
+    emit(state.copyWith(filters: event.filters));
   }
 
-  /// Drop the DECIDED card (the filtered head) by id, not by position — with a
-  /// filter active the visible head is not necessarily `queue.first`. `status`
-  /// tracks the undecided queue draining; a non-empty queue whose remainder is
-  /// all filtered out stays `ready` and renders the "no jobs match" state.
+  /// Drop the DECIDED card by id, not by position — with a filter active the
+  /// visible head is not necessarily `queue.first`. `status` tracks the undecided
+  /// queue draining; a non-empty queue whose remainder is all filtered out stays
+  /// `ready` and renders the "no jobs match" state.
   /// [applied] bumps `appliedNonce` (apply toast); [prioritized] bumps
   /// `prioritizedNonce` (Priority toast) — both only on real success.
+  ///
+  /// [decided] is passed in by the caller, captured BEFORE its `await`, and is
+  /// deliberately NOT re-read from `state.current` here. Bloc runs the handlers
+  /// for different event types CONCURRENTLY, so a [SwipeFiltersChanged] landing
+  /// mid-decision (the chip row is live while a card is in flight) would move
+  /// `state.current` to a different job — and re-reading it would drop THAT card
+  /// instead: the decided job would survive in the queue and reappear, while an
+  /// untouched job vanished unseen. Advancing on the captured id keeps the card
+  /// we actually decided the card we actually remove.
   void _advance(
-    Emitter<SwipeState> emit, {
+    Emitter<SwipeState> emit,
+    FeedItem decided, {
     bool applied = false,
     bool prioritized = false,
   }) {
-    final FeedItem? decided = state.current;
-    final List<FeedItem> next = decided == null
-        ? state.queue
-        : state.queue
-            .where((FeedItem job) => job.jobId != decided.jobId)
-            .toList();
+    final List<FeedItem> next = state.queue
+        .where((FeedItem job) => job.jobId != decided.jobId)
+        .toList();
     emit(state.copyWith(
       queue: next,
       deciding: false,
