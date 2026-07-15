@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
   pgTable,
   uuid,
@@ -1762,6 +1763,14 @@ export const skills = pgTable(
     source: text("source").$type<SkillSource>().notNull(),
     status: text("status").$type<SkillStatus>().notNull().default("provisional"),
     version: integer("version").notNull().default(1),
+    // TAX-9: the deprecation CROSSWALK — the immutable successor id. Set ONLY when
+    // status='deprecated' (CHECK below). Ids are never reused/renamed (SG-5): change is
+    // expressed as version bump + status transition + this pointer, and affected
+    // worker/job rows are re-tagged OFFLINE (`pnpm db:retag:skills`, dry-run first) —
+    // never rewritten on the live path. Chains (A→B→C) are legal; the retag runner
+    // resolves them to the terminal id and refuses cycles. Self-FK: a successor must
+    // itself be a real skill row. ADDITIVE + nullable → migration 0039 is backward-safe.
+    replacedBy: text("replaced_by").references((): AnyPgColumn => skills.skillId),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1769,6 +1778,12 @@ export const skills = pgTable(
     index("skill_domain_id_idx").on(t.domainId),
     check("skill_source_chk", sql`${t.source} IN ('esco', 'onet', 'nco', 'rvm')`),
     check("skill_status_chk", sql`${t.status} IN ('active', 'provisional', 'deprecated')`),
+    // Crosswalk discipline: a successor pointer only ever exists on a DEPRECATED row
+    // (deprecated-without-successor is legal: retired, nothing to re-tag to).
+    check(
+      "skill_replaced_by_chk",
+      sql`${t.replacedBy} IS NULL OR ${t.status} = 'deprecated'`,
+    ),
   ],
 ).enableRLS(); // RLS tracked in the model; service-role today (rls-plan.md, not finalized)
 

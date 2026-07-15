@@ -339,6 +339,57 @@ class GrowthClusterOutput(BaseModel):
     skipped_below_guards: int
 
 
+# --- Offline skill re-tag plan (ADR-0030 / TAX-9 — pure compute, dry-run first) ---
+class RetagCrosswalkEntry(BaseModel):
+    """One ``skill.replaced_by`` edge: a DEPRECATED id and its immutable successor."""
+
+    deprecated_id: str
+    replaced_by: str
+
+
+class RetagRow(BaseModel):
+    """One stored row to plan against. ``row_ref`` is an OPAQUE row uuid — no PII."""
+
+    row_ref: str
+    skill_ids: list[str] = Field(max_length=100)
+
+
+class RetagPlanInput(BaseModel):
+    """A batch from the db-side retag runner (fork-B pattern; caps bound one request)."""
+
+    crosswalk: list[RetagCrosswalkEntry] = Field(max_length=1000)
+    rows: list[RetagRow] = Field(max_length=5000)
+
+
+class RetagResolvedEntry(BaseModel):
+    """A crosswalk edge resolved to its TERMINAL id (chains A→B→C collapse; ``hops`` =
+    edges walked). SG-5: terminal ids come from the caller-supplied crosswalk only."""
+
+    deprecated_id: str
+    terminal_id: str
+    hops: int
+
+
+class RetagChange(BaseModel):
+    """One row whose ids change: ``after`` = crosswalk-mapped + first-seen de-duplicated.
+    Rows the crosswalk does not touch are never listed (no dedup-only rewrites)."""
+
+    row_ref: str
+    before: list[str]
+    after: list[str]
+
+
+class RetagPlanOutput(BaseModel):
+    """The dry-run plan. ``dropped`` = crosswalk ids on a CYCLE — fail-safe, not
+    re-tagged, fix the corpus. The runner applies ``changes`` only under ``--apply``."""
+
+    resolved: list[RetagResolvedEntry]
+    dropped: list[str]
+    changes: list[RetagChange]
+    rows_in: int
+    rows_changed: int
+
+
 # --- Profile extraction ----------------------------------------------------
 class ProfileExtractionInput(BaseModel):
     worker_ref: str | None = None

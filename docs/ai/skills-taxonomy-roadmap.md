@@ -33,7 +33,7 @@ ranks** — a skills factor in RANK is a *separate future ADR*, explicitly out o
 | TAX-6 | Backend+AI — job side shares id space | P2 | **BUILT** (flag-gated; RANK locked; review PASS, M1-M3 fixed) | TAX-4 | #226 |
 | TAX-7 | AI — growth loop (cluster unresolved) | P2 | **BUILT** (report-only; ratification flow = only activation path; `pytest -k growth`) | TAX-4 | — |
 | TAX-8 | QA+AI — off-wedge résumé verify | P2 | **VERIFIED + LOCKED** (`pytest -k resume`; raw-phrase gap → Q14) | TAX-4 | — |
-| TAX-9 | DB+AI — versioning + offline re-tag | P3 | Unblocked | TAX-4/6 | — |
+| TAX-9 | DB+AI — versioning + offline re-tag | P3 | **BUILT** (migration **0039 — owner apply pending**; dry-run default; `pytest -k retag`) | TAX-4/6 | — |
 
 ## Done (TAX-0…TAX-4)
 
@@ -207,3 +207,20 @@ and an **offline retag job** (dry-run + apply, with a change report) that re-can
 deprecated skill's rows to the replacement id. **Do NOT** live-retag or reuse ids. Documented in
 the ADR-0030 rollout + the `migration` skill. Files: `packages/db/schema.ts` (extend TAX-1),
 `apps/ai-service/app/retag.py`, ADR-0030, tests (`pytest -k retag`).
+
+**Built 2026-07-15:** migration **0039** (additive `skill.replaced_by` + self-FK + CHECK
+`replaced_by IS NULL OR status='deprecated'` — **owner apply pending**). **The state machine's
+home is the corpus**: `SkillSeed.replacedBy` (validated — deprecated-only, known target, no
+self-ref, no cycles) → `db:seed:skills` syncs it in a second pass (after every row exists, so
+the self-FK always resolves; stale pointers cleared). Plan compute is fork-B-pure:
+`POST /skills/retag-plan` (`app/ai/retag.py` — chain→terminal resolution with hop counts,
+**cycles dropped fail-safe**, first-seen dedupe, untouched rows never listed; `pytest -k retag`,
+12 tests) + Zod↔Pydantic `Retag*` mirrors. The runner `pnpm db:retag:skills` (dry-run DEFAULT →
+`docs/registers/skill-retag-report.md`, ids/uuids only): scans `worker_profiles.skills` +
+`job_postings.skill_ids` via jsonb `?|`, re-validates SG-5 on the response (after ⊆ originals ∪
+terminals), excludes dead-end chains (terminal itself deprecated), and under `--apply` updates
+rows with **optimistic concurrency** (`WHERE ids = before`; skewed rows skipped + reported) and
+**moves the deprecated skills' aliases to their terminals** (new deterministic id + terminal's
+domain_id, embedding copied — no re-embed; old row deleted) so future canonicalization assigns
+the successor. `provisional→active` stays a corpus edit (seed upserts `status` since TAX-2);
+`version` bumps stay corpus-author discipline.

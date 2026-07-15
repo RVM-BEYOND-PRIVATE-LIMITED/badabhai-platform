@@ -31,6 +31,7 @@
     "db:seed:skills": "tsx src/seed-skills.ts",
     "db:embed:skills": "tsx src/embed-skill-aliases.ts",
     "db:growth:cluster": "tsx src/growth-cluster.ts",
+    "db:retag:skills": "tsx src/retag-skills.ts",
     "db:verify:demand": "tsx src/verify-demand.ts",
     "db:seed:reach": "tsx src/seed-reach-pool.ts",
     "db:seed:reach:large": "tsx src/seed-reach-pool.ts",

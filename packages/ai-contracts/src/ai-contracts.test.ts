@@ -10,6 +10,10 @@ import {
   GrowthClusterOutputSchema,
   GrowthPhraseSchema,
   GrowthProposalSchema,
+  RetagPlanInputSchema,
+  RetagPlanOutputSchema,
+  RetagResolvedEntrySchema,
+  RetagRowSchema,
   SkillAliasEmbedInputSchema,
   SkillAliasEmbedOutputSchema,
   SkillCanonicalizationInputSchema,
@@ -261,6 +265,42 @@ describe("Growth cluster schemas (contracts.py parity — ADR-0030/TAX-7)", () =
     });
     expect(out.proposals[0]?.skill_id).toBe("skill_grinding_ops");
     expect(out.skipped_below_guards).toBe(1);
+  });
+});
+
+describe("Retag plan schemas (contracts.py parity — ADR-0030/TAX-9)", () => {
+  it("caps crosswalk at 1000, rows at 5000, ids-per-row at 100 (matches Pydantic)", () => {
+    const entry = { deprecated_id: "d", replaced_by: "t" };
+    expect(
+      RetagPlanInputSchema.safeParse({
+        crosswalk: Array.from({ length: 1001 }, () => entry),
+        rows: [],
+      }).success,
+    ).toBe(false);
+    expect(
+      RetagRowSchema.safeParse({
+        row_ref: "r",
+        skill_ids: Array.from({ length: 101 }, (_, i) => `s${i}`),
+      }).success,
+    ).toBe(false);
+    expect(RetagRowSchema.safeParse({ row_ref: "r", skill_ids: ["s1"] }).success).toBe(true);
+  });
+  it("round-trips a plan output (chain terminal + cycle drop + change)", () => {
+    const out = RetagPlanOutputSchema.parse({
+      resolved: [{ deprecated_id: "a", terminal_id: "c", hops: 2 }],
+      dropped: ["x", "y"],
+      changes: [{ row_ref: "r1", before: ["a", "k"], after: ["c", "k"] }],
+      rows_in: 10,
+      rows_changed: 1,
+    });
+    expect(out.resolved[0]?.terminal_id).toBe("c");
+    expect(out.dropped).toEqual(["x", "y"]);
+  });
+  it("rejects zero-hop resolved entries (a terminal is never its own crosswalk key)", () => {
+    expect(
+      RetagResolvedEntrySchema.safeParse({ deprecated_id: "a", terminal_id: "a", hops: 0 })
+        .success,
+    ).toBe(false);
   });
 });
 
