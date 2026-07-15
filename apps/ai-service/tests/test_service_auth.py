@@ -13,6 +13,7 @@ from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 import app.config as app_config
 from app.config import Settings
@@ -31,6 +32,20 @@ def auth_enabled() -> Iterator[None]:
         yield
     finally:
         app_config._settings = prior
+
+
+class TestServiceAuthConfig:
+    def test_empty_token_fails_at_startup_never_arms_vacuously(self):
+        """The review's HIGH: AI_INTERNAL_TOKEN="" would enter the enforcement branch
+        where compare_digest(b"", b"") passes every TOKENLESS request (open!) while
+        401ing correctly-tokened callers and /health claims auth is on. min_length=16
+        makes an empty/short value fail Settings() at STARTUP instead."""
+        with pytest.raises(ValidationError):
+            Settings(ai_internal_token="")
+        with pytest.raises(ValidationError):
+            Settings(ai_internal_token="short-token")
+        assert Settings(ai_internal_token=None).ai_internal_token is None
+        assert Settings(ai_internal_token=TOKEN).ai_internal_token == TOKEN
 
 
 class TestServiceAuthDisabled:
@@ -70,6 +85,17 @@ class TestServiceAuthEnabled:
         resp = client.get("/health")
         assert resp.status_code == 200
         assert resp.json()["service_auth_enabled"] is True
+
+    def test_locked_health_is_liveness_plus_boolean_only(self, auth_enabled):
+        """Under the locked posture the tokenless /health must NOT leak spend/caps/
+        provider posture (recon data on a shared network — the review's /health finding).
+        The full snapshot stays on the token-gated /ai/spend."""
+        client = TestClient(app)
+        body = client.get("/health").json()
+        assert set(body.keys()) == {"status", "service", "service_auth_enabled"}
+        # And the gated route serves the full view WITH the token:
+        assert client.get("/ai/spend", headers={HEADER: TOKEN}).status_code == 200
+        assert client.get("/ai/spend").status_code == 401
 
     def test_openapi_and_docs_are_gated_too(self, auth_enabled):
         client = TestClient(app)

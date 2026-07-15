@@ -78,8 +78,11 @@ translate_adapter = TranslateAdapter(settings)
 
 app = FastAPI(title="BadaBhai AI Service", version="0.1.0")
 
-# TD67: paths reachable WITHOUT the service token — liveness only. Everything else
-# (including /docs and /openapi.json) is gated once AI_INTERNAL_TOKEN is set.
+# TD67: paths reachable WITHOUT the service token. Everything else (including /docs
+# and /openapi.json) is gated once AI_INTERNAL_TOKEN is set. NOTE: /health itself
+# TRIMS its payload to {status, service, service_auth_enabled} under the locked
+# posture — the full spend/posture telemetry is recon data on a shared network and
+# stays token-only (via the gated /ai/spend or the full /health when auth is off).
 _AUTH_EXEMPT_PATHS = frozenset({"/health"})
 
 
@@ -118,13 +121,19 @@ def _pseudonymization_meta(result: PseudonymizationResult) -> PseudonymizationMe
 
 @app.get("/health")
 async def health() -> dict:
+    # TD67: under the LOCKED posture the tokenless health surface is liveness + the
+    # posture boolean ONLY — spend telemetry / caps / provider posture are recon data
+    # on a shared network (the full snapshot stays available on the token-gated
+    # /ai/spend). With auth off (dev default), the full payload is unchanged.
+    if get_settings().ai_internal_token is not None:
+        return {"status": "ok", "service": "ai-service", "service_auth_enabled": True}
     return {
         "status": "ok",
         "service": "ai-service",
         "real_calls_enabled": settings.real_calls_enabled,
         # TD67: whether the service-level bearer is enforced (true once
         # AI_INTERNAL_TOKEN is set in the service env). Boolean only — never the value.
-        "service_auth_enabled": get_settings().ai_internal_token is not None,
+        "service_auth_enabled": False,
         # Actual tracer state (keys present AND package installed), not just config.
         "langfuse_enabled": router.langfuse_enabled,
         "max_call_cost_inr": settings.ai_max_call_cost_inr,

@@ -160,7 +160,18 @@ export class AiService {
         signal: controller.signal,
       });
       if (!res.ok) {
-        this.logger.warn(`AI service ${path} returned ${res.status}; using mock fallback`);
+        if (res.status === 401) {
+          // TD67: a 401 is DETERMINISTIC misconfiguration (AI_INTERNAL_TOKEN mismatch
+          // between the api and the ai-service), not a transient outage — log it at
+          // ERROR so a half-flipped env is loud, while keeping the same safe mock
+          // degradation as any other non-OK (canonicalization/profiling never block).
+          this.logger.error(
+            `AI service ${path} rejected service auth (401) — AI_INTERNAL_TOKEN mismatch ` +
+              `between api and ai-service; using mock fallback`,
+          );
+        } else {
+          this.logger.warn(`AI service ${path} returned ${res.status}; using mock fallback`);
+        }
         return null;
       }
       return schema.parse(await res.json());

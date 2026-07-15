@@ -111,6 +111,7 @@ authoritative env spec.** "Kind" = where it lives.
 | `FAST2SMS_SENDER_ID` / `_DLT_TEMPLATE_ID` / `_ENTITY_ID` / `_ROUTE` | `staging` **secret** | Fast2SMS DLT registration parameters. | `<per-key-value>` |
 | `PAYMENTS_ENABLE_REAL` | workflow **env** + **host** | MOCK-only gate — **stays `false`** (§7 to flip). | `false` |
 | `AI_ENABLE_REAL_CALLS` | workflow **env** + **host** | MOCK-only gate — **stays `false`** (§7 to flip). | `false` |
+| `AI_INTERNAL_TOKEN` | `staging` **secret** (OPTIONAL — TD67) | ONE service-level bearer for the ai-service. Unset = open internal posture. When flipping: set the SAME value (≥16 chars) on the ai-service host env, the api host env, AND the db-runner env — a half-flip 401s api→ai calls (api degrades to mock, logged at ERROR). Verify via ai-service `/health.service_auth_enabled`. | `<random-32+char-secret>` |
 | `MESSAGING_ENABLE_REAL` | workflow **env** + **host** | MOCK-only gate — **stays `false`** (§7 to flip). | `false` |
 | `API_PORT` | **host** | Port the API listens on (host-dependent; code default `3001`). | `3001` (or the host's injected `PORT`) |
 | `CORS_ALLOWED_ORIGINS` | **host** (optional) | Allow-list if the ops/payer web call the API. In `NODE_ENV=development` CORS already reflects the origin; set this when you tighten. | `https://ops.<host>,https://app.<host>` |
