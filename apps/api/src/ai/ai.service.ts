@@ -147,9 +147,15 @@ export class AiService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     try {
+      // TD67: attach the service-level bearer when configured (the ai-service enforces
+      // it on every route except /health once ITS side sets the same env var).
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      if (this.config.AI_INTERNAL_TOKEN) {
+        headers["x-ai-internal-token"] = this.config.AI_INTERNAL_TOKEN;
+      }
       const res = await fetch(url, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers,
         body: JSON.stringify(body),
         signal: controller.signal,
       });

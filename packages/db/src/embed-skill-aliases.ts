@@ -35,6 +35,11 @@ import { skillAliases } from "./schema";
 
 config({ path: "../../.env" });
 
+/** TD67: attach the ai-service bearer when the env provides one (required once the
+ * service sets AI_INTERNAL_TOKEN; absent = the historical open dev posture). */
+const AI_HEADERS: Record<string, string> = { "content-type": "application/json" };
+if (process.env.AI_INTERNAL_TOKEN) AI_HEADERS["x-ai-internal-token"] = process.env.AI_INTERNAL_TOKEN;
+
 const BATCH_SIZE = Math.max(1, Math.min(200, Number(process.env.EMBED_BATCH_SIZE) || 100));
 const REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -92,7 +97,7 @@ async function main(): Promise<void> {
 
       const resp = await fetch(`${aiBase}/embeddings/skill-alias`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: AI_HEADERS,
         body: JSON.stringify({
           items: rows.map((r) => ({ alias_id: r.id, text: r.text })),
         }),

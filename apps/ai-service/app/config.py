@@ -119,6 +119,15 @@ class Settings(BaseSettings):
     backend_api_url: str | None = None
     skills_internal_token: str | None = None
 
+    # TD67: the ONE service-level bearer for THIS service's routes. When set, every
+    # route except /health requires the exact value in `x-ai-internal-token`
+    # (timing-safe compare); unset (default) keeps the historical internal-only OPEN
+    # posture — flipping it on is a staging env action on BOTH sides (the api's
+    # AI_INTERNAL_TOKEN + the db runners' env), never a committed file. Deliberately
+    # ONE token for the whole service (the TAX-7 review's "no per-route one-offs").
+    # Distinct from skills_internal_token, which guards the REVERSE (ai→api) direction.
+    ai_internal_token: str | None = None
+
     # Per-profile cost guardrails (INR). Used for alerting only in Phase 1.
     ai_cost_alert_profile_inr: float = 6.0
     ai_target_profile_cost_inr: float = 4.0

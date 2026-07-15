@@ -52,6 +52,7 @@ Status: `OK` (set & validated) / `MISSING` / `DEFAULT` (dev default) / `STAGING-
 | `SKILL_CANONICALIZE_FLOOR` / `SKILL_CANONICALIZE_TOP_K` / `SKILL_CANONICALIZE_DEFAULT_DOMAIN` | 🌐 | 0.82 / 5 / cnc-machining | OK (defaults; floor uncalibrated until TAX-5) |
 | `EMBEDDING_MODEL` | 🌐 | gemini-embedding-001 (text-embedding-004 RETIRED — 404s; verified live 2026-07-14) | OK (real embed also needs `GEMINI_FLASH_API_KEY` + `skill_embedding` in `AI_REAL_CALL_TASKS` — the staging `profile_extraction` pin makes an embed run silently MOCK) |
 | `BACKEND_API_URL` + `SKILLS_INTERNAL_TOKEN` (ai-service + api) | 🔒 token | unset | OK (unset → NullSkillStore, canonicalize inert; FORK-B-1 seam A — SCOPED secret for /internal/skills/* ONLY, deliberately NOT the all-routes `INTERNAL_SERVICE_TOKEN`: the ai-service's credential must never open resume-PII/money routes — #222 review) |
+| `AI_INTERNAL_TOKEN` (ai-service + api + db runners) | 🔒 token | unset | OK (TD67 — unset keeps the historical internal-only OPEN posture; SET on the ai-service = every route except /health requires it via `x-ai-internal-token`, timing-safe. Flip on BOTH sides together in the staging service env: api `AI_INTERNAL_TOKEN` + runner env. Guards the api→ai direction; `SKILLS_INTERNAL_TOKEN` guards the reverse) |
 
 ## AI / STT / observability (gated; not needed for alpha mock path)
 | Var | Secret | Needed for | Status |
