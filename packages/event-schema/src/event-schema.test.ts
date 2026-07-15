@@ -1283,6 +1283,49 @@ describe("otp send-cap-exceeded events (OTP-5 — AGGREGATE, PII-free, no identi
   });
 });
 
+describe("worker.otp_send_failed (F4 #168 — AGGREGATE, PII-free, provider literal + reason enum)", () => {
+  function sendFailedEvent(payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: "worker.otp_send_failed",
+      actor: { actor_type: "system" },
+      subject: { subject_type: "worker", subject_id: null },
+      payload,
+    };
+  }
+
+  it("validates each failure reason with the two-field aggregate shape (no PII fields exist)", () => {
+    for (const reason of ["transport", "http_error", "provider_rejected"]) {
+      const result = validateEvent(sendFailedEvent({ provider: "fast2sms", reason }));
+      expect(result.success).toBe(true);
+      if (result.success && result.event.event_name === "worker.otp_send_failed") {
+        // The payload schema has NO field that could hold a phone/hash/code/status —
+        // only the provider literal + the reason enum.
+        expect(Object.keys(result.event.payload).sort()).toEqual(["provider", "reason"]);
+      }
+    }
+  });
+
+  it("rejects an out-of-enum reason (no status-code free text → no PII)", () => {
+    const bad = validateEvent(sendFailedEvent({ provider: "fast2sms", reason: "HTTP 401" }));
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects a provider other than the 'fast2sms' literal", () => {
+    const bad = validateEvent(sendFailedEvent({ provider: "twilio", reason: "transport" }));
+    expect(bad.success).toBe(false);
+  });
+
+  it("rejects smuggled extra fields — .strict() (a phone/hash/status can never ride along)", () => {
+    const bad = validateEvent(
+      sendFailedEvent({ provider: "fast2sms", reason: "transport", phone_hash: "abcd1234" }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+});
+
 describe("admin auth events (ADR-0025 — the 4th principal, FACELESS, ids/role/code enums only)", () => {
   function adminSessionEvent(
     name: string,
@@ -1857,9 +1900,10 @@ describe("worker PIN events (ADR-0026 Phase 3 — device-bound PIN, PII-free, id
 });
 
 describe("registry", () => {
-  it("exposes all 101 event names (100 prior + skill.phrase_unresolved [ADR-0030/FORK-B-1])", () => {
-    expect(EVENT_NAMES).toHaveLength(101);
+  it("exposes all 102 event names (101 prior + worker.otp_send_failed [F4 #168])", () => {
+    expect(EVENT_NAMES).toHaveLength(102);
     expect(isEventName("skill.phrase_unresolved")).toBe(true);
+    expect(isEventName("worker.otp_send_failed")).toBe(true);
     expect(isEventName("worker.resume_prefs_updated")).toBe(true);
     expect(isEventName("job_posting.paused")).toBe(true);
     expect(isEventName("job_posting.resumed")).toBe(true);

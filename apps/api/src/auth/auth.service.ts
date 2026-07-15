@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { OtpSendCapExceededException } from "../common/otp-send-cap";
+import { OtpSendFailedException } from "../common/otp-send-failure";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { OtpService } from "./otp.service";
@@ -38,8 +39,10 @@ export class AuthService {
   ) {}
 
   async requestOtp(phone: string, ctx: RequestContext): Promise<OtpRequestResponse> {
-    // Issue + send first; OtpService throws (cooldown/cap/send-fail/Redis) and we
-    // do NOT emit on failure. Only a real, sent code produces the event.
+    // Issue + send first; OtpService throws (cooldown/cap/send-fail/Redis) and we do
+    // NOT emit worker.otp_requested on failure — only a real, sent code produces that
+    // event. The two MONITORING events below (cap breach, send failure) are the only
+    // failure-path emissions, and both are aggregate/PII-free.
     let issued: { resendInSeconds: number };
     try {
       issued = await this.otp.issueAndSend(phone);
@@ -59,6 +62,23 @@ export class AuthService {
             cap: "global_daily",
             limit: err.breach.limit,
             window: err.breach.window,
+          },
+          correlationId: ctx.correlationId,
+          requestId: ctx.requestId,
+        });
+      }
+      // F4 (#168): a REAL Fast2SMS send failed at the provider boundary — emit the
+      // PII-free monitoring event ONCE (provider literal + failure-kind enum ONLY;
+      // no phone/hash/code/status), then re-throw the SAME neutral 502 the send
+      // failure already returned. Mirrors the cap-breach emission above.
+      if (err instanceof OtpSendFailedException) {
+        await this.events.emit({
+          event_name: "worker.otp_send_failed",
+          actor: { actor_type: "system" },
+          subject: { subject_type: "worker" },
+          payload: {
+            provider: err.failure.provider,
+            reason: err.failure.reason,
           },
           correlationId: ctx.correlationId,
           requestId: ctx.requestId,

@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
-import type { SmsProvider } from "./sms.provider";
+import { SmsSendError, type SmsProvider } from "./sms.provider";
 
 const FAST2SMS_BULK_URL = "https://www.fast2sms.com/dev/bulkV2";
 
@@ -66,28 +66,30 @@ export class Fast2SmsProvider implements SmsProvider {
         },
       });
     } catch (err) {
-      // Network/transport failure — never include the code or number.
+      // Network/transport failure — never include the code or number. Typed
+      // SmsSendError (F4): the auth flow emits worker.otp_send_failed from it.
       this.logger.error(
         `Fast2SMS request failed (transport) phone_hash=${phoneHashPrefix} reason=${
           err instanceof Error ? err.message : String(err)
         }`,
       );
-      throw new Error("SMS delivery failed (transport error)");
+      throw new SmsSendError("transport", "SMS delivery failed (transport error)");
     }
 
     if (!res.ok) {
       this.logger.error(`Fast2SMS non-2xx phone_hash=${phoneHashPrefix} status=${res.status}`);
-      throw new Error(`SMS delivery failed (HTTP ${res.status})`);
+      throw new SmsSendError("http_error", `SMS delivery failed (HTTP ${res.status})`);
     }
 
     // Fast2SMS returns 200 with a JSON body even on logical failures; `return:false`
-    // means it did NOT accept the message.
+    // means it did NOT accept the message. An unparseable body is classified the same
+    // way — the provider answered 200 but acceptance cannot be confirmed.
     let body: unknown;
     try {
       body = await res.json();
     } catch {
       this.logger.error(`Fast2SMS unparseable body phone_hash=${phoneHashPrefix}`);
-      throw new Error("SMS delivery failed (bad provider response)");
+      throw new SmsSendError("provider_rejected", "SMS delivery failed (bad provider response)");
     }
     if (
       typeof body === "object" &&
@@ -96,7 +98,7 @@ export class Fast2SmsProvider implements SmsProvider {
       (body as { return: unknown }).return === false
     ) {
       this.logger.error(`Fast2SMS rejected phone_hash=${phoneHashPrefix} (return=false)`);
-      throw new Error("SMS delivery failed (provider rejected)");
+      throw new SmsSendError("provider_rejected", "SMS delivery failed (provider rejected)");
     }
 
     this.logger.log(`OTP sent phone_hash=${phoneHashPrefix} status=ok`);

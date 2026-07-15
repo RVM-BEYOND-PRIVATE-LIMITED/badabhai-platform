@@ -11,8 +11,9 @@ import {
   secondsUntilEndOfUtcDay,
   utcDayStamp,
 } from "../common/otp-send-cap";
+import { OtpSendFailedException } from "../common/otp-send-failure";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
-import { SMS_PROVIDER, type SmsProvider } from "../sms/sms.provider";
+import { SMS_PROVIDER, SmsSendError, type SmsProvider } from "../sms/sms.provider";
 
 /**
  * Minimal typed view of the raw Redis commands the OTP flow needs. BullMQ's
@@ -135,6 +136,10 @@ export class OtpService {
       }
 
       // 6. Send. On failure, delete the code so a failed send leaves no dangling code.
+      // A typed provider failure (SmsSendError) re-throws as the TAGGED 502 so the
+      // caller (AuthService) emits the PII-free worker.otp_send_failed event once (F4);
+      // anything else (e.g. provider misconfig) stays the plain 502 — same response
+      // either way, no new oracle.
       try {
         await this.sms.sendOtp({ phoneE164, code });
       } catch (sendErr) {
@@ -144,6 +149,9 @@ export class OtpService {
             sendErr instanceof Error ? sendErr.message : String(sendErr)
           }`,
         );
+        if (sendErr instanceof SmsSendError) {
+          throw new OtpSendFailedException({ provider: "fast2sms", reason: sendErr.reason });
+        }
         throw new HttpException(
           "Could not send the code, please retry",
           HttpStatus.BAD_GATEWAY,

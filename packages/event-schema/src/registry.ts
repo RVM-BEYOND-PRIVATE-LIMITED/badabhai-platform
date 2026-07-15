@@ -106,6 +106,15 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerOtpSendCapExceededPayload,
   },
+  // F4 (#168) — a REAL Fast2SMS send failed at the provider boundary (the only worker-OTP
+  // send path). AGGREGATE / PII-free: provider literal + failure-kind enum ONLY — no phone,
+  // no hash, no worker id, no code, no HTTP status, no free text. Ops watch: an elevated
+  // rate = delivery degradation (see docs/observability-runbook.md §7).
+  "worker.otp_send_failed": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerOtpSendFailedPayload,
+  },
 
   "consent.accepted": { version: 1, domain: "consent", payload: p.ConsentAcceptedPayload },
 
