@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import 'core/config/app_config.dart';
 import 'core/di/locator.dart';
+import 'core/observability/crash_route_observer.dart';
 import 'core/session/app_session.dart';
 import 'core/session/app_session_cubit.dart';
 import 'core/theme/app_theme.dart';
@@ -24,6 +25,9 @@ class PayerApp extends StatelessWidget {
         title: 'BadaBhai · Payer',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light(),
+        // Tag every crash report with the pushed route name. No-op when
+        // Crashlytics isn't ready (tests / non-GMS devices).
+        navigatorObservers: <NavigatorObserver>[CrashNavigatorObserver()],
         home: const _Root(),
         builder: kUseMocks
             ? (BuildContext context, Widget? child) => Banner(

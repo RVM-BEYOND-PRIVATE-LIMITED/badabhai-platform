@@ -30,13 +30,18 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Pin the Flutter version so CI is reproducible and the analyzer ruleset
-      # (flutter_lints 5.x, resolved against this SDK's bundled Dart 3.6) is stable.
-      # Bump deliberately, not implicitly via `channel: stable`.
+      # Pin the Flutter version so CI is reproducible and the analyzer ruleset is
+      # stable. Bump deliberately, not implicitly via `channel: stable`.
+      #
+      # MUST track the version the app is developed against (3.35.7 / Dart 3.9.2)
+      # — `pubspec.lock` floors Dart at >=3.8.0, so an older pin cannot even
+      # `pub get`. This pin sat at 3.27.4 (Dart 3.6) after the app moved to
+      # 3.35.7 for the Android 15 16 KB page-size requirement, which broke the
+      # gate; do not let it drift again.
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.27.4"
+          flutter-version: "3.35.7"
           channel: stable
           cache: true
 

@@ -9,8 +9,12 @@ import 'package:payer_app/core/data/payer_api_client.dart';
 import 'package:payer_app/core/di/locator.dart';
 
 /// Smoke test: the app boots to Login; picking Company vs Agency and getting OTP
-/// lands on the right Home (correct nav; agency shows the Earn card); and a
-/// candidate card on Find shows the redacted name + ₹40 — never a demographic.
+/// lands on Home with the shared nav; and a candidate card on Find shows the
+/// redacted name + ₹40 — never a demographic.
+///
+/// The agency Earn tab (and its hub / referral / referred / payouts / KYC
+/// screens) was REMOVED — no backend route existed, so every figure on it was
+/// invented — hence both roles now see the same tabs, `Credits` included.
 void main() {
   setUp(() async {
     await GetIt.instance.reset();
@@ -61,31 +65,66 @@ void main() {
     expect(find.byKey(const Key('email_field')), findsOneWidget);
   });
 
-  testWidgets('Company login → Home shows Company nav (Credits, no Earn)',
+  testWidgets('Company login → Home shows the shared nav (Credits, no Earn)',
       (WidgetTester tester) async {
     await boot(tester);
     await loginAs(tester, 'pick_company');
 
-    // Company nav: Credits tab present, no Earn tab.
     expect(find.text('Credits'), findsOneWidget);
     expect(find.text('Earn'), findsNothing);
     // Company identity in the header.
     expect(find.text('Kalyani Industries'), findsOneWidget);
-    // No agency Earn·Supply summary card.
-    expect(find.text('EARN · SUPPLY'), findsNothing);
   });
 
-  testWidgets('Agency login → Home shows Earn nav + Earn·Supply card',
+  testWidgets('Agency login → Home shows the same nav; no Earn surface at all',
       (WidgetTester tester) async {
     await boot(tester);
     await loginAs(tester, 'pick_agency');
 
-    // Agency nav: Earn tab present, no Credits tab.
-    expect(find.text('Earn'), findsOneWidget);
-    expect(find.text('Credits'), findsNothing);
+    // An agency gets the SAME tabs as a company — Credits is real for both.
+    expect(find.text('Credits'), findsOneWidget);
     expect(find.text('Apex Staffing'), findsOneWidget);
-    // The saffron Earn·Supply summary card is shown for agencies.
-    expect(find.text('EARN · SUPPLY'), findsOneWidget);
+    // The Earn tab and its saffron ₹ summary card are gone for every role.
+    expect(find.text('Earn'), findsNothing);
+    expect(find.text('EARN · SUPPLY'), findsNothing);
+    expect(find.text('Mitra-Leader'), findsNothing);
+  });
+
+  testWidgets('Home shows no fabricated metrics or recent-activity feed',
+      (WidgetTester tester) async {
+    await boot(tester);
+    await loginAs(tester, 'pick_company');
+
+    // The invented dashboard is gone: no paid-unlocks hero, no repeat-unlock
+    // rate, no candidates-for-you count, and no "Recent activity" feed (which
+    // fabricated rows like "Unlocked Ramesh K. · CNC Setter").
+    expect(find.text('Paid unlocks this week'), findsNothing);
+    expect(find.text('Repeat-unlock rate'), findsNothing);
+    expect(find.text('Candidates for you'), findsNothing);
+    expect(find.text('Recent activity'), findsNothing);
+    expect(find.textContaining('Unlocked Ramesh K.'), findsNothing);
+    // What remains is real: the server-truth credit balance.
+    expect(find.text('Credit balance'), findsOneWidget);
+  });
+
+  testWidgets('Credits screen shows the real balance + ledger, no checkout',
+      (WidgetTester tester) async {
+    await boot(tester);
+    await loginAs(tester, 'pick_company');
+
+    await tester.tap(find.text('Credits'));
+    await tester.pumpAndSettle();
+
+    // Real, server-sourced figures stay.
+    expect(find.text('Current balance'), findsOneWidget);
+    expect(find.text('Unlock ledger'), findsOneWidget);
+    // The money surface is gone: no payment-provider claim and no pack buy
+    // (the pack prices were hardcoded client-side and contradicted the server).
+    expect(find.textContaining('Razorpay'), findsNothing);
+    expect(find.textContaining('Secure checkout'), findsNothing);
+    expect(find.text('Best value'), findsNothing);
+    expect(find.text('₹2,000'), findsNothing);
+    expect(find.text('₹34,000'), findsNothing);
   });
 
   testWidgets('Find feed shows a redacted name + ₹40, never a demographic',

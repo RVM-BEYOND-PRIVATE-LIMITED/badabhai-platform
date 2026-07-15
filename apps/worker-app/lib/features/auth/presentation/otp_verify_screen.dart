@@ -93,7 +93,7 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
                   style: AppTypography.display(size: AppTypography.sizeXl)),
               const SizedBox(height: AppSpacing.s2),
               Text(
-                'Sent to $phone (mock — any 4-6 digits)',
+                'Sent to $phone',
                 style: AppTypography.body(color: AppColors.textSecondary),
               ),
               const SizedBox(height: AppSpacing.s6),
@@ -101,12 +101,17 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
                 controller: _controller,
                 keyboardType: TextInputType.number,
                 textAlign: TextAlign.center,
+                // OS-level one-time-code assist: iOS surfaces the SMS code above
+                // the keyboard out of the box; Android maps this to
+                // AUTOFILL_HINT_SMS_OTP. Fully-silent auto-read (SMS Retriever)
+                // additionally needs the app-hash embedded in the DLT SMS body.
+                autofillHints: const <String>[AutofillHints.oneTimeCode],
+                decoration: const InputDecoration(hintText: '— — — —'),
                 style: AppTypography.mono(
                   size: AppTypography.size2xl,
                   weight: FontWeight.w700,
                   letterSpacing: 12,
                 ),
-                decoration: const InputDecoration(hintText: '— — — —'),
               ),
               const SizedBox(height: AppSpacing.s7),
               BbButton(

@@ -2,10 +2,17 @@ import 'package:flutter/material.dart';
 
 import 'app.dart';
 import 'core/di/locator.dart';
+import 'core/observability/crash_reporter.dart';
 import 'features/auth/domain/auth_session_manager.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Crash reporting FIRST — fail-closed. On a device that can't start Firebase
+  // (non-GMS / exotic ROM / bare emulator) this returns with reporting disabled
+  // and the app keeps running; it never throws. Installs the Flutter + async +
+  // isolate error handlers only when Crashlytics is actually available.
+  await CrashReporter.init(appName: 'worker-app', ownPackage: 'badabhai_worker_app');
 
   // Wire the synchronous, plugin-free graph, then the async auth singletons
   // (LocaleStore + AuthApi + AuthSessionManager). The latter MUST be awaited

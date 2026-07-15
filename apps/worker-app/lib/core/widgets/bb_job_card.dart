@@ -11,22 +11,38 @@ import 'bb_tag.dart';
 class BbJobCardData {
   const BbJobCardData({
     required this.title,
-    required this.company,
-    this.verified = true,
-    required this.payBand,
+    this.company,
+    this.verified = false,
+    this.payBand,
     required this.place,
-    required this.shift,
+    this.shift,
     this.tags = const <String>[],
     this.spotsLeft,
   });
 
   final String title;
-  final String company;
-  final String payBand;
+
+  /// Employer name — NULL on the real feed. Employer names are PII (CLAUDE.md
+  /// §2) and `GET /feed` deliberately does not return one. Optional (and unset
+  /// in production) because an earlier build invented a company name per card
+  /// from `jobId.hashCode` and rendered it as fact.
+  final String? company;
+
+  /// Pay band — NULL on the real feed; no worker-facing route serves pay.
+  final String? payBand;
+
   final String place;
-  final String shift;
+
+  /// Shift — NULL on the real feed.
+  final String? shift;
+
+  /// Only ever shown for a REAL employer; never a badge on an invented name.
   final bool verified;
+
+  /// Requirement tags — empty on the real feed.
   final List<String> tags;
+
+  /// Remaining spots — NULL on the real feed.
   final int? spotsLeft;
 }
 
@@ -94,29 +110,32 @@ class _TitleRow extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: AppSpacing.s1),
-              Row(
-                children: <Widget>[
-                  Flexible(
-                    child: Text(
-                      data.company,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.body(
-                        weight: FontWeight.w600,
-                        color: AppColors.textSecondary,
+              // Only when a REAL employer name exists (never on the live feed).
+              if (data.company != null) ...<Widget>[
+                const SizedBox(height: AppSpacing.s1),
+                Row(
+                  children: <Widget>[
+                    Flexible(
+                      child: Text(
+                        data.company!,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.body(
+                          weight: FontWeight.w600,
+                          color: AppColors.textSecondary,
+                        ),
                       ),
                     ),
-                  ),
-                  if (data.verified) ...<Widget>[
-                    const SizedBox(width: AppSpacing.s1),
-                    const Icon(
-                      Icons.verified,
-                      size: 15,
-                      color: AppColors.success,
-                    ),
+                    if (data.verified) ...<Widget>[
+                      const SizedBox(width: AppSpacing.s1),
+                      const Icon(
+                        Icons.verified,
+                        size: 15,
+                        color: AppColors.success,
+                      ),
+                    ],
                   ],
-                ],
-              ),
+                ),
+              ],
             ],
           ),
         ),
@@ -161,18 +180,22 @@ class _FactsRow extends StatelessWidget {
       spacing: AppSpacing.s4,
       runSpacing: AppSpacing.s2,
       children: <Widget>[
+        // Place is the only fact the real feed carries. Shift and pay render
+        // ONLY if a real source ever supplies them — never invented.
         _Fact(icon: Icons.place_outlined, child: _factText(data.place)),
-        _Fact(icon: Icons.schedule, child: _factText(data.shift)),
-        _Fact(
-          icon: Icons.currency_rupee,
-          child: Text(
-            data.payBand,
-            style: AppTypography.mono(
-              weight: FontWeight.w700,
-              color: AppColors.textPrimary,
+        if (data.shift != null)
+          _Fact(icon: Icons.schedule, child: _factText(data.shift!)),
+        if (data.payBand != null)
+          _Fact(
+            icon: Icons.currency_rupee,
+            child: Text(
+              data.payBand!,
+              style: AppTypography.mono(
+                weight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
             ),
           ),
-        ),
       ],
     );
   }

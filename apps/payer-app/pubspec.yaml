@@ -11,6 +11,17 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.8
   http: ^1.2.0
+  # Crash reporting (FlutterFire). firebase_core boots the SDK from the native
+  # config files (android/app/google-services.json, ios GoogleService-Info.plist);
+  # firebase_crashlytics is the sink for Dart/Flutter crashes — native Crashlytics
+  # alone only sees JVM/NDK crashes, which Flutter code never produces. Init is
+  # fail-closed (see core/observability/crash_reporter.dart) so a device that
+  # cannot start Firebase keeps running normally. iOS SDK 11 → iOS 13 floor.
+  # crashlytics PINNED EXACT: 5.2.5's artifact is broken (imports the long-removed
+  # `FirebasePlugin` symbol → won't compile against firebase_core_platform_interface
+  # 7.1.0); 5.2.4 is the last compiling build. A caret would re-pull 5.2.5.
+  firebase_core: ^4.12.0
+  firebase_crashlytics: 5.2.4
   # Display (Baloo 2) + body (Mukta) of the "Desi Vernacular Pop" theme.
   # Roboto Mono (data: ₹, IDs, phone) is self-hosted below so figures render
   # identically offline.

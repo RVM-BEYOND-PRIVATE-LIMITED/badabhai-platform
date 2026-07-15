@@ -11,14 +11,17 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_status_view.dart';
-import '../../../core/widgets/bb_toast.dart';
 import 'cubit/capacity_cubit.dart';
 
-/// Hiring capacity (ADR-0016). Shows the payer's concurrent-active-vacancy
-/// allowance (`max_active_vacancies`) vs how much is in use
-/// (`active_plan_count`), the source tier + expiry, and a "Raise capacity"
-/// action that buys a higher tier (mock payment) and reports the quote + any
-/// auto-resumed postings.
+/// Hiring capacity (ADR-0016) — READ-ONLY. Shows the payer's REAL
+/// concurrent-active-vacancy allowance (`max_active_vacancies`) vs how much is
+/// in use (`active_plan_count`), plus the server-reported source tier + expiry,
+/// all from `GET /payer/capacity`.
+///
+/// The "Raise capacity" upgrade was REMOVED: it charged a MOCK payment
+/// (`real_call:false`) against a client-side hardcoded price list under a
+/// "Secure checkout · Razorpay · UPI / card" line, and no payment provider
+/// exists. The allowance read is real, so the screen stays.
 class CapacityScreen extends StatelessWidget {
   const CapacityScreen({super.key});
 
@@ -83,42 +86,7 @@ class _CapacityView extends StatelessWidget {
         _AllowanceCard(cap: cap),
         const SizedBox(height: AppSpacing.s3),
         _DetailsCard(cap: cap),
-        const SizedBox(height: AppSpacing.s5),
-        BbButton(
-          label: 'Raise capacity',
-          iconLeft: Icons.trending_up,
-          block: true,
-          onPressed: () => _openRaise(context),
-        ),
-        const SizedBox(height: AppSpacing.s3),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Icon(Icons.lock_outline, size: 14, color: AppColors.textMuted),
-            const SizedBox(width: 6),
-            Text(
-              'Secure checkout · Razorpay · UPI / card',
-              style: AppTypography.body(
-                size: AppTypography.sizeXs,
-                color: AppColors.textMuted,
-              ),
-            ),
-          ],
-        ),
       ],
-    );
-  }
-
-  Future<void> _openRaise(BuildContext context) async {
-    final CapacityCubit cubit = context.read<CapacityCubit>();
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: AppColors.surfaceCard,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.xxl)),
-      ),
-      builder: (_) => _RaiseSheet(cubit: cubit),
     );
   }
 }
@@ -212,7 +180,7 @@ class _AllowanceCard extends StatelessWidget {
           const SizedBox(height: AppSpacing.s2),
           Text(
             cap.atCapacity
-                ? 'Full — raise capacity to open more vacancies.'
+                ? 'Full — close an active vacancy to open another.'
                 : '${cap.remaining} more vacanc${cap.remaining == 1 ? 'y' : 'ies'} available.',
             style: AppTypography.body(
               size: AppTypography.sizeXs,
@@ -301,138 +269,6 @@ class _InfoRow extends StatelessWidget {
             Text(
               value ?? '—',
               style: AppTypography.mono(size: AppTypography.sizeSm),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Raise-capacity sheet — pick a seeded tier (`cap_5` | `cap_15`) → buy.
-class _RaiseSheet extends StatefulWidget {
-  const _RaiseSheet({required this.cubit});
-
-  final CapacityCubit cubit;
-
-  @override
-  State<_RaiseSheet> createState() => _RaiseSheetState();
-}
-
-class _RaiseSheetState extends State<_RaiseSheet> {
-  String? _busyTier;
-
-  Future<void> _buy(CapacityTier tier) async {
-    setState(() => _busyTier = tier.code);
-    final CapacityActionResult result = await widget.cubit.buy(tier.code);
-    if (!mounted) return;
-    Navigator.of(context).pop();
-    showBbToast(
-      context,
-      title: result.success ? 'Capacity updated' : 'Not now',
-      message: result.message,
-      icon: result.success ? Icons.check_circle : Icons.info_outline,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        AppSpacing.s5,
-        AppSpacing.gutter,
-        AppSpacing.s6,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            'Raise capacity',
-            style: AppTypography.display(
-              size: AppTypography.sizeLg,
-              weight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          Text(
-            'A higher tier opens more concurrent active vacancies and resumes any paused jobs.',
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
-              color: AppColors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          for (final CapacityTier tier in kCapacityTiers) ...<Widget>[
-            _TierCard(
-              tier: tier,
-              busy: _busyTier == tier.code,
-              disabled: _busyTier != null && _busyTier != tier.code,
-              onTap: () => _buy(tier),
-            ),
-            const SizedBox(height: AppSpacing.s3),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _TierCard extends StatelessWidget {
-  const _TierCard({
-    required this.tier,
-    required this.busy,
-    required this.disabled,
-    required this.onTap,
-  });
-
-  final CapacityTier tier;
-  final bool busy;
-  final bool disabled;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return BbCard(
-      onTap: disabled ? null : onTap,
-      opacity: disabled ? 0.6 : 1,
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  tier.label,
-                  style: AppTypography.display(
-                    size: AppTypography.sizeMd,
-                    weight: FontWeight.w800,
-                  ),
-                ),
-                Text(
-                  'Valid ${tier.validityLabel}',
-                  style: AppTypography.body(
-                    size: AppTypography.sizeXs,
-                    color: AppColors.textMuted,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (busy)
-            const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          else
-            Text(
-              tier.price,
-              style: AppTypography.mono(
-                size: AppTypography.sizeMd,
-                weight: FontWeight.w700,
-                color: AppColors.brandPress,
-              ),
             ),
         ],
       ),

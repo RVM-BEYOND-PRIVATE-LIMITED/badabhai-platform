@@ -1,26 +1,24 @@
 import '../auth/payer_http.dart';
 import 'models.dart';
-import 'mock_payer_api_client.dart';
 import 'payer_api_client.dart';
 
-/// REAL HTTP-backed [PayerApiClient].
+/// REAL HTTP-backed [PayerApiClient]. EVERY method here talks to a live
+/// `/payer/*` route — this class holds no canned data and composes no mock.
 ///
-/// Strategy (PASS C, intentionally tight): bind the cleanly-mappable `/payer/*`
-/// endpoints; COMPOSE a [MockPayerApiClient] and DELEGATE to it for the surfaces
-/// whose backend is missing (design-only) or whose screen rework is deferred
-/// (per-job applicants, relay reveal, masked résumé). Every delegated method is
-/// marked `// TODO(bind)` so the follow-up is greppable.
+/// It used to compose a [MockPayerApiClient] and delegate ~10 methods to it with
+/// no `kUseMocks` gate, which meant a genuine release build served invented
+/// figures (home metrics, recent activity, payouts, KYC, referred workers,
+/// credit packs) through the "real" client. Those surfaces had no backend route,
+/// so they were REMOVED from the app rather than faked; the two remaining
+/// MOCK-only demo methods ([fetchCandidates] / [unlockCandidate]) now throw
+/// [UnsupportedError] here instead of silently returning seed data.
 ///
 /// SECURITY: never sends a body `payer_id` (the server derives it from the bearer
 /// via [PayerHttp]); never logs a token.
 class HttpPayerApiClient implements PayerApiClient {
-  HttpPayerApiClient(this._http, {MockPayerApiClient? fallback})
-      : _mock = fallback ?? MockPayerApiClient();
+  HttpPayerApiClient(this._http);
 
   final PayerHttp _http;
-
-  /// Composed mock used as the fallback for deferred / design-only surfaces.
-  final MockPayerApiClient _mock;
 
   // ---------------------------------------------------------------------------
   // BOUND — real endpoints
@@ -29,20 +27,10 @@ class HttpPayerApiClient implements PayerApiClient {
   @override
   Future<int> fetchCredits() async {
     final PayerResponse res = await _http.send(PayerMethod.get, '/payer/credits');
+    // A non-2xx must NOT decode to a fabricated 0 balance rendered as a real
+    // "0 credits" — surface the failure so the UI shows an honest error/retry.
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
     return (res.body['balance'] as num?)?.toInt() ?? 0;
-  }
-
-  @override
-  Future<int> buyCredits(int count) async {
-    // The Buy-credits screen passes a pack's unlock COUNT; the real endpoint
-    // wants a `pack_code`. Map the catalogue counts (50/200/1000) → pack codes.
-    final String packCode = _packCodeForCount(count);
-    final PayerResponse res = await _http.send(
-      PayerMethod.post,
-      '/payer/credits',
-      body: <String, dynamic>{'pack_code': packCode},
-    );
-    return (res.body['balance'] as num?)?.toInt() ?? await fetchCredits();
   }
 
   @override
@@ -233,7 +221,7 @@ class HttpPayerApiClient implements PayerApiClient {
     return _planFromResponse(res.body);
   }
 
-  // --- Credits — balance + ledger + pack purchase ----------------------------
+  // --- Credits — balance + ledger (read-only; no purchase surface) -----------
 
   @override
   Future<int> fetchCreditBalance() async {
@@ -242,18 +230,6 @@ class HttpPayerApiClient implements PayerApiClient {
     // A non-2xx must not decode to a fabricated 0 balance shown as success.
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
     return (res.body['balance'] as num?)?.toInt() ?? 0;
-  }
-
-  @override
-  Future<int> buyCreditPack({required String packCode}) async {
-    final PayerResponse res = await _http.send(
-      PayerMethod.post,
-      '/payer/credits',
-      body: <String, dynamic>{'pack_code': packCode},
-    );
-    // Unknown pack → a real 404 (surfaced as a typed error, not a false buy).
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    return (res.body['balance'] as num?)?.toInt() ?? await fetchCreditBalance();
   }
 
   @override
@@ -383,27 +359,6 @@ class HttpPayerApiClient implements PayerApiClient {
     // signal: we do not gate on the status, and the caller fires-and-forgets so
     // a transport failure never blocks the share action.
     await _http.send(PayerMethod.post, '/payer/agency/invites/$code/click');
-  }
-
-  @override
-  Future<int> unlockCandidate(int candidateId) async {
-    // LEGACY / MOCK path — keyed by the in-memory candidate int id. The REAL
-    // unlock flow uses [unlock] with the opaque worker UUID from
-    // [fetchApplicants]; nothing in REAL mode reaches this int→string path.
-    final PayerResponse res = await _http.send(
-      PayerMethod.post,
-      '/payer/unlocks',
-      body: <String, dynamic>{'worker_id': '$candidateId'},
-    );
-    // Money/disclosure denials come back as HTTP 200 {status:"unavailable"} —
-    // the NEUTRAL deny. Never trust the status code: treat it as "no change".
-    final String? status = res.body['status'] as String?;
-    if (status == 'unavailable') {
-      return fetchCredits();
-    }
-    // Success {ok, unlock_id, status:"granted", expires_at} carries no balance,
-    // so re-read server-truth credits.
-    return fetchCredits();
   }
 
   @override
@@ -608,7 +563,7 @@ class HttpPayerApiClient implements PayerApiClient {
     return OrgMemberView.fromJson(res.body);
   }
 
-  // --- Hiring capacity (ADR-0016) — allowance vs used ------------------------
+  // --- Hiring capacity (ADR-0016) — allowance vs used (read-only) ------------
 
   @override
   Future<CapacityView> fetchCapacity() async {
@@ -619,71 +574,31 @@ class HttpPayerApiClient implements PayerApiClient {
     return CapacityView.fromJson(res.body);
   }
 
-  @override
-  Future<CapacityPurchase> buyCapacity({
-    required String tier,
-    String? coupon,
-  }) async {
-    final PayerResponse res = await _http.send(
-      PayerMethod.post,
-      '/payer/capacity',
-      body: <String, dynamic>{
-        'tier': tier,
-        if (coupon != null && coupon.isNotEmpty) 'coupon': coupon,
-      },
-    );
-    // MIXED casing: top-level snake_case + a nested camelCase quote (finalInr).
-    if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    return CapacityPurchase.fromJson(res.body);
-  }
-
   // ---------------------------------------------------------------------------
-  // DELEGATED to the mock — deferred screen rework / design-only (no backend)
+  // MOCK-ONLY demo surfaces — unreachable on the real seam
   // ---------------------------------------------------------------------------
+  // The rich global candidate list (and its int-keyed unlock) is a MOCK-only
+  // shape: the REAL feed is the faceless per-job [fetchApplicants] + [unlock]
+  // keyed by the opaque worker UUID. [FindCubit] only takes the mock branch when
+  // `kUseMocks` is true (or a test injects the mock client), so these are never
+  // reached in a real build. They FAIL LOUDLY rather than return seed data, so a
+  // future caller cannot quietly resurrect fabricated candidates in production.
+
+  // `async` (not an arrow `=> throw`) so the failure arrives as a REJECTED
+  // FUTURE like every other method on this seam, rather than throwing
+  // synchronously out of the call expression — a caller that stores the future
+  // or chains .catchError would otherwise miss it.
 
   @override
-  // The rich global candidate list is a MOCK-only shape (the REAL feed is the
-  // faceless per-job [fetchApplicants]). Kept delegating so MOCK stays walkable.
-  Future<List<Candidate>> fetchCandidates() => _mock.fetchCandidates();
+  Future<List<Candidate>> fetchCandidates() async => throw UnsupportedError(
+        'fetchCandidates is MOCK-only: the real feed is fetchApplicants(jobId).',
+      );
 
   @override
-  // TODO(bind): home demand metrics have no single endpoint — synthesize later.
-  Future<HomeMetrics> fetchHomeMetrics() => _mock.fetchHomeMetrics();
-
-  @override
-  // TODO(bind): recent-activity has no endpoint — synthesize from events later.
-  Future<List<ActivityItem>> fetchRecentActivity() => _mock.fetchRecentActivity();
-
-  @override
-  // TODO(bind): agency earn summary aggregate — GET /payer/agency/referrals/summary
-  // gives funnel counts, not ₹ earned. Deferred.
-  Future<EarnSummary> fetchEarnSummary() => _mock.fetchEarnSummary();
-
-  @override
-  // The credit-pack catalogue is config-only (no endpoint) — design data.
-  Future<List<CreditPack>> fetchCreditPacks() => _mock.fetchCreditPacks();
-
-  @override
-  // DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  Future<List<ReferredWorker>> fetchReferredWorkers() =>
-      _mock.fetchReferredWorkers();
-
-  @override
-  // DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  Future<PayoutSummary> fetchPayoutSummary() => _mock.fetchPayoutSummary();
-
-  @override
-  // DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  Future<List<PayoutEntry>> fetchPayouts() => _mock.fetchPayouts();
-
-  @override
-  // DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  Future<KycStatus> kycStatus() => _mock.kycStatus();
-
-  @override
-  // DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  Future<KycStatus> submitKyc(KycSubmission submission) =>
-      _mock.submitKyc(submission);
+  Future<int> unlockCandidate(int candidateId) async => throw UnsupportedError(
+        'unlockCandidate(int) is MOCK-only: the real unlock is '
+        'unlock(workerId:) with the opaque worker UUID from the feed.',
+      );
 
   // ---------------------------------------------------------------------------
   // Row mappers
@@ -801,13 +716,4 @@ class HttpPayerApiClient implements PayerApiClient {
   }
 
   static List<dynamic>? _asList(Object? v) => v is List<dynamic> ? v : null;
-
-  /// Maps a catalogue unlock count to the server pack code. Falls back to the
-  /// count itself if it is an unknown bespoke value.
-  String _packCodeForCount(int count) => switch (count) {
-        50 => 'pack_50',
-        200 => 'pack_200',
-        1000 => 'pack_1000',
-        _ => 'pack_$count',
-      };
 }

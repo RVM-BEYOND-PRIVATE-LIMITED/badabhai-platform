@@ -49,7 +49,8 @@ object FirebaseManager {
                     Log.w(TAG, "Fetching FCM token failed", task.exception)
                     return@addOnCompleteListener
                 }
-                Log.i(TAG, "FCM registration token: ${task.result}")
+                // Token intentionally NOT logged — a release logcat must never carry it (CLAUDE.md §2).
+                Log.i(TAG, "FCM token acquired")
             }
     }
 }

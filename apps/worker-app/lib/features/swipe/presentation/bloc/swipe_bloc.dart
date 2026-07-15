@@ -31,10 +31,6 @@ class SwipeSkipped extends SwipeEvent {
   const SwipeSkipped();
 }
 
-/// Add the current (head) card to Priority (up-swipe). Flutter-only for now.
-class SwipePrioritized extends SwipeEvent {
-  const SwipePrioritized();
-}
 
 /// The worker changed the filters — from the "Filter jobs" sheet OR the Feed's
 /// top chip row, which both dispatch this one event. [filters] is the whole
@@ -57,7 +53,6 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
     on<SwipeFeedRequested>(_onFeedRequested);
     on<SwipeApplied>(_onApplied);
     on<SwipeSkipped>(_onSkipped);
-    on<SwipePrioritized>(_onPrioritized);
     on<SwipeFiltersChanged>(_onFiltersChanged);
   }
 
@@ -113,23 +108,6 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
     }
   }
 
-  Future<void> _onPrioritized(
-    SwipePrioritized event,
-    Emitter<SwipeState> emit,
-  ) async {
-    final FeedItem? job = state.current;
-    if (job == null || state.deciding) return;
-    emit(state.copyWith(deciding: true));
-    try {
-      // Flutter-only seam for now (the prioritize backend is being built
-      // separately). Records the intent and advances — NOT marked applied.
-      await _repo.prioritizeJob(job.jobId);
-      _advance(emit, job, prioritized: true);
-    } on Failure catch (failure) {
-      _onDecisionError(emit, failure);
-    }
-  }
-
   /// Recompute the visible deck for a new filter selection. Pure client-side over
   /// the loaded queue (no refetch, no `/feed` filter contract). Keeps the queue
   /// and all decision state intact — only what is VISIBLE changes.
@@ -144,8 +122,7 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
   /// visible head is not necessarily `queue.first`. `status` tracks the undecided
   /// queue draining; a non-empty queue whose remainder is all filtered out stays
   /// `ready` and renders the "no jobs match" state.
-  /// [applied] bumps `appliedNonce` (apply toast); [prioritized] bumps
-  /// `prioritizedNonce` (Priority toast) — both only on real success.
+  /// [applied] bumps `appliedNonce` (apply toast) — only on real success.
   ///
   /// [decided] is passed in by the caller, captured BEFORE its `await`, and is
   /// deliberately NOT re-read from `state.current` here. Bloc runs the handlers
@@ -159,7 +136,6 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
     Emitter<SwipeState> emit,
     FeedItem decided, {
     bool applied = false,
-    bool prioritized = false,
   }) {
     final List<FeedItem> next = state.queue
         .where((FeedItem job) => job.jobId != decided.jobId)
@@ -169,8 +145,6 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
       deciding: false,
       status: next.isEmpty ? SwipeStatus.empty : SwipeStatus.ready,
       appliedNonce: applied ? state.appliedNonce + 1 : state.appliedNonce,
-      prioritizedNonce:
-          prioritized ? state.prioritizedNonce + 1 : state.prioritizedNonce,
     ));
   }
 

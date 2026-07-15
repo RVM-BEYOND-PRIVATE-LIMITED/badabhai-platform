@@ -28,11 +28,7 @@ AuthApi createAuthApi({
     return MockAuthApi(tokenStore);
   }
   final AuthedClient client = AuthedClient(
-    baseUrl: baseUrl ??
-        const String.fromEnvironment(
-          'API_BASE_URL',
-          defaultValue: 'http://localhost:3001',
-        ),
+    baseUrl: baseUrl ?? resolveApiBaseUrl(),
     tokenStore: tokenStore,
     deviceId: deviceId,
     localeStore: localeStore,

@@ -46,9 +46,4 @@ class SwipeRepositoryImpl implements SwipeRepository {
     }
   }
 
-  @override
-  Future<void> prioritizeJob(String jobId) async {
-    // TODO(backend): wire to the worker-scoped prioritize endpoint when it
-    // lands; Flutter-only for now. No ApiClient method until the endpoint exists.
-  }
 }

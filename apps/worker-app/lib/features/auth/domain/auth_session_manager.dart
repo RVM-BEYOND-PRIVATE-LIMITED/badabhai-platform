@@ -7,6 +7,7 @@ import '../../../core/auth/auth_failure.dart';
 import '../../../core/auth/reauth_signal.dart';
 import '../../../core/auth/secure_token_store.dart';
 import '../../../core/config/app_config.dart';
+import '../../../core/observability/crash_reporter.dart';
 import '../../../core/session/session_repository.dart';
 
 /// The three states the whole app is ever in, from the router's point of view.
@@ -285,6 +286,9 @@ class AuthSessionManager extends ChangeNotifier {
     final String ph = phone ?? _session.phoneE164 ?? '';
     if (wid.isNotEmpty) {
       _session.setWorker(phone: ph, workerId: wid, sessionToken: accessToken);
+      // Attribute crash reports to this worker. workerId is an opaque UUID
+      // (PII-free) — never the phone. Fail-closed no-op if Crashlytics is off.
+      CrashReporter.setUser(wid);
     } else {
       _session.setSessionToken(accessToken);
     }

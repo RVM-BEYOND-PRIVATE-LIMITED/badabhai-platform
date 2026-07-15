@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import 'core/config/app_config.dart';
 import 'core/di/locator.dart';
+import 'core/observability/crash_route_observer.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/domain/auth_session_manager.dart';
 import 'features/auth/presentation/lifecycle_relock_observer.dart';
@@ -19,12 +20,18 @@ class _BadaBhaiAppState extends State<BadaBhaiApp> {
   LifecycleRelockObserver? _relock;
   late final GoRouter _router;
 
+  /// Detaches the Crashlytics screen tracker (see [attachRouterScreenTracking]).
+  VoidCallback? _detachScreenTracking;
+
   @override
   void initState() {
     super.initState();
     // Build the router HERE (not as a process-global) so its redirect +
     // refreshListenable bind to the AuthSessionManager registered right now.
     _router = buildAppRouter();
+    // Tag every crash report with the current screen (route path). No-op when
+    // Crashlytics isn't ready (tests / non-GMS devices).
+    _detachScreenTracking = attachRouterScreenTracking(_router);
     // Register the lifecycle re-lock observer ONLY when the auth graph is wired
     // (the real app + auth/e2e tests). Legacy widget tests that pump the app
     // without `initAuthLocator` skip it — preserving their behaviour exactly.
@@ -38,6 +45,7 @@ class _BadaBhaiAppState extends State<BadaBhaiApp> {
 
   @override
   void dispose() {
+    _detachScreenTracking?.call();
     final LifecycleRelockObserver? observer = _relock;
     if (observer != null) WidgetsBinding.instance.removeObserver(observer);
     super.dispose();

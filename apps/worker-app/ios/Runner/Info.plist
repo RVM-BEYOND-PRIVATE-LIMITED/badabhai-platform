@@ -45,5 +45,7 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>BadaBhai needs the microphone so you can record a short voice note about your work experience, which is used to build your profile and resume.</string>
 </dict>
 </plist>

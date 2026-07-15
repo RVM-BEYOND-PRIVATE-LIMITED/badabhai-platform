@@ -1,51 +1,43 @@
 import 'package:equatable/equatable.dart';
 
-/// A full job posting (spec §5.6 / `.aw-jd`). MOCK-ONLY display model for the
-/// alpha — the worker-facing detail carries employer-name + pay, which are
-/// PII-sensitive (CLAUDE.md §2) and need an ADR before any live endpoint serves
-/// them. Synthesised client-side; never sent to a real endpoint, event, or log.
+/// The REAL facts about a job, exactly as the worker-facing feed serves them
+/// (`GET /feed` → `FeedItem`) — nothing is synthesised client-side.
+///
+/// Deliberately carries NO employer name and NO pay band: the feed does not
+/// return them, because employer names are PII (CLAUDE.md §2) and no
+/// worker-facing route exposes pay. An earlier build invented both from
+/// `jobId.hashCode` and rendered them as fact (with a "verified" badge), so a
+/// worker could apply on the strength of a salary no employer ever offered.
+/// Do NOT reintroduce a field here that the backend cannot supply.
 class JobDetail extends Equatable {
   const JobDetail({
     required this.jobId,
     required this.title,
-    required this.company,
-    this.verified = true,
-    required this.location,
-    required this.shift,
-    required this.payBand,
-    required this.duties,
-    required this.requirements,
-    required this.benefits,
+    this.city,
+    this.area,
   });
 
   final String jobId;
+
+  /// Real posting title from the feed.
   final String title;
-  final String company;
-  final bool verified;
-  final String location;
-  final String shift;
-  final String payBand;
 
-  /// "Kaam kya hai" bullet list.
-  final List<String> duties;
+  /// Real city from the feed; null when the feed omits it.
+  final String? city;
 
-  /// "Chahiye" requirement tags.
-  final List<String> requirements;
+  /// Coarse area/locality bucket. Nullable — not every job has one.
+  final String? area;
 
-  /// "Faayde" bullet list.
-  final List<String> benefits;
+  /// "Area, City" when both are present; otherwise whichever exists; null when
+  /// neither does — the screen then renders no location line at all rather than
+  /// inventing a placeholder.
+  String? get place {
+    final String? c = (city?.isNotEmpty ?? false) ? city : null;
+    final String? a = (area?.isNotEmpty ?? false) ? area : null;
+    if (a != null && c != null) return '$a, $c';
+    return c ?? a;
+  }
 
   @override
-  List<Object?> get props => <Object?>[
-        jobId,
-        title,
-        company,
-        verified,
-        location,
-        shift,
-        payBand,
-        duties,
-        requirements,
-        benefits,
-      ];
+  List<Object?> get props => <Object?>[jobId, title, city, area];
 }

@@ -17,6 +17,7 @@ import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import '../../../core/widgets/bb_unlock_dialog.dart';
 import 'cubit/find_cubit.dart';
+import 'disclosure_history_screen.dart';
 import 'reveal_args.dart';
 
 /// Find — the candidate feed. MOCK mode shows the rich global candidate list
@@ -149,12 +150,34 @@ class _FindView extends StatelessWidget {
               style: AppTypography.eyebrow(color: AppColors.textMuted),
             ),
             const SizedBox(height: 2),
-            Text(
-              'Browse & unlock',
-              style: AppTypography.display(
-                size: AppTypography.sizeXl,
-                weight: FontWeight.w800,
-              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: <Widget>[
+                Expanded(
+                  child: Text(
+                    'Browse & unlock',
+                    style: AppTypography.display(
+                      size: AppTypography.sizeXl,
+                      weight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                // Entry to the caller's own masked-résumé disclosure history.
+                TextButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      settings:
+                          const RouteSettings(name: 'payer/disclosures'),
+                      builder: (_) => const DisclosureHistoryScreen(),
+                    ),
+                  ),
+                  icon: const Icon(Icons.history, size: 18),
+                  label: const Text('History'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.textSecondary,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: AppSpacing.s3),
             const BbField(

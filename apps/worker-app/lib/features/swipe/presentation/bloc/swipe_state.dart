@@ -14,7 +14,6 @@ class SwipeState extends Equatable {
     this.deciding = false,
     this.decisionError = 0,
     this.appliedNonce = 0,
-    this.prioritizedNonce = 0,
     this.failure,
   });
 
@@ -61,9 +60,6 @@ class SwipeState extends Equatable {
   /// (avoids navigating optimistically and diverging on a failed apply).
   final int appliedNonce;
 
-  /// Monotonic nonce bumped on a SUCCESSFUL prioritize (up-swipe). The Feed
-  /// listens on this to toast "Priority" once the local record succeeded.
-  final int prioritizedNonce;
 
   /// The head of the FILTERED deck — the card apply/skip target.
   FeedItem? get current => visibleQueue.isEmpty ? null : visibleQueue.first;
@@ -75,7 +71,6 @@ class SwipeState extends Equatable {
     bool? deciding,
     int? decisionError,
     int? appliedNonce,
-    int? prioritizedNonce,
     Failure? failure,
   }) {
     return SwipeState(
@@ -85,7 +80,6 @@ class SwipeState extends Equatable {
       deciding: deciding ?? this.deciding,
       decisionError: decisionError ?? this.decisionError,
       appliedNonce: appliedNonce ?? this.appliedNonce,
-      prioritizedNonce: prioritizedNonce ?? this.prioritizedNonce,
       failure: failure ?? this.failure,
     );
   }
@@ -98,7 +92,6 @@ class SwipeState extends Equatable {
         deciding,
         decisionError,
         appliedNonce,
-        prioritizedNonce,
         failure,
       ];
 }

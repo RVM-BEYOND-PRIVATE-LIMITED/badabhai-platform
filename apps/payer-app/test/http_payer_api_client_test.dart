@@ -57,18 +57,20 @@ void main() {
       expect(req.headers['authorization'], 'Bearer tok-abc');
     });
 
-    test('buyCredits maps count→pack_code, POST /payer/credits', () async {
-      final h = _harness(<String, http.Response>{
-        'POST /payer/credits': _json(<String, dynamic>{'balance': 250}),
-      });
-
-      final int balance = await h.api.buyCredits(200);
-
-      expect(balance, 250);
-      final http.Request req = h.router.seen.single;
-      expect(req.url.path, '/payer/credits');
-      expect(jsonDecode(req.body),
-          <String, dynamic>{'pack_code': 'pack_200'});
+    // fetchCredits used to swallow EVERY non-2xx and return 0 — a real 500/401
+    // rendered as an honest-looking "0 credits". It must fail instead.
+    test('fetchCredits non-2xx → PayerApiException (never a fabricated 0)',
+        () async {
+      for (final int status in <int>[401, 429, 500]) {
+        final h = _harness(<String, http.Response>{
+          'GET /payer/credits': _json(<String, dynamic>{'message': 'nope'}, status),
+        });
+        await expectLater(
+          h.api.fetchCredits(),
+          throwsA(isA<PayerApiException>()
+              .having((PayerApiException e) => e.statusCode, 'statusCode', status)),
+        );
+      }
     });
 
     test('fetchLedger → GET /payer/unlocks maps {unlocks:[...]}', () async {
@@ -121,43 +123,6 @@ void main() {
       expect(job.unlocks, 0);
       expect(job.verified, isFalse);
       expect(job.boosted, isFalse);
-    });
-
-    test('unlockCandidate success → re-reads server-truth credits', () async {
-      final h = _harness(<String, http.Response>{
-        'POST /payer/unlocks': _json(<String, dynamic>{
-          'ok': true,
-          'unlock_id': 'u-9',
-          'status': 'granted',
-          'expires_at': '2026-07-01T00:00:00Z',
-        }),
-        'GET /payer/credits': _json(<String, dynamic>{'balance': 199}),
-      });
-
-      final int balance = await h.api.unlockCandidate(5);
-
-      expect(balance, 199);
-      // worker_id sent, NO payer_id in the body.
-      final http.Request unlock = h.router.seen
-          .firstWhere((http.Request r) => r.url.path == '/payer/unlocks');
-      final Map<String, dynamic> body =
-          jsonDecode(unlock.body) as Map<String, dynamic>;
-      expect(body['worker_id'], '5');
-      expect(body.containsKey('payer_id'), isFalse);
-    });
-
-    test('unlockCandidate 200 {status:"unavailable"} = neutral DENY', () async {
-      final h = _harness(<String, http.Response>{
-        // Deny comes back as HTTP 200 — must NOT be trusted as a grant.
-        'POST /payer/unlocks':
-            _json(<String, dynamic>{'status': 'unavailable'}, 200),
-        'GET /payer/credits': _json(<String, dynamic>{'balance': 200}),
-      });
-
-      final int balance = await h.api.unlockCandidate(7);
-
-      // No change: balance is whatever the server still reports.
-      expect(balance, 200);
     });
 
     test('referralLink → POST /payer/agency/invites {code,link}', () async {
@@ -248,24 +213,24 @@ void main() {
     });
   });
 
-  group('HttpPayerApiClient — delegated to mock (deferred / design-only)', () {
-    test('fetchCandidates delegates (no HTTP call)', () async {
+  // The real client used to COMPOSE a MockPayerApiClient and delegate ~10
+  // methods to it with no kUseMocks gate, so a release build served invented
+  // home metrics / activity / payouts / KYC / referred rows / credit packs
+  // through the "real" client. Those surfaces had no backend route and are gone;
+  // the two MOCK-only demo methods that remain must FAIL rather than quietly
+  // hand back seed data.
+  group('HttpPayerApiClient — no mock fallback survives on the real seam', () {
+    test('fetchCandidates throws UnsupportedError (never canned candidates)',
+        () async {
       final h = _harness(<String, http.Response>{});
-      final List<Candidate> candidates = await h.api.fetchCandidates();
-      // Mock seed has 6 candidates; no network request was made.
-      expect(candidates, isNotEmpty);
+      await expectLater(h.api.fetchCandidates(), throwsUnsupportedError);
       expect(h.router.seen, isEmpty);
     });
 
-    test('design-only KYC/payouts/referred delegate to the mock', () async {
+    test('unlockCandidate(int) throws UnsupportedError (real unlock is by UUID)',
+        () async {
       final h = _harness(<String, http.Response>{});
-
-      expect(await h.api.kycStatus(), KycStatus.none);
-      expect((await h.api.fetchPayouts()), isNotEmpty);
-      expect((await h.api.fetchReferredWorkers()), isNotEmpty);
-      final PayoutSummary summary = await h.api.fetchPayoutSummary();
-      expect(summary.totalEarned, isNotEmpty);
-      // None of these touched the wire.
+      await expectLater(h.api.unlockCandidate(5), throwsUnsupportedError);
       expect(h.router.seen, isEmpty);
     });
   });

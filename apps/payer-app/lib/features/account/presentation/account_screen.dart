@@ -134,14 +134,22 @@ class _AccountView extends StatelessWidget {
   /// Team / org members (ADR-0027) — pushed as a full page with its own back.
   void _openTeam(BuildContext context) {
     Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const TeamScreen()),
+      // Named so the crash reporter's NavigatorObserver tags the screen (else a
+      // crash here is mis-attributed to the underlying tab, e.g. payer/account).
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'payer/team'),
+        builder: (_) => const TeamScreen(),
+      ),
     );
   }
 
   /// Hiring capacity (ADR-0016) — pushed as a full page with its own back.
   void _openCapacity(BuildContext context) {
     Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const CapacityScreen()),
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'payer/capacity'),
+        builder: (_) => const CapacityScreen(),
+      ),
     );
   }
 

@@ -147,36 +147,6 @@ class JobPosting extends Equatable {
       ];
 }
 
-/// A credit pack on the Buy-credits screen. [count] is the unlock count; the
-/// price strings are pre-formatted (₹ in Roboto Mono at the view).
-class CreditPack extends Equatable {
-  const CreditPack({
-    required this.count,
-    required this.countLabel,
-    required this.price,
-    required this.per,
-    required this.best,
-    this.code,
-  });
-
-  /// Numeric unlock count actually added to the balance.
-  final int count;
-
-  /// Display count ("1,000").
-  final String countLabel;
-  final String price;
-  final String per;
-  final bool best;
-
-  /// The server pack code (`pack_50` | `pack_200` | `pack_1000`) sent to
-  /// `POST /payer/credits`. The catalogue is config-only (no endpoint); this is
-  /// the one field the REAL purchase actually uses. `null` for bespoke packs.
-  final String? code;
-
-  @override
-  List<Object?> get props => <Object?>[count, countLabel, price, per, best, code];
-}
-
 /// Direction of an unlock-ledger entry — drives the +/- mono colour.
 enum LedgerDirection { credit, debit }
 
@@ -197,111 +167,6 @@ class LedgerEntry extends Equatable {
   List<Object?> get props => <Object?>[label, amount, direction];
 }
 
-/// The Home-screen demand snapshot (mock figures mirror the kit).
-class HomeMetrics extends Equatable {
-  const HomeMetrics({
-    required this.paidUnlocksThisWeek,
-    required this.paidUnlocksDelta,
-    required this.repeatUnlockRate,
-    required this.activeJobs,
-    required this.activeJobsNote,
-    required this.candidatesForYou,
-  });
-
-  final String paidUnlocksThisWeek;
-  final String paidUnlocksDelta;
-  final String repeatUnlockRate;
-  final String activeJobs;
-  final String activeJobsNote;
-  final int candidatesForYou;
-
-  @override
-  List<Object?> get props => <Object?>[
-        paidUnlocksThisWeek,
-        paidUnlocksDelta,
-        repeatUnlockRate,
-        activeJobs,
-        activeJobsNote,
-        candidatesForYou,
-      ];
-}
-
-/// The agency-only Earn·Supply summary shown on Home (above Hire metrics).
-class EarnSummary extends Equatable {
-  const EarnSummary({
-    required this.earnedThisMonth,
-    required this.pendingPayout,
-    required this.inWindow,
-  });
-
-  final String earnedThisMonth;
-  final String pendingPayout;
-  final String inWindow;
-
-  @override
-  List<Object?> get props => <Object?>[earnedThisMonth, pendingPayout, inWindow];
-}
-
-/// Attribution state of a referred worker — drives the row's status pill,
-/// window-countdown line, dimming, and the earned-₹ colour. PII-free by
-/// construction: a referred worker is only ever a masked label, never a name.
-///
-///  - [inWindow] — introduced + profiled, inside the 90-day attribution window;
-///    nothing earned yet (the agency earns only if someone unlocks them).
-///  - [earned]   — someone unlocked them inside the window → the 25% share paid.
-///  - [expired]  — the window lapsed with no unlock; no resets, nothing earned.
-enum ReferralStatus { inWindow, earned, expired }
-
-extension ReferralStatusX on ReferralStatus {
-  String get label => switch (this) {
-        ReferralStatus.inWindow => 'In window',
-        ReferralStatus.earned => 'Earned',
-        ReferralStatus.expired => 'Expired',
-      };
-}
-
-/// One worker the agency introduced via its referral link. [label] is the masked
-/// identity the agency is allowed to see ("••• 3210") — NEVER a real name or
-/// phone. [daysLeft] is the remaining attribution window; [earned] is a
-/// pre-formatted mono ₹ string ("₹0" / "₹40").
-class ReferredWorker extends Equatable {
-  const ReferredWorker({
-    required this.id,
-    required this.label,
-    required this.trade,
-    required this.status,
-    required this.daysLeft,
-    required this.earned,
-  });
-
-  final int id;
-
-  /// Masked last-4 identity, e.g. "••• 3210". No PII.
-  final String label;
-  final String trade;
-  final ReferralStatus status;
-
-  /// Days remaining in the 90-day attribution window (0 once expired/earned).
-  final int daysLeft;
-
-  /// Pre-formatted mono ₹ earned on this worker ("₹0" until an unlock pays out).
-  final String earned;
-
-  bool get isExpired => status == ReferralStatus.expired;
-  bool get isEarned => status == ReferralStatus.earned;
-
-  /// The countdown / state line under the row.
-  String get windowText => switch (status) {
-        ReferralStatus.expired => 'Window expired · no resets',
-        ReferralStatus.earned => 'Unlocked · earned',
-        ReferralStatus.inWindow => '$daysLeft days left in window',
-      };
-
-  @override
-  List<Object?> get props =>
-      <Object?>[id, label, trade, status, daysLeft, earned];
-}
-
 /// The agency's referral link + funnel counts. The link is the one part of this
 /// supply surface with a real backend (`POST /payer/agency/invites` →
 /// `{code, link}`); the funnel mirrors `GET /payer/agency/referrals/summary`.
@@ -320,108 +185,6 @@ class ReferralLink extends Equatable {
 
   @override
   List<Object?> get props => <Object?>[code, url];
-}
-
-/// Earnings & payouts aggregates for the payouts screen. All ₹ pre-formatted
-/// mono strings. [pendingMet] gates the "ready to pay out" / Withdraw CTA.
-class PayoutSummary extends Equatable {
-  const PayoutSummary({
-    required this.totalEarned,
-    required this.thisMonth,
-    required this.pending,
-    required this.minimum,
-    required this.pendingMet,
-  });
-
-  final String totalEarned;
-  final String thisMonth;
-  final String pending;
-  final String minimum;
-
-  /// True once [pending] is at/above [minimum] — unlocks the Withdraw CTA.
-  final bool pendingMet;
-
-  @override
-  List<Object?> get props =>
-      <Object?>[totalEarned, thisMonth, pending, minimum, pendingMet];
-}
-
-/// A settled payout row in the history list (most-recent first).
-class PayoutEntry extends Equatable {
-  const PayoutEntry({
-    required this.label,
-    required this.method,
-    required this.date,
-    required this.amount,
-  });
-
-  final String label;
-
-  /// Rail, e.g. "UPI".
-  final String method;
-
-  /// Settlement date, e.g. "02 Jun".
-  final String date;
-
-  /// Pre-formatted mono ₹ ("₹4,160").
-  final String amount;
-
-  @override
-  List<Object?> get props => <Object?>[label, method, date, amount];
-}
-
-/// KYC lifecycle for the agency payout account. Drives the KYC screen's state
-/// machine + the badge on the Earn-hub card.
-///
-///  - [none]     — nothing submitted → show the PAN/bank form.
-///  - [review]   — submitted, verifying (1–2 working days).
-///  - [verified] — approved → withdrawals enabled.
-enum KycStatus { none, review, verified }
-
-extension KycStatusX on KycStatus {
-  String get badgeLabel => switch (this) {
-        KycStatus.none => 'Not started',
-        KycStatus.review => 'In review',
-        KycStatus.verified => 'Verified',
-      };
-}
-
-/// The details an agency submits for payout KYC. This is the ONE place the
-/// payer app collects PAN/bank data; on the mock seam it is never persisted or
-/// logged — the screen only flips [KycStatus] to `review`.
-class KycSubmission extends Equatable {
-  const KycSubmission({
-    required this.fullName,
-    required this.pan,
-    required this.accountNumber,
-    required this.ifsc,
-  });
-
-  final String fullName;
-  final String pan;
-  final String accountNumber;
-  final String ifsc;
-
-  @override
-  List<Object?> get props => <Object?>[fullName, pan, accountNumber, ifsc];
-}
-
-/// A recent-activity row on Home.
-enum ActivityTone { success, brand, warning }
-
-class ActivityItem extends Equatable {
-  const ActivityItem({
-    required this.title,
-    required this.time,
-    required this.tone,
-  });
-
-  final String title;
-  final String time;
-  final ActivityTone tone;
-
-  @override
-  List<Object?> get props => <Object?>[title, time, tone];
 }
 
 /// One explainable ranking signal from the reach core — mirrors the API's
@@ -1062,106 +825,17 @@ class CapacityView extends Equatable {
       <Object?>[maxActiveVacancies, activePlanCount, sourceTier, expiresAt];
 }
 
-/// Result of `POST /payer/capacity` (buy/upgrade a tier). MIXED casing on the
-/// wire: top-level `snake_case` (`max_active_vacancies` / `source_tier` /
-/// `expires_at` / `resumed_plan_ids`) with a NESTED camelCase `quote`
-/// (`finalInr`). [finalInr] is the charged ₹ for the toast; [resumedPlanIds]
-/// are postings the higher allowance auto-un-paused. PII-free (opaque ids only).
-class CapacityPurchase extends Equatable {
-  const CapacityPurchase({
-    required this.maxActiveVacancies,
-    this.sourceTier,
-    this.expiresAt,
-    this.finalInr,
-    this.resumedPlanIds = const <String>[],
-  });
-
-  factory CapacityPurchase.fromJson(Map<String, dynamic> body) {
-    final Map<String, dynamic> quote =
-        (body['quote'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
-    final List<dynamic> resumed =
-        (body['resumed_plan_ids'] as List<dynamic>?) ?? const <dynamic>[];
-    return CapacityPurchase(
-      maxActiveVacancies: (body['max_active_vacancies'] as num?)?.toInt() ?? 0,
-      sourceTier: body['source_tier'] as String?,
-      expiresAt: body['expires_at'] as String?,
-      // Nested quote is camelCase even though the top level is snake_case.
-      finalInr: (quote['finalInr'] as num?)?.toInt(),
-      resumedPlanIds: resumed.whereType<String>().toList(growable: false),
-    );
-  }
-
-  final int maxActiveVacancies;
-  final String? sourceTier;
-  final String? expiresAt;
-  final int? finalInr;
-  final List<String> resumedPlanIds;
-
-  @override
-  List<Object?> get props => <Object?>[
-        maxActiveVacancies,
-        sourceTier,
-        expiresAt,
-        finalInr,
-        resumedPlanIds,
-      ];
-}
-
-/// A buyable hiring-capacity tier (ADR-0016 seeded catalog). The wire always
-/// carries the [code] (`cap_5` | `cap_15`); the rest is display. An unknown code
-/// is a fail-closed backend error (never a ₹0 buy) — never invent codes here.
-class CapacityTier extends Equatable {
-  const CapacityTier({
-    required this.code,
-    required this.maxActiveVacancies,
-    required this.price,
-    required this.validityLabel,
-  });
-
-  /// Server tier code sent as `tier` to `POST /payer/capacity`.
-  final String code;
-
-  /// Concurrent active vacancies this tier grants.
-  final int maxActiveVacancies;
-
-  /// Pre-formatted ₹ price ("₹5,000").
-  final String price;
-
-  /// Validity window label ("30 days").
-  final String validityLabel;
-
-  /// "5 active vacancies" — the tier headline.
-  String get label => '$maxActiveVacancies active vacancies';
-
-  @override
-  List<Object?> get props =>
-      <Object?>[code, maxActiveVacancies, price, validityLabel];
-}
-
-/// The seeded capacity tiers the payer can buy (mirrors the pricing catalog —
-/// `cap_5` ₹5,000/5/30d, `cap_15` ₹12,000/15/30d). Display order = ascending.
-const List<CapacityTier> kCapacityTiers = <CapacityTier>[
-  CapacityTier(
-    code: 'cap_5',
-    maxActiveVacancies: 5,
-    price: '₹5,000',
-    validityLabel: '30 days',
-  ),
-  CapacityTier(
-    code: 'cap_15',
-    maxActiveVacancies: 15,
-    price: '₹12,000',
-    validityLabel: '30 days',
-  ),
-];
-
-/// Display label for a capacity tier [code] (falls back to the raw code).
+/// Display label for the capacity tier [code] the server reports as
+/// `source_tier`. Display-only name for a code that came FROM the server — it
+/// carries no price (the app has no capacity-purchase surface and must never
+/// state a ₹ amount it cannot source). An unknown code renders as itself.
 String capacityTierLabel(String? code) {
   if (code == null || code.isEmpty) return 'Base';
-  for (final CapacityTier t in kCapacityTiers) {
-    if (t.code == code) return t.label;
-  }
-  return code;
+  return switch (code) {
+    'cap_5' => '5 active vacancies',
+    'cap_15' => '15 active vacancies',
+    _ => code,
+  };
 }
 
 /// Identity resolved at login for a chosen [PayerRole]. Kept here so the data

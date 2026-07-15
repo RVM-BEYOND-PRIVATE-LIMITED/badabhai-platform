@@ -5,20 +5,59 @@ import 'package:mocktail/mocktail.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/features/profile/domain/profile_repository.dart';
 import 'package:badabhai_worker_app/features/profile/presentation/cubit/profile_cubit.dart';
+import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary.dart';
+import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary_repository.dart';
 
 class MockProfileRepository extends Mock implements ProfileRepository {}
 
+class MockProfileSummaryRepository extends Mock
+    implements ProfileSummaryRepository {}
+
 void main() {
   late MockProfileRepository repo;
-  setUp(() => repo = MockProfileRepository());
+  late MockProfileSummaryRepository summaryRepo;
+
+  // The real extracted profile read back after extraction — trade / city /
+  // strength — which the confirm step must reflect (not a placeholder).
+  const ProfileSummary realSummary = ProfileSummary(
+    tradeLabel: 'VMC Operator',
+    city: 'Pune',
+    verified: false,
+    strength: 0.5,
+  );
+
+  setUp(() {
+    repo = MockProfileRepository();
+    summaryRepo = MockProfileSummaryRepository();
+    // Default: the summary read succeeds with real data.
+    when(() => summaryRepo.summary()).thenAnswer((_) async => realSummary);
+  });
 
   // bloc emits the first state even when it equals the initial state, so the
   // leading `extracting` is observed before the terminal state.
   blocTest<ProfileCubit, ProfileState>(
-    'extract success -> ready',
+    'extract success -> ready carrying the REAL summary (trade/city/strength)',
     build: () {
       when(() => repo.extractProfile()).thenAnswer((_) async => 'p1');
-      return ProfileCubit(repo);
+      return ProfileCubit(repo, summaryRepo);
+    },
+    act: (ProfileCubit c) => c.extract(),
+    expect: () => const <ProfileState>[
+      ProfileState(status: ProfileStatus.extracting),
+      ProfileState(status: ProfileStatus.ready, summary: realSummary),
+    ],
+    verify: (_) => verify(() => summaryRepo.summary()).called(1),
+  );
+
+  // A summary-read miss is NON-fatal: extraction succeeded, so the screen still
+  // goes ready (with a null summary) rather than failing — the view then
+  // degrades honestly instead of showing fabricated rows.
+  blocTest<ProfileCubit, ProfileState>(
+    'extract success but summary read fails -> ready with null summary',
+    build: () {
+      when(() => repo.extractProfile()).thenAnswer((_) async => 'p1');
+      when(() => summaryRepo.summary()).thenThrow(const NetworkFailure());
+      return ProfileCubit(repo, summaryRepo);
     },
     act: (ProfileCubit c) => c.extract(),
     expect: () => const <ProfileState>[
@@ -28,34 +67,37 @@ void main() {
   );
 
   blocTest<ProfileCubit, ProfileState>(
-    'extract failure -> failed',
+    'extract failure -> failed (summary never read)',
     build: () {
       when(() => repo.extractProfile()).thenThrow(const NetworkFailure());
-      return ProfileCubit(repo);
+      return ProfileCubit(repo, summaryRepo);
     },
     act: (ProfileCubit c) => c.extract(),
     expect: () => const <ProfileState>[
       ProfileState(status: ProfileStatus.extracting),
       ProfileState(status: ProfileStatus.failed, failure: NetworkFailure()),
     ],
+    verify: (_) => verifyNever(() => summaryRepo.summary()),
   );
 
   blocTest<ProfileCubit, ProfileState>(
-    'confirm from ready -> confirmed',
+    'confirm from ready -> confirmed (keeps the summary)',
     build: () {
       when(() => repo.confirmProfile()).thenAnswer((_) async {});
-      return ProfileCubit(repo);
+      return ProfileCubit(repo, summaryRepo);
     },
-    seed: () => const ProfileState(status: ProfileStatus.ready),
+    seed: () =>
+        const ProfileState(status: ProfileStatus.ready, summary: realSummary),
     act: (ProfileCubit c) => c.confirm(),
-    expect: () =>
-        const <ProfileState>[ProfileState(status: ProfileStatus.confirmed)],
+    expect: () => const <ProfileState>[
+      ProfileState(status: ProfileStatus.confirmed, summary: realSummary),
+    ],
     verify: (_) => verify(() => repo.confirmProfile()).called(1),
   );
 
   blocTest<ProfileCubit, ProfileState>(
     'confirm is ignored unless ready',
-    build: () => ProfileCubit(repo),
+    build: () => ProfileCubit(repo, summaryRepo),
     act: (ProfileCubit c) => c.confirm(),
     expect: () => const <ProfileState>[],
     verify: (_) => verifyNever(() => repo.confirmProfile()),
@@ -67,7 +109,7 @@ void main() {
     'confirm failure -> stays ready, no emission',
     build: () {
       when(() => repo.confirmProfile()).thenThrow(const NetworkFailure());
-      return ProfileCubit(repo);
+      return ProfileCubit(repo, summaryRepo);
     },
     seed: () => const ProfileState(status: ProfileStatus.ready),
     act: (ProfileCubit c) => c.confirm(),
@@ -83,7 +125,7 @@ void main() {
       when(() => repo.confirmProfile()).thenAnswer(
         (_) => Future<void>.delayed(const Duration(milliseconds: 20)),
       );
-      return ProfileCubit(repo);
+      return ProfileCubit(repo, summaryRepo);
     },
     seed: () => const ProfileState(status: ProfileStatus.ready),
     act: (ProfileCubit c) {
@@ -105,7 +147,7 @@ void main() {
         () => 'p1',
       ),
     );
-    final ProfileCubit cubit = ProfileCubit(repo);
+    final ProfileCubit cubit = ProfileCubit(repo, summaryRepo);
     final Future<void> inFlight = cubit.extract();
     await cubit.close(); // screen popped before extraction resolved
     await expectLater(inFlight, completes); // no StateError on the late emit

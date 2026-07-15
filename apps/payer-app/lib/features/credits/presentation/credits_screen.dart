@@ -3,21 +3,23 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
-import '../../../core/session/credits_cubit.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_status_view.dart';
-import '../../../core/widgets/bb_toast.dart';
 import 'cubit/credits_screen_cubit.dart';
 
-/// Buy credits — current balance (ink card), three pack cards (50 / 200 /
-/// 1,000 with a "Best value" flag), the Razorpay secure-checkout line, and the
-/// unlock ledger. Tapping a pack adds credits + fires a toast.
+/// Credits — the REAL balance (`GET /payer/credits`, ink card) and the REAL
+/// credit ledger (`GET /payer/credits/ledger`).
+///
+/// The purchase surface was REMOVED: there is no payment provider (the
+/// "Secure checkout · Razorpay · UPI / card" line described one that does not
+/// exist), and the pack catalogue's prices were hardcoded client-side and
+/// contradicted the server's pricing catalog. This screen now only REPORTS what
+/// the server says the payer has and has spent.
 class CreditsScreen extends StatelessWidget {
   const CreditsScreen({super.key, required this.onBack});
 
@@ -36,30 +38,6 @@ class _CreditsView extends StatelessWidget {
   const _CreditsView({required this.onBack});
 
   final VoidCallback onBack;
-
-  Future<void> _buy(BuildContext context, CreditPack pack) async {
-    final CreditsScreenCubit cubit = context.read<CreditsScreenCubit>();
-    // REAL purchase via the server pack code; the cubit refetches balance +
-    // ledger from server-truth.
-    final String? error = await cubit.buyPack(pack);
-    // Keep the app-wide balance (Home / Find / nav) in sync.
-    await locator<CreditsCubit>().load();
-    if (!context.mounted) return;
-    if (error == null) {
-      showBbToast(
-        context,
-        title: 'Credits added',
-        message: '${pack.countLabel} unlocks added to your balance.',
-      );
-    } else {
-      showBbToast(
-        context,
-        title: 'Not now',
-        message: error,
-        icon: Icons.info_outline,
-      );
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -140,26 +118,6 @@ class _CreditsView extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: AppSpacing.s3),
-            for (final CreditPack pack in state.packs) ...<Widget>[
-              _PackCard(pack: pack, onBuy: () => _buy(context, pack)),
-              const SizedBox(height: AppSpacing.s3),
-            ],
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                const Icon(Icons.lock_outline,
-                    size: 14, color: AppColors.textMuted),
-                const SizedBox(width: 6),
-                Text(
-                  'Secure checkout · Razorpay · UPI / card',
-                  style: AppTypography.body(
-                    size: AppTypography.sizeXs,
-                    color: AppColors.textMuted,
-                  ),
-                ),
-              ],
-            ),
             const SizedBox(height: AppSpacing.s5),
             Text(
               'Unlock ledger',
@@ -184,72 +142,6 @@ class _CreditsView extends StatelessWidget {
           ],
         );
       },
-    );
-  }
-}
-
-class _PackCard extends StatelessWidget {
-  const _PackCard({required this.pack, required this.onBuy});
-
-  final CreditPack pack;
-  final VoidCallback onBuy;
-
-  @override
-  Widget build(BuildContext context) {
-    return BbCard(
-      onTap: onBuy,
-      border: pack.best
-          ? Border.all(color: AppColors.brand, width: 3)
-          : Border.all(color: AppColors.borderSubtle),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                RichText(
-                  text: TextSpan(
-                    style: AppTypography.display(
-                      size: AppTypography.sizeXl,
-                      weight: FontWeight.w800,
-                    ),
-                    children: <InlineSpan>[
-                      TextSpan(text: '${pack.countLabel} '),
-                      TextSpan(
-                        text: 'unlocks',
-                        style: AppTypography.body(
-                          size: AppTypography.sizeSm,
-                          weight: FontWeight.w600,
-                          color: AppColors.textMuted,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Text(
-                  pack.per,
-                  style: AppTypography.body(
-                    size: AppTypography.sizeXs,
-                    color: AppColors.textMuted,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (pack.best) ...<Widget>[
-            const BbBadge('Best value', tone: BbBadgeTone.brand, solid: true),
-            const SizedBox(width: AppSpacing.s3),
-          ],
-          Text(
-            pack.price,
-            style: AppTypography.mono(
-              size: AppTypography.sizeMd,
-              weight: FontWeight.w700,
-              color: AppColors.brandPress,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

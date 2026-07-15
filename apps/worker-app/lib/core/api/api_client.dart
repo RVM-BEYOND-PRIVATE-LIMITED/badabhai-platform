@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../config/app_config.dart' show resolveApiBaseUrl;
 import 'api_models.dart';
 
 // Re-export the response models so screens that import this file get them too.
@@ -10,6 +11,16 @@ export 'api_models.dart';
 /// Current DPDP consent version. Mirrors `CURRENT_CONSENT_VERSION` in
 /// packages/types — keep these in sync when the consent copy changes.
 const String kConsentVersion = '2026-06-01';
+
+/// Hard ceiling on any single HTTP request.
+///
+/// `package:http` has NO default timeout, so a stalled connection hangs the
+/// future FOREVER — the screen spins with no error and no retry. Our workers are
+/// on 2G/3G where a dead-but-open socket is routine, so an explicit bound is
+/// mandatory. A [TimeoutException] maps to a NetworkFailure via `mapError`, so
+/// the UI shows an honest "couldn't reach the server" with a Try-again instead
+/// of an infinite spinner. 15s is generous for a slow link yet bounded.
+const Duration kRequestTimeout = Duration(seconds: 15);
 
 /// HTTP client for the NestJS API (see apps/api).
 ///
@@ -22,11 +33,7 @@ const String kConsentVersion = '2026-06-01';
 /// never talks to an LLM directly.
 class ApiClient {
   ApiClient({String? baseUrl, http.Client? client, this.onSessionTokenRefreshed})
-      : baseUrl = baseUrl ??
-            const String.fromEnvironment(
-              'API_BASE_URL',
-              defaultValue: 'http://localhost:3001',
-            ),
+      : baseUrl = baseUrl ?? resolveApiBaseUrl(),
         _client = client ?? http.Client();
 
   final String baseUrl;
@@ -549,11 +556,13 @@ class ApiClient {
     String? authToken,
   }) async {
     final Uri uri = Uri.parse('$baseUrl$path');
-    final http.Response res = await _client.post(
-      uri,
-      headers: _headers(contentType: true, authToken: authToken),
-      body: jsonEncode(body),
-    );
+    final http.Response res = await _client
+        .post(
+          uri,
+          headers: _headers(contentType: true, authToken: authToken),
+          body: jsonEncode(body),
+        )
+        .timeout(kRequestTimeout);
     return _decode(res);
   }
 
@@ -567,11 +576,13 @@ class ApiClient {
     String? authToken,
   }) async {
     final Uri uri = Uri.parse('$baseUrl$path');
-    final http.Response res = await _client.patch(
-      uri,
-      headers: _headers(contentType: true, authToken: authToken),
-      body: jsonEncode(body),
-    );
+    final http.Response res = await _client
+        .patch(
+          uri,
+          headers: _headers(contentType: true, authToken: authToken),
+          body: jsonEncode(body),
+        )
+        .timeout(kRequestTimeout);
     return _decode(res);
   }
 
@@ -580,10 +591,12 @@ class ApiClient {
   /// When [authToken] is supplied it is sent as `Authorization: Bearer <token>`.
   Future<Map<String, dynamic>> _get(String path, {String? authToken}) async {
     final Uri uri = Uri.parse('$baseUrl$path');
-    final http.Response res = await _client.get(
-      uri,
-      headers: _headers(contentType: false, authToken: authToken),
-    );
+    final http.Response res = await _client
+        .get(
+          uri,
+          headers: _headers(contentType: false, authToken: authToken),
+        )
+        .timeout(kRequestTimeout);
     return _decode(res);
   }
 

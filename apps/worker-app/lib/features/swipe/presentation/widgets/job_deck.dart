@@ -19,19 +19,17 @@ class JobDeckItem {
 ///
 /// Finger-tracks the front card with a small tilt, slides the next real card up
 /// from behind as the drag grows, and deepens an axis tint with the drag — green
-/// (apply) / red (skip) side bands plus a golden bottom band on an up-swipe (add
-/// to Priority). On release it commits (off-screen fly-out) when the drag passes
-/// a fraction of the screen width/height OR a fling-velocity threshold — right =
-/// apply, left = skip, up = prioritize — otherwise it springs back. The two big
-/// buttons drive the SAME apply/skip commit: for low-literacy workers the buttons
-/// are the primary affordance and swipe is the enhancement.
+/// (apply) / red (skip) side bands. On release it commits (off-screen fly-out)
+/// when the drag passes a fraction of the screen width OR a fling-velocity
+/// threshold — right = apply, left = skip — otherwise it springs back. The two
+/// big buttons drive the SAME apply/skip commit: for low-literacy workers the
+/// buttons are the primary affordance and swipe is the enhancement.
 class JobDeck extends StatefulWidget {
   const JobDeck({
     super.key,
     required this.cards,
     required this.onApply,
     required this.onSkip,
-    required this.onPrioritize,
     this.onTitleTap,
     this.deciding = false,
   });
@@ -45,8 +43,6 @@ class JobDeck extends StatefulWidget {
   /// Fired once the front card has committed to the left (skip).
   final VoidCallback onSkip;
 
-  /// Fired once the front card has committed upward (add to Priority).
-  final VoidCallback onPrioritize;
 
   /// Tapping the front card's title (opens the detail route).
   final ValueChanged<String>? onTitleTap;
@@ -75,7 +71,7 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
   late final AnimationController _release;
   Animation<Offset>? _releaseAnim;
   Offset _drag = Offset.zero;
-  // 0 = settling, 1 = apply (right), -1 = skip (left), 2 = prioritize (up).
+  // 0 = settling, 1 = apply (right), -1 = skip (left).
   int _committing = 0;
 
   @override
@@ -142,14 +138,11 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
   void _onPanEnd(DragEndDetails d, double width, double height) {
     if (_locked) return;
     final double vx = d.velocity.pixelsPerSecond.dx;
-    final double vy = d.velocity.pixelsPerSecond.dy;
-    // Up-swipe = add to Priority. Dominant-axis precedence so a clear up-swipe
-    // wins over a small horizontal drift (down-swipes do nothing → snap back).
-    final bool verticalDominant = _drag.dy.abs() > _drag.dx.abs();
-    if (verticalDominant &&
-        (_drag.dy < -_commitFraction * height || vy < -_flingVelocity)) {
-      _flyOff(2, width, height);
-    } else if (_drag.dx > _commitFraction * width || vx > _flingVelocity) {
+    // Vertical swipes do nothing → snap back. The up-swipe used to "add to
+    // Priority", but no prioritize route exists: the repository method was an
+    // empty no-op that still fired a "Priority" success toast, so the worker's
+    // intent was silently discarded. Removed rather than faked.
+    if (_drag.dx > _commitFraction * width || vx > _flingVelocity) {
       _flyOff(1, width, height);
     } else if (_drag.dx < -_commitFraction * width || vx < -_flingVelocity) {
       _flyOff(-1, width, height);
@@ -166,13 +159,9 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
     _release.forward(from: 0);
   }
 
-  // [height] is only needed for the upward (prioritize) commit; the CTA buttons
-  // call this for apply/skip (dir ±1) where it is unused, so it defaults to 0.
   void _flyOff(int dir, double width, [double height = 0]) {
     _committing = dir;
-    final Offset end = dir == 2
-        ? Offset(_drag.dx, -height * 1.5) // prioritize: fly off the top
-        : Offset(dir * width * 1.5, _drag.dy);
+    final Offset end = Offset(dir * width * 1.5, _drag.dy);
     _releaseAnim = Tween<Offset>(begin: _drag, end: end)
         .animate(CurvedAnimation(parent: _release, curve: AppMotion.easeIn));
     _release.forward(from: 0);
@@ -193,8 +182,6 @@ class _JobDeckState extends State<JobDeck> with SingleTickerProviderStateMixin {
     if (mounted) setState(() {});
     if (dir == 1) {
       widget.onApply();
-    } else if (dir == 2) {
-      widget.onPrioritize();
     } else {
       widget.onSkip();
     }

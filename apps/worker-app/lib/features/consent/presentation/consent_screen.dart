@@ -66,8 +66,10 @@ class _ConsentView extends StatelessWidget {
                   style: AppTypography.display(size: AppTypography.sizeXl)),
               const SizedBox(height: AppSpacing.s3),
               Text(
-                'We use your answers only to build your work profile and resume. '
-                '(DPDP consent copy is a Phase 1 placeholder.)',
+                // NOTE: this is the product description of the processing, not
+                // the DPDP notice. The full DPDP consent notice is owner/legal
+                // copy and is still outstanding — do not invent it here.
+                'We use your answers only to build your work profile and resume.',
                 style: AppTypography.body(
                   size: AppTypography.sizeMd,
                   color: AppColors.textSecondary,

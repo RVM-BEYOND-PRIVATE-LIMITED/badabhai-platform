@@ -59,12 +59,9 @@ import '../../features/resume/domain/resume_edit_repository.dart';
 import '../../features/resume/domain/resume_repository.dart';
 import '../../features/resume/presentation/cubit/resume_cubit.dart';
 import '../../features/resume/presentation/cubit/resume_edit_cubit.dart';
-import '../../features/swipe/data/jobs_repository_impl.dart';
 import '../../features/swipe/data/swipe_repository_impl.dart';
-import '../../features/swipe/domain/jobs_repository.dart';
 import '../../features/swipe/domain/swipe_repository.dart';
 import '../../features/swipe/presentation/bloc/swipe_bloc.dart';
-import '../../features/swipe/presentation/cubit/job_detail_cubit.dart';
 
 /// The composition root. `get_it` wires the dependency graph in exactly one
 /// place; screens resolve their bloc/cubit through [locator], and BLoCs receive
@@ -144,9 +141,6 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerLazySingleton<SwipeRepository>(
     () => SwipeRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
-  );
-  locator.registerLazySingleton<JobsRepository>(
-    () => const JobsRepositoryImpl(),
   );
   locator.registerLazySingleton<ResumeEditRepository>(
     () => ResumeEditRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
@@ -246,7 +240,8 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
     () => ChatBloc(locator<ChatRepository>()),
   );
   locator.registerFactory<ProfileCubit>(
-    () => ProfileCubit(locator<ProfileRepository>()),
+    () => ProfileCubit(
+        locator<ProfileRepository>(), locator<ProfileSummaryRepository>()),
   );
   locator.registerFactory<ResumeCubit>(
     () => ResumeCubit(locator<ResumeRepository>()),
@@ -254,9 +249,9 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   locator.registerFactory<SwipeBloc>(
     () => SwipeBloc(locator<SwipeRepository>()),
   );
-  locator.registerFactory<JobDetailCubit>(
-    () => JobDetailCubit(locator<JobsRepository>(), locator<SwipeRepository>()),
-  );
+  // JobDetailCubit is constructed by JobDetailScreen with the REAL JobDetail
+  // handed over from the tapped row — it has no registration here because it
+  // takes per-instance data (there is no worker-facing job-detail route).
   locator.registerFactory<ResumeEditCubit>(
     () => ResumeEditCubit(locator<ResumeEditRepository>()),
   );

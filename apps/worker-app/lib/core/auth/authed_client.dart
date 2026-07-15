@@ -51,7 +51,7 @@ class AuthedClient {
     required ReauthSignal reauthSignal,
     http.Client? client,
     Uuid? uuid,
-    this.refreshSkew = const Duration(seconds: 30),
+    this.refreshSkew = const Duration(seconds: 90),
     this.maxNetworkRetries = 2,
     this.retryBackoff = const Duration(milliseconds: 300),
   })  : _tokenStore = tokenStore,
@@ -71,6 +71,12 @@ class AuthedClient {
 
   /// Refresh the access token this far BEFORE its real expiry, to avoid racing a
   /// just-expired token.
+  ///
+  /// 90s, not a few seconds: our users are on 2G/3G where a single request can
+  /// itself take 10-30s. A token that passes the pre-flight check can still
+  /// expire IN FLIGHT on a slow link, costing a 401 + refresh + retry round-trip
+  /// (and a visible stall). The skew must comfortably exceed worst-case request
+  /// latency, so it is sized against the network, not against clock drift.
   final Duration refreshSkew;
 
   /// Bounded transport retries for an idempotent write (same Idempotency-Key).

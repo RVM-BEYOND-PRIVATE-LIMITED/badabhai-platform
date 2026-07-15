@@ -28,6 +28,7 @@ import 'features/settings/presentation/settings_screen.dart';
 import 'features/resume/presentation/building_screen.dart';
 import 'features/resume/presentation/resume_edit_screen.dart';
 import 'features/resume/presentation/resume_preview_screen.dart';
+import 'features/swipe/domain/job_detail.dart';
 import 'features/swipe/presentation/job_detail_screen.dart';
 import 'features/swipe/presentation/swipe_jobs_screen.dart';
 
@@ -262,8 +263,12 @@ GoRouter _buildRouter() {
                   GoRoute(
                     path: 'detail/:jobId',
                     parentNavigatorKey: _rootNavKey, // full-screen, no bar
+                    // The REAL job rides as typed `extra` from the row that was
+                    // tapped (feed / applied). There is no worker-facing
+                    // job-detail route, so the row's data IS the source of
+                    // truth — the screen never synthesises anything.
                     builder: (_, GoRouterState s) =>
-                        JobDetailScreen(jobId: s.pathParameters['jobId']!),
+                        JobDetailScreen(detail: s.extra! as JobDetail),
                   ),
                 ],
               ),

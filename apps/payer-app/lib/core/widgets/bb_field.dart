@@ -20,6 +20,7 @@ class BbField extends StatelessWidget {
     this.mono = false,
     this.readOnly = false,
     this.fieldKey,
+    this.autofillHints,
   });
 
   final String? label;
@@ -30,6 +31,10 @@ class BbField extends StatelessWidget {
   final bool mono;
   final bool readOnly;
   final Key? fieldKey;
+
+  /// OS autofill hints (e.g. `[AutofillHints.oneTimeCode]` on an OTP field so the
+  /// keyboard can surface the code). Null for ordinary fields.
+  final List<String>? autofillHints;
 
   @override
   Widget build(BuildContext context) {
@@ -52,6 +57,7 @@ class BbField extends StatelessWidget {
           controller: controller,
           readOnly: readOnly,
           keyboardType: keyboardType,
+          autofillHints: autofillHints,
           style: mono
               ? AppTypography.mono(size: AppTypography.sizeBase, weight: FontWeight.w600)
               : AppTypography.body(size: AppTypography.sizeBase),

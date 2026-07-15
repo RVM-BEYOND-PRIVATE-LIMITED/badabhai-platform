@@ -9,7 +9,6 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/util/pdf_launcher.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
-import '../../../core/widgets/bb_festive_card.dart';
 import '../../../core/widgets/bb_scaffold.dart';
 import '../../../router.dart';
 import 'cubit/resume_cubit.dart';
@@ -47,89 +46,60 @@ class _ResumeView extends StatelessWidget {
       builder: (BuildContext context, ResumeState state) {
         return BbScaffold(
           appBar: const BbAppBar(title: 'Your resume'),
-          bottomBar: state.status == ResumeStatus.ready ? _actions(context) : null,
           body: switch (state.status) {
             ResumeStatus.loading =>
               const Center(child: CircularProgressIndicator()),
             ResumeStatus.noProfile => _buildNoProfile(context),
             ResumeStatus.failed => _buildFailed(context),
-            ResumeStatus.ready => _buildResume(state.resumeText),
+            ResumeStatus.ready => _buildResume(context, state.resumeText),
           },
         );
       },
     );
   }
 
-  Widget _actions(BuildContext context) {
-    // Download the resume PDF (GET /resume/:id/download — real, worker-authed),
-    // then the safe-field edit entry-point.
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        const _DownloadResumeButton(),
-        const SizedBox(height: AppSpacing.s2),
-        BbButton(
-          label: 'Naam / photo / phone edit karein',
-          block: true,
-          variant: BbButtonVariant.ghost,
-          iconLeft: Icons.edit_outlined,
-          onPressed: () => context.push(Routes.resumeEdit),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildResume(String resumeText) {
+  Widget _buildResume(BuildContext context, String resumeText) {
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
       children: <Widget>[
-        _buildHeader(),
-        const SizedBox(height: AppSpacing.s5),
         Card(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.s4),
-            child: Text(
-              resumeText,
-              style: AppTypography.body(size: AppTypography.sizeMd),
-            ),
+          // A clearer lift than the default card so the resume stands out on the
+          // paper background.
+          elevation: 6,
+          shadowColor: AppColors.ink900.withValues(alpha: 0.18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.s4),
+                child: Text(
+                  resumeText,
+                  style: AppTypography.body(size: AppTypography.sizeMd),
+                ),
+              ),
+              const Divider(height: 1, color: AppColors.divider),
+              // In-card actions: download the PDF (GET /resume/:id/download —
+              // real, worker-authed) + the safe-field edit entry-point.
+              Padding(
+                padding: const EdgeInsets.all(AppSpacing.s4),
+                child: Column(
+                  children: <Widget>[
+                    const _DownloadResumeButton(),
+                    const SizedBox(height: AppSpacing.s2),
+                    BbButton(
+                      label: 'Edit resume',
+                      block: true,
+                      variant: BbButtonVariant.ghost,
+                      iconLeft: Icons.edit_outlined,
+                      onPressed: () => context.push(Routes.resumeEdit),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ],
-    );
-  }
-
-  /// Celebratory festive header — the "stamp" moment when the resume is ready.
-  Widget _buildHeader() {
-    return BbFestiveCard(
-      child: Row(
-        children: <Widget>[
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: AppColors.saffron50,
-              borderRadius: BorderRadius.circular(AppRadii.md),
-            ),
-            child: const Icon(Icons.description_rounded,
-                color: AppColors.saffronDeep, size: 28),
-          ),
-          const SizedBox(width: AppSpacing.s4),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text('Resume ready! 👍',
-                    style: AppTypography.display(size: AppTypography.sizeLg)),
-                const SizedBox(height: 2),
-                Text(
-                  'Free, and yours to share.',
-                  style: AppTypography.body(color: AppColors.textSecondary),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -212,7 +182,7 @@ class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
   @override
   Widget build(BuildContext context) {
     return BbButton(
-      label: 'PDF download karein',
+      label: 'Download Resume',
       block: true,
       iconLeft: Icons.download_rounded,
       loading: _loading,

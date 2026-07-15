@@ -12,6 +12,7 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_scaffold.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../router.dart';
+import '../../profile_tab/domain/profile_summary.dart';
 import 'cubit/profile_cubit.dart';
 
 class ProfilePreviewScreen extends StatelessWidget {
@@ -58,7 +59,7 @@ class _ProfileView extends StatelessWidget {
             ProfileStatus.failed => _buildFailed(context, state),
             ProfileStatus.ready ||
             ProfileStatus.confirmed =>
-              _buildProfile(),
+              _buildProfile(state.summary),
           },
         );
       },
@@ -101,25 +102,54 @@ class _ProfileView extends StatelessWidget {
     );
   }
 
-  Widget _buildProfile() {
+  /// Renders the REAL extracted profile read back from the summary route. Every
+  /// value is actual data or an honest "being finalised" note — never a
+  /// fabricated placeholder (the worker confirms what they can actually see).
+  Widget _buildProfile(ProfileSummary? summary) {
+    if (summary == null) {
+      // Extraction succeeded but the summary read missed. Be honest — no fake
+      // rows — and still let the worker confirm (the profile does exist).
+      return ListView(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
+        children: <Widget>[
+          const _ProfileRow(
+              icon: Icons.check_circle_outline,
+              label: 'Profile',
+              value: 'Ready'),
+          const SizedBox(height: AppSpacing.s3),
+          Text(
+            'Details abhi dikh nahi paa rahe — aap confirm karke aage badh sakte hain.',
+            style: AppTypography.body(color: AppColors.textSecondary),
+          ),
+        ],
+      );
+    }
+
+    final String trade = (summary.tradeLabel?.isNotEmpty ?? false)
+        ? summary.tradeLabel!
+        : 'Tayyar ho raha hai…';
+    final int pct = (summary.strength.clamp(0, 1) * 100).round();
+    final String? city =
+        (summary.city?.isNotEmpty ?? false) ? summary.city : null;
+
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
       children: <Widget>[
-        Text('Draft profile (placeholder data):',
+        Text('Aapki profile:',
             style: AppTypography.body(color: AppColors.textSecondary)),
         const SizedBox(height: AppSpacing.s4),
-        const _ProfileRow(
-            icon: Icons.badge_outlined, label: 'Role', value: 'VMC Operator'),
+        _ProfileRow(
+            icon: Icons.badge_outlined, label: 'Trade', value: trade),
+        if (city != null) ...<Widget>[
+          const SizedBox(height: AppSpacing.s3),
+          _ProfileRow(
+              icon: Icons.place_outlined, label: 'City', value: city),
+        ],
         const SizedBox(height: AppSpacing.s3),
-        const _ProfileRow(
-            icon: Icons.timeline_outlined,
-            label: 'Experience',
-            value: '5 years'),
-        const SizedBox(height: AppSpacing.s3),
-        const _ProfileRow(
-            icon: Icons.precision_manufacturing_outlined,
-            label: 'Machines',
-            value: 'VMC, CNC Lathe'),
+        _ProfileRow(
+            icon: Icons.insights_outlined,
+            label: 'Profile strength',
+            value: '$pct% complete'),
       ],
     );
   }

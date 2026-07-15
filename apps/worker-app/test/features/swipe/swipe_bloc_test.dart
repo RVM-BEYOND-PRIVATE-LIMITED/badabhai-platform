@@ -206,28 +206,6 @@ void main() {
           verify(() => repo.skipJob('j1', reason: 'not_interested')).called(1),
     );
 
-    blocTest<SwipeBloc, SwipeState>(
-      'prioritize (up-swipe) records intent, advances, bumps prioritizedNonce',
-      build: () {
-        when(() => repo.prioritizeJob(any())).thenAnswer((_) async {});
-        return SwipeBloc(repo);
-      },
-      seed: () => SwipeState(
-          status: SwipeStatus.ready,
-          queue: <FeedItem>[_item('j1'), _item('j2')]),
-      act: (SwipeBloc b) => b.add(const SwipePrioritized()),
-      expect: () => <SwipeState>[
-        SwipeState(
-            status: SwipeStatus.ready,
-            queue: <FeedItem>[_item('j1'), _item('j2')],
-            deciding: true),
-        SwipeState(
-            status: SwipeStatus.ready,
-            queue: <FeedItem>[_item('j2')],
-            prioritizedNonce: 1),
-      ],
-      verify: (_) => verify(() => repo.prioritizeJob('j1')).called(1),
-    );
   });
 
   group('filter-change race mid-decision (regression)', () {
