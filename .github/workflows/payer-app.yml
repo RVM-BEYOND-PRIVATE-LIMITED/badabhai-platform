@@ -1,0 +1,56 @@
+name: Payer app
+
+# BLOCKING gate for the Flutter payer/agency app (apps/payer-app) — the mirror of
+# `worker-app.yml`. Runs ONLY on changes under apps/payer-app (or this workflow),
+# so unrelated PRs don't pay the Flutter cost and don't wait on it. A red check
+# here means: do not merge.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/payer-app/**"
+      - ".github/workflows/payer-app.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/payer-app/**"
+      - ".github/workflows/payer-app.yml"
+
+concurrency:
+  group: payer-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze-test:
+    name: Payer app (analyze / test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/payer-app
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pin the Flutter version so CI is reproducible and the analyzer ruleset is
+      # stable. Bump deliberately, not implicitly via `channel: stable`.
+      #
+      # Kept in lockstep with `worker-app.yml` and with the version both apps are
+      # developed against (3.35.7 / Dart 3.9.2) — `pubspec.lock` floors Dart at
+      # >=3.8.0, so an older pin cannot even `pub get`.
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.35.7"
+          channel: stable
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      # BLOCKING: analyzer findings (error/warning/info) fail the build.
+      - name: Analyze
+        run: flutter analyze
+
+      # BLOCKING: the payer suite covers the auth/session seam, the unlock flow,
+      # and the REAL-vs-mock client boundary. Do not silently disable.
+      - name: Test
+        run: flutter test
