@@ -232,9 +232,14 @@ async def embed_skill_aliases(body: SkillAliasEmbedInput) -> SkillAliasEmbedOutp
     - TD68 (TD27 SpendLedger wiring): the projected batch cost is atomically
       check-AND-RESERVED (``would_exceed_spend``) BEFORE any provider call, so embed
       spend shares the daily / cumulative / per-user-global (Redis) INR caps with every
-      other real call. A block returns immediately with ``budget_stopped=True`` and NO
-      results (rows stay NULL — the runner resumes later). After the batch the
-      reservation is reconciled to the ACTUAL accumulated estimate (``record_spend``).
+      other real call. When the FULL batch's reserve blocks, the item prefix is HALVED
+      and re-reserved (loop, floor 1 — #238 F3: an all-or-nothing reserve would starve
+      fixed-size runner batches until UTC midnight once remaining headroom < one
+      batch); the affordable prefix is embedded and returned with
+      ``budget_stopped=True`` (results shorter than items — the runner resumes the
+      rest). Only if not even ONE item fits does the request return NO results (rows
+      stay NULL). After the batch the reservation is reconciled to the ACTUAL
+      accumulated estimate (``record_spend``).
     - Per-request INR ceiling (belt + suspenders under the ledger): real-embed cost is
       accumulated UNROUNDED per item (alias texts are ~3-token strings whose
       individually-rounded estimate is 0.0) against ``ai_max_call_cost_inr``; on breach
@@ -251,14 +256,31 @@ async def embed_skill_aliases(body: SkillAliasEmbedInput) -> SkillAliasEmbedOutp
     # TD68: all ledger awaits happen HERE on the handler's own loop (the ledger
     # singleton's Redis backend binds to the running loop — never asyncio.run /
     # a new loop from the worker thread).
+    items: list[SkillAliasEmbedItem] = list(body.items)
     reserved_inr = 0.0
+    ledger_truncated = False
     if not is_mock:
-        projected = (
-            sum(cost_tracker.estimate_tokens(item.text) for item in body.items) / 1000.0
-        ) * in_rate
-        reason = await cost_tracker.get_ledger().would_exceed_spend(projected, settings)
+
+        def _projected(prefix: list[SkillAliasEmbedItem]) -> float:
+            return (
+                sum(cost_tracker.estimate_tokens(item.text) for item in prefix) / 1000.0
+            ) * in_rate
+
+        ledger = cost_tracker.get_ledger()
+        projected = _projected(items)
+        reason = await ledger.would_exceed_spend(projected, settings)
+        # #238 F3: an all-or-nothing reserve STARVES the corpus embed once the
+        # remaining daily headroom is smaller than one fixed-size runner batch
+        # (identical block until UTC midnight). Halve the item prefix and re-reserve
+        # (floor 1); the affordable prefix is embedded and returned as partial
+        # results + budget_stopped=True — the runner resumes the rest.
+        while reason is not None and len(items) > 1:
+            items = items[: len(items) // 2]
+            ledger_truncated = True
+            projected = _projected(items)
+            reason = await ledger.would_exceed_spend(projected, settings)
         if reason is not None:
-            # Counts only — never alias text.
+            # Not even ONE item fits. Counts only — never alias text.
             logger.warning(
                 "embed skill-alias batch blocked by spend ledger",
                 extra={
@@ -278,6 +300,14 @@ async def embed_skill_aliases(body: SkillAliasEmbedInput) -> SkillAliasEmbedOutp
                 estimated_cost_inr=0.0,
             )
         reserved_inr = projected
+        if ledger_truncated:
+            # Counts only — the runner resumes the omitted suffix on a later run.
+            logger.warning(
+                "embed skill-alias batch truncated by spend ledger",
+                extra={
+                    "extra": {"items": len(body.items), "affordable": len(items)}
+                },
+            )
 
     results: list[SkillAliasEmbedResult] = []
     cost_inr = 0.0
@@ -285,7 +315,7 @@ async def embed_skill_aliases(body: SkillAliasEmbedInput) -> SkillAliasEmbedOutp
     budget_stopped = False
     try:
         results, cost_inr, errors, budget_stopped = await asyncio.to_thread(
-            _embed_batch_sync, list(body.items), settings, is_mock, in_rate
+            _embed_batch_sync, items, settings, is_mock, in_rate
         )
     finally:
         if not is_mock:
@@ -293,6 +323,9 @@ async def embed_skill_aliases(body: SkillAliasEmbedInput) -> SkillAliasEmbedOutp
             # recorded on every counter; if the batch raised, cost_inr stayed 0.0 =>
             # full refund — no path leaks a reservation. record_spend never raises.
             await cost_tracker.get_ledger().record_spend(reserved_inr, cost_inr)
+    # A ledger-truncated request is budget-stopped from the caller's view: results
+    # are shorter than items and the omitted suffix stays NULL for a later run.
+    budget_stopped = budget_stopped or ledger_truncated
     logger.info(
         "embed skill-alias batch",
         extra={
@@ -455,12 +488,17 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
     #    would mis-advance the state (the confused topic lands in asked_question_ids
     #    and _next_topic skips it forever, ESSENTIAL_TOPICS included) and hand the
     #    NEXT question to the rephrase branch instead of the confusing one.
-    #    clarify_turn re-serves the LAST asked question (turn_count is the only state
-    #    advance, so the topic stays re-askable); when there is nothing to re-serve
-    #    (no state / nothing asked yet) it returns None and the engine runs normally.
+    #    clarify_turn re-serves the LAST asked question (turn_count + clarify_count
+    #    are the only state advances, so the topic stays re-askable). It refuses —
+    #    None, engine runs normally — when there is nothing to re-serve, when the
+    #    message carries an extractable ANSWER (answer-trumps-clarify: the predicate
+    #    has false-positive classes like "Fanuc?" / "2 saal?" that must never eat an
+    #    answer, #238 HIGH), or when the consecutive clarify budget (2) is spent.
     is_clarify = interview_engine.needs_rephrase(body.message_text)
     turn = (
-        interview_engine.clarify_turn(body.conversation_state, body.role_family)
+        interview_engine.clarify_turn(
+            body.conversation_state, body.message_text, body.role_family
+        )
         if is_clarify
         else None
     )
@@ -588,7 +626,11 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
             reserved_inr = (
                 sum(cost_tracker.estimate_tokens(label) for label in labels) / 1000.0
             ) * in_rate
-            reason = await cost_tracker.get_ledger().would_exceed_spend(reserved_inr, settings)
+            # user_ref attributes this spend to the worker's per-user daily cap —
+            # same attribution as the sibling router.run call above (#238 F2).
+            reason = await cost_tracker.get_ledger().would_exceed_spend(
+                reserved_inr, settings, user_ref=body.worker_ref
+            )
             if reason is not None:
                 ledger_blocked = True
                 reserved_inr = 0.0  # nothing was reserved on a block
@@ -617,7 +659,9 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
             finally:
                 if reserved_inr > 0.0:
                     # On a raise, actual_inr stayed 0.0 => full refund (no leak).
-                    await cost_tracker.get_ledger().record_spend(reserved_inr, actual_inr)
+                    await cost_tracker.get_ledger().record_spend(
+                        reserved_inr, actual_inr, user_ref=body.worker_ref
+                    )
             for sid in assigned:
                 if sid not in legacy.skills:
                     legacy.skills.append(sid)

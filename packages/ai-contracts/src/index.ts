@@ -67,6 +67,13 @@ export const ConversationStateSchema = z.object({
   answered_topics: z.array(z.string()).default([]),
   asked_question_ids: z.array(z.string()).default([]),
   collected: z.record(z.string(), z.unknown()).default({}),
+  /**
+   * COST-4 clarify bound (additive, defaulted => backward compatible; mirrors
+   * contracts.py ConversationState): CONSECUTIVE clarify re-serves of the same
+   * question. The engine's clarify_turn increments it and refuses past 2 (falls
+   * through to next_turn); every next_turn resets it to 0.
+   */
+  clarify_count: z.number().int().nonnegative().default(0),
 });
 export type ConversationState = z.infer<typeof ConversationStateSchema>;
 

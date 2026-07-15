@@ -174,7 +174,10 @@ def test_real_path_ledger_block_stops_batch_before_any_embed(monkeypatch):
     assert body["is_mock"] is False
     assert body["estimated_cost_inr"] == 0.0
     assert embed_calls == []  # blocked BEFORE any provider call
-    assert len(fake.reserves) == 1 and fake.reserves[0] > 0  # projected batch cost
+    # #238 F3 halving: full batch (2 items) blocked, then the 1-item prefix retried
+    # and blocked too -> descending projections, then a full stop.
+    assert len(fake.reserves) == 2
+    assert fake.reserves[0] > fake.reserves[1] > 0
     assert fake.records == []  # a block reserves nothing -> nothing to reconcile
 
 
@@ -197,6 +200,43 @@ def test_real_path_success_records_actual_spend_on_ledger(monkeypatch):
     assert reserved == pytest.approx(fake.reserves[0])  # the same reservation reconciled
     assert actual > 0  # the accumulated (unrounded) estimate was recorded
     assert actual == pytest.approx(body["estimated_cost_inr"], abs=1e-6)
+
+
+def test_real_path_ledger_block_halves_to_the_affordable_prefix(monkeypatch):
+    # #238 F3: when the FULL batch's reserve blocks but a smaller prefix fits, the
+    # endpoint embeds the affordable prefix and returns PARTIAL results with
+    # budget_stopped=True (the runner resumes the omitted suffix) — instead of
+    # starving fixed-size runner batches until UTC midnight.
+    _force_real(monkeypatch)
+
+    class _CapLedger(_FakeLedger):
+        """Blocks any reserve whose projection exceeds the cap (headroom model)."""
+
+        def __init__(self, cap_inr: float) -> None:
+            super().__init__()
+            self.cap_inr = cap_inr
+
+        async def would_exceed_spend(self, projected_inr, settings, *, user_ref=None):
+            self.reserves.append(projected_inr)
+            return "daily_cap_exceeded" if projected_inr > self.cap_inr else None
+
+    # 4 x 1-token items at Rs 0.0125/1k tokens: full batch projects 5e-05 INR;
+    # the cap admits exactly the 2-item half (2.5e-05).
+    fake = _CapLedger(cap_inr=3e-05)
+    monkeypatch.setattr(cost_tracker, "get_ledger", lambda: fake)
+    monkeypatch.setattr(embeddings, "_real_embedding", lambda t, s: [0.1] * 768)
+    items = [{"alias_id": f"a{i}", "text": "milling"} for i in range(4)]
+    resp = client.post("/embeddings/skill-alias", json={"items": items})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["budget_stopped"] is True  # partial => the runner resumes the rest
+    assert [r["alias_id"] for r in body["results"]] == ["a0", "a1"]  # affordable prefix
+    assert body["estimated_cost_inr"] > 0
+    assert len(fake.reserves) == 2  # full blocked, half accepted
+    assert len(fake.records) == 1
+    reserved, actual = fake.records[0]
+    assert reserved == pytest.approx(fake.reserves[-1])  # the ACCEPTED half reconciled
+    assert actual > 0
 
 
 def test_mock_path_never_touches_the_ledger(monkeypatch):

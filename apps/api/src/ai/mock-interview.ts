@@ -54,6 +54,9 @@ function freshState(roleFamily: string): ConversationState {
     answered_topics: [],
     asked_question_ids: [],
     collected: {},
+    // COST-4 clarify bound (additive contract field). The API-side mock advances
+    // every turn (it has no clarify path), so the streak counter stays 0 here.
+    clarify_count: 0,
   };
 }
 
@@ -72,6 +75,9 @@ export function mockProfilingTurn(
     : freshState(roleFamily);
   st.role_family = roleFamily;
   st.turn_count += 1;
+  // Mirrors the engine: every ADVANCE ends a clarify streak (this mock has no
+  // clarify path, so the counter never grows here either).
+  st.clarify_count = 0;
 
   // Optimistically mark the previously-asked (still-open) topic as answered so
   // the interview progresses. (The real engine derives this from the message.)
