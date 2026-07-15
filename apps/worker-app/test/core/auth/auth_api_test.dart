@@ -196,6 +196,67 @@ void main() {
         result.tokens.accessExpiresAt.isAfter(DateTime.now()),
         isTrue,
       );
+      // TD62 tri-state: the field is ABSENT above (old server) → null, NEVER a
+      // defaulted true/false.
+      expect(result.consentAccepted, isNull);
+    });
+
+    test('otpVerify parses a PRESENT consent_accepted (TD62, both values)',
+        () async {
+      Future<OtpVerifyResult> parse(bool value) async {
+        final AuthApi api = _api(MockClient((http.Request req) async {
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'worker_id': 'w-1',
+              'is_new_worker': false,
+              'pin_set': true,
+              'access_token': 'a-1',
+              'refresh_token': 'r-1',
+              'expires_in_seconds': 900,
+              'consent_accepted': value,
+            }),
+            200,
+          );
+        }));
+        return api.otpVerify('+910000000000', '123456');
+      }
+
+      expect((await parse(true)).consentAccepted, isTrue);
+      expect((await parse(false)).consentAccepted, isFalse);
+    });
+
+    test('pinVerify parses tokens + tri-state consent_accepted (TD62)',
+        () async {
+      final AuthApi withField = _api(MockClient((http.Request req) async {
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'access_token': 'a-2',
+            'refresh_token': 'r-2',
+            'expires_in_seconds': 900,
+            'consent_accepted': false,
+          }),
+          200,
+        );
+      }));
+      final PinVerifyResult present =
+          await withField.pinVerify('1234', refreshToken: 'r');
+      expect(present.tokens.access, 'a-2');
+      expect(present.tokens.refresh, 'r-2');
+      expect(present.consentAccepted, isFalse);
+
+      final AuthApi withoutField = _api(MockClient((http.Request req) async {
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'access_token': 'a-3',
+            'refresh_token': 'r-3',
+            'expires_in_seconds': 900,
+          }),
+          200,
+        );
+      }));
+      final PinVerifyResult absent =
+          await withoutField.pinVerify('1234', refreshToken: 'r');
+      expect(absent.consentAccepted, isNull); // old server → unknown, not false
     });
 
     test('otpVerify sends device_info bound to the X-Device-Id device id',

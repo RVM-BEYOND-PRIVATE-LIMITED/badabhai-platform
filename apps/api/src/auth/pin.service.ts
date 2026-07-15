@@ -296,6 +296,11 @@ export class PinService {
               ? null
               : new Date(minted.session.requiresOtpAfterMs).toISOString(),
         },
+        // TD62 — ADDITIVE consent signal for client-side consent routing, derived
+        // from the consent row the A5 gate above ALREADY fetched (no extra query).
+        // A revoked consent threw the neutral 401 before reaching here, so the only
+        // cases left are never-consented (false) and active (true).
+        consent_accepted: consent != null && consent.revokedAt === null,
       };
     }
 

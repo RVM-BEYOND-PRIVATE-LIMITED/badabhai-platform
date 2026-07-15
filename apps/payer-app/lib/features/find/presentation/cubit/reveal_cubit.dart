@@ -35,6 +35,10 @@ class RevealCubit extends Cubit<RevealState> {
 
   /// Fetch the signed MASKED-résumé URL for [workerId]. Returns the typed result
   /// so the screen can open/copy the URL on success or toast the neutral deny.
+  ///
+  /// A thrown [PayerApiException]/transport failure is an OUTAGE, not a deny —
+  /// it emits [DisclosureStatus.error] (retryable copy), never `unavailable`
+  /// (the neutral-deny copy is reserved for the genuine 200-deny).
   Future<DisclosureResult> discloseResume({
     required String workerId,
     String? jobPostingId,
@@ -52,7 +56,7 @@ class RevealCubit extends Cubit<RevealState> {
       ));
       return result;
     } catch (_) {
-      emit(state.copyWith(disclosure: DisclosureStatus.unavailable));
+      emit(state.copyWith(disclosure: DisclosureStatus.error));
       return const DisclosureResult.unavailable();
     }
   }
@@ -77,7 +81,7 @@ class RevealCubit extends Cubit<RevealState> {
 
 enum RevealStatus { initial, loading, ready, unavailable, error }
 
-enum DisclosureStatus { idle, loading, ready, unavailable }
+enum DisclosureStatus { idle, loading, ready, unavailable, error }
 
 enum DisclosureHistoryStatus { idle, loading, ready, error }
 

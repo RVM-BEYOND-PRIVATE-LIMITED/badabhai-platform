@@ -141,6 +141,34 @@ describe("AuthController", () => {
     expect(res.pin_set).toBe(false);
   });
 
+  // ---- TD62 — additive consent_accepted on the login response ----
+
+  it("verifyOtp: NEVER-consented worker (no row) → consent_accepted false", async () => {
+    const { controller, consents } = make();
+    (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+    const res = await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, CTX);
+    expect(consents.findLatestByWorker).toHaveBeenCalledWith(WORKER.id);
+    expect(res.consent_accepted).toBe(false);
+  });
+
+  it("verifyOtp: ACTIVE consent (revokedAt null) → consent_accepted true", async () => {
+    const { controller, consents } = make();
+    (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      revokedAt: null,
+    });
+    const res = await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, CTX);
+    expect(res.consent_accepted).toBe(true);
+  });
+
+  it("verifyOtp: REVOKED consent → consent_accepted false (client routes back to /consent)", async () => {
+    const { controller, consents } = make();
+    (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      revokedAt: new Date(),
+    });
+    const res = await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, CTX);
+    expect(res.consent_accepted).toBe(false);
+  });
+
   it("me returns the authed worker id + status (no PII)", async () => {
     const { controller } = make();
     const res = await controller.me(WORKER);

@@ -44,14 +44,21 @@ class _FindView extends StatelessWidget {
 
   final ValueChanged<RevealArgs> onReveal;
 
+  /// The credits-after preview for the unlock dialog. An error-state / unknown
+  /// balance is `null` (rendered '—') — NEVER a fabricated 0 (#189 fast-follow).
+  static int? _creditsAfter(CreditsState state) {
+    final int? balance = state.error ? null : state.balance;
+    if (balance == null) return null;
+    return (balance - 1).clamp(0, balance);
+  }
+
   // --- MOCK unlock (int id, in-memory spend) --------------------------------
   Future<void> _unlockCandidate(BuildContext context, Candidate candidate) async {
     final CreditsCubit credits = locator<CreditsCubit>();
-    final int balance = credits.state ?? 0;
     final bool? confirmed = await showUnlockDialog(
       context,
       shownName: NameMask.redacted(candidate.name),
-      creditsAfter: (balance - 1).clamp(0, balance),
+      creditsAfter: _creditsAfter(credits.state),
     );
     if (confirmed != true || !context.mounted) return;
     await credits.unlock(candidate.id);
@@ -69,11 +76,10 @@ class _FindView extends StatelessWidget {
   Future<void> _unlockApplicant(BuildContext context, Applicant applicant) async {
     final FindCubit cubit = context.read<FindCubit>();
     final CreditsCubit credits = locator<CreditsCubit>();
-    final int balance = credits.state ?? 0;
     final bool? confirmed = await showUnlockDialog(
       context,
       shownName: applicant.maskedLabel,
-      creditsAfter: (balance - 1).clamp(0, balance),
+      creditsAfter: _creditsAfter(credits.state),
     );
     if (confirmed != true || !context.mounted) return;
 

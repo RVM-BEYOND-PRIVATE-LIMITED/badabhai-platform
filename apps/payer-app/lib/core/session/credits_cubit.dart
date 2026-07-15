@@ -1,34 +1,66 @@
+import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../data/payer_api_client.dart';
+
+/// App-wide credit balance state. `balance` is `null` before the first
+/// successful load; `error` flags a failed refresh (transport/5xx).
+///
+/// FAST-FOLLOW (#189 merge review): a fetch failure must NEVER masquerade as a
+/// real "0 credits" — on error the last-known balance is kept and `error` is
+/// set, so the Home stat and the Find unlock-dialog math render an honest
+/// unknown ('—') instead of 0 during an outage.
+class CreditsState extends Equatable {
+  const CreditsState({this.balance, this.error = false});
+
+  /// Server-truth balance, or `null` when never loaded / unknown.
+  final int? balance;
+
+  /// True when the LAST refresh failed — the UI shows '—' + a retry affordance.
+  final bool error;
+
+  @override
+  List<Object?> get props => <Object?>[balance, error];
+}
 
 /// App-wide credit balance. A single instance is shared so Home, Find, the
 /// unlock dialog, and the Credits screen all read the same number (server-truth
 /// in the real impl; in-memory in the mock).
 ///
-/// State is the current balance; `null` before the first load AND after a failed
-/// load — the balance is never faked to 0 (`fetchCredits` throws on a non-2xx),
-/// so the UI renders "—" instead of claiming the payer has no credits.
-class CreditsCubit extends Cubit<int?> {
-  CreditsCubit(this._api) : super(null);
+/// READ + spend only: the buy-credits surface was stripped by the production
+/// hardening pass (#233 — no payment provider behind it), so there is no buy()
+/// here.
+class CreditsCubit extends Cubit<CreditsState> {
+  CreditsCubit(this._api) : super(const CreditsState());
 
   final PayerApiClient _api;
 
-  /// Re-reads the server-truth balance. A failure leaves the last known value
-  /// (or `null` → "—") rather than emitting a fabricated 0.
+  /// Refresh from server truth via the GUARDED [PayerApiClient.fetchCreditBalance]
+  /// (throws on any non-2xx). On failure: keep the last-known balance, set
+  /// `error` — never emit a fabricated 0.
   Future<void> load() async {
     try {
-      emit(await _api.fetchCredits());
+      final int balance = await _api.fetchCreditBalance();
+      emit(CreditsState(balance: balance));
     } catch (_) {
-      // Keep the prior value; the balance UI shows "—" while it is unknown.
+      emit(CreditsState(balance: state.balance, error: true));
     }
   }
 
-  /// Spend 1 credit to unlock a candidate; emits the new balance.
+  /// Spend 1 credit to unlock a candidate, then re-read server truth through
+  /// the guarded [load] — the value returned by `unlockCandidate` is
+  /// deliberately NOT trusted (its internal credits re-read can mask a
+  /// failure as 0).
   ///
   /// MOCK-ONLY (int-keyed): the real flow goes through `FindCubit.unlockApplicant`
   /// → `POST /payer/unlocks` with the opaque worker UUID, then re-reads [load].
   Future<void> unlock(int candidateId) async {
-    emit(await _api.unlockCandidate(candidateId));
+    try {
+      await _api.unlockCandidate(candidateId);
+    } catch (_) {
+      emit(CreditsState(balance: state.balance, error: true));
+      return;
+    }
+    await load();
   }
 }

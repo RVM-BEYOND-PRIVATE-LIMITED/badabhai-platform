@@ -2,11 +2,15 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
+import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/consent/domain/consent_repository.dart';
 import 'package:badabhai_worker_app/features/consent/presentation/cubit/consent_cubit.dart';
 
 class MockConsentRepository extends Mock implements ConsentRepository {}
+
+class MockAuthSessionManager extends Mock implements AuthSessionManager {}
 
 void main() {
   setUpAll(() => registerFallbackValue(const <String>[]));
@@ -49,6 +53,30 @@ void main() {
         purposes: <String>['profiling', 'resume_generation'],
       ),
     ).called(1),
+  );
+
+  // TD62: a successful consent submit must release the router's consent gate
+  // via AuthSessionManager.markConsentAccepted (resolved through the locator —
+  // guarded, so the plain-cubit tests above run without any registration).
+  blocTest<ConsentCubit, ConsentState>(
+    'submit success calls AuthSessionManager.markConsentAccepted (TD62)',
+    build: () {
+      when(() => repo.acceptConsent(purposes: any(named: 'purposes')))
+          .thenAnswer((_) async {});
+      final MockAuthSessionManager auth = MockAuthSessionManager();
+      locator.registerSingleton<AuthSessionManager>(auth);
+      addTearDown(() => locator.unregister<AuthSessionManager>());
+      return ConsentCubit(repo);
+    },
+    seed: () => const ConsentState(accepted: true),
+    act: (ConsentCubit c) => c.submit(),
+    expect: () => const <ConsentState>[
+      ConsentState(accepted: true, status: ConsentStatus.submitting),
+      ConsentState(accepted: true, status: ConsentStatus.success),
+    ],
+    verify: (_) =>
+        verify(() => locator<AuthSessionManager>().markConsentAccepted())
+            .called(1),
   );
 
   // The DPDP consent surface's only user-facing error path: a submit failure

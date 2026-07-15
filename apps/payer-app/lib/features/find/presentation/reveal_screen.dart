@@ -74,6 +74,17 @@ class _RealReveal extends StatelessWidget {
       jobPostingId: args.jobId,
     );
     if (!context.mounted) return;
+    // An OUTAGE (non-2xx/transport) is retryable — distinct from the neutral
+    // deny below, whose copy is reserved for the genuine 200 {unavailable}.
+    if (cubit.state.disclosure == DisclosureStatus.error) {
+      showBbToast(
+        context,
+        title: 'Something went wrong',
+        message: 'Could not fetch the résumé — try again.',
+        icon: Icons.refresh,
+      );
+      return;
+    }
     if (!result.disclosed) {
       showBbToast(
         context,

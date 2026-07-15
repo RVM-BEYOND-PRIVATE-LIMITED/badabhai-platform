@@ -101,11 +101,17 @@ export class AuthController {
 
   @Post("otp/verify")
   @HttpCode(200)
-  verifyOtp(
+  async verifyOtp(
     @Body(new ZodValidationPipe(OtpVerifySchema)) dto: OtpVerifyDto,
     @Ctx() ctx: RequestContext,
   ): Promise<LoginResponse> {
-    return this.auth.verifyOtp(dto.phone, dto.otp, ctx, dto.device_info);
+    const login = await this.auth.verifyOtp(dto.phone, dto.otp, ctx, dto.device_info);
+    // TD62 — ADDITIVE consent signal for the app's client-side consent routing
+    // (§6's server gate — ConsentGuard — is unchanged and still authoritative).
+    // Same pattern as the A5 check in tokenRefresh below: ACTIVE = a latest row
+    // exists and is not revoked. No event changes; the boolean is never PII.
+    const latest = await this.consents.findLatestByWorker(login.worker_id);
+    return { ...login, consent_accepted: latest != null && latest.revokedAt === null };
   }
 
   /** Current worker identity + status (worker-authenticated). */

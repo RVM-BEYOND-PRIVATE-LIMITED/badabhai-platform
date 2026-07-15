@@ -19,6 +19,10 @@ class ScriptAuthApi extends AuthApi {
 
   bool pinIsSet = false;
   bool isNewUser = true;
+
+  /// TD62 — the scripted `consent_accepted` the fake server returns on both
+  /// verify responses. Defaults null (old-server shape: field absent).
+  bool? consentAccepted;
   AuthFailure? throwOnVerify;
   AuthFailure? throwOnPinVerify;
   int logoutCalls = 0;
@@ -50,6 +54,7 @@ class ScriptAuthApi extends AuthApi {
       isNewUser: isNewUser,
       pinSet: pinIsSet,
       tokens: tokens,
+      consentAccepted: consentAccepted,
     );
   }
 
@@ -60,7 +65,8 @@ class ScriptAuthApi extends AuthApi {
   }
 
   @override
-  Future<AuthTokens> pinVerify(String pin, {required String refreshToken}) async {
+  Future<PinVerifyResult> pinVerify(String pin,
+      {required String refreshToken}) async {
     if (throwOnPinVerify != null) throw throwOnPinVerify!;
     final AuthTokens tokens = _mint('access-unlock', 'refresh-2');
     await _store.saveTokens(
@@ -68,7 +74,7 @@ class ScriptAuthApi extends AuthApi {
       accessExpiresAt: tokens.accessExpiresAt,
       accessToken: tokens.access,
     );
-    return tokens;
+    return PinVerifyResult(tokens: tokens, consentAccepted: consentAccepted);
   }
 
   @override
@@ -133,8 +139,9 @@ class _NonPersistingApi extends AuthApi {
       );
 
   @override
-  Future<AuthTokens> pinVerify(String pin, {required String refreshToken}) async =>
-      _mint('access-pin-np', 'refresh-pin-np');
+  Future<PinVerifyResult> pinVerify(String pin,
+          {required String refreshToken}) async =>
+      PinVerifyResult(tokens: _mint('access-pin-np', 'refresh-pin-np'));
 
   @override
   Future<AuthTokens> tokenRefresh(String refreshToken) async =>
@@ -399,6 +406,86 @@ void main() {
       expect(await store.readRefreshToken(), isNull);
       expect(await store.readWorkerId(), isNull);
       off.dispose();
+    });
+  });
+
+  group('TD62: consentAccepted tri-state + markConsentAccepted', () {
+    test('verifyOtp populates consentAccepted=false from the server signal',
+        () async {
+      api
+        ..isNewUser = false
+        ..pinIsSet = true
+        ..consentAccepted = false;
+      await manager.verifyOtp('+91999', '1234');
+      expect(manager.status, AuthStatus.authenticated);
+      expect(manager.consentAccepted, isFalse);
+    });
+
+    test('verifyOtp with an OLD server (field absent) leaves it null', () async {
+      api
+        ..isNewUser = false
+        ..pinIsSet = true
+        ..consentAccepted = null;
+      await manager.verifyOtp('+91999', '1234');
+      expect(manager.consentAccepted, isNull);
+    });
+
+    test('unlockWithPin populates consentAccepted from the PIN response',
+        () async {
+      await store.writeRefreshToken('refresh-1');
+      await store.writeWorkerId('worker-9');
+      await manager.bootstrap();
+      api.consentAccepted = true;
+
+      await manager.unlockWithPin('7416');
+
+      expect(manager.consentAccepted, isTrue);
+    });
+
+    test('markConsentAccepted flips false -> true and notifies listeners',
+        () async {
+      api
+        ..isNewUser = false
+        ..pinIsSet = true
+        ..consentAccepted = false;
+      await manager.verifyOtp('+91999', '1234');
+      expect(manager.consentAccepted, isFalse);
+
+      int notifies = 0;
+      manager.addListener(() => notifies++);
+      manager.markConsentAccepted();
+
+      expect(manager.consentAccepted, isTrue);
+      expect(notifies, 1);
+      // Idempotent: a second call does not re-notify.
+      manager.markConsentAccepted();
+      expect(notifies, 1);
+    });
+
+    test('logout clears consentAccepted back to null (unknown)', () async {
+      api
+        ..isNewUser = false
+        ..pinIsSet = true
+        ..consentAccepted = true;
+      await manager.verifyOtp('+91999', '1234');
+      expect(manager.consentAccepted, isTrue);
+
+      await manager.logout();
+
+      expect(manager.consentAccepted, isNull);
+    });
+
+    test('a fired ReauthSignal clears consentAccepted back to null', () async {
+      api
+        ..isNewUser = false
+        ..pinIsSet = true
+        ..consentAccepted = true;
+      await manager.verifyOtp('+91999', '1234');
+
+      reauth.requireReauth();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(manager.consentAccepted, isNull);
     });
   });
 

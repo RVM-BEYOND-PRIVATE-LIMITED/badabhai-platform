@@ -171,6 +171,16 @@ String? _authRedirect(BuildContext context, GoRouterState state) {
       }
       return Routes.pin;
     case AuthStatus.authenticated:
+      // TD62 — the client half of the DPDP consent gate (§6's server-side
+      // ConsentGuard stays authoritative). TRI-STATE on purpose: only a
+      // DEFINITIVE `false` from the server (consent_accepted on the OTP/PIN
+      // verify response) forces the consent screen; `null` (unknown / an older
+      // server without the field) passes through so an old API never bricks
+      // routing. Consent is the FIRST onboarding step (consent → name → chat),
+      // so /consent itself is the only surface allowed through the gate.
+      if (auth.consentAccepted == false && loc != Routes.consent) {
+        return Routes.consent;
+      }
       // Authenticated workers must not sit on splash/login/pin — lift them into
       // the shell (the worker's home tab). Onboarding + shell routes pass.
       if (onAuthRoute) return Routes.resume;

@@ -11,10 +11,12 @@ import 'bb_button.dart';
 ///
 /// The redacted name is passed in (the dialog never receives the real name);
 /// the fair-use note states the unlock NEVER changes a worker's ranking.
+/// [creditsAfter] is `null` when the balance is UNKNOWN (fetch failed) — the
+/// preview then renders an honest '—', never a fabricated 0 (#189 fast-follow).
 Future<bool?> showUnlockDialog(
   BuildContext context, {
   required String shownName,
-  required int creditsAfter,
+  required int? creditsAfter,
 }) {
   return showDialog<bool>(
     context: context,
@@ -33,7 +35,7 @@ class _UnlockDialog extends StatelessWidget {
   });
 
   final String shownName;
-  final int creditsAfter;
+  final int? creditsAfter;
 
   @override
   Widget build(BuildContext context) {
@@ -84,7 +86,7 @@ class _UnlockDialog extends StatelessWidget {
                     ),
                     const TextSpan(text: ' will be used — '),
                     TextSpan(
-                      text: '$creditsAfter left',
+                      text: '${creditsAfter ?? '—'} left',
                       style: AppTypography.body(
                         size: AppTypography.sizeBase,
                         weight: FontWeight.w700,

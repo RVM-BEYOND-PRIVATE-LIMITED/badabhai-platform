@@ -53,6 +53,10 @@ export interface LoginResponse {
   refresh_token: string;
   refresh_expires_in_seconds: number;
   session: SessionInfo;
+  // TD62 — ADDITIVE: does this worker hold an ACTIVE (non-revoked) DPDP consent?
+  // The app's router gates the shell on a definitive `false` (→ /consent); it is a
+  // boolean derived from worker_consents, never PII, and no event changes with it.
+  consent_accepted: boolean;
 }
 
 /** Response of POST /auth/refresh (legacy rolling-token refresh — unchanged). */

@@ -23,6 +23,7 @@ Newest day on top. Copy the template block each working day. Every % move needs 
 | #235 | **TD67**: ONE service-level bearer for the ai-service (`AI_INTERNAL_TOKEN`, launch-gated — unset = today's posture; /health trimmed under lock). Review: 7 raised / 5 fixed in-PR (HIGH: empty-token VACUOUS ARM — compare_digest('','') passed tokenless requests while /health claimed auth on; killed via min_length=16 startup failure) / 2 refuted. TD67 → Mitigated, flip = env action |
 
 ## Notes
+- **TD62 RESOLVED (P1 → closed)** on `fix/td62-consent-routing-and-payer-fastfollows` (production-residuals PR C, pushed — PR pending): additive `consent_accepted` on `/auth/otp/verify` + `/auth/pin/verify`, tri-state client parse, router consent gate, ConsentCubit release; plus the #189 payer-app fast-follows (fetchCredits 0-mask MEDIUM, disclose outage-vs-deny LOW).
 - Root-caused yesterday's "CI dispatch stall": #226 went CONFLICTING after #225 merged — GitHub silently skips PR workflows when the merge ref can't build. Not a billing/incident issue.
 - ADR-0030 series: **COMPLETE — TAX-0..9 all merged** (#211–#232). Owner queue gains: apply migration 0039.
 - New ops capability (dormant until queue volume): `pnpm db:growth:cluster` — proposals land in `docs/registers/skill-growth-proposals.md`, activation stays human-only via the ratification flow.

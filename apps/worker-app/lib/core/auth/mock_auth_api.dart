@@ -57,6 +57,9 @@ class MockAuthApi extends AuthApi {
         refresh: 'mock-refresh-token',
         accessExpiresAt: expiresAt,
       ),
+      // TD62: the standard mock walkthrough is a consented worker, so the
+      // client consent gate never blocks the USE_MOCKS flows.
+      consentAccepted: true,
     );
   }
 
@@ -68,9 +71,14 @@ class MockAuthApi extends AuthApi {
   }
 
   @override
-  Future<AuthTokens> pinVerify(String pin, {required String refreshToken}) async {
+  Future<PinVerifyResult> pinVerify(String pin,
+      {required String refreshToken}) async {
     await _delay();
-    return _mintMockTokens();
+    // TD62: consistent with otpVerify — the mock walkthrough is consented.
+    return PinVerifyResult(
+      tokens: await _mintMockTokens(),
+      consentAccepted: true,
+    );
   }
 
   @override
