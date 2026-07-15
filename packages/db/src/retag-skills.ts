@@ -56,6 +56,11 @@ import { deterministicAliasId } from "./skill-alias-id";
 
 config({ path: "../../.env" });
 
+/** TD67: attach the ai-service bearer when the env provides one (required once the
+ * service sets AI_INTERNAL_TOKEN; absent = the historical open dev posture). */
+const AI_HEADERS: Record<string, string> = { "content-type": "application/json" };
+if (process.env.AI_INTERNAL_TOKEN) AI_HEADERS["x-ai-internal-token"] = process.env.AI_INTERNAL_TOKEN;
+
 const REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 /** Request caps — MUST match the Pydantic/Zod RetagPlanInput caps. */
 const MAX_ROWS_PER_REQUEST = 5000;
@@ -191,7 +196,7 @@ async function planSurface(
     const chunk = rows.slice(i, i + MAX_ROWS_PER_REQUEST);
     const resp = await fetch(`${aiBase}/skills/retag-plan`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: AI_HEADERS,
       body: JSON.stringify({
         crosswalk,
         rows: chunk.map((r) => ({ row_ref: r.id, skill_ids: r.ids })),

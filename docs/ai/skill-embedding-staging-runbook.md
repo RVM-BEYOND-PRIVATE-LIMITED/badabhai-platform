@@ -40,6 +40,10 @@
    secret, same value as the api's `SKILLS_INTERNAL_TOKEN` — deliberately NOT
    `INTERNAL_SERVICE_TOKEN`), and `SKILL_CANONICALIZE_ENABLED=true` — then restart. The
    flag alone is inert (the factory returns NullSkillStore without url+token; TD65).
+   **TD67 note:** if the ai-service env also sets `AI_INTERNAL_TOKEN` (service-level
+   auth), the SAME value must be present on the api (`AI_INTERNAL_TOKEN`) and in the
+   db-runner env — otherwise every api→ai call and runner request 401s (`/health`
+   stays open and reports `service_auth_enabled`).
 8. **Verify.** In-vocab phrase ("VMC operator") → correct `skill_id` ≥ floor; a novel
    phrase → UNRESOLVED + a pseudonymized `unresolved_phrase` row; domain mismatch → no
    cross-domain match. Confirm the ai-service made **no direct DB connection** (seam A).

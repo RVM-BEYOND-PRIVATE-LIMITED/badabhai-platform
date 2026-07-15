@@ -147,6 +147,7 @@ direct providers — no LiteLLM).
 | `GOOGLE_CLOUD_PROJECT`       | Legacy GCP declaration; unused by the Node API (kept optional for back-compat).                                    | _(optional)_            | config     |
 | `GOOGLE_CLOUD_LOCATION`      | Legacy GCP declaration; unused.                                                                                    | _(optional)_            | config     |
 | `GEMINI_API_KEY`             | Legacy Gemini key declaration; unused by the Node API (AI service uses `GEMINI_FLASH_API_KEY`).                    | _(optional)_            | **SECRET** |
+| `AI_INTERNAL_TOKEN`          | TD67 — ONE service-level bearer for the ai-service (set the SAME ≥16-char value on the ai-service, this API, and the db-runner env). Unset = open internal posture; the ai-service fails STARTUP on an empty/short value. | _(optional)_            | **SECRET** |
 
 ### Payments — Contact Unlock + Reveal (mock credits in alpha; ADR-0010)
 

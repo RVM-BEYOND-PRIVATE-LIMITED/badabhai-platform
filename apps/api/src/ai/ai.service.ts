@@ -147,14 +147,31 @@ export class AiService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     try {
+      // TD67: attach the service-level bearer when configured (the ai-service enforces
+      // it on every route except /health once ITS side sets the same env var).
+      const headers: Record<string, string> = { "content-type": "application/json" };
+      if (this.config.AI_INTERNAL_TOKEN) {
+        headers["x-ai-internal-token"] = this.config.AI_INTERNAL_TOKEN;
+      }
       const res = await fetch(url, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers,
         body: JSON.stringify(body),
         signal: controller.signal,
       });
       if (!res.ok) {
-        this.logger.warn(`AI service ${path} returned ${res.status}; using mock fallback`);
+        if (res.status === 401) {
+          // TD67: a 401 is DETERMINISTIC misconfiguration (AI_INTERNAL_TOKEN mismatch
+          // between the api and the ai-service), not a transient outage — log it at
+          // ERROR so a half-flipped env is loud, while keeping the same safe mock
+          // degradation as any other non-OK (canonicalization/profiling never block).
+          this.logger.error(
+            `AI service ${path} rejected service auth (401) — AI_INTERNAL_TOKEN mismatch ` +
+              `between api and ai-service; using mock fallback`,
+          );
+        } else {
+          this.logger.warn(`AI service ${path} returned ${res.status}; using mock fallback`);
+        }
         return null;
       }
       return schema.parse(await res.json());

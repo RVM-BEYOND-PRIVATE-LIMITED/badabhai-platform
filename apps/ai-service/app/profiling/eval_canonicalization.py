@@ -65,6 +65,14 @@ from app.profiling import miss_attribution as attrib
 DEFAULT_BASE_URL = "http://localhost:8000"
 
 
+def _service_auth_headers() -> dict[str, str]:
+    """TD67: the target ai-service may enforce the service bearer (AI_INTERNAL_TOKEN).
+    Mirror it from this runner's own env so --real / --per-field / --flip-gate runs
+    against an ARMED service authenticate instead of 401ing into all-miss noise."""
+    token = get_settings().ai_internal_token
+    return {"x-ai-internal-token": token} if token else {}
+
+
 # --- Flip-gate pure helpers (offline-unit-testable: no network, no LLM) ------
 def compute_p95(latencies_ms: list[float]) -> float | None:
     """p95 latency (ms) over a run, or None if no samples.
@@ -273,7 +281,7 @@ def _make_real_extract_fn(
     import httpx  # local import: only needed for --real, keeps default path stdlib
 
     url = base_url.rstrip("/") + "/profile/extract"
-    client = httpx.Client(timeout=timeout)
+    client = httpx.Client(timeout=timeout, headers=_service_auth_headers())
 
     def extract_fn(text: str) -> object:
         if delay_seconds:
@@ -315,7 +323,7 @@ def _make_real_field_extract_fn(
     import httpx
 
     url = base_url.rstrip("/") + "/profile/extract"
-    client = httpx.Client(timeout=timeout)
+    client = httpx.Client(timeout=timeout, headers=_service_auth_headers())
     _last_call_at: list[float] = []  # mutable cell for the closure
 
     def extract_fn(text: str) -> object:
@@ -354,7 +362,7 @@ def _make_real_pseudonymize_fn(base_url: str, timeout: float = 30.0) -> attrib.P
     import httpx
 
     url = base_url.rstrip("/") + "/pseudonymize"
-    client = httpx.Client(timeout=timeout)
+    client = httpx.Client(timeout=timeout, headers=_service_auth_headers())
 
     def pseudonymize_fn(text: str) -> str:
         resp = client.post(url, json={"text": text})
@@ -371,7 +379,7 @@ def _smoke_profiling_respond(base_url: str, timeout: float = 30.0) -> bool:
     import httpx
 
     url = base_url.rstrip("/") + "/profiling/respond"
-    with httpx.Client(timeout=timeout) as client:
+    with httpx.Client(timeout=timeout, headers=_service_auth_headers()) as client:
         resp = client.post(url, json={
             "session_id": "eval-smoke",
             "message_text": "vmc operator hu, fanuc pe kaam karta hu",

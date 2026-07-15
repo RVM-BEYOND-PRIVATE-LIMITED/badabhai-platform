@@ -7,6 +7,7 @@ Studio (Gemini) reached over REST — there is NO LiteLLM proxy. Default mock-on
 
 from __future__ import annotations
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -118,6 +119,20 @@ class Settings(BaseSettings):
     # cannot activate by flag alone (TD65 chain: store + flag).
     backend_api_url: str | None = None
     skills_internal_token: str | None = None
+
+    # TD67: the ONE service-level bearer for THIS service's routes. When set, every
+    # route except /health requires the exact value in `x-ai-internal-token`
+    # (timing-safe compare); unset (default) keeps the historical internal-only OPEN
+    # posture — flipping it on is a staging env action on BOTH sides (the api's
+    # AI_INTERNAL_TOKEN + the db runners' env), never a committed file. Deliberately
+    # ONE token for the whole service (the TAX-7 review's "no per-route one-offs").
+    # Distinct from skills_internal_token, which guards the REVERSE (ai→api) direction.
+    # min_length mirrors the api's Zod .min(16) ON THE ENFORCING SIDE: an EMPTY or short
+    # value (e.g. a templated `AI_INTERNAL_TOKEN=` placeholder) fails Settings() at
+    # STARTUP instead of arming the gate vacuously — compare_digest("", "") is True, so
+    # an empty token would pass every tokenless request while /health claimed the guard
+    # was on AND 401'd correctly-tokened callers (the TD67 review's HIGH).
+    ai_internal_token: str | None = Field(default=None, min_length=16)
 
     # Per-profile cost guardrails (INR). Used for alerting only in Phase 1.
     ai_cost_alert_profile_inr: float = 6.0

@@ -62,6 +62,11 @@ import { skillAliases, unresolvedPhrases } from "./schema";
 
 config({ path: "../../.env" });
 
+/** TD67: attach the ai-service bearer when the env provides one (required once the
+ * service sets AI_INTERNAL_TOKEN; absent = the historical open dev posture). */
+const AI_HEADERS: Record<string, string> = { "content-type": "application/json" };
+if (process.env.AI_INTERNAL_TOKEN) AI_HEADERS["x-ai-internal-token"] = process.env.AI_INTERNAL_TOKEN;
+
 const EMBED_BATCH_SIZE = Math.max(1, Math.min(200, Number(process.env.EMBED_BATCH_SIZE) || 100));
 const REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 /** Request caps — MUST match the Pydantic/Zod GrowthClusterInput caps. */
@@ -215,7 +220,7 @@ async function embedOpenPhrases(
 
     const resp = await fetch(`${aiBase}/embeddings/skill-alias`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: AI_HEADERS,
       body: JSON.stringify({ items: rows.map((r) => ({ alias_id: r.id, text: r.phrase })) }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
@@ -477,7 +482,7 @@ async function main(): Promise<void> {
 
       const resp = await fetch(`${aiBase}/growth/cluster`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: AI_HEADERS,
         body: JSON.stringify({
           domain_id: domainId,
           phrases: phrases.map((p) => ({ id: p.id, phrase: p.phrase, count: p.count, vector: p.embedding })),

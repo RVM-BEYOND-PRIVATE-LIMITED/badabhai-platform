@@ -486,6 +486,13 @@ export const serverEnvSchema = z.object({
   // docs/post-alpha-hardening-plan.md (Wave 1).
   TRUST_PROXY_HOP_COUNT: z.coerce.number().int().nonnegative().default(0),
   AI_SERVICE_URL: z.string().url().default("http://localhost:8000"),
+  // TD67: the ONE service-level bearer for ai-service routes. When the ai-service
+  // sets AI_INTERNAL_TOKEN, every route except /health requires this exact value in
+  // `x-ai-internal-token`; unset (default) keeps today's internal-only open posture.
+  // Scoped to the NestJS→ai-service direction — NOT the api's INTERNAL_SERVICE_TOKEN
+  // and NOT SKILLS_INTERNAL_TOKEN (which guards the REVERSE direction). Set BOTH
+  // sides together (staging service env, never a committed file).
+  AI_INTERNAL_TOKEN: z.string().min(16).optional(),
 
   // Browser CORS allow-list for the API — comma-separated EXACT origins
   // (e.g. "https://ops.badabhai.in,https://app.badabhai.in"). Mirrors the

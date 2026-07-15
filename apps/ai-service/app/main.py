@@ -12,9 +12,11 @@ Langfuse tracing all live behind ``app.ai.router.AIRouter``.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
 from .ai import cost_tracker
 from .ai.canonicalize import canonicalize_labels, canonicalize_skill
@@ -76,6 +78,32 @@ translate_adapter = TranslateAdapter(settings)
 
 app = FastAPI(title="BadaBhai AI Service", version="0.1.0")
 
+# TD67: paths reachable WITHOUT the service token. Everything else (including /docs
+# and /openapi.json) is gated once AI_INTERNAL_TOKEN is set. NOTE: /health itself
+# TRIMS its payload to {status, service, service_auth_enabled} under the locked
+# posture — the full spend/posture telemetry is recon data on a shared network and
+# stays token-only (via the gated /ai/spend or the full /health when auth is off).
+_AUTH_EXEMPT_PATHS = frozenset({"/health"})
+
+
+@app.middleware("http")
+async def service_auth(request, call_next):  # type: ignore[no-untyped-def]
+    """TD67: ONE service-level bearer for every route (health exempt).
+
+    LAUNCH-GATED: with ``AI_INTERNAL_TOKEN`` unset (the default) this is a no-op —
+    the historical internal-only open posture. Once the env var is set, every
+    request must carry the exact value in ``x-ai-internal-token`` (timing-safe
+    compare; fail-closed 401 with no detail). Callers: the NestJS api
+    (``AI_INTERNAL_TOKEN`` in @badabhai/config) + the three db runners. Never logs
+    the supplied value."""
+    token = get_settings().ai_internal_token
+    if token is not None and request.url.path not in _AUTH_EXEMPT_PATHS:
+        supplied = request.headers.get("x-ai-internal-token") or ""
+        if not hmac.compare_digest(supplied.encode("utf-8"), token.encode("utf-8")):
+            return JSONResponse(status_code=401, content={"detail": "unauthorized"})
+    return await call_next(request)
+
+
 _BLOCKED_REPLY = (
     "Sorry, I couldn't process that safely. Please rephrase without sharing "
     "personal details like your phone number, full name, or company name."
@@ -93,10 +121,19 @@ def _pseudonymization_meta(result: PseudonymizationResult) -> PseudonymizationMe
 
 @app.get("/health")
 async def health() -> dict:
+    # TD67: under the LOCKED posture the tokenless health surface is liveness + the
+    # posture boolean ONLY — spend telemetry / caps / provider posture are recon data
+    # on a shared network (the full snapshot stays available on the token-gated
+    # /ai/spend). With auth off (dev default), the full payload is unchanged.
+    if get_settings().ai_internal_token is not None:
+        return {"status": "ok", "service": "ai-service", "service_auth_enabled": True}
     return {
         "status": "ok",
         "service": "ai-service",
         "real_calls_enabled": settings.real_calls_enabled,
+        # TD67: whether the service-level bearer is enforced (true once
+        # AI_INTERNAL_TOKEN is set in the service env). Boolean only — never the value.
+        "service_auth_enabled": False,
         # Actual tracer state (keys present AND package installed), not just config.
         "langfuse_enabled": router.langfuse_enabled,
         "max_call_cost_inr": settings.ai_max_call_cost_inr,
