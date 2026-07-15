@@ -1,0 +1,88 @@
+name: CodeQL
+
+# ADVANCED setup — replaces GitHub's auto-detecting DEFAULT setup.
+#
+# WHY THIS EXISTS: default setup auto-detected **Ruby** (from the two CocoaPods
+# `Podfile`s that Flutter's iOS scaffold ships) and then failed fatally —
+# `database finalize` exit 32, "CodeQL detected code written in JavaScript/TypeScript,
+# Python, GitHub Actions, Java/Kotlin, Swift and C/C++, but not any written in Ruby."
+# The repo has ZERO `.rb` files: a Podfile is Ruby-flavoured config, not analysable
+# Ruby source. Pinning the language list here makes that class of false-detect
+# impossible (a stray Gemfile can't silently re-add Ruby).
+#
+# ⚠️ REQUIRES: CodeQL **default setup must be DISABLED** in
+# Settings → Code security / Code quality → CodeQL → Default setup.
+# While it is enabled GitHub refuses advanced uploads
+# ("analyses from advanced configurations cannot be processed when the default setup
+# is enabled") and this workflow will error.
+#
+# LANGUAGE CHOICES (file counts measured on main, 2026-07-15):
+#   INCLUDED — real first-party code, all `build-mode: none` (no toolchain, fast):
+#     • javascript-typescript — 746 files (apps/api, apps/web, apps/payer-web, packages/*)
+#     • python                —  88 files (apps/ai-service)
+#     • actions               —  the workflows in this directory
+#     • java-kotlin           —   6 files (Flutter Android: MainActivity / FirebaseManager /
+#                                 MyFirebaseMessagingService × 2 apps)
+#   EXCLUDED — deliberate:
+#     • ruby   — 0 source files. The false-detect that caused the failure.
+#     • swift  — 4 files, all Flutter iOS boilerplate (AppDelegate / RunnerTests × 2).
+#                Swift has no `build-mode: none`; it needs a macOS runner + Xcode
+#                autobuild (~10× the minutes) to analyse pure scaffolding. Not worth it.
+#     • c-cpp  — 2 files, both generated `Runner-Bridging-Header.h`. Same trade-off.
+#   NOT SUPPORTED BY CODEQL — worth knowing, not a gap we can close here:
+#     • dart   — 295 files. The Flutter app logic is not analysable by CodeQL at all;
+#                `flutter analyze` (worker-app.yml / payer-app.yml) is its gate.
+#
+# Add a language here if first-party code in it ever lands (and, for swift/c-cpp,
+# accept the macOS/autobuild cost at that point).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly drift catch (Mondays 03:17 UTC) — new queries land between pushes.
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      # Least privilege: only what init/analyze need.
+      security-events: write # upload the SARIF results
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false # one language failing must not mask the others
+      matrix:
+        include:
+          - language: javascript-typescript
+            build-mode: none
+          - language: python
+            build-mode: none
+          - language: actions
+            build-mode: none
+          - language: java-kotlin
+            build-mode: none
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"
