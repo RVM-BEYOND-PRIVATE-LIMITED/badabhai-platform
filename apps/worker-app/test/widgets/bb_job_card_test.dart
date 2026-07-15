@@ -32,9 +32,40 @@ void main() {
       expect(find.textContaining('spots'), findsOneWidget);
     });
 
-    testWidgets('shows the verified seal when verified is true', (tester) async {
+    // `verified` now defaults to FALSE: the seal must be an explicit opt-in for
+    // a REAL employer. It previously defaulted to true, so the card stamped a
+    // green "verified" seal next to an employer name invented from
+    // `jobId.hashCode`.
+    testWidgets('shows the verified seal only when verified is explicitly true',
+        (tester) async {
       await tester.pumpWidget(_host(const BbJobCard(data: data)));
+      expect(find.byIcon(Icons.verified), findsNothing);
+
+      await tester.pumpWidget(_host(const BbJobCard(
+        data: BbJobCardData(
+          title: 'CNC Operator',
+          company: 'Sharma Works',
+          verified: true,
+          place: 'Pimpri',
+        ),
+      )));
       expect(find.byIcon(Icons.verified), findsOneWidget);
+    });
+
+    // The real feed carries no employer/pay/shift/tags — the card must simply
+    // omit them rather than render an invented value.
+    testWidgets('omits employer, pay, shift and tags when the feed has none',
+        (tester) async {
+      await tester.pumpWidget(_host(const BbJobCard(
+        data: BbJobCardData(title: 'CNC Operator', place: 'Pimpri, Pune'),
+      )));
+
+      expect(find.text('CNC Operator'), findsOneWidget);
+      expect(find.text('Pimpri, Pune'), findsOneWidget);
+      expect(find.byIcon(Icons.currency_rupee), findsNothing);
+      expect(find.byIcon(Icons.schedule), findsNothing);
+      expect(find.byIcon(Icons.verified), findsNothing);
+      expect(find.textContaining('spots'), findsNothing);
     });
 
     testWidgets('fires onTitleTap when the title is tapped', (tester) async {

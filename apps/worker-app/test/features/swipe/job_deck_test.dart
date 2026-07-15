@@ -44,7 +44,6 @@ void main() {
       cards: <JobDeckItem>[_item('j1', 'First'), _item('j2', 'Second')],
       onApply: () {},
       onSkip: () {},
-      onPrioritize: () {},
     )));
 
     expect(find.text('First'), findsOneWidget);
@@ -59,7 +58,6 @@ void main() {
       cards: <JobDeckItem>[_item('j1', 'First'), _item('j2', 'Second')],
       onApply: () {},
       onSkip: () {},
-      onPrioritize: () {},
     )));
 
     // The next job's real title (and its full card) is rendered behind the front
@@ -76,7 +74,6 @@ void main() {
       cards: <JobDeckItem>[_item('j1', 'Only')],
       onApply: () {},
       onSkip: () {},
-      onPrioritize: () {},
     )));
 
     expect(find.byType(BbJobCard), findsOneWidget);
@@ -89,7 +86,6 @@ void main() {
       cards: <JobDeckItem>[_item('j1', 'First'), _item('j2', 'Second')],
       onApply: () {},
       onSkip: () {},
-      onPrioritize: () {},
     )));
 
     // J4 removed the boxed APPLY / SKIP overlays in favour of a side-band tint.
@@ -105,7 +101,6 @@ void main() {
       cards: <JobDeckItem>[_item('j1', 'First'), _item('j2', 'Second')],
       onApply: () {},
       onSkip: () {},
-      onPrioritize: () {},
     )));
 
     // Centred: no tint gradient is painted.
@@ -138,7 +133,6 @@ void main() {
       cards: <JobDeckItem>[_item('j1', 'First'), _item('j2', 'Second')],
       onApply: () {},
       onSkip: () {},
-      onPrioritize: () {},
     )));
 
     final TestGesture gesture =
@@ -165,7 +159,6 @@ void main() {
       cards: <JobDeckItem>[_item('j1', 'First'), _item('j2', 'Second')],
       onApply: () {},
       onSkip: () {},
-      onPrioritize: () {},
     )));
 
     // At rest: no tint at all.
@@ -199,7 +192,6 @@ void main() {
       cards: <JobDeckItem>[_item('j1', 'First')],
       onApply: () => applied++,
       onSkip: () {},
-      onPrioritize: () {},
     )));
 
     await tester.tap(find.byKey(const Key('swipeApplyButton')));
@@ -216,7 +208,6 @@ void main() {
       cards: <JobDeckItem>[_item('j1', 'First')],
       onApply: () {},
       onSkip: () => skipped++,
-      onPrioritize: () {},
     )));
 
     await tester.tap(find.byKey(const Key('swipeSkipButton')));
@@ -233,7 +224,6 @@ void main() {
       cards: <JobDeckItem>[_item('j1', 'First')],
       onApply: () {},
       onSkip: () {},
-      onPrioritize: () {},
       onTitleTap: (String id) => tappedId = id,
     )));
 
@@ -251,7 +241,6 @@ void main() {
       cards: <JobDeckItem>[_item('j1', 'First')],
       onApply: () => applied++,
       onSkip: () {},
-      onPrioritize: () {},
     )));
 
     await tester.fling(find.text('First'), const Offset(400, 0), 1200);
@@ -260,24 +249,26 @@ void main() {
     expect(applied, 1);
   });
 
-  testWidgets('an upward fling commits to prioritize (not apply/skip)', (
+  // The up-swipe used to "add to Priority" — a repository no-op that still fired
+  // a success toast. It is gone: a vertical fling must now simply spring back
+  // and commit nothing.
+  testWidgets('an upward fling commits nothing (springs back)', (
     WidgetTester tester,
   ) async {
-    int prioritized = 0;
     int applied = 0;
     int skipped = 0;
     await tester.pumpWidget(_host(JobDeck(
       cards: <JobDeckItem>[_item('j1', 'First')],
       onApply: () => applied++,
       onSkip: () => skipped++,
-      onPrioritize: () => prioritized++,
     )));
 
     await tester.fling(find.text('First'), const Offset(0, -400), 1200);
     await tester.pumpAndSettle();
 
-    expect(prioritized, 1);
     expect(applied, 0);
     expect(skipped, 0);
+    // The card is still there, settled back at rest.
+    expect(find.text('First'), findsOneWidget);
   });
 }

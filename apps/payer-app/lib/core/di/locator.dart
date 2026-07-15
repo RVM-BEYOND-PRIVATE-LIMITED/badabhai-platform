@@ -11,17 +11,11 @@ import '../session/credits_cubit.dart';
 
 import '../../features/account/presentation/cubit/account_cubit.dart';
 
-import '../../features/home/presentation/cubit/home_cubit.dart';
 import '../../features/find/presentation/cubit/find_cubit.dart';
 import '../../features/find/presentation/cubit/reveal_cubit.dart';
 import '../../features/jobs/presentation/cubit/jobs_cubit.dart';
 import '../../features/jobs/presentation/cubit/agency_jobs_cubit.dart';
 import '../../features/credits/presentation/cubit/credits_screen_cubit.dart';
-import '../../features/earn/presentation/cubit/earn_hub_cubit.dart';
-import '../../features/earn/presentation/cubit/referral_cubit.dart';
-import '../../features/earn/presentation/cubit/referred_cubit.dart';
-import '../../features/earn/presentation/cubit/payouts_cubit.dart';
-import '../../features/earn/presentation/cubit/kyc_cubit.dart';
 import '../../features/org/presentation/cubit/org_cubit.dart';
 import '../../features/capacity/presentation/cubit/capacity_cubit.dart';
 
@@ -34,6 +28,11 @@ final GetIt locator = GetIt.instance;
 /// Registers the whole graph. Idempotent across tests (a second call no-ops once
 /// the session is registered). Pass [apiClient] to force a specific client in a
 /// widget test without the compile-time `kUseMocks` define.
+///
+/// Throws [StateError] in a RELEASE build with no/invalid `API_BASE_URL` — see
+/// [resolvePayerApiBaseUrl]. That happens HERE, at startup, so a misbuilt
+/// release fails immediately and obviously instead of shipping an app that
+/// silently points every request at the debug emulator alias.
 void setupLocator({
   PayerApiClient? apiClient,
   PayerAuthApi? authApi,
@@ -48,6 +47,13 @@ void setupLocator({
   // green after P3 flips kUseMocks to false, with no per-test wiring.
   final bool mockSeam = apiClient != null;
 
+  // Resolve the base URL EAGERLY (not inside the lazy PayerHttp factory) so a
+  // release build missing --dart-define=API_BASE_URL dies at startup rather
+  // than on the first network call. Skipped for a MOCK/demo build and the test
+  // seam, neither of which makes a real request.
+  final String? baseUrl =
+      (kUseMocks || mockSeam) ? null : resolvePayerApiBaseUrl();
+
   // --- Auth seam (token store + authed HTTP) --------------------------------
   // The token store holds the bearer in secure storage (in-memory fake under
   // tests — the real plugin throws under `flutter test`); PayerHttp signs
@@ -58,7 +64,9 @@ void setupLocator({
   );
   locator.registerLazySingleton<PayerHttp>(
     () => PayerHttp(
-      baseUrl: kPayerApiBaseUrl,
+      // Non-null whenever a real request can actually happen; the MOCK/test
+      // seams never reach this client, so the debug fallback is inert there.
+      baseUrl: baseUrl ?? resolvePayerApiBaseUrl(),
       tokenStore: locator<PayerTokenStore>(),
       // On a 401 that survives a refresh attempt: wipe the bearer + bounce back
       // to Login. Resolved lazily (closure) so there is no construction cycle.
@@ -112,9 +120,9 @@ void setupLocator({
   );
 
   // --- Per-screen cubits (fresh instance per mount) -------------------------
-  locator.registerFactory<HomeCubit>(
-    () => HomeCubit(locator<PayerApiClient>()),
-  );
+  // NOTE: Home no longer has a cubit — it renders the identity header, the
+  // shared CreditsCubit balance, and the two real actions. Its old metrics /
+  // recent-activity loads had no backend route and were removed.
   locator.registerFactory<FindCubit>(
     // In the mock seam (a test injected the client) force the global MOCK feed
     // so the faceless candidate list renders without a per-job context; in
@@ -135,24 +143,11 @@ void setupLocator({
     () => AccountCubit(locator<PayerAccountApi>()),
   );
 
-  // --- Agency-only demand (jobs) + Supply / Earn cubits ---------------------
+  // --- Agency-only demand (jobs) --------------------------------------------
+  // The agency Supply/Earn cubits (hub · referral · referred · payouts · KYC)
+  // are gone with their screens — none of those surfaces had a backend route.
   locator.registerFactory<AgencyJobsCubit>(
     () => AgencyJobsCubit(locator<PayerApiClient>()),
-  );
-  locator.registerFactory<EarnHubCubit>(
-    () => EarnHubCubit(locator<PayerApiClient>()),
-  );
-  locator.registerFactory<ReferralCubit>(
-    () => ReferralCubit(locator<PayerApiClient>()),
-  );
-  locator.registerFactory<ReferredCubit>(
-    () => ReferredCubit(locator<PayerApiClient>()),
-  );
-  locator.registerFactory<PayoutsCubit>(
-    () => PayoutsCubit(locator<PayerApiClient>()),
-  );
-  locator.registerFactory<KycCubit>(
-    () => KycCubit(locator<PayerApiClient>()),
   );
 
   // --- Org / team members (ADR-0027) + Hiring capacity (ADR-0016) -----------

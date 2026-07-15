@@ -28,6 +28,7 @@ import 'features/settings/presentation/settings_screen.dart';
 import 'features/resume/presentation/building_screen.dart';
 import 'features/resume/presentation/resume_edit_screen.dart';
 import 'features/resume/presentation/resume_preview_screen.dart';
+import 'features/swipe/domain/job_detail.dart';
 import 'features/swipe/presentation/job_detail_screen.dart';
 import 'features/swipe/presentation/swipe_jobs_screen.dart';
 
@@ -262,8 +263,12 @@ GoRouter _buildRouter() {
                   GoRoute(
                     path: 'detail/:jobId',
                     parentNavigatorKey: _rootNavKey, // full-screen, no bar
+                    // The REAL job rides as typed `extra` from the row that was
+                    // tapped (feed / applied). There is no worker-facing
+                    // job-detail route, so the row's data IS the source of
+                    // truth — the screen never synthesises anything.
                     builder: (_, GoRouterState s) =>
-                        JobDetailScreen(jobId: s.pathParameters['jobId']!),
+                        JobDetailScreen(detail: s.extra! as JobDetail),
                   ),
                 ],
               ),
@@ -348,13 +353,27 @@ GoRouter _buildRouter() {
 
 /// The persistent shell: tab bodies + the spec 4-tab [BbBottomNav]. The Alerts
 /// unread badge tracks the shared [NotificationsRepository]'s reactive count.
-class _ShellScaffold extends StatelessWidget {
+class _ShellScaffold extends StatefulWidget {
   const _ShellScaffold({required this.shell});
 
   final StatefulNavigationShell shell;
 
   @override
+  State<_ShellScaffold> createState() => _ShellScaffoldState();
+}
+
+class _ShellScaffoldState extends State<_ShellScaffold> {
+  @override
+  void initState() {
+    super.initState();
+    // Populate the Alerts badge on app open (before the Alerts tab is opened).
+    // Best-effort + fire-and-forget — refresh() never throws.
+    locator<NotificationsRepository>().refresh();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final StatefulNavigationShell shell = widget.shell;
     return Scaffold(
       body: shell,
       bottomNavigationBar: ValueListenableBuilder<int>(

@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show kReleaseMode;
+
 import '../api/api_client.dart';
 import '../api/mock_api_client.dart';
 
@@ -38,6 +40,62 @@ const String kInviteLinkBase = String.fromEnvironment(
   'INVITE_LINK_BASE',
   defaultValue: 'https://app.badabhai.in',
 );
+
+/// The build-time API base URL. A RELEASE build MUST supply it:
+///   flutter build apk --dart-define=API_BASE_URL=https://api.example.com
+/// Empty in debug falls back to [_kDebugFallbackBaseUrl].
+const String _kApiBaseUrl = String.fromEnvironment('API_BASE_URL');
+
+/// Debug-ONLY fallback: the API on the host loopback. Never reachable from a
+/// real device, so it must never leak into a release build —
+/// [resolveApiBaseUrl] enforces that.
+const String _kDebugFallbackBaseUrl = 'http://localhost:3001';
+
+/// Resolves the API base URL, failing LOUDLY in release rather than silently
+/// pointing a shipped app at localhost.
+///
+///  - RELEASE: `API_BASE_URL` is REQUIRED and must be a well-formed `https://`
+///    origin. A missing/plaintext/malformed value throws [StateError] at
+///    startup — a hard, obvious boot failure beats an app on a worker's phone
+///    quietly failing every request against `localhost`.
+///  - DEBUG / TEST: `API_BASE_URL` wins when supplied; otherwise the loopback
+///    keeps the local loop working with no extra flags.
+///
+/// [configuredUrl] and [isRelease] are injectable ONLY so the release rules can
+/// be unit-tested (a test always runs in debug, and `API_BASE_URL` is fixed at
+/// compile time). Production callers pass neither.
+///
+/// Throws [StateError] in a release build with no/invalid `API_BASE_URL`.
+String resolveApiBaseUrl({String? configuredUrl, bool? isRelease}) {
+  final String configured = (configuredUrl ?? _kApiBaseUrl).trim();
+  final bool release = isRelease ?? kReleaseMode;
+
+  if (!release) {
+    return configured.isEmpty ? _kDebugFallbackBaseUrl : configured;
+  }
+
+  if (configured.isEmpty) {
+    throw StateError(
+      'API_BASE_URL is not set. A release build must be built with '
+      '--dart-define=API_BASE_URL=https://<your-api-host> — refusing to fall '
+      'back to the debug loopback ($_kDebugFallbackBaseUrl).',
+    );
+  }
+  final Uri? uri = Uri.tryParse(configured);
+  if (uri == null || !uri.isAbsolute || uri.host.isEmpty) {
+    throw StateError(
+      'API_BASE_URL ("$configured") is not an absolute URL with a host.',
+    );
+  }
+  // Plaintext transport would put the session token on the wire in the clear.
+  if (uri.scheme != 'https') {
+    throw StateError(
+      'API_BASE_URL ("$configured") must use https in a release build; '
+      'got scheme "${uri.scheme}".',
+    );
+  }
+  return configured;
+}
 
 /// The single place that picks the API client.
 ///

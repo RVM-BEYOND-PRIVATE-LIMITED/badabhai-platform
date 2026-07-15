@@ -4,6 +4,15 @@ import 'package:http/http.dart' as http;
 
 import 'payer_token_store.dart';
 
+/// Hard ceiling on any single HTTP request.
+///
+/// `package:http` has NO default timeout, so a stalled connection hangs the
+/// future FOREVER — the screen spins with no error and no retry. Payers on a
+/// weak link would sit on a dead spinner indefinitely. A [TimeoutException]
+/// surfaces as a normal transport failure, so the UI can show an honest error
+/// with a retry. 15s is generous for a slow link yet bounded.
+const Duration kRequestTimeout = Duration(seconds: 15);
+
 /// HTTP verbs [PayerHttp] speaks.
 enum PayerMethod { get, post, patch, delete }
 
@@ -121,15 +130,16 @@ class PayerHttp {
     }
 
     final String? encoded = body == null ? null : jsonEncode(body);
-    final http.Response res = switch (method) {
-      PayerMethod.get => await _client.get(uri, headers: headers),
-      PayerMethod.post =>
-        await _client.post(uri, headers: headers, body: encoded),
-      PayerMethod.patch =>
-        await _client.patch(uri, headers: headers, body: encoded),
-      PayerMethod.delete =>
-        await _client.delete(uri, headers: headers, body: encoded),
-    };
+    // Every verb is bounded by kRequestTimeout — `package:http` has no default
+    // timeout, so a stalled socket would hang the future forever (infinite
+    // spinner, no error, no retry).
+    final http.Response res = await switch (method) {
+      PayerMethod.get => _client.get(uri, headers: headers),
+      PayerMethod.post => _client.post(uri, headers: headers, body: encoded),
+      PayerMethod.patch => _client.patch(uri, headers: headers, body: encoded),
+      PayerMethod.delete => _client.delete(uri, headers: headers, body: encoded),
+    }
+        .timeout(kRequestTimeout);
     return _decode(res);
   }
 

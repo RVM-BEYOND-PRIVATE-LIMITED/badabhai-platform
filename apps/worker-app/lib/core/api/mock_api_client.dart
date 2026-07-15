@@ -116,6 +116,27 @@ class MockApiClient extends ApiClient {
   }
 
   @override
+  Future<ResumeFieldsDto> getResumeFields({required String authToken}) async {
+    await _delay();
+    // Canned safe fields so the edit screen renders in mock mode.
+    return const ResumeFieldsDto(
+      fullName: 'Ramesh Kumar',
+      showPhoto: true,
+      nightShiftReady: false,
+    );
+  }
+
+  @override
+  Future<void> updateResumePrefs({
+    required bool showPhoto,
+    required bool nightShiftReady,
+    required String authToken,
+  }) async {
+    // No-op: nothing is persisted in mock mode.
+    await _delay();
+  }
+
+  @override
   Future<WorkerProfileBundle> getWorkerProfile({
     required String workerId,
     required String authToken,
@@ -362,6 +383,46 @@ class MockApiClient extends ApiClient {
         rank: 1,
         createdAt: now.subtract(const Duration(minutes: 25)),
         updatedAt: now.subtract(const Duration(minutes: 25)),
+      ),
+    ];
+  }
+
+  @override
+  Future<List<WorkerNotification>> getMyNotifications({
+    required String authToken,
+  }) async {
+    await _delay();
+    // Canned, PII-FREE, FACELESS rows mirroring the real allowlist projection —
+    // NO employer name, NO pay, NO phone/name. Newest first (API ordering).
+    final DateTime now = DateTime.now();
+    return <WorkerNotification>[
+      WorkerNotification(
+        id: 'mock-noti-0001',
+        type: 'resume_ready',
+        title: 'Resume taiyaar hai',
+        body: 'Aapka naya resume ban gaya — dekhein aur download karein.',
+        createdAt: now.subtract(const Duration(minutes: 5)),
+      ),
+      WorkerNotification(
+        id: 'mock-noti-0002',
+        type: 'profile_ready',
+        title: 'Profile taiyaar hai',
+        body: 'Aapki profile confirm ho gayi.',
+        createdAt: now.subtract(const Duration(hours: 3)),
+      ),
+      WorkerNotification(
+        id: 'mock-noti-0003',
+        type: 'voice_processed',
+        title: 'Voice note taiyaar',
+        body: 'Aapka voice note process ho gaya.',
+        createdAt: now.subtract(const Duration(hours: 20)),
+      ),
+      WorkerNotification(
+        id: 'mock-noti-0004',
+        type: 'security',
+        title: 'Naye device se login',
+        body: 'Aapke account mein ek naye device se login hua.',
+        createdAt: now.subtract(const Duration(days: 1)),
       ),
     ];
   }

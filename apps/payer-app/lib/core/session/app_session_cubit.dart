@@ -5,6 +5,7 @@ import '../auth/payer_token_store.dart';
 import '../config/app_config.dart';
 import '../data/models.dart';
 import '../data/payer_account_api.dart';
+import '../observability/crash_reporter.dart';
 import 'app_session.dart';
 
 /// Holds the locked session (role + identity). `null` state = signed out.
@@ -71,7 +72,21 @@ class AppSessionCubit extends Cubit<AppSession?> {
   void _emitResolved(PayerRole role, PayerAccount account) {
     final PayerTokenStore? store = _tokenStore;
     if (store != null && !store.hasSession) return; // session died mid-resolve
+    _tagCrashUser(store);
     emit(AppSession(role: role, account: account));
+  }
+
+  /// Tags crash reports with the payer's OPAQUE id so every crash for one
+  /// affected account can be found.
+  ///
+  /// PII discipline (CLAUDE.md §2): the id is the server's opaque payer UUID
+  /// from the token store — NEVER the email, phone, or org name. `PayerMe.email`
+  /// / `phoneLast4` must never be passed here. No-ops when the reporter is not
+  /// ready (tests / non-GMS devices) or before a bearer exists.
+  void _tagCrashUser(PayerTokenStore? store) {
+    final String? payerId = store?.payerId;
+    if (payerId == null || payerId.isEmpty) return;
+    CrashReporter.setUser(payerId);
   }
 
   /// REAL (`kUseMocks` false + an account api wired) → `GET /payer/me` mapped to

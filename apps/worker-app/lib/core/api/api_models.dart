@@ -155,6 +155,39 @@ class AppliedJob extends Equatable {
       ];
 }
 
+/// One worker Alerts row (GET /workers/me/notifications). PII-FREE by contract:
+/// only an opaque event id, a coarse [type], faceless server copy, and a timestamp
+/// — never an employer, pay, name, or phone. [type] is one of `resume_ready`,
+/// `resume_updated`, `profile_ready`, `voice_processed`, `security`.
+class WorkerNotification extends Equatable {
+  const WorkerNotification({
+    required this.id,
+    required this.type,
+    required this.title,
+    required this.body,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String type;
+  final String title;
+  final String body;
+  final DateTime createdAt;
+
+  factory WorkerNotification.fromJson(Map<String, dynamic> json) =>
+      WorkerNotification(
+        id: json['id'] as String? ?? '',
+        type: json['type'] as String? ?? '',
+        title: json['title'] as String? ?? '',
+        body: json['body'] as String? ?? '',
+        createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0),
+      );
+
+  @override
+  List<Object?> get props => <Object?>[id, type, title, body, createdAt];
+}
+
 /// Result of POST /applications/:jobId/apply.
 class ApplyResult extends Equatable {
   const ApplyResult({
@@ -528,6 +561,30 @@ class ResumeResult extends Equatable {
 
   @override
   List<Object?> get props => <Object?>[resumeId, version, resumeText, isMock];
+}
+
+/// The worker-editable resume "safe fields" (GET /workers/me/resume-fields) — the
+/// worker's OWN name spelling + the two display prefs. `fullName` is null until a
+/// name is set; the edit screen renders it as an empty spelling to fill in.
+class ResumeFieldsDto extends Equatable {
+  const ResumeFieldsDto({
+    required this.fullName,
+    required this.showPhoto,
+    required this.nightShiftReady,
+  });
+
+  final String? fullName;
+  final bool showPhoto;
+  final bool nightShiftReady;
+
+  factory ResumeFieldsDto.fromJson(Map<String, dynamic> json) => ResumeFieldsDto(
+        fullName: json['full_name'] as String?,
+        showPhoto: json['show_photo'] as bool? ?? true,
+        nightShiftReady: json['night_shift_ready'] as bool? ?? false,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[fullName, showPhoto, nightShiftReady];
 }
 
 /// Worker's current profile + latest resume (GET /workers/:id/profile). Used to

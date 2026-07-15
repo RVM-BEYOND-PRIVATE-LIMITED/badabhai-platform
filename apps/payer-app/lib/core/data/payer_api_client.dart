@@ -1,8 +1,14 @@
 import 'models.dart';
 
-/// The data seam for the payer app. PASS A ships only [MockPayerApiClient]; a
-/// real HTTP-backed implementation binds to the same interface later (the
-/// presentation layer never sees the difference).
+/// The data seam for the payer app. Two implementations bind to it:
+/// [MockPayerApiClient] (canned, PII-free — demo builds behind `USE_MOCKS=true`
+/// and widget tests) and `HttpPayerApiClient` (the live `/payer/*` routes).
+///
+/// EVERY method here has a real backend route, EXCEPT the two explicitly marked
+/// MOCK-only ([fetchCandidates] / [unlockCandidate]) which the HTTP client
+/// rejects with [UnsupportedError]. Surfaces that had no route (home metrics,
+/// recent activity, earn/payout/KYC/referred rows, the credit-pack catalogue)
+/// were REMOVED from the app rather than served as invented data.
 ///
 /// Methods are async + return PII-free DTOs. The unlock flow is server-truth in
 /// the real impl (credits decrement + ledger write happen there); the mock keeps
@@ -11,8 +17,8 @@ abstract class PayerApiClient {
   /// Candidate feed — relevance-sorted, never by who paid. Each result carries
   /// its current [Candidate.unlocked] flag so the view masks/reveals correctly.
   ///
-  /// MOCK path only: the rich global candidate list. The REAL feed is per-job
-  /// and faceless — see [fetchApplicants].
+  /// MOCK-ONLY: the rich global candidate list. The REAL feed is per-job and
+  /// faceless — see [fetchApplicants]. The HTTP client throws [UnsupportedError].
   Future<List<Candidate>> fetchCandidates();
 
   /// The REAL per-job feed — the faceless, relevance-ranked applicants for an
@@ -93,43 +99,27 @@ abstract class PayerApiClient {
     String? coupon,
   });
 
-  /// The credit-pack catalogue for the Buy-credits screen.
-  Future<List<CreditPack>> fetchCreditPacks();
-
   /// The unlock ledger (most-recent first).
   Future<List<LedgerEntry>> fetchLedger();
 
-  // --- Credits — balance + ledger + pack purchase (PASS P3) -----------------
-  // The pack CATALOGUE has NO endpoint (config-only via [fetchCreditPacks]);
-  // only the balance, ledger, and pack purchase are real.
+  // --- Credits — balance + ledger (PASS P3) ---------------------------------
+  // READ-ONLY. The pack CATALOGUE had no endpoint (its prices were hardcoded
+  // client-side and contradicted the server pricing catalog) and there is no
+  // payment provider, so the purchase surface was REMOVED — only the real
+  // balance + ledger remain.
 
   /// Current credit balance (`GET /payer/credits` → `{payer_id, balance}`).
   Future<int> fetchCreditBalance();
-
-  /// Buy a credit pack by its server [packCode] (`POST /payer/credits` → 201
-  /// `{balance, credits, pack_code}`). Returns the new balance. An unknown pack
-  /// is a real 404 → [PayerApiException].
-  Future<int> buyCreditPack({required String packCode});
 
   /// The credit ledger (`GET /payer/credits/ledger?limit=` → `{ledger:[...]}`),
   /// most-recent first. Rows carry `delta`/`reason` (pack_purchase, unlock_debit,
   /// refund, grant) — mapped to display [LedgerEntry]s.
   Future<List<LedgerEntry>> fetchCreditLedger({int limit = 20});
 
-  /// Home demand metrics.
-  Future<HomeMetrics> fetchHomeMetrics();
-
-  /// Home recent-activity rows.
-  Future<List<ActivityItem>> fetchRecentActivity();
-
-  /// Agency-only Earn·Supply summary (called only for an agency session).
-  Future<EarnSummary> fetchEarnSummary();
-
-  // --- Agency · Supply / Earn -----------------------------------------------
-  // The referral LINK is the one supply surface with a real backend
-  // (`POST /payer/agency/invites` → {code, link}, agent-only). The referred
-  // rows, payouts, and KYC have NO backend endpoint (ADR-0022 parked Phase 2)
-  // and are DESIGN-ONLY on this seam — they render the screens but do not bind.
+  // --- Agency · Supply ------------------------------------------------------
+  // The referral LINK + funnel summary are the supply surfaces with a real
+  // backend (`POST /payer/agency/invites`, `GET /payer/agency/referrals/summary`
+  // — both agent-only).
 
   /// The agency's referral link + code (`POST /payer/agency/invites`, agent-only).
   /// Faceless: the only optional input is a non-PII [campaign] tag — never a
@@ -193,33 +183,14 @@ abstract class PayerApiClient {
   /// AGGREGATE counts only (k-anon floor applied) — no per-worker rows.
   Future<ReferralsSummary> fetchReferralsSummary();
 
-  /// Masked rows of workers this agency introduced (window countdowns + earned).
-  /// DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  Future<List<ReferredWorker>> fetchReferredWorkers();
-
-  /// Earnings & payouts aggregates for the payouts screen.
-  /// DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  Future<PayoutSummary> fetchPayoutSummary();
-
-  /// Settled payout history (most-recent first).
-  /// DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  Future<List<PayoutEntry>> fetchPayouts();
-
-  /// Current payout-KYC status (drives the KYC state machine + hub badge).
-  /// DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  Future<KycStatus> kycStatus();
-
-  /// Submit PAN/bank for payout KYC. Returns the new status (→ `review`).
-  /// DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  Future<KycStatus> submitKyc(KycSubmission submission);
-
   /// Current credit balance.
   Future<int> fetchCredits();
 
   /// Spend 1 credit to unlock [candidateId]. Returns the new balance.
   ///
-  /// LEGACY / MOCK path: keyed by the in-memory candidate int id. The REAL flow
-  /// uses [unlock] with the opaque worker UUID from the feed (see [unlock]).
+  /// MOCK-ONLY: keyed by the in-memory candidate int id. The REAL flow uses
+  /// [unlock] with the opaque worker UUID from the feed; the HTTP client throws
+  /// [UnsupportedError].
   Future<int> unlockCandidate(int candidateId);
 
   /// REAL unlock — spend a credit to unlock [workerId] (an opaque UUID from the
@@ -253,9 +224,6 @@ abstract class PayerApiClient {
   /// signal; carries no PII. Callers treat it as fire-and-forget.
   Future<void> recordInviteClick(String code);
 
-  /// Add a pack's worth of credits. Returns the new balance.
-  Future<int> buyCredits(int count);
-
   // --- Org / team members (ADR-0027, PASS P4b) ------------------------------
   // The signed-in payer's org/team, behind PayerAuthGuard (+ PayerOrgRoleGuard
   // on the write routes). Emails are ALWAYS server-masked; the ONLY raw email is
@@ -288,14 +256,11 @@ abstract class PayerApiClient {
   Future<OrgMemberView> acceptOrgInvite({required String token});
 
   // --- Hiring capacity (ADR-0016, PASS P4b) ---------------------------------
-  // The payer's OWN concurrent-active-vacancy allowance. PII-free; mock payment
-  // (real_call:false) — treated like the other mock-money buys.
+  // The payer's OWN concurrent-active-vacancy allowance. PII-free, READ-ONLY:
+  // the upgrade/buy action was a MOCK payment (`real_call:false`) with no
+  // payment provider behind it, so it was REMOVED — only the real allowance
+  // read remains.
 
   /// The caller's own capacity allowance (`GET /payer/capacity`).
   Future<CapacityView> fetchCapacity();
-
-  /// Buy/upgrade capacity (`POST /payer/capacity` → 201). [tier] is a catalog
-  /// code (`cap_5` | `cap_15`). Returns the new allowance + the charged quote +
-  /// any [CapacityPurchase.resumedPlanIds] the higher allowance un-paused.
-  Future<CapacityPurchase> buyCapacity({required String tier, String? coupon});
 }

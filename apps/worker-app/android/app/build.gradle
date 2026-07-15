@@ -3,10 +3,12 @@ plugins {
     id "kotlin-android"
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id "dev.flutter.flutter-gradle-plugin"
-    // Firebase (native Android) — google-services must be applied after Android/Kotlin/Flutter plugins.
+    // Firebase — google-services must be applied after Android/Kotlin/Flutter plugins.
     id "com.google.gms.google-services"
+    // Crashlytics gradle plugin: uploads the mapping/NDK symbols on release so
+    // obfuscated stack traces are readable in the console. Crashlytics itself
+    // now ships via the FlutterFire firebase_crashlytics plugin.
     id "com.google.firebase.crashlytics"
-    id "com.google.firebase.firebase-perf"
 }
 
 android {
@@ -52,10 +54,10 @@ flutter {
 }
 
 dependencies {
-    // Firebase BoM pins all Firebase SDK versions to one tested set (native Android; no FlutterFire).
+    // Firebase BoM pins the NATIVE messaging SDK version. Crashlytics is now
+    // owned by the FlutterFire firebase_crashlytics plugin (do NOT re-declare it
+    // here — double-declaration causes version conflicts). Analytics + Perf were
+    // removed: unused, and Perf is a known start-up ANR risk on low-end devices.
     implementation platform("com.google.firebase:firebase-bom:34.15.0")
-    implementation "com.google.firebase:firebase-analytics"
-    implementation "com.google.firebase:firebase-crashlytics"
-    implementation "com.google.firebase:firebase-perf"
     implementation "com.google.firebase:firebase-messaging"
 }

@@ -11,6 +11,7 @@ import '../../../core/widgets/bb_list_row.dart';
 import '../../../core/widgets/bb_scaffold.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../router.dart';
+import '../../swipe/domain/job_detail.dart';
 import 'cubit/applications_cubit.dart';
 
 /// "Applied jobs" (Profile → Applied jobs). Mock-backed until GET /me/applications
@@ -78,10 +79,18 @@ class _AppliedJobsView extends StatelessWidget {
         return Material(
           type: MaterialType.transparency,
           child: InkWell(
-            // Row tap → job details (MOCK, the existing job-detail route).
-            // TODO(backend): swap to the real worker job-detail endpoint when it
-            // lands — detail is mock for now.
-            onTap: () => context.push('${Routes.jobDetail}/${job.jobId}'),
+            // Row tap → job details. The row already holds the REAL job facts,
+            // so it hands them over as `extra`; there is no worker-facing
+            // job-detail route and nothing is synthesised.
+            onTap: () => context.push(
+              '${Routes.jobDetail}/${job.jobId}',
+              extra: JobDetail(
+                jobId: job.jobId,
+                title: job.title,
+                city: job.city,
+                area: job.area,
+              ),
+            ),
             child: BbListRow.notification(
               icon: Icons.work_history,
               tone: BbNotiTone.green,

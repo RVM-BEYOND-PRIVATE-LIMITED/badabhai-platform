@@ -13,6 +13,7 @@ import '../../../core/widgets/bb_job_card.dart';
 import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../router.dart';
+import '../domain/job_detail.dart';
 import 'bloc/swipe_bloc.dart';
 import 'bloc/swipe_state.dart';
 import 'widgets/filters_sheet.dart';
@@ -23,7 +24,7 @@ import 'widgets/job_deck.dart';
 /// Header + filter chips + the [JobDeck] card deck + swipe hint. All business
 /// logic stays in [SwipeBloc]; this widget renders state and dispatches events.
 /// The real feed contract ([FeedItem] / getFeed) is PII-free and unchanged — the
-/// rich card fields are MOCK-ONLY display data (see [_mockCardData]).
+/// card shows ONLY real feed fields — no invented employer/pay (see [_cardData]).
 class SwipeJobsScreen extends StatelessWidget {
   const SwipeJobsScreen({super.key, this.bloc});
 
@@ -59,7 +60,6 @@ class _FeedViewState extends State<_FeedView> {
   final Set<String> _chips = <String>{'CNC'};
 
   int _shownAppliedNonce = 0;
-  int _shownPrioritizedNonce = 0;
   int _shownDecisionError = 0;
 
   /// The head jobId captured at skip-dispatch time. Skip success is silent in the
@@ -98,7 +98,6 @@ class _FeedViewState extends State<_FeedView> {
           listenWhen: (SwipeState prev, SwipeState curr) =>
               prev.decisionError != curr.decisionError ||
               prev.appliedNonce != curr.appliedNonce ||
-              prev.prioritizedNonce != curr.prioritizedNonce ||
               prev.queue != curr.queue,
           listener: (BuildContext context, SwipeState state) {
             if (state.appliedNonce != _shownAppliedNonce) {
@@ -107,12 +106,6 @@ class _FeedViewState extends State<_FeedView> {
               // Apply truly succeeded — confirm with a lightweight toast and let
               // the deck advance to the next card (no full-screen confirmation).
               _toast(context, 'Applied');
-            } else if (state.prioritizedNonce != _shownPrioritizedNonce) {
-              _shownPrioritizedNonce = state.prioritizedNonce;
-              _pendingSkipId = null;
-              // Up-swipe recorded the Priority intent (local for now) — confirm
-              // with a toast; the deck has already advanced to the next card.
-              _toast(context, 'Priority');
             } else if (state.decisionError != _shownDecisionError) {
               _shownDecisionError = state.decisionError;
               _pendingSkipId = null; // a failed skip never confirms
@@ -141,7 +134,7 @@ class _FeedViewState extends State<_FeedView> {
   Widget _feed(BuildContext context, SwipeState state) {
     final SwipeBloc bloc = context.read<SwipeBloc>();
     final List<JobDeckItem> cards = state.queue
-        .map((FeedItem i) => JobDeckItem(id: i.jobId, data: _mockCardData(i)))
+        .map((FeedItem i) => JobDeckItem(id: i.jobId, data: _cardData(i)))
         .toList();
 
     return Column(
@@ -157,10 +150,21 @@ class _FeedViewState extends State<_FeedView> {
               cards: cards,
               deciding: state.deciding,
               onTitleTap: (String id) async {
+                // Hand the detail screen the REAL feed row — there is no
+                // worker-facing job-detail route, so this row IS the source.
+                final FeedItem item =
+                    state.queue.firstWhere((FeedItem i) => i.jobId == id);
                 // J3: applying from JobDetail pops back with 'applied' — surface
                 // the same "Applied" toast here (no more Applied confirmation screen).
-                final Object? result =
-                    await context.push('${Routes.jobDetail}/$id');
+                final Object? result = await context.push(
+                  '${Routes.jobDetail}/$id',
+                  extra: JobDetail(
+                    jobId: item.jobId,
+                    title: item.title,
+                    city: item.city,
+                    area: item.area,
+                  ),
+                );
                 if (result == 'applied' && context.mounted) {
                   _toast(context, 'Applied');
                 }
@@ -172,9 +176,6 @@ class _FeedViewState extends State<_FeedView> {
                 bloc.add(const SwipeSkipped());
               },
               onApply: () => bloc.add(const SwipeApplied()),
-              // Up-swipe = add to Priority (records intent locally + toasts;
-              // no "priority jobs" screen yet — deferred with the backend).
-              onPrioritize: () => bloc.add(const SwipePrioritized()),
             ),
           ),
         ),
@@ -310,31 +311,15 @@ class _FeedViewState extends State<_FeedView> {
   }
 }
 
-// MOCK-ONLY display fields (company name, pay band, spots-left, requirement
-// tags, shift). The real worker-facing job contract is PII-sensitive — CLAUDE.md
-// §2 lists employer names as PII — and exposing these on a LIVE endpoint needs an
-// ADR ruling first. These values are fabricated client-side for the alpha and are
-// NEVER sent to a real /feed, an event, ai_jobs, audit_logs, or a log. The real
-// FeedItem/getFeed path stays PII-free and unchanged. These fields are NOT part
-// of the FeedItem contract, so they are synthesised in this presentation mapper
-// (not via the ApiClient/MockApiClient); serving them from a real endpoint is a
-// §7 follow-up gated on the PII/ADR ruling.
-BbJobCardData _mockCardData(FeedItem item) {
-  const List<String> companies = <String>[
-    'Sharma Precision Works',
-    'Deccan Auto Components',
-    'Kalyani Industries',
-    'MIDC Engineering Co.',
-  ];
-  const List<String> bands = <String>['18–24k', '22–28k', '25–32k', '28–36k'];
-  final int seed = item.jobId.hashCode & 0x7fffffff;
+/// Maps a REAL [FeedItem] to the card. The feed carries ONLY title + place —
+/// no employer name (PII per CLAUDE.md §2), no pay, no shift, no tags, no
+/// spots-left — so none are set here. An earlier build invented all of them
+/// client-side from `jobId.hashCode` and rendered them as fact.
+BbJobCardData _cardData(FeedItem item) {
   return BbJobCardData(
     title: item.title,
-    company: companies[seed % companies.length],
-    payBand: bands[seed % bands.length],
-    place: item.area == null ? item.city : '${item.area}, ${item.city}',
-    shift: seed.isEven ? 'Day' : 'Rotational',
-    tags: const <String>['Fanuc', '2+ yrs', 'PF + ESI'],
-    spotsLeft: 1 + seed % 5,
+    place: (item.area == null || item.area!.isEmpty)
+        ? item.city
+        : '${item.area}, ${item.city}',
   );
 }

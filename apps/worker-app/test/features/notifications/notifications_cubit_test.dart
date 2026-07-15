@@ -13,10 +13,10 @@ class MockNotificationsRepository extends Mock
 
 const List<AppNotification> _items = <AppNotification>[
   AppNotification(
-    id: 'mock-n1',
-    kind: NotificationKind.newJob,
-    title: 'Naya job',
-    subtitle: 'X',
+    id: 'e1',
+    kind: NotificationKind.resumeReady,
+    title: 'Resume taiyaar hai',
+    subtitle: 'Aapka naya resume ban gaya.',
     time: 'Abhi',
   ),
 ];

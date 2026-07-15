@@ -3,28 +3,33 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
-import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
-import '../../../core/widgets/bb_status_view.dart';
-import '../../../core/widgets/bb_tag.dart';
-import 'cubit/job_detail_cubit.dart';
 import '../domain/job_detail.dart';
+import '../domain/swipe_repository.dart';
+import 'cubit/job_detail_cubit.dart';
 
-/// Full job posting (spec §5.6). Reached full-screen from the Feed card title;
-/// applies through the same path as the Feed, then routes to Applied.
+/// Full job posting. Reached full-screen from a Feed card (or an Applied row),
+/// which hands over the REAL [JobDetail] it already holds; applying goes through
+/// the same path as the Feed.
+///
+/// Shows ONLY what the worker-facing feed actually returns — title and place. It
+/// used to also show an employer name, a "verified" badge, a pay band, a shift,
+/// duties, requirements and benefits, ALL invented client-side from
+/// `jobId.hashCode`. Nothing here is synthesised: where the backend has no data,
+/// the screen shows nothing.
 class JobDetailScreen extends StatelessWidget {
-  const JobDetailScreen({super.key, required this.jobId});
+  const JobDetailScreen({super.key, required this.detail});
 
-  final String jobId;
+  final JobDetail detail;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider<JobDetailCubit>(
-      create: (_) => locator<JobDetailCubit>()..load(jobId),
+      create: (_) => JobDetailCubit(locator<SwipeRepository>(), detail),
       child: const _JobDetailView(),
     );
   }
@@ -44,20 +49,7 @@ class _JobDetailViewState extends State<_JobDetailView> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: BbAppBar(
-        title: '',
-        actions: <Widget>[
-          IconButton(
-            tooltip: 'Share',
-            icon: const Icon(Icons.share),
-            onPressed: () => ScaffoldMessenger.of(context)
-              ..clearSnackBars()
-              ..showSnackBar(
-                const SnackBar(content: Text('Share coming soon')),
-              ),
-          ),
-        ],
-      ),
+      appBar: const BbAppBar(title: ''),
       body: BlocConsumer<JobDetailCubit, JobDetailState>(
         listenWhen: (JobDetailState p, JobDetailState c) =>
             p.appliedNonce != c.appliedNonce ||
@@ -65,8 +57,8 @@ class _JobDetailViewState extends State<_JobDetailView> {
         listener: (BuildContext context, JobDetailState state) {
           if (state.appliedNonce != _shownApplied) {
             _shownApplied = state.appliedNonce;
-            // J3: the "Apply ho gaya" screen is gone — pop back to the Jobs
-            // feed with a result so it surfaces an "Applied" toast.
+            // Pop back to the Jobs feed with a result so it surfaces an
+            // "Applied" toast.
             context.pop('applied');
           } else if (state.applyErrorNonce != _shownError) {
             _shownError = state.applyErrorNonce;
@@ -78,54 +70,19 @@ class _JobDetailViewState extends State<_JobDetailView> {
               );
           }
         },
-        builder: (BuildContext context, JobDetailState state) {
-          return switch (state.status) {
-            JobDetailStatus.loading => const BbStatusView.loading(),
-            JobDetailStatus.failed => BbStatusView(
-                icon: failureReason(state.failure).icon,
-                title: 'Job load nahi hui.',
-                subtitle: failureReason(state.failure).reason,
-                action: FilledButton(
-                  onPressed: () => context
-                      .read<JobDetailCubit>()
-                      .load(state.detail?.jobId ?? ''),
-                  child: const Text('Try again'),
-                ),
-              ),
-            JobDetailStatus.ready => _detail(context, state.detail!, state),
-          };
-        },
+        builder: (BuildContext context, JobDetailState state) =>
+            _detail(context, state),
       ),
     );
   }
 
-  Widget _detail(BuildContext context, JobDetail d, JobDetailState state) {
+  Widget _detail(BuildContext context, JobDetailState state) {
     return Column(
       children: <Widget>[
         Expanded(
           child: ListView(
             padding: EdgeInsets.zero,
-            children: <Widget>[
-              _headBand(d),
-              _block(
-                'Kaam kya hai',
-                child: _bullets(d.duties),
-              ),
-              _block(
-                'Chahiye',
-                child: Wrap(
-                  spacing: AppSpacing.s2,
-                  runSpacing: AppSpacing.s2,
-                  children:
-                      d.requirements.map((String r) => BbTag(r)).toList(),
-                ),
-              ),
-              _block(
-                'Faayde',
-                last: true,
-                child: _bullets(d.benefits),
-              ),
-            ],
+            children: <Widget>[_headBand(state.detail)],
           ),
         ),
         _stickyCta(context, state),
@@ -134,6 +91,7 @@ class _JobDetailViewState extends State<_JobDetailView> {
   }
 
   Widget _headBand(JobDetail d) {
+    final String? place = d.place;
     return Container(
       width: double.infinity,
       decoration: const BoxDecoration(
@@ -152,31 +110,9 @@ class _JobDetailViewState extends State<_JobDetailView> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(d.title,
-                        style: AppTypography.display(
-                            size: AppTypography.size2xl,
-                            weight: FontWeight.w800)),
-                    const SizedBox(height: AppSpacing.s1),
-                    Row(
-                      children: <Widget>[
-                        Flexible(
-                          child: Text(d.company,
-                              style: AppTypography.body(
-                                  color: AppColors.textSecondary,
-                                  weight: FontWeight.w600)),
-                        ),
-                        if (d.verified) ...<Widget>[
-                          const SizedBox(width: AppSpacing.s1),
-                          const Icon(Icons.verified,
-                              size: 16, color: AppColors.success),
-                        ],
-                      ],
-                    ),
-                  ],
-                ),
+                child: Text(d.title,
+                    style: AppTypography.display(
+                        size: AppTypography.size2xl, weight: FontWeight.w800)),
               ),
               const SizedBox(width: AppSpacing.s3),
               Container(
@@ -191,82 +127,23 @@ class _JobDetailViewState extends State<_JobDetailView> {
               ),
             ],
           ),
-          const SizedBox(height: AppSpacing.s4),
-          Wrap(
-            spacing: AppSpacing.s5,
-            runSpacing: AppSpacing.s2,
-            children: <Widget>[
-              _fact(Icons.place_outlined, d.location),
-              _fact(Icons.schedule, d.shift),
-              _fact(Icons.currency_rupee, d.payBand, mono: true),
-            ],
-          ),
+          // Rendered ONLY when the feed actually gave us a place.
+          if (place != null) ...<Widget>[
+            const SizedBox(height: AppSpacing.s4),
+            _fact(Icons.place_outlined, place),
+          ],
         ],
       ),
     );
   }
 
-  Widget _fact(IconData icon, String text, {bool mono = false}) {
+  Widget _fact(IconData icon, String text) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
         Icon(icon, size: 17, color: AppColors.textFaint),
         const SizedBox(width: AppSpacing.s1),
-        Text(
-          text,
-          style: mono
-              ? AppTypography.mono(
-                  weight: FontWeight.w700, color: AppColors.textPrimary)
-              : AppTypography.body(color: AppColors.textSecondary),
-        ),
-      ],
-    );
-  }
-
-  Widget _block(String heading, {required Widget child, bool last = false}) {
-    return Container(
-      decoration: BoxDecoration(
-        border: last
-            ? null
-            : const Border(bottom: BorderSide(color: AppColors.divider)),
-      ),
-      padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.gutter, vertical: AppSpacing.s4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(heading.toUpperCase(), style: AppTypography.eyebrow()),
-          const SizedBox(height: AppSpacing.s3),
-          child,
-        ],
-      ),
-    );
-  }
-
-  Widget _bullets(List<String> items) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        for (final String item in items)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.s2),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                const Padding(
-                  padding: EdgeInsets.only(top: 2),
-                  child: Icon(Icons.check_circle,
-                      size: 18, color: AppColors.success),
-                ),
-                const SizedBox(width: AppSpacing.s2),
-                Expanded(
-                  child: Text(item,
-                      style: AppTypography.body(
-                          color: AppColors.textSecondary)),
-                ),
-              ],
-            ),
-          ),
+        Text(text, style: AppTypography.body(color: AppColors.textSecondary)),
       ],
     );
   }
@@ -296,8 +173,7 @@ class _JobDetailViewState extends State<_JobDetailView> {
               child: const SizedBox(
                 width: 56,
                 height: 56,
-                child:
-                    Icon(Icons.close, color: AppColors.textMuted, size: 26),
+                child: Icon(Icons.close, color: AppColors.textMuted, size: 26),
               ),
             ),
           ),

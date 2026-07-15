@@ -14,8 +14,11 @@ import 'package:payer_app/core/data/models.dart';
 /// members list (bare array wrapped under `items`, is_self), the OWNER-only
 /// invite body (`recruiter` only, no payer_id/org_id) + 409, remove
 /// (DELETE path, no body) + 409-owner, accept-invite (token body) + 404/403,
-/// capacity GET, and the MIXED-casing capacity buy (top-level snake + nested
-/// camelCase quote.finalInr + resumed_plan_ids).
+/// and the read-only capacity GET (+ its honest 5xx).
+///
+/// The capacity BUY (`POST /payer/capacity`) is gone — it was a mock payment
+/// against a client-side hardcoded price list with no payment provider — so its
+/// mixed-casing parse test went with it.
 class _Router {
   _Router(this.routes);
   final Map<String, http.Response> routes;
@@ -240,46 +243,17 @@ void main() {
       expect(h.router.seen.single.url.path, '/payer/capacity');
     });
 
-    test('POST /payer/capacity — MIXED casing parse (snake + camel quote)',
+    test('capacity read 5xx → PayerApiException (never fabricated zeros)',
         () async {
       final h = _harness(<String, http.Response>{
-        'POST /payer/capacity': _json(<String, dynamic>{
-          // Top-level snake_case ...
-          'payer_id': 'p',
-          'max_active_vacancies': 15,
-          'source_tier': 'cap_15',
-          'expires_at': '2026-08-07T00:00:00Z',
-          'resumed_plan_ids': <String>['plan-a', 'plan-b'],
-          // ... with a NESTED camelCase quote.
-          'quote': <String, dynamic>{'finalInr': 12000, 'realCall': false},
-        }, 201),
-      });
-
-      final CapacityPurchase r = await h.api.buyCapacity(tier: 'cap_15');
-
-      expect(r.maxActiveVacancies, 15);
-      expect(r.sourceTier, 'cap_15');
-      expect(r.finalInr, 12000); // nested camelCase read
-      expect(r.resumedPlanIds, <String>['plan-a', 'plan-b']);
-      final http.Request req = h.router.seen.single;
-      expect(req.url.path, '/payer/capacity');
-      final Map<String, dynamic> body =
-          jsonDecode(req.body) as Map<String, dynamic>;
-      expect(body['tier'], 'cap_15');
-      expect(body.containsKey('payer_id'), isFalse);
-    });
-
-    test('capacity buy 4xx → PayerApiException (never a phantom raise)',
-        () async {
-      final h = _harness(<String, http.Response>{
-        'POST /payer/capacity':
-            _json(<String, dynamic>{'message': 'unknown tier'}, 400),
+        'GET /payer/capacity': _json(<String, dynamic>{'message': 'boom'}, 500),
       });
 
       await expectLater(
-        h.api.buyCapacity(tier: 'nope'),
+        h.api.fetchCapacity(),
         throwsA(isA<PayerApiException>()),
       );
     });
+
   });
 }

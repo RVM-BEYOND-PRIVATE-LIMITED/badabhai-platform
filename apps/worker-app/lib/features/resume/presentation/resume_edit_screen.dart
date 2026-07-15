@@ -39,12 +39,13 @@ class _ResumeEditView extends StatefulWidget {
 
 class _ResumeEditViewState extends State<_ResumeEditView> {
   int _shownSaved = 0;
+  int _shownError = 0;
 
   @override
   Widget build(BuildContext context) {
     return BlocConsumer<ResumeEditCubit, ResumeEditState>(
       listenWhen: (ResumeEditState p, ResumeEditState c) =>
-          p.savedNonce != c.savedNonce,
+          p.savedNonce != c.savedNonce || p.saveErrorNonce != c.saveErrorNonce,
       listener: (BuildContext context, ResumeEditState state) {
         if (state.savedNonce != _shownSaved) {
           _shownSaved = state.savedNonce;
@@ -52,6 +53,15 @@ class _ResumeEditViewState extends State<_ResumeEditView> {
             ..clearSnackBars()
             ..showSnackBar(const SnackBar(content: Text('Saved')));
           context.pop();
+        } else if (state.saveErrorNonce != _shownError) {
+          // A save failed — surface the honest reason and stay on the screen so
+          // the worker can fix it and retry (mirrors the load-failed path).
+          _shownError = state.saveErrorNonce;
+          ScaffoldMessenger.of(context)
+            ..clearSnackBars()
+            ..showSnackBar(SnackBar(
+              content: Text(failureReason(state.saveFailure).reason),
+            ));
         }
       },
       builder: (BuildContext context, ResumeEditState state) {
@@ -112,11 +122,6 @@ class _ResumeEditViewState extends State<_ResumeEditView> {
             label: 'Photo dikhayein',
             value: fields.showPhoto,
             onChanged: cubit.setShowPhoto,
-          ),
-          _ToggleField(
-            label: 'Phone employer ko dikhe',
-            value: fields.showPhone,
-            onChanged: cubit.setShowPhone,
           ),
           _ToggleField(
             label: 'Night shift ke liye taiyaar',

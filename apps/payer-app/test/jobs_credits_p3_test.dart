@@ -345,36 +345,6 @@ void main() {
       expect(await h.api.fetchCreditBalance(), 173);
     });
 
-    test('buyCreditPack → POST {pack_code}; returns new balance; unknown=404',
-        () async {
-      final ok = _harness(<String, http.Response>{
-        'POST /payer/credits': _json(<String, dynamic>{
-          'payer_id': 'p',
-          'balance': 250,
-          'credits': 200,
-          'pack_code': 'pack_200',
-        }, 201),
-      });
-      final int balance = await ok.api.buyCreditPack(packCode: 'pack_200');
-      expect(balance, 250);
-      final Map<String, dynamic> body =
-          jsonDecode(ok.router.seen.single.body) as Map<String, dynamic>;
-      expect(body['pack_code'], 'pack_200');
-      expect(body.containsKey('payer_id'), isFalse);
-
-      final unknown = _harness(<String, http.Response>{
-        'POST /payer/credits':
-            _json(<String, dynamic>{'message': 'unknown pack'}, 404),
-      });
-      await expectLater(
-        unknown.api.buyCreditPack(packCode: 'pack_x'),
-        throwsA(
-          isA<PayerApiException>()
-              .having((PayerApiException e) => e.isNotFound, 'isNotFound', true),
-        ),
-      );
-    });
-
     test('fetchCreditLedger → GET /credits/ledger snake parse', () async {
       final h = _harness(<String, http.Response>{
         'GET /payer/credits/ledger': _json(<String, dynamic>{

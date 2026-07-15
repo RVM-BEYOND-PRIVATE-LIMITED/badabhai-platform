@@ -316,6 +316,10 @@ class _LoginScreenState extends State<LoginScreen> {
           icon: Icons.lock_outline,
           keyboardType: TextInputType.number,
           mono: true,
+          // Keyboard one-time-code assist (best-effort). NOTE: the payer OTP
+          // arrives by EMAIL/WhatsApp, not SMS — so there is no SMS to auto-read;
+          // this only lets the OS keyboard suggest a detected code where it can.
+          autofillHints: const <String>[AutofillHints.oneTimeCode],
         ),
         const SizedBox(height: AppSpacing.s5),
         BbButton(

@@ -69,6 +69,14 @@ class ResumeRepositoryImpl implements ResumeRepository {
         authToken: token,
       );
       return dl.url;
+    } on ApiException catch (e) {
+      // 409 on the download route specifically means the PDF isn't rendered yet
+      // (render pending / not enabled) — surface an honest "taiyaar ho rahi hai"
+      // instead of the generic server error the global mapper would produce.
+      if (e.statusCode == 409) {
+        throw const ResumeNotReadyFailure();
+      }
+      throw mapError(e);
     } catch (error) {
       throw mapError(error);
     }

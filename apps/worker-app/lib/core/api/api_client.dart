@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../config/app_config.dart' show resolveApiBaseUrl;
 import 'api_models.dart';
 
 // Re-export the response models so screens that import this file get them too.
@@ -10,6 +11,16 @@ export 'api_models.dart';
 /// Current DPDP consent version. Mirrors `CURRENT_CONSENT_VERSION` in
 /// packages/types — keep these in sync when the consent copy changes.
 const String kConsentVersion = '2026-06-01';
+
+/// Hard ceiling on any single HTTP request.
+///
+/// `package:http` has NO default timeout, so a stalled connection hangs the
+/// future FOREVER — the screen spins with no error and no retry. Our workers are
+/// on 2G/3G where a dead-but-open socket is routine, so an explicit bound is
+/// mandatory. A [TimeoutException] maps to a NetworkFailure via `mapError`, so
+/// the UI shows an honest "couldn't reach the server" with a Try-again instead
+/// of an infinite spinner. 15s is generous for a slow link yet bounded.
+const Duration kRequestTimeout = Duration(seconds: 15);
 
 /// HTTP client for the NestJS API (see apps/api).
 ///
@@ -22,11 +33,7 @@ const String kConsentVersion = '2026-06-01';
 /// never talks to an LLM directly.
 class ApiClient {
   ApiClient({String? baseUrl, http.Client? client, this.onSessionTokenRefreshed})
-      : baseUrl = baseUrl ??
-            const String.fromEnvironment(
-              'API_BASE_URL',
-              defaultValue: 'http://localhost:3001',
-            ),
+      : baseUrl = baseUrl ?? resolveApiBaseUrl(),
         _client = client ?? http.Client();
 
   final String baseUrl;
@@ -182,6 +189,34 @@ class ApiClient {
     );
   }
 
+  /// GET /workers/me/resume-fields — the worker-editable "safe fields" (their OWN
+  /// name spelling + display prefs) for the edit screen. Worker-scoped
+  /// (WorkerAuthGuard + ConsentGuard); the worker is taken from [authToken], never
+  /// the body. `full_name` is a self-read of the owner's own name (never logged).
+  Future<ResumeFieldsDto> getResumeFields({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/resume-fields', authToken: authToken);
+    return ResumeFieldsDto.fromJson(json);
+  }
+
+  /// PATCH /workers/me/resume-prefs — persist the resume display prefs. Sends both
+  /// flags (the backend requires at least one). Worker from [authToken]; the
+  /// response is only `{ ok: true }`, so nothing is parsed back.
+  Future<void> updateResumePrefs({
+    required bool showPhoto,
+    required bool nightShiftReady,
+    required String authToken,
+  }) async {
+    await _patch(
+      '/workers/me/resume-prefs',
+      <String, dynamic>{
+        'show_photo': showPhoto,
+        'night_shift_ready': nightShiftReady,
+      },
+      authToken: authToken,
+    );
+  }
+
   /// GET /workers/:id/profile — worker + latest profile + latest generated
   /// resume. Used to restore `profileId` (and reuse an existing resume) after a
   /// login that skipped in-session profiling.
@@ -278,9 +313,13 @@ class ApiClient {
   /// ConsentGuard, so a 401 means re-login and a 403 means consent is required.
   ///
   /// Returns PII-free coarse job fields only (no employer, no pay).
+  ///
+  /// [limit] defaults to 50 (the backend's cap) so the LIBERAL alpha feed shows
+  /// every open job while volume is small — the feed applies no location/trade
+  /// filter server-side, so nothing is dropped between here and the deck.
   Future<List<FeedItem>> getFeed({
     required String authToken,
-    int limit = 20,
+    int limit = 50,
   }) async {
     final Map<String, dynamic> json =
         await _get('/feed?limit=$limit', authToken: authToken);
@@ -305,6 +344,24 @@ class ApiClient {
     return apps
         .whereType<Map<String, dynamic>>()
         .map(AppliedJob.fromJson)
+        .toList();
+  }
+
+  /// Fetches the worker's Alerts feed (GET /workers/me/notifications —
+  /// WorkerAuthGuard + ConsentGuard). Worker-scoped: the worker is derived from
+  /// [authToken], never a param. The response is an OBJECT `{notifications:[...]}`.
+  /// Rows are faceless + PII-free by contract (server-rendered copy — never an
+  /// employer, pay, name, or phone).
+  Future<List<WorkerNotification>> getMyNotifications({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/notifications', authToken: authToken);
+    final List<dynamic> rows =
+        json['notifications'] as List<dynamic>? ?? <dynamic>[];
+    return rows
+        .whereType<Map<String, dynamic>>()
+        .map(WorkerNotification.fromJson)
         .toList();
   }
 
@@ -499,11 +556,13 @@ class ApiClient {
     String? authToken,
   }) async {
     final Uri uri = Uri.parse('$baseUrl$path');
-    final http.Response res = await _client.post(
-      uri,
-      headers: _headers(contentType: true, authToken: authToken),
-      body: jsonEncode(body),
-    );
+    final http.Response res = await _client
+        .post(
+          uri,
+          headers: _headers(contentType: true, authToken: authToken),
+          body: jsonEncode(body),
+        )
+        .timeout(kRequestTimeout);
     return _decode(res);
   }
 
@@ -517,11 +576,13 @@ class ApiClient {
     String? authToken,
   }) async {
     final Uri uri = Uri.parse('$baseUrl$path');
-    final http.Response res = await _client.patch(
-      uri,
-      headers: _headers(contentType: true, authToken: authToken),
-      body: jsonEncode(body),
-    );
+    final http.Response res = await _client
+        .patch(
+          uri,
+          headers: _headers(contentType: true, authToken: authToken),
+          body: jsonEncode(body),
+        )
+        .timeout(kRequestTimeout);
     return _decode(res);
   }
 
@@ -530,10 +591,12 @@ class ApiClient {
   /// When [authToken] is supplied it is sent as `Authorization: Bearer <token>`.
   Future<Map<String, dynamic>> _get(String path, {String? authToken}) async {
     final Uri uri = Uri.parse('$baseUrl$path');
-    final http.Response res = await _client.get(
-      uri,
-      headers: _headers(contentType: false, authToken: authToken),
-    );
+    final http.Response res = await _client
+        .get(
+          uri,
+          headers: _headers(contentType: false, authToken: authToken),
+        )
+        .timeout(kRequestTimeout);
     return _decode(res);
   }
 

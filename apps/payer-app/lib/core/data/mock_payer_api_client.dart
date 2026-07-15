@@ -1,22 +1,22 @@
 import 'models.dart';
 import 'payer_api_client.dart';
 
-/// In-memory [PayerApiClient] seeded with the EXACT sample data from the Payer
-/// App kit's `.dc.html` script block (6 candidates, 3 jobs, 3 packs, credits=200,
-/// ledger rows). PII-free and swappable: every method mirrors the real API's
-/// shape so binding to live HTTP later is a constructor change in the factory.
+/// In-memory [PayerApiClient] seeded with sample data from the Payer App kit's
+/// `.dc.html` script block (6 candidates, 3 jobs, credits=200, ledger rows).
+/// PII-free and swappable: every method mirrors the real API's shape.
 ///
-/// Unlock + buy mutate the in-memory balance and the unlocked set, exactly as the
-/// mockup's reducer does (`confirmUnlock` / pack `onBuy`).
+/// SCOPE: this client is reachable ONLY from a demo build
+/// (`--dart-define=USE_MOCKS=true`, which also paints the corner MOCK banner) or
+/// a widget test that injects it. A real release build never constructs it — the
+/// HTTP client no longer composes or delegates to it.
+///
+/// An unlock mutates the in-memory balance and the unlocked set, exactly as the
+/// mockup's reducer does (`confirmUnlock`).
 class MockPayerApiClient implements PayerApiClient {
   MockPayerApiClient();
 
   int _credits = 200;
   final Set<int> _unlocked = <int>{};
-
-  /// Agency payout-KYC state. Starts `none` (kit default) and flips to `review`
-  /// on submit — exactly the kit reducer's `submitKyc`. Never persists PAN/bank.
-  KycStatus _kyc = KycStatus.none;
 
   static const List<Candidate> _candidates = <Candidate>[
     Candidate(
@@ -129,33 +129,6 @@ class MockPayerApiClient implements PayerApiClient {
     ),
   ];
 
-  static const List<CreditPack> _packs = <CreditPack>[
-    CreditPack(
-      count: 50,
-      countLabel: '50',
-      price: '₹2,000',
-      per: '₹40 / unlock',
-      best: false,
-      code: 'pack_50',
-    ),
-    CreditPack(
-      count: 200,
-      countLabel: '200',
-      price: '₹7,600',
-      per: '₹38 / unlock',
-      best: false,
-      code: 'pack_200',
-    ),
-    CreditPack(
-      count: 1000,
-      countLabel: '1,000',
-      price: '₹34,000',
-      per: '₹34 / unlock · 15% off',
-      best: true,
-      code: 'pack_1000',
-    ),
-  ];
-
   /// Canned credit ledger (the credit-account ledger, distinct from the unlock
   /// ledger). Newest-first; mirrors `GET /payer/credits/ledger` reasons.
   static const List<LedgerEntry> _creditLedger = <LedgerEntry>[
@@ -194,96 +167,14 @@ class MockPayerApiClient implements PayerApiClient {
     ),
   ];
 
-  // --- Agency · Supply / Earn sample data (kit `.dc.html` script block) ------
+  // --- Agency · Supply sample data (kit `.dc.html` script block) -------------
 
-  /// The agency's referral link. Real later: `POST /payer/agency/invites`
-  /// returns `{code, link:"/i/<code>"}`; here we mirror the kit's display URL.
+  /// The agency's referral link. Mirrors `POST /payer/agency/invites` →
+  /// `{code, link:"/i/<code>"}`.
   static const ReferralLink _referralLink = ReferralLink(
     code: 'APEX-7K2',
     url: 'badabhai.in/r/APEX-7K2',
   );
-
-  /// Masked referred workers — the kit's `referred` array (PII-free labels).
-  /// DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  static const List<ReferredWorker> _referred = <ReferredWorker>[
-    ReferredWorker(
-      id: 1,
-      label: '••• 3210',
-      trade: 'CNC Operator',
-      status: ReferralStatus.inWindow,
-      daysLeft: 62,
-      earned: '₹0',
-    ),
-    ReferredWorker(
-      id: 2,
-      label: '••• 8842',
-      trade: 'VMC Setter',
-      status: ReferralStatus.earned,
-      daysLeft: 41,
-      earned: '₹40',
-    ),
-    ReferredWorker(
-      id: 3,
-      label: '••• 1190',
-      trade: 'Welder',
-      status: ReferralStatus.inWindow,
-      daysLeft: 12,
-      earned: '₹0',
-    ),
-    ReferredWorker(
-      id: 4,
-      label: '••• 5567',
-      trade: 'Fitter',
-      status: ReferralStatus.expired,
-      daysLeft: 0,
-      earned: '₹0',
-    ),
-  ];
-
-  /// Earnings & payouts aggregates — the kit's payouts screen numbers.
-  /// DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  static const PayoutSummary _payoutSummary = PayoutSummary(
-    totalEarned: '₹18,520',
-    thisMonth: '₹3,840',
-    pending: '₹1,200',
-    minimum: '₹500',
-    pendingMet: true,
-  );
-
-  /// Settled payout history — the kit's two history rows.
-  /// DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  static const List<PayoutEntry> _payouts = <PayoutEntry>[
-    PayoutEntry(
-      label: 'May payout',
-      method: 'UPI',
-      date: '02 Jun',
-      amount: '₹4,160',
-    ),
-    PayoutEntry(
-      label: 'April payout',
-      method: 'UPI',
-      date: '03 May',
-      amount: '₹2,980',
-    ),
-  ];
-
-  static const List<ActivityItem> _activity = <ActivityItem>[
-    ActivityItem(
-      title: 'Unlocked Ramesh K. · CNC Setter',
-      time: '12 min ago',
-      tone: ActivityTone.success,
-    ),
-    ActivityItem(
-      title: '9 new applicants on VMC Setter',
-      time: '1 hr ago',
-      tone: ActivityTone.brand,
-    ),
-    ActivityItem(
-      title: 'CNC Setter is 70% to quota',
-      time: '2 hr ago',
-      tone: ActivityTone.warning,
-    ),
-  ];
 
   @override
   Future<List<Candidate>> fetchCandidates() async => _candidates
@@ -415,30 +306,7 @@ class MockPayerApiClient implements PayerApiClient {
       );
 
   @override
-  Future<List<CreditPack>> fetchCreditPacks() async => _packs;
-
-  @override
   Future<List<LedgerEntry>> fetchLedger() async => _ledger;
-
-  @override
-  Future<HomeMetrics> fetchHomeMetrics() async => const HomeMetrics(
-        paidUnlocksThisWeek: '128',
-        paidUnlocksDelta: '+12% vs last week',
-        repeatUnlockRate: '62%',
-        activeJobs: '3',
-        activeJobsNote: '1 near quota',
-        candidatesForYou: 6,
-      );
-
-  @override
-  Future<List<ActivityItem>> fetchRecentActivity() async => _activity;
-
-  @override
-  Future<EarnSummary> fetchEarnSummary() async => const EarnSummary(
-        earnedThisMonth: '₹3,840',
-        pendingPayout: '₹1,200',
-        inWindow: '38',
-      );
 
   @override
   Future<ReferralLink> referralLink({String? campaign}) async => _referralLink;
@@ -620,54 +488,14 @@ class MockPayerApiClient implements PayerApiClient {
       );
 
   @override
-  // DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  Future<List<ReferredWorker>> fetchReferredWorkers() async => _referred;
-
-  @override
-  // DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  Future<PayoutSummary> fetchPayoutSummary() async => _payoutSummary;
-
-  @override
-  // DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  Future<List<PayoutEntry>> fetchPayouts() async => _payouts;
-
-  @override
-  // DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  Future<KycStatus> kycStatus() async => _kyc;
-
-  @override
-  // DESIGN-ONLY — no backend endpoint (ADR-0022 parked Phase 2).
-  Future<KycStatus> submitKyc(KycSubmission submission) async {
-    // Mirrors the kit reducer: submitting flips none → review. PAN/bank are
-    // NEVER persisted or logged here — only the status transition is kept.
-    _kyc = KycStatus.review;
-    return _kyc;
-  }
-
-  @override
   Future<int> fetchCredits() async => _credits;
 
   @override
   Future<int> fetchCreditBalance() async => _credits;
 
   @override
-  Future<int> buyCreditPack({required String packCode}) async {
-    _credits += _countForPackCode(packCode);
-    return _credits;
-  }
-
-  @override
   Future<List<LedgerEntry>> fetchCreditLedger({int limit = 20}) async =>
       _creditLedger.take(limit).toList(growable: false);
-
-  /// Maps a catalogue pack code back to its unlock count for the in-memory
-  /// balance bump. Unknown codes add nothing (a real backend 404s).
-  int _countForPackCode(String code) => switch (code) {
-        'pack_50' => 50,
-        'pack_200' => 200,
-        'pack_1000' => 1000,
-        _ => 0,
-      };
 
   @override
   Future<int> unlockCandidate(int candidateId) async {
@@ -728,12 +556,6 @@ class MockPayerApiClient implements PayerApiClient {
   @override
   Future<void> recordInviteClick(String code) async {
     // Neutral no-op mock — mirrors the server's always-200 funnel signal.
-  }
-
-  @override
-  Future<int> buyCredits(int count) async {
-    _credits += count;
-    return _credits;
   }
 
   // --- Org / team members (ADR-0027) — canned, owner-gated (PASS P4b) --------
@@ -823,7 +645,7 @@ class MockPayerApiClient implements PayerApiClient {
 
   // --- Hiring capacity (ADR-0016) — canned allowance (PASS P4b) --------------
 
-  CapacityView _capacity = const CapacityView(
+  static const CapacityView _capacity = CapacityView(
     maxActiveVacancies: 5,
     activePlanCount: 3,
     sourceTier: 'cap_5',
@@ -832,31 +654,6 @@ class MockPayerApiClient implements PayerApiClient {
 
   @override
   Future<CapacityView> fetchCapacity() async => _capacity;
-
-  @override
-  Future<CapacityPurchase> buyCapacity({
-    required String tier,
-    String? coupon,
-  }) async {
-    final CapacityTier picked = kCapacityTiers.firstWhere(
-      (CapacityTier t) => t.code == tier,
-      orElse: () => kCapacityTiers.first,
-    );
-    // Raise the allowance; keep the in-use count so the meter still reflects it.
-    _capacity = CapacityView(
-      maxActiveVacancies: picked.maxActiveVacancies,
-      activePlanCount: _capacity.activePlanCount,
-      sourceTier: picked.code,
-      expiresAt: '2026-08-07T00:00:00Z',
-    );
-    return CapacityPurchase(
-      maxActiveVacancies: picked.maxActiveVacancies,
-      sourceTier: picked.code,
-      expiresAt: '2026-08-07T00:00:00Z',
-      finalInr: picked.code == 'cap_15' ? 12000 : 5000,
-      resumedPlanIds: const <String>['mock-plan-1'],
-    );
-  }
 
   /// Faceless [Applicant] rows synthesized from the canned candidates — opaque
   /// UUID-style ids + coarse facets + a couple of soft reasons. No name/phone.

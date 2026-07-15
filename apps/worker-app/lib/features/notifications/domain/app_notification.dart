@@ -1,10 +1,12 @@
 import 'package:equatable/equatable.dart';
 
-/// What a notification is about (drives its icon + colour tone in the row).
-enum NotificationKind { newJob, profileViewed, resumeReady }
+/// What a notification is about (drives its icon + colour tone in the row). Maps
+/// from the API's coarse `type` — never an employer/demand kind (faceless, §2).
+enum NotificationKind { resumeReady, profileReady, voiceProcessed, security }
 
-/// One alert row (spec §5.11). PII-free: mock employer names are fabricated
-/// display strings, never real PII; ids are mock-* sentinels.
+/// One alert row (spec §5.11). PII-FREE by contract: fed from
+/// GET /workers/me/notifications, whose copy is faceless server-rendered text —
+/// never an employer, pay, name, or phone. `id` is the opaque event id.
 class AppNotification extends Equatable {
   const AppNotification({
     required this.id,

@@ -13,7 +13,9 @@ class ResumeEditState extends Equatable {
     this.fields,
     this.saving = false,
     this.savedNonce = 0,
+    this.saveErrorNonce = 0,
     this.failure,
+    this.saveFailure,
   });
 
   final ResumeEditStatus status;
@@ -23,28 +25,40 @@ class ResumeEditState extends Equatable {
   /// Bumped on a successful save — the screen shows a snackbar + pops once.
   final int savedNonce;
 
+  /// Bumped on a FAILED save — the screen shows an error snackbar (and stays on
+  /// the screen so the worker can retry) instead of silently swallowing it.
+  final int saveErrorNonce;
+
   /// The typed cause when [status] is `failed` — the failed view surfaces its
   /// honest reason instead of a generic "check internet" line.
   final Failure? failure;
+
+  /// The typed cause of the last failed SAVE (drives the error snackbar). Distinct
+  /// from [failure], which drives the full-screen load-failed view.
+  final Failure? saveFailure;
 
   ResumeEditState copyWith({
     ResumeEditStatus? status,
     ResumeSafeFields? fields,
     bool? saving,
     int? savedNonce,
+    int? saveErrorNonce,
+    Failure? saveFailure,
   }) {
     return ResumeEditState(
       status: status ?? this.status,
       fields: fields ?? this.fields,
       saving: saving ?? this.saving,
       savedNonce: savedNonce ?? this.savedNonce,
+      saveErrorNonce: saveErrorNonce ?? this.saveErrorNonce,
       failure: failure,
+      saveFailure: saveFailure ?? this.saveFailure,
     );
   }
 
   @override
   List<Object?> get props =>
-      <Object?>[status, fields, saving, savedNonce, failure];
+      <Object?>[status, fields, saving, savedNonce, saveErrorNonce, failure, saveFailure];
 }
 
 /// Drives the resume safe-field edit screen (spec §5.2): load the editable
@@ -86,15 +100,6 @@ class ResumeEditCubit extends Cubit<ResumeEditState> {
     ));
   }
 
-  void setShowPhone(bool value) {
-    final ResumeSafeFields? fields = state.fields;
-    if (fields == null) return;
-    emit(state.copyWith(
-      status: ResumeEditStatus.ready,
-      fields: fields.copyWith(showPhone: value),
-    ));
-  }
-
   void setNightShiftReady(bool value) {
     final ResumeSafeFields? fields = state.fields;
     if (fields == null) return;
@@ -113,9 +118,15 @@ class ResumeEditCubit extends Cubit<ResumeEditState> {
       await _repo.save(fields);
       if (isClosed) return;
       emit(state.copyWith(saving: false, savedNonce: state.savedNonce + 1));
-    } on Failure catch (_) {
+    } on Failure catch (f) {
       if (isClosed) return;
-      emit(state.copyWith(saving: false));
+      // Surface the failure so the screen can show an honest error (and let the
+      // worker retry) — a real PATCH can 400/401/drop; don't swallow it silently.
+      emit(state.copyWith(
+        saving: false,
+        saveErrorNonce: state.saveErrorNonce + 1,
+        saveFailure: f,
+      ));
     } finally {
       _saving = false;
     }
