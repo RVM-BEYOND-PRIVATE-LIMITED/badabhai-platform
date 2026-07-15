@@ -19,10 +19,11 @@ Newest day on top. Copy the template block each working day. Every % move needs 
 | #227 | **TAX-8**: off-wedge résumé guard locked (canonicalization can't raise into résumés); raw-phrase gap → Q14 |
 | #229 | Register/tracker sync to #225–#227 |
 | #230 | **TAX-7**: growth loop — `/growth/cluster` (pure compute, SG-5: NO id minted) + `db:growth:cluster` runner (sanitized human packet, `--apply`/`--reopen-clustered` status machine, PARTIAL-embed refusal, mock-persist guard). Adversarial review: 13 raised / 9 confirmed **fixed in-PR** (markdown-injection HIGH, one-way-door HIGH) / 4 refuted; TD67 logged (ai-service-wide auth posture) |
+| #232 | **TAX-9 — SERIES COMPLETE**: `skill.replaced_by` crosswalk (migration **0039 — owner apply pending**), corpus-homed state machine (reactivation-safe seed), `/skills/retag-plan` + `db:retag:skills` (dry-run default; ids-only audit report). Review: 13 raised / 8 **fixed in-PR** (headline: the jsonb `?|` discovery query was UNEXECUTABLE under drizzle — caught before any run; DB-derived SG-5 gate; cycle-safe alias moves; seed deadlock live-repro'd) / 5 refuted |
 
 ## Notes
 - Root-caused yesterday's "CI dispatch stall": #226 went CONFLICTING after #225 merged — GitHub silently skips PR workflows when the merge ref can't build. Not a billing/incident issue.
-- ADR-0030 series: **P1+P2 COMPLETE** (TAX-0..8 all done); only TAX-9 (P3 versioning/re-tag) remains.
+- ADR-0030 series: **COMPLETE — TAX-0..9 all merged** (#211–#232). Owner queue gains: apply migration 0039.
 - New ops capability (dormant until queue volume): `pnpm db:growth:cluster` — proposals land in `docs/registers/skill-growth-proposals.md`, activation stays human-only via the ratification flow.
 
 ---

@@ -31,9 +31,9 @@ ranks** — a skills factor in RANK is a *separate future ADR*, explicitly out o
 | **FORK-B-1** | Request-path DB store (seam A) + reset flag + SR-1 runbook | **P1** | **MERGED + E2E-VERIFIED** | fork-B | #222 |
 | TAX-5 | Data/AI — wedge aliases + floor calibration | **P1** | **CALIBRATED (floor 0.75)** · RVM gate open | TAX-4 | #225 |
 | TAX-6 | Backend+AI — job side shares id space | P2 | **BUILT** (flag-gated; RANK locked; review PASS, M1-M3 fixed) | TAX-4 | #226 |
-| TAX-7 | AI — growth loop (cluster unresolved) | P2 | **BUILT** (report-only; ratification flow = only activation path; `pytest -k growth`) | TAX-4 | — |
-| TAX-8 | QA+AI — off-wedge résumé verify | P2 | **VERIFIED + LOCKED** (`pytest -k resume`; raw-phrase gap → Q14) | TAX-4 | — |
-| TAX-9 | DB+AI — versioning + offline re-tag | P3 | **BUILT** (migration **0039 — owner apply pending**; dry-run default; `pytest -k retag`) | TAX-4/6 | — |
+| TAX-7 | AI — growth loop (cluster unresolved) | P2 | **MERGED** (report-only; ratification flow = only activation path; `pytest -k growth`) | TAX-4 | #230 |
+| TAX-8 | QA+AI — off-wedge résumé verify | P2 | **VERIFIED + LOCKED** (`pytest -k resume`; raw-phrase gap → Q14) | TAX-4 | #227 |
+| TAX-9 | DB+AI — versioning + offline re-tag | P3 | **MERGED** (migration **0039 — owner apply pending**; dry-run default; `pytest -k retag`; review 8 findings fixed in-PR) | TAX-4/6 | #232 |
 
 ## Done (TAX-0…TAX-4)
 
