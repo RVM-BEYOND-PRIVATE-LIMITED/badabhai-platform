@@ -94,6 +94,20 @@ class Settings(BaseSettings):
     # finer per-label domain is known yet (per-label multi-domain resolution is TAX-5/6).
     skill_canonicalize_default_domain: str = "cnc-machining"
 
+    # ADR-0030 / TAX-7: growth-loop clustering defaults (/growth/cluster — pure compute,
+    # REPORT-ONLY; the ratification flow is the only activation path, so these tune what
+    # gets PROPOSED to a human, never what activates). Eligibility: cluster size >=
+    # min_cluster_size OR summed count >= min_total_count. cluster_threshold is the
+    # leader-cosine to join a cluster. band_low..floor is the "near-skill" band → an
+    # alias-on-existing-skill proposal; below band_low → provisional-skill proposal
+    # (calibration 2026-07-14: negative ceiling 0.598, sibling confusion 0.722 — 0.60
+    # keeps genuinely-unrelated phrases out of alias proposals while catching the
+    # kharad-at-0.61 class the wedge evidence is built on).
+    skill_growth_min_cluster_size: int = 2
+    skill_growth_min_total_count: int = 3
+    skill_growth_cluster_threshold: float = 0.80
+    skill_growth_band_low: float = 0.60
+
     # FORK-B-1 seam A: the NestJS api base URL + the SCOPED skills-seam secret the
     # HttpSkillStore uses for the INTERNAL skill routes (nearest-aliases / unresolved).
     # SKILLS_INTERNAL_TOKEN is deliberately NOT the api's all-routes

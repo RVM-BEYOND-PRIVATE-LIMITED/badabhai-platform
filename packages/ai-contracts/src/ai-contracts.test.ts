@@ -5,6 +5,11 @@ import {
   ProfileExtractionInputSchema,
   ProfileExtractionOutputSchema,
   PseudonymizationOutputSchema,
+  GrowthAnchorSchema,
+  GrowthClusterInputSchema,
+  GrowthClusterOutputSchema,
+  GrowthPhraseSchema,
+  GrowthProposalSchema,
   SkillAliasEmbedInputSchema,
   SkillAliasEmbedOutputSchema,
   SkillCanonicalizationInputSchema,
@@ -171,6 +176,82 @@ describe("SkillAliasEmbed schemas (contracts.py parity — ADR-0030 fork-B seam)
     expect(out.budget_stopped).toBe(true);
     expect(out.errors).toBe(2);
     expect(out.estimated_cost_inr).toBeCloseTo(0.000038);
+  });
+});
+
+describe("Growth cluster schemas (contracts.py parity — ADR-0030/TAX-7)", () => {
+  const vec = (): number[] => new Array(768).fill(0);
+  it("enforces the 768 house dim on phrase + anchor vectors", () => {
+    expect(
+      GrowthPhraseSchema.safeParse({ id: "p1", phrase: "x", count: 1, vector: [0.1, 0.2] })
+        .success,
+    ).toBe(false);
+    expect(
+      GrowthAnchorSchema.safeParse({ skill_id: "s", vector: vec() }).success,
+    ).toBe(true);
+  });
+  it("caps phrases at 500 and anchors at 5000 (matches Pydantic max_length)", () => {
+    const phrase = { id: "p", phrase: "x", count: 1, vector: vec() };
+    const phrases = Array.from({ length: 501 }, (_, i) => ({ ...phrase, id: `p${i}` }));
+    expect(
+      GrowthClusterInputSchema.safeParse({ domain_id: "d", phrases, anchors: [] }).success,
+    ).toBe(false);
+    expect(
+      GrowthClusterInputSchema.safeParse({
+        domain_id: "d",
+        phrases: phrases.slice(0, 500),
+        anchors: [],
+      }).success,
+    ).toBe(true);
+  });
+  it("defaults all tuning params to null (service Settings decide)", () => {
+    const inp = GrowthClusterInputSchema.parse({ domain_id: "d", phrases: [], anchors: [] });
+    expect(inp.min_cluster_size).toBeNull();
+    expect(inp.cluster_threshold).toBeNull();
+    expect(inp.floor).toBeNull();
+  });
+  it("rejects a proposal kind outside the closed set (SG-3: never a rank/score kind)", () => {
+    expect(
+      GrowthProposalSchema.safeParse({
+        kind: "auto_activate",
+        leader_phrase: "x",
+        member_ids: [],
+        member_phrases: [],
+        total_count: 1,
+      }).success,
+    ).toBe(false);
+  });
+  it("provisional proposal carries no skill_id (SG-5 — defaults null)", () => {
+    const p = GrowthProposalSchema.parse({
+      kind: "provisional_skill",
+      leader_phrase: "unobtainium polishing",
+      member_ids: ["p1"],
+      member_phrases: ["unobtainium polishing"],
+      total_count: 4,
+    });
+    expect(p.skill_id).toBeNull();
+  });
+  it("round-trips an alias proposal + report counters", () => {
+    const out = GrowthClusterOutputSchema.parse({
+      proposals: [
+        {
+          kind: "alias",
+          skill_id: "skill_grinding_ops",
+          leader_phrase: "ghisai jaisa kaam",
+          member_ids: ["p1", "p2"],
+          member_phrases: ["ghisai jaisa kaam", "ghisai type"],
+          total_count: 5,
+          nearest_skill_id: "skill_grinding_ops",
+          nearest_score: 0.68,
+        },
+      ],
+      phrases_in: 3,
+      clusters_total: 2,
+      clusters_eligible: 1,
+      skipped_below_guards: 1,
+    });
+    expect(out.proposals[0]?.skill_id).toBe("skill_grinding_ops");
+    expect(out.skipped_below_guards).toBe(1);
   });
 });
 

@@ -31,7 +31,7 @@ ranks** — a skills factor in RANK is a *separate future ADR*, explicitly out o
 | **FORK-B-1** | Request-path DB store (seam A) + reset flag + SR-1 runbook | **P1** | **MERGED + E2E-VERIFIED** | fork-B | #222 |
 | TAX-5 | Data/AI — wedge aliases + floor calibration | **P1** | **CALIBRATED (floor 0.75)** · RVM gate open | TAX-4 | #225 |
 | TAX-6 | Backend+AI — job side shares id space | P2 | **BUILT** (flag-gated; RANK locked; review PASS, M1-M3 fixed) | TAX-4 | #226 |
-| TAX-7 | AI — growth loop (cluster unresolved) | P2 | Unblocked | TAX-4 | — |
+| TAX-7 | AI — growth loop (cluster unresolved) | P2 | **BUILT** (report-only; ratification flow = only activation path; `pytest -k growth`) | TAX-4 | — |
 | TAX-8 | QA+AI — off-wedge résumé verify | P2 | **VERIFIED + LOCKED** (`pytest -k resume`; raw-phrase gap → Q14) | TAX-4 | — |
 | TAX-9 | DB+AI — versioning + offline re-tag | P3 | Unblocked | TAX-4/6 | — |
 
@@ -151,6 +151,24 @@ to a **review surface** — **nothing auto-activates** (provisional is the autom
 human approval → seed (reuse TAX-2/3) → mark cluster resolved → optionally re-canonicalize covered
 phrases. Guards: frequency threshold + min-cluster-size. Files: `apps/ai-service/app/growth.py`,
 a review-surface hook (register/ops event), tests (`pytest -k growth`).
+
+**Built 2026-07-15:** `POST /growth/cluster` (`app/ai/growth.py` — PURE COMPUTE: deterministic
+greedy leader clustering over caller-supplied vectors; guards `size >= min_cluster_size` OR
+`total_count >= min_total_count`; band routing `[band_low=0.60, floor=0.75)` → alias-on-near-skill,
+below → provisional; settings `skill_growth_*`) + `packages/db/src/growth-cluster.ts`
+(`pnpm db:growth:cluster`, fork-B pattern: embeds NULL `unresolved_phrase.embedding` via the
+existing embed endpoint — **refuses to persist MOCK vectors** unless `--allow-mock` (no provenance
+column: a mixed space poisons centroid-vs-anchor) — then clusters per domain and writes the
+proposals packet to `docs/registers/skill-growth-proposals.md` as paste-ready `wedge-aliases.ts`
+entries, `ratified: false`; `--apply` marks emitted members `open → clustered`, default
+report-only). The runner re-verifies SG-3/SG-5 on the response (alias ids ⊆ sent anchors;
+provisional carries NO id). **Two deliberate tightenings vs this spec:** (1) a provisional-skill
+proposal mints **NO id** — `status='provisional'` id creation stays a HUMAN act in
+`packages/taxonomy` (SG-5: ids are immutable, so wrong ids are forever; the automation ceiling
+is the *proposal*, not the provisional row); (2) the "review surface" is the generated packet +
+the existing ratification flow — no new ops event/table until the queue's volume earns one.
+Locked by `pytest -k growth` (14 tests: shuffle-determinism, guards, band routing, SG-3 closed-set,
+SG-5 no-id, 768/finite input hygiene, caps).
 
 ## TAX-8 — Off-wedge résumé verify · P2 · owner: qa + ai
 

@@ -19,12 +19,15 @@ from fastapi import FastAPI
 from .ai import cost_tracker
 from .ai.canonicalize import canonicalize_labels, canonicalize_skill
 from .ai.embeddings import EMBEDDING_TASK_TYPE, MOCK_MODEL, embed_text
+from .ai.growth import growth_cluster
 from .ai.model_config import rate_inr_per_1k
 from .ai.router import AIRouter
 from .ai.skill_store import get_skill_store
 from .config import get_settings
 from .contracts import (
     DraftProfile,
+    GrowthClusterInput,
+    GrowthClusterOutput,
     ProfileExtractionInput,
     ProfileExtractionOutput,
     ProfilingTurnInput,
@@ -227,6 +230,36 @@ def skills_canonicalize(body: SkillCanonicalizationInput) -> SkillCanonicalizati
         settings,
         lang=body.lang,
     )
+
+
+@app.post("/growth/cluster", response_model=GrowthClusterOutput)
+def growth_cluster_endpoint(body: GrowthClusterInput) -> GrowthClusterOutput:
+    """ADR-0030 / TAX-7 growth loop — PURE COMPUTE, REPORT-ONLY. The db-side runner
+    (packages/db/src/growth-cluster.ts, fork-B pattern) POSTs a per-domain batch of OPEN
+    ``unresolved_phrase`` rows (SG-1 pseudonymized text + vectors) and the embedded
+    ``skill_alias`` anchors; this clusters them and proposes alias-on-near-skill or
+    provisional-skill entries for the HUMAN ratification flow — the only activation path.
+
+    No LLM, no DB, no flag needed (inert unless the ops runner calls it; nothing it
+    returns changes live behavior). SG-3: a proposal's ``skill_id`` can only be one of the
+    supplied anchors; SG-5: provisional proposals carry NO id. Plain ``def`` (threadpool):
+    the greedy clustering is CPU-bound and must not block the event loop. Never logs
+    phrase text — counts only."""
+    out = growth_cluster(body, get_settings())
+    logger.info(
+        "growth cluster batch",
+        extra={
+            "extra": {
+                "domain_id": body.domain_id,
+                "phrases_in": out.phrases_in,
+                "anchors": len(body.anchors),
+                "clusters_total": out.clusters_total,
+                "clusters_eligible": out.clusters_eligible,
+                "proposals": len(out.proposals),
+            }
+        },
+    )
+    return out
 
 
 @app.post("/profiling/respond", response_model=ProfilingTurnOutput)
