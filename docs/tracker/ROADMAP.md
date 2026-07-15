@@ -24,7 +24,7 @@ Owners: Prakash (TL/PM, staging+infra), Divyanshu (backend/AI), Rishi Ojha (Andr
 - **In scope (decisions all closed):** D1 staging (AWS Lightsail/EC2) + `staging` GitHub Environment + secrets → CD fires → `/health` 200; D2 real OTP (Fast2SMS + ZeptoMail, capped, team allowlist); D5 resume PDF (`RESUME_RENDER_ENABLED=true` + WeasyPrint); B1 handset onboarding→chat→profile→resume **PDF**; payer company gate; agency demand gate; OTP safety gate; RBAC gate; admin ops smoke.
 - **Out of scope:** real money; learned ranking; production legal copy; payer PIN unlock (`PAYER-PIN-1` held).
 - **Day-by-day (Mon–Fri):**
-  - **Mon–Tue** — Prakash: provision Lightsail/EC2 → Docker + WeasyPrint → GitHub Environment + secrets → CD fires → `/health` 200; run migrations (now 31, incl. ADR-0026 tables).
+  - **Mon–Tue** — Prakash: provision Lightsail/EC2 → Docker + WeasyPrint → GitHub Environment + secrets → CD fires → `/health` 200; run migrations (now **39**, 0000–0038, incl. ADR-0026..0030 tables; `NODE_ENV=staging`, `SMS_PROVIDER=fast2sms` — see updated runbook).
   - **Tue** — Prakash/DevOps: activate OTP-7 (capped) → real OTP send verified (team recipients only).
   - **Wed** — Rishi: real-handset REAL-mode build against staging API → onboarding → chat → profile → **resume PDF** download.
   - **Thu** — QA/Prakash: payer company gate + agency gate on staging; admin ops smoke (3a/3b/3c).

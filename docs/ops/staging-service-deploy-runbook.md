@@ -52,25 +52,41 @@ The CD workflow is **inert** until these are done by a human/devops:
 
 ---
 
-## POSTURE — "Mode A + strong injected secrets" (interim)
+## POSTURE — REAL-ONLY OTP (current, as of commit d2f228e)
 
-A persistent env **cannot be both** true `NODE_ENV=staging` **and** mock-OTP today:
-`assertAuthConfig` ([packages/config/src/server.ts](../../packages/config/src/server.ts)) **fails
-boot** if `SMS_PROVIDER=console` outside dev, and `console` is the mock-OTP path (it echoes
-`dev_otp`). Rishi's B1 device-verify expects **mock login**, not a real SMS. So:
+> ⚠️ **Mode A ("Mode A + strong injected secrets") is OBSOLETE as of commit `d2f228e`.**
+> `SMS_PROVIDER` is now `z.literal("fast2sms").default("fast2sms")` in
+> [`packages/config/src/server.ts:221`](../../packages/config/src/server.ts) — the value `console`
+> **fails Zod parse at boot** (boot error: `Expected "fast2sms", received "console"`). There is no
+> mock or console SMS provider. `dev_otp` was removed from all OTP responses in the same commit.
+> Any doc, script, or environment that sets `SMS_PROVIDER=console` or expects `dev_otp` in the
+> OTP response **will not work**.
 
-- **`NODE_ENV=development` is deliberate** — the only way `SMS_PROVIDER=console` boots and the
-  `dev_otp` is echoed for the team's login.
-- **We compensate by injecting STRONG REAL secrets anyway** from the `staging` environment: a real
-  `JWT_SECRET` (sessions non-forgeable — the dev default would let anyone forge one) and real
-  `PII_ENCRYPTION_KEY` / `PII_HASH_PEPPER` (crypto is real). The boot asserts don't *enforce* these
-  in dev, so the **smoke** + this runbook are the enforcement.
-- **This env is SYNTHETIC-DATA-ONLY and TEAM-RESTRICTED** — it must **not** be internet-public with
-  real worker PII. CORS is permissive in `NODE_ENV=development` (the dev branch of `resolveCorsOrigins`
-  reflects the request origin), so network-restrict the host.
-- **True `NODE_ENV=staging` strength *with* mock-OTP** needs a staging-safe `mock` SMS provider — the
-  **Mode-C fast-follow tracked as [TD52](../registers/tech-debt-register.md).** Until then this Mode-A
-  posture is the interim unlock.
+The CD workflow ([`.github/workflows/staging-cd.yml`](../../.github/workflows/staging-cd.yml)) already
+reflects the correct posture:
+- `NODE_ENV: staging`
+- `SMS_PROVIDER: fast2sms`
+- `assertAuthConfig` is active — **boot requires** `FAST2SMS_API_KEY` + `FAST2SMS_SENDER_ID` +
+  `FAST2SMS_DLT_TEMPLATE_ID` + `FAST2SMS_ENTITY_ID` + `FAST2SMS_ROUTE` to be set (OTP-7, §7 gate).
+
+**Implications for B1:**
+- Rishi's device run requires a **real OTP send** to an allowlisted number.
+- The smoke script steps (b)–(d) (`dev_otp` assertion + OTP round-trip) are **broken** until either
+  Fast2SMS creds are provisioned (OTP-7, human-gated) **or** the Mode-C fast-follow (ESC-1 /
+  [TD52](../registers/tech-debt-register.md)) is built.
+- Step (a) `GET /health → 200` still works and proves DB + Redis readiness.
+
+**What to do now (owner: Prakash):**
+1. Provision the Supabase staging project + API host + Redis (§7 human action, unchanged).
+2. Obtain + set Fast2SMS staging creds (`FAST2SMS_API_KEY` etc.) — without them the API won't boot.
+3. Set `NODE_ENV=staging`, `SMS_PROVIDER=fast2sms` (NOT `development`, NOT `console`).
+4. Restrict OTP sends to the team allowlist via `OTP_MAX_SENDS_PER_HOUR` / `FAST2SMS_DLT_*` config.
+5. For the smoke: verify (a) `/health 200` manually; confirm OTP round-trip by requesting an OTP to
+   your own number + entering it; then share `STAGING_API_BASE_URL` with Rishi.
+
+**See also:** [ESC-1 in doc-reconciliation-2026-07-15.md](../registers/doc-reconciliation-2026-07-15.md)
+for the three resolution options (A/B/C) for fixing the smoke script; Option C (staging-bypass token)
+is the recommended path to unblock automated CI verification without real SMS spend.
 
 ---
 
@@ -89,8 +105,10 @@ authoritative env spec.** "Kind" = where it lives.
 | `REDIS_URL` | `staging` **secret** | Backs the OTP per-IP cap + HMAC code store + BullMQ. The mock-OTP smoke implicitly proves it is reachable. | `redis://USER:PASS@HOST:6379` |
 | `STAGING_API_BASE_URL` | `staging` **secret** | The **public HTTPS URL** of the deployed API — what the smoke hits and what the handset/payer-web point at. | `https://staging-api.<your-host>` |
 | `STAGING_DEPLOY_HOOK_URL` | `staging` **secret** (OPTIONAL) | Managed-host deploy webhook the CD POSTs to. Empty ⇒ the CD skips the trigger (host auto-deploys from the repo, or you deploy via your host CLI). | `https://api.<host>/deploy/hooks/<id>` |
-| `NODE_ENV` | workflow **env** + **host** | `development` (Mode A — permits console mock-OTP). **Not** a secret. | `development` |
-| `SMS_PROVIDER` | workflow **env** + **host** | `console` (mock-OTP; echoes `dev_otp`). | `console` |
+| `NODE_ENV` | workflow **env** + **host** | `staging` (real-only posture; `assertAuthConfig` active; CORS fail-closed). **Not** a secret. | `staging` |
+| `SMS_PROVIDER` | workflow **env** + **host** | `fast2sms` (REAL sends; requires Fast2SMS creds; OTP-7 §7 gate). `console` **fails boot** since `d2f228e`. | `fast2sms` |
+| `FAST2SMS_API_KEY` | `staging` **secret** | Fast2SMS DLT credentials — **required** for boot when `SMS_PROVIDER=fast2sms`. | `<fast2sms-api-key>` |
+| `FAST2SMS_SENDER_ID` / `_DLT_TEMPLATE_ID` / `_ENTITY_ID` / `_ROUTE` | `staging` **secret** | Fast2SMS DLT registration parameters. | `<per-key-value>` |
 | `PAYMENTS_ENABLE_REAL` | workflow **env** + **host** | MOCK-only gate — **stays `false`** (§7 to flip). | `false` |
 | `AI_ENABLE_REAL_CALLS` | workflow **env** + **host** | MOCK-only gate — **stays `false`** (§7 to flip). | `false` |
 | `MESSAGING_ENABLE_REAL` | workflow **env** + **host** | MOCK-only gate — **stays `false`** (§7 to flip). | `false` |
@@ -118,15 +136,13 @@ It asserts, failing loudly on any miss ([scripts/staging-smoke.mjs](../../script
   Redis and returns `{ status, service, environment, timestamp, checks: { database, redis } }`,
   responding **503** (with `checks` showing which is `down`) when a dependency is unreachable. So the
   CD's `/health` wait genuinely gates on DB + Redis being up.
-- **(b)** `POST /auth/otp/request {phone}` → `200` **and `dev_otp` present** — the load-bearing check
-  that the env is in **mock-OTP / `console` mode** (absent ⇒ a real provider is wired or `NODE_ENV`
-  drifted → FAIL).
-- **(c)** `POST /auth/otp/verify {phone, dev_otp}` → `200` + `access_token`.
-- **(d)** `GET /auth/me` (Bearer) → `200` + `worker_id`.
+- **(b–d) ⚠️ BROKEN — smoke steps (b)–(d) assert `dev_otp` presence, which was removed in commit
+  `d2f228e`.** `dev_otp` does not exist in any OTP response with the current `SMS_PROVIDER=fast2sms`
+  posture. Steps (b)–(d) always fail. **Only step (a) is usable as an automated gate.** The OTP
+  login round-trip (steps b–d) must be verified manually using a team-allowlisted phone until ESC-1
+  is resolved (see [doc-reconciliation-2026-07-15.md](../registers/doc-reconciliation-2026-07-15.md)).
 
-Step (a) now proves **DB + Redis readiness directly**; steps (b)–(d) additionally prove the mock-OTP
-login round-trip. It uses a **synthetic** reserved phone and never prints the phone/`dev_otp`/token
-(CLAUDE.md §2).
+Step (a) proves **DB + Redis readiness directly** and is the only working automated gate.
 
 ---
 
@@ -154,7 +170,7 @@ login round-trip. It uses a **synthetic** reserved phone and never prints the ph
 | `/health` returns **503** with `checks.database:"down"` | **Postgres unreachable** — `/health` now probes the DB (`select 1`). Check `DATABASE_URL` (disposable non-prod, `sslmode=require`). |
 | `/health` returns **503** with `checks.redis:"down"` | **Redis unreachable** — `/health` now probes Redis (`PING`). Check `REDIS_URL` / the Redis host. (OTP also fails closed 429/503 until fixed.) |
 | `/health` never responds (connection refused / times out) | The host process isn't up, or the URL isn't public — check the host logs + that `STAGING_API_BASE_URL` is the public HTTPS URL. |
-| Smoke fails "no `dev_otp`" | The env drifted off Mode A (`SMS_PROVIDER`≠`console` or `NODE_ENV`≠`development`) — fix the host env. |
+| Smoke steps (b–d) fail (`dev_otp` not found) | Expected — `dev_otp` was removed in `d2f228e`; smoke steps (b)–(d) are permanently broken until ESC-1 is resolved. Only step (a) `/health` works. Verify OTP manually. See [doc-reconciliation-2026-07-15.md](../registers/doc-reconciliation-2026-07-15.md) ESC-1. |
 | **API won't boot at all** (Zod parse error in `loadServerConfig`) | A malformed secret: `PII_ENCRYPTION_KEY` must be **base64 of exactly 32 bytes**, `JWT_SECRET` **≥16 chars**, `PII_HASH_PEPPER` **≥16 chars**. Regenerate to spec. |
 
 ---

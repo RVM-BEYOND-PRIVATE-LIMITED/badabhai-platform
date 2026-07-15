@@ -37,8 +37,8 @@
 # Shared Infrastructure (coordinate before touching)
 
 - **event-schema registry** — 100 events / 28 domains, all v1; every new domain edits it.
-- **packages/db** — 38 migrations (0000–0037); sequential numbering, **check latest before `db:generate`**; renumber-on-merge is a recurring conflict. ONE Supabase DB (the `main`, the only database) — risky migrations need backup + sign-off.
-- **Auth stack** — WorkerAuthGuard (OTP+PIN, ADR-0026), ConsentGuard/ConsentNotRevokedGuard, PayerAuthGuard + role/org guards (ADR-0027), AdminAuthGuard/AdminRolesGuard (ADR-0025), InternalServiceGuard (still fronting money routes — LC-1/TD33).
+- **packages/db** — 39 migrations (0000–0038); sequential numbering, **check latest before `db:generate`**; renumber-on-merge is a recurring conflict. ONE Supabase DB (the `main`, the only database) — risky migrations need backup + sign-off.
+- **Auth stack** — WorkerAuthGuard (OTP+PIN, ADR-0026; `kPersistentAuth` ON since #201), ConsentGuard/ConsentNotRevokedGuard, PayerAuthGuard + role/org guards (ADR-0027), AdminAuthGuard/AdminRolesGuard (ADR-0025), InternalServiceGuard (ops `/unlocks*` only — NOT payer-facing; LC-1 residual, TD33, retire blocked on ADMIN-4..8).
 - **Shared libs** — validators, types, config (env gates), taxonomy, ai-contracts (**keep Zod↔Pydantic parity**; last synced #191/#193), pricing, reach-engine, reach-learn.
 - `app.module.ts` (32 modules) and `docs/registers/` + `docs/tracker/` — merge hotspots.
 
@@ -46,20 +46,20 @@
 
 11 boolean env gates, **all default false** (packages/config/src/server.ts): AI_ENABLE_REAL_CALLS, PAYMENTS_ENABLE_REAL, MESSAGING_ENABLE_REAL, MEMBER_INVITES_ENABLE_REAL, RESUME_RENDER_ENABLED, AUTH_ROLLING_TIERS_ENABLED, ADMIN_PII_REVEAL_ENABLED, ZEPTOMAIL_SANDBOX_MODE, CAPACITY_ENFORCEMENT_ENABLED, PACE_ENABLED, PACE_ADJACENCY_ENABLED. Payments/messaging/member-invites **fail closed at boot** if enabled without provider creds. **Any flip = human sign-off + staging first** (CLAUDE.md §7). B1 needs `RESUME_RENDER_ENABLED=true` on staging.
 
-# Active Workstreams
+# Active Workstreams (2026-07-15)
 
-- **B1 alpha capstone** — blocked on P0 staging deploy (runbook exists: `docs/ops/staging-service-deploy-runbook.md`); then real-handset run + 3 evidence artifacts + PDF download. Owner: Prakash (deploy), Rishi/Divyanshu (device run).
-- **Worker Alerts/notifications feed** — Divyanshu, **shipped 2026-07-14 (#221)**. (Tracker's "notifications tab mock" blocker row is now resolved — update on next tracker sync.)
-- **ADR-0031 deletion grace (7-day)** — Divyanshu drafted 2026-07-14; **PENDING Prakash+Akshit**; reverses ADR-0026 D1/D2/D4; when accepted: migration 0038 (expand-only), events →102, cancel endpoint, BullMQ sweep, worker-app banner; mandatory bb-security-review.
-- **Fork-B / TAX (ADR-0030)** — Prakash; FORK-B-1 request-path DB skill store merged 2026-07-14 (#222).
-- **Payer-web FE wiring (FE-1..7)** — P1, mock shims → live seams (#194 started).
-- **LC-1 money-route auth** — move unlock/reveal + posting-plan off InternalServiceGuard/body payer_id (TD33/TD50). High-value security work, unowned.
+- **B1 alpha capstone** — blocked on P0 staging deploy (runbook: `docs/ops/staging-service-deploy-runbook.md`; REAL-ONLY OTP now required, needs Fast2SMS creds); then real-handset run + 3 evidence artifacts + PDF download. Owner: Prakash (deploy), Rishi (device run).
+- **TAX-9 versioning/re-tag** (ADR-0030 P3) — unblocked; no owner assigned yet. RVM vernacular ratification packet in `docs/registers/skill-vernacular-ratification-packet.md`.
+- **TD62 kPersistentAuth consent-routing fix** — HIGH open; Rishi + Divyanshu. Backend: add `consent_accepted` to `GET /workers/me`; Mobile: gate router.dart on it.
+- **ADR-0031 deletion grace (7-day)** — Divyanshu drafted; **PENDING Prakash+Akshit**; when accepted: migration 0039 (expand-only), events →102, cancel endpoint, BullMQ sweep.
+- **Payer-web FE wiring (FE-1..7) CLOSED** — all mock→live by PR #194 (2026-07-10). No open FE work.
+- **LC-1 payer-facing CLOSED.** Ops surface retire blocked on ADMIN-4..8 (TD33/TD50).
 - **Parked/waiting:** hospitality vertical (PRD CEO-signed 06-18, content drafted in code, awaiting per-trade RVM ratification), phase-2 seeding/agency-payout stubs, PACE adjacency (Q13, CEO).
 
-# Current PR Status (gh-verified 2026-07-14 afternoon)
+# Current PR Status (gh-verified 2026-07-15)
 
-- **No open PRs.** Latest merged today: **#221** worker Alerts feed (Divyanshu) and **#222** FORK-B-1 request-path DB skill store (Prakash, ADR-0030).
-- Recently merged (#182–#222): tenancy B5.x, TAX-0..4 + fork-B, COST-2/3/4, PERSONA-1/2, worker-app wiring + 3.35.7 (Rishi), TD54 reads, name-edit #204, PDF-409 #209, liberal feed #216, TD25/TD58 #197, mock-STT #198, CI-1 #218, register/tracker sync #220, Alerts #221, FORK-B-1 #222.
+- **No open PRs.** HEAD: `548acd4` (PR #231 docs sync). Latest merged: **#230** TAX-7 growth loop (Prakash), **#231** docs sync.
+- Recently merged (#182–#231): tenancy B5.x, TAX-0..8 (ADR-0030) + fork-B + FORK-B-1, COST-2/3/4, PERSONA-1/2, worker-app wiring + 3.35.7 (Rishi), TD54 reads, name-edit #204, PDF-409 #209, liberal feed #216, TD25/TD60 #197, voice pipeline ADR-0029 #198, CI-1 #218, payer-web FE wiring #194, kPersistentAuth ON #201, job-side canonical #222–#226, alerts #221, TAX-5/6/7/8 #225-#230, docs syncs.
 
 # Important Domain Knowledge
 
