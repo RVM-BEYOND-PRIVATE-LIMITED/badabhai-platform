@@ -71,9 +71,17 @@ reflects the correct posture:
 
 **Implications for B1:**
 - Rishi's device run requires a **real OTP send** to an allowlisted number.
-- The smoke script steps (b)–(d) (`dev_otp` assertion + OTP round-trip) are **broken** until either
-  Fast2SMS creds are provisioned (OTP-7, human-gated) **or** the Mode-C fast-follow (ESC-1 /
-  [TD52](../registers/tech-debt-register.md)) is built.
+- The smoke script steps (b)–(d) (`dev_otp` assertion + OTP round-trip) are **permanently broken as
+  written** — `dev_otp` was removed from every OTP response in `d2f228e`, so **provisioning Fast2SMS
+  creds does NOT restore them**: with real OTP there is no echoed code for a script to read. The
+  **Mode-C fast-follow (staging-safe `mock` SMS provider) is CANCELLED** by owner decision
+  2026-07-16 — real OTP is the path ([TD52](../registers/tech-debt-register.md)). The automated OTP
+  leg must therefore be **re-worked**, owner's call between: (i) drop smoke to **health-only**;
+  (ii) option **(C) `STAGING_OTP_BYPASS_TOKEN`** — a staging-only token the API echoes ONLY when
+  `NODE_ENV=staging` AND the phone is synthetic-reserved AND the token matches (the recommendation
+  in [doc-reconciliation-2026-07-15.md](../registers/doc-reconciliation-2026-07-15.md) ESC-1;
+  keeps `SMS_PROVIDER=fast2sms` real, so it is **not** a mock provider); or (iii) the gated
+  **test-session-mint** e2e seam (owner sign-off pending).
 - Step (a) `GET /health → 200` still works and proves DB + Redis readiness.
 
 **What to do now (owner: Prakash):**

@@ -219,3 +219,28 @@ jobs:
           echo "----- API log (tail) -----"; tail -n 80 api.log || true
           kill "$API_PID" 2>/dev/null || true
           exit $E2E_EXIT
+
+  # ---- AWS Lightsail Deployment ----
+  deploy-lightsail:
+    name: Deploy to AWS Lightsail
+    needs: [node, ai-service, e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.LIGHTSAIL_HOST }}
+          username: ${{ secrets.LIGHTSAIL_USER }}
+          key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+          timeout: 10m
+          script: |
+            echo "Starting deployment..."
+            cd ~/deployments/badabhai-platform
+            echo "Pulling latest code from main..."
+            git pull origin main
+            echo "Building and starting Docker containers..."
+            docker compose --profile api up -d --build
+            docker compose --profile api ps
+            echo "Deployment finished successfully!"
+
