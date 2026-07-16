@@ -166,6 +166,22 @@ describe("PII token v2 (kid + keyring, read-both — TD22-1)", () => {
     expect(() => decryptPiiWithKeyring(tamperedTag, KEYRING, KEY)).toThrow();
   });
 
+  it("a v2 token hitting the LEGACY decrypt path names the keyring rollback, not corruption (LOW-1)", () => {
+    // Operator rollback: keyring enabled → v2 rows written → BOTH env vars unset
+    // (boot passes). Every v2 row then routes through legacy decryptPii — the
+    // error must say "re-configure the keyring", never look like data corruption.
+    const token = encryptPiiWithKeyring("secret", KEYRING);
+    let message = "";
+    try {
+      decryptPii(token, KEY);
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toBe("v2 PII token but no keyring is configured");
+    expect(message).not.toContain(ACTIVE_KID); // the kid is never echoed
+    expect(message).not.toMatch(/malformed/i); // distinct from the corruption throw
+  });
+
   it("rejects malformed v2 token shapes with no secret material in the message", () => {
     // Wrong part count (4-part v2), 6 parts (a dotted kid would land here), empty kid.
     for (const bad of ["v2.kid.only.four", "v2.bad.kid.iv.tag.ct", "v2..aaaa.bbbb.cccc"]) {

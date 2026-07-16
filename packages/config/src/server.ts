@@ -626,15 +626,48 @@ function parsePiiKeysJson(raw: string): Record<string, string> | null {
 }
 
 /**
+ * TD22-1 LOW-2 — count the TOP-LEVEL members of a raw JSON object string
+ * (colons at nesting depth 1, outside strings; escape-aware). JSON.parse
+ * silently keeps only the LAST value for a duplicated key, so a raw
+ * `{"k1":"<keyA>","k1":"<keyB>"}` would boot clean and then fail only at READ
+ * time (GCM auth failure on every row written under the shadowed keyA) —
+ * violating the fail-at-boot contract. Comparing this raw count against
+ * `Object.keys(parsed).length` exposes the duplicate at boot. Only called after
+ * the raw string has parsed successfully as an object, so the scan is over
+ * known-valid JSON.
+ */
+function countTopLevelJsonMembers(raw: string): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let count = 0;
+  for (const ch of raw) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{" || ch === "[") depth += 1;
+    else if (ch === "}" || ch === "]") depth -= 1;
+    else if (ch === ":" && depth === 1) count += 1;
+  }
+  return count;
+}
+
+/**
  * TD22-1 — every problem with the PII keyring env pair, or [] when the keyring is
  * either fully valid or entirely unset. Rules (all fail STARTUP, never first
  * decrypt): both-or-neither; an EMPTY STRING is a config ERROR, never treated as
  * unset (TD67 lesson — a half-armed secret gate must be loud); the map must be a
- * JSON object with at least one entry; every kid must match the charset; every
- * key must be base64 of exactly 32 bytes and not all-zero (the keyring is opt-in,
- * so there is no dev-default excuse in ANY environment); the active kid must be a
- * key of the map. §2 guardrail: no kid value and no key material EVER appears in
- * a problem string — messages name only the env vars and the rule violated.
+ * JSON object with at least one entry and NO duplicated kid in the raw JSON
+ * (JSON.parse last-wins would otherwise defer the failure to read time); every
+ * kid must match the charset; every key must be base64 of exactly 32 bytes and
+ * not all-zero (the keyring is opt-in, so there is no dev-default excuse in ANY
+ * environment); the active kid must be a key of the map. §2 guardrail: no kid
+ * value and no key material EVER appears in a problem string — messages name
+ * only the env vars and the rule violated.
  */
 export function piiKeyringConfigProblems(config: ServerConfig): string[] {
   const rawKeys = config.PII_ENCRYPTION_KEYS;
@@ -663,6 +696,13 @@ export function piiKeyringConfigProblems(config: ServerConfig): string[] {
   const kids = Object.keys(keys);
   if (kids.length === 0) {
     problems.push("PII_ENCRYPTION_KEYS must contain at least one key");
+  }
+  // LOW-2: JSON.parse keeps the LAST value for a repeated key — a duplicated kid
+  // would boot clean and fail only at READ time on rows written under the
+  // shadowed key. Compare the raw top-level member count to the parsed key
+  // count so the duplicate fails at BOOT. Never echoes the kid (§2).
+  if (countTopLevelJsonMembers(rawKeys!) !== kids.length) {
+    problems.push("PII_ENCRYPTION_KEYS contains a duplicate key id");
   }
   if (kids.some((kid) => !PII_KID_PATTERN.test(kid))) {
     problems.push(
