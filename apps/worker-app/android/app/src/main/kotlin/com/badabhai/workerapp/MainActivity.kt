@@ -32,6 +32,14 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // OTP SMS auto-read (Play Services User Consent). Channel name MUST match
+        // SmsOtpAutofill.channelName on the Dart side.
+        val smsChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SMS_OTP_CHANNEL)
+        val smsManager = SmsUserConsentManager(this, smsChannel)
+        smsOtp = smsManager
+        smsChannel.setMethodCallHandler { call, result -> smsManager.handle(call, result) }
+
         // In-app PDF download channel (resume / interview-kit). Both methods deal
         // ONLY in local files — the short-lived SIGNED url is fetched on the Dart
         // side and never crosses this channel, so nothing here can log or persist
@@ -166,6 +174,20 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        // Consume the SMS-consent result; anything else belongs to the plugins.
+        if (smsOtp?.onActivityResult(requestCode, resultCode, data) == true) return
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
+    override fun onDestroy() {
+        // Unregister the consent receiver with the Activity — a leaked receiver
+        // would throw on the next register after a rotate/relaunch.
+        smsOtp?.stop()
+        smsOtp = null
+        super.onDestroy()
+    }
+
     /** Android 13+ requires the POST_NOTIFICATIONS runtime grant before pushes can show. */
     private fun requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -177,6 +199,7 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         private const val NOTIF_PERMISSION_REQUEST = 2001
+        private const val SMS_OTP_CHANNEL = "badabhai/sms_otp"
         private const val DOWNLOADS_CHANNEL = "badabhai.workerapp/downloads"
     }
 }
