@@ -35,12 +35,25 @@ name: Security scan
 #     SEMGREP_APP_TOKEN — fully open-source, no Semgrep Cloud account.
 #   - pnpm audit — built into the pinned pnpm@11.5.2 (package.json packageManager).
 # No GitHub Enterprise-only features (no required-reviewer environment gates).
+#
+# TRIGGERS (CI-4a, 2026-07-16): pull_request→main is the primary surface — every
+# PR is scanned before merge. The post-merge `push: main` run was DROPPED: for
+# PR-delivered changes it was pure duplication (every job here is advisory /
+# continue-on-error, so it could never surface anything the PR run hadn't).
+# Caveat: DIRECT pushes to main (this repo takes them) get no immediate scan —
+# they are covered by the weekly schedule below (bounded ≤7-day gap, full-history
+# gitleaks re-scan), which is the coverage net, not an optional extra.
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  # Weekly full-history re-scan of main (Sunday 02:30 UTC — a quiet hour, offset
+  # from :00 to avoid GitHub's on-the-hour cron congestion/deferral). WHY a
+  # schedule at all: gitleaks scans the ENTIRE git history, and a PR-only scanner
+  # never re-examines main after a force-push or admin-merge, nor when scanner
+  # rulesets improve — the periodic run keeps main's history covered.
+  schedule:
+    - cron: "30 2 * * 0"
 
 concurrency:
   group: security-scan-${{ github.ref }}
