@@ -124,9 +124,11 @@ BOTH scoring modes; recall is **0.800 ORACLE** (phrase scored in its correct dom
 until TAX-6 per-label domains — cite THIS number for launch, #225 review M1). Floor
 clears all ceilings: labeled-negative 0.598, sibling-confusion 0.722, anchor-negative
 0.7263; next TP 0.7815. Vernacular tier all ≤ 0.61 → the RVM
-wedge aliases are REQUIRED and PROPOSED (22, `ratified: false`) — the human gate is the
-[ratification packet](../registers/skill-vernacular-ratification-packet.md) (Q-A chhilai,
-Q-B drawing padhna open). Re-sweep on any corpus/model change (`embed_wedge.py` →
+wedge aliases are REQUIRED and **RATIFIED 22/22 (2026-07-16, RATIFY-1)** — gate (d)
+CLOSED via the [ratification packet](../registers/skill-vernacular-ratification-packet.md)
+(Q-A chhilai → `skill_deburring`, Q-B drawing padhna → `skill_cad_interpretation`);
+seed/embed/re-sweep pend the SR-1 env, so the committed sweep recall stays 0.350 until
+then. Re-sweep on any corpus/model change (`embed_wedge.py` →
 `score-wedge.ts`); `pytest -k wedge` locks the conclusions offline. **Do NOT** seed
 non-launch trades (TAX-7/8) or touch ranking. Files: `packages/taxonomy/src/wedge-aliases.*`,
 `apps/ai-service/tests/wedge_eval/*`, floor config.

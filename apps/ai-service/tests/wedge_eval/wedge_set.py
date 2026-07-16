@@ -67,7 +67,11 @@ WEDGE_SET: tuple[WedgeCase, ...] = (
     WedgeCase(
         "kharad ka kaam", "cnc-machining", "skill_turning", "vernacular", requires_wedge=True
     ),
-    WedgeCase("chhilai", "vmc-machining", "skill_milling", "vernacular", requires_wedge=True),
+    # Q-A ratified 2026-07-16: chhilai → skill_deburring (owner: shop-floor sense =
+    # finishing). domain_id stays "vmc-machining" — it is the 2026-07-14 sweep's QUERY
+    # domain and the committed snapshot's lookup key, not the expected skill's domain;
+    # the SR-1 re-sweep must query chhilai in the alias's seeded domain (fabrication).
+    WedgeCase("chhilai", "vmc-machining", "skill_deburring", "vernacular", requires_wedge=True),
     WedgeCase("ghisai", "grinding", "skill_grinding_ops", "vernacular", requires_wedge=True),
     WedgeCase(
         "chudi katna", "cnc-machining", "skill_tapping_threading", "vernacular", requires_wedge=True

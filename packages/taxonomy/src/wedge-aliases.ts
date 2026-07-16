@@ -3,9 +3,10 @@
  * terms the international standards MISS, mapped to EXISTING immutable skill ids.
  *
  * RATIFICATION GATE (TAX-0 gate (d) — human domain judgment, NOT automatable):
- * every entry ships `ratified: false` (PROPOSED). The seed (`db:seed:skills`) inserts
- * ONLY `ratified: true` rows — so nothing here reaches `skill_alias` (or the embedder,
- * or a worker's profile) until the RVM domain owner flips it after reviewing
+ * RATIFIED 2026-07-16 by the RVM owner — gate (d) CLOSED. All 22 entries carry
+ * `ratified: true` (none struck); Q-A remapped chhilai → skill_deburring and Q-B
+ * remapped "drawing padhna" → skill_cad_interpretation. The seed (`db:seed:skills`)
+ * inserts ONLY `ratified: true` rows; the decision record is
  * [the ratification packet](../../../docs/registers/skill-vernacular-ratification-packet.md).
  *
  * INVARIANTS: aliases are ADDITIVE onto existing `skill_id`s (SG-5 — no new ids, no
@@ -28,60 +29,60 @@ export interface WedgeAliasProposal {
   alias: SkillAliasSeed;
   /** Human ratification flag (TAX-0 gate d). The seed inserts ONLY ratified rows. */
   ratified: boolean;
-  /** Mapping caveat for the RVM reviewer (uncertain/ambiguous terms). */
+  /** Mapping caveat for the RVM reviewer / the recorded ratification ruling. */
   note?: string;
 }
 
 const hi = (text: string): SkillAliasSeed => ({ text, lang: "hi", source: "rvm" });
 
 /**
- * PROPOSED (ratified: false — every one). Curated for the 7 launch roles' core skills:
+ * RATIFIED 2026-07-16 (all 22 — RVM owner). Curated for the 7 launch roles' core skills:
  * turning / milling / drilling / threading / grinding / setting / programming /
  * measurement / maintenance + the adjacent welding/fitting/fabrication anchors.
  */
 export const WEDGE_ALIASES: readonly WedgeAliasProposal[] = [
   // --- the two owner-named exemplars -------------------------------------------------
-  { skillId: "skill_turning", alias: hi("kharad"), ratified: false },
-  { skillId: "skill_turning", alias: hi("kharad ka kaam"), ratified: false },
+  { skillId: "skill_turning", alias: hi("kharad"), ratified: true },
+  { skillId: "skill_turning", alias: hi("kharad ka kaam"), ratified: true },
   {
-    skillId: "skill_milling",
+    skillId: "skill_deburring",
     alias: hi("chhilai"),
-    ratified: false,
-    note: "Owner glossed chhilai as milling/FINISHING — if the shop-floor sense is closer to finishing, map to skill_deburring instead (open question Q-A in the packet).",
+    ratified: true,
+    note: "RATIFIED Q-A (owner, 2026-07-16): shop-floor sense is finishing → remapped skill_milling ➜ skill_deburring (joins 'finishing ka kaam' on the same skill).",
   },
   // --- machining core -----------------------------------------------------------------
-  { skillId: "skill_drilling", alias: hi("chhed karna"), ratified: false },
-  { skillId: "skill_drilling", alias: hi("drilling ka kaam"), ratified: false },
+  { skillId: "skill_drilling", alias: hi("chhed karna"), ratified: true },
+  { skillId: "skill_drilling", alias: hi("drilling ka kaam"), ratified: true },
   {
     skillId: "skill_tapping_threading",
     alias: hi("chudi katna"),
-    ratified: false,
+    ratified: true,
     note: "chudi/chooree = thread; also seen as 'chudi katai'.",
   },
-  { skillId: "skill_grinding_ops", alias: hi("ghisai"), ratified: false },
-  { skillId: "skill_grinding_ops", alias: hi("ghisai ka kaam"), ratified: false },
-  { skillId: "skill_deburring", alias: hi("finishing ka kaam"), ratified: false },
+  { skillId: "skill_grinding_ops", alias: hi("ghisai"), ratified: true },
+  { skillId: "skill_grinding_ops", alias: hi("ghisai ka kaam"), ratified: true },
+  { skillId: "skill_deburring", alias: hi("finishing ka kaam"), ratified: true },
   // --- setup / programming / drawing ---------------------------------------------------
-  { skillId: "skill_fixture_setup", alias: hi("job setting"), ratified: false },
-  { skillId: "skill_fixture_setup", alias: hi("setting karna"), ratified: false },
-  { skillId: "skill_cnc_programming", alias: hi("program banana"), ratified: false },
-  { skillId: "skill_program_editing", alias: hi("program sudharna"), ratified: false },
+  { skillId: "skill_fixture_setup", alias: hi("job setting"), ratified: true },
+  { skillId: "skill_fixture_setup", alias: hi("setting karna"), ratified: true },
+  { skillId: "skill_cnc_programming", alias: hi("program banana"), ratified: true },
+  { skillId: "skill_program_editing", alias: hi("program sudharna"), ratified: true },
   {
-    skillId: "skill_gdt_reading",
+    skillId: "skill_cad_interpretation",
     alias: hi("drawing padhna"),
-    ratified: false,
-    note: "Could equally map to skill_cad_interpretation — chose the shop-floor drawing-reading skill (open question Q-B).",
+    ratified: true,
+    note: "RATIFIED Q-B (owner, 2026-07-16): the phrase implies reading CAD/digital models on their floors → remapped skill_gdt_reading ➜ skill_cad_interpretation.",
   },
   // --- measurement / quality -----------------------------------------------------------
-  { skillId: "skill_measuring_instruments", alias: hi("naap tol"), ratified: false },
-  { skillId: "skill_measuring_instruments", alias: hi("micrometer se naapna"), ratified: false },
-  { skillId: "skill_quality_control", alias: hi("quality check karna"), ratified: false },
+  { skillId: "skill_measuring_instruments", alias: hi("naap tol"), ratified: true },
+  { skillId: "skill_measuring_instruments", alias: hi("micrometer se naapna"), ratified: true },
+  { skillId: "skill_quality_control", alias: hi("quality check karna"), ratified: true },
   // --- adjacent trades (welding / fabrication / fitting / maintenance) ------------------
-  { skillId: "skill_welder_occupation", alias: hi("welding ka kaam"), ratified: false },
-  { skillId: "skill_gas_cutting", alias: hi("gas se katna"), ratified: false },
-  { skillId: "skill_sheet_metal", alias: hi("chadar ka kaam"), ratified: false },
-  { skillId: "skill_bench_fitting", alias: hi("fitting ka kaam"), ratified: false },
-  { skillId: "skill_machine_maintenance", alias: hi("machine ki marammat"), ratified: false },
+  { skillId: "skill_welder_occupation", alias: hi("welding ka kaam"), ratified: true },
+  { skillId: "skill_gas_cutting", alias: hi("gas se katna"), ratified: true },
+  { skillId: "skill_sheet_metal", alias: hi("chadar ka kaam"), ratified: true },
+  { skillId: "skill_bench_fitting", alias: hi("fitting ka kaam"), ratified: true },
+  { skillId: "skill_machine_maintenance", alias: hi("machine ki marammat"), ratified: true },
 ] as const;
 
 /** The rows the seed may insert — ratified ONLY (the TAX-0 gate d enforcement point). */
