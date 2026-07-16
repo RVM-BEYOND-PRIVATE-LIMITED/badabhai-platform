@@ -1,6 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { randomBytes, createCipheriv } from "node:crypto";
-import { encryptPii, decryptPii, isEncryptedPii, hashPin, verifyPin, isPinHash } from "./crypto";
+import {
+  encryptPii,
+  decryptPii,
+  encryptPiiWithKeyring,
+  decryptPiiWithKeyring,
+  isEncryptedPii,
+  hashPin,
+  verifyPin,
+  isPinHash,
+  type PiiKeyring,
+} from "./crypto";
 
 const KEY = randomBytes(32).toString("base64"); // a valid AES-256 key
 const OTHER_KEY = randomBytes(32).toString("base64");
@@ -64,6 +74,113 @@ describe("PII crypto (AES-256-GCM, explicit authTagLength)", () => {
       ct.toString("base64"),
     ].join(".");
     expect(decryptPii(legacyToken, KEY)).toBe("+919876543210");
+  });
+});
+
+describe("PII token v2 (kid + keyring, read-both — TD22-1)", () => {
+  const ACTIVE_KID = "k2026a";
+  const OLDER_KID = "k2025-old_1";
+  const ACTIVE_KEY = randomBytes(32).toString("base64");
+  const OLDER_KEY = randomBytes(32).toString("base64");
+  const KEYRING: PiiKeyring = {
+    activeKid: ACTIVE_KID,
+    keys: { [ACTIVE_KID]: ACTIVE_KEY, [OLDER_KID]: OLDER_KEY },
+  };
+
+  it("v2 round-trips and carries the active kid as the 2nd token segment", () => {
+    const token = encryptPiiWithKeyring("+919876543210", KEYRING);
+    const parts = token.split(".");
+    expect(parts).toHaveLength(5); // v2.<kid>.<iv>.<tag>.<ct>
+    expect(parts[0]).toBe("v2");
+    expect(parts[1]).toBe(ACTIVE_KID);
+    expect(decryptPiiWithKeyring(token, KEYRING, KEY)).toBe("+919876543210");
+  });
+
+  it("is non-deterministic (fresh IV per call → different v2 ciphertexts)", () => {
+    expect(encryptPiiWithKeyring("same", KEYRING)).not.toBe(encryptPiiWithKeyring("same", KEYRING));
+  });
+
+  it("decrypts a v2 token written under a NON-active kid still in the map (staged rotation)", () => {
+    const olderRing: PiiKeyring = { activeKid: OLDER_KID, keys: { [OLDER_KID]: OLDER_KEY } };
+    const token = encryptPiiWithKeyring("secret", olderRing);
+    expect(token.split(".")[1]).toBe(OLDER_KID);
+    // After rotation the active kid moved on, but the older kid stays readable.
+    expect(decryptPiiWithKeyring(token, KEYRING, KEY)).toBe("secret");
+  });
+
+  it("a v1 token still decrypts WHILE a v2 keyring is active (the read-both §8 lock)", () => {
+    const legacyToken = encryptPii("+919876543210", KEY);
+    expect(legacyToken.startsWith("v1.")).toBe(true);
+    expect(decryptPiiWithKeyring(legacyToken, KEYRING, KEY)).toBe("+919876543210");
+  });
+
+  it("a v1 token WITHOUT a legacy key fails closed (no silent keyring guess)", () => {
+    const legacyToken = encryptPii("secret", KEY);
+    expect(() => decryptPiiWithKeyring(legacyToken, KEYRING)).toThrow(/legacy/i);
+  });
+
+  it("unknown kid throws fail-closed WITHOUT echoing it and WITHOUT enumerating known kids", () => {
+    const goneRing: PiiKeyring = {
+      activeKid: "gone_kid_zz",
+      keys: { gone_kid_zz: randomBytes(32).toString("base64") },
+    };
+    const orphan = encryptPiiWithKeyring("secret", goneRing);
+    let message = "";
+    try {
+      decryptPiiWithKeyring(orphan, KEYRING, KEY);
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toBe("unknown PII key id");
+    expect(message).not.toContain("gone_kid_zz"); // the unknown kid is never echoed
+    expect(message).not.toContain(ACTIVE_KID); // known kids are never enumerated
+    expect(message).not.toContain(OLDER_KID);
+  });
+
+  it("rejects a dotted / oversized / empty active kid at ENCRYPT time (fail-closed, no token minted)", () => {
+    for (const badKid of ["bad.kid", "a".repeat(33), ""]) {
+      const ring: PiiKeyring = { activeKid: badKid, keys: { [badKid]: ACTIVE_KEY } };
+      let message = "";
+      try {
+        encryptPiiWithKeyring("secret", ring);
+      } catch (err) {
+        message = (err as Error).message;
+      }
+      expect(message).toMatch(/invalid PII key id/i);
+      if (badKid.length > 0) expect(message).not.toContain(badKid); // never echoed
+    }
+  });
+
+  it("rejects a tampered v2 auth tag AND a tampered v2 ciphertext (GCM fails closed)", () => {
+    const token = encryptPiiWithKeyring("secret", KEYRING);
+    const [v, kid, iv, tag, ct] = token.split(".");
+
+    const flippedCt = Buffer.from(ct!, "base64");
+    flippedCt[0] = (flippedCt[0]! ^ 0x01) & 0xff;
+    const tamperedCt = [v, kid, iv, tag, flippedCt.toString("base64")].join(".");
+    expect(() => decryptPiiWithKeyring(tamperedCt, KEYRING, KEY)).toThrow();
+
+    const flippedTag = Buffer.from(tag!, "base64");
+    flippedTag[0] = (flippedTag[0]! ^ 0x01) & 0xff;
+    const tamperedTag = [v, kid, iv, flippedTag.toString("base64"), ct].join(".");
+    expect(() => decryptPiiWithKeyring(tamperedTag, KEYRING, KEY)).toThrow();
+  });
+
+  it("rejects malformed v2 token shapes with no secret material in the message", () => {
+    // Wrong part count (4-part v2), 6 parts (a dotted kid would land here), empty kid.
+    for (const bad of ["v2.kid.only.four", "v2.bad.kid.iv.tag.ct", "v2..aaaa.bbbb.cccc"]) {
+      expect(() => decryptPiiWithKeyring(bad, KEYRING, KEY)).toThrow(/malformed/i);
+    }
+  });
+
+  it("isEncryptedPii accepts BOTH shipped formats and rejects plaintext/garbage (the backfill discriminator)", () => {
+    expect(isEncryptedPii(encryptPii("x", KEY))).toBe(true); // v1, 4 parts
+    expect(isEncryptedPii(encryptPiiWithKeyring("x", KEYRING))).toBe(true); // v2, 5 parts
+    expect(isEncryptedPii("+919876543210")).toBe(false); // plaintext
+    expect(isEncryptedPii("not-a-token")).toBe(false); // garbage
+    expect(isEncryptedPii("v2.bad kid.iv.tag.ct")).toBe(false); // invalid kid charset
+    expect(isEncryptedPii("v2..iv.tag.ct")).toBe(false); // empty kid
+    expect(isEncryptedPii("v9.a.b.c.d")).toBe(false); // unknown version
   });
 });
 

@@ -13,9 +13,13 @@ export {
   hmacValue,
   encryptPii,
   decryptPii,
+  encryptPiiWithKeyring,
+  decryptPiiWithKeyring,
   isEncryptedPii,
   safeEqualHex,
   hashPin,
   verifyPin,
   isPinHash,
+  PII_KID_PATTERN,
 } from "@badabhai/db";
+export type { PiiKeyring } from "@badabhai/db";
