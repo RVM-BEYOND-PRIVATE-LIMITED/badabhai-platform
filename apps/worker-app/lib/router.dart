@@ -77,8 +77,14 @@ class Routes {
   // --- Shell sub-routes (append the id where noted) ---
   static const String jobDetail = '/jobs/detail'; // + '/<jobId>'  (no bar)
   static const String resumeEdit = '/resume/edit'; // (no bar)
-  static const String kit = '/resume/kit'; // (keeps bar)
-  static const String kitDetail = '/resume/kit/detail'; // + '/<tradeKey>' (no bar)
+  // The kit hangs off PROFILE, not Resume: the Interview-kit shortcut on the
+  // Profile tab is its only entry point. While it lived at '/resume/kit' the
+  // shortcut had to cross shell branches, which made StatefulShellRoute activate
+  // the Resume branch — the bottom bar jumped to Resume while the worker was
+  // still reading Profile content.
+  static const String kit = '/profile/kit'; // (keeps bar)
+  static const String kitDetail =
+      '/profile/kit/detail'; // + '/<tradeKey>' (no bar)
   static const String settings = '/profile/settings'; // (no bar)
   static const String appliedJobs =
       '/profile/applied'; // (no bar) — pushed from Profile, back → Profile
@@ -298,18 +304,6 @@ GoRouter _buildRouter() {
                     parentNavigatorKey: _rootNavKey, // no bar
                     builder: (_, __) => const ResumeEditScreen(),
                   ),
-                  GoRoute(
-                    path: 'kit',
-                    builder: (_, __) => const KitScreen(),
-                    routes: <RouteBase>[
-                      GoRoute(
-                        path: 'detail/:tradeKey',
-                        parentNavigatorKey: _rootNavKey, // no bar
-                        builder: (_, GoRouterState s) => KitDetailScreen(
-                            tradeKey: s.pathParameters['tradeKey']!),
-                      ),
-                    ],
-                  ),
                 ],
               ),
             ],
@@ -340,6 +334,23 @@ GoRouter _buildRouter() {
                     path: 'applied',
                     parentNavigatorKey: _rootNavKey, // no bar
                     builder: (_, __) => const AppliedJobsScreen(),
+                  ),
+                  // Interview kit — pushed from Profile, its ONLY entry point.
+                  // No parentNavigatorKey (unlike its siblings above): the kit
+                  // KEEPS the bottom bar, so it renders inside this branch's
+                  // navigator and the bar stays on Profile while it is open.
+                  // Deliberately NOT under the Resume branch — see [Routes.kit].
+                  GoRoute(
+                    path: 'kit',
+                    builder: (_, __) => const KitScreen(),
+                    routes: <RouteBase>[
+                      GoRoute(
+                        path: 'detail/:tradeKey',
+                        parentNavigatorKey: _rootNavKey, // no bar
+                        builder: (_, GoRouterState s) => KitDetailScreen(
+                            tradeKey: s.pathParameters['tradeKey']!),
+                      ),
+                    ],
                   ),
                 ],
               ),

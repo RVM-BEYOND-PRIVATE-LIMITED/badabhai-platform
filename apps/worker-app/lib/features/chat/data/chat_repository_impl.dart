@@ -3,6 +3,7 @@ import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
 import '../../../core/session/session_repository.dart';
 import '../domain/chat_repository.dart';
+import '../domain/chat_turn.dart';
 
 class ChatRepositoryImpl implements ChatRepository {
   ChatRepositoryImpl(this._api, this._session);
@@ -24,7 +25,7 @@ class ChatRepositoryImpl implements ChatRepository {
   }
 
   @override
-  Future<String> sendMessage(String text) async {
+  Future<ChatTurn> sendMessage(String text) async {
     final String? token = _session.sessionToken;
     final String? sessionId = _session.sessionId;
     if (token == null || sessionId == null) throw const UnauthorizedFailure();
@@ -34,7 +35,9 @@ class ChatRepositoryImpl implements ChatRepository {
         authToken: token,
         text: text,
       );
-      return reply.reply;
+      // Carry the backend's tap-to-answer suggestions through to the UI. A
+      // blocked reply (pseudonymize fail-closed) arrives with an empty list.
+      return ChatTurn(reply: reply.reply, followups: reply.suggestedFollowups);
     } catch (error) {
       throw mapError(error);
     }

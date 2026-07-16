@@ -10,6 +10,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_bubble.dart';
+import '../../../core/widgets/bb_chip.dart';
 import '../../../router.dart';
 import '../../voice/domain/voice_models.dart';
 import '../domain/chat_message.dart';
@@ -68,8 +69,14 @@ class _ChatViewState extends State<_ChatView> {
   void _send() {
     final String text = _controller.text;
     if (text.trim().isEmpty) return;
-    context.read<ChatBloc>().add(ChatMessageSent(text));
+    _sendText(text);
     _controller.clear();
+  }
+
+  /// Send an answer from a tap-to-answer chip — same path as typing it.
+  void _sendText(String text) {
+    if (text.trim().isEmpty) return;
+    context.read<ChatBloc>().add(ChatMessageSent(text));
   }
 
   /// Whether the viewport is within [_kNearBottomThreshold] of the end.
@@ -195,6 +202,10 @@ class _ChatViewState extends State<_ChatView> {
                       ],
                     ),
                   ),
+                  if (state.sending)
+                    _typingIndicator()
+                  else if (state.followups.isNotEmpty)
+                    _followups(state.followups),
                   _inputBar(),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(
@@ -249,6 +260,57 @@ class _ChatViewState extends State<_ChatView> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// "Bada Bhai type kar raha hai…" — shown while a reply is in flight so a
+  /// real (1–3s) LLM turn does not look frozen.
+  ///
+  /// Deliberately STATIC (a dots glyph, not a spinning `CircularProgressIndicator`):
+  /// an indefinite animation never lets `WidgetTester.pumpAndSettle` settle, and
+  /// the value here is the honest "still working" cue, not motion.
+  Widget _typingIndicator() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.s4, AppSpacing.s1, AppSpacing.s4, AppSpacing.s2),
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.more_horiz, size: 20, color: AppColors.brand),
+          const SizedBox(width: AppSpacing.s2),
+          Flexible(
+            child: Text(
+              'Bada Bhai type kar raha hai…',
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: AppColors.textMuted,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Tap-to-answer chips from the backend's `suggested_followups`. Tapping one
+  /// sends it exactly like a typed answer — so a worker who cannot type quickly
+  /// can still answer. Horizontally scrollable so long suggestions never clip.
+  Widget _followups(List<String> followups) {
+    return Container(
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.s4, AppSpacing.s1, AppSpacing.s4, AppSpacing.s2),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: <Widget>[
+            for (final String f in followups) ...<Widget>[
+              BbChip(label: f, onTap: () => _sendText(f)),
+              const SizedBox(width: AppSpacing.s2),
+            ],
+          ],
+        ),
       ),
     );
   }

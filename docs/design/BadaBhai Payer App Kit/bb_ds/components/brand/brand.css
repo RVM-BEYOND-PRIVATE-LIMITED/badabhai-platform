@@ -1,0 +1,84 @@
+/* ============================================================
+   BadaBhai · Component styles — Brand
+   BadaBhaiLogo, ChatBubble, JobCard, MaskedCandidate.
+   The signature, product-specific components. Prefix: .bb-
+   ============================================================ */
+
+/* ---------- Logo ---------- */
+.bb-logo { display: inline-flex; align-items: center; gap: 0.34em; }
+.bb-logo__mark { display: block; border-radius: 22%; box-shadow: var(--shadow-sm); }
+.bb-logo__word { font-family: var(--font-display); font-weight: var(--weight-extrabold); letter-spacing: -0.02em; line-height: 1; }
+.bb-logo__a { color: var(--ink-900); }
+.bb-logo__b { color: var(--marigold-600); }
+.bb-logo--ink .bb-logo__a { color: #fff; }
+.bb-logo--ink .bb-logo__b { color: var(--marigold-400); }
+
+/* ---------- ChatBubble (chat-first product) ---------- */
+.bb-chat { display: flex; gap: 8px; align-items: flex-end; max-width: 88%; }
+.bb-chat--user { margin-left: auto; flex-direction: row-reverse; }
+.bb-chat__avatar { flex: none; }
+.bb-chat__bubble {
+  padding: 11px 14px; border-radius: var(--radius-lg);
+  font-size: var(--text-base); line-height: 1.45;
+}
+.bb-chat--bot .bb-chat__bubble {
+  background: var(--surface-card); border: 1px solid var(--border-subtle);
+  border-bottom-left-radius: var(--radius-xs); color: var(--text-primary);
+  box-shadow: var(--shadow-xs);
+}
+.bb-chat--user .bb-chat__bubble {
+  background: var(--brand); color: var(--text-on-brand);
+  border-bottom-right-radius: var(--radius-xs); font-weight: var(--weight-medium);
+}
+.bb-chat__time { font-size: 11px; color: var(--text-faint); margin-top: 4px; display: block; }
+.bb-chat--user .bb-chat__time { text-align: right; }
+/* voice note variant */
+.bb-chat__voice { display: flex; align-items: center; gap: 10px; min-width: 150px; }
+.bb-chat__play { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--brand); color: #fff; flex: none; font-size: 15px; }
+.bb-chat--user .bb-chat__play { background: var(--ink-900); color: #fff; }
+.bb-chat__wave { display: flex; align-items: center; gap: 2px; height: 24px; }
+.bb-chat__wave i { width: 3px; border-radius: 2px; background: currentColor; opacity: 0.5; display: block; }
+.bb-chat__dur { font-family: var(--font-mono); font-size: 12px; opacity: 0.8; }
+
+/* ---------- JobCard (swipe-to-apply) ---------- */
+.bb-jobcard {
+  background: var(--surface-card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl); box-shadow: var(--shadow-md);
+  padding: 20px; display: flex; flex-direction: column; gap: 14px;
+}
+.bb-jobcard__top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.bb-jobcard__title { font-family: var(--font-display); font-weight: var(--weight-bold); font-size: var(--text-2xl); line-height: 1.1; color: var(--text-primary); }
+.bb-jobcard__company { display: flex; align-items: center; gap: 6px; font-size: var(--text-base); color: var(--text-secondary); font-weight: var(--weight-semibold); margin-top: 5px; }
+.bb-jobcard__logo { width: 50px; height: 50px; border-radius: var(--radius-md); background: var(--surface-sunken); display: flex; align-items: center; justify-content: center; color: var(--ink-500); font-size: 24px; flex: none; overflow: hidden; }
+.bb-jobcard__logo img { width: 100%; height: 100%; object-fit: cover; }
+.bb-jobcard__facts { display: flex; flex-wrap: wrap; gap: 9px 18px; }
+.bb-jobcard__fact { display: flex; align-items: center; gap: 6px; font-size: var(--text-base); color: var(--text-secondary); }
+.bb-jobcard__fact .ph { color: var(--text-faint); font-size: 19px; }
+.bb-jobcard__salary { font-family: var(--font-mono); font-weight: var(--weight-bold); color: var(--text-primary); }
+.bb-jobcard__tags { display: flex; flex-wrap: wrap; gap: 7px; }
+.bb-jobcard__quota { display: flex; align-items: center; gap: 6px; font-size: var(--text-sm); color: var(--text-muted); }
+.bb-jobcard__quota b { color: var(--brand-press); }
+.bb-jobcard__foot { display: flex; gap: 12px; align-items: center; margin-top: 2px; }
+.bb-jobcard__skipbtn {
+  width: 56px; height: 56px; border-radius: 50%; flex: none;
+  border: 2px solid var(--border-strong); background: var(--surface-card);
+  color: var(--text-muted); display: flex; align-items: center; justify-content: center;
+  font-size: 26px; cursor: pointer; transition: var(--transition-control);
+}
+.bb-jobcard__skipbtn:hover { border-color: var(--danger); color: var(--danger); }
+.bb-jobcard__skipbtn:active { transform: scale(0.92); }
+
+/* ---------- MaskedCandidate (payer demand loop) ---------- */
+.bb-candidate {
+  display: flex; gap: 14px; align-items: center;
+  background: var(--surface-card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: 16px;
+}
+.bb-candidate__body { flex: 1; min-width: 0; }
+.bb-candidate__name { font-family: var(--font-sans); font-weight: var(--weight-bold); font-size: var(--text-md); color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
+.bb-candidate--masked .bb-candidate__name-text { filter: blur(5px); user-select: none; }
+.bb-candidate__meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--text-sm); color: var(--text-muted); margin-top: 5px; }
+.bb-candidate__meta span { display: inline-flex; align-items: center; gap: 4px; }
+.bb-candidate__meta .ph { font-size: 15px; color: var(--text-faint); }
+.bb-candidate__action { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 7px; }
+.bb-candidate__unlocked { display: inline-flex; align-items: center; gap: 5px; font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--success); }

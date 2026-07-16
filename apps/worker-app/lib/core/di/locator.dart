@@ -6,6 +6,7 @@ import '../auth/auth_api.dart';
 import '../auth/auth_factory.dart';
 import '../auth/device_id.dart';
 import '../auth/locale_store.dart';
+import '../otp/sms_otp_autofill.dart';
 import '../auth/reauth_signal.dart';
 import '../auth/secure_token_store.dart';
 import '../config/app_config.dart';
@@ -200,10 +201,15 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // Auth cubits resolve [AuthSessionManager] + [LocaleStore] LAZILY (the factory
   // closure runs on demand, after [initAuthLocator] has registered both). The
   // live flows route through the manager, not a repository.
+  // OTP SMS auto-read. Singleton: the consent window is opened when the OTP is
+  // REQUESTED (PhoneLoginCubit) and the code is consumed later on the OTP screen,
+  // so both must share one instance.
+  locator.registerLazySingleton<SmsOtpAutofill>(() => SmsOtpAutofill());
   locator.registerFactory<PhoneLoginCubit>(
     () => PhoneLoginCubit(
       locator<AuthSessionManager>(),
       locale: locator<LocaleStore>().read(),
+      otpAutofill: locator<SmsOtpAutofill>(),
     ),
   );
   locator.registerFactory<OtpVerifyCubit>(

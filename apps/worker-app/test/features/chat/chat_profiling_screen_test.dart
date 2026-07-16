@@ -6,6 +6,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
 
@@ -55,7 +56,8 @@ void main() {
   /// Fills the transcript with worker messages so the list overflows. Each send
   /// resolves its bot reply immediately.
   Future<void> fillTranscript(WidgetTester tester, int count) async {
-    when(() => repo.sendMessage(any())).thenAnswer((_) async => 'ok bhai');
+    when(() => repo.sendMessage(any()))
+        .thenAnswer((_) async => const ChatTurn(reply: 'ok bhai'));
     for (int i = 0; i < count; i++) {
       await tester.enterText(find.byType(TextField), 'msg $i');
       await tester.testTextInput.receiveAction(TextInputAction.send);
@@ -76,7 +78,8 @@ void main() {
     expect(controller.position.pixels, 0);
 
     // Send the worker's own message — it must follow them down regardless.
-    when(() => repo.sendMessage(any())).thenAnswer((_) async => 'ok bhai');
+    when(() => repo.sendMessage(any()))
+        .thenAnswer((_) async => const ChatTurn(reply: 'ok bhai'));
     await tester.enterText(find.byType(TextField), 'my own line');
     await tester.testTextInput.receiveAction(TextInputAction.send);
     await tester.pumpAndSettle();
@@ -97,7 +100,7 @@ void main() {
       await fillTranscript(tester, 12);
 
       // Hold the bot reply open so we can scroll up before it lands.
-      final Completer<String> reply = Completer<String>();
+      final Completer<ChatTurn> reply = Completer<ChatTurn>();
       when(() => repo.sendMessage(any())).thenAnswer((_) => reply.future);
 
       await tester.enterText(find.byType(TextField), 'trigger');
@@ -112,7 +115,7 @@ void main() {
       expect(before, 0);
 
       // Bot reply lands while we are scrolled up.
-      reply.complete('bada bhai replies');
+      reply.complete(const ChatTurn(reply: 'bada bhai replies'));
       await tester.pumpAndSettle();
 
       // Pill appears, list stays put (no auto-scroll).
@@ -125,13 +128,56 @@ void main() {
     },
   );
 
+  testWidgets(
+      'renders suggested_followups as chips and tapping one sends that answer',
+      (WidgetTester tester) async {
+    when(() => repo.sendMessage(any())).thenAnswer((_) async => const ChatTurn(
+        reply: 'Kaunsa control?', followups: <String>['Fanuc', 'Siemens']));
+    await pumpScreen(tester);
+
+    await tester.enterText(find.byType(TextField), 'cnc');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pumpAndSettle();
+
+    // The backend's tap-to-answer suggestions are surfaced as chips.
+    expect(find.text('Fanuc'), findsOneWidget);
+    expect(find.text('Siemens'), findsOneWidget);
+
+    // Tapping a chip sends it exactly like a typed answer.
+    await tester.tap(find.text('Fanuc'));
+    await tester.pumpAndSettle();
+    verify(() => repo.sendMessage('Fanuc')).called(1);
+  });
+
+  testWidgets('shows the typing indicator while a reply is in flight', (
+    WidgetTester tester,
+  ) async {
+    final Completer<ChatTurn> reply = Completer<ChatTurn>();
+    when(() => repo.sendMessage(any())).thenAnswer((_) => reply.future);
+    await pumpScreen(tester);
+
+    await tester.enterText(find.byType(TextField), 'cnc');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pumpAndSettle();
+
+    // Reply still pending → the "typing…" cue is visible.
+    expect(find.text('Bada Bhai type kar raha hai…'), findsOneWidget);
+
+    reply.complete(const ChatTurn(reply: 'Theek hai.'));
+    await tester.pumpAndSettle();
+
+    // Reply landed → indicator gone, reply shown.
+    expect(find.text('Bada Bhai type kar raha hai…'), findsNothing);
+    expect(find.text('Theek hai.'), findsOneWidget);
+  });
+
   testWidgets('tapping the pill scrolls to the bottom and hides it', (
     WidgetTester tester,
   ) async {
     await pumpScreen(tester);
     await fillTranscript(tester, 12);
 
-    final Completer<String> reply = Completer<String>();
+    final Completer<ChatTurn> reply = Completer<ChatTurn>();
     when(() => repo.sendMessage(any())).thenAnswer((_) => reply.future);
 
     await tester.enterText(find.byType(TextField), 'trigger');
@@ -142,7 +188,7 @@ void main() {
     controller.jumpTo(0);
     await tester.pumpAndSettle();
 
-    reply.complete('bada bhai replies');
+    reply.complete(const ChatTurn(reply: 'bada bhai replies'));
     await tester.pumpAndSettle();
     expect(find.text('Naye message'), findsOneWidget);
 

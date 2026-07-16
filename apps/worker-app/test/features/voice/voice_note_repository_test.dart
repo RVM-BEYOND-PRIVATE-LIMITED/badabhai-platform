@@ -9,6 +9,7 @@ import 'package:badabhai_worker_app/core/api/api_client.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/voice/data/voice_note_repository_impl.dart';
 import 'package:badabhai_worker_app/features/voice/data/voice_pipeline_impl.dart';
 import 'package:badabhai_worker_app/features/voice/domain/voice_models.dart';
@@ -75,7 +76,8 @@ void main() {
     api = MockApiClient();
     chat = MockChatRepository();
     when(() => chat.ensureSession()).thenAnswer((_) async {});
-    when(() => chat.sendMessage(any())).thenAnswer((_) async => 'bhai reply');
+    when(() => chat.sendMessage(any()))
+        .thenAnswer((_) async => const ChatTurn(reply: 'bhai reply'));
     when(() => api.uploadVoiceNote(
           authToken: any(named: 'authToken'),
           sessionId: any(named: 'sessionId'),

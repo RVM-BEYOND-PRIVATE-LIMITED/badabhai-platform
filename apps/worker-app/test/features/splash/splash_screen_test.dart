@@ -22,53 +22,32 @@ Widget _app() {
 }
 
 void main() {
-  group('SplashScreen language picker (Task D — inert)', () {
-    testWidgets('renders the four launch languages + the prompt + the CTA',
+  group('SplashScreen', () {
+    testWidgets('renders the brand promise + the CTA',
         (WidgetTester tester) async {
       await tester.pumpWidget(_app());
       await tester.pumpAndSettle();
 
-      expect(find.text('हिंदी'), findsOneWidget);
-      expect(find.text('मराठी'), findsOneWidget);
-      expect(find.text('भोजपुरी'), findsOneWidget);
-      expect(find.text('English'), findsOneWidget);
-      expect(find.text('भाषा चुनें · Choose language'), findsOneWidget);
+      expect(find.text('No test. Just talk.'), findsOneWidget);
       expect(find.text('Get started'), findsOneWidget);
     });
 
-    testWidgets('selection is single-select and visual only (one check, it moves)',
-        (WidgetTester tester) async {
+    // The language picker is hidden until real localization ships. It wrote
+    // `X-Locale` with no translated strings behind it, so it offered a choice
+    // the app could not honour. Asserted here so it cannot reappear by accident
+    // — the Settings 'Bhasha' row is covered by settings_screen_test.
+    testWidgets('shows NO language picker', (WidgetTester tester) async {
       await tester.pumpWidget(_app());
       await tester.pumpAndSettle();
 
-      // Hindi-first: exactly one chip is marked selected on load.
-      expect(find.byIcon(Icons.check_rounded), findsOneWidget);
-
-      // Tapping another language moves the selection — still exactly one check
-      // (mutually exclusive), proving the inert single-select toggle.
-      await tester.tap(find.text('भोजपुरी'));
-      await tester.pump();
-      expect(find.byIcon(Icons.check_rounded), findsOneWidget);
-
-      await tester.tap(find.text('English'));
-      await tester.pump();
-      expect(find.byIcon(Icons.check_rounded), findsOneWidget);
+      expect(find.text('भाषा चुनें · Choose language'), findsNothing);
+      expect(find.text('हिंदी'), findsNothing);
+      expect(find.text('मराठी'), findsNothing);
+      expect(find.text('भोजपुरी'), findsNothing);
+      expect(find.text('English'), findsNothing);
     });
 
-    testWidgets('selecting a language does NOT navigate (inert — no route change)',
-        (WidgetTester tester) async {
-      await tester.pumpWidget(_app());
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('मराठी'));
-      await tester.pumpAndSettle();
-
-      // Still on Splash — the picker has no side effect beyond local state.
-      expect(find.text('Get started'), findsOneWidget);
-      expect(find.text('LOGIN STUB'), findsNothing);
-    });
-
-    testWidgets('the "Get started" CTA still routes to /login',
+    testWidgets('the "Get started" CTA routes to /login',
         (WidgetTester tester) async {
       await tester.pumpWidget(_app());
       await tester.pumpAndSettle();

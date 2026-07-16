@@ -99,12 +99,12 @@ class SettingsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: AppSpacing.s2),
         children: <Widget>[
-          BbListRow.setting(
-            icon: Icons.translate,
-            title: 'Bhasha',
-            subtitle: 'हिंदी',
-            onTap: () => _comingSoon(context),
-          ),
+          // HIDDEN FOR NOW: the 'Bhasha' language row. Language selection is
+          // hidden across the app until real localization ships — the picker
+          // only ever set `X-Locale`, with no translated strings behind it, so
+          // it promised a choice the app could not honour. The worker keeps the
+          // LocaleStore default (`hi`), so `X-Locale` is unchanged. Restore this
+          // row together with the splash picker.
           BbListRow.setting(
             icon: Icons.person_add_alt_1_outlined,
             title: 'Dost ko invite karein',
@@ -123,12 +123,9 @@ class SettingsScreen extends StatelessWidget {
             subtitle: 'On',
             onTap: () => _comingSoon(context),
           ),
-          BbListRow.setting(
-            icon: Icons.devices_other_outlined,
-            title: 'Aapke devices',
-            subtitle: 'Logged-in devices dekhein · hatayein',
-            onTap: () => context.push(Routes.devices),
-          ),
+          // HIDDEN FOR NOW: the 'Aapke devices' card. Removing the entry point
+          // leaves DevicesScreen and Routes.devices in place — restore this row
+          // to bring the screen back.
           BbListRow.setting(
             icon: Icons.verified_user_outlined,
             title: 'Privacy & data',

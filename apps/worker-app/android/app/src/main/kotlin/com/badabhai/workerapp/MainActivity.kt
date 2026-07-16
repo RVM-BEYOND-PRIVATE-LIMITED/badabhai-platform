@@ -21,6 +21,9 @@ import java.io.File
 
 class MainActivity : FlutterActivity() {
 
+    /** OTP SMS auto-read (Play Services User Consent). Android-only. */
+    private var smsOtp: SmsUserConsentManager? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         FirebaseManager.init(this)

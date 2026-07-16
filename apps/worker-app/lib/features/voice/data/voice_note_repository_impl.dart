@@ -5,6 +5,7 @@ import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
 import '../../../core/session/session_repository.dart';
 import '../../chat/domain/chat_repository.dart';
+import '../../chat/domain/chat_turn.dart';
 import '../domain/voice_models.dart';
 import '../domain/voice_note_repository.dart';
 import '../domain/voice_pipeline.dart';
@@ -126,8 +127,8 @@ class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
       final String transcript = await _resolver.resolve(job, authToken: token);
 
       // Merge the transcript into the profiling chat like a typed message.
-      final String reply = await _chat.sendMessage(transcript);
-      return VoiceNoteOutcome(transcript: transcript, reply: reply);
+      final ChatTurn turn = await _chat.sendMessage(transcript);
+      return VoiceNoteOutcome(transcript: transcript, reply: turn.reply);
     } catch (error) {
       // A clip that never reached the uploader is raw audio on disk with no
       // owner (the uploader's own `finally` only covers its leg) — delete it,

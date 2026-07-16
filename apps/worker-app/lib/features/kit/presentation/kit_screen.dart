@@ -10,6 +10,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_list_row.dart';
 import '../../../core/widgets/bb_status_view.dart';
+import '../../../router.dart';
 import 'cubit/kit_list_cubit.dart';
 import '../domain/interview_kit.dart';
 
@@ -88,7 +89,7 @@ class _KitView extends StatelessWidget {
               title: item.title,
               subtitle: item.subtitle,
               onTap: () =>
-                  context.push('/resume/kit/detail/${item.tradeKey}'),
+                  context.push('${Routes.kitDetail}/${item.tradeKey}'),
             ),
           // Coming-soon stub for the alpha — the per-day interview checklist
           // (documents / dress / timing) is a follow-up; tapping just nudges.

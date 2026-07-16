@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/error/failure.dart';
 import '../../domain/chat_message.dart';
 import '../../domain/chat_repository.dart';
+import '../../domain/chat_turn.dart';
 
 // ---------------- Events ----------------
 
@@ -46,7 +47,12 @@ class ChatVoiceMerged extends ChatEvent {
 // ---------------- State ----------------
 
 class ChatState extends Equatable {
-  const ChatState({required this.messages, this.initializing = true});
+  const ChatState({
+    required this.messages,
+    this.initializing = true,
+    this.sending = false,
+    this.followups = const <String>[],
+  });
 
   /// Ordered, append-only transcript.
   final List<ChatMessage> messages;
@@ -54,15 +60,31 @@ class ChatState extends Equatable {
   /// True while the session is being opened (shows a spinner, as before).
   final bool initializing;
 
-  ChatState copyWith({List<ChatMessage>? messages, bool? initializing}) {
+  /// True while a reply is in flight — drives the "Bada Bhai type kar raha
+  /// hai…" indicator so a real (1–3s) LLM turn does not look frozen.
+  final bool sending;
+
+  /// Tap-to-answer suggestions for the LATEST reply (backend
+  /// `suggested_followups`). Cleared the moment the worker sends again.
+  final List<String> followups;
+
+  ChatState copyWith({
+    List<ChatMessage>? messages,
+    bool? initializing,
+    bool? sending,
+    List<String>? followups,
+  }) {
     return ChatState(
       messages: messages ?? this.messages,
       initializing: initializing ?? this.initializing,
+      sending: sending ?? this.sending,
+      followups: followups ?? this.followups,
     );
   }
 
   @override
-  List<Object?> get props => <Object?>[messages, initializing];
+  List<Object?> get props =>
+      <Object?>[messages, initializing, sending, followups];
 }
 
 // ---------------- Bloc ----------------
@@ -104,27 +126,45 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       ...state.messages,
       ChatMessage(text: text, fromWorker: true),
     ];
-    emit(state.copyWith(messages: withWorker));
+    // Show the typing indicator and drop the previous turn's chips (they belong
+    // to a question already answered).
+    emit(state.copyWith(
+      messages: withWorker,
+      sending: true,
+      followups: const <String>[],
+    ));
 
     try {
-      final String reply = await _repo.sendMessage(text);
-      emit(state.copyWith(messages: <ChatMessage>[
-        ...withWorker,
-        ChatMessage(text: reply, fromWorker: false),
-      ]));
+      final ChatTurn turn = await _repo.sendMessage(text);
+      emit(state.copyWith(
+        messages: <ChatMessage>[
+          ...withWorker,
+          ChatMessage(text: turn.reply, fromWorker: false),
+        ],
+        sending: false,
+        followups: turn.followups,
+      ));
     } on Failure catch (_) {
       // The frozen UI has no send-failure affordance — keep the worker's
-      // message and no-op rather than inventing new error copy.
+      // message and just drop the typing indicator rather than inventing new
+      // error copy.
+      emit(state.copyWith(sending: false));
     }
   }
 
   /// Appends the already-server-merged voice transcript + reply. Local only —
   /// the voice pipeline sent the transcript through ChatRepository.sendMessage.
   void _onVoiceMerged(ChatVoiceMerged event, Emitter<ChatState> emit) {
-    emit(state.copyWith(messages: <ChatMessage>[
-      ...state.messages,
-      ChatMessage(text: event.transcript, fromWorker: true),
-      ChatMessage(text: event.reply, fromWorker: false),
-    ]));
+    // The voice pipeline returns only the reply text (no followups), so clear
+    // any stale chips from the previous typed turn.
+    emit(state.copyWith(
+      messages: <ChatMessage>[
+        ...state.messages,
+        ChatMessage(text: event.transcript, fromWorker: true),
+        ChatMessage(text: event.reply, fromWorker: false),
+      ],
+      sending: false,
+      followups: const <String>[],
+    ));
   }
 }
