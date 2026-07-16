@@ -171,9 +171,11 @@ class _JobDetailViewState extends State<_JobDetailView> {
     );
   }
 
-  /// The applied-state bar: a check seal, "Applied ✓" and the REAL recorded
-  /// status (the `action` value from the applications API — not invented copy).
-  /// Back navigation stays on the app bar; there is nothing left to decide.
+  /// The applied-state bar. GATED on the real recorded `action` from the
+  /// applications API ([JobDetail.alreadyApplied]), but the wire enum itself
+  /// never renders — the copy is the DS's warm Hinglish (L-2, low-literacy
+  /// audience). Back navigation stays on the app bar; nothing is left to
+  /// decide.
   Widget _appliedStatus(JobDetailState state) {
     return Container(
       width: double.infinity,
@@ -187,17 +189,10 @@ class _JobDetailViewState extends State<_JobDetailView> {
         children: <Widget>[
           const Icon(Icons.check_circle, color: AppColors.success, size: 26),
           const SizedBox(width: AppSpacing.s3),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text('Applied ✓',
-                  style: AppTypography.display(
-                      size: AppTypography.sizeBase, weight: FontWeight.w800)),
-              Text('Status: ${state.detail.applicationAction}',
-                  style: AppTypography.body(
-                      size: AppTypography.sizeSm,
-                      color: AppColors.textSecondary)),
-            ],
+          Expanded(
+            child: Text('Aapne apply kar diya ✓',
+                style: AppTypography.display(
+                    size: AppTypography.sizeBase, weight: FontWeight.w800)),
           ),
         ],
       ),

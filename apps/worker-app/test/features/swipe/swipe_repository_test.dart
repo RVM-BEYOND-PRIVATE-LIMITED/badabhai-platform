@@ -87,8 +87,9 @@ void main() {
   });
 
   test(
-      'WA-1: getFeed EXCLUDES already-decided jobs (applied AND skipped) so a '
-      're-swipe can never overwrite an applied row', () async {
+      'WA-1: getFeed excludes APPLIED jobs ONLY — a re-swipe can never '
+      'overwrite an applied row, while SKIPPED jobs re-serve (the ADR-0009 '
+      'mind-change path: skip → later apply)', () async {
     final SwipeRepositoryImpl repo = _repo(_feedClient(
       jobs: <Map<String, dynamic>>[
         _feedJob('applied-1'),
@@ -102,7 +103,11 @@ void main() {
     ));
 
     final result = await repo.getFeed();
-    expect(result.map((j) => j.jobId).toList(), <String>['fresh-1']);
+    // applied-1 gone (its row is destructible by a later skip); skipped-1
+    // STAYS (a skip→apply flip is a safe upgrade, and the deck is the only
+    // surface a worker can change their mind on).
+    expect(result.map((j) => j.jobId).toList(),
+        <String>['skipped-1', 'fresh-1']);
   });
 
   test('a worker with no decisions sees the whole feed', () async {

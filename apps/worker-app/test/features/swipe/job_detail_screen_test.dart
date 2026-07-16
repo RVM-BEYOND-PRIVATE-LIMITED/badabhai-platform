@@ -40,7 +40,7 @@ void main() {
   tearDown(() async => locator.reset());
 
   testWidgets(
-      'an ALREADY-APPLIED job shows "Applied ✓" + the real status and never '
+      'an ALREADY-APPLIED job shows the Hinglish applied status and never '
       'an apply action', (WidgetTester tester) async {
     await _pump(
       tester,
@@ -53,8 +53,10 @@ void main() {
       ),
     );
 
-    expect(find.text('Applied ✓'), findsOneWidget);
-    expect(find.text('Status: applied'), findsOneWidget);
+    // Gated on the real recorded action, rendered in the DS's warm Hinglish
+    // (L-2) — the raw wire enum never reaches the UI.
+    expect(find.text('Aapne apply kar diya ✓'), findsOneWidget);
+    expect(find.textContaining('Status:'), findsNothing);
     // Never an apply action for an applied job — no CTA, no button at all.
     expect(find.text('Apply karein'), findsNothing);
     expect(find.byType(BbButton), findsNothing);
@@ -68,6 +70,6 @@ void main() {
     );
 
     expect(find.text('Apply karein'), findsOneWidget);
-    expect(find.text('Applied ✓'), findsNothing);
+    expect(find.text('Aapne apply kar diya ✓'), findsNothing);
   });
 }

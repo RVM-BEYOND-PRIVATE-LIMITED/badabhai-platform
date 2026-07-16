@@ -208,18 +208,19 @@ class _ProfileTabView extends StatelessWidget {
   /// recomputed on read) with NO denominator on the wire — this card used to
   /// render `count * 100 %` (e.g. "800%") over a bar fed the raw count, plus a
   /// "photo → 100%" line no backend field backs. It now shows the honest count
-  /// ("N signals"); the moment the API ships `strength_max` the real N/max
-  /// meter + bar light up via [ProfileSummary.strengthMax] — nothing here
-  /// divides by a client-side magic number. ("Add X" hints need the missing
-  /// field LIST, which the summary response does not carry either.)
+  /// in DS voice ("N cheezein" — never dev vocabulary like "signals", L-2);
+  /// the moment the API ships `strength_max` the real N/max meter + bar light
+  /// up via [ProfileSummary.strengthMax] — nothing here divides by a
+  /// client-side magic number. ("Add X" hints need the missing field LIST,
+  /// which the summary response does not carry either.)
   Widget _strengthCard(ProfileSummary s) {
     final int n = s.strengthSignals;
     final int? max = s.strengthMax;
     final bool hasMax = max != null && max > 0;
-    final String meter = hasMax ? '$n/$max' : '$n signals';
+    final String meter = hasMax ? '$n/$max' : '$n cheezein';
     final String hint = n == 0
-        ? 'Abhi koi signal nahi — chat mein apne skills aur experience batayein.'
-        : 'Chat mein aur jankari denge to profile aur strong hogi.';
+        ? 'Abhi profile khaali hai — chat mein apne skills aur experience batayein.'
+        : 'Profile mein $n cheezein complete — chat mein aur jankari denge to aur strong hogi.';
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surfaceCard,

@@ -184,6 +184,54 @@ void main() {
     );
 
     blocTest<SwipeBloc, SwipeState>(
+      'H-1: SwipeJobApplied (detail-screen apply) prunes the job so the next '
+      'gesture cannot skip-overwrite the fresh applied row',
+      build: () {
+        when(() => repo.skipJob(any(), reason: any(named: 'reason')))
+            .thenAnswer((_) async {});
+        return SwipeBloc(repo);
+      },
+      seed: () => SwipeState(
+          status: SwipeStatus.ready,
+          queue: <FeedItem>[_item('j1'), _item('j2')]),
+      act: (SwipeBloc b) async {
+        // JobDetail applied j1 via its own cubit and popped 'applied'.
+        b.add(const SwipeJobApplied('j1'));
+        await Future<void>.delayed(Duration.zero);
+        // The worker's natural next gesture: a left swipe on the (new) head.
+        b.add(const SwipeSkipped());
+      },
+      verify: (SwipeBloc b) {
+        // j1 left the deck WITHOUT a decision call; the skip hit j2, never j1.
+        expect(b.state.queue.map((FeedItem j) => j.jobId).toList(), isEmpty);
+        verify(() => repo.skipJob('j2', reason: any(named: 'reason'))).called(1);
+        verifyNever(() => repo.skipJob('j1', reason: any(named: 'reason')));
+        // No nonce bump — the Feed toasts off the pop result, not this event.
+        expect(b.state.appliedNonce, 0);
+      },
+    );
+
+    blocTest<SwipeBloc, SwipeState>(
+      'SwipeJobApplied drains the last card to the empty state',
+      build: () => SwipeBloc(repo),
+      seed: () =>
+          SwipeState(status: SwipeStatus.ready, queue: <FeedItem>[_item('j1')]),
+      act: (SwipeBloc b) => b.add(const SwipeJobApplied('j1')),
+      expect: () => const <SwipeState>[
+        SwipeState(status: SwipeStatus.empty, queue: <FeedItem>[]),
+      ],
+    );
+
+    blocTest<SwipeBloc, SwipeState>(
+      'SwipeJobApplied for a job NOT in the deck is a no-op',
+      build: () => SwipeBloc(repo),
+      seed: () =>
+          SwipeState(status: SwipeStatus.ready, queue: <FeedItem>[_item('j1')]),
+      act: (SwipeBloc b) => b.add(const SwipeJobApplied('elsewhere')),
+      expect: () => const <SwipeState>[],
+    );
+
+    blocTest<SwipeBloc, SwipeState>(
       'skip advances to the next card',
       build: () {
         when(() => repo.skipJob(any(), reason: any(named: 'reason')))

@@ -129,12 +129,12 @@ class _ProfileView extends StatelessWidget {
         ? summary.tradeLabel!
         : 'Tayyar ho raha hai…';
     // WA-4: `strengthSignals` is the backend's integer signal count — shown as
-    // an honest count ("N/max" only once the API ships a real denominator),
-    // never a client-fabricated percent.
+    // an honest count in DS voice ("N cheezein complete"; "N/max" only once
+    // the API ships a real denominator), never a client-fabricated percent.
     final int? strengthMax = summary.strengthMax;
     final String strengthValue = (strengthMax != null && strengthMax > 0)
-        ? '${summary.strengthSignals}/$strengthMax signals'
-        : '${summary.strengthSignals} signals';
+        ? '${summary.strengthSignals}/$strengthMax cheezein complete'
+        : '${summary.strengthSignals} cheezein complete';
     final String? city =
         (summary.city?.isNotEmpty ?? false) ? summary.city : null;
 

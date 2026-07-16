@@ -319,10 +319,11 @@ class MockApiClient extends ApiClient {
     // Values MATCH the API's ApplicationAction enum ('applied'|'skipped').
     //
     // Job ids are DISJOINT from [_cannedFeed] on purpose (mock-job-01xx vs
-    // mock-job-000x): SwipeRepositoryImpl.getFeed excludes already-decided jobs
-    // from the deck (WA-1), so decisions that overlapped the canned feed would
-    // honestly (and confusingly) empty the mock deck. These rows model past
-    // decisions on jobs that are no longer open.
+    // mock-job-000x): SwipeRepositoryImpl.getFeed excludes already-APPLIED jobs
+    // from the deck (WA-1; skips re-serve — the mind-change path), so applied
+    // rows that overlapped the canned feed would honestly (and confusingly)
+    // shrink the mock deck. These rows model past decisions on jobs that are
+    // no longer open.
     final DateTime now = DateTime.now();
     return <AppliedJob>[
       AppliedJob(

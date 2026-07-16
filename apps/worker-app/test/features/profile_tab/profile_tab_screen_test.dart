@@ -43,16 +43,16 @@ void main() {
   tearDown(() async => locator.reset());
 
   testWidgets(
-      '0-state is actionable, not broken-looking: "0 signals" + a concrete '
+      '0-state is actionable, not broken-looking: "0 cheezein" + a concrete '
       'next step, no bar, no percent', (WidgetTester tester) async {
     await _pump(
         tester, const ProfileSummary(tradeLabel: 'Fitter', strengthSignals: 0));
 
     expect(find.text('Profile strength'), findsOneWidget);
-    expect(find.text('0 signals'), findsOneWidget);
+    expect(find.text('0 cheezein'), findsOneWidget);
     expect(
       find.text(
-          'Abhi koi signal nahi — chat mein apne skills aur experience batayein.'),
+          'Abhi profile khaali hai — chat mein apne skills aur experience batayein.'),
       findsOneWidget,
     );
     // No denominator on the wire → no bar and no fabricated percent.
@@ -61,17 +61,24 @@ void main() {
   });
 
   testWidgets(
-      'N-state renders the honest COUNT (a 7-signal profile is "7 signals", '
-      'never "700%")', (WidgetTester tester) async {
+      'N-state renders the honest COUNT in DS voice (a 7-signal profile is '
+      '"7 cheezein", never "700%" and never dev vocabulary)', (
+    WidgetTester tester,
+  ) async {
     await _pump(tester,
         const ProfileSummary(tradeLabel: 'CNC Operator', strengthSignals: 7));
 
-    expect(find.text('7 signals'), findsOneWidget);
-    // The pre-fix rendering (count * 100 %) must never come back.
+    expect(find.text('7 cheezein'), findsOneWidget);
+    expect(
+      find.text(
+          'Profile mein 7 cheezein complete — chat mein aur jankari denge to aur strong hogi.'),
+      findsOneWidget,
+    );
+    // The pre-fix rendering (count * 100 %) must never come back, and "signals"
+    // is dev vocabulary — it stays out of the UI (L-2).
     expect(find.textContaining('%'), findsNothing);
+    expect(find.textContaining('signals'), findsNothing);
     expect(find.byType(BbProgressBar), findsNothing);
-    // The old fabricated photo/100% promise is gone with it.
-    expect(find.textContaining('100%'), findsNothing);
   });
 
   testWidgets(
