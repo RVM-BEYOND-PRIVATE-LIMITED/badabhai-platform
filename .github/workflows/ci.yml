@@ -33,6 +33,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # CI-5b: persist turbo's local task cache across runs. turbo@^2.3.3 (v2,
+      # resolves 2.9.x) writes its cache to `.turbo/cache` under the repo root —
+      # turbo.json sets no `cacheDir` override — so caching `.turbo` captures it.
+      # The sha key saves a fresh entry per run; `restore-keys` gives every run the
+      # most recent prior cache. This accelerates the turbo-run tasks below
+      # (typecheck / test / build — `pnpm lint` is plain eslint, not turbo). No CI
+      # invocation passes `--force` or sets TURBO_FORCE, so restored entries are
+      # actually consumed. Nothing secret-bearing is cached: `.turbo` holds task
+      # outputs (dist/, .next/) and task logs only.
+      - name: Cache turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-turbo-
+
       - name: Lint
         run: pnpm lint
 
@@ -73,6 +89,13 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+          # CI-5a: cache pip's package cache, keyed on the ONE requirements file
+          # this job installs (`pip install -r requirements-dev.txt`, resolved
+          # under the job-level working-directory apps/ai-service). NOTE:
+          # `cache-dependency-path` is ALWAYS repo-root-relative — the job's
+          # `working-directory` default does not apply to it — hence the full path.
+          cache: "pip"
+          cache-dependency-path: apps/ai-service/requirements-dev.txt
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
