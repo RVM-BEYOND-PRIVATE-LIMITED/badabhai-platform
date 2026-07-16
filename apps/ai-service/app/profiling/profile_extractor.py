@@ -11,6 +11,7 @@ the contract returned here is stable so the backend/Flutter need not change.
 from __future__ import annotations
 
 import json
+import re
 
 from ..ai.canonicalize import SkillCanonicalStore, canonicalize_labels
 from ..config import Settings
@@ -221,6 +222,36 @@ def merge_model_draft(base: WorkerProfileDraft, content: str) -> WorkerProfileDr
     return out
 
 
+# Q14 hygiene clamp for worker-confirmed raw skill labels (defense in depth — the
+# HARD gate is pseudonymize() at the résumé boundary in main.py). Escaped classes
+# only: control chars are matched via \x escapes, never raw bytes.
+_LABEL_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+_LABEL_MAX_CHARS = 80
+_LABEL_MAX_COUNT = 20
+
+
+def clamp_skill_labels(labels: list[str]) -> list[str]:
+    """Hygiene-clamp raw skill labels for ``DraftProfile.skill_labels`` (Q14):
+    strip control chars, trim, drop empties, drop over-length (> 80 chars),
+    case-insensitive dedupe (first casing wins), cap at 20 labels."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in labels:
+        if not isinstance(raw, str):
+            continue
+        label = _LABEL_CONTROL_CHARS_RE.sub("", raw).strip()
+        if not label or len(label) > _LABEL_MAX_CHARS:
+            continue
+        key = label.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(label)
+        if len(out) >= _LABEL_MAX_COUNT:
+            break
+    return out
+
+
 def map_rich_to_legacy(
     rich: WorkerProfileDraft,
     base: DraftProfile | None = None,
@@ -242,6 +273,8 @@ def map_rich_to_legacy(
       role yet AND the rich ``primary_role`` maps to an in-scope role.
     - ``machines``/``skills``: UNION of the ids already on ``base`` and the ids mapped
       from the rich labels (order-preserving, de-duplicated).
+    - ``skill_labels`` (Q14): the rich ``skills`` LABELS, hygiene-clamped via
+      ``clamp_skill_labels`` — raw display text for the résumé only, never matchable.
 
     TAX-4 (ADR-0030): when ``skill_store`` + ``settings`` are supplied AND
     ``settings.skill_canonicalize_enabled`` is on, the model-emitted skill LABELS are
@@ -272,6 +305,13 @@ def map_rich_to_legacy(
     for sid in signals.skill_ids_for_labels(rich.skills + rich.controllers):
         if sid not in legacy.skills:
             legacy.skills.append(sid)
+
+    # Q14 (ADR-0030 OQ#3): carry the worker's RAW skill labels onto the persisted
+    # DraftProfile so the résumé can render them (labels-only field — the matchable
+    # ``skills`` ids above are untouched; never rank/match on labels). The labels
+    # derive from LLM output over PSEUDONYMIZED transcripts, and every label is
+    # re-certified by pseudonymize() at the résumé boundary before rendering (SG-2).
+    legacy.skill_labels = clamp_skill_labels(legacy.skill_labels + rich.skills)
 
     # TAX-4: flagged vector canonicalization over the DB seam (default off → no-op).
     if skill_store is not None and settings is not None and settings.skill_canonicalize_enabled:

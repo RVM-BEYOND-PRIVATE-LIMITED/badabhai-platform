@@ -160,6 +160,13 @@ export const DraftProfileSchema = z.object({
   canonical_trade_id: z.string().nullable().default(null),
   canonical_role_id: z.string().nullable().default(null),
   skills: z.array(z.string()).default([]),
+  // Q14 (ADR-0030 OQ#3, decided 2026-07-16): worker-confirmed RAW skill labels
+  // (e.g. "MIG welding"), rendered on the résumé alongside the canonical ids.
+  // Populated from WorkerProfileDraft.skills at extraction; NEVER canonical ids,
+  // NEVER used for matching/ranking. Additive (default [] → old rows unchanged).
+  // Mirrors DraftProfile.skill_labels in apps/ai-service/app/contracts.py; the
+  // AI service pseudonymize-gates every label at the résumé boundary (SG-2).
+  skill_labels: z.array(z.string()).default([]),
   machines: z.array(z.string()).default([]),
   experience: ExperienceSchema.default({}),
   salary_expectation: SalaryExpectationSchema.default({}),

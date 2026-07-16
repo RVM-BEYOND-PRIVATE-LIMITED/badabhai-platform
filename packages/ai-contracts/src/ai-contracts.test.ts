@@ -11,6 +11,7 @@ import {
   GrowthClusterOutputSchema,
   GrowthPhraseSchema,
   GrowthProposalSchema,
+  ResumeGenerationInputSchema,
   RetagPlanInputSchema,
   RetagPlanOutputSchema,
   RetagResolvedEntrySchema,
@@ -31,6 +32,35 @@ describe("DraftProfileSchema", () => {
     expect(profile.salary_expectation.currency).toBe("INR");
     expect(profile.availability.status).toBe("unknown");
     expect(profile.canonical_role_id).toBeNull();
+  });
+  it("skill_labels defaults to [] (Q14 — contracts.py parity; old rows unchanged)", () => {
+    expect(DraftProfileSchema.parse({}).skill_labels).toEqual([]);
+  });
+  it("round-trips worker-confirmed raw labels without touching the canonical ids", () => {
+    const profile = DraftProfileSchema.parse({
+      skills: ["skill_milling"],
+      skill_labels: ["MIG welding", "TIG welding"],
+    });
+    expect(profile.skill_labels).toEqual(["MIG welding", "TIG welding"]);
+    expect(profile.skills).toEqual(["skill_milling"]);
+  });
+});
+
+describe("ResumeGenerationInputSchema (contracts.py parity — Q14/ADR-0030 OQ#3)", () => {
+  it("an OLD payload without skill_labels still parses (additive contract change)", () => {
+    const inp = ResumeGenerationInputSchema.parse({
+      profile: { canonical_role_id: "role_vmc_operator", skills: ["skill_milling"] },
+    });
+    expect(inp.profile.skill_labels).toEqual([]);
+    expect(inp.profile.skills).toEqual(["skill_milling"]);
+  });
+  it("the new skill_labels field is reachable through profile (the contract change)", () => {
+    const inp = ResumeGenerationInputSchema.parse({
+      profile: { skill_labels: ["MIG welding"] },
+      worker_ref: "w-ref-1",
+    });
+    expect(inp.profile.skill_labels).toEqual(["MIG welding"]);
+    expect(inp.worker_ref).toBe("w-ref-1");
   });
 });
 

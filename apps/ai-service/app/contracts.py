@@ -138,6 +138,14 @@ class DraftProfile(BaseModel):
     canonical_trade_id: str | None = None
     canonical_role_id: str | None = None
     skills: list[str] = Field(default_factory=list)
+    # Q14 (ADR-0030 OQ#3, decided 2026-07-16): worker-confirmed RAW skill labels
+    # (e.g. "MIG welding"), rendered on the résumé alongside the canonical ids.
+    # Populated from WorkerProfileDraft.skills at extraction (map_rich_to_legacy);
+    # NEVER canonical ids, NEVER used for matching/ranking. Additive: old persisted
+    # rows lack the field → default [] → prior behavior unchanged. Every label is
+    # re-certified by pseudonymize() at the résumé boundary before it can reach
+    # the artifact or the LLM payload (SG-2, fail-closed → dropped).
+    skill_labels: list[str] = Field(default_factory=list)
     machines: list[str] = Field(default_factory=list)
     experience: Experience = Field(default_factory=Experience)
     salary_expectation: SalaryExpectation = Field(default_factory=SalaryExpectation)
