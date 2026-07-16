@@ -83,7 +83,9 @@ services:
       # (the Dockerfile sets production). DEV-ONLY container — NOT production-safe
       # (dev secrets); a staging image must supply real PII/JWT/admin secrets.
       NODE_ENV: development
-      DATABASE_URL: postgresql://badabhai:badabhai@postgres:5432/badabhai
+      # Overridable so the API container can target the real (Supabase) DB; defaults
+      # to the compose-internal postgres. `:-` not `:?` — see the SUPABASE_URL note.
+      DATABASE_URL: ${DATABASE_URL:-postgresql://badabhai:badabhai@postgres:5432/badabhai}
       REDIS_URL: redis://redis:6379
       # Boot guards require these present, but the render path never sends SMS/email —
       # dummy values satisfy the guards. `PAYER_LOGIN_METHOD=whatsapp` avoids needing
