@@ -598,20 +598,54 @@ class ResumeFieldsDto extends Equatable {
     required this.fullName,
     required this.showPhoto,
     required this.nightShiftReady,
+    this.hasPhoto = false,
   });
 
   final String? fullName;
   final bool showPhoto;
   final bool nightShiftReady;
 
+  /// ADR-0032 — whether a profile photo exists server-side. Defaults FALSE when
+  /// absent (the OPPOSITE of show_photo's default: a true here would make the
+  /// UI try to render a nonexistent photo).
+  final bool hasPhoto;
+
   factory ResumeFieldsDto.fromJson(Map<String, dynamic> json) => ResumeFieldsDto(
         fullName: json['full_name'] as String?,
         showPhoto: json['show_photo'] as bool? ?? true,
         nightShiftReady: json['night_shift_ready'] as bool? ?? false,
+        hasPhoto: json['has_photo'] as bool? ?? false,
       );
 
   @override
-  List<Object?> get props => <Object?>[fullName, showPhoto, nightShiftReady];
+  List<Object?> get props => <Object?>[fullName, showPhoto, nightShiftReady, hasPhoto];
+}
+
+/// Result of POST /workers/me/photo/upload-url (ADR-0032) — a signed slot for the
+/// profile-photo bytes. Mirrors [VoiceUploadTicket].
+///
+/// PRIVACY: [uploadUrl] embeds a signing token — never log or persist it; use it
+/// immediately and re-mint on expiry. [storagePath] is PII-free (opaque ids).
+class PhotoUploadTicket extends Equatable {
+  const PhotoUploadTicket({
+    required this.storagePath,
+    required this.uploadUrl,
+    required this.expiresInSeconds,
+  });
+
+  final String storagePath;
+  final String uploadUrl;
+  final int expiresInSeconds;
+
+  factory PhotoUploadTicket.fromJson(Map<String, dynamic> json) =>
+      PhotoUploadTicket(
+        storagePath: json['storage_path'] as String? ?? '',
+        uploadUrl: json['upload_url'] as String? ?? '',
+        expiresInSeconds: (json['expires_in'] as num?)?.toInt() ?? 0,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[storagePath, uploadUrl, expiresInSeconds];
 }
 
 /// Worker's current profile + latest resume (GET /workers/:id/profile). Used to

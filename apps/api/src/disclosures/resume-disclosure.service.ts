@@ -190,7 +190,15 @@ export class ResumeDisclosureService {
       }
     }
 
-    const renderInput = buildResumeRenderInput(source.sourceProfileSnapshot, maskedName, source.templateId);
+    // ADR-0032: photoDataUri is STRUCTURALLY null here — the worker's photo is for
+    // their OWN resume only and must NEVER appear on the payer-facing disclosure
+    // (the faceless invariant). Changing this null is a §2/product-level decision.
+    const renderInput = buildResumeRenderInput(
+      source.sourceProfileSnapshot,
+      maskedName,
+      source.templateId,
+      null,
+    );
 
     let pdf: Buffer | null;
     try {

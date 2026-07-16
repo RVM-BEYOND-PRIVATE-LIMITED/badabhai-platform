@@ -185,6 +185,10 @@ void main() {
     // Straight into the shell (Resume tab). The onboarding never re-ran.
     expect(find.text('Your resume'), findsOneWidget);
     expect(find.text('Your privacy'), findsNothing); // consent never shown
+
+    // Settle the ResumePhotoHeader's best-effort resume-fields fetch (ADR-0032,
+    // mounts with the resume card; mock latency 300ms) so no timer outlives the test.
+    await tester.pump(const Duration(milliseconds: 700));
   });
 
   testWidgets(
@@ -228,6 +232,10 @@ void main() {
     // Null = unknown → no consent bounce; the proven unlock→shell flow holds.
     expect(find.text('Your resume'), findsOneWidget);
     expect(find.text('Your privacy'), findsNothing);
+
+    // Settle the ResumePhotoHeader's best-effort resume-fields fetch (ADR-0032,
+    // mounts with the resume card; mock latency 300ms) so no timer outlives the test.
+    await tester.pump(const Duration(milliseconds: 700));
   });
 
   testWidgets(

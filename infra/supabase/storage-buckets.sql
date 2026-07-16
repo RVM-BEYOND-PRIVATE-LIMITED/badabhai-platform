@@ -43,6 +43,18 @@ on conflict (id) do update
 -- clients ONLY short-TTL signed URLs (RESUME_SIGNED_URL_TTL_SECONDS).
 -- DO NOT add an anon/authenticated SELECT policy on storage.objects for this bucket.
 
+-- worker-profile-photos — worker profile photos (ADR-0032). A face photo is a
+-- HIGH-SENSITIVITY PII class: the bucket MUST be PRIVATE — the only write path is a
+-- short-TTL signed UPLOAD url minted by the backend (server-chosen opaque key
+-- `photos/{workerId}/{uuid}.jpg`), and the only read path is a short-TTL signed URL
+-- for the worker's OWN photo. NEVER payer-readable (the faceless invariant).
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('worker-profile-photos', 'worker-profile-photos', false, 2097152, array['image/jpeg', 'image/png'])
+on conflict (id) do update
+  set public             = false,                       -- enforce PRIVATE even if it drifted
+      file_size_limit    = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
 -- NOTE: `worker-conversations` (ADR-0003, risk R10) needs the same private treatment,
 -- but it is a separate feature's launch gate — provision it the same way when closing
 -- R10, e.g.:

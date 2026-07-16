@@ -15,17 +15,25 @@ import { resolveTradeContent, type TradeContent } from "./trade-content";
  * The snapshot is the stored, NAME-FREE `sourceProfileSnapshot` (a DraftProfile).
  * `displayName` is the ONLY identifying field and is supplied by the caller — it is
  * never derived from the snapshot, and this function never logs/throws on it.
+ *
+ * ADR-0032: `photoDataUri` follows the exact same caller-supplied contract — and it
+ * is a REQUIRED parameter (no default) so both call-sites are explicit: the worker's
+ * own render passes the fetched photo; the masked disclosure passes null. Deriving
+ * the photo INSIDE this function is the one shape that would leak it into the
+ * disclosure automatically (shared mapper, shared templates) — never do that.
  */
 export function buildResumeRenderInput(
   snapshot: unknown,
   displayName: string | null,
   templateId: string | null,
+  photoDataUri: string | null,
 ): ResumeRenderInput {
   const draft = DraftProfileSchema.parse(snapshot ?? {});
   const trade = resolveTradeContent(draft.canonical_role_id, draft.canonical_trade_id);
   return {
     templateId,
     displayName,
+    photoDataUri,
     // Prefer the recruiter-readable trade title over a raw taxonomy id.
     canonicalRole: trade?.display_name ?? draft.canonical_role_id,
     location: draft.location_preference.preferred_cities[0] ?? null,

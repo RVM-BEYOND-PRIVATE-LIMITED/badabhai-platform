@@ -42,6 +42,7 @@ class ResumeEditRepositoryImpl implements ResumeEditRepository {
         displayName: name,
         showPhoto: f.showPhoto,
         nightShiftReady: f.nightShiftReady,
+        hasPhoto: f.hasPhoto,
       );
     } catch (error) {
       throw mapError(error);

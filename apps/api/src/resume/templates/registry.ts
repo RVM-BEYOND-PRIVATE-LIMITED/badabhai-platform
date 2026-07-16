@@ -23,14 +23,18 @@ export interface ResumeTemplate {
 }
 
 export const RESUME_TEMPLATES: readonly ResumeTemplate[] = [
-  { id: "classic", version: 1, label: "Classic (single column)", file: "classic.v1.html" },
-  { id: "modern", version: 1, label: "Modern (two column)", file: "modern.v1.html" },
-  { id: "minimal", version: 1, label: "Minimal (compact)", file: "minimal.v1.html" },
+  // v2 (ADR-0032): adds the {{#photo}} region — the worker's OWN photo, 0-or-1
+  // items, collapses when absent (masked disclosures always pass no photo). The
+  // v1 files stay on disk untouched (shipped versions are immutable); already-
+  // rendered PDFs are never re-rendered (renderStatus idempotency).
+  { id: "classic", version: 2, label: "Classic (single column)", file: "classic.v2.html" },
+  { id: "modern", version: 2, label: "Modern (two column)", file: "modern.v2.html" },
+  { id: "minimal", version: 2, label: "Minimal (compact)", file: "minimal.v2.html" },
   {
     id: "fallback",
-    version: 1,
+    version: 2,
     label: "Generic fallback",
-    file: "fallback.v1.html",
+    file: "fallback.v2.html",
     fallback: true,
   },
 ];

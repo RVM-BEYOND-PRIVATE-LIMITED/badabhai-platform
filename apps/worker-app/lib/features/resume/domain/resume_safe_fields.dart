@@ -8,6 +8,7 @@ class ResumeSafeFields extends Equatable {
     required this.displayName,
     required this.showPhoto,
     required this.nightShiftReady,
+    this.hasPhoto = false,
   });
 
   /// The name spelling shown on the resume (worker-correctable typos only).
@@ -15,19 +16,25 @@ class ResumeSafeFields extends Equatable {
   final bool showPhoto;
   final bool nightShiftReady;
 
+  /// ADR-0032 — whether a profile photo exists server-side (a boolean
+  /// projection; the app never sees the storage key). Defaults FALSE.
+  final bool hasPhoto;
+
   ResumeSafeFields copyWith({
     String? displayName,
     bool? showPhoto,
     bool? nightShiftReady,
+    bool? hasPhoto,
   }) {
     return ResumeSafeFields(
       displayName: displayName ?? this.displayName,
       showPhoto: showPhoto ?? this.showPhoto,
       nightShiftReady: nightShiftReady ?? this.nightShiftReady,
+      hasPhoto: hasPhoto ?? this.hasPhoto,
     );
   }
 
   @override
   List<Object?> get props =>
-      <Object?>[displayName, showPhoto, nightShiftReady];
+      <Object?>[displayName, showPhoto, nightShiftReady, hasPhoto];
 }

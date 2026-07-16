@@ -1736,6 +1736,30 @@ describe("worker refresh/session auth events (ADR-0026 Phase 1 — PII-free, ids
     expect(bad.success).toBe(false);
   });
 
+  it("validates worker.photo_uploaded / worker.photo_removed with worker_id ONLY (ADR-0032)", () => {
+    for (const name of ["worker.photo_uploaded", "worker.photo_removed"] as const) {
+      const ok = validateEvent(workerAuthEvent(name, { worker_id: UUID_B }));
+      expect(ok.success, `${name} must accept worker_id-only`).toBe(true);
+      if (ok.success) {
+        expect(Object.keys(ok.event.payload)).toEqual(["worker_id"]);
+      }
+    }
+  });
+
+  it("rejects worker.photo_* smuggling the object key / a URL / any extra field (strict, §2)", () => {
+    for (const name of ["worker.photo_uploaded", "worker.photo_removed"] as const) {
+      for (const smuggle of [
+        { storage_path: "photos/w-1/x.jpg" },
+        { url: "https://storage.example/signed?token=abc" },
+        { full_name: "Ramesh Kumar" },
+      ]) {
+        const bad = validateEvent(workerAuthEvent(name, { worker_id: UUID_B, ...smuggle }));
+        expect(bad.success, `${name} must reject ${JSON.stringify(smuggle)}`).toBe(false);
+        if (!bad.success) expect(bad.error.stage).toBe("payload");
+      }
+    }
+  });
+
   it("rejects worker.resume_prefs_updated carrying a smuggled PII field (strict payload)", () => {
     for (const smuggle of [{ full_name: "Ramesh Kumar" }, { phone: "+919876512345" }]) {
       const bad = validateEvent(
@@ -1900,11 +1924,13 @@ describe("worker PIN events (ADR-0026 Phase 3 — device-bound PIN, PII-free, id
 });
 
 describe("registry", () => {
-  it("exposes all 102 event names (101 prior + worker.otp_send_failed [F4 #168])", () => {
-    expect(EVENT_NAMES).toHaveLength(102);
+  it("exposes all 104 event names (102 prior + worker.photo_uploaded/photo_removed [ADR-0032])", () => {
+    expect(EVENT_NAMES).toHaveLength(104);
     expect(isEventName("skill.phrase_unresolved")).toBe(true);
     expect(isEventName("worker.otp_send_failed")).toBe(true);
     expect(isEventName("worker.resume_prefs_updated")).toBe(true);
+    expect(isEventName("worker.photo_uploaded")).toBe(true);
+    expect(isEventName("worker.photo_removed")).toBe(true);
     expect(isEventName("job_posting.paused")).toBe(true);
     expect(isEventName("job_posting.resumed")).toBe(true);
     expect(isEventName("posting_plan.quota_topped")).toBe(true);

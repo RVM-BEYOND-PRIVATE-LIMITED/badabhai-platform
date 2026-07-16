@@ -72,6 +72,16 @@ export const serverEnvSchema = z.object({
   // AccountDeletionService erases the audio blobs that hold raw PII (the transcript lives on
   // the row, erased by the cascade; the blob at storage_path must be erased here). Unset → skip.
   VOICE_NOTES_BUCKET: z.string().default(""),
+  // ADR-0032 — private Storage bucket for worker profile PHOTOS (a face photo is a
+  // high-sensitivity PII class). Same Storage Mode A (service-role, backend-only);
+  // object keys are opaque `photos/{workerId}/{uuid}.jpg` (server-chosen, never
+  // client-supplied). EMPTY DEFAULT is deliberate (voice pattern): while unset the
+  // photo endpoints 503 fail-closed and the feature is inert. Setting it (the bucket
+  // `worker-profile-photos` exists PRIVATE, provisioned out-of-band) simultaneously
+  // arms the account-deletion erase leg — no gap where photos exist but erasure is
+  // dormant. The photo is for the worker's OWN app + OWN resume PDF only — it must
+  // NEVER reach the payer surface, the disclosure PDF, events, ai_jobs, or logs.
+  WORKER_PHOTOS_BUCKET: z.string().default(""),
   // Private Storage bucket holding rendered per-trade interview-kit PDFs (TD24, Task 4).
   // Same Storage Mode A (service-role, backend-only). Object keys are
   // `interview-kits/{tradeKey}/{contentVersion}/interview-kit.pdf` — fully deterministic,
@@ -98,6 +108,10 @@ export const serverEnvSchema = z.object({
   // Fail-closed: a Redis outage rejects (429) rather than uncapping.
   RESUME_RATE_LIMIT_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
   INTERVIEW_KIT_RATE_LIMIT_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // ADR-0032 photo upload-url mint cap (bb-security-review M-1): an unthrottled mint
+  // would let a hostile worker fabricate unlimited ≤2MiB orphan objects (upload-but-
+  // never-confirm) — a storage-cost + erasure-surface abuse. Same fail-closed idiom.
+  PHOTO_RATE_LIMIT_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
   // Interview-kit content version. Part of the render-once identity (tradeKey +
   // contentVersion). BUMP this whenever any kit copy changes so a fresh PDF is
   // rendered instead of serving the stale cached file. Never reuse an old value.

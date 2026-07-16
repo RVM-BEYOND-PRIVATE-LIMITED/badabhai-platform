@@ -44,6 +44,7 @@ function make(
     resumeKeys?: string[];
     voiceKeys?: string[];
     voiceBucket?: string;
+    photoBucket?: string;
     hadPin?: boolean;
     devices?: number;
     sessions?: number;
@@ -76,6 +77,8 @@ function make(
     // Default "" mirrors the real default: voice upload is a Phase-1 placeholder with no
     // backend audio bucket, so audio erasure is DORMANT until VOICE_NOTES_BUCKET is set.
     VOICE_NOTES_BUCKET: opts.voiceBucket ?? "",
+    // ADR-0032: same dormant default; setting it arms the photo prefix-sweep leg.
+    WORKER_PHOTOS_BUCKET: opts.photoBucket ?? "",
     ACCOUNT_DELETION_COOLDOWN_SECONDS: opts.cooldown ?? 604800,
   } as ServerConfig;
 
@@ -285,6 +288,64 @@ describe("AccountDeletionService", () => {
 
     const emitted = h.events.emit.mock.calls[0]![0];
     expect(emitted.payload.storage_objects_deleted).toBe(1); // resume only
+  });
+
+  it("PHOTO BUCKET SET (ADR-0032): the worker's photo prefix is swept BEFORE hardDelete and counted", async () => {
+    const h = make({
+      resumeKeys: ["r1.pdf"],
+      photoBucket: "worker-profile-photos",
+      sessions: 1,
+    });
+    // conversations sweep finds nothing; the photo sweep finds the live photo + one orphan.
+    h.storage.deleteByPrefix.mockImplementation(async (prefix: string) =>
+      prefix.startsWith("photos/") ? 2 : 0,
+    );
+
+    await h.svc.execute(WORKER_ID);
+
+    // PREFIX sweep (catches orphans + superseded objects), in the photos bucket,
+    // scoped to exactly this worker's own prefix.
+    expect(h.storage.deleteByPrefix).toHaveBeenCalledWith(
+      `photos/${WORKER_ID}/`,
+      "worker-profile-photos",
+    );
+    // Erase-before-delete ordering holds for the photo leg too.
+    const photoCall = h.storage.deleteByPrefix.mock.calls.findIndex((c) =>
+      String(c[0]).startsWith("photos/"),
+    );
+    const photoOrder = h.storage.deleteByPrefix.mock.invocationCallOrder[photoCall]!;
+    expect(photoOrder).toBeLessThan(h.workers.hardDelete.mock.invocationCallOrder[0]!);
+
+    // 1 resume + 2 photo objects, folded into the EXISTING counters (payload unchanged, v1 strict).
+    const emitted = h.events.emit.mock.calls[0]![0];
+    expect(emitted.payload.storage_objects_deleted).toBe(3);
+    expect(emitted.payload.storage_objects_failed).toBe(0);
+  });
+
+  it("PHOTO BUCKET UNSET (default ''): the photo sweep is DORMANT — no photos/ prefix delete", async () => {
+    const h = make({ resumeKeys: ["r1.pdf"], sessions: 1 });
+    h.storage.deleteByPrefix.mockResolvedValue(0);
+
+    await h.svc.execute(WORKER_ID);
+
+    const photoCalls = h.storage.deleteByPrefix.mock.calls.filter((c) =>
+      String(c[0]).startsWith("photos/"),
+    );
+    expect(photoCalls).toHaveLength(0); // only the conversations prefix ran
+  });
+
+  it("PHOTO sweep failure increments storage_objects_failed and STILL completes the erasure", async () => {
+    const h = make({ photoBucket: "worker-profile-photos", sessions: 1 });
+    h.storage.deleteByPrefix.mockImplementation(async (prefix: string) => {
+      if (prefix.startsWith("photos/")) throw new Error("storage list failed with status 500");
+      return 0;
+    });
+
+    await h.svc.execute(WORKER_ID);
+
+    expect(h.workers.hardDelete).toHaveBeenCalled(); // erasure never aborted
+    const emitted = h.events.emit.mock.calls[0]![0];
+    expect(emitted.payload.storage_objects_failed).toBe(1);
   });
 
   it("CRITICAL no-PII: NO raw phone / name / OTP / resume key in the event OR any logger call", async () => {

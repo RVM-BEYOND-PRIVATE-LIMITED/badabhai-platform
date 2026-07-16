@@ -246,6 +246,11 @@ class _ProfileTabView extends StatelessWidget {
             BbProgressBar(value: n / max),
           ],
           const SizedBox(height: AppSpacing.s3),
+          // ADR-0032 nudge route-through intentionally NOT taken here: #340 was cut
+          // before #326, and its copy hardcoded "…aur 100% tak pahunchein" — the
+          // fabricated percent WA-4 removed (no backend field backs it). This hint
+          // also points to CHAT, so a tap to resumeEdit would contradict its text.
+          // The photo flow stays reachable via the edit screen's "Aapki photo" row.
           Text(hint, style: AppTypography.body(color: AppColors.textMuted)),
         ],
       ),

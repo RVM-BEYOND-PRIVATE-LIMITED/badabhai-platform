@@ -82,6 +82,12 @@ export const workers = pgTable(
     // `night_shift_ready` is the worker-asserted availability flag.
     resumeShowPhoto: boolean("resume_show_photo").notNull().default(true),
     resumeNightShiftReady: boolean("resume_night_shift_ready").notNull().default(false),
+    // ADR-0032 — opaque Storage object key of the worker's profile photo in the
+    // private WORKER_PHOTOS_BUCKET (`photos/{workerId}/{uuid}.jpg`, server-chosen).
+    // A POINTER only: never a URL, never photo bytes; the photo itself is PII at
+    // rest in Storage. NULL until the worker uploads one. Erased (column + object)
+    // on photo delete and on account deletion (prefix sweep).
+    photoStorageKey: text("photo_storage_key"),
     status: text("status").$type<WorkerStatus>().notNull().default("pending"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
