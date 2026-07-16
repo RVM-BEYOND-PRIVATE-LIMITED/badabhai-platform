@@ -1,0 +1,45 @@
+name: Deploy to Lightsail
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-lightsail
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to AWS Lightsail
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.LIGHTSAIL_HOST }}
+          username: ${{ secrets.LIGHTSAIL_USER }}
+          key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+          # Increase timeout in case the build takes a few minutes
+          timeout: 10m
+          # Commands to run on the Lightsail server
+          script: |
+            echo "Starting deployment..."
+            
+            # Navigate to the deployment folder
+            cd ~/deployments/badabhai-platform
+            
+            # Fetch and apply the latest changes
+            echo "Pulling latest code from main..."
+            git pull origin main
+            
+            # Rebuild and restart the Docker containers in the background
+            echo "Building and starting Docker containers..."
+            docker compose --profile api up -d --build
+            
+            # Print the status of the containers
+            docker compose --profile api ps
+            
+            echo "Deployment finished successfully!"
