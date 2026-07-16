@@ -132,6 +132,29 @@ export class AccountDeletionService {
       }
     }
 
+    // 2d. Erase the profile PHOTO objects (ADR-0032 — a face photo is a high-sensitivity PII
+    // class). PREFIX sweep rather than the single stored key: it also catches orphans
+    // (uploaded-but-never-confirmed) and superseded objects whose best-effort replace-delete
+    // failed. Gated on the bucket exactly like the voice leg (WIRED-BUT-DORMANT while unset —
+    // and while unset no photo can have been uploaded, so there is nothing to orphan). The
+    // worker row was captured at step 0, so this needs no extra pre-delete read.
+    if (this.config.WORKER_PHOTOS_BUCKET) {
+      try {
+        const photosDeleted = await this.storage.deleteByPrefix(
+          `photos/${workerId}/`,
+          this.config.WORKER_PHOTOS_BUCKET,
+        );
+        storageDeleted += photosDeleted;
+      } catch (err) {
+        storageFailed += 1;
+        this.logger.warn(
+          `account deletion photo-prefix delete failed worker=${idPrefix} (reason: ${
+            err instanceof Error ? err.message : String(err)
+          })`,
+        );
+      }
+    }
+
     try {
       const conversationsDeleted = await this.storage.deleteByPrefix(
         conversationWorkerPrefix(workerId),

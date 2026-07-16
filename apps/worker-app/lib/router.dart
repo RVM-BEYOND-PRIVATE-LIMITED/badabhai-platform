@@ -77,14 +77,14 @@ class Routes {
   // --- Shell sub-routes (append the id where noted) ---
   static const String jobDetail = '/jobs/detail'; // + '/<jobId>'  (no bar)
   static const String resumeEdit = '/resume/edit'; // (no bar)
-  // The kit hangs off PROFILE, not Resume: the Interview-kit shortcut on the
-  // Profile tab is its only entry point. While it lived at '/resume/kit' the
-  // shortcut had to cross shell branches, which made StatefulShellRoute activate
-  // the Resume branch — the bottom bar jumped to Resume while the worker was
-  // still reading Profile content.
+
+  /// Interview kit. Lives under the PROFILE branch (WA-3): the kit is entered
+  /// from the Profile tab, so popping out of it must land back on Profile. It
+  /// previously sat under /resume — entering from Profile silently switched the
+  /// shell to the Resume branch, and backing out of the kit detail stranded the
+  /// worker on the Resume tab.
   static const String kit = '/profile/kit'; // (keeps bar)
-  static const String kitDetail =
-      '/profile/kit/detail'; // + '/<tradeKey>' (no bar)
+  static const String kitDetail = '/profile/kit/detail'; // + '/<tradeKey>' (no bar)
   static const String settings = '/profile/settings'; // (no bar)
   static const String appliedJobs =
       '/profile/applied'; // (no bar) — pushed from Profile, back → Profile
@@ -335,11 +335,12 @@ GoRouter _buildRouter() {
                     parentNavigatorKey: _rootNavKey, // no bar
                     builder: (_, __) => const AppliedJobsScreen(),
                   ),
-                  // Interview kit — pushed from Profile, its ONLY entry point.
-                  // No parentNavigatorKey (unlike its siblings above): the kit
-                  // KEEPS the bottom bar, so it renders inside this branch's
-                  // navigator and the bar stays on Profile while it is open.
-                  // Deliberately NOT under the Resume branch — see [Routes.kit].
+                  // Interview kit — NESTED under the Profile branch (WA-3): it
+                  // is entered from the Profile tab, so the kit list keeps the
+                  // bar with Profile active and popping the detail lands back
+                  // here, never on the Resume branch. (Declared on this branch
+                  // rather than hacking a tab-index setter — deep links to
+                  // /profile/kit/detail/:tradeKey build the correct stack.)
                   GoRoute(
                     path: 'kit',
                     builder: (_, __) => const KitScreen(),

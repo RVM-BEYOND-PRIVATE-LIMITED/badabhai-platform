@@ -15,7 +15,8 @@ import 'cubit/kit_list_cubit.dart';
 import '../domain/interview_kit.dart';
 
 /// Interview-kit list (spec §5.3 / screens.jsx 231-249). Keeps the shell's
-/// bottom bar (no own bottomNavigationBar) — it sits inside the resume tab.
+/// bottom bar (no own bottomNavigationBar) — it sits inside the PROFILE tab
+/// (WA-3: it is entered from Profile, so back must land on Profile).
 class KitScreen extends StatelessWidget {
   const KitScreen({super.key});
 

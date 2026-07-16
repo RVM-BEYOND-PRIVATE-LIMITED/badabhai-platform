@@ -1,0 +1,54 @@
+<!doctype html>
+<!--
+  Resume template — id: "fallback", version: 2  (the GENERIC FALLBACK)
+  v1 + the ADR-0032 photo region (floated right; 0-or-1 items; collapses
+  when absent — masked disclosures always render photo-less). Used when no
+  template_id is given or an unknown/unsupported id is requested. Deliberately
+  plain + robust: minimal CSS, single column, degrades gracefully with sparse
+  data. Slots use {{token}}; repeat regions {{#list}}…{{/list}}.
+  No PII beyond the name slot + the photo region (TD21/ADR-0032).
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{full_name}} — Resume</title>
+    <style>
+      body { font-family: Arial, sans-serif; color: #000; margin: 0; line-height: 1.5; }
+      .page { max-width: 760px; margin: 0 auto; padding: 32px; }
+      .photo { width: 76px; height: 76px; object-fit: cover; float: right; margin: 0 0 8px 12px; }
+      h1 { font-size: 22px; margin: 0 0 2px; }
+      h2 { font-size: 14px; margin: 18px 0 4px; border-bottom: 1px solid #000; clear: both; }
+      .headline { font-weight: bold; }
+      .meta { font-size: 12px; color: #444; margin-bottom: 8px; }
+      ul { margin: 4px 0; padding-left: 20px; }
+      @page { size: A4; margin: 14mm; }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      {{#photo}}<img class="photo" src="{{.}}" alt="" />{{/photo}}
+      <h1>{{full_name}}</h1>
+      <div class="headline">{{headline}}</div>
+      <div class="meta">{{location}} · {{experience_years}} yrs · {{availability}}</div>
+
+      <h2>Summary</h2>
+      <p>{{summary}}</p>
+
+      <h2>Key Responsibilities</h2>
+      <ul>{{#responsibilities}}<li>{{.}}</li>{{/responsibilities}}</ul>
+
+      <h2>Machines</h2>
+      <ul>{{#machines}}<li>{{.}}</li>{{/machines}}</ul>
+
+      <h2>Skills</h2>
+      <ul>{{#skills}}<li>{{.}}</li>{{/skills}}</ul>
+
+      <h2>Controllers</h2>
+      <ul>{{#controllers}}<li>{{.}}</li>{{/controllers}}</ul>
+
+      <h2>Education &amp; Certifications</h2>
+      <ul>{{#education}}<li>{{.}}</li>{{/education}}{{#certifications}}<li>{{.}}</li>{{/certifications}}</ul>
+    </main>
+  </body>
+</html>

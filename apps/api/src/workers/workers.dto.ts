@@ -59,17 +59,38 @@ export const UpdateResumePrefsSchema = z
 export type UpdateResumePrefsDto = z.infer<typeof UpdateResumePrefsSchema>;
 
 /**
+ * ADR-0032 — confirm a profile-photo upload (POST /workers/me/photo). The client
+ * registers the `storage_path` it was MINTED (upload-url response); the service
+ * re-verifies it against the minted-key shape for THIS worker (anti-forgery, the
+ * voice-seam pattern) and validates the uploaded object (mime/size) before
+ * persisting the pointer. Never a URL; never client-chosen.
+ */
+export const ConfirmPhotoSchema = z
+  .object({
+    storage_path: z
+      .string()
+      .trim()
+      .min(1, "storage_path is required")
+      .max(512, "storage_path is too long")
+      .refine((s) => !hasControlChars(s), "storage_path must not contain control characters"),
+  })
+  .strict();
+export type ConfirmPhotoDto = z.infer<typeof ConfirmPhotoSchema>;
+
+/**
  * Response of `GET /workers/me/resume-fields` — the worker-editable "safe fields"
  * loaded into the edit screen. Unlike the faceless profile-summary, this DOES
  * return the worker's OWN name (`full_name`) so they can correct its spelling —
  * a self-read of one's own name is not a cross-actor PII leak, and it never
  * reaches an LLM/event/log/ai_jobs. `full_name` is `null` until a name is set.
- * Not a Zod schema: an output projection, not boundary input.
+ * `has_photo` (ADR-0032) is a boolean projection of the photo POINTER — never
+ * the key or a URL. Not a Zod schema: an output projection, not boundary input.
  */
 export interface WorkerResumeFields {
   full_name: string | null;
   show_photo: boolean;
   night_shift_ready: boolean;
+  has_photo: boolean;
 }
 
 /** The `trade` block of {@link WorkerProfileSummary}. Every part is nullable —

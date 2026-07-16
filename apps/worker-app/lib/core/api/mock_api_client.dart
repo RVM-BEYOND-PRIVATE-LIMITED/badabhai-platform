@@ -118,11 +118,13 @@ class MockApiClient extends ApiClient {
   @override
   Future<ResumeFieldsDto> getResumeFields({required String authToken}) async {
     await _delay();
-    // Canned safe fields so the edit screen renders in mock mode.
-    return const ResumeFieldsDto(
+    // Canned safe fields so the edit screen renders in mock mode. has_photo
+    // reflects the session-local mock photo state (ADR-0032).
+    return ResumeFieldsDto(
       fullName: 'Ramesh Kumar',
       showPhoto: true,
       nightShiftReady: false,
+      hasPhoto: _mockHasPhoto,
     );
   }
 
@@ -134,6 +136,48 @@ class MockApiClient extends ApiClient {
   }) async {
     // No-op: nothing is persisted in mock mode.
     await _delay();
+  }
+
+  /// ADR-0032 mock photo state — session-local, no network, no bytes stored.
+  bool _mockHasPhoto = false;
+
+  @override
+  Future<PhotoUploadTicket> requestPhotoUploadUrl({
+    required String authToken,
+  }) async {
+    await _delay();
+    return const PhotoUploadTicket(
+      storagePath: 'photos/mock-worker/mock-photo-0001.jpg',
+      uploadUrl: 'https://mock.local/signed-upload/mock-photo-0001.jpg',
+      expiresInSeconds: 7200,
+    );
+  }
+
+  @override
+  Future<void> confirmPhoto({
+    required String storagePath,
+    required String authToken,
+  }) async {
+    await _delay();
+    _mockHasPhoto = true;
+  }
+
+  @override
+  Future<String> getMyPhotoUrl({required String authToken}) async {
+    await _delay();
+    if (!_mockHasPhoto) {
+      throw ApiException(404, 'no photo');
+    }
+    // A non-network scheme on purpose (mock:// never resolves DNS): Image.network's
+    // errorBuilder shows the placeholder, proving the degrade path with ZERO network
+    // in mock mode (the same sentinel idiom as the mock PDF url).
+    return 'mock://local/photo/mock-photo-0001.jpg';
+  }
+
+  @override
+  Future<void> deleteMyPhoto({required String authToken}) async {
+    await _delay();
+    _mockHasPhoto = false;
   }
 
   @override
@@ -322,10 +366,17 @@ class MockApiClient extends ApiClient {
     // filter is exercised; varied created_at, with some area/reason/rank null to
     // exercise the nullables. Oldest-first, matching the real API ordering.
     // Values MATCH the API's ApplicationAction enum ('applied'|'skipped').
+    //
+    // Job ids are DISJOINT from [_cannedFeed] on purpose (mock-job-01xx vs
+    // mock-job-000x): SwipeRepositoryImpl.getFeed excludes already-APPLIED jobs
+    // from the deck (WA-1; skips re-serve — the mind-change path), so applied
+    // rows that overlapped the canned feed would honestly (and confusingly)
+    // shrink the mock deck. These rows model past decisions on jobs that are
+    // no longer open.
     final DateTime now = DateTime.now();
     return <AppliedJob>[
       AppliedJob(
-        jobId: 'mock-job-0001',
+        jobId: 'mock-job-0101',
         tradeKey: 'cnc_operator',
         title: 'CNC Operator',
         city: 'Pune',
@@ -338,7 +389,7 @@ class MockApiClient extends ApiClient {
         updatedAt: now.subtract(const Duration(days: 4)),
       ),
       AppliedJob(
-        jobId: 'mock-job-0002',
+        jobId: 'mock-job-0102',
         tradeKey: 'fitter',
         title: 'Fitter',
         city: 'Nashik',
@@ -351,7 +402,7 @@ class MockApiClient extends ApiClient {
         updatedAt: now.subtract(const Duration(days: 2)),
       ),
       AppliedJob(
-        jobId: 'mock-job-0003',
+        jobId: 'mock-job-0103',
         tradeKey: 'vmc_operator',
         title: 'VMC Operator',
         city: 'Pune',
@@ -364,7 +415,7 @@ class MockApiClient extends ApiClient {
         updatedAt: now.subtract(const Duration(hours: 6)),
       ),
       AppliedJob(
-        jobId: 'mock-job-0004',
+        jobId: 'mock-job-0104',
         tradeKey: 'welder',
         title: 'Welder',
         city: 'Aurangabad',
@@ -377,7 +428,7 @@ class MockApiClient extends ApiClient {
         updatedAt: now.subtract(const Duration(hours: 2)),
       ),
       AppliedJob(
-        jobId: 'mock-job-0005',
+        jobId: 'mock-job-0105',
         tradeKey: 'cnc_operator',
         title: 'CNC Setter',
         city: 'Pune',

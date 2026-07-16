@@ -51,6 +51,24 @@ export const WorkerResumePrefsUpdatedPayload = z
   })
   .strict(); // no extra fields — a stray name/phone can never ride along (§2)
 
+// ADR-0032 — the worker uploaded (or replaced) their profile photo. The photo is a
+// high-sensitivity PII class living ONLY in the private WORKER_PHOTOS_BUCKET; this
+// event carries the opaque worker_id and NOTHING else — never the object key, a URL,
+// dimensions, or bytes (§2). Replacing a photo re-emits this same event.
+export const WorkerPhotoUploadedPayload = z
+  .object({
+    worker_id: uuidSchema,
+  })
+  .strict();
+
+// ADR-0032 — the worker removed their profile photo (pointer cleared + object
+// best-effort deleted). Same PII posture: opaque worker_id only.
+export const WorkerPhotoRemovedPayload = z
+  .object({
+    worker_id: uuidSchema,
+  })
+  .strict();
+
 // ADR-0026 Phase 1 — opaque rotating refresh token reuse detection. A previously
 // USED refresh token was replayed (token theft / a leaked token re-presented) ⇒ the
 // whole token FAMILY is revoked and the worker is forced back to OTP. PII-FREE: the

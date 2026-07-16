@@ -217,6 +217,53 @@ class ApiClient {
     );
   }
 
+  /// POST /workers/me/photo/upload-url (ADR-0032) — mints a signed slot for the
+  /// profile-photo bytes. Worker from [authToken]; the body is empty JSON — the
+  /// SERVER chooses the object key. The bytes are then PUT to `upload_url`
+  /// (RealPhotoUploader) and the returned `storage_path` is registered via
+  /// [confirmPhoto]. A 503 means photos are not enabled server-side.
+  /// PRIVACY: the returned url is SIGNED — never log it.
+  Future<PhotoUploadTicket> requestPhotoUploadUrl({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/workers/me/photo/upload-url',
+      <String, dynamic>{},
+      authToken: authToken,
+    );
+    return PhotoUploadTicket.fromJson(json);
+  }
+
+  /// POST /workers/me/photo (ADR-0032) — confirms the uploaded photo: the server
+  /// re-verifies the minted path belongs to this worker and validates the object
+  /// (JPEG/PNG ≤ 2MB) before persisting the pointer. Worker from [authToken].
+  Future<void> confirmPhoto({
+    required String storagePath,
+    required String authToken,
+  }) async {
+    await _post(
+      '/workers/me/photo',
+      <String, dynamic>{'storage_path': storagePath},
+      authToken: authToken,
+    );
+  }
+
+  /// GET /workers/me/photo-url (ADR-0032) — a short-lived signed READ url for the
+  /// worker's OWN photo. 404 when no photo (callers map that to "none", not an
+  /// error); 503 while photos are disabled. PRIVACY: the url is SIGNED — fetch on
+  /// view, hold in memory only, never log or persist it.
+  Future<String> getMyPhotoUrl({required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/workers/me/photo-url', authToken: authToken);
+    return json['url'] as String? ?? '';
+  }
+
+  /// DELETE /workers/me/photo (ADR-0032) — removes the worker's photo (pointer +
+  /// object). Idempotent server-side; worker from [authToken].
+  Future<void> deleteMyPhoto({required String authToken}) async {
+    await _delete('/workers/me/photo', authToken: authToken);
+  }
+
   /// GET /workers/:id/profile — worker + latest profile + latest generated
   /// resume. Used to restore `profileId` (and reuse an existing resume) after a
   /// login that skipped in-session profiling.
@@ -589,6 +636,17 @@ class ApiClient {
           uri,
           headers: _headers(contentType: true, authToken: authToken),
           body: jsonEncode(body),
+        )
+        .timeout(kRequestTimeout);
+    return _decode(res);
+  }
+
+  Future<Map<String, dynamic>> _delete(String path, {String? authToken}) async {
+    final Uri uri = Uri.parse('$baseUrl$path');
+    final http.Response res = await _client
+        .delete(
+          uri,
+          headers: _headers(contentType: false, authToken: authToken),
         )
         .timeout(kRequestTimeout);
     return _decode(res);

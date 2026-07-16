@@ -23,7 +23,7 @@ void main() {
     tradeLabel: 'VMC Operator',
     city: 'Pune',
     verified: false,
-    strength: 0.5,
+    strengthSignals: 5,
   );
 
   setUp(() {

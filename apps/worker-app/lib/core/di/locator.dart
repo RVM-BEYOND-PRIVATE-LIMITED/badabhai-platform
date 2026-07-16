@@ -54,7 +54,9 @@ import '../../features/kit/presentation/cubit/kit_list_cubit.dart';
 import '../../features/notifications/data/notifications_repository_impl.dart';
 import '../../features/notifications/domain/notifications_repository.dart';
 import '../../features/notifications/presentation/cubit/notifications_cubit.dart';
+import '../../features/resume/data/photo_repository_impl.dart';
 import '../../features/resume/data/resume_edit_repository_impl.dart';
+import '../../features/resume/domain/photo_repository.dart';
 import '../../features/resume/data/resume_repository_impl.dart';
 import '../../features/resume/domain/resume_edit_repository.dart';
 import '../../features/resume/domain/resume_repository.dart';
@@ -145,6 +147,20 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerLazySingleton<ResumeEditRepository>(
     () => ResumeEditRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
+  );
+  // ADR-0032 profile photo: mint/confirm/read/delete ride the ApiClient (so the
+  // MockApiClient covers them in mock mode); ONLY the raw byte-PUT to the signed
+  // storage url needs its own MOCK/REAL split (the voice-uploader pattern) so
+  // mock mode never touches the network.
+  locator.registerLazySingleton<PhotoUploader>(
+    () => kUseMocks ? const MockPhotoUploader() : RealPhotoUploader(),
+  );
+  locator.registerLazySingleton<PhotoRepository>(
+    () => PhotoRepositoryImpl(
+      locator<ApiClient>(),
+      locator<SessionRepository>(),
+      locator<PhotoUploader>(),
+    ),
   );
   locator.registerLazySingleton<InterviewKitRepository>(
     () => InterviewKitRepositoryImpl(locator<ApiClient>()),
@@ -259,7 +275,8 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // handed over from the tapped row — it has no registration here because it
   // takes per-instance data (there is no worker-facing job-detail route).
   locator.registerFactory<ResumeEditCubit>(
-    () => ResumeEditCubit(locator<ResumeEditRepository>()),
+    () => ResumeEditCubit(
+        locator<ResumeEditRepository>(), locator<PhotoRepository>()),
   );
   locator.registerFactory<KitListCubit>(
     () => KitListCubit(locator<InterviewKitRepository>()),

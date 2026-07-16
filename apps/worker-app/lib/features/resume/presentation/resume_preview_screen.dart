@@ -12,6 +12,7 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_scaffold.dart';
 import '../../../router.dart';
 import 'cubit/resume_cubit.dart';
+import 'resume_photo_header.dart';
 
 class ResumePreviewScreen extends StatelessWidget {
   const ResumePreviewScreen({super.key, this.initialResume});
@@ -70,6 +71,12 @@ class _ResumeView extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
+              // ADR-0032: the worker's OWN photo — rendered ONLY when the
+              // "Photo dikhayein" pref is on AND a photo exists (the toggle
+              // finally gates something). Self-contained + fail-silent: works
+              // on both entry paths (generate + Building handoff) and never
+              // fabricates a placeholder into the resume itself.
+              const ResumePhotoHeader(),
               Padding(
                 padding: const EdgeInsets.all(AppSpacing.s4),
                 child: Text(

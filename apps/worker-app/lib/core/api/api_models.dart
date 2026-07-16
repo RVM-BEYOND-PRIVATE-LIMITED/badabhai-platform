@@ -598,20 +598,54 @@ class ResumeFieldsDto extends Equatable {
     required this.fullName,
     required this.showPhoto,
     required this.nightShiftReady,
+    this.hasPhoto = false,
   });
 
   final String? fullName;
   final bool showPhoto;
   final bool nightShiftReady;
 
+  /// ADR-0032 — whether a profile photo exists server-side. Defaults FALSE when
+  /// absent (the OPPOSITE of show_photo's default: a true here would make the
+  /// UI try to render a nonexistent photo).
+  final bool hasPhoto;
+
   factory ResumeFieldsDto.fromJson(Map<String, dynamic> json) => ResumeFieldsDto(
         fullName: json['full_name'] as String?,
         showPhoto: json['show_photo'] as bool? ?? true,
         nightShiftReady: json['night_shift_ready'] as bool? ?? false,
+        hasPhoto: json['has_photo'] as bool? ?? false,
       );
 
   @override
-  List<Object?> get props => <Object?>[fullName, showPhoto, nightShiftReady];
+  List<Object?> get props => <Object?>[fullName, showPhoto, nightShiftReady, hasPhoto];
+}
+
+/// Result of POST /workers/me/photo/upload-url (ADR-0032) — a signed slot for the
+/// profile-photo bytes. Mirrors [VoiceUploadTicket].
+///
+/// PRIVACY: [uploadUrl] embeds a signing token — never log or persist it; use it
+/// immediately and re-mint on expiry. [storagePath] is PII-free (opaque ids).
+class PhotoUploadTicket extends Equatable {
+  const PhotoUploadTicket({
+    required this.storagePath,
+    required this.uploadUrl,
+    required this.expiresInSeconds,
+  });
+
+  final String storagePath;
+  final String uploadUrl;
+  final int expiresInSeconds;
+
+  factory PhotoUploadTicket.fromJson(Map<String, dynamic> json) =>
+      PhotoUploadTicket(
+        storagePath: json['storage_path'] as String? ?? '',
+        uploadUrl: json['upload_url'] as String? ?? '',
+        expiresInSeconds: (json['expires_in'] as num?)?.toInt() ?? 0,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[storagePath, uploadUrl, expiresInSeconds];
 }
 
 /// Worker's current profile + latest resume (GET /workers/:id/profile). Used to
@@ -664,6 +698,7 @@ class ProfileSummaryDto extends Equatable {
     required this.canonicalRoleId,
     required this.city,
     required this.strength,
+    this.strengthMax,
   });
 
   /// `"none"` when the worker has no profile row yet; else a ProfileStatus.
@@ -683,6 +718,12 @@ class ProfileSummaryDto extends Equatable {
   /// Recomputed-on-read signal COUNT; `0` when no profile. NOT a 0..1 fraction.
   final int strength;
 
+  /// The count's denominator (`strength_max`) — NOT sent by the API today, so
+  /// this is null on the live wire. Parsed defensively now so a real N/max
+  /// meter lights up the day the backend ships it (WA-4 seam); the UI never
+  /// fabricates a denominator while it is null.
+  final int? strengthMax;
+
   factory ProfileSummaryDto.fromJson(Map<String, dynamic> json) {
     final Map<String, dynamic> trade =
         (json['trade'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
@@ -694,6 +735,7 @@ class ProfileSummaryDto extends Equatable {
       canonicalRoleId: trade['canonical_role_id'] as String?,
       city: json['city'] as String?,
       strength: (json['strength'] as num?)?.toInt() ?? 0,
+      strengthMax: (json['strength_max'] as num?)?.toInt(),
     );
   }
 
@@ -706,6 +748,7 @@ class ProfileSummaryDto extends Equatable {
         canonicalRoleId,
         city,
         strength,
+        strengthMax,
       ];
 }
 

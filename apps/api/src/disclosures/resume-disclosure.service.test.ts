@@ -136,6 +136,10 @@ describe("ResumeDisclosureService — happy path (B-G masked render + B-E fact-o
     });
     // B-G: the renderer got the MASKED name, never the real one.
     expect(t.getRenderInput()?.displayName).toBe(MASKED);
+    // ADR-0032 (the faceless invariant): the disclosure render input carries NO
+    // photo — photoDataUri is STRUCTURALLY null, so the payer-facing PDF can never
+    // embed a worker's face even when the worker HAS a photo + show_photo on.
+    expect(t.getRenderInput()?.photoDataUri).toBeNull();
     expect(t.renderer.renderPdf).toHaveBeenCalledOnce();
     // Marked disclosed with the opaque resume_ref pointer.
     expect(t.repo.markDisclosed).toHaveBeenCalledWith("disc-1", expect.objectContaining({ resumeRef: "resume-1" }));

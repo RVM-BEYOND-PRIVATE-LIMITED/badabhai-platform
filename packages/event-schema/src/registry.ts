@@ -28,6 +28,18 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerResumePrefsUpdatedPayload,
   },
+  // ADR-0032 — profile photo lifecycle. Payloads are worker_id ONLY (the photo is
+  // PII at rest in Storage; keys/URLs never enter the event spine).
+  "worker.photo_uploaded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerPhotoUploadedPayload,
+  },
+  "worker.photo_removed": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerPhotoRemovedPayload,
+  },
   // ADR-0026 Phase 1 — opaque rotating-refresh-token reuse detection + logout-all.
   // PII-FREE: opaque worker/family ids + a count only (never the refresh token value
   // or its sha256, never a phone). Routine token rotation is NOT emitted (it is not a

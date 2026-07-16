@@ -7,6 +7,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:badabhai_worker_app/core/api/api_models.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
+import 'package:badabhai_worker_app/core/widgets/bb_list_row.dart';
 import 'package:badabhai_worker_app/features/applications/domain/applications_repository.dart';
 import 'package:badabhai_worker_app/features/applications/presentation/applied_jobs_screen.dart';
 import 'package:badabhai_worker_app/features/applications/presentation/cubit/applications_cubit.dart';
@@ -66,6 +67,22 @@ Future<void> _pump(WidgetTester tester, List<AppliedJob> applied) async {
 
 void main() {
   tearDown(() async => locator.reset());
+
+  testWidgets(
+      'WA-1 regression: THREE applications render as THREE rows — the list '
+      'must never collapse to one', (WidgetTester tester) async {
+    await _pump(tester, <AppliedJob>[
+      _job('a1', area: 'Pimpri', title: 'CNC Operator'),
+      _job('a2', area: null, title: 'VMC Operator'),
+      _job('a3', area: 'Waluj', title: 'Welder'),
+    ]);
+
+    expect(find.text('CNC Operator'), findsOneWidget);
+    expect(find.text('VMC Operator'), findsOneWidget);
+    expect(find.text('Welder'), findsOneWidget);
+    // Exactly one row per application — three rows, no dedupe, no take(1).
+    expect(find.byType(BbListRow), findsNWidgets(3));
+  });
 
   testWidgets('renders applied rows including a null-area row', (
     WidgetTester tester,

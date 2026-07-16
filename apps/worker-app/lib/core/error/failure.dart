@@ -119,6 +119,15 @@ class MicPermissionFailure extends Failure {
   ]);
 }
 
+/// ADR-0032 — the profile-photo feature is not available right now: the server
+/// said photos are not enabled (503 on the photo routes), or the picked image
+/// could not be read. Honest copy; never blames the worker's connection.
+class PhotoUnavailableFailure extends Failure {
+  const PhotoUnavailableFailure([
+    super.message = 'Photo abhi available nahi hai. Thodi der baad try karein.',
+  ]);
+}
+
 /// Anything not otherwise classified.
 class UnknownFailure extends Failure {
   const UnknownFailure([super.message = 'Something went wrong. Please try again.']);

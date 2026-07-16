@@ -13,6 +13,7 @@ describe("buildResumeRenderInput — skill_labels (Q14)", () => {
       { skills: ["skill_milling"], skill_labels: ["MIG welding", "TIG welding"] },
       null,
       null,
+      null, // photoDataUri (ADR-0032): caller-supplied; these tests render photo-less
     );
     expect(input.skills).toEqual(["skill_milling", "MIG welding", "TIG welding"]);
   });
@@ -22,17 +23,18 @@ describe("buildResumeRenderInput — skill_labels (Q14)", () => {
       { skills: ["skill_milling"], skill_labels: ["Milling", "5-axis setup"] },
       null,
       null,
+      null,
     );
     expect(input.skills).toEqual(["skill_milling", "5-axis setup"]);
   });
 
   it("old snapshot without skill_labels renders exactly as before", () => {
-    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null);
+    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null);
     expect(input.skills).toEqual(["skill_milling"]);
   });
 
   it("labels-only snapshot (off-wedge welder) renders the labels", () => {
-    const input = buildResumeRenderInput({ skill_labels: ["MIG welding"] }, null, null);
+    const input = buildResumeRenderInput({ skill_labels: ["MIG welding"] }, null, null, null);
     expect(input.skills).toEqual(["MIG welding"]);
   });
 });

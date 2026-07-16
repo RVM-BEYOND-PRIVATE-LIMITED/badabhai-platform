@@ -1,0 +1,50 @@
+<!doctype html>
+<!--
+  Resume template — id: "minimal", version: 2
+  v1 + the ADR-0032 photo region (top-right of the identity block; 0-or-1
+  items; collapses when absent — masked disclosures always render photo-less).
+  Compact single-column, lots of whitespace, comma-joined lists. Slots use
+  {{token}}; repeat regions {{#list}}…{{/list}} (see templates/README.md).
+  Print-first (A4). No PII beyond the name slot + the photo region (TD21/ADR-0032).
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{full_name}} — Resume</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: "Helvetica Neue", Arial, sans-serif; color: #222; margin: 0; line-height: 1.5; }
+      .page { max-width: 720px; margin: 0 auto; padding: 56px 56px; }
+      .id-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+      .photo { width: 72px; height: 72px; object-fit: cover; border-radius: 4px; flex: 0 0 auto; }
+      h1 { font-size: 24px; font-weight: 600; margin: 0; }
+      .headline { color: #666; margin-top: 2px; }
+      .meta { color: #999; font-size: 12px; margin: 6px 0 28px; }
+      .row { display: grid; grid-template-columns: 110px 1fr; gap: 10px; padding: 8px 0;
+             border-top: 1px solid #eee; }
+      .label { color: #999; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; padding-top: 2px; }
+      .val { font-size: 14px; }
+      @page { size: A4; margin: 16mm; }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <div class="id-row">
+        <div>
+          <h1>{{full_name}}</h1>
+          <div class="headline">{{headline}}</div>
+        </div>
+        {{#photo}}<img class="photo" src="{{.}}" alt="" />{{/photo}}
+      </div>
+      <div class="meta">{{location}} · {{experience_years}} yrs · {{availability}}</div>
+
+      <div class="row"><div class="label">Summary</div><div class="val">{{summary}}</div></div>
+      <div class="row"><div class="label">Responsibilities</div><div class="val"><ul>{{#responsibilities}}<li>{{.}}</li>{{/responsibilities}}</ul></div></div>
+      <div class="row"><div class="label">Machines</div><div class="val">{{#machines}}{{.}}, {{/machines}}</div></div>
+      <div class="row"><div class="label">Skills</div><div class="val">{{#skills}}{{.}}, {{/skills}}</div></div>
+      <div class="row"><div class="label">Controllers</div><div class="val">{{#controllers}}{{.}}, {{/controllers}}</div></div>
+      <div class="row"><div class="label">Education</div><div class="val">{{#education}}{{.}}, {{/education}}{{#certifications}}{{.}}, {{/certifications}}</div></div>
+    </main>
+  </body>
+</html>

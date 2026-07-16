@@ -48,6 +48,11 @@ import 'failure.dart';
           icon: Icons.mic_off_rounded,
           reason: message,
         ),
+      // ADR-0032 — photo feature off / unreadable image; client-side constant copy.
+      PhotoUnavailableFailure(:final String message) => (
+          icon: Icons.no_photography_outlined,
+          reason: message,
+        ),
       MicPermissionFailure(:final String message) => (
           icon: Icons.mic_off_rounded,
           reason: message,

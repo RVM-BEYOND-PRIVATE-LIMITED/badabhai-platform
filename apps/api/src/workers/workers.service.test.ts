@@ -1,15 +1,70 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
+import type { ServerConfig } from "@badabhai/config";
 import { WorkersService } from "./workers.service";
 import type { WorkersRepository } from "./workers.repository";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import type { EventsService } from "../events/events.service";
+import type { StorageService } from "../storage/storage.service";
 import type { RequestContext } from "../common/request-context";
 
 const CTX = { correlationId: "corr-1", requestId: "req-1" } as RequestContext;
 const NAME = "Asha Kumari";
 const TOKEN = "v1.opaqueciphertext"; // encrypt() output — must NOT contain the name
+
+/** Default storage mock — every method resolves happily; override per test. */
+function mockStorage() {
+  return {
+    createSignedUploadUrl: vi.fn(async (_key: string, _bucket?: string) => ({
+      url: "https://storage.example/signed-upload?token=SIGNED_UPLOAD_TOKEN",
+      expiresIn: 7200,
+    })),
+    createSignedUrl: vi.fn(
+      async (_key: string, _ttl: number, _bucket?: string) =>
+        "https://storage.example/signed-read?token=SIGNED_READ_TOKEN",
+    ),
+    getObjectInfo: vi.fn(
+      async (
+        _key: string,
+        _bucket?: string,
+      ): Promise<{ contentType: string | null; sizeBytes: number | null } | null> => ({
+        contentType: "image/jpeg",
+        sizeBytes: 500_000,
+      }),
+    ),
+    deletePdf: vi.fn(async (_key: string, _bucket?: string) => undefined),
+  };
+}
+
+/** ADR-0032 config surface: photo bucket armed by default; tests unset it to prove 503. */
+function mockConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
+  return {
+    WORKER_PHOTOS_BUCKET: "worker-profile-photos",
+    RESUME_SIGNED_URL_TTL_SECONDS: 900,
+    ...overrides,
+  } as ServerConfig;
+}
+
+function newSvc(
+  repo: unknown,
+  pii: unknown,
+  events: unknown,
+  storage: unknown = mockStorage(),
+  config: ServerConfig = mockConfig(),
+) {
+  return new WorkersService(
+    repo as WorkersRepository,
+    pii as PiiCryptoService,
+    events as EventsService,
+    storage as StorageService,
+    config,
+  );
+}
 
 function setup(workerExists = true) {
   const repo = {
@@ -18,11 +73,7 @@ function setup(workerExists = true) {
   };
   const pii = { encrypt: vi.fn((_plaintext: string) => TOKEN) };
   const events = { emit: vi.fn(async (_e: unknown) => true) };
-  const svc = new WorkersService(
-    repo as unknown as WorkersRepository,
-    pii as unknown as PiiCryptoService,
-    events as unknown as EventsService,
-  );
+  const svc = newSvc(repo, pii, events);
   return { svc, repo, pii, events };
 }
 
@@ -97,11 +148,7 @@ function summarySetup(profile: unknown) {
   };
   const pii = { encrypt: vi.fn() };
   const events = { emit: vi.fn(async (_e: unknown) => true) };
-  const svc = new WorkersService(
-    repo as unknown as WorkersRepository,
-    pii as unknown as PiiCryptoService,
-    events as unknown as EventsService,
-  );
+  const svc = newSvc(repo, pii, events);
   return { svc, repo, events };
 }
 
@@ -178,7 +225,13 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
 
 function resumeFieldsSetup(
   worker:
-    | { id: string; fullName: string | null; resumeShowPhoto: boolean; resumeNightShiftReady: boolean }
+    | {
+        id: string;
+        fullName: string | null;
+        resumeShowPhoto: boolean;
+        resumeNightShiftReady: boolean;
+        photoStorageKey?: string | null;
+      }
     | undefined,
   updatedRow?: unknown,
 ) {
@@ -192,11 +245,7 @@ function resumeFieldsSetup(
     decrypt: vi.fn((_token: string) => NAME),
   };
   const events = { emit: vi.fn(async (_e: unknown) => true) };
-  const svc = new WorkersService(
-    repo as unknown as WorkersRepository,
-    pii as unknown as PiiCryptoService,
-    events as unknown as EventsService,
-  );
+  const svc = newSvc(repo, pii, events);
   return { svc, repo, pii, events };
 }
 
@@ -211,8 +260,27 @@ describe("WorkersService.getResumeFields", () => {
     const res = await svc.getResumeFields("w-1");
 
     expect(pii.decrypt).toHaveBeenCalledWith(TOKEN); // the stored ciphertext, not a name
-    expect(res).toEqual({ full_name: NAME, show_photo: true, night_shift_ready: true });
+    expect(res).toEqual({
+      full_name: NAME,
+      show_photo: true,
+      night_shift_ready: true,
+      has_photo: false,
+    });
     expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("has_photo is a boolean projection of the pointer — NEVER the key itself", async () => {
+    const { svc } = resumeFieldsSetup({
+      id: "w-1",
+      fullName: null,
+      resumeShowPhoto: true,
+      resumeNightShiftReady: false,
+      photoStorageKey: "photos/w-1/0a1b2c3d-0000-4000-8000-000000000000.jpg",
+    });
+    const res = await svc.getResumeFields("w-1");
+    expect(res.has_photo).toBe(true);
+    // the opaque key must not leak into the response in any field
+    expect(JSON.stringify(res)).not.toContain("photos/w-1");
   });
 
   it("returns full_name null (and never decrypts) when no name is set", async () => {
@@ -223,7 +291,12 @@ describe("WorkersService.getResumeFields", () => {
       resumeNightShiftReady: false,
     });
     const res = await svc.getResumeFields("w-1");
-    expect(res).toEqual({ full_name: null, show_photo: false, night_shift_ready: false });
+    expect(res).toEqual({
+      full_name: null,
+      show_photo: false,
+      night_shift_ready: false,
+      has_photo: false,
+    });
     expect(pii.decrypt).not.toHaveBeenCalled();
   });
 
@@ -247,7 +320,12 @@ describe("WorkersService.getResumeFields", () => {
     const res = await svc.getResumeFields("w-1");
 
     // Fails closed: name-less, prefs intact, no event, no re-throw.
-    expect(res).toEqual({ full_name: null, show_photo: true, night_shift_ready: false });
+    expect(res).toEqual({
+      full_name: null,
+      show_photo: true,
+      night_shift_ready: false,
+      has_photo: false,
+    });
     expect(events.emit).not.toHaveBeenCalled();
   });
 });
@@ -313,5 +391,225 @@ describe("WorkersService.updateResumePrefs", () => {
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(repo.updateResumePrefs).not.toHaveBeenCalled();
     expect(events.emit).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ADR-0032 — the profile-photo seam (mint / confirm / read-url / delete)
+// ---------------------------------------------------------------------------
+
+const WORKER_ID = "0a1b2c3d-1111-4111-8111-000000000001";
+const MINTED_KEY = `photos/${WORKER_ID}/9f8e7d6c-2222-4222-8222-000000000002.jpg`;
+
+function photoSetup(opts: {
+  worker?: { id: string; photoStorageKey?: string | null } | undefined;
+  bucket?: string;
+  info?: { contentType: string | null; sizeBytes: number | null } | null;
+} = {}) {
+  const worker =
+    "worker" in opts
+      ? opts.worker
+      : { id: WORKER_ID, fullName: null, resumeShowPhoto: true, photoStorageKey: null };
+  const repo = {
+    findById: vi.fn(async (_id: string) => worker),
+    updatePhotoStorageKey: vi.fn(async (_id: string, key: string | null) =>
+      worker ? { ...worker, photoStorageKey: key } : undefined,
+    ),
+  };
+  const pii = { encrypt: vi.fn(), decrypt: vi.fn() };
+  const events = { emit: vi.fn(async (_e: unknown) => true) };
+  const storage = mockStorage();
+  if ("info" in opts) {
+    storage.getObjectInfo = vi.fn(async () => opts.info ?? null);
+  }
+  const config = mockConfig(
+    "bucket" in opts ? ({ WORKER_PHOTOS_BUCKET: opts.bucket } as Partial<ServerConfig>) : {},
+  );
+  const svc = newSvc(repo, pii, events, storage, config);
+  return { svc, repo, events, storage };
+}
+
+describe("WorkersService.createPhotoUploadUrl (ADR-0032)", () => {
+  it("503s fail-closed while WORKER_PHOTOS_BUCKET is unset — storage is never touched", async () => {
+    const { svc, storage } = photoSetup({ bucket: "" });
+    await expect(svc.createPhotoUploadUrl(WORKER_ID)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    expect(storage.createSignedUploadUrl).not.toHaveBeenCalled();
+  });
+
+  it("mints a SERVER-chosen opaque key under the caller's own prefix; emits NO event", async () => {
+    const { svc, storage, events } = photoSetup();
+    const res = await svc.createPhotoUploadUrl(WORKER_ID);
+
+    const [key, bucket] = storage.createSignedUploadUrl.mock.calls[0]!;
+    expect(key).toMatch(
+      new RegExp(`^photos/${WORKER_ID}/[0-9a-f-]{36}\\.jpg$`),
+    );
+    expect(bucket).toBe("worker-profile-photos");
+    expect(res).toEqual({
+      storage_path: key,
+      upload_url: "https://storage.example/signed-upload?token=SIGNED_UPLOAD_TOKEN",
+      expires_in: 7200,
+    });
+    // minting is an authorization grant, not a state change (§1)
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+});
+
+describe("WorkersService.confirmPhoto (ADR-0032)", () => {
+  it("rejects a storage_path outside the caller's own minted-key shape (anti-forgery) BEFORE touching storage", async () => {
+    const { svc, storage, events } = photoSetup();
+    for (const forged of [
+      `photos/other-worker/9f8e7d6c-2222-4222-8222-000000000002.jpg`, // someone else's prefix
+      `resumes/${WORKER_ID}/sneaky.jpg`, // wrong root
+      `photos/${WORKER_ID}/not-a-uuid.jpg`, // not a minted uuid
+      `photos/${WORKER_ID}/9f8e7d6c-2222-4222-8222-000000000002.png`, // wrong extension
+    ]) {
+      await expect(
+        svc.confirmPhoto(WORKER_ID, { storage_path: forged }, CTX),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    }
+    expect(storage.getObjectInfo).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("400s when the object was never uploaded (info 404) — no pointer write, no event", async () => {
+    const { svc, repo, events } = photoSetup({ info: null });
+    await expect(
+      svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(repo.updatePhotoStorageKey).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("400s + best-effort deletes an out-of-policy object (wrong mime / oversize / missing metadata)", async () => {
+    for (const info of [
+      { contentType: "application/pdf", sizeBytes: 1000 }, // wrong type
+      { contentType: "image/jpeg", sizeBytes: 3 * 1024 * 1024 }, // oversize
+      { contentType: null, sizeBytes: 1000 }, // missing mime → fail closed
+      { contentType: "image/jpeg", sizeBytes: null }, // missing size → fail closed
+    ]) {
+      const { svc, repo, storage, events } = photoSetup({ info });
+      await expect(
+        svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      // the offending object is cleaned up; the pointer is never written
+      expect(storage.deletePdf).toHaveBeenCalledWith(MINTED_KEY, "worker-profile-photos");
+      expect(repo.updatePhotoStorageKey).not.toHaveBeenCalled();
+      expect(events.emit).not.toHaveBeenCalled();
+    }
+  });
+
+  it("persists the pointer + emits a PII-free worker.photo_uploaded (worker_id ONLY — never key/URL)", async () => {
+    const { svc, repo, events } = photoSetup();
+    const res = await svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX);
+
+    expect(repo.updatePhotoStorageKey).toHaveBeenCalledWith(WORKER_ID, MINTED_KEY);
+    const emitArg = events.emit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(emitArg.event_name).toBe("worker.photo_uploaded");
+    expect(emitArg.payload).toEqual({ worker_id: WORKER_ID });
+    // the object key / any URL must appear NOWHERE in the event
+    expect(JSON.stringify(emitArg)).not.toMatch(/photos\/|https?:|token/i);
+    expect(res).toEqual({ worker_id: WORKER_ID, has_photo: true });
+  });
+
+  it("replacing a photo best-effort deletes the OLD object (and a failed delete never fails the confirm)", async () => {
+    const OLD_KEY = `photos/${WORKER_ID}/00000000-3333-4333-8333-000000000003.jpg`;
+    const { svc, storage } = photoSetup({
+      worker: { id: WORKER_ID, photoStorageKey: OLD_KEY },
+    });
+    storage.deletePdf = vi.fn(async () => {
+      throw new Error("storage delete failed with status 500");
+    });
+    const res = await svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX);
+    expect(storage.deletePdf).toHaveBeenCalledWith(OLD_KEY, "worker-profile-photos");
+    expect(res.has_photo).toBe(true); // the failed cleanup did not mask success
+  });
+
+  it("503s while dormant — nothing validated, nothing written", async () => {
+    const { svc, repo } = photoSetup({ bucket: "" });
+    await expect(
+      svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(repo.updatePhotoStorageKey).not.toHaveBeenCalled();
+  });
+});
+
+describe("WorkersService.getPhotoUrl (ADR-0032)", () => {
+  it("returns a short-TTL signed READ url for the worker's OWN key; emits NO event", async () => {
+    const { svc, storage, events } = photoSetup({
+      worker: { id: WORKER_ID, photoStorageKey: MINTED_KEY },
+    });
+    const res = await svc.getPhotoUrl(WORKER_ID);
+    expect(storage.createSignedUrl).toHaveBeenCalledWith(MINTED_KEY, 900, "worker-profile-photos");
+    expect(res).toEqual({
+      url: "https://storage.example/signed-read?token=SIGNED_READ_TOKEN",
+      expires_in: 900,
+    });
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("404s when the worker has no photo (and for a missing worker — no oracle)", async () => {
+    const noPhoto = photoSetup({ worker: { id: WORKER_ID, photoStorageKey: null } });
+    await expect(noPhoto.svc.getPhotoUrl(WORKER_ID)).rejects.toBeInstanceOf(NotFoundException);
+    const noWorker = photoSetup({ worker: undefined });
+    await expect(noWorker.svc.getPhotoUrl(WORKER_ID)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("503s while dormant", async () => {
+    const { svc } = photoSetup({ bucket: "" });
+    await expect(svc.getPhotoUrl(WORKER_ID)).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+});
+
+describe("WorkersService.deletePhoto (ADR-0032)", () => {
+  it("IDEMPOTENT: no photo → 200-shape result, no write, NO event (nothing changed, §1)", async () => {
+    const { svc, repo, events } = photoSetup({
+      worker: { id: WORKER_ID, photoStorageKey: null },
+    });
+    const res = await svc.deletePhoto(WORKER_ID, CTX);
+    expect(res).toEqual({ worker_id: WORKER_ID, has_photo: false });
+    expect(repo.updatePhotoStorageKey).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("clears the pointer, deletes the object, and emits a PII-free worker.photo_removed", async () => {
+    const { svc, repo, storage, events } = photoSetup({
+      worker: { id: WORKER_ID, photoStorageKey: MINTED_KEY },
+    });
+    const res = await svc.deletePhoto(WORKER_ID, CTX);
+
+    expect(repo.updatePhotoStorageKey).toHaveBeenCalledWith(WORKER_ID, null);
+    expect(storage.deletePdf).toHaveBeenCalledWith(MINTED_KEY, "worker-profile-photos");
+    const emitArg = events.emit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(emitArg.event_name).toBe("worker.photo_removed");
+    expect(emitArg.payload).toEqual({ worker_id: WORKER_ID });
+    expect(JSON.stringify(emitArg)).not.toMatch(/photos\/|https?:/);
+    expect(res).toEqual({ worker_id: WORKER_ID, has_photo: false });
+  });
+
+  it("DORMANCY never blocks data minimization: pointer clears even with the bucket unset (object delete skipped)", async () => {
+    const { svc, repo, storage, events } = photoSetup({
+      worker: { id: WORKER_ID, photoStorageKey: MINTED_KEY },
+      bucket: "",
+    });
+    const res = await svc.deletePhoto(WORKER_ID, CTX);
+    expect(repo.updatePhotoStorageKey).toHaveBeenCalledWith(WORKER_ID, null);
+    expect(storage.deletePdf).not.toHaveBeenCalled();
+    expect(events.emit).toHaveBeenCalled(); // the pointer removal is a real state change
+    expect(res.has_photo).toBe(false);
+  });
+
+  it("a failed object delete degrades (logged, prefix-sweepable) — the removal still succeeds + emits", async () => {
+    const { svc, storage, events } = photoSetup({
+      worker: { id: WORKER_ID, photoStorageKey: MINTED_KEY },
+    });
+    storage.deletePdf = vi.fn(async () => {
+      throw new Error("storage delete failed with status 500");
+    });
+    const res = await svc.deletePhoto(WORKER_ID, CTX);
+    expect(res.has_photo).toBe(false);
+    expect(events.emit).toHaveBeenCalled();
   });
 });

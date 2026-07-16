@@ -31,6 +31,21 @@ class SwipeSkipped extends SwipeEvent {
   const SwipeSkipped();
 }
 
+/// A job was applied OUTSIDE the deck — the JobDetail full-screen applies via
+/// its own [JobDetailCubit] and pops back with `'applied'`; the Feed dispatches
+/// this so the just-applied job is PRUNED from the queue (H-1). Without it the
+/// card stayed deck head after the pop, and the natural next gesture — a left
+/// swipe — POSTed a skip whose server upsert (last-write-wins, ADR-0009 §2)
+/// silently flipped the fresh applied row to skipped.
+class SwipeJobApplied extends SwipeEvent {
+  const SwipeJobApplied(this.jobId);
+
+  final String jobId;
+
+  @override
+  List<Object?> get props => <Object?>[jobId];
+}
+
 
 /// The worker changed the filters — from the "Filter jobs" sheet OR the Feed's
 /// top chip row, which both dispatch this one event. [filters] is the whole
@@ -53,6 +68,7 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
     on<SwipeFeedRequested>(_onFeedRequested);
     on<SwipeApplied>(_onApplied);
     on<SwipeSkipped>(_onSkipped);
+    on<SwipeJobApplied>(_onJobApplied);
     on<SwipeFiltersChanged>(_onFiltersChanged);
   }
 
@@ -106,6 +122,23 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
     } on Failure catch (failure) {
       _onDecisionError(emit, failure);
     }
+  }
+
+  /// Prune a job the DETAIL screen already applied to (server-confirmed — the
+  /// detail pops `'applied'` only after its POST succeeded). Mirrors [_advance]
+  /// minus the decision bookkeeping: no network call happened HERE, `deciding`
+  /// is untouched, and `appliedNonce` is NOT bumped (the Feed toasts off the
+  /// pop result — bumping would double-toast). Removing by id keeps this safe
+  /// against filter changes landing mid-flight, same as [_advance].
+  void _onJobApplied(SwipeJobApplied event, Emitter<SwipeState> emit) {
+    final List<FeedItem> next = state.queue
+        .where((FeedItem job) => job.jobId != event.jobId)
+        .toList();
+    if (next.length == state.queue.length) return; // not in the deck
+    emit(state.copyWith(
+      queue: next,
+      status: next.isEmpty ? SwipeStatus.empty : SwipeStatus.ready,
+    ));
   }
 
   /// Recompute the visible deck for a new filter selection. Pure client-side over

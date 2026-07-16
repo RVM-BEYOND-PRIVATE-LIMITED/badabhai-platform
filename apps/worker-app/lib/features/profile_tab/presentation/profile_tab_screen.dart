@@ -18,8 +18,8 @@ import 'cubit/profile_tab_cubit.dart';
 import '../domain/profile_summary.dart';
 
 /// The tabbed Profile (spec §5.9) — distinct from the profiling ProfilePreview.
-/// Header + strength card + the Interview-kit shortcut (switches to the Resume
-/// tab and pushes the kit).
+/// Header + strength card + the Interview-kit shortcut (the kit routes are
+/// nested under this Profile branch — WA-3).
 class ProfileTabScreen extends StatelessWidget {
   const ProfileTabScreen({super.key});
 
@@ -204,7 +204,23 @@ class _ProfileTabView extends StatelessWidget {
     );
   }
 
+  /// WA-4: the backend `strength` is an integer SIGNAL COUNT (countFields,
+  /// recomputed on read) with NO denominator on the wire — this card used to
+  /// render `count * 100 %` (e.g. "800%") over a bar fed the raw count, plus a
+  /// "photo → 100%" line no backend field backs. It now shows the honest count
+  /// in DS voice ("N cheezein" — never dev vocabulary like "signals", L-2);
+  /// the moment the API ships `strength_max` the real N/max meter + bar light
+  /// up via [ProfileSummary.strengthMax] — nothing here divides by a
+  /// client-side magic number. ("Add X" hints need the missing field LIST,
+  /// which the summary response does not carry either.)
   Widget _strengthCard(ProfileSummary s) {
+    final int n = s.strengthSignals;
+    final int? max = s.strengthMax;
+    final bool hasMax = max != null && max > 0;
+    final String meter = hasMax ? '$n/$max' : '$n cheezein';
+    final String hint = n == 0
+        ? 'Abhi profile khaali hai — chat mein apne skills aur experience batayein.'
+        : 'Profile mein $n cheezein complete — chat mein aur jankari denge to aur strong hogi.';
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surfaceCard,
@@ -221,15 +237,21 @@ class _ProfileTabView extends StatelessWidget {
               Text('Profile strength',
                   style: AppTypography.body(
                       size: AppTypography.sizeSm, weight: FontWeight.w700)),
-              Text('${(s.strength * 100).round()}%',
-                  style: AppTypography.mono(color: AppColors.textMuted)),
+              Text(meter, style: AppTypography.mono(color: AppColors.textMuted)),
             ],
           ),
-          const SizedBox(height: AppSpacing.s2),
-          BbProgressBar(value: s.strength),
+          // A fraction bar exists ONLY when a real denominator exists.
+          if (hasMax) ...<Widget>[
+            const SizedBox(height: AppSpacing.s2),
+            BbProgressBar(value: n / max),
+          ],
           const SizedBox(height: AppSpacing.s3),
-          Text('Ek photo add karein aur 100% tak pahunchein.',
-              style: AppTypography.body(color: AppColors.textMuted)),
+          // ADR-0032 nudge route-through intentionally NOT taken here: #340 was cut
+          // before #326, and its copy hardcoded "…aur 100% tak pahunchein" — the
+          // fabricated percent WA-4 removed (no backend field backs it). This hint
+          // also points to CHAT, so a tap to resumeEdit would contradict its text.
+          // The photo flow stays reachable via the edit screen's "Aapki photo" row.
+          Text(hint, style: AppTypography.body(color: AppColors.textMuted)),
         ],
       ),
     );
@@ -243,10 +265,9 @@ class _ProfileTabView extends StatelessWidget {
         border: Border.all(color: AppColors.borderSubtle),
       ),
       clipBehavior: Clip.antiAlias,
-      // Pushed from Profile (back → Profile), like Applied jobs below. NOT
-      // `go` — the kit used to live under the Resume branch, so `go` made the
-      // shell switch branches and the bottom bar jumped to Resume while the
-      // worker was still in Profile. The kit now hangs off the Profile branch.
+      // Opens the kit WITHIN the Profile branch (WA-3): the kit routes are
+      // nested under /profile, so the Profile tab stays active and backing out
+      // of the kit lands here — not on the Resume tab.
       child: BbListRow.kit(
         icon: Icons.quiz_outlined,
         title: 'Interview kit',
