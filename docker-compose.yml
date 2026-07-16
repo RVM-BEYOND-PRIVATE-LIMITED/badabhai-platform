@@ -65,7 +65,10 @@ services:
   #
   # Full runbook + bucket provisioning: docs/resume-pdf-render-local.md
   api:
-    profiles: ["api"]
+    # Also under the TD25a proxy-harness profile so `--profile proxy-harness up`
+    # brings the API up behind the harness nginx. Plain `up` / `pnpm db:up` still
+    # never start it.
+    profiles: ["api", "proxy-harness"]
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -107,6 +110,31 @@ services:
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-dev-internal-token}
+      # TD25a — trust-proxy hop count for the reverse-proxy harness below. Default 0
+      # (fail-safe, same as the config schema): req.ip = socket peer, XFF ignored.
+      # Set to 1 when running behind the harness nginx (the correct single-hop value):
+      #   TRUST_PROXY_HOP_COUNT=1 docker compose --profile proxy-harness up --build
+      # A hop COUNT, never a blanket `true` — see infra/docker/proxy-harness/README.md.
+      TRUST_PROXY_HOP_COUNT: ${TRUST_PROXY_HOP_COUNT:-0}
+
+  # ---- Optional: TD25a reverse-proxy harness (ONE honest edge hop in front of api) ----
+  # NOT started by `docker compose up` / `pnpm db:up` — profile-gated. An nginx that
+  # APPENDS the connecting peer to X-Forwarded-For ($proxy_add_x_forwarded_for), i.e.
+  # exactly what a real single-hop LB does, so the TRUST_PROXY_HOP_COUNT failure modes
+  # (hop=0 shared-bucket collapse; hop-too-high forged-XFF identity) can be reproduced
+  # locally. Runbook + two-client QA scenario + hop→topology table:
+  #   infra/docker/proxy-harness/README.md
+  proxy:
+    profiles: ["proxy-harness"]
+    image: nginx:1.27-alpine
+    container_name: badabhai-proxy-harness
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "8088:8080"
+    volumes:
+      - ./infra/docker/proxy-harness/nginx.conf:/etc/nginx/nginx.conf:ro
 
 volumes:
   badabhai_pgdata:
