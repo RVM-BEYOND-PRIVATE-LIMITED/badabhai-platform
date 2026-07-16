@@ -32,7 +32,7 @@ ranks** — a skills factor in RANK is a *separate future ADR*, explicitly out o
 | TAX-5 | Data/AI — wedge aliases + floor calibration | **P1** | **CALIBRATED (floor 0.75)** · RVM gate open | TAX-4 | #225 |
 | TAX-6 | Backend+AI — job side shares id space | P2 | **BUILT** (flag-gated; RANK locked; review PASS, M1-M3 fixed) | TAX-4 | #226 |
 | TAX-7 | AI — growth loop (cluster unresolved) | P2 | **MERGED** (report-only; ratification flow = only activation path; `pytest -k growth`) | TAX-4 | #230 |
-| TAX-8 | QA+AI — off-wedge résumé verify | P2 | **VERIFIED + LOCKED** (`pytest -k resume`; raw-phrase gap → Q14) | TAX-4 | #227 |
+| TAX-8 | QA+AI — off-wedge résumé verify | P2 | **VERIFIED + LOCKED** (`pytest -k resume`; raw-phrase gap → Q14 — **decided + implemented 2026-07-16**: confirmed raw `skill_labels` render, pseudonymize-gated) | TAX-4 | #227 |
 | TAX-9 | DB+AI — versioning + offline re-tag | P3 | **MERGED** (migration **0039 — owner apply pending**; dry-run default; `pytest -k retag`; review 8 findings fixed in-PR) | TAX-4/6 | #232 |
 
 ## Done (TAX-0…TAX-4)
@@ -196,9 +196,21 @@ unchanged. OQ#3 (out-of-scope worker experience) is a product decision — flag,
 degrades to "(to be confirmed)" and the résumé ALWAYS completes; the résumé path is
 structurally independent of canonicalization (both entry points forced to raise → 200);
 `RESUME_SYSTEM_PROMPT` pinned by sha256 tripwire (deliberate edits must touch the test).
-HONEST FINDING: the spec's "renders from worker-confirmed raw phrases" is NOT today's
-behavior — the résumé renders closed-set ids or nothing; the raw-phrase gap is **Q14**
-(open-questions register, product decision — flagged, not decided).
+HONEST FINDING (now closed): the spec's "renders from worker-confirmed raw phrases" was NOT
+the behavior as verified — the résumé rendered closed-set ids or nothing; that gap was **Q14**.
+**Q14 decided 2026-07-16 (owner) + implemented:** the confirmed raw labels now render via the
+additive `DraftProfile.skill_labels` field (Zod + Pydantic), populated on the live
+`/profile/extract` path from `WorkerProfileDraft.skills` (labels-only — deliberately NOT the
+WS4-deferred `map_rich_to_legacy` role/id backfill) and **certified clean AT REST**: hygiene
+clamp (≤20 labels, ≤80 chars, deduped) + pseudonymize certification at population, so a
+blocked/masked/altered label never persists into `profiles.raw_profile` /
+`generated_resumes.sourceProfileSnapshot` — the TS PDF + payer-disclosure renderers of that
+snapshot therefore need no gate of their own. The résumé boundary **re-certifies (SG-2,
+fail-closed, defense in depth)**: a label reaches the artifact and the LLM payload only when
+`pseudonymize` certifies it clean (not blocked, nothing masked, text byte-identical); anything
+else is silently dropped and the résumé still completes. `RESUME_SYSTEM_PROMPT` unchanged
+(hash pin holds); all TAX-8 locks extended, none deleted; labels are display-only — never
+matchable ids, never in events/`ai_jobs`/logs.
 
 ## TAX-9 — Versioning + offline re-tag discipline · P3 · owner: db + ai
 

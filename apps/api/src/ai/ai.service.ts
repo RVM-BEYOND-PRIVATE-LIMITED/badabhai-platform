@@ -94,10 +94,23 @@ export class AiService {
     const remote = await this.post("/resume/generate", input, ResumeGenerationOutputSchema);
     if (remote) return remote;
     const { profile } = input;
+    // Q14: local mock fallback (AI service unreachable — NO LLM involved) renders
+    // ids + the worker-confirmed raw labels, deduped case-insensitively against
+    // the ids with the `skill_` prefix stripped (label "Milling" dupes skill_milling).
+    // SAFE UNGATED BY CONSTRUCTION: skill_labels is CERTIFIED CLEAN AT REST by the
+    // AI service at population (/profile/extract → sanitize_skill_labels: hygiene
+    // clamp + pseudonymize certification — a blocked/masked/altered label never
+    // persists in profiles.raw_profile), so this no-LLM path only ever echoes
+    // already-certified labels. No TS-side pseudonymize equivalent is needed here.
+    const idKeys = new Set(profile.skills.map((s) => s.replace(/^skill_/, "").replace(/_/g, " ").toLowerCase()));
+    const skills = [
+      ...profile.skills,
+      ...profile.skill_labels.filter((l) => !idKeys.has(l.toLowerCase())),
+    ];
     const lines = [
       "PROFESSIONAL SUMMARY (draft)",
       profile.canonical_role_id ? `Role: ${profile.canonical_role_id}` : "Role: (to be confirmed)",
-      profile.skills.length ? `Skills: ${profile.skills.join(", ")}` : "Skills: (to be confirmed)",
+      skills.length ? `Skills: ${skills.join(", ")}` : "Skills: (to be confirmed)",
       profile.machines.length ? `Machines: ${profile.machines.join(", ")}` : "Machines: (to be confirmed)",
     ];
     return ResumeGenerationOutputSchema.parse({

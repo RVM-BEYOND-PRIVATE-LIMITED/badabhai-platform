@@ -6,17 +6,20 @@ skills are UNRESOLVED / out of launch scope still gets a complete résumé.
 
 WHAT IS TRUE TODAY (locked here, honestly):
 - The résumé renders from ``DraftProfile`` — ``skills`` carries CLOSED-SET canonical ids
-  (gazetteer/vector-assigned) or is empty. For a launch-role worker the ids render; for an
-  off-wedge worker the skills line degrades to "(to be confirmed)" and the résumé is still
-  complete. The ids double as the machine-readable metadata (``resume_json``).
+  (gazetteer/vector-assigned) or is empty, and (Q14, decided 2026-07-16) ``skill_labels``
+  carries the worker-confirmed RAW labels. For a launch-role worker the ids render; an
+  off-wedge worker with confirmed labels sees the labels; with neither, the skills line
+  degrades to "(to be confirmed)" and the résumé is still complete. The ids double as the
+  machine-readable metadata (``resume_json``).
 - The résumé path is STRUCTURALLY independent of canonicalization: it never calls
   ``canonicalize_skill``/``canonicalize_labels`` (proved by making both raise).
 
-FLAGGED, NOT DECIDED (OQ#3 — product call, docs/registers/open-questions.md Q14):
-the worker's confirmed RAW phrases (rich ``WorkerProfileDraft.skills`` labels) never reach
-the résumé — an off-wedge welder who confirmed "MIG welding" sees "(to be confirmed)".
-Rendering rich labels would change the ResumeGenerationInput contract (Zod+Pydantic) and
-the worker-facing artifact — a deliberate product/builder decision, out of TAX-8 scope.
+Q14 DECIDED (2026-07-16, owner — was OQ#3, docs/registers/open-questions.md Q14):
+render the confirmed RAW labels, via the additive ``DraftProfile.skill_labels`` field
+(Zod+Pydantic). SG-2 rides the résumé boundary: every label must be CERTIFIED CLEAN by
+``pseudonymize`` (not blocked, nothing masked, text unchanged) or it is DROPPED — from the
+artifact AND the LLM payload alike (they share ONE filtered profile). Locked below:
+labels render; suspect labels drop silently; the résumé ALWAYS completes.
 
 ``RESUME_SYSTEM_PROMPT`` is AI-PERSONA-1 scope — pinned untouched below.
 """
@@ -46,8 +49,9 @@ def _launch_role_profile() -> DraftProfile:
 
 
 def _off_wedge_profile() -> DraftProfile:
-    # An adjacent-trade worker (e.g. welder): nothing canonicalized — ids all empty/None.
-    # The raw phrases live only on the RICH draft, which the résumé path never receives.
+    # An adjacent-trade worker (e.g. welder): nothing canonicalized — ids all empty/None
+    # AND no confirmed labels (skill_labels default []). Q14 carries confirmed raw labels
+    # onto DraftProfile.skill_labels; this fixture is the no-labels degradation case.
     return DraftProfile(experience=Experience(total_years=8))
 
 
@@ -118,3 +122,224 @@ def test_resume_system_prompt_baseline_unchanged():
     digest = hashlib.sha256(RESUME_SYSTEM_PROMPT.encode("utf-8")).hexdigest()[:16]
     assert digest == "0f08076b41734eea"
     assert len(RESUME_SYSTEM_PROMPT) > 50  # non-empty, real prompt
+
+
+# =====================================================================================
+# Q14 (ADR-0030 OQ#3, decided 2026-07-16): worker-confirmed RAW skill labels render on
+# the résumé, pseudonymize-gated (SG-2) at the résumé boundary. Additive to the TAX-8
+# locks above — none of them were deleted or weakened.
+# =====================================================================================
+
+
+def _welder_profile(labels: list[str]) -> DraftProfile:
+    # Off-wedge welder: NOTHING canonicalized, but the worker confirmed raw labels.
+    return DraftProfile(experience=Experience(total_years=8), skill_labels=labels)
+
+
+# --- acceptance: the off-wedge welder finally sees their confirmed skills ----------
+def test_offwedge_confirmed_labels_render_on_resume():
+    text, data = build_resume(_welder_profile(["MIG welding", "TIG welding"]))
+    assert "MIG welding" in text and "TIG welding" in text
+    assert "Skills: (to be confirmed)" not in text
+    assert data["skill_labels"] == ["MIG welding", "TIG welding"]
+    assert data["skills"] == []  # matchable ids untouched — labels are display-only
+
+
+def test_offwedge_labels_render_through_endpoint():
+    resp = client.post(
+        "/resume/generate",
+        json={"profile": _welder_profile(["MIG welding"]).model_dump()},
+    )
+    assert resp.status_code == 200
+    assert "MIG welding" in resp.json()["resume_text"]
+
+
+def test_old_payload_without_skill_labels_still_parses_and_degrades():
+    # Backward compatibility: old persisted DraftProfile rows lack skill_labels.
+    profile = DraftProfile.model_validate({"experience": {"total_years": 8}})
+    assert profile.skill_labels == []
+    text, _ = build_resume(profile)
+    assert "Skills: (to be confirmed)" in text  # byte-for-byte today's behavior
+
+
+# --- SG-2: the pseudonymize gate at the résumé boundary ----------------------------
+def test_blocked_label_is_dropped_from_artifact_and_llm_payload(monkeypatch):
+    # "1234567" (7-digit run) trips the fail-closed residual-digit block (a 10-digit
+    # run would be MASKED as a phone instead — covered by the masked-label test).
+    from app.pseudonymize import pseudonymize
+
+    bad = "welding grade 1234567"
+    assert pseudonymize(bad).blocked is True  # honest precondition
+
+    from app import main as app_main
+
+    captured: dict = {}
+    original_run = app_main.router.run
+
+    async def spy_run(task_type, **kwargs):
+        captured["messages"] = kwargs["messages"]
+        return await original_run(task_type, **kwargs)
+
+    monkeypatch.setattr(app_main.router, "run", spy_run)
+
+    resp = client.post(
+        "/resume/generate",
+        json={"profile": _welder_profile(["MIG welding", bad]).model_dump()},
+    )
+    assert resp.status_code == 200  # résumé ALWAYS completes
+    body = resp.json()
+    # Dropped from the worker-facing artifact...
+    assert bad not in body["resume_text"] and "1234567" not in body["resume_text"]
+    assert bad not in str(body["resume_json"])
+    # ...AND from the exact payload handed to the LLM seam (same filtered profile).
+    import json as _json
+
+    llm_payload = _json.dumps(captured["messages"])
+    assert bad not in llm_payload and "1234567" not in llm_payload
+    # The clean label in the SAME request still renders (proves the gate is per-label).
+    assert "MIG welding" in body["resume_text"] and "MIG welding" in llm_payload
+
+
+def test_masked_label_is_dropped():
+    # A label pseudonymize would MASK (replaced_entities > 0) is dropped too — the
+    # gate demands certified-clean (nothing masked, text unchanged), not just unblocked.
+    from app.pseudonymize import pseudonymize
+
+    city_label = "welding in Pune"  # known-city gazetteer hit -> [CITY_1]
+    phone_label = "welding 9876543210"  # 10-digit run -> masked as [PHONE_1]
+    for label in (city_label, phone_label):
+        r = pseudonymize(label)
+        assert r.blocked is False and r.replaced_entities > 0  # honest precondition
+
+    resp = client.post(
+        "/resume/generate",
+        json={"profile": _welder_profile([city_label, phone_label, "TIG welding"]).model_dump()},
+    )
+    assert resp.status_code == 200
+    text = resp.json()["resume_text"]
+    assert city_label not in text and phone_label not in text
+    assert "9876543210" not in text
+    assert "TIG welding" in text
+
+
+def test_all_labels_dropped_falls_back_and_completes():
+    resp = client.post(
+        "/resume/generate",
+        json={"profile": _welder_profile(["welding grade 1234567", "shop in Pune"]).model_dump()},
+    )
+    assert resp.status_code == 200  # never crash, never block the résumé
+    body = resp.json()
+    assert "Skills: (to be confirmed)" in body["resume_text"]  # honest degradation
+    assert body["resume_json"]["skill_labels"] == []
+    assert "Experience: 8 years" in body["resume_text"]  # rest still renders
+
+
+# --- render dedupe: a label never duplicates its canonical id ----------------------
+def test_label_duplicating_a_canonical_id_is_not_rendered_twice():
+    profile = DraftProfile(
+        skills=["skill_milling"],
+        skill_labels=["Milling", "5-axis setup"],
+    )
+    text, _ = build_resume(profile)
+    assert "skill_milling" in text
+    assert "5-axis setup" in text
+    assert "Milling" not in text  # label normalizes to the id ("skill_" stripped)
+
+
+# --- extraction hygiene clamp (defense in depth; the hard gate is SG-2 above) ------
+def test_extraction_clamps_labels_count_length_dedupe_and_control_chars():
+    from app.contracts import WorkerProfileDraft
+    from app.profiling.profile_extractor import map_rich_to_legacy
+
+    labels = [f"skill variant {i}" for i in range(21)]  # 21 -> capped at 20
+    labels[3] = "x" * 81  # over-length -> dropped
+    labels[4] = "MIG welding"
+    labels[5] = "mig WELDING"  # case-insensitive dupe of [4] -> dropped
+    labels[6] = "\x01tig\x02 welding\x1f"  # control chars stripped (escapes only)
+    labels[7] = "   "  # empties dropped
+
+    legacy = map_rich_to_legacy(WorkerProfileDraft(skills=labels))
+    out = legacy.skill_labels
+    assert len(out) <= 20
+    assert all(len(label) <= 80 for label in out)
+    assert "MIG welding" in out and "mig WELDING" not in out
+    assert "tig welding" in out  # control chars stripped, text kept
+    assert all(label.strip() for label in out)
+
+
+def test_extraction_clamp_caps_at_twenty():
+    from app.contracts import WorkerProfileDraft
+    from app.profiling.profile_extractor import map_rich_to_legacy
+
+    legacy = map_rich_to_legacy(
+        WorkerProfileDraft(skills=[f"unique skill {i}" for i in range(21)])
+    )
+    assert len(legacy.skill_labels) == 20
+
+
+# --- certify-at-rest: suspect labels never PERSIST (PR #245 review, finding 2) -----
+# apps/api stores the extract-endpoint profile as profiles.raw_profile and later
+# generated_resumes.sourceProfileSnapshot; the PDF + payer-facing disclosure render
+# skill_labels from that snapshot with NO TypeScript pseudonymize equivalent — so
+# certification must hold at POPULATION time, not only at the résumé boundary.
+
+
+def test_map_rich_to_legacy_certifies_labels_at_rest():
+    from app.contracts import WorkerProfileDraft
+    from app.profiling.profile_extractor import map_rich_to_legacy
+    from app.pseudonymize import pseudonymize
+
+    masked = "welding in Pune"  # city gazetteer hit -> would be masked
+    blocked = "welding grade 1234567"  # 7-digit run -> fail-closed block
+    assert pseudonymize(masked).replaced_entities > 0  # honest preconditions
+    assert pseudonymize(blocked).blocked is True
+
+    legacy = map_rich_to_legacy(
+        WorkerProfileDraft(skills=["MIG welding", masked, blocked])
+    )
+    assert legacy.skill_labels == ["MIG welding"]
+
+
+# --- /profile/extract is the LIVE-PATH producer (PR #245 review, finding 1) --------
+def test_extract_endpoint_populates_certified_skill_labels(monkeypatch):
+    # map_rich_to_legacy has NO production caller (WS4-deferred), so the endpoint
+    # itself must populate skill_labels — poison the rich draft to prove both the
+    # population wiring AND the at-rest certification in one shot.
+    from app.contracts import DraftProfile as DP
+    from app.contracts import WorkerProfileDraft
+    from app.profiling import profile_extractor
+
+    def fake_extract(text, role_family="cnc_vmc"):
+        rich = WorkerProfileDraft(
+            skills=["MIG welding", "welding in Pune", "welding grade 1234567"]
+        )
+        return rich, DP()
+
+    monkeypatch.setattr(profile_extractor, "extract", fake_extract)
+
+    resp = client.post(
+        "/profile/extract",
+        json={"transcript": "main welding ka kaam karta hoon"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    # Clean label persisted; masked + blocked labels NEVER enter the persisted
+    # profile (this response IS what apps/api stores as profiles.raw_profile).
+    assert body["profile"]["skill_labels"] == ["MIG welding"]
+    import json as _json
+
+    profile_json = _json.dumps(body["profile"])
+    assert "Pune" not in profile_json and "1234567" not in profile_json
+
+
+def test_extract_endpoint_live_heuristic_labels_flow_unmocked():
+    # No monkeypatch: the real heuristic path must carry its labels through to
+    # DraftProfile.skill_labels (the field is not dead code on the live path).
+    resp = client.post(
+        "/profile/extract",
+        json={"transcript": "I operate a VMC with Fanuc control and do tool offset setting"},
+    )
+    assert resp.status_code == 200
+    labels = resp.json()["profile"]["skill_labels"]
+    assert "tool offset setting" in labels
+    assert "machine operation" in labels

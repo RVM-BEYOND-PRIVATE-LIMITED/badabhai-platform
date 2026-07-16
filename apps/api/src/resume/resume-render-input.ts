@@ -32,7 +32,11 @@ export function buildResumeRenderInput(
     experienceYears: draft.experience.total_years,
     availability: humanizeAvailability(draft.availability.status),
     summary: buildSummary(draft, trade),
-    skills: draft.skills,
+    // Q14: canonical ids first, then the worker-confirmed raw labels (deduped
+    // against the ids). The snapshot labels were extraction-clamped and are
+    // pseudonymize-gated by the AI service at résumé generation; this is a pure
+    // render mapping (no LLM here).
+    skills: mergeSkillsWithLabels(draft.skills, draft.skill_labels),
     machines: draft.machines,
     // Controllers/education/certifications aren't in the DraftProfile snapshot; they
     // stay empty (no fabrication). Responsibilities are TRADE-level copy.
@@ -65,6 +69,29 @@ function buildSummary(
       .replace(/\{\{\s*primary_machine\s*\}\}/g, primaryMachine);
   }
   return trade.fresher_phrases[0] ?? null;
+}
+
+/**
+ * Q14: skills for render = canonical ids + worker-confirmed raw labels, dropping a
+ * label whose normalization matches an id's (with the `skill_` prefix stripped) —
+ * e.g. label "Milling" dupes id `skill_milling`. Mirrors `_skills_entries` in
+ * apps/ai-service/app/extraction.py.
+ */
+function mergeSkillsWithLabels(ids: string[], labels: string[]): string[] {
+  const norm = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim();
+  const seen = new Set(ids.map((id) => norm(id.replace(/^skill_/, ""))));
+  const out = [...ids];
+  for (const label of labels) {
+    const key = norm(label);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(label);
+  }
+  return out;
 }
 
 /** Map the availability enum to a short human-readable phrase (or omit). */
