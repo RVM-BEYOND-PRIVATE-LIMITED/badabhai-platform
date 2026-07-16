@@ -138,6 +138,28 @@ describe("PII keyring config (TD22-1 — kid + keyring, fail closed at BOOT)", (
     expect(() => assertPiiCryptoConfig(oversized, "development")).toThrow(/invalid key id/);
   });
 
+  it("a DUPLICATED kid in the raw JSON fails boot — JSON.parse last-wins must not pass silently (LOW-2)", () => {
+    // `{"k1":keyA,"k1":keyB}` parses to ONE entry (last wins): without the raw
+    // scan it would boot clean and keyA-encrypted rows would fail only at READ
+    // time with a GCM auth error. Must fail at BOOT instead.
+    const dupe = `{"dupe_kid_a":"${K1}","dupe_kid_a":"${K2}"}`;
+    const c = cfg({ PII_ENCRYPTION_KEYS: dupe, PII_ENCRYPTION_ACTIVE_KID: "dupe_kid_a" });
+    expect(() => assertPiiCryptoConfig(c, "development")).toThrow(
+      /PII_ENCRYPTION_KEYS contains a duplicate key id/,
+    );
+    expect(() => getPiiKeyring(c)).toThrow(/duplicate key id/);
+    // §2: the problem string never echoes the duplicated kid.
+    const problems = piiKeyringConfigProblems(c).join("; ");
+    expect(problems).toContain("PII_ENCRYPTION_KEYS contains a duplicate key id");
+    expect(problems).not.toContain("dupe_kid_a");
+    // No false positive: a normal multi-kid map (distinct keys) stays clean.
+    const clean = cfg({
+      PII_ENCRYPTION_KEYS: JSON.stringify({ k1: K1, k2: K2 }),
+      PII_ENCRYPTION_ACTIVE_KID: "k1",
+    });
+    expect(piiKeyringConfigProblems(clean)).toEqual([]);
+  });
+
   it("an ACTIVE_KID not present in the map fails boot", () => {
     const c = cfg({ PII_ENCRYPTION_KEYS: KEYS, PII_ENCRYPTION_ACTIVE_KID: "not_in_map" });
     expect(() => assertPiiCryptoConfig(c, "development")).toThrow(

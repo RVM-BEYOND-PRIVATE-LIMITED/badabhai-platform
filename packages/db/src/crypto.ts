@@ -174,7 +174,16 @@ export function encryptPiiWithKeyring(plaintext: string, keyring: PiiKeyring): s
  */
 export function decryptPii(token: string, keyB64: string): string {
   const key = decodeKey(keyB64);
-  const [version, ivB64, tagB64, ctB64] = token.split(".");
+  const parts = token.split(".");
+  // TD22-1 rollback diagnosability: a v2 token reaching this legacy single-key
+  // path means the keyring was UNSET after v2 rows were written (a config
+  // rollback), NOT data corruption — name that distinctly so the incident is
+  // diagnosed as "re-set the keyring", never "the row is corrupt". Constant
+  // message: the kid is never echoed (mirrors the v1-without-legacy-key throw).
+  if (parts[0] === ENC_VERSION_V2 && parts.length === 5) {
+    throw new Error("v2 PII token but no keyring is configured");
+  }
+  const [version, ivB64, tagB64, ctB64] = parts;
   if (version !== ENC_VERSION || !ivB64 || !tagB64 || !ctB64) {
     throw new Error("malformed PII ciphertext token");
   }
