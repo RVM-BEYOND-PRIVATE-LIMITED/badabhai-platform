@@ -5,6 +5,10 @@ version: 1.0.0+1
 
 environment:
   sdk: ^3.6.2
+  # TD61: the widgets use Flutter 3.35 APIs (Switch.activeThumbColor,
+  # DropdownButtonFormField.initialValue) — fail LOUD on an older SDK instead of
+  # confusing no-named-parameter compile errors. CI pins 3.35.7 (payer-app.yml).
+  flutter: ">=3.35.0"
 
 dependencies:
   flutter:
