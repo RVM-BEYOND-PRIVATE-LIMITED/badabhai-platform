@@ -188,10 +188,13 @@ const CONTRACT: ControllerContract[] = [
     ctor: AgencyInvitesController,
     routes: { createInvite: [P, R], recordClick: [P, R], referralsSummary: [P, R] },
   },
+  // TD70 item 5 (2026-07-16): `generate` moved from OPEN to WorkerAuthGuard — the
+  // acting worker_id is session-derived (XB-A); a legacy body worker_id must match
+  // the session or the route 404s (no existence oracle, matching `download`).
   {
     name: "Resume",
     ctor: ResumeController,
-    routes: { generate: [], get: [I], regenerate: [I], download: [W], share: [I] },
+    routes: { generate: [W], get: [I], regenerate: [I], download: [W], share: [I] },
   },
   {
     name: "Unlocks",

@@ -5,6 +5,7 @@ import {
   HttpCode,
   Inject,
   Ip,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
@@ -42,13 +43,27 @@ export class ResumeController {
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
+  /**
+   * Generate (or refresh) the worker's OWN resume. Worker-authenticated (TD70
+   * item 5); the acting worker id comes from the SESSION (XB-A), NEVER the body.
+   * The body `worker_id` survives only for back-compat with shipped worker-app
+   * clients that still send it: a mismatch with the session worker returns 404 —
+   * not 400/403 — for consistency with the sibling download route's
+   * no-existence-oracle posture (the response must never confirm that another
+   * worker or their profile exists).
+   */
   @Post("generate")
   @HttpCode(201)
+  @UseGuards(WorkerAuthGuard)
   generate(
     @Body(new ZodValidationPipe(GenerateResumeSchema)) dto: GenerateResumeDto,
+    @CurrentWorker() worker: AuthenticatedWorker,
     @Ctx() ctx: RequestContext,
   ) {
-    return this.resume.generate(dto, ctx);
+    if (dto.worker_id !== undefined && dto.worker_id !== worker.id) {
+      throw new NotFoundException(`Profile ${dto.profile_id} not found`);
+    }
+    return this.resume.generate({ worker_id: worker.id, profile_id: dto.profile_id }, ctx);
   }
 
   /** Read a single generated resume by id (ops read view). */
