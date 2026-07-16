@@ -5,6 +5,37 @@ Newest day on top. Copy the template block each working day. Every % move needs 
 
 ---
 
+# Daily Tracker — 2026-07-16
+
+## BadaBhai Progress Snapshot
+- **No % moves** (cap rule holds: Lightsail CD landed but the box runs dev secrets — see P0)
+- **P0: staging/deploy** — Lightsail CD EXISTS (owner commits + #253 hardening) but is **blocked on STAGING-SECRETS-1 (owner-only)**: the next main push's deploy job goes RED at compose interpolation until real secrets are set; the currently-running container still holds **dev JWT/PII secrets (forgeable sessions — treat as compromised)** and its own throwaway Postgres (R27, TD72(c))
+
+## Merged today
+| PR | What |
+| -- | ---- |
+| #244 | **RATIFY-1 — ADR-0030 gate (d) CLOSED**: all 22 wedge aliases ratified (owner rulings: Q-A chhilai→`skill_deburring`, Q-B drawing padhna→`skill_cad_interpretation`); 22 rows seeded (NULL embeddings); sweep recall stays 0.350 until SR-1 real-embed + re-sweep |
+| #245 | **Q14 DECIDED + LIVE**: worker-confirmed raw skill labels render on the résumé — additive `skill_labels` on DraftProfile (Zod↔Pydantic, no migration), **certify-at-rest** (pseudonymize-certified at population → snapshot/PDF/disclosure/fallback safe by construction), TAX-8 locks intact; review found + fixed dead-code wiring pre-merge; security verify 7/7 PASS |
+| #247/#250 | **TD22-1**: PII token v2 `kid` + keyring + read-both + boot validation (zero rows touched; v2 only when operator opts in); #250 carried the 2 review LOWs (#247 merged early) — rollback diagnosability + duplicate-kid boot-fail |
+| #248 | **TD25a**: reverse-proxy harness + TRUST_PROXY_HOP_COUNT regression suite (12 tests incl. main.ts source tether; hop table pinned empirically; forged-XFF loses at hop=1, wins at hop=2 — documented why the count must be exact) |
+| #251 | **CI-5 + CI-4a**: turbo + pip caches; security-scan post-merge push dropped + weekly full-history cron (CI-4b deliberately NOT built — post-merge main CI is the #233-class net and the deploy keys off it) |
+| #252 | **TD70 item 5**: `POST /resume/generate` worker-authed (session-derived id, XB-A), no-oracle 404s, confirmed-gate; worker-app bearer wired (was tokenless on this one call); risks R26 |
+| #253 | **CD-3/0/4/5**: health-gated deploy (was unconditional-green) + staging compose overlay (NODE_ENV=production, 12 fail-loud `${VAR:?}` secrets, `--no-deps` kills the box-local PG) + immutable sha tags (real rollback) + buildx layer cache; CD-2 HELD (0031 sign-off + D1) |
+| #254 | **WA-5**: interview-kit download 500→503 on storage/renderer outage (root cause: StorageService raw `Error`s escaped the mapping; ran even before the render-enabled check) |
+| #326 | **WA-1..4**: applied-jobs destruction closed (feed excludes applied + in-session deck prune; root cause = `/feed` re-serves decided jobs × upsert last-write-wins), applied-CTA gate, kit routes moved to the Profile branch (back-nav fixed, no tab hack), honest strength meter (count, no fabricated %) |
+| (concurrent) | #249 TD70 row · #255 **R28 Critical launch gate** (unauthenticated decrypted-name read on `GET /workers/:id/profile`) · #256 in-app PDF download (→TD71 lock drift) · #341 R29+TD71+TD72 · Lightsail CD commits |
+
+## Owner queue (ordered)
+1. **STAGING-SECRETS-1** (owner-only, non-delegable) — provision the staging GitHub Environment secrets (generated fresh, never `--env-file .env`); unblocks every deploy. Include `CORS_ALLOWED_ORIGINS` (TD72(a)).
+2. **Box triage + remediation** — run the triage commands on the box; stop the dev-secret container + throwaway postgres/redis; treat sessions minted under `DEV_JWT_SECRET` as forgeable (R27).
+3. **D1 ruling** — is the Lightsail box prod or staging? If prod: `environment:` + required reviewer on deploy. Also blocks CD-2 arming (with the 0031 human sign-off).
+4. **R28** (from #255) — Critical launch gate on the unauthenticated decrypted-name read.
+5. **WA-6..10 decisions** — (a) account-delete dialog copy: honest-immediate vs real 7-day soft delete; (b) notifications: in-app Alerts toggle now vs FCM as its own ADR; (c) WA-6 profile photo = ADR + §2 ruling; (d) WA-8 DPDP policy copy; (e) WA-9 device-list scope (read-only vs revoke).
+6. **TD70(3) product call** — employer-suffix over-drop eats real trade vocabulary ("Sheet Metal Fabrication"); relaxing `_EMPLOYER_RE` touches the pseudonymize gateway.
+7. Standing: SR-1 embed loop (recall 0.350 → re-sweep after real vectors) · TD67 token flip · TD76 (read one failing gitleaks/semgrep run — standing-red advisory is coverage theater) · payer login functionally dead on the box until `PAYER_LOGIN_METHOD` decision (TD72/#253 note).
+
+---
+
 # Daily Tracker — 2026-07-15
 
 ## BadaBhai Progress Snapshot
