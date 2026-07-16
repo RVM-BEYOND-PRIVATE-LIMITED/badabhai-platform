@@ -6,7 +6,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/util/pdf_launcher.dart';
+import '../../../core/util/pdf_downloader.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_scaffold.dart';
@@ -159,9 +159,11 @@ class _ResumeView extends StatelessWidget {
   }
 }
 
-/// "Download PDF" CTA. Resolves a short-lived signed url via the cubit and opens
-/// it in the device viewer; shows its own spinner while resolving and a
-/// user-safe SnackBar on failure. The url is launched immediately, never logged.
+/// "Download PDF" CTA. Resolves a short-lived signed url via the cubit and
+/// downloads the PDF IN-APP into the device's Downloads — the worker stays on
+/// this screen (started/complete SnackBars, "Kholein" opens the saved file).
+/// The button stays busy (disabled) for the WHOLE download so a double-tap
+/// can't produce double files. The url is fetched in memory, never logged.
 class _DownloadResumeButton extends StatefulWidget {
   const _DownloadResumeButton();
 
@@ -175,7 +177,11 @@ class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
   Future<void> _download() async {
     final ResumeCubit cubit = context.read<ResumeCubit>();
     setState(() => _loading = true);
-    await openSignedPdf(context, resolve: cubit.resolveDownloadUrl);
+    await downloadSignedPdf(
+      context,
+      resolve: cubit.resolveDownloadUrl,
+      fileName: 'BadaBhai-Resume.pdf',
+    );
     if (mounted) setState(() => _loading = false);
   }
 

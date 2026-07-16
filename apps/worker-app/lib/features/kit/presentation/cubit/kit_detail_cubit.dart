@@ -46,10 +46,11 @@ class KitDetailCubit extends Cubit<KitDetailState> {
 
   /// Resolves a short-lived signed url for this trade's interview-kit PDF, or
   /// null if it could not be fetched (the screen then shows a user-safe
-  /// message). Does NOT change [KitDetailState]. The url is returned for
-  /// immediate launch only and is never stored or logged.
-  /// Lets a [Failure] PROPAGATE (does not swallow it to null) so `openSignedPdf`
-  /// surfaces the ACTUAL reason instead of a blank generic line.
+  /// message). Does NOT change [KitDetailState]. The url is returned for an
+  /// immediate IN-APP fetch only and is never stored or logged.
+  /// Lets a [Failure] PROPAGATE (does not swallow it to null) so
+  /// `downloadSignedPdf` surfaces the ACTUAL reason instead of a blank generic
+  /// line.
   Future<String?> resolveDownloadUrl(String tradeKey) =>
       _repo.downloadUrl(tradeKey);
 }

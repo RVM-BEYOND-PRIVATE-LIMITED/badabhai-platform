@@ -166,6 +166,10 @@ class MockApiClient extends ApiClient {
     );
   }
 
+  // The `mock://` SCHEME is the downloader's mock sentinel: `downloadSignedPdf`
+  // sees it, skips the (impossible) network fetch, and saves a small placeholder
+  // PDF instead — so the download flow stays walkable offline. Keep the scheme
+  // if these urls ever change.
   @override
   Future<ResumeDownload> downloadResume({
     required String resumeId,
@@ -173,7 +177,7 @@ class MockApiClient extends ApiClient {
   }) async {
     await _delay();
     return const ResumeDownload(
-      url: 'https://mock.local/resume/mock-resume-0001.pdf',
+      url: 'mock://downloads/resume/mock-resume-0001.pdf',
       expiresInSeconds: 900,
     );
   }
@@ -182,7 +186,7 @@ class MockApiClient extends ApiClient {
   Future<InterviewKitDownload> downloadInterviewKit(String tradeKey) async {
     await _delay();
     return const InterviewKitDownload(
-      url: 'https://mock.local/interview-kit/mock-kit-0001.pdf',
+      url: 'mock://downloads/interview-kit/mock-kit-0001.pdf',
       expiresInSeconds: 900,
     );
   }

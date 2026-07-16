@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider scope for the API<29 download fallback (MainActivity
+     saveToAppExternalDownloads): ONLY the app's Download dirs are shareable, so
+     the "Kholein" VIEW intent can grant a per-file read to the PDF viewer and
+     nothing else. API 29+ uses MediaStore content uris and never touches this. -->
+<paths>
+    <external-files-path name="bb_downloads" path="Download/" />
+    <files-path name="bb_downloads_internal" path="Download/" />
+</paths>

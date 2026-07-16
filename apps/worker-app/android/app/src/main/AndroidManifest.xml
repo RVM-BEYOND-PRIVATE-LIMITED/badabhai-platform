@@ -58,6 +58,19 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="@string/default_notification_channel_id" />
+
+        <!-- Grants the PDF viewer per-file read access to downloads saved by the
+             API<29 fallback (app-external Download dir). API 29+ saves via
+             MediaStore and opens the content:// uri directly, bypassing this. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.downloads.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/download_file_paths" />
+        </provider>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
@@ -69,13 +82,14 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
-        <!-- Lets url_launcher resolve a browser / PDF viewer for the short-lived
-             https SIGNED-URL downloads (resume + interview-kit PDFs) under the
-             Android 11+ (API 30+) package-visibility rules. Without this,
-             launchUrl() returns false on a real device even on the happy path. -->
+        <!-- Lets the "Kholein" action resolve a PDF viewer for DOWNLOADED LOCAL
+             files (resume + interview-kit) under the Android 11+ (API 30+)
+             package-visibility rules. Downloads are fetched IN-APP now — no
+             browser / https VIEW intent is ever launched (the signed url never
+             leaves the app), so no https query is needed. -->
         <intent>
             <action android:name="android.intent.action.VIEW"/>
-            <data android:scheme="https"/>
+            <data android:mimeType="application/pdf"/>
         </intent>
     </queries>
 </manifest>
