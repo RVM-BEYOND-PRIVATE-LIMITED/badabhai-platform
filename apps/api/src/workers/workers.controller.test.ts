@@ -1,9 +1,11 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { NotFoundException } from "@nestjs/common";
+import type { ServerConfig } from "@badabhai/config";
 import { WorkersController } from "./workers.controller";
 import type { WorkersRepository } from "./workers.repository";
 import type { WorkersService } from "./workers.service";
+import type { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import type { RequestContext } from "../common/request-context";
 
 const CTX = { correlationId: "c", requestId: "r" } as RequestContext;
@@ -45,16 +47,34 @@ function make() {
       full_name: "Asha",
       show_photo: true,
       night_shift_ready: false,
+      has_photo: false,
     })),
     updateResumePrefs: vi.fn(async () => ({ worker_id: ID })),
+    createPhotoUploadUrl: vi.fn(async () => ({
+      storage_path: `photos/${ID}/9f8e7d6c-2222-4222-8222-000000000002.jpg`,
+      upload_url: "https://storage.example/signed-upload?token=T",
+      expires_in: 7200,
+    })),
+    confirmPhoto: vi.fn(async () => ({ worker_id: ID, has_photo: true as const })),
+    getPhotoUrl: vi.fn(async () => ({
+      url: "https://storage.example/signed-read?token=T",
+      expires_in: 900,
+    })),
+    deletePhoto: vi.fn(async () => ({ worker_id: ID, has_photo: false as const })),
   };
+  // ADR-0032 M-1: the mint route rides the per-IP hourly cap; default mock passes.
+  const ipRateLimit = { assertWithinHourlyIpCap: vi.fn(async () => undefined) };
+  const config = { PHOTO_RATE_LIMIT_PER_IP_PER_HOUR: 20 } as ServerConfig;
   return {
     controller: new WorkersController(
       workers as unknown as WorkersRepository,
       workersService as unknown as WorkersService,
+      ipRateLimit as unknown as IpRateLimit,
+      config,
     ),
     workers,
     workersService,
+    ipRateLimit,
   };
 }
 
@@ -119,7 +139,53 @@ describe("WorkersController — list/getProfile (read, no-PII) + setName", () =>
     const res = await controller.getMyResumeFields(worker);
     // identity: the service gets the TOKEN worker id — never a path/body id
     expect(workersService.getResumeFields).toHaveBeenCalledWith(ID);
-    expect(res).toEqual({ full_name: "Asha", show_photo: true, night_shift_ready: false });
+    expect(res).toEqual({
+      full_name: "Asha",
+      show_photo: true,
+      night_shift_ready: false,
+      has_photo: false,
+    });
+  });
+
+  // ── ADR-0032: the photo routes — worker ALWAYS from the token, mint throttled ──
+
+  it("createMyPhotoUploadUrl: token identity + the M-1 per-IP cap runs BEFORE minting", async () => {
+    const { controller, workersService, ipRateLimit } = make();
+    const worker = { id: ID, sid: "sess-1" };
+    const res = await controller.createMyPhotoUploadUrl(worker, "1.2.3.4");
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
+      "photo_upload_url",
+      "1.2.3.4",
+      20,
+    );
+    expect(workersService.createPhotoUploadUrl).toHaveBeenCalledWith(ID);
+    expect(res.storage_path).toContain(`photos/${ID}/`);
+  });
+
+  it("createMyPhotoUploadUrl: a tripped cap propagates and the mint NEVER runs (fail-closed)", async () => {
+    const { controller, workersService, ipRateLimit } = make();
+    ipRateLimit.assertWithinHourlyIpCap.mockRejectedValueOnce(new Error("429"));
+    await expect(
+      controller.createMyPhotoUploadUrl({ id: ID, sid: "sess-1" }, "1.2.3.4"),
+    ).rejects.toThrow();
+    expect(workersService.createPhotoUploadUrl).not.toHaveBeenCalled();
+  });
+
+  it("confirmMyPhoto / getMyPhotoUrl / deleteMyPhoto all take the worker from the token", async () => {
+    const { controller, workersService } = make();
+    const worker = { id: ID, sid: "sess-1" };
+    const dto = { storage_path: `photos/${ID}/9f8e7d6c-2222-4222-8222-000000000002.jpg` };
+
+    await controller.confirmMyPhoto(worker, dto as never, CTX);
+    expect(workersService.confirmPhoto).toHaveBeenCalledWith(ID, dto, CTX);
+
+    const urlRes = await controller.getMyPhotoUrl(worker);
+    expect(workersService.getPhotoUrl).toHaveBeenCalledWith(ID);
+    expect(urlRes.url).toContain("signed-read");
+
+    const delRes = await controller.deleteMyPhoto(worker, CTX);
+    expect(workersService.deletePhoto).toHaveBeenCalledWith(ID, CTX);
+    expect(delRes).toEqual({ worker_id: ID, has_photo: false });
   });
 
   it("updateMyResumePrefs takes the worker from the token and returns only { ok: true }", async () => {

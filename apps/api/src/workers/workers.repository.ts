@@ -148,6 +148,22 @@ export class WorkersRepository {
     return rows[0];
   }
 
+  /**
+   * Set (or clear, with null) the worker's profile-photo pointer (ADR-0032).
+   * The value is an OPAQUE Storage object key (`photos/{workerId}/{uuid}.jpg`),
+   * never a URL and never bytes — the photo itself is PII at rest in the private
+   * WORKER_PHOTOS_BUCKET. Returns the updated row, or undefined if no worker
+   * matched.
+   */
+  async updatePhotoStorageKey(id: string, key: string | null): Promise<Worker | undefined> {
+    const rows = await this.db
+      .update(workers)
+      .set({ photoStorageKey: key, updatedAt: new Date() })
+      .where(eq(workers.id, id))
+      .returning();
+    return rows[0];
+  }
+
   async latestProfile(workerId: string): Promise<WorkerProfile | undefined> {
     const rows = await this.db
       .select()

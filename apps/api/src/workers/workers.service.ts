@@ -1,14 +1,30 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
+import { Inject } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+import type { ServerConfig } from "@badabhai/config";
+import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
+import { StorageService } from "../storage/storage.service";
 import { WorkersRepository } from "./workers.repository";
 import { toProfileSummary } from "./profile-summary.mapper";
 import type {
+  ConfirmPhotoDto,
   WorkerProfileSummary,
   WorkerResumeFields,
   UpdateResumePrefsDto,
 } from "./workers.dto";
+
+/** ADR-0032 — photo-confirm validation bounds (ruled in the ADR, enforced here). */
+const PHOTO_MAX_BYTES = 2 * 1024 * 1024; // 2 MiB
+const PHOTO_ALLOWED_MIME = new Set(["image/jpeg", "image/png"]);
 
 /**
  * Worker write-side logic (identity) + the worker SELF-view summary read.
@@ -25,6 +41,8 @@ export class WorkersService {
     private readonly workers: WorkersRepository,
     private readonly pii: PiiCryptoService,
     private readonly events: EventsService,
+    private readonly storage: StorageService,
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
   /**
@@ -113,7 +131,186 @@ export class WorkersService {
       full_name: fullName,
       show_photo: worker.resumeShowPhoto,
       night_shift_ready: worker.resumeNightShiftReady,
+      // ADR-0032: boolean projection of the photo POINTER — never the key/URL.
+      has_photo: typeof worker.photoStorageKey === "string" && worker.photoStorageKey.length > 0,
     };
+  }
+
+  /**
+   * ADR-0032 — mint a signed UPLOAD url for the worker's profile photo
+   * (POST /workers/me/photo/upload-url). The SERVER chooses the object key
+   * (`photos/{workerId}/{uuid}.jpg` — the client controls nothing about the
+   * destination); the client PUTs the bytes directly to Storage, so image bytes
+   * never transit this API. 503 fail-closed while WORKER_PHOTOS_BUCKET is unset
+   * (dormant — the voice-seam pattern).
+   *
+   * DELIBERATELY NO EVENT: minting is an authorization grant, not a state change
+   * (§1) — `worker.photo_uploaded` is emitted by the CONFIRM step. The signed URL
+   * embeds a bearer token and is NEVER logged or emitted.
+   */
+  async createPhotoUploadUrl(
+    workerId: string,
+  ): Promise<{ storage_path: string; upload_url: string; expires_in: number }> {
+    const bucket = this.config.WORKER_PHOTOS_BUCKET;
+    if (!bucket) {
+      throw new ServiceUnavailableException("photo uploads not enabled");
+    }
+    const objectKey = `photos/${workerId}/${randomUUID()}.jpg`;
+    const { url, expiresIn } = await this.storage.createSignedUploadUrl(objectKey, bucket);
+    return { storage_path: objectKey, upload_url: url, expires_in: expiresIn };
+  }
+
+  /**
+   * ADR-0032 — confirm a profile-photo upload (POST /workers/me/photo). Verifies:
+   * (a) the registered `storage_path` matches the minted-key shape for THIS worker
+   *     (anti path-forgery — the voice-seam regex pattern; a mismatch is a 400 and
+   *     never touches storage);
+   * (b) the uploaded OBJECT is real and within policy — `image/jpeg`/`image/png`,
+   *     ≤ 2 MiB — validated against Storage object-info (the signed URL itself
+   *     cannot constrain what the client PUTs). An out-of-policy object is
+   *     best-effort deleted and the confirm 400s (fail closed, no orphan pointer).
+   * Then persists the pointer, best-effort deletes a REPLACED photo's old object,
+   * and emits `worker.photo_uploaded` (PII-free: worker_id only).
+   */
+  async confirmPhoto(
+    workerId: string,
+    dto: ConfirmPhotoDto,
+    ctx: RequestContext,
+  ): Promise<{ worker_id: string; has_photo: true }> {
+    const bucket = this.config.WORKER_PHOTOS_BUCKET;
+    if (!bucket) {
+      throw new ServiceUnavailableException("photo uploads not enabled");
+    }
+
+    // (a) minted-key shape for THIS worker — uuid v4 under the caller's own prefix.
+    const mintedKeyShape = new RegExp(
+      `^photos/${workerId}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.jpg$`,
+    );
+    if (!mintedKeyShape.test(dto.storage_path)) {
+      throw new BadRequestException("storage_path not owned by caller");
+    }
+
+    const worker = await this.workers.findById(workerId);
+    if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
+
+    // (b) the object itself — exists, right type, within the size cap. Fail closed:
+    // missing metadata reads as out-of-policy (a face photo is a PII class; we do
+    // not guess). Object-info transport failures propagate (500) rather than guess.
+    const info = await this.storage.getObjectInfo(dto.storage_path, bucket);
+    if (!info) {
+      throw new BadRequestException("uploaded object not found; upload before confirming");
+    }
+    const mimeOk = info.contentType !== null && PHOTO_ALLOWED_MIME.has(info.contentType);
+    const sizeOk = info.sizeBytes !== null && info.sizeBytes > 0 && info.sizeBytes <= PHOTO_MAX_BYTES;
+    if (!mimeOk || !sizeOk) {
+      // Best-effort removal of the out-of-policy object — never leave PII bytes
+      // behind a dangling unreferenced key. Failure to clean up must not mask the
+      // 400 (the object is unreferenced and prefix-swept on account deletion).
+      try {
+        await this.storage.deletePdf(dto.storage_path, bucket);
+      } catch {
+        this.logger.warn(
+          `photo confirm cleanup failed for worker ${workerId.slice(0, 8)}…; object stays prefix-sweepable`,
+        );
+      }
+      throw new BadRequestException("photo must be a JPEG/PNG of at most 2MB");
+    }
+
+    const oldKey = worker.photoStorageKey;
+    const updated = await this.workers.updatePhotoStorageKey(workerId, dto.storage_path);
+    if (!updated) throw new NotFoundException(`Worker ${workerId} not found`);
+
+    // Replacing a photo: best-effort delete of the superseded object (its pointer is
+    // gone; a failed delete is an opaque orphan, swept on account deletion).
+    if (oldKey && oldKey !== dto.storage_path) {
+      try {
+        await this.storage.deletePdf(oldKey, bucket);
+      } catch {
+        this.logger.warn(
+          `superseded photo delete failed for worker ${workerId.slice(0, 8)}…; object stays prefix-sweepable`,
+        );
+      }
+    }
+
+    await this.events.emit({
+      event_name: "worker.photo_uploaded",
+      actor: { actor_type: "worker", actor_id: workerId },
+      subject: { subject_type: "worker", subject_id: workerId },
+      payload: { worker_id: workerId },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+
+    this.logger.log(`profile photo recorded for worker ${workerId}`); // never the key/URL
+    return { worker_id: workerId, has_photo: true };
+  }
+
+  /**
+   * ADR-0032 — short-lived signed READ url for the worker's OWN photo
+   * (GET /workers/me/photo-url). Own-session only; the signed URL is a bearer
+   * credential — the controller sets Cache-Control: no-store and the URL is never
+   * logged or emitted. 404 when no photo (and for a missing worker — no oracle).
+   * 503 while dormant. DELIBERATELY NO EVENT (read, §1).
+   */
+  async getPhotoUrl(workerId: string): Promise<{ url: string; expires_in: number }> {
+    const bucket = this.config.WORKER_PHOTOS_BUCKET;
+    if (!bucket) {
+      throw new ServiceUnavailableException("photos not enabled");
+    }
+    const worker = await this.workers.findById(workerId);
+    if (!worker?.photoStorageKey) {
+      throw new NotFoundException("no photo");
+    }
+    const ttl = this.config.RESUME_SIGNED_URL_TTL_SECONDS;
+    const url = await this.storage.createSignedUrl(worker.photoStorageKey, ttl, bucket);
+    return { url, expires_in: ttl };
+  }
+
+  /**
+   * ADR-0032 — remove the worker's profile photo (DELETE /workers/me/photo).
+   * IDEMPOTENT: no photo → 200 `{ has_photo: false }` with NO event (§1 — nothing
+   * changed; a fabricated `photo_removed` would be a fake event). With a photo:
+   * clears the pointer FIRST (data minimization is never blocked), best-effort
+   * deletes the object only when the bucket is configured (dormancy skips the
+   * object, mirroring the account-deletion gate), then emits `worker.photo_removed`.
+   */
+  async deletePhoto(
+    workerId: string,
+    ctx: RequestContext,
+  ): Promise<{ worker_id: string; has_photo: false }> {
+    const worker = await this.workers.findById(workerId);
+    if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
+
+    const key = worker.photoStorageKey;
+    if (!key) {
+      return { worker_id: workerId, has_photo: false };
+    }
+
+    const updated = await this.workers.updatePhotoStorageKey(workerId, null);
+    if (!updated) throw new NotFoundException(`Worker ${workerId} not found`);
+
+    const bucket = this.config.WORKER_PHOTOS_BUCKET;
+    if (bucket) {
+      try {
+        await this.storage.deletePdf(key, bucket);
+      } catch {
+        this.logger.warn(
+          `photo object delete failed for worker ${workerId.slice(0, 8)}…; object stays prefix-sweepable`,
+        );
+      }
+    }
+
+    await this.events.emit({
+      event_name: "worker.photo_removed",
+      actor: { actor_type: "worker", actor_id: workerId },
+      subject: { subject_type: "worker", subject_id: workerId },
+      payload: { worker_id: workerId },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+
+    this.logger.log(`profile photo removed for worker ${workerId}`);
+    return { worker_id: workerId, has_photo: false };
   }
 
   /**

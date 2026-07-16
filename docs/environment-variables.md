@@ -230,6 +230,7 @@ switch checked first.
 | `SUPABASE_URL`              | Supabase project URL (Storage object GET only).                                                           | _(optional)_         | config (URL is non-secret) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service-role key; backend-only; never logged. Real STT fails closed to empty if storage isn't configured. | _(optional)_         | **SECRET**                 |
 | `VOICE_NOTES_BUCKET`        | Private bucket of uploaded voice notes; object key = request `storage_path`. Must be PRIVATE out-of-band. | `worker-voice-notes` | config                     |
+| `WORKER_PHOTOS_BUCKET`      | ADR-0032 — private bucket of worker profile photos (server-chosen keys `photos/{workerId}/{uuid}.jpg`). Empty default = DORMANT (photo routes 503 fail-closed); setting it arms the feature + the account-deletion prefix sweep together. Must be PRIVATE out-of-band. | `""` _(dormant)_     | config                     |
 
 ### Observability + port
 

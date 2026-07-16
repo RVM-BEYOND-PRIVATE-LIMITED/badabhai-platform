@@ -38,6 +38,15 @@ export interface ResumeRenderInput {
    * never a fabricated personal claim. Empty when the trade is unknown.
    */
   responsibilities: string[];
+  /**
+   * ADR-0032 — the worker's profile photo as a self-contained `data:` URI, or
+   * null/absent → render photo-less (the `{{#photo}}` region collapses).
+   * CALLER-SUPPLIED like {@link displayName} and under the same rule: only the
+   * worker's OWN render (resume-render.processor.ts) ever passes it; the masked
+   * disclosure passes null STRUCTURALLY. Never derived from the snapshot; never
+   * logged or echoed into an error.
+   */
+  photoDataUri?: string | null;
 }
 
 /**
@@ -107,6 +116,10 @@ export class ResumeRenderer {
       education: input.education,
       certifications: input.certifications,
       responsibilities: input.responsibilities,
+      // ADR-0032: 0-or-1-item region — the documented conditional mechanism. A
+      // data: URI survives escapeHtml intact (base64 + the mime prefix contain no
+      // escapable characters), and templates without {{#photo}} are unaffected.
+      photo: input.photoDataUri ? [input.photoDataUri] : [],
     };
 
     let out = skeleton;

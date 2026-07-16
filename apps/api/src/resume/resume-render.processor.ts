@@ -70,7 +70,42 @@ export class ResumeRenderProcessor extends WorkerHost {
       }
     }
 
-    const input = buildResumeRenderInput(resume.sourceProfileSnapshot, displayName, resume.templateId);
+    // ADR-0032 — the worker's profile photo, embedded ONLY on the worker's OWN
+    // resume and ONLY when the worker's show_photo pref is on. Fetched as bytes
+    // (WeasyPrint renders from stdin with no network — a data: URI is the only
+    // hermetic embed). Degrade photo-less on ANY failure: the photo must never
+    // cost the worker their PDF. Never log the key or the bytes.
+    let photoDataUri: string | null = null;
+    const photoBucket = this.config.WORKER_PHOTOS_BUCKET;
+    if (photoBucket && worker?.resumeShowPhoto && worker.photoStorageKey) {
+      try {
+        const bytes = await this.storage.downloadObject(worker.photoStorageKey, photoBucket);
+        if (bytes && bytes.length > 0 && bytes.length <= 2 * 1024 * 1024) {
+          // MAGIC-BYTE check (bb-security-review L-2): the stored content-type is
+          // client-declared at PUT, so verify the actual bytes are a real JPEG
+          // (FF D8 FF) or PNG (89 50 4E 47) and SKIP the embed otherwise — arbitrary
+          // bytes must never reach WeasyPrint as an "image".
+          const isJpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+          const isPng =
+            bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+          if (isJpeg || isPng) {
+            const mime = isPng ? "image/png" : "image/jpeg";
+            photoDataUri = `data:${mime};base64,${bytes.toString("base64")}`;
+          }
+        }
+      } catch {
+        this.logger.warn(
+          `could not fetch profile photo for worker ${workerId}; rendering photo-less`,
+        );
+      }
+    }
+
+    const input = buildResumeRenderInput(
+      resume.sourceProfileSnapshot,
+      displayName,
+      resume.templateId,
+      photoDataUri,
+    );
 
     let pdf: Buffer | null = null;
     try {

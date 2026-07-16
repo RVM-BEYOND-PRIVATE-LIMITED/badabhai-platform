@@ -1,19 +1,26 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   HttpCode,
+  Inject,
+  Ip,
   NotFoundException,
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Put,
   Query,
   UseGuards,
 } from "@nestjs/common";
+import type { ServerConfig } from "@badabhai/config";
+import { SERVER_CONFIG } from "../config/config.module";
 import { clampLimit } from "../common/pagination";
 import { Ctx, type RequestContext } from "../common/request-context";
+import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import {
   WorkerAuthGuard,
@@ -30,6 +37,8 @@ import {
   type SetMyNameDto,
   UpdateResumePrefsSchema,
   type UpdateResumePrefsDto,
+  ConfirmPhotoSchema,
+  type ConfirmPhotoDto,
   type WorkerProfileSummary,
   type WorkerResumeFields,
 } from "./workers.dto";
@@ -39,6 +48,8 @@ export class WorkersController {
   constructor(
     private readonly workers: WorkersRepository,
     private readonly workersService: WorkersService,
+    private readonly ipRateLimit: IpRateLimit,
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
   /** List workers (newest first) with latest-profile summary. No PII. */
@@ -89,6 +100,25 @@ export class WorkersController {
     @CurrentWorker() worker: AuthenticatedWorker,
   ): Promise<WorkerResumeFields> {
     return this.workersService.getResumeFields(worker.id);
+  }
+
+  /**
+   * ADR-0032 — short-lived signed READ url for the worker's OWN profile photo.
+   * Own-session only (@CurrentWorker, never body/path — no IDOR); consent-gated.
+   * The signed URL is a bearer credential: no-store, never logged, never emitted.
+   * 404 when no photo; 503 while WORKER_PHOTOS_BUCKET is unset (dormant).
+   * NO event (a read is not a state change, §1).
+   *
+   * ROUTE ORDER: declared BEFORE the `:id/profile` param route so the literal "me"
+   * segment is never captured as an `:id` (Nest matches in declaration order).
+   */
+  @Get("me/photo-url")
+  @Header("Cache-Control", "no-store") // response carries a signed bearer URL — never cache
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  async getMyPhotoUrl(
+    @CurrentWorker() worker: AuthenticatedWorker,
+  ): Promise<{ url: string; expires_in: number }> {
+    return this.workersService.getPhotoUrl(worker.id);
   }
 
   /** Worker + latest profile + latest generated resume. */
@@ -168,5 +198,65 @@ export class WorkersController {
   ): Promise<{ ok: true }> {
     await this.workersService.updateResumePrefs(worker.id, dto, ctx);
     return { ok: true };
+  }
+
+  /**
+   * ADR-0032 — mint a signed UPLOAD url for the worker's profile photo. Worker
+   * from the token (never body/path); consent-gated (a face photo is personal-data
+   * processing, invariant #6). The body is deliberately EMPTY (`{}`): the SERVER
+   * chooses the object key — the client controls nothing about the destination.
+   * 503 while WORKER_PHOTOS_BUCKET is unset. NO event (minting is an authorization
+   * grant, not a state change — the confirm step emits). The response's signed URL
+   * is a bearer credential: no-store, never logged.
+   */
+  @Post("me/photo/upload-url")
+  @HttpCode(201)
+  @Header("Cache-Control", "no-store") // response carries a signed bearer URL — never cache
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  async createMyPhotoUploadUrl(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Ip() ip: string,
+  ): Promise<{ storage_path: string; upload_url: string; expires_in: number }> {
+    // bb-security-review M-1: unthrottled minting = unlimited ≤2MiB orphan objects
+    // (upload-but-never-confirm). Same fail-closed per-IP idiom as the download caps.
+    await this.ipRateLimit.assertWithinHourlyIpCap(
+      "photo_upload_url",
+      ip,
+      this.config.PHOTO_RATE_LIMIT_PER_IP_PER_HOUR,
+    );
+    return this.workersService.createPhotoUploadUrl(worker.id);
+  }
+
+  /**
+   * ADR-0032 — confirm the photo upload: anti-forgery minted-key check, object
+   * mime/size validation (JPEG/PNG ≤ 2MB), pointer persist, superseded-object
+   * cleanup, and a PII-free `worker.photo_uploaded` (worker_id only — never the
+   * key or a URL). Worker from the token; consent-gated.
+   */
+  @Post("me/photo")
+  @HttpCode(200)
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  async confirmMyPhoto(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Body(new ZodValidationPipe(ConfirmPhotoSchema)) dto: ConfirmPhotoDto,
+    @Ctx() ctx: RequestContext,
+  ): Promise<{ worker_id: string; has_photo: true }> {
+    return this.workersService.confirmPhoto(worker.id, dto, ctx);
+  }
+
+  /**
+   * ADR-0032 — remove the worker's profile photo. IDEMPOTENT (no photo → 200,
+   * no event). Clearing the pointer always works — data minimization is never
+   * blocked by dormancy; only the object delete is skipped while the bucket is
+   * unset. Emits a PII-free `worker.photo_removed` when a photo existed.
+   */
+  @Delete("me/photo")
+  @HttpCode(200)
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  async deleteMyPhoto(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Ctx() ctx: RequestContext,
+  ): Promise<{ worker_id: string; has_photo: false }> {
+    return this.workersService.deletePhoto(worker.id, ctx);
   }
 }

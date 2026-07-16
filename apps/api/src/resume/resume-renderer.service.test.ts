@@ -53,6 +53,26 @@ describe("ResumeRenderer.buildResumeHtml — template binding + output encoding 
     expect(html).toContain("<li>Prove out the first piece</li>");
   });
 
+  it("ADR-0032: embeds the photo data URI in the {{#photo}} region when supplied", () => {
+    const dataUri = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQ==";
+    const html = makeRenderer().buildResumeHtml({
+      ...BASE_INPUT,
+      photoDataUri: dataUri,
+    });
+    // the data URI survives output-encoding intact (base64 has no escapable chars)
+    expect(html).toContain(`src="${dataUri}"`);
+    expect(html).not.toContain("{{#photo}}"); // region consumed, no token leak
+  });
+
+  it("ADR-0032: renders photo-LESS when photoDataUri is null/absent — the region collapses to nothing", () => {
+    for (const input of [{ ...BASE_INPUT, photoDataUri: null }, { ...BASE_INPUT }]) {
+      const html = makeRenderer().buildResumeHtml(input);
+      expect(html).not.toContain("<img"); // no photo element at all
+      expect(html).not.toContain("{{#photo}}"); // and no unresolved token
+      expect(html).not.toContain("data:image");
+    }
+  });
+
   it("HTML-escapes a hostile displayName so no raw <script> reaches the PDF", () => {
     const html = makeRenderer().buildResumeHtml({
       ...BASE_INPUT,
