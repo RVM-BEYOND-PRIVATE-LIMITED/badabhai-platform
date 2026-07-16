@@ -47,9 +47,9 @@ class ResumeCubit extends Cubit<ResumeState> {
   /// Resolves a short-lived signed url for the resume PDF, or null if it could
   /// not be fetched (the screen then shows a user-safe message). Does NOT change
   /// [ResumeState] — the resume is already shown; this is a side action. The url
-  /// is returned for immediate launch only and is never stored or logged.
-  /// Resolves the signed PDF url. Lets a [Failure] PROPAGATE (does not swallow it
-  /// to null) so `openSignedPdf` can surface the ACTUAL reason (server / 401 /
-  /// no-resume) instead of a blank generic line.
+  /// is returned for an immediate IN-APP fetch only and is never stored or
+  /// logged. Lets a [Failure] PROPAGATE (does not swallow it to null) so
+  /// `downloadSignedPdf` can surface the ACTUAL reason (server / 401 /
+  /// PDF-not-rendered) instead of a blank generic line.
   Future<String?> resolveDownloadUrl() => _repo.resumeDownloadUrl();
 }

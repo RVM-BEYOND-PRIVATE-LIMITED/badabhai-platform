@@ -6,7 +6,7 @@ import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
-import '../../../core/util/pdf_launcher.dart';
+import '../../../core/util/pdf_downloader.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import 'cubit/kit_detail_cubit.dart';
@@ -184,9 +184,11 @@ class _KitDetailView extends StatelessWidget {
 }
 
 /// AppBar "Download PDF" action for the kit (GET /interview-kit/:tradeKey/download
-/// — real, public). Resolves a short-lived signed url via the cubit and opens it
-/// in the device viewer; shows a spinner while resolving and a user-safe SnackBar
-/// on failure. The url is launched immediately, never logged.
+/// — real, public). Resolves a short-lived signed url via the cubit and downloads
+/// the PDF IN-APP into the device's Downloads — the worker stays on this screen
+/// (started/complete SnackBars, "Kholein" opens the saved file). The spinner
+/// replaces the button for the WHOLE download, so a double-tap can't produce
+/// double files. The url is fetched in memory, never logged.
 class _KitDownloadButton extends StatefulWidget {
   const _KitDownloadButton({required this.tradeKey});
 
@@ -202,9 +204,10 @@ class _KitDownloadButtonState extends State<_KitDownloadButton> {
   Future<void> _download() async {
     final KitDetailCubit cubit = context.read<KitDetailCubit>();
     setState(() => _loading = true);
-    await openSignedPdf(
+    await downloadSignedPdf(
       context,
       resolve: () => cubit.resolveDownloadUrl(widget.tradeKey),
+      fileName: 'BadaBhai-Interview-Kit-${widget.tradeKey}.pdf',
     );
     if (mounted) setState(() => _loading = false);
   }
