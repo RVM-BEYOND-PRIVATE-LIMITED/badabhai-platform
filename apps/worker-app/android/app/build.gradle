@@ -60,4 +60,10 @@ dependencies {
     // removed: unused, and Perf is a known start-up ANR risk on low-end devices.
     implementation platform("com.google.firebase:firebase-bom:34.15.0")
     implementation "com.google.firebase:firebase-messaging"
+
+    // SMS User Consent — reads the OTP out of the incoming SMS after a one-tap
+    // system prompt. NOT the silent SMS Retriever: that needs an 11-char app
+    // hash inside the SMS body, which our DLT-approved template does not carry.
+    // Needs no SMS permission. See SmsUserConsentManager.kt.
+    implementation "com.google.android.gms:play-services-auth-api-phone:18.0.1"
 }

@@ -78,6 +78,15 @@ Finder _navBadge(String count) => find.descendant(
       matching: find.text(count),
     );
 
+/// Branch order in the shell's bottom nav: Jobs · Resume · Profile · Alerts.
+const int _kProfileTab = 2;
+
+/// The tab the bottom bar is actually highlighting — read off the live widget
+/// rather than inferred from what is on screen, so it catches a bar that moved
+/// without the body following (and vice versa).
+int _navIndex(WidgetTester tester) =>
+    tester.widget<BbBottomNav>(find.byType(BbBottomNav)).currentIndex;
+
 /// Tap the masked PIN keypad to enter [pin] (digit by digit). The keypad has no
 /// OS keyboard, so we tap the on-screen digit keys.
 Future<void> _enterPin(WidgetTester tester, String pin) async {
@@ -130,12 +139,11 @@ void main() {
     await tester.pumpWidget(const BadaBhaiApp());
     await _pumpUntil(tester, find.text('Get started'));
 
-    // ── 1. SPLASH — brand, the inert language picker (Task D), the CTA. ──
+    // ── 1. SPLASH — brand + the CTA. The language picker is hidden for now
+    //     (no translated strings existed behind it); every worker rides the
+    //     LocaleStore default `hi`, so X-Locale is unchanged. ──
     expect(find.text('BadaBhai'), findsOneWidget);
-    expect(find.text('हिंदी'), findsOneWidget);
-    expect(find.text('English'), findsOneWidget);
-    await tester.tap(find.text('मराठी')); // inert pick — no navigation
-    await tester.pump();
+    expect(find.text('हिंदी'), findsNothing);
     await tester.tap(find.text('Get started'));
 
     // ── 2. LOGIN — regression guard for the go_router push fix (was a stale
@@ -202,6 +210,23 @@ void main() {
     await tester.tap(find.text('Profile'));
     await _pumpUntil(tester, find.text('Profile strength'));
     expect(find.text('Profile strength'), findsOneWidget);
+    expect(_navIndex(tester), _kProfileTab);
+
+    // ── 8b. INTERVIEW KIT — opening it from Profile must NOT move the bottom
+    //     bar. The kit used to live under the Resume branch, so the shortcut's
+    //     `context.go` crossed shell branches and StatefulShellRoute activated
+    //     Resume: the bar jumped to Resume while the worker read Profile
+    //     content. The kit now hangs off the Profile branch and is pushed. ──
+    await tester.tap(find.text('Interview kit'));
+    await tester.pumpAndSettle();
+    expect(_navIndex(tester), _kProfileTab,
+        reason: 'opening the kit from Profile must not switch the tab');
+
+    // Back returns to Profile, still on the Profile tab.
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('Profile strength'), findsOneWidget);
+    expect(_navIndex(tester), _kProfileTab);
 
     await tester.tap(find.text('Alerts'));
     await _pumpUntil(tester, find.byIcon(Icons.check));

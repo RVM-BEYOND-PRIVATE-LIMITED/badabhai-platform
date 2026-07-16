@@ -243,13 +243,15 @@ class _ProfileTabView extends StatelessWidget {
         border: Border.all(color: AppColors.borderSubtle),
       ),
       clipBehavior: Clip.antiAlias,
-      // Switches to the Resume tab and opens the kit (kit lives under the
-      // Resume branch — tab='resume' per the spec).
+      // Pushed from Profile (back → Profile), like Applied jobs below. NOT
+      // `go` — the kit used to live under the Resume branch, so `go` made the
+      // shell switch branches and the bottom bar jumped to Resume while the
+      // worker was still in Profile. The kit now hangs off the Profile branch.
       child: BbListRow.kit(
         icon: Icons.quiz_outlined,
         title: 'Interview kit',
         subtitle: '15 sawaal + jawaab',
-        onTap: () => context.go(Routes.kit),
+        onTap: () => context.push(Routes.kit),
       ),
     );
   }

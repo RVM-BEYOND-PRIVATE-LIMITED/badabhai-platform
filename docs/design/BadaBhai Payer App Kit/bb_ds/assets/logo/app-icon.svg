@@ -1,0 +1,5 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="BadaBhai">
+  <rect width="512" height="512" rx="128" fill="#E0371C"></rect>
+  <path d="M150 124h212a40 40 0 0 1 40 40v132a40 40 0 0 1-40 40H252l-78 62a12 12 0 0 1-19.4-9.4V336h-4.6a40 40 0 0 1-40-40V164a40 40 0 0 1 40-40Z" fill="#FFFFFF"></path>
+  <path d="M196 268l60-58 60 58" stroke="#0E7A4F" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"></path>
+</svg>

@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/auth/auth_error_messages.dart';
 import '../../../core/auth/auth_failure.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/otp/sms_otp_autofill.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -57,10 +60,37 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   bool _busy = false;
   String? _error;
 
+  /// Android SMS auto-read for the reset OTP. Null when the locator has no
+  /// instance (tests) — the screen stays usable by typing.
+  SmsOtpAutofill? _autofill;
+  StreamSubscription<String>? _codeSub;
+
   String get _buffer => _pinStep == _PinStep.enter ? _first : _confirm;
 
   @override
+  void initState() {
+    super.initState();
+    // This is the app's SECOND OTP surface (login is the other). It bypasses
+    // PhoneLoginCubit, so the SMS auto-read has to be wired here too — otherwise
+    // a PIN reset is the one flow left where the worker still types the code.
+    if (!locator.isRegistered<SmsOtpAutofill>()) return;
+    final SmsOtpAutofill autofill = locator<SmsOtpAutofill>();
+    _autofill = autofill;
+    _codeSub = autofill.codes.listen(_onSmsCode);
+  }
+
+  /// Fill the reset OTP from the SMS. Not auto-submitted: confirm needs the new
+  /// PIN too, and a wrong code would burn a verify attempt.
+  void _onSmsCode(String code) {
+    if (!mounted) return;
+    _otp.text = code;
+    _otp.selection = TextSelection.collapsed(offset: _otp.text.length);
+  }
+
+  @override
   void dispose() {
+    _codeSub?.cancel();
+    _autofill?.stopListening();
     _phone.dispose();
     _otp.dispose();
     super.dispose();
@@ -74,6 +104,10 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
       _error = null;
     });
     try {
+      // Opened BEFORE the request (User Consent only matches an SMS that lands
+      // after the window opens) and NOT awaited — a wedged Play Services must
+      // never stall the reset SMS itself. Never throws.
+      unawaited(_openOtpAutofillWindow());
       await _manager.requestPinReset(_phone.text.trim());
       if (!mounted) return;
       setState(() => _phase = _Phase.pin);
@@ -82,6 +116,14 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
       setState(() => _error = authErrorMessage(f, 'hi'));
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openOtpAutofillWindow() async {
+    try {
+      await _autofill?.startListening();
+    } catch (_) {
+      // No Play Services → the worker types the code.
     }
   }
 

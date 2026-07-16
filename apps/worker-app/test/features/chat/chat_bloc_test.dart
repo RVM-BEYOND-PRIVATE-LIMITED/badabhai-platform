@@ -5,6 +5,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
 
 class MockChatRepository extends Mock implements ChatRepository {}
@@ -45,10 +46,11 @@ void main() {
   );
 
   blocTest<ChatBloc, ChatState>(
-    'ChatMessageSent appends the worker message then the reply',
+    'ChatMessageSent appends the worker message, shows typing, then the reply + chips',
     build: () {
       when(() => repo.ensureSession()).thenAnswer((_) async {});
-      when(() => repo.sendMessage(any())).thenAnswer((_) async => 'Got it.');
+      when(() => repo.sendMessage(any())).thenAnswer((_) async =>
+          const ChatTurn(reply: 'Got it.', followups: <String>['Haan', 'Nahi']));
       return ChatBloc(repo);
     },
     act: (ChatBloc b) {
@@ -57,13 +59,16 @@ void main() {
     },
     expect: () => const <ChatState>[
       ChatState(messages: <ChatMessage>[_opening], initializing: false),
+      // Worker bubble appended + typing indicator on.
       ChatState(
         messages: <ChatMessage>[
           _opening,
           ChatMessage(text: 'cnc', fromWorker: true),
         ],
         initializing: false,
+        sending: true,
       ),
+      // Reply appended, typing off, followup chips carried through.
       ChatState(
         messages: <ChatMessage>[
           _opening,
@@ -71,6 +76,7 @@ void main() {
           ChatMessage(text: 'Got it.', fromWorker: false),
         ],
         initializing: false,
+        followups: <String>['Haan', 'Nahi'],
       ),
     ],
   );
@@ -111,6 +117,16 @@ void main() {
         const ChatState(messages: <ChatMessage>[_opening], initializing: false),
     act: (ChatBloc b) => b.add(const ChatMessageSent('cnc')),
     expect: () => const <ChatState>[
+      // Typing on while the send is in flight.
+      ChatState(
+        messages: <ChatMessage>[
+          _opening,
+          ChatMessage(text: 'cnc', fromWorker: true),
+        ],
+        initializing: false,
+        sending: true,
+      ),
+      // Failure: keep the worker message, drop the typing indicator, no reply.
       ChatState(
         messages: <ChatMessage>[
           _opening,

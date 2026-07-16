@@ -1,0 +1,23 @@
+{
+  "tracker": "FLUTTER_ISSUES_TRACKER",
+  "purpose": "History of every Flutter issue/error reported and resolved, across both Flutter apps. Read this BEFORE writing new Flutter functionality so a past issue is not reintroduced. Every entry must carry a root_cause and a prevention_rule that new code is checked against.",
+  "scope": ["apps/worker-app", "apps/payer-app"],
+  "toolchain": { "flutter": "3.35.7", "dart": "3.9.2" },
+  "last_updated": "2026-07-15",
+  "entry_schema": {
+    "id": "FI-### — sequential, never reused",
+    "date": "YYYY-MM-DD the issue was reported",
+    "app": "worker-app | payer-app | both",
+    "area": "e.g. navigation, api-client, firebase, build, state, ui",
+    "title": "one line, what broke",
+    "symptom": "exact error text / stack trace / observed behaviour — verbatim, not paraphrased",
+    "root_cause": "why it actually happened — the mechanism, not the symptom",
+    "fix": "what was changed to resolve it",
+    "files_changed": ["repo-relative paths"],
+    "prevention_rule": "the rule new code must satisfy so this class of issue cannot return",
+    "status": "resolved | open | wont-fix",
+    "tags": ["freeform keywords for grep"]
+  },
+  "next_id": "FI-001",
+  "issues": []
+}

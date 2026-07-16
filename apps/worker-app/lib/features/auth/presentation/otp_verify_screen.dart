@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
+import '../../../core/otp/sms_otp_autofill.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -40,8 +43,41 @@ class _OtpVerifyView extends StatefulWidget {
 class _OtpVerifyViewState extends State<_OtpVerifyView> {
   final TextEditingController _controller = TextEditingController();
 
+  /// Android SMS auto-read. Null when the locator has no instance (widget tests
+  /// that wire their own graph) — the screen stays fully usable by typing.
+  SmsOtpAutofill? _autofill;
+  StreamSubscription<String>? _codeSub;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!locator.isRegistered<SmsOtpAutofill>()) return;
+    final SmsOtpAutofill autofill = locator<SmsOtpAutofill>();
+    _autofill = autofill;
+    // The SMS can beat this route: PhoneLoginCubit opened the window before the
+    // request, so a code may already be waiting. Drain it, THEN listen for one
+    // that lands while this screen is up.
+    final String? buffered = autofill.takeBufferedCode();
+    if (buffered != null) _onCode(buffered);
+    _codeSub = autofill.codes.listen(_onCode);
+  }
+
+  /// Fill the field with the detected code. Deliberately does NOT auto-submit:
+  /// the backend counts verify attempts against the phone, so a misread would
+  /// silently burn one. The worker sees the code land and taps Verify.
+  void _onCode(String code) {
+    if (!mounted) return;
+    _controller.text = code;
+    _controller.selection =
+        TextSelection.collapsed(offset: _controller.text.length);
+  }
+
   @override
   void dispose() {
+    _codeSub?.cancel();
+    // Close the consent window — the OTP is entered, so nothing should keep
+    // listening for another 5 minutes.
+    _autofill?.stopListening();
     _controller.dispose();
     super.dispose();
   }
@@ -106,12 +142,14 @@ class _OtpVerifyViewState extends State<_OtpVerifyView> {
                 controller: _controller,
                 keyboardType: TextInputType.number,
                 textAlign: TextAlign.center,
-                // OS-level one-time-code assist: iOS surfaces the SMS code above
-                // the keyboard out of the box; Android maps this to
-                // AUTOFILL_HINT_SMS_OTP. Fully-silent auto-read (SMS Retriever)
-                // additionally needs the app-hash embedded in the DLT SMS body.
+                // iOS: this is the whole auto-fill story — the OS surfaces the
+                // SMS code above the keyboard natively. Android ignores it
+                // unless an autofill service handles SMS OTP, which is why the
+                // real Android path is SmsOtpAutofill (Play Services User
+                // Consent) wired in initState.
                 autofillHints: const <String>[AutofillHints.oneTimeCode],
-                decoration: const InputDecoration(hintText: '— — — —'),
+                // Six cells: the API mints OTP_LENGTH (default 6).
+                decoration: const InputDecoration(hintText: '— — — — — —'),
                 style: AppTypography.mono(
                   size: AppTypography.size2xl,
                   weight: FontWeight.w700,
