@@ -155,6 +155,7 @@ class MockApiClient extends ApiClient {
   Future<ResumeResult> generateResume({
     required String workerId,
     required String profileId,
+    required String authToken,
   }) async {
     await _delay();
     return ResumeResult(

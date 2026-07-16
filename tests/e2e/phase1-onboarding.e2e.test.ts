@@ -322,10 +322,17 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     expect(workerAfterName!.fullName).not.toContain(WORKER_NAME);
 
     // ──────────────────────── STAGE 6 — Resume generation ────────────────────────
-    const resume = await call("POST", "/resume/generate", {
-      worker_id: workerId,
-      profile_id: profileId,
-    });
+    // Worker-authed (TD70 item 5): the server derives the worker from the bearer;
+    // the body worker_id is legacy back-compat and must match the session worker.
+    const resume = await call(
+      "POST",
+      "/resume/generate",
+      {
+        worker_id: workerId,
+        profile_id: profileId,
+      },
+      token,
+    );
     expect(resume.status).toBe(201);
     expect(resume.body.resume_id).toBeTruthy();
     expect(resume.body.version).toBe(1); // first resume for this worker

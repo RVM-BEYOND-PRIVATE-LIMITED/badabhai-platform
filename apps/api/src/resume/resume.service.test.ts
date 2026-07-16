@@ -1,6 +1,12 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { ConflictException, HttpException, HttpStatus, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+} from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { Queue } from "bullmq";
 import { ResumeService } from "./resume.service";
@@ -14,10 +20,10 @@ import type { PiiCryptoService } from "../common/pii-crypto.service";
 import type { StorageService } from "../storage/storage.service";
 import type { ResumeRenderJobData } from "../queue/queue.constants";
 import type { RequestContext } from "../common/request-context";
-import type { GenerateResumeDto } from "./resume.dto";
+import type { GenerateResumeInput } from "./resume.dto";
 
 const CTX = { correlationId: "c", requestId: "r" } as RequestContext;
-const DTO = { worker_id: "w-1", profile_id: "p-1" } as GenerateResumeDto;
+const DTO: GenerateResumeInput = { worker_id: "w-1", profile_id: "p-1" };
 const NAME = "Asha Kumari";
 
 // Per-svc events handle, so a test can read the emit calls for that instance.
@@ -33,7 +39,15 @@ function setup(
   opts: { previousVersion?: number; previousProfileId?: string } = {},
 ) {
   const profiles = {
-    findById: vi.fn(async () => ({ id: "p-1", workerId: "w-1", rawProfile: {} })),
+    // Default: a CONFIRMED profile owned by w-1 (the happy path). Ownership /
+    // confirmed-gate tests override this per-call.
+    findById: vi.fn(
+      async () =>
+        ({ id: "p-1", workerId: "w-1", profileStatus: "confirmed", rawProfile: {} }) as Record<
+          string,
+          unknown
+        > | undefined,
+    ),
   };
   // The AI mock returns a NAME-LESS resume (as the real service does).
   const ai = {
@@ -98,7 +112,7 @@ function setup(
     renderQueue as unknown as Queue<ResumeRenderJobData>,
   );
   EVENTS.set(svc, events);
-  return { svc, ai, pii, resumes, rateLimit, renderQueue, events, storage, config };
+  return { svc, ai, pii, profiles, resumes, rateLimit, renderQueue, events, storage, config };
 }
 
 describe("ResumeService — TD21 name injection", () => {
@@ -138,6 +152,60 @@ describe("ResumeService — TD21 name injection", () => {
     const saved = resumes.createInitial.mock.calls[0]![0] as { resumeText: string; resumeJson: { name?: string } };
     expect(saved.resumeText).toBe("PROFESSIONAL SUMMARY (draft)"); // name-less fallback
     expect(saved.resumeJson.name).toBeUndefined();
+  });
+});
+
+describe("ResumeService — ownership + confirmed gate (TD70 item 5)", () => {
+  it("404s (no existence oracle) when the profile does not exist — AI never called, no event", async () => {
+    const { svc, ai, profiles } = setup(null);
+    profiles.findById.mockResolvedValueOnce(undefined);
+    await expect(svc.generate(DTO, CTX)).rejects.toBeInstanceOf(NotFoundException);
+    expect(ai.generateResume).not.toHaveBeenCalled();
+    expect(lastEvents(svc).emit).not.toHaveBeenCalled();
+  });
+
+  it("404s (no existence oracle) when the caller does not OWN the profile — indistinguishable from not-found", async () => {
+    // worker_id is session-derived in the controller, so this IS the authz gate.
+    const { svc, ai } = setup(null);
+    await expect(
+      svc.generate({ worker_id: "w-other", profile_id: "p-1" }, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(ai.generateResume).not.toHaveBeenCalled();
+    expect(lastEvents(svc).emit).not.toHaveBeenCalled();
+  });
+
+  it("400s ('profile is not confirmed') on a manual generate for an UNCONFIRMED profile — AI never called", async () => {
+    const { svc, ai, profiles } = setup(null);
+    profiles.findById.mockResolvedValueOnce({
+      id: "p-1",
+      workerId: "w-1",
+      profileStatus: "extracted",
+      rawProfile: {},
+    });
+    await expect(svc.generate(DTO, CTX)).rejects.toBeInstanceOf(BadRequestException);
+    expect(ai.generateResume).not.toHaveBeenCalled();
+    expect(lastEvents(svc).emit).not.toHaveBeenCalled();
+  });
+
+  it("systemInitiated SKIPS the confirmed re-read (enqueued ON profile.confirmed by definition)", async () => {
+    // The auto-generate must keep working even if the status write and the queued
+    // job race — the enqueue only ever happens post-confirm.
+    const { svc, profiles } = setup(null);
+    profiles.findById.mockResolvedValueOnce({
+      id: "p-1",
+      workerId: "w-1",
+      profileStatus: "extracted",
+      rawProfile: {},
+    });
+    const out = await svc.generate(DTO, CTX, { systemInitiated: true });
+    expect(out.resume_id).toBe("res-1");
+  });
+
+  it("confirmed + owned generates normally (201 happy path unchanged)", async () => {
+    const { svc } = setup(null);
+    const out = await svc.generate(DTO, CTX);
+    expect(out.resume_id).toBe("res-1");
+    expect(out.version).toBe(1);
   });
 });
 

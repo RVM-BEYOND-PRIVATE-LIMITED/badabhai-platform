@@ -186,8 +186,13 @@ describe.skip("Phase 1 worker-profiling flow (e2e) — real OTP provider require
     const confirm = await post("/profile/confirm", { profile_id: ids.profileId }, token);
     expect(confirm.profile_status).toBe("confirmed");
 
-    // 7. resume
-    const resume = await post("/resume/generate", { worker_id: ids.workerId, profile_id: ids.profileId });
+    // 7. resume — worker-authed (TD70 item 5): the server derives the worker from
+    // the bearer; the body worker_id is legacy back-compat and must match it.
+    const resume = await post(
+      "/resume/generate",
+      { worker_id: ids.workerId, profile_id: ids.profileId },
+      token,
+    );
     expect(resume.resume_id).toBeTruthy();
     expect(typeof resume.resume_text).toBe("string");
     ids.resumeId = resume.resume_id;

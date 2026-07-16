@@ -229,14 +229,22 @@ class ApiClient {
     return WorkerProfileBundle.fromJson(json);
   }
 
+  /// POST /resume/generate — worker-scoped (TD70 item 5): requires [authToken]
+  /// (WorkerAuthGuard); the server derives the worker from the token. The body
+  /// worker_id is legacy back-compat and MUST match the session worker (else 404).
   Future<ResumeResult> generateResume({
     required String workerId,
     required String profileId,
+    required String authToken,
   }) async {
-    final Map<String, dynamic> json = await _post('/resume/generate', <String, dynamic>{
-      'worker_id': workerId,
-      'profile_id': profileId,
-    });
+    final Map<String, dynamic> json = await _post(
+      '/resume/generate',
+      <String, dynamic>{
+        'worker_id': workerId,
+        'profile_id': profileId,
+      },
+      authToken: authToken,
+    );
     return ResumeResult.fromJson(json);
   }
 

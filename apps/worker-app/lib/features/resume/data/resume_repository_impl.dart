@@ -48,6 +48,7 @@ class ResumeRepositoryImpl implements ResumeRepository {
       final ResumeResult result = await _api.generateResume(
         workerId: workerId,
         profileId: profileId!,
+        authToken: token,
       );
       _session.setResume(result.resumeId);
       return result.resumeText;

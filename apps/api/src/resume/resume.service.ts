@@ -22,7 +22,7 @@ import { StorageService } from "../storage/storage.service";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { ResumeRepository } from "./resume.repository";
 import { ResumeRateLimit } from "./resume-rate-limit.service";
-import type { GenerateResumeDto, ShareResumeDto } from "./resume.dto";
+import type { GenerateResumeInput, ShareResumeDto } from "./resume.dto";
 
 @Injectable()
 export class ResumeService {
@@ -43,7 +43,7 @@ export class ResumeService {
   ) {}
 
   async generate(
-    dto: GenerateResumeDto,
+    dto: GenerateResumeInput,
     ctx: RequestContext,
     opts: { systemInitiated?: boolean; forceNewVersion?: boolean } = {},
   ) {
@@ -56,9 +56,22 @@ export class ResumeService {
     });
 
     const profile = await this.profiles.findById(dto.profile_id);
-    if (!profile) throw new NotFoundException(`Profile ${dto.profile_id} not found`);
-    if (profile.workerId !== dto.worker_id) {
-      throw new BadRequestException("worker_id does not match the profile owner");
+    // OWNERSHIP gate (TD70 item 5): with `worker_id` session-derived in the
+    // controller this is the real authz check, not a consistency check —
+    // not-found and not-owner are indistinguishable (404, no existence oracle),
+    // aligned with download(). The queue processor passes its own job's ids.
+    if (!profile || profile.workerId !== dto.worker_id) {
+      throw new NotFoundException(`Profile ${dto.profile_id} not found`);
+    }
+
+    // Only a CONFIRMED profile may generate a resume (worker-reviewed content →
+    // AI spend + TD21 name injection). No oracle needed here: the caller already
+    // owns the profile after the check above. The system-initiated path
+    // (resume-generate.processor, enqueued ON profile.confirmed) is by definition
+    // post-confirm, so it skips the re-read — no ordering hazard if the status
+    // write and the queued job ever race.
+    if (!opts.systemInitiated && profile.profileStatus !== "confirmed") {
+      throw new BadRequestException("profile is not confirmed");
     }
 
     // The stored rawProfile is the structured DraftProfile; re-validate its shape.
