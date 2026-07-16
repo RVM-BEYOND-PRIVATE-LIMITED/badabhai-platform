@@ -158,3 +158,24 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
 
     except Exception as exc:  # pragma: no cover - defensive, fail closed
         return PseudonymizationResult("", True, f"pseudonymization error: {exc}", 0, [])
+
+
+def certified_clean_skill_labels(labels: list[str]) -> list[str]:
+    """Keep only labels this gateway certifies CLEAN (Q14/ADR-0030 OQ#3 — SG-2).
+
+    A label passes ONLY when ``pseudonymize(label)`` (a) does not block,
+    (b) masks nothing (``replaced_entities == 0``), and (c) returns the label
+    byte-identical. Anything else — blocked, masked, altered, or an internal
+    gateway error (which returns ``blocked=True``) — is DROPPED (fail-closed:
+    over-drop, never keep a suspect label). Purely additive certification: it
+    never relaxes the gateway, never returns masked text or the token mapping,
+    and never logs. Used to certify ``DraftProfile.skill_labels`` AT REST when
+    populated (profile extraction) and to RE-certify at the résumé boundary.
+    """
+    return [
+        label
+        for label in labels
+        if (r := pseudonymize(label)).blocked is False
+        and r.replaced_entities == 0
+        and r.text == label
+    ]

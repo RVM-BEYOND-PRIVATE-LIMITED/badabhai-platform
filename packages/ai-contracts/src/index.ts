@@ -162,10 +162,13 @@ export const DraftProfileSchema = z.object({
   skills: z.array(z.string()).default([]),
   // Q14 (ADR-0030 OQ#3, decided 2026-07-16): worker-confirmed RAW skill labels
   // (e.g. "MIG welding"), rendered on the résumé alongside the canonical ids.
-  // Populated from WorkerProfileDraft.skills at extraction; NEVER canonical ids,
-  // NEVER used for matching/ranking. Additive (default [] → old rows unchanged).
-  // Mirrors DraftProfile.skill_labels in apps/ai-service/app/contracts.py; the
-  // AI service pseudonymize-gates every label at the résumé boundary (SG-2).
+  // Populated from WorkerProfileDraft.skills by the AI service's /profile/extract
+  // and CERTIFIED CLEAN AT REST there (hygiene clamp + pseudonymize certification
+  // — a blocked/masked/altered label never persists), then RE-certified at the
+  // résumé boundary (SG-2). TS consumers (PDF render, payer disclosure, mock
+  // fallback) may therefore render snapshot labels without their own gate.
+  // NEVER canonical ids, NEVER used for matching/ranking. Additive (default []
+  // → old rows unchanged). Mirrors apps/ai-service/app/contracts.py.
   skill_labels: z.array(z.string()).default([]),
   machines: z.array(z.string()).default([]),
   experience: ExperienceSchema.default({}),

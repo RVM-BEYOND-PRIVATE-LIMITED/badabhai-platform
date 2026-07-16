@@ -23,6 +23,7 @@ from ..contracts import (
     SalaryExpectation,
     WorkerProfileDraft,
 )
+from ..pseudonymize import certified_clean_skill_labels
 from . import signals
 from .canonical_roles import ROLE_TRADE, coerce_json_text, normalize_role_id
 from .signals import Signals
@@ -230,6 +231,21 @@ _LABEL_MAX_CHARS = 80
 _LABEL_MAX_COUNT = 20
 
 
+def sanitize_skill_labels(labels: list[str]) -> list[str]:
+    """Population-time pipeline for ``DraftProfile.skill_labels`` (Q14) — the
+    CERTIFY-AT-REST gate: hygiene clamp first (so the certified text is exactly
+    the text that persists), then pseudonymize certification via
+    ``certified_clean_skill_labels`` (blocked/masked/altered labels never enter
+    the persisted profile). apps/api stores this profile as
+    ``profiles.raw_profile`` and later ``generated_resumes.sourceProfileSnapshot``,
+    and the PDF + payer-facing disclosure surfaces render ``skill_labels`` from
+    that snapshot with NO TypeScript pseudonymize equivalent — so certification
+    must happen here, at population. The résumé boundary re-certifies (defense
+    in depth). Certification after the 20-cap can leave fewer than 20 labels —
+    over-drop is the safe direction. Never logs label text."""
+    return certified_clean_skill_labels(clamp_skill_labels(labels))
+
+
 def clamp_skill_labels(labels: list[str]) -> list[str]:
     """Hygiene-clamp raw skill labels for ``DraftProfile.skill_labels`` (Q14):
     strip control chars, trim, drop empties, drop over-length (> 80 chars),
@@ -273,8 +289,9 @@ def map_rich_to_legacy(
       role yet AND the rich ``primary_role`` maps to an in-scope role.
     - ``machines``/``skills``: UNION of the ids already on ``base`` and the ids mapped
       from the rich labels (order-preserving, de-duplicated).
-    - ``skill_labels`` (Q14): the rich ``skills`` LABELS, hygiene-clamped via
-      ``clamp_skill_labels`` — raw display text for the résumé only, never matchable.
+    - ``skill_labels`` (Q14): the rich ``skills`` LABELS, sanitized via
+      ``sanitize_skill_labels`` (hygiene clamp + pseudonymize certification —
+      certify-at-rest) — raw display text for the résumé only, never matchable.
 
     TAX-4 (ADR-0030): when ``skill_store`` + ``settings`` are supplied AND
     ``settings.skill_canonicalize_enabled`` is on, the model-emitted skill LABELS are
@@ -308,10 +325,12 @@ def map_rich_to_legacy(
 
     # Q14 (ADR-0030 OQ#3): carry the worker's RAW skill labels onto the persisted
     # DraftProfile so the résumé can render them (labels-only field — the matchable
-    # ``skills`` ids above are untouched; never rank/match on labels). The labels
-    # derive from LLM output over PSEUDONYMIZED transcripts, and every label is
-    # re-certified by pseudonymize() at the résumé boundary before rendering (SG-2).
-    legacy.skill_labels = clamp_skill_labels(legacy.skill_labels + rich.skills)
+    # ``skills`` ids above are untouched; never rank/match on labels). CERTIFIED AT
+    # REST via sanitize_skill_labels (clamp + pseudonymize certification): a
+    # blocked/masked/altered label never persists, so every downstream renderer of
+    # the snapshot (PDF, payer disclosure) only ever sees certified-clean labels.
+    # The résumé boundary re-certifies (SG-2, defense in depth).
+    legacy.skill_labels = sanitize_skill_labels(legacy.skill_labels + rich.skills)
 
     # TAX-4: flagged vector canonicalization over the DB seam (default off → no-op).
     if skill_store is not None and settings is not None and settings.skill_canonicalize_enabled:

@@ -140,11 +140,14 @@ class DraftProfile(BaseModel):
     skills: list[str] = Field(default_factory=list)
     # Q14 (ADR-0030 OQ#3, decided 2026-07-16): worker-confirmed RAW skill labels
     # (e.g. "MIG welding"), rendered on the résumé alongside the canonical ids.
-    # Populated from WorkerProfileDraft.skills at extraction (map_rich_to_legacy);
-    # NEVER canonical ids, NEVER used for matching/ranking. Additive: old persisted
-    # rows lack the field → default [] → prior behavior unchanged. Every label is
-    # re-certified by pseudonymize() at the résumé boundary before it can reach
-    # the artifact or the LLM payload (SG-2, fail-closed → dropped).
+    # LIVE-PATH producer: the /profile/extract endpoint (main.py) populates this
+    # from WorkerProfileDraft.skills via sanitize_skill_labels — hygiene clamp +
+    # pseudonymize certification, so labels are CERTIFIED CLEAN AT REST before
+    # they persist (map_rich_to_legacy, currently WS4-deferred, applies the same
+    # pipeline). NEVER canonical ids, NEVER used for matching/ranking. Additive:
+    # old persisted rows lack the field → default [] → prior behavior unchanged.
+    # The résumé boundary RE-certifies every label before it can reach the
+    # artifact or the LLM payload (SG-2, fail-closed → dropped).
     skill_labels: list[str] = Field(default_factory=list)
     machines: list[str] = Field(default_factory=list)
     experience: Experience = Field(default_factory=Experience)

@@ -66,7 +66,11 @@ from .profiling.prompts import (
     RESUME_SYSTEM_PROMPT,
     build_chat_messages,
 )
-from .pseudonymize import PseudonymizationResult, pseudonymize
+from .pseudonymize import (
+    PseudonymizationResult,
+    certified_clean_skill_labels,
+    pseudonymize,
+)
 from .stt import SttAdapter
 from .translate import TranslateAdapter
 
@@ -606,6 +610,21 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
         # AUTHORITATIVE `canonical_role_id=null` on a helper/adjacent case and
         # regress the negative tier — verify against the staging --real eval first.
 
+    # Q14 (ADR-0030 OQ#3) — the LIVE-PATH producer of skill_labels: carry the
+    # rich draft's raw skill LABELS onto the persisted legacy profile so the
+    # résumé can render them. LABELS ONLY — deliberately NOT the deferred WS4
+    # map_rich_to_legacy role/id backfill above (negative-tier risk); the
+    # matchable `skills`/`machines`/role ids are untouched here. CERTIFIED AT
+    # REST via sanitize_skill_labels (hygiene clamp + pseudonymize
+    # certification): apps/api persists this profile as profiles.raw_profile and
+    # later generated_resumes.sourceProfileSnapshot, and the PDF + payer-facing
+    # disclosure surfaces render skill_labels from that snapshot with NO
+    # TypeScript pseudonymize equivalent — a suspect label must never persist.
+    # The résumé boundary re-certifies (defense in depth). Never logs label text.
+    legacy.skill_labels = profile_extractor.sanitize_skill_labels(
+        legacy.skill_labels + rich.skills
+    )
+
     # TAX-4/FORK-B-1: vector-canonicalize the SKILL labels (SG-3 — the vector layer
     # assigns ids from the closed skill_alias set; below-floor phrases are recorded
     # pseudonymized + stay raw). SKILLS ONLY — deliberately NOT map_rich_to_legacy's
@@ -684,35 +703,23 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
     )
 
 
-def _certified_clean_skill_labels(labels: list[str]) -> list[str]:
-    """SG-2 gate (Q14/ADR-0030 OQ#3): keep only labels the pseudonymization
-    gateway certifies CLEAN — ``pseudonymize(label)`` must (a) not block,
-    (b) mask nothing (``replaced_entities == 0``), and (c) return the label
-    byte-identical. Anything else is DROPPED (fail-closed: over-drop, never
-    render or send a suspect label; never crash). Label TEXT is never logged."""
-    return [
-        label
-        for label in labels
-        if (r := pseudonymize(label)).blocked is False
-        and r.replaced_entities == 0
-        and r.text == label
-    ]
-
-
 @app.post("/resume/generate", response_model=ResumeGenerationOutput)
 async def resume_generate(body: ResumeGenerationInput) -> ResumeGenerationOutput:
     # Q14: `skill_labels` is the ONLY free-text field on the résumé profile
-    # (everything else is closed-set ids/enums/numbers). Every label must pass
-    # the pseudonymize gate before it may appear in the artifact OR the LLM
-    # payload — the SAME filtered profile feeds build_resume (mock/deterministic
-    # text) and the json.dumps LLM payload below, so both see identical labels.
-    # The labels are worker-CONFIRMED by construction: résumé generation is
-    # triggered only after `profile.confirmed` (profiles.service.ts) and reads
-    # the confirmed snapshot — no new confirmation mechanics here. The résumé
-    # ALWAYS completes: all-labels-dropped just degrades the skills line.
+    # (everything else is closed-set ids/enums/numbers). Labels are already
+    # CERTIFIED AT REST at population (/profile/extract → sanitize_skill_labels),
+    # but the boundary RE-certifies every label (defense in depth — this also
+    # covers old/hand-crafted payloads) before it may appear in the artifact OR
+    # the LLM payload — the SAME filtered profile feeds build_resume
+    # (mock/deterministic text) and the json.dumps LLM payload below, so both
+    # see identical labels. The labels are worker-CONFIRMED by construction:
+    # résumé generation is triggered only after `profile.confirmed`
+    # (profiles.service.ts) and reads the confirmed snapshot — no new
+    # confirmation mechanics here. The résumé ALWAYS completes:
+    # all-labels-dropped just degrades the skills line.
     profile = body.profile
     if profile.skill_labels:
-        kept = _certified_clean_skill_labels(profile.skill_labels)
+        kept = certified_clean_skill_labels(profile.skill_labels)
         if len(kept) != len(profile.skill_labels):
             # COUNT only — never the label text (a dropped label is suspect PII).
             logger.debug(

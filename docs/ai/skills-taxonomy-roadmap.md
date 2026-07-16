@@ -197,13 +197,18 @@ structurally independent of canonicalization (both entry points forced to raise 
 HONEST FINDING (now closed): the spec's "renders from worker-confirmed raw phrases" was NOT
 the behavior as verified — the résumé rendered closed-set ids or nothing; that gap was **Q14**.
 **Q14 decided 2026-07-16 (owner) + implemented:** the confirmed raw labels now render via the
-additive `DraftProfile.skill_labels` field (Zod + Pydantic), populated from
-`WorkerProfileDraft.skills` at extraction (hygiene-clamped: ≤20 labels, ≤80 chars, deduped) and
-**pseudonymize-gated at the résumé boundary (SG-2, fail-closed)**: a label reaches the artifact
-and the LLM payload only when `pseudonymize` certifies it clean (not blocked, nothing masked,
-text byte-identical); anything else is silently dropped and the résumé still completes.
-`RESUME_SYSTEM_PROMPT` unchanged (hash pin holds); all TAX-8 locks extended, none deleted;
-labels are display-only — never matchable ids, never in events/`ai_jobs`/logs.
+additive `DraftProfile.skill_labels` field (Zod + Pydantic), populated on the live
+`/profile/extract` path from `WorkerProfileDraft.skills` (labels-only — deliberately NOT the
+WS4-deferred `map_rich_to_legacy` role/id backfill) and **certified clean AT REST**: hygiene
+clamp (≤20 labels, ≤80 chars, deduped) + pseudonymize certification at population, so a
+blocked/masked/altered label never persists into `profiles.raw_profile` /
+`generated_resumes.sourceProfileSnapshot` — the TS PDF + payer-disclosure renderers of that
+snapshot therefore need no gate of their own. The résumé boundary **re-certifies (SG-2,
+fail-closed, defense in depth)**: a label reaches the artifact and the LLM payload only when
+`pseudonymize` certifies it clean (not blocked, nothing masked, text byte-identical); anything
+else is silently dropped and the résumé still completes. `RESUME_SYSTEM_PROMPT` unchanged
+(hash pin holds); all TAX-8 locks extended, none deleted; labels are display-only — never
+matchable ids, never in events/`ai_jobs`/logs.
 
 ## TAX-9 — Versioning + offline re-tag discipline · P3 · owner: db + ai
 

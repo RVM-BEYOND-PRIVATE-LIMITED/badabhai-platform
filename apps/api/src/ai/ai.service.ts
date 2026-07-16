@@ -97,6 +97,11 @@ export class AiService {
     // Q14: local mock fallback (AI service unreachable — NO LLM involved) renders
     // ids + the worker-confirmed raw labels, deduped case-insensitively against
     // the ids with the `skill_` prefix stripped (label "Milling" dupes skill_milling).
+    // SAFE UNGATED BY CONSTRUCTION: skill_labels is CERTIFIED CLEAN AT REST by the
+    // AI service at population (/profile/extract → sanitize_skill_labels: hygiene
+    // clamp + pseudonymize certification — a blocked/masked/altered label never
+    // persists in profiles.raw_profile), so this no-LLM path only ever echoes
+    // already-certified labels. No TS-side pseudonymize equivalent is needed here.
     const idKeys = new Set(profile.skills.map((s) => s.replace(/^skill_/, "").replace(/_/g, " ").toLowerCase()));
     const skills = [
       ...profile.skills,

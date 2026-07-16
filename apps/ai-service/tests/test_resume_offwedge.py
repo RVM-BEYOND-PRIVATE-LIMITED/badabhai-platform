@@ -275,3 +275,71 @@ def test_extraction_clamp_caps_at_twenty():
         WorkerProfileDraft(skills=[f"unique skill {i}" for i in range(21)])
     )
     assert len(legacy.skill_labels) == 20
+
+
+# --- certify-at-rest: suspect labels never PERSIST (PR #245 review, finding 2) -----
+# apps/api stores the extract-endpoint profile as profiles.raw_profile and later
+# generated_resumes.sourceProfileSnapshot; the PDF + payer-facing disclosure render
+# skill_labels from that snapshot with NO TypeScript pseudonymize equivalent — so
+# certification must hold at POPULATION time, not only at the résumé boundary.
+
+
+def test_map_rich_to_legacy_certifies_labels_at_rest():
+    from app.contracts import WorkerProfileDraft
+    from app.profiling.profile_extractor import map_rich_to_legacy
+    from app.pseudonymize import pseudonymize
+
+    masked = "welding in Pune"  # city gazetteer hit -> would be masked
+    blocked = "welding grade 1234567"  # 7-digit run -> fail-closed block
+    assert pseudonymize(masked).replaced_entities > 0  # honest preconditions
+    assert pseudonymize(blocked).blocked is True
+
+    legacy = map_rich_to_legacy(
+        WorkerProfileDraft(skills=["MIG welding", masked, blocked])
+    )
+    assert legacy.skill_labels == ["MIG welding"]
+
+
+# --- /profile/extract is the LIVE-PATH producer (PR #245 review, finding 1) --------
+def test_extract_endpoint_populates_certified_skill_labels(monkeypatch):
+    # map_rich_to_legacy has NO production caller (WS4-deferred), so the endpoint
+    # itself must populate skill_labels — poison the rich draft to prove both the
+    # population wiring AND the at-rest certification in one shot.
+    from app.contracts import DraftProfile as DP
+    from app.contracts import WorkerProfileDraft
+    from app.profiling import profile_extractor
+
+    def fake_extract(text, role_family="cnc_vmc"):
+        rich = WorkerProfileDraft(
+            skills=["MIG welding", "welding in Pune", "welding grade 1234567"]
+        )
+        return rich, DP()
+
+    monkeypatch.setattr(profile_extractor, "extract", fake_extract)
+
+    resp = client.post(
+        "/profile/extract",
+        json={"transcript": "main welding ka kaam karta hoon"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    # Clean label persisted; masked + blocked labels NEVER enter the persisted
+    # profile (this response IS what apps/api stores as profiles.raw_profile).
+    assert body["profile"]["skill_labels"] == ["MIG welding"]
+    import json as _json
+
+    profile_json = _json.dumps(body["profile"])
+    assert "Pune" not in profile_json and "1234567" not in profile_json
+
+
+def test_extract_endpoint_live_heuristic_labels_flow_unmocked():
+    # No monkeypatch: the real heuristic path must carry its labels through to
+    # DraftProfile.skill_labels (the field is not dead code on the live path).
+    resp = client.post(
+        "/profile/extract",
+        json={"transcript": "I operate a VMC with Fanuc control and do tool offset setting"},
+    )
+    assert resp.status_code == 200
+    labels = resp.json()["profile"]["skill_labels"]
+    assert "tool offset setting" in labels
+    assert "machine operation" in labels
