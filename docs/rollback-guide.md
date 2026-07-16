@@ -66,10 +66,35 @@ still reads the new schema.
   code does not need the new column and simply ignores it. Do **not** also revert the
   migration (see §2).
 
-> TODO(verify): the concrete build-tag / deploy mechanism (registry, tag scheme,
-> redeploy command) is not committed in this repo — there is no deploy workflow under
-> `.github/workflows/` yet. Fill in the exact "redeploy previous tag" command once the
-> deploy pipeline lands.
+### Concrete recipe — redeploy a previous API image on the Lightsail box (CD-4)
+
+The deploy pipeline (`deploy-lightsail` in [ci.yml](../.github/workflows/ci.yml))
+pushes every main image to GHCR under an **immutable per-commit tag**
+`sha-<short7>` (first 7 hex chars of the commit sha) alongside the mutable
+`:main` tag — **always roll back to a `sha-` tag, never `:main`** (`:main` moves
+on the next push). On the box:
+
+```bash
+# on the Lightsail box, in ~/deployments/badabhai-platform
+export API_IMAGE="ghcr.io/rvm-beyond-private-limited/badabhai-platform/badabhai-api:sha-<prev7>"
+docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api pull api
+docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api up -d --no-deps api
+curl -sf http://localhost:3001/health   # verify before walking away
+```
+
+- **Both `-f` files and `--no-deps api` are load-bearing:** the staging overlay
+  ([docker-compose.staging.yml](../docker-compose.staging.yml)) supplies
+  `NODE_ENV=production` + the fail-loud `${VAR:?}` secret requirements, and
+  `--no-deps` is what keeps the compose-internal postgres/redis/adminer from
+  starting (they must never run on the box — R27).
+- **Finding the previous good tag:** the last green `deploy-lightsail` run logs
+  `Deploying image: ghcr.io/...:sha-<short7>`; equivalently, take the first 7
+  chars of the last known-good main commit sha.
+- Secrets resolve from the box env/`.env` (STAGING-SECRETS-1); if they are
+  missing the compose commands fail loud — that is intended (R27), not a
+  rollback bug.
+- No DB action is needed for a code rollback: migrations are additive (§2), so
+  the older image reads the newer schema.
 
 ---
 

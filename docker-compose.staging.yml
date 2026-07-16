@@ -1,0 +1,92 @@
+# ===========================================================================
+# docker-compose.staging.yml — CD-0 staging/deploy overlay for the Lightsail box.
+#
+# The base docker-compose.yml is a DEV-LAPTOP file on purpose (its api service
+# pins NODE_ENV=development, public dev-default secrets, and the compose-internal
+# postgres/redis) — NEVER deploy it alone. This overlay retargets ONLY the api
+# service for a real box; apply it ON TOP of the base file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api pull api
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api up -d --no-deps api
+#
+# Fail-loud contract: every `${VAR:?}` below errors at COMPOSE time (before any
+# container starts) when the box lacks real values — a box still on the public
+# repo-literal dev defaults is UNDEPLOYABLE instead of silently live on them.
+# Values come from the shell env or the project .env on the box
+# (STAGING-SECRETS-1); they are never committed (CLAUDE.md §6).
+#
+# depends_on: the base api service depends_on the compose-internal postgres and
+# redis. An overlay cannot DELETE a depends_on entry by omission (compose merges
+# maps by union), and the `!reset` YAML tag needs compose >= 2.24, which the box
+# is NOT verified to run — so the deploy script passes `--no-deps api` on `up`
+# instead (portable across all compose v2), which skips dependency startup
+# entirely. NEVER run this overlay with a bare `up -d`: profile-less services
+# (postgres/redis/adminer) would still start alongside the api.
+# ===========================================================================
+services:
+  api:
+    # CD-4: staging pins the IMMUTABLE per-commit image (the ghcr `sha-<short7>`
+    # tag) exported by the deploy-lightsail job; rollback = export the previous
+    # sha tag and re-run `up` (docs/rollback-guide.md). The dev path keeps the
+    # base file's `${API_IMAGE:-badabhai-api:latest}` default.
+    image: ${API_IMAGE:?set the immutable ghcr sha tag, e.g. ghcr.io/<owner>/badabhai-platform/badabhai-api:sha-<short7> — exported by deploy-lightsail in .github/workflows/ci.yml}
+    environment:
+      # Explicit production, not merely un-set: the base file pins development and
+      # the runtime image's own default is ALSO production (apps/api/Dockerfile,
+      # `ENV NODE_ENV=production`) — stating it here makes the deployed value
+      # independent of merge/default order, and it ARMS every fail-closed boot
+      # assert in apps/api/src/main.ts (assertPiiCryptoConfig / assertAuthConfig /
+      # assertPayerAuthConfig / assertAdminAuthConfig all reject the public
+      # dev-default secrets outside an explicit development/test env).
+      NODE_ENV: production
+
+      # ---- Secrets the production boot asserts REQUIRE (fail-closed in main.ts).
+      # `${VAR:?}` fails at compose time — one clear error line beats a container
+      # crash-loop. Real values live only on the box (env / .env), never in git.
+      JWT_SECRET: ${JWT_SECRET:?required in staging — the dev default is a public repo literal}
+      PII_ENCRYPTION_KEY: ${PII_ENCRYPTION_KEY:?required in staging — 32-byte base64, never the dev default}
+      PII_HASH_PEPPER: ${PII_HASH_PEPPER:?required in staging — never the dev default}
+      # assertAuthConfig also rejects the dev PIN pepper outside dev/test (ADR-0026
+      # Phase 3) — omitting this would guarantee a boot loop under NODE_ENV=production.
+      PIN_PEPPER: ${PIN_PEPPER:?required in staging — never the dev default}
+      # Must ALSO differ from JWT_SECRET (assertAdminAuthConfig — principal separation).
+      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:?required in staging — distinct from JWT_SECRET, never the dev default}
+
+      # ---- Real backing services. NEVER the compose-internal postgres/redis — the
+      # deploy runs `up --no-deps api`, so those never even start on this path.
+      DATABASE_URL: ${DATABASE_URL:?required in staging — the real Postgres, never the compose-internal one}
+      REDIS_URL: ${REDIS_URL:?required in staging — the real Redis, never the compose-internal one}
+
+      # ---- Worker OTP is REAL-ONLY (Fast2SMS — no console/mock path, CLAUDE.md §1).
+      # The base file's dev-dummy defaults satisfy assertAuthConfig's presence check
+      # (so the container would BOOT) but every real OTP send would then fail at
+      # runtime — staging requires the REAL provider values, and a missing one fails
+      # here at compose rather than as a mid-login provider error.
+      FAST2SMS_API_KEY: ${FAST2SMS_API_KEY:?required in staging — real Fast2SMS key, worker OTP has no mock path}
+      FAST2SMS_SENDER_ID: ${FAST2SMS_SENDER_ID:?required in staging — the DLT-registered sender id}
+      FAST2SMS_DLT_TEMPLATE_ID: ${FAST2SMS_DLT_TEMPLATE_ID:?required in staging — the DLT template id}
+
+      # ---- InternalServiceGuard shared secret. The base default ("dev-internal-token")
+      # is a repo literal guarding the ops-only routes (resume reads, ops unlocks —
+      # TD33/TD50) and has NO boot assert — this compose-level requirement is the only
+      # fail-loud gate for it.
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?required in staging — the dev default is a public repo literal}
+
+      # ---- Resume PDF render: explicitly OFF on this box (R27 owner queue). The base
+      # file enables it for the local render runbook, but its SUPABASE_URL /
+      # SUPABASE_SERVICE_ROLE_KEY default to EMPTY — with render left on, the resume
+      # PDF (a Phase-1 exit criterion) would boot fine and then fail at the FIRST
+      # render at runtime ("Supabase Storage is not configured"). Off-until-configured
+      # is the honest state. When the box gets storage creds, flip this to "true" AND
+      # add SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY here as `${VAR:?}` fail-loud
+      # entries (deliberately NOT added today — keeping the required-secret set equal
+      # to the owner's STAGING-SECRETS-1 list).
+      RESUME_RENDER_ENABLED: "false"
+
+      # ---- KNOWN-SURVIVING DEV VALUE (deliberate for now — R27 owner queue). The base
+      # file's `PAYER_LOGIN_METHOD: whatsapp` survives this merge, and the WhatsApp
+      # channel is the MOCK provider (ADR-0020) — so payer/agency login is functionally
+      # DEAD on this box even though the API boots clean in production mode. NOT
+      # silently overridden here: the owner decides whether to pin a real method +
+      # its creds (e.g. email_otp -> ZeptoMail set as `${VAR:?}`) or accept a dead
+      # payer login on this box for now.
