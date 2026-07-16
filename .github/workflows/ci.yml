@@ -266,8 +266,23 @@ jobs:
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
+        env:
+          # CD-4: pin the short-sha length so the `type=sha` tag provably matches the
+          # deploy job's `cut -c1-7` below (7 IS metadata-action's default — pinned
+          # against upstream drift; harmless on versions predating the env var).
+          DOCKER_METADATA_SHORT_SHA_LENGTH: "7"
         with:
           images: ghcr.io/${{ github.repository }}/badabhai-api
+          # CD-4: declaring `tags:` replaces ALL metadata-action defaults, so the
+          # previously-implicit branch behavior is now declared explicitly:
+          #   type=ref,event=branch -> the mutable :main tag (humans / local pulls)
+          #   type=sha              -> the IMMUTABLE :sha-<short7> tag (default
+          #                            prefix "sha-", format=short) that the deploy
+          #                            pins. Rollback = API_IMAGE=...:sha-<prev> +
+          #                            compose up (docs/rollback-guide.md).
+          tags: |
+            type=ref,event=branch
+            type=sha
           
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -277,6 +292,13 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # CD-5: GitHub Actions layer cache. The expensive layer is the runtime
+          # stage's WeasyPrint apt+pip install (Pango/cairo native stack in
+          # apps/api/Dockerfile) — the gha cache holds it across runs (10 GB
+          # Actions Cache quota, separate from the Packages quota). mode=max also
+          # caches intermediate (builder) stages, not just the final image layers.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   # ---- AWS Lightsail Deployment ----
   deploy-lightsail:
@@ -293,15 +315,58 @@ jobs:
           key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
           timeout: 10m
           script: |
+            set -e
             echo "Starting deployment..."
             cd ~/deployments/badabhai-platform
             echo "Pulling latest code from main..."
             git pull origin main
             echo "Logging into GHCR..."
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            echo "Pulling and starting Docker containers..."
-            export API_IMAGE=$(echo "ghcr.io/${{ github.repository }}/badabhai-api:main" | tr '[:upper:]' '[:lower:]')
-            docker compose --profile api pull api
-            docker compose --profile api up -d
-            docker compose --profile api ps
+
+            # CD-4: pin the IMMUTABLE per-commit tag pushed by build-and-push-image
+            # (metadata-action type=sha -> prefix "sha-" + short 7-char sha, length
+            # pinned via DOCKER_METADATA_SHORT_SHA_LENGTH above). Rollback = export
+            # the previous sha tag and re-run compose up (docs/rollback-guide.md).
+            export API_IMAGE=$(echo "ghcr.io/${{ github.repository }}/badabhai-api:sha-$(echo '${{ github.sha }}' | cut -c1-7)" | tr '[:upper:]' '[:lower:]')
+            echo "Deploying image: $API_IMAGE"
+
+            # CD-0: base + staging overlay. The overlay pins NODE_ENV=production and
+            # makes every production-required secret a fail-loud ${VAR:?} — a box
+            # without real secrets FAILS HERE at compose interpolation (job goes red)
+            # instead of booting on the public dev defaults. `--no-deps api` on `up`
+            # is load-bearing: it is what keeps the compose-internal throwaway
+            # postgres/redis/adminer from ever starting on this box (see the
+            # depends_on note in docker-compose.staging.yml) — staging must point at
+            # real backing services via DATABASE_URL/REDIS_URL.
+            COMPOSE="docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api"
+            $COMPOSE pull api
+
+            # TODO(CD-2, held: 0031 human sign-off + D1): migrations-in-pipeline would
+            # run HERE — after the image pull, BEFORE the new code boots (CLAUDE.md §2
+            # ordering: migrations never run after the code that assumes them). Held
+            # pending owner sign-off on migration 0031 (destructive-adjacent billing-FK
+            # change, §7 human-gated) + the prod-vs-staging D1 environment answer.
+
+            $COMPOSE up -d --no-deps api
+            $COMPOSE ps
+
+            # CD-3: health-gate the deploy — the job must go RED when the API does not
+            # come up (the old unconditional success echo could never fail). Poll on
+            # the box itself: localhost sidesteps the instance firewall. Same poll
+            # pattern as the e2e job's /health wait above. ~60s budget (30 x 2s).
+            echo "Waiting for the API to become healthy..."
+            healthy=0
+            for i in $(seq 1 30); do
+              if curl -sf http://localhost:3001/health >/dev/null 2>&1; then
+                healthy=1
+                echo "API healthy after attempt ${i}"
+                break
+              fi
+              sleep 2
+            done
+            if [ "$healthy" -ne 1 ]; then
+              echo "::error::API never became healthy — dumping container logs"
+              $COMPOSE logs --tail=100 api
+              exit 1
+            fi
             echo "Deployment finished successfully!"
