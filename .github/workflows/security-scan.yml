@@ -37,10 +37,12 @@ name: Security scan
 # No GitHub Enterprise-only features (no required-reviewer environment gates).
 #
 # TRIGGERS (CI-4a, 2026-07-16): pull_request→main is the primary surface — every
-# PR is scanned before merge. The post-merge `push: main` run was DROPPED as pure
-# duplication: every job here is advisory (continue-on-error), so the push run
-# could never surface or block anything the PR run hadn't already reported on the
-# same code. The weekly schedule below is the coverage net that replaces it.
+# PR is scanned before merge. The post-merge `push: main` run was DROPPED: for
+# PR-delivered changes it was pure duplication (every job here is advisory /
+# continue-on-error, so it could never surface anything the PR run hadn't).
+# Caveat: DIRECT pushes to main (this repo takes them) get no immediate scan —
+# they are covered by the weekly schedule below (bounded ≤7-day gap, full-history
+# gitleaks re-scan), which is the coverage net, not an optional extra.
 
 on:
   pull_request:

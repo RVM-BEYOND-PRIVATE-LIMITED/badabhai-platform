@@ -89,13 +89,14 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-          # CI-5a: cache pip's package cache, keyed on the ONE requirements file
-          # this job installs (`pip install -r requirements-dev.txt`, resolved
-          # under the job-level working-directory apps/ai-service). NOTE:
+          # CI-5a: cache pip's package cache. The job installs requirements-dev.txt,
+          # which chains `-r requirements.txt` — so the key must hash BOTH files
+          # (a runtime-deps change alone must rotate the key, or actions/cache
+          # never re-saves on a hit and new wheels re-download every run). NOTE:
           # `cache-dependency-path` is ALWAYS repo-root-relative — the job's
           # `working-directory` default does not apply to it — hence the full path.
           cache: "pip"
-          cache-dependency-path: apps/ai-service/requirements-dev.txt
+          cache-dependency-path: apps/ai-service/requirements*.txt
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
