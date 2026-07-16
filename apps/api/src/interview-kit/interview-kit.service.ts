@@ -135,16 +135,45 @@ export class InterviewKitService {
       // to 503 "try again later". StorageService errors are PII-free by contract
       // (constant strings + status codes — never the signed URL, key material, or
       // bytes), and regardless only the generic message below reaches the client.
+      const reason = InterviewKitService.classifyOutage(err);
+      // Log WITH the stack (2nd param): pre-fix Nest logged the full stack at
+      // ERROR; without it the unexpected-error class would be undiagnosable
+      // (LOW-2, PR #254). Storage messages are PII-free constants, so the stack
+      // is safe — and it never reaches the response body.
       this.logger.warn(
-        `interview kit ${kitId} unavailable (storage/render failure): ${
+        `interview kit ${kitId} unavailable (${reason}): ${
           err instanceof Error ? err.message : "unknown error"
         }`,
+        err instanceof Error ? err.stack : undefined,
       );
-      await this.emitRenderFailedBestEffort(tradeKey, version, "storage_unavailable", ctx);
+      await this.emitRenderFailedBestEffort(tradeKey, version, reason, ctx);
       throw new ServiceUnavailableException(
         "Interview kit is not available yet; please try again later",
       );
     }
+  }
+
+  /**
+   * Classify a caught outage for the audit spine (LOW-1, PR #254): ONLY the known
+   * StorageService failure shapes claim `storage_unavailable` — everything else
+   * (a renderer THROW, a downloaded-emit failure, an unexpected bug) is the honest
+   * `pipeline_unavailable`, so ops aren't misdirected at storage. Both constants
+   * are PII-free.
+   */
+  private static classifyOutage(err: unknown): "storage_unavailable" | "pipeline_unavailable" {
+    if (err instanceof Error) {
+      if (
+        err.message.startsWith("Supabase Storage is not configured") ||
+        err.message.startsWith("storage ") ||
+        // Node-fetch transport class: TypeError("fetch failed") / AbortController
+        // timeout ("AbortError") — both only ever raised inside StorageService here.
+        err.message.startsWith("fetch failed") ||
+        err.name === "AbortError"
+      ) {
+        return "storage_unavailable";
+      }
+    }
+    return "pipeline_unavailable";
   }
 
   /**

@@ -140,10 +140,14 @@ describe("InterviewKitService — WA-5: storage failures map to 503, never 500",
   });
 
   it("503s on a storage TRANSPORT failure (fetch abort/TypeError), not 500", async () => {
-    const { svc, storage } = setup();
+    const { svc, storage, events } = setup();
     storage.objectExists.mockRejectedValueOnce(new TypeError("fetch failed"));
     await expect(svc.getDownload("vmc_operator", CTX)).rejects.toBeInstanceOf(
       ServiceUnavailableException,
+    );
+    // The transport class is a KNOWN storage shape → classified storage_unavailable.
+    expect(emitted(events, "interview_kit.render_failed")!.payload.reason).toBe(
+      "storage_unavailable",
     );
   });
 
@@ -179,6 +183,43 @@ describe("InterviewKitService — WA-5: storage failures map to 503, never 500",
     events.emit.mockRejectedValue(new Error("events insert failed"));
     await expect(svc.getDownload("cnc_operator", CTX)).rejects.toBeInstanceOf(
       ServiceUnavailableException,
+    );
+  });
+
+  // LOW-1 (PR #254): only KNOWN StorageService failure shapes claim storage_unavailable;
+  // anything else in the pipeline is the honest pipeline_unavailable.
+  it("an unexpected RENDERER THROW lands reason=pipeline_unavailable (not storage), still 503", async () => {
+    const { svc, renderer, events } = setup({ exists: false });
+    renderer.renderPdf.mockRejectedValueOnce(new Error("weasyprint spawn crashed unexpectedly"));
+    await expect(svc.getDownload("cnc_operator", CTX)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    expect(emitted(events, "interview_kit.render_failed")!.payload.reason).toBe(
+      "pipeline_unavailable",
+    );
+  });
+
+  // INFO-4 (PR #254): storage healthy, sign SUCCEEDS, but the downloaded emit throws —
+  // the route must 503 (fail-closed audit parity: no download response without its
+  // event, same as pre-fix), never 500, and never return the minted URL.
+  it("503s when the interview_kit.downloaded emit throws AFTER a successful sign (fail-closed)", async () => {
+    const { svc, events } = setup({ exists: true });
+    events.emit.mockImplementation(async (p: { event_name: string; payload: Record<string, unknown> }) => {
+      if (p.event_name === "interview_kit.downloaded") throw new Error("events insert failed");
+      return p;
+    });
+    const err = await svc.getDownload("cnc_operator", CTX).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ServiceUnavailableException);
+    // An events failure is NOT a storage failure — classified pipeline_unavailable.
+    expect(emitted(events, "interview_kit.render_failed")!.payload.reason).toBe(
+      "pipeline_unavailable",
+    );
+    // The signed URL must not leak through the error body.
+    expect(JSON.stringify((err as ServiceUnavailableException).getResponse())).not.toMatch(
+      /https?:\/\/|token/i,
     );
   });
 
