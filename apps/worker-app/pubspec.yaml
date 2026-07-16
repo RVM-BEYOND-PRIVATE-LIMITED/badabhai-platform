@@ -65,6 +65,14 @@ dependencies:
   #   - path_provider — Directory.systemTemp IS the app-private cache dir on
   #     Android, which is all the recorder needs for its temp clip.
   record: ^6.2.1
+  # ADR-0032 profile photo capture (camera + gallery). The picker's OWN
+  # maxWidth/imageQuality params do the on-device resize + JPEG re-encode
+  # (max 1024px), so NO separate compression package. Deliberately OUT
+  # (mirrors the `record` decisions above):
+  #   - permission_handler — the system photo picker (Android 13+) needs no
+  #     permission, and the camera intent handles its own prompt.
+  #   - flutter_image_compress — pickImage(maxWidth, imageQuality) covers it.
+  image_picker: ^1.1.2
 
 dev_dependencies:
   flutter_test:

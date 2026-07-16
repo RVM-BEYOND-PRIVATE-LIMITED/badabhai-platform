@@ -1,6 +1,10 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
@@ -118,6 +122,12 @@ class _ResumeEditViewState extends State<_ResumeEditView> {
             value: fields.displayName,
             onEdit: () => _editName(context, cubit, fields.displayName),
           ),
+          _PhotoField(
+            hasPhoto: fields.hasPhoto,
+            photoUrl: state.photoUrl,
+            busy: state.photoBusy,
+            onEdit: () => _editPhoto(context, cubit, fields.hasPhoto),
+          ),
           _ToggleField(
             label: 'Photo dikhayein',
             value: fields.showPhoto,
@@ -149,7 +159,79 @@ class _ResumeEditViewState extends State<_ResumeEditView> {
     if (trimmed.isEmpty) return;
     cubit.setDisplayName(trimmed);
   }
+
+  /// ADR-0032 — camera / gallery / remove sheet, then pick → resize on-device
+  /// (max 1024px JPEG, the picker's own params — no PII leaves the device
+  /// unresized) → upload via the cubit. The sheet returns an action; all async
+  /// gaps are mounted-guarded (the _editName lesson).
+  Future<void> _editPhoto(
+    BuildContext context,
+    ResumeEditCubit cubit,
+    bool hasPhoto,
+  ) async {
+    final _PhotoAction? action = await showModalBottomSheet<_PhotoAction>(
+      context: context,
+      builder: (BuildContext sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Photo khichein'),
+              onTap: () => Navigator.of(sheetContext).pop(_PhotoAction.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Gallery se chunein'),
+              onTap: () => Navigator.of(sheetContext).pop(_PhotoAction.gallery),
+            ),
+            if (hasPhoto)
+              ListTile(
+                leading: const Icon(Icons.delete_outline),
+                title: const Text('Photo hatayein'),
+                onTap: () => Navigator.of(sheetContext).pop(_PhotoAction.remove),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+
+    if (action == _PhotoAction.remove) {
+      unawaited(cubit.removePhoto());
+      return;
+    }
+
+    final XFile? picked;
+    try {
+      picked = await ImagePicker().pickImage(
+        source: action == _PhotoAction.camera
+            ? ImageSource.camera
+            : ImageSource.gallery,
+        // On-device resize + JPEG re-encode BEFORE any byte leaves the phone
+        // (ADR-0032 §6) — also keeps the PDF embed well under the size caps.
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+        // Data minimization, honestly stated (bb-security-review L-1): on iOS this
+        // skips full metadata; on Android the resize re-encode strips GPS lat/long
+        // but the plugin copies back a few coarse EXIF tags (timestamps/orientation).
+        // Server-side strip at confirm is the hardening follow-up (TD71 family).
+        requestFullMetadata: false,
+      );
+    } catch (_) {
+      // The picker failing (no camera, OS denial) is not the worker's fault;
+      // surface nothing rather than a scary error — they can retry via the row.
+      return;
+    }
+    if (picked == null || !mounted) return; // cancelled / screen gone
+    final Uint8List bytes = await picked.readAsBytes();
+    if (!mounted) return;
+    unawaited(cubit.uploadPhoto(bytes));
+  }
 }
+
+enum _PhotoAction { camera, gallery, remove }
 
 /// The name-spelling dialog. It OWNS its [TextEditingController] so the
 /// controller's lifetime is tied to this widget rather than to the awaiting
@@ -249,6 +331,96 @@ class _NameField extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// `.aw-field` — the photo row (ADR-0032): a thumbnail (or add affordance) +
+/// a pencil that opens the camera/gallery/remove sheet. The thumbnail loads
+/// from a SHORT-LIVED signed url held in memory only; a load failure degrades
+/// to the placeholder (never an error state — the photo is cosmetic here).
+class _PhotoField extends StatelessWidget {
+  const _PhotoField({
+    required this.hasPhoto,
+    required this.photoUrl,
+    required this.busy,
+    required this.onEdit,
+  });
+
+  final bool hasPhoto;
+  final String? photoUrl;
+  final bool busy;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    return _FieldRow(
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  'Aapki photo',
+                  style: AppTypography.body(
+                    size: AppTypography.sizeMd,
+                    weight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.s1 / 2),
+                Text(
+                  hasPhoto ? 'Photo lagi hai' : 'Photo add karein',
+                  style: AppTypography.body(color: AppColors.textMuted),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.s3),
+          _thumb(),
+          const SizedBox(width: AppSpacing.s3),
+          if (busy)
+            const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          else
+            IconButton(
+              tooltip: hasPhoto ? 'Change photo' : 'Add photo',
+              onPressed: onEdit,
+              iconSize: 22,
+              constraints: const BoxConstraints(
+                minWidth: AppSpacing.tap,
+                minHeight: AppSpacing.tap,
+              ),
+              icon: Icon(
+                hasPhoto ? Icons.edit_outlined : Icons.add_a_photo_outlined,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _thumb() {
+    final String? url = photoUrl;
+    return CircleAvatar(
+      radius: 22,
+      backgroundColor: AppColors.divider,
+      child: (hasPhoto && url != null)
+          ? ClipOval(
+              child: Image.network(
+                url,
+                width: 44,
+                height: 44,
+                fit: BoxFit.cover,
+                // Signed url expired / offline → placeholder, never an error.
+                errorBuilder: (_, __, ___) =>
+                    const Icon(Icons.person_outline, size: 24),
+              ),
+            )
+          : const Icon(Icons.person_outline, size: 24),
     );
   }
 }

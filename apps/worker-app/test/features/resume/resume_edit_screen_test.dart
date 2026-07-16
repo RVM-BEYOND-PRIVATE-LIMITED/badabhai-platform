@@ -8,12 +8,15 @@ import 'package:mocktail/mocktail.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
+import 'package:badabhai_worker_app/features/resume/domain/photo_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_edit_cubit.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/resume_edit_screen.dart';
 
 class MockResumeEditRepository extends Mock implements ResumeEditRepository {}
+
+class MockPhotoRepository extends Mock implements PhotoRepository {}
 
 const ResumeSafeFields _fields = ResumeSafeFields(
   displayName: 'Ramesh Kumar',
@@ -38,7 +41,9 @@ Future<MockResumeEditRepository> _pump(
   } else {
     when(() => repo.save(any())).thenThrow(saveThrows);
   }
-  locator.registerFactory<ResumeEditCubit>(() => ResumeEditCubit(repo));
+  final MockPhotoRepository photos = MockPhotoRepository();
+  when(() => photos.photoUrl()).thenAnswer((_) async => null);
+  locator.registerFactory<ResumeEditCubit>(() => ResumeEditCubit(repo, photos));
 
   tester.view.physicalSize = const Size(900, 1900);
   tester.view.devicePixelRatio = 1.0;
@@ -63,6 +68,28 @@ void main() {
     expect(find.text('Naam ki spelling'), findsOneWidget);
     expect(find.text('Ramesh Kumar'), findsOneWidget);
     expect(find.text('Save karein'), findsOneWidget);
+    // ADR-0032: the photo row exists with the add affordance (no photo yet).
+    expect(find.text('Aapki photo'), findsOneWidget);
+    expect(find.text('Photo add karein'), findsOneWidget);
+    expect(find.byIcon(Icons.add_a_photo_outlined), findsOneWidget);
+  });
+
+  testWidgets(
+      'ADR-0032: tapping the photo row opens the camera/gallery sheet (no Remove without a photo)',
+      (WidgetTester tester) async {
+    await _pump(tester);
+
+    await tester.tap(find.byIcon(Icons.add_a_photo_outlined));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Photo khichein'), findsOneWidget);
+    expect(find.text('Gallery se chunein'), findsOneWidget);
+    expect(find.text('Photo hatayein'), findsNothing); // no photo → no remove
+
+    // Dismiss without picking — nothing crashes, nothing uploads.
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 
   // REGRESSION: the name dialog used to be built with a controller owned by the
