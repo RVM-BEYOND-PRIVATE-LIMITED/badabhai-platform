@@ -29,7 +29,7 @@ services:
     # tag) exported by the deploy-lightsail job; rollback = export the previous
     # sha tag and re-run `up` (docs/rollback-guide.md). The dev path keeps the
     # base file's `${API_IMAGE:-badabhai-api:latest}` default.
-    image: ${API_IMAGE:?set the immutable ghcr sha tag, e.g. ghcr.io/<owner>/badabhai-platform/badabhai-api sha-<short7> — exported by deploy-lightsail in .github/workflows/ci.yml}
+    image: ${API_IMAGE:?set the immutable ghcr sha tag, e.g. ghcr.io/<owner>/badabhai-platform/badabhai-api:sha-<short7> — exported by deploy-lightsail in .github/workflows/ci.yml}
     environment:
       # Explicit production, not merely un-set: the base file pins development and
       # the runtime image's own default is ALSO production (apps/api/Dockerfile,
@@ -71,3 +71,22 @@ services:
       # TD33/TD50) and has NO boot assert — this compose-level requirement is the only
       # fail-loud gate for it.
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?required in staging — the dev default is a public repo literal}
+
+      # ---- Resume PDF render: explicitly OFF on this box (R27 owner queue). The base
+      # file enables it for the local render runbook, but its SUPABASE_URL /
+      # SUPABASE_SERVICE_ROLE_KEY default to EMPTY — with render left on, the resume
+      # PDF (a Phase-1 exit criterion) would boot fine and then fail at the FIRST
+      # render at runtime ("Supabase Storage is not configured"). Off-until-configured
+      # is the honest state. When the box gets storage creds, flip this to "true" AND
+      # add SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY here as `${VAR:?}` fail-loud
+      # entries (deliberately NOT added today — keeping the required-secret set equal
+      # to the owner's STAGING-SECRETS-1 list).
+      RESUME_RENDER_ENABLED: "false"
+
+      # ---- KNOWN-SURVIVING DEV VALUE (deliberate for now — R27 owner queue). The base
+      # file's `PAYER_LOGIN_METHOD: whatsapp` survives this merge, and the WhatsApp
+      # channel is the MOCK provider (ADR-0020) — so payer/agency login is functionally
+      # DEAD on this box even though the API boots clean in production mode. NOT
+      # silently overridden here: the owner decides whether to pin a real method +
+      # its creds (e.g. email_otp -> ZeptoMail set as `${VAR:?}`) or accept a dead
+      # payer login on this box for now.
