@@ -18,12 +18,6 @@ class ProfileSummaryRepositoryImpl implements ProfileSummaryRepository {
   final ApiClient _api;
   final SessionRepository _session;
 
-  /// The backend `strength` is an unbounded signal COUNT (countFields over the
-  /// confirmed profile). We normalize it to 0..1 for the strength bar against
-  /// this display target — roughly this many signals reads as a "full" profile.
-  /// A display heuristic only; it is never sent back to the server.
-  static const int _strengthTarget = 10;
-
   @override
   Future<ProfileSummary> summary() async {
     try {
@@ -39,7 +33,13 @@ class ProfileSummaryRepositoryImpl implements ProfileSummaryRepository {
         tradeLabel: dto.tradeDisplayName,
         city: dto.city,
         verified: confirmed,
-        strength: (dto.strength / _strengthTarget).clamp(0.0, 1.0).toDouble(),
+        // WA-4: pass the backend signal COUNT through untouched. It used to be
+        // divided by a client-side magic target (10) and rendered as a percent
+        // — a fabricated number the backend never computed. The denominator
+        // slots in here the day the API ships `strength_max`; until then the
+        // UI shows an honest count, not a fake fraction.
+        strengthSignals: dto.strength,
+        strengthMax: dto.strengthMax,
       );
     } catch (error) {
       throw mapError(error);

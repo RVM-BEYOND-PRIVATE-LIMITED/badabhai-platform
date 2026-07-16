@@ -34,6 +34,17 @@ Map<String, dynamic> _job({
   };
 }
 
+/// The canned "no prior decisions" body for `/workers/me/applications` — the
+/// second read `getFeed` now makes (WA-1: decided jobs are excluded from the
+/// deck). Empty here so these deck tests behave exactly as before.
+http.Response _noDecisions() => http.Response(
+      jsonEncode(<String, dynamic>{
+        'worker_id': 'worker-1',
+        'applications': <Map<String, dynamic>>[],
+      }),
+      200,
+    );
+
 /// Builds a [SwipeBloc] over a REAL [SwipeRepositoryImpl] + [ApiClient] backed by
 /// [client], with a session carrying the bearer token worker-scoped routes need.
 SwipeBloc _bloc(MockClient client) {
@@ -77,6 +88,7 @@ void main() {
   ) async {
     http.Request? captured;
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      if (req.url.path == '/workers/me/applications') return _noDecisions();
       captured = req;
       return http.Response(
         jsonEncode(<String, dynamic>{
@@ -104,6 +116,7 @@ void main() {
     WidgetTester tester,
   ) async {
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      if (req.url.path == '/workers/me/applications') return _noDecisions();
       return http.Response(
         jsonEncode(<String, dynamic>{'jobs': <Map<String, dynamic>>[]}),
         200,
@@ -142,6 +155,7 @@ void main() {
   ) async {
     http.Request? applyReq;
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      if (req.url.path == '/workers/me/applications') return _noDecisions();
       if (req.url.path == '/feed') {
         return http.Response(
           jsonEncode(<String, dynamic>{
@@ -182,6 +196,7 @@ void main() {
   ) async {
     String? skipPath;
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      if (req.url.path == '/workers/me/applications') return _noDecisions();
       if (req.url.path == '/feed') {
         return http.Response(
           jsonEncode(<String, dynamic>{
@@ -223,6 +238,7 @@ void main() {
     WidgetTester tester,
   ) async {
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      if (req.url.path == '/workers/me/applications') return _noDecisions();
       if (req.url.path == '/feed') {
         return http.Response(
           jsonEncode(<String, dynamic>{

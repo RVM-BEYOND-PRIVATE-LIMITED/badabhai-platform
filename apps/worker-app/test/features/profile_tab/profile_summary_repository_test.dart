@@ -20,7 +20,7 @@ void main() {
   });
 
   test('maps the NAMELESS confirmed summary — name never fabricated, strength '
-      'normalized, bearer from session', () async {
+      'passed through as the raw signal COUNT, bearer from session', () async {
     when(() => api.getProfileSummary(authToken: any(named: 'authToken')))
         .thenAnswer((_) async => const ProfileSummaryDto(
               profileStatus: 'confirmed',
@@ -41,7 +41,10 @@ void main() {
     expect(s.tradeLabel, 'CNC Operator');
     expect(s.city, 'Pune');
     expect(s.verified, isTrue);
-    expect(s.strength, closeTo(0.8, 1e-9)); // 8 / target(10)
+    // WA-4: the raw backend count, NOT divided by a client-side magic target;
+    // no denominator on the wire → strengthMax stays null (nothing fabricated).
+    expect(s.strengthSignals, 8);
+    expect(s.strengthMax, isNull);
     // Worker is derived from the session token, never a param.
     verify(() => api.getProfileSummary(authToken: 't1')).called(1);
   });
@@ -65,10 +68,11 @@ void main() {
     expect(s.verified, isFalse);
     expect(s.tradeLabel, isNull);
     expect(s.city, isNull);
-    expect(s.strength, 0.0);
+    expect(s.strengthSignals, 0);
   });
 
-  test('a signal count above target clamps to 1.0', () async {
+  test('a large signal count passes through UNCLAMPED (it is a count, not a '
+      'fraction — nothing here invents a ceiling)', () async {
     when(() => api.getProfileSummary(authToken: any(named: 'authToken')))
         .thenAnswer((_) async => const ProfileSummaryDto(
               profileStatus: 'confirmed',
@@ -82,7 +86,27 @@ void main() {
 
     final ProfileSummary s =
         await ProfileSummaryRepositoryImpl(api, session).summary();
-    expect(s.strength, 1.0);
+    expect(s.strengthSignals, 25);
+  });
+
+  test('a server-shipped strength_max flows into strengthMax (the WA-4 seam)',
+      () async {
+    when(() => api.getProfileSummary(authToken: any(named: 'authToken')))
+        .thenAnswer((_) async => const ProfileSummaryDto(
+              profileStatus: 'confirmed',
+              confirmedAt: '2026-06-01T00:00:00.000Z',
+              tradeDisplayName: 'Fitter',
+              canonicalTradeId: null,
+              canonicalRoleId: null,
+              city: null,
+              strength: 6,
+              strengthMax: 12,
+            ));
+
+    final ProfileSummary s =
+        await ProfileSummaryRepositoryImpl(api, session).summary();
+    expect(s.strengthSignals, 6);
+    expect(s.strengthMax, 12);
   });
 
   test('a 401 surfaces a typed Failure (real reason, not a silent spinner)',

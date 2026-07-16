@@ -128,7 +128,13 @@ class _ProfileView extends StatelessWidget {
     final String trade = (summary.tradeLabel?.isNotEmpty ?? false)
         ? summary.tradeLabel!
         : 'Tayyar ho raha hai…';
-    final int pct = (summary.strength.clamp(0, 1) * 100).round();
+    // WA-4: `strengthSignals` is the backend's integer signal count — shown as
+    // an honest count ("N/max" only once the API ships a real denominator),
+    // never a client-fabricated percent.
+    final int? strengthMax = summary.strengthMax;
+    final String strengthValue = (strengthMax != null && strengthMax > 0)
+        ? '${summary.strengthSignals}/$strengthMax signals'
+        : '${summary.strengthSignals} signals';
     final String? city =
         (summary.city?.isNotEmpty ?? false) ? summary.city : null;
 
@@ -149,7 +155,7 @@ class _ProfileView extends StatelessWidget {
         _ProfileRow(
             icon: Icons.insights_outlined,
             label: 'Profile strength',
-            value: '$pct% complete'),
+            value: strengthValue),
       ],
     );
   }

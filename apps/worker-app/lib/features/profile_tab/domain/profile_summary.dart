@@ -15,7 +15,8 @@ class ProfileSummary extends Equatable {
     this.tradeLabel,
     this.city,
     this.verified = false,
-    required this.strength,
+    required this.strengthSignals,
+    this.strengthMax,
   });
 
   /// The worker's name, or `null` when the backend omits it (current reality —
@@ -35,11 +36,25 @@ class ProfileSummary extends Equatable {
   /// True when the worker has a CONFIRMED profile.
   final bool verified;
 
-  /// Profile completeness, 0..1 (normalized from the backend signal count for
-  /// the strength bar — a display value, see ProfileSummaryRepositoryImpl).
-  final double strength;
+  /// Profile strength as the backend reports it: an integer SIGNAL COUNT
+  /// (`countFields` recomputed on read — apps/api profile-summary.mapper.ts),
+  /// NOT a fraction. WA-4: this is rendered as an honest count ("N signals"),
+  /// never divided by a client-side magic constant to fake a percent.
+  final int strengthSignals;
+
+  /// The denominator, WHEN the backend ships one (`strength_max` — not on the
+  /// wire today, so this is null). Non-null unlocks a real N/max meter; until
+  /// then no fraction/percent is fabricated.
+  final int? strengthMax;
 
   @override
-  List<Object?> get props =>
-      <Object?>[displayName, initials, tradeLabel, city, verified, strength];
+  List<Object?> get props => <Object?>[
+        displayName,
+        initials,
+        tradeLabel,
+        city,
+        verified,
+        strengthSignals,
+        strengthMax,
+      ];
 }

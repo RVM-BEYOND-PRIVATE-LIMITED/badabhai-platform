@@ -118,6 +118,31 @@ void main() {
       expect(dto.canonicalRoleId, 'role_cnc_turner_operator');
       expect(dto.city, 'Pune');
       expect(dto.strength, 8);
+      // The live API sends no denominator — strengthMax must stay null (the
+      // UI renders a count, never a fabricated fraction — WA-4).
+      expect(dto.strengthMax, isNull);
+    });
+
+    test('getProfileSummary parses strength_max when the server ships it '
+        '(WA-4 forward seam)', () async {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async => http.Response(
+              jsonEncode(<String, dynamic>{
+                'profile_status': 'confirmed',
+                'confirmed_at': '2026-06-01T00:00:00.000Z',
+                'city': null,
+                'strength': 6,
+                'strength_max': 12,
+              }),
+              200,
+            )),
+      );
+
+      final ProfileSummaryDto dto =
+          await api.getProfileSummary(authToken: 'tok');
+      expect(dto.strength, 6);
+      expect(dto.strengthMax, 12);
     });
 
     test('getProfileSummary tolerates a missing trade block + null fields',

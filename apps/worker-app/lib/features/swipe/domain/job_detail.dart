@@ -15,6 +15,7 @@ class JobDetail extends Equatable {
     required this.title,
     this.city,
     this.area,
+    this.applicationAction,
   });
 
   final String jobId;
@@ -28,6 +29,17 @@ class JobDetail extends Equatable {
   /// Coarse area/locality bucket. Nullable — not every job has one.
   final String? area;
 
+  /// The worker's OWN recorded decision on this job, when the opening surface
+  /// knows it — the real `action` value from GET /workers/me/applications
+  /// ('applied' | 'skipped'). Null when the job arrived from the feed (which,
+  /// post-WA-1, only serves undecided jobs). The detail screen gates its CTA on
+  /// this: an already-applied job shows its status, never an apply action.
+  final String? applicationAction;
+
+  /// True when the worker has already applied — the detail screen must render
+  /// the applied status instead of the "Apply karein" CTA (WA-2).
+  bool get alreadyApplied => applicationAction == 'applied';
+
   /// "Area, City" when both are present; otherwise whichever exists; null when
   /// neither does — the screen then renders no location line at all rather than
   /// inventing a placeholder.
@@ -39,5 +51,6 @@ class JobDetail extends Equatable {
   }
 
   @override
-  List<Object?> get props => <Object?>[jobId, title, city, area];
+  List<Object?> get props =>
+      <Object?>[jobId, title, city, area, applicationAction];
 }

@@ -81,7 +81,9 @@ class _AppliedJobsView extends StatelessWidget {
           child: InkWell(
             // Row tap → job details. The row already holds the REAL job facts,
             // so it hands them over as `extra`; there is no worker-facing
-            // job-detail route and nothing is synthesised.
+            // job-detail route and nothing is synthesised. The row's REAL
+            // `action` rides along so the detail screen shows the applied
+            // status instead of an apply CTA (WA-2).
             onTap: () => context.push(
               '${Routes.jobDetail}/${job.jobId}',
               extra: JobDetail(
@@ -89,6 +91,7 @@ class _AppliedJobsView extends StatelessWidget {
                 title: job.title,
                 city: job.city,
                 area: job.area,
+                applicationAction: job.action,
               ),
             ),
             child: BbListRow.notification(
