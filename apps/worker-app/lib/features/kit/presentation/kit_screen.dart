@@ -10,11 +10,13 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_list_row.dart';
 import '../../../core/widgets/bb_status_view.dart';
+import '../../../router.dart';
 import 'cubit/kit_list_cubit.dart';
 import '../domain/interview_kit.dart';
 
 /// Interview-kit list (spec §5.3 / screens.jsx 231-249). Keeps the shell's
-/// bottom bar (no own bottomNavigationBar) — it sits inside the resume tab.
+/// bottom bar (no own bottomNavigationBar) — it sits inside the PROFILE tab
+/// (WA-3: it is entered from Profile, so back must land on Profile).
 class KitScreen extends StatelessWidget {
   const KitScreen({super.key});
 
@@ -88,7 +90,7 @@ class _KitView extends StatelessWidget {
               title: item.title,
               subtitle: item.subtitle,
               onTap: () =>
-                  context.push('/resume/kit/detail/${item.tradeKey}'),
+                  context.push('${Routes.kitDetail}/${item.tradeKey}'),
             ),
           // Coming-soon stub for the alpha — the per-day interview checklist
           // (documents / dress / timing) is a follow-up; tapping just nudges.

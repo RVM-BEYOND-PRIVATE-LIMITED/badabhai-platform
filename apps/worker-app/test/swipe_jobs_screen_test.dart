@@ -34,6 +34,17 @@ Map<String, dynamic> _job({
   };
 }
 
+/// The canned "no prior decisions" body for `/workers/me/applications` — the
+/// second read `getFeed` now makes (WA-1: decided jobs are excluded from the
+/// deck). Empty here so these deck tests behave exactly as before.
+http.Response _noDecisions() => http.Response(
+      jsonEncode(<String, dynamic>{
+        'worker_id': 'worker-1',
+        'applications': <Map<String, dynamic>>[],
+      }),
+      200,
+    );
+
 /// Builds a [SwipeBloc] over a REAL [SwipeRepositoryImpl] + [ApiClient] backed by
 /// [client], with a session carrying the bearer token worker-scoped routes need.
 SwipeBloc _bloc(MockClient client) {
@@ -50,16 +61,32 @@ SwipeBloc _bloc(MockClient client) {
 /// Mounts the Feed at `/jobs` with an injected bloc, plus the routes its actions
 /// reach: `/consent` (403) and `/jobs/detail/:id` (title tap). Apply/skip now stay
 /// on the Feed and confirm with a SnackBar (no Applied screen navigation).
+/// The detail stand-in exposes a DETAIL_APPLY button that pops `'applied'` —
+/// exactly what the real JobDetailScreen does after a successful apply — so the
+/// H-1 prune path can be driven end-to-end.
 Widget _harness(SwipeBloc bloc) {
-  Widget marker(String t) => Scaffold(body: Center(child: Text(t)));
   final GoRouter router = GoRouter(
     initialLocation: '/jobs',
     routes: <RouteBase>[
       GoRoute(path: '/jobs', builder: (_, __) => SwipeJobsScreen(bloc: bloc)),
       GoRoute(
         path: '/jobs/detail/:jobId',
-        builder: (_, GoRouterState s) =>
-            marker('DETAIL ${s.pathParameters['jobId']}'),
+        builder: (_, GoRouterState s) => Scaffold(
+          body: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Text('DETAIL ${s.pathParameters['jobId']}'),
+                Builder(
+                  builder: (BuildContext context) => TextButton(
+                    onPressed: () => context.pop('applied'),
+                    child: const Text('DETAIL_APPLY'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
       GoRoute(path: Routes.consent, builder: (_, __) => const ConsentScreen()),
     ],
@@ -77,6 +104,7 @@ void main() {
   ) async {
     http.Request? captured;
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      if (req.url.path == '/workers/me/applications') return _noDecisions();
       captured = req;
       return http.Response(
         jsonEncode(<String, dynamic>{
@@ -104,6 +132,7 @@ void main() {
     WidgetTester tester,
   ) async {
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      if (req.url.path == '/workers/me/applications') return _noDecisions();
       return http.Response(
         jsonEncode(<String, dynamic>{'jobs': <Map<String, dynamic>>[]}),
         200,
@@ -142,6 +171,7 @@ void main() {
   ) async {
     http.Request? applyReq;
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      if (req.url.path == '/workers/me/applications') return _noDecisions();
       if (req.url.path == '/feed') {
         return http.Response(
           jsonEncode(<String, dynamic>{
@@ -177,11 +207,66 @@ void main() {
     expect(find.text('Second Job'), findsOneWidget);
   });
 
+  testWidgets(
+      'H-1: applying from the DETAIL screen prunes the job from the deck — '
+      'the next skip cannot hit the just-applied job', (
+    WidgetTester tester,
+  ) async {
+    final List<String> decisionPaths = <String>[];
+    final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      if (req.url.path == '/workers/me/applications') return _noDecisions();
+      if (req.url.path == '/feed') {
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'jobs': <Map<String, dynamic>>[
+              _job(id: 'job-1', title: 'First Job', rank: 1),
+              _job(id: 'job-2', title: 'Second Job', rank: 2),
+            ],
+          }),
+          200,
+        );
+      }
+      decisionPaths.add(req.url.path);
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'ok': true,
+          'application_id': 'app-1',
+          'action': 'skipped',
+        }),
+        200,
+      );
+    }));
+
+    await tester.pumpWidget(_harness(bloc));
+    await tester.pumpAndSettle();
+
+    // Open the head card's detail and apply from THERE (JobDetail path — it
+    // pops 'applied' after its own POST, bypassing SwipeBloc entirely).
+    await tester.tap(find.text('First Job'));
+    await tester.pumpAndSettle();
+    expect(find.text('DETAIL job-1'), findsOneWidget);
+    await tester.tap(find.text('DETAIL_APPLY'));
+    await tester.pumpAndSettle();
+
+    // Back on the Feed: toast shown and the just-applied job is GONE from the
+    // deck — it can no longer sit at the head waiting to be skip-overwritten.
+    expect(find.text('Applied'), findsOneWidget);
+    expect(find.text('First Job'), findsNothing);
+    expect(find.text('Second Job'), findsOneWidget);
+
+    // The natural next gesture: skip. It must hit job-2 — NEVER job-1 (a skip
+    // on job-1 would flip its fresh applied row via the last-write-wins upsert).
+    await tester.tap(find.byKey(const Key('swipeSkipButton')));
+    await tester.pumpAndSettle();
+    expect(decisionPaths, <String>['/applications/job-2/skip']);
+  });
+
   testWidgets('Skip commits, hits the skip endpoint, toasts and advances', (
     WidgetTester tester,
   ) async {
     String? skipPath;
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      if (req.url.path == '/workers/me/applications') return _noDecisions();
       if (req.url.path == '/feed') {
         return http.Response(
           jsonEncode(<String, dynamic>{
@@ -223,6 +308,7 @@ void main() {
     WidgetTester tester,
   ) async {
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      if (req.url.path == '/workers/me/applications') return _noDecisions();
       if (req.url.path == '/feed') {
         return http.Response(
           jsonEncode(<String, dynamic>{

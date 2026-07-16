@@ -664,6 +664,7 @@ class ProfileSummaryDto extends Equatable {
     required this.canonicalRoleId,
     required this.city,
     required this.strength,
+    this.strengthMax,
   });
 
   /// `"none"` when the worker has no profile row yet; else a ProfileStatus.
@@ -683,6 +684,12 @@ class ProfileSummaryDto extends Equatable {
   /// Recomputed-on-read signal COUNT; `0` when no profile. NOT a 0..1 fraction.
   final int strength;
 
+  /// The count's denominator (`strength_max`) — NOT sent by the API today, so
+  /// this is null on the live wire. Parsed defensively now so a real N/max
+  /// meter lights up the day the backend ships it (WA-4 seam); the UI never
+  /// fabricates a denominator while it is null.
+  final int? strengthMax;
+
   factory ProfileSummaryDto.fromJson(Map<String, dynamic> json) {
     final Map<String, dynamic> trade =
         (json['trade'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
@@ -694,6 +701,7 @@ class ProfileSummaryDto extends Equatable {
       canonicalRoleId: trade['canonical_role_id'] as String?,
       city: json['city'] as String?,
       strength: (json['strength'] as num?)?.toInt() ?? 0,
+      strengthMax: (json['strength_max'] as num?)?.toInt(),
     );
   }
 
@@ -706,6 +714,7 @@ class ProfileSummaryDto extends Equatable {
         canonicalRoleId,
         city,
         strength,
+        strengthMax,
       ];
 }
 

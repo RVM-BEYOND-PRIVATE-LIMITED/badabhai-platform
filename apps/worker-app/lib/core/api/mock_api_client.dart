@@ -322,10 +322,17 @@ class MockApiClient extends ApiClient {
     // filter is exercised; varied created_at, with some area/reason/rank null to
     // exercise the nullables. Oldest-first, matching the real API ordering.
     // Values MATCH the API's ApplicationAction enum ('applied'|'skipped').
+    //
+    // Job ids are DISJOINT from [_cannedFeed] on purpose (mock-job-01xx vs
+    // mock-job-000x): SwipeRepositoryImpl.getFeed excludes already-APPLIED jobs
+    // from the deck (WA-1; skips re-serve — the mind-change path), so applied
+    // rows that overlapped the canned feed would honestly (and confusingly)
+    // shrink the mock deck. These rows model past decisions on jobs that are
+    // no longer open.
     final DateTime now = DateTime.now();
     return <AppliedJob>[
       AppliedJob(
-        jobId: 'mock-job-0001',
+        jobId: 'mock-job-0101',
         tradeKey: 'cnc_operator',
         title: 'CNC Operator',
         city: 'Pune',
@@ -338,7 +345,7 @@ class MockApiClient extends ApiClient {
         updatedAt: now.subtract(const Duration(days: 4)),
       ),
       AppliedJob(
-        jobId: 'mock-job-0002',
+        jobId: 'mock-job-0102',
         tradeKey: 'fitter',
         title: 'Fitter',
         city: 'Nashik',
@@ -351,7 +358,7 @@ class MockApiClient extends ApiClient {
         updatedAt: now.subtract(const Duration(days: 2)),
       ),
       AppliedJob(
-        jobId: 'mock-job-0003',
+        jobId: 'mock-job-0103',
         tradeKey: 'vmc_operator',
         title: 'VMC Operator',
         city: 'Pune',
@@ -364,7 +371,7 @@ class MockApiClient extends ApiClient {
         updatedAt: now.subtract(const Duration(hours: 6)),
       ),
       AppliedJob(
-        jobId: 'mock-job-0004',
+        jobId: 'mock-job-0104',
         tradeKey: 'welder',
         title: 'Welder',
         city: 'Aurangabad',
@@ -377,7 +384,7 @@ class MockApiClient extends ApiClient {
         updatedAt: now.subtract(const Duration(hours: 2)),
       ),
       AppliedJob(
-        jobId: 'mock-job-0005',
+        jobId: 'mock-job-0105',
         tradeKey: 'cnc_operator',
         title: 'CNC Setter',
         city: 'Pune',

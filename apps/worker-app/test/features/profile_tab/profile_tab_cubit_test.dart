@@ -19,7 +19,7 @@ const ProfileSummary _summary = ProfileSummary(
   displayName: 'Ramesh Kumar',
   tradeLabel: 'CNC Operator',
   city: 'Pune',
-  strength: 0.72,
+  strengthSignals: 7,
 );
 
 void main() {

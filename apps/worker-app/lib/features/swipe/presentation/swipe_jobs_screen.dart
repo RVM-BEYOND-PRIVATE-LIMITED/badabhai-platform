@@ -187,8 +187,16 @@ class _FeedViewState extends State<_FeedView> {
                     area: item.area,
                   ),
                 );
-                if (result == 'applied' && context.mounted) {
-                  _toast(context, 'Applied');
+                if (result == 'applied') {
+                  // H-1: the detail applied OUTSIDE the deck (JobDetailCubit,
+                  // not SwipeBloc) — prune the job from the queue so it cannot
+                  // stay deck head where the natural next left-swipe would
+                  // POST a skip and flip the fresh applied row (last-write-
+                  // wins upsert). Also prevents reopening the still-present
+                  // card with a stale null applicationAction. `bloc` was
+                  // resolved before the await, so nothing crosses the gap.
+                  bloc.add(SwipeJobApplied(id));
+                  if (context.mounted) _toast(context, 'Applied');
                 }
               },
               onSkip: () {

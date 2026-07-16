@@ -149,6 +149,13 @@ class _JobDetailViewState extends State<_JobDetailView> {
   }
 
   Widget _stickyCta(BuildContext context, JobDetailState state) {
+    // WA-2: an ALREADY-APPLIED job (opened from an Applied-jobs row, which
+    // threads the real `action` in) shows its status — never an apply action.
+    // A repeat apply is pointless (idempotent upsert) and reads like the first
+    // one never registered.
+    final Widget content = state.detail.alreadyApplied
+        ? _appliedStatus(state)
+        : _applyRow(context, state);
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.surfaceCard,
@@ -160,36 +167,68 @@ class _JobDetailViewState extends State<_JobDetailView> {
         AppSpacing.gutter,
         AppSpacing.s3 + MediaQuery.of(context).padding.bottom,
       ),
+      child: content,
+    );
+  }
+
+  /// The applied-state bar. GATED on the real recorded `action` from the
+  /// applications API ([JobDetail.alreadyApplied]), but the wire enum itself
+  /// never renders — the copy is the DS's warm Hinglish (L-2, low-literacy
+  /// audience). Back navigation stays on the app bar; nothing is left to
+  /// decide.
+  Widget _appliedStatus(JobDetailState state) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.s4, vertical: AppSpacing.s3),
+      decoration: BoxDecoration(
+        color: AppColors.successTint,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+      ),
       child: Row(
         children: <Widget>[
-          Material(
-            color: AppColors.surfaceCard,
-            shape: const CircleBorder(
-              side: BorderSide(color: AppColors.borderStrong, width: 2),
-            ),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: state.applying ? null : () => context.pop(),
-              child: const SizedBox(
-                width: 56,
-                height: 56,
-                child: Icon(Icons.close, color: AppColors.textMuted, size: 26),
-              ),
-            ),
-          ),
+          const Icon(Icons.check_circle, color: AppColors.success, size: 26),
           const SizedBox(width: AppSpacing.s3),
           Expanded(
-            child: BbButton(
-              label: 'Apply karein',
-              iconLeft: Icons.check,
-              loading: state.applying,
-              onPressed: state.applying
-                  ? null
-                  : () => context.read<JobDetailCubit>().apply(),
-            ),
+            child: Text('Aapne apply kar diya ✓',
+                style: AppTypography.display(
+                    size: AppTypography.sizeBase, weight: FontWeight.w800)),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _applyRow(BuildContext context, JobDetailState state) {
+    return Row(
+      children: <Widget>[
+        Material(
+          color: AppColors.surfaceCard,
+          shape: const CircleBorder(
+            side: BorderSide(color: AppColors.borderStrong, width: 2),
+          ),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: state.applying ? null : () => context.pop(),
+            child: const SizedBox(
+              width: 56,
+              height: 56,
+              child: Icon(Icons.close, color: AppColors.textMuted, size: 26),
+            ),
+          ),
+        ),
+        const SizedBox(width: AppSpacing.s3),
+        Expanded(
+          child: BbButton(
+            label: 'Apply karein',
+            iconLeft: Icons.check,
+            loading: state.applying,
+            onPressed: state.applying
+                ? null
+                : () => context.read<JobDetailCubit>().apply(),
+          ),
+        ),
+      ],
     );
   }
 }
