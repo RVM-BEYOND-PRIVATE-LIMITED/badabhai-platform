@@ -133,6 +133,34 @@ export const serverEnvSchema = z.object({
       }
     }, "PII_ENCRYPTION_KEY must be base64 of exactly 32 bytes"),
 
+  // TD22-1 — staged PII key rotation (phase 1: token v2 + keyring + read-both;
+  // NO data touched). OPT-IN pair — BOTH must be set together (both-or-neither,
+  // enforced fail-closed at BOOT by assertPiiCryptoConfig, never at first decrypt):
+  //   PII_ENCRYPTION_KEYS       — a JSON object mapping a key id ("kid") to a
+  //                               base64-encoded 32-byte AES-256 key, e.g.
+  //                               '{"k2026a":"<base64 of 32 bytes>"}'. A kid is
+  //                               1-32 chars of [A-Za-z0-9_-] — DOT-FREE ("." is
+  //                               the token delimiter).
+  //   PII_ENCRYPTION_ACTIVE_KID — the kid new v2 tokens are WRITTEN under; must
+  //                               be a key of the map.
+  // When configured, encrypt emits `v2.<kid>.<iv>.<tag>.<ct>` under the active key
+  // and decrypt reads BOTH v2 (kid lookup) and legacy v1 (PII_ENCRYPTION_KEY above,
+  // retained as the v1 key). Unset (the default) → exactly today's single-key v1
+  // behavior. An EMPTY STRING is a config ERROR, never "silently off" (TD67
+  // lesson). Key material NEVER touches the database, logs, events, or errors.
+  PII_ENCRYPTION_KEYS: z
+    .string()
+    .optional()
+    .describe(
+      'TD22-1 keyring: JSON object map of key id ("kid", 1-32 chars of [A-Za-z0-9_-], dot-free) -> base64-encoded 32-byte AES-256 key. Requires PII_ENCRYPTION_ACTIVE_KID; validated fail-closed at boot.',
+    ),
+  PII_ENCRYPTION_ACTIVE_KID: z
+    .string()
+    .optional()
+    .describe(
+      "TD22-1 keyring: the kid new v2 PII tokens are written under. Must be a key of PII_ENCRYPTION_KEYS; requires PII_ENCRYPTION_KEYS; validated fail-closed at boot.",
+    ),
+
   // Worker auth: OTP login + rolling JWT session (BACKEND ONLY).
   // JWT_SECRET signs the worker session token. Dev default keeps local boot/tests
   // working; production MUST override it (assertAuthConfig fails closed otherwise).
@@ -567,16 +595,146 @@ export function isUsingDevPiiDefaults(config: ServerConfig): boolean {
 }
 
 /**
+ * TD22-1 — kid charset for the PII keyring. MUST stay in sync with
+ * `PII_KID_PATTERN` in `packages/db/src/crypto.ts` (the token-format source of
+ * truth; this package cannot depend on `@badabhai/db`, so the pattern is
+ * deliberately duplicated). 1-32 chars of [A-Za-z0-9_-], dot-free — "." is the
+ * token delimiter, so a dotted kid would silently corrupt token parsing.
+ */
+const PII_KID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
+
+/** TD22-1 — the parsed PII keyring (shape mirrors `PiiKeyring` in @badabhai/db). */
+export interface PiiKeyringConfig {
+  /** The kid new v2 tokens are written under. Guaranteed to be a key of `keys`. */
+  activeKid: string;
+  /** kid → base64-encoded 32-byte AES-256 key. */
+  keys: Record<string, string>;
+}
+
+/** Parse PII_ENCRYPTION_KEYS as a JSON string→string object map (null on any shape error). */
+function parsePiiKeysJson(raw: string): Record<string, string> | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    for (const value of Object.values(parsed)) {
+      if (typeof value !== "string") return null;
+    }
+    return parsed as Record<string, string>;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * TD22-1 — every problem with the PII keyring env pair, or [] when the keyring is
+ * either fully valid or entirely unset. Rules (all fail STARTUP, never first
+ * decrypt): both-or-neither; an EMPTY STRING is a config ERROR, never treated as
+ * unset (TD67 lesson — a half-armed secret gate must be loud); the map must be a
+ * JSON object with at least one entry; every kid must match the charset; every
+ * key must be base64 of exactly 32 bytes and not all-zero (the keyring is opt-in,
+ * so there is no dev-default excuse in ANY environment); the active kid must be a
+ * key of the map. §2 guardrail: no kid value and no key material EVER appears in
+ * a problem string — messages name only the env vars and the rule violated.
+ */
+export function piiKeyringConfigProblems(config: ServerConfig): string[] {
+  const rawKeys = config.PII_ENCRYPTION_KEYS;
+  const rawKid = config.PII_ENCRYPTION_ACTIVE_KID;
+  if (rawKeys === undefined && rawKid === undefined) return [];
+
+  const problems: string[] = [];
+  if (rawKeys === "") {
+    problems.push("PII_ENCRYPTION_KEYS must not be an empty string (unset it to disable the keyring)");
+  }
+  if (rawKid === "") {
+    problems.push("PII_ENCRYPTION_ACTIVE_KID must not be an empty string (unset it to disable the keyring)");
+  }
+  if (rawKeys === undefined) {
+    problems.push("PII_ENCRYPTION_ACTIVE_KID is set but PII_ENCRYPTION_KEYS is not set");
+  }
+  if (rawKid === undefined) {
+    problems.push("PII_ENCRYPTION_KEYS is set but PII_ENCRYPTION_ACTIVE_KID is not set");
+  }
+  if (problems.length > 0) return problems;
+
+  const keys = parsePiiKeysJson(rawKeys!);
+  if (keys === null) {
+    return ["PII_ENCRYPTION_KEYS must be a JSON object mapping key id -> base64 32-byte key"];
+  }
+  const kids = Object.keys(keys);
+  if (kids.length === 0) {
+    problems.push("PII_ENCRYPTION_KEYS must contain at least one key");
+  }
+  if (kids.some((kid) => !PII_KID_PATTERN.test(kid))) {
+    problems.push(
+      "PII_ENCRYPTION_KEYS contains an invalid key id (must be 1-32 chars of A-Za-z0-9_-)",
+    );
+  }
+  let sawWrongLengthKey = false;
+  let sawAllZeroKey = false;
+  for (const value of Object.values(keys)) {
+    const decoded = Buffer.from(value, "base64");
+    if (decoded.length !== 32) sawWrongLengthKey = true;
+    else if (decoded.every((b) => b === 0)) sawAllZeroKey = true;
+  }
+  if (sawWrongLengthKey) {
+    problems.push("PII_ENCRYPTION_KEYS contains a key that is not base64 of exactly 32 bytes");
+  }
+  if (sawAllZeroKey) {
+    problems.push("PII_ENCRYPTION_KEYS contains an all-zero key");
+  }
+  if (!PII_KID_PATTERN.test(rawKid!)) {
+    problems.push(
+      "PII_ENCRYPTION_ACTIVE_KID is not a valid key id (must be 1-32 chars of A-Za-z0-9_-)",
+    );
+  } else if (!Object.prototype.hasOwnProperty.call(keys, rawKid!)) {
+    problems.push("PII_ENCRYPTION_ACTIVE_KID is not a key id in PII_ENCRYPTION_KEYS");
+  }
+  return problems;
+}
+
+/**
+ * TD22-1 — the parsed, validated PII keyring, or null when the operator has not
+ * opted in (both env vars unset → exactly today's single-key v1 behavior).
+ * THROWS on any half-set/invalid keyring (same problems assertPiiCryptoConfig
+ * fails boot on) — defense-in-depth so a consumer constructed with a bad keyring
+ * can never silently fall back to the legacy key.
+ */
+export function getPiiKeyring(config: ServerConfig): PiiKeyringConfig | null {
+  if (config.PII_ENCRYPTION_KEYS === undefined && config.PII_ENCRYPTION_ACTIVE_KID === undefined) {
+    return null;
+  }
+  const problems = piiKeyringConfigProblems(config);
+  if (problems.length > 0) {
+    throw new Error(`Invalid PII keyring config (TD22-1, fail closed): ${problems.join("; ")}`);
+  }
+  return {
+    activeKid: config.PII_ENCRYPTION_ACTIVE_KID!,
+    keys: parsePiiKeysJson(config.PII_ENCRYPTION_KEYS!)!,
+  };
+}
+
+/**
  * Fail-closed guard for PII crypto. The dev defaults (a public pepper + an
  * all-zero AES key) are acceptable ONLY when NODE_ENV is EXPLICITLY "development"
  * or "test". Any other value — including UNSET, "staging", or "production" — must
  * supply real secrets, so a forgotten NODE_ENV in prod fails closed instead of
  * silently encrypting under a known-zero key. Call once at boot (main.ts).
+ *
+ * TD22-1: also validates the optional PII keyring pair (PII_ENCRYPTION_KEYS +
+ * PII_ENCRYPTION_ACTIVE_KID) in EVERY environment — the keyring is opt-in with no
+ * dev default, so if either var is set it must be fully valid (a structural
+ * misconfiguration, like a half-set MFA config, fails boot even in dev).
  */
 export function assertPiiCryptoConfig(
   config: ServerConfig,
   rawNodeEnv: string | undefined = process.env.NODE_ENV,
 ): void {
+  const keyringProblems = piiKeyringConfigProblems(config);
+  if (keyringProblems.length > 0) {
+    throw new Error(
+      `Invalid PII keyring config (TD22-1, fail closed): ${keyringProblems.join("; ")}`,
+    );
+  }
   if (isDevEnv(rawNodeEnv)) return;
   const insecure: string[] = [];
   if (config.PII_HASH_PEPPER === DEV_PII_HASH_PEPPER) insecure.push("PII_HASH_PEPPER");

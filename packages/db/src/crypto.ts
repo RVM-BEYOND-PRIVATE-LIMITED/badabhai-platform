@@ -62,9 +62,34 @@ export function hmacValue(value: string, pepper: string): string {
 }
 
 const ENC_VERSION = "v1";
+const ENC_VERSION_V2 = "v2"; // TD22-1 — key-id-carrying token: "v2.<kid>.<iv>.<tag>.<ct>"
 const IV_BYTES = 12; // 96-bit nonce, the GCM standard
 const KEY_BYTES = 32; // AES-256
 const AUTH_TAG_BYTES = 16; // 128-bit GCM auth tag (the standard, pinned explicitly)
+
+/**
+ * PII key id ("kid") charset for v2 tokens — 1-32 chars of [A-Za-z0-9_-], DOT-FREE
+ * by construction ("." is the token delimiter; a dotted kid would silently corrupt
+ * token parsing). Enforced at encrypt time here AND at boot by
+ * `assertPiiCryptoConfig` in `@badabhai/config` (which duplicates this pattern —
+ * config cannot depend on this package; keep the two in sync).
+ */
+export const PII_KID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
+
+/**
+ * TD22-1 — a keyring for staged AES key rotation. `keys` maps a key id ("kid") to
+ * a base64-encoded 32-byte AES-256 key; `activeKid` names the entry new v2 tokens
+ * are WRITTEN under (it MUST be a key of `keys`). Old kids stay in the map so
+ * their tokens keep decrypting until a re-encrypt backfill (TD22-2) retires them.
+ * Supplied by the caller (config) — these functions stay pure, no env reads here.
+ * The keyring's key material must NEVER appear in the DB, logs, events, or errors.
+ */
+export interface PiiKeyring {
+  /** The kid new v2 tokens are written under. MUST be a key of `keys`. */
+  activeKid: string;
+  /** kid → base64-encoded 32-byte AES-256 key. */
+  keys: Record<string, string>;
+}
 
 /** Decode + validate a base64 AES-256 key. Throws (fail-closed) on a bad key. */
 function decodeKey(keyB64: string): Buffer {
@@ -76,33 +101,22 @@ function decodeKey(keyB64: string): Buffer {
 }
 
 /**
- * AES-256-GCM encrypt. Returns a self-describing token:
- *   "v1.<iv_b64>.<authTag_b64>.<ciphertext_b64>"
- * A fresh random IV per call makes the output non-deterministic (so equal
- * plaintexts do not produce equal ciphertexts — uniqueness/lookup must use the
- * HMAC hash, not the ciphertext).
+ * AES-256-GCM core (shared by the v1 and v2 token builders so both formats are
+ * byte-identical in their crypto). authTagLength is explicit (the GCM 128-bit
+ * standard). Pinning it makes the decrypt side reject any token whose tag is not
+ * exactly 16 bytes, closing the truncated-tag forgery window a default-length GCM
+ * would tolerate.
  */
-export function encryptPii(plaintext: string, keyB64: string): string {
-  const key = decodeKey(keyB64);
+function gcmEncrypt(key: Buffer, plaintext: string): { ivB64: string; tagB64: string; ctB64: string } {
   const iv = randomBytes(IV_BYTES);
-  // authTagLength is explicit (the GCM 128-bit standard). Pinning it makes the
-  // decrypt side reject any token whose tag is not exactly 16 bytes, closing the
-  // truncated-tag forgery window a default-length GCM would tolerate.
   const cipher = createCipheriv("aes-256-gcm", key, iv, { authTagLength: AUTH_TAG_BYTES });
   const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
-  return [ENC_VERSION, iv.toString("base64"), tag.toString("base64"), ct.toString("base64")].join(
-    ".",
-  );
+  return { ivB64: iv.toString("base64"), tagB64: tag.toString("base64"), ctB64: ct.toString("base64") };
 }
 
-/** AES-256-GCM decrypt of an `encryptPii` token. Throws on wrong key or tamper. */
-export function decryptPii(token: string, keyB64: string): string {
-  const key = decodeKey(keyB64);
-  const [version, ivB64, tagB64, ctB64] = token.split(".");
-  if (version !== ENC_VERSION || !ivB64 || !tagB64 || !ctB64) {
-    throw new Error("malformed PII ciphertext token");
-  }
+/** AES-256-GCM decrypt core (both token versions). Throws on wrong key or tamper. */
+function gcmDecrypt(key: Buffer, ivB64: string, tagB64: string, ctB64: string): string {
   const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivB64, "base64"), {
     authTagLength: AUTH_TAG_BYTES,
   });
@@ -112,13 +126,111 @@ export function decryptPii(token: string, keyB64: string): string {
   );
 }
 
-/** Is this string an `encryptPii` token (vs legacy plaintext)? Useful for backfills. */
+/**
+ * AES-256-GCM encrypt under a SINGLE key (the legacy/v1 path). Returns a
+ * self-describing token:
+ *   "v1.<iv_b64>.<authTag_b64>.<ciphertext_b64>"
+ * A fresh random IV per call makes the output non-deterministic (so equal
+ * plaintexts do not produce equal ciphertexts — uniqueness/lookup must use the
+ * HMAC hash, not the ciphertext). Byte-identical to the pre-TD22-1 format —
+ * every deployment without a keyring keeps writing exactly this.
+ */
+export function encryptPii(plaintext: string, keyB64: string): string {
+  const key = decodeKey(keyB64);
+  const { ivB64, tagB64, ctB64 } = gcmEncrypt(key, plaintext);
+  return [ENC_VERSION, ivB64, tagB64, ctB64].join(".");
+}
+
+/**
+ * TD22-1 — AES-256-GCM encrypt under the keyring's ACTIVE key. Returns the
+ * key-id-carrying token:
+ *   "v2.<kid>.<iv_b64>.<authTag_b64>.<ciphertext_b64>"
+ * The kid is validated (fail-closed) at encrypt time: a dotted/oversized/empty kid
+ * would corrupt the dot-delimited token grammar, so it is rejected before any
+ * ciphertext is minted. Only call this when the operator has opted in to a
+ * keyring — the legacy `encryptPii` stays the default write path.
+ */
+export function encryptPiiWithKeyring(plaintext: string, keyring: PiiKeyring): string {
+  const { activeKid, keys } = keyring;
+  if (!PII_KID_PATTERN.test(activeKid)) {
+    // NEVER echo the offending kid (nor any keyring contents) — see CLAUDE.md §2.
+    throw new Error("invalid PII key id (must be 1-32 chars of A-Za-z0-9_-)");
+  }
+  const keyB64 = Object.prototype.hasOwnProperty.call(keys, activeKid)
+    ? keys[activeKid]
+    : undefined;
+  if (typeof keyB64 !== "string") {
+    throw new Error("PII keyring has no key for its active key id");
+  }
+  const key = decodeKey(keyB64);
+  const { ivB64, tagB64, ctB64 } = gcmEncrypt(key, plaintext);
+  return [ENC_VERSION_V2, activeKid, ivB64, tagB64, ctB64].join(".");
+}
+
+/**
+ * AES-256-GCM decrypt of a LEGACY v1 `encryptPii` token under a single key.
+ * Throws on wrong key or tamper. v1-ONLY by design (zero behavior change for
+ * existing call sites) — use `decryptPiiWithKeyring` for the read-both path.
+ */
+export function decryptPii(token: string, keyB64: string): string {
+  const key = decodeKey(keyB64);
+  const [version, ivB64, tagB64, ctB64] = token.split(".");
+  if (version !== ENC_VERSION || !ivB64 || !tagB64 || !ctB64) {
+    throw new Error("malformed PII ciphertext token");
+  }
+  return gcmDecrypt(key, ivB64, tagB64, ctB64);
+}
+
+/**
+ * TD22-1 — READ-BOTH decrypt dispatch:
+ *   - "v1." + 4 parts → the legacy single key (`legacyKeyB64`); rows written
+ *     before the keyring opt-in keep decrypting forever (until a TD22-2 backfill).
+ *   - "v2." + 5 parts → look the token's kid up in `keyring.keys`.
+ * Fail-closed everywhere: an unknown kid throws WITHOUT echoing the unknown kid
+ * value and WITHOUT enumerating known kids; a malformed token throws with no
+ * secret material in the message.
+ */
+export function decryptPiiWithKeyring(
+  token: string,
+  keyring: PiiKeyring,
+  legacyKeyB64?: string,
+): string {
+  const parts = token.split(".");
+  if (parts[0] === ENC_VERSION && parts.length === 4) {
+    if (!legacyKeyB64) {
+      throw new Error("v1 PII token but no legacy PII encryption key is configured");
+    }
+    return decryptPii(token, legacyKeyB64);
+  }
+  if (parts[0] === ENC_VERSION_V2 && parts.length === 5) {
+    const [, kid, ivB64, tagB64, ctB64] = parts;
+    if (!kid || !PII_KID_PATTERN.test(kid) || !ivB64 || !tagB64 || !ctB64) {
+      throw new Error("malformed PII ciphertext token");
+    }
+    const keyB64 = Object.prototype.hasOwnProperty.call(keyring.keys, kid)
+      ? keyring.keys[kid]
+      : undefined;
+    if (typeof keyB64 !== "string") {
+      // Constant message: no unknown-kid echo, no known-kid enumeration (§2).
+      throw new Error("unknown PII key id");
+    }
+    return gcmDecrypt(decodeKey(keyB64), ivB64, tagB64, ctB64);
+  }
+  throw new Error("malformed PII ciphertext token");
+}
+
+/**
+ * Is this string an `encryptPii`/`encryptPiiWithKeyring` token (vs legacy
+ * plaintext)? Accepts BOTH v1 (4 parts) and v2 (5 parts, valid kid charset).
+ * This is the future TD22-2 backfill's row discriminator — a false negative here
+ * would silently skip rows later, so both shipped formats MUST stay accepted.
+ */
 export function isEncryptedPii(value: string): boolean {
-  return (
-    typeof value === "string" &&
-    value.startsWith(`${ENC_VERSION}.`) &&
-    value.split(".").length === 4
-  );
+  if (typeof value !== "string") return false;
+  const parts = value.split(".");
+  if (parts[0] === ENC_VERSION && parts.length === 4) return true;
+  if (parts[0] === ENC_VERSION_V2 && parts.length === 5) return PII_KID_PATTERN.test(parts[1]!);
+  return false;
 }
 
 /** Constant-time hex-digest comparison (avoids timing leaks on hash checks). */
