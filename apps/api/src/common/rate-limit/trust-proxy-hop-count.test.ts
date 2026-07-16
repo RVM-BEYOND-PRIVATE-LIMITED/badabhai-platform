@@ -4,7 +4,9 @@ import { Controller, Get, Inject, Module, Req, type INestApplication } from "@ne
 import { NestFactory } from "@nestjs/core";
 import type { Request } from "express";
 import type { Queue } from "bullmq";
+import { readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
+import { join } from "node:path";
 import { IpRateLimit } from "./ip-rate-limit.service";
 import type { PiiCryptoService } from "../pii-crypto.service";
 import { hashIp } from "../crypto";
@@ -29,8 +31,8 @@ import { hashIp } from "../crypto";
  * | 0   | 203.0.113.7              | 127.0.0.1       | XFF IGNORED → per-proxy collapse bug |
  * | 1   | (none)                   | 127.0.0.1       | direct hit on a trusting app: peer   |
  * | 1   | 203.0.113.7              | 203.0.113.7     | proxy-appended client wins           |
- * | 1   | 1.2.3.4, 203.0.113.7     | 203.0.113.7     | forged prefix LOSES (rightmost wins) |
- * | 2   | 1.2.3.4, 203.0.113.7     | 1.2.3.4         | hop too high → FORGED value WINS     |
+ * | 1   | 192.0.2.1, 203.0.113.7   | 203.0.113.7     | forged prefix LOSES (rightmost wins) |
+ * | 2   | 192.0.2.1, 203.0.113.7   | 192.0.2.1       | hop too high → FORGED value WINS     |
  *
  * (Express walks XFF right-to-left from the socket peer, trusting `hop` addresses;
  * `req.ip` is the first UNTRUSTED address. So with one real proxy, hop=1 is exact,
@@ -153,10 +155,11 @@ async function getCapped(base: string, xff?: string): Promise<number> {
 const PEER_RE = /^(::ffff:)?127\.0\.0\.1$/;
 
 // The "real client" as a single-hop edge proxy would append it, and a forged
-// prefix an abusive client sends in its own request to that proxy.
+// prefix an abusive client sends in its own request to that proxy. All are
+// RFC 5737 documentation addresses (TEST-NET-1/2/3) — never real hosts.
 const CLIENT_A = "203.0.113.7";
 const CLIENT_B = "203.0.113.99";
-const FORGED = "1.2.3.4";
+const FORGED = "192.0.2.1";
 
 describe("TD25a — TRUST_PROXY_HOP_COUNT → req.ip resolution", () => {
   let hop0: Harness;
@@ -198,8 +201,8 @@ describe("TD25a — TRUST_PROXY_HOP_COUNT → req.ip resolution", () => {
   });
 
   it("(4) hop=1 + forged XFF prefix → the PROXY-APPENDED entry wins, the forgery loses", async () => {
-    // Abusive client sends "X-Forwarded-For: 1.2.3.4"; the honest edge proxy
-    // APPENDS the real peer → "1.2.3.4, 203.0.113.7". The forged prefix must
+    // Abusive client sends "X-Forwarded-For: 192.0.2.1"; the honest edge proxy
+    // APPENDS the real peer → "192.0.2.1, 203.0.113.7". The forged prefix must
     // NOT become the rate-limit identity. This assertion is the whole point.
     const body = await getEcho(hop1.base, `${FORGED}, ${CLIENT_A}`);
     expect(body.ip).toBe(CLIENT_A);
@@ -279,10 +282,34 @@ describe("TD25a — the OTP per-IP cap keyed through the resolved req.ip", () =>
       // The abuser rotates the forged prefix on every request; the honest proxy
       // keeps appending their REAL address — so they stay in ONE bucket.
       expect(await getCapped(base, `${FORGED}, ${CLIENT_A}`)).toBe(200);
-      expect(await getCapped(base, `5.6.7.8, ${CLIENT_A}`)).toBe(200);
-      expect(await getCapped(base, `9.9.9.9, ${CLIENT_A}`)).toBe(429);
+      expect(await getCapped(base, `198.51.100.8, ${CLIENT_A}`)).toBe(200);
+      expect(await getCapped(base, `198.51.100.9, ${CLIENT_A}`)).toBe(429);
     } finally {
       await app.close();
     }
+  });
+});
+
+describe("TD25a — production-source tether (main.ts drift guard)", () => {
+  it("main.ts still carries the exact wiring this suite mirrors — drift fails HERE first", () => {
+    // This suite RE-IMPLEMENTS main.ts's trust-proxy block instead of importing it
+    // (main.ts eagerly boots the full AppModule + config asserts). That mirror is
+    // only meaningful while production matches it: if someone later sets a blanket
+    // `trust proxy: true`, drops the >0 guard, or renames the env, the 11 behavior
+    // tests above would stay green while no longer representing production. This
+    // test ties the mirror to the SOURCE so any drift fails here first.
+    // __dirname: valid under the CJS tsconfig AND injected by vitest's vite-node
+    // at runtime — resolves relative to THIS file, not the runner's cwd.
+    const mainTsPath = join(__dirname, "..", "..", "main.ts");
+    const mainTs = readFileSync(mainTsPath, "utf8");
+
+    // (a) the wiring is driven by config.TRUST_PROXY_HOP_COUNT behind the >0 guard
+    //     (resilient to whitespace/quote-style, not to semantic changes).
+    expect(mainTs).toMatch(/if\s*\(\s*config\.TRUST_PROXY_HOP_COUNT\s*>\s*0\s*\)/);
+    expect(mainTs).toMatch(/\.set\(\s*["']trust proxy["']\s*,\s*config\.TRUST_PROXY_HOP_COUNT\s*\)/);
+
+    // (b) NEVER a blanket trust — spoofable XFF = rotatable rate-limit identity.
+    //     Catches `true` and the truthy obfuscations (`!0`, `!!1`).
+    expect(mainTs).not.toMatch(/["']trust proxy["']\s*,\s*(true|!0|!!\d)/);
   });
 });

@@ -14,8 +14,9 @@ laptop, the two failure modes of the TD25 trust-proxy seam
 
 The CI-proven twin of this harness is the in-process regression suite
 [`apps/api/src/common/rate-limit/trust-proxy-hop-count.test.ts`](../../../apps/api/src/common/rate-limit/trust-proxy-hop-count.test.ts)
-(11 tests) — that suite is the durable net; this harness is the full-stack
-(real nginx + real Redis) QA rig.
+(12 tests, incl. a source-tether that fails if the main.ts wiring drifts from
+the mirrored harness) — that suite is the durable net; this harness is the
+full-stack (real nginx + real Redis) QA rig.
 
 ## Topology
 
@@ -104,6 +105,6 @@ Rules of thumb:
 
 - **2026-07-16 (authoring machine):** `docker info` — daemon **unavailable**, so
   this harness is **committed but locally unverified**. The Layer-1 regression
-  suite (11/11 green, real Nest+Express 5.2.1 HTTP server, observed-truth pins)
+  suite (12/12 green, real Nest+Express 5.2.1 HTTP server, observed-truth pins)
   is the proven net; run the scenario table above on the first docker-capable
   machine and record the evidence here.
