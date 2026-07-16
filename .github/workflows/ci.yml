@@ -220,10 +220,44 @@ jobs:
           kill "$API_PID" 2>/dev/null || true
           exit $E2E_EXIT
 
+  # ---- Build and Push Docker Image ----
+  build-and-push-image:
+    name: Build & Push Docker Image
+    needs: [node, ai-service, e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/badabhai-api
+          
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
   # ---- AWS Lightsail Deployment ----
   deploy-lightsail:
     name: Deploy to AWS Lightsail
-    needs: [node, ai-service, e2e]
+    needs: [build-and-push-image]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
@@ -239,8 +273,11 @@ jobs:
             cd ~/deployments/badabhai-platform
             echo "Pulling latest code from main..."
             git pull origin main
-            echo "Building and starting Docker containers..."
-            docker compose --profile api up -d --build
+            echo "Logging into GHCR..."
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo "Pulling and starting Docker containers..."
+            export API_IMAGE=$(echo "ghcr.io/${{ github.repository }}/badabhai-api:main" | tr '[:upper:]' '[:lower:]')
+            docker compose --profile api pull api
+            docker compose --profile api up -d
             docker compose --profile api ps
             echo "Deployment finished successfully!"
-

@@ -69,6 +69,7 @@ services:
     # brings the API up behind the harness nginx. Plain `up` / `pnpm db:up` still
     # never start it.
     profiles: ["api", "proxy-harness"]
+    image: ${API_IMAGE:-badabhai-api:latest}
     build:
       context: .
       dockerfile: apps/api/Dockerfile
