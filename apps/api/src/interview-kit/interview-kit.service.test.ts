@@ -100,3 +100,143 @@ describe("InterviewKitService — render-once (Task 4)", () => {
     expect(JSON.stringify(dl.payload)).not.toMatch(/worker|name|phone/i);
   });
 });
+
+describe("InterviewKitService — WA-5: storage failures map to 503, never 500", () => {
+  // The regression: StorageService throws PLAIN Errors (not HttpExceptions) when
+  // storage is unconfigured / Supabase non-2xx / timeout. Before WA-5 these escaped
+  // getDownload unhandled → Nest default filter → 500. The contract is 404/429/503.
+
+  it("503s (ServiceUnavailableException) when storage is UNCONFIGURED (objectExists throws)", async () => {
+    const { svc, storage, events } = setup();
+    storage.objectExists.mockRejectedValueOnce(
+      new Error("Supabase Storage is not configured (SUPABASE_URL / SERVICE_ROLE_KEY)"),
+    );
+    const err = await svc.getDownload("cnc_operator", CTX).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ServiceUnavailableException);
+    expect((err as ServiceUnavailableException).getStatus()).toBe(503);
+    expect(emitted(events, "interview_kit.downloaded")).toBeUndefined();
+  });
+
+  it("503s when the post-render UPLOAD fails (storage non-2xx)", async () => {
+    const { svc, storage } = setup({ exists: false });
+    storage.uploadPdf.mockRejectedValueOnce(new Error("storage upload failed with status 500"));
+    await expect(svc.getDownload("cnc_operator", CTX)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+  });
+
+  it("503s when SIGNING the url fails, even for a cached kit", async () => {
+    const { svc, storage, events } = setup({ exists: true });
+    storage.createSignedUrl.mockRejectedValueOnce(
+      new Error("storage sign-url failed with status 503"),
+    );
+    await expect(svc.getDownload("cnc_operator", CTX)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    expect(emitted(events, "interview_kit.downloaded")).toBeUndefined();
+  });
+
+  it("503s on a storage TRANSPORT failure (fetch abort/TypeError), not 500", async () => {
+    const { svc, storage, events } = setup();
+    storage.objectExists.mockRejectedValueOnce(new TypeError("fetch failed"));
+    await expect(svc.getDownload("vmc_operator", CTX)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    // The transport class is a KNOWN storage shape → classified storage_unavailable.
+    expect(emitted(events, "interview_kit.render_failed")!.payload.reason).toBe(
+      "storage_unavailable",
+    );
+  });
+
+  it("the 503 body is generic: no signed URL, no storage detail, no PII", async () => {
+    const { svc, storage } = setup({ exists: true });
+    storage.createSignedUrl.mockRejectedValueOnce(
+      new Error("storage sign-url failed with status 500"),
+    );
+    const err = (await svc.getDownload("cnc_operator", CTX).then(
+      () => null,
+      (e: unknown) => e,
+    )) as ServiceUnavailableException;
+    const body = JSON.stringify(err.getResponse());
+    expect(body).toContain("try again later");
+    expect(body).not.toMatch(/https?:\/\/|token|signedURL|SUPABASE|storage|status 5/i);
+    expect(body).not.toMatch(/worker|phone|\+91|\d{10}/i);
+  });
+
+  it("emits interview_kit.render_failed (reason=storage_unavailable) on the outage path", async () => {
+    const { svc, storage, events } = setup();
+    storage.objectExists.mockRejectedValueOnce(new Error("storage object-info failed with status 500"));
+    await expect(svc.getDownload("cnc_operator", CTX)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    const failed = emitted(events, "interview_kit.render_failed");
+    expect(failed).toBeTruthy();
+    expect(failed!.payload.reason).toBe("storage_unavailable");
+  });
+
+  it("still 503 (never 500) when the events store is ALSO down (best-effort emit)", async () => {
+    const { svc, storage, events } = setup();
+    storage.objectExists.mockRejectedValueOnce(new Error("storage object-info failed with status 500"));
+    events.emit.mockRejectedValue(new Error("events insert failed"));
+    await expect(svc.getDownload("cnc_operator", CTX)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+  });
+
+  // LOW-1 (PR #254): only KNOWN StorageService failure shapes claim storage_unavailable;
+  // anything else in the pipeline is the honest pipeline_unavailable.
+  it("an unexpected RENDERER THROW lands reason=pipeline_unavailable (not storage), still 503", async () => {
+    const { svc, renderer, events } = setup({ exists: false });
+    renderer.renderPdf.mockRejectedValueOnce(new Error("weasyprint spawn crashed unexpectedly"));
+    await expect(svc.getDownload("cnc_operator", CTX)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    expect(emitted(events, "interview_kit.render_failed")!.payload.reason).toBe(
+      "pipeline_unavailable",
+    );
+  });
+
+  // INFO-4 (PR #254): storage healthy, sign SUCCEEDS, but the downloaded emit throws —
+  // the route must 503 (fail-closed audit parity: no download response without its
+  // event, same as pre-fix), never 500, and never return the minted URL.
+  it("503s when the interview_kit.downloaded emit throws AFTER a successful sign (fail-closed)", async () => {
+    const { svc, events } = setup({ exists: true });
+    events.emit.mockImplementation(async (p: { event_name: string; payload: Record<string, unknown> }) => {
+      if (p.event_name === "interview_kit.downloaded") throw new Error("events insert failed");
+      return p;
+    });
+    const err = await svc.getDownload("cnc_operator", CTX).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ServiceUnavailableException);
+    // An events failure is NOT a storage failure — classified pipeline_unavailable.
+    expect(emitted(events, "interview_kit.render_failed")!.payload.reason).toBe(
+      "pipeline_unavailable",
+    );
+    // The signed URL must not leak through the error body.
+    expect(JSON.stringify((err as ServiceUnavailableException).getResponse())).not.toMatch(
+      /https?:\/\/|token/i,
+    );
+  });
+
+  it("UNCHANGED: unknown trade is still 404 and storage is never touched", async () => {
+    const { svc, storage } = setup();
+    storage.objectExists.mockRejectedValue(new Error("must not be reached"));
+    await expect(svc.getDownload("not_a_trade", CTX)).rejects.toBeInstanceOf(NotFoundException);
+    expect(storage.objectExists).not.toHaveBeenCalled();
+  });
+
+  it("UNCHANGED: the render-unavailable 503 (renderer → null) passes through the catch untouched", async () => {
+    const { svc, events } = setup({ exists: false, renderResult: null });
+    await expect(svc.getDownload("vmc_operator", CTX)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    // Its ORIGINAL reason is preserved — the catch didn't re-emit storage_unavailable.
+    const failed = emitted(events, "interview_kit.render_failed");
+    expect(failed!.payload.reason).toBe("render_unavailable");
+  });
+});
