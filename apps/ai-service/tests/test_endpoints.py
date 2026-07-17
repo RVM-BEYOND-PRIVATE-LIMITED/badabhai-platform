@@ -53,6 +53,27 @@ def test_profiling_respond_blocks_unsafe_input():
     assert "rephrase" in body["reply_text"].lower()
 
 
+def test_profiling_respond_salary_amount_does_not_block_the_turn():
+    """D-1 (docs/registers/context-drift-2026-07-16.md row D-1; ruling 2026-07-17):
+    a worker answering the salary question with "1000000" used to get the whole
+    turn blocked ("please rephrase..."). The in-range amount is now masked to
+    [AMOUNT_n] pre-LLM while the raw turn still reaches the local signal
+    detectors — so the interview advances and the salary topic is recorded."""
+    res = client.post(
+        "/profiling/respond",
+        json={"session_id": "s1", "message_text": "meri salary 1000000 hai"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["blocked"] is False
+    assert "rephrase" not in body["reply_text"].lower()
+    assert "salary_current" in body["updated_state"]["answered_topics"]
+    # The masked text (what could reach an LLM) carries no digits.
+    meta = body["pseudonymization_metadata"]
+    assert meta["blocked"] is False
+    assert "[AMOUNT_1]" in meta["placeholder_tokens"]
+
+
 def test_profile_extract_returns_structured_draft():
     res = client.post(
         "/profile/extract",

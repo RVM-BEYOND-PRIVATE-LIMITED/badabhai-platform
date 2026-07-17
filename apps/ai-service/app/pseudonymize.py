@@ -84,6 +84,46 @@ _LEADING_NAME_RE = re.compile(r"^\s*([A-Z][a-z]+)\s*,")
 _CITY_RE = re.compile(r"\b(?:" + "|".join(re.escape(c) for c in _CITIES) + r")\b", re.IGNORECASE)
 _RESIDUAL_DIGITS_RE = re.compile(r"\d{7,}")
 
+# --- D-1 money-amount carve-out (context-drift register 2026-07-16 row D-1;
+# --- owner ruling 2026-07-17) -----------------------------------------------
+# A worker typing an annual salary ("1000000", "salary 1200000") used to have the
+# whole turn BLOCKED by the residual-digit net, contradicting signals.py which
+# accepts salaries up to 10,000,000. The fix is NOT an allow-through: recognized
+# money amounts are MASKED to [AMOUNT_n] before the residual net, so the digits
+# STILL never reach an LLM (over-masking, the locked safe direction) — but the
+# turn is no longer blocked, and the RAW text (read locally, never sent) still
+# reaches the signal detectors so salary extraction works.
+#
+# Decision boundary (keep in sync with the tests in tests/test_pseudonymize.py):
+#   * 1-6 digit runs  -> never tripped the residual net; unchanged.
+#   * 7-8 digit runs  -> masked to [AMOUNT_n] ONLY when the run parses to a
+#     plausible salary in [1,000,000 .. MAX_PLAUSIBLE_SALARY_INR] (the range
+#     signals._parse_amount accepts) AND has no leading zero (a zero-led run is
+#     a reference/account shape, not money). Everything else is left for the
+#     residual net -> BLOCKED (genuinely ambiguous fails closed, unchanged).
+#   * 9-10+ digit runs -> phone shape (Indian mobiles are 10 digits): _PHONE_RE
+#     masks them as [PHONE_n] BEFORE this step, and the (?<!\d)/(?!\d) guards
+#     below can never carve a sub-run out of a longer one, so a 9+ digit run can
+#     NEVER be re-labelled as money.
+#
+# Why a mis-labelled phone FRAGMENT is still safe. A 7-digit run (e.g. "9876543")
+# is not a dialable Indian number but could be a fragment of one, and it does fall
+# in the money range -> it is masked [AMOUNT_n] rather than blocked. The LABEL is
+# then imprecise, but the SAFETY PROPERTY is unchanged and is what matters here:
+# for ANY 7-10 digit run the gateway either BLOCKS (nothing is sent) or MASKS the
+# run out of the text — the digits never reach an LLM either way. Over-masking is
+# the locked safe direction; the token name is not a privacy control.
+# 8-digit landlines cannot slip through either: Indian STD/landline numbers start
+# 2-9, so they parse >= 20,000,000 and exceed the ceiling -> blocked. Exactly one
+# 8-digit value (10000000) is in range, and it reads as a salary.
+# tests/test_pseudonymize.py locks all of this, incl. an exhaustive property test.
+_MONEY_RUN_RE = re.compile(r"(?<!\d)\d{7,8}(?!\d)")
+_MONEY_MIN_INR = 1_000_000  # the smallest 7-digit run
+# Upper bound of a plausible salary. Single source of truth shared with
+# app/profiling/signals.py (_parse_amount) — signals imports it from here
+# (this module must stay import-free of signals to avoid a cycle).
+MAX_PLAUSIBLE_SALARY_INR = 10_000_000
+
 
 @dataclass
 class PseudonymizationResult:
@@ -92,6 +132,23 @@ class PseudonymizationResult:
     blocked_reason: str | None
     replaced_entities: int
     placeholder_tokens: list[str]
+
+
+def _mask_money_amount(token_for):
+    """Substitution callback for the D-1 money carve-out: mask a 7-8 digit run
+    to [AMOUNT_n] ONLY when it is a plausible in-range salary (see the decision
+    boundary at ``_MONEY_RUN_RE``); leave everything else untouched so the
+    residual net blocks it (fail closed)."""
+
+    def _sub(match: re.Match[str]) -> str:
+        run = match.group(0)
+        if run.startswith("0"):  # zero-led = reference/account shape, not money
+            return run
+        if _MONEY_MIN_INR <= int(run) <= MAX_PLAUSIBLE_SALARY_INR:
+            return token_for(run, "AMOUNT")
+        return run
+
+    return _sub
 
 
 def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> PseudonymizationResult:
@@ -144,6 +201,12 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
         result = _LEADING_NAME_RE.sub(lambda m: replace_group1(m, "PERSON"), result)
         # 5. Known cities.
         result = _CITY_RE.sub(lambda m: token_for(m.group(0), "CITY"), result)
+        # 6. D-1 money-amount carve-out (see the decision boundary above): a 7-8
+        #    digit run that reads as an in-range salary is MASKED to [AMOUNT_n]
+        #    so the digits never reach the LLM but the turn is not blocked.
+        #    Out-of-range / zero-led runs are deliberately left in place — the
+        #    residual net below blocks them (fail closed).
+        result = _MONEY_RUN_RE.sub(_mask_money_amount(token_for), result)
 
         replaced = sum(counters.values())
 

@@ -237,7 +237,7 @@ def test_clarify_turn_helper_is_none_for_unknown_last_id():
     [
         ("Fanuc?", "controllers"),  # short '?'-suffixed answer
         ("2 saal?", "experience"),  # short '?'-suffixed answer
-        ("Pune?", "location"),  # short '?'-suffixed answer
+        ("Pune?", "current_location"),  # short '?'-suffixed answer (B-4 split id)
         # marker-bearing HONEST answer ('samajh nahi' on the skills question that
         # literally asks "kya aata hai?"):
         ("program edit samajh nahi aata, baaki sab aata hai", "skills"),
