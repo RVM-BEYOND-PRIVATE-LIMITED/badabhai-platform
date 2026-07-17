@@ -6,7 +6,6 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
-import type { Queue } from "bullmq";
 import { WorkersService } from "./workers.service";
 import type { WorkersRepository } from "./workers.repository";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
@@ -47,17 +46,8 @@ function mockConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
   return {
     WORKER_PHOTOS_BUCKET: "worker-profile-photos",
     RESUME_SIGNED_URL_TTL_SECONDS: 900,
-    // ADR-0032 A1: rendering ON by default so the re-render path is exercised;
-    // a test flips it off to prove a good PDF is NOT stripped when nothing could
-    // rebuild it.
-    RESUME_RENDER_ENABLED: true,
     ...overrides,
   } as ServerConfig;
-}
-
-/** ADR-0032 A1 — the resume-render queue the photo change points enqueue onto. */
-function mockQueue() {
-  return { add: vi.fn(async () => ({ id: "job-1" })) };
 }
 
 function newSvc(
@@ -66,7 +56,6 @@ function newSvc(
   events: unknown,
   storage: unknown = mockStorage(),
   config: ServerConfig = mockConfig(),
-  queue: unknown = mockQueue(),
 ) {
   return new WorkersService(
     repo as WorkersRepository,
@@ -74,7 +63,6 @@ function newSvc(
     events as EventsService,
     storage as StorageService,
     config,
-    queue as Queue,
   );
 }
 
@@ -413,17 +401,10 @@ describe("WorkersService.updateResumePrefs", () => {
 const WORKER_ID = "0a1b2c3d-1111-4111-8111-000000000001";
 const MINTED_KEY = `photos/${WORKER_ID}/9f8e7d6c-2222-4222-8222-000000000002.jpg`;
 
-/** ADR-0032 A1 — the worker's latest generated resume. */
-const RESUME_ID = "res-1";
-
 function photoSetup(opts: {
   worker?: { id: string; photoStorageKey?: string | null } | undefined;
   bucket?: string;
   info?: { contentType: string | null; sizeBytes: number | null } | null;
-  /** ADR-0032 A1: the worker's latest resume, or undefined for "never generated". */
-  latestResume?: { id: string } | undefined;
-  renderEnabled?: boolean;
-  queue?: { add: ReturnType<typeof vi.fn> };
 } = {}) {
   const worker =
     "worker" in opts
@@ -434,16 +415,6 @@ function photoSetup(opts: {
     updatePhotoStorageKey: vi.fn(async (_id: string, key: string | null) =>
       worker ? { ...worker, photoStorageKey: key } : undefined,
     ),
-    // A1: the re-render path reads the latest resume and flips it out of
-    // 'rendered' before enqueueing.
-    latestResume: vi.fn(async (_id: string) =>
-      "latestResume" in opts ? opts.latestResume : { id: RESUME_ID },
-    ),
-    markResumePendingForRerender: vi.fn(async (_id: string) => undefined),
-    updateResumePrefs: vi.fn(async (_id: string, prefs: Record<string, unknown>) => ({
-      ...worker,
-      ...prefs,
-    })),
   };
   const pii = { encrypt: vi.fn(), decrypt: vi.fn() };
   const events = { emit: vi.fn(async (_e: unknown) => true) };
@@ -451,13 +422,11 @@ function photoSetup(opts: {
   if ("info" in opts) {
     storage.getObjectInfo = vi.fn(async () => opts.info ?? null);
   }
-  const config = mockConfig({
-    ...("bucket" in opts ? { WORKER_PHOTOS_BUCKET: opts.bucket } : {}),
-    ...("renderEnabled" in opts ? { RESUME_RENDER_ENABLED: opts.renderEnabled } : {}),
-  } as Partial<ServerConfig>);
-  const queue = opts.queue ?? mockQueue();
-  const svc = newSvc(repo, pii, events, storage, config, queue);
-  return { svc, repo, events, storage, queue };
+  const config = mockConfig(
+    "bucket" in opts ? ({ WORKER_PHOTOS_BUCKET: opts.bucket } as Partial<ServerConfig>) : {},
+  );
+  const svc = newSvc(repo, pii, events, storage, config);
+  return { svc, repo, events, storage };
 }
 
 describe("WorkersService.createPhotoUploadUrl (ADR-0032)", () => {
@@ -642,182 +611,5 @@ describe("WorkersService.deletePhoto (ADR-0032)", () => {
     const res = await svc.deletePhoto(WORKER_ID, CTX);
     expect(res.has_photo).toBe(false);
     expect(events.emit).toHaveBeenCalled();
-  });
-});
-
-/**
- * ADR-0032 A1 — the photo/show_photo change points must re-render the resume.
- *
- * worker.photo_uploaded / worker.photo_removed already existed but had NO
- * consumers (the `events` table is the audit spine, not a bus), so nothing ever
- * rebuilt the PDF: "your photo appears on your resume automatically" was simply
- * untrue. The PDF kept whatever photo it was first built with.
- */
-describe("WorkersService — resume re-render on photo change (ADR-0032 A1)", () => {
-  const VALID_KEY = `photos/${WORKER_ID}/0a1b2c3d-0000-4000-8000-000000000000.jpg`;
-  const okInfo = { contentType: "image/jpeg", sizeBytes: 1024 };
-
-  it("confirmPhoto flips the row OUT of 'rendered' and enqueues — in that order", async () => {
-    const { svc, repo, queue } = photoSetup({ info: okInfo });
-
-    await svc.confirmPhoto(WORKER_ID, { storage_path: VALID_KEY }, CTX);
-
-    // The reset is the whole point: the processor early-returns on a 'rendered'
-    // row, so enqueueing WITHOUT it is a silent no-op.
-    expect(repo.markResumePendingForRerender).toHaveBeenCalledWith(RESUME_ID);
-    expect(queue.add).toHaveBeenCalledWith(
-      "render",
-      expect.objectContaining({ resumeId: RESUME_ID, workerId: WORKER_ID }),
-    );
-    expect(repo.markResumePendingForRerender.mock.invocationCallOrder[0]!).toBeLessThan(
-      queue.add.mock.invocationCallOrder[0]!,
-    );
-  });
-
-  it("deletePhoto re-renders so the deleted photo leaves the PDF", async () => {
-    const { svc, repo, queue } = photoSetup({
-      worker: {
-        id: WORKER_ID,
-        fullName: null,
-        resumeShowPhoto: true,
-        photoStorageKey: VALID_KEY,
-      } as never,
-    });
-
-    await svc.deletePhoto(WORKER_ID, CTX);
-
-    expect(repo.markResumePendingForRerender).toHaveBeenCalledWith(RESUME_ID);
-    expect(queue.add).toHaveBeenCalledTimes(1);
-  });
-
-  it("does NOT re-render when the worker has no resume yet", async () => {
-    const { svc, repo, queue } = photoSetup({ info: okInfo, latestResume: undefined });
-
-    await svc.confirmPhoto(WORKER_ID, { storage_path: VALID_KEY }, CTX);
-
-    expect(repo.markResumePendingForRerender).not.toHaveBeenCalled();
-    expect(queue.add).not.toHaveBeenCalled();
-  });
-
-  it("does NOT re-render when show_photo is off — the PDF would be identical", async () => {
-    const { svc, queue } = photoSetup({
-      info: okInfo,
-      worker: {
-        id: WORKER_ID,
-        fullName: null,
-        resumeShowPhoto: false,
-        photoStorageKey: null,
-      } as never,
-    });
-
-    await svc.confirmPhoto(WORKER_ID, { storage_path: VALID_KEY }, CTX);
-
-    expect(queue.add).not.toHaveBeenCalled();
-  });
-
-  it("does NOT strip a good PDF when rendering is DISABLED", async () => {
-    // The reset nulls pdf_storage_key. With the kill-switch off nothing would
-    // ever rebuild it, so the worker would silently LOSE a downloadable PDF and
-    // be left on a permanently 'pending' row. A stale photo beats no PDF.
-    const { svc, repo, queue } = photoSetup({ info: okInfo, renderEnabled: false });
-
-    await svc.confirmPhoto(WORKER_ID, { storage_path: VALID_KEY }, CTX);
-
-    expect(repo.markResumePendingForRerender).not.toHaveBeenCalled();
-    expect(queue.add).not.toHaveBeenCalled();
-  });
-
-  it("a queue failure does NOT fail the photo request", async () => {
-    const queue = { add: vi.fn(async () => { throw new Error("redis down"); }) };
-    const { svc, events } = photoSetup({ info: okInfo, queue });
-
-    // The photo was saved; a stale PDF is a far smaller problem than a 500 on
-    // upload (mirrors ResumeService.enqueueRender's fail-soft contract).
-    const res = await svc.confirmPhoto(WORKER_ID, { storage_path: VALID_KEY }, CTX);
-
-    expect(res).toEqual({ worker_id: WORKER_ID, has_photo: true });
-    expect(events.emit).toHaveBeenCalled();
-  });
-
-  it("the photo events stay PII-free — worker_id only, never a key or url", async () => {
-    const { svc, events } = photoSetup({ info: okInfo });
-
-    await svc.confirmPhoto(WORKER_ID, { storage_path: VALID_KEY }, CTX);
-
-    const emitted = events.emit.mock.calls[0]![0] as {
-      event_name: string;
-      payload: Record<string, unknown>;
-    };
-    expect(emitted.event_name).toBe("worker.photo_uploaded");
-    expect(emitted.payload).toEqual({ worker_id: WORKER_ID });
-    // The storage key is a pointer to a face photo — it must never ride an event.
-    expect(JSON.stringify(emitted.payload)).not.toContain("photos/");
-  });
-});
-
-describe("WorkersService.updateResumePrefs — re-render when show_photo flips (A1)", () => {
-  const KEY = `photos/${WORKER_ID}/0a1b2c3d-0000-4000-8000-000000000000.jpg`;
-
-  it("re-renders when show_photo CHANGES and a photo exists", async () => {
-    const { svc, repo, queue } = photoSetup({
-      worker: {
-        id: WORKER_ID,
-        fullName: null,
-        resumeShowPhoto: false,
-        photoStorageKey: KEY,
-      } as never,
-    });
-    repo.updateResumePrefs = vi.fn(async () => ({
-      id: WORKER_ID,
-      resumeShowPhoto: true,
-      resumeNightShiftReady: false,
-      photoStorageKey: KEY,
-    })) as never;
-
-    await svc.updateResumePrefs(WORKER_ID, { show_photo: true }, CTX);
-
-    expect(queue.add).toHaveBeenCalledTimes(1);
-  });
-
-  it("does NOT re-render when show_photo is UNCHANGED", async () => {
-    const { svc, repo, queue } = photoSetup({
-      worker: {
-        id: WORKER_ID,
-        fullName: null,
-        resumeShowPhoto: true,
-        photoStorageKey: KEY,
-      } as never,
-    });
-    repo.updateResumePrefs = vi.fn(async () => ({
-      id: WORKER_ID,
-      resumeShowPhoto: true,
-      resumeNightShiftReady: true,
-      photoStorageKey: KEY,
-    })) as never;
-
-    await svc.updateResumePrefs(WORKER_ID, { night_shift_ready: true }, CTX);
-
-    expect(queue.add).not.toHaveBeenCalled();
-  });
-
-  it("does NOT re-render when the flip changes nothing (no photo on file)", async () => {
-    const { svc, repo, queue } = photoSetup({
-      worker: {
-        id: WORKER_ID,
-        fullName: null,
-        resumeShowPhoto: false,
-        photoStorageKey: null,
-      } as never,
-    });
-    repo.updateResumePrefs = vi.fn(async () => ({
-      id: WORKER_ID,
-      resumeShowPhoto: true,
-      resumeNightShiftReady: false,
-      photoStorageKey: null,
-    })) as never;
-
-    await svc.updateResumePrefs(WORKER_ID, { show_photo: true }, CTX);
-
-    expect(queue.add).not.toHaveBeenCalled();
   });
 });
