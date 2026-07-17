@@ -22,6 +22,10 @@ export const EVENT_REGISTRY = {
   "worker.created": { version: 1, domain: "worker", payload: p.WorkerCreatedPayload },
   "worker.otp_requested": { version: 1, domain: "worker", payload: p.WorkerOtpRequestedPayload },
   "worker.otp_verified": { version: 1, domain: "worker", payload: p.WorkerOtpVerifiedPayload },
+  // D-3 — a session minted via the GATED test-login seam (staging smoke / e2e only;
+  // TEST_LOGIN_ENABLED, structurally impossible in production). Deliberately DISTINCT
+  // from worker.otp_verified so a test mint is always distinguishable on the spine.
+  "worker.test_login": { version: 1, domain: "worker", payload: p.WorkerTestLoginPayload },
   "worker.name_recorded": { version: 1, domain: "worker", payload: p.WorkerNameRecordedPayload },
   "worker.resume_prefs_updated": {
     version: 1,

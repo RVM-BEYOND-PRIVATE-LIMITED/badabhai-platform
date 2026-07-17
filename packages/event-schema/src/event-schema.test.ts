@@ -1721,6 +1721,54 @@ describe("worker refresh/session auth events (ADR-0026 Phase 1 — PII-free, ids
     }
   });
 
+  // D-3 — the gated test-login mint (staging smoke / e2e only, prod-boot-blocked).
+  it("validates worker.test_login with ONLY worker_id + phone_hash + is_new_worker (mirrors otp_verified)", () => {
+    const result = validateEvent(
+      workerAuthEvent("worker.test_login", {
+        worker_id: UUID_B,
+        phone_hash: "hmac-of-phone",
+        is_new_worker: true,
+      }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "worker.test_login") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["is_new_worker", "phone_hash", "worker_id"].sort(),
+      );
+    }
+  });
+
+  it("rejects worker.test_login smuggling a raw phone / the gate token / any extra field (strict, §2)", () => {
+    for (const smuggle of [
+      { phone: "+919876543210" },
+      { token: "t".repeat(32) },
+      { channel: "test" },
+    ]) {
+      const bad = validateEvent(
+        workerAuthEvent("worker.test_login", {
+          worker_id: UUID_B,
+          phone_hash: "hmac-of-phone",
+          is_new_worker: false,
+          ...smuggle,
+        }),
+      );
+      expect(bad.success, `must reject ${JSON.stringify(smuggle)}`).toBe(false);
+      if (!bad.success) expect(bad.error.stage).toBe("payload");
+    }
+  });
+
+  it("rejects worker.test_login missing phone_hash / worker_id (the opaque identity is required)", () => {
+    expect(
+      validateEvent(workerAuthEvent("worker.test_login", { worker_id: UUID_B, is_new_worker: true }))
+        .success,
+    ).toBe(false);
+    expect(
+      validateEvent(
+        workerAuthEvent("worker.test_login", { phone_hash: "hmac-of-phone", is_new_worker: true }),
+      ).success,
+    ).toBe(false);
+  });
+
   it("validates worker.resume_prefs_updated with ONLY worker_id + the two boolean flags", () => {
     const result = validateEvent(
       workerAuthEvent("worker.resume_prefs_updated", {
@@ -1936,11 +1984,12 @@ describe("worker PIN events (ADR-0026 Phase 3 — device-bound PIN, PII-free, id
 });
 
 describe("registry", () => {
-  it("exposes all 104 event names (102 prior + worker.photo_uploaded/photo_removed [ADR-0032])", () => {
-    expect(EVENT_NAMES).toHaveLength(104);
+  it("exposes all 105 event names (104 prior + worker.test_login [D-3])", () => {
+    expect(EVENT_NAMES).toHaveLength(105);
     expect(isEventName("skill.phrase_unresolved")).toBe(true);
     expect(isEventName("worker.otp_send_failed")).toBe(true);
     expect(isEventName("worker.resume_prefs_updated")).toBe(true);
+    expect(isEventName("worker.test_login")).toBe(true);
     expect(isEventName("worker.photo_uploaded")).toBe(true);
     expect(isEventName("worker.photo_removed")).toBe(true);
     expect(isEventName("job_posting.paused")).toBe(true);

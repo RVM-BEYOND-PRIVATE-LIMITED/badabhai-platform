@@ -82,6 +82,94 @@ describe("assertAuthConfig (fail-closed worker-auth guard — real-only Fast2SMS
   });
 });
 
+// D-3 — the gated test-login (worker session-mint) seam. OFF by default; enabled
+// requires a >=32-char token; STRUCTURALLY impossible to arm in production.
+describe("TEST_LOGIN_* (D-3 gated test-login seam — prod-boot-blocked, TD67 fail-closed)", () => {
+  const TEST_TOKEN = "t".repeat(32);
+  const PROD_SECRETS = { JWT_SECRET: REAL_JWT, PIN_PEPPER: REAL_PIN_PEPPER };
+
+  it("defaults OFF with no token (inert) and a falsey string stays OFF", () => {
+    expect(cfg().TEST_LOGIN_ENABLED).toBe(false);
+    expect(cfg().TEST_LOGIN_TOKEN).toBeUndefined();
+    expect(cfg({ TEST_LOGIN_ENABLED: "false" }).TEST_LOGIN_ENABLED).toBe(false);
+    expect(cfg({ TEST_LOGIN_ENABLED: "0" }).TEST_LOGIN_ENABLED).toBe(false);
+  });
+
+  it("token set but NOT enabled → inert, passes in every env (incl. production)", () => {
+    const c = cfg({ ...FAST2SMS_CREDS, ...PROD_SECRETS, TEST_LOGIN_TOKEN: TEST_TOKEN });
+    expect(() => assertAuthConfig(c, "production")).not.toThrow();
+    expect(() => assertAuthConfig(cfg({ ...FAST2SMS_CREDS, TEST_LOGIN_TOKEN: TEST_TOKEN }), "development")).not.toThrow();
+  });
+
+  it("enabled + a >=32-char token passes in development/test/staging", () => {
+    const over = { ...FAST2SMS_CREDS, TEST_LOGIN_ENABLED: "true", TEST_LOGIN_TOKEN: TEST_TOKEN };
+    expect(() => assertAuthConfig(cfg(over), "development")).not.toThrow();
+    expect(() => assertAuthConfig(cfg(over), "test")).not.toThrow();
+    // staging needs the non-dev secrets too (dev JWT/PIN defaults are rejected outside dev/test).
+    expect(() => assertAuthConfig(cfg({ ...over, ...PROD_SECRETS }), "staging")).not.toThrow();
+  });
+
+  it("enabled in PRODUCTION fails boot even fully configured (hard structural block)", () => {
+    const c = cfg({
+      ...FAST2SMS_CREDS,
+      ...PROD_SECRETS,
+      TEST_LOGIN_ENABLED: "true",
+      TEST_LOGIN_TOKEN: TEST_TOKEN,
+    });
+    expect(() => assertAuthConfig(c, "production")).toThrow(/TEST_LOGIN_ENABLED/i);
+  });
+
+  it("enabled with an UNSET / unknown NODE_ENV fails boot (can't prove it's not production)", () => {
+    const c = cfg({
+      ...FAST2SMS_CREDS,
+      ...PROD_SECRETS,
+      TEST_LOGIN_ENABLED: "true",
+      TEST_LOGIN_TOKEN: TEST_TOKEN,
+    });
+    expect(() => assertAuthConfig(c, "")).toThrow(/TEST_LOGIN_ENABLED/i);
+    expect(() => assertAuthConfig(c, "prod")).toThrow(/TEST_LOGIN_ENABLED/i); // typo ≠ staging
+    // CASE-typos must NOT slip through the allow-list (the match is exact, never
+    // case-folded): "Production"/"Staging"/"DEVELOPMENT" are all unknown envs ⇒ refuse.
+    for (const typo of ["Production", "PRODUCTION", "Staging", "STAGING", "DEVELOPMENT", "Test"]) {
+      expect(() => assertAuthConfig(c, typo), `${typo} must not arm the seam`).toThrow(
+        /TEST_LOGIN_ENABLED/i,
+      );
+    }
+    // Truly UNSET env: an explicit `undefined` arg falls back to process.env.NODE_ENV
+    // (the default param), so delete it for the assertion — same pattern as the
+    // "treats UNSET NODE_ENV as non-dev" test above.
+    const prev = process.env.NODE_ENV;
+    delete process.env.NODE_ENV;
+    try {
+      expect(() => assertAuthConfig(c)).toThrow(/TEST_LOGIN_ENABLED/i);
+    } finally {
+      if (prev === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prev;
+    }
+  });
+
+  it("enabled WITHOUT a token fails boot (TD67 — never arm vacuously)", () => {
+    const c = cfg({ ...FAST2SMS_CREDS, TEST_LOGIN_ENABLED: "true" });
+    expect(() => assertAuthConfig(c, "development")).toThrow(/TEST_LOGIN_TOKEN/i);
+  });
+
+  it("an EMPTY-STRING or short token is a PARSE error in every env (never 'silently off')", () => {
+    expect(() => cfg({ TEST_LOGIN_TOKEN: "" })).toThrow();
+    expect(() => cfg({ TEST_LOGIN_TOKEN: "short" })).toThrow();
+    expect(() => cfg({ TEST_LOGIN_ENABLED: "true", TEST_LOGIN_TOKEN: "" })).toThrow();
+  });
+
+  // Review L1 — the IP-INDEPENDENT daily backstop (a token holder rotating IPs).
+  it("TEST_LOGIN_MAX_PER_DAY defaults to 200, coerces, and allows 0 as the kill-switch", () => {
+    expect(cfg().TEST_LOGIN_MAX_PER_DAY).toBe(200);
+    expect(cfg({ TEST_LOGIN_MAX_PER_DAY: "25" }).TEST_LOGIN_MAX_PER_DAY).toBe(25);
+    // 0 = PAUSED (refuse the next mint) — deliberate, mirrors OTP_GLOBAL_MAX_SENDS_PER_DAY.
+    expect(cfg({ TEST_LOGIN_MAX_PER_DAY: "0" }).TEST_LOGIN_MAX_PER_DAY).toBe(0);
+    // Negative is nonsense — rejected (fail closed).
+    expect(() => cfg({ TEST_LOGIN_MAX_PER_DAY: "-1" })).toThrow();
+  });
+});
+
 describe("isUsingDevJwtDefault", () => {
   it("is true with the dev default and false with a real secret", () => {
     expect(isUsingDevJwtDefault(cfg())).toBe(true);

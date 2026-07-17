@@ -8,6 +8,10 @@ import { AuthService } from "./auth.service";
 
 const ctx = { requestId: "req-1", correlationId: "11111111-1111-4111-8111-111111111111" };
 const PHONE = "+919876543210";
+// D-3 (review M1): the ONLY range the gated test-login mint serves — `+91` + five
+// zeros + 5 digits. Unassignable (a real Indian mobile starts 6-9 after +91), so it
+// can never collide with a real worker even on staging's REAL Fast2SMS.
+const SYNTHETIC_PHONE = "+910000000000";
 
 // Stub PII crypto: keyed-hash + encrypt that never echo the raw phone.
 const pii = {
@@ -401,6 +405,181 @@ describe("AuthService (real OTP)", () => {
     expect(createOrGetByPhoneHash).toHaveBeenCalledOnce();
     const names = emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
     expect(names).toEqual(["worker.otp_verified"]);
+  });
+
+  // ---- D-3 — the GATED test-login mint (rides the SAME post-verification seam) ----
+
+  it("testLogin creates a new worker via the SHARED seam, mints the SAME login shape, and emits created + test_login (never otp_verified)", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const createOrGetByPhoneHash = vi
+      .fn()
+      .mockResolvedValue({ worker: { id: "11111111-1111-4111-8111-111111111111", status: "active" }, created: true });
+    const workers = {
+      findByPhoneHash: vi.fn().mockResolvedValue(undefined),
+      createOrGetByPhoneHash,
+    };
+    const otp = makeOtp();
+    const sessions = makeSessions();
+    const svc = new AuthService(
+      { emit } as never,
+      workers as never,
+      pii,
+      otp as never,
+      sessions as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+
+    const res = await svc.testLogin(SYNTHETIC_PHONE, ctx);
+
+    // The OTP machinery is NEVER touched — the guard is the gate, not a code.
+    expect(otp.issueAndSend).not.toHaveBeenCalled();
+    expect(otp.verify).not.toHaveBeenCalled();
+
+    // SAME response shape as verifyOtp (the shared seam — no forked mint logic).
+    expect(res.is_new_worker).toBe(true);
+    expect(res.worker_id).toBe("11111111-1111-4111-8111-111111111111");
+    expect(res.access_token).toBe("jwt.token.value");
+    expect(res.token_type).toBe("Bearer");
+    expect(res.pin_set).toBe(false);
+    expect(res.refresh_token).toBe("rt_opaque_value");
+    expect(res.session.tier).toBe(0);
+    expect(typeof res.session.expires_at).toBe("string");
+    expect(sessions.create).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111", undefined);
+
+    // worker.created (once, keyed) + the DISTINCT worker.test_login — never otp_verified.
+    const names = emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
+    expect(names).toEqual(["worker.created", "worker.test_login"]);
+    expect(names).not.toContain("worker.otp_verified");
+
+    // The test_login payload is the PII-free mirror of otp_verified — and it VALIDATES.
+    const arg = emit.mock.calls[1]![0] as { event_name: string; payload: Record<string, unknown> };
+    // The keyed HASH only — matching the `pii` stub above (`hmac:<len>`), never the phone.
+    expect(arg.payload).toEqual({
+      worker_id: "11111111-1111-4111-8111-111111111111",
+      phone_hash: `hmac:${SYNTHETIC_PHONE.length}`,
+      is_new_worker: true,
+    });
+    expect(JSON.stringify(arg)).not.toContain(SYNTHETIC_PHONE); // never the raw phone
+    const built = validateEvent({
+      event_id: "11111111-1111-4111-8111-111111111111",
+      event_name: arg.event_name,
+      event_version: 1,
+      occurred_at: "2026-07-17T00:00:00.000Z",
+      actor: { actor_type: "worker", actor_id: "11111111-1111-4111-8111-111111111111" },
+      subject: { subject_type: "worker", subject_id: "11111111-1111-4111-8111-111111111111" },
+      source: "api",
+      correlation_id: "22222222-2222-4222-8222-222222222222",
+      causation_id: null,
+      payload: arg.payload,
+      metadata: { environment: "test", service: "api" },
+    });
+    expect(built.success).toBe(true);
+  });
+
+  // Review M1 — the mint serves ONLY the reserved unassignable synthetic range.
+  it("testLogin REFUSES a real-looking phone with a neutral 404 and never touches the worker table", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const workers = {
+      findByPhoneHash: vi.fn(),
+      createOrGetByPhoneHash: vi.fn(),
+    };
+    const sessions = makeSessions();
+    const svc = new AuthService(
+      { emit } as never,
+      workers as never,
+      pii,
+      makeOtp() as never,
+      sessions as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+
+    // A REAL Indian mobile (+91 then 10 digits starting 9) — staging runs real
+    // Fast2SMS, so such a worker can genuinely exist. The seam must never mint it.
+    await expect(svc.testLogin("+919876543210", ctx)).rejects.toMatchObject({ status: 404 });
+
+    // Refused BEFORE any find-or-create / mint / event — no session, no worker, no spine row.
+    expect(workers.findByPhoneHash).not.toHaveBeenCalled();
+    expect(workers.createOrGetByPhoneHash).not.toHaveBeenCalled();
+    expect(sessions.create).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("testLogin refuses every non-synthetic shape (no oracle: all the SAME neutral 404)", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const svc = new AuthService(
+      { emit } as never,
+      { findByPhoneHash: vi.fn(), createOrGetByPhoneHash: vi.fn() } as never,
+      pii,
+      makeOtp() as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+    for (const phone of [
+      "+919876543210", // real Indian mobile
+      "+910000123456", // only FOUR leading zeros — one short of the reserved run
+      "+9100000123456", // right prefix but too long
+      "+91000001234", // right prefix but too short
+      "+911000000000", // leading 1, not the zero-run
+      "+14155550123", // non-India (US)
+      "+920000000000", // the zero-run, but the WRONG country code
+    ]) {
+      await expect(svc.testLogin(phone, ctx), `must refuse ${phone}`).rejects.toMatchObject({
+        status: 404,
+      });
+    }
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("testLogin ACCEPTS the reserved synthetic range (+9100000XXXXX — incl. the smoke default)", async () => {
+    for (const phone of ["+910000000000", "+910000099999"]) {
+      const emit = vi.fn().mockResolvedValue(undefined);
+      const svc = new AuthService(
+        { emit } as never,
+        {
+          findByPhoneHash: vi.fn().mockResolvedValue({ id: "worker-1", status: "active" }),
+          createOrGetByPhoneHash: vi.fn(),
+        } as never,
+        pii,
+        makeOtp() as never,
+        makeSessions() as never,
+        makeDevices() as never,
+        makePins() as never,
+      );
+      const res = await svc.testLogin(phone, ctx);
+      expect(res.access_token, `must mint for ${phone}`).toBe("jwt.token.value");
+      const names = emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
+      expect(names).toEqual(["worker.test_login"]);
+    }
+  });
+
+  it("testLogin for an EXISTING worker emits ONLY worker.test_login (no created, no consent write anywhere)", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const workers = {
+      findByPhoneHash: vi.fn().mockResolvedValue({ id: "worker-1", status: "active" }),
+      createOrGetByPhoneHash: vi.fn(),
+    };
+    const svc = new AuthService(
+      { emit } as never,
+      workers as never,
+      pii,
+      makeOtp() as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+
+    const res = await svc.testLogin(SYNTHETIC_PHONE, ctx);
+
+    expect(res.is_new_worker).toBe(false);
+    expect(workers.createOrGetByPhoneHash).not.toHaveBeenCalled();
+    const names = emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
+    expect(names).toEqual(["worker.test_login"]);
+    // Consent is NEITHER created nor bypassed: no consent.accepted is ever emitted here —
+    // the minted session behaves exactly like an OTP session downstream (ConsentGuard applies).
+    expect(names).not.toContain("consent.accepted");
   });
 
   it("verifyOtp with device_info registers the device and binds the session via did", async () => {
