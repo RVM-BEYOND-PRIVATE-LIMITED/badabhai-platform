@@ -301,10 +301,14 @@ class ChatReply extends Equatable {
         reply: json['reply'] as String? ?? '',
         blocked: json['blocked'] as bool? ?? false,
         isMock: json['is_mock'] as bool? ?? false,
-        suggestedFollowups: (json['suggested_followups'] as List<dynamic>?)
-                ?.map((dynamic e) => e as String)
-                .toList() ??
-            <String>[],
+        // #371: whereType, not `map((e) => e as String)` — a single non-string
+        // entry (a null, a number, an object from a future contract change) used
+        // to throw a raw TypeError out of parsing and take down the whole reply,
+        // losing bada bhai's answer over a cosmetic chip. Keep the usable
+        // suggestions and drop the rest.
+        suggestedFollowups:
+            (json['suggested_followups'] as List<dynamic>?)?.whereType<String>().toList() ??
+                <String>[],
       );
 
   @override
