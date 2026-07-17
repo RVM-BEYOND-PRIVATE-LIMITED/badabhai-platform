@@ -20,6 +20,7 @@ export type NotificationType =
   | "resume_updated"
   | "profile_ready"
   | "voice_processed"
+  | "application_sent"
   | "security";
 
 /** One faceless template: what a worker sees for an allowlisted event. */
@@ -32,8 +33,20 @@ interface NotificationTemplate {
 /**
  * The ALLOWLIST — the only events that become worker notifications, each mapped to
  * faceless, PII-free copy. Event names are VERIFIED against
- * packages/event-schema/src/registry.ts. All are worker-lifecycle / security signals
- * (no employer/demand signals in this scope).
+ * packages/event-schema/src/registry.ts.
+ *
+ * SCOPE (widened 2026-07-17): worker-lifecycle / security signals, PLUS the worker's
+ * OWN apply action (`application.submitted`). The original scope excluded
+ * "employer/demand signals"; that line still holds for anything the EMPLOYER does —
+ * an unlock, a view, a payer action must NEVER surface here. What was added is the
+ * worker's own outbound act, which is worker-lifecycle by nature: they did it, so
+ * telling them it happened reveals nothing they don't already know.
+ *
+ * The employer stays invisible regardless: copy is STATIC and server-rendered from
+ * this map, and the event payload is never selected (see notifications.repository.ts),
+ * so no employer identity, job title, or pay can reach the client — ADR-0024 rules
+ * employer identity HIDDEN from workers, and this feed cannot breach that by
+ * construction.
  */
 export const NOTIFICATION_TEMPLATES: Readonly<Record<string, NotificationTemplate>> = {
   // resume.generated (registry.ts) — actor=system, worker_id in payload.
@@ -59,6 +72,18 @@ export const NOTIFICATION_TEMPLATES: Readonly<Record<string, NotificationTemplat
     type: "voice_processed",
     title: "Voice note taiyaar",
     body: "Aapka voice note process ho gaya.",
+  },
+  // application.submitted — actor=worker, worker_id in payload. (subject=job, so the
+  // subject leg of the repository's OR does NOT match; the actor + payload legs do.)
+  // Copy names NOTHING about the job or employer — the worker knows what they applied
+  // to; this is only the "it landed" receipt. NOTE: the copy guard in
+  // notifications.service.test.ts bans the bare nouns employer/company/payer in
+  // worker-facing copy (a deliberate bright line, ADR-0024) — hence "aage pahunch
+  // gayi" rather than "employer tak pahunch gayi". Same receipt, no counterparty.
+  "application.submitted": {
+    type: "application_sent",
+    title: "Application bhej di",
+    body: "Aapki application aage pahunch gayi.",
   },
   // worker.device_registered — actor=subject=worker.
   "worker.device_registered": {

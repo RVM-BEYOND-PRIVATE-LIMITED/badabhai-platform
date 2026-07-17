@@ -470,6 +470,15 @@ class MockApiClient extends ApiClient {
         body: 'Aapka naya resume ban gaya — dekhein aur download karein.',
         createdAt: now.subtract(const Duration(minutes: 5)),
       ),
+      // The worker's OWN apply action. Faceless by design: no employer identity,
+      // no job title, no pay — just the server-rendered copy (ADR-0024).
+      WorkerNotification(
+        id: 'mock-noti-0005',
+        type: 'application_sent',
+        title: 'Application bhej di',
+        body: 'Aapki application aage pahunch gayi.',
+        createdAt: now.subtract(const Duration(minutes: 45)),
+      ),
       WorkerNotification(
         id: 'mock-noti-0002',
         type: 'profile_ready',

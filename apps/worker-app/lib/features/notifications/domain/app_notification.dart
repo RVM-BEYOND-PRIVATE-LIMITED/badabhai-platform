@@ -2,7 +2,17 @@ import 'package:equatable/equatable.dart';
 
 /// What a notification is about (drives its icon + colour tone in the row). Maps
 /// from the API's coarse `type` — never an employer/demand kind (faceless, §2).
-enum NotificationKind { resumeReady, profileReady, voiceProcessed, security }
+///
+/// [applicationSent] is the worker's OWN apply action reaching the employer — it
+/// carries no employer identity, job, or payload (ADR-0024): the row is only the
+/// server-rendered copy.
+enum NotificationKind {
+  resumeReady,
+  profileReady,
+  voiceProcessed,
+  applicationSent,
+  security,
+}
 
 /// One alert row (spec §5.11). PII-FREE by contract: fed from
 /// GET /workers/me/notifications, whose copy is faceless server-rendered text —
