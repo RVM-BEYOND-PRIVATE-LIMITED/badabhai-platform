@@ -6,8 +6,10 @@ import type { EventsService } from "../events/events.service";
 import type { ConsentRepository } from "../consent/consent.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
+import { DEFAULT_CATALOG } from "@badabhai/pricing";
 import { UnlockService } from "./unlocks.service";
 import type { UnlocksRepository } from "./unlocks.repository";
+import type { PricingService } from "../pricing/pricing.service";
 import { PaymentGateway } from "./payment-gateway";
 
 const CTX = { correlationId: "corr-1", requestId: "req-1" } as RequestContext;
@@ -93,7 +95,21 @@ function setup(opts: SetupOpts = {}) {
 
   const events = { emit: vi.fn(async (p: Record<string, unknown>) => p) };
 
-  const payments = new PaymentGateway(repo as unknown as UnlocksRepository, CAPS);
+  // D-6: the gateway resolves packs through the pricing engine (legacy constants as the
+  // fallback). Serve the typed default catalog — the same values the legacy constants carry,
+  // so every existing expectation here is unchanged.
+  const pricing = {
+    getActiveCatalog: vi.fn(async () => ({
+      catalog: DEFAULT_CATALOG,
+      revision: 1,
+      source: "db" as const,
+    })),
+  };
+  const payments = new PaymentGateway(
+    repo as unknown as UnlocksRepository,
+    CAPS,
+    pricing as unknown as PricingService,
+  );
 
   const svc = new UnlockService(
     repo as unknown as UnlocksRepository,

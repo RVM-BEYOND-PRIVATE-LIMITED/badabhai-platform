@@ -34,6 +34,20 @@ export const WorkerOtpVerifiedPayload = z.object({
   is_new_worker: z.boolean(),
 });
 
+// D-3 — a worker session was minted via the GATED test-login seam (POST
+// /auth/test-login; TEST_LOGIN_ENABLED + TEST_LOGIN_TOKEN, prod-boot-blocked).
+// DISTINCT from worker.otp_verified so a test mint can never masquerade as a real
+// OTP login on the audit spine. Mirrors WorkerOtpVerifiedPayload exactly — opaque
+// worker_id + the keyed phone HASH + is_new_worker; `.strict()` so no extra field
+// (a raw phone, the gate token) can ever ride in.
+export const WorkerTestLoginPayload = z
+  .object({
+    worker_id: uuidSchema,
+    phone_hash: phoneHash,
+    is_new_worker: z.boolean(),
+  })
+  .strict();
+
 // The worker recorded their real name. PII-free: the name itself is encrypted at
 // rest in workers.full_name and NEVER appears here — only the fact that it was set.
 export const WorkerNameRecordedPayload = z.object({

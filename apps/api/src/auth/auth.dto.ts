@@ -17,6 +17,45 @@ export const OtpVerifySchema = z.object({
 });
 export type OtpVerifyDto = z.infer<typeof OtpVerifySchema>;
 
+/**
+ * D-3 (security review M1) — the RESERVED SYNTHETIC test-phone range the gated
+ * test-login mint will serve: `+91` + `00000` + 5 free digits (`+9100000XXXXX`,
+ * e.g. the smoke's default `+910000000000`). 100,000 addresses, all unassignable.
+ *
+ * WHY THIS RANGE IS SAFE: a real Indian mobile is `+91` followed by 10 digits
+ * that begin **6–9**, so a subscriber part starting with five zeros can NEVER be
+ * a real worker's number. That matters because staging runs REAL Fast2SMS, so
+ * real workers CAN exist there: without this rule a token holder on an armed env
+ * could mint a session for ANY existing worker (`mintLoginForPhone` find-or-creates
+ * by phone_hash). Restricting the mint to an unassignable range means the seam can
+ * only ever create/reach synthetic accounts — it cannot impersonate a real worker.
+ *
+ * HARD-CODED, deliberately NOT an env knob: a config-widenable allowlist is one
+ * mis-set var away from serving real numbers. The runbook's ESC-1 option (C)
+ * already prescribed "the phone is synthetic-reserved" — this is that leg.
+ */
+export const SYNTHETIC_TEST_PHONE_PATTERN = /^\+910{5}\d{5}$/;
+
+/** True when `phone` is inside {@link SYNTHETIC_TEST_PHONE_PATTERN} (the ONLY
+ *  range the D-3 test-login mint serves). Fail-closed on any non-string. */
+export function isSyntheticTestPhone(phone: string): boolean {
+  return typeof phone === "string" && SYNTHETIC_TEST_PHONE_PATTERN.test(phone);
+}
+
+/** Body of POST /auth/test-login (D-3 — the GATED test-login mint seam; staging
+ * smoke / e2e only, prod-boot-blocked). Carries ONLY the synthetic test phone —
+ * the gate secret rides the `x-test-login-token` header (TestLoginGuard), never
+ * the body. The phone must additionally be in the reserved synthetic range
+ * ({@link isSyntheticTestPhone}); that is enforced at the MINT CHOKEPOINT
+ * (AuthService.testLogin) rather than here, so a real-looking number gets the
+ * same NEUTRAL 404 as a disabled seam instead of a 400 that would confirm the
+ * seam exists and is armed. The response is the SAME LoginResponse shape as
+ * /auth/otp/verify. */
+export const TestLoginSchema = z.object({
+  phone: e164PhoneSchema,
+});
+export type TestLoginDto = z.infer<typeof TestLoginSchema>;
+
 /** Response of POST /auth/otp/request. The code is delivered ONLY to the worker's
  * phone via the real SMS provider — it is never returned here (real-only). */
 export interface OtpRequestResponse {

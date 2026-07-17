@@ -408,7 +408,9 @@ export class UnlockService {
     packCode: string,
     ctx: RequestContext,
   ): Promise<{ payer_id: string; balance: number; credits: number; pack_code: string } | null> {
-    const pack = this.payments.resolvePack(packCode);
+    // D-6: resolved from the LIVE catalog (legacy constants as the fallback) so the price +
+    // credits CHARGED are the same ones the portal DISPLAYED. Async since D-6.
+    const pack = await this.payments.resolvePack(packCode);
     if (!pack) return null; // unknown pack → 404 (this is NOT the unlock no-oracle path)
 
     const result = await this.payments.purchasePackMock(payerId, pack);

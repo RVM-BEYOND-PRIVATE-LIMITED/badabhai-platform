@@ -79,6 +79,72 @@ export class IpRateLimit {
     }
   }
 
+  /**
+   * GLOBAL (IP-INDEPENDENT) daily cap — despite this class's name, this counter is
+   * NOT keyed on the caller: it bounds the platform-wide count for `scope` over a
+   * UTC day. It is the backstop ABOVE the per-IP hour cap, for routes where a
+   * credential holder could otherwise rotate IPs for unlimited requests (D-3
+   * test-login, review L1). Mirrors the OTP-5 global send breaker's idiom
+   * (`OtpService.assertWithinGlobalDailyCap`): INCR + re-assert the end-of-UTC-day
+   * TTL on every hit, and `count >= cap` (NOT `>`) so a cap of **0 = PAUSED** blocks
+   * the FIRST request — an env-only kill-switch, no redeploy.
+   *
+   * FAIL CLOSED: a Redis error REJECTS (429), never uncaps. PII-free by construction
+   * (the key carries only the scope + UTC day — no ip, no phone, no id).
+   */
+  async assertWithinGlobalDailyCap(scope: string, cap: number): Promise<void> {
+    const day = IpRateLimit.utcDayStamp();
+    const key = `ratelimit:global:${scope}:${day}`;
+    const ttl = IpRateLimit.secondsUntilEndOfUtcDay();
+
+    let count: number;
+    try {
+      const redis = (await this.queue.client) as unknown as RedisCounter;
+      count = await redis.incr(key);
+      await redis.expire(key, ttl);
+    } catch (err) {
+      this.logger.error(
+        `Global daily rate-limit Redis unavailable for scope=${scope}; failing closed (reason: ${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      );
+      throw new HttpException(
+        "This is temporarily unavailable; please retry shortly",
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    if (count >= cap) {
+      this.logger.warn(`Global daily cap reached scope=${scope} limit=${cap} day=${day}; refusing`);
+      throw new HttpException(
+        "Too many requests; please try again later",
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
+
+  /** UTC day stamp `YYYYMMDD` (global-cap key namespace + rolling window). */
+  private static utcDayStamp(now: Date = new Date()): string {
+    const y = now.getUTCFullYear();
+    const m = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(now.getUTCDate()).padStart(2, "0");
+    return `${y}${m}${d}`;
+  }
+
+  /** Seconds remaining until the end of the current UTC day (+1 to round up). */
+  private static secondsUntilEndOfUtcDay(now: Date = new Date()): number {
+    const endOfDay = Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() + 1,
+      0,
+      0,
+      0,
+      0,
+    );
+    return Math.max(1, Math.ceil((endOfDay - now.getTime()) / 1000));
+  }
+
   /** UTC hour stamp `YYYYMMDDHH` (key namespace + rolling window). */
   private static utcHourStamp(now: Date = new Date()): string {
     const y = now.getUTCFullYear();

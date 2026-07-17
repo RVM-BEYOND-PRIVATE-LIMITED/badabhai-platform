@@ -1,8 +1,14 @@
 import Link from "next/link";
-import { postingIsFreeThroughLaunch, postingPaidTiers } from "../../../../lib/pricing-config";
+import { getLiveCatalog } from "../../../../lib/live-catalog";
+import {
+  applicantQuotaStep,
+  postingIsFreeThroughLaunch,
+  postingPaidTiers,
+} from "../../../../lib/pricing-config";
 import { getCapacity } from "../../../../lib/payer-api";
 import { formatInr } from "../../../../lib/format";
 import { Badge, Card } from "../../../../components/ds";
+import { CachedPricingNote } from "../../../../components/cached-pricing-note";
 import { PostingForm } from "./posting-form";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +17,10 @@ export const dynamic = "force-dynamic";
  * Post a job (ADR-0019 Phase 1). Free-through-launch: the "free" label is sourced
  * from a CONFIG FLAG, never a hardcoded ₹0 — the catalog cannot model a ₹0 price
  * (priceInr min(1)), which is the open ADR-0013 escalation. Post-launch paid tiers
- * are shown for transparency, read straight from `DEFAULT_CATALOG`.
+ * are shown for transparency, read from the LIVE catalog (D-6; fetch failure ⇒ the
+ * compile-time defaults + the cached-pricing note). The quota STEP for the form's
+ * derived-band display is resolved HERE (server) and passed down — the client form
+ * never fetches the catalog.
  *
  * QUOTA-PAUSE A4 (faithful slice): a NON-BLOCKING at-capacity warning is shown when the
  * payer is at/over their concurrent-vacancy allowance. The signal derives from the REAL
@@ -21,7 +30,9 @@ export const dynamic = "force-dynamic";
  */
 export default async function NewPostingPage() {
   const free = postingIsFreeThroughLaunch();
-  const paidTiers = postingPaidTiers();
+  const { products, live } = await getLiveCatalog();
+  const paidTiers = postingPaidTiers(products);
+  const quotaStep = applicantQuotaStep(products);
 
   let atCapacity = false;
   try {
@@ -80,7 +91,9 @@ export default async function NewPostingPage() {
         </Card>
       )}
 
-      <PostingForm />
+      {!live ? <CachedPricingNote /> : null}
+
+      <PostingForm quotaStep={quotaStep} />
     </>
   );
 }

@@ -41,7 +41,16 @@ const isoTimestampSchema = z.string().datetime({ offset: true });
 // carries exactly the grant fields it needs (no optional-soup).
 // ---------------------------------------------------------------------------
 
-/** A paid job-posting plan tier (e.g. standard / pro). */
+/**
+ * A paid job-posting plan tier (e.g. standard / pro).
+ *
+ * ⚠️ PAYER-VISIBLE (D-6): every field here SHIPS to the payer portal via
+ * `GET /payer/pricing/catalog` (PayerPricingController), which projects whole PRODUCTS —
+ * so a new field added below is exposed by default. That endpoint's test pins the
+ * catalog-LEVEL shape (products only, no offers/coupons) and the tier KEYS, but treat any
+ * new tier field as payer-visible unless you deliberately strip it in the projection.
+ * Keep it PII-free + non-secret (codes, integer ₹, counts/days — ADR-0013 §A.3).
+ */
 export const postingTierSchema = z.object({
   code: codeSchema,
   priceInr: priceInrSchema,
@@ -61,7 +70,15 @@ export const boostTierSchema = z.object({
 });
 export type BoostTier = z.infer<typeof boostTierSchema>;
 
-/** A credit pack tier (contact-unlock packs, absorbed from credit-packs.ts). */
+/**
+ * A credit pack tier (contact-unlock packs, absorbed from credit-packs.ts).
+ *
+ * ⚠️ PAYER-VISIBLE (D-6) — see {@link postingTierSchema}: these fields ship to the portal
+ * via `GET /payer/pricing/catalog`, AND since D-6 they are the CHARGE source too
+ * (`PaymentGateway.resolvePack` resolves `priceInr`/`credits` from this tier, with the
+ * legacy `CREDIT_PACKS` constants as the fallback) — so editing a value here changes what
+ * a payer is both SHOWN and CHARGED. PII-free, non-secret values only.
+ */
 export const creditPackTierSchema = z.object({
   code: codeSchema,
   priceInr: priceInrSchema,

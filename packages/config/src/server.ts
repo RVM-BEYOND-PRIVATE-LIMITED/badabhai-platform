@@ -232,6 +232,32 @@ export const serverEnvSchema = z.object({
   // cool-down — never for auth). nonnegative() so 0 disables the cool-down (no key set).
   ACCOUNT_DELETION_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(604800),
 
+  // D-3 — GATED test-login (worker session-mint) seam for staging smoke / e2e ONLY.
+  // Worker login is REAL-ONLY (Fast2SMS), so no automated test can complete an OTP
+  // round-trip; this pair arms POST /auth/test-login, which mints a REAL worker
+  // session through the SAME AuthService seam the OTP verify path uses (no fork,
+  // consent gates unchanged). Posture (all enforced by assertAuthConfig, fail-closed):
+  //   - DEFAULT OFF. booleanFromString so a falsey string stays OFF (fail-safe to
+  //     inert, like AI_ENABLE_REAL_CALLS). While OFF the route is a NEUTRAL 404.
+  //   - Enabled REQUIRES a >=32-char TEST_LOGIN_TOKEN — enabled without one FAILS
+  //     BOOT (TD67 lesson: a half-armed secret gate must be loud, never vacuous).
+  //     The schema min(32) additionally makes an EMPTY/short token a PARSE error
+  //     in every environment (an empty string is a config ERROR, never "off").
+  //   - STRUCTURALLY IMPOSSIBLE in production: enabled with NODE_ENV=production —
+  //     or any env that is not EXPLICITLY development/test/staging — fails boot.
+  //   - Token set but not enabled → inert (fine; the route still 404s).
+  // NOTE: this is NOT a resurrection of DEV_QUICK_LOGIN (dead by design) — there is
+  // no client-side/dev-mode bypass; the seam is a server secret + env gate.
+  TEST_LOGIN_ENABLED: booleanFromString,
+  TEST_LOGIN_TOKEN: z.string().min(32).optional(),
+  // GLOBAL daily mint ceiling for the test-login seam (security review L1). The
+  // per-IP hour cap alone leaves a token holder able to rotate IPs for unlimited
+  // mints; this is the IP-INDEPENDENT backstop (the OTP-5 breaker's role for the
+  // SMS path). Generous enough for smoke + e2e; far below "unbounded".
+  //   min(0) is DELIBERATE: 0 = PAUSED = the test-login kill-switch — the next mint
+  //   is refused instantly (env-only, NO redeploy), without disarming the flag.
+  TEST_LOGIN_MAX_PER_DAY: z.coerce.number().int().min(0).default(200),
+
   // OTP shape + lifecycle. The code is generated with crypto.randomInt per digit,
   // stored ONLY as a keyed HMAC, single-use, and rate-limited per phone + per IP.
   OTP_LENGTH: z.coerce.number().int().min(4).max(8).default(6),
@@ -1014,6 +1040,34 @@ export function assertAuthConfig(
   // The dev default is acceptable only in an explicit development/test environment.
   if (!isDevEnv(rawNodeEnv) && config.PIN_PEPPER === DEV_PIN_PEPPER) {
     problems.push("PIN_PEPPER must be overridden (the dev default is public)");
+  }
+
+  // D-3 — the gated test-login mint seam. Two invariants, both fail-STARTUP:
+  //
+  //  1. HARD STRUCTURAL PRODUCTION BLOCK: the seam mints a real worker session
+  //     without an OTP, so in production it would be a login bypass — the flag must
+  //     be IMPOSSIBLE to arm there. We allow it ONLY when the RAW NODE_ENV is
+  //     EXPLICITLY development/test/staging: "production", an UNSET env, an empty
+  //     string, or any typo ("prod", "Staging") all REFUSE TO BOOT, so a forgotten
+  //     or fat-fingered NODE_ENV on a production box can never leave the seam armed
+  //     (the same raw-env fail-closed philosophy as isDevEnv — never trust the
+  //     parsed default).
+  //  2. TD67 lesson: enabled without a real (>=32-char) TEST_LOGIN_TOKEN must FAIL
+  //     BOOT, never arm vacuously — a gate whose secret is missing/empty/short is a
+  //     structural misconfiguration, not "off". (The schema's min(32) already makes
+  //     an empty/short SET token a parse error; this covers enabled-with-unset.)
+  if (config.TEST_LOGIN_ENABLED) {
+    const testLoginAllowedEnvs = ["development", "test", "staging"];
+    if (!testLoginAllowedEnvs.includes(rawNodeEnv ?? "")) {
+      problems.push(
+        "TEST_LOGIN_ENABLED must be false in production (D-3): it is only permitted when NODE_ENV is explicitly development, test, or staging",
+      );
+    }
+    if (!config.TEST_LOGIN_TOKEN || config.TEST_LOGIN_TOKEN.length < 32) {
+      problems.push(
+        "TEST_LOGIN_ENABLED is true but TEST_LOGIN_TOKEN is not set to a >=32-char secret — refusing to arm a half-configured test-login gate (TD67, fail closed)",
+      );
+    }
   }
 
   // ADR-0026: the opaque refresh token's lifetime must be >= the session absolute cap, so

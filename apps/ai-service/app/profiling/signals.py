@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from ..pseudonymize import CITY_ALIASES, KNOWN_CITIES
+from ..pseudonymize import CITY_ALIASES, KNOWN_CITIES, MAX_PLAUSIBLE_SALARY_INR
 
 KnowledgeLevel = str  # "none" | "basic" | "strong" | "unknown"
 
@@ -243,7 +243,10 @@ def _parse_amount(num: str, unit: str | None) -> int | None:
         value *= 1_000
     elif unit in ("lakh", "lac", "l"):
         value *= 100_000
-    if value <= 0 or value > 10_000_000:
+    # Ceiling shared with the pseudonymizer's D-1 money carve-out (single source
+    # of truth in pseudonymize.py): what this accepts as a salary, the gateway
+    # masks as [AMOUNT_n] instead of blocking the turn.
+    if value <= 0 or value > MAX_PLAUSIBLE_SALARY_INR:
         return None
     return int(value)
 
@@ -417,12 +420,41 @@ def skill_ids_for_labels(labels: list[str]) -> list[str]:
     return out
 
 
-def detect_answered_topics(text: str) -> dict[str, object]:
+# Cues that the worker is stating where they ARE (not where they'd go). Used to
+# attribute cities in an answer to the preferred-locations question (B-4).
+_CURRENT_LOC_CUES = (
+    "mein hoon", "mein hu", "me hoon", "me hu", "mai hoon", "mai hu",
+    "rehta", "rahta", "rehti", "rahti", "abhi",
+)
+
+
+def detect_answered_topics(
+    text: str, last_asked_topic_id: str | None = None
+) -> dict[str, object]:
     """Map detected signals to interview topic ids -> a short collected value.
 
     Used by the interview engine to mark progress. Returns profile data only
-    (never identity PII)."""
+    (never identity PII).
+
+    B-4 (context-drift register 2026-07-16 row B-4; owner ruling 2026-07-17
+    "current AND preferred — do not conflate"): location is TWO topics —
+    ``current_location`` and ``preferred_locations`` — each keyed on its own
+    field. ``detect`` is context-free (the FIRST city always lands in
+    ``current_city``), so ``last_asked_topic_id`` (additive, optional) lets the
+    engine attribute an answer to the question that was actually asked:
+
+    - reply to the PREFERRED question with city/cities and no "I am in ..." cue
+      -> ALL detected cities are preferences, current stays unmarked;
+    - a flexibility answer ("kahin bhi chalega") to the preferred question marks
+      it answered even without a named city;
+    - a combined answer ("Pune mein hoon, Delhi bhi chalega") marks BOTH.
+
+    The salary topics split the same way (B-5 unbundling): ``salary_current`` /
+    ``salary_expected``, with a bare cue-less amount answering the EXPECTED
+    question attributed to expected (``detect`` defaults it to current).
+    """
     sig = detect(text)
+    lower = text.lower()
     answered: dict[str, object] = {}
     if sig.role_id:
         answered["role"] = sig.primary_role
@@ -434,10 +466,44 @@ def detect_answered_topics(text: str) -> dict[str, object]:
         answered["experience"] = sig.experience_years
     if sig.skills or sig.drawing_reading or sig.setting_knowledge != "unknown":
         answered["skills"] = sig.skills
-    if sig.current_city or sig.preferred_locations:
-        answered["location"] = sig.current_city or sig.preferred_locations
-    if sig.current_salary is not None or sig.expected_salary is not None:
-        answered["salary"] = sig.current_salary or sig.expected_salary
+
+    # Location (B-4): current and preferred are separate topics.
+    preferred_ctx = last_asked_topic_id == "preferred_locations"
+    states_current = any(cue in lower for cue in _CURRENT_LOC_CUES)
+    if preferred_ctx and sig.current_city and not states_current:
+        # Cities named in reply to the preferred question, with no "I am in ..."
+        # cue, are preferences — including the first one detect() put in
+        # current_city.
+        answered["preferred_locations"] = [sig.current_city, *sig.preferred_locations]
+    else:
+        # Keyed on current_city ONLY (as the pre-split code was). A state-only
+        # answer ("bihar mai hu") deliberately does NOT mark the topic answered:
+        # the engine then still asks "Abhi kis sheher mein hain?" and we capture
+        # the CITY, which is strictly better matching data. The state is not lost
+        # either way — detect() keeps it on Signals.current_state for the profile.
+        if sig.current_city:
+            answered["current_location"] = sig.current_city
+        if sig.preferred_locations:
+            answered["preferred_locations"] = sig.preferred_locations
+        elif preferred_ctx and sig.relocation_willingness:
+            # "kahin bhi chalega" — flexibility IS an answer to the preferred
+            # ask. Context-gated so an incidental cue ("night shift") elsewhere
+            # can never mark the topic answered and skip the required ask.
+            answered["preferred_locations"] = "flexible"
+
+    # Salary (B-5 split): keyed per field, expected-context attribution.
+    if (
+        last_asked_topic_id == "salary_expected"
+        and sig.current_salary is not None
+        and sig.expected_salary is None
+    ):
+        answered["salary_expected"] = sig.current_salary
+    else:
+        if sig.current_salary is not None:
+            answered["salary_current"] = sig.current_salary
+        if sig.expected_salary is not None:
+            answered["salary_expected"] = sig.expected_salary
+
     if sig.availability != "unknown":
         answered["availability"] = sig.availability
     if sig.education or sig.certifications:

@@ -348,8 +348,12 @@ export const creditTopUpSchema = z.object({
   topUpId: z.string().uuid(),
   packCode: z.string(),
   credits: z.number().int().positive(),
-  /** Catalog price at render time; ABSENT when the pack code has left the catalog
-   * (catalog drift) — the page renders a dash, never a fake ₹0. */
+  /**
+   * What this purchase ACTUALLY cost — the ₹ STAMPED on the ledger row at purchase time
+   * (D-6). ABSENT for legacy rows written before the stamp existed; the page then renders
+   * a dash. It is NEVER back-filled from the CURRENT catalog: doing so let an ops price
+   * edit retroactively rewrite what past purchases appear to have cost.
+   */
   priceInr: z.number().int().nonnegative().optional(),
   createdAt: z.string(),
 });
@@ -369,6 +373,13 @@ export const creditLedgerEntryWireSchema = z.object({
   unlock_id: z.string().uuid().nullable(),
   pack_code: z.string().nullable(),
   payment_ref: z.string().nullable(),
+  /**
+   * The ₹ amount STAMPED at purchase time (D-6). Null for movements with no amount
+   * (debits/ops grants) AND for rows written before the column existed. `.nullish()` +
+   * default null: an API that predates the column omits the key entirely, and this read
+   * must not hard-fail against it (forward/backward compatible, invariant #8).
+   */
+  price_inr: z.number().int().nonnegative().nullish().default(null),
   created_at: z.string(),
 });
 export const creditLedgerWireSchema = z.object({

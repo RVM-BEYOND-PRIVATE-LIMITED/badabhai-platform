@@ -3,6 +3,7 @@ import type { ServerConfig } from "@badabhai/config";
 import { areRealPaymentsEnabled } from "@badabhai/config";
 import { CREDIT_PACKS, type CreditPack } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
+import { PricingService } from "../pricing/pricing.service";
 import { UnlocksRepository, type Tx } from "./unlocks.repository";
 
 /**
@@ -26,6 +27,7 @@ export class PaymentGateway {
   constructor(
     private readonly repo: UnlocksRepository,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    private readonly pricing: PricingService,
   ) {}
 
   /**
@@ -57,9 +59,45 @@ export class PaymentGateway {
     return { ok: true, balanceAfter };
   }
 
-  /** Resolve a config-driven credit pack by code, or undefined if unknown. */
-  resolvePack(packCode: string): CreditPack | undefined {
-    return CREDIT_PACKS[packCode];
+  /**
+   * Resolve a credit pack by code from the LIVE catalog, falling back to the legacy
+   * compile-time constants. ASYNC since D-6.
+   *
+   * WHY (D-6 MEDIUM-1): the portal RENDERS the live `contact_unlock` tiers, so the CHARGE
+   * must read the SAME source or an ops price edit makes advertised ≠ charged (and, worse,
+   * advertised-credits ≠ granted-credits). Both sides were compile-time before D-6 and the
+   * values happened to match; that coupling is now explicit rather than coincidental. This
+   * mirrors what PostingPlansService already does for plan/boost/capacity/topup — one engine,
+   * one price. `getActiveCatalog` is itself fail-closed (an invalid stored row serves the
+   * typed default), so this can never resolve an unvalidated/negative price.
+   *
+   * LEGACY FALLBACK (invariant #8): `pack_10`/`pack_25` are RETAINED-but-not-OFFERED — they
+   * are absent from the catalog yet must still resolve for historical `credit_ledger.pack_code`
+   * references. A code the live catalog does not carry falls through to {@link CREDIT_PACKS};
+   * only a code in NEITHER is unknown (→ the caller's 404). The live catalog WINS on conflict
+   * (it is the ops-editable source of truth); the constant is a floor, never an override.
+   */
+  async resolvePack(packCode: string): Promise<CreditPack | undefined> {
+    const live = await this.resolveLivePack(packCode);
+    return live ?? CREDIT_PACKS[packCode];
+  }
+
+  /**
+   * The `contact_unlock` tier for `packCode` from the ACTIVE catalog, or undefined when the
+   * catalog has no such tier (→ the legacy-constant fallback above). A catalog read failure
+   * propagates deliberately: unlike the DISPLAY seam (payer-web fails OPEN to cached prices),
+   * the CHARGE path must never invent a price — the caller surfaces the error and no money moves.
+   */
+  private async resolveLivePack(packCode: string): Promise<CreditPack | undefined> {
+    const { catalog } = await this.pricing.getActiveCatalog();
+    const product = catalog.products.find(
+      (p) => p.kind === "credit_pack" && p.code === "contact_unlock",
+    );
+    if (!product || product.kind !== "credit_pack") return undefined;
+    const tier = product.tiers.find((t) => t.code === packCode);
+    // Map the catalog tier onto the CreditPack shape the purchase path consumes. `credits`
+    // comes from the LIVE tier too — the grant, not just the price, follows the catalog.
+    return tier ? { code: tier.code, priceInr: tier.priceInr, credits: tier.credits } : undefined;
   }
 
   /**
@@ -67,6 +105,10 @@ export class PaymentGateway {
    * ledger atomically. NO real money — `real_call` is false. A real Razorpay purchase
    * (authorize→capture against an order) is a LATER human-gated stream; the seam (this
    * method + the events) is what it slots into.
+   *
+   * The `pack` is whatever {@link resolvePack} returned (live catalog, else the legacy
+   * constant), so credits GRANTED and ₹ STAMPED are both that one resolved tier — never a
+   * second, possibly-drifted lookup.
    */
   async purchasePackMock(
     payerId: string,
@@ -78,6 +120,9 @@ export class PaymentGateway {
       reason: "pack_purchase",
       packCode: pack.code,
       paymentRef: null, // no external order id in the mock path
+      // D-6: stamp the amount CHARGED onto the ledger row so History shows what this
+      // purchase actually cost, immune to any later ops price edit.
+      priceInr: pack.priceInr,
     });
     return { balanceAfter, credits: pack.credits, priceInr: pack.priceInr, realCall: false };
   }

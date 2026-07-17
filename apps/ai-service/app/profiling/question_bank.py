@@ -2,7 +2,19 @@
 
 Phase-1 role family: CNC/VMC manufacturing. Topics are DATA, not code, so more
 roles/questions can be added later without touching the engine. Each topic's
-``core`` flag drives extraction-readiness.
+``core`` flag drives the ask ORDER (core first); extraction-readiness is the
+engine's ``ESSENTIAL_TOPICS`` / ``MUST_ASK_TOPICS``.
+
+Two locked decisions shape this bank (context-drift register 2026-07-16,
+owner rulings 2026-07-17):
+
+- **B-5 — ONE question per turn.** Every ``question`` is a single interrogative
+  clause with exactly one "?". A question may LIST alternatives ("Fanuc,
+  Siemens ya Haas?") but never bundles two asks. Formerly-bundled asks are now
+  sequential topics (extra turns are expected and correct).
+- **B-4 — current AND preferred location, never conflated.** ``current_location``
+  and ``preferred_locations`` are separate topics with their own questions;
+  ``signals.detect_answered_topics`` keys each on its own field.
 """
 
 from __future__ import annotations
@@ -16,7 +28,9 @@ class Topic:
     label: str
     question: str  # neutral mentor Hinglish phrasing (used directly in mock mode)
     why: str | None = None  # short reason, surfaced if the worker asks "why"
-    core: bool = False  # required to consider the profile ready for extraction
+    # Ask PRIORITY: core topics are served before optional ones. Readiness itself
+    # is the engine's ESSENTIAL_TOPICS / MUST_ASK_TOPICS, not this flag.
+    core: bool = False
 
 
 ROLE_FAMILIES: dict[str, dict] = {
@@ -53,14 +67,19 @@ _CNC_VMC_TOPICS: list[Topic] = [
     ),
     Topic(
         "skills", "Skills",
-        "Setting khud karte hain ya sirf operation? Tool offset, program edit, "
-        "drawing reading — kya aata hai?",
+        "Setting, tool offset, program edit, drawing reading — inmein se kya aata hai?",
         why="Taaki aapke liye sahi role match kar sakein.",
         core=True,
     ),
     Topic(
-        "location", "Location",
-        "Abhi kis sheher mein hain, aur kahan kaam kar sakte hain?",
+        "current_location", "Current location",
+        "Abhi kis sheher mein hain?",
+        core=True,
+    ),
+    Topic(
+        "preferred_locations", "Preferred locations",
+        "Kahan kaam kar sakte hain?",
+        why="Taaki aapke pasand ke sheher ki naukri dhoondh sakein.",
         core=True,
     ),
     Topic(
@@ -68,16 +87,20 @@ _CNC_VMC_TOPICS: list[Topic] = [
         "Controller kaunsa — Fanuc, Siemens, Mitsubishi, Haas ya Heidenhain?",
     ),
     Topic(
-        "salary", "Salary",
-        "Abhi salary kitni hai, aur kitni expect karte hain?",
+        "salary_current", "Current salary",
+        "Abhi salary kitni hai?",
+    ),
+    Topic(
+        "salary_expected", "Expected salary",
+        "Kitni salary expect karte hain?",
     ),
     Topic(
         "availability", "Availability",
-        "Join karne mein kitne din — abhi free hain ya notice chal raha hai?",
+        "Join karne mein kitne din lagenge?",
     ),
     Topic(
         "education", "Education / training",
-        "ITI ya diploma kiya hai? Koi training li hai?",
+        "ITI, diploma ya koi aur training li hai?",
     ),
 ]
 

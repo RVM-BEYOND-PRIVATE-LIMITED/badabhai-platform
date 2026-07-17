@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_CATALOG } from "@badabhai/pricing";
 
 /**
  * Tenancy + no-raw-phone tests for the payer data seam (ADR-0019 XB-A / ADR-0010 F-4).
@@ -49,6 +50,15 @@ function jsonResponse(body: unknown, status = 200): Response {
     status,
     headers: { "content-type": "application/json" },
   });
+}
+
+/**
+ * A healthy `GET /payer/pricing/catalog` wire body (D-6 — the seam now resolves pack
+ * prices / the quota-topup tier from the LIVE catalog). `products` overrides let a test
+ * serve an ops-EDITED catalog to prove liveness.
+ */
+function catalogResponse(products: unknown = DEFAULT_CATALOG.products): Response {
+  return jsonResponse({ revision: 1, source: "db", products });
 }
 
 /**
@@ -226,6 +236,7 @@ describe("getCreditTopUps — LIVE credit history: GET /payer/credits/ledger (XB
             unlock_id: null,
             pack_code: "pack_50",
             payment_ref: "mock_ref_1",
+            price_inr: 2000, // the amount STAMPED at purchase (D-6)
             created_at: "2026-07-01T00:00:00.000Z",
           },
           {
@@ -236,6 +247,7 @@ describe("getCreditTopUps — LIVE credit history: GET /payer/credits/ledger (XB
             unlock_id: "dddd4444-0000-4000-8000-000000000001",
             pack_code: null,
             payment_ref: null,
+            price_inr: null,
             created_at: "2026-07-02T00:00:00.000Z",
           },
         ],
@@ -253,9 +265,105 @@ describe("getCreditTopUps — LIVE credit history: GET /payer/credits/ledger (XB
     expect(topUps[0]!.topUpId).toBe("cccc3333-0000-4000-8000-000000000001");
     expect(topUps[0]!.packCode).toBe("pack_50");
     expect(topUps[0]!.credits).toBe(50);
-    // The price is resolved from the @badabhai/pricing catalog (XT5), never from the wire.
+    // The STAMPED charge from the ledger row — what the payer actually paid (D-6 MEDIUM-2).
     expect(topUps[0]!.priceInr).toBe(2000);
     expect(topUps[0]!.createdAt).toBe("2026-07-01T00:00:00.000Z");
+  });
+
+  /**
+   * D-6 MEDIUM-2: HISTORY IS A RECORD, NOT A QUOTE. The rendered amount is the ₹ stamped on
+   * the ledger row at purchase; it must NOT be re-resolved from the CURRENT catalog, or an
+   * ops price edit would retroactively rewrite what past purchases appear to have cost.
+   */
+  it("renders the STAMPED price even when the current catalog now says something different", async () => {
+    // Ops has since re-priced pack_50 to ₹2,500. The row was CHARGED ₹2,000 and must stay so.
+    const editedProducts = DEFAULT_CATALOG.products.map((p) =>
+      p.kind === "credit_pack" && p.code === "contact_unlock"
+        ? {
+            ...p,
+            tiers: p.tiers.map((t) => (t.code === "pack_50" ? { ...t, priceInr: 2500 } : t)),
+          }
+        : p,
+    );
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/payer/pricing/catalog")) {
+        return Promise.resolve(catalogResponse(editedProducts));
+      }
+      return Promise.resolve(
+        jsonResponse({
+          payer_id: PAYER,
+          ledger: [
+            {
+              id: "cccc3333-0000-4000-8000-000000000001",
+              delta: 50,
+              reason: "pack_purchase",
+              unlock_id: null,
+              pack_code: "pack_50",
+              payment_ref: "mock_ref_1",
+              price_inr: 2000, // what was ACTUALLY charged
+              created_at: "2026-07-01T00:00:00.000Z",
+            },
+          ],
+        }),
+      );
+    });
+    const { getCreditTopUps } = await import("./payer-api");
+    const topUps = await getCreditTopUps();
+    // The STAMPED ₹2,000 — NOT the current catalog's ₹2,500 (the retroactive re-pricing bug).
+    expect(topUps[0]!.priceInr).toBe(2000);
+    // And the history read no longer consults the catalog at all.
+    const urls = fetchMock.mock.calls.map((c) => c[0] as string);
+    expect(urls.some((u) => u.endsWith("/payer/pricing/catalog"))).toBe(false);
+  });
+
+  it("a LEGACY row with no stamped price omits the amount (honest dash, never a fabricated one)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        payer_id: PAYER,
+        ledger: [
+          {
+            id: "cccc3333-0000-4000-8000-000000000003",
+            delta: 50,
+            reason: "pack_purchase",
+            unlock_id: null,
+            pack_code: "pack_50",
+            payment_ref: null,
+            price_inr: null, // written before the stamp existed
+            created_at: "2026-05-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    const { getCreditTopUps } = await import("./payer-api");
+    const topUps = await getCreditTopUps();
+    expect(topUps).toHaveLength(1);
+    // Undefined ⇒ the page renders "—". It is NOT back-filled from the catalog's ₹2,000.
+    expect(topUps[0]!.priceInr).toBeUndefined();
+    expect(topUps[0]!.credits).toBe(50); // the movement itself still renders
+  });
+
+  it("tolerates an API that predates the column entirely (key absent → no amount, no throw)", async () => {
+    // Backward compat (invariant #8): an older API omits `price_inr` — the read must not fail.
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        payer_id: PAYER,
+        ledger: [
+          {
+            id: "cccc3333-0000-4000-8000-000000000004",
+            delta: 50,
+            reason: "pack_purchase",
+            unlock_id: null,
+            pack_code: "pack_50",
+            payment_ref: null,
+            created_at: "2026-05-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    const { getCreditTopUps } = await import("./payer-api");
+    const topUps = await getCreditTopUps();
+    expect(topUps).toHaveLength(1);
+    expect(topUps[0]!.priceInr).toBeUndefined();
   });
 
   it("surfaces no PII from the ledger payload", async () => {
@@ -452,31 +560,74 @@ describe("posting lifecycle — LIVE pause/resume/quota-topup (XB-A, Bearer only
     expect(JSON.stringify(paused)).not.toMatch(/orgLabel|description/);
   });
 
-  it("quota-topup POSTs ONLY the config'd tier code, then re-reads the fresh posting row", async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ plan: { id: "p1" }, quote: { total: 1000 } }, 201))
-      .mockResolvedValueOnce(jsonResponse(jobPostingRow({ status: "open" })));
+  it("quota-topup resolves the tier from the LIVE catalog, POSTs ONLY that code, then re-reads the row", async () => {
+    // D-6: the seam fetches the LIVE catalog FIRST (the tier code/views come from the
+    // API's active catalog, not the compile-time default) — branch the mock per URL.
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/payer/pricing/catalog")) return Promise.resolve(catalogResponse());
+      if (url.endsWith("/quota-topup")) {
+        return Promise.resolve(jsonResponse({ plan: { id: "p1" }, quote: { total: 1000 } }, 201));
+      }
+      return Promise.resolve(jsonResponse(jobPostingRow({ status: "open" })));
+    });
     const { topUpPostingQuota } = await import("./payer-api");
     const outcome = await topUpPostingQuota({ postingId: POSTING_ID });
     expect(outcome?.posting?.id).toBe(POSTING_ID);
     // The added views come from the CATALOG tier (config), never the wire (XT5).
     expect(outcome?.addedViews).toBe(10);
 
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const topupCall = fetchMock.mock.calls.find((c) => (c[0] as string).endsWith("/quota-topup"));
+    expect(topupCall).toBeDefined();
+    const [url, init] = topupCall as [string, RequestInit];
     expect(url).toBe(`http://api.test/payer/job-postings/${POSTING_ID}/quota-topup`);
     const body = JSON.parse(init.body as string) as Record<string, unknown>;
-    // ONLY the catalog tier CODE (from @badabhai/pricing config) — no payer_id/price/amount.
+    // ONLY the catalog tier CODE (from the live pricing config) — no payer_id/price/amount.
     expect(Object.keys(body)).toEqual(["tier"]);
     expect(body.tier).toBe("topup_10");
   });
 
-  it("a post-charge re-read failure degrades to posting:null — NEVER a thrown 'retry' (double-purchase guard)", async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ plan: { id: "p1" }, quote: { total: 1000 } }, 201))
-      .mockResolvedValueOnce(jsonResponse({ message: "boom" }, 503));
+  it("D-6: an ops-EDITED live tier drives the body code + views (no compile-time tier left)", async () => {
+    const editedProducts = DEFAULT_CATALOG.products.map((p) =>
+      p.kind === "quota_topup"
+        ? {
+            ...p,
+            tiers: [{ code: "topup_25_live", priceInr: 799, additionalVisibilityQuota: 25 }],
+          }
+        : p,
+    );
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/payer/pricing/catalog")) {
+        return Promise.resolve(catalogResponse(editedProducts));
+      }
+      if (url.endsWith("/quota-topup")) {
+        return Promise.resolve(jsonResponse({ plan: { id: "p1" }, quote: { total: 799 } }, 201));
+      }
+      return Promise.resolve(jsonResponse(jobPostingRow({ status: "open" })));
+    });
     const { topUpPostingQuota } = await import("./payer-api");
     const outcome = await topUpPostingQuota({ postingId: POSTING_ID });
-    // The charge committed on the FIRST call; the failed re-read must not look like a failure.
+    // The LIVE tier's views — a DEFAULT_CATALOG read would still say 10.
+    expect(outcome?.addedViews).toBe(25);
+    const topupCall = fetchMock.mock.calls.find((c) => (c[0] as string).endsWith("/quota-topup"));
+    const body = JSON.parse((topupCall as [string, RequestInit])[1].body as string) as Record<
+      string,
+      unknown
+    >;
+    expect(body.tier).toBe("topup_25_live");
+  });
+
+  it("a post-charge re-read failure degrades to posting:null — NEVER a thrown 'retry' (double-purchase guard)", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith("/payer/pricing/catalog")) return Promise.resolve(catalogResponse());
+      if (url.endsWith("/quota-topup")) {
+        return Promise.resolve(jsonResponse({ plan: { id: "p1" }, quote: { total: 1000 } }, 201));
+      }
+      // The fresh-row re-read fails AFTER the charge committed.
+      return Promise.resolve(jsonResponse({ message: "boom" }, 503));
+    });
+    const { topUpPostingQuota } = await import("./payer-api");
+    const outcome = await topUpPostingQuota({ postingId: POSTING_ID });
+    // The charge committed on the quota-topup call; the failed re-read must not look like a failure.
     expect(outcome).toEqual({ posting: null, addedViews: 10 });
     // Exactly ONE quota-topup POST — the degrade path never re-buys.
     const topupCalls = fetchMock.mock.calls.filter((c) =>

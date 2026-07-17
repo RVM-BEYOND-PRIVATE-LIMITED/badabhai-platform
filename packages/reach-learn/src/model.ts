@@ -9,7 +9,6 @@
  * CONSTRAINT here (a candidate that narrows any worker's exposure is rejected) and
  * re-checked on held-out data in eval.ts. Deterministic: no randomness, fixed grid.
  */
-import { WEIGHTS } from "@badabhai/reach-engine";
 import { stableHash } from "./hash";
 import { measureGuardrail } from "./guardrail";
 import { computeMetrics, type MetricOptions } from "./metrics";
@@ -45,7 +44,24 @@ export interface CalibrationOptions extends MetricOptions {
   datasetManifestHash?: string;
 }
 
-export const BASELINE_WEIGHTS: WeightVector = { ...WEIGHTS };
+/**
+ * The six-signal baseline this OFFLINE calibrator was built and evaluated against —
+ * PINNED to the pre-ADR-0033 ledger, deliberately decoupled from the engine's live
+ * `WEIGHTS` (which since ADR-0033 is a SEVEN-signal ledger: skills .15 in, activity 0,
+ * availability .05). Spreading the live const here would silently change the learner's
+ * baseline, bounds and guardrail without a recalibration decision. Recalibrating LEARN
+ * onto the ADR-0033 ledger (incl. the skills raw as a feature axis) is a tracked
+ * offline follow-up (ADR-0033 §consequences) — until then this package stays
+ * bit-identical and, as ever, has NO live influence (ADR-0017).
+ */
+export const BASELINE_WEIGHTS: WeightVector = {
+  role: 0.35,
+  distance: 0.2,
+  experience: 0.15,
+  pay: 0.1,
+  availability: 0.1,
+  activity: 0.1,
+};
 
 interface Bounds {
   lo: number;

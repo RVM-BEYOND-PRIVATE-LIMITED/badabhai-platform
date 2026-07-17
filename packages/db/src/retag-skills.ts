@@ -47,6 +47,7 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 
+import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { config } from "dotenv";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 
@@ -320,7 +321,9 @@ async function main(): Promise<void> {
         applyOne: async (rowId, before, after) => {
           const updated = await db
             .update(workerProfiles)
-            .set({ skills: after })
+            // B-6: a retag REWRITES skills, so re-stamp the version in force
+            // (deliberately NOT updatedAt — that is a live RANK staleness signal).
+            .set({ skills: after, taxonomyVersion: String(SKILL_TAXONOMY_VERSION) })
             .where(
               and(
                 eq(workerProfiles.id, rowId),

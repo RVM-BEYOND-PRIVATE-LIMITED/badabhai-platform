@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { getCapacity } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
+import { getLiveCatalog } from "../../../lib/live-catalog";
 import { hiringCapacityTiers } from "../../../lib/pricing-config";
 import type { Capacity } from "../../../lib/contracts";
 import { Badge, Card, StatTile, Toast } from "../../../components/ds";
+import { CachedPricingNote } from "../../../components/cached-pricing-note";
 import { RetryButton } from "../../../components/retry-button";
 import { CapacityPanel } from "./capacity-panel";
 
@@ -32,7 +34,11 @@ export default async function CapacityPage() {
   const isAgency = session.role === "agent";
   const unit = isAgency ? "vacancies" : "postings";
   const unitOne = isAgency ? "vacancy" : "posting";
-  const tiers = hiringCapacityTiers();
+  // LIVE catalog (D-6): the upgrade tiers/prices come from the API's active catalog —
+  // an ops edit shows without a rebuild. Fetch failure ⇒ compile-time defaults + the
+  // cached-pricing note (display-only; the tier is priced server-side at purchase, XT5).
+  const { products, live } = await getLiveCatalog();
+  const tiers = hiringCapacityTiers(products);
 
   let capacity: Capacity | null = null;
   let error: string | null = null;
@@ -112,6 +118,7 @@ export default async function CapacityPage() {
               capacity. Adding capacity raises your concurrent allowance and resumes any paused{" "}
               {unit}. Prices are <strong>mock</strong> — no real payment is taken.
             </p>
+            {!live ? <CachedPricingNote /> : null}
             <CapacityPanel tiers={tiers} />
             <div className="capacity-nudge">
               <Toast tone="neutral">

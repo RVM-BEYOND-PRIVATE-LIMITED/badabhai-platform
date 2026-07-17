@@ -14,6 +14,7 @@ import { SessionService } from "./session.service";
 import { AccountDeletionService } from "./account-deletion.service";
 import { WorkerAuthGuard } from "./worker-auth.guard";
 import { ConsentGuard, ConsentNotRevokedGuard } from "./consent.guard";
+import { TestLoginGuard } from "./test-login.guard";
 import { DevicesController } from "./devices.controller";
 import { DevicesService } from "./devices.service";
 import { DevicesRepository } from "./devices.repository";
@@ -64,6 +65,9 @@ import { PinHasher } from "./pin-hasher.service";
     WorkerAuthGuard,
     ConsentGuard,
     ConsentNotRevokedGuard,
+    // D-3 — gates POST /auth/test-login (neutral 404 while TEST_LOGIN_ENABLED is
+    // off; prod-armed = boot failure via assertAuthConfig). SERVER_CONFIG is @Global.
+    TestLoginGuard,
     DevicesService,
     DevicesRepository,
     PinService,

@@ -28,9 +28,10 @@ export interface JobSignalRow {
  *
  * PROJECTION DISCIPLINE (D8): this repository selects ONLY the signal columns the
  * mapper needs — the opaque `worker_id`, canonical role/trade, the
- * experience/salary/location/availability JSONB, and `updated_at`. It NEVER selects
- * `embedding` or `raw_profile` (or any PII/raw-profile column). The Phase-2
- * read-model must keep the identical projection.
+ * experience/salary/location/availability JSONB, `skills` (canonical closed-set
+ * skill ids — a legitimate RANK input since ADR-0033; faceless taxonomy tokens, not
+ * PII), and `updated_at`. It NEVER selects `embedding` or `raw_profile` (or any
+ * PII/raw-profile column). The Phase-2 read-model must keep the identical projection.
  *
  * SORT-NEVER-BLOCK (D8): there is NO relevance `WHERE`. `listSignalRows()` reads the
  * full pool, full stop — so `count in == count out` is structural, not policed.
@@ -39,11 +40,14 @@ export interface JobSignalRow {
 export class ReachRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-  /** Exactly the signal columns the mapper reads — never embedding/rawProfile. */
+  /** Exactly the signal columns the mapper reads — never embedding/rawProfile.
+   * `skills` joined the projection with ADR-0033 (same single query — no join, no
+   * N+1): canonical closed-set skill ids for the deterministic overlap factor. */
   private static readonly SIGNAL_COLUMNS = {
     workerId: workerProfiles.workerId,
     canonicalRoleId: workerProfiles.canonicalRoleId,
     canonicalTradeId: workerProfiles.canonicalTradeId,
+    skills: workerProfiles.skills,
     experience: workerProfiles.experience,
     salaryExpectation: workerProfiles.salaryExpectation,
     locationPreference: workerProfiles.locationPreference,
@@ -75,6 +79,19 @@ export class ReachRepository {
   /**
    * Demand-side projection of `jobs` — ONLY the ranking signals (the faceless
    * boundary). NEVER selects title / area / payer_id (free text / billing linkage).
+   *
+   * ADR-0033 NOTE (demand-side skills gap, stated honestly): the serving `jobs`
+   * entity has NO skill-id column — the canonicalized `skill_ids` live on the
+   * *separate* `job_postings` entity (TAX-6, migration 0038) and there is no join
+   * path between the two (a known two-entity debt, TD37). So every jobs-table job
+   * maps to a JobSpec WITHOUT `skillIds`, and the engine redistributes the skills
+   * weight. That redistribution neutralizes the SKILLS FACTOR only — it does NOT
+   * make scores match the pre-ADR-0033 ones: the same CEO ledger cut availability
+   * .10→.05 and activity .10→0, so EVERY served job re-ranks at deploy (measured:
+   * 5000/5000 scores changed, max |Δ| 0.109538, 8.3% pushEligible flips). That is the
+   * owner-ruled intent, not a side effect. Bringing demand-side ids to this projection
+   * is a separate ADDITIVE migration (or the postings→jobs bridge), deliberately NOT
+   * smuggled into this diff.
    */
   private static readonly JOB_SIGNAL_COLUMNS = {
     jobId: jobs.id,

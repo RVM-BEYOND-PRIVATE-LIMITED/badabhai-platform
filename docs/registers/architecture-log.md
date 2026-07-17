@@ -8,6 +8,44 @@ boundary moved).
 
 ---
 
+## 2026-07-17 — A skills factor enters RANK, deterministically (ADR-0033; the 06-19 CEO lock made operative)
+- **A contract surface moved:** the RANK core gained its **seventh signal**. `WEIGHTS` is now the
+  2026-06-19 CEO ledger — role .35 / distance .20 / **skills .15 (NEW)** / experience .15 / pay .10 /
+  availability **.05** / activity **0** (component retained: it is `rankWorkersForJob`'s recency
+  tie-break and a LEARN feature axis). `JobSpec.skillIds` / `WorkerSignals.skillIds` are optional +
+  additive; `ReachSignal` gains `"skills"`. **No schema, migration, or event change.**
+- **The seam that did NOT move — invariant #4:** [`skillsOverlap`](../../packages/reach-engine/src/scoring.ts)
+  is set intersection over canonical closed-set `skill_id` tokens by **exact equality** — no embedding,
+  no similarity, no vector maths, no model call, no clock. The vector layer (ADR-0030) assigns those ids
+  **upstream** at profiling/posting time; RANK only compares ids that already exist. The engine stays
+  pure, dependency-free, deterministic.
+- **The TAX-6 CI lock inverted, not deleted** ([`no-skills-in-rank.test.ts`](../../packages/reach-engine/src/no-skills-in-rank.test.ts),
+  edited in the same diff per its own instruction): the `/embedding/i` half is **kept + widened**
+  (`cosine|similarity`) across `reach-engine` **and** `apps/api/src/reach`; added determinism greps and a
+  pin on the full weight ledger. Filename kept so ADR-0030 / `schema.ts` / the drift register still resolve.
+- **Serving:** supply-side `worker_profiles.skills` joined the existing `ReachRepository` projection —
+  **same single query, no join, no N+1**, D8 discipline unchanged (still never `embedding`/`raw_profile`).
+  **Demand side is absent by design:** `jobs` has no skill column (the canonicalized ids live on the
+  separate `job_postings` entity — no join path, **TD37**), so the engine redistributes the weight and
+  the **skills factor** is inert on the path.
+- **⚠️ BUT THIS DEPLOY RE-RANKS EVERY LIVE FEED.** Redistribution neutralizes the *skills factor*
+  only; the same ledger cut **availability .10→.05** and **activity .10→0**, which apply to every job.
+  With the demand side unwired, every job is scored under the redistributed vector
+  (role .4118 / distance .2353 / exp .1765 / pay .1176 / avail .0588 / activity 0) vs the old
+  .35/.20/.15/.10/.10/.10. **Measured on 5000 skill-less pairs: 5000/5000 scores changed, max |Δ|
+  0.109538, 413/5000 (8.3%) pushEligible flips, 200/200 fleet orders changed.** Owner-ruled intent
+  (the ledger mandates it); pinned by a golden regression test. *An earlier claim here that output was
+  "byte-identical today" was FALSE and is retracted.* Knock-ons: PACE thin-supply counts shift (inert —
+  `PACE_ENABLED=false`); `feed.shown` **values** switch regime with no marker (schema unchanged, so
+  invariant #8 holds — the LEARN corpus mixes regimes across the deploy boundary).
+- **`@badabhai/reach-learn` decoupled:** `BASELINE_WEIGHTS` was a spread of the engine's live `WEIGHTS`;
+  it is now **pinned to the pre-0033 six-signal ledger** so the offline learner's baseline/bounds/guardrail
+  and its published eval stay bit-identical. LEARN remains offline with no live influence (ADR-0017).
+- **Governance:** the 2026-06-19 CEO lock is **operative** (owner, 2026-07-17), superseding ADR-0006's
+  ratified code-wins direction **for the weight ledger only** — the doc→code / code→build-state rule is
+  unchanged. **References:** [ADR-0033](../decisions/0033-rank-skills-overlap-factor.md) ·
+  [team-decisions](./team-decisions.md) · [drift register A-2](./context-drift-2026-07-16.md).
+
 ## 2026-07-16 — Worker-visible job surface goes REAL (ADR-0024 final addendum; TD53 Paid)
 - **The ruling landed** ([ADR-0024 final addendum, 2026-07-16](../decisions/0024-worker-visible-job-fields-pii.md)):
   employer identity is hidden from the worker path **entirely** (no legal name, no masked

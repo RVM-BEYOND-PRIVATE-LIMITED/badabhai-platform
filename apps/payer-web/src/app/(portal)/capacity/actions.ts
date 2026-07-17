@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requirePayer } from "../../../lib/auth";
+import { getLiveCatalog } from "../../../lib/live-catalog";
 import { buyCapacity } from "../../../lib/payer-api";
 import { hiringCapacityTiers } from "../../../lib/pricing-config";
 
@@ -31,9 +32,12 @@ export async function upgradeCapacityAction(input: {
   // GATE FIRST — same session gate as the capacity page; any failure path stays neutral.
   await requirePayer();
 
-  // Value guard (NOT authz): the tier must be one of the config'd capacity codes. An
+  // Value guard (NOT authz): the tier must be one of the config'd capacity codes — from
+  // the LIVE catalog (D-6; fetch failure falls open to the compile-time defaults, which
+  // is fine: the backend re-resolves + rejects an unknown tier server-side anyway). An
   // unknown/arbitrary string is rejected neutrally — never forwarded to the seam.
-  const isKnownTier = hiringCapacityTiers().some((t) => t.code === input.tier);
+  const { products } = await getLiveCatalog();
+  const isKnownTier = hiringCapacityTiers(products).some((t) => t.code === input.tier);
   if (!isKnownTier) {
     return { ok: false, error: "Choose a capacity tier to upgrade." };
   }

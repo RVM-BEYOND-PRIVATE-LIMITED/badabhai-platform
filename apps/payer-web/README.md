@@ -38,7 +38,10 @@ ops console's privileged data access.
 - `src/lib/payer-api.ts` — the **data seam**. LIVE surfaces call the real API; WAITING
   surfaces (postings, top-up purchase, masked resume) keep a clearly-flagged mock path.
 - `src/lib/mock-store.ts` — in-memory, payer-scoped mock for the WAITING surfaces only.
-- `src/lib/pricing-config.ts` — prices sourced from `@badabhai/pricing` `DEFAULT_CATALOG`.
+- `src/lib/pricing-config.ts` — pure readers over the catalog products the caller passes in.
+- `src/lib/live-catalog.ts` — the LIVE catalog fetch (D-6: `GET /payer/pricing/catalog`);
+  `DEFAULT_CATALOG` is only the documented fetch-failure fallback (pages render a subtle
+  "cached pricing" note — the server still enforces real prices at charge time).
 
 ## Env
 

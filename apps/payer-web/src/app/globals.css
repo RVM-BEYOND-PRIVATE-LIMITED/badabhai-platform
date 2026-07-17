@@ -1390,6 +1390,17 @@ textarea.input {
 }
 
 /* ------------------------------------------------------------------
+ * CACHED-PRICING NOTE (D-6) — the subtle fallback disclosure shown when the live
+ * catalog fetch failed and a page renders the compile-time defaults. Tokens only.
+ * ------------------------------------------------------------------ */
+.cached-pricing-note {
+  margin: var(--space-2) 0 var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+/* ------------------------------------------------------------------
  * CREDITS / WALLET (DS1.4) — balance StatTile, DS Card pack tiles, history/expiry,
  * mock-only nudges. ₹/counts in mono tabular. Tokens only.
  * ------------------------------------------------------------------ */

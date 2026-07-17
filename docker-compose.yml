@@ -32,8 +32,25 @@ services:
     container_name: badabhai-redis
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
+    # CD-1a: bind the published port to LOOPBACK, never 0.0.0.0. This redis runs with
+    # NO password (no `requirepass`), and on the staging box it is the REAL redis
+    # (owner decision: box-local, not managed) holding worker sessions, the OTP
+    # rate-limit counters and the SMS kill-switch counters — on a box that also holds
+    # REAL Fast2SMS credentials. A 0.0.0.0 publish would put that on the public
+    # internet: docker inserts its DNAT rules into iptables ahead of ufw, so a
+    # "ufw deny 6379" does NOT protect a published port.
+    #
+    # This MUST live in the BASE file, not the staging overlay: compose keys `ports`
+    # by {ip, target, published, protocol} and APPENDS entries whose key differs, so
+    # an overlay adding "127.0.0.1:6379:6379" would NOT remove a base "6379:6379" —
+    # BOTH binds would survive and the 0.0.0.0 exposure would remain. (compose-spec
+    # 13-merge.md "Unique resources"; verified with `docker compose config`.)
+    #
+    # Local dev is unaffected: host tools still reach it at localhost:6379, and the
+    # api container reaches it over the compose network at redis:6379 — published
+    # ports are host->container only and play no part in container->container.
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - badabhai_redisdata:/data
     healthcheck:

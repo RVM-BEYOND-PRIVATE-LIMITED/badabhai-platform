@@ -33,6 +33,13 @@ export interface CreditLedgerItem {
   unlock_id: string | null;
   pack_code: string | null;
   payment_ref: string | null;
+  /**
+   * The ₹ amount STAMPED at purchase (D-6). Null for movements with no amount (debits /
+   * ops grants) and for rows written before the column existed — the UI renders an honest
+   * placeholder for null and NEVER back-fills from the current catalog (that is exactly
+   * the retroactive re-pricing this column removes).
+   */
+  price_inr: number | null;
   created_at: Date;
 }
 
@@ -295,6 +302,9 @@ export class UnlocksRepository {
    * source of truth behind the balance — amounts + opaque ids only (PII-free by table design;
    * no currency/PAN/UPI). Scoped by `payer_id` (the caller's SESSION id) so a payer only ever
    * sees their OWN rows. Read-only.
+   *
+   * ⚠️ Selects `price_inr` EXPLICITLY (D-6) ⇒ requires migration 0043. APPLY BEFORE DEPLOY:
+   * against an unmigrated DB this read fails outright (not a silently-null column).
    */
   async listCreditLedgerByPayer(payerId: string, limit: number): Promise<CreditLedgerItem[]> {
     return this.db
@@ -305,6 +315,7 @@ export class UnlocksRepository {
         unlock_id: creditLedger.unlockId,
         pack_code: creditLedger.packCode,
         payment_ref: creditLedger.paymentRef,
+        price_inr: creditLedger.priceInr, // D-6: the STAMPED charge, never re-priced.
         created_at: creditLedger.createdAt,
       })
       .from(creditLedger)
@@ -354,6 +365,9 @@ export class UnlocksRepository {
    * Credit a pack purchase / ops grant (NON-tx convenience for the mock top-up
    * endpoint): upsert the balance row (+credits) and append the ledger in ONE
    * transaction. Returns the new balance.
+   *
+   * ⚠️ Inserts `price_inr` EXPLICITLY (D-6) ⇒ requires migration 0043. APPLY BEFORE DEPLOY:
+   * against an unmigrated DB EVERY pack purchase fails on this insert.
    */
   async creditPack(input: {
     payerId: string;
@@ -361,6 +375,12 @@ export class UnlocksRepository {
     reason: CreditReason;
     packCode: string | null;
     paymentRef: string | null;
+    /**
+     * The amount CHARGED, whole ₹ (D-6). Stamped onto the row so History renders what this
+     * purchase ACTUALLY cost, immune to any later ops price edit. Null for ops grants /
+     * movements with no amount.
+     */
+    priceInr?: number | null;
   }): Promise<number> {
     return this.db.transaction(async (tx) => {
       const updated = await tx
@@ -377,6 +397,7 @@ export class UnlocksRepository {
         reason: input.reason,
         packCode: input.packCode,
         paymentRef: input.paymentRef,
+        priceInr: input.priceInr ?? null,
       });
       const balance = updated[0]?.balance;
       if (balance === undefined) throw new Error("Failed to credit pack");

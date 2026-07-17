@@ -23,9 +23,47 @@ _WRAP_UP = (
     "confirm karenge."
 )
 
-# The topics that MUST be answered before we offer extraction. Location is
-# essential for matching, so it is required (not just "any N core topics").
-ESSENTIAL_TOPICS: tuple[str, ...] = ("role", "machines", "experience", "location")
+# The topics that MUST be ANSWERED before we offer extraction. Current location
+# is essential for matching, so it is required (not just "any N core topics").
+# B-4 (context-drift register 2026-07-16 row B-4; owner ruling 2026-07-17):
+# location is split — current_location stays answer-essential.
+ESSENTIAL_TOPICS: tuple[str, ...] = ("role", "machines", "experience", "current_location")
+
+# B-4: topics that MUST at least have been ASKED (or answered) before extraction
+# is offered. preferred_locations gets its own ask per the owner ruling
+# ("current AND preferred — do not conflate"), but the schema keeps it optional
+# (contracts.py: list, default []) — so a worker with no preference is not
+# blocked forever: the ASK satisfies the gate, an answer is not required.
+MUST_ASK_TOPICS: tuple[str, ...] = ("preferred_locations",)
+
+# In-flight ConversationStates minted before the B-4/B-5 split may carry the
+# retired combined topic ids. Map them to the topic their context-free detection
+# actually keyed on (detect() puts the FIRST city in current_city and a cue-less
+# amount in current_salary), so the worker is not re-asked what they answered —
+# and preferred_locations, never asked under the old bank, now gets its ask.
+_LEGACY_TOPIC_IDS: dict[str, str] = {
+    "location": "current_location",
+    "salary": "salary_current",
+}
+
+
+def _normalize_legacy_ids(ids: list[str]) -> None:
+    """In-place rewrite of retired combined topic ids (de-duplicating)."""
+    for i, topic_id in enumerate(ids):
+        mapped = _LEGACY_TOPIC_IDS.get(topic_id)
+        if mapped is not None:
+            ids[i] = mapped
+    seen: set[str] = set()
+    ids[:] = [t for t in ids if not (t in seen or seen.add(t))]
+
+
+def _extraction_ready(st: ConversationState) -> bool:
+    """All ESSENTIAL_TOPICS answered AND every MUST_ASK topic asked-or-answered."""
+    if not all(t in st.answered_topics for t in ESSENTIAL_TOPICS):
+        return False
+    return all(
+        t in st.answered_topics or t in st.asked_question_ids for t in MUST_ASK_TOPICS
+    )
 
 # Topic-specific follow-up nudges used as suggested_followups.
 _FOLLOWUPS = [
@@ -89,15 +127,25 @@ def next_turn(
     # COST-4 clarify bound: ANY engine advance ends a clarify streak — the counter
     # only ever grows inside clarify_turn (consecutive re-serves of one question).
     st.clarify_count = 0
+    # B-4/B-5 compat: states minted under the old bank carry the retired combined
+    # topic ids ("location"/"salary") — map them before progress/readiness logic.
+    _normalize_legacy_ids(st.answered_topics)
+    _normalize_legacy_ids(st.asked_question_ids)
 
-    # 1. Update progress from what the worker just said.
-    for topic_id, value in signals.detect_answered_topics(worker_message_raw).items():
+    # 1. Update progress from what the worker just said. The last ASKED topic is
+    #    passed so the detector attributes the answer to the question actually
+    #    asked (B-4: a city answering the preferred-locations question is a
+    #    preference, not a current location).
+    last_asked = st.asked_question_ids[-1] if st.asked_question_ids else None
+    for topic_id, value in signals.detect_answered_topics(
+        worker_message_raw, last_asked
+    ).items():
         if topic_id not in st.answered_topics:
             st.answered_topics.append(topic_id)
         if value is not None:
             st.collected[topic_id] = value
 
-    extraction_ready = all(t in st.answered_topics for t in ESSENTIAL_TOPICS)
+    extraction_ready = _extraction_ready(st)
 
     # 2. Choose the next question (core first, then optional, don't re-nag).
     next_topic = _next_topic(topics, st)
@@ -156,23 +204,22 @@ def clarify_turn(
     """
     if state is None or not state.asked_question_ids:
         return None
+    last_id = state.asked_question_ids[-1]
     # Answer-trumps-clarify (#238 HIGH layer 1): an extractable answer must NEVER be
     # eaten by a clarify false positive — fall through to next_turn, which runs the
-    # same detector and records the topic.
-    if signals.detect_answered_topics(worker_message_raw):
+    # same detector (with the same last-asked attribution) and records the topic.
+    if signals.detect_answered_topics(worker_message_raw, last_id):
         return None
     # Bounded clarifies (#238 HIGH layer 2): refuse past the consecutive budget.
     if state.clarify_count >= _MAX_CONSECUTIVE_CLARIFIES:
         return None
-    last_id = state.asked_question_ids[-1]
     topic = topic_by_id(role_family, last_id)
     if topic is None:
         return None
     st = state.model_copy(deep=True)
     st.turn_count += 1  # progress advances; the topic itself remains re-askable
     st.clarify_count += 1  # the consecutive-streak counter (next_turn resets it)
-    extraction_ready = all(t in st.answered_topics for t in ESSENTIAL_TOPICS)
-    return topic.question, last_id, st, extraction_ready
+    return topic.question, last_id, st, _extraction_ready(st)
 
 
 # COST-4: clarification markers — each is an INTERROGATIVE phrase, never a bare word

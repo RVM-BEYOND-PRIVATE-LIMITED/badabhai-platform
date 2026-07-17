@@ -152,7 +152,7 @@ function validate(fields: FormFields): FieldErrors {
   return errs;
 }
 
-export function PostingForm() {
+export function PostingForm({ quotaStep = null }: { quotaStep?: number | null } = {}) {
   const router = useRouter();
   // useState order (mirrored by posting-form.test.tsx): fields, fieldErrors, error, navigating.
   const [fields, setFields] = useState<FormFields>(BLANK);
@@ -209,14 +209,17 @@ export function PostingForm() {
   const submitDisabled = pending || navigating || !isValid;
 
   // DISPLAY-only, CONFIG-sourced (never sent): the local frontend band derived from the raw
-  // count, and the base applicant quota that band starts with. `bandForVacancies` /
-  // `baseApplicantQuotaForBand` read the pricing config — no literal band/quota here. Shown
-  // only once a valid positive-int count is entered (the band fails-closed to the smallest).
+  // count, and the base applicant quota that band starts with. `quotaStep` is resolved by the
+  // SERVER page from the LIVE catalog (D-6) and passed down — this client form never fetches
+  // the catalog; `baseApplicantQuotaForBand` scales that config step, no literal band/quota
+  // here. Shown only once a valid positive-int count is entered (the band fails-closed to the
+  // smallest); a missing step (quotaStep null) simply omits the quota badge.
   const vacanciesNum = Number(fields.vacancies.trim());
   const hasVacancies =
     fields.vacancies.trim() !== "" && Number.isInteger(vacanciesNum) && vacanciesNum >= 1;
   const derivedBand = hasVacancies ? bandForVacancies(vacanciesNum) : null;
-  const derivedQuota = derivedBand !== null ? baseApplicantQuotaForBand(derivedBand) : null;
+  const derivedQuota =
+    derivedBand !== null ? baseApplicantQuotaForBand(derivedBand, quotaStep) : null;
 
   return (
     <Card as="form" className="posting-form" onSubmit={onSubmit}>

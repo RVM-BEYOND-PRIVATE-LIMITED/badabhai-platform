@@ -1,23 +1,25 @@
-import { DEFAULT_CATALOG } from "@badabhai/pricing";
+import type { Product } from "@badabhai/pricing";
 import type { CreditPack } from "./contracts";
 import { VACANCY_BANDS, type VacancyBand } from "./contracts";
 
 /**
  * Pricing sourced FROM CONFIG ONLY (§HARD CONSTRAINTS — no invented/hardcoded
- * prices). Every figure here is read out of `@badabhai/pricing` `DEFAULT_CATALOG`
- * (the ADR-0013 config source); nothing is literal'd in this file.
+ * prices). Every reader here is a PURE function over the catalog `products` the
+ * caller passes in — since D-6 that is the LIVE catalog from the API
+ * (`lib/live-catalog.ts` → `GET /payer/pricing/catalog`), with the compile-time
+ * `DEFAULT_CATALOG` only as its documented fetch-failure fallback. Nothing is
+ * literal'd in this file, and nothing here reads `DEFAULT_CATALOG` directly any
+ * more — an ops price edit reaches the portal WITHOUT a rebuild.
  *
- * The real backend resolves price server-side at purchase via the pricing engine
- * (`GET /pricing/quote`). Phase 1 is mock + staging-only, so this reads the same
- * config the engine seeds from to RENDER the offer — the mock top-up still grants
- * by the config'd pack, never a client-supplied amount (XT5: server-side amount).
+ * The real backend still resolves every price server-side at purchase via the
+ * pricing engine (`GET /pricing/quote` / the plan-boost stream) — these readers
+ * RENDER the offer; the mock top-up still grants by the config'd pack, never a
+ * client-supplied amount (XT5: server-side amount).
  */
 
 /** The contact-unlock credit packs OFFERED for purchase — straight from the catalog. */
-export function offeredCreditPacks(): CreditPack[] {
-  const product = DEFAULT_CATALOG.products.find(
-    (p) => p.kind === "credit_pack" && p.code === "contact_unlock",
-  );
+export function offeredCreditPacks(products: readonly Product[]): CreditPack[] {
+  const product = products.find((p) => p.kind === "credit_pack" && p.code === "contact_unlock");
   if (!product || product.kind !== "credit_pack") return [];
   return product.tiers.map((t) => ({
     code: t.code,
@@ -27,16 +29,16 @@ export function offeredCreditPacks(): CreditPack[] {
 }
 
 /** Resolve one offered pack by code (mock top-up grants by THIS, never a client amount). */
-export function findCreditPack(code: string): CreditPack | null {
-  return offeredCreditPacks().find((p) => p.code === code) ?? null;
+export function findCreditPack(products: readonly Product[], code: string): CreditPack | null {
+  return offeredCreditPacks(products).find((p) => p.code === code) ?? null;
 }
 
 /**
  * The §3A per-unlock unit price, derived from the smallest offered pack's
  * ₹/credit ratio (config-derived, not hardcoded). Used only for display copy.
  */
-export function unlockUnitPriceInr(): number | null {
-  const packs = offeredCreditPacks();
+export function unlockUnitPriceInr(products: readonly Product[]): number | null {
+  const packs = offeredCreditPacks(products);
   if (packs.length === 0) return null;
   const smallest = packs.reduce((a, b) => (a.credits <= b.credits ? a : b));
   return Math.round(smallest.priceInr / smallest.credits);
@@ -57,10 +59,10 @@ export function postingIsFreeThroughLaunch(): boolean {
 }
 
 /** The post-launch paid posting tiers (for transparency copy only). Config-sourced. */
-export function postingPaidTiers(): { code: string; priceInr: number; validityDays: number }[] {
-  const product = DEFAULT_CATALOG.products.find(
-    (p) => p.kind === "posting" && p.code === "job_posting",
-  );
+export function postingPaidTiers(
+  products: readonly Product[],
+): { code: string; priceInr: number; validityDays: number }[] {
+  const product = products.find((p) => p.kind === "posting" && p.code === "job_posting");
   if (!product || product.kind !== "posting") return [];
   return product.tiers.map((t) => ({
     code: t.code,
@@ -79,17 +81,15 @@ export function postingPaidTiers(): { code: string; priceInr: number; validityDa
  */
 
 /** The ascending applicant-quota steps from the catalog posting tiers (e.g. [10, 30]). */
-function applicantQuotaSteps(): number[] {
-  const product = DEFAULT_CATALOG.products.find(
-    (p) => p.kind === "posting" && p.code === "job_posting",
-  );
+function applicantQuotaSteps(products: readonly Product[]): number[] {
+  const product = products.find((p) => p.kind === "posting" && p.code === "job_posting");
   if (!product || product.kind !== "posting") return [];
   return product.tiers.map((t) => t.applicantVisibilityQuota).sort((a, b) => a - b);
 }
 
 /** The smallest config'd applicant-quota step — the increment one TOP-UP grants. */
-export function applicantQuotaStep(): number | null {
-  const steps = applicantQuotaSteps();
+export function applicantQuotaStep(products: readonly Product[]): number | null {
+  const steps = applicantQuotaSteps(products);
   return steps.length > 0 ? steps[0]! : null;
 }
 
@@ -100,10 +100,10 @@ export function applicantQuotaStep(): number | null {
  * the backend re-resolves price + grant through the pricing engine (XT5: the client
  * can never supply an amount). Returns null if the catalog has no top-up tiers.
  */
-export function quotaTopUpTier(): { code: string; priceInr: number; additionalViews: number } | null {
-  const product = DEFAULT_CATALOG.products.find(
-    (p) => p.kind === "quota_topup" && p.code === "quota_topup",
-  );
+export function quotaTopUpTier(
+  products: readonly Product[],
+): { code: string; priceInr: number; additionalViews: number } | null {
+  const product = products.find((p) => p.kind === "quota_topup" && p.code === "quota_topup");
   if (!product || product.kind !== "quota_topup") return null;
   const smallest = [...product.tiers].sort(
     (a, b) => a.additionalVisibilityQuota - b.additionalVisibilityQuota,
@@ -119,16 +119,21 @@ export function quotaTopUpTier(): { code: string; priceInr: number; additionalVi
 
 /**
  * The BASE applicant quota a posting in a given vacancy band starts with. Derived
- * from the catalog quota steps scaled by the band's index (band 0 → smallest step,
- * higher bands → proportionally more). Config-driven: no literal quota in pages.
- * Returns null if the catalog carries no posting-quota tiers (fail-closed display).
+ * from the config quota STEP (the caller resolves it from the live catalog via
+ * {@link applicantQuotaStep} — a server page passes it as a prop, so this stays
+ * CLIENT-SAFE: no catalog fetch, no catalog import) scaled by the band's index
+ * (band 0 → smallest step, higher bands → proportionally more). Config-driven: no
+ * literal quota in pages. Returns null when the catalog carried no posting-quota
+ * tiers (step null — fail-closed display).
  */
-export function baseApplicantQuotaForBand(band: VacancyBand): number | null {
-  const step = applicantQuotaStep();
-  if (step === null) return null;
+export function baseApplicantQuotaForBand(
+  band: VacancyBand,
+  quotaStep: number | null,
+): number | null {
+  if (quotaStep === null) return null;
   const bandIndex = VACANCY_BANDS.indexOf(band);
   const multiplier = bandIndex < 0 ? 1 : bandIndex + 1;
-  return step * multiplier;
+  return quotaStep * multiplier;
 }
 
 /**
@@ -156,14 +161,12 @@ export function bandForVacancies(count: number): VacancyBand {
  */
 
 /** The ascending hiring-capacity tiers from the catalog (allowance + price). */
-export function hiringCapacityTiers(): {
+export function hiringCapacityTiers(products: readonly Product[]): {
   code: string;
   priceInr: number;
   maxActiveVacancies: number;
 }[] {
-  const product = DEFAULT_CATALOG.products.find(
-    (p) => p.kind === "capacity" && p.code === "hiring_capacity",
-  );
+  const product = products.find((p) => p.kind === "capacity" && p.code === "hiring_capacity");
   if (!product || product.kind !== "capacity") return [];
   return product.tiers
     .map((t) => ({ code: t.code, priceInr: t.priceInr, maxActiveVacancies: t.maxActiveVacancies }))
@@ -171,8 +174,8 @@ export function hiringCapacityTiers(): {
 }
 
 /** The baseline concurrent active-vacancy allowance (smallest capacity tier). */
-export function baselineActiveVacancyAllowance(): number | null {
-  const tiers = hiringCapacityTiers();
+export function baselineActiveVacancyAllowance(products: readonly Product[]): number | null {
+  const tiers = hiringCapacityTiers(products);
   return tiers.length > 0 ? tiers[0]!.maxActiveVacancies : null;
 }
 

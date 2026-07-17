@@ -27,6 +27,13 @@ export interface WorkerProfileSignalRow {
   workerId: string;
   canonicalRoleId: string | null;
   canonicalTradeId: string | null;
+  /**
+   * `worker_profiles.skills` JSONB — canonical closed-set skill ids (ADR-0030),
+   * the supply side of the ADR-0033 skills-overlap factor. OPTIONAL so pre-ADR-0033
+   * fixtures/rows keep compiling; an absent/garbage value maps to `[]` (the engine
+   * scores 0 on the factor — never a block).
+   */
+  skills?: unknown;
   experience: unknown;
   salaryExpectation: unknown;
   locationPreference: unknown;
@@ -139,6 +146,28 @@ function readTravelRadiusKm(locationPreference: unknown): number | null {
   return finiteNumberOrNull(obj.travel_radius_km) ?? finiteNumberOrNull(obj.max_travel_km);
 }
 
+/**
+ * `skills` JSONB → canonical closed-set skill ids (ADR-0033 RANK input). Defensive:
+ * only non-blank strings pass, trimmed + deduplicated (order preserved); any
+ * non-array/garbage value maps to `[]` — the engine then scores 0 on the skills
+ * factor ONLY (never a block, never a penalty on any other factor). Ids are opaque
+ * faceless taxonomy tokens; legacy pre-TAX free-text entries simply never match a
+ * job's closed-set ids (0 on the factor) until the offline re-tag runner catches up.
+ */
+function readSkillIds(skills: unknown): string[] {
+  if (!Array.isArray(skills)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of skills) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed.length === 0 || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
+}
+
 const AVAILABILITY_VALUES = ["immediate", "notice_period", "not_looking", "unknown"] as const;
 type Availability = (typeof AVAILABILITY_VALUES)[number];
 
@@ -191,6 +220,7 @@ export function workerProfileRowToSignals(
     workerId: row.workerId,
     roleId: nonBlankStringOrNull(row.canonicalRoleId),
     secondaryRoleIds: [],
+    skillIds: readSkillIds(row.skills),
     experienceYears: readExperienceYears(row.experience),
     expectedSalary: readExpectedSalary(row.salaryExpectation),
     location: readLocationCentroid(row.locationPreference),

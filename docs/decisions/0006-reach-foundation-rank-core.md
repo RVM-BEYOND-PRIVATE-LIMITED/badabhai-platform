@@ -53,6 +53,17 @@ distance computation. **LLMs must never rank/decide matches — this engine does
 
 ## Ratified scope vs the "locked" weight columns
 
+> ⚠️ **SUPERSEDED (this section only) by [ADR-0033](0033-rank-skills-overlap-factor.md) — 2026-07-17.**
+> The owner ruled that the **2026-06-19 CEO weight lock is operative**, reversing this section's
+> direction *for the weight ledger*: the ledger below is no longer "a draft" — **it is the code**
+> (Trade .35 / Location .20 / **Skills .15** / Experience .15 / Pay .10 / Availability **.05**,
+> Activity **0**). The Skills signal listed as "deferred" below **shipped** as a deterministic
+> closed-set `skill_id` overlap — *not* embeddings: this ADR's **"never a live Vertex call in the
+> rank hot path"** condition holds absolutely, and no model of any kind ranks (invariant #4).
+> **The rest of this ADR stands and is still binding** — sort-never-block, neutral defaults,
+> determinism, explainability, LLMs-never-rank, and the event contracts. Read the table below as
+> the historical 2026-06-12 position.
+
 The master-context ledger lists a "locked" industrial Σ100 of **Trade 35 · Location 20 ·
 Skills 15 · Experience 15 · Salary 10 · Availability 5**. The **implemented** day-one engine
 is the **authoritative** config and deliberately differs:

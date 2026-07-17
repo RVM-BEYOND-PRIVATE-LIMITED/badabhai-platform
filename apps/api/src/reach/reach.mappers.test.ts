@@ -62,6 +62,28 @@ describe("workerProfileRowToSignals — canonical JSONB parsing", () => {
   });
 });
 
+describe("workerProfileRowToSignals — skills (ADR-0033 supply-side ids)", () => {
+  it("passes canonical closed-set ids through, trimmed + deduplicated", () => {
+    const s = workerProfileRowToSignals(
+      fullRow({ skills: ["skill_milling", " skill_turning ", "skill_milling"] }),
+      NOW,
+    );
+    expect(s.skillIds).toEqual(["skill_milling", "skill_turning"]);
+  });
+
+  it("an absent skills column maps to [] (pre-ADR-0033 rows/fixtures — never a drop)", () => {
+    const s = workerProfileRowToSignals(fullRow(), NOW); // fixture omits `skills`
+    expect(s.skillIds).toEqual([]);
+  });
+
+  it("garbage skills JSONB maps to [] (non-array, non-string entries, blanks)", () => {
+    for (const garbage of ["not-an-array", 42, { a: 1 }, null, [42, {}, "", "   ", null]]) {
+      const s = workerProfileRowToSignals(fullRow({ skills: garbage }), NOW);
+      expect(s.skillIds).toEqual([]);
+    }
+  });
+});
+
 describe("workerProfileRowToSignals — NULL / BLANK PASS-THROUGH (never drop, never penalize)", () => {
   it("an entirely-blank row yields nulls/[], NOT a dropped or empty mapping", () => {
     const s = workerProfileRowToSignals(
@@ -156,6 +178,9 @@ describe("workerProfileRowToSignals — FACELESS (no PII ever crosses the mapper
 
   it("the output keys are exactly the engine's WorkerSignals — no identity fields", () => {
     const s = workerProfileRowToSignals(fullRow(), NOW);
+    // `skillIds` joined DELIBERATELY with ADR-0033 (the deterministic skills-overlap
+    // factor's supply side). It is a faceless list of canonical closed-set taxonomy
+    // tokens — not an identity field; the no-PII assertions above still hold.
     expect(Object.keys(s).sort()).toEqual(
       [
         "availability",
@@ -166,6 +191,7 @@ describe("workerProfileRowToSignals — FACELESS (no PII ever crosses the mapper
         "location",
         "roleId",
         "secondaryRoleIds",
+        "skillIds",
         "travelRadiusKm",
         "workerId",
       ].sort(),

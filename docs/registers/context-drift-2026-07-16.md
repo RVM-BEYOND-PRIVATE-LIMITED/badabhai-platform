@@ -32,9 +32,9 @@ Where the doc describes build state → **the code wins** and the doc is correct
 | # | Doc instruction | Why it would cause harm |
 |---|---|---|
 | **A-1** | §0.5 / §9 / §15: **"Cities are NOT PII and must not be redacted"** | **The premise is false.** City is masked from LLM input *and already reaches matching* — read from **raw** text locally inside the trusted service (`apps/ai-service/app/profiling/signals.py:8-12`, no network), and `profile_extractor.merge_model_draft` (`:178-180`) **refuses** to overlay location/salary from the model precisely because the model only ever saw masked text. The Delhi/Bihar corruption was **dropped data** (gazetteer gap: `dilli` unknown, no state capture), **not** redaction — fixed and regression-locked at `apps/ai-service/tests/test_welder_repro.py:192-197`. **Un-redacting cities pushes PII into LLM input for zero matching gain — a CLAUDE.md §2 invariant-2 violation.** |
-| **A-2** | §5: **RANK weight "Skills 15"** | No skills signal exists in RANK, and **TAX-6 deliberately locks it out**: `packages/reach-engine/src/no-skills-in-rank.test.ts` greps every non-test source in `reach-engine` + `apps/api/src/reach` for `/skill/i` and `/embedding/i` (comment-stripped, so prose can't satisfy it). **Implementing the doc's weight table breaks CI by design.** The test anticipates this: *"If a future ADR legitimately adds a skills factor, it must edit THIS test in the same diff."* Requires an ADR, not a code tweak. |
+| **A-2** | §5: **RANK weight "Skills 15"** | ✅ **RESOLVED — [ADR-0033](../decisions/0033-rank-skills-overlap-factor.md)** (owner ruled 2026-07-17: the 06-19 CEO lock **IS operative**; built same-day). *Original finding:* No skills signal exists in RANK, and **TAX-6 deliberately locks it out**: `packages/reach-engine/src/no-skills-in-rank.test.ts` greps every non-test source in `reach-engine` + `apps/api/src/reach` for `/skill/i` and `/embedding/i` (comment-stripped, so prose can't satisfy it). **Implementing the doc's weight table breaks CI by design.** The test anticipates this: *"If a future ADR legitimately adds a skills factor, it must edit THIS test in the same diff."* Requires an ADR, not a code tweak. — *The register was right on both counts: it needed an ADR, and the lock test was edited in the same diff (now the **inverse lock**; the `/embedding/i` half is KEPT + widened). The factor is deterministic closed-set `skill_id` overlap at .15 — invariant #4 intact.* |
 
-### A-2 has a governance problem underneath it
+### A-2 has a governance problem underneath it — ✅ SETTLED 2026-07-17
 The doc says *"engineering reconciles the diverged code (ADR-0006)."* **ADR-0006 says the opposite** —
 `docs/decisions/0006-reach-foundation-rank-core.md:82-83`: *"the implemented weights are the source of truth
 and the ledger's columns are a draft (**the doc is reconciled to the code, not the reverse**)."* That divergence
@@ -42,6 +42,16 @@ was **ratified** (`docs/registers/team-decisions.md:36-47`, 2026-06-12).
 A later **2026-06-19 CEO lock** reverses the direction (`.claude/project-memory.md:52`) — but it **never landed
 as a decision row** (`team-decisions.md` stops at 06-15) and was **never implemented**.
 **→ Owner call required: is the 06-19 lock operative? If yes, it needs an ADR + the CI lock edited in the same diff.**
+
+> **OWNER RULING (2026-07-17) — the 06-19 CEO lock IS OPERATIVE.** *"The new decision supersedes the CEO's
+> older decision"* — it overrides ADR-0006's ratified code-wins direction **for the weight ledger**
+> ([team-decisions.md](./team-decisions.md), rulings item 2; the lock is now a recorded decision row, closing
+> the "never landed" gap). Executed as **[ADR-0033](../decisions/0033-rank-skills-overlap-factor.md)** the same
+> day: skills factor at .15 (deterministic closed-set `skill_id` overlap — **no embedding/similarity/model ever
+> ranks**), Availability .10→.05, Activity .10→0 (weight 0; the component is retained for the recency tie-break
+> + LEARN feature continuity — interpretation **I1**, flagged vetoable in the ADR). The CI lock was edited in
+> the same diff, exactly as this register predicted. **Scope of the reversal:** the ledger only — this register's
+> [governing rule](#the-governing-rule) (decisions doc→code, build-state code→doc) is unchanged.
 
 ---
 
@@ -106,7 +116,7 @@ as a decision row** (`team-decisions.md` stops at 06-15) and was **never impleme
 |---|---|---|
 | **D-1** | **`salary 1000000` blocks the conversation.** The phone-regex story is dead (needs ≥9 digits), but the false positive **migrated** to `_RESIDUAL_DIGITS_RE = \d{7,}` (`pseudonymize.py:85`) → whole turn blocked with *"please rephrase without sharing personal details."* **Contradicts `signals.py:246`**, which accepts salaries to 10,000,000. **No regression test.** | P1 |
 | **D-2** | **Voice notes 30–120s cannot transcribe.** Platform accepts **120s** (`MAX_VOICE_NOTE_SECONDS`); `stt.py:50` `SARVAM_SYNC_MAX_SECONDS = 30.0` and `:190-194` raises *"batch STT not implemented"*. **The 2-minute product promise and the STT transport disagree by 4×.** Fails closed, silently unusable. | P1 |
-| **D-3** | **`scripts/staging-smoke.mjs` is architecturally obsolete.** Its **load-bearing assertion** is `dev_otp` present ⇒ *"PROVES SMS_PROVIDER=console"* (`:8,:12,:113`). But `SMS_PROVIDER: z.literal("fast2sms")` makes `console` **fail Zod parse at boot**. It asserts a posture the config forbids → **permanently red**. Rewrite, not a patch. (= ESC-1 in the 07-15 reconciliation, understated there as a stale line.) | **P0** |
+| **D-3** | ~~**`scripts/staging-smoke.mjs` is architecturally obsolete.** Its **load-bearing assertion** is `dev_otp` present ⇒ *"PROVES SMS_PROVIDER=console"* (`:8,:12,:113`). But `SMS_PROVIDER: z.literal("fast2sms")` makes `console` **fail Zod parse at boot**. It asserts a posture the config forbids → **permanently red**. Rewrite, not a patch.~~ (= ESC-1 in the 07-15 reconciliation, understated there as a stale line.) → **FIXED 2026-07-17** per the owner ruling ([team-decisions.md](./team-decisions.md) 2026-07-17 item 9). Smoke **rewritten** (not patched): **stage 1 = `/health` only by default**; **stage 2 = authed, only when `SMOKE_TEST_LOGIN_TOKEN` is set** → `POST /auth/test-login` → `GET /auth/me`. The `dev_otp` assertion is **gone**; the `SMS_PROVIDER=fast2sms` real-only posture is untouched (no OTP bypass was built). Backed by a new **gated test-login mint seam** (`TEST_LOGIN_ENABLED` default false ⇒ neutral 404; ≥32-char `TEST_LOGIN_TOKEN`; **arming it in production is a BOOT FAILURE** — `assertAuthConfig`), emitting the PII-free `worker.test_login`. Self-test `node --test scripts/staging-smoke.test.mjs` covers health-only PASS, full PASS, seam-off 404 FAIL, wrong-token 401 FAIL, unhealthy-503 FAIL + no-secret-leak. | ~~**P0**~~ **Closed** |
 | **D-4** | **Canonicalize recall is 0.350 shipped, not 0.800.** Oracle 0.800 vs shipped anchor-domain path **0.350** (`config.py:82-86`). The code says: *"Do not cite 0.800 for launch."* Per-label domain routing is unbuilt. | P2 |
 | **D-5** | **The 0.75 floor is calibrated on a corpus that predates the wedge it justifies.** Backfill was 76/76 aliases on 07-14; the 22 wedge aliases were ratified **07-16** (`wedge-aliases.ts:5-8`). **Re-seed + re-embed + floor re-sweep outstanding.** | P2 |
 | **D-6** | **Ops price edits don't reach the portal.** `payer-web` reads the **compile-time** `DEFAULT_CATALOG` (`pricing-config.ts:61,83,104`), not the live API — displayed tiers/quotas won't move without a rebuild. Also **₹0 is uneditable by ops** (`priceInrSchema.min(1)`), so "free posting" **cannot be modelled** as a price (the code flags this itself as ESCALATED). | P2 |
@@ -124,7 +134,7 @@ as a decision row** (`team-decisions.md` stops at 06-15) and was **never impleme
 ## Owner queue (decisions only I cannot make)
 
 1. **A-1 — city ruling.** Confirm withdrawn. As written it is a §2 privacy regression for zero gain.
-2. **A-2 — Skills-15.** Operative or aspirational? If operative: ADR + edit `no-skills-in-rank.test.ts` in the same diff. Also settle whether the **2026-06-19 CEO weight lock** supersedes ADR-0006's ratified doc→code direction — it has never been recorded as a decision row.
+2. ~~**A-2 — Skills-15.** Operative or aspirational? If operative: ADR + edit `no-skills-in-rank.test.ts` in the same diff. Also settle whether the **2026-06-19 CEO weight lock** supersedes ADR-0006's ratified doc→code direction — it has never been recorded as a decision row.~~ ✅ **ANSWERED 2026-07-17: OPERATIVE** → [ADR-0033](../decisions/0033-rank-skills-overlap-factor.md) (built; lock test inverted in the same diff; the lock is now a recorded decision row).
 3. **B-1 — posting verification gate.** Unverified payers can post and buy today. Build the gate, or drop "verification-gated" from the decision.
 4. **B-9/B-10 — cost.** Is the target 4 paise or ₹4? Per-profile measurement does not exist; auto-downgrade does not exist. Both need building before the cost claim can be made.
 5. **B-7 — caps.** Ratify the real numbers (5/worker/day, 30/payer/hour, no daily account cap) or change the code.

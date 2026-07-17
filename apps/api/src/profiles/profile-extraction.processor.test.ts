@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { DraftProfileSchema } from "@badabhai/ai-contracts";
+import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { ProfileExtractionProcessor } from "./profile-extraction.processor";
 import type { ProfileExtractionJobData } from "../queue/queue.constants";
 
@@ -64,6 +65,12 @@ describe("ProfileExtractionProcessor", () => {
     // The profile is tied to its ai_job so a partial-success retry can't orphan a
     // duplicate (TD14 — DB-enforced via the unique ai_job_id).
     expect(profiles.create).toHaveBeenCalledWith(expect.objectContaining({ aiJobId: JOB.aiJobId }));
+    // B-6: every skills WRITE carries the taxonomy version in force (ADR-0030 §c).
+    // Asserted against the exported constant so a corpus version bump can't drift
+    // from what the processor stamps.
+    expect(profiles.create).toHaveBeenCalledWith(
+      expect.objectContaining({ taxonomyVersion: String(SKILL_TAXONOMY_VERSION) }),
+    );
     // No AI metadata on the mock/AI-down path → usage columns left untouched (undefined),
     // and no ai.cost_recorded event (nothing real to record).
     expect(aiJobs.markCompleted).toHaveBeenCalledWith(JOB.aiJobId, { profile_id: PROFILE }, undefined);

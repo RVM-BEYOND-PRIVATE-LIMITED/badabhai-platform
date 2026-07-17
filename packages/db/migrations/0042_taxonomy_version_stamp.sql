@@ -1,0 +1,18 @@
+-- B-6 (context-drift register 2026-07-16): stamp the @badabhai/taxonomy
+-- SKILL_TAXONOMY_VERSION on every write of worker_profiles.skills (ADR-0030 §c).
+-- Additive + backward-compatible: NULLABLE, no default, NO BACKFILL by design —
+-- a NULL honestly means "written before versioning existed". Stamped only on
+-- write (extraction create; offline TAX-9 retag), never touched on read.
+--
+-- Renumbered 0041 -> 0042 (PR-solver, 2026-07-17): #389 landed 0041 first
+-- (ADR-0024 worker-visible job fields). Regenerated with drizzle-kit so the
+-- snapshot/journal chain is authored by the tool, never hand-edited.
+--
+-- ORDERING (see the PR body): apply this BEFORE any API build containing the
+-- B-6 commit runs against the target DB — the extraction processor writes
+-- taxonomy_version explicitly, so a DB without this column fails every
+-- extraction INSERT with Postgres 42703. Apply after 0040 + 0041.
+--
+-- Rollback (safe — column is write-only metadata, nothing reads it):
+--   ALTER TABLE "worker_profiles" DROP COLUMN "taxonomy_version";
+ALTER TABLE "worker_profiles" ADD COLUMN "taxonomy_version" text;

@@ -21,6 +21,11 @@ function sane01(value: number | undefined, fallback: number): number {
     : fallback;
 }
 
+/**
+ * Recency tie-break key. Since ADR-0033 the activity component carries WEIGHT 0 (the
+ * CEO ledger dropped it from the score) but its RAW is still computed — deliberately
+ * kept so this deterministic tie-break (and the LEARN feature pipeline) is unchanged.
+ */
 function activityRaw(s: WorkerJobScore): number {
   return s.components.find((c) => c.signal === "activity")?.raw ?? 0;
 }
