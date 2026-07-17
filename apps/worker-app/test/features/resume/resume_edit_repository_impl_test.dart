@@ -208,4 +208,68 @@ void main() {
           <String, dynamic>{'full_name': 'Ramesh Kumaar'});
     });
   });
+
+  // F1 — save() REPORTS whether the name changed, so the preview knows to
+  // regenerate (the name is baked in at generation time) without diffing again.
+  group('save reports whether the name changed (F1)', () {
+    test('a changed name returns true', () async {
+      final List<http.Request> reqs = <http.Request>[];
+      final ResumeEditRepositoryImpl repo = _repo(_client(
+        reqs,
+        fieldsJson: <String, dynamic>{
+          'full_name': 'Ramesh Kumar',
+          'show_photo': true,
+          'night_shift_ready': false,
+        },
+      ));
+
+      final ResumeSafeFields loaded = await repo.load();
+      final bool changed =
+          await repo.save(loaded.copyWith(displayName: 'Ramesh Kumaar'));
+
+      expect(changed, isTrue);
+      expect(reqs.map((http.Request r) => r.url.path),
+          contains('/workers/me/name'));
+    });
+
+    test('a prefs-only save returns false — no wasted regenerate', () async {
+      final List<http.Request> reqs = <http.Request>[];
+      final ResumeEditRepositoryImpl repo = _repo(_client(
+        reqs,
+        fieldsJson: <String, dynamic>{
+          'full_name': 'Ramesh Kumar',
+          'show_photo': true,
+          'night_shift_ready': false,
+        },
+      ));
+
+      final ResumeSafeFields loaded = await repo.load();
+      final bool changed =
+          await repo.save(loaded.copyWith(nightShiftReady: true));
+
+      expect(changed, isFalse,
+          reason: 'regenerating here would burn one of the 5 daily generates');
+    });
+
+    test('re-saving the SAME new name returns false the second time', () async {
+      final List<http.Request> reqs = <http.Request>[];
+      final ResumeEditRepositoryImpl repo = _repo(_client(
+        reqs,
+        fieldsJson: <String, dynamic>{
+          'full_name': 'Ramesh Kumar',
+          'show_photo': true,
+          'night_shift_ready': false,
+        },
+      ));
+
+      final ResumeSafeFields loaded = await repo.load();
+      final ResumeSafeFields renamed =
+          loaded.copyWith(displayName: 'Ramesh Kumaar');
+
+      expect(await repo.save(renamed), isTrue);
+      // save() updates its loaded-name baseline, so an immediate re-save is a
+      // no-op and must not trigger a second regenerate.
+      expect(await repo.save(renamed), isFalse);
+    });
+  });
 }

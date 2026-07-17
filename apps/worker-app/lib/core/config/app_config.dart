@@ -104,7 +104,17 @@ String resolveApiBaseUrl({String? configuredUrl, bool? isRelease}) {
 /// forwarded to the real client (the swipe screen relies on it to keep the
 /// rolling session token fresh); the mock has no network, so it never invokes
 /// the callback.
-ApiClient createApiClient({void Function(String)? onSessionTokenRefreshed}) =>
+ApiClient createApiClient({
+  void Function(String)? onSessionTokenRefreshed,
+  Future<bool> Function()? onUnauthorized,
+  String? Function()? currentAuthToken,
+}) =>
     kUseMocks
         ? MockApiClient()
-        : ApiClient(onSessionTokenRefreshed: onSessionTokenRefreshed);
+        : ApiClient(
+            onSessionTokenRefreshed: onSessionTokenRefreshed,
+            // #351: lets a 401 on the legacy worker-scoped path renew auth once
+            // instead of dead-ending the worker behind the router redirect.
+            onUnauthorized: onUnauthorized,
+            currentAuthToken: currentAuthToken,
+          );

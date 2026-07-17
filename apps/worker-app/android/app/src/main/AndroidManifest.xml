@@ -59,6 +59,15 @@
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="@string/default_notification_channel_id" />
 
+        <!-- ADR-0032 profile-photo crop (image_cropper → uCrop). uCrop ships its own
+             AppCompat-themed activity that must be declared by the host app. Portrait-
+             locked to match the app; the theme comes from the appcompat lib uCrop
+             pulls in transitively. -->
+        <activity
+            android:name="com.yalantis.ucrop.UCropActivity"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
+
         <!-- Grants the PDF viewer per-file read access to downloads saved by the
              API<29 fallback (app-external Download dir). API 29+ saves via
              MediaStore and opens the content:// uri directly, bypassing this. -->

@@ -18,7 +18,17 @@ sealed class SwipeEvent extends Equatable {
 
 /// (Re)load the feed.
 class SwipeFeedRequested extends SwipeEvent {
-  const SwipeFeedRequested();
+  const SwipeFeedRequested({this.background = false});
+
+  /// A silent tab-focus refetch (T4) rather than the screen's first load.
+  ///
+  /// Background refetches do NOT emit `loading` and do NOT wipe the deck on
+  /// failure: the worker is looking at real jobs, and a blip must not replace
+  /// them with a spinner or an error view. A stale deck beats no deck.
+  final bool background;
+
+  @override
+  List<Object?> get props => <Object?>[background];
 }
 
 /// Apply to the current (head) card.
@@ -74,11 +84,22 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
 
   final SwipeRepository _repo;
 
+  /// True while a feed load is in flight. The tab-focus refetch and the screen's
+  /// own initState load can both fire around a first visit, and bloc 8.x runs
+  /// handlers concurrently by default — two overlapping loads would double the
+  /// network work and race their emits.
+  bool _loadingFeed = false;
+
   Future<void> _onFeedRequested(
     SwipeFeedRequested event,
     Emitter<SwipeState> emit,
   ) async {
-    emit(state.copyWith(status: SwipeStatus.loading));
+    if (_loadingFeed) return;
+    _loadingFeed = true;
+    // A background refetch keeps the current deck on screen while it reloads.
+    if (!event.background) {
+      emit(state.copyWith(status: SwipeStatus.loading));
+    }
     try {
       final List<FeedItem> jobs = await _repo.getFeed();
       emit(state.copyWith(
@@ -89,12 +110,22 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
       // 403 routes to consent; everything else (network / unknown / 401 / 5xx)
       // is the generic error view.
       final bool isConsent = failure is ConsentRequiredFailure;
-      emit(state.copyWith(
-        status: isConsent ? SwipeStatus.consentRequired : SwipeStatus.error,
-        // Only the error view surfaces the honest reason; consent routes to its
-        // own view, so keep its state shape unchanged.
-        failure: isConsent ? null : failure,
-      ));
+      // A background refetch must not replace a readable deck with an error.
+      // Consent is the exception: a 403 means the worker genuinely cannot see
+      // jobs any more, so it routes even from a background refetch.
+      final bool keepCurrent = event.background &&
+          !isConsent &&
+          state.status == SwipeStatus.ready;
+      if (!keepCurrent) {
+        emit(state.copyWith(
+          status: isConsent ? SwipeStatus.consentRequired : SwipeStatus.error,
+          // Only the error view surfaces the honest reason; consent routes to its
+          // own view, so keep its state shape unchanged.
+          failure: isConsent ? null : failure,
+        ));
+      }
+    } finally {
+      _loadingFeed = false;
     }
   }
 

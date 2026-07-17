@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import '../error/failure.dart';
+import 'transient_retry.dart';
 import '../error/failure_reason.dart';
 
 /// Hard ceiling on the in-app PDF byte download (the signed-url FETCH — the
@@ -24,6 +25,23 @@ const String kDownloadCompleteNotice =
 const String kDownloadCompleteFallbackNotice =
     'Download complete — file app ke Download folder mein hai';
 const String kDownloadOpenActionLabel = 'Kholein';
+
+/// Success copy that NAMES the real location, e.g.
+/// "Download complete — Downloads/RAMESH_KUMAR_RESUME.pdf mein hai".
+///
+/// "Downloads folder mein hai" was vague enough to be useless: on API 29+ the
+/// file goes to the shared Downloads collection, and a worker who closes the app
+/// has nothing telling them WHICH file to look for. Falls back to the older line
+/// when the platform reported no path — better vague than fabricated.
+String downloadCompleteNoticeFor(SavedPdf file) {
+  final String? path = file.displayPath;
+  if (path == null || path.isEmpty) {
+    return file.inPublicDownloads
+        ? kDownloadCompleteNotice
+        : kDownloadCompleteFallbackNotice;
+  }
+  return 'Download complete — $path mein hai';
+}
 const String kDownloadGenericFailureNotice =
     'Download nahi ho paya. Dobara koshish karein.';
 const String kDownloadNoLinkNotice =
@@ -43,9 +61,18 @@ class SavedPdf {
     required this.location,
     required this.displayName,
     required this.inPublicDownloads,
+    this.displayPath,
   });
 
   final String location;
+
+  /// Human-readable "where your file went", e.g. `Downloads/RAMESH_RESUME.pdf`.
+  ///
+  /// Only the Android side truly knows: on API 29+ [location] is an opaque
+  /// `content://` uri, which is meaningless to a worker hunting for their PDF.
+  /// Null when the platform did not report one — the copy then falls back to the
+  /// older, vaguer line rather than inventing a path.
+  final String? displayPath;
 
   /// The final file name AFTER duplicate handling ("name (1).pdf").
   final String displayName;
@@ -98,7 +125,39 @@ class MediaStorePdfSaver implements PdfSaver {
       location: location,
       displayName: (out?['displayName'] as String?) ?? fileName,
       inPublicDownloads: out?['public'] == true,
+      displayPath: out?['displayPath'] as String?,
     );
+  }
+}
+
+/// Posts the Android "download finished, here is where it went" notification.
+///
+/// BEST-EFFORT, always: the file is already on disk, so a notification problem
+/// (POST_NOTIFICATIONS denied, channel muted, an OEM quirk, no platform side at
+/// all under `flutter test`) must NEVER turn a finished download into a failure.
+/// Everything is swallowed; the SnackBar remains the primary confirmation.
+///
+/// Skipped when the platform reported no [SavedPdf.displayPath] — a notification
+/// whose whole job is to say WHERE the file went has nothing to say without one.
+///
+/// PRIVACY (CLAUDE.md §2): only the LOCAL file name/path/location cross the
+/// channel. The signed url never reaches this function, so it cannot reach a
+/// notification the OS retains in its shade.
+Future<void> notifyDownloadComplete(SavedPdf file) async {
+  final String? path = file.displayPath;
+  if (path == null || path.isEmpty) return;
+  try {
+    await _downloadsChannel.invokeMethod<bool>(
+      'notifyDownloadComplete',
+      <String, String>{
+        'displayName': file.displayName,
+        'displayPath': path,
+        'location': file.location,
+      },
+    );
+  } catch (_) {
+    // Deliberately total: the download succeeded, and nothing about telling the
+    // worker so is worth failing it over.
   }
 }
 
@@ -202,7 +261,12 @@ Future<void> downloadSignedPdf(
         // MockApiClient sentinel — nothing to fetch; keep the flow walkable.
         tempFile.writeAsBytesSync(buildPlaceholderPdfBytes(), flush: true);
       } else {
-        await _fetchToFile(httpClient, uri, tempFile).timeout(timeout);
+        // Ride out a transient 5xx / transport blip on the Storage GET instead of
+        // telling the worker it failed. This is a plain GET of a signed url —
+        // idempotent, so a retry is free. The timeout bounds EACH attempt.
+        await retryTransient(
+          () => _fetchToFile(httpClient, uri!, tempFile).timeout(timeout),
+        );
       }
       try {
         saved = await saver.save(tempPath: tempFile.path, fileName: fileName);
@@ -240,15 +304,19 @@ Future<void> downloadSignedPdf(
   }
 
   final SavedPdf file = saved;
+
+  // The system-Download-Manager receipt an in-app download otherwise lacks: the
+  // SnackBar is gone the moment the worker leaves the screen, this is what they
+  // still have an hour later when they want to find the file. Best-effort and
+  // awaited only so a test can observe it — it cannot throw. Both the resume and
+  // the interview kit come through here, so both get it from this one call.
+  await notifyDownloadComplete(file);
+
   messenger
     ..clearSnackBars()
     ..showSnackBar(
       SnackBar(
-        content: Text(
-          file.inPublicDownloads
-              ? kDownloadCompleteNotice
-              : kDownloadCompleteFallbackNotice,
-        ),
+        content: Text(downloadCompleteNoticeFor(file)),
         duration: const Duration(seconds: 6),
         action: SnackBarAction(
           label: kDownloadOpenActionLabel,

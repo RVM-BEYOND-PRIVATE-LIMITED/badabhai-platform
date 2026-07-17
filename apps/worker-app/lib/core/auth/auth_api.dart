@@ -15,9 +15,73 @@ import 'auth_failure.dart';
 import 'authed_client.dart';
 import 'device_id.dart';
 
+/// ADR-0026 rolling-session view, ridden by the OTP/PIN verify + refresh
+/// responses as `session: { tier, expires_at, requires_otp_after }`.
+///
+/// The whole block used to be parsed away — the client kept only the access
+/// token. [requiresOtpAfter] in particular is the server TELLING the app the
+/// instant a refresh/PIN will stop being enough and a full OTP re-login becomes
+/// mandatory; dropping it meant the app could only discover that by being
+/// rejected mid-action.
+class AuthSession extends Equatable {
+  const AuthSession({
+    this.tier,
+    this.expiresAt,
+    this.requiresOtpAfter,
+  });
+
+  /// Engagement-tier INDEX exactly as the server computes it — `SessionInfo.tier`
+  /// is a NUMBER (`tierFor()` → an index into the backend's SESSION_TIERS, where a
+  /// higher tier earns a longer idle TTL). Opaque to the client: the app must not
+  /// invent tier semantics the backend does not state.
+  ///
+  /// Null when the field is ABSENT or unreadable — never defaulted to `0`, which
+  /// is a REAL tier (the lowest) and would read as "least engaged" rather than
+  /// "the server didn't say" (same tri-state posture as [OtpVerifyResult.consentAccepted]).
+  final int? tier;
+
+  /// Absolute expiry of the rolling session. Null when the server omitted it.
+  final DateTime? expiresAt;
+
+  /// After this instant a fresh OTP is REQUIRED (a refresh/PIN will not do).
+  /// Null = no forced re-OTP is scheduled, or an older server that omits it.
+  final DateTime? requiresOtpAfter;
+
+  /// Tolerant by design: a missing/!map/unparsable block yields null rather than
+  /// throwing, so an older API can never brick login (same posture as TD62's
+  /// tri-state `consent_accepted`).
+  static AuthSession? fromJsonOrNull(dynamic raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    return AuthSession(
+      tier: _parseTier(raw['tier']),
+      expiresAt: _parseIsoDate(raw['expires_at']),
+      requiresOtpAfter: _parseIsoDate(raw['requires_otp_after']),
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[tier, expiresAt, requiresOtpAfter];
+}
+
+/// Parses the engagement-tier index off the wire. The backend types it as a
+/// NUMBER (`SessionInfo.tier`); a numeric string is tolerated so a server that
+/// stringifies it still logs the worker in. Anything else → null (unknown).
+///
+/// Never throws, and never casts: a hard `as String?` here is what threw
+/// `type 'int' is not a subtype of type 'String?'` on every real OTP verify —
+/// [AuthSession.fromJsonOrNull] promises a tolerant parse, so it must not
+/// contain a cast that can take down a login the server already granted.
+int? _parseTier(dynamic raw) {
+  if (raw is num) return raw.toInt();
+  if (raw is String) return int.tryParse(raw);
+  return null;
+}
+
 /// Parses an ISO-8601 timestamp DEFENSIVELY: a non-String (or unparseable)
 /// value yields null instead of throwing a cast error mid-login. Shared by every
-/// optional timestamp field below.
+/// optional timestamp field below — including the F5 session block and ADR-0031's
+/// deletion-grace timestamps, which both landed their own copy of this and are
+/// now one function.
 DateTime? _parseIsoDate(Object? raw) =>
     raw is String ? DateTime.tryParse(raw) : null;
 
@@ -31,25 +95,50 @@ class AuthTokens extends Equatable {
     required this.access,
     required this.refresh,
     required this.accessExpiresAt,
+    this.refreshExpiresAt,
+    this.session,
   });
 
   final String access;
   final String refresh;
   final DateTime accessExpiresAt;
 
-  /// Parses `{ access_token, refresh_token, expires_in_seconds }` (the shared
-  /// shape of /auth/otp/verify, /auth/token/refresh, /auth/pin/verify).
+  /// Absolute expiry of the REFRESH token (`refresh_expires_in_seconds`). Past
+  /// this, the remembered device cannot silently re-auth and the worker must do
+  /// a full OTP login. Null when the server omitted the field.
+  final DateTime? refreshExpiresAt;
+
+  /// The ADR-0026 rolling-session block, when the server sent one.
+  final AuthSession? session;
+
+  /// Parses the shared shape of /auth/otp/verify, /auth/token/refresh and
+  /// /auth/pin/verify: `{ access_token, refresh_token, expires_in_seconds,
+  /// refresh_expires_in_seconds, session: { tier, expires_at,
+  /// requires_otp_after } }`.
+  ///
+  /// The last two were previously dropped on the floor at all three call sites.
+  /// Every added field is OPTIONAL — an older server that omits them still logs
+  /// the worker in exactly as before.
   factory AuthTokens.fromJson(Map<String, dynamic> json) {
     final int expiresIn = (json['expires_in_seconds'] as num?)?.toInt() ?? 0;
+    final int? refreshExpiresIn =
+        (json['refresh_expires_in_seconds'] as num?)?.toInt();
     return AuthTokens(
       access: json['access_token'] as String? ?? '',
       refresh: json['refresh_token'] as String? ?? '',
       accessExpiresAt: DateTime.now().add(Duration(seconds: expiresIn)),
+      // Client-computed absolute instant, mirroring accessExpiresAt: the server
+      // sends a DURATION, and a duration is useless after the app restarts.
+      refreshExpiresAt: refreshExpiresIn == null
+          ? null
+          : DateTime.now().add(Duration(seconds: refreshExpiresIn)),
+      session: AuthSession.fromJsonOrNull(json['session']),
     );
   }
 
   @override
-  List<Object?> get props => <Object?>[access, refresh, accessExpiresAt];
+  List<Object?> get props =>
+      <Object?>[access, refresh, accessExpiresAt, refreshExpiresAt, session];
 }
 
 /// Result of POST /auth/otp/verify.

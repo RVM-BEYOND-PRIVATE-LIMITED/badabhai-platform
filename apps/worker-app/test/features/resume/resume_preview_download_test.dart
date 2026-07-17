@@ -8,6 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/core/util/pdf_downloader.dart';
@@ -57,6 +58,8 @@ void main() {
       );
     }
     locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo));
+    // The screen refetches on tab focus (T4) and resolves this from the locator.
+    locator.registerLazySingleton<TabFocus>(() => TabFocus());
     locator.registerFactory<ResumeEditRepository>(() => editRepo);
 
     channelCalls = <MethodCall>[];

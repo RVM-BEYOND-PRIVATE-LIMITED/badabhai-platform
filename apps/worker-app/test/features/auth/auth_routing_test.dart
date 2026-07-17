@@ -4,6 +4,7 @@
 // MockAuthApi, then asserts the cold-start landing screen and the unlock flow.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'package:badabhai_worker_app/app.dart';
@@ -16,6 +17,7 @@ import 'package:badabhai_worker_app/core/auth/secure_token_store.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_keypad.dart';
+import 'package:badabhai_worker_app/router.dart';
 
 import '../../core/auth/fakes.dart';
 
@@ -83,10 +85,14 @@ class _Wired {
 /// (built over the SAME wired store) so a test can force PIN failures.
 /// [persistentAuth] toggles the PIN/lock gate — `false` exercises the inert
 /// (main-like) redirect (the real/default build).
+/// [seedPinSet] false reproduces the REAL-path state #352 describes: tokens are
+/// persisted but `pin_set` was never written (the worker killed the app between
+/// OTP verify and choosing their first PIN).
 Future<_Wired> _wire(
     {required bool seedRefresh,
     bool scriptPin = false,
-    bool persistentAuth = true}) async {
+    bool persistentAuth = true,
+    bool seedPinSet = true}) async {
   GoogleFonts.config.allowRuntimeFetching = false;
   await locator.reset();
   final FakeSecureStore secure = FakeSecureStore();
@@ -95,7 +101,7 @@ Future<_Wired> _wire(
   if (seedRefresh) {
     await store.writeRefreshToken('remembered-refresh');
     await store.writeWorkerId('worker-7');
-    await store.writePinSet(true);
+    if (seedPinSet) await store.writePinSet(true);
   }
   final ScriptablePinApi? pinApi = scriptPin ? ScriptablePinApi(store) : null;
   await initAuthLocator(
@@ -134,6 +140,24 @@ void main() {
     // Landed on the enter-PIN fast path, NOT the phone login or splash.
     expect(find.text('PIN daalein'), findsOneWidget);
     expect(find.text('Send OTP'), findsNothing);
+  });
+
+  // #352 — a worker who killed the app between OTP verify and choosing their
+  // first PIN cold-started into Enter-PIN, asked for a PIN that never existed.
+  // Every guess returned the neutral "wrong PIN" and the only escape was the
+  // forgot-PIN OTP (confusing, and it burns a real Fast2SMS send).
+  testWidgets(
+      'cold start with tokens but NO pin set -> set-PIN, not enter-PIN (#352)',
+      (WidgetTester tester) async {
+    bigCanvas(tester);
+    await _wire(seedRefresh: true, seedPinSet: false);
+    await tester.pumpWidget(const BadaBhaiApp());
+    await _pumpUntil(tester, find.text('PIN banayein'));
+
+    expect(find.text('PIN banayein'), findsOneWidget,
+        reason: 'the worker must be asked to CHOOSE a PIN');
+    expect(find.text('PIN daalein'), findsNothing,
+        reason: 'never ask for a PIN that was never set');
   });
 
   testWidgets('cold start WITHOUT a refresh token -> phone login (/login)',
@@ -236,6 +260,63 @@ void main() {
     // Settle the ResumePhotoHeader's best-effort resume-fields fetch (ADR-0032,
     // mounts with the resume card; mock latency 300ms) so no timer outlives the test.
     await tester.pump(const Duration(milliseconds: 700));
+  });
+
+  // #349 — relock forced Routes.pin from ANY location without recording where
+  // the worker was, and BOTH the redirect and EnterPinScreen then hardcoded
+  // Routes.resume. A worker deep in the profiling chat who took a >5-minute call
+  // came back to "Abhi resume nahi ban sakta" with consent + name to re-tap.
+  group('relock restores where the worker was (#349)', () {
+    testWidgets('relock mid-chat -> PIN -> unlock lands back on chat',
+        (WidgetTester tester) async {
+      bigCanvas(tester);
+      final _Wired w = await _wire(seedRefresh: true, scriptPin: true);
+      w.pinApi!.scriptConsent = true;
+
+      await tester.pumpWidget(const BadaBhaiApp());
+      await _pumpUntil(tester, find.text('PIN daalein'));
+      await _enterPin(tester, '7416');
+      await _pumpUntil(tester, find.text('Your resume'));
+
+      // Walk into the profiling chat, as a worker mid-onboarding would be.
+      final AuthSessionManager auth = locator<AuthSessionManager>();
+      tester.element(find.byType(Scaffold).first).go(Routes.chatProfiling);
+      await tester.pumpAndSettle();
+      expect(find.text('Profiling'), findsOneWidget);
+
+      // >5 min backgrounded: the lifecycle observer re-locks.
+      await auth.relock();
+      await _pumpUntil(tester, find.text('PIN daalein'));
+      expect(auth.resumeLocation, Routes.chatProfiling,
+          reason: 'the interrupted location must be remembered');
+
+      await _enterPin(tester, '7416');
+      await _pumpUntil(tester, find.text('Profiling'));
+
+      // Back in the chat — NOT dumped on the Resume tab.
+      expect(find.text('Profiling'), findsOneWidget);
+      expect(auth.resumeLocation, isNull,
+          reason: 'the stash is cleared once the worker has landed');
+      await tester.pump(const Duration(milliseconds: 700));
+    });
+
+    testWidgets('a cold start never stashes the splash screen',
+        (WidgetTester tester) async {
+      bigCanvas(tester);
+      await _wire(seedRefresh: true, scriptPin: true);
+
+      await tester.pumpWidget(const BadaBhaiApp());
+      await _pumpUntil(tester, find.text('PIN daalein'));
+
+      // Cold start is `locked` at /splash — an auth route, never a destination.
+      expect(locator<AuthSessionManager>().resumeLocation, isNull);
+      await _enterPin(tester, '7416');
+      await _pumpUntil(tester, find.text('Your resume'));
+
+      // Falls back to the Resume tab exactly as before.
+      expect(find.text('Your resume'), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 700));
+    });
   });
 
   testWidgets(

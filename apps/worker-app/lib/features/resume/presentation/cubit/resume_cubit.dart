@@ -23,10 +23,25 @@ class ResumeCubit extends Cubit<ResumeState> {
 
   final ResumeRepository _repo;
 
-  Future<void> generate() async {
+  /// True while a load is in flight. The tab-focus refetch and the screen's own
+  /// create:-time load can both fire around a first visit, and a second
+  /// concurrent load would double the network work and race its emits.
+  bool _loading = false;
+
+  /// Loads the resume — reusing the existing one unless [force].
+  ///
+  /// [force] is for a deliberate rebuild after the worker edits their NAME (it
+  /// is baked in at generation time, so a PATCHed name is invisible until the
+  /// resume is regenerated). It re-POSTs generate, which server-side also resets
+  /// the PDF to pending and re-enqueues the render, so the downloaded file
+  /// carries the new name too (#398). Never force on a routine open: it spends
+  /// one of the worker's 5 daily generates and throws away the rendered PDF.
+  Future<void> generate({bool force = false}) async {
+    if (_loading) return; // never run two loads at once
+    _loading = true;
     emit(const ResumeState(status: ResumeStatus.loading));
     try {
-      final String text = await _repo.generateResume();
+      final String text = await _repo.generateResume(force: force);
       if (isClosed) return; // screen popped before generation resolved
       emit(ResumeState(status: ResumeStatus.ready, resumeText: text));
     } on ProfileIncompleteFailure {
@@ -35,6 +50,44 @@ class ResumeCubit extends Cubit<ResumeState> {
     } on Failure catch (_) {
       if (isClosed) return;
       emit(const ResumeState(status: ResumeStatus.failed));
+    } finally {
+      _loading = false;
+    }
+  }
+
+  /// Tab-focus refetch (T4) — the Resume tab came back into view.
+  ///
+  /// NEVER forces. A force here would re-POST /resume/generate on every tab
+  /// switch, which server-side overwrites the row, resets the PDF to 'pending'
+  /// and re-enqueues the render — so the worker's already-rendered PDF would be
+  /// binned on each visit and their 5/day generate cap burned to do it. This is
+  /// a read that REUSES the existing resume.
+  ///
+  /// Also does not emit `loading` and does not wipe on failure: the worker is
+  /// looking at a readable resume, and a blip on a background refetch must not
+  /// replace it with a spinner or an error screen. A stale resume beats no
+  /// resume.
+  Future<void> refresh() async {
+    if (_loading) return;
+    _loading = true;
+    try {
+      final String text = await _repo.generateResume(); // force: false → reuse
+      if (isClosed) return;
+      emit(ResumeState(status: ResumeStatus.ready, resumeText: text));
+    } on ProfileIncompleteFailure {
+      if (isClosed) return;
+      if (state.status != ResumeStatus.ready) {
+        emit(const ResumeState(status: ResumeStatus.noProfile));
+      }
+    } on Failure catch (_) {
+      if (isClosed) return;
+      // Keep whatever the worker can already read; only surface the failure
+      // when there was nothing good on screen to begin with.
+      if (state.status != ResumeStatus.ready) {
+        emit(const ResumeState(status: ResumeStatus.failed));
+      }
+    } finally {
+      _loading = false;
     }
   }
 

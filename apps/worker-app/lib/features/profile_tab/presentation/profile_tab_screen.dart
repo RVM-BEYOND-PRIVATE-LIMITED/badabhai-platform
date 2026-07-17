@@ -4,17 +4,20 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
+import '../../../core/nav/tab_focus.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_list_row.dart';
 import '../../../core/widgets/bb_progress_bar.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_verified_badge.dart';
 import '../../../router.dart';
 import 'cubit/profile_tab_cubit.dart';
+import 'widgets/profile_avatar.dart';
 import '../domain/profile_summary.dart';
 
 /// The tabbed Profile (spec §5.9) — distinct from the profiling ProfilePreview.
@@ -37,33 +40,40 @@ class _ProfileTabView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: BbAppBar(
-        title: 'Profile',
-        actions: <Widget>[
-          IconButton(
-            tooltip: 'Settings',
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => context.push(Routes.settings),
-          ),
-        ],
-      ),
-      body: BlocBuilder<ProfileTabCubit, ProfileTabState>(
-        builder: (BuildContext context, ProfileTabState state) {
-          return switch (state.status) {
-            ProfileTabStatus.loading => const BbStatusView.loading(),
-            ProfileTabStatus.failed => BbStatusView(
-                icon: failureReason(state.failure).icon,
-                title: 'Profile load nahi hui.',
-                subtitle: failureReason(state.failure).reason,
-                action: FilledButton(
-                  onPressed: () => context.read<ProfileTabCubit>().load(),
-                  child: const Text('Try again'),
+    // The IndexedStack keeps this branch mounted, so create: runs only on the
+    // first visit — refetch when the tab comes back into view (T4).
+    return TabFocusRefetch(
+      tabFocus: locator<TabFocus>(),
+      index: TabIndex.profile,
+      onFocused: () => context.read<ProfileTabCubit>().refresh(),
+      child: Scaffold(
+        appBar: BbAppBar(
+          title: 'Profile',
+          actions: <Widget>[
+            IconButton(
+              tooltip: 'Settings',
+              icon: const Icon(Icons.settings_outlined),
+              onPressed: () => context.push(Routes.settings),
+            ),
+          ],
+        ),
+        body: BlocBuilder<ProfileTabCubit, ProfileTabState>(
+          builder: (BuildContext context, ProfileTabState state) {
+            return switch (state.status) {
+              ProfileTabStatus.loading => const BbStatusView.loading(),
+              ProfileTabStatus.failed => BbStatusView(
+                  icon: failureReason(state.failure).icon,
+                  title: 'Profile load nahi hui.',
+                  subtitle: failureReason(state.failure).reason,
+                  action: FilledButton(
+                    onPressed: () => context.read<ProfileTabCubit>().load(),
+                    child: const Text('Try again'),
+                  ),
                 ),
-              ),
-            ProfileTabStatus.ready => _profile(context, state.summary!),
-          };
-        },
+              ProfileTabStatus.ready => _profile(context, state.summary!),
+            };
+          },
+        ),
       ),
     );
   }
@@ -75,6 +85,8 @@ class _ProfileTabView extends StatelessWidget {
         _header(s),
         const SizedBox(height: AppSpacing.s5),
         _strengthCard(s),
+        const SizedBox(height: AppSpacing.s4),
+        _skillsCard(s),
         const SizedBox(height: AppSpacing.s4),
         _kitShortcut(context),
         const SizedBox(height: AppSpacing.s4),
@@ -140,45 +152,14 @@ class _ProfileTabView extends StatelessWidget {
 
     return Row(
       children: <Widget>[
-        SizedBox(
-          width: 72,
-          height: 72,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: <Widget>[
-              Container(
-                width: 72,
-                height: 72,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: <Color>[AppColors.saffron300, AppColors.saffron200],
-                  ),
-                ),
-                alignment: Alignment.center,
-                // Initials when a name exists; else a neutral avatar icon (no
-                // fabricated monogram).
-                child: s.initials != null
-                    ? Text(
-                        s.initials!,
-                        style: AppTypography.display(
-                            size: AppTypography.size2xl,
-                            weight: FontWeight.w800,
-                            color: AppColors.vermilion800),
-                      )
-                    : const Icon(Icons.person_rounded,
-                        size: 36, color: AppColors.vermilion800),
-              ),
-              if (s.verified)
-                const Positioned(
-                  right: -2,
-                  bottom: -2,
-                  child: BbSeal(),
-                ),
-            ],
-          ),
+        // ADR-0032 — the worker's real photo, with the edit entry point. The tab
+        // used to render initials/an icon only, and the comment below admitted
+        // the photo flow was reachable ONLY from the resume-edit screen. Same
+        // photo, same endpoints, same shared sheet — no second concept.
+        ProfileAvatar(
+          initials: s.initials,
+          verified: s.verified,
+          verifiedBadge: const BbSeal(),
         ),
         const SizedBox(width: AppSpacing.s4),
         Expanded(
@@ -237,7 +218,8 @@ class _ProfileTabView extends StatelessWidget {
               Text('Profile strength',
                   style: AppTypography.body(
                       size: AppTypography.sizeSm, weight: FontWeight.w700)),
-              Text(meter, style: AppTypography.mono(color: AppColors.textMuted)),
+              Text(meter,
+                  style: AppTypography.mono(color: AppColors.textMuted)),
             ],
           ),
           // A fraction bar exists ONLY when a real denominator exists.
@@ -257,6 +239,88 @@ class _ProfileTabView extends StatelessWidget {
     );
   }
 
+  /// Skills, machines and years of experience as a STRUCTURED section — the data
+  /// the LLM extracts after registration, surfaced here instead of only being
+  /// baked into the resume text (the user's ask). Every field is PII-free: the
+  /// canonical skill/machine labels and a years NUMBER — never the free-text
+  /// experience summary (which the backend deliberately keeps off the wire, §2).
+  /// Renders an honest empty state until the worker has shared any.
+  Widget _skillsCard(ProfileSummary s) {
+    final bool hasAny =
+        s.skills.isNotEmpty || s.machines.isNotEmpty || s.experienceYears != null;
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceCard,
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        border: Border.all(color: AppColors.borderSubtle),
+      ),
+      padding: const EdgeInsets.all(AppSpacing.s4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text('Skills aur anubhav',
+              style: AppTypography.body(
+                  size: AppTypography.sizeSm, weight: FontWeight.w700)),
+          const SizedBox(height: AppSpacing.s3),
+          if (!hasAny)
+            Text(
+              'Abhi kuch nahi — chat mein apne skills aur experience batayein.',
+              style: AppTypography.body(color: AppColors.textMuted),
+            )
+          else ...<Widget>[
+            if (s.experienceYears != null) ...<Widget>[
+              Row(
+                children: <Widget>[
+                  const Icon(Icons.work_outline_rounded,
+                      size: 18, color: AppColors.textMuted),
+                  const SizedBox(width: AppSpacing.s2),
+                  Text('Anubhav: ${_experienceLabel(s.experienceYears!)}',
+                      style: AppTypography.body(
+                          size: AppTypography.sizeSm, weight: FontWeight.w600)),
+                ],
+              ),
+              if (s.skills.isNotEmpty || s.machines.isNotEmpty)
+                const SizedBox(height: AppSpacing.s3),
+            ],
+            if (s.skills.isNotEmpty) ...<Widget>[
+              _chipGroup('Skills', s.skills),
+              if (s.machines.isNotEmpty) const SizedBox(height: AppSpacing.s3),
+            ],
+            if (s.machines.isNotEmpty) _chipGroup('Machines', s.machines),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// A labelled wrap of DS chips (skills or machines). Labels are rendered as
+  /// received — canonical, worker-confirmed strings.
+  Widget _chipGroup(String label, List<String> items) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(label,
+            style: AppTypography.body(
+                size: AppTypography.sizeXs, color: AppColors.textMuted)),
+        const SizedBox(height: AppSpacing.s2),
+        Wrap(
+          spacing: AppSpacing.s2,
+          runSpacing: AppSpacing.s2,
+          children: <Widget>[
+            for (final String item in items) BbChip(label: item),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// "4 saal" / "2.5 saal" — drop a trailing ".0" so whole years read cleanly.
+  String _experienceLabel(double years) {
+    final bool whole = years == years.roundToDouble();
+    final String n = whole ? years.toStringAsFixed(0) : years.toStringAsFixed(1);
+    return '$n saal';
+  }
+
   Widget _kitShortcut(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
@@ -272,7 +336,7 @@ class _ProfileTabView extends StatelessWidget {
         icon: Icons.quiz_outlined,
         title: 'Interview kit',
         subtitle: '15 sawaal + jawaab',
-        onTap: () => context.go(Routes.kit),
+        onTap: () => context.push(Routes.kit),
       ),
     );
   }

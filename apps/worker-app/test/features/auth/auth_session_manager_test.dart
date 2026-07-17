@@ -217,6 +217,85 @@ void main() {
       expect(s, AuthStatus.loggedOut);
       expect(manager.status, AuthStatus.loggedOut);
     });
+
+    // #352 — `locked` alone cannot distinguish "enter your PIN" from "choose
+    // your first PIN". pin_set was only ever written by MockAuthApi, so on the
+    // real path a worker who killed the app on Set-PIN cold-started into
+    // Enter-PIN and was asked for a PIN that never existed.
+    group('pin_set drives locked routing (#352)', () {
+      test('refresh token but NO pin_set -> locked with pinSet == false',
+          () async {
+        await store.writeRefreshToken('remembered');
+        // pin_set is absent — exactly the state left by the REAL AuthApi, which
+        // (unlike MockAuthApi) never wrote the key.
+        final AuthStatus s = await manager.bootstrap();
+
+        expect(s, AuthStatus.locked);
+        expect(manager.pinSet, isFalse,
+            reason: 'the router must send this worker to SET a PIN, not enter one');
+      });
+
+      test('refresh token AND pin_set -> locked with pinSet == true', () async {
+        await store.writeRefreshToken('remembered');
+        await store.writePinSet(true);
+        final AuthStatus s = await manager.bootstrap();
+
+        expect(s, AuthStatus.locked);
+        expect(manager.pinSet, isTrue);
+      });
+
+      test('verifyOtp persists the SERVER pin_set on the real path', () async {
+        // The real AuthApi does NOT touch the store — only the manager does.
+        final _NoStoreWriteApi realish = _NoStoreWriteApi(store)..pinIsSet = true
+          ..isNewUser = false;
+        final AuthSessionManager m = AuthSessionManager(
+          authApi: realish,
+          tokenStore: store,
+          session: session,
+          reauthSignal: reauth,
+          persistentAuthEnabled: true,
+        );
+        addTearDown(m.dispose);
+
+        await m.verifyOtp('+910000000000', '123456');
+
+        expect(await store.readPinSet(), isTrue,
+            reason: 'the manager, not the api, must persist pin_set');
+        expect(m.pinSet, isTrue);
+      });
+
+      test('setPin records that a PIN now exists', () async {
+        final _NoStoreWriteApi realish = _NoStoreWriteApi(store);
+        final AuthSessionManager m = AuthSessionManager(
+          authApi: realish,
+          tokenStore: store,
+          session: session,
+          reauthSignal: reauth,
+          persistentAuthEnabled: true,
+        );
+        addTearDown(m.dispose);
+
+        expect(m.pinSet, isFalse);
+        await m.setPin('1379');
+
+        expect(m.pinSet, isTrue);
+        expect(await store.readPinSet(), isTrue,
+            reason: 'a cold start after setPin must go to enter-PIN');
+      });
+
+      test('logout clears pinSet so the next worker is not mis-routed',
+          () async {
+        await store.writeRefreshToken('remembered');
+        await store.writePinSet(true);
+        await manager.bootstrap();
+        expect(manager.pinSet, isTrue);
+
+        await manager.logout();
+
+        expect(manager.pinSet, isFalse);
+        expect(await store.readPinSet(), isFalse);
+      });
+    });
   });
 
   group('verifyOtp bridges into SessionRepository', () {
@@ -313,6 +392,59 @@ void main() {
       // Default status stays loggedOut; relock did nothing.
       expect(manager.status, AuthStatus.loggedOut);
     });
+
+    // #368 — relock claimed "no authed call slips through while locked" but only
+    // nulled AuthedClient's copy. The SAME token had been bridged into
+    // SessionRepository, and that is the bearer every legacy worker-scoped call
+    // actually sends, so a request queued before the pause still authenticated
+    // behind the PIN screen.
+    group('the bridged bearer is fenced too (#368)', () {
+      test('relock drops SessionRepository.sessionToken, not just the store',
+          () async {
+        api
+          ..isNewUser = false
+          ..pinIsSet = true;
+        await manager.verifyOtp('+91999', '1234');
+        expect(session.sessionToken, isNotNull, reason: 'bridged on login');
+
+        await manager.relock();
+
+        expect(store.accessToken, isNull);
+        expect(session.sessionToken, isNull,
+            reason: 'the bearer legacy ApiClient calls actually send');
+      });
+
+      test('relock keeps the ids so unlock re-bridges onto the same worker',
+          () async {
+        api
+          ..isNewUser = false
+          ..pinIsSet = true;
+        await manager.verifyOtp('+91999', '1234');
+        session.setSession('chat-session-1');
+
+        await manager.relock();
+
+        // Only the bearer is fenced — the worker and the open chat session must
+        // survive the lock.
+        expect(session.workerId, 'worker-9');
+        expect(session.sessionId, 'chat-session-1');
+      });
+
+      test('unlockWithPin restores a fresh bearer after the fence', () async {
+        api
+          ..isNewUser = false
+          ..pinIsSet = true;
+        await manager.verifyOtp('+91999', '1234');
+        await manager.relock();
+        expect(session.sessionToken, isNull);
+
+        await manager.unlockWithPin('1379');
+
+        expect(manager.status, AuthStatus.authenticated);
+        expect(session.sessionToken, 'access-unlock',
+            reason: 'unlock re-bridges a freshly minted token');
+      });
+    });
   });
 
   group('logout', () {
@@ -368,6 +500,50 @@ void main() {
 
       expect(manager.status, AuthStatus.loggedOut);
       expect(session.sessionToken, isNull);
+    });
+  });
+
+  // F5 — the manager now RETAINS the session view the responses carry, so the
+  // app can pre-empt a forced re-OTP instead of discovering it by rejection.
+  group('session view is surfaced (F5)', () {
+    test('verifyOtp surfaces requiresOtpAfter + refreshExpiresAt', () async {
+      final _SessionApi sessionApi = _SessionApi(store);
+      final AuthSessionManager m = AuthSessionManager(
+        authApi: sessionApi,
+        tokenStore: store,
+        session: session,
+        reauthSignal: reauth,
+        persistentAuthEnabled: true,
+      );
+      addTearDown(m.dispose);
+
+      expect(m.requiresOtpAfter, isNull, reason: 'unknown before any login');
+      await m.verifyOtp('+910000000000', '123456');
+
+      expect(m.authSession?.tier, 2);
+      expect(m.requiresOtpAfter, _kRequiresOtpAfter);
+      expect(m.refreshExpiresAt, isNotNull);
+    });
+
+    test('logout clears it — a new worker must not inherit it', () async {
+      final _SessionApi sessionApi = _SessionApi(store);
+      final AuthSessionManager m = AuthSessionManager(
+        authApi: sessionApi,
+        tokenStore: store,
+        session: session,
+        reauthSignal: reauth,
+        persistentAuthEnabled: true,
+      );
+      addTearDown(m.dispose);
+
+      await m.verifyOtp('+910000000000', '123456');
+      expect(m.requiresOtpAfter, isNotNull);
+
+      await m.logout();
+
+      expect(m.requiresOtpAfter, isNull);
+      expect(m.authSession, isNull);
+      expect(m.refreshExpiresAt, isNull);
     });
   });
 
@@ -671,4 +847,70 @@ class _ThrowingLogoutApi extends ScriptAuthApi {
 
   @override
   Future<void> logout() async => throw const AuthFailure(AuthErrorCode.network);
+}
+
+/// An api that models the REAL [AuthApi]: it returns the server's flags but
+/// NEVER writes SecureTokenStore.
+///
+/// [ScriptAuthApi] writes `pin_set` itself (mirroring MockAuthApi) — which is
+/// exactly what hid #352: on the real path only the mock ever wrote that key, so
+/// nothing persisted it and bootstrap could not tell "has a PIN" from "never set
+/// one". Persisting it is the MANAGER's job, and these fakes must not do it for
+/// the manager or the regression is untestable.
+class _NoStoreWriteApi extends ScriptAuthApi {
+  _NoStoreWriteApi(super.store);
+
+  @override
+  Future<OtpVerifyResult> otpVerify(String phone, String otp) async {
+    if (throwOnVerify != null) throw throwOnVerify!;
+    return OtpVerifyResult(
+      workerId: 'worker-9',
+      isNewUser: isNewUser,
+      pinSet: pinIsSet,
+      tokens: AuthTokens(
+        access: 'access-otp',
+        refresh: 'refresh-1',
+        accessExpiresAt: DateTime.now().add(const Duration(minutes: 15)),
+      ),
+      consentAccepted: consentAccepted,
+    );
+  }
+
+  @override
+  Future<void> pinSet(String pin) async {
+    // The real endpoint just 204s — no client-side store write.
+    pinIsSet = true;
+  }
+}
+
+
+/// The instant the scripted server says a full OTP re-login becomes mandatory.
+final DateTime _kRequiresOtpAfter = DateTime.parse('2026-07-31T10:00:00.000Z');
+
+/// An api whose otpVerify carries the ADR-0026 session block (F5).
+class _SessionApi extends ScriptAuthApi {
+  _SessionApi(super.store);
+
+  @override
+  Future<OtpVerifyResult> otpVerify(String phone, String otp) async {
+    return OtpVerifyResult(
+      workerId: 'worker-9',
+      isNewUser: false,
+      pinSet: true,
+      tokens: AuthTokens(
+        access: 'access-otp',
+        refresh: 'refresh-1',
+        accessExpiresAt: DateTime.now().add(const Duration(minutes: 15)),
+        refreshExpiresAt: DateTime.now().add(const Duration(days: 30)),
+        session: AuthSession(
+          // Engagement-tier INDEX (a number, as SessionInfo.tier is typed) —
+          // not a label. See the auth_api_test regression around the int cast.
+          tier: 2,
+          expiresAt: DateTime.parse('2026-08-01T10:00:00.000Z'),
+          requiresOtpAfter: _kRequiresOtpAfter,
+        ),
+      ),
+      consentAccepted: null,
+    );
+  }
 }

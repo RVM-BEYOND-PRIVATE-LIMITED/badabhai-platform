@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/auth/phone_format.dart';
 import '../../../core/auth/auth_error_messages.dart';
 import '../../../core/auth/auth_failure.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/otp/sms_otp_autofill.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -43,7 +48,12 @@ enum _PinStep { enter, confirm }
 
 class _ForgotPinScreenState extends State<ForgotPinScreen> {
   final AuthSessionManager _manager = locator<AuthSessionManager>();
-  final TextEditingController _phone = TextEditingController(text: '+91');
+
+  /// Holds ONLY the 10 national digits — `+91` is fixed chrome, not editable
+  /// text. Seeding it into the controller let the worker backspace it away, and
+  /// the raw text went straight to requestPinReset(), sending a malformed number
+  /// (identical bug to the login screen).
+  final TextEditingController _phone = TextEditingController();
   final TextEditingController _otp = TextEditingController();
 
   _Phase _phase = _Phase.phone;
@@ -57,10 +67,37 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
   bool _busy = false;
   String? _error;
 
+  /// Android SMS auto-read for the reset OTP. Null when the locator has no
+  /// instance (tests) — the screen stays usable by typing.
+  SmsOtpAutofill? _autofill;
+  StreamSubscription<String>? _codeSub;
+
   String get _buffer => _pinStep == _PinStep.enter ? _first : _confirm;
 
   @override
+  void initState() {
+    super.initState();
+    // This is the app's SECOND OTP surface (login is the other). It bypasses
+    // PhoneLoginCubit, so the SMS auto-read has to be wired here too — otherwise
+    // a PIN reset is the one flow left where the worker still types the code.
+    if (!locator.isRegistered<SmsOtpAutofill>()) return;
+    final SmsOtpAutofill autofill = locator<SmsOtpAutofill>();
+    _autofill = autofill;
+    _codeSub = autofill.codes.listen(_onSmsCode);
+  }
+
+  /// Fill the reset OTP from the SMS. Not auto-submitted: confirm needs the new
+  /// PIN too, and a wrong code would burn a verify attempt.
+  void _onSmsCode(String code) {
+    if (!mounted) return;
+    _otp.text = code;
+    _otp.selection = TextSelection.collapsed(offset: _otp.text.length);
+  }
+
+  @override
   void dispose() {
+    _codeSub?.cancel();
+    _autofill?.stopListening();
     _phone.dispose();
     _otp.dispose();
     super.dispose();
@@ -74,7 +111,11 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
       _error = null;
     });
     try {
-      await _manager.requestPinReset(_phone.text.trim());
+      // Opened BEFORE the request (User Consent only matches an SMS that lands
+      // after the window opens) and NOT awaited — a wedged Play Services must
+      // never stall the reset SMS itself. Never throws.
+      unawaited(_openOtpAutofillWindow());
+      await _manager.requestPinReset(toE164(_phone.text));
       if (!mounted) return;
       setState(() => _phase = _Phase.pin);
     } on AuthFailure catch (f) {
@@ -82,6 +123,14 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
       setState(() => _error = authErrorMessage(f, 'hi'));
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openOtpAutofillWindow() async {
+    try {
+      await _autofill?.startListening();
+    } catch (_) {
+      // No Play Services → the worker types the code.
     }
   }
 
@@ -142,7 +191,11 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
     });
     try {
       await _manager.confirmPinReset(
-        _phone.text.trim(),
+        // E.164, exactly as the request step sent it. The controller holds only
+        // the national digits now, so composing here is mandatory — passing the
+        // raw text would send a bare 10-digit number and fail the reset AFTER
+        // the worker had already spent their OTP.
+        toE164(_phone.text),
         _otp.text.trim(),
         _newPin,
       );
@@ -199,9 +252,16 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
           controller: _phone,
           keyboardType: TextInputType.phone,
           style: AppTypography.mono(size: AppTypography.sizeLg),
-          decoration: const InputDecoration(
-            hintText: '+91XXXXXXXXXX',
-            prefixIcon: Icon(Icons.phone_outlined),
+          onChanged: (_) => setState(() {}), // repaint the CTA at 10 digits
+          inputFormatters: <TextInputFormatter>[
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(kNationalNumberDigits),
+          ],
+          decoration: InputDecoration(
+            prefixText: '$kIndiaDialCode ',
+            prefixStyle: AppTypography.mono(size: AppTypography.sizeLg),
+            hintText: 'XXXXXXXXXX',
+            prefixIcon: const Icon(Icons.phone_outlined),
           ),
         ),
         if (_error != null) ...<Widget>[
@@ -213,7 +273,11 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
           label: 'Send OTP',
           block: true,
           loading: _busy,
-          onPressed: _busy ? null : _sendReset,
+          // Disabled until 10 digits — a half-typed number can only fail, and a
+          // reset OTP is a real (billed) SMS.
+          onPressed: _busy || !isCompleteNationalNumber(_phone.text)
+              ? null
+              : _sendReset,
         ),
       ],
     );
@@ -243,7 +307,8 @@ class _ForgotPinScreenState extends State<ForgotPinScreen> {
           style: AppTypography.body(color: AppColors.textSecondary),
         ),
         const SizedBox(height: AppSpacing.s7),
-        BbPinView(length: kPinLength, filled: _buffer.length, error: _error != null),
+        BbPinView(
+            length: kPinLength, filled: _buffer.length, error: _error != null),
         const SizedBox(height: AppSpacing.s4),
         SizedBox(
           height: AppSpacing.s6,

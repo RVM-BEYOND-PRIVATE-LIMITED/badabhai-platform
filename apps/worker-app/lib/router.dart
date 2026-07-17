@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/di/locator.dart';
+import 'core/nav/tab_focus.dart';
 import 'core/widgets/bb_bottom_nav.dart';
 import 'features/auth/domain/auth_session_manager.dart';
 import 'features/notifications/domain/notifications_repository.dart';
@@ -175,7 +176,17 @@ String? _authRedirect(BuildContext context, GoRouterState state) {
           loc == Routes.otpVerify) {
         return null;
       }
-      return Routes.pin;
+      // #349: remember where the worker actually was before the PIN takes over
+      // the stack, so unlocking returns them there. `!onAuthRoute` keeps a cold
+      // start (loc == /splash) from stashing the splash screen as a destination.
+      if (!onAuthRoute) auth.stashResumeLocation(loc);
+      // #352: route by whether a PIN actually EXISTS on this device. A worker
+      // who killed the app between OTP verify and choosing their first PIN used
+      // to cold-start into Enter-PIN and be asked for a PIN that was never set —
+      // every guess returned the neutral "wrong PIN", and the only way out was
+      // the forgot-PIN OTP (confusing, and it burns a real SMS). Their tokens
+      // are already persisted, so send them to set-PIN and let them finish.
+      return auth.pinSet ? Routes.pin : Routes.setPin;
     case AuthStatus.authenticated:
       // TD62 — the client half of the DPDP consent gate (§6's server-side
       // ConsentGuard stays authoritative). TRI-STATE on purpose: only a
@@ -188,8 +199,13 @@ String? _authRedirect(BuildContext context, GoRouterState state) {
         return Routes.consent;
       }
       // Authenticated workers must not sit on splash/login/pin — lift them into
-      // the shell (the worker's home tab). Onboarding + shell routes pass.
-      if (onAuthRoute) return Routes.resume;
+      // the shell. #349: back to where the re-lock interrupted them when we know
+      // it, else the Resume tab as before. PEEKED, not consumed — EnterPinScreen
+      // resolves the same target, and a consuming read here would strand it on
+      // the fallback.
+      if (onAuthRoute) return auth.resumeLocation ?? Routes.resume;
+      // Landed on a real screen — the stash has done its job.
+      auth.clearResumeLocation();
       return null;
   }
 }
@@ -385,6 +401,8 @@ class _ShellScaffold extends StatefulWidget {
 }
 
 class _ShellScaffoldState extends State<_ShellScaffold> {
+  TabFocus get _tabFocus => locator<TabFocus>();
+
   @override
   void initState() {
     super.initState();
@@ -393,17 +411,44 @@ class _ShellScaffoldState extends State<_ShellScaffold> {
     locator<NotificationsRepository>().refresh();
   }
 
+  /// Publishes the visible tab so each root can refetch when it comes back into
+  /// view (the IndexedStack keeps branches mounted, so nothing re-runs on its
+  /// own).
+  ///
+  /// Set SYNCHRONOUSLY here, before `goBranch` builds the target branch: on a
+  /// tab's FIRST visit its `create:` already loads, and if the focus signal
+  /// landed after that build the root would immediately load a second time.
+  /// Setting it first means the root mounts already-focused, and
+  /// [TabFocusRefetch] fires on change only.
+  void _onTabTapped(int index) {
+    final bool reTapped = index == widget.shell.currentIndex;
+    _tabFocus.value = index;
+    // Re-tapping the active tab resets it to its branch root.
+    widget.shell.goBranch(index, initialLocation: reTapped);
+  }
+
+  /// Safety net for branch changes that did NOT come from a tap — e.g. the
+  /// post-unlock restore or any `context.go` into another branch's location.
+  /// Post-framed because listeners must not fire during build; a no-op when the
+  /// tap handler already set it.
+  void _syncActiveTabAfterBuild() {
+    final int index = widget.shell.currentIndex;
+    if (_tabFocus.value == index) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _tabFocus.value = index;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    _syncActiveTabAfterBuild();
     return Scaffold(
       body: widget.shell,
       bottomNavigationBar: ValueListenableBuilder<int>(
         valueListenable: locator<NotificationsRepository>().unreadCount,
         builder: (BuildContext context, int unread, Widget? _) => BbBottomNav(
           currentIndex: widget.shell.currentIndex,
-          // Re-tapping the active tab resets it to its branch root.
-          onTap: (int i) => widget.shell
-              .goBranch(i, initialLocation: i == widget.shell.currentIndex),
+          onTap: _onTabTapped,
           alertsUnread: unread,
         ),
       ),

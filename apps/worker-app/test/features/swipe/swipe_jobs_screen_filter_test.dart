@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart';
+import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/features/swipe/domain/job_filter.dart';
 import 'package:badabhai_worker_app/features/swipe/domain/swipe_repository.dart';
@@ -72,6 +74,14 @@ Future<void> _selectCitiesInSheet(
 }
 
 void main() {
+  setUp(() async {
+    await locator.reset();
+    // The screen refetches on tab focus (T4) and resolves this from the locator.
+    locator.registerLazySingleton<TabFocus>(() => TabFocus());
+  });
+
+  tearDown(() async => locator.reset());
+
   testWidgets(
     'changing the trade filter updates the visible deck on the home screen',
     (WidgetTester tester) async {
