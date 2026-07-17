@@ -7,12 +7,22 @@ Studio (Gemini) reached over REST — there is NO LiteLLM proxy. Default mock-on
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# AI-ENV-1: the env_file is ANCHORED to this package, never resolved against the
+# CWD. `env_file=".env"` is CWD-relative, so `uvicorn app.main:app` from the repo
+# root silently loaded the ROOT .env (the NestJS API's) instead of the ai-service's
+# — and the two define OVERLAPPING names with INCOMPATIBLE meanings. Loading the
+# wrong file is silent: you get a stall, not an error. parents[1] == apps/ai-service/
+# (parents[0] == app/), so this resolves identically from ANY working directory.
+_AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=_AI_SERVICE_ROOT / ".env", extra="ignore")
 
     ai_enable_real_calls: bool = False
     # Per-task allowlist for real calls (comma-separated TaskTypes, e.g.
@@ -163,17 +173,37 @@ class Settings(BaseSettings):
     ai_retry_budget_per_window: int = 20
     ai_retry_budget_window_seconds: int = 60
 
-    # Shared spend-ledger store (env REDIS_URL). When UNSET the spend ledger uses
-    # the in-process backend: daily / cumulative / per-user INR caps are enforced
-    # PER PROCESS (with N Uvicorn workers each holds its own counters). This is the
-    # deliberate dev / test / single-process default — NOT a failure.
+    # Shared spend-ledger store (env AI_SPEND_REDIS_URL).
+    #
+    # AI-ENV-1 — RENAMED from REDIS_URL (hard cut, no back-compat alias). The
+    # NestJS API also defines REDIS_URL, and the two meanings are INCOMPATIBLE:
+    # for the API it is MANDATORY infrastructure (sessions, the OTP HMAC store,
+    # rate-limit counters, BullMQ); for THIS service it is an OPTIONAL TD27 spend
+    # ledger whose absence is a valid, deliberate default. One shared name across
+    # two services meant a stray API REDIS_URL — from a root .env, a shell export,
+    # or a compose `environment:` block — silently armed the ai-service's Redis
+    # backend against a store it does not own, and the symptom was a multi-second
+    # stall per real call, not an error. Distinct names make that collision
+    # impossible: the API's REDIS_URL can no longer reach these Settings at all
+    # (`extra="ignore"` drops it). Deliberately NO deprecation shim — this wiring
+    # is dev-only today (no deployed ai-service; TD80), so an alias would preserve
+    # exactly the collision we are removing.
+    #
+    # When UNSET the spend ledger uses the in-process backend: daily / cumulative /
+    # per-user INR caps are enforced PER PROCESS (with N Uvicorn workers each holds
+    # its own counters). This is the deliberate dev / test / single-process default
+    # — NOT a failure. The selected backend is logged ONCE at ledger construction
+    # (cost_tracker.SpendLedger) so "unset" is never mistaken for "misconfigured".
     # When SET it uses the Redis backend (CLAUDE.md §3 locked stack — activating the
     # deferred wiring, not a new datastore): the SAME caps enforce GLOBALLY across
     # all workers, keyed by UTC day. The Redis store FAILS CLOSED — if Redis is
     # unreachable a real call is blocked (mock fallback); an unverifiable cap never
     # permits a real spend. Only PII-free data is stored (INR, counts, the UTC date,
     # and the opaque worker_ref). The retry budget stays per-process regardless.
-    redis_url: str | None = None
+    #
+    # SECRET: may carry credentials (redis://user:pass@host). Never log the VALUE —
+    # name the variable instead (§2).
+    ai_spend_redis_url: str | None = None
 
     sarvam_api_key: str | None = None
     # Sarvam STT model id. Config so the future ``saaras:v3`` swap is one line.

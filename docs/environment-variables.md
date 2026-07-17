@@ -73,7 +73,7 @@ resume-render enablement template: [`apps/api/.env.staging.example`](../apps/api
 | Name           | Purpose                                                | Default                                                  | Class            |
 | -------------- | ------------------------------------------------------ | -------------------------------------------------------- | ---------------- |
 | `DATABASE_URL` | Postgres connection (Drizzle + API).                   | `postgresql://badabhai:badabhai@localhost:5432/badabhai` | SECRET (in prod) |
-| `REDIS_URL`    | Redis — sessions, OTP HMAC store, rate-limit counters. | `redis://localhost:6379`                                 | SECRET (in prod) |
+| `REDIS_URL`    | Redis — sessions, OTP HMAC store, rate-limit counters. **Node API only** — the AI service does _not_ read this (its optional spend ledger is `AI_SPEND_REDIS_URL`; the names were split in AI-ENV-1 because this one is mandatory infrastructure and that one is optional). | `redis://localhost:6379`                                 | SECRET (in prod) |
 
 ### Supabase + Storage buckets (backend / service-role only)
 
@@ -189,6 +189,12 @@ so field `gemini_flash_api_key` ⇄ env `GEMINI_FLASH_API_KEY`. Real LLM calls f
 `real_calls_blocked_reason` requires the master flag **and** the Gemini key, with the kill
 switch checked first.
 
+The dotenv path is **anchored to the package** (`Path(__file__).parents[1] / ".env"`), not
+resolved against the CWD (AI-ENV-1) — so `uvicorn app.main:app` from the repo root reads the
+**same** file as a run from `apps/ai-service`, and a root `.env` can never shadow it. This
+service and the Node API therefore share **no** env-var name whose meaning differs; note the
+API's `REDIS_URL` is **not** read here (the ledger uses `AI_SPEND_REDIS_URL`).
+
 ### Real-call gating
 
 | Env name                    | Purpose                                                                                                                                                                                                 | Default      | Class      |
@@ -214,6 +220,7 @@ switch checked first.
 | `AI_MAX_USER_DAILY_COST_INR`     | Per-user (opaque `worker_ref`, PII-free) per-UTC-day spend cap.                                      | `6.0`                   | config |
 | `AI_RETRY_BUDGET_PER_WINDOW`     | Max retry attempts across all requests within the window.                                            | `20`                    | config |
 | `AI_RETRY_BUDGET_WINDOW_SECONDS` | Retry-budget window.                                                                                 | `60`                    | config |
+| `AI_SPEND_REDIS_URL`             | Shared store for the TD27 spend ledger. **Unset ⇒ in-process backend** (caps enforce PER PROCESS — the deliberate dev/test/single-process default, _not_ a failure); set ⇒ Redis backend (caps enforce GLOBALLY across Uvicorn workers). Fails **closed**: unreachable ⇒ real calls blocked (`spend_store_unavailable` ⇒ mock), bounded by a 2s connect/socket timeout. The selected backend is logged once at startup and surfaced at `/health` (`spend_store`). **Renamed from `REDIS_URL` (AI-ENV-1, hard cut — no alias):** it collided with the Node API's `REDIS_URL`, which is mandatory infrastructure with an incompatible meaning. | _(optional)_ | **SECRET** (may carry credentials) |
 
 ### STT (Sarvam)
 

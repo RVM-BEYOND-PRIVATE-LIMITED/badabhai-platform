@@ -48,6 +48,18 @@ def _force_mock_only_env() -> None:
     # Drop the eval target so the skip-gated per-field real test stays SKIPPED
     # even when a developer .env sets it.
     os.environ.pop("AI_EVAL_BASE_URL", None)
+    # AI-ENV-1: neutralize the spend-ledger store for the whole suite. The env_file is
+    # now ANCHORED to apps/ai-service/.env, so it resolves from ANY cwd (previously
+    # only when pytest ran from that directory) — which means a developer .env is
+    # reachable no matter where the suite is invoked from. A bare ``Settings()``
+    # (test_ai_router.py, test_embeddings.py, ...) feeds get_ledger(), so a dev box
+    # setting AI_SPEND_REDIS_URL would build a RedisSpendBackend pointed at a store
+    # that is not running under test — every real-call gate would then fail CLOSED on
+    # spend_store_unavailable and outcomes would be MACHINE-DEPENDENT. An empty value
+    # is falsy, so the in-process backend is always selected. Tests that need the Redis
+    # backend pass an explicit Settings(ai_spend_redis_url=...) kwarg, which outranks
+    # this (init > env > .env).
+    os.environ["AI_SPEND_REDIS_URL"] = ""
 
 
 # Applied at import time (before any test constructs Settings()).

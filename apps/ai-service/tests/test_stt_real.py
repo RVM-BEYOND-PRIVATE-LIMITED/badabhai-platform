@@ -47,9 +47,11 @@ def _real_settings(**overrides) -> Settings:
 @pytest.fixture(autouse=True)
 def _reset_ledger():
     """Pin a fresh IN-PROCESS ledger per test (the real STT path now reserves
-    chunk spend on it). Ignores any ambient REDIS_URL/.env, which would build a
+    chunk spend on it). Ignores any ambient AI_SPEND_REDIS_URL/.env, which would build a
     Redis backend that fails closed against an unreachable server."""
-    cost_tracker._ledger = cost_tracker.SpendLedger(Settings(_env_file=None, redis_url=None))
+    cost_tracker._ledger = cost_tracker.SpendLedger(
+        Settings(_env_file=None, ai_spend_redis_url=None)
+    )
     yield
     cost_tracker._ledger = None
 

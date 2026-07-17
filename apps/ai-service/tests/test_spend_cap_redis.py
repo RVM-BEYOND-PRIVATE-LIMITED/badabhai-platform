@@ -8,7 +8,7 @@ shared store that the in-process suite (test_spend_cap.py) cannot:
 - reconcile on success (refund reserved − actual) and full refund on failure/abort.
 - FAIL-CLOSED when Redis is unreachable (reserve blocks; refund/snapshot never raise).
 - PII-free keys + UTC-day key naming with a bounded TTL (lifetime key has none).
-- backend selection by REDIS_URL; the facade preserves the snapshot shape.
+- backend selection by AI_SPEND_REDIS_URL; the facade preserves the snapshot shape.
 
 NOTE on the concurrency proof: asyncio is single-threaded and a fakeredis ``eval``
 runs the whole Lua script to completion without yielding — which is exactly why a
@@ -204,15 +204,15 @@ def test_keys_are_pii_free_and_have_correct_ttl():
 
 # --- backend selection + facade snapshot shape -------------------------------
 
-def test_backend_selection_by_redis_url():
+def test_backend_selection_by_ai_spend_redis_url():
     # Construction only (from_url is lazy) — no event loop / no Redis needed.
     assert SpendLedger(_settings()).backend_name == "in_process"
-    assert SpendLedger(_settings(redis_url="redis://test")).backend_name == "redis"
+    assert SpendLedger(_settings(ai_spend_redis_url="redis://test")).backend_name == "redis"
 
 
 def test_facade_reserve_reconcile_and_snapshot_shape_on_redis():
     async def body():
-        ledger = SpendLedger(_settings(redis_url="redis://test"))
+        ledger = SpendLedger(_settings(ai_spend_redis_url="redis://test"))
         ledger._store._client = _fresh_redis_client()
         settings = _settings(**_WIDE)
         # would_exceed_spend RESERVES; record_spend RECONCILES (refunds reserved-actual).

@@ -244,16 +244,54 @@ def _first_json_object(text: str) -> str | None:
 
 _PROVIDER_LABELS = {"google": "Gemini", "anthropic": "Claude Haiku"}
 
+# MSG-1: WHY this turn fell back to the offline mock, per ``AICallMetadata.error_code``.
+# This note used to say "model unavailable" for EVERY mock turn — which is a lie for
+# every reason below except an actual model failure: a spend cap is a BUDGET stop and an
+# unreachable ledger is a CONFIG error, and telling an operator "model unavailable" sends
+# them to debug the wrong system. The router sets error_code from the same closed set, so
+# each cause gets its own honest phrasing. Unmapped/None => the generic mock-mode note
+# (the ordinary AI_ENABLE_REAL_CALLS=false path, which is not a failure at all).
+#
+# Scoped to the codes the router can emit ALONGSIDE real_call=False (the only branch
+# that reads this map). ``llm_call_failed`` / ``retry_budget_exhausted`` are deliberately
+# ABSENT: the router reports those with real_call=TRUE (a candidate did reach the
+# network), so they never reach here — see the note in _provider_note.
+_MOCK_REASON_NOTES = {
+    "spend_store_unavailable": (
+        "spend ledger unreachable — real call blocked (fail-closed, NOT a spend cap); "
+        "check AI_SPEND_REDIS_URL. Used offline fallback (mock) for this turn"
+    ),
+    "daily_cap_exceeded": (
+        "daily spend cap reached — used offline fallback (mock) for this turn"
+    ),
+    "cumulative_cap_exceeded": (
+        "cumulative spend cap reached — used offline fallback (mock) for this turn"
+    ),
+    "user_daily_cap_exceeded": (
+        "per-user daily spend cap reached — used offline fallback (mock) for this turn"
+    ),
+    "cost_ceiling_exceeded": (
+        "per-call cost ceiling exceeded — used offline fallback (mock) for this turn"
+    ),
+    "kill_switch_engaged": (
+        "real calls hard-disabled by the kill switch — used offline fallback (mock) "
+        "for this turn"
+    ),
+}
+
 
 def _provider_note(meta: AICallMetadata) -> str | None:
-    """Per-turn visibility note: which provider actually served this turn (or that
-    it fell back to the offline mock). Named neutrally — NOT "primary"/"fallback" —
+    """Per-turn visibility note: which provider actually served this turn (or WHY it
+    fell back to the offline mock). Named neutrally — NOT "primary"/"fallback" —
     because the primary/fallback order is configurable (e.g. Haiku can be primary),
     so the chain position is not assumed. The COST & METADATA panel remains the
     authoritative breakdown; this is a friendly inline heads-up. PII-free (reads
-    only ``AICallMetadata`` fields)."""
+    only ``AICallMetadata`` fields — closed-set codes, never a config VALUE)."""
     if not meta.real_call:
-        return "[note: model unavailable — used offline fallback (mock) for this turn]"
+        reason = _MOCK_REASON_NOTES.get(meta.error_code or "")
+        if reason:
+            return f"[note: {reason}]"
+        return "[note: real calls off — used offline fallback (mock) for this turn]"
     label = _PROVIDER_LABELS.get(meta.provider, meta.provider)
     # Reconcile per-attempt vs per-call: a turn may have taken several failed
     # attempts (across providers) before this one served. attempt_count counts

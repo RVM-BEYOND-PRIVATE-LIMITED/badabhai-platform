@@ -24,9 +24,11 @@ from app.translate import MOCK_ENGLISH
 @pytest.fixture(autouse=True)
 def _reset_ledger():
     """The real STT path reserves chunk spend on the TD27 ledger; pin a fresh
-    in-process one (ignoring any ambient REDIS_URL/.env, which would fail closed
+    in-process one (ignoring any ambient AI_SPEND_REDIS_URL/.env, which would fail closed
     against an unreachable Redis and block these runs)."""
-    cost_tracker._ledger = cost_tracker.SpendLedger(Settings(_env_file=None, redis_url=None))
+    cost_tracker._ledger = cost_tracker.SpendLedger(
+        Settings(_env_file=None, ai_spend_redis_url=None)
+    )
     yield
     cost_tracker._ledger = None
 

@@ -158,7 +158,7 @@ async def ai_spend(user_ref: str | None = None) -> dict:
     Numbers / model ids / UTC date only — never message content. Pass an opaque
     ``user_ref`` to also see that worker's spend vs the per-user daily cap. Scope is
     per-process with the in-process backend; GLOBAL across workers with Redis
-    (REDIS_URL set). snapshot is async (may touch Redis); await it.
+    (AI_SPEND_REDIS_URL set). snapshot is async (may touch Redis); await it.
     """
     return await cost_tracker.get_ledger().snapshot(settings, user_ref=user_ref)
 
