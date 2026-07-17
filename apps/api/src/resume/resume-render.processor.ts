@@ -50,7 +50,15 @@ export class ResumeRenderProcessor extends WorkerHost {
     }
 
     // Idempotency: a prior attempt may have already produced the PDF.
-    if (resume.renderStatus === "rendered") {
+    //
+    // ADR-0032 / TD77: `force` overrides this for a PRESENTATION-only re-render
+    // (photo added/replaced/removed, or the show_photo pref flipped after the
+    // first render). Without the override the photo could never reach an
+    // already-rendered PDF. A forced run re-renders in place — same version, same
+    // object key — so no new version is minted and the old PDF stays downloadable
+    // until the fresh one overwrites it.
+    const wasRendered = resume.renderStatus === "rendered";
+    if (wasRendered && !job.data.force) {
       this.logger.log(`resume ${resumeId} already rendered; skipping`);
       return { rendered: true };
     }
@@ -122,7 +130,34 @@ export class ResumeRenderProcessor extends WorkerHost {
     if (!pdf) {
       // No PDF this run (kill-switch off, binary missing, or render failed). Only
       // mark the row 'failed' on the FINAL attempt so retries can still succeed.
-      if (this.isFinalAttempt(job) && !this.config.RESUME_RENDER_ENABLED) {
+      if (this.isFinalAttempt(job) && wasRendered && job.data.failClosed) {
+        // TD77 REMOVE direction: the existing PDF embeds the face the worker asked us
+        // to erase, so keeping it in service would keep serving erased PII (§2/DPDP).
+        // Take it out of service — a 409 beats serving a removed face.
+        //
+        // THIS MUST BE TESTED BEFORE THE KILL-SWITCH BRANCH BELOW. Erasure outranks the
+        // kill-switch: when RESUME_RENDER_ENABLED is off there is no way to re-render the
+        // face OFF the PDF, which makes it MORE important to stop serving it, not less.
+        // Ordering this after the kill-switch check silently shadowed `failClosed` and
+        // left the row 'rendered' (i.e. still serving the erased face) — and it never
+        // self-heals, because a later DELETE /workers/me/photo skips the re-render once
+        // show_photo is already off. Gated on `wasRendered`: with no PDF on file there is
+        // no face to erase, so a not-yet-rendered row belongs to the branches below.
+        await this.resumes.markRenderFailed(resumeId);
+        this.logger.warn(
+          `resume ${resumeId} fail-closed re-render produced no PDF; marked failed rather than serve erased PII`,
+        );
+      } else if (this.isFinalAttempt(job) && wasRendered) {
+        // TD77: a FORCED re-render over an ALREADY-GOOD PDF failed. That PDF is
+        // still in storage and still valid, so the row must STAY 'rendered' —
+        // marking it 'failed' would 409 a resume the worker could download a second
+        // ago (i.e. changing their photo would cost them their resume). Degrade
+        // silently: keep serving the existing PDF; the photo just isn't on it yet.
+        // (The REMOVE direction never reaches here — it is handled above.)
+        this.logger.warn(
+          `resume ${resumeId} forced re-render produced no PDF; keeping the existing rendered PDF`,
+        );
+      } else if (this.isFinalAttempt(job) && !this.config.RESUME_RENDER_ENABLED) {
         // Kill-switch off is an expected steady state, not a failure: leave the row
         // 'pending' so it renders once rendering is enabled, rather than marking it failed.
         this.logger.log(`resume ${resumeId} not rendered (render disabled); leaving status pending`);
@@ -147,7 +182,12 @@ export class ResumeRenderProcessor extends WorkerHost {
         `resume ${resumeId} upload/persist failed (${err instanceof Error ? err.message : "unknown"})`,
       );
       if (this.isFinalAttempt(job)) {
-        await this.resumes.markRenderFailed(resumeId);
+        // TD77: same rule as the no-PDF path — NEVER downgrade a resume that already
+        // had a good PDF. A failed upload leaves the previous object intact (the key
+        // is unchanged), so the row stays 'rendered' and the old PDF keeps serving.
+        // In the REMOVE direction we still fail CLOSED: that stale PDF carries the
+        // face the worker erased, so a 409 beats serving it.
+        if (!wasRendered || job.data.failClosed) await this.resumes.markRenderFailed(resumeId);
         return { rendered: false };
       }
       throw err;

@@ -12,9 +12,13 @@ import type { PiiCryptoService } from "../common/pii-crypto.service";
 import type { EventsService } from "../events/events.service";
 import type { StorageService } from "../storage/storage.service";
 import type { RequestContext } from "../common/request-context";
+import type { Queue } from "bullmq";
+import type { ResumeRenderJobData } from "../queue/queue.constants";
 
 const CTX = { correlationId: "corr-1", requestId: "req-1" } as RequestContext;
 const NAME = "Asha Kumari";
+/** TD77: the worker's latest resume — the target of a forced presentation re-render. */
+const RESUME_ID = "3c4d5e6f-3333-4333-8333-000000000003";
 const TOKEN = "v1.opaqueciphertext"; // encrypt() output — must NOT contain the name
 
 /** Default storage mock — every method resolves happily; override per test. */
@@ -50,12 +54,18 @@ function mockConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
   } as ServerConfig;
 }
 
+/** TD77 render queue: the forced re-render producer. Assert `add` per test. */
+function mockRenderQueue() {
+  return { add: vi.fn(async (_name: string, _data: ResumeRenderJobData) => ({ id: "job-1" })) };
+}
+
 function newSvc(
   repo: unknown,
   pii: unknown,
   events: unknown,
   storage: unknown = mockStorage(),
   config: ServerConfig = mockConfig(),
+  renderQueue: unknown = mockRenderQueue(),
 ) {
   return new WorkersService(
     repo as WorkersRepository,
@@ -63,6 +73,7 @@ function newSvc(
     events as EventsService,
     storage as StorageService,
     config,
+    renderQueue as unknown as Queue<ResumeRenderJobData>,
   );
 }
 
@@ -238,6 +249,8 @@ function resumeFieldsSetup(
   const repo = {
     findById: vi.fn(async (_id: string) => worker),
     updateResumePrefs: vi.fn(async (_id: string, _patch: unknown) => updatedRow),
+    // TD77: a show_photo flip re-renders the worker's LATEST resume.
+    latestResume: vi.fn(async (_id: string) => ({ id: RESUME_ID, version: 1 })),
   };
   const pii = {
     encrypt: vi.fn(),
@@ -245,8 +258,9 @@ function resumeFieldsSetup(
     decrypt: vi.fn((_token: string) => NAME),
   };
   const events = { emit: vi.fn(async (_e: unknown) => true) };
-  const svc = newSvc(repo, pii, events);
-  return { svc, repo, pii, events };
+  const renderQueue = mockRenderQueue();
+  const svc = newSvc(repo, pii, events, mockStorage(), mockConfig(), renderQueue);
+  return { svc, repo, pii, events, renderQueue };
 }
 
 describe("WorkersService.getResumeFields", () => {
@@ -392,6 +406,60 @@ describe("WorkersService.updateResumePrefs", () => {
     expect(repo.updateResumePrefs).not.toHaveBeenCalled();
     expect(events.emit).not.toHaveBeenCalled();
   });
+
+  // TD77 — the "Photo dikhayein" toggle decides whether the photo is ON the PDF,
+  // so a REAL flip has to re-render it; a no-op save must not cost a render.
+  /** A worker who actually HAS a photo — the only case where the toggle changes the PDF. */
+  const WORKER_WITH_PHOTO = { ...WORKER, photoStorageKey: "photos/w-1/p.jpg" };
+
+  it("TD77: toggling show_photo OFF forces a FAIL-CLOSED re-render (face off the PDF)", async () => {
+    const updated = { ...WORKER_WITH_PHOTO, resumeShowPhoto: false };
+    const { svc, renderQueue } = resumeFieldsSetup(WORKER_WITH_PHOTO, updated);
+
+    await svc.updateResumePrefs("w-1", { show_photo: false }, CTX);
+
+    expect(renderQueue.add).toHaveBeenCalledWith("render", {
+      resumeId: RESUME_ID,
+      workerId: "w-1",
+      force: true,
+      failClosed: true,
+      correlationId: CTX.correlationId,
+      requestId: CTX.requestId,
+    });
+  });
+
+  it("TD77: toggling show_photo ON forces a degrade-open re-render", async () => {
+    const off = { ...WORKER_WITH_PHOTO, resumeShowPhoto: false };
+    const updated = { ...WORKER_WITH_PHOTO, resumeShowPhoto: true };
+    const { svc, renderQueue } = resumeFieldsSetup(off, updated);
+
+    await svc.updateResumePrefs("w-1", { show_photo: true }, CTX);
+
+    expect(renderQueue.add).toHaveBeenCalledWith(
+      "render",
+      expect.objectContaining({ force: true, failClosed: false }),
+    );
+  });
+
+  it("TD77: an UNCHANGED show_photo does not re-render (no wasted render)", async () => {
+    // night-shift changed; show_photo is identical before and after.
+    const updated = { ...WORKER_WITH_PHOTO, resumeNightShiftReady: true };
+    const { svc, renderQueue } = resumeFieldsSetup(WORKER_WITH_PHOTO, updated);
+
+    await svc.updateResumePrefs("w-1", { night_shift_ready: true }, CTX);
+
+    expect(renderQueue.add).not.toHaveBeenCalled();
+  });
+
+  it("TD77: flipping show_photo with NO photo on file does not re-render", async () => {
+    // Nothing to show or hide → the PDF would be byte-identical.
+    const updated = { ...WORKER, resumeShowPhoto: false };
+    const { svc, renderQueue } = resumeFieldsSetup(WORKER, updated);
+
+    await svc.updateResumePrefs("w-1", { show_photo: false }, CTX);
+
+    expect(renderQueue.add).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -402,19 +470,27 @@ const WORKER_ID = "0a1b2c3d-1111-4111-8111-000000000001";
 const MINTED_KEY = `photos/${WORKER_ID}/9f8e7d6c-2222-4222-8222-000000000002.jpg`;
 
 function photoSetup(opts: {
-  worker?: { id: string; photoStorageKey?: string | null } | undefined;
+  worker?:
+    | { id: string; photoStorageKey?: string | null; resumeShowPhoto?: boolean }
+    | undefined;
   bucket?: string;
   info?: { contentType: string | null; sizeBytes: number | null } | null;
+  /** TD77: omit for "worker has a resume"; pass undefined for "no resume yet". */
+  latestResume?: { id: string; version: number } | undefined;
+  /** TD77: override to prove the re-render enqueue is best-effort. */
+  renderQueue?: { add: ReturnType<typeof vi.fn> };
 } = {}) {
   const worker =
     "worker" in opts
       ? opts.worker
       : { id: WORKER_ID, fullName: null, resumeShowPhoto: true, photoStorageKey: null };
+  const latestResume = "latestResume" in opts ? opts.latestResume : { id: RESUME_ID, version: 1 };
   const repo = {
     findById: vi.fn(async (_id: string) => worker),
     updatePhotoStorageKey: vi.fn(async (_id: string, key: string | null) =>
       worker ? { ...worker, photoStorageKey: key } : undefined,
     ),
+    latestResume: vi.fn(async (_id: string) => latestResume),
   };
   const pii = { encrypt: vi.fn(), decrypt: vi.fn() };
   const events = { emit: vi.fn(async (_e: unknown) => true) };
@@ -425,8 +501,9 @@ function photoSetup(opts: {
   const config = mockConfig(
     "bucket" in opts ? ({ WORKER_PHOTOS_BUCKET: opts.bucket } as Partial<ServerConfig>) : {},
   );
-  const svc = newSvc(repo, pii, events, storage, config);
-  return { svc, repo, events, storage };
+  const renderQueue = opts.renderQueue ?? mockRenderQueue();
+  const svc = newSvc(repo, pii, events, storage, config, renderQueue);
+  return { svc, repo, events, storage, renderQueue };
 }
 
 describe("WorkersService.createPhotoUploadUrl (ADR-0032)", () => {
@@ -514,6 +591,55 @@ describe("WorkersService.confirmPhoto (ADR-0032)", () => {
     expect(res).toEqual({ worker_id: WORKER_ID, has_photo: true });
   });
 
+  // TD77 — the resume PDF is rendered when the profile is confirmed, i.e. BEFORE
+  // a photo exists. Without a FORCED re-render the processor's "already rendered
+  // → skip" guard means the photo never reaches the PDF from either entry point.
+  it("TD77: forces a re-render so the new photo lands on the existing resume PDF", async () => {
+    const { svc, renderQueue } = photoSetup();
+    await svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX);
+
+    expect(renderQueue.add).toHaveBeenCalledWith("render", {
+      resumeId: RESUME_ID,
+      workerId: WORKER_ID,
+      force: true,
+      // ADD direction: a failed refresh may degrade open (keep the old PDF).
+      failClosed: false,
+      correlationId: CTX.correlationId,
+      requestId: CTX.requestId,
+    });
+    // refs only — no key/name/bytes are ever enqueued
+    const jobData = JSON.stringify(renderQueue.add.mock.calls[0]![1]);
+    expect(jobData).not.toMatch(/photos\/|https?:|Asha/i);
+  });
+
+  it("TD77: show_photo OFF → NO re-render (it could not change a byte of the PDF)", async () => {
+    const { svc, renderQueue } = photoSetup({
+      worker: { id: WORKER_ID, photoStorageKey: null, resumeShowPhoto: false },
+    });
+    await svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX);
+    expect(renderQueue.add).not.toHaveBeenCalled();
+  });
+
+  it("TD77: no resume yet → nothing to re-render (the first generate picks the photo up)", async () => {
+    const { svc, renderQueue } = photoSetup({ latestResume: undefined });
+    await svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX);
+    expect(renderQueue.add).not.toHaveBeenCalled();
+  });
+
+  it("TD77: a re-render enqueue failure NEVER fails the photo upload (best-effort)", async () => {
+    const renderQueue = {
+      add: vi.fn(async () => {
+        throw new Error("redis down");
+      }),
+    };
+    const { svc, repo } = photoSetup({ renderQueue });
+    await expect(
+      svc.confirmPhoto(WORKER_ID, { storage_path: MINTED_KEY }, CTX),
+    ).resolves.toEqual({ worker_id: WORKER_ID, has_photo: true });
+    // the pointer still persisted — the photo IS saved, only the re-render was lost
+    expect(repo.updatePhotoStorageKey).toHaveBeenCalledWith(WORKER_ID, MINTED_KEY);
+  });
+
   it("replacing a photo best-effort deletes the OLD object (and a failed delete never fails the confirm)", async () => {
     const OLD_KEY = `photos/${WORKER_ID}/00000000-3333-4333-8333-000000000003.jpg`;
     const { svc, storage } = photoSetup({
@@ -565,13 +691,39 @@ describe("WorkersService.getPhotoUrl (ADR-0032)", () => {
 
 describe("WorkersService.deletePhoto (ADR-0032)", () => {
   it("IDEMPOTENT: no photo → 200-shape result, no write, NO event (nothing changed, §1)", async () => {
-    const { svc, repo, events } = photoSetup({
+    const { svc, repo, events, renderQueue } = photoSetup({
       worker: { id: WORKER_ID, photoStorageKey: null },
     });
     const res = await svc.deletePhoto(WORKER_ID, CTX);
     expect(res).toEqual({ worker_id: WORKER_ID, has_photo: false });
     expect(repo.updatePhotoStorageKey).not.toHaveBeenCalled();
     expect(events.emit).not.toHaveBeenCalled();
+    // TD77: nothing changed → no re-render either
+    expect(renderQueue.add).not.toHaveBeenCalled();
+  });
+
+  it("TD77: forces a FAIL-CLOSED re-render so the face comes OFF the resume PDF", async () => {
+    const { svc, renderQueue } = photoSetup({
+      worker: { id: WORKER_ID, photoStorageKey: MINTED_KEY, resumeShowPhoto: true },
+    });
+    await svc.deletePhoto(WORKER_ID, CTX);
+    expect(renderQueue.add).toHaveBeenCalledWith("render", {
+      resumeId: RESUME_ID,
+      workerId: WORKER_ID,
+      force: true,
+      // REMOVE direction: a terminal failure must NOT keep serving the erased face.
+      failClosed: true,
+      correlationId: CTX.correlationId,
+      requestId: CTX.requestId,
+    });
+  });
+
+  it("TD77: photo removed while show_photo was OFF → NO re-render (never was on the PDF)", async () => {
+    const { svc, renderQueue } = photoSetup({
+      worker: { id: WORKER_ID, photoStorageKey: MINTED_KEY, resumeShowPhoto: false },
+    });
+    await svc.deletePhoto(WORKER_ID, CTX);
+    expect(renderQueue.add).not.toHaveBeenCalled();
   });
 
   it("clears the pointer, deletes the object, and emits a PII-free worker.photo_removed", async () => {
