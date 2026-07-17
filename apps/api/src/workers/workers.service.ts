@@ -6,6 +6,8 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { Inject } from "@nestjs/common";
+import { InjectQueue } from "@nestjs/bullmq";
+import { Queue } from "bullmq";
 import { randomUUID } from "node:crypto";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
@@ -13,6 +15,7 @@ import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
 import { StorageService } from "../storage/storage.service";
+import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { WorkersRepository } from "./workers.repository";
 import { toProfileSummary } from "./profile-summary.mapper";
 import type {
@@ -43,7 +46,63 @@ export class WorkersService {
     private readonly events: EventsService,
     private readonly storage: StorageService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    @InjectQueue(RESUME_RENDER_QUEUE)
+    private readonly renderQueue: Queue<ResumeRenderJobData>,
   ) {}
+
+  /**
+   * ADR-0032 / TD77 — re-render the worker's LATEST resume PDF after a change that
+   * affects only PRESENTATION: a photo added/replaced/removed, or the show_photo
+   * pref flipped.
+   *
+   * WHY THIS EXISTS: the render processor skips a resume that is already
+   * 'rendered' (correct for retries). A worker's resume is auto-generated when
+   * their profile is confirmed — i.e. BEFORE they ever add a photo — so without a
+   * forced re-render the photo would never appear on the PDF, no matter which
+   * screen they set it from.
+   *
+   * LLM-FREE + version-stable: the render reads the stored profile SNAPSHOT + the
+   * server-decrypted name + the photo bytes — no AI call, no AI spend, no new
+   * resume version. The SAME object key is overwritten, so the existing PDF keeps
+   * serving until the fresh one lands — a refresh never costs the worker their
+   * download. (The ONE exception is the `failClosed` remove direction: there a
+   * terminal failure DOES take the PDF out of service, because serving a face the
+   * worker erased is worse than a 409.)
+   *
+   * BEST-EFFORT: a queue failure must NEVER fail the photo/prefs write that
+   * triggered it (mirrors ResumeService.enqueueRender). Refs only — no PII is
+   * enqueued, and the reason is logged without the key/name.
+   *
+   * CALLERS MUST ONLY CALL THIS WHEN THE PDF WOULD ACTUALLY CHANGE (i.e. the photo
+   * is/was visible on it). A render that cannot alter a single byte is pure cost on
+   * a shared queue. `failClosed` marks the REMOVE direction — see the field doc on
+   * {@link ResumeRenderJobData.failClosed}.
+   */
+  private async enqueueResumeRerender(
+    workerId: string,
+    ctx: RequestContext,
+    opts: { failClosed: boolean },
+  ): Promise<void> {
+    try {
+      const latest = await this.workers.latestResume(workerId);
+      // No resume yet → nothing to re-render; the first generate picks the photo up.
+      if (!latest) return;
+      await this.renderQueue.add("render", {
+        resumeId: latest.id,
+        workerId,
+        force: true,
+        failClosed: opts.failClosed,
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `could not enqueue resume re-render for worker ${workerId} (reason: ${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      );
+    }
+  }
 
   /**
    * Record the worker's real name. The name is PII (TD21): it is encrypted at
@@ -242,6 +301,12 @@ export class WorkersService {
     });
 
     this.logger.log(`profile photo recorded for worker ${workerId}`); // never the key/URL
+    // TD77: put the new photo onto the worker's existing resume PDF (top-right of
+    // the template). ONLY when show_photo is on — with it off the render gate drops
+    // the photo anyway, so a re-render could not change one byte of the PDF.
+    if (worker.resumeShowPhoto) {
+      await this.enqueueResumeRerender(workerId, ctx, { failClosed: false });
+    }
     return { worker_id: workerId, has_photo: true };
   }
 
@@ -310,6 +375,13 @@ export class WorkersService {
     });
 
     this.logger.log(`profile photo removed for worker ${workerId}`);
+    // TD77: take the photo back OFF the worker's existing resume PDF — but only if it
+    // was ever ON it (show_photo off ⇒ the PDF never carried the face, nothing to
+    // erase). failClosed: this render's purpose is to remove PII, so a terminal
+    // failure must NOT keep serving the face the worker just erased.
+    if (worker.resumeShowPhoto) {
+      await this.enqueueResumeRerender(workerId, ctx, { failClosed: true });
+    }
     return { worker_id: workerId, has_photo: false };
   }
 
@@ -346,6 +418,16 @@ export class WorkersService {
     });
 
     this.logger.log(`resume prefs updated for worker ${workerId}`);
+    // TD77: the "Photo dikhayein" toggle decides whether the photo is on the PDF, so
+    // a REAL flip must re-render it on/off. Two gates keep this from burning renders
+    // that cannot change a byte: compared before-vs-after (not "was show_photo in the
+    // body"), AND only when a photo actually exists to show/hide. Turning the toggle
+    // OFF takes the face off the PDF ⇒ failClosed (never serve erased PII).
+    const hasPhoto =
+      typeof worker.photoStorageKey === "string" && worker.photoStorageKey.length > 0;
+    if (hasPhoto && worker.resumeShowPhoto !== updated.resumeShowPhoto) {
+      await this.enqueueResumeRerender(workerId, ctx, { failClosed: !updated.resumeShowPhoto });
+    }
     return { worker_id: workerId };
   }
 }
