@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import traceback
 from pathlib import Path
+
+import pytest
 
 # Imported at MODULE level on purpose: importing app.main runs configure_logging(),
 # which does `root.handlers.clear()` — and that would WIPE pytest's caplog handler if
@@ -32,7 +35,7 @@ from app.ai.cost_tracker import (
     RedisSpendBackend,
     SpendLedger,
 )
-from app.config import _AI_SERVICE_ROOT, Settings
+from app.config import _AI_SERVICE_ROOT, ConfigError, Settings
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 AI_SERVICE_DIR = Path(__file__).resolve().parents[1]
@@ -190,6 +193,113 @@ def test_new_var_name_does_bind(monkeypatch):
 
     assert settings.ai_spend_redis_url == "redis://ai-spend-ledger:6379/0"
     assert SpendLedger(settings).backend_name == "redis"
+
+
+# --- a malformed URL is rejected at STARTUP, naming the var, leaking nothing ----
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        "localhost:6379",           # THE common typo: no scheme at all
+        "http://localhost:6379",    # wrong scheme
+        "redis:/localhost:6379",    # single-slash slip
+        "  ",                       # whitespace-only
+    ],
+)
+def test_malformed_spend_redis_url_fails_at_settings_naming_the_var(malformed):
+    """TD67's precedent applied: a setting that can be misconfigured must be REJECTED
+    at startup, not armed and left to explode somewhere less legible.
+
+    ``redis.asyncio.from_url`` validates the scheme EAGERLY (it raises before any I/O),
+    so without this validator a missing ``redis://`` prefix aborted BOOT from inside the
+    redis library with a bare ValueError that never named the variable at fault — the
+    exact failure class this PR exists to kill.
+    """
+    with pytest.raises(ConfigError) as excinfo:
+        Settings(_env_file=None, ai_spend_redis_url=malformed)
+
+    message = str(excinfo.value)
+    assert "AI_SPEND_REDIS_URL" in message  # names the VAR, not just the field
+    assert "redis://" in message  # and states what a valid value looks like
+
+
+def test_malformed_spend_redis_url_error_never_leaks_the_credential():
+    """§2 — THE TRAP. Pydantic echoes the offending input into validation errors by
+    default (``input_value='redis://user:pass@host'``), and this value can carry
+    credentials. ``hide_input_in_errors=True`` (config.py) suppresses that echo. A boot
+    error is printed to logs and CI output, so an echo here is a real credential leak.
+    """
+    secret = "sup3rs3cret"
+    # Malformed (bad scheme) AND credential-bearing — the value that must not surface.
+    bad = f"proto://admin:{secret}@ledger.internal:6379/0"
+
+    with pytest.raises(ConfigError) as excinfo:
+        Settings(_env_file=None, ai_spend_redis_url=bad)
+
+    # Check every rendering an operator or a log could plausibly see.
+    renderings = [
+        str(excinfo.value),
+        repr(excinfo.value),
+        "".join(traceback.format_exception(excinfo.value)),
+    ]
+    for rendered in renderings:
+        assert secret not in rendered
+        assert bad not in rendered
+        assert "admin" not in rendered
+    # ...while still being actionable.
+    assert "AI_SPEND_REDIS_URL" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("valid", ["redis://h:6379/0", "rediss://h:6379/0", "unix:///t.sock"])
+def test_valid_spend_redis_url_schemes_are_accepted(valid):
+    """The validator must not over-reject: every scheme redis-py accepts still builds."""
+    settings = Settings(_env_file=None, ai_spend_redis_url=valid)
+    assert settings.ai_spend_redis_url == valid
+    assert SpendLedger(settings).backend_name == "redis"
+
+
+@pytest.mark.parametrize("unset", [None, ""])
+def test_unset_spend_redis_url_stays_valid_and_is_not_mandatory(unset):
+    """Redis is NOT mandatory. Unset (or an empty template line) must NOT raise — it
+    means per-process caps, the deliberate dev/test/single-process default."""
+    settings = Settings(_env_file=None, ai_spend_redis_url=unset)
+    assert not settings.ai_spend_redis_url
+    assert SpendLedger(settings).backend_name == "in_process"
+
+
+def test_unusable_url_that_passes_the_scheme_check_still_names_the_var():
+    """Defence in depth for the residual I measured: ``redis://host:notaport`` passes
+    the scheme check but from_url still rejects it at parse time ("Port could not be
+    cast to integer"). RedisSpendBackend re-raises naming the variable rather than
+    letting a raw redis-lib error abort boot anonymously."""
+    with pytest.raises(ConfigError) as excinfo:
+        RedisSpendBackend("redis://host:notaport")
+
+    message = str(excinfo.value)
+    assert "AI_SPEND_REDIS_URL" in message
+    assert "notaport" not in message  # value omitted (§2)
+
+
+def test_wellformed_but_unreachable_url_boots_and_still_fails_closed():
+    """THE INVARIANT the validation must not disturb. Shape-checking is NOT a
+    connectivity check: a well-formed URL pointing at nothing must still CONSTRUCT
+    (boot succeeds, no network at boot) and still BLOCK the real call per-call."""
+    # Constructs without raising -> the service boots.
+    ledger = SpendLedger(
+        Settings(_env_file=None, ai_spend_redis_url="redis://192.0.2.1:6379/0")
+    )
+    assert ledger.backend_name == "redis"
+
+    # ...and the per-call verdict is unchanged: blocked, never open.
+    class _Unreachable:
+        async def eval(self, *a, **k):
+            raise ConnectionError("no route to host")
+
+    ledger._store._client = _Unreachable()
+    verdict = asyncio.run(
+        ledger.would_exceed_spend(1.0, Settings(_env_file=None), user_ref="w1")
+    )
+    assert verdict == "spend_store_unavailable"
 
 
 # --- 2. unset -> in-process + the startup log ---------------------------------

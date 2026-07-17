@@ -97,9 +97,24 @@ async def _lifespan(_app: FastAPI):
     is the ONLY signal.
 
     Safe to do at boot: ``SpendLedger`` construction performs NO network I/O
-    (``redis.asyncio.from_url`` is lazy — it connects on first command), so an
-    unreachable Redis still boots fine and still fails CLOSED per call. It does not
-    import anything ``main`` has not already imported, so there is no cycle.
+    (``redis.asyncio.from_url`` is lazy — it connects on first command), so a
+    well-formed but UNREACHABLE Redis still boots fine and still fails CLOSED per call.
+    It does not import anything ``main`` has not already imported, so there is no cycle.
+
+    DELIBERATELY UNGUARDED. ``from_url`` does no I/O but it does PARSE eagerly, so a
+    malformed URL raises here rather than returning. Letting that abort the boot is the
+    CORRECT outcome, and the reason there is no try/except:
+
+    - Both malformed-URL paths now fail with a message that NAMES AI_SPEND_REDIS_URL —
+      the scheme typo at ``Settings()`` (config.py's validator, so it aborts at import,
+      before this hook), anything else at ``RedisSpendBackend.__init__``. A loud, named,
+      boot-time failure is precisely what this PR exists to produce.
+    - Swallowing it would be strictly worse: the service would boot with no usable
+      ledger, and the next real call would re-enter ``get_ledger()`` and raise INSIDE
+      ``router.run`` — breaching the router's never-raise contract and turning a config
+      typo into a worker-facing 500 instead of a mock fallback.
+    - Fail-closed: a ledger that cannot be constructed cannot verify a cap, and an
+      unverifiable cap must never permit real spend.
     """
     cost_tracker.get_ledger()
     yield

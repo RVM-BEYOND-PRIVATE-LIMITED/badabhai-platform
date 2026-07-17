@@ -26,7 +26,7 @@ import uuid
 from abc import ABC, abstractmethod
 from datetime import UTC, date, datetime, timedelta
 
-from ..config import Settings
+from ..config import ConfigError, Settings
 from ..contracts import AICallMetadata
 from ..logging_config import get_logger
 from .model_config import provider_for_model, rate_inr_per_1k
@@ -355,12 +355,25 @@ class RedisSpendBackend(SpendStore):
         # socket_connect_timeout bounds the TCP handshake (the 21s-stall case);
         # socket_timeout bounds a connection that opens then goes silent (a
         # half-open/blackholed peer), which the connect timeout alone would miss.
-        self._client = aioredis.from_url(
-            redis_url,
-            decode_responses=True,
-            socket_connect_timeout=_REDIS_TIMEOUT_SECONDS,
-            socket_timeout=_REDIS_TIMEOUT_SECONDS,
-        )
+        #
+        # from_url performs NO network I/O (the connection is lazy) but it DOES parse
+        # eagerly and can raise: Settings' validator catches the common scheme typo, and
+        # this catches everything else it rejects at parse time (e.g. a non-integer port
+        # -> "Port could not be cast to integer value"). Re-raised naming the variable
+        # so the operator is pointed at the config, not into the redis library. §2: the
+        # value is never included — only the error type, which is shape info, not data.
+        try:
+            self._client = aioredis.from_url(
+                redis_url,
+                decode_responses=True,
+                socket_connect_timeout=_REDIS_TIMEOUT_SECONDS,
+                socket_timeout=_REDIS_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            raise ConfigError(
+                "AI_SPEND_REDIS_URL is not a usable Redis URL "
+                f"({type(exc).__name__}) — value omitted, it may carry credentials"
+            ) from None  # `from None`: the original may echo the URL in its message
 
     def _daily_key(self, day: str) -> str:
         return f"{self._PREFIX}:daily:{day}"

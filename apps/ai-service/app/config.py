@@ -9,8 +9,32 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Schemes redis-py's ``from_url`` accepts. It validates these EAGERLY at client
+# construction (no network — it raises before any I/O), so a malformed value would
+# otherwise surface as a bare ValueError from deep inside the redis lib that never
+# names the variable that is actually wrong.
+_REDIS_URL_SCHEMES = ("redis://", "rediss://", "unix://")
+
+
+class ConfigError(Exception):
+    """A setting is malformed — raised at ``Settings()``, i.e. at STARTUP.
+
+    DELIBERATELY NOT a ValueError (or AssertionError). §2, and this is subtle enough to
+    be worth stating: pydantic converts ValueError/AssertionError raised inside a
+    validator into a ``ValidationError``, which RECORDS THE OFFENDING INPUT VALUE. Even
+    with ``hide_input_in_errors=True`` — which does clean ``str()`` and ``repr()`` —
+    ``ValidationError.errors()`` and ``.json()`` still carry
+    ``'input': 'redis://user:pass@host'`` verbatim. This model holds almost nothing but
+    credentials, so that is a live leak path for any structured error handling.
+
+    Pydantic propagates any OTHER exception type unwrapped, so raising this keeps the
+    message we control as the only thing that can be rendered: no ``.errors()``, no
+    ``.json()``, no input echo, nothing in the traceback. Verified by test
+    (``test_malformed_spend_redis_url_error_never_leaks_the_credential``).
+    """
 
 # AI-ENV-1: the env_file is ANCHORED to this package, never resolved against the
 # CWD. `env_file=".env"` is CWD-relative, so `uvicorn app.main:app` from the repo
@@ -22,7 +46,19 @@ _AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=_AI_SERVICE_ROOT / ".env", extra="ignore")
+    # hide_input_in_errors: §2. Pydantic echoes the offending INPUT VALUE into every
+    # validation error by default (``input_value='redis://user:pass@host'``), and this
+    # model holds nothing BUT credentials — provider keys, the service-role key, the
+    # internal tokens, the ledger URL. A boot-time validation error is printed to logs
+    # and CI output, so the default would leak whichever secret was misconfigured. This
+    # also closes the same latent leak in TD67's ``ai_internal_token`` min_length check
+    # (a short token was previously echoed verbatim). Error messages must name the
+    # FIELD, never its value.
+    model_config = SettingsConfigDict(
+        env_file=_AI_SERVICE_ROOT / ".env",
+        extra="ignore",
+        hide_input_in_errors=True,
+    )
 
     ai_enable_real_calls: bool = False
     # Per-task allowlist for real calls (comma-separated TaskTypes, e.g.
@@ -202,8 +238,48 @@ class Settings(BaseSettings):
     # and the opaque worker_ref). The retry budget stays per-process regardless.
     #
     # SECRET: may carry credentials (redis://user:pass@host). Never log the VALUE —
-    # name the variable instead (§2).
+    # name the variable instead (§2). Scheme-validated at STARTUP: see
+    # _validate_spend_redis_url below.
     ai_spend_redis_url: str | None = None
+
+    @field_validator("ai_spend_redis_url")
+    @classmethod
+    def _validate_spend_redis_url(cls, value: str | None) -> str | None:
+        """Reject a malformed ledger URL at ``Settings()`` — i.e. at STARTUP.
+
+        Mirrors the TD67 precedent (``ai_internal_token``'s min_length): a setting that
+        can be misconfigured must be rejected at startup, never armed and left to fail
+        somewhere less legible. ``redis.asyncio.from_url`` validates the scheme EAGERLY
+        at construction, so a missing ``redis://`` prefix — the likeliest typo for this
+        var — otherwise raised a bare ValueError from inside the redis library that
+        never names AI_SPEND_REDIS_URL. Worse, without this the failure lands in the
+        boot lifespan hook (service won't start, opaque reason) or, if that hook were
+        removed, inside the first real call — where it would breach the router's
+        never-raise contract and surface as a worker-facing 500 instead of a mock.
+
+        UNSET STAYS VALID. ``None`` (and ``""``, which conftest/an empty template line
+        produce) mean "no shared store" -> InProcessSpendBackend, the deliberate
+        dev/test/single-process default. This validator only rejects a value that was
+        clearly MEANT to be a Redis URL and isn't one.
+
+        NO NETWORK: this is a string-shape check only. A well-formed but unreachable URL
+        passes here and boots fine — connectivity stays lazy and fails CLOSED per call
+        (``spend_store_unavailable`` -> mock), which is the required behaviour.
+
+        §2: names the variable and the allowed schemes; NEVER echoes the value (it can
+        carry credentials). Raises ``ConfigError`` — NOT a ValueError — so pydantic does
+        not wrap it into a ValidationError that would record the input verbatim in
+        ``.errors()``/``.json()``. See ConfigError's docstring.
+        """
+        if not value:  # None / "" -> in-process backend (a valid, deliberate default)
+            return value
+        if not value.startswith(_REDIS_URL_SCHEMES):
+            raise ConfigError(
+                "AI_SPEND_REDIS_URL must start with one of "
+                f"{', '.join(_REDIS_URL_SCHEMES)} "
+                "(value omitted from this message — it may carry credentials)"
+            )
+        return value
 
     sarvam_api_key: str | None = None
     # Sarvam STT model id. Config so the future ``saaras:v3`` swap is one line.
