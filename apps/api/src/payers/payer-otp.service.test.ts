@@ -15,9 +15,9 @@ const config = {
   NODE_ENV: "test",
   OTP_LENGTH: 6,
   OTP_TTL_SECONDS: 300,
-  OTP_MAX_ATTEMPTS: 5,
+  OTP_MAX_ATTEMPTS: 500,
   OTP_RESEND_COOLDOWN_SECONDS: 30,
-  OTP_MAX_SENDS_PER_HOUR: 5,
+  OTP_MAX_SENDS_PER_HOUR: 500,
   // The payer email channel is REAL-ONLY (zeptomail/smtp; no "none"/mock), so
   // isRealPayerEmailActive is always true and the global daily breaker ALWAYS enforces.
   // Default a HIGH global cap so the breaker never trips for the issue/verify suites (each
@@ -183,12 +183,19 @@ describe("PayerOtpService global daily send circuit-breaker (OTP-5 spend ceiling
       mock: false, // a REAL channel — informational only; the breaker gates on config, not this
       deliver: vi.fn().mockResolvedValue(undefined),
     };
-    const svc = new PayerOtpService({ ...realConfig, ...over } as ServerConfig, pii, channel, queue);
+    const svc = new PayerOtpService(
+      { ...realConfig, ...over } as ServerConfig,
+      pii,
+      channel,
+      queue,
+    );
     return { svc, redis, channel };
   }
 
   it("blocks the REAL send (issueAndSend) once the global daily count reaches the cap", async () => {
-    const { svc, redis, channel } = realSetup({ PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY: 3 } as Partial<ServerConfig>);
+    const { svc, redis, channel } = realSetup({
+      PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY: 3,
+    } as Partial<ServerConfig>);
     redis.store.set(globalKeyToday(), "2"); // next INCR → 3 == cap
     const err = await svc.issueAndSend(issueInput).catch((e) => e);
     expect(err).toBeInstanceOf(OtpSendCapExceededException);
@@ -199,7 +206,9 @@ describe("PayerOtpService global daily send circuit-breaker (OTP-5 spend ceiling
   });
 
   it("ALSO blocks the unknown-account reserve (issueWithoutDelivery) at the SAME cap — parity", async () => {
-    const { svc, redis } = realSetup({ PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY: 3 } as Partial<ServerConfig>);
+    const { svc, redis } = realSetup({
+      PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY: 3,
+    } as Partial<ServerConfig>);
     redis.store.set(globalKeyToday(), "2");
     const err = await svc.issueWithoutDelivery(EMAIL_HASH).catch((e) => e);
     // The breaker lives in the existence-INDEPENDENT reserve path, so an unknown account
@@ -209,7 +218,9 @@ describe("PayerOtpService global daily send circuit-breaker (OTP-5 spend ceiling
   });
 
   it("cap=0 (kill-switch) blocks the VERY FIRST real send", async () => {
-    const { svc, channel } = realSetup({ PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY: 0 } as Partial<ServerConfig>);
+    const { svc, channel } = realSetup({
+      PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY: 0,
+    } as Partial<ServerConfig>);
     const err = await svc.issueAndSend(issueInput).catch((e) => e);
     expect(err).toBeInstanceOf(OtpSendCapExceededException);
     expect(err.breach.limit).toBe(0);

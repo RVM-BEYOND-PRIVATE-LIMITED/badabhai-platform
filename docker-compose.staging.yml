@@ -96,7 +96,7 @@ services:
       # add SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY here as `${VAR:?}` fail-loud
       # entries (deliberately NOT added today — keeping the required-secret set equal
       # to the owner's STAGING-SECRETS-1 list).
-      RESUME_RENDER_ENABLED: "false"
+      RESUME_RENDER_ENABLED: "true"
 
       # ---- KNOWN-SURVIVING DEV VALUE (deliberate for now — R27 owner queue). The base
       # file's `PAYER_LOGIN_METHOD: whatsapp` survives this merge, and the WhatsApp

@@ -69,9 +69,13 @@ export class StorageService {
         headers: { authorization: `Bearer ${serviceKey}` },
         signal: controller.signal,
       });
-      if (res.status === 404) return false;
-      if (!res.ok) throw new Error(`storage object-info failed with status ${res.status}`);
-      return true;
+      if (res.ok) return true;
+      // Supabase's object/info returns HTTP 400 with body {error:"not_found"} — NOT a
+      // plain 404 — when the object is absent on current builds; older builds return
+      // 404. Both mean "absent" (render-once: re-render + store). A real 400 without
+      // that body still THROWS (a transport/config error must not read as "absent").
+      if (StorageService.isNotFound(res.status, await StorageService.safeText(res))) return false;
+      throw new Error(`storage object-info failed with status ${res.status}`);
     } finally {
       clearTimeout(timeout);
     }
@@ -98,16 +102,23 @@ export class StorageService {
         headers: { authorization: `Bearer ${serviceKey}` },
         signal: controller.signal,
       });
-      if (res.status === 404) return null;
-      if (!res.ok) throw new Error(`storage object-info failed with status ${res.status}`);
-      // The info endpoint returns metadata; field names have varied across Supabase
-      // versions (contentType vs metadata.mimetype, size vs metadata.size) — read both.
+      if (!res.ok) {
+        // Absent object → null (see isNotFound: 404, or the current-build 400+not_found).
+        if (StorageService.isNotFound(res.status, await StorageService.safeText(res))) return null;
+        throw new Error(`storage object-info failed with status ${res.status}`);
+      }
+      // The info endpoint's field names have varied across Supabase versions: the
+      // CURRENT build returns snake_case `content_type` + a top-level `size`; older
+      // builds used `contentType` / `metadata.mimetype` / `metadata.size`. Read ALL
+      // shapes so the photo-confirm mime/size gate (ADR-0032) never false-rejects a
+      // valid upload as null → 400.
       const body = (await res.json()) as {
+        content_type?: string;
         contentType?: string;
         size?: number;
         metadata?: { mimetype?: string; size?: number };
       };
-      const contentType = body.contentType ?? body.metadata?.mimetype ?? null;
+      const contentType = body.content_type ?? body.contentType ?? body.metadata?.mimetype ?? null;
       const size = body.size ?? body.metadata?.size;
       return {
         contentType,
@@ -137,8 +148,12 @@ export class StorageService {
         headers: { authorization: `Bearer ${serviceKey}` },
         signal: controller.signal,
       });
-      if (res.status === 404) return null;
-      if (!res.ok) throw new Error(`storage download failed with status ${res.status}`);
+      if (!res.ok) {
+        // Absent photo → null (worker has none yet); the caller degrades (renders
+        // without a photo). Any OTHER failure THROWS so it is not read as "absent".
+        if (StorageService.isNotFound(res.status, await StorageService.safeText(res))) return null;
+        throw new Error(`storage download failed with status ${res.status}`);
+      }
       return Buffer.from(await res.arrayBuffer());
     } finally {
       clearTimeout(timeout);
@@ -334,6 +349,40 @@ export class StorageService {
       return { url: `${url}/storage/v1${relative}`, expiresIn: 7200 };
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  /**
+   * True when a Storage response means "object absent". Supabase's `object/info`
+   * endpoint on the current build answers a MISSING object with HTTP 400 and body
+   * `{"statusCode":"404","error":"not_found","message":"Object not found"}` — NOT a
+   * plain 404 — so a status-only `=== 404` check misses it (that regression surfaced
+   * as interview-kit 503s and photo-confirm 400s: `objectExists`/`getObjectInfo`
+   * threw / returned null on every absent object). Older builds and the raw download
+   * endpoint use a plain 404. A real 400 (bad request) WITHOUT a not-found body is
+   * NOT absent — it still throws upstream.
+   */
+  private static isNotFound(status: number, bodyText: string): boolean {
+    if (status === 404) return true;
+    if (status !== 400 || !bodyText) return false;
+    try {
+      const b = JSON.parse(bodyText) as { statusCode?: string | number; error?: string; message?: string };
+      return (
+        b?.error === "not_found" ||
+        String(b?.statusCode) === "404" ||
+        /not\s*found/i.test(b?.message ?? "")
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /** Best-effort body read for error classification — never throws, never logged. */
+  private static async safeText(res: { text?: () => Promise<string> }): Promise<string> {
+    try {
+      return typeof res.text === "function" ? await res.text() : "";
+    } catch {
+      return "";
     }
   }
 
