@@ -5,6 +5,54 @@ Newest day on top. Copy the template block each working day. Every % move needs 
 
 ---
 
+# Daily Tracker — 2026-07-17
+
+## BadaBhai Progress Snapshot
+- **No % moves** (cap rule: no staging/handset evidence added today)
+- **P0 — TWO MIGRATIONS ARE APPLY-BEFORE-DEPLOY.** `0042_taxonomy_version_stamp` and
+  `0043_…price_inr` are both **named explicitly by their writers/readers** — deploying
+  either without applying it first breaks extraction INSERTs (0042) and *every* credit
+  purchase + the history read (0043). Not silently-ignorable additive columns.
+- **Deploy pipeline is GREEN** (CD-1/CD-1b: ephemeral GITHUB_TOKEN login verified live,
+  env→box secret bridge working, `environment: staging` gate). GitHub **secret scanning +
+  push protection ENABLED**. Repo is now **PUBLIC** — every dev-literal stake is raised.
+
+## The ten owner rulings (2026-07-17) — recorded in [team-decisions.md](../registers/team-decisions.md)
+All ten context-drift decisions answered in one pass; see that register for the verbatim
+mapping. Headline: **A-1 city instruction WITHDRAWN** · **A-2 the 06-19 CEO weight ledger IS
+operative** (supersedes ADR-0006's code-wins direction) · **B-7 docs adopt the code's real
+caps** · **B-2 keep the gated LLM résumé path as an add-on** · **D-2 build async STT properly**
+· **D-3 gated test-login approved** · B-1/B-9/§13.1/§13.2 deferred to near-production.
+
+## Merged today (10)
+| PR | What |
+| -- | ---- |
+| #387 | The ten rulings, recorded before any builder cited them |
+| #388 | **B-6** taxonomy version stamped on profile skill writes (**migration 0042 — apply first**) |
+| #390 | **DEP-2 + CI-6 + LINT-1**: postcss/esbuild overrides (pnpm 11 reads them from `pnpm-workspace.yaml`, **not** package.json — the package.json route installs clean and silently no-ops), actions/cache v4→**v6** (latest major, not the assumed v5), last `any` gone → **lint is now zero-warning repo-wide** |
+| #391 | **D-3** gated test-login mint seam — prod-arm proven impossible across 11 env combos; synthetic-phone `+9100000XXXXX` (a real Indian mobile starts 6-9, so a five-zero prefix is *unassignable*); staging smoke rewritten (its old `dev_otp` assertion was permanently red by design) |
+| #392 | **D-1/B-4/B-5** — salary carve-out, location split, one-ask-per-turn. **Closed a REAL pre-existing gateway leak**: `_PHONE_RE` spanned only `[digits, space, dash]`, so `9876.543.210` egressed *and wasn't even blocked*. Took **two review rounds** — the first fix was a regression in disguise (narrowed separator COUNT to one → `98765 - 43210`, ordinary typing, leaked where main masked). Now **13/13 shapes, 0 regressions** (main was 8/13) |
+| #393 | **D-6** portal renders the LIVE pricing catalog; review caught that it *newly created* a display-vs-charge divergence (ops edit → promise 60 credits, grant 50) → charge path now reads the same catalog; **migration 0043** stamps the charged amount so history stops re-pricing the past |
+| #394 | **ADR-0033** deterministic skills-overlap factor at weight 15. Review CRITICAL: the "byte-identical today" claim was **false** — measured **5000/5000 scores changed, 200/200 fleets reordered, 8.3% pushEligible flips**. Retracted; the re-rank is the ruling's intent, now stated plainly + pinned by a golden test |
+| #395 | **D-2** 30-120s notes transcribe (chunked sync; batch API not derivable from the repo, so not guessed). Review HIGH: a crafted 200KB `.m4a` bought **6,780 Sarvam calls (₹1,695)** against a ₹0.50 reservation → now **0**; memory amplification **320MB → 2KB** |
+| #396 | **R31** unauthenticated `PUT`/`GET /pricing/catalog` + **TD79** `topUpAction` owner gate |
+| #397 | **Gateway Indic/CJK separators** — the **Hindi danda `।` leaked**, found post-merge by #395's review. A *separator*, i.e. #392's "13/13 closed" class; its unicode sweep was Latin-centric. Matters because Hindi ASR ends utterances with a danda and #395's seams *are* utterance boundaries |
+
+## Owner queue (ordered)
+1. **SECRET-1** (10 min, not delegable) — restrict the Google API key in the Console (live-validated; repo is public). Restrict, don't rotate, unless metrics show abuse.
+2. **Apply 0042 then 0043** — both apply-before-deploy (above).
+3. **STAGING-SECRETS-1 residual** — real secrets in env `staging`. `CORS_ALLOWED_ORIGINS` is set to an explicit **sentinel** (`https://no-browser-frontend-deployed-yet.invalid`) because no browser frontend is deployed and the worker app is native; replace when payer-web/ops-web get a staging host.
+4. **D1 ruling** — is the Lightsail box prod or staging? If prod: `environment: production` + required reviewer. Also gates CD-2 (with the 0031 sign-off).
+5. **R30 gates `AI_ENABLE_REAL_CALLS`** — the word-split residual (`98765 aur 43210`) is OPEN by design: every proximity net tested destroys `15000 se 18000`, a real salary pair. It's an honest negative in the suite, not a silent gap.
+6. **R31 gates `PAYMENTS_ENABLE_REAL`** — `PUT /pricing/catalog` is unauthenticated and rewrites what payers are **charged**, not just what they see.
+7. **TD59 gates arming Sarvam** — the worker-app polls ~14s; a real 120s note now takes ~4 minutes.
+8. **B-1** (a/b/c) · **R28** · **TD70(3)** employer-suffix over-drop · **B-9** cost claim · WA-6..10 · move the ~70 repo-scope secrets (incl. `ANTHROPIC_API_KEY`) into env scope now that the repo is public.
+
+## Lesson worth keeping
+Three of four reviews caught claims that were **asserted rather than measured** — "byte-identical", "test-locked", "masks byte-identically". Each was disproved by executing the code. The A-2 golden test then immediately caught two of its own author's hand-predicted numbers. And the danda leaked because the *shape matrix itself* was Latin-centric — the tests were only as good as our imagination about input, in a Hindi-first product. Worth a standing Hindi/Hinglish/Devanagari ASR corpus for the gateway rather than per-finding character sweeps.
+
+---
+
 # Daily Tracker — 2026-07-16
 
 ## BadaBhai Progress Snapshot
