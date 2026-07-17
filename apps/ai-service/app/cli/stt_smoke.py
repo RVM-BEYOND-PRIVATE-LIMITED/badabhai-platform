@@ -23,8 +23,13 @@ What it is / is NOT:
 
 Gating is the SAME as production: a real call needs AI_ENABLE_REAL_CALLS=true AND
 SARVAM_API_KEY; otherwise (or with ``--mock``) the mock transcript is returned.
-The adapter still FAILS CLOSED — any provider/storage/oversize failure yields an
+The adapter still FAILS CLOSED — any provider/storage/over-cap failure yields an
 EMPTY transcript with ``error_code=stt_call_failed``, never a fabricated one.
+
+Pass ``--duration`` to exercise the D-2 duration routing: <=30s is one sync call,
+30-120s is the chunked-sync path (a real ``.m4a``/``.wav`` is split into <30s
+segments — other containers fail closed), >120s is refused at the platform cap.
+Real chunk calls are per-chunk provider spend recorded on the TD27 ledger.
 
 PRIVACY: the service NEVER logs the transcript. This CLI prints it to STDOUT
 because seeing it is the whole point of a manual smoke test; pass
@@ -175,7 +180,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--duration",
         type=float,
         default=None,
-        help="audio duration in seconds (optional; >30 exercises the fail-closed sync guard)",
+        help=(
+            "audio duration in seconds (optional; 30-120 exercises the D-2 "
+            "chunked-sync path, >120 the fail-closed platform-cap guard)"
+        ),
     )
     p.add_argument("--mock", action="store_true", help="force the mock path (no provider call)")
     p.add_argument(

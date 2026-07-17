@@ -751,11 +751,14 @@ async def resume_generate(body: ResumeGenerationInput) -> ResumeGenerationOutput
 async def voice_transcribe(body: TranscriptionInput) -> TranscriptionOutput:
     # Mock by default; the real Sarvam call is gated behind AI_ENABLE_REAL_CALLS
     # (+ key) and fails closed. The adapter never sends audio on the mock path.
+    # 30-120s notes ride the chunked-sync path inside the adapter (D-2);
+    # worker_ref attributes the per-chunk spend to the TD27 per-user daily cap.
     result = await stt_adapter.transcribe(
         storage_path=body.storage_path,
         duration_seconds=body.duration_seconds,
         language_code=body.language_code,
         real_call_allowed=body.real_call_allowed,
+        worker_ref=body.worker_ref,
     )
     # Translate the transcript to English (gated, mock-by-default, fail-closed).
     # The adapter skips English sources and returns empty english on any failure.

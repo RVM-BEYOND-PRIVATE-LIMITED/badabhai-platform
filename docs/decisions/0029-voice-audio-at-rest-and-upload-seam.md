@@ -82,6 +82,10 @@ Sarvam `saarika:v2.5` remains behind `AI_ENABLE_REAL_CALLS` + `SARVAM_API_KEY`, 
 human-approved (§7). Mock STT returns a canned transcript so the pipeline is testable
 end-to-end: record → signed upload → register → transcribe → poll → owner-only read.
 
+> **Addendum (2026-07-17) — the 30–120s transport gap is closed (chunked/async STT).**
+> See *Addendum: D-2* at the foot of this ADR. The decision above is unchanged; real
+> provider creds remain §7.
+
 ### 7. Client shape
 
 The worker app records with the `record` package (AAC-LC `.m4a`), enforces the **120s hard cap**
@@ -167,3 +171,104 @@ on-device temp file after a successful upload**.
 *This ADR records the voice-audio-at-rest architecture decision (2026-07-10): server-issued
 signed upload URLs into a private service-role-only bucket, owner-only transcript read,
 fail-closed dormancy behind `VOICE_NOTES_BUCKET`, mock STT end-to-end, real STT still §7-gated.*
+
+---
+
+## Addendum (2026-07-17) — D-2: 30–120s notes transcribe via chunked/async STT
+
+**Status of this addendum:** built; provider-armed pending §7. **Trigger:** owner ruling,
+[team-decisions.md](../registers/team-decisions.md) *2026-07-17 — Context-drift register
+rulings*, **item 8: "D-2 (voice 30s vs 120s): BUILD IT PROPERLY = ASYNC STT"** — the async
+transcription path for 30–120s notes, **not** a UI cap; real Sarvam creds remain §7. Fixes
+[context-drift-2026-07-16](../registers/context-drift-2026-07-16.md) **D-2** (P1).
+
+### The gap
+
+§7 of this ADR promised 120s notes (`MAX_VOICE_NOTE_SECONDS = 120`, `packages/types`), but
+the transport capped at 30s: `stt.py` raised *"batch STT not implemented"* above
+`SARVAM_SYNC_MAX_SECONDS = 30.0`. **The product promise and the transport disagreed by 4×**,
+failing closed and silently unusable. The 30s guard was also applied to the **mock** path —
+fail-closed against a provider that path never calls.
+
+### Decision — chunked sync, not the provider's batch API
+
+Sarvam's batch/async STT contract **is not derivable from this repo** (only the sync REST
+endpoint, the `saarika:v2.5` pin, and the 30s limit are known). Rather than guess a provider
+API shape we cannot test, the 30–120s path is **chunked sync** — the proven pattern:
+
+1. **Split** the stored object into <30s segments on **codec-frame boundaries**
+   (`apps/ai-service/app/audio_chunk.py`).
+2. **Transcribe** each segment with the *same, already-verified* sync endpoint, at bounded
+   parallelism.
+3. **Concatenate** deterministically **in segment order** (never completion order).
+
+The provider seam is unchanged (`SttAdapter`), so swapping in a real batch API later is a
+contained change behind the same adapter.
+
+**Pure-python segmentation, no ffmpeg.** The ai-service has **no container image** (CI is
+`setup-python`; there is no ai-service Dockerfile to add a system package to), so
+segmentation must not shell out. §1 of this ADR mints exactly one format —
+`voice-notes/{workerId}/{uuid}.m4a` (AAC-LC in MP4) — so the splitter parses the `moov`
+sample tables and repackages each window of AAC frames as **ADTS** (`audio/aac`, already in
+the upload content-type map): frame-exact, **no re-encoding**, no decoder. PCM `.wav` is
+also supported. **Every other container fails closed** — never guess.
+
+### Numbers
+
+| Knob | Value | Why |
+|---|---|---|
+| `SARVAM_CHUNK_MAX_SECONDS` | **29.5s** | Frame-quantized windows stay strictly <30s (a balanced split overshoots by ≤1 AAC frame, ≤64ms). |
+| Chunks for a 120s note | **5** (`ceil(120/29.5)`) | ~24s each. A 45s note → 2. |
+| `SARVAM_CHUNK_CONCURRENCY` | **2** | Halves wall time, caps provider burst. 5 chunks → 3 waves. |
+| Per-call httpx timeout | **60s** (unchanged) | Applies **per chunk**, not stretched across the note. |
+| ai-service worst case (120s note) | **≤260s** | storage ≤20s + 3 waves × 60s + translate ≤60s. |
+| `AiService.transcribe` fetch budget | **270s** (was 8s) | ≤260s + 10s overhead. **Only** this call is raised; every other AI call keeps the 8s default. |
+| `sarvam_stt_cost_inr_per_chunk` | **₹0.25** (estimate) | saarika ≈ ₹30/audio-hour. **Calibrate against the invoice at the §7 flip.** |
+| Worst-case note spend | **₹1.25** (5 × ₹0.25) | Under `AI_MAX_USER_DAILY_COST_INR` (₹6) ⇒ **~4 full-length notes/user/day**; each chunk call is far under the ₹10 `AI_MAX_CALL_COST_INR` ceiling. |
+
+### Invariants (unchanged — verified, not assumed)
+
+- **#3 pseudonymize fail-closed — no new bypass, and chunking cannot weaken it.** The
+  adapter concatenates **inside** `_transcribe_chunked`; a chunk never escapes it, so
+  `/profile/extract` gates the **FULL** transcript exactly as before (`main.py`
+  *"1. Pseudonymize FIRST"*). The one real risk — concatenation inserting a space that
+  splits a digit run (`9876543210` → `98765 43210`, which `_RESIDUAL_DIGITS_RE = \d{7,}`
+  alone would miss) — **does not leak**: `_PHONE_RE` matches across whitespace/dashes
+  (`[\d\s\-]{7,}`) and `_AADHAAR_RE` allows `\s?` between groups, so the split number is
+  still masked, byte-identically to the unsplit case. Test-locked
+  (`test_stt_real.py::test_a_phone_split_across_a_chunk_boundary_is_still_masked_downstream`).
+- **#5 real calls gated** — chunking runs only on the already-gated real path
+  (`AI_ENABLE_REAL_CALLS` + `SARVAM_API_KEY`). **The mock is now duration-agnostic**: the
+  30s limit is a provider-upload constraint and no longer applies to a path with no provider.
+- **Fail closed, never fabricate.** ANY chunk failure fails the **whole** note to an empty
+  transcript — a partial transcript with silent holes is a fabrication risk. Unsplittable
+  containers and >120s notes are refused **before** storage/provider spend.
+- **#2 no PII** — `audio_chunk.py` logs nothing; raised messages carry only box names /
+  sizes / generic strings. `worker_ref` is the opaque worker UUID already sent for
+  chat/extraction.
+
+### Spend (TD68 pattern)
+
+Each chunk is a billable provider call, so chunking **multiplies calls** — the real path now
+**reserves** the note's worst-case INR on the TD27 `SpendLedger` *before* any Sarvam call
+(attributed to `worker_ref`'s per-user daily budget), then **reconciles to actual**: chunks
+that returned before a failure stay recorded (they were billed); only uncalled chunks are
+refunded. A ledger block returns an **empty** transcript — never the mock (no fabrication on
+the real path). Mock mode does zero ledger traffic.
+
+### Contracts + queue
+
+`TranscriptionInput` gains an **optional** `worker_ref` (Zod ↔ Pydantic in lockstep) —
+additive and backward compatible; no output shape changed, no event payload changed, no
+migration. The queue path already made this async from the API's perspective (BullMQ
+`VoiceTranscriptionProcessor`, off the request path, lock auto-extended) — **confirmed**;
+the fix was entirely inside the ai-service handler.
+
+### Residuals
+
+- **TD59 is now materially worse and gates the flip:** the worker-app polls ~14s for a
+  transcript; a real 120s note can take ~4 minutes. Fix TD59 (server-side merge, or an
+  adaptive poll budget) **before** the real-Sarvam flip, or a completed transcript strands.
+- The **₹0.25/chunk rate is an estimate** — calibrate at the §7 flip.
+- Cross-boundary STT accuracy (a word split mid-utterance) is unmeasured until the §7
+  staging run with real audio.

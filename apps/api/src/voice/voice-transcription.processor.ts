@@ -51,6 +51,10 @@ export class VoiceTranscriptionProcessor extends WorkerHost {
         storage_path: storagePath,
         duration_seconds: durationSeconds,
         language_code: languageCode ?? undefined,
+        // Opaque UUID (PII-free) — attributes real STT chunk spend (D-2: a 120s
+        // note is up to 5 provider calls) to this worker's TD27 per-user daily
+        // budget, same as chat/extraction/resume already do.
+        worker_ref: workerId,
       });
 
       // Persist the transcript + English translation ONLY on the voice_notes row
