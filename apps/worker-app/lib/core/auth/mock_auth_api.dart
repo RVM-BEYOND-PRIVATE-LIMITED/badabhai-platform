@@ -88,6 +88,16 @@ class MockAuthApi extends AuthApi {
   }
 
   @override
+  Future<MeResult> me() async {
+    await _delay();
+    // ADR-0031: no deletion pending on the mock walkthrough. That is the HONEST
+    // answer, not a convenient one — the mock delete flow lives in
+    // MockApiClient and its scheduled date is in-memory only, so a fresh
+    // process (which is what a cold start is) genuinely has nothing scheduled.
+    return const MeResult(workerId: 'mock-worker-0001', status: 'active');
+  }
+
+  @override
   Future<void> logout() async {
     await _delay();
     await _tokenStore.clear();

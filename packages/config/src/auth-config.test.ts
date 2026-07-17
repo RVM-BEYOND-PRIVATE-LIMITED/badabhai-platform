@@ -192,3 +192,24 @@ describe("throttle/edge knobs (TD25 trust proxy + TD60 per-phone daily cap)", ()
     expect(() => cfg({ OTP_MAX_SENDS_PER_DAY: "0" })).toThrow();
   });
 });
+
+describe("account-deletion grace knobs (ADR-0031)", () => {
+  it("ACCOUNT_DELETION_GRACE_DAYS defaults to 7 (the disclosed '7 din' promise) and must be positive", () => {
+    expect(cfg().ACCOUNT_DELETION_GRACE_DAYS).toBe(7);
+    expect(cfg({ ACCOUNT_DELETION_GRACE_DAYS: "14" }).ACCOUNT_DELETION_GRACE_DAYS).toBe(14);
+    // 0 would silently restore immediate erasure — must be an explicit code change, not env.
+    expect(() => cfg({ ACCOUNT_DELETION_GRACE_DAYS: "0" })).toThrow();
+  });
+
+  it("ACCOUNT_DELETION_SWEEP_INTERVAL_HOURS defaults to 1, allows fractional, rejects 0", () => {
+    expect(cfg().ACCOUNT_DELETION_SWEEP_INTERVAL_HOURS).toBe(1);
+    expect(cfg({ ACCOUNT_DELETION_SWEEP_INTERVAL_HOURS: "0.25" }).ACCOUNT_DELETION_SWEEP_INTERVAL_HOURS).toBe(0.25);
+    expect(() => cfg({ ACCOUNT_DELETION_SWEEP_INTERVAL_HOURS: "0" })).toThrow();
+  });
+
+  it("grace (pre-erasure, days) and cooldown (post-erasure, seconds) are independent knobs", () => {
+    const c = cfg({ ACCOUNT_DELETION_GRACE_DAYS: "3", ACCOUNT_DELETION_COOLDOWN_SECONDS: "0" });
+    expect(c.ACCOUNT_DELETION_GRACE_DAYS).toBe(3);
+    expect(c.ACCOUNT_DELETION_COOLDOWN_SECONDS).toBe(0); // cooldown still disable-able
+  });
+});

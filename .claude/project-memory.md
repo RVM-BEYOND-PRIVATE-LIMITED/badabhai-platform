@@ -58,7 +58,7 @@
 
 - `domain.action` naming; envelope: event_id/name/version, occurred_at, actor{}, subject{}, source, correlation_id, causation_id, payload, metadata. Payloads = ids/hashes/enums only.
 - **100 events, 28 domains** (top: worker 16, ai 9, job_posting 7, admin 6, resume 5, profile 5, payer 5). All version 1; incompatible change ⇒ version bump, never mutate.
-- `createEvent`/`validateEvent` (registry-driven, two-stage Zod). ADR-0031 will add `worker.deletion_scheduled/cancelled` (→102) when accepted.
+- `createEvent`/`validateEvent` (registry-driven, two-stage Zod). ADR-0031 (Accepted) adds `worker.deletion_scheduled/cancelled` → **107** events.
 
 # Security & Privacy Rules
 

@@ -11,6 +11,7 @@ import { UnlockService } from "./unlocks.service";
 import type { UnlocksRepository } from "./unlocks.repository";
 import type { PricingService } from "../pricing/pricing.service";
 import { PaymentGateway } from "./payment-gateway";
+import { neutralUnavailable } from "./unlock-response";
 
 const CTX = { correlationId: "corr-1", requestId: "req-1" } as RequestContext;
 const PAYER = "11111111-1111-1111-1111-111111111111";
@@ -29,6 +30,7 @@ interface SetupOpts {
   consentPurposes?: string[] | null; // null => no consent row
   consentRevoked?: boolean;
   workerExists?: boolean;
+  pendingDeletion?: boolean; // ADR-0031: worker inside the deletion grace window
   existingUnlock?: Record<string, unknown>;
   reveals?: number; // countRevealsSince
   payers?: number; // countDistinctPayersSince
@@ -39,6 +41,8 @@ function setup(opts: SetupOpts = {}) {
   const balance = opts.balance ?? 5;
   const consentPurposes = opts.consentPurposes === undefined ? ["employer_sharing"] : opts.consentPurposes;
   const workerExists = opts.workerExists ?? true;
+  // ADR-0031: NULL = active worker; a Date = pending deletion (the grace marker).
+  const deletionScheduledAt = opts.pendingDeletion ? new Date("2026-07-21T10:00:00.000Z") : null;
 
   const txMethods = {
     findByPayerWorker: vi.fn(async () => opts.existingUnlock),
@@ -61,6 +65,8 @@ function setup(opts: SetupOpts = {}) {
     createRouting: vi.fn(async () => ({ id: "routing-1" })),
     appendLedger: vi.fn(async () => undefined),
     tryDebit: vi.fn(async () => ((opts.debitOk ?? true) ? balance - 1 : undefined)),
+    // ADR-0031: the tx-scoped deletion-grace marker read (the in-tx re-checks).
+    getWorkerDeletionMarker: vi.fn(async () => (workerExists ? { deletionScheduledAt } : undefined)),
   };
 
   const repo = {
@@ -88,7 +94,9 @@ function setup(opts: SetupOpts = {}) {
   };
 
   const workers = {
-    findById: vi.fn(async () => (workerExists ? { id: WORKER, phoneE164: "ciphertext" } : undefined)),
+    findById: vi.fn(async () =>
+      workerExists ? { id: WORKER, phoneE164: "ciphertext", deletionScheduledAt } : undefined,
+    ),
   };
 
   const pii = { decrypt: vi.fn(() => SENTINEL_PHONE) };
@@ -516,5 +524,76 @@ describe("UnlockService — reveal ownership (XB-A: payer-self path, ADR-0019)",
     const out = await r.svc.reveal("unlock-1", CTX); // ops path — no expectedPayerId
     expect(out).toMatchObject({ channel: "in_app_relay" });
     expect(emitted(r.events)).toContain("contact.revealed");
+  });
+});
+
+// ---- ADR-0031 payer-surface freeze (ruling (b)): pending-deletion worker ----
+
+describe("UnlockService — ADR-0031 pending-deletion freeze (byte-identical neutral, no oracle)", () => {
+  function grantedUnlock() {
+    return {
+      id: "unlock-1",
+      payerId: PAYER,
+      workerId: WORKER,
+      status: "granted",
+      routingTokenRef: "44444444-4444-4444-4444-444444444444",
+      revealCount: 0,
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+  }
+
+  it("requestUnlock during grace → the BYTE-IDENTICAL neutral body; no tx, no debit, no deny row", async () => {
+    const t = setup({ balance: 5, consentPurposes: ["employer_sharing"], pendingDeletion: true });
+    const out = await t.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    // Byte-equality with the canonical neutral constructor (the no-oracle guarantee).
+    expect(JSON.stringify(out)).toBe(JSON.stringify(neutralUnavailable()));
+    // Denied PRE-lock: the tx never opens; nothing is debited, granted, or recorded.
+    expect(t.repo.withTransaction).not.toHaveBeenCalled();
+    expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
+    expect(t.txMethods.recordDeny).not.toHaveBeenCalled();
+    // Only the entry audit event — no denied/granted/payment events for the freeze.
+    expect(emitted(t.events)).toEqual(["unlock.requested"]);
+  });
+
+  it("a pending-deletion deny is INDISTINGUISHABLE from a no-consent deny (no leaving-oracle)", async () => {
+    const pending = setup({ balance: 5, consentPurposes: ["employer_sharing"], pendingDeletion: true });
+    const noConsent = setup({ balance: 5, consentPurposes: ["profiling"] });
+    const a = await pending.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    const b = await noConsent.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+  });
+
+  it("the in-tx RE-CHECK closes the schedule-vs-unlock race (deletion scheduled after the pre-lock read)", async () => {
+    const t = setup({ balance: 5, consentPurposes: ["employer_sharing"] }); // active at the pre-lock read
+    t.txMethods.getWorkerDeletionMarker.mockResolvedValue({ deletionScheduledAt: new Date() });
+    const out = await t.svc.requestUnlock({ payerId: PAYER, workerId: WORKER, jobId: null }, CTX);
+    expect(JSON.stringify(out)).toBe(JSON.stringify(neutralUnavailable()));
+    expect(t.txMethods.tryDebit).not.toHaveBeenCalled();
+    expect(t.txMethods.upsertGrant).not.toHaveBeenCalled();
+  });
+
+  it("reveal during grace → the IDENTICAL neutral body; no tx, no decrypt, no routing, no contact.revealed", async () => {
+    const t = setup({
+      consentPurposes: ["employer_sharing"],
+      pendingDeletion: true,
+      existingUnlock: grantedUnlock(),
+    });
+    const out = await t.svc.reveal("unlock-1", CTX);
+    expect(JSON.stringify(out)).toBe(JSON.stringify(neutralUnavailable()));
+    expect(t.repo.withTransaction).not.toHaveBeenCalled(); // caught by the pre-lock guard
+    expect(t.pii.decrypt).not.toHaveBeenCalled(); // a frozen worker's phone is NEVER resolved
+    expect(t.txMethods.createRouting).not.toHaveBeenCalled();
+    expect(emitted(t.events)).not.toContain("contact.revealed");
+  });
+
+  it("reveal TOCTOU: a deletion scheduled between the pre-lock read and the lock still freezes", async () => {
+    const t = setup({ consentPurposes: ["employer_sharing"], existingUnlock: grantedUnlock() });
+    // The pre-lock read sees an ACTIVE worker; the tx-scoped marker read sees the schedule.
+    t.txMethods.getWorkerDeletionMarker.mockResolvedValue({ deletionScheduledAt: new Date() });
+    const out = await t.svc.reveal("unlock-1", CTX);
+    expect(JSON.stringify(out)).toBe(JSON.stringify(neutralUnavailable()));
+    expect(t.pii.decrypt).not.toHaveBeenCalled();
+    expect(t.txMethods.createRouting).not.toHaveBeenCalled();
+    expect(emitted(t.events)).not.toContain("contact.revealed");
   });
 });

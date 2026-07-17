@@ -136,6 +136,25 @@ export const WorkerAccountDeletedPayload = z
   })
   .strict();
 
+// ADR-0031 — the 7-day grace window around the erasure above. `scheduled_for` is the DUE
+// time of the hard-delete (a system timestamp, not PII). Opaque worker_id ONLY — never a
+// phone/phone_hash/name; .strict() so a stray PII field can never ride along (§2).
+export const WorkerDeletionScheduledPayload = z
+  .object({
+    worker_id: uuidSchema,
+    scheduled_for: isoDateTimeSchema,
+  })
+  .strict();
+
+// ADR-0031 — the worker cancelled a pending deletion during grace. Deliberately carries
+// NOTHING but the opaque id: what was cancelled (and when it was due) is recoverable from
+// the paired worker.deletion_scheduled event on the same worker_id.
+export const WorkerDeletionCancelledPayload = z
+  .object({
+    worker_id: uuidSchema,
+  })
+  .strict();
+
 // ---------------------------------------------------------------------------
 // worker.pin_* — device-bound unlock PIN (ADR-0026 Phase 3).
 //
@@ -1100,8 +1119,17 @@ export const PostingPlanQuotaToppedPayload = z.object({
 /** The channel a message/invite is delivered over. Extensible; whatsapp in v1. */
 export const MessageChannelEnum = z.enum(["whatsapp"]);
 
-/** Why a send was suppressed BEFORE reaching the provider (no-PII, internal audit). */
-export const MessagingSuppressReasonEnum = z.enum(["no_consent", "unknown_worker"]);
+/**
+ * Why a send was suppressed BEFORE reaching the provider (no-PII, internal audit).
+ * "pending_deletion" is an ADDITIVE ADR-0031 extension (payer-surface freeze: a worker
+ * inside the deletion grace window gets no sends) — every previously-valid payload
+ * stays valid, same event, same v1 (consumers: ops console only).
+ */
+export const MessagingSuppressReasonEnum = z.enum([
+  "no_consent",
+  "unknown_worker",
+  "pending_deletion",
+]);
 
 /** Why a send FAILED at/after the provider (no-PII). */
 export const MessagingFailReasonEnum = z.enum(["provider_error", "real_send_blocked"]);

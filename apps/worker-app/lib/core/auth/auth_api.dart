@@ -15,6 +15,12 @@ import 'auth_failure.dart';
 import 'authed_client.dart';
 import 'device_id.dart';
 
+/// Parses an ISO-8601 timestamp DEFENSIVELY: a non-String (or unparseable)
+/// value yields null instead of throwing a cast error mid-login. Shared by every
+/// optional timestamp field below.
+DateTime? _parseIsoDate(Object? raw) =>
+    raw is String ? DateTime.tryParse(raw) : null;
+
 /// A token set the client holds after OTP/PIN verify or a refresh.
 ///
 /// [access] is the in-memory bearer; [refresh] is rotated on every refresh and
@@ -54,6 +60,7 @@ class OtpVerifyResult extends Equatable {
     required this.pinSet,
     required this.tokens,
     this.consentAccepted,
+    this.deletionScheduledFor,
   });
 
   final String workerId;
@@ -67,6 +74,12 @@ class OtpVerifyResult extends Equatable {
   /// routing. Only a definitive `false` forces the consent gate.
   final bool? consentAccepted;
 
+  /// When a pending account deletion is due (ADR-0031 grace window) — present
+  /// on the login response ONLY while a deletion is pending, null otherwise.
+  /// PII-free (a timestamp only). Drives the post-login explicit-cancel prompt;
+  /// login itself NEVER auto-cancels the deletion.
+  final DateTime? deletionScheduledFor;
+
   factory OtpVerifyResult.fromJson(Map<String, dynamic> json) =>
       OtpVerifyResult(
         workerId: json['worker_id'] as String? ?? '',
@@ -78,11 +91,22 @@ class OtpVerifyResult extends Equatable {
         tokens: AuthTokens.fromJson(json),
         // TD62: absent (old server) → null; present → the definitive boolean.
         consentAccepted: json['consent_accepted'] as bool?,
+        // OPTIONAL `deletion_scheduled_for` (ADR-0031) — parsed EXPLICITLY:
+        // this factory drops unknown fields, so an unread key would silently
+        // lose the pending-deletion flag. Absent/bad → null (no deletion).
+        deletionScheduledFor: _parseIsoDate(json['deletion_scheduled_for']),
       );
 
   @override
   List<Object?> get props =>
-      <Object?>[workerId, isNewUser, pinSet, tokens, consentAccepted];
+      <Object?>[
+        workerId,
+        isNewUser,
+        pinSet,
+        tokens,
+        consentAccepted,
+        deletionScheduledFor,
+      ];
 }
 
 /// Result of POST /auth/pin/verify — the minted token pair plus the TD62
@@ -104,6 +128,45 @@ class PinVerifyResult extends Equatable {
 
   @override
   List<Object?> get props => <Object?>[tokens, consentAccepted];
+}
+
+/// Result of GET /auth/me — the current worker's identity + status, plus the
+/// AUTHORITATIVE pending-deletion flag (ADR-0031).
+///
+/// This is the seam that covers EVERY authenticated entry path — PIN unlock,
+/// token refresh, and any future one — not just the OTP login, whose verify
+/// response carries the flag inline. A cold start that resumes through the PIN
+/// gate has no login response to read, so without this the grace-window banner
+/// (and its explicit cancel) would be unreachable for the rest of the 7 days.
+class MeResult extends Equatable {
+  const MeResult({
+    required this.workerId,
+    required this.status,
+    this.deletionScheduledFor,
+  });
+
+  /// Opaque worker UUID (PII-free).
+  final String workerId;
+
+  /// The worker row's lifecycle status (e.g. `active`).
+  final String status;
+
+  /// When a pending account deletion is due (ADR-0031 grace window), or null
+  /// when NOTHING is pending. The server OMITS the field entirely unless a
+  /// deletion is scheduled, so its ABSENCE is the authoritative "nothing
+  /// pending" — never a reason to keep a stale date. PII-free (a timestamp).
+  final DateTime? deletionScheduledFor;
+
+  factory MeResult.fromJson(Map<String, dynamic> json) => MeResult(
+        workerId: json['worker_id'] as String? ?? '',
+        status: json['status'] as String? ?? '',
+        // Parsed EXPLICITLY (see OtpVerifyResult): this factory drops unknown
+        // keys, so an unread field would silently lose the pending flag.
+        deletionScheduledFor: _parseIsoDate(json['deletion_scheduled_for']),
+      );
+
+  @override
+  List<Object?> get props => <Object?>[workerId, status, deletionScheduledFor];
 }
 
 /// Result of POST /auth/otp/request.
@@ -321,6 +384,36 @@ class AuthApi {
     );
     _check(res, _AuthEndpoint.tokenRefresh);
     return AuthTokens.fromJson(res.body);
+  }
+
+  /// GET /auth/me (bearer) → `{ worker_id, status, deletion_scheduled_for? }`.
+  ///
+  /// The ADR-0031 grace-window seam for every NON-OTP entry path (PIN unlock /
+  /// refresh): those mint tokens but carry no pending-deletion field, so the
+  /// flag is re-read here and is AUTHORITATIVE — a present date means pending,
+  /// an ABSENT one means nothing is pending.
+  ///
+  /// A 2xx whose `worker_id` is missing/empty is a contract violation → an
+  /// EXPLICIT [AuthErrorCode.contractError] (mirrors [listDevices]). This
+  /// matters for honesty, not just hygiene: [AuthedClient] decodes an empty /
+  /// unparseable body to `{}`, and a silently-accepted `{}` would read as "no
+  /// deletion pending" and CLEAR a real pending flag. A body we failed to
+  /// understand must never be mistaken for a body that said "nothing".
+  Future<MeResult> me() async {
+    final AuthResponse res = await _client.send(
+      HttpMethod.get,
+      '/auth/me',
+      authed: true,
+    );
+    _check(res, _AuthEndpoint.authed);
+    final Object? workerId = res.body['worker_id'];
+    if (workerId is! String || workerId.isEmpty) {
+      throw AuthFailure(
+        AuthErrorCode.contractError,
+        statusCode: res.statusCode,
+      );
+    }
+    return MeResult.fromJson(res.body);
   }
 
   /// POST /auth/logout (bearer) → 204. Revokes THIS device's refresh token.

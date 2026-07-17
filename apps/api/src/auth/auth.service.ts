@@ -300,6 +300,12 @@ export class AuthService {
             ? null
             : new Date(minted.session.requiresOtpAfterMs).toISOString(),
       },
+      // ADR-0031 — surfaced ONLY while a deletion is pending, so the app can show the
+      // grace banner + explicit cancel prompt (login NEVER auto-cancels — ruling (a)).
+      // A PII-free timestamp; login itself works unchanged during grace.
+      ...(worker.deletionScheduledAt
+        ? { deletion_scheduled_for: worker.deletionScheduledAt.toISOString() }
+        : {}),
     };
     return { response, worker, phoneHash, isNew };
   }

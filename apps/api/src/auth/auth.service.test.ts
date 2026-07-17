@@ -582,6 +582,93 @@ describe("AuthService (real OTP)", () => {
     expect(names).not.toContain("consent.accepted");
   });
 
+  // ---- ADR-0031 — pending-deletion marker on the login response (grace window) ----
+
+  it("verifyOtp surfaces deletion_scheduled_for while a deletion is pending — login otherwise UNCHANGED", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const workers = {
+      findByPhoneHash: vi.fn().mockResolvedValue({
+        id: "worker-1",
+        status: "active",
+        deletionScheduledAt: new Date("2026-07-21T10:00:00.000Z"),
+      }),
+      createOrGetByPhoneHash: vi.fn(),
+    };
+    const svc = new AuthService(
+      { emit } as never,
+      workers as never,
+      pii,
+      makeOtp() as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+
+    const res = await svc.verifyOtp(PHONE, "123456", ctx);
+
+    // Login during grace works exactly as before — token minted, events emitted...
+    expect(res.access_token).toBe("jwt.token.value");
+    expect(res.refresh_token).toBe("rt_opaque_value");
+    const names = emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
+    expect(names).toEqual(["worker.otp_verified"]);
+    // ...plus ONLY the PII-free pending marker, so the app can show the cancel prompt.
+    expect(res.deletion_scheduled_for).toBe("2026-07-21T10:00:00.000Z");
+  });
+
+  it("verifyOtp OMITS deletion_scheduled_for when no deletion is pending (field absent, not null)", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const workers = {
+      findByPhoneHash: vi
+        .fn()
+        .mockResolvedValue({ id: "worker-1", status: "active", deletionScheduledAt: null }),
+      createOrGetByPhoneHash: vi.fn(),
+    };
+    const svc = new AuthService(
+      { emit } as never,
+      workers as never,
+      pii,
+      makeOtp() as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+
+    const res = await svc.verifyOtp(PHONE, "123456", ctx);
+
+    expect(res.deletion_scheduled_for).toBeUndefined();
+    // Absent entirely — a Flutter parser reading unknown fields must see NOTHING here.
+    expect("deletion_scheduled_for" in res).toBe(false);
+  });
+
+  // ADR-0031 × D-3 — the gated test-login mint rides the SAME mint seam, so a pending
+  // deletion must surface there too (the smoke's synthetic worker is a real worker row).
+  it("testLogin also surfaces deletion_scheduled_for while a deletion is pending", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const workers = {
+      findByPhoneHash: vi.fn().mockResolvedValue({
+        id: "worker-1",
+        status: "active",
+        deletionScheduledAt: new Date("2026-07-21T10:00:00.000Z"),
+      }),
+      createOrGetByPhoneHash: vi.fn(),
+    };
+    const svc = new AuthService(
+      { emit } as never,
+      workers as never,
+      pii,
+      makeOtp() as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+
+    const res = await svc.testLogin(SYNTHETIC_PHONE, ctx);
+
+    expect(res.deletion_scheduled_for).toBe("2026-07-21T10:00:00.000Z");
+    const names = emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
+    expect(names).toEqual(["worker.test_login"]);
+  });
+
   it("verifyOtp with device_info registers the device and binds the session via did", async () => {
     const emit = vi.fn().mockResolvedValue(undefined);
     const workers = {

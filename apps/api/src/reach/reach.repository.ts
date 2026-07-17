@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq } from "drizzle-orm";
-import { type Database, workerProfiles, jobs, type JobNeededBy } from "@badabhai/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { type Database, workerProfiles, workers, jobs, type JobNeededBy } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import type { WorkerProfileSignalRow } from "./reach.mappers";
 
@@ -33,8 +33,11 @@ export interface JobSignalRow {
  * PII), and `updated_at`. It NEVER selects `embedding` or `raw_profile` (or any
  * PII/raw-profile column). The Phase-2 read-model must keep the identical projection.
  *
- * SORT-NEVER-BLOCK (D8): there is NO relevance `WHERE`. `listSignalRows()` reads the
- * full pool, full stop — so `count in == count out` is structural, not policed.
+ * SORT-NEVER-BLOCK (D8): there is NO *relevance* `WHERE`. `listSignalRows()` reads the
+ * full ELIGIBLE pool — its only predicate is the ADR-0031 membership exclusion (a
+ * pending-deletion worker is not a pool member at all, same class as a hard-deleted
+ * worker's absent row), never a signal/score condition — so `count in == count out`
+ * over the eligible pool stays structural, not policed.
  */
 @Injectable()
 export class ReachRepository {
@@ -56,13 +59,24 @@ export class ReachRepository {
   } as const;
 
   /**
-   * The FULL worker pool, signal columns only, NO relevance filter (View A).
+   * The FULL eligible worker pool, signal columns only, NO relevance filter (View A).
    * Ordering is a stable display order only; it never changes membership.
+   *
+   * ELIGIBILITY, NOT RELEVANCE (ADR-0031 payer-surface freeze, ruling (b)): the JOIN +
+   * `deletion_scheduled_at IS NULL` below is a MEMBERSHIP exclusion — a worker inside
+   * the deletion grace window has asked to leave and must stop surfacing to payers,
+   * exactly as a hard-deleted worker's (absent) row already does. It is NOT a
+   * relevance/signal condition, so D8 "sort-never-block" (which bars relevance WHEREs)
+   * still holds: within the eligible pool, count in == count out. INTENDED side
+   * effect: PACE supply counts (pace.service reads this pool) stop counting
+   * pending-deletion workers.
    */
   async listSignalRows(): Promise<WorkerProfileSignalRow[]> {
     const rows = await this.db
       .select(ReachRepository.SIGNAL_COLUMNS)
-      .from(workerProfiles);
+      .from(workerProfiles)
+      .innerJoin(workers, eq(workerProfiles.workerId, workers.id))
+      .where(isNull(workers.deletionScheduledAt));
     return rows;
   }
 

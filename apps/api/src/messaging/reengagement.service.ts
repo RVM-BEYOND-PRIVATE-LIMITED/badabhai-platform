@@ -10,15 +10,16 @@ import { WHATSAPP_PROVIDER, type WhatsAppProvider } from "./whatsapp.provider";
 
 export interface ReengagementResult {
   sent: boolean;
-  reason?: "no_consent" | "unknown_worker" | "provider_error";
+  reason?: "no_consent" | "unknown_worker" | "pending_deletion" | "provider_error";
   message_id?: string;
 }
 
 /**
  * Worker re-engagement send flow (ADR-0020) — the consent-gated orchestration.
- * Ordering (fail-closed): consent → resolve phone → requested → provider send → sent
- * (or failed). The raw phone is read ONLY to hand to the provider and is NEVER logged
- * or put in an event; every event carries ids + the template id + enums only.
+ * Ordering (fail-closed): consent → deletion-grace freeze (ADR-0031) → resolve phone →
+ * requested → provider send → sent (or failed). The raw phone is read ONLY to hand to
+ * the provider and is NEVER logged or put in an event; every event carries ids + the
+ * template id + enums only. A suppressed send NEVER resolves (decrypts) the phone.
  */
 @Injectable()
 export class ReengagementService {
@@ -52,6 +53,20 @@ export class ReengagementService {
         payload: { worker_id: workerId, template, reason: "unknown_worker" },
       });
       return { sent: false, reason: "unknown_worker" };
+    }
+
+    // [2b] ADR-0031 payer-surface freeze (ruling (b)) — a worker inside the deletion
+    // grace window gets NO re-engagement sends (they asked to leave). Suppressed on
+    // the SAME row read as [2], BEFORE the decrypt below: the phone of a suppressed
+    // send is NEVER resolved (the at-rest value is ciphertext).
+    if (row.deletionScheduledAt !== null) {
+      await this.events.emit({
+        event_name: "messaging.suppressed",
+        actor: { actor_type: "system", actor_id: null },
+        subject: { subject_type: "worker", subject_id: workerId },
+        payload: { worker_id: workerId, template, reason: "pending_deletion" },
+      });
+      return { sent: false, reason: "pending_deletion" };
     }
     const phoneE164 = this.pii.decrypt(row.phoneE164);
 

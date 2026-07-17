@@ -590,6 +590,11 @@ class MockApiClient extends ApiClient {
 
   // --- A4 DPDP account delete ----------------------------------------------
 
+  /// Pending mock deletion due time (ADR-0031 grace) — set by
+  /// [confirmAccountDelete], cleared by [cancelAccountDelete], so the
+  /// scheduled-banner → cancel round trip is walkable in mock mode.
+  DateTime? _deletionScheduledFor;
+
   @override
   Future<AccountDeleteRequestResult> requestAccountDelete({
     required String authToken,
@@ -599,12 +604,26 @@ class MockApiClient extends ApiClient {
   }
 
   @override
-  Future<void> confirmAccountDelete({
+  Future<AccountDeleteConfirmResult> confirmAccountDelete({
     required String authToken,
     required String otp,
   }) async {
     await _delay();
-    // No-op success (204) in mock mode; the caller clears local session/tokens.
+    // Mirrors the real 200 {success, scheduled_for}: the delete is SCHEDULED
+    // for now + 7 days — nothing is wiped, the mock session stays usable.
+    _deletionScheduledFor = DateTime.now().add(const Duration(days: 7));
+    return AccountDeleteConfirmResult(
+      success: true,
+      scheduledFor: _deletionScheduledFor,
+    );
+  }
+
+  @override
+  Future<void> cancelAccountDelete({required String authToken}) async {
+    await _delay();
+    // Idempotent, like the real route: cancelling with nothing pending is a
+    // no-op success.
+    _deletionScheduledFor = null;
   }
 }
 

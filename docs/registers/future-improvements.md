@@ -149,6 +149,45 @@ the mock source.
 application events; real resume download. Drop-off analytics (Firebase Crashlytics +
 Analytics, requirement #19) is a separate, not-yet-started task.
 
+## ADR-0031 grace window — follow-up (captured 2026-07-17)
+
+- **Mock-mode can't walk the post-login pending-deletion banner.** `MockAuthApi.otpVerify`
+  ([mock_auth_api.dart](../../apps/worker-app/lib/core/auth/mock_auth_api.dart)) always returns
+  no deletion date, while the mock deletion state lives on a *different* object
+  (`MockApiClient._deletionScheduledFor`). So under `USE_MOCKS`: schedule a deletion → log out
+  → log back in → **no banner**, though the mock "server" still holds one. **Real mode is
+  unaffected** and the mock's null is *honest* (that object truly knows of nothing pending) —
+  this is demo fidelity, not a privacy or correctness defect. Fix = share deletion state across
+  the two mock objects (a design call for whoever owns mock-mode fidelity); flagged during the
+  ADR-0031 rebase rather than fixed unilaterally.
+
+- **No credit-back when the grace freeze denies an already-paid payer** (bb-security-review
+  LOW — product/billing, not security). Ruling (b) freezes payer surfaces during grace, so a
+  payer who already spent ₹40 on an unlock gets the neutral `unavailable` body
+  ([unlocks.service.ts](../../apps/api/src/unlocks/unlocks.service.ts)) with **no refund**; if
+  the deletion completes, `worker_id` SET-NULLs and the unlock dies permanently. This is
+  CORRECT per the ruling and correctly no-oracle — but there is no credit-back path today.
+  Product decision owed: refund/credit the payer on a deletion-caused freeze, or accept it.
+- **Settings could re-read `/auth/me` on open** (bb-security-review re-gate, LOW + INFO —
+  closes two findings at once). (a) On a **cold start whose `/auth/me` read failed**, "unknown"
+  and "nothing pending" are both null, so Settings shows the ordinary delete row until the next
+  unlock/refresh — transient and self-healing (far narrower than the permanent blocker that was
+  fixed; the "never block the unlock" tradeoff is deliberate and right). (b) Within a session the
+  flag is a **snapshot**: if a worker cancels on device B, device A's banner persists until its
+  next unlock/refresh. `_seedState` in [account_delete_cubit.dart](../../apps/worker-app/lib/features/settings/presentation/cubit/account_delete_cubit.dart)
+  reads the repository synchronously at construction and never re-fetches. A `me()` read when
+  Settings opens fixes both. Not done here: post-review scope discipline on an already-large PR.
+- **Wire the deletion-sweep alert** (bb-security-review re-gate, LOW). `checks.deletion_sweep`
+  on `GET /health` + a terminal error log now make a dead sweep detectable, and
+  [observability-runbook.md](../observability-runbook.md) §7 documents the SEV2 threshold
+  (`down` > 15min) — but **nothing pages yet**; it rests on the repo-wide alerting gap (§8).
+  Before the fix there was zero signal (silent forever); the signal now exists and is pollable.
+  Wire the rule when alerting lands.
+- **`messaging.suppressed` reason enum widened on a shipped v1** (bb-security-review LOW —
+  §2.8 precedent note). `pending_deletion` joins the ADR-0020 reasons; every previously-valid
+  payload stays valid and the ops console is the only consumer, so no version bump was taken.
+  Noting the precedent: a consumer pinned to the old enum would reject the new value.
+
 ## Worker-app pending-work batch — follow-ups (captured 2026-06-27)
 
 Landed this batch (all Flutter-side, no missing endpoint): the **inert splash language

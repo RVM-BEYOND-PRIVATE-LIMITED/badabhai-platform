@@ -89,10 +89,24 @@ export const workers = pgTable(
     // on photo delete and on account deletion (prefix sweep).
     photoStorageKey: text("photo_storage_key"),
     status: text("status").$type<WorkerStatus>().notNull().default("pending"),
+    // ADR-0031 — 7-day deletion grace window. The DUE time of the scheduled hard-
+    // delete (requested_at + ACCOUNT_DELETION_GRACE_DAYS). NULL = active worker;
+    // set = pending deletion (cancellable until the sweep erases). Single source
+    // of truth for the grace state — deliberately NOT a second status value. The
+    // erasure itself is still ADR-0026 Phase 5's hard-delete cascade, run by the
+    // sweep once due; this is a schedule marker, not a soft-delete end-state.
+    deletionScheduledAt: timestamp("deletion_scheduled_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("workers_phone_hash_uq").on(t.phoneHash)],
+  (t) => [
+    uniqueIndex("workers_phone_hash_uq").on(t.phoneHash),
+    // Partial index for the deletion sweep: only pending-deletion rows are indexed
+    // (tiny), so `WHERE deletion_scheduled_at <= now()` stays cheap at any scale.
+    index("workers_deletion_due_idx")
+      .on(t.deletionScheduledAt)
+      .where(sql`"deletion_scheduled_at" IS NOT NULL`),
+  ],
 ).enableRLS(); // RLS tracked in the model so db:generate keeps it (migration 0003/0004 carry the SQL)
 
 // ---------------------------------------------------------------------------

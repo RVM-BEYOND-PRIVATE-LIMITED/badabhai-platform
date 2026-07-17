@@ -23,6 +23,19 @@ class ScriptAuthApi extends AuthApi {
   /// TD62 — the scripted `consent_accepted` the fake server returns on both
   /// verify responses. Defaults null (old-server shape: field absent).
   bool? consentAccepted;
+
+  /// ADR-0031 — what the fake server's GET /auth/me reports as pending. Null
+  /// (the default) = the field is ABSENT = nothing pending.
+  DateTime? mePendingDeletion;
+
+  /// ADR-0031 — the `deletion_scheduled_for` on the OTP-verify login response.
+  DateTime? otpPendingDeletion;
+
+  /// Set to make GET /auth/me fail, so "unknown" (a failed read) can be told
+  /// apart from "nothing pending" (a successful read of an absent field).
+  AuthFailure? throwOnMe;
+  int meCalls = 0;
+
   AuthFailure? throwOnVerify;
   AuthFailure? throwOnPinVerify;
   int logoutCalls = 0;
@@ -55,6 +68,18 @@ class ScriptAuthApi extends AuthApi {
       pinSet: pinIsSet,
       tokens: tokens,
       consentAccepted: consentAccepted,
+      deletionScheduledFor: otpPendingDeletion,
+    );
+  }
+
+  @override
+  Future<MeResult> me() async {
+    meCalls++;
+    if (throwOnMe != null) throw throwOnMe!;
+    return MeResult(
+      workerId: 'worker-9',
+      status: 'active',
+      deletionScheduledFor: mePendingDeletion,
     );
   }
 
@@ -486,6 +511,112 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(manager.consentAccepted, isNull);
+    });
+  });
+
+  group('ADR-0031: the pending-deletion flag survives a cold start on EVERY '
+      'entry path (not just OTP)', () {
+    final DateTime due = DateTime.utc(2026, 7, 21, 12);
+
+    /// The DEFAULT cold start: persistent auth is ON, so a returning worker
+    /// resumes bootstrap → locked → unlockWithPin, never touching the OTP path
+    /// whose login response carries the flag.
+    Future<void> coldStartToLocked() async {
+      await store.writeRefreshToken('refresh-1');
+      await store.writeWorkerId('worker-9');
+      await manager.bootstrap();
+    }
+
+    test('PIN-unlock cold start WITH a pending deletion → the flag is restored '
+        '(the worker can still reach cancel)', () async {
+      await coldStartToLocked();
+      api.mePendingDeletion = due;
+
+      await manager.unlockWithPin('7416');
+
+      expect(manager.status, AuthStatus.authenticated);
+      expect(session.deletionScheduledFor, due);
+      expect(api.meCalls, 1);
+    });
+
+    test('PIN-unlock cold start with NOTHING pending → no flag, no fabricated '
+        'date', () async {
+      await coldStartToLocked();
+      api.mePendingDeletion = null; // the server OMITS the field
+
+      await manager.unlockWithPin('7416');
+
+      expect(manager.status, AuthStatus.authenticated);
+      expect(session.deletionScheduledFor, isNull);
+    });
+
+    test('pending → cancelled → restart shows NO stale banner (an absent field '
+        'CLEARS, it does not merge)', () async {
+      // Restart 1: a deletion is pending.
+      await coldStartToLocked();
+      api.mePendingDeletion = due;
+      await manager.unlockWithPin('7416');
+      expect(session.deletionScheduledFor, due);
+
+      // The worker cancels — the flag clears everywhere.
+      session.setDeletionScheduledFor(null);
+
+      // Restart 2: same process, a session that still remembers the old value
+      // would fail here. The server now omits the field.
+      session.setDeletionScheduledFor(due); // simulate a stale carry-over
+      api.mePendingDeletion = null;
+      await manager.unlockWithPin('7416');
+
+      expect(session.deletionScheduledFor, isNull);
+    });
+
+    test('refresh() re-reads the flag too (a silent re-validate is also an '
+        'entry path)', () async {
+      await store.writeRefreshToken('refresh-1');
+      await store.writeWorkerId('worker-9');
+      await manager.bootstrap();
+      api.mePendingDeletion = due;
+
+      await manager.refresh();
+
+      expect(session.deletionScheduledFor, due);
+    });
+
+    test('a FAILED /auth/me is UNKNOWN, not "nothing pending" — it leaves a '
+        'known-pending flag alone and never blocks the unlock', () async {
+      await coldStartToLocked();
+      session.setDeletionScheduledFor(due);
+      api.throwOnMe = const AuthFailure(AuthErrorCode.network);
+
+      await manager.unlockWithPin('7416'); // must NOT throw
+
+      expect(manager.status, AuthStatus.authenticated);
+      expect(session.deletionScheduledFor, due); // untouched, not cleared
+    });
+
+    test('the OTP path keeps reading the flag off its own login response '
+        '(no extra /auth/me round trip)', () async {
+      api
+        ..isNewUser = false
+        ..pinIsSet = true
+        ..otpPendingDeletion = due;
+
+      await manager.verifyOtp('+91999', '1234');
+
+      expect(session.deletionScheduledFor, due);
+      expect(api.meCalls, 0);
+    });
+
+    test('logout clears the pending flag with the rest of the session',
+        () async {
+      await coldStartToLocked();
+      api.mePendingDeletion = due;
+      await manager.unlockWithPin('7416');
+      expect(session.deletionScheduledFor, due);
+
+      await manager.logout();
+
+      expect(session.deletionScheduledFor, isNull);
     });
   });
 

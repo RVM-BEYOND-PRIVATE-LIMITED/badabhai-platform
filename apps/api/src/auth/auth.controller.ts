@@ -43,6 +43,8 @@ import {
   type TokenRefreshDto,
   type AccountDeleteConfirmDto,
   type AccountDeleteRequestResponse,
+  type AccountDeleteConfirmResponse,
+  type AccountDeleteCancelResponse,
   type LoginResponse,
   type MeResponse,
   type OtpRequestResponse,
@@ -175,12 +177,28 @@ export class AuthController {
     }
   }
 
-  /** Current worker identity + status (worker-authenticated). */
+  /**
+   * Current worker identity + status (worker-authenticated).
+   *
+   * ADR-0031: also carries `deletion_scheduled_for` while a deletion is pending — the one
+   * seam that reaches EVERY entry path (PIN-unlock and refresh re-bridge a session without
+   * ever hitting OTP-verify, so the login-response field alone left a cold-started app with
+   * no banner and no cancel action). Read through an EXPLICIT projection (`findSelfView`,
+   * not the SELECT-* `findById`) so no PII column is fetched at all. The field is SPREAD in
+   * only when the marker is set — absent (never null) means nothing is pending, and the
+   * value is never synthesized.
+   */
   @Get("me")
   @UseGuards(WorkerAuthGuard)
   async me(@CurrentWorker() worker: AuthenticatedWorker): Promise<MeResponse> {
-    const row = await this.workers.findById(worker.id);
-    return { worker_id: worker.id, status: row?.status ?? "active" };
+    const row = await this.workers.findSelfView(worker.id);
+    return {
+      worker_id: worker.id,
+      status: row?.status ?? "active",
+      ...(row?.deletionScheduledAt
+        ? { deletion_scheduled_for: row.deletionScheduledAt.toISOString() }
+        : {}),
+    };
   }
 
   /** Mint a fresh rolling token for the current session. */
@@ -303,24 +321,48 @@ export class AuthController {
   }
 
   /**
-   * Step-up OTP confirm for DPDP account deletion (ADR-0026 Phase 5). Re-derives the phone
-   * from the TOKEN's worker, verifies the OTP (OtpService.verify throws 401 on a bad/expired
-   * code — the step-up gate), then runs the irreversible erasure orchestration and returns
-   * 204. FAIL-CLOSED: a failed OTP throws BEFORE execute() ⇒ no deletion. The body carries
-   * ONLY the OTP code — identity is the guard's worker.id, never the body.
+   * Step-up OTP confirm for DPDP account deletion (ADR-0026 Phase 5, amended by ADR-0031:
+   * confirm now SCHEDULES the erasure — it no longer executes it in-request). Re-derives
+   * the phone from the TOKEN's worker, verifies the OTP (OtpService.verify throws 401 on a
+   * bad/expired code — the step-up gate), then stamps the grace-window due time and returns
+   * 200 { scheduled_for }. The hard-delete itself runs in the sweep once the grace elapses;
+   * the worker can cancel anytime before then. FAIL-CLOSED: a failed OTP throws BEFORE
+   * schedule() ⇒ nothing scheduled. The body carries ONLY the OTP code — identity is the
+   * guard's worker.id, never the body.
    */
   @Post("account/delete/confirm")
-  @HttpCode(204)
+  @HttpCode(200)
   @UseGuards(WorkerAuthGuard)
   async accountDeleteConfirm(
     @CurrentWorker() worker: AuthenticatedWorker,
     @Body(new ZodValidationPipe(AccountDeleteConfirmSchema)) dto: AccountDeleteConfirmDto,
-  ): Promise<void> {
+    @Ctx() ctx: RequestContext,
+  ): Promise<AccountDeleteConfirmResponse> {
     const phone = await this.resolvePhone(worker.id);
-    // Throws 401/429/503 on a bad/expired code or Redis down (fail closed). No deletion runs
-    // unless this resolves — verify is the step-up gate.
+    // Throws 401/429/503 on a bad/expired code or Redis down (fail closed). Nothing is
+    // scheduled unless this resolves — verify is the step-up gate.
     await this.otp.verify(phone, dto.otp);
-    await this.accountDeletion.execute(worker.id);
+    const { scheduled_for } = await this.accountDeletion.schedule(worker.id, ctx);
+    return { success: true, scheduled_for };
+  }
+
+  /**
+   * Cancel a pending account deletion during the grace window (ADR-0031). WorkerAuthGuard
+   * ONLY — deliberately NO ConsentGuard, mirroring request/confirm: a consent-revoked
+   * worker must still be able to manage their own deletion. No body at all — identity is
+   * the guard's worker.id (no IDOR). IDEMPOTENT: cancelling with nothing pending is a 200
+   * no-op, so the response is ALWAYS { success: true } (whether a deletion was actually
+   * pending is recorded by the worker.deletion_cancelled event, never the body).
+   */
+  @Post("account/delete/cancel")
+  @HttpCode(200)
+  @UseGuards(WorkerAuthGuard)
+  async accountDeleteCancel(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Ctx() ctx: RequestContext,
+  ): Promise<AccountDeleteCancelResponse> {
+    await this.accountDeletion.cancel(worker.id, ctx);
+    return { success: true };
   }
 
   /**

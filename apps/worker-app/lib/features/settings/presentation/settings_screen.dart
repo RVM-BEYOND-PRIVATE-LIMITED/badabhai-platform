@@ -10,6 +10,7 @@ import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/util/date_label.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_list_row.dart';
 import '../../../core/widgets/bb_scaffold.dart';
@@ -17,11 +18,28 @@ import '../../../router.dart';
 import 'cubit/account_delete_cubit.dart';
 
 /// Settings (spec §5.10). Most rows are inert for the alpha (a tap shows a
-/// "coming soon" snackbar). Account-delete is the real DPDP 2-step flow (A4):
-/// confirm → request OTP → enter OTP → on 204, wipe local credentials and return
-/// to phone login. Real data-export is still deferred (§7).
+/// "coming soon" snackbar). Account-delete is the real DPDP 2-step flow (A4 +
+/// ADR-0031 grace window): confirm → request OTP → enter OTP → on 200 the
+/// deletion is SCHEDULED (7 days) — the worker stays logged in, the delete row
+/// becomes a pending banner with a "Delete cancel karein" action, and cancel
+/// returns everything to normal. Real data-export is still deferred (§7).
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    // Screen-scoped cubit: seeds `scheduled` from the SessionRepository when a
+    // deletion is already pending (e.g. after a login during the grace), so
+    // the banner shows without any network call.
+    return BlocProvider<AccountDeleteCubit>(
+      create: (_) => locator<AccountDeleteCubit>(),
+      child: const _SettingsView(),
+    );
+  }
+}
+
+class _SettingsView extends StatelessWidget {
+  const _SettingsView();
 
   void _comingSoon(BuildContext context) {
     ScaffoldMessenger.of(context)
@@ -58,25 +76,24 @@ class SettingsScreen extends StatelessWidget {
   }
 
   /// Sends the delete OTP, then opens the OTP-entry dialog. Surfaces the honest
-  /// reason on a request failure instead of silently dead-ending.
+  /// reason on a request failure instead of silently dead-ending. On a confirmed
+  /// schedule the dialog closes into the SCHEDULED state and the pending banner
+  /// takes over — NO logout, NO navigation (ADR-0031: the worker keeps their
+  /// session during the grace so they can cancel).
   Future<void> _startDeleteOtpFlow(BuildContext context) async {
-    final AccountDeleteCubit cubit = locator<AccountDeleteCubit>();
+    final AccountDeleteCubit cubit = context.read<AccountDeleteCubit>();
     await cubit.requestDelete();
-    if (!context.mounted) {
-      await cubit.close();
-      return;
-    }
+    if (!context.mounted) return;
     final AccountDeleteState s = cubit.state;
     if (s.status != AccountDeleteStatus.otpSent) {
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
         ..showSnackBar(
             SnackBar(content: Text(failureReason(s.failure).reason)));
-      await cubit.close();
       return;
     }
 
-    final bool? deleted = await showDialog<bool>(
+    await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext dialogContext) => BlocProvider<AccountDeleteCubit>.value(
@@ -84,12 +101,6 @@ class SettingsScreen extends StatelessWidget {
         child: const _DeleteOtpDialog(),
       ),
     );
-    await cubit.close();
-
-    if (deleted == true && context.mounted) {
-      // Credentials are already wiped by the cubit; leave the shell for login.
-      context.go(Routes.phoneLogin);
-    }
   }
 
   @override
@@ -135,12 +146,40 @@ class SettingsScreen extends StatelessWidget {
             subtitle: 'Consent · download · delete',
             onTap: () => _comingSoon(context),
           ),
-          BbListRow.setting(
-            icon: Icons.delete_outline,
-            title: 'Account delete karein',
-            subtitle: 'OTP ke baad 7 din mein',
-            danger: true,
-            onTap: () => _confirmDelete(context),
+          // Delete row while active; pending banner + cancel during the grace.
+          BlocConsumer<AccountDeleteCubit, AccountDeleteState>(
+            // React only to the cancel round trip resolving (cancelling →
+            // idle/scheduled) — the OTP dialog owns its own error surface.
+            listenWhen: (AccountDeleteState prev, AccountDeleteState curr) =>
+                prev.status == AccountDeleteStatus.cancelling &&
+                curr.status != AccountDeleteStatus.cancelling,
+            listener: (BuildContext context, AccountDeleteState state) {
+              final ScaffoldMessengerState messenger =
+                  ScaffoldMessenger.of(context)..clearSnackBars();
+              if (state.status == AccountDeleteStatus.idle) {
+                messenger.showSnackBar(const SnackBar(
+                    content: Text('Account delete cancel ho gaya')));
+              } else {
+                // Cancel failed — the honest reason; the banner stays.
+                messenger.showSnackBar(SnackBar(
+                    content: Text(failureReason(state.failure).reason)));
+              }
+            },
+            builder: (BuildContext context, AccountDeleteState state) {
+              final bool pending =
+                  state.status == AccountDeleteStatus.scheduled ||
+                      state.status == AccountDeleteStatus.cancelling;
+              if (!pending) {
+                return BbListRow.setting(
+                  icon: Icons.delete_outline,
+                  title: 'Account delete karein',
+                  subtitle: 'OTP ke baad 7 din mein',
+                  danger: true,
+                  onTap: () => _confirmDelete(context),
+                );
+              }
+              return _PendingDeletionBanner(state: state);
+            },
           ),
           const SizedBox(height: AppSpacing.s5),
           Text(
@@ -155,9 +194,70 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
+/// The grace-window banner that replaces the delete row while a deletion is
+/// pending (ADR-0031): when the account will be deleted + the explicit
+/// "Delete cancel karein" action. Danger-inverse: danger-tinted surface with
+/// crimson text/action, mirroring the `danger:` treatment of the delete row.
+class _PendingDeletionBanner extends StatelessWidget {
+  const _PendingDeletionBanner({required this.state});
+
+  final AccountDeleteState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool cancelling = state.status == AccountDeleteStatus.cancelling;
+    final DateTime? due = state.scheduledFor;
+    // Defensive: a missing date (bad parse) falls back to the generic promise.
+    final String line = due == null
+        ? 'Account 7 din mein delete hoga'
+        : 'Account ${absoluteDateLabel(due)} ko delete hoga';
+    return Container(
+      margin: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.s4, vertical: AppSpacing.s2),
+      padding: const EdgeInsets.all(AppSpacing.s3),
+      decoration: BoxDecoration(
+        color: AppColors.dangerTint,
+        borderRadius: BorderRadius.circular(AppRadii.md),
+        border: Border.all(color: AppColors.danger),
+      ),
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.hourglass_top_rounded, color: AppColors.danger),
+          const SizedBox(width: AppSpacing.s3),
+          Expanded(
+            child: Text(
+              line,
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                weight: FontWeight.w600,
+                color: AppColors.danger,
+              ),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.s2),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            onPressed: cancelling
+                ? null
+                : () => context.read<AccountDeleteCubit>().cancelDelete(),
+            child: cancelling
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Delete cancel karein'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// The OTP-entry step of account delete. Reacts to [AccountDeleteCubit]: shows a
 /// countdown from the resend cooldown, submits the OTP, surfaces the honest error
-/// (bad OTP / rate-limit), and pops `true` once the delete is confirmed.
+/// (bad OTP / rate-limit), and pops once the delete is SCHEDULED (the banner
+/// behind it takes over).
 class _DeleteOtpDialog extends StatefulWidget {
   const _DeleteOtpDialog();
 
@@ -198,7 +298,7 @@ class _DeleteOtpDialogState extends State<_DeleteOtpDialog> {
   Widget build(BuildContext context) {
     return BlocConsumer<AccountDeleteCubit, AccountDeleteState>(
       listener: (BuildContext context, AccountDeleteState state) {
-        if (state.status == AccountDeleteStatus.deleted) {
+        if (state.status == AccountDeleteStatus.scheduled) {
           Navigator.of(context).pop(true);
         }
       },
