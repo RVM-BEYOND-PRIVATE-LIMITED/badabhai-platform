@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -81,7 +82,30 @@ router = AIRouter(settings)
 stt_adapter = SttAdapter(settings)
 translate_adapter = TranslateAdapter(settings)
 
-app = FastAPI(title="BadaBhai AI Service", version="0.1.0")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """AI-ENV-1 / 1c: construct the spend ledger AT BOOT so its backend choice is
+    logged at STARTUP, not on the first AI call.
+
+    The ledger is a lazy singleton, so without this hook nothing announced the
+    selected backend until real AI traffic arrived — which defeats the point of the
+    log. "Unset" (per-process caps, a deliberate default) and "misconfigured" were
+    indistinguishable from outside the process precisely when you most need to
+    know: at deploy time, before any traffic. This matters MOST under the TD67-locked
+    posture, where ``/health`` trims ``spend_store`` out of its payload and the log
+    is the ONLY signal.
+
+    Safe to do at boot: ``SpendLedger`` construction performs NO network I/O
+    (``redis.asyncio.from_url`` is lazy — it connects on first command), so an
+    unreachable Redis still boots fine and still fails CLOSED per call. It does not
+    import anything ``main`` has not already imported, so there is no cycle.
+    """
+    cost_tracker.get_ledger()
+    yield
+
+
+app = FastAPI(title="BadaBhai AI Service", version="0.1.0", lifespan=_lifespan)
 
 # TD67: paths reachable WITHOUT the service token. Everything else (including /docs
 # and /openapi.json) is gated once AI_INTERNAL_TOKEN is set. NOTE: /health itself
