@@ -12,7 +12,8 @@
 - Payer Web 78% · Worker App 69% · Backend/API 84% · OTP/Auth/Security 80% · Agency Demand 70% · Resume+Kit 75% · Infra/Staging 45% · Docs/Process 85%
 - _Re-score driver (since 72% on Jun 29): 16 PRs merged — A-batch fixes (#173–#176), B-batch backend (#177–#180), B5 org-tenancy (#182–#186, ADR-0027), AI-service retry storm fixed (#187, ADR-0028). LC-1 closed for money routes (#179). Backend 80→84, Payer Web 74→78, OTP/Auth 78→80, Agency 68→70, AI-service 75→80, Docs 80→85. **Jul 10:** PR #189 (worker-app A1/A3/A4 wiring + NEW Flutter payer-app) + PR #190 (60-screenshot evidence refresh) → Worker App 67→69 (evidence: [QA_EVIDENCE 2026-07-10](QA_EVIDENCE.md)). **Infra/Staging unchanged (45%) — staging not deployed, slipped past deadline.**_
 - **P0 Blockers: 1** (staging not provisioned — PAST deadline 2026-07-04, now CRITICAL)
-- **P1 Blockers: 1** (unlock/reveal LC-1 — InternalServiceGuard + body payer_id still open; money routes closed by #179)
+- **P1 Blockers: 1** (**ops-internal** unlock surface retire — the ops [`unlocks.controller.ts`](../../apps/api/src/unlocks/unlocks.controller.ts) keeps `InternalServiceGuard` as a deliberate safe-interim, TD33/TD50, blocked on ADMIN-4..8; **not** payer-facing, **not** called by payer-web)
+  - ⚠️ **Correction (2026-07-16):** the previous "unlock/reveal LC-1 — InternalServiceGuard + body payer_id still open" entry was a **PHANTOM** — it conflated the *ops* controller with the *payer* one. **LC-1 is CLOSED on the payer surface**: [`payer-unlocks.controller.ts:40-41`](../../apps/api/src/payer-portal/payer-unlocks.controller.ts) puts the **whole class** behind `PayerAuthGuard` with `payer_id` from the session (XB-A), and reveal enforces ownership at the chokepoint. CLAUDE.md §8 has it right. The same phantom appears in the 2026-07-14 context doc §11 — see [context-drift-2026-07-16.md](../registers/context-drift-2026-07-16.md).
 - **Decisions Needed: 0** — all D1–D8 closed. **Alpha deadline SLIPPED — was 2026-07-04, now targeting ASAP (est. 2026-07-07/08 when staging lands).**
 
 **Build health (re-verified on `origin/main` `a143a7d`):** `pnpm lint` ✅ · `pnpm typecheck` ✅ · `pnpm test` ✅ (1289/1289 api tests, 129 files) · `pnpm build` ✅. AI-service: `ruff` ✅ · `pytest` ✅ (gates green per PR #187). **The branch is green.** 40 migrations (0000–0039, all applied — 0038+0039 applied by owner 2026-07-15).
@@ -29,7 +30,7 @@ The gap to alpha is **verification + staging**, not "more code".
 | ---- | -------: | ------ | ---------- | -------------- | -------- |
 | Overall Project | 75% | IN_PROGRESS | Medium | 1 P0 / 1 P1 | gates green; 18 PRs merged Jun 30–Jul 10; 60 audited emulator screenshots (local backend); no staging/handset proof |
 | Alpha Readiness | 58% | BLOCKED | Medium | 1 P0 — staging not deployed, PAST deadline 2026-07-04 | NO-GO on B1; 60 emulator/local screenshots audited (worker wiring real, payer-app mock-mode); still need staging /health + events + logcat + PDF |
-| Release Readiness | 29% | BLOCKED | High | RLS deferred, real providers off, no DR/cost doc, unlock/reveal LC-1 open | [RELEASE_READINESS.md](RELEASE_READINESS.md) |
+| Release Readiness | 29% | BLOCKED | High | RLS deferred, real providers off, no DR/cost doc; ops unlock retire (TD33/TD50) — **payer LC-1 is CLOSED** | [RELEASE_READINESS.md](RELEASE_READINESS.md) |
 
 ## Phase Progress (weights = CLAUDE.md/owner defaults, WEIGHTS_PENDING)
 
@@ -37,7 +38,7 @@ The gap to alpha is **verification + staging**, not "more code".
 | ----- | -----: | -------: | -------: | ------ | ---------------- | ----------- |
 | Payer Web Alpha | 25% | 78% | 19.5 | VERIFY | Prakash / Divyanshu | No staging run; FE wiring (FE-1..FE-7) in progress; B5 Team wired (#186) |
 | Worker App Alpha | 20% | 69% | 13.8 | BLOCKED | Rishi (Flutter) | B1 handset (P0 — staging not live); PR #189 wiring merged + emulator-run audit; no PDF/logcat/staging proof |
-| Backend/API/Event | 20% | 84% | 16.8 | VERIFY | Divyanshu | LC-1 closed for money routes (#179); unlock/reveal still InternalServiceGuard; B5 org API merged |
+| Backend/API/Event | 20% | 84% | 16.8 | VERIFY | Divyanshu | **LC-1 CLOSED on the payer surface** (plan/boost #179; unlock/reveal `PayerAuthGuard` per #110/#119); residual = ops-internal retire (TD33/TD50); B5 org API merged |
 | OTP/Auth/Security | 10% | 80% | 8.0 | VERIFY | Divyanshu | PIN throttle hardened (#175); consent-on-resume (#176); real-send unproven on staging |
 | Agency Demand Alpha | 10% | 70% | 7.0 | VERIFY | Prakash | B5 payer invites (#185) merged; no staging run |
 | Resume + Interview Kit | 7% | 75% | 5.25 | VERIFY | Divyanshu | PDF requires `RESUME_RENDER_ENABLED=true` + WeasyPrint on staging (D5) |
@@ -57,7 +58,7 @@ The gap to alpha is **verification + staging**, not "more code".
 | Manage Postings — quota top-up | 78% | VERIFY | `POST /payer/job-postings/:id/quota` merged #180; FE wiring = **FE-4** | Wire FE seam (pending) |
 | Plan / Boost | 70% | PARTIAL | `POST /payer/job-postings/:id/plan|boost` merged #179 (LC-1 closed, payer-authed); **net-new UI needed = FE-3** | Build seam fn + UI |
 | Applicant Feed | 82% | VERIFY | live `reach/applicants`; faceless; tests | Staging click-through |
-| Unlock / Reveal | 72% | PARTIAL | masked-resume `POST /payer/resume-disclosures` live; FE still mock = **FE-1**; unlock/reveal InternalServiceGuard (LC-1 still open) | Wire FE-1; close LC-1 for unlock/reveal |
+| Unlock / Reveal | 80% | VERIFY | masked-resume `POST /payer/resume-disclosures` live; **FE mock seams CLOSED by #194**; unlock/reveal payer-authed (`PayerAuthGuard`, session `payer_id`) | Staging verify |
 | Wallet / Credits | 75% | PARTIAL | balance live; `GET /payer/credits/ledger` merged #177; FE still mock = **FE-5** | Wire FE-5 |
 | Capacity | 70% | PARTIAL | live buy (mock money); enforcement INERT | Confirm enforcement plan |
 | Team / Org RBAC | 78% | VERIFY | B5.1–B5.5 all merged (#182–#186, ADR-0027); payer-web Team page wired (#186) | Staging click-through; account-edit (PROFILE-4) |
@@ -87,7 +88,7 @@ The gap to alpha is **verification + staging**, not "more code".
 | Events spine (createEvent + schema) | 85% | VERIFY | `events/`; validated; 1141 api tests green | Staging event flow |
 | Job postings API | 82% | VERIFY | `job-postings/`; events; tests | Staging |
 | Applications / feed API | 80% | VERIFY | `applications/`; consent-gated; tests | Staging |
-| Unlock / reveal API | 70% | PARTIAL | `unlocks/`; **InternalServiceGuard + body payer_id (LC-1)** | Close LC-1 |
+| Unlock / reveal API | 85% | VERIFY | payer surface `payer-portal/payer-unlocks.controller.ts` — `PayerAuthGuard`, session `payer_id`, ownership at chokepoint. Ops `unlocks/` keeps `InternalServiceGuard` (deliberate, TD33/TD50) | Retire ops surface (ADMIN-4..8) |
 | Credits/wallet + ledger idempotency | 80% | VERIFY | migration 0028; ON CONFLICT DO NOTHING; tests | Staging |
 | Capacity / posting-plans API | 82% | VERIFY | InternalServiceGuard added (#174); payer-authed plan/boost merged (#179, LC-1 closed); quota (#180) | Staging verify |
 | Agency API | 80% | VERIFY | `agency/`; PayerRoleGuard; payer invites (#185); tests | Staging |
@@ -115,7 +116,7 @@ Retry storm root cause fixed (#187): transport failures now surface reason code;
 | --------- | ---------- | -------: | ------ | ------- | -------- | ---------- |
 | Login OTP | ZeptoMail email-OTP send | 75% | BLOCKED | Real-send gate (OTP-7) | tests green; no real send | OTP received, no PII in logs |
 | Post Job | Live `/payer/job-postings` integration | 82% | VERIFY | None | live + tests | Job persists via live API |
-| Unlock/Reveal | Per-payer auth on money route | 40% | BLOCKED | LC-1 (TD33/TD50) | rides InternalServiceGuard | Caller payer_id from session, not body |
+| Unlock/Reveal | Per-payer auth on money route | 100% | **DONE** | — | payer surface rides `PayerAuthGuard`; `payer_id` from session (XB-A) | Verified 2026-07-16 — ops-internal retire (TD33/TD50) is the only residual |
 | Posting plans | Guard the `/plan` + `/boost` routes | 50% | IN_PROGRESS | D3 decided (guard) | controller fix in progress | Auth guard + ownership check |
 | Admin PII reveal (3b) | Reason-gated reveal committed + green | 78% | VERIFY | D4: cadence must go live | merged green; D4 owner = Prakash (weekly review) | Weekly audit-stream review + 1-yr retention operational |
 | Worker app | Handset onboarding->resume on staging | 0% | BLOCKED | B1 / staging — **PAST deadline 2026-07-04** | 60 emulator/local screenshots audited (2026-07-10) — still missing staging /health + events + clean logcat + PDF-open proof | 3 evidence families (screenshots + events + logcat), plus PDF `resume.downloaded` |
@@ -127,7 +128,7 @@ Retry storm root cause fixed (#187): transport failures now surface reason code;
 
 **VERIFY** (built + unit-tested, needs runtime/staging proof): payer-web login/dashboard/post-job/applicants; backend auth/OTP/events/job-postings/applications/credits/health/agency/admin(1-3b); worker-app auth/consent/name/chat/profile/resume/kit; AI pseudonymization+extraction; design system.
 
-**PARTIAL** (some working, some missing): payer-web manage-postings, unlock/reveal, wallet, capacity, team-RBAC, account; backend unlock/reveal (LC-1), posting-plans (unguarded); worker-app swipe(job-detail), profile-tab, notifications, settings; **payer-app (Flutter, #189): UI complete + real bindings written, live seam unverified (screenshots are mock-mode); payouts/KYC/home-metrics design-only**.
+**PARTIAL** (some working, some missing): payer-web manage-postings, unlock/reveal, wallet, capacity, team-RBAC, account (all now live-wired — #194); worker-app swipe(job-detail), notifications, settings; **payer-app (Flutter, #189): UI complete + real bindings written, live seam unverified (screenshots are mock-mode); payouts/KYC/home-metrics design-only**. _(Backend unlock/reveal + posting-plans are payer-authed — the old "LC-1 / unguarded" note here was the phantom; see [context-drift-2026-07-16.md](../registers/context-drift-2026-07-16.md).)_
 
 **BLOCKED:** worker-app alpha (B1 handset/staging); staging CD (unwired).
 
