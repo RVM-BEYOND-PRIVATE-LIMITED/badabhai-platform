@@ -199,6 +199,32 @@ void main() {
       // TD62 tri-state: the field is ABSENT above (old server) → null, NEVER a
       // defaulted true/false.
       expect(result.consentAccepted, isNull);
+      // No `deletion_scheduled_for` on the wire (the usual case) → null.
+      expect(result.deletionScheduledFor, isNull);
+    });
+
+    test(
+        'otpVerify parses the OPTIONAL deletion_scheduled_for '
+        '(ADR-0031 pending-deletion flag)', () async {
+      final AuthApi api = _api(MockClient((http.Request req) async {
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'worker_id': 'w-1',
+            'is_new_worker': false,
+            'pin_set': true,
+            'access_token': 'a-1',
+            'refresh_token': 'r-1',
+            'expires_in_seconds': 900,
+            'deletion_scheduled_for': '2026-07-21T12:00:00.000Z',
+          }),
+          200,
+        );
+      }));
+
+      final OtpVerifyResult result =
+          await api.otpVerify('+910000000000', '123456');
+
+      expect(result.deletionScheduledFor, DateTime.utc(2026, 7, 21, 12));
     });
 
     test('otpVerify parses a PRESENT consent_accepted (TD62, both values)',

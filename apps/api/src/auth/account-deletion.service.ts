@@ -1,9 +1,10 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import { conversationWorkerPrefix } from "@badabhai/validators";
 import { SERVER_CONFIG } from "../config/config.module";
+import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { StorageService } from "../storage/storage.service";
@@ -20,7 +21,13 @@ interface RedisTombstoneClient {
 }
 
 /**
- * DPDP worker-initiated account deletion orchestration (ADR-0026 Phase 5, decision D4).
+ * DPDP worker-initiated account deletion orchestration (ADR-0026 Phase 5, decision D4;
+ * grace window amended by ADR-0031).
+ *
+ * ADR-0031: `schedule(workerId, ctx)` / `cancel(workerId, ctx)` manage the 7-day grace
+ * marker (`workers.deletion_scheduled_at`) — confirm now SCHEDULES instead of erasing,
+ * and the worker can cancel anytime during grace. `execute(workerId)` below is UNCHANGED:
+ * it remains the post-grace erasure step, run by the sweep once the marker is overdue.
  *
  * `execute(workerId)` runs BEST-EFFORT-COMPLETE and IDEMPOTENT in a fixed order:
  *   1. revoke all sessions + refresh families (FIRST — a deleted-in-progress worker can
@@ -57,6 +64,118 @@ export class AccountDeletionService {
     // Reuse BullMQ's existing Redis connection for the cool-down tombstone (no second client).
     @InjectQueue(RESUME_RENDER_QUEUE) private readonly queue: Queue,
   ) {}
+
+  /**
+   * Schedule the worker's erasure after the grace window (ADR-0031 — confirm now
+   * SCHEDULES, never erases). IDEMPOTENT: if a deletion is already pending, the EXISTING
+   * due time is returned with NO event and NO re-extension — the clock never resets
+   * without a cancel. A missing worker row throws the same neutral 401 as the
+   * controller's resolvePhone (fail closed, no oracle). Logs the opaque worker id only.
+   */
+  async schedule(workerId: string, ctx: RequestContext): Promise<{ scheduled_for: string }> {
+    const idPrefix = workerId.slice(0, 8);
+
+    const worker = await this.workers.findById(workerId);
+    if (!worker) throw new UnauthorizedException("Invalid or expired session");
+
+    if (worker.deletionScheduledAt) {
+      this.logger.log(
+        `account deletion already scheduled worker=${idPrefix} (idempotent re-confirm)`,
+      );
+      return { scheduled_for: worker.deletionScheduledAt.toISOString() };
+    }
+
+    const scheduledAt = new Date(
+      Date.now() + this.config.ACCOUNT_DELETION_GRACE_DAYS * 86_400_000,
+    );
+    // ATOMIC set-if-not-set: only ONE of two racing confirms owns the transition — the
+    // loser falls through to the idempotent re-read (same date back, no re-extension,
+    // no double-emit of the strict v1 event).
+    const owned = await this.workers.scheduleDeletion(workerId, scheduledAt);
+    if (!owned) {
+      const current = await this.workers.findById(workerId);
+      if (current?.deletionScheduledAt) {
+        this.logger.log(
+          `account deletion already scheduled worker=${idPrefix} (lost schedule race — idempotent)`,
+        );
+        return { scheduled_for: current.deletionScheduledAt.toISOString() };
+      }
+      // Row vanished under us (erased concurrently) — same neutral 401 as the guard path.
+      throw new UnauthorizedException("Invalid or expired session");
+    }
+
+    // PII-FREE schedule record: opaque worker id + the due timestamp only. The event is
+    // the DPDP transparency record of the schedule — if it cannot be written, COMPENSATE
+    // by clearing the marker and failing the request (state and spine never diverge; the
+    // worker's retry re-schedules and re-emits).
+    try {
+      await this.events.emit({
+        event_name: "worker.deletion_scheduled",
+        actor: { actor_type: "worker", actor_id: workerId },
+        subject: { subject_type: "worker", subject_id: workerId },
+        payload: { worker_id: workerId, scheduled_for: scheduledAt.toISOString() },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+    } catch (err) {
+      await this.workers.cancelDeletion(workerId).catch(() => undefined); // best-effort undo
+      this.logger.warn(`deletion_scheduled emit failed worker=${idPrefix}; schedule rolled back`);
+      throw err;
+    }
+
+    this.logger.log(`account deletion scheduled worker=${idPrefix}`);
+    return { scheduled_for: scheduledAt.toISOString() };
+  }
+
+  /**
+   * Cancel a pending deletion during grace (ADR-0031). IDEMPOTENT: a missing row or
+   * nothing pending is a clean no-op ({ cancelled: false }, NO event) — cancel is a
+   * purely recoverable action, so it carries no step-up gate and no oracle. Logs the
+   * opaque worker id only.
+   */
+  async cancel(workerId: string, ctx: RequestContext): Promise<{ cancelled: boolean }> {
+    const idPrefix = workerId.slice(0, 8);
+
+    // Read the due time FIRST — RETURNING sees the post-update row, and the compensation
+    // below needs the previous value. The read is not the guard; the conditional flip is.
+    const before = await this.workers.findById(workerId);
+    const previousDueAt = before?.deletionScheduledAt ?? null;
+
+    // ATOMIC clear-if-set: the conditional UPDATE both checks and flips the marker, so a
+    // cancel racing another cancel (or the sweep at the due boundary) flips it exactly
+    // once — the event below is emitted ONLY by the call that owned the flip (never a
+    // false `deletion_cancelled` after an erasure, never a double-emit).
+    const flipped = await this.workers.cancelDeletion(workerId);
+    if (!flipped) {
+      this.logger.log(`account deletion cancel no-op worker=${idPrefix} (nothing pending)`);
+      return { cancelled: false };
+    }
+
+    // PII-FREE cancel record: the opaque worker id only (what was cancelled and when it
+    // was due is recoverable from the paired worker.deletion_scheduled event). Spine
+    // consistency: if the event cannot be written, COMPENSATE by restoring the marker to
+    // its previous due time (set-if-null restore — a concurrent re-confirm wins harmlessly)
+    // and failing the request; the worker's retry re-cancels and re-emits.
+    try {
+      await this.events.emit({
+        event_name: "worker.deletion_cancelled",
+        actor: { actor_type: "worker", actor_id: workerId },
+        subject: { subject_type: "worker", subject_id: workerId },
+        payload: { worker_id: workerId },
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+    } catch (err) {
+      if (previousDueAt) {
+        await this.workers.scheduleDeletion(workerId, previousDueAt).catch(() => undefined);
+      }
+      this.logger.warn(`deletion_cancelled emit failed worker=${idPrefix}; cancel rolled back`);
+      throw err;
+    }
+
+    this.logger.log(`account deletion cancelled worker=${idPrefix}`);
+    return { cancelled: true };
+  }
 
   /**
    * Erase a worker's account. Idempotent + best-effort-complete (see class doc). Returns

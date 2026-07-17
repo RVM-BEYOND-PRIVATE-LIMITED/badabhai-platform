@@ -2,19 +2,26 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/api/api_client.dart';
-import '../../../../core/auth/reauth_signal.dart';
-import '../../../../core/auth/secure_token_store.dart';
 import '../../../../core/di/locator.dart';
 import '../../../../core/error/failure.dart';
 import '../../../../core/error/failure_mapper.dart';
 import '../../../../core/session/session_repository.dart';
 
-enum AccountDeleteStatus { idle, sendingOtp, otpSent, confirming, deleted, error }
+enum AccountDeleteStatus {
+  idle,
+  sendingOtp,
+  otpSent,
+  confirming,
+  scheduled,
+  cancelling,
+  error,
+}
 
 class AccountDeleteState extends Equatable {
   const AccountDeleteState({
     this.status = AccountDeleteStatus.idle,
     this.resendInSeconds = 0,
+    this.scheduledFor,
     this.failure,
   });
 
@@ -24,33 +31,44 @@ class AccountDeleteState extends Equatable {
   /// request response. The OTP dialog counts it down.
   final int resendInSeconds;
 
-  /// The typed cause when [status] is `error`. The dialog surfaces its honest
-  /// reason (bad OTP vs rate-limit vs server) via failure_reason.
+  /// When the pending deletion is due (ADR-0031 grace window). Set while
+  /// [status] is `scheduled`/`cancelling`; null otherwise. May be null even
+  /// when scheduled (defensive parse) — the UI falls back to "7 din" copy.
+  final DateTime? scheduledFor;
+
+  /// The typed cause when [status] is `error` — or, on a failed CANCEL, while
+  /// [status] STAYS `scheduled` (the banner survives so the worker can retry).
+  /// The dialog/banner surfaces its honest reason via failure_reason.
   final Failure? failure;
 
   AccountDeleteState copyWith({
     AccountDeleteStatus? status,
     int? resendInSeconds,
+    DateTime? scheduledFor,
     Failure? failure,
   }) =>
       AccountDeleteState(
         status: status ?? this.status,
         resendInSeconds: resendInSeconds ?? this.resendInSeconds,
+        scheduledFor: scheduledFor ?? this.scheduledFor,
         failure: failure,
       );
 
   @override
-  List<Object?> get props => <Object?>[status, resendInSeconds, failure];
+  List<Object?> get props =>
+      <Object?>[status, resendInSeconds, scheduledFor, failure];
 }
 
-/// Owns the 2-step DPDP account-delete flow (A4): request OTP → confirm OTP.
+/// Owns the DPDP account-delete flow (A4 + ADR-0031 grace window): request OTP
+/// → confirm OTP → SCHEDULED (7-day grace) → optional cancel.
 ///
-/// On a confirmed 204 it wipes the worker's local credentials — the in-memory
-/// session AND the secure store (refresh token + worker id) — then fires the
-/// reauth signal so the app returns to logged-out. The screen navigates to phone
-/// login. FAIL-CLOSED: a wrong OTP (401) surfaces [OtpInvalidFailure] (NOT
-/// "session expired"), a 429 surfaces [RateLimitedFailure]; nothing is wiped
-/// unless the server confirms the delete.
+/// On a confirmed 200 the deletion is only SCHEDULED — local credentials are
+/// deliberately NOT wiped and no reauth fires: the worker keeps using the app
+/// during the grace so they CAN cancel (from the Settings banner or the
+/// post-login prompt). [cancelDelete] clears the pending flag everywhere.
+/// FAIL-CLOSED: a wrong OTP (401) surfaces [OtpInvalidFailure] (NOT "session
+/// expired"), a 429 surfaces [RateLimitedFailure]; nothing is scheduled unless
+/// the server confirms it.
 ///
 /// The deps are optional named seams resolved LAZILY from the locator when
 /// omitted (mirrors ProfileTabCubit) so tests inject fakes without a wired graph.
@@ -58,23 +76,29 @@ class AccountDeleteCubit extends Cubit<AccountDeleteState> {
   AccountDeleteCubit({
     ApiClient? api,
     SessionRepository? session,
-    SecureTokenStore? tokenStore,
-    ReauthSignal? reauthSignal,
   })  : _api = api,
         _session = session,
-        _tokenStore = tokenStore,
-        _reauthSignal = reauthSignal,
-        super(const AccountDeleteState());
+        super(_seedState(session));
 
   final ApiClient? _api;
   final SessionRepository? _session;
-  final SecureTokenStore? _tokenStore;
-  final ReauthSignal? _reauthSignal;
 
   ApiClient get _apiClient => _api ?? locator<ApiClient>();
   SessionRepository get _sessionRepo => _session ?? locator<SessionRepository>();
-  SecureTokenStore get _store => _tokenStore ?? locator<SecureTokenStore>();
-  ReauthSignal get _reauth => _reauthSignal ?? locator<ReauthSignal>();
+
+  /// A worker who logged in during a pending grace window starts SCHEDULED
+  /// (the login response flag was stored on the SessionRepository), so Settings
+  /// shows the pending banner immediately instead of the delete row.
+  static AccountDeleteState _seedState(SessionRepository? session) {
+    final DateTime? pending =
+        (session ?? locator<SessionRepository>()).deletionScheduledFor;
+    return pending == null
+        ? const AccountDeleteState()
+        : AccountDeleteState(
+            status: AccountDeleteStatus.scheduled,
+            scheduledFor: pending,
+          );
+  }
 
   String? _tokenOrNull() {
     final String? token = _sessionRepo.sessionToken;
@@ -106,8 +130,11 @@ class AccountDeleteCubit extends Cubit<AccountDeleteState> {
     }
   }
 
-  /// Step 2: confirm with [otp]. On a 204 wipes local credentials + fires reauth.
-  /// FAIL-CLOSED error mapping is delete-specific (401 → bad OTP, not re-login).
+  /// Step 2: confirm with [otp]. On a 200 the deletion is SCHEDULED (ADR-0031)
+  /// — credentials are NOT wiped and no reauth fires (the worker keeps their
+  /// session so they can cancel during the grace); the pending flag is stored
+  /// on the SessionRepository and the state moves to `scheduled`. FAIL-CLOSED
+  /// error mapping is delete-specific (401 → bad OTP, not re-login).
   Future<void> confirmDelete(String otp) async {
     final String? token = _tokenOrNull();
     if (token == null) {
@@ -117,10 +144,16 @@ class AccountDeleteCubit extends Cubit<AccountDeleteState> {
     }
     emit(state.copyWith(status: AccountDeleteStatus.confirming, failure: null));
     try {
-      await _apiClient.confirmAccountDelete(authToken: token, otp: otp);
-      await _wipeLocalCredentials();
+      final AccountDeleteConfirmResult res =
+          await _apiClient.confirmAccountDelete(authToken: token, otp: otp);
+      // Keep the SessionRepository in sync — it seeds this cubit and drives
+      // the post-login cancel prompt.
+      _sessionRepo.setDeletionScheduledFor(res.scheduledFor);
       if (isClosed) return;
-      emit(const AccountDeleteState(status: AccountDeleteStatus.deleted));
+      emit(AccountDeleteState(
+        status: AccountDeleteStatus.scheduled,
+        scheduledFor: res.scheduledFor,
+      ));
     } catch (error) {
       if (isClosed) return;
       emit(AccountDeleteState(
@@ -131,16 +164,33 @@ class AccountDeleteCubit extends Cubit<AccountDeleteState> {
     }
   }
 
-  /// The account is gone server-side — clear the in-memory session + the secure
-  /// store, then fire reauth so the app flips to logged-out.
-  Future<void> _wipeLocalCredentials() async {
-    try {
-      await _store.clear();
-    } catch (_) {
-      // Best-effort: a store error must not block returning to login.
+  /// Cancels the pending deletion (POST /auth/account/delete/cancel —
+  /// idempotent, bearer only; cancel is recoverable so it needs no OTP). On
+  /// success the pending flag is cleared everywhere (state + SessionRepository)
+  /// and the state returns to `idle`; on failure the state STAYS `scheduled`
+  /// with the typed cause, so the banner survives and the worker can retry.
+  Future<void> cancelDelete() async {
+    final String? token = _tokenOrNull();
+    if (token == null) {
+      emit(state.copyWith(
+          status: AccountDeleteStatus.scheduled,
+          failure: const UnauthorizedFailure()));
+      return;
     }
-    _sessionRepo.clear();
-    _reauth.requireReauth();
+    emit(state.copyWith(status: AccountDeleteStatus.cancelling, failure: null));
+    try {
+      await _apiClient.cancelAccountDelete(authToken: token);
+      _sessionRepo.setDeletionScheduledFor(null);
+      if (isClosed) return;
+      emit(const AccountDeleteState());
+    } catch (error) {
+      if (isClosed) return;
+      emit(AccountDeleteState(
+        status: AccountDeleteStatus.scheduled,
+        scheduledFor: state.scheduledFor,
+        failure: mapError(error),
+      ));
+    }
   }
 
   /// Delete-confirm error mapping. 401 here means the OTP was wrong (NOT the

@@ -58,6 +58,8 @@ interface TxResult<R> {
  *         gets the SAME neutral body regardless of any worker's state (closes the
  *         payment_required consent oracle, BC-1).
  *   [1]   employer_sharing CONSENT gate (fail closed; no/revoked → neutral).
+ *   [1b]  ADR-0031 pending-deletion FREEZE (ruling (b)): a worker inside the deletion
+ *         grace window is denied like [1] (same neutral body; re-checked in-tx).
  *   [2]   worker CAPS — atomic check-and-write under an advisory lock on worker_id
  *         (F-2: N concurrent requests can never exceed the cap). caps precede payment.
  *   [3]   PAYMENT/credit debit + [4] GRANT in ONE transaction (F-6: both-or-neither,
@@ -138,6 +140,17 @@ export class UnlockService {
     const consented = await this.isConsentedForSharing(workerId);
     const workerPresent = consented || (await this.workerExists(workerId));
 
+    // ---- ADR-0031 payer-surface freeze (ruling (b)) — pending-deletion gate -----
+    // A worker inside the deletion grace window must stop surfacing to payers: a NEW
+    // unlock is denied with the SAME byte-identical neutral body (no oracle — a payer
+    // cannot distinguish "leaving" from no-consent/capped/unknown). Read tx-EXTERNALLY
+    // here, beside the consent read (same deadlock rule); the tx below RE-CHECKS under
+    // the advisory lock (the schedule-vs-unlock race). No deny row / unlock.denied is
+    // written: the deny-reason enums carry no pending value and a leaving worker should
+    // accrue no new rows keyed on them — unlock.requested (above) already audits the
+    // attempt on the spine.
+    if (await this.isPendingDeletion(workerId)) return neutralUnavailable();
+
     // From here, ALL deny branches return the same neutral body (F-3). The single
     // atomic transaction holds the advisory lock so caps cannot be raced (F-2) and the
     // debit+grant are both-or-neither (F-6). The transaction does ALL the DB work and
@@ -177,6 +190,18 @@ export class UnlockService {
             // null, subject = worker) and return the identical neutral body.
             events.push(() => this.emitDenied(null, payerId, workerId, jobId, reason, ctx));
           }
+          return { response: neutralUnavailable(), events };
+        }
+
+        // ---- ADR-0031 pending-deletion RE-CHECK (under the advisory lock) ------
+        // The pre-lock gate (beside the consent read above) denied the common case;
+        // this closes the race where the deletion is scheduled between that read and
+        // the lock. ONE cheap tx-SCOPED pk read (a global-pool read inside the locked
+        // tx would recreate the pool-vs-lock deadlock). A gone row collapses to the
+        // same neutral too (the grant INSERT would otherwise 500 on the FK — no
+        // oracle). Same neutral body; no deny row (see the pre-lock gate note).
+        const marker = await this.repo.getWorkerDeletionMarker(tx, workerId);
+        if (!marker || marker.deletionScheduledAt !== null) {
           return { response: neutralUnavailable(), events };
         }
 
@@ -261,6 +286,12 @@ export class UnlockService {
     // the PII-free paid-grant row. A reveal cannot relay to a gone worker — return the SAME
     // neutral body (no oracle; never pass null into the consent check / worker lock below).
     if (pre && pre.worker_id === null) return neutralUnavailable();
+    // ADR-0031 payer-surface freeze (ruling (b)): a PENDING-deletion worker is, for a
+    // payer, the same class as the gone worker above — frozen, not relayable. Deny with
+    // the IDENTICAL neutral body (no oracle). Tx-external read (deadlock rule); the tx
+    // below re-checks beside its own SET-NULL guards.
+    if (pre && pre.worker_id !== null && (await this.isPendingDeletion(pre.worker_id)))
+      return neutralUnavailable();
     if (pre && pre.worker_id !== null && !(await this.isConsentedForSharing(pre.worker_id)))
       return neutralUnavailable();
 
@@ -278,6 +309,13 @@ export class UnlockService {
         // (billing history) but cannot be relayed — guard BEFORE lockWorker/relay/emit so a
         // null worker_id never reaches them; return the IDENTICAL neutral body (no oracle).
         if (unlock.workerId === null) return { response: neutralUnavailable(), events };
+        // ADR-0031: pending-deletion guard beside the SET-NULL guard above — a frozen
+        // worker is not relayable, so short-circuit BEFORE even taking the worker lock.
+        // ONE cheap tx-SCOPED pk read (a global-pool read inside the locked tx would
+        // recreate the pool-vs-lock deadlock); a gone row is the same neutral.
+        const marker = await this.repo.getWorkerDeletionMarker(tx, unlock.workerId);
+        if (!marker || marker.deletionScheduledAt !== null)
+          return { response: neutralUnavailable(), events };
 
         // Serialize reveals for this worker (per-attempt cap atomicity; F-2).
         await this.repo.lockWorker(tx, unlock.workerId);
@@ -290,6 +328,13 @@ export class UnlockService {
         // mutable property through) carry a guaranteed-non-null worker id (ADR-0026 Phase 5).
         if (fresh.workerId === null) return { response: neutralUnavailable(), events };
         const freshWorkerId: string = fresh.workerId;
+
+        // ADR-0031 TOCTOU re-read UNDER the lock (mirrors the worker-gone re-guard
+        // above): a deletion scheduled in the lock-acquire window must still freeze —
+        // the marker is re-read on this txn's view before any relay/decrypt.
+        const freshMarker = await this.repo.getWorkerDeletionMarker(tx, freshWorkerId);
+        if (!freshMarker || freshMarker.deletionScheduledAt !== null)
+          return { response: neutralUnavailable(), events };
 
         // Must be a live grant: granted/revealed, not expired.
         const live =
@@ -454,6 +499,23 @@ export class UnlockService {
       return (await this.workers.findById(workerId)) !== undefined;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * ADR-0031 payer-surface freeze (ruling (b)): true when the worker has a PENDING
+   * scheduled deletion (`deletion_scheduled_at` set). A leaving worker must stop
+   * surfacing to payers — every caller denies with the byte-identical neutral body
+   * (no oracle). Tx-EXTERNAL read (pre-lock only; the in-tx re-checks use the
+   * tx-scoped marker read — deadlock rule). Fail closed: a read error counts as
+   * pending (when in doubt, disclose nothing).
+   */
+  private async isPendingDeletion(workerId: string): Promise<boolean> {
+    try {
+      const worker = await this.workers.findById(workerId);
+      return worker !== undefined && worker.deletionScheduledAt !== null;
+    } catch {
+      return true; // fail closed
     }
   }
 

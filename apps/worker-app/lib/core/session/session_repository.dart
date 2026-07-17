@@ -21,6 +21,7 @@ class SessionRepository {
   String? get sessionId => _session.sessionId;
   String? get profileId => _session.profileId;
   String? get resumeId => _session.resumeId;
+  DateTime? get deletionScheduledFor => _session.deletionScheduledFor;
 
   void setWorker({
     required String phone,
@@ -74,8 +75,26 @@ class SessionRepository {
     _session = _session.copyWith(resumeId: resumeId);
   }
 
-  /// Wipes all in-memory session state on logout — token, ids, and the transient
-  /// phone. Resets to a fresh empty [Session] so every getter returns null and
+  /// Records — or clears, with null — the pending account-deletion due time
+  /// (ADR-0031 grace window). Written from the OTP-verify login response (the
+  /// server flag is authoritative, including clearing a stale one) and by the
+  /// delete confirm/cancel flows. Rebuilt explicitly rather than via [Session.copyWith]
+  /// so a null CLEARS the flag instead of being swallowed by `??`.
+  void setDeletionScheduledFor(DateTime? scheduledFor) {
+    _session = Session(
+      phoneE164: _session.phoneE164,
+      workerId: _session.workerId,
+      sessionToken: _session.sessionToken,
+      sessionId: _session.sessionId,
+      profileId: _session.profileId,
+      resumeId: _session.resumeId,
+      deletionScheduledFor: scheduledFor,
+    );
+  }
+
+  /// Wipes all in-memory session state on logout — token, ids, the transient
+  /// phone, and the pending-deletion flag. Resets to a fresh empty [Session]
+  /// so every getter returns null and
   /// the next login starts clean. This holder is a passive value object (not a
   /// ChangeNotifier — nothing listens to it), so there is no notify to fire; the
   /// logout flow navigates back to the login route explicitly.

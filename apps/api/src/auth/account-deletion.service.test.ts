@@ -1,10 +1,11 @@
 import "reflect-metadata";
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { Logger } from "@nestjs/common";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Logger, UnauthorizedException } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { createEvent } from "@badabhai/event-schema";
 import { AccountDeletionService } from "./account-deletion.service";
 import type { WorkersRepository } from "../workers/workers.repository";
+import type { RequestContext } from "../common/request-context";
 import type { SessionService } from "./session.service";
 import type { StorageService } from "../storage/storage.service";
 import type { EventsService } from "../events/events.service";
@@ -31,6 +32,8 @@ interface Harness {
     hasCredentials: ReturnType<typeof vi.fn>;
     countDevices: ReturnType<typeof vi.fn>;
     hardDelete: ReturnType<typeof vi.fn>;
+    scheduleDeletion: ReturnType<typeof vi.fn>;
+    cancelDeletion: ReturnType<typeof vi.fn>;
   };
   sessions: { revokeAll: ReturnType<typeof vi.fn> };
   storage: { deletePdf: ReturnType<typeof vi.fn>; deleteByPrefix: ReturnType<typeof vi.fn> };
@@ -49,12 +52,19 @@ function make(
     devices?: number;
     sessions?: number;
     cooldown?: number;
+    // ADR-0031 — a pending-deletion row (the grace marker already set).
+    deletionScheduledAt?: Date;
   } = {},
 ): Harness {
   const redisSet = vi.fn(async () => "OK");
   const workerRow = opts.missingWorker
     ? undefined
-    : { id: WORKER_ID, phoneHash: PHONE_HASH, status: "active" };
+    : {
+        id: WORKER_ID,
+        phoneHash: PHONE_HASH,
+        status: "active",
+        deletionScheduledAt: opts.deletionScheduledAt ?? null,
+      };
   const workers = {
     findById: vi.fn(async (): Promise<Record<string, unknown> | undefined> => workerRow),
     listResumeStorageKeys: vi.fn(async () => opts.resumeKeys ?? []),
@@ -62,6 +72,14 @@ function make(
     hasCredentials: vi.fn(async () => opts.hadPin ?? false),
     countDevices: vi.fn(async () => opts.devices ?? 0),
     hardDelete: vi.fn(async () => true),
+    // Mirror the CONDITIONAL repo semantics (ADR-0031 atomic transitions): set-if-not-set
+    // matches only when nothing is pending; clear-if-set matches only when something is.
+    scheduleDeletion: vi.fn(async () =>
+      workerRow && !workerRow.deletionScheduledAt ? workerRow : undefined,
+    ),
+    cancelDeletion: vi.fn(async () =>
+      workerRow && workerRow.deletionScheduledAt ? workerRow : undefined,
+    ),
   };
 
   const sessions = { revokeAll: vi.fn(async () => opts.sessions ?? 0) };
@@ -80,6 +98,8 @@ function make(
     // ADR-0032: same dormant default; setting it arms the photo prefix-sweep leg.
     WORKER_PHOTOS_BUCKET: opts.photoBucket ?? "",
     ACCOUNT_DELETION_COOLDOWN_SECONDS: opts.cooldown ?? 604800,
+    // ADR-0031 — the grace window schedule() stamps (default 7 days).
+    ACCOUNT_DELETION_GRACE_DAYS: 7,
   } as ServerConfig;
 
   const svc = new AccountDeletionService(
@@ -425,6 +445,187 @@ describe("AccountDeletionService", () => {
           metadata: { environment: "test", service: "api" },
         }),
       ).not.toThrow();
+    } finally {
+      spies.forEach((s) => s.mockRestore());
+    }
+  });
+});
+
+// ---- ADR-0031 — the 7-day grace window: confirm now SCHEDULES, cancel-anytime ----
+
+describe("AccountDeletionService — schedule/cancel (ADR-0031 grace window)", () => {
+  const CTX = { correlationId: "corr-1", requestId: "req-1" } as RequestContext;
+  const NOW = new Date("2026-07-14T10:00:00.000Z");
+  const DUE_ISO = "2026-07-21T10:00:00.000Z"; // NOW + the 7-day grace
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("schedule() stamps now + GRACE_DAYS, emits worker.deletion_scheduled once — and NEVER erases", async () => {
+    const h = make();
+    const res = await h.svc.schedule(WORKER_ID, CTX);
+
+    expect(res).toEqual({ scheduled_for: DUE_ISO });
+    expect(h.workers.scheduleDeletion).toHaveBeenCalledWith(WORKER_ID, new Date(DUE_ISO));
+
+    expect(h.events.emit).toHaveBeenCalledTimes(1);
+    const emitted = h.events.emit.mock.calls[0]![0];
+    expect(emitted.event_name).toBe("worker.deletion_scheduled");
+    expect(emitted.payload).toEqual({ worker_id: WORKER_ID, scheduled_for: DUE_ISO });
+    expect(emitted.actor).toEqual({ actor_type: "worker", actor_id: WORKER_ID });
+    expect(emitted.subject).toEqual({ subject_type: "worker", subject_id: WORKER_ID });
+    // Tracing ids threaded from the request context.
+    expect(emitted.correlationId).toBe("corr-1");
+    expect(emitted.requestId).toBe("req-1");
+
+    // Scheduling NEVER erases: no revoke, no storage touch, no hard-delete, no tombstone.
+    expect(h.sessions.revokeAll).not.toHaveBeenCalled();
+    expect(h.storage.deletePdf).not.toHaveBeenCalled();
+    expect(h.storage.deleteByPrefix).not.toHaveBeenCalled();
+    expect(h.workers.hardDelete).not.toHaveBeenCalled();
+    expect(h.redisSet).not.toHaveBeenCalled();
+
+    // The emitted payload validates against worker.deletion_scheduled v1 (.strict()).
+    expect(() =>
+      createEvent({
+        event_name: "worker.deletion_scheduled",
+        actor: emitted.actor,
+        subject: emitted.subject,
+        payload: emitted.payload,
+        source: "api",
+        metadata: { environment: "test", service: "api" },
+      }),
+    ).not.toThrow();
+  });
+
+  it("schedule() is IDEMPOTENT: a re-confirm returns the SAME scheduled_for — ONE event, NO re-extension", async () => {
+    const h = make();
+    const first = await h.svc.schedule(WORKER_ID, CTX);
+
+    // The row now carries the marker (simulate the persisted column on re-read), and a
+    // day passes — the second confirm must NOT reset the clock or re-emit.
+    h.workers.findById.mockResolvedValue({
+      id: WORKER_ID,
+      phoneHash: PHONE_HASH,
+      status: "active",
+      deletionScheduledAt: new Date(first.scheduled_for),
+    });
+    vi.setSystemTime(new Date("2026-07-15T10:00:00.000Z"));
+
+    const second = await h.svc.schedule(WORKER_ID, CTX);
+    expect(second.scheduled_for).toBe(first.scheduled_for);
+    expect(h.workers.scheduleDeletion).toHaveBeenCalledTimes(1); // only the first call wrote
+    expect(h.events.emit).toHaveBeenCalledTimes(1); // ONE schedule event total
+  });
+
+  it("schedule() 401s on a missing worker row (fail closed, no oracle — mirrors resolvePhone)", async () => {
+    const h = make({ missingWorker: true });
+    await expect(h.svc.schedule(WORKER_ID, CTX)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(h.workers.scheduleDeletion).not.toHaveBeenCalled();
+    expect(h.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("cancel() clears the marker + emits worker.deletion_cancelled once (id-only payload)", async () => {
+    const h = make({ deletionScheduledAt: new Date(DUE_ISO) });
+    const res = await h.svc.cancel(WORKER_ID, CTX);
+
+    expect(res).toEqual({ cancelled: true });
+    expect(h.workers.cancelDeletion).toHaveBeenCalledWith(WORKER_ID);
+    expect(h.events.emit).toHaveBeenCalledTimes(1);
+    const emitted = h.events.emit.mock.calls[0]![0];
+    expect(emitted.event_name).toBe("worker.deletion_cancelled");
+    expect(emitted.payload).toEqual({ worker_id: WORKER_ID });
+
+    // The emitted payload validates against worker.deletion_cancelled v1 (.strict()).
+    expect(() =>
+      createEvent({
+        event_name: "worker.deletion_cancelled",
+        actor: emitted.actor,
+        subject: emitted.subject,
+        payload: emitted.payload,
+        source: "api",
+        metadata: { environment: "test", service: "api" },
+      }),
+    ).not.toThrow();
+  });
+
+  it("cancel() with nothing pending is an idempotent no-op: { cancelled: false }, no flip, no event", async () => {
+    const h = make(); // deletionScheduledAt null — no pending deletion
+    const res = await h.svc.cancel(WORKER_ID, CTX);
+    expect(res).toEqual({ cancelled: false });
+    // The conditional clear-if-set IS the check — it runs, matches nothing, emits nothing.
+    expect(h.workers.cancelDeletion).toHaveBeenCalledWith(WORKER_ID);
+    expect(h.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("cancel() on a missing worker row is the same no-op (already erased — no oracle)", async () => {
+    const h = make({ missingWorker: true });
+    const res = await h.svc.cancel(WORKER_ID, CTX);
+    expect(res).toEqual({ cancelled: false });
+    expect(h.events.emit).not.toHaveBeenCalled();
+  });
+
+  // The two races the ATOMIC conditional writes close (review findings, ADR-0031):
+  it("a schedule that LOSES the set-if-not-set race re-reads the winner's date — one event total, no re-extension", async () => {
+    const h = make();
+    const winnerDue = new Date("2026-07-20T00:00:00.000Z");
+    // Simulate the race: our conditional write matches nothing (a concurrent confirm won)…
+    h.workers.scheduleDeletion.mockResolvedValueOnce(undefined);
+    // …and the re-read sees the winner's marker.
+    h.workers.findById
+      .mockResolvedValueOnce({ id: WORKER_ID, deletionScheduledAt: null }) // pre-check read
+      .mockResolvedValueOnce({ id: WORKER_ID, deletionScheduledAt: winnerDue }); // post-race read
+    const res = await h.svc.schedule(WORKER_ID, CTX);
+    expect(res).toEqual({ scheduled_for: winnerDue.toISOString() });
+    expect(h.events.emit).not.toHaveBeenCalled(); // the WINNER emitted; the loser must not
+  });
+
+  it("a failed deletion_scheduled emit ROLLS BACK the marker and rethrows (state and spine never diverge)", async () => {
+    const h = make();
+    h.events.emit.mockRejectedValueOnce(new Error("events insert down"));
+    await expect(h.svc.schedule(WORKER_ID, CTX)).rejects.toThrow("events insert down");
+    // Compensation: the marker set by this call is cleared so the retry re-schedules + re-emits.
+    expect(h.workers.cancelDeletion).toHaveBeenCalledWith(WORKER_ID);
+  });
+
+  it("a failed deletion_cancelled emit RESTORES the marker to its previous due time and rethrows", async () => {
+    const due = new Date(DUE_ISO);
+    const h = make({ deletionScheduledAt: due });
+    h.events.emit.mockRejectedValueOnce(new Error("events insert down"));
+    await expect(h.svc.cancel(WORKER_ID, CTX)).rejects.toThrow("events insert down");
+    // Compensation: restore with the ORIGINAL due time (set-if-null restore).
+    expect(h.workers.scheduleDeletion).toHaveBeenCalledWith(WORKER_ID, due);
+  });
+
+  it("no-PII: schedule/cancel logs + events carry only the opaque worker id (never phone/hash/name)", async () => {
+    const logged: string[] = [];
+    const spies = (["log", "warn", "error", "debug", "verbose"] as const).map((m) =>
+      vi.spyOn(Logger.prototype, m).mockImplementation((...args: unknown[]) => {
+        logged.push(args.map((a) => (a instanceof Error ? a.message : String(a))).join(" "));
+      }),
+    );
+
+    try {
+      const h = make();
+      await h.svc.schedule(WORKER_ID, CTX);
+      h.workers.findById.mockResolvedValue({
+        id: WORKER_ID,
+        phoneHash: PHONE_HASH,
+        status: "active",
+        deletionScheduledAt: new Date(DUE_ISO),
+      });
+      await h.svc.cancel(WORKER_ID, CTX);
+
+      const eventJson = JSON.stringify(h.events.emit.mock.calls.map((c) => c[0]));
+      const logJson = logged.join("\n");
+      for (const secret of [RAW_PHONE, FULL_NAME, OTP_CODE, PHONE_HASH]) {
+        expect(eventJson, `events must not contain ${secret}`).not.toContain(secret);
+        expect(logJson, `logs must not contain ${secret}`).not.toContain(secret);
+      }
     } finally {
       spies.forEach((s) => s.mockRestore());
     }

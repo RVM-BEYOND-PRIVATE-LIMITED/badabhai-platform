@@ -13,26 +13,26 @@ import '../../core/auth/fakes.dart';
 class MockApiClient extends Mock implements ApiClient {}
 
 void main() {
+  final DateTime scheduledFor = DateTime.utc(2026, 7, 21, 12);
+
   late MockApiClient api;
   late SessionRepository session;
-  late FakeSecureStore secureBacking;
   late SecureTokenStore store;
   late ReauthSignal reauth;
+  late bool reauthFired;
 
-  AccountDeleteCubit build() => AccountDeleteCubit(
-        api: api,
-        session: session,
-        tokenStore: store,
-        reauthSignal: reauth,
-      );
+  AccountDeleteCubit build() => AccountDeleteCubit(api: api, session: session);
 
   setUp(() {
     api = MockApiClient();
     session = SessionRepository()
       ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok');
-    secureBacking = FakeSecureStore();
-    store = SecureTokenStore(secureBacking);
+    store = SecureTokenStore(FakeSecureStore());
+    // The cubit must NEVER wipe credentials or force a reauth during the grace
+    // window (ADR-0031) — watch the signal to prove it stays silent.
     reauth = ReauthSignal();
+    reauthFired = false;
+    reauth.stream.listen((_) => reauthFired = true);
   });
 
   tearDown(() => reauth.dispose());
@@ -50,29 +50,36 @@ void main() {
     expect(cubit.state.resendInSeconds, 45);
   });
 
-  test('confirmDelete success -> wipes session + store, fires reauth, deleted',
-      () async {
+  test(
+      'confirmDelete success -> SCHEDULED with the parsed date; credentials '
+      'NOT wiped, NO reauth (ADR-0031 grace)', () async {
     await store.writeRefreshToken('r1');
     when(() => api.confirmAccountDelete(
           authToken: any(named: 'authToken'),
           otp: any(named: 'otp'),
-        )).thenAnswer((_) async {});
+        )).thenAnswer((_) async => AccountDeleteConfirmResult(
+          success: true,
+          scheduledFor: scheduledFor,
+        ));
     final AccountDeleteCubit cubit = build();
-    final Future<void> reauthFired = reauth.stream.first;
 
     await cubit.confirmDelete('1234');
 
     verify(() => api.confirmAccountDelete(authToken: 'tok', otp: '1234'))
         .called(1);
-    expect(cubit.state.status, AccountDeleteStatus.deleted);
-    // Local credentials gone.
-    expect(session.sessionToken, isNull);
-    expect(await store.readRefreshToken(), isNull);
-    // Reauth signal fired (router flips to logged-out).
-    await reauthFired;
+    expect(cubit.state.status, AccountDeleteStatus.scheduled);
+    expect(cubit.state.scheduledFor, scheduledFor);
+    // The pending flag is mirrored onto the session (seeds Settings/post-login).
+    expect(session.deletionScheduledFor, scheduledFor);
+    // NOTHING wiped: the worker keeps their session so they CAN cancel.
+    expect(session.sessionToken, 'tok');
+    expect(await store.readRefreshToken(), 'r1');
+    await Future<void>.delayed(Duration.zero); // drain the reauth stream
+    expect(reauthFired, isFalse);
   });
 
-  test('confirmDelete 401 -> OtpInvalidFailure (session NOT wiped)', () async {
+  test('confirmDelete 401 -> OtpInvalidFailure (nothing scheduled/wiped)',
+      () async {
     await store.writeRefreshToken('r1');
     when(() => api.confirmAccountDelete(
           authToken: any(named: 'authToken'),
@@ -84,7 +91,8 @@ void main() {
 
     expect(cubit.state.status, AccountDeleteStatus.error);
     expect(cubit.state.failure, isA<OtpInvalidFailure>());
-    // Fail-closed: nothing wiped when the delete was NOT confirmed.
+    // Fail-closed: nothing scheduled when the server did NOT confirm.
+    expect(session.deletionScheduledFor, isNull);
     expect(session.sessionToken, 'tok');
     expect(await store.readRefreshToken(), 'r1');
   });
@@ -112,5 +120,48 @@ void main() {
     expect(cubit.state.failure, isA<UnauthorizedFailure>());
     verifyNever(
         () => api.requestAccountDelete(authToken: any(named: 'authToken')));
+  });
+
+  test('seeds SCHEDULED when the session already has a pending deletion',
+      () {
+    session.setDeletionScheduledFor(scheduledFor);
+
+    final AccountDeleteCubit cubit = build();
+
+    expect(cubit.state.status, AccountDeleteStatus.scheduled);
+    expect(cubit.state.scheduledFor, scheduledFor);
+  });
+
+  test('cancelDelete success -> idle, API called, session flag cleared',
+      () async {
+    session.setDeletionScheduledFor(scheduledFor);
+    when(() => api.cancelAccountDelete(authToken: any(named: 'authToken')))
+        .thenAnswer((_) async {});
+    final AccountDeleteCubit cubit = build();
+
+    await cubit.cancelDelete();
+
+    verify(() => api.cancelAccountDelete(authToken: 'tok')).called(1);
+    expect(cubit.state.status, AccountDeleteStatus.idle);
+    expect(cubit.state.scheduledFor, isNull);
+    expect(session.deletionScheduledFor, isNull);
+    // The session itself survives the cancel round trip.
+    expect(session.sessionToken, 'tok');
+  });
+
+  test('cancelDelete failure -> STAYS scheduled with the typed cause',
+      () async {
+    session.setDeletionScheduledFor(scheduledFor);
+    when(() => api.cancelAccountDelete(authToken: any(named: 'authToken')))
+        .thenThrow(ApiException(500, 'boom'));
+    final AccountDeleteCubit cubit = build();
+
+    await cubit.cancelDelete();
+
+    expect(cubit.state.status, AccountDeleteStatus.scheduled);
+    expect(cubit.state.scheduledFor, scheduledFor);
+    expect(cubit.state.failure, isA<ServerFailure>());
+    // The pending flag is NOT cleared on a failed cancel.
+    expect(session.deletionScheduledFor, scheduledFor);
   });
 }

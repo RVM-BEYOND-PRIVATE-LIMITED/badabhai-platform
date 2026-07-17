@@ -101,6 +101,10 @@ export interface LoginResponse {
   // controller OMITS the field on a read failure, and the app's tri-state treats
   // absent as unknown/pass-through (ConsentGuard stays authoritative server-side).
   consent_accepted?: boolean;
+  // ADR-0031 — present ONLY while a deletion is pending: the PII-free ISO-8601 due time
+  // of the scheduled erasure, so the app shows the grace banner + explicit cancel prompt
+  // (never auto-cancel). Login itself works unchanged during grace.
+  deletion_scheduled_for?: string;
 }
 
 /** Response of POST /auth/refresh (legacy rolling-token refresh — unchanged). */
@@ -130,6 +134,21 @@ export interface AccountDeleteRequestResponse {
   resend_in_seconds: number;
 }
 
+/** Response of POST /auth/account/delete/confirm (ADR-0031 — confirm now SCHEDULES the
+ * erasure, was 204). `scheduled_for` is the PII-free ISO-8601 due time of the hard-delete;
+ * the worker can cancel anytime before it. */
+export interface AccountDeleteConfirmResponse {
+  success: true;
+  scheduled_for: string;
+}
+
+/** Response of POST /auth/account/delete/cancel (ADR-0031). ALWAYS { success: true } —
+ * cancel is idempotent, and a nothing-pending cancel is a clean 200 no-op (whether an
+ * event fired is recorded by worker.deletion_cancelled, never the body). */
+export interface AccountDeleteCancelResponse {
+  success: true;
+}
+
 /** Response of POST /auth/token/refresh — fresh access + rotated refresh + session. */
 export interface TokenRefreshResponse {
   access_token: string;
@@ -151,8 +170,30 @@ export interface SessionResponse {
 // revoked is recorded in the PII-free `worker.logged_out_all` event, never in a response
 // body — so there is intentionally NO LogoutAllResponse type.
 
-/** Response of GET /auth/me. */
+/**
+ * Response of GET /auth/me.
+ *
+ * ADR-0031 — this is the ONE seam that carries the pending-deletion state to EVERY
+ * authenticated entry path. The OTP-verify login response also carries
+ * `deletion_scheduled_for`, but a cold start normally goes bootstrap → locked →
+ * PIN-unlock (or a token refresh) and never touches OTP-verify, which left the app with
+ * no pending state, hence no banner and no way to reach "cancel" for the rest of the
+ * grace — unhonoring the shipped "kabhi bhi cancel kar sakte hain" copy and ruling (a)'s
+ * persistent banner. /auth/me is reachable from every entry path (post-unlock,
+ * post-refresh, resume-from-background, settings open) and is a RE-READ, so it also stays
+ * correct when the state changes mid-session or on another device — which a login-time
+ * snapshot cannot.
+ */
 export interface MeResponse {
   worker_id: string;
   status: string;
+  /**
+   * ISO-8601 UTC instant at which the scheduled hard-delete becomes due (ADR-0031).
+   *
+   * PRESENT ONLY while a deletion is pending; OMITTED entirely otherwise — never `null`,
+   * so there is no null-vs-absent ambiguity for the client: `deletion_scheduled_for` in
+   * the body ⇔ a deletion is pending. Never fabricated/defaulted — the value is exactly
+   * `workers.deletion_scheduled_at`. PII-free: an instant, no phone/name/hash.
+   */
+  deletion_scheduled_for?: string;
 }

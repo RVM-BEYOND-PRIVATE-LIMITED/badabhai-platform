@@ -34,12 +34,25 @@ enum AuthStatus { loggedOut, locked, authenticated }
 ///    stays logged in and skips re-profiling.
 ///
 /// The PIN gate (lock / unlock / cold-start lock / re-lock) and token persistence
-/// across restarts are active ONLY when [persistentAuthEnabled] is true (mock mode,
-/// or staging via `--dart-define=PERSISTENT_AUTH=true`). With the layer OFF — the
-/// default in REAL builds, because the backend `/auth/pin/*` + `/auth/token/refresh`
-/// contract is not live — [bootstrap] always starts at phone login, OTP success
+/// across restarts are active whenever [persistentAuthEnabled] is true — which is
+/// the DEFAULT in every build (`kPersistentAuth` = `kUseMocks ||
+/// bool.fromEnvironment('PERSISTENT_AUTH', defaultValue: true)`, app_config.dart),
+/// now that the ADR-0026 backend contract is live. So the DEFAULT cold start is
+/// bootstrap → locked → [unlockWithPin] → authenticated; the OTP path is only the
+/// FIRST login on a device.
+///
+/// The layer is OFF only when a build explicitly passes
+/// `--dart-define=PERSISTENT_AUTH=false` (and never in mock mode, where it is
+/// forced on). With it OFF, [bootstrap] always starts at phone login, OTP success
 /// goes straight to authenticated, and [relock] is a no-op (there is no persisted
-/// refresh token on the real path to unlock against).
+/// refresh token to unlock against). Note: `kPersistentAuth` is false under a
+/// plain `flutter test` (no dart-define), so tests that walk the PIN flow must
+/// pass `persistentAuthEnabled: true` explicitly.
+///
+/// Every path that reaches [AuthStatus.authenticated] must leave the SAME
+/// observable state, including the ADR-0031 pending-deletion flag — see
+/// [_syncDeletionState]. Anything that resumes a session without it would strand
+/// a worker mid-grace with no way to reach "cancel".
 ///
 /// SECURITY: the refresh token + device id live only in [SecureTokenStore]
 /// (Keystore-backed); the access token is in memory only; the PIN is NEVER held
@@ -169,7 +182,8 @@ class AuthSessionManager extends ChangeNotifier {
   /// (needs PIN); absent → [loggedOut] (needs phone). Never auto-unlocks: a
   /// remembered device always goes through the PIN, never straight to the shell.
   ///
-  /// With the persistent-auth layer OFF (the default in REAL builds) there is no
+  /// With the persistent-auth layer OFF (only via an explicit
+  /// `--dart-define=PERSISTENT_AUTH=false`; it is ON by default) there is no
   /// persisted refresh token and no PIN gate, so the app always starts at phone
   /// login — exactly as on main. We short-circuit BEFORE touching the store.
   Future<AuthStatus> bootstrap() async {
@@ -199,11 +213,12 @@ class AuthSessionManager extends ChangeNotifier {
   /// later cold start can reach the device-bound PIN fast path. Routing keys off
   /// the SERVER `result.pinSet` + `result.isNewUser` (NOT a client flag).
   ///
-  /// Returns the routing flags `{isNewUser, pinSet}`. With the layer ON a new
-  /// user / no PIN routes to set-PIN ([locked]) while an existing PIN goes
-  /// straight to authenticated. With the layer OFF (default in REAL builds) OTP
-  /// success always goes straight to authenticated — the proven OTP→shell flow,
-  /// exactly as on main. Throws [AuthFailure] on a bad / expired code.
+  /// Returns the routing flags `{isNewUser, pinSet}`. With the layer ON (the
+  /// default) a new user / no PIN routes to set-PIN ([locked]) while an existing
+  /// PIN goes straight to authenticated. With the layer OFF (explicit
+  /// dart-define only) OTP success always goes straight to authenticated — the
+  /// proven OTP→shell flow, exactly as on main. Throws [AuthFailure] on a bad /
+  /// expired code.
   Future<OtpVerifyResult> verifyOtp(String phoneE164, String otp) async {
     final OtpVerifyResult result = await _authApi.otpVerify(phoneE164, otp);
     // F5: retain the session view + refresh expiry the response carries — in
@@ -232,6 +247,11 @@ class AuthSessionManager extends ChangeNotifier {
       workerId: result.workerId,
       phone: phoneE164,
     );
+    // ADR-0031 grace window: the login response is authoritative for the
+    // pending-deletion flag — store it (or clear a stale one) so Settings and
+    // the post-login prompt can offer the EXPLICIT cancel. Login itself never
+    // auto-cancels a scheduled deletion.
+    _session.setDeletionScheduledFor(result.deletionScheduledFor);
     // With the layer OFF, OTP success goes straight to the shell. With it ON, a
     // returning worker with a PIN is authenticated immediately after OTP (the OTP
     // itself is the strong factor); a new user must set a PIN before the shell, so
@@ -258,10 +278,11 @@ class AuthSessionManager extends ChangeNotifier {
   }
 
   /// Unlock with the PIN: verifies against the persisted refresh token, mints a
-  /// FRESH token pair, persists + bridges it into [SessionRepository], and
-  /// authenticates. On a failed PIN it throws the NEUTRAL
-  /// [AuthErrorCode.pinVerifyFailed] (the backend gives one opaque 401, no
-  /// attempts/countdown); the status stays [locked]. Throws [AuthFailure].
+  /// FRESH token pair, persists + bridges it into [SessionRepository], re-reads
+  /// the ADR-0031 pending-deletion flag, and authenticates. On a failed PIN it
+  /// throws the NEUTRAL [AuthErrorCode.pinVerifyFailed] (the backend gives one
+  /// opaque 401, no attempts/countdown); the status stays [locked]. Throws
+  /// [AuthFailure].
   Future<void> unlockWithPin(String pin) async {
     final String? refresh = await _tokenStore.readRefreshToken();
     if (refresh == null || refresh.isEmpty) {
@@ -279,12 +300,16 @@ class AuthSessionManager extends ChangeNotifier {
     _consentAccepted = result.consentAccepted;
     final String? workerId = await _tokenStore.readWorkerId();
     _bridge(accessToken: result.tokens.access, workerId: workerId);
+    // ADR-0031: the PIN-verify response carries no pending-deletion field, so
+    // re-read it BEFORE the status flip (see [_syncDeletionState]).
+    await _syncDeletionState();
     _setStatus(AuthStatus.authenticated);
   }
 
   /// On-demand refresh (e.g. silent re-validate). Mints fresh tokens from the
-  /// persisted refresh token and re-bridges. Throws [AuthFailure] on a transport
-  /// failure; an unrecoverable refresh triggers the reauth signal via [AuthApi].
+  /// persisted refresh token, re-bridges, and re-reads the ADR-0031
+  /// pending-deletion flag. Throws [AuthFailure] on a transport failure; an
+  /// unrecoverable refresh triggers the reauth signal via [AuthApi].
   Future<void> refresh() async {
     final String? refresh = await _tokenStore.readRefreshToken();
     if (refresh == null || refresh.isEmpty) {
@@ -297,6 +322,9 @@ class AuthSessionManager extends ChangeNotifier {
     await _persistTokens(tokens);
     final String? workerId = await _tokenStore.readWorkerId();
     _bridge(accessToken: tokens.access, workerId: workerId);
+    // ADR-0031: a refresh can also be the first authenticated moment of a
+    // process (silent re-validate), so it re-reads the flag too.
+    await _syncDeletionState();
     _setStatus(AuthStatus.authenticated);
   }
 
@@ -370,27 +398,74 @@ class AuthSessionManager extends ChangeNotifier {
 
   // --- internals ------------------------------------------------------------
 
+  /// How long the secondary [AuthApi.me] read may hold up an unlock before it is
+  /// abandoned. The PIN/refresh call that precedes it has already proven the
+  /// network, so this is a backstop, not a budget: a hung GET must never trap a
+  /// worker on the PIN screen behind a spinner. Sized for a 2G round trip.
+  static const Duration _deletionSyncTimeout = Duration(seconds: 10);
+
+  /// ADR-0031: re-read the AUTHORITATIVE pending-deletion flag for the current
+  /// session and mirror it into [SessionRepository], which seeds the Settings
+  /// banner + its explicit "Delete cancel karein" action.
+  ///
+  /// The OTP-verify response carries this flag inline, but [unlockWithPin] and
+  /// [refresh] have no such field — and since persistent auth is ON by default,
+  /// PIN unlock is the DEFAULT cold-start path. Without this, a worker who
+  /// scheduled a deletion and reopened the app would see the ordinary delete row
+  /// and never reach cancel for the rest of the 7-day grace, while the shipped
+  /// copy promises "Is dauraan aap kabhi bhi cancel kar sakte hain".
+  ///
+  /// It runs BEFORE the caller's [_setStatus] flip so the flag and the
+  /// authenticated status land together — the same ordering the OTP path gets.
+  /// Otherwise Settings could seed itself from a not-yet-populated session and
+  /// render the wrong row.
+  ///
+  /// HONEST NULLS, and note the two different nulls:
+  ///  - a SUCCESSFUL read is authoritative — a date sets the flag, an ABSENT
+  ///    field CLEARS it (a cancelled deletion must not leave a stale banner);
+  ///  - a FAILED read is UNKNOWN, not "nothing pending", so it leaves the
+  ///    existing value untouched. Never fabricate a date, never clear a
+  ///    known-pending one on a transport blip.
+  ///
+  /// Best-effort by design: this is a banner, not a gate. Cancel is always
+  /// reachable later from Settings once a read succeeds, so a failure here must
+  /// never block the unlock — a worker locked out of their own app is strictly
+  /// worse than a late banner. Nothing here auto-cancels (ruling (a)); only the
+  /// worker's explicit action does.
+  Future<void> _syncDeletionState() async {
+    try {
+      final MeResult me = await _authApi.me().timeout(_deletionSyncTimeout);
+      _session.setDeletionScheduledFor(me.deletionScheduledFor);
+    } catch (_) {
+      // Unknown → leave the flag exactly as it was. Swallowed deliberately: the
+      // caller's unlock/refresh has already succeeded and must stand.
+    }
+  }
+
   /// GAP A: persist a freshly minted token set to [SecureTokenStore] so a cold
   /// start finds the refresh token (reaching the device-bound PIN fast path) and
   /// the proactive-refresh skew works off the real expiry. The access token is
   /// kept in memory only (the store never writes it to disk). No-op when the
-  /// persistent-auth layer is OFF (the real/default build keeps no PIN gate).
+  /// persistent-auth layer is OFF (an explicit `PERSISTENT_AUTH=false` build,
+  /// which keeps no PIN gate and so persists nothing).
   /// Retains the ADR-0026 session view + refresh expiry from a freshly minted
   /// token set (F5). Separate from [_persistTokens] because that no-ops when the
   /// persistent-auth layer is OFF, whereas `requires_otp_after` is worth knowing
   /// in EVERY build. Absent fields leave the previous value alone rather than
   /// nulling it: a response that simply omits the block is "no news", not
   /// "cancelled".
-  void _clearSessionView() {
-    _authSession = null;
-    _refreshExpiresAt = null;
-  }
-
   void _captureSessionView(AuthTokens tokens) {
     if (tokens.session != null) _authSession = tokens.session;
     if (tokens.refreshExpiresAt != null) {
       _refreshExpiresAt = tokens.refreshExpiresAt;
     }
+  }
+
+  /// Drops the retained session view — a new worker must not inherit the old
+  /// one. Paired with every wipe/reauth path.
+  void _clearSessionView() {
+    _authSession = null;
+    _refreshExpiresAt = null;
   }
 
   Future<void> _persistTokens(AuthTokens tokens) async {

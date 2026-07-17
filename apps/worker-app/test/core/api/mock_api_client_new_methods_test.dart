@@ -75,8 +75,23 @@ void main() {
     expect(r.resendInSeconds, greaterThan(0));
   });
 
-  test('confirmAccountDelete (A4) completes (204-equivalent no-op)', () async {
-    await api.confirmAccountDelete(authToken: 'mock', otp: '1234');
+  test(
+      'confirmAccountDelete (A4/ADR-0031) schedules ~7 days out; '
+      'cancelAccountDelete flips it back (both stay off the network)',
+      () async {
+    final AccountDeleteConfirmResult r =
+        await api.confirmAccountDelete(authToken: 'mock', otp: '1234');
+    expect(r.success, isTrue);
+    // Mirrors the real grace window: due ~now + 7 days.
+    expect(r.scheduledFor, isNotNull);
+    expect(
+      r.scheduledFor!.difference(DateTime.now()).inDays,
+      inInclusiveRange(6, 7),
+    );
+
+    // Idempotent cancel (a no-op second time), proving the override exists.
+    await api.cancelAccountDelete(authToken: 'mock');
+    await api.cancelAccountDelete(authToken: 'mock');
   });
 
   test(

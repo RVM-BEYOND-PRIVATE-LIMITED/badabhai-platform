@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import {
   type Database,
   workers,
@@ -71,6 +71,26 @@ export class WorkersRepository {
 
   async findById(id: string): Promise<Worker | undefined> {
     const rows = await this.db.select().from(workers).where(eq(workers.id, id)).limit(1);
+    return rows[0];
+  }
+
+  /**
+   * The worker's own GET /auth/me view — status + the ADR-0031 deletion marker.
+   *
+   * EXPLICIT projection, deliberately NOT `findById` (which is `select()` = SELECT * and
+   * hands the caller the encrypted phone, phone_hash and full_name it has no use for):
+   * this reads the two non-PII columns the response needs, so no PII column can reach the
+   * controller, the wire, or a log — the PII simply is not in the result set (CLAUDE.md
+   * §2). Returns undefined when no worker matches (e.g. the row was erased mid-session).
+   */
+  async findSelfView(
+    id: string,
+  ): Promise<{ status: Worker["status"]; deletionScheduledAt: Date | null } | undefined> {
+    const rows = await this.db
+      .select({ status: workers.status, deletionScheduledAt: workers.deletionScheduledAt })
+      .from(workers)
+      .where(eq(workers.id, id))
+      .limit(1);
     return rows[0];
   }
 
@@ -230,6 +250,81 @@ export class WorkersRepository {
       .from(workerDevices)
       .where(eq(workerDevices.workerId, workerId));
     return rows[0]?.n ?? 0;
+  }
+
+  /**
+   * Stamp the worker's deletion due time (ADR-0031 grace window). The row stays a LIVE
+   * worker row until the sweep erases it — this is a schedule marker, not a soft-delete
+   * end-state (see the `deletion_scheduled_at` note in schema.ts).
+   *
+   * ATOMIC set-if-not-set: matches only when NO deletion is pending, so exactly ONE of
+   * two concurrent confirms owns the transition (the loser re-reads the winner's date and
+   * neither re-extends the clock, nor double-emits). Returns the updated row when THIS
+   * call set the marker; undefined when a deletion was already pending or no worker matched.
+   */
+  async scheduleDeletion(id: string, scheduledAt: Date): Promise<Worker | undefined> {
+    const rows = await this.db
+      .update(workers)
+      .set({ deletionScheduledAt: scheduledAt, updatedAt: new Date() })
+      .where(and(eq(workers.id, id), isNull(workers.deletionScheduledAt)))
+      .returning();
+    return rows[0];
+  }
+
+  /**
+   * Clear a pending deletion marker (ADR-0031 cancel-anytime).
+   *
+   * ATOMIC clear-if-set: matches only when a deletion IS pending, so a cancel that races
+   * another cancel (or the sweep at the due boundary) flips the marker exactly once — the
+   * caller emits `worker.deletion_cancelled` ONLY when this call did the flip (no false
+   * cancel event after an erasure, no double-emit). Returns the updated row when THIS
+   * call cleared the marker; undefined when nothing was pending or no worker matched.
+   */
+  async cancelDeletion(id: string): Promise<Worker | undefined> {
+    const rows = await this.db
+      .update(workers)
+      .set({ deletionScheduledAt: null, updatedAt: new Date() })
+      .where(and(eq(workers.id, id), isNotNull(workers.deletionScheduledAt)))
+      .returning();
+    return rows[0];
+  }
+
+  /**
+   * Ids of workers whose deletion grace has elapsed (ADR-0031 sweep). Rides the partial
+   * index `workers_deletion_due_idx` (only pending rows are indexed, so this stays cheap
+   * at any table size). Oldest due first so a backlog drains in schedule order; `limit`
+   * bounds a single sweep run.
+   */
+  async findDueDeletions(now: Date, limit: number): Promise<string[]> {
+    const rows = await this.db
+      .select({ id: workers.id })
+      .from(workers)
+      .where(and(isNotNull(workers.deletionScheduledAt), lte(workers.deletionScheduledAt, now)))
+      .orderBy(asc(workers.deletionScheduledAt))
+      .limit(limit);
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * Atomically re-check a row is STILL due before the sweep erases it (ADR-0031 — guards
+   * the cancel-vs-sweep race): a cancel landing between the sweep's SELECT and its
+   * execute() clears the marker, so this conditional UPDATE matches nothing and the
+   * sweep skips the worker. Returns true only when the row is still pending AND overdue
+   * (claimed — safe to erase).
+   */
+  async claimDueDeletion(id: string, now: Date): Promise<boolean> {
+    const rows = await this.db
+      .update(workers)
+      .set({ updatedAt: new Date() })
+      .where(
+        and(
+          eq(workers.id, id),
+          isNotNull(workers.deletionScheduledAt),
+          lte(workers.deletionScheduledAt, now),
+        ),
+      )
+      .returning({ id: workers.id });
+    return rows.length > 0;
   }
 
   /**

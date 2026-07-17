@@ -1769,6 +1769,59 @@ describe("worker refresh/session auth events (ADR-0026 Phase 1 — PII-free, ids
     ).toBe(false);
   });
 
+  // ADR-0031 — the grace-window pair around the erasure above.
+  it("validates worker.deletion_scheduled with ONLY worker_id + scheduled_for (ISO)", () => {
+    const result = validateEvent(
+      workerAuthEvent("worker.deletion_scheduled", {
+        worker_id: UUID_B,
+        scheduled_for: "2026-07-21T10:00:00.000Z",
+      }),
+    );
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "worker.deletion_scheduled") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(["scheduled_for", "worker_id"]);
+    }
+  });
+
+  it("rejects worker.deletion_scheduled with a non-ISO scheduled_for", () => {
+    const bad = validateEvent(
+      workerAuthEvent("worker.deletion_scheduled", {
+        worker_id: UUID_B,
+        scheduled_for: "next tuesday",
+      }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects worker.deletion_scheduled/cancelled smuggling PII (strict — §2)", () => {
+    for (const smuggle of [{ phone: "+919876512345" }, { phone_e164: "+919876512345" }, { full_name: "Ramesh Kumar" }, { phone_hash: "leaked" }, { otp: "482915" }]) {
+      const badScheduled = validateEvent(
+        workerAuthEvent("worker.deletion_scheduled", {
+          worker_id: UUID_B,
+          scheduled_for: "2026-07-21T10:00:00.000Z",
+          ...smuggle,
+        }),
+      );
+      expect(badScheduled.success, `scheduled must reject ${JSON.stringify(smuggle)}`).toBe(false);
+      if (!badScheduled.success) expect(badScheduled.error.stage).toBe("payload");
+
+      const badCancelled = validateEvent(
+        workerAuthEvent("worker.deletion_cancelled", { worker_id: UUID_B, ...smuggle }),
+      );
+      expect(badCancelled.success, `cancelled must reject ${JSON.stringify(smuggle)}`).toBe(false);
+      if (!badCancelled.success) expect(badCancelled.error.stage).toBe("payload");
+    }
+  });
+
+  it("validates worker.deletion_cancelled with ONLY worker_id (nothing else to know)", () => {
+    const result = validateEvent(workerAuthEvent("worker.deletion_cancelled", { worker_id: UUID_B }));
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "worker.deletion_cancelled") {
+      expect(Object.keys(result.event.payload)).toEqual(["worker_id"]);
+    }
+  });
+
   it("validates worker.resume_prefs_updated with ONLY worker_id + the two boolean flags", () => {
     const result = validateEvent(
       workerAuthEvent("worker.resume_prefs_updated", {
@@ -1983,11 +2036,40 @@ describe("worker PIN events (ADR-0026 Phase 3 — device-bound PIN, PII-free, id
   });
 });
 
+describe("messaging.suppressed reason enum (ADR-0020; pending_deletion added by ADR-0031)", () => {
+  function suppressedEvent(reason: string): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: "messaging.suppressed",
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload: { worker_id: UUID_B, template: "reengage_v1", reason },
+    };
+  }
+
+  it("accepts the two ADR-0020 reasons AND pending_deletion (ADDITIVE extension, still v1)", () => {
+    for (const reason of ["no_consent", "unknown_worker", "pending_deletion"]) {
+      const result = validateEvent(suppressedEvent(reason));
+      expect(result.success, `reason "${reason}" must be a valid suppress reason`).toBe(true);
+    }
+    // Enum EXTENSION, not mutation (§2.8): same event, same version — every
+    // previously-valid payload stays valid.
+    expect(EVENT_REGISTRY["messaging.suppressed"].version).toBe(1);
+  });
+
+  it("rejects an unknown suppress reason (closed enum — no free text on the audit spine)", () => {
+    const bad = validateEvent(suppressedEvent("worker_left_the_city"));
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 105 event names (104 prior + worker.test_login [D-3])", () => {
-    expect(EVENT_NAMES).toHaveLength(105);
+  it("exposes all 107 event names (105 prior + worker.deletion_scheduled/cancelled [ADR-0031])", () => {
+    expect(EVENT_NAMES).toHaveLength(107);
     expect(isEventName("skill.phrase_unresolved")).toBe(true);
     expect(isEventName("worker.otp_send_failed")).toBe(true);
+    expect(isEventName("worker.deletion_scheduled")).toBe(true);
+    expect(isEventName("worker.deletion_cancelled")).toBe(true);
     expect(isEventName("worker.resume_prefs_updated")).toBe(true);
     expect(isEventName("worker.test_login")).toBe(true);
     expect(isEventName("worker.photo_uploaded")).toBe(true);

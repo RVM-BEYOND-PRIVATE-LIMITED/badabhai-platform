@@ -7,6 +7,7 @@ import {
   resumeDisclosures,
   unlocks,
   generatedResumes,
+  workers,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
@@ -67,6 +68,25 @@ export class ResumeDisclosureRepository {
    */
   async lockWorker(tx: Tx, workerId: string): Promise<void> {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${workerId}, 0))`);
+  }
+
+  /**
+   * The worker's ADR-0031 deletion-grace marker (`deletion_scheduled_at`), tx-SCOPED —
+   * ONE cheap pk read on `workers`, on the SAME connection as the caller's locked
+   * transaction (a global-pool read inside the advisory-locked tx would recreate the
+   * pool-vs-lock deadlock the pre-lock reads avoid). Selects ONLY the timestamp
+   * marker, never a PII column. Returns `undefined` when the worker row is gone.
+   */
+  async getWorkerDeletionMarker(
+    tx: Tx,
+    workerId: string,
+  ): Promise<{ deletionScheduledAt: Date | null } | undefined> {
+    const rows = await tx
+      .select({ deletionScheduledAt: workers.deletionScheduledAt })
+      .from(workers)
+      .where(eq(workers.id, workerId))
+      .limit(1);
+    return rows[0];
   }
 
   /** The existing disclosure row for (payer, worker, posting), or undefined. Tx-scoped. */

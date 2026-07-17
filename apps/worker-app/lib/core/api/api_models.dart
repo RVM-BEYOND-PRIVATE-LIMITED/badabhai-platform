@@ -551,6 +551,31 @@ class AccountDeleteRequestResult extends Equatable {
   List<Object?> get props => <Object?>[success, resendInSeconds];
 }
 
+/// Result of POST /auth/account/delete/confirm (ADR-0031 grace window). The
+/// delete is SCHEDULED, never executed inline: [scheduledFor] is when the 7-day
+/// grace ends and the account is actually erased — until then the worker keeps
+/// their session and can cancel. Defensive: a missing/bad `scheduled_for`
+/// parses to null (the UI falls back to the generic "7 din" copy), never
+/// crashes. PII-FREE: a timestamp only.
+class AccountDeleteConfirmResult extends Equatable {
+  const AccountDeleteConfirmResult({
+    required this.success,
+    required this.scheduledFor,
+  });
+
+  final bool success;
+  final DateTime? scheduledFor;
+
+  factory AccountDeleteConfirmResult.fromJson(Map<String, dynamic> json) =>
+      AccountDeleteConfirmResult(
+        success: json['success'] as bool? ?? false,
+        scheduledFor: DateTime.tryParse(json['scheduled_for'] as String? ?? ''),
+      );
+
+  @override
+  List<Object?> get props => <Object?>[success, scheduledFor];
+}
+
 /// Result of GET /resume/:id/download (ADR-0009 Stream C / G1c).
 ///
 /// A short-lived, server-minted SIGNED url to the worker's resume PDF, plus its
