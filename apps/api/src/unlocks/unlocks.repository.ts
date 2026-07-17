@@ -302,6 +302,9 @@ export class UnlocksRepository {
    * source of truth behind the balance — amounts + opaque ids only (PII-free by table design;
    * no currency/PAN/UPI). Scoped by `payer_id` (the caller's SESSION id) so a payer only ever
    * sees their OWN rows. Read-only.
+   *
+   * ⚠️ Selects `price_inr` EXPLICITLY (D-6) ⇒ requires migration 0043. APPLY BEFORE DEPLOY:
+   * against an unmigrated DB this read fails outright (not a silently-null column).
    */
   async listCreditLedgerByPayer(payerId: string, limit: number): Promise<CreditLedgerItem[]> {
     return this.db
@@ -362,6 +365,9 @@ export class UnlocksRepository {
    * Credit a pack purchase / ops grant (NON-tx convenience for the mock top-up
    * endpoint): upsert the balance row (+credits) and append the ledger in ONE
    * transaction. Returns the new balance.
+   *
+   * ⚠️ Inserts `price_inr` EXPLICITLY (D-6) ⇒ requires migration 0043. APPLY BEFORE DEPLOY:
+   * against an unmigrated DB EVERY pack purchase fails on this insert.
    */
   async creditPack(input: {
     payerId: string;

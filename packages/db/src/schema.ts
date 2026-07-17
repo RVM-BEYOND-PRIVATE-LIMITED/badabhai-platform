@@ -1152,6 +1152,13 @@ export const creditLedger = pgTable(
     // retroactively rewrite what a past purchase appears to have cost; a null legacy row
     // renders an honest placeholder rather than a fabricated current-catalog price.
     // PII-free (an integer amount, like `delta`). Additive + nullable (invariant #8).
+    //
+    // ⚠️ MIGRATION 0043 — APPLY BEFORE DEPLOY (owner-apply pending). Both sides name this
+    // column EXPLICITLY: the writer (UnlocksRepository.creditPack insert) and the reader
+    // (UnlocksRepository.listCreditLedgerByPayer select). App code deployed against an
+    // unmigrated DB therefore breaks the ledger INSERT (every pack purchase) AND the
+    // history READ — it is not a silently-ignored column. Order: apply 0043, then deploy.
+    // Rollback = drop the column (nothing else depends on it).
     priceInr: integer("price_inr"),
     // OPAQUE external payment/order ref ONLY (e.g. a gateway order id) — NEVER card
     // number, UPI handle, or any PII. Null for ops grants / mock debits.
