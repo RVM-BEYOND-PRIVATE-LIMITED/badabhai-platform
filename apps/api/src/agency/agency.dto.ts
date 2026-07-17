@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { uuidSchema, looksLikePii } from "@badabhai/validators";
+import { uuidSchema, looksLikePii, looksLikeOrgName, looksLikeUrl } from "@badabhai/validators";
 import { REQUIRED_TRADE_KEYS } from "../resume/trade-content";
 
 /**
@@ -14,9 +14,15 @@ import { REQUIRED_TRADE_KEYS } from "../resume/trade-content";
  */
 
 // Length caps (chars). title/city/area are short labels — never long free text.
+// DESCRIPTION_MAX mirrors the ops job-postings precedent (job-postings.dto.ts:
+// same value, same "oversize input never reaches the table" posture); benefits/
+// requirements are SHORT worker-visible chips, so their caps are much tighter.
 const TITLE_MAX = 200;
 const CITY_MAX = 120;
 const AREA_MAX = 120;
+const DESCRIPTION_MAX = 2000;
+const LIST_ITEM_MAX = 80; // one benefits/requirements chip
+const LIST_ITEMS_MAX = 12; // per list
 
 // Numeric ceilings (C10 — anti-abuse / overflow guards, NOT business rules). A sane upper
 // bound stops absurd values (e.g. INT overflow, a fat-fingered ₹999999999, 1000-year
@@ -38,18 +44,70 @@ const tradeKeySchema = z.enum(REQUIRED_TRADE_KEYS);
  * Generic role title (e.g. "CNC Operator — Night Shift"). NEVER an employer name (the
  * ADR-0009 §2 / ADR-0022 privacy line). PII-heuristic screened (defense-in-depth): a
  * phone/email in this human-typed field is a real leak risk; we name the field, never the
- * offending content.
+ * offending content. ADR-0024 final addendum (2026-07-16): the title is worker-visible,
+ * so the legal-entity-suffix heuristic (`looksLikeOrgName`) also applies — a "Pvt
+ * Ltd"-style name typed here is rejected with a clear 400, never stored.
  */
 const title = z
   .string()
   .min(1)
   .max(TITLE_MAX)
-  .refine((s) => !looksLikePii(s), { message: "remove contact details from the title" });
+  .refine((s) => !looksLikePii(s), { message: "remove contact details from the title" })
+  .refine((s) => !looksLikeOrgName(s), { message: "title must not contain a company name" })
+  .refine((s) => !looksLikeUrl(s), { message: "title must not contain links" });
 
 /** COARSE location — a city label (e.g. "Pune"), never an address. */
 const city = z.string().min(1).max(CITY_MAX);
 /** COARSE locality bucket (e.g. "Pimpri-Chinchwad"), never an address. Optional. */
 const area = z.string().min(1).max(AREA_MAX);
+
+/**
+ * Worker-visible free text (ADR-0024 final addendum, 2026-07-16): description +
+ * benefits/requirements chips are shown VERBATIM to workers on the job card/detail, so
+ * EVERY free-text surface is screened fail-closed at this write boundary with BOTH
+ * heuristics — `looksLikePii` (phone/email shapes) AND `looksLikeOrgName` (legal-entity
+ * suffixes; `looksLikePii` is documented as NOT catching employer names). A phone number
+ * or a "Pvt Ltd"-style name typed into any of these is rejected with a clear 400, never
+ * stored. Per-field messages name the FIELD, never the offending content.
+ */
+const description = z
+  .string()
+  .trim()
+  .min(1)
+  .max(DESCRIPTION_MAX)
+  .refine((s) => !looksLikePii(s), { message: "remove contact details from the description" })
+  .refine((s) => !looksLikeOrgName(s), {
+    message: "description must not contain a company name",
+  })
+  .refine((s) => !looksLikeUrl(s), { message: "description must not contain links" });
+
+/** Coarse shift enum for the worker-visible job card — mirrors db.JobShift. Non-PII. */
+const shift = z.enum(["day", "night", "rotational"]);
+
+/** One short worker-visible benefit chip (e.g. "PF + ESI") — both heuristics apply. */
+const benefitItem = z
+  .string()
+  .trim()
+  .min(1)
+  .max(LIST_ITEM_MAX)
+  .refine((s) => !looksLikePii(s), { message: "remove contact details from benefits" })
+  .refine((s) => !looksLikeOrgName(s), { message: "benefits must not contain a company name" })
+  .refine((s) => !looksLikeUrl(s), { message: "benefits must not contain links" });
+
+/** One short worker-visible requirement tag (e.g. "Fanuc control") — both heuristics apply. */
+const requirementItem = z
+  .string()
+  .trim()
+  .min(1)
+  .max(LIST_ITEM_MAX)
+  .refine((s) => !looksLikePii(s), { message: "remove contact details from requirements" })
+  .refine((s) => !looksLikeOrgName(s), {
+    message: "requirements must not contain a company name",
+  })
+  .refine((s) => !looksLikeUrl(s), { message: "requirements must not contain links" });
+
+const benefits = z.array(benefitItem).max(LIST_ITEMS_MAX);
+const requirements = z.array(requirementItem).max(LIST_ITEMS_MAX);
 
 /** Monthly pay band (INR, whole rupees — never paise). Non-negative, bounded (anti-abuse). */
 const payAmount = z.number().int().nonnegative().max(PAY_MAX_INR);
@@ -74,6 +132,10 @@ export const CreateAgencyJobSchema = z
     min_experience_years: experienceYears.optional(),
     max_experience_years: experienceYears.optional(),
     needed_by: neededBy.optional(),
+    description: description.optional(),
+    shift: shift.optional(),
+    benefits: benefits.optional(),
+    requirements: requirements.optional(),
   })
   .refine((o) => o.pay_min === undefined || o.pay_max === undefined || o.pay_max >= o.pay_min, {
     message: "pay_max must be >= pay_min",
@@ -105,6 +167,10 @@ export const UpdateAgencyJobSchema = z
     min_experience_years: experienceYears.optional(),
     max_experience_years: experienceYears.optional(),
     needed_by: neededBy.optional(),
+    description: description.optional(),
+    shift: shift.optional(),
+    benefits: benefits.optional(),
+    requirements: requirements.optional(),
   })
   .refine((o) => Object.values(o).some((v) => v !== undefined), {
     message: "no fields to update",

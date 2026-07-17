@@ -25,6 +25,13 @@ export interface FeedJob {
   // demand-side ranking signals), never an employer or a worker identity.
   minExperienceYears: number | null;
   maxExperienceYears: number | null;
+  // Additive worker-visible fields (ADR-0024 final addendum, 2026-07-16): the pay
+  // band AS STORED (band columns, never an exact salary) + the coarse shift enum.
+  // NULLABLE, PII-FREE by the schema's own classification (pay bands / timing
+  // enums — never an employer identity). Same §8 argument as the experience window.
+  payMin: number | null;
+  payMax: number | null;
+  shift: Job["shift"];
 }
 
 /** An application row joined with its (coarse, PII-free) job fields. */
@@ -74,6 +81,9 @@ export class ApplicationsRepository {
         area: jobs.area,
         minExperienceYears: jobs.minExperienceYears,
         maxExperienceYears: jobs.maxExperienceYears,
+        payMin: jobs.payMin,
+        payMax: jobs.payMax,
+        shift: jobs.shift,
       })
       .from(jobs)
       // LOCATION SEAM: when the location feature lands, an OPTIONAL city/coords

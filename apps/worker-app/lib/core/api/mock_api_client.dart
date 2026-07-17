@@ -1,3 +1,4 @@
+import '../../features/swipe/domain/job_detail.dart';
 import 'api_client.dart';
 
 /// A no-network [ApiClient] for UI development.
@@ -330,6 +331,16 @@ class MockApiClient extends ApiClient {
   }
 
   @override
+  Future<JobDetail> jobDetail(String jobId, {required String authToken}) async {
+    await _delay();
+    final JobDetail? detail = _cannedJobDetails[jobId];
+    // Mirror the real contract's neutral 404 for unknown/closed jobs so mock
+    // mode exercises the same failure path as the live API.
+    if (detail == null) throw ApiException(404, 'Job not found');
+    return detail;
+  }
+
+  @override
   Future<ApplyResult> applyToJob(
     String jobId, {
     required String authToken,
@@ -636,8 +647,9 @@ Location: Pune (open to relocate)
 
 This is mock data for UI development — it contains no real worker information.''';
 
-/// PII-free seed feed for mock mode: coarse trade / title / city / area plus the
-/// job's experience window — no employer, no pay (mirrors the real `/feed`
+/// PII-free seed feed for mock mode: coarse trade / title / city / area, the
+/// job's experience window, and (ADR-0024 addendum, 2026-07-16) the additive
+/// pay band + shift — still no employer of any shape (mirrors the real `/feed`
 /// contract). Item 3 leaves [FeedItem.area] null to exercise the nullable path.
 ///
 /// The experience windows are DELIBERATELY varied, and item 4 leaves them null:
@@ -647,6 +659,11 @@ This is mock data for UI development — it contains no real worker information.
 /// contract closely enough that the controls behave the same as against the real
 /// feed. The null window is the honest "no bound stated" case, which by contract
 /// matches EVERY band (see `jobMatchesExperience`).
+///
+/// Pay/shift are likewise varied: item 3 carries a one-sided band (min only)
+/// and item 4 states neither — the honest nulls whose card rows must HIDE.
+/// KEEP IN PARITY with [_cannedJobDetails] (a test asserts the shared fields
+/// match, like the real feed and detail routes reading the same jobs row).
 final List<FeedItem> _cannedFeed = <FeedItem>[
   FeedItem(
     jobId: 'mock-job-0001',
@@ -656,6 +673,9 @@ final List<FeedItem> _cannedFeed = <FeedItem>[
     area: 'Chakan',
     minExperienceYears: 0,
     maxExperienceYears: 2,
+    payMin: 16000,
+    payMax: 26000,
+    shift: 'day',
     rank: 1,
   ),
   FeedItem(
@@ -666,6 +686,9 @@ final List<FeedItem> _cannedFeed = <FeedItem>[
     area: 'Hinjewadi',
     minExperienceYears: 2,
     maxExperienceYears: 5,
+    payMin: 22000,
+    payMax: 32000,
+    shift: 'rotational',
     rank: 2,
   ),
   FeedItem(
@@ -676,6 +699,9 @@ final List<FeedItem> _cannedFeed = <FeedItem>[
     area: null,
     minExperienceYears: 5,
     maxExperienceYears: null,
+    payMin: 18000,
+    payMax: null,
+    shift: 'night',
     rank: 3,
   ),
   FeedItem(
@@ -687,3 +713,79 @@ final List<FeedItem> _cannedFeed = <FeedItem>[
     rank: 4,
   ),
 ];
+
+/// Canned FULL job details for mock mode (`GET /jobs/:jobId`, ADR-0024
+/// addendum 2026-07-16), keyed by the [_cannedFeed] job ids.
+///
+/// PII-FREE AND FACELESS BY CONTRACT: NO company/employer name of any shape
+/// (no "Pvt Ltd"-style strings), no phone, no email — only the worker-visible
+/// fields the real route serves. Descriptions are generic Hinglish; every
+/// requirement/benefit is a trade fact, never an identity.
+///
+/// Coverage is deliberately varied so the detail screen's "null hides the
+/// row" rule is exercised in mock mode: 0001 is fully populated, 0003 has a
+/// one-sided pay band and no benefits, and 0004 states nothing beyond the
+/// feed's own facts (every optional row hidden).
+const Map<String, JobDetail> _cannedJobDetails = <String, JobDetail>{
+  'mock-job-0001': JobDetail(
+    jobId: 'mock-job-0001',
+    tradeKey: 'cnc_operator',
+    title: 'CNC Operator',
+    city: 'Pune',
+    area: 'Chakan',
+    payMin: 16000,
+    payMax: 26000,
+    minExperienceYears: 0,
+    maxExperienceYears: 2,
+    neededBy: 'immediate',
+    shift: 'day',
+    description:
+        'CNC lathe par production ka kaam. Drawing padh kar job set karna, '
+        'tool offset lagana aur first piece check karna hoga. Naye log bhi '
+        'apply kar sakte hain — training milegi.',
+    requirements: <String>['Fanuc control', 'ITI / Diploma', 'Drawing reading'],
+    benefits: <String>['PF + ESI', 'Overtime pay', 'Canteen'],
+  ),
+  'mock-job-0002': JobDetail(
+    jobId: 'mock-job-0002',
+    tradeKey: 'vmc_setter',
+    title: 'VMC Setter',
+    city: 'Pune',
+    area: 'Hinjewadi',
+    payMin: 22000,
+    payMax: 32000,
+    minExperienceYears: 2,
+    maxExperienceYears: 5,
+    neededBy: 'soon',
+    shift: 'rotational',
+    description:
+        'VMC machine par setting aur programming ka kaam. Fixture lagana, '
+        'program prove-out karna aur quality maintain karna hoga.',
+    requirements: <String>['VMC setting', 'Siemens control', 'GD&T basics'],
+    benefits: <String>['PF + ESI', 'Bus facility'],
+  ),
+  'mock-job-0003': JobDetail(
+    jobId: 'mock-job-0003',
+    tradeKey: 'welder',
+    title: 'Welder',
+    city: 'Nashik',
+    payMin: 18000,
+    minExperienceYears: 5,
+    neededBy: 'flexible',
+    shift: 'night',
+    description:
+        'MIG welding ka experience chahiye. Structure fabrication ka kaam '
+        'hai — safety gear diya jayega.',
+    requirements: <String>['MIG welding'],
+    // benefits deliberately null — the detail screen must HIDE the row.
+  ),
+  // Deliberately minimal: the employer stated nothing beyond the feed's own
+  // facts, so EVERY optional detail row stays hidden (never fabricated).
+  'mock-job-0004': JobDetail(
+    jobId: 'mock-job-0004',
+    tradeKey: 'fitter',
+    title: 'Fitter',
+    city: 'Aurangabad',
+    area: 'Waluj',
+  ),
+};

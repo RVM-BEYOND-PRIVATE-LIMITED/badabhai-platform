@@ -12,6 +12,8 @@ import {
   conversationObjectKey,
   conversationWorkerPrefix,
   looksLikePii,
+  looksLikeOrgName,
+  looksLikeUrl,
   bandForCount,
 } from "./index";
 
@@ -144,6 +146,50 @@ describe("looksLikePii", () => {
   );
 });
 
+describe("looksLikeOrgName", () => {
+  it.each([
+    "Sharma Precision Pvt Ltd",
+    "Sharma Precision Pvt. Ltd.",
+    "Deccan Auto Components Private Limited",
+    "Kalyani LLP",
+    "MIDC Engineering Co.",
+    "Acme Ltd",
+    "Tata Motors Limited",
+    "Acme Inc",
+    "Blue Star Corp",
+    "Bharat Forge Corporation",
+    "Mehta & Co",
+    "Mehta and Co",
+  ])("flags %s as org-name-shaped", (s) => {
+    expect(looksLikeOrgName(s)).toBe(true);
+  });
+
+  it.each([
+    "CNC operator",
+    "Fanuc control",
+    "ITI / Diploma",
+    "PF + ESI",
+    "co-worker",
+    "limited experience ok",
+    "Limited experience ok", // sentence-case prose — "limited" is not in suffix position
+    "corporate transport provided", // "corp" only inside a longer word
+    "night shift incentive", // "inc" only inside a longer word
+  ])("does not flag %s", (s) => {
+    expect(looksLikeOrgName(s)).toBe(false);
+  });
+
+  // The documented tradeoff of the trailing-bare-"Ltd" tier: an all-lowercase
+  // bare form slips (no Capitalized-ish preceding token), which is the price of
+  // never rejecting plain prose like "limited experience ok". The strong markers
+  // (Pvt Ltd / Private Limited / ...) remain case-blind.
+  it("bare lowercase 'acme ltd' is NOT flagged (fail-open on sloppy casing — documented)", () => {
+    expect(looksLikeOrgName("acme ltd")).toBe(false);
+  });
+  it("mid-sentence bare 'Ltd' followed by more words is NOT flagged (same tier, same tradeoff)", () => {
+    expect(looksLikeOrgName("Acme Ltd hiring now")).toBe(false);
+  });
+});
+
 describe("bandForCount", () => {
   // Boundary table — every derived value is one of the EXACT shipped
   // VACANCY_BANDS strings. Note 25 -> "11-25" (25+ is strictly > 25).
@@ -164,5 +210,31 @@ describe("bandForCount", () => {
 
   it.each([0, -1, 1.5, NaN])("fails closed on non-positive-integer %s", (n) => {
     expect(() => bandForCount(n)).toThrow();
+  });
+});
+
+describe("looksLikeUrl", () => {
+  it.each([
+    "https://acme.example/jobs",
+    "http://apply.here",
+    "Apply at www.acme.in",
+    "acme.co.in",
+    "jobs.acmecomponents.com",
+    "careers.acme.org",
+    "acme.io/apply",
+  ])("flags %s as link-shaped", (s) => {
+    expect(looksLikeUrl(s)).toBe(true);
+  });
+
+  it.each([
+    "PF + ESI",
+    "2.5 in lathe work", // space before "in" — the TLD tier needs the dot ADJACENT
+    "Quality check karna.",
+    "MIDC Engineering Co.", // dot AFTER "co" is the org suffix, not a ".co" TLD
+    "ITI / Diploma",
+    "8 hrs. incentive",
+    "Fanuc control",
+  ])("does not flag %s", (s) => {
+    expect(looksLikeUrl(s)).toBe(false);
   });
 });

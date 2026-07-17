@@ -6,9 +6,10 @@ import { ApplicationsRepository, type FeedJob } from "./applications.repository"
 import type { ApplyJobDto, SkipJobDto } from "./applications.dto";
 
 /**
- * A feed item the worker sees — PII-free (no pay, no employer). The experience
- * window is year counts only, which the schema classes PII-FREE alongside pay
- * bands (never an employer, never a worker identity).
+ * A feed item the worker sees — PII-free (no employer, and the pay is the BAND
+ * as stored, never an exact salary). The experience window is year counts and
+ * the pay band is integer ₹ bounds — both classed PII-FREE by the schema
+ * (never an employer, never a worker identity).
  *
  * `min_experience_years`/`max_experience_years` are passed through HONESTLY,
  * nulls included: null min = "no floor", null max = "open-ended". A client
@@ -17,6 +18,12 @@ import type { ApplyJobDto, SkipJobDto } from "./applications.dto";
  * never silently dropped. That is deliberate, and consistent with this alpha
  * feed's liberal philosophy (cf. the LOCATION SEAM in the repository): a blank
  * field must never cost a job its impressions. Do NOT coerce these nulls to 0.
+ *
+ * `pay_min`/`pay_max`/`shift` (ADR-0024 final addendum, 2026-07-16) follow the
+ * SAME doctrine: additive, nullable, passed through un-coerced — a job with no
+ * band/shift shows none (the client hides the row), it is never fabricated and
+ * never dropped. Response-only fields: `feed.shown` is UNCHANGED (its payload
+ * stays exactly {worker_id, job_id, rank, score, hot} — no version bump).
  */
 export interface FeedItem {
   job_id: string;
@@ -26,6 +33,9 @@ export interface FeedItem {
   area: string | null;
   min_experience_years: number | null;
   max_experience_years: number | null;
+  pay_min: number | null;
+  pay_max: number | null;
+  shift: FeedJob["shift"];
   rank: number;
 }
 
@@ -63,6 +73,11 @@ export class ApplicationsService {
       // job's own data, not a ranking signal; nothing here scores or drops a job.
       min_experience_years: job.minExperienceYears,
       max_experience_years: job.maxExperienceYears,
+      // ADR-0024 final addendum: pay band + shift join the PII-free set under the
+      // same honest-nulls pass-through. Response-only — feed.shown is UNCHANGED.
+      pay_min: job.payMin,
+      pay_max: job.payMax,
+      shift: job.shift,
       rank: index + 1, // 1-based seed display position
     }));
 

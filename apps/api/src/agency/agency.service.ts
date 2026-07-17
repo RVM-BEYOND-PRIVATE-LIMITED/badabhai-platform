@@ -45,6 +45,11 @@ export type AttributionResult =
   | { ok: true }
   | { ok: false; reason: "unknown_code" | "already_attributed" | "no_consent" };
 
+/** ORDER-SENSITIVE equality for the benefits/requirements chip lists (display order matters). */
+function sameStringList(a: string[], b: string[] | null): boolean {
+  return b !== null && a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
 /**
  * Agency Supply Portal demand slice (ADR-0022, ACCEPTED) — backend business logic +
  * event emission. Repo/service split: data access lives in the two repositories; this
@@ -101,6 +106,12 @@ export class AgencyService {
         minExperienceYears: dto.min_experience_years ?? null,
         maxExperienceYears: dto.max_experience_years ?? null,
         neededBy: dto.needed_by ?? null,
+        // Worker-visible content (ADR-0024 final addendum) — the DTO already screened
+        // every free-text surface fail-closed (looksLikePii + looksLikeOrgName).
+        description: dto.description ?? null,
+        shift: dto.shift ?? null,
+        benefits: dto.benefits ?? null,
+        requirements: dto.requirements ?? null,
       },
       "open",
     );
@@ -195,6 +206,24 @@ export class AgencyService {
     if (dto.needed_by !== undefined && dto.needed_by !== current.neededBy) {
       patch.neededBy = dto.needed_by;
       changedFields.push("needed_by");
+    }
+    // Worker-visible content (ADR-0024 final addendum). changed_fields carries the
+    // KEYS only — the screened free text itself NEVER enters the event payload.
+    if (dto.description !== undefined && dto.description !== current.description) {
+      patch.description = dto.description;
+      changedFields.push("description");
+    }
+    if (dto.shift !== undefined && dto.shift !== current.shift) {
+      patch.shift = dto.shift;
+      changedFields.push("shift");
+    }
+    if (dto.benefits !== undefined && !sameStringList(dto.benefits, current.benefits)) {
+      patch.benefits = dto.benefits;
+      changedFields.push("benefits");
+    }
+    if (dto.requirements !== undefined && !sameStringList(dto.requirements, current.requirements)) {
+      patch.requirements = dto.requirements;
+      changedFields.push("requirements");
     }
 
     if (changedFields.length === 0) {

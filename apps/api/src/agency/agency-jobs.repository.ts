@@ -8,12 +8,16 @@ import {
   type JobStatus,
   type TradeKey,
   type JobNeededBy,
+  type JobShift,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
 /**
- * The patch shape for an agency job edit — coarse, non-PII columns only. `updatedAt` is
- * always set by the service. Excludes `id`, `payerId`, `createdAt` (immutable / owner).
+ * The patch shape for an agency job edit — coarse, non-PII columns only, plus the
+ * DTO-screened worker-visible content columns (description/shift/benefits/requirements,
+ * ADR-0024 final addendum — free text is guarded fail-closed at the DTO boundary before
+ * it can reach this patch). `updatedAt` is always set by the service. Excludes `id`,
+ * `payerId`, `createdAt` (immutable / owner).
  */
 export type AgencyJobUpdate = Partial<
   Pick<
@@ -27,6 +31,10 @@ export type AgencyJobUpdate = Partial<
     | "minExperienceYears"
     | "maxExperienceYears"
     | "neededBy"
+    | "description"
+    | "shift"
+    | "benefits"
+    | "requirements"
     | "status"
   >
 > & { updatedAt: Date };
@@ -43,6 +51,12 @@ export interface CreateAgencyJobInput {
   minExperienceYears: number | null;
   maxExperienceYears: number | null;
   neededBy: JobNeededBy | null;
+  // Worker-visible content (ADR-0024 final addendum) — already screened at the DTO
+  // boundary (looksLikePii + looksLikeOrgName, fail-closed) before reaching here.
+  description: string | null;
+  shift: JobShift | null;
+  benefits: string[] | null;
+  requirements: string[] | null;
 }
 
 /**
@@ -71,6 +85,10 @@ export class AgencyJobsRepository {
         minExperienceYears: input.minExperienceYears,
         maxExperienceYears: input.maxExperienceYears,
         neededBy: input.neededBy,
+        description: input.description,
+        shift: input.shift,
+        benefits: input.benefits,
+        requirements: input.requirements,
         status,
       })
       .returning();

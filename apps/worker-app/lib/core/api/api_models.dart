@@ -37,12 +37,16 @@ class ProfileExtractionTimeout implements Exception {
 
 /// One job card the worker swipes on. Result item of GET /feed.
 ///
-/// PII-free by contract: coarse [tradeKey] / [title] / [city] / [area] plus the
-/// job's experience window in YEAR COUNTS — the API returns NO employer name and
-/// NO pay, so this model carries none. Year counts are PII-free by the same rule
-/// the schema applies to pay bands (`packages/db/src/schema.ts` jobs: "PII-FREE:
-/// pay bands / year counts / a coarse timing enum" — never an employer, never a
-/// worker identity). [rank] is the 1-based seed display position (not a
+/// PII-free by contract: coarse [tradeKey] / [title] / [city] / [area], the
+/// job's experience window in YEAR COUNTS, and — per the ADR-0024 addendum
+/// (2026-07-16) — the ADDITIVE nullable [payMin] / [payMax] / [shift]. The API
+/// still returns NO employer name (employer names are PII, CLAUDE.md §2), so
+/// this model carries nothing employer-shaped. Pay bands / year counts / the
+/// coarse shift enum are PII-free by the schema's own rule
+/// (`packages/db/src/schema.ts` jobs: "PII-FREE: pay bands / year counts / a
+/// coarse timing enum" — never an employer, never a worker identity). The old
+/// wire shape (no pay/shift keys) still parses — the three keys are additive
+/// and land on null. [rank] is the 1-based seed display position (not a
 /// relevance rank).
 class FeedItem extends Equatable {
   const FeedItem({
@@ -54,6 +58,9 @@ class FeedItem extends Equatable {
     required this.rank,
     this.minExperienceYears,
     this.maxExperienceYears,
+    this.payMin,
+    this.payMax,
+    this.shift,
   });
 
   final String jobId;
@@ -73,6 +80,17 @@ class FeedItem extends Equatable {
   final int? minExperienceYears;
   final int? maxExperienceYears;
 
+  /// Monthly pay band in ₹ (ADR-0024 addendum, 2026-07-16) — nullable ints,
+  /// passed through honestly: a null bound means the employer never stated it,
+  /// and the card then hides that part rather than inventing a wage.
+  final int? payMin;
+  final int? payMax;
+
+  /// Coarse shift enum as the RAW wire string ('day' | 'night' | 'rotational'),
+  /// or null when unstated. Display mapping (and the hide-on-unknown rule)
+  /// lives in core/util/job_display.dart.
+  final String? shift;
+
   /// 1-based seed display position the card was shown at. Sent back on apply so
   /// the server can record the position the decision was taken from.
   final int rank;
@@ -86,6 +104,9 @@ class FeedItem extends Equatable {
         // Absent key and explicit null both land on null — "no bound stated".
         minExperienceYears: (json['min_experience_years'] as num?)?.toInt(),
         maxExperienceYears: (json['max_experience_years'] as num?)?.toInt(),
+        payMin: (json['pay_min'] as num?)?.toInt(),
+        payMax: (json['pay_max'] as num?)?.toInt(),
+        shift: json['shift'] as String?,
         rank: (json['rank'] as num?)?.toInt() ?? 0,
       );
 
@@ -98,6 +119,9 @@ class FeedItem extends Equatable {
         area,
         minExperienceYears,
         maxExperienceYears,
+        payMin,
+        payMax,
+        shift,
         rank,
       ];
 }

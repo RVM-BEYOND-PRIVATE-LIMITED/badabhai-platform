@@ -18,6 +18,7 @@ import { ResumeModule } from "./resume/resume.module";
 import { InterviewKitModule } from "./interview-kit/interview-kit.module";
 import { ActionsModule } from "./actions/actions.module";
 import { ApplicationsModule } from "./applications/applications.module";
+import { JobsModule } from "./jobs/jobs.module";
 import { JobPostingsModule } from "./job-postings/job-postings.module";
 import { PricingModule } from "./pricing/pricing.module";
 import { PostingPlansModule } from "./posting-plans/posting-plans.module";
@@ -59,6 +60,9 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     InterviewKitModule,
     ActionsModule,
     ApplicationsModule,
+    // Worker-scoped job detail read (ADR-0024 final addendum): GET /jobs/:jobId,
+    // WorkerAuthGuard + ConsentGuard, explicit PII-free projection, no event.
+    JobsModule,
     JobPostingsModule,
     PricingModule,
     PostingPlansModule,

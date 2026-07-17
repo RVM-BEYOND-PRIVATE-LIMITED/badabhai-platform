@@ -6,30 +6,54 @@ import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/util/job_display.dart';
+import '../../../core/util/pay_format.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_tag.dart';
 import '../domain/job_detail.dart';
+import '../domain/jobs_repository.dart';
 import '../domain/swipe_repository.dart';
 import 'cubit/job_detail_cubit.dart';
 
 /// Full job posting. Reached full-screen from a Feed card (or an Applied row),
-/// which hands over the REAL [JobDetail] it already holds; applying goes through
-/// the same path as the Feed.
+/// which hands over the light [JobDetail] it already holds — the header (title
+/// + place) renders instantly from it while the FULL worker-visible posting is
+/// fetched from `GET /jobs/:jobId` (the ADR-0024 addendum, 2026-07-16).
+/// Applying goes through the same path as the Feed.
 ///
-/// Shows ONLY what the worker-facing feed actually returns — title and place. It
-/// used to also show an employer name, a "verified" badge, a pay band, a shift,
-/// duties, requirements and benefits, ALL invented client-side from
-/// `jobId.hashCode`. Nothing here is synthesised: where the backend has no data,
-/// the screen shows nothing.
+/// Shows ONLY what the backend actually returns: pay band, shift, experience
+/// window, needed-by, description, requirements and benefits — each row
+/// rendered ONLY when its field is non-null (a null field HIDES its row, never
+/// a placeholder). EMPLOYER IDENTITY IS HIDDEN ENTIRELY per the addendum
+/// ruling: no company name, no masked descriptor, no verified badge, no
+/// spots-left — nothing employer-shaped. An earlier build invented all of that
+/// client-side from `jobId.hashCode`; nothing here is synthesised.
 class JobDetailScreen extends StatelessWidget {
-  const JobDetailScreen({super.key, required this.detail});
+  const JobDetailScreen({super.key, required this.detail, this.cubit});
 
+  /// The light detail from the tapped row (instant header render).
   final JobDetail detail;
+
+  /// Test seam: inject a [JobDetailCubit] over a real repository + MockClient
+  /// (mirrors [SwipeJobsScreen.bloc]).
+  final JobDetailCubit? cubit;
 
   @override
   Widget build(BuildContext context) {
+    final JobDetailCubit? injected = cubit;
+    if (injected != null) {
+      return BlocProvider<JobDetailCubit>.value(
+        value: injected,
+        child: const _JobDetailView(),
+      );
+    }
     return BlocProvider<JobDetailCubit>(
-      create: (_) => JobDetailCubit(locator<SwipeRepository>(), detail),
+      create: (_) => JobDetailCubit(
+        locator<JobsRepository>(),
+        locator<SwipeRepository>(),
+        detail,
+      ),
       child: const _JobDetailView(),
     );
   }
@@ -82,7 +106,15 @@ class _JobDetailViewState extends State<_JobDetailView> {
         Expanded(
           child: ListView(
             padding: EdgeInsets.zero,
-            children: <Widget>[_headBand(state.detail)],
+            children: <Widget>[
+              _headBand(state.detail),
+              if (state.loading)
+                _loading()
+              else ...<Widget>[
+                if (state.loadFailed) _loadFailedNote(context),
+                ..._sections(state.detail),
+              ],
+            ],
           ),
         ),
         _stickyCta(context, state),
@@ -127,26 +159,176 @@ class _JobDetailViewState extends State<_JobDetailView> {
               ),
             ],
           ),
-          // Rendered ONLY when the feed actually gave us a place.
+          // Rendered ONLY when the source actually gave us a place.
           if (place != null) ...<Widget>[
             const SizedBox(height: AppSpacing.s4),
-            _fact(Icons.place_outlined, place),
+            _fact(Icons.place_outlined, Text(place,
+                style: AppTypography.body(color: AppColors.textSecondary))),
           ],
         ],
       ),
     );
   }
 
-  Widget _fact(IconData icon, String text) {
+  /// Fetch-phase spinner below the instantly-rendered header.
+  Widget _loading() {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: AppSpacing.s7),
+      child: Center(child: CircularProgressIndicator()),
+    );
+  }
+
+  /// Quiet retry affordance: the light header above stays — what we have is
+  /// real — only the FULL posting failed to load.
+  Widget _loadFailedNote(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.gutter, AppSpacing.s4, AppSpacing.gutter, 0),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              'Poori jaankari load nahi hui.',
+              style: AppTypography.body(color: AppColors.textSecondary),
+            ),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              minimumSize: const Size(AppSpacing.tap, AppSpacing.tap),
+            ),
+            onPressed: () => context.read<JobDetailCubit>().retry(),
+            child: const Text('Try again'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The full-posting sections, each rendered ONLY when its field is non-null
+  /// (a null field hides its row — never fabricated). Order per the ADR-0024
+  /// addendum build spec: pay, shift, experience, needed-by, description,
+  /// requirements, benefits.
+  List<Widget> _sections(JobDetail d) {
+    final String? pay = formatPayBandFull(d.payMin, d.payMax);
+    final String? shift = shiftLabel(d.shift);
+    final String? experience =
+        experienceLabel(d.minExperienceYears, d.maxExperienceYears);
+    final String? neededBy = neededByLabel(d.neededBy);
+    final List<String>? requirements = d.requirements;
+    final List<String>? benefits = d.benefits;
+
+    return <Widget>[
+      if (pay != null ||
+          shift != null ||
+          experience != null ||
+          neededBy != null)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+              AppSpacing.gutter, AppSpacing.s4, AppSpacing.gutter, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              if (pay != null) ...<Widget>[
+                _fact(
+                  Icons.currency_rupee,
+                  // Money renders in the data font (Roboto Mono), like the
+                  // deck card's pay band.
+                  Text(pay,
+                      style: AppTypography.mono(
+                          weight: FontWeight.w700,
+                          color: AppColors.textPrimary)),
+                ),
+                const SizedBox(height: AppSpacing.s3),
+              ],
+              if (shift != null) ...<Widget>[
+                _fact(Icons.schedule, _factText('$shift shift')),
+                const SizedBox(height: AppSpacing.s3),
+              ],
+              if (experience != null) ...<Widget>[
+                _fact(Icons.work_outline, _factText(experience)),
+                const SizedBox(height: AppSpacing.s3),
+              ],
+              if (neededBy != null) ...<Widget>[
+                _fact(Icons.event_available_outlined, _factText(neededBy)),
+                const SizedBox(height: AppSpacing.s3),
+              ],
+            ],
+          ),
+        ),
+      if (d.description != null && d.description!.trim().isNotEmpty)
+        _section(
+          'KAAM KE BAARE MEIN',
+          Text(d.description!,
+              style: AppTypography.body(color: AppColors.textSecondary)),
+        ),
+      if (requirements != null && requirements.isNotEmpty)
+        _section(
+          'REQUIREMENTS',
+          Wrap(
+            spacing: AppSpacing.s2,
+            runSpacing: AppSpacing.s2,
+            children: requirements.map(BbTag.new).toList(),
+          ),
+        ),
+      if (benefits != null && benefits.isNotEmpty)
+        _section(
+          'BENEFITS',
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              for (final String benefit in benefits)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.s2),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      const Icon(Icons.check_circle_outline,
+                          size: 18, color: AppColors.success),
+                      const SizedBox(width: AppSpacing.s2),
+                      Expanded(
+                        child: Text(benefit,
+                            style: AppTypography.body(
+                                color: AppColors.textSecondary)),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      const SizedBox(height: AppSpacing.s5),
+    ];
+  }
+
+  /// Eyebrow heading + content block (matches the app's section pattern).
+  Widget _section(String heading, Widget child) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.gutter, AppSpacing.s5, AppSpacing.gutter, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(heading, style: AppTypography.eyebrow()),
+          const SizedBox(height: AppSpacing.s3),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _fact(IconData icon, Widget text) {
     return Row(
-      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Icon(icon, size: 17, color: AppColors.textFaint),
-        const SizedBox(width: AppSpacing.s1),
-        Text(text, style: AppTypography.body(color: AppColors.textSecondary)),
+        const SizedBox(width: AppSpacing.s2),
+        Expanded(child: text),
       ],
     );
   }
+
+  Text _factText(String value) =>
+      Text(value, style: AppTypography.body(color: AppColors.textSecondary));
 
   Widget _stickyCta(BuildContext context, JobDetailState state) {
     // WA-2: an ALREADY-APPLIED job (opened from an Applied-jobs row, which
