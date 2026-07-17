@@ -483,7 +483,8 @@ def test_chunking_returns_ONE_full_transcript_so_the_gate_never_sees_a_chunk(mon
 # joined by ANY run of separators, `[sep]*`). The ordering dependency this PR
 # carried is SATISFIED. Re-measured on merged main, per seam artifact:
 #   period / comma / ellipsis -> MASKED  (asserted below as normal tests)
-#   danda (U+0964)            -> LEAKS   (xfail: #392's separator class gap)
+#   danda (U+0964)            -> MASKED  (leaked at review time; closed by #397's
+#                                        Indic/CJK separator sweep — asserted below)
 #   filler word               -> LEAKS   (xfail: R30 residual, deliberate)
 # pseudonymize.py is NOT touched from this branch — it is a freshly merged,
 # separately reviewed + mutation-tested gateway; both gaps are escalated, not
@@ -494,6 +495,10 @@ _SEAM_MASKED_CASES = [
     ("comma", "mera number 98765,", "43210 hai"),
     ("ellipsis", "mera number 98765...", "43210 hai"),
     ("bare space", "mera number 98765", "43210 hai"),
+    # The danda seam this PR's review DISCOVERED and escalated. Closed by the
+    # Indic/CJK separator sweep (PR #397) — promoted from xfail(strict) to a
+    # normal assertion, exactly as that marker's own instruction required.
+    ("hindi danda", "mera number 98765।", "43210 hai"),
 ]
 
 
@@ -517,37 +522,6 @@ def test_a_phone_split_by_a_seam_artifact_is_masked_downstream(
         f"seam artifact {name!r} leaked a phone to LLM input: {gated.text!r}"
     )
     assert "[PHONE_1]" in gated.text
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GATEWAY GAP (escalated, not patched from this PR): #392's S-4 unicode pass "
-        "folded in the dash family, soft hyphen, middot/bullet and the zero-width "
-        "family, but NOT the Devanagari DANDA U+0964 (or double danda U+0965) — the "
-        "Hindi full stop, in a Hindi-first product. It is a SEPARATOR artifact, i.e. "
-        "the very class #392 reports as 13/13 closed; the shape matrix simply had no "
-        "Devanagari case. Chunk seams are utterance boundaries, so a Hindi STT seam is "
-        "exactly where a danda appears. Fix is one character in _PHONE_SEPARATORS "
-        "(owner: the pseudonymize/#392 owner). When it lands this XPASSes -> strict "
-        "fails -> DELETE this marker."
-    ),
-)
-def test_a_phone_split_by_a_hindi_danda_seam_is_masked_downstream(monkeypatch):
-    from app.pseudonymize import pseudonymize
-
-    audio, _frames = build_m4a(704)
-    _patch_storage(monkeypatch, returns=audio)
-    _arm_chunks(monkeypatch, ["mera number 98765।", "43210 hai"])
-
-    adapter = SttAdapter(_real_settings())
-    result = _run(adapter.transcribe(storage_path="w/x.m4a", duration_seconds=45))
-
-    gated = pseudonymize(result.transcript_text)
-    leaked = "98765" in gated.text or "43210" in gated.text
-    assert not leaked or gated.blocked, (
-        f"danda seam leaked a phone to LLM input: {gated.text!r}"
-    )
 
 
 @pytest.mark.xfail(
