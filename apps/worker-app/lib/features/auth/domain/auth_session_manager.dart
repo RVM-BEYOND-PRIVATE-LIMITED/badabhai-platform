@@ -102,6 +102,20 @@ class AuthSessionManager extends ChangeNotifier {
   bool _ready = false;
   bool get isReady => _ready;
 
+  /// Whether this device has a PIN to unlock WITH (#352).
+  ///
+  /// [AuthStatus.locked] alone cannot tell "enter your PIN" apart from "choose
+  /// your first PIN": a brand-new worker is locked between OTP verify and
+  /// setPin. Persisted (SecureTokenStore `pin_set`, wiped by `clear()`) so a
+  /// cold start knows the difference — without it, a worker who killed the app
+  /// on the Set-PIN screen restarted into Enter-PIN and was asked for a PIN that
+  /// never existed, with no way out but the forgot-PIN OTP.
+  ///
+  /// Server-sourced: written from `OtpVerifyResult.pinSet`, never a client
+  /// guess.
+  bool _pinSet = false;
+  bool get pinSet => _pinSet;
+
   void _setStatus(AuthStatus next) {
     if (_status == next && _ready) return;
     _status = next;
@@ -122,6 +136,9 @@ class AuthSessionManager extends ChangeNotifier {
       return AuthStatus.loggedOut;
     }
     final String? refresh = await _tokenStore.readRefreshToken();
+    // #352: read the persisted PIN flag BEFORE the status flip, so the redirect
+    // that fires on notify can route locked → set-PIN (no PIN yet) vs enter-PIN.
+    _pinSet = await _tokenStore.readPinSet();
     final AuthStatus next =
         (refresh != null && refresh.isNotEmpty) ? AuthStatus.locked : AuthStatus.loggedOut;
     _setStatus(next);
@@ -155,6 +172,12 @@ class AuthSessionManager extends ChangeNotifier {
     if (_persistentAuthEnabled) {
       await _persistTokens(result.tokens);
       await _tokenStore.writeWorkerId(result.workerId);
+      // #352: persist the SERVER's pin_set alongside the tokens. Only
+      // MockAuthApi ever wrote this key, so on the real path a cold start could
+      // not tell "has a PIN" from "never set one" and always sent the worker to
+      // Enter-PIN.
+      _pinSet = result.pinSet;
+      await _tokenStore.writePinSet(result.pinSet);
     }
     // TD62: capture the server's consent signal BEFORE the status flip so the
     // router redirect that fires on the notify sees both together.
@@ -182,6 +205,10 @@ class AuthSessionManager extends ChangeNotifier {
   /// — the OTP that preceded it already minted tokens. Throws [AuthFailure].
   Future<void> setPin(String pin) async {
     await _authApi.pinSet(pin);
+    // #352: the device now HAS a PIN — remember it, so a cold start routes to
+    // enter-PIN rather than asking the worker to choose one all over again.
+    _pinSet = true;
+    if (_persistentAuthEnabled) await _tokenStore.writePinSet(true);
     _setStatus(AuthStatus.authenticated);
   }
 
@@ -240,6 +267,10 @@ class AuthSessionManager extends ChangeNotifier {
   /// otpInvalid) or a weak/format PIN (400 → pinWeak).
   Future<void> confirmPinReset(String phoneE164, String otp, String pin) async {
     await _authApi.pinResetConfirm(phoneE164, otp, pin);
+    // #352: the reset just set a NEW PIN — record it, or the worker who resets
+    // and then cold-starts would be sent to set-PIN again.
+    _pinSet = true;
+    if (_persistentAuthEnabled) await _tokenStore.writePinSet(true);
     final String? refresh = await _tokenStore.readRefreshToken();
     _setStatus((refresh != null && refresh.isNotEmpty)
         ? AuthStatus.locked
@@ -323,13 +354,15 @@ class AuthSessionManager extends ChangeNotifier {
     // PASS 1's interceptor already cleared SecureTokenStore before firing.
     _session.clear();
     _consentAccepted = null; // TD62: unknown again until the next login
+    _pinSet = false; // #352: the store's pin_set went with the clear()
     _setStatus(AuthStatus.loggedOut);
   }
 
   Future<void> _wipeAndLogOut() async {
-    await _tokenStore.clear();
+    await _tokenStore.clear(); // also deletes pin_set
     _session.clear();
     _consentAccepted = null; // TD62: unknown again until the next login
+    _pinSet = false; // #352: keep the in-memory flag in step with the store
     _setStatus(AuthStatus.loggedOut);
   }
 

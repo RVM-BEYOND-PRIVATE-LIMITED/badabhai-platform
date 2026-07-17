@@ -175,7 +175,13 @@ String? _authRedirect(BuildContext context, GoRouterState state) {
           loc == Routes.otpVerify) {
         return null;
       }
-      return Routes.pin;
+      // #352: route by whether a PIN actually EXISTS on this device. A worker
+      // who killed the app between OTP verify and choosing their first PIN used
+      // to cold-start into Enter-PIN and be asked for a PIN that was never set —
+      // every guess returned the neutral "wrong PIN", and the only way out was
+      // the forgot-PIN OTP (confusing, and it burns a real SMS). Their tokens
+      // are already persisted, so send them to set-PIN and let them finish.
+      return auth.pinSet ? Routes.pin : Routes.setPin;
     case AuthStatus.authenticated:
       // TD62 — the client half of the DPDP consent gate (§6's server-side
       // ConsentGuard stays authoritative). TRI-STATE on purpose: only a

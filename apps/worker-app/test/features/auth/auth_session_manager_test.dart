@@ -192,6 +192,85 @@ void main() {
       expect(s, AuthStatus.loggedOut);
       expect(manager.status, AuthStatus.loggedOut);
     });
+
+    // #352 — `locked` alone cannot distinguish "enter your PIN" from "choose
+    // your first PIN". pin_set was only ever written by MockAuthApi, so on the
+    // real path a worker who killed the app on Set-PIN cold-started into
+    // Enter-PIN and was asked for a PIN that never existed.
+    group('pin_set drives locked routing (#352)', () {
+      test('refresh token but NO pin_set -> locked with pinSet == false',
+          () async {
+        await store.writeRefreshToken('remembered');
+        // pin_set is absent — exactly the state left by the REAL AuthApi, which
+        // (unlike MockAuthApi) never wrote the key.
+        final AuthStatus s = await manager.bootstrap();
+
+        expect(s, AuthStatus.locked);
+        expect(manager.pinSet, isFalse,
+            reason: 'the router must send this worker to SET a PIN, not enter one');
+      });
+
+      test('refresh token AND pin_set -> locked with pinSet == true', () async {
+        await store.writeRefreshToken('remembered');
+        await store.writePinSet(true);
+        final AuthStatus s = await manager.bootstrap();
+
+        expect(s, AuthStatus.locked);
+        expect(manager.pinSet, isTrue);
+      });
+
+      test('verifyOtp persists the SERVER pin_set on the real path', () async {
+        // The real AuthApi does NOT touch the store — only the manager does.
+        final _NoStoreWriteApi realish = _NoStoreWriteApi(store)..pinIsSet = true
+          ..isNewUser = false;
+        final AuthSessionManager m = AuthSessionManager(
+          authApi: realish,
+          tokenStore: store,
+          session: session,
+          reauthSignal: reauth,
+          persistentAuthEnabled: true,
+        );
+        addTearDown(m.dispose);
+
+        await m.verifyOtp('+910000000000', '123456');
+
+        expect(await store.readPinSet(), isTrue,
+            reason: 'the manager, not the api, must persist pin_set');
+        expect(m.pinSet, isTrue);
+      });
+
+      test('setPin records that a PIN now exists', () async {
+        final _NoStoreWriteApi realish = _NoStoreWriteApi(store);
+        final AuthSessionManager m = AuthSessionManager(
+          authApi: realish,
+          tokenStore: store,
+          session: session,
+          reauthSignal: reauth,
+          persistentAuthEnabled: true,
+        );
+        addTearDown(m.dispose);
+
+        expect(m.pinSet, isFalse);
+        await m.setPin('1379');
+
+        expect(m.pinSet, isTrue);
+        expect(await store.readPinSet(), isTrue,
+            reason: 'a cold start after setPin must go to enter-PIN');
+      });
+
+      test('logout clears pinSet so the next worker is not mis-routed',
+          () async {
+        await store.writeRefreshToken('remembered');
+        await store.writePinSet(true);
+        await manager.bootstrap();
+        expect(manager.pinSet, isTrue);
+
+        await manager.logout();
+
+        expect(manager.pinSet, isFalse);
+        expect(await store.readPinSet(), isFalse);
+      });
+    });
   });
 
   group('verifyOtp bridges into SessionRepository', () {
@@ -540,4 +619,38 @@ class _ThrowingLogoutApi extends ScriptAuthApi {
 
   @override
   Future<void> logout() async => throw const AuthFailure(AuthErrorCode.network);
+}
+
+/// An api that models the REAL [AuthApi]: it returns the server's flags but
+/// NEVER writes SecureTokenStore.
+///
+/// [ScriptAuthApi] writes `pin_set` itself (mirroring MockAuthApi) — which is
+/// exactly what hid #352: on the real path only the mock ever wrote that key, so
+/// nothing persisted it and bootstrap could not tell "has a PIN" from "never set
+/// one". Persisting it is the MANAGER's job, and these fakes must not do it for
+/// the manager or the regression is untestable.
+class _NoStoreWriteApi extends ScriptAuthApi {
+  _NoStoreWriteApi(super.store);
+
+  @override
+  Future<OtpVerifyResult> otpVerify(String phone, String otp) async {
+    if (throwOnVerify != null) throw throwOnVerify!;
+    return OtpVerifyResult(
+      workerId: 'worker-9',
+      isNewUser: isNewUser,
+      pinSet: pinIsSet,
+      tokens: AuthTokens(
+        access: 'access-otp',
+        refresh: 'refresh-1',
+        accessExpiresAt: DateTime.now().add(const Duration(minutes: 15)),
+      ),
+      consentAccepted: consentAccepted,
+    );
+  }
+
+  @override
+  Future<void> pinSet(String pin) async {
+    // The real endpoint just 204s — no client-side store write.
+    pinIsSet = true;
+  }
 }
