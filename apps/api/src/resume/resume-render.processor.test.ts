@@ -266,6 +266,43 @@ describe("ResumeRenderProcessor — lifecycle (TD5)", () => {
     expect(resumes.markRenderFailed).toHaveBeenCalledWith(RESUME_ID);
   });
 
+  it("force + failClosed + the RENDER KILL-SWITCH OFF: STILL marks failed (erasure outranks the kill-switch)", async () => {
+    // REGRESSION (PR #402 review, High): the kill-switch branch used to be tested
+    // BEFORE the failClosed branch, so with RESUME_RENDER_ENABLED=false the row was
+    // left untouched — i.e. still 'rendered' — and the download gate happily kept
+    // serving the PDF embedding the face the worker had just erased. It never
+    // self-healed either: a later DELETE /workers/me/photo skips the re-render once
+    // show_photo is already off. When we CANNOT re-render the face off the PDF, taking
+    // it out of service matters MORE, not less.
+    const { proc, resumes } = setup({
+      resume: {
+        id: RESUME_ID,
+        workerId: WORKER_ID,
+        version: 1,
+        renderStatus: "rendered",
+        sourceProfileSnapshot: SNAPSHOT,
+      },
+      renderResult: null,
+      renderEnabled: false,
+    });
+    const res = await proc.process(
+      makeJob({ force: true, failClosed: true, attemptsMade: 2, attempts: 3 }),
+    );
+
+    expect(res).toEqual({ rendered: false });
+    expect(resumes.markRenderFailed).toHaveBeenCalledWith(RESUME_ID);
+  });
+
+  it("failClosed on a NOT-yet-rendered row + kill-switch OFF: stays pending, NOT failed", async () => {
+    // Guard the fix above: `failClosed` outranks the kill-switch only when a PDF
+    // actually exists to keep serving. With nothing rendered there is no face to
+    // erase, so the kill-switch steady state must survive — leave the row pending so
+    // it renders once rendering is switched back on, rather than 409ing it forever.
+    const { proc, resumes } = setup({ renderResult: null, renderEnabled: false });
+    await proc.process(makeJob({ force: true, failClosed: true, attemptsMade: 2, attempts: 3 }));
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+  });
+
   it("a FIRST render (not forced) that fails IS still marked failed (unchanged)", async () => {
     // Guard the guard: the wasRendered exemption must not swallow a genuine
     // first-render failure on a pending row.

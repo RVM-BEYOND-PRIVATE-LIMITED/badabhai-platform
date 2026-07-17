@@ -130,16 +130,30 @@ export class ResumeRenderProcessor extends WorkerHost {
     if (!pdf) {
       // No PDF this run (kill-switch off, binary missing, or render failed). Only
       // mark the row 'failed' on the FINAL attempt so retries can still succeed.
-      if (this.isFinalAttempt(job) && wasRendered && !job.data.failClosed) {
+      if (this.isFinalAttempt(job) && wasRendered && job.data.failClosed) {
+        // TD77 REMOVE direction: the existing PDF embeds the face the worker asked us
+        // to erase, so keeping it in service would keep serving erased PII (§2/DPDP).
+        // Take it out of service — a 409 beats serving a removed face.
+        //
+        // THIS MUST BE TESTED BEFORE THE KILL-SWITCH BRANCH BELOW. Erasure outranks the
+        // kill-switch: when RESUME_RENDER_ENABLED is off there is no way to re-render the
+        // face OFF the PDF, which makes it MORE important to stop serving it, not less.
+        // Ordering this after the kill-switch check silently shadowed `failClosed` and
+        // left the row 'rendered' (i.e. still serving the erased face) — and it never
+        // self-heals, because a later DELETE /workers/me/photo skips the re-render once
+        // show_photo is already off. Gated on `wasRendered`: with no PDF on file there is
+        // no face to erase, so a not-yet-rendered row belongs to the branches below.
+        await this.resumes.markRenderFailed(resumeId);
+        this.logger.warn(
+          `resume ${resumeId} fail-closed re-render produced no PDF; marked failed rather than serve erased PII`,
+        );
+      } else if (this.isFinalAttempt(job) && wasRendered) {
         // TD77: a FORCED re-render over an ALREADY-GOOD PDF failed. That PDF is
         // still in storage and still valid, so the row must STAY 'rendered' —
         // marking it 'failed' would 409 a resume the worker could download a second
         // ago (i.e. changing their photo would cost them their resume). Degrade
         // silently: keep serving the existing PDF; the photo just isn't on it yet.
-        //
-        // EXCEPT in the REMOVE direction (`failClosed`): there the existing PDF still
-        // embeds the face the worker asked us to erase, so keeping it would serve
-        // erased PII (§2/DPDP). That case falls through and marks the row failed.
+        // (The REMOVE direction never reaches here — it is handled above.)
         this.logger.warn(
           `resume ${resumeId} forced re-render produced no PDF; keeping the existing rendered PDF`,
         );
