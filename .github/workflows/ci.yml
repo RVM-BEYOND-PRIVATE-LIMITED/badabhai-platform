@@ -317,6 +317,18 @@ jobs:
     needs: [build-and-push-image]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # CD-1: the job token needs packages:read so the BOX can docker-login with the
+    # ephemeral GITHUB_TOKEN below (only one permissions: block existed in this file
+    # — the build job's — so this job inherited the repo default, which may exclude
+    # packages). contents:read is the safe floor.
+    permissions:
+      contents: read
+      packages: read
+    # CD-1 / Gate D1: scopes environment secrets + makes the deploy target explicit
+    # in the Actions UI. Named "staging" per the current D1 default — if the owner
+    # rules this box is PRODUCTION, rename AND add a required reviewer to the
+    # environment (protection rules; repo is now PUBLIC so they are available on Free).
+    environment: staging
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -331,12 +343,20 @@ jobs:
           command_timeout: 10m
           script: |
             set -e
+            # CD-1: never leave a registry credential (even an expired job token)
+            # in the box's ~/.docker/config.json — logout on EVERY exit path.
+            trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
             echo "Starting deployment..."
             cd ~/deployments/badabhai-platform
             echo "Pulling latest code from main..."
             git pull origin main
             echo "Logging into GHCR..."
-            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            # CD-1: ephemeral job token (dies with the run) instead of a long-lived
+            # PAT stored as a repo secret next to a PUBLIC repo. The package is
+            # PRIVATE (anonymous pull 401-verified), so a login IS required; the
+            # box only ever pulls during a deploy run, so the ephemeral token
+            # suffices — and a leaked box can no longer pull outside a run.
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
             # CD-4: pin the IMMUTABLE per-commit tag pushed by build-and-push-image
             # (metadata-action type=sha -> prefix "sha-" + short 7-char sha, length
