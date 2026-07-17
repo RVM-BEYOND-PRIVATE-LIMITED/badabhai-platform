@@ -116,6 +116,29 @@ class AuthSessionManager extends ChangeNotifier {
   bool _pinSet = false;
   bool get pinSet => _pinSet;
 
+  /// Where the worker was when the app re-locked, so unlocking returns them
+  /// there instead of dumping them on the Resume tab (#349).
+  ///
+  /// Relock replaces the whole stack from ANY location, and post-unlock routing
+  /// used to hardcode Routes.resume. A worker 10 questions into the profiling
+  /// chat who took a >5-minute phone call came back to "Abhi resume nahi ban
+  /// sakta", with consent + name to re-tap and no visible transcript — it looked
+  /// like everything they had said was lost.
+  ///
+  /// PEEK + explicit [clearResumeLocation], not a consuming take: the router
+  /// redirect and EnterPinScreen both resolve the post-unlock target, and a
+  /// consuming read would let whichever ran first strand the other on the
+  /// fallback. Cleared once the worker has actually landed off the auth surface.
+  ///
+  /// Deliberately does NOT notifyListeners — it is written from inside the
+  /// router's redirect, and notifying there would re-enter it.
+  String? _resumeLocation;
+  String? get resumeLocation => _resumeLocation;
+
+  void stashResumeLocation(String location) => _resumeLocation = location;
+
+  void clearResumeLocation() => _resumeLocation = null;
+
   void _setStatus(AuthStatus next) {
     if (_status == next && _ready) return;
     _status = next;
@@ -355,6 +378,7 @@ class AuthSessionManager extends ChangeNotifier {
     _session.clear();
     _consentAccepted = null; // TD62: unknown again until the next login
     _pinSet = false; // #352: the store's pin_set went with the clear()
+    _resumeLocation = null; // #349: a new login must not land on the old screen
     _setStatus(AuthStatus.loggedOut);
   }
 
@@ -363,6 +387,7 @@ class AuthSessionManager extends ChangeNotifier {
     _session.clear();
     _consentAccepted = null; // TD62: unknown again until the next login
     _pinSet = false; // #352: keep the in-memory flag in step with the store
+    _resumeLocation = null; // #349: a new login must not land on the old screen
     _setStatus(AuthStatus.loggedOut);
   }
 

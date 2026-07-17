@@ -175,6 +175,10 @@ String? _authRedirect(BuildContext context, GoRouterState state) {
           loc == Routes.otpVerify) {
         return null;
       }
+      // #349: remember where the worker actually was before the PIN takes over
+      // the stack, so unlocking returns them there. `!onAuthRoute` keeps a cold
+      // start (loc == /splash) from stashing the splash screen as a destination.
+      if (!onAuthRoute) auth.stashResumeLocation(loc);
       // #352: route by whether a PIN actually EXISTS on this device. A worker
       // who killed the app between OTP verify and choosing their first PIN used
       // to cold-start into Enter-PIN and be asked for a PIN that was never set —
@@ -194,8 +198,13 @@ String? _authRedirect(BuildContext context, GoRouterState state) {
         return Routes.consent;
       }
       // Authenticated workers must not sit on splash/login/pin — lift them into
-      // the shell (the worker's home tab). Onboarding + shell routes pass.
-      if (onAuthRoute) return Routes.resume;
+      // the shell. #349: back to where the re-lock interrupted them when we know
+      // it, else the Resume tab as before. PEEKED, not consumed — EnterPinScreen
+      // resolves the same target, and a consuming read here would strand it on
+      // the fallback.
+      if (onAuthRoute) return auth.resumeLocation ?? Routes.resume;
+      // Landed on a real screen — the stash has done its job.
+      auth.clearResumeLocation();
       return null;
   }
 }
