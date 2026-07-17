@@ -141,6 +141,79 @@ def build_m4a(
     return ftyp + mdat + moov, frames
 
 
+def build_crafted_m4a(
+    *,
+    frame_count: int,
+    timescale: int = AAC_SAMPLE_RATE,
+    delta: int = AAC_SAMPLES_PER_FRAME,
+    frame_size: int = 1,
+    declared_sample_count: int | None = None,
+    stsc_first_chunk: int = 1,
+    truncate_stts_to: int | None = None,
+) -> bytes:
+    """Build a HOSTILE .m4a whose sample tables lie, for the fail-closed tests.
+
+    Unlike ``build_m4a`` this does NOT materialize per-frame payloads — that is
+    the point. The MP4 tables are run-length/implicit encoded, so a tiny file can
+    *declare* an enormous stream:
+
+    - ``frame_count`` + ``delta``/``timescale`` set the DECLARED duration
+      (``frame_count * delta / timescale`` seconds) — the H-1 spend primitive:
+      a ~200KB file can claim 200,000s and demand 6,780 provider calls.
+    - ``declared_sample_count`` overstates ``stsz``'s count with a FIXED
+      ``sample_size`` (no per-frame bytes needed) — the M-2 memory primitive.
+    - ``stsc_first_chunk`` crafts the NEXT stsc entry's ``first_chunk`` to drive
+      the chunk index past the offset table — the M-1(i) IndexError primitive.
+    - ``truncate_stts_to`` cuts the stts box short so its header read would spill
+      into the neighbouring box — the M-1(iii) struct.error primitive.
+    """
+    ftyp = _box(b"ftyp", b"M4A " + struct.pack(">I", 0) + b"M4A mp42isom")
+    # mdat stays TINY and independent of the declared frame_count — that IS the
+    # attack (a ~500B file declaring millions of frames / 200,000 seconds). Cap it
+    # so a hostile fixture never allocates the stream it merely claims to have.
+    mdat = _box(b"mdat", bytes(min(frame_count * frame_size, 4096)))
+    first = len(ftyp) + 8
+
+    # mdhd.duration is a u32; a hostile frame_count*delta can exceed it. The
+    # parser only reads `timescale`, so clamp rather than overflow the fixture.
+    mdhd = _full_box(
+        b"mdhd",
+        struct.pack(">IIII", 0, 0, timescale, min(frame_count * delta, 0xFFFFFFFF)),
+    )
+    hdlr = _full_box(b"hdlr", struct.pack(">I", 0) + b"soun" + b"\x00" * 13)
+    stsd = _full_box(b"stsd", struct.pack(">I", 1) + _mp4a_sample_entry())
+
+    stts_payload = struct.pack(">I", 1) + struct.pack(">II", frame_count, delta)
+    stts = _full_box(b"stts", stts_payload)
+    if truncate_stts_to is not None:
+        stts = stts[:truncate_stts_to]
+
+    # Fixed sample_size => the size list is SYNTHESIZED from the count alone.
+    stsz = _full_box(
+        b"stsz",
+        struct.pack(">II", frame_size, declared_sample_count or frame_count),
+    )
+
+    if stsc_first_chunk != 1:
+        # Two entries: a valid first, then one whose first_chunk is absurd. The
+        # loop derives `last_chunk` from the SECOND entry's value.
+        stsc_payload = (
+            struct.pack(">I", 2)
+            + struct.pack(">III", 1, 1, 1)
+            + struct.pack(">III", stsc_first_chunk, 1, 1)
+        )
+    else:
+        stsc_payload = struct.pack(">I", 1) + struct.pack(">III", 1, frame_count, 1)
+    stsc = _full_box(b"stsc", stsc_payload)
+
+    stco = _full_box(b"stco", struct.pack(">I", 1) + struct.pack(">I", first))
+    stbl = _box(b"stbl", stsd + stts + stsc + stsz + stco)
+    minf = _box(b"minf", _box(b"smhd", b"\x00" * 8) + stbl)
+    mdia = _box(b"mdia", mdhd + hdlr + minf)
+    moov = _box(b"moov", _full_box(b"mvhd", b"\x00" * 96) + _box(b"trak", mdia))
+    return ftyp + mdat + moov
+
+
 def build_wav(duration_seconds: float, *, sample_rate: int = 16000) -> bytes:
     """Canonical 16-bit mono PCM RIFF/WAVE of ``duration_seconds``."""
     n_frames = int(round(duration_seconds * sample_rate))

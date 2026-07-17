@@ -224,37 +224,95 @@ also supported. **Every other container fails closed** — never guess.
 | ai-service worst case (120s note) | **≤260s** | storage ≤20s + 3 waves × 60s + translate ≤60s. |
 | `AiService.transcribe` fetch budget | **270s** (was 8s) | ≤260s + 10s overhead. **Only** this call is raised; every other AI call keeps the 8s default. |
 | `sarvam_stt_cost_inr_per_chunk` | **₹0.25** (estimate) | saarika ≈ ₹30/audio-hour. **Calibrate against the invoice at the §7 flip.** |
-| Worst-case note spend | **₹1.25** (5 × ₹0.25) | Under `AI_MAX_USER_DAILY_COST_INR` (₹6) ⇒ **~4 full-length notes/user/day**; each chunk call is far under the ₹10 `AI_MAX_CALL_COST_INR` ceiling. |
+| `MAX_CHUNKS_PER_NOTE` | **5** = `ceil(120/29.5)` | Hard ceiling on provider calls per note, independent of *both* worker-controlled inputs (declared duration AND file tables). An honest full-length note is exactly 5, so it costs nothing. |
+| Worst-case note spend | **₹1.25** (5 × ₹0.25) | Under `AI_MAX_USER_DAILY_COST_INR` (₹6) ⇒ **~4 full-length notes/user/day**; each chunk call is far under the ₹10 `AI_MAX_CALL_COST_INR` ceiling (which bounds the **rate**, not the **count** — see H-1 below). |
+| `_MAX_AAC_FRAMES` | **10,000** (was 20,000,000) | Memory guard, not a formality: run-length tables let a ~500 B file demand tens of millions of list slots (measured 508 B → 320 MB). An honest 120s note is 1,875 frames @16kHz. |
 
-### Invariants (unchanged — verified, not assumed)
+### ⚠️ Chunking INTRODUCES a phone-leak at chunk seams (H-2) — #392 must land first
 
-- **#3 pseudonymize fail-closed — no new bypass, and chunking cannot weaken it.** The
-  adapter concatenates **inside** `_transcribe_chunked`; a chunk never escapes it, so
-  `/profile/extract` gates the **FULL** transcript exactly as before (`main.py`
-  *"1. Pseudonymize FIRST"*). The one real risk — concatenation inserting a space that
-  splits a digit run (`9876543210` → `98765 43210`, which `_RESIDUAL_DIGITS_RE = \d{7,}`
-  alone would miss) — **does not leak**: `_PHONE_RE` matches across whitespace/dashes
-  (`[\d\s\-]{7,}`) and `_AADHAAR_RE` allows `\s?` between groups, so the split number is
-  still masked, byte-identically to the unsplit case. Test-locked
-  (`test_stt_real.py::test_a_phone_split_across_a_chunk_boundary_is_still_masked_downstream`).
+**This addendum originally claimed a boundary-split phone "is still masked, byte-identically
+to the unsplit case, test-locked". That claim was FALSE and is withdrawn.** It generalized
+from the single shape the test happened to lock (a bare join-space). The truth:
+
+- `_PHONE_RE`'s character class is `[\d\s\-]`, so it spans **only** spaces/dashes. Any other
+  seam artifact breaks the digit run.
+- `_RESIDUAL_DIGITS_RE = \d{7,}` does **not** fire either, because neither half is a 7-digit
+  run — so the number is **not even blocked**. It reaches LLM input.
+- Measured leaks: `98765. 43210` (period), `98765। 43210` (danda), comma, ellipsis — and,
+  requiring no punctuation assumption at all, **one filler word**: `98765 haan 43210`.
+- **Chunking is what introduces this.** An unsplit note has no seam; a 120s note has **4**.
+  An STT seam is an utterance boundary, so terminal punctuation or a filler rendered from
+  the clipped syllable is ordinary, not exotic.
+
+**The fix is NOT in this PR.** [PR #392](../../) replaces `_PHONE_RE` with digit-count
+normalization, closing this exact root cause (an independent reviewer found the same cause on
+main via `9876.543.210`). Two concurrent edits to the pseudonymize gateway would collide, so
+this branch deliberately does not touch it.
+
+> **ORDERING DEPENDENCY — binding:** **#392 MUST merge before #395, and Sarvam MUST NOT be
+> armed until it has.** The seam cases are pinned as `xfail(strict=True)` in
+> `test_stt_real.py` (`_SEAM_LEAK_CASES`): they document the live gap without reddening CI,
+> and the moment #392 lands they XPASS → strict turns that into a **failure**, forcing
+> whoever rebases to delete the marker. That red is the intended signal.
+
+Until #392 lands, the honest statement of the boundary is: **a phone split across a chunk
+seam by anything other than a space or dash leaks to LLM input.** The mock path is
+unaffected (no provider, no chunking), so nothing leaks today at the default gate.
+
+### Invariants (verified, not assumed)
+
+- **#3 pseudonymize fail-closed — no new bypass.** The adapter concatenates **inside**
+  `_transcribe_chunked`; a chunk never escapes it, so `/profile/extract` gates the **FULL**
+  transcript exactly as before (`main.py` *"1. Pseudonymize FIRST"*) — never a chunk. What
+  chunking *does* change is the **content** the gate sees at seams (H-2 above), not the
+  order or the fact of gating.
 - **#5 real calls gated** — chunking runs only on the already-gated real path
   (`AI_ENABLE_REAL_CALLS` + `SARVAM_API_KEY`). **The mock is now duration-agnostic**: the
   30s limit is a provider-upload constraint and no longer applies to a path with no provider.
 - **Fail closed, never fabricate.** ANY chunk failure fails the **whole** note to an empty
   transcript — a partial transcript with silent holes is a fabrication risk. Unsplittable
-  containers and >120s notes are refused **before** storage/provider spend.
+  containers, over-long containers and >120s declared notes are refused **before**
+  storage/provider spend.
 - **#2 no PII** — `audio_chunk.py` logs nothing; raised messages carry only box names /
   sizes / generic strings. `worker_ref` is the opaque worker UUID already sent for
   chat/extraction.
 
-### Spend (TD68 pattern)
+### Spend (TD68 pattern) — and why the reservation must bound the call count (H-1)
 
-Each chunk is a billable provider call, so chunking **multiplies calls** — the real path now
-**reserves** the note's worst-case INR on the TD27 `SpendLedger` *before* any Sarvam call
-(attributed to `worker_ref`'s per-user daily budget), then **reconciles to actual**: chunks
-that returned before a failure stay recorded (they were billed); only uncalled chunks are
-refunded. A ledger block returns an **empty** transcript — never the mock (no fabrication on
-the real path). Mock mode does zero ledger traffic.
+Each chunk is a billable provider call, so chunking **multiplies calls**. The real path
+**reserves** on the TD27 `SpendLedger` *before* any Sarvam call (attributed to `worker_ref`'s
+per-user daily budget), then **reconciles to actual**: chunks that returned before a failure
+stay recorded (they were billed); only uncalled chunks are refunded. A ledger block returns an
+**empty** transcript — never the mock. Mock mode does zero ledger traffic.
+
+**The reservation bounding the call count is not automatic, and the first cut got it wrong.**
+The reservation derives from the **client-declared** `duration_seconds`; the call count derives
+from the **file's own container tables**. Those are two *independent* worker-controlled inputs —
+the ADR-0029 signed-upload seam lets one worker choose both. Measured on the first cut: a
+**~200KB `.m4a` whose tables claimed 200,000s, declared as 31s → reserved 2 chunks (₹0.50),
+actually issued 6,780 Sarvam calls (₹1,695)** — blowing the per-user (₹6), daily (₹200) **and**
+cumulative (₹1,000) caps inside **one request**. The per-call ceiling never trips: it bounds the
+**rate**, not the **count**.
+
+Three guards now keep them reconciled, **all before the first provider call**:
+
+1. `_projected_chunks` reserves the **structural bound** (`MAX_CHUNKS_PER_NOTE` = 5) for any
+   chunked note — *not* `ceil(declared/29.5)`. This makes **reserved ≥ actual always**, and
+   avoids false-closing an honest note whose client floored the duration across a chunk
+   knife-edge (declares 59s, file is really 59.5s → 2 vs 3). Mirrors `router.py`'s existing
+   worst-case-reserve → reconcile-to-actual discipline; the over-reservation is refunded the
+   moment the note resolves.
+2. `split_audio(max_total_seconds=…)` **derives the file's real duration** from its own tables
+   and refuses anything over the platform cap **at the source** — the root-cause fix (the file's
+   real duration was previously never derived or cross-checked at all).
+3. `_transcribe_chunked` refuses `len(segments) > min(reserved, MAX_CHUNKS_PER_NOTE)`.
+
+Hostile-table handling is bounded too: `_MAX_AAC_FRAMES` is **10,000** (was 20,000,000 — an
+honest 120s note is 1,875 frames @16kHz, ~5.6k @48kHz). The MP4 tables are run-length/implicit
+encoded, so one 8-byte `stts` entry or a fixed-size `stsz` could demand tens of millions of list
+slots from a ~500-byte file — **measured 508 B → 320 MB peak (~630,000:1)**, which at
+`SARVAM_CHUNK_CONCURRENCY` is an OOM. Now **454 B → 2.1 KB (4.7:1)**; both parsers check the
+count *before* allocating.
 
 ### Contracts + queue
 
@@ -264,11 +322,17 @@ migration. The queue path already made this async from the API's perspective (Bu
 `VoiceTranscriptionProcessor`, off the request path, lock auto-extended) — **confirmed**;
 the fix was entirely inside the ai-service handler.
 
-### Residuals
+### Residuals — all three gate the real-Sarvam flip
 
-- **TD59 is now materially worse and gates the flip:** the worker-app polls ~14s for a
-  transcript; a real 120s note can take ~4 minutes. Fix TD59 (server-side merge, or an
-  adaptive poll budget) **before** the real-Sarvam flip, or a completed transcript strands.
-- The **₹0.25/chunk rate is an estimate** — calibrate at the §7 flip.
-- Cross-boundary STT accuracy (a word split mid-utterance) is unmeasured until the §7
-  staging run with real audio.
+1. **#392 must merge first (H-2).** A phone split across a chunk seam by anything other than
+   a space/dash leaks to LLM input. Chunking introduces the seams; #392 fixes the gateway.
+   **Do not arm Sarvam before #392 is on main.**
+2. **TD59 is now materially worse.** The worker-app polls ~14s for a transcript; a real 120s
+   note can take ~4 minutes. Fix TD59 (server-side merge, or an adaptive poll budget) before
+   the flip, or a completed transcript strands and the worker re-records an already-billed clip.
+3. **The ₹0.25/chunk rate is an estimate** — calibrate against the first invoice at the §7 flip.
+   Every cap number above scales off it.
+
+Also unmeasured until the §7 staging run: cross-seam STT **accuracy** (a word split
+mid-utterance). Note this is the same phenomenon as H-2 — a seam changes the text — but the
+accuracy question is a quality matter, whereas H-2 is a privacy one.

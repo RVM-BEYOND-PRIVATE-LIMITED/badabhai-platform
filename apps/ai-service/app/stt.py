@@ -38,7 +38,7 @@ DURATION HANDLING (D-2 — owner ruling 2026-07-17 "BUILD IT PROPERLY = ASYNC ST
   spend.
 
 SPEND (TD68 pattern): each real chunk call is provider spend. The real path
-reserves the note's worst-case INR on the TD27 ``SpendLedger`` BEFORE any Sarvam
+reserves the note's WORST-CASE INR on the TD27 ``SpendLedger`` BEFORE any Sarvam
 call (attributed to the opaque ``worker_ref`` per-user daily budget), then
 reconciles to the actual number of chunk calls made — chunks that returned
 before a failure stay recorded (they were billed), only uncalled chunks are
@@ -47,6 +47,22 @@ fabrication on the real path). Numbers with the defaults: a 120s note is
 ceil(120/29.5) = 5 chunks x Rs 0.25 = Rs 1.25, under the Rs 6/user/day cap
 (~4 full-length notes/user/day) and each chunk call is well under the Rs 10
 per-call ceiling.
+
+The reservation MUST bound the call count, and that is not automatic: the
+reservation derives from the CLIENT-DECLARED ``duration_seconds`` while the call
+count derives from the FILE's own container tables — two INDEPENDENT
+worker-controlled inputs (the ADR-0029 signed-upload seam lets one worker choose
+both). Three guards keep them from diverging, ALL before the first provider call:
+  1. ``_projected_chunks`` reserves the STRUCTURAL bound (MAX_CHUNKS_PER_NOTE)
+     for any chunked note, not ceil(declared/29.5) => reserved >= actual always.
+  2. ``audio_chunk.split_audio(max_total_seconds=...)`` derives the FILE's real
+     duration and refuses anything over the platform cap at the source.
+  3. ``_transcribe_chunked`` refuses ``len(segments) > min(reserved,
+     MAX_CHUNKS_PER_NOTE)``.
+Without them a ~200KB file whose tables claim 200,000s produced 6,780 calls
+(~Rs 1695) against a Rs 0.50 reservation — blowing the per-user, daily AND
+cumulative caps inside ONE request (the per-call ceiling never trips: it bounds
+the RATE, not the COUNT).
 
 The real Sarvam path IS wired (calls Sarvam ``speech-to-text`` directly over REST
 with ``httpx``); it is simply gated off by default until enabled per environment.
@@ -96,6 +112,12 @@ SARVAM_CHUNK_MAX_SECONDS = 29.5
 # capping provider burst. 5 chunks -> ceil(5/2) = 3 waves x <=60s = <=180s worst
 # case (the api-side /voice/transcribe budget in ai.service.ts is sized to this).
 SARVAM_CHUNK_CONCURRENCY = 2
+# HARD ceiling on provider calls for ONE note = ceil(120 / 29.5) = 5. An honest
+# full-length note is exactly this, so the bound costs nothing — but it is the
+# structural backstop that makes the call count independent of BOTH
+# worker-controlled inputs (the declared duration AND the uploaded file's own
+# tables). See _transcribe_chunked.
+MAX_CHUNKS_PER_NOTE = math.ceil(MAX_VOICE_NOTE_SECONDS / SARVAM_CHUNK_MAX_SECONDS)
 # Used ONLY when Sarvam returns a transcript but no ``language_probability``
 # (i.e. a specific language was requested, so there is no detection uncertainty).
 _REAL_CONFIDENCE_WHEN_UNREPORTED = 1.0
@@ -187,12 +209,29 @@ class SttAdapter:
         return self.real_blocked_reason() is None
 
     def _projected_chunks(self, duration_seconds: float | None) -> int:
-        """Worst-case provider-call count for the spend reservation. Unknown
-        duration -> 1 (the single sync call the real path will attempt)."""
+        """WORST-CASE provider-call count for the spend reservation — deliberately
+        not an estimate (H-1).
+
+        <=30s (or unknown duration) takes the single-call sync path => 1. Anything
+        longer takes the chunked path, whose call count is bounded by
+        ``MAX_CHUNKS_PER_NOTE``; we reserve THAT bound rather than
+        ``ceil(declared/29.5)`` for two reasons:
+
+        1. **Correctness under divergence.** The declared duration and the file's
+           real duration are INDEPENDENT worker-controlled inputs, so a reservation
+           derived from the declaration cannot bound calls derived from the file.
+           Reserving the structural bound makes ``reserved >= actual`` hold ALWAYS.
+        2. **No false-closes.** ``ceil(declared/29.5)`` would refuse an honest note
+           whenever the two disagree across a chunk knife-edge (client floors 59.5s
+           -> declares 59 => reserves 2, file really needs 3).
+
+        The reconcile refunds reserved-minus-actual the moment the note resolves, so
+        the over-reservation is transient — the same worst-case-reserve ->
+        reconcile-to-actual discipline ``ai/router.py`` already uses.
+        """
         if duration_seconds is None or duration_seconds <= SARVAM_SYNC_MAX_SECONDS:
             return 1
-        capped = min(duration_seconds, MAX_VOICE_NOTE_SECONDS)
-        return max(1, math.ceil(capped / SARVAM_CHUNK_MAX_SECONDS))
+        return MAX_CHUNKS_PER_NOTE
 
     async def transcribe(
         self,
@@ -268,6 +307,7 @@ class SttAdapter:
                 storage_path=storage_path,
                 duration_seconds=duration_seconds,
                 language_code=language_code,
+                reserved_chunks=projected_chunks,
             )
             actual_inr = round(result.chunk_count * rate_inr, 4)
             return result
@@ -308,13 +348,17 @@ class SttAdapter:
         storage_path: str,
         duration_seconds: float | None,
         language_code: str | None,
+        reserved_chunks: int = 1,
     ) -> SttResult:
         """Real Sarvam STT: fetch the audio via service-role storage, POST it to
         Sarvam ``speech-to-text`` (one sync call for <=30s; chunked sync for
         30-120s), and map to ``SttResult`` (is_mock=False). RAISES on any failure
         — the ``transcribe`` wrapper turns that into an empty, never-fabricated
         result. Logs nothing; raised messages carry only status codes / Sarvam
-        ``code`` / generic strings."""
+        ``code`` / generic strings.
+
+        ``reserved_chunks`` is the number of provider calls the caller has already
+        RESERVED budget for; the chunked path refuses to exceed it (H-1)."""
         # Defensive key guard (the wrapper already gated on this, but never assume).
         if not self._settings.sarvam_api_key:
             raise RuntimeError("SARVAM_API_KEY is not set")
@@ -357,6 +401,7 @@ class SttAdapter:
             storage_path=storage_path,
             sarvam_lang=sarvam_lang,
             language_code=language_code,
+            reserved_chunks=reserved_chunks,
         )
 
     async def _transcribe_chunked(
@@ -366,16 +411,38 @@ class SttAdapter:
         storage_path: str,
         sarvam_lang: str,
         language_code: str | None,
+        reserved_chunks: int,
     ) -> SttResult:
         """30-120s notes: split -> bounded-parallel sync calls -> deterministic
         in-order concatenation. ANY chunk failure fails the WHOLE note closed."""
         try:
             segments = split_audio(
-                audio, storage_path, max_chunk_seconds=SARVAM_CHUNK_MAX_SECONDS
+                audio,
+                storage_path,
+                max_chunk_seconds=SARVAM_CHUNK_MAX_SECONDS,
+                # The FILE's own duration is bounded here, at the source: the
+                # splitter refuses to emit segments for an over-long container
+                # (see the H-1 note in audio_chunk.split_audio).
+                max_total_seconds=MAX_VOICE_NOTE_SECONDS,
             )
         except AudioChunkError as exc:
             # AudioChunkError messages are PII-free by construction.
             raise RuntimeError(f"audio chunking failed ({exc})") from None
+
+        # H-1 (defense in depth): the reservation is computed from the CLIENT-
+        # DECLARED duration, but the segment count comes from the FILE's own
+        # tables — two INDEPENDENT worker-controlled inputs (the ADR-0029 seam
+        # lets a worker upload arbitrary bytes and declare any duration). Never
+        # make more provider calls than were reserved, and never more than the
+        # platform's structural maximum. Both are checked BEFORE the first
+        # _post_sarvam, so a divergence costs zero provider spend. An honest note
+        # satisfies both by construction (declared ~= real => reserved == actual).
+        allowed = min(reserved_chunks, MAX_CHUNKS_PER_NOTE)
+        if len(segments) > allowed:
+            raise RuntimeError(
+                f"chunk count {len(segments)} exceeds the reserved/permitted {allowed} "
+                "(declared duration and container duration disagree)"
+            )
 
         semaphore = asyncio.Semaphore(SARVAM_CHUNK_CONCURRENCY)
 

@@ -47,15 +47,31 @@ from bisect import bisect_left
 from dataclasses import dataclass
 from itertools import accumulate
 
-# Sanity ceiling on parsed frame counts — a 120s note is ~5.6k AAC frames
-# (@21.3ms) or ~5.8M wav sample-frames; anything past this is a malformed or
-# hostile table, not a voice note. Fail closed instead of expanding it.
-_MAX_FRAMES = 20_000_000
+# Ceiling on parsed AAC frame counts. A 120s note is at most ~5.6k frames
+# (1024 samples @ 48kHz = 21.3ms/frame); 10k leaves ~1.8x headroom and nothing
+# honest comes near it.
+#
+# THIS IS A MEMORY GUARD, NOT JUST A SANITY CHECK. The MP4 sample tables are
+# RUN-LENGTH encoded: ONE 8-byte ``stts`` entry can declare count=20,000,000,
+# and ``stsz`` with a fixed ``sample_size`` needs no per-frame bytes at all — so
+# a ~500-byte file can ask us to materialize tens of millions of list entries
+# (measured at the old 20M ceiling: a 508-byte input peaked at 320MB, a
+# ~630,000:1 amplification; x SARVAM_CHUNK_CONCURRENCY that is an OOM). Both
+# parsers check this BEFORE allocating. Never raise it to "be permissive".
+_MAX_AAC_FRAMES = 10_000
+
+# Ceiling on PCM sample-frames for the wav path — a DIFFERENT unit from the AAC
+# frame count above (one per sample, not per codec frame): 120s of 48kHz stereo
+# is 5.76M sample-frames. There is no run-length amplification here (``_split_wav``
+# slices bytes and its count is clamped by the real data-chunk length), so this
+# is a plain sanity bound.
+_MAX_WAV_SAMPLE_FRAMES = 24_000_000
 
 
 class AudioChunkError(RuntimeError):
     """Audio cannot be split safely (unsupported/malformed container, fragmented
-    MP4, table mismatch, ...). Messages are PII-free by construction."""
+    MP4, table mismatch, over-long/hostile duration, ...). Messages are PII-free
+    by construction."""
 
 
 @dataclass(frozen=True)
@@ -70,19 +86,36 @@ class AudioSegment:
 
 
 def split_audio(
-    audio: bytes, storage_path: str, *, max_chunk_seconds: float
+    audio: bytes,
+    storage_path: str,
+    *,
+    max_chunk_seconds: float,
+    max_total_seconds: float,
 ) -> list[AudioSegment]:
     """Split ``audio`` (the full stored object) into ordered, self-contained
     segments of at most ~``max_chunk_seconds`` each (see module docstring for
     the exact boundary-snap guarantee). Raises ``AudioChunkError`` on any
-    unsupported or malformed input — the caller fails closed."""
+    unsupported or malformed input — the caller fails closed.
+
+    ``max_total_seconds`` is a REQUIRED bound on the file's OWN duration, derived
+    here from its container tables and checked BEFORE any segment is produced.
+    This is a spend guard, not a formality: the caller reserves budget from the
+    CLIENT-DECLARED duration, while the segment count comes from the FILE — two
+    independent, worker-controlled inputs (the ADR-0029 signed-upload seam lets a
+    worker upload arbitrary bytes AND declare any duration). Without this bound a
+    ~200KB file whose tables claim 200,000s yields 6,780 provider calls (~Rs 1695)
+    against a 2-chunk (Rs 0.50) reservation, blowing every TD27 cap inside ONE
+    request. Pass the platform cap (``MAX_VOICE_NOTE_SECONDS``).
+    """
     if max_chunk_seconds <= 0:
         raise AudioChunkError("max_chunk_seconds must be positive")
+    if max_total_seconds <= 0:
+        raise AudioChunkError("max_total_seconds must be positive")
     ext = os.path.splitext(storage_path)[1].lower()
     if ext in (".m4a", ".mp4"):
-        return _split_m4a(audio, max_chunk_seconds)
+        return _split_m4a(audio, max_chunk_seconds, max_total_seconds)
     if ext == ".wav":
-        return _split_wav(audio, max_chunk_seconds)
+        return _split_wav(audio, max_chunk_seconds, max_total_seconds)
     raise AudioChunkError(
         f"unsupported container for chunking ({ext or 'no extension'})"
     )
@@ -98,6 +131,15 @@ def _chunk_boundaries(frame_end_times: list[float], max_chunk_seconds: float) ->
     n_chunks = max(1, math.ceil(total / max_chunk_seconds))
     if n_chunks == 1:
         return [frame_count]
+    # M-1(ii): every window needs >= 1 frame. With fewer frames than windows the
+    # clamp below goes NEGATIVE -> non-monotonic boundaries -> IndexError in the
+    # caller. Only reachable from an absurd table (e.g. 2 frames of 1000s each),
+    # which the duration bound already rejects — but never rely on a caller's
+    # guard for an invariant this function owns.
+    if frame_count < n_chunks:
+        raise AudioChunkError(
+            "implausible frame durations (fewer frames than required windows)"
+        )
     boundaries: list[int] = []
     prev = 0
     for i in range(1, n_chunks):
@@ -115,7 +157,9 @@ def _chunk_boundaries(frame_end_times: list[float], max_chunk_seconds: float) ->
 # --- WAV (PCM RIFF) ----------------------------------------------------------
 
 
-def _split_wav(audio: bytes, max_chunk_seconds: float) -> list[AudioSegment]:
+def _split_wav(
+    audio: bytes, max_chunk_seconds: float, max_total_seconds: float
+) -> list[AudioSegment]:
     if len(audio) < 12 or audio[0:4] != b"RIFF" or audio[8:12] != b"WAVE":
         raise AudioChunkError("malformed wav (missing RIFF/WAVE header)")
 
@@ -147,10 +191,16 @@ def _split_wav(audio: bytes, max_chunk_seconds: float) -> list[AudioSegment]:
     n_frames = data_len // block_align
     if n_frames == 0:
         raise AudioChunkError("malformed wav (empty data chunk)")
-    if n_frames > _MAX_FRAMES:
+    if n_frames > _MAX_WAV_SAMPLE_FRAMES:
         raise AudioChunkError("wav data chunk implausibly large")
 
     total_seconds = n_frames / sample_rate
+    # H-1: the FILE's own duration bounds the segment (=provider call) count —
+    # never the caller's declared duration, which is an independent claim.
+    if total_seconds > max_total_seconds:
+        raise AudioChunkError(
+            f"audio duration from container exceeds the {max_total_seconds:.0f}s cap"
+        )
     n_chunks = max(1, math.ceil(total_seconds / max_chunk_seconds))
     segments: list[AudioSegment] = []
     for i in range(n_chunks):
@@ -207,9 +257,20 @@ class _Mp4AudioTrack:
     frame_durations: list[float]  # seconds per frame (from stts/timescale)
 
 
-def _split_m4a(audio: bytes, max_chunk_seconds: float) -> list[AudioSegment]:
+def _split_m4a(
+    audio: bytes, max_chunk_seconds: float, max_total_seconds: float
+) -> list[AudioSegment]:
     track = _parse_mp4_audio_track(audio)
     end_times = list(accumulate(track.frame_durations))
+    # H-1: the FILE's own duration (from its mdhd/stts tables) bounds the segment
+    # (= provider call) count. The caller's reservation is computed from the
+    # CLIENT-DECLARED duration; these are independent worker-controlled inputs, so
+    # an unbounded table count is a spend-abuse primitive (200KB -> 6,780 calls).
+    # Check BEFORE building any segment, so no provider call is ever produced.
+    if end_times[-1] > max_total_seconds:
+        raise AudioChunkError(
+            f"audio duration from container exceeds the {max_total_seconds:.0f}s cap"
+        )
     boundaries = _chunk_boundaries(end_times, max_chunk_seconds)
 
     segments: list[AudioSegment] = []
@@ -424,8 +485,19 @@ def _parse_audio_specific_config(asc: bytes) -> _AacConfig:
     )
 
 
+def _read_u32(buf: bytes, pos: int, end: int, what: str) -> int:
+    """Read a big-endian u32 STRICTLY inside the owning box (M-1(iii)).
+
+    A short/truncated box otherwise reads the NEIGHBOURING box's bytes as a
+    count/size — garbage that surfaces later as ``struct.error`` at EOF instead
+    of a clean AudioChunkError. Every table header field goes through here."""
+    if pos + 4 > end:
+        raise AudioChunkError(f"malformed mp4 (truncated {what})")
+    return struct.unpack(">I", buf[pos : pos + 4])[0]
+
+
 def _parse_stts(buf: bytes, start: int, end: int) -> list[int]:
-    (entry_count,) = struct.unpack(">I", buf[start + 4 : start + 8])
+    entry_count = _read_u32(buf, start + 4, end, "stts")
     pos = start + 8
     if pos + entry_count * 8 > end:
         raise AudioChunkError("malformed mp4 (truncated stts)")
@@ -433,7 +505,9 @@ def _parse_stts(buf: bytes, start: int, end: int) -> list[int]:
     for _ in range(entry_count):
         count, delta = struct.unpack(">II", buf[pos : pos + 8])
         pos += 8
-        if delta <= 0 or len(deltas) + count > _MAX_FRAMES:
+        # Bound BEFORE extend: stts is run-length encoded, so one 8-byte entry
+        # can ask for millions of list slots from a tiny file (M-2).
+        if delta <= 0 or len(deltas) + count > _MAX_AAC_FRAMES:
             raise AudioChunkError("malformed mp4 (implausible stts)")
         deltas.extend([delta] * count)
     if not deltas:
@@ -442,8 +516,11 @@ def _parse_stts(buf: bytes, start: int, end: int) -> list[int]:
 
 
 def _parse_stsz(buf: bytes, start: int, end: int) -> list[int]:
-    sample_size, sample_count = struct.unpack(">II", buf[start + 4 : start + 12])
-    if sample_count == 0 or sample_count > _MAX_FRAMES:
+    sample_size = _read_u32(buf, start + 4, end, "stsz")
+    sample_count = _read_u32(buf, start + 8, end, "stsz")
+    # Bound BEFORE materializing: with sample_size != 0 the list is synthesized
+    # from the COUNT alone — no per-frame bytes needed in the file (M-2).
+    if sample_count == 0 or sample_count > _MAX_AAC_FRAMES:
         raise AudioChunkError("malformed mp4 (implausible stsz)")
     if sample_size != 0:
         return [sample_size] * sample_count
@@ -454,7 +531,7 @@ def _parse_stsz(buf: bytes, start: int, end: int) -> list[int]:
 
 
 def _parse_stsc(buf: bytes, start: int, end: int) -> list[tuple[int, int]]:
-    (entry_count,) = struct.unpack(">I", buf[start + 4 : start + 8])
+    entry_count = _read_u32(buf, start + 4, end, "stsc")
     pos = start + 8
     if entry_count == 0 or pos + entry_count * 12 > end:
         raise AudioChunkError("malformed mp4 (truncated stsc)")
@@ -472,7 +549,7 @@ def _parse_chunk_offsets(buf: bytes, stbl: tuple[int, int]) -> list[int]:
     stco = _find_box(buf, *stbl, b"stco")
     if stco is not None:
         start, end = stco
-        (count,) = struct.unpack(">I", buf[start + 4 : start + 8])
+        count = _read_u32(buf, start + 4, end, "stco")
         pos = start + 8
         if pos + count * 4 > end:
             raise AudioChunkError("malformed mp4 (truncated stco)")
@@ -480,7 +557,7 @@ def _parse_chunk_offsets(buf: bytes, stbl: tuple[int, int]) -> list[int]:
     co64 = _find_box(buf, *stbl, b"co64")
     if co64 is not None:
         start, end = co64
-        (count,) = struct.unpack(">I", buf[start + 4 : start + 8])
+        count = _read_u32(buf, start + 4, end, "co64")
         pos = start + 8
         if pos + count * 8 > end:
             raise AudioChunkError("malformed mp4 (truncated co64)")
@@ -508,6 +585,13 @@ def _sample_file_ranges(
         if first_chunk > chunk_count:
             raise AudioChunkError("malformed mp4 (stsc chunk out of range)")
         for chunk in range(first_chunk, last_chunk + 1):
+            # M-1(i): `last_chunk` is derived from the NEXT stsc entry's
+            # first_chunk, which the guard above never validated — e.g. a
+            # crafted entry with first_chunk=0xFFFFFFFF drove `chunk` past the
+            # table and raised a bare IndexError instead of AudioChunkError.
+            # Bound the index actually used, not just the current entry's.
+            if chunk < 1 or chunk > chunk_count:
+                raise AudioChunkError("malformed mp4 (stsc chunk out of range)")
             offset = chunk_offsets[chunk - 1]
             for _ in range(samples_per_chunk):
                 if sample >= n_samples:

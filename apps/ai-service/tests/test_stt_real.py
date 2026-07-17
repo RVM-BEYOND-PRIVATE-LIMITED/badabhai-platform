@@ -21,7 +21,7 @@ unit under test for the failure cases — ``_transcribe_real`` itself raises.
 import asyncio
 
 import pytest
-from audio_fixtures import build_m4a
+from audio_fixtures import build_crafted_m4a, build_m4a
 
 from app import stt as stt_module
 from app.ai import cost_tracker
@@ -449,7 +449,7 @@ def test_unsplittable_container_fails_closed_without_calling_sarvam(monkeypatch)
     assert _ChunkRecordingClient.uploads == []  # Sarvam never reached
 
 
-# --- D-2 privacy: chunk boundaries must not weaken the downstream gate ------
+# --- D-2 privacy: chunk boundaries vs the downstream gate -------------------
 
 def test_chunking_returns_ONE_full_transcript_so_the_gate_never_sees_a_chunk(monkeypatch):
     # The adapter concatenates INSIDE _transcribe_chunked; a chunk never escapes.
@@ -466,11 +466,10 @@ def test_chunking_returns_ONE_full_transcript_so_the_gate_never_sees_a_chunk(mon
     assert result.transcript_text == "mera number 98765 43210 hai"
 
 
-def test_a_phone_split_across_a_chunk_boundary_is_still_masked_downstream(monkeypatch):
-    # THE chunking privacy risk: concatenation inserts a space, which could split
-    # a digit run (a 10-digit phone -> "98765 43210"). That must NOT let a number
-    # through. It does not: _PHONE_RE matches across whitespace/dashes
-    # ([\d\s\-]{7,}), so the joined transcript is still masked before any LLM.
+def test_a_phone_split_by_a_bare_space_seam_is_masked_downstream(monkeypatch):
+    # The NARROW case that holds today: when the seam artifact is nothing but the
+    # join space, _PHONE_RE's [\d\s\-]{7,} still spans it, so the number masks.
+    # This is the ONLY seam shape that is safe pre-#392 — see the xfail block below.
     from app.pseudonymize import pseudonymize
 
     audio, _frames = build_m4a(704)
@@ -484,13 +483,85 @@ def test_a_phone_split_across_a_chunk_boundary_is_still_masked_downstream(monkey
     assert "98765" not in gated.text
     assert "43210" not in gated.text
     assert "[PHONE_1]" in gated.text
-
-    # And the unsplit transcription of the same words masks identically — the
-    # boundary changes nothing the gate cares about.
     assert pseudonymize("mera number 9876543210 hai").text == gated.text
 
 
-def test_an_aadhaar_split_across_a_chunk_boundary_is_still_masked_downstream(monkeypatch):
+# --- H-2: seam artifacts that DO leak (pre-#392) -----------------------------
+#
+# CORRECTION TO THIS PR'S ORIGINAL CLAIM. It said a boundary-split phone "masks
+# byte-identically, test-locked". That was FALSE — it generalized from the single
+# unpunctuated shape locked above. `_PHONE_RE`'s character class is [\d\s\-], so
+# ANY other seam artifact breaks the digit run, and `_RESIDUAL_DIGITS_RE = \d{7,}`
+# does not fire either (neither half is a 7-digit run) — so the number is not even
+# BLOCKED. It LEAKS to the LLM.
+#
+# CHUNKING INTRODUCES THIS: an unsplit note has no seam; a 120s note has 4. An STT
+# seam is an utterance boundary, so a terminal period / danda / comma / ellipsis —
+# or, needing no punctuation at all, one filler word rendered from the clipped
+# syllable — is ordinary, not exotic.
+#
+# THE FIX IS NOT HERE. PR #392 replaces `_PHONE_RE` with digit-count
+# normalization, which closes this exact root cause (an independent reviewer found
+# it on main via `9876.543.210`). Do NOT patch pseudonymize.py from this branch —
+# two edits to the gateway would collide.
+#
+# ORDERING DEPENDENCY (loud, deliberate): **#392 MUST merge before #395, and
+# Sarvam MUST NOT be armed until it has.** Until then these are xfail(strict=True):
+# they document the live gap without reddening CI, and the moment #392 lands they
+# XPASS -> strict makes that a FAILURE -> whoever rebases MUST delete the marker.
+# That red is the intended signal, not a regression.
+
+_SEAM_LEAK_CASES = [
+    ("period", "mera number 98765.", "43210 hai"),
+    ("danda", "mera number 98765।", "43210 hai"),
+    ("comma", "mera number 98765,", "43210 hai"),
+    ("ellipsis", "mera number 98765...", "43210 hai"),
+    ("filler word (no punctuation)", "mera number 98765", "haan 43210 hai"),
+]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "H-2: _PHONE_RE's [\\d\\s\\-] class breaks on any other seam artifact and "
+        "_RESIDUAL_DIGITS_RE (\\d{7,}) does not fire on the halves, so a "
+        "seam-split phone LEAKS. Fixed by PR #392 (digit-count normalization). "
+        "#392 must merge before this PR; Sarvam must not be armed until it does. "
+        "When #392 lands these XPASS -> strict fails -> DELETE this marker."
+    ),
+)
+@pytest.mark.parametrize(("name", "chunk_a", "chunk_b"), _SEAM_LEAK_CASES)
+def test_a_phone_split_by_a_seam_artifact_is_masked_downstream(
+    monkeypatch, name, chunk_a, chunk_b
+):
+    from app.pseudonymize import pseudonymize
+
+    audio, _frames = build_m4a(704)
+    _patch_storage(monkeypatch, returns=audio)
+    _arm_chunks(monkeypatch, [chunk_a, chunk_b])
+
+    adapter = SttAdapter(_real_settings())
+    result = _run(adapter.transcribe(storage_path="w/x.m4a", duration_seconds=45))
+
+    gated = pseudonymize(result.transcript_text)
+    leaked = "98765" in gated.text or "43210" in gated.text
+    assert not leaked or gated.blocked, (
+        f"seam artifact {name!r} leaked a phone to LLM input: {gated.text!r}"
+    )
+
+
+def test_seam_leak_cases_are_a_real_chunking_artifact_not_a_contrived_string():
+    # Guards the xfail block above from rotting into a fiction: each case must be
+    # a genuine two-chunk concatenation this adapter would actually produce.
+    for _name, a, b in _SEAM_LEAK_CASES:
+        joined = " ".join(p.strip() for p in (a, b) if p.strip())
+        assert "98765" in joined and "43210" in joined
+        # The digits are separated by exactly what the seam inserted — proving the
+        # split, not the source text, is what breaks the run.
+        assert "9876543210" not in joined
+
+
+def test_an_aadhaar_split_by_a_bare_space_seam_is_masked_downstream(monkeypatch):
     from app.pseudonymize import pseudonymize
 
     audio, _frames = build_m4a(704)
@@ -618,6 +689,87 @@ def test_storage_failure_leaks_no_reservation(monkeypatch):
     # Nothing reached the provider -> the whole reservation is refunded.
     assert _snapshot("w-5")["user_daily_spend_inr"] == 0.0
     assert _snapshot()["daily_spend_inr"] == 0.0
+
+
+# --- H-1: actual chunk count must never exceed the reservation --------------
+# The reservation comes from the CLIENT-DECLARED duration; the call count comes
+# from the FILE's own tables. Both are worker-controlled and INDEPENDENT (the
+# ADR-0029 signed-upload seam lets one worker choose both), so they must be
+# reconciled BEFORE the first provider call — the per-call ceiling cannot help
+# (it bounds the RATE, not the COUNT).
+
+def test_crafted_file_declaring_a_huge_stream_makes_zero_provider_calls(monkeypatch):
+    # THE H-1 attack: ~4.5KB file whose tables claim 200,000s, declared 31s.
+    # Pre-fix: RESERVED 2 chunks (Rs 0.50) -> ACTUAL 6,780 Sarvam calls
+    # (Rs 1,695), blowing the per-user (6), daily (200) AND cumulative (1000)
+    # caps inside ONE request. Must now cost exactly zero.
+    audio = build_crafted_m4a(frame_count=200_000, timescale=1, delta=1)
+    _patch_storage(monkeypatch, returns=audio)
+    _arm_chunks(monkeypatch, ["should-not-be-used"] * 10)
+
+    adapter = SttAdapter(_real_settings(sarvam_stt_cost_inr_per_chunk=0.25))
+    result = _run(
+        adapter.transcribe(storage_path="w/x.m4a", duration_seconds=31, worker_ref="w-atk")
+    )
+
+    assert result.transcript_text == ""
+    assert result.error_code == "stt_call_failed"
+    assert _ChunkRecordingClient.uploads == []  # ZERO provider calls
+    assert _snapshot("w-atk")["user_daily_spend_inr"] == 0.0  # ZERO spend
+    assert _snapshot()["daily_spend_inr"] == 0.0
+
+
+def test_reservation_always_covers_the_actual_call_count(monkeypatch):
+    # The invariant: reserved >= actual, ALWAYS. A chunked note reserves the
+    # structural bound (MAX_CHUNKS_PER_NOTE), so no honest declared/real drift
+    # can spend more than was reserved.
+    from app.stt import MAX_CHUNKS_PER_NOTE
+
+    audio, _frames = build_m4a(1875)  # a real 120s note -> 5 chunks
+    _patch_storage(monkeypatch, returns=audio)
+    _arm_chunks(monkeypatch, ["a", "b", "c", "d", "e"])
+
+    adapter = SttAdapter(_real_settings(sarvam_stt_cost_inr_per_chunk=0.25))
+    result = _run(
+        adapter.transcribe(storage_path="w/x.m4a", duration_seconds=120, worker_ref="w-r")
+    )
+
+    assert result.chunk_count == MAX_CHUNKS_PER_NOTE == 5
+    assert len(_ChunkRecordingClient.uploads) <= MAX_CHUNKS_PER_NOTE
+    assert _snapshot("w-r")["user_daily_spend_inr"] == 1.25  # exactly 5 x 0.25
+
+
+def test_declared_duration_understating_the_real_file_does_not_false_close(monkeypatch):
+    # The flip side of H-1: an HONEST note whose client floored the duration
+    # (declares 59, file is really ~59.5s => 2 vs 3 chunks) must still transcribe.
+    # Reserving the structural bound (not ceil(declared/29.5)) is what buys this.
+    audio, _frames = build_m4a(930)  # 59.52s -> 3 chunks
+    _patch_storage(monkeypatch, returns=audio)
+    _arm_chunks(monkeypatch, ["ek", "do", "teen"])
+
+    adapter = SttAdapter(_real_settings(sarvam_stt_cost_inr_per_chunk=0.25))
+    result = _run(
+        adapter.transcribe(storage_path="w/x.m4a", duration_seconds=59, worker_ref="w-d")
+    )
+
+    assert result.error_code is None
+    assert result.transcript_text == "ek do teen"
+    assert result.chunk_count == 3
+    # Reserved 5 (the bound), actually called 3 -> reconciled to the truth.
+    assert _snapshot("w-d")["user_daily_spend_inr"] == 0.75
+
+
+def test_chunked_note_reserves_the_structural_bound_not_the_declared_estimate():
+    # Pins the H-1 reservation rule: ANY chunked note reserves MAX_CHUNKS_PER_NOTE,
+    # so the reservation cannot be under-sized by a client's declared duration.
+    from app.stt import MAX_CHUNKS_PER_NOTE
+
+    adapter = SttAdapter(_real_settings())
+    assert adapter._projected_chunks(None) == 1  # unknown -> single sync call
+    assert adapter._projected_chunks(10) == 1
+    assert adapter._projected_chunks(30) == 1  # at the sync limit
+    for declared in (30.1, 31, 45, 59, 90, 120):
+        assert adapter._projected_chunks(declared) == MAX_CHUNKS_PER_NOTE
 
 
 def test_per_chunk_rate_above_the_per_call_ceiling_blocks(monkeypatch):
