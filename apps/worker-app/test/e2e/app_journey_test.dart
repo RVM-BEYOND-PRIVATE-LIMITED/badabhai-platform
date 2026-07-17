@@ -187,9 +187,9 @@ void main() {
     expect(find.text('Your resume'), findsOneWidget);
     // The Alerts badge reflects the reactive unread count. The shell fires a
     // best-effort refresh() on mount, so the badge populates from the real mock
-    // feed (4 unread) BEFORE Alerts is opened — wait for the async fetch to land.
-    await _pumpUntil(tester, _navBadge('4'));
-    expect(_navBadge('4'), findsOneWidget);
+    // feed (5 unread) BEFORE Alerts is opened — wait for the async fetch to land.
+    await _pumpUntil(tester, _navBadge('5'));
+    expect(_navBadge('5'), findsOneWidget);
 
     // ── 8. TAB THROUGH every branch (each its own mock-backed screen). The
     //     IndexedStack offstages inactive branches, so default finders only see
@@ -206,10 +206,10 @@ void main() {
     await tester.tap(find.text('Alerts'));
     await _pumpUntil(tester, find.byIcon(Icons.check));
     // Close the loop: mark-all-read clears the reactive unread badge.
-    expect(_navBadge('4'), findsOneWidget);
+    expect(_navBadge('5'), findsOneWidget);
     await tester.tap(find.byIcon(Icons.check));
-    await _pumpUntilGone(tester, _navBadge('4'));
-    expect(_navBadge('4'), findsNothing);
+    await _pumpUntilGone(tester, _navBadge('5'));
+    expect(_navBadge('5'), findsNothing);
 
     await tester.tap(find.text('Resume'));
     await _pumpUntil(tester, find.text('Your resume'));

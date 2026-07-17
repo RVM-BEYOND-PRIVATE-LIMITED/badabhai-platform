@@ -8,6 +8,31 @@ boundary moved).
 
 ---
 
+## 2026-07-17 — Worker Alerts allowlist widened to the worker's OWN apply (`application.submitted`)
+- **No new surface, no new data.** The Alerts feed stays what it is: a read-only, PII-free
+  **projection over the `events` table** ([notifications.repository.ts](../../apps/api/src/notifications/notifications.repository.ts)).
+  **No notifications table, no migration, no new event** — `application.submitted` was already
+  emitted by [applications.service.ts](../../apps/api/src/applications/applications.service.ts)
+  and already satisfied 2 of the 3 legs of the worker-scoping OR (`actor=worker` +
+  `payload.worker_id`; its `subject` is the **job**, so that leg deliberately does not match).
+  The query is **unchanged** — the only edit was adding the event to `NOTIFICATION_TEMPLATES`,
+  from which `NOTIFICATION_EVENT_NAMES` (the query filter) is derived via `Object.keys()`.
+- **The allowlist IS the safety boundary** — an event surfaces iff it has faceless
+  server-rendered copy. New: `application.submitted` → type `application_sent`, "Application
+  bhej di" / "Aapki application aage pahunch gayi." The copy names **no counterparty at all**,
+  not even the generic noun: the pre-existing guard in
+  [notifications.service.test.ts](../../apps/api/src/notifications/notifications.service.test.ts)
+  bans `employer`/`company`/`payer` in worker-facing copy, and the copy was changed to clear it
+  rather than the guard narrowed.
+- **SCOPE RULING (2026-07-17):** the allowlist's stated scope was "worker-lifecycle / security
+  signals (no employer/demand signals in this scope)". Deliberately widened to include the
+  worker's **OWN outbound act**. The employer half of that line still holds absolutely — an
+  unlock, a profile view, any payer action must NEVER surface. Telling a worker their own
+  apply landed reveals nothing they don't already know.
+- **ADR-0024 holds by construction:** copy is STATIC and server-rendered, and the event
+  **payload is never SELECTed**, so no employer identity, job title, or pay can reach the
+  client even though the underlying event carries `job_id`/`rank`/`source_surface`.
+
 ## 2026-07-17 — A skills factor enters RANK, deterministically (ADR-0033; the 06-19 CEO lock made operative)
 - **A contract surface moved:** the RANK core gained its **seventh signal**. `WEIGHTS` is now the
   2026-06-19 CEO ledger — role .35 / distance .20 / **skills .15 (NEW)** / experience .15 / pay .10 /
