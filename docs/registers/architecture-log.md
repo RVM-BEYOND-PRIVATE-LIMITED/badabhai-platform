@@ -8,6 +8,30 @@ boundary moved).
 
 ---
 
+## 2026-07-16 — Worker-visible job surface goes REAL (ADR-0024 final addendum; TD53 Paid)
+- **The ruling landed** ([ADR-0024 final addendum, 2026-07-16](../decisions/0024-worker-visible-job-fields-pii.md)):
+  employer identity is hidden from the worker path **entirely** (no legal name, no masked
+  descriptor, no contact info; `payer_id` never in a worker response) — everything else is
+  shown honestly.
+- **New contract surface:** worker-scoped `GET /jobs/:jobId` (`WorkerAuthGuard` +
+  `ConsentGuard`, explicit column projection, neutral no-oracle 404 for unknown AND closed
+  ids; the ops `GET /job-postings/:id` remains forbidden on this path). Emits **no event**
+  by ruling — `feed.shown` stays a pure feed-impression spine (its `rank` is a required
+  1-based feed position a detail render doesn't have); a future detail-view event would be
+  a NEW versioned event.
+- **Data shape (additive, migration 0041):** `jobs` gains nullable `description` (text),
+  `shift` (text + `jobs_shift_chk` day|night|rotational), `benefits` (jsonb string[]),
+  `requirements` (jsonb string[]). Worker-visible verbatim → **fail-closed free-text guard
+  at every write path** (`looksLikePii` + new `looksLikeOrgName` + new `looksLikeUrl` in
+  `@badabhai/validators`): a phone number, "Pvt Ltd"-style name, or link shape in any
+  free-text field is a 400, never stored.
+  Writers guarded: agency create/update DTOs; `seed-jobs.ts` (now backfills content via
+  `onConflictDoUpdate` on the 4 content columns only, with a pre-insert PII assertion).
+- **Feed contract (additive, §8-safe):** `FeedItem` gains nullable `pay_min`/`pay_max`/`shift`;
+  `feed.shown` payload unchanged. Flutter: `ApiClient.jobDetail` + typed model +
+  `MockApiClient` override; the deck card + detail screen render the real band/shift/content —
+  a null field hides its row, nothing is fabricated; "spots left" stays frozen (no field).
+
 ## 2026-07-14 — Skills-taxonomy vocabulary layer + canonicalization seam (ADR-0030, TAX-1..4 + fork-B)
 - **New vocabulary tables** (migration 0037, #212): `skill` (immutable `skill_id`, status
   active/provisional/deprecated), `skill_alias` (embedded alias variants, denormalized

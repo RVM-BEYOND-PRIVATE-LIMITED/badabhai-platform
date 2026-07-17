@@ -1357,6 +1357,15 @@ export const JOB_CHANGED_FIELDS = [
   "max_experience_years",
   "needed_by",
   "status",
+  // ADR-0024 final addendum (2026-07-16) — ADDITIVE enum members (the TAX-6
+  // "skills" precedent above: widening the key enum is backward-compatible, no
+  // version bump): the four worker-visible content columns joined `jobs`. KEYS
+  // only — the screened free text (description / benefits / requirements items)
+  // NEVER enters a payload.
+  "description",
+  "shift",
+  "benefits",
+  "requirements",
 ] as const;
 
 /**

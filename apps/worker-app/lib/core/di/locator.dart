@@ -62,7 +62,9 @@ import '../../features/resume/domain/resume_edit_repository.dart';
 import '../../features/resume/domain/resume_repository.dart';
 import '../../features/resume/presentation/cubit/resume_cubit.dart';
 import '../../features/resume/presentation/cubit/resume_edit_cubit.dart';
+import '../../features/swipe/data/jobs_repository_impl.dart';
 import '../../features/swipe/data/swipe_repository_impl.dart';
+import '../../features/swipe/domain/jobs_repository.dart';
 import '../../features/swipe/domain/swipe_repository.dart';
 import '../../features/swipe/presentation/bloc/swipe_bloc.dart';
 
@@ -144,6 +146,9 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerLazySingleton<SwipeRepository>(
     () => SwipeRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
+  );
+  locator.registerLazySingleton<JobsRepository>(
+    () => JobsRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
   );
   locator.registerLazySingleton<ResumeEditRepository>(
     () => ResumeEditRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
@@ -271,9 +276,11 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   locator.registerFactory<SwipeBloc>(
     () => SwipeBloc(locator<SwipeRepository>()),
   );
-  // JobDetailCubit is constructed by JobDetailScreen with the REAL JobDetail
-  // handed over from the tapped row — it has no registration here because it
-  // takes per-instance data (there is no worker-facing job-detail route).
+  // JobDetailCubit is constructed by JobDetailScreen with the light JobDetail
+  // handed over from the tapped row (instant header render) plus the
+  // JobsRepository/SwipeRepository singletons above — it has no registration
+  // here because it takes per-instance data. It then fetches the FULL posting
+  // from GET /jobs/:jobId (the ADR-0024 addendum, 2026-07-16).
   locator.registerFactory<ResumeEditCubit>(
     () => ResumeEditCubit(
         locator<ResumeEditRepository>(), locator<PhotoRepository>()),

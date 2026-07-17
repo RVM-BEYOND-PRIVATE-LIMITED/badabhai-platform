@@ -210,6 +210,9 @@ importers:
         specifier: ^3.4.5
         version: 3.4.9
     devDependencies:
+      '@badabhai/validators':
+        specifier: workspace:*
+        version: link:../validators
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
