@@ -253,12 +253,23 @@ class _EditResumeButton extends StatelessWidget {
 /// How many times the download resolver re-checks a "still rendering" 409, and
 /// how long it waits between checks.
 ///
-/// ~6s total: generous for a render that is genuinely in flight, short enough
-/// that a server with rendering DISABLED (where the PDF never arrives) still
-/// gives the worker the honest "taiyaar ho rahi hai" quickly instead of an
-/// endless spinner.
-const int _kReadyMaxAttempts = 5;
+/// 20 x 1500ms = 30s of waiting. The budget MUST outlast the server's own render
+/// timeout — PdfRenderer.RENDER_TIMEOUT_MS is 20s — plus the Storage upload that
+/// follows it. The previous ~6s budget was the first-tap download failure: a
+/// cold WeasyPrint start (with a photo to fetch and embed) routinely runs past
+/// 6s, so the poll gave up and told the worker it had failed while the render
+/// was still perfectly healthy. They tapped again, and the second tap often
+/// worked purely because the render had finished in the meantime.
+///
+/// Still BOUNDED, because it must be: when rendering is disabled server-side the
+/// row stays 'pending' forever, and the worker has to get the honest "taiyaar ho
+/// rahi hai" rather than an endless spinner.
+const int _kReadyMaxAttempts = 20;
 const Duration _kReadyPollInterval = Duration(milliseconds: 1500);
+
+/// Button label while the PDF is still rendering — honest progress, not an
+/// error. The worker is not waiting on their phone; they are waiting on a render.
+const String kResumePreparingLabel = 'PDF taiyaar ho rahi hai…';
 
 class _DownloadResumeButton extends StatefulWidget {
   const _DownloadResumeButton();
@@ -270,6 +281,17 @@ class _DownloadResumeButton extends StatefulWidget {
 class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
   bool _loading = false;
 
+  /// True once the ready-poll has seen at least one "still rendering" 409 — the
+  /// button then says so instead of looking like a dead spinner.
+  bool _preparing = false;
+
+  /// The in-flight name prefetch. AWAITED at tap time (not just fired on mount):
+  /// _fileName is read when the file is saved, so a worker who tapped Download
+  /// before the prefetch resolved silently got the generic
+  /// BadaBhai_Resume.pdf instead of NAME_..._RESUME.pdf — the #398 naming
+  /// vanishing exactly for the fastest taps.
+  Future<void>? _namePrefetch;
+
   /// The saved-file name, derived from the worker's OWN name (§2 self-read, no
   /// LLM — see [resumeDownloadFileName]). PREFETCHED on mount so the tap adds no
   /// latency; it stays the generic [kFallbackResumeFileName] until (and unless)
@@ -280,7 +302,8 @@ class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
   @override
   void initState() {
     super.initState();
-    _prefetchFileName();
+    // Started on mount so the tap usually adds no latency; the tap awaits it.
+    _namePrefetch = _prefetchFileName();
   }
 
   Future<void> _prefetchFileName() async {
@@ -314,6 +337,8 @@ class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
         return await cubit.resolveDownloadUrl();
       } on ResumeNotReadyFailure {
         if (attempt == _kReadyMaxAttempts - 1) rethrow;
+        // Say WHY the wait is happening — the PDF is rendering, nothing is wrong.
+        if (mounted && !_preparing) setState(() => _preparing = true);
         await Future<void>.delayed(_kReadyPollInterval);
       }
     }
@@ -323,22 +348,35 @@ class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
   Future<void> _download() async {
     final ResumeCubit cubit = context.read<ResumeCubit>();
     setState(() => _loading = true);
+    // Let the name land before the file is saved (#398). It was fire-and-forget,
+    // so a fast tap raced it and saved the generic name. Never blocking: the
+    // prefetch swallows its own failures and simply leaves the fallback, so a
+    // worker with no name on file still gets their PDF.
+    await _namePrefetch;
+    if (!mounted) return;
     await downloadSignedPdf(
       context,
       resolve: () => _resolveWithReadyPoll(cubit),
       fileName: _fileName,
     );
-    if (mounted) setState(() => _loading = false);
+    if (mounted) {
+      setState(() {
+        _loading = false;
+        _preparing = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return BbButton(
-      label: 'Download Resume',
+      // Honest progress while the server renders — not an error, and not a
+      // silent spinner.
+      label: _preparing ? kResumePreparingLabel : 'Download Resume',
       block: true,
       iconLeft: Icons.download_rounded,
       loading: _loading,
-      onPressed: _download,
+      onPressed: _loading ? null : _download,
     );
   }
 }
