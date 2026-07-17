@@ -236,6 +236,7 @@ describe("getCreditTopUps — LIVE credit history: GET /payer/credits/ledger (XB
             unlock_id: null,
             pack_code: "pack_50",
             payment_ref: "mock_ref_1",
+            price_inr: 2000, // the amount STAMPED at purchase (D-6)
             created_at: "2026-07-01T00:00:00.000Z",
           },
           {
@@ -246,6 +247,7 @@ describe("getCreditTopUps — LIVE credit history: GET /payer/credits/ledger (XB
             unlock_id: "dddd4444-0000-4000-8000-000000000001",
             pack_code: null,
             payment_ref: null,
+            price_inr: null,
             created_at: "2026-07-02T00:00:00.000Z",
           },
         ],
@@ -263,15 +265,18 @@ describe("getCreditTopUps — LIVE credit history: GET /payer/credits/ledger (XB
     expect(topUps[0]!.topUpId).toBe("cccc3333-0000-4000-8000-000000000001");
     expect(topUps[0]!.packCode).toBe("pack_50");
     expect(topUps[0]!.credits).toBe(50);
-    // The price is resolved from the pricing catalog (XT5), never from the wire. Here the
-    // catalog fetch got the (non-catalog) ledger body → getLiveCatalog fell OPEN to the
-    // DEFAULT_CATALOG fallback (D-6) → still the config price, never a wire amount.
+    // The STAMPED charge from the ledger row — what the payer actually paid (D-6 MEDIUM-2).
     expect(topUps[0]!.priceInr).toBe(2000);
     expect(topUps[0]!.createdAt).toBe("2026-07-01T00:00:00.000Z");
   });
 
-  it("D-6: pack prices resolve from the LIVE catalog (an ops edit shows with NO rebuild)", async () => {
-    // Ops re-priced pack_50 to ₹2,500 in the ACTIVE catalog; the ledger row is unchanged.
+  /**
+   * D-6 MEDIUM-2: HISTORY IS A RECORD, NOT A QUOTE. The rendered amount is the ₹ stamped on
+   * the ledger row at purchase; it must NOT be re-resolved from the CURRENT catalog, or an
+   * ops price edit would retroactively rewrite what past purchases appear to have cost.
+   */
+  it("renders the STAMPED price even when the current catalog now says something different", async () => {
+    // Ops has since re-priced pack_50 to ₹2,500. The row was CHARGED ₹2,000 and must stay so.
     const editedProducts = DEFAULT_CATALOG.products.map((p) =>
       p.kind === "credit_pack" && p.code === "contact_unlock"
         ? {
@@ -295,6 +300,7 @@ describe("getCreditTopUps — LIVE credit history: GET /payer/credits/ledger (XB
               unlock_id: null,
               pack_code: "pack_50",
               payment_ref: "mock_ref_1",
+              price_inr: 2000, // what was ACTUALLY charged
               created_at: "2026-07-01T00:00:00.000Z",
             },
           ],
@@ -303,11 +309,61 @@ describe("getCreditTopUps — LIVE credit history: GET /payer/credits/ledger (XB
     });
     const { getCreditTopUps } = await import("./payer-api");
     const topUps = await getCreditTopUps();
-    // The LIVE (edited) price — a compile-time DEFAULT_CATALOG read would still say 2000.
-    expect(topUps[0]!.priceInr).toBe(2500);
-    // The seam DID fetch the live catalog route.
+    // The STAMPED ₹2,000 — NOT the current catalog's ₹2,500 (the retroactive re-pricing bug).
+    expect(topUps[0]!.priceInr).toBe(2000);
+    // And the history read no longer consults the catalog at all.
     const urls = fetchMock.mock.calls.map((c) => c[0] as string);
-    expect(urls.some((u) => u.endsWith("/payer/pricing/catalog"))).toBe(true);
+    expect(urls.some((u) => u.endsWith("/payer/pricing/catalog"))).toBe(false);
+  });
+
+  it("a LEGACY row with no stamped price omits the amount (honest dash, never a fabricated one)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        payer_id: PAYER,
+        ledger: [
+          {
+            id: "cccc3333-0000-4000-8000-000000000003",
+            delta: 50,
+            reason: "pack_purchase",
+            unlock_id: null,
+            pack_code: "pack_50",
+            payment_ref: null,
+            price_inr: null, // written before the stamp existed
+            created_at: "2026-05-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    const { getCreditTopUps } = await import("./payer-api");
+    const topUps = await getCreditTopUps();
+    expect(topUps).toHaveLength(1);
+    // Undefined ⇒ the page renders "—". It is NOT back-filled from the catalog's ₹2,000.
+    expect(topUps[0]!.priceInr).toBeUndefined();
+    expect(topUps[0]!.credits).toBe(50); // the movement itself still renders
+  });
+
+  it("tolerates an API that predates the column entirely (key absent → no amount, no throw)", async () => {
+    // Backward compat (invariant #8): an older API omits `price_inr` — the read must not fail.
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        payer_id: PAYER,
+        ledger: [
+          {
+            id: "cccc3333-0000-4000-8000-000000000004",
+            delta: 50,
+            reason: "pack_purchase",
+            unlock_id: null,
+            pack_code: "pack_50",
+            payment_ref: null,
+            created_at: "2026-05-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    const { getCreditTopUps } = await import("./payer-api");
+    const topUps = await getCreditTopUps();
+    expect(topUps).toHaveLength(1);
+    expect(topUps[0]!.priceInr).toBeUndefined();
   });
 
   it("surfaces no PII from the ledger payload", async () => {

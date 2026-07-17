@@ -47,7 +47,11 @@ import { revealResultSchema } from "./contracts";
 import { assertNoAgencyPII } from "./assert-no-agency-pii";
 import { payerFetch } from "./payer-http";
 import { getLiveCatalog } from "./live-catalog";
-import { findCreditPack, quotaTopUpTier } from "./pricing-config";
+// `findCreditPack` is deliberately NOT imported here: the credit HISTORY renders the ₹
+// stamped on each ledger row at purchase, never a lookup against the current catalog
+// (D-6 — that re-priced the past whenever ops edited a price). The remaining catalog read
+// below is the quota-topup TIER for a NEW charge, which correctly uses live config.
+import { quotaTopUpTier } from "./pricing-config";
 
 /**
  * The PAYER DATA SEAM (ADR-0019 Phase 1).
@@ -269,35 +273,35 @@ export async function topUp(input: { packCode: string }): Promise<TopUpResult | 
  * half of the credit history + the source of the 12-month expiry schedule (LIVE; XB-A:
  * Bearer only, the ledger is payer-scoped server-side). The AUTHORITATIVE `credit_ledger`
  * rows replace the old client-recorded mock history: positive pack movements (delta > 0
- * with a pack_code) ARE the top-ups. PII-free (ids/amounts/config pack code only);
- * `priceInr` is resolved from the LIVE pricing catalog (D-6; XT5 — never a wire amount),
- * falling back to the compile-time defaults only when the catalog fetch fails.
+ * with a pack_code) ARE the top-ups. PII-free (ids/amounts/config pack code only).
+ *
+ * PRICE (D-6): `priceInr` is the amount STAMPED on the ledger row at purchase time — what
+ * the payer ACTUALLY paid. It is deliberately NOT resolved from the current catalog: doing
+ * that let an ops price edit retroactively rewrite what past purchases appear to have cost
+ * (history is a record, not a quote). A legacy row predating the stamp has no amount → the
+ * field is omitted and the page renders a dash, never a fabricated one.
  */
 export async function getCreditTopUps(): Promise<CreditTopUp[]> {
   const wire = await payerFetch("/payer/credits/ledger?limit=50", {
     schema: creditLedgerWireSchema,
   });
-  // The LIVE catalog (D-6): pack prices come from the API's active catalog, so an ops
-  // price edit shows here without a rebuild. getLiveCatalog fails OPEN to the defaults
-  // (display-only — the server enforced the real price when the pack was charged).
-  const { products } = await getLiveCatalog();
   // KNOWN CAP: the read is the newest 50 MOVEMENTS (the server's max page; no cursor
   // exists on PayerLedgerQuerySchema yet), so a very active payer's oldest top-ups age
   // out of this view. A cursor-paged ledger read is a small backend follow-up.
   return wire.ledger
     .filter((row) => row.delta > 0 && row.pack_code !== null)
-    .map((row) => {
-      // A pack that has left the catalog (drift) has NO current price — omit it (the
-      // page renders a dash), never a fake ₹0 (XT5: prices come from config or not at all).
-      const pack = findCreditPack(products, row.pack_code!);
-      return creditTopUpSchema.parse({
+    .map((row) =>
+      creditTopUpSchema.parse({
         topUpId: row.id,
         packCode: row.pack_code,
         credits: row.delta,
-        ...(pack ? { priceInr: pack.priceInr } : {}),
+        // The STAMPED charge only. Null/absent (legacy row) ⇒ omit ⇒ the page shows "—".
+        ...(row.price_inr !== null && row.price_inr !== undefined
+          ? { priceInr: row.price_inr }
+          : {}),
         createdAt: row.created_at,
-      });
-    });
+      }),
+    );
 }
 
 /**

@@ -33,6 +33,13 @@ export interface CreditLedgerItem {
   unlock_id: string | null;
   pack_code: string | null;
   payment_ref: string | null;
+  /**
+   * The ₹ amount STAMPED at purchase (D-6). Null for movements with no amount (debits /
+   * ops grants) and for rows written before the column existed — the UI renders an honest
+   * placeholder for null and NEVER back-fills from the current catalog (that is exactly
+   * the retroactive re-pricing this column removes).
+   */
+  price_inr: number | null;
   created_at: Date;
 }
 
@@ -305,6 +312,7 @@ export class UnlocksRepository {
         unlock_id: creditLedger.unlockId,
         pack_code: creditLedger.packCode,
         payment_ref: creditLedger.paymentRef,
+        price_inr: creditLedger.priceInr, // D-6: the STAMPED charge, never re-priced.
         created_at: creditLedger.createdAt,
       })
       .from(creditLedger)
@@ -361,6 +369,12 @@ export class UnlocksRepository {
     reason: CreditReason;
     packCode: string | null;
     paymentRef: string | null;
+    /**
+     * The amount CHARGED, whole ₹ (D-6). Stamped onto the row so History renders what this
+     * purchase ACTUALLY cost, immune to any later ops price edit. Null for ops grants /
+     * movements with no amount.
+     */
+    priceInr?: number | null;
   }): Promise<number> {
     return this.db.transaction(async (tx) => {
       const updated = await tx
@@ -377,6 +391,7 @@ export class UnlocksRepository {
         reason: input.reason,
         packCode: input.packCode,
         paymentRef: input.paymentRef,
+        priceInr: input.priceInr ?? null,
       });
       const balance = updated[0]?.balance;
       if (balance === undefined) throw new Error("Failed to credit pack");

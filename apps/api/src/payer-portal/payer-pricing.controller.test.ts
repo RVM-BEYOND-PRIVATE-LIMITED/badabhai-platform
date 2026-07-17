@@ -43,6 +43,37 @@ describe("PayerPricingController — GET /payer/pricing/catalog (D-6 live-pricin
     expect(JSON.stringify(res)).not.toMatch(/coupon|offer|floorPriceInr|totalUsageCap/);
   });
 
+  /**
+   * LOW-3: the catalog-LEVEL pin above cannot see a NEW TIER FIELD (products are projected
+   * whole, so a field added to a tier schema ships to payers by default). Pin the tier keys
+   * per product kind: adding one fails HERE, forcing a deliberate "is this payer-visible?"
+   * call rather than a silent exposure. `packages/pricing/types.ts` carries the same warning.
+   */
+  it("pins the exact TIER keys shipped per product kind (a new tier field must be deliberate)", async () => {
+    const { ctrl } = makeCtrl();
+    const { products } = await ctrl.getCatalog();
+    const keysFor = (kind: string): string[] => {
+      const product = products.find((p) => p.kind === kind);
+      expect(product, `default catalog must carry a ${kind} product`).toBeDefined();
+      return Object.keys(product!.tiers[0]!).sort();
+    };
+    expect(keysFor("posting")).toEqual([
+      "applicantVisibilityQuota",
+      "code",
+      "priceInr",
+      "validityDays",
+    ]);
+    expect(keysFor("boost")).toEqual(["boostDays", "code", "priceInr"]);
+    expect(keysFor("credit_pack")).toEqual(["code", "credits", "priceInr", "windowDays"]);
+    expect(keysFor("capacity")).toEqual([
+      "code",
+      "maxActiveVacancies",
+      "priceInr",
+      "validityDays",
+    ]);
+    expect(keysFor("quota_topup")).toEqual(["additionalVisibilityQuota", "code", "priceInr"]);
+  });
+
   it("passes through the fail-closed default provenance (source:'default' stays visible)", async () => {
     const { ctrl } = makeCtrl({ catalog: DEFAULT_CATALOG, revision: 0, source: "default" });
     const res = await ctrl.getCatalog();

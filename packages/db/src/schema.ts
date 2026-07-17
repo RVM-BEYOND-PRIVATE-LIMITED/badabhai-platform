@@ -1145,6 +1145,14 @@ export const creditLedger = pgTable(
     unlockId: uuid("unlock_id").references(() => unlocks.id, { onDelete: "set null" }),
     // For pack_purchase: the pack code bought (e.g. 'pack_10' | 'pack_25'). Null otherwise.
     packCode: text("pack_code"),
+    // The amount CHARGED for this movement, in whole ₹ (integer, never paise) — stamped at
+    // purchase time from the resolved pack (D-6). NULLABLE on purpose: only pack_purchase rows
+    // carry an amount (debits/ops grants stay null), AND every row written before this column
+    // existed is null. History renders the STAMPED value so a later ops price edit can never
+    // retroactively rewrite what a past purchase appears to have cost; a null legacy row
+    // renders an honest placeholder rather than a fabricated current-catalog price.
+    // PII-free (an integer amount, like `delta`). Additive + nullable (invariant #8).
+    priceInr: integer("price_inr"),
     // OPAQUE external payment/order ref ONLY (e.g. a gateway order id) — NEVER card
     // number, UPI handle, or any PII. Null for ops grants / mock debits.
     paymentRef: text("payment_ref"),

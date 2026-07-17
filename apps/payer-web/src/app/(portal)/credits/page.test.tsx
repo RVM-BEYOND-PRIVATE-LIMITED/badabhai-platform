@@ -175,7 +175,26 @@ describe("credits page — (b) history renders unlock + top-up rows", () => {
     expect(joined).toContain("Top-up"); // top-up row badge
     expect(joined).toContain("-1"); // each unlock spends 1 credit
     expect(joined).toContain("+50"); // top-up credits
-    expect(joined).toContain("₹2,000"); // config-priced amount, en-IN formatted
+    expect(joined).toContain("₹2,000"); // the STAMPED amount, en-IN formatted
+  });
+
+  /**
+   * D-6 MEDIUM-2: a legacy ledger row (written before the price stamp existed) has NO amount.
+   * The row must still render, showing an honest dash — NEVER a price fabricated from the
+   * current catalog (which is what retroactively re-priced the past).
+   */
+  it("a top-up with NO stamped price renders an honest dash, not a fabricated amount", async () => {
+    const { joined } = await render({
+      balance: 50,
+      topUps: [topUp({ credits: 50, priceInr: undefined })],
+    });
+    // The movement still shows...
+    expect(joined).toContain("Top-up");
+    expect(joined).toContain("+50");
+    // ...with a dash for the amount, and NO invented ₹ figure anywhere.
+    expect(joined).toContain("—");
+    expect(joined).not.toMatch(/₹2,000/);
+    expect(joined).not.toMatch(/₹0\b/); // never a fake zero either
   });
 });
 

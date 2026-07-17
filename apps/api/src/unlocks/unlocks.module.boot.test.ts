@@ -4,6 +4,8 @@ import { UnlocksModule } from "./unlocks.module";
 import { UnlocksController } from "./unlocks.controller";
 import { ConsentModule } from "../consent/consent.module";
 import { ConsentRepository } from "../consent/consent.repository";
+import { PricingModule } from "../pricing/pricing.module";
+import { PricingService } from "../pricing/pricing.service";
 import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 
 /**
@@ -24,6 +26,17 @@ describe("UnlocksModule wiring (cross-module DI regression guard)", () => {
 
   it("ConsentModule exports ConsentRepository (the disclosure-consent read dependency)", () => {
     expect(getMeta("exports", ConsentModule)).toContain(ConsentRepository);
+  });
+
+  // D-6: the PaymentGateway resolves credit packs through the ONE pricing engine, so the
+  // price/credits CHARGED equal the ones the portal DISPLAYED. That dep must be reachable
+  // in THIS injector (the PR #38 lesson) — assert the import AND that it exports the service.
+  it("imports PricingModule (source of PricingService for the live credit-pack resolve)", () => {
+    expect(getMeta("imports", UnlocksModule)).toContain(PricingModule);
+  });
+
+  it("PricingModule exports PricingService (the live-catalog resolve dependency)", () => {
+    expect(getMeta("exports", PricingModule)).toContain(PricingService);
   });
 
   it("declares the controller + service + repository + payment gateway", () => {
