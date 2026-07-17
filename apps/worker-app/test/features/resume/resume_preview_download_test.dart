@@ -8,31 +8,56 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/core/util/pdf_downloader.dart';
+import 'package:badabhai_worker_app/core/util/resume_file_name.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_button.dart';
+import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_repository.dart';
+import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_cubit.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/resume_preview_screen.dart';
 
 class MockResumeRepository extends Mock implements ResumeRepository {}
 
+class MockResumeEditRepository extends Mock implements ResumeEditRepository {}
+
 /// The FULL in-app download journey on the REAL screen: tap → busy button +
 /// "shuru ho gaya" notice on the SAME screen → save crosses the platform
-/// channel with the right file name → "complete" notice → "Kholein" opens the
-/// SAVED LOCAL file. The repo resolves the `mock://` sentinel, so no byte
-/// fetch happens (exactly the offline mock-mode walk).
+/// channel with the DERIVED file name (FIRSTNAME_..._RESUME.pdf, from the
+/// worker's own name) → "complete" notice → "Kholein" opens the SAVED LOCAL
+/// file. The repo resolves the `mock://` sentinel, so no byte fetch happens
+/// (exactly the offline mock-mode walk).
 void main() {
   const MethodChannel channel = MethodChannel('badabhai.workerapp/downloads');
 
   late MockResumeRepository repo;
+  late MockResumeEditRepository editRepo;
   late List<MethodCall> channelCalls;
 
-  Future<void> pumpScreen(WidgetTester tester) async {
+  Future<void> pumpScreen(
+    WidgetTester tester, {
+    String? name,
+    bool throwOnLoad = false,
+  }) async {
     GoogleFonts.config.allowRuntimeFetching = false;
     await locator.reset();
     repo = MockResumeRepository();
+    editRepo = MockResumeEditRepository();
+    if (throwOnLoad) {
+      when(() => editRepo.load()).thenThrow(const UnauthorizedFailure());
+    } else {
+      when(() => editRepo.load()).thenAnswer(
+        (_) async => ResumeSafeFields(
+          displayName: name ?? '',
+          showPhoto: false,
+          nightShiftReady: false,
+        ),
+      );
+    }
     locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo));
+    locator.registerFactory<ResumeEditRepository>(() => editRepo);
 
     channelCalls = <MethodCall>[];
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
@@ -62,15 +87,19 @@ void main() {
       home: const ResumePreviewScreen(initialResume: 'MOCK RESUME BODY'),
     ));
     await tester.pump();
+    // Let the download button's name PREFETCH (initState → editRepo.load())
+    // resolve and re-render before the test taps, so `_fileName` is the derived
+    // name rather than the still-pending fallback.
+    await tester.pump();
   }
 
   tearDown(() async => locator.reset());
 
   testWidgets(
       'download stays on-screen: busy state, started + complete notices, '
-      'file name over the channel, Kholein opens the saved file',
+      'DERIVED file name over the channel, Kholein opens the saved file',
       (WidgetTester tester) async {
-    await pumpScreen(tester);
+    await pumpScreen(tester, name: 'Ramesh Kumar');
     // Gate the url resolve so the busy state is deterministically observable.
     final Completer<String> urlGate = Completer<String>();
     when(() => repo.resumeDownloadUrl()).thenAnswer((_) => urlGate.future);
@@ -103,7 +132,8 @@ void main() {
     final MethodCall save =
         channelCalls.singleWhere((MethodCall c) => c.method == 'saveToDownloads');
     final Map<dynamic, dynamic> saveArgs = save.arguments as Map<dynamic, dynamic>;
-    expect(saveArgs['fileName'], 'BadaBhai-Resume.pdf');
+    // The saved file is named from the worker's OWN name (all-words format).
+    expect(saveArgs['fileName'], 'RAMESH_KUMAR_RESUME.pdf');
     // The cache temp file handed to the platform was cleaned up afterwards.
     expect(File(saveArgs['tempPath'] as String).existsSync(), isFalse);
 
@@ -124,5 +154,23 @@ void main() {
         channelCalls.singleWhere((MethodCall c) => c.method == 'openSavedFile');
     expect((open.arguments as Map<dynamic, dynamic>)['location'],
         'content://downloads/7');
+  });
+
+  testWidgets(
+      'a failed name prefetch falls back to the generic file name — the '
+      'download itself is never blocked', (WidgetTester tester) async {
+    await pumpScreen(tester, throwOnLoad: true);
+    when(() => repo.resumeDownloadUrl())
+        .thenAnswer((_) async => 'mock://downloads/resume/mock-resume-0001.pdf');
+
+    await tester.tap(find.text('Download Resume'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text(kDownloadCompleteNotice), findsOneWidget);
+    final MethodCall save =
+        channelCalls.singleWhere((MethodCall c) => c.method == 'saveToDownloads');
+    final Map<dynamic, dynamic> saveArgs = save.arguments as Map<dynamic, dynamic>;
+    expect(saveArgs['fileName'], kFallbackResumeFileName);
   });
 }
