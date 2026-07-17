@@ -12,8 +12,11 @@
 # Fail-loud contract: every `${VAR:?}` below errors at COMPOSE time (before any
 # container starts) when the box lacks real values — a box still on the public
 # repo-literal dev defaults is UNDEPLOYABLE instead of silently live on them.
-# Values come from the shell env or the project .env on the box
-# (STAGING-SECRETS-1); they are never committed (CLAUDE.md §6).
+# Values: on CI deploys they arrive from GitHub environment/repo secrets via the
+# deploy step's env+envs passthrough (CD-1b) and ALWAYS shadow the box's shell/.env
+# — even when empty (fail-loud either way). Manual/rollback runs from a box shell
+# read the shell env or the project .env instead (STAGING-SECRETS-1); values are
+# never committed (CLAUDE.md §6).
 #
 # depends_on: the base api service depends_on the compose-internal postgres and
 # redis. An overlay cannot DELETE a depends_on entry by omission (compose merges

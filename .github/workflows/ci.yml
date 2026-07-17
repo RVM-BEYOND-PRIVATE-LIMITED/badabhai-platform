@@ -331,7 +331,9 @@ jobs:
     environment: staging
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.3
+        # SHA-pinned (was the mutable v1.0.3 tag): 12 production secrets now flow
+        # through this action's container — a hijacked tag would see them all.
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
         # CD-1b: the docker-compose.staging.yml `${VAR:?}` gate reads the BOX's
         # shell environment — GitHub environment/repo secrets do NOT reach it on
         # their own (the first health-gated run proved it: INTERNAL_SERVICE_TOKEN
@@ -340,6 +342,9 @@ jobs:
         # scoped secret first, repo secret as fallback, and drone-ssh exports the
         # names listed in `envs:` into the remote session. Values never print —
         # compose reads them from the environment and the script never echoes them.
+        # WARNING: NEVER add `debug: true` (prints the export lines WITH values, and the
+        # quote-escaping defeats Actions masking) or `allenvs: true` (would export
+        # INPUT_KEY — the SSH private key — into the remote session).
         env:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           PII_ENCRYPTION_KEY: ${{ secrets.PII_ENCRYPTION_KEY }}
