@@ -306,7 +306,13 @@ describe("skills-overlap factor — properties under random inputs (ADR-0033)", 
     expect(skilledJobTrials).toBeGreaterThan(100); // the property was actually exercised
   });
 
-  it("SKILL-LESS-JOB INVARIANCE: worker skills cannot move a score when the job lists none", () => {
+  // NOTE (scope): this asserts ONLY that the SKILLS FACTOR is inert on a skill-less
+  // job — trivially true by construction (the weight is redistributed). It is NOT a
+  // claim that skill-less jobs score as they did pre-ADR-0033: they do NOT (the same
+  // ledger cut availability .10→.05 and activity .10→0). The real old-vs-new delta is
+  // pinned by the GOLDEN regression in reach-engine.test.ts. Do not cite this test as
+  // stability proof — that misreading is exactly what the golden exists to prevent.
+  it("SKILLS-FACTOR INERTNESS on a skill-less job (NOT old-vs-new stability — see the golden)", () => {
     const rng = mulberry32(0x0f0f33);
     for (let k = 0; k < 500; k++) {
       const job = { ...genJob(rng), skillIds: pick(rng, [undefined, [] as string[], ["  ", ""]]) };

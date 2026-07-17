@@ -85,9 +85,13 @@ export class ReachRepository {
    * *separate* `job_postings` entity (TAX-6, migration 0038) and there is no join
    * path between the two (a known two-entity debt, TD37). So every jobs-table job
    * maps to a JobSpec WITHOUT `skillIds`, and the engine redistributes the skills
-   * weight (its ordering is exactly the non-skills factors' — see scoring.ts).
-   * Bringing demand-side ids to this projection is a separate ADDITIVE migration
-   * (or the postings→jobs bridge), deliberately NOT smuggled into this diff.
+   * weight. That redistribution neutralizes the SKILLS FACTOR only — it does NOT
+   * make scores match the pre-ADR-0033 ones: the same CEO ledger cut availability
+   * .10→.05 and activity .10→0, so EVERY served job re-ranks at deploy (measured:
+   * 5000/5000 scores changed, max |Δ| 0.109538, 8.3% pushEligible flips). That is the
+   * owner-ruled intent, not a side effect. Bringing demand-side ids to this projection
+   * is a separate ADDITIVE migration (or the postings→jobs bridge), deliberately NOT
+   * smuggled into this diff.
    */
   private static readonly JOB_SIGNAL_COLUMNS = {
     jobId: jobs.id,

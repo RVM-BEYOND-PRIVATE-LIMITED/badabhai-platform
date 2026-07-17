@@ -77,7 +77,7 @@ and deterministic. *LLMs assist; they never decide.*
 
 | Case | Behaviour | Why this option |
 | ---- | --------- | --------------- |
-| **Job lists NO skills** (absent/empty/all-blank) | The factor is **NOT APPLICABLE**: its .15 weight is **redistributed proportionally** across the other factors (each × `1/(1-0.15)`), so Σ(effective weights) stays 1.0 and the row's ordering is **exactly what the non-skills factors produce**. | **Chosen to keep pre-existing rankings STABLE for skill-less jobs** (the brief's requirement). The alternative — scoring the factor 1.0 for everyone — would flatly inflate every skill-less job's score by +0.15, shifting scores across the `pushEligible` floor and changing behaviour on jobs that never opted into skills. Redistribution is order-neutral **and** score-preserving: a perfect non-skills match still scores exactly 1.0. Property-tested (`SKILL-LESS-JOB INVARIANCE`). |
+| **Job lists NO skills** (absent/empty/all-blank) | The factor is **NOT APPLICABLE**: its .15 weight is **redistributed proportionally** across the other factors (each × `1/(1-0.15)`), so Σ(effective weights) stays **exactly 1.0**. | Chosen because it is **order-neutral with respect to the skills factor**: a job that never opted into skills is not ranked by them. The alternative — scoring the factor 1.0 for everyone — would flatly inflate every such job's score by +0.15 and shift candidates across the `pushEligible` floor. A perfect non-skills match still scores **exactly 1.0** (the ×`1/0.85` arithmetic introduces no float drift). **This does NOT mean skill-less jobs rank as they did pre-ADR-0033 — they do not; see "Behaviour change at deploy" below.** Redistribution neutralizes *this factor*; it cannot undo the ledger's availability/activity cuts, which apply to every job. |
 | **Worker has NO confirmed skills** (job HAS requirements) | **0 on the skills factor ONLY.** Never a block, never a penalty on any other factor; the worker still appears in the ranking. | This is a **deliberate, ruling-mandated exception** to ADR-0006's neutral-default rule ("a blank field never drops a worker"). The CEO ledger makes skills a real discriminator; a worker with unknown skills cannot score as if they matched. The cost is bounded and honest: **max −0.15**, sort-only, and the chat can confirm skills later — exactly the "fuller profile ranks higher" principle (§5) the engine already encodes. It is called out here because it is the one place this ADR trims a §3 default. |
 
 ### 3. The weight ledger — old → new
@@ -123,15 +123,54 @@ either without re-reading code**:
   entity **has no skill-id column**: the canonicalized `skill_ids` live on the **separate**
   `job_postings` entity (TAX-6, migration 0038), and **there is no join path between the two**
   (the known two-job-entity debt, **TD37**). So every jobs-table job maps to a `JobSpec` **without**
-  `skillIds` → the engine redistributes the weight → **serving behaviour is byte-identical to
-  today** until demand-side ids arrive. Per the brief, no migration is invented here.
-  **The factor is therefore live in the core and inert on the current serving path.**
+  `skillIds` → the engine redistributes the weight → **the skills factor itself is inert in serving**
+  until demand-side ids arrive. Per the brief, no migration is invented here.
+  ⚠️ **Inert ≠ no behaviour change.** Because *every* job takes the redistribution path, every job
+  is now scored under the ledger's other two changes. See the next section — **this deploy re-ranks
+  every live feed.**
+
+### 6. Behaviour change at deploy — MEASURED, not asserted
+
+**This is a behaviour-changing deploy.** An earlier draft of this ADR claimed serving output was
+"byte-identical today". **That claim was false and is retracted.** It reasoned about the skills
+factor in isolation and ignored that the same ledger cuts **availability .10→.05** and
+**activity .10→0** — which apply to **every** job, skill-less ones included. Since the demand side
+is unwired, **every live job takes the redistribution path** and is scored under a materially
+different effective vector:
+
+| | role | distance | skills | experience | pay | availability | activity |
+|---|---|---|---|---|---|---|---|
+| **Pre-0033 (live today)** | .35 | .20 | — | .15 | .10 | .10 | .10 |
+| **Post-0033, skill-less job (every job today)** | **.4118** | **.2353** | 0 | **.1765** | **.1176** | **.0588** | **0** |
+
+**Measured head-to-head against `main` on skill-less jobs (5000 worker×job pairs):**
+
+- **5000/5000 scores changed** (max |Δ| **0.109538**);
+- **413/5000 `pushEligible` flips (8.3%)** — ~1 in 12 workers changes push-notify status;
+- **200/200 fleet orders changed.**
+
+Concrete inversion (pinned in the golden regression test): worker **A** (active, mid-availability)
+`0.950 → 0.970588` vs worker **B** (available, inactive) `0.920 → 1.000`. **Old winner A; new winner
+B.** This is *correct*: activity is not a CEO-ledger signal, so dropping it to 0 is precisely what
+the ruling mandates.
+
+**This re-ranking is the intended consequence of the owner's 2026-07-17 ruling, not a side effect.**
+The 06-19 ledger mandates the availability/activity changes; shipping the skills factor alone would
+leave those two signals still violating the lock — perpetuating exactly the drift row A-2 exists to
+close. **The ledger wins.** But the operator deploying this must know: **feeds will visibly reorder
+and ~8.3% of workers change push status on the first request after deploy.**
+
+**Made visible, not asserted:** a **golden regression test** (`reach-engine.test.ts`) pins the
+old→new scores for a fixed fleet on a skill-less job, records each delta and the order inversion in
+a comment, and fails loudly on any future ledger edit. *(Do not read the property test's
+skills-factor inertness check as stability evidence — it only proves the skills factor can't move a
+skill-less job, which is true by construction. That misreading is what produced the false claim.)*
   → **Follow-up (tracked):** bring demand-side `skill_ids` to the reach projection via an additive
   migration on `jobs` **or** the postings→jobs bridge (TD37). **No index is missing today**
   (nothing is filtered/joined on skills — the ids ride the existing row read); if a future
   demand-side design filters on ids, revisit indexing then.
 
-### 5. The lock test — inverted, not deleted
+### 7. The lock test — inverted, not deleted
 
 [`no-skills-in-rank.test.ts`](../../packages/reach-engine/src/no-skills-in-rank.test.ts) is edited
 in this same diff (its own instruction), becoming the **inverse lock**. The filename is kept so
@@ -139,8 +178,10 @@ every existing reference (ADR-0030, `schema.ts` TAX-6 comments, the drift regist
 It now asserts:
 
 1. **The `/embedding/i` half is KEPT** (and widened to `cosine|similarity`) over every non-test
-   source of **both** `reach-engine` and `apps/api/src/reach`, comment-stripped. Skills-similarity
-   -by-embedding in RANK still requires its own ADR **and** an edit to this test.
+   source of **both** `reach-engine` and `apps/api/src/reach`, comment-stripped, and the file walk
+   is now **recursive** (a flat `readdirSync` would have let a future
+   `apps/api/src/reach/read-model/*.ts` escape a lock that claims to scan *every* non-test source).
+   Skills-similarity-by-embedding in RANK still requires its own ADR **and** an edit to this test.
 2. **Determinism**: no `Math.random` / `Date.now` / `new Date(` / `fetch(` / `setTimeout` in the
    engine sources — the factor cannot quietly become impure.
 3. **The factor exists**: `skillsOverlap` is implemented, `ADR-0033` is cited at the factor site,
@@ -153,8 +194,26 @@ The `/skill/i` half is necessarily gone: it is exactly what the ruling authorise
 
 - **The CEO ledger is now the code.** RANK scores skills deterministically at .15. `WEIGHTS` is
   pinned by two tests; changing it requires a new ADR.
-- **Serving output is unchanged today** (demand-side ids absent → weight redistributed). The
-  change is live-but-inert on the current path — a deliberately low-risk landing.
+- **⚠️ Serving output CHANGES at deploy — every live feed re-ranks.** The *skills factor* is inert
+  (demand-side ids absent), but the ledger's availability .10→.05 + activity .10→0 hit every job:
+  **5000/5000 scores changed, max |Δ| 0.109538, 8.3% `pushEligible` flips, 200/200 fleet orders
+  changed** (§6). Owner-ruled and intended — **not** a low-risk no-op landing.
+- **Downstream of the re-ranking, disclosed:**
+  - **PACE supply decisions change.** `pace.service.ts` (`countAboveFloorSupply`) counts supply by
+    the `hot` flag (top-12% ∧ roleRaw>0). Reordering changes which jobs read as thin-supply →
+    different widening waves and ops alerts. **Bounded by `PACE_ENABLED=false` (inert by default)**,
+    so nothing fires today — but it is a real coupling, and the retracted "byte-identical" claim
+    wrongly implied it could not happen.
+  - **`feed.shown` VALUE-regime break for the LEARN corpus.** The payload **schema is unchanged**
+    (invariant #8 is fine — no version bump owed), but `rank`/`score` **values** switch regime at
+    deploy with **no marker in the stream**, so the offline corpus silently mixes two regimes across
+    the deploy boundary. **Feature vectors are safe** (reach-learn recomputes raws from unchanged
+    snapshots — see the pinned baseline below); **the exposure is the ingested ordering/labels
+    only.** Mitigation for the LEARN follow-up: split the corpus at the deploy timestamp, or add a
+    regime marker before training on cross-deploy data.
+  - **`pnpm db:verify:reach` check (a)'s distribution shifts** (`verify-reach.ts`) — its published
+    seeded-pool numbers are **not** stable across this change; re-baseline them rather than reading
+    a diff as a regression.
 - **SORT-NEVER-BLOCK holds** — structurally (the factor only contributes to a score; no filter
   exists anywhere on the path) and by property test (`count in == count out` with skills in play).
 - **`@badabhai/reach-learn` is deliberately NOT recalibrated.** Its `BASELINE_WEIGHTS` was a spread
@@ -185,10 +244,17 @@ backfill is involved, so there is nothing to undo outside the code:
 - the repository projection drops `skills` (one column, no join);
 - the lock test reverts to its TAX-6 "skills OUT" form.
 
-Because the demand side is unwired, **the live serving path is already identical with or without
-this change** — the rollback is behaviourally a no-op today, and a pure weight-ledger reversion once
-demand-side ids land. Partial rollback (keep the factor, restore old weights) is also available:
-set `WEIGHTS.skills = 0` and the redistribution makes it inert.
+**Rollback is CHEAP but NOT invisible.** *(An earlier draft called it "behaviourally a no-op today"
+— also false, and retracted for the same reason as the deploy claim.)* Reverting restores the
+pre-0033 weight vector, so it **re-ranks every live feed a second time**, back to the old order —
+the same ~8.3% of workers flip push status back. There is no data to unwind (no schema, migration,
+event version, or backfill), so the cost is one deploy and one visible reorder, with **no lasting
+trace** beyond the two regime boundaries left in the `feed.shown` history (§6).
+
+**Partial rollback** (keep the factor, restore the old ledger): set `WEIGHTS.skills = 0` — the
+redistribution makes the factor inert — **and** restore `availability: 0.10` / `activity: 0.10`.
+Setting `skills = 0` **alone is not a rollback**: the availability/activity cuts are what move
+today's scores.
 
 ## Follow-ups (tracked)
 

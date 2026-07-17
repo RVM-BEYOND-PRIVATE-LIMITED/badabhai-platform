@@ -126,8 +126,11 @@ export function createStubJobSourceOrThrow(): StubJobSource {
  *  - `skillIds` (ADR-0033) is deliberately ABSENT: the `jobs` entity carries no
  *    skill-id column (the canonicalized ids live on the separate `job_postings`
  *    entity, TAX-6 — no join path, TD37), so the engine redistributes the skills
- *    weight and a jobs-table job's ordering is exactly the non-skills factors'.
- *    Do NOT invent ids here; demand-side ids arrive via a future additive migration.
+ *    weight. This makes the SKILLS FACTOR inert here — it does NOT preserve
+ *    pre-ADR-0033 scores: the ledger's availability .10→.05 + activity .10→0 apply to
+ *    every job, so every feed re-ranks at deploy (the owner-ruled intent; see ADR-0033
+ *    "Behaviour change at deploy"). Do NOT invent ids here; demand-side ids arrive via
+ *    a future additive migration.
  */
 export function jobSignalRowToJobSpec(row: JobSignalRow): JobSpec {
   return {

@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { WEIGHTS } from "./scoring";
 
@@ -34,8 +34,29 @@ const EMBEDDING_RE = /embedding|cosine|similarity/i;
 // The engine is clock-free + random-free + network-free by contract (ADR-0006).
 const NON_DETERMINISM_RES = [/Math\.random/, /Date\.now/, /new Date\(/, /fetch\(/, /setTimeout/];
 
+/**
+ * Every non-test `.ts` under `dir`, RECURSIVELY (paths relative to `dir`).
+ *
+ * Recursive since ADR-0033: a flat `readdirSync` would let a future
+ * `apps/api/src/reach/read-model/*.ts` (or any nested helper) escape the lock while
+ * this file claims to scan "every non-test source" — an evasion route by accident.
+ * `node_modules`/`dist` are skipped; nothing else is.
+ */
 function nonTestSources(dir: string): string[] {
-  return readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+  const out: string[] = [];
+  const walk = (current: string): void => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const full = join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === "node_modules" || entry.name === "dist") continue;
+        walk(full);
+      } else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")) {
+        out.push(relative(dir, full));
+      }
+    }
+  };
+  walk(dir);
+  return out;
 }
 
 /** Scan CODE, not prose: comments legitimately DOCUMENT the exclusion ("never selects

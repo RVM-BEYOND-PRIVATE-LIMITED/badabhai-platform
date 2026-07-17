@@ -40,8 +40,15 @@ import type {
 //   |              |              |    tie-break, and LEARN feature continuity)      |
 //
 // When a job lists NO skill ids, the skills weight is redistributed proportionally
-// across the other factors (÷ (1 - WEIGHTS.skills)) so Σ stays 1.0 and a skill-less
-// job's ordering is EXACTLY what the non-skills factors produce (see scoreWorkerForJob).
+// across the other factors (÷ (1 - WEIGHTS.skills)) so Σ(effective) stays exactly 1.0.
+// The redistribution is order-neutral WITH RESPECT TO THE SKILLS FACTOR only — it does
+// NOT make a skill-less job score as it did pre-ADR-0033: the ledger ALSO cut
+// availability .10→.05 and activity .10→0, which apply to EVERY job. Effective weights
+// on a skill-less job are role .4118 / distance .2353 / experience .1765 / pay .1176 /
+// availability .0588 / activity 0 — a materially different vector from the old
+// .35/.20/.15/.10/.10/.10. THIS DEPLOY RE-RANKS EVERY LIVE FEED (measured: 5000/5000
+// scores changed, max |Δ| 0.109538, 8.3% pushEligible flips) — the intended, owner-ruled
+// consequence of the CEO ledger. See the golden regression test in reach-engine.test.ts.
 export const WEIGHTS = {
   role: 0.35, // "Does the worker do this kind of work?" — the biggest factor
   distance: 0.2, // "Can they get there?"
