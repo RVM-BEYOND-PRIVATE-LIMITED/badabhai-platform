@@ -1,6 +1,10 @@
 """Tests for the pseudonymization gateway. Stdlib-only — no FastAPI/pydantic."""
 
-from app.pseudonymize import pseudonymize
+import re
+
+import pytest
+
+from app.pseudonymize import _MONEY_MIN_INR, pseudonymize
 
 
 def test_example_from_spec_is_fully_masked():
@@ -123,11 +127,26 @@ def test_d1_out_of_range_eight_digit_run_still_blocks():
     assert result.blocked is True
 
 
-def test_d1_zero_led_seven_digit_run_still_blocks():
-    # "0999999" would parse in-range as int but a zero-led run is a
-    # reference/account shape, not money -> genuinely ambiguous -> fail closed.
-    result = pseudonymize("0999999")
+@pytest.mark.parametrize("text", ["01000000", "09999999", "01500000"])
+def test_d1_zero_led_run_that_parses_in_range_still_blocks(text):
+    """The zero-led guard, tested where it actually BITES (PR #392 S-2 mutation
+    finding). These 8-digit runs parse to 1,000,000 / 9,999,999 / 1,500,000 —
+    squarely inside the money range — so ONLY the leading-zero rule stops them
+    becoming [AMOUNT_n]. A zero-led run is a reference/account shape, not money
+    (no one writes a salary as "01500000") -> ambiguous -> fail closed.
+
+    NB: a 7-digit "0999999" parses to 999,999, BELOW the range, so it would block
+    with or without the guard — it cannot detect the guard's removal.
+    """
+    assert int(text) >= _MONEY_MIN_INR  # precondition: the guard is what bites
+    result = pseudonymize(text)
     assert result.blocked is True
+    assert "AMOUNT" not in result.text
+
+
+def test_d1_zero_led_below_range_also_blocks():
+    # Blocks via the range check rather than the guard — kept for completeness.
+    assert pseudonymize("0999999").blocked is True
 
 
 def test_d1_six_digit_run_untouched_as_before():
@@ -168,28 +187,225 @@ def test_d1_seven_digit_phone_fragment_is_masked_not_leaked():
     assert result.text == "my no [AMOUNT_1]"
 
 
-def test_d1_no_long_digit_run_ever_survives_unmasked():
-    """THE fail-closed invariant behind the D-1 carve-out (register row D-1).
+# --- S-1: separator-split phone numbers (PR #392 security review) ------------
+# The old char-count phone rule accepted ONLY space/dash as separators, so a phone
+# split on any other char matched neither it NOR the residual net (which needs 7+
+# CONSECUTIVE digits) and egressed raw. The hole PRE-DATES D-1 and was only ever
+# covered incidentally (the residual net blocked the turn when some other 7-8 digit
+# run co-occurred) — D-1 removes exactly that cover in the salary case. Detection
+# is now DIGIT-COUNT based (9-13 digits joined by at most one separator each).
 
-    For ANY 7-10 digit run in any context, the gateway either BLOCKS (so nothing
-    is sent to an LLM at all) or MASKS the run out of the returned text. There is
-    no third outcome in which raw digits egress. Deterministic seed => stable CI.
+_SPLIT_PHONES = [
+    "9876.543.210",
+    "9876,543,210",
+    "(98765)43210",
+    "98765_43210",
+    "98765-43210",
+    "98765 43210",
+]
+
+
+@pytest.mark.parametrize("text", _SPLIT_PHONES)
+def test_s1_separator_split_phone_never_egresses(text):
+    """PR #392 S-1: each separator form must be masked, never returned raw."""
+    result = pseudonymize(text)
+    assert result.blocked is False
+    assert "[PHONE_1]" in result.text
+    # No digit of the original survives anywhere in the returned text.
+    assert not re.search(r"\d", re.sub(r"\[[A-Z]+_\d+\]", "", result.text)), result.text
+
+
+def test_s1_salary_and_split_phone_together_masks_both():
+    """PR #392 S-1, THE regression: this is the case that proves the D-1 carve-out
+    did not open a hole. Pre-fix on this branch the amount masked to [AMOUNT_1],
+    which removed the residual net's incidental block, and the full 10-digit phone
+    egressed. Both must now mask."""
+    result = pseudonymize("meri salary 1500000 hai, mera number 98765.43210 hai")
+    assert result.blocked is False
+    assert "[AMOUNT_1]" in result.text and "[PHONE_1]" in result.text
+    assert "98765.43210" not in result.text
+    assert "9876543210" not in result.text
+    assert "1500000" not in result.text
+    assert not re.search(r"\d", re.sub(r"\[[A-Z]+_\d+\]", "", result.text)), result.text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "1000000",  # in-range salary -> AMOUNT, never PHONE
+        "999999",  # below every net
+        "normal text 2024, 15 items",
+        "1,500,000",  # Indian thousands separator: 7 digits, NOT a phone
+        "15,00,000",  # Indian lakh grouping: 7 digits
+        "salary 15,00,000, 2,50,000 expected",  # ", " splits -> two amounts
+        "12.05.2024",  # date: 8 digits
+        "10.5 lakh",
+        "version 1.2.3",
+    ],
+)
+def test_s1_digit_count_detection_has_no_phone_false_positives(text):
+    """Digit-COUNT (not char-count) is what makes widening the separator set safe:
+    a comma-grouped salary is 7 digits and can never become a [PHONE_n]."""
+    assert "[PHONE_1]" not in pseudonymize(text).text
+
+
+def test_s1_fourteen_digit_run_falls_to_the_residual_net():
+    # Too long to be a phone -> matches no mask -> residual net blocks (fail closed).
+    result = pseudonymize("12345678901234")
+    assert result.blocked is True
+
+
+# --- S-2: lock the ARCHITECTURAL invariants the property test cannot see ------
+# PR #392 S-2: mutation testing showed dropping the lookarounds, widening the money
+# run, or reordering money-before-phone all SURVIVED the suite. These pin the two
+# properties the D-1 design argument actually rests on.
+
+
+@pytest.mark.parametrize("length", [9, 10, 11, 12, 13])
+def test_s2_a_long_run_can_never_be_labelled_money(length):
+    """ORDER + lookaround lock: a 9-13 digit run is identity-shaped and must be
+    MASKED — never labelled money. If money ever ran BEFORE phone, or the
+    (?<!\\d)/(?!\\d) guards were dropped so a 7-8 digit sub-run could be carved out
+    of a longer one, an [AMOUNT_n] would appear here.
+
+    The token is [PHONE_n] except at length 12, where the Aadhaar rule legitimately
+    claims it first ([ID_n]) — both are correct maskings, so this asserts the
+    invariant that matters (masked, not money, no digits left) rather than pinning
+    which identity token wins.
+    """
+    run = "9" * length
+    result = pseudonymize(run)
+    assert "AMOUNT" not in result.text, f"{run!r} -> {result.text!r}"
+    assert result.blocked is False
+    assert re.fullmatch(r"\[(?:PHONE|ID)_1\]", result.text), result.text
+
+
+def test_s2_money_regex_cannot_match_inside_a_longer_run():
+    """The lookarounds are load-bearing, asserted directly on the pattern: no 9+
+    digit run may yield a money candidate at all."""
+    from app.pseudonymize import _MONEY_RUN_RE
+
+    for length in range(9, 15):
+        assert _MONEY_RUN_RE.findall("1" * length) == [], length
+    # ...while a bare in-range 7-digit run still matches (the carve-out works).
+    assert _MONEY_RUN_RE.findall("1000000") == ["1000000"]
+
+
+@pytest.mark.parametrize("phone", ["1234567.890", "12345678.90", "9876543.210"])
+def test_s2_phone_masking_runs_before_money_masking(phone):
+    """ORDER lock (PR #392 S-2), tested where the order actually BITES.
+
+    On a CONSECUTIVE run the lookarounds alone prevent money from biting, so
+    running money first would be harmless and undetectable. A SEPARATOR-SPLIT
+    phone is different: it exposes a 7-8 digit CONSECUTIVE sub-run ("1234567" in
+    "1234567.890"). If money ran first it would tokenise that sub-run to
+    [AMOUNT_n] and leave the REST of the phone ("890") raw — a partial mask AND a
+    mislabel. Phone-first consumes the whole number.
+    """
+    from app.pseudonymize import _MONEY_RUN_RE
+
+    # Precondition: this input really does expose a money-shaped sub-run.
+    assert _MONEY_RUN_RE.findall(phone), phone
+
+    result = pseudonymize(f"mera number {phone} hai")
+    assert "[PHONE_1]" in result.text
+    assert "AMOUNT" not in result.text, f"money ran first: {result.text!r}"
+    assert not re.search(r"\d", re.sub(r"\[[A-Z]+_\d+\]", "", result.text)), result.text
+
+
+_PROPERTY_TEMPLATES = (
+    "%s",
+    "salary %s hai",
+    "call me %s",
+    "ref %s please",
+    "meri salary 1500000 hai, mera number %s hai",  # the S-1 co-occurrence shape
+)
+_PROPERTY_SEPARATORS = (".", ",", "-", "_", " ", ")")
+
+
+def _split_once(digits: list[str], sep: str, cut: int) -> str:
+    return "".join(digits[:cut]) + sep + "".join(digits[cut:])
+
+
+def test_property_phone_shaped_runs_never_egress_bare_or_split():
+    """THE security property behind D-1 + S-1 (register D-1; PR #392 S-1).
+
+    For every PHONE-SHAPED run (9-13 digits) — bare, separator-split on any of the
+    separators the gateway accepts, and co-occurring with a salary — the gateway
+    either BLOCKS (nothing is sent to an LLM) or MASKS the run out of the returned
+    text. No third outcome egresses digits. Deterministic seed => stable CI.
+
+    Scope, stated honestly (PR #392 S-3): randomised over a FIXED template set —
+    not a proof over all inputs. The exact case count is asserted below so it can
+    never be overstated again. The split + co-occurrence templates exist precisely
+    because the original single-run version could not see S-1.
     """
     import random
-    import re
 
     rng = random.Random(7)
-    for _ in range(4000):
-        length = rng.randint(7, 10)
+    cases = 0
+    for _ in range(2000):
+        length = rng.randint(9, 13)  # phone-shaped
+        digits = [rng.choice("0123456789") for _ in range(length)]
+        sep = rng.choice(_PROPERTY_SEPARATORS)
+        cut = rng.randint(1, length - 1)
+        for run in ("".join(digits), _split_once(digits, sep, cut)):
+            bare = "".join(ch for ch in run if ch.isdigit())
+            for template in _PROPERTY_TEMPLATES:
+                text = template % run
+                result = pseudonymize(text)
+                cases += 1
+                if result.blocked:
+                    continue  # fail-closed: the LLM is never called
+                assert bare not in result.text, f"egressed: {text!r} -> {result.text!r}"
+                assert run not in result.text, f"egressed: {text!r} -> {result.text!r}"
+                assert not re.search(r"\d{7,}", result.text), result.text
+    # Lock the ACTUAL case count so the PR body cites it truthfully (S-3).
+    assert cases == 2000 * 2 * len(_PROPERTY_TEMPLATES) == 20_000
+
+
+def test_property_consecutive_seven_to_eight_digit_runs_never_egress():
+    """The D-1 half: a CONSECUTIVE 7-8 digit run either masks to [AMOUNT_n] (in
+    range) or blocks (out of range / zero-led). Never egresses either way."""
+    import random
+
+    rng = random.Random(11)
+    cases = 0
+    for _ in range(2000):
+        length = rng.randint(7, 8)
         run = "".join(rng.choice("0123456789") for _ in range(length))
-        for template in ("%s", "salary %s hai", "call me %s", "ref %s please"):
+        for template in _PROPERTY_TEMPLATES:
             text = template % run
             result = pseudonymize(text)
+            cases += 1
             if result.blocked:
-                continue  # fail-closed: the LLM is never called
-            assert run not in result.text, f"digits egressed: {text!r} -> {result.text!r}"
-            # And nothing 7+ digits long is left behind anywhere in the output.
+                continue
+            assert run not in result.text, f"egressed: {text!r} -> {result.text!r}"
             assert not re.search(r"\d{7,}", result.text), result.text
+    assert cases == 2000 * len(_PROPERTY_TEMPLATES) == 10_000
+
+
+def test_documented_boundary_split_short_runs_are_not_phone_shaped():
+    """HONEST NEGATIVE (documents a real, pre-existing limit — see the risks
+    register row for S-1). A 7-8 digit run SPLIT by a separator ("1_661318",
+    "12.05.2024") is not phone-shaped (< 9 digits) and has no 7 CONSECUTIVE
+    digits, so it matches no net and passes through — exactly as it does on main.
+
+    This is deliberate, not an oversight: extending the residual net to
+    separator-split short runs would BLOCK every date a worker types
+    ("12.05.2024 ko join kiya") and comma-grouped salaries ("15,00,000") — the
+    over-blocking class D-1 exists to eliminate. Recorded so the boundary is a
+    decision on the record rather than an accident. If this test ever starts
+    failing, the gateway got STRICTER — re-check the date/salary UX before
+    accepting it.
+    """
+    for text in ("1_661318", "12.05.2024", "15,00,000"):
+        result = pseudonymize(text)
+        assert result.blocked is False
+        assert result.text == text  # untouched: not phone-shaped, not consecutive
+    # ...but the same digits CONSECUTIVE are caught (masked or blocked).
+    assert pseudonymize("1661318").text == "[AMOUNT_1]"
+    assert pseudonymize("12052024").blocked is True
 
 
 def test_empty_string_is_not_blocked():

@@ -73,8 +73,29 @@ _COMPANY_SUFFIX = (
 
 _PAN_RE = re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b")
 _AADHAAR_RE = re.compile(r"\b\d{4}\s?\d{4}\s?\d{4}\b")
-# A "+"-optional run of >= ~9 digits possibly spaced/dashed (phone-like).
-_PHONE_RE = re.compile(r"(?<!\d)\+?\d[\d\s\-]{7,}\d(?!\d)")
+
+# Phone detection is DIGIT-COUNT based, not character-count based (S-1, PR #392
+# security review). The previous rule — `(?<!\d)\+?\d[\d\s\-]{7,}\d(?!\d)` — only
+# accepted SPACE and DASH as separators, so a phone split on any other character
+# ("9876.543.210", "9876,543,210", "(98765)43210", "98765_43210") matched neither
+# this net NOR _RESIDUAL_DIGITS_RE (which needs 7+ CONSECUTIVE digits) and the raw
+# number egressed. That hole PRE-DATES the D-1 carve-out and was only ever masked
+# incidentally: the residual net blocked such a turn if some OTHER 7-8 digit run
+# happened to co-occur. D-1 removes exactly that incidental cover in the salary
+# case it exists to enable ("salary 1500000 hai, number 98765.43210 hai"), so the
+# real rule is fixed here rather than relying on an accident.
+#
+# Rule: a run of digits joined by AT MOST ONE separator char each, totalling 9-13
+# DIGITS, is phone-shaped (Indian mobiles are 10; +country code / STD prefixes
+# reach 12-13). Counting digits — not characters — is what makes the separator set
+# safe to widen: "1,500,000" is 7 digits, so the Indian thousands separator can
+# never turn a salary into a [PHONE_n]. Requiring a SINGLE separator between
+# digits keeps distinct numbers apart: "15,00,000, 2,50,000" is split by ", " (two
+# chars) and so reads as two 7-digit amounts, not one 13-digit phone.
+# A 14+ digit consecutive run matches nothing here and falls to the residual net
+# -> blocked (fail closed).
+_PHONE_SEPARATORS = r"\s.,\-()_"
+_PHONE_RE = re.compile(r"(?<!\d)\d(?:[" + _PHONE_SEPARATORS + r"]?\d){8,12}(?!\d)")
 _EMPLOYER_RE = re.compile(r"\b(?:[A-Z][\w&.]*\s+){1,4}" + _COMPANY_SUFFIX + r"\b")
 _NAME_CUE_RE = re.compile(
     r"(?i:\bmy name is\b|\bmyself\b|\bi am\b|\bi'm\b|\bthis is\b|\bname is\b|"
@@ -110,13 +131,26 @@ _RESIDUAL_DIGITS_RE = re.compile(r"\d{7,}")
 # is not a dialable Indian number but could be a fragment of one, and it does fall
 # in the money range -> it is masked [AMOUNT_n] rather than blocked. The LABEL is
 # then imprecise, but the SAFETY PROPERTY is unchanged and is what matters here:
-# for ANY 7-10 digit run the gateway either BLOCKS (nothing is sent) or MASKS the
-# run out of the text — the digits never reach an LLM either way. Over-masking is
-# the locked safe direction; the token name is not a privacy control.
+# for a 7-13 digit run the gateway either BLOCKS (nothing is sent) or MASKS the run
+# out of the text — the digits never reach an LLM either way. Over-masking is the
+# locked safe direction; the token name is not a privacy control.
 # 8-digit landlines cannot slip through either: Indian STD/landline numbers start
 # 2-9, so they parse >= 20,000,000 and exceed the ceiling -> blocked. Exactly one
 # 8-digit value (10000000) is in range, and it reads as a salary.
-# tests/test_pseudonymize.py locks all of this, incl. an exhaustive property test.
+#
+# ORDER IS LOAD-BEARING (S-2): money masking MUST run AFTER phone masking. On a
+# CONSECUTIVE run the lookarounds alone stop money biting, but a separator-split
+# phone exposes a 7-8 digit consecutive sub-run ("1234567" in "1234567.890") that
+# money-first would tokenise, leaving the rest of the number raw.
+#
+# KNOWN BOUNDARY (deliberate, risks-register R30): a 7-8 digit run that is
+# SEPARATOR-SPLIT ("1_661318", "12.05.2024") is not phone-shaped and has no 7
+# consecutive digits, so it passes through. Tightening this would block every date
+# a worker types — the over-blocking class D-1 exists to remove.
+#
+# tests/test_pseudonymize.py locks all of the above (incl. randomised property
+# tests over 20,000 phone-shaped and 10,000 money-shaped cases — a fixed template
+# set, NOT a proof over all inputs).
 _MONEY_RUN_RE = re.compile(r"(?<!\d)\d{7,8}(?!\d)")
 _MONEY_MIN_INR = 1_000_000  # the smallest 7-digit run
 # Upper bound of a plausible salary. Single source of truth shared with
