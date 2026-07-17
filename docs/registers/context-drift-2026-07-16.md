@@ -32,9 +32,9 @@ Where the doc describes build state → **the code wins** and the doc is correct
 | # | Doc instruction | Why it would cause harm |
 |---|---|---|
 | **A-1** | §0.5 / §9 / §15: **"Cities are NOT PII and must not be redacted"** | **The premise is false.** City is masked from LLM input *and already reaches matching* — read from **raw** text locally inside the trusted service (`apps/ai-service/app/profiling/signals.py:8-12`, no network), and `profile_extractor.merge_model_draft` (`:178-180`) **refuses** to overlay location/salary from the model precisely because the model only ever saw masked text. The Delhi/Bihar corruption was **dropped data** (gazetteer gap: `dilli` unknown, no state capture), **not** redaction — fixed and regression-locked at `apps/ai-service/tests/test_welder_repro.py:192-197`. **Un-redacting cities pushes PII into LLM input for zero matching gain — a CLAUDE.md §2 invariant-2 violation.** |
-| **A-2** | §5: **RANK weight "Skills 15"** | No skills signal exists in RANK, and **TAX-6 deliberately locks it out**: `packages/reach-engine/src/no-skills-in-rank.test.ts` greps every non-test source in `reach-engine` + `apps/api/src/reach` for `/skill/i` and `/embedding/i` (comment-stripped, so prose can't satisfy it). **Implementing the doc's weight table breaks CI by design.** The test anticipates this: *"If a future ADR legitimately adds a skills factor, it must edit THIS test in the same diff."* Requires an ADR, not a code tweak. |
+| **A-2** | §5: **RANK weight "Skills 15"** | ✅ **RESOLVED — [ADR-0033](../decisions/0033-rank-skills-overlap-factor.md)** (owner ruled 2026-07-17: the 06-19 CEO lock **IS operative**; built same-day). *Original finding:* No skills signal exists in RANK, and **TAX-6 deliberately locks it out**: `packages/reach-engine/src/no-skills-in-rank.test.ts` greps every non-test source in `reach-engine` + `apps/api/src/reach` for `/skill/i` and `/embedding/i` (comment-stripped, so prose can't satisfy it). **Implementing the doc's weight table breaks CI by design.** The test anticipates this: *"If a future ADR legitimately adds a skills factor, it must edit THIS test in the same diff."* Requires an ADR, not a code tweak. — *The register was right on both counts: it needed an ADR, and the lock test was edited in the same diff (now the **inverse lock**; the `/embedding/i` half is KEPT + widened). The factor is deterministic closed-set `skill_id` overlap at .15 — invariant #4 intact.* |
 
-### A-2 has a governance problem underneath it
+### A-2 has a governance problem underneath it — ✅ SETTLED 2026-07-17
 The doc says *"engineering reconciles the diverged code (ADR-0006)."* **ADR-0006 says the opposite** —
 `docs/decisions/0006-reach-foundation-rank-core.md:82-83`: *"the implemented weights are the source of truth
 and the ledger's columns are a draft (**the doc is reconciled to the code, not the reverse**)."* That divergence
@@ -42,6 +42,16 @@ was **ratified** (`docs/registers/team-decisions.md:36-47`, 2026-06-12).
 A later **2026-06-19 CEO lock** reverses the direction (`.claude/project-memory.md:52`) — but it **never landed
 as a decision row** (`team-decisions.md` stops at 06-15) and was **never implemented**.
 **→ Owner call required: is the 06-19 lock operative? If yes, it needs an ADR + the CI lock edited in the same diff.**
+
+> **OWNER RULING (2026-07-17) — the 06-19 CEO lock IS OPERATIVE.** *"The new decision supersedes the CEO's
+> older decision"* — it overrides ADR-0006's ratified code-wins direction **for the weight ledger**
+> ([team-decisions.md](./team-decisions.md), rulings item 2; the lock is now a recorded decision row, closing
+> the "never landed" gap). Executed as **[ADR-0033](../decisions/0033-rank-skills-overlap-factor.md)** the same
+> day: skills factor at .15 (deterministic closed-set `skill_id` overlap — **no embedding/similarity/model ever
+> ranks**), Availability .10→.05, Activity .10→0 (weight 0; the component is retained for the recency tie-break
+> + LEARN feature continuity — interpretation **I1**, flagged vetoable in the ADR). The CI lock was edited in
+> the same diff, exactly as this register predicted. **Scope of the reversal:** the ledger only — this register's
+> [governing rule](#the-governing-rule) (decisions doc→code, build-state code→doc) is unchanged.
 
 ---
 
@@ -124,7 +134,7 @@ as a decision row** (`team-decisions.md` stops at 06-15) and was **never impleme
 ## Owner queue (decisions only I cannot make)
 
 1. **A-1 — city ruling.** Confirm withdrawn. As written it is a §2 privacy regression for zero gain.
-2. **A-2 — Skills-15.** Operative or aspirational? If operative: ADR + edit `no-skills-in-rank.test.ts` in the same diff. Also settle whether the **2026-06-19 CEO weight lock** supersedes ADR-0006's ratified doc→code direction — it has never been recorded as a decision row.
+2. ~~**A-2 — Skills-15.** Operative or aspirational? If operative: ADR + edit `no-skills-in-rank.test.ts` in the same diff. Also settle whether the **2026-06-19 CEO weight lock** supersedes ADR-0006's ratified doc→code direction — it has never been recorded as a decision row.~~ ✅ **ANSWERED 2026-07-17: OPERATIVE** → [ADR-0033](../decisions/0033-rank-skills-overlap-factor.md) (built; lock test inverted in the same diff; the lock is now a recorded decision row).
 3. **B-1 — posting verification gate.** Unverified payers can post and buy today. Build the gate, or drop "verification-gated" from the decision.
 4. **B-9/B-10 — cost.** Is the target 4 paise or ₹4? Per-profile measurement does not exist; auto-downgrade does not exist. Both need building before the cost claim can be made.
 5. **B-7 — caps.** Ratify the real numbers (5/worker/day, 30/payer/hour, no daily account cap) or change the code.

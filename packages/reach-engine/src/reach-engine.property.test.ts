@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scoreWorkerForJob, rankWorkersForJob } from "./index";
+import { scoreWorkerForJob, rankWorkersForJob, skillsOverlap } from "./index";
 import type { JobSpec, RankOptions, RankedWorker, WorkerJobScore, WorkerSignals } from "./index";
 
 /**
@@ -45,6 +45,25 @@ const ADVERSARIAL = [NaN, Infinity, -Infinity, 0, -1, -50000, 1e12, Number.MAX_S
 const ROLES = ["vmc_operator", "packer", "welder", "cnc_operator", null, undefined] as const;
 const AVAILS = ["immediate", "notice_period", "not_looking", "unknown", null, undefined] as const;
 const CITIES = ["pune", "mumbai", null, undefined] as const;
+// Closed-set skill ids (ADR-0033) + adversarial blanks (dropped by usable-id filtering).
+const SKILL_IDS = [
+  "skill_milling",
+  "skill_turning",
+  "skill_deburring",
+  "skill_cad_interpretation",
+  "skill_welding",
+  "",
+  "  ",
+] as const;
+
+/** A sometimes-absent, sometimes-empty, sometimes-noisy skill-id list. */
+function genSkillIds(rng: () => number): string[] | undefined {
+  const r = rng();
+  if (r < 0.35) return undefined; // absent (the common day-one case)
+  if (r < 0.45) return []; // explicitly empty
+  const n = 1 + Math.floor(rng() * 4);
+  return Array.from({ length: n }, () => pick(rng, SKILL_IDS)); // dupes/blanks allowed
+}
 
 /** A field value that is sometimes valid, sometimes garbage, sometimes absent. */
 function noisyNum(rng: () => number, valid: () => number): number | null | undefined {
@@ -76,6 +95,7 @@ function genWorker(rng: () => number, i: number): WorkerSignals {
     travelRadiusKm: noisyNum(rng, () => Math.floor(rng() * 100)),
     availability: pick(rng, AVAILS),
     lastActiveDaysAgo: noisyNum(rng, () => Math.floor(rng() * 60)),
+    skillIds: genSkillIds(rng),
   };
 }
 
@@ -92,6 +112,7 @@ function genJob(rng: () => number): JobSpec {
     payMin: jobNum(noisyNum(rng, () => Math.floor(rng() * 30000))),
     payMax: jobNum(noisyNum(rng, () => 30000 + Math.floor(rng() * 30000))),
     neededBy: pick(rng, ["immediate", "soon", "flexible", undefined] as const),
+    skillIds: genSkillIds(rng),
   };
 }
 
@@ -100,7 +121,7 @@ const roleRawOf = (r: WorkerJobScore): number =>
 
 function checkScore(r: WorkerJobScore, ctx: unknown): void {
   if (!(Number.isFinite(r.score) && r.score >= 0 && r.score <= 1)) fail(`bad score ${r.score}`, ctx);
-  if (r.components.length !== 6) fail(`expected 6 components, got ${r.components.length}`, ctx);
+  if (r.components.length !== 7) fail(`expected 7 components, got ${r.components.length}`, ctx);
   for (const c of r.components) {
     if (!(Number.isFinite(c.raw) && c.raw >= 0 && c.raw <= 1)) fail(`bad ${c.signal}.raw=${c.raw}`, ctx);
     if (!c.reason || c.reason.length === 0) fail(`empty reason for ${c.signal}`, ctx);
@@ -241,6 +262,88 @@ describe("rankWorkersForJob — invariants over random fleets", () => {
     expect(a.map((r) => r.rank)).toEqual(Array.from({ length: 5000 }, (_, i) => i + 1));
     const b = rankWorkersForJob(job, [...workers].reverse());
     expect(b.map((r) => r.workerId)).toEqual(a.map((r) => r.workerId));
+  });
+});
+
+// ============================================================================
+// ADR-0033 — skills-overlap factor properties (deterministic closed-set overlap).
+// ============================================================================
+describe("skills-overlap factor — properties under random inputs (ADR-0033)", () => {
+  const REAL_IDS = SKILL_IDS.filter((s) => s.trim().length > 0);
+
+  it("skillsOverlap is bounded [0,1] and finite for ANY worker/job id lists", () => {
+    const rng = mulberry32(0x5c1115);
+    for (let k = 0; k < 2000; k++) {
+      const v = skillsOverlap(genSkillIds(rng), genSkillIds(rng));
+      if (!(Number.isFinite(v) && v >= 0 && v <= 1)) fail(`bad overlap ${v}`, { k });
+    }
+  });
+
+  it("MONOTONIC: gaining a required skill never lowers the score; an unrelated one never changes it", () => {
+    const rng = mulberry32(0xadd51);
+    let skilledJobTrials = 0;
+    for (let k = 0; k < 800; k++) {
+      const job = genJob(rng);
+      const worker = genWorker(rng, k);
+      const required = (job.skillIds ?? []).filter((s) => s.trim().length > 0);
+      if (required.length === 0) continue;
+      skilledJobTrials++;
+      const base = scoreWorkerForJob(job, worker).score;
+      const gained = scoreWorkerForJob(job, {
+        ...worker,
+        skillIds: [...(worker.skillIds ?? []), required[0]!],
+      }).score;
+      if (gained < base - 1e-12) fail(`gaining a required skill LOWERED ${base}→${gained}`, { job, worker });
+      // An id the job does not require must be a no-op on the factor…
+      const unrelated = "skill_definitely_not_required_xyz";
+      const noop = scoreWorkerForJob(job, {
+        ...worker,
+        skillIds: [...(worker.skillIds ?? []), unrelated],
+      }).score;
+      // …unless the worker had NO usable skills before (0-raw → still 0: unrelated ≠ required).
+      if (Math.abs(noop - base) > 1e-12) fail(`unrelated skill changed score ${base}→${noop}`, { job, worker });
+    }
+    expect(skilledJobTrials).toBeGreaterThan(100); // the property was actually exercised
+  });
+
+  // NOTE (scope): this asserts ONLY that the SKILLS FACTOR is inert on a skill-less
+  // job — trivially true by construction (the weight is redistributed). It is NOT a
+  // claim that skill-less jobs score as they did pre-ADR-0033: they do NOT (the same
+  // ledger cut availability .10→.05 and activity .10→0). The real old-vs-new delta is
+  // pinned by the GOLDEN regression in reach-engine.test.ts. Do not cite this test as
+  // stability proof — that misreading is exactly what the golden exists to prevent.
+  it("SKILLS-FACTOR INERTNESS on a skill-less job (NOT old-vs-new stability — see the golden)", () => {
+    const rng = mulberry32(0x0f0f33);
+    for (let k = 0; k < 500; k++) {
+      const job = { ...genJob(rng), skillIds: pick(rng, [undefined, [] as string[], ["  ", ""]]) };
+      const worker = genWorker(rng, k);
+      const a = scoreWorkerForJob(job, { ...worker, skillIds: undefined });
+      const b = scoreWorkerForJob(job, { ...worker, skillIds: [...REAL_IDS] });
+      if (a.score !== b.score) fail(`skill-less job reordered by worker skills ${a.score}→${b.score}`, { job, worker });
+    }
+  });
+
+  it("ORDER-ONLY: with skills in play, ranking still never drops anyone (sort-never-block)", () => {
+    const rng = mulberry32(0x50f7b10c);
+    for (let trial = 0; trial < 100; trial++) {
+      const job = { ...genJob(rng), skillIds: [pick(rng, REAL_IDS), pick(rng, REAL_IDS)] };
+      const n = Math.floor(rng() * 40);
+      const workers = Array.from({ length: n }, (_, i) => genWorker(rng, i));
+      const ranked = rankWorkersForJob(job, workers);
+      if (ranked.length !== n) fail(`skills factor dropped someone: ${ranked.length} != ${n}`, { trial });
+      for (const r of ranked) checkScore(r, r);
+    }
+  });
+
+  it("EFFECTIVE WEIGHTS: components always sum to 1.0 and score == Σ(weight × raw)", () => {
+    const rng = mulberry32(0x77e16875);
+    for (let k = 0; k < 500; k++) {
+      const r = scoreWorkerForJob(genJob(rng), genWorker(rng, k));
+      const wSum = r.components.reduce((s, c) => s + c.weight, 0);
+      if (Math.abs(wSum - 1) > 1e-9) fail(`effective weights sum ${wSum} != 1`, r);
+      const sum = r.components.reduce((s, c) => s + c.weight * c.raw, 0);
+      if (Math.abs(sum - r.score) > 1e-9) fail(`score ${r.score} != Σ w·raw ${sum}`, r);
+    }
   });
 });
 
