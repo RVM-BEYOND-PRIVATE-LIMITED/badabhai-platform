@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
@@ -17,6 +16,7 @@ import '../../../core/widgets/bb_scaffold.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toggle.dart';
 import 'cubit/resume_edit_cubit.dart';
+import 'widgets/photo_picker_sheet.dart';
 import '../domain/resume_safe_fields.dart';
 
 /// Resume safe-field edit (spec §5.2 / `.aw-field`). Full-screen; back returns
@@ -164,78 +164,24 @@ class _ResumeEditViewState extends State<_ResumeEditView> {
     cubit.setDisplayName(trimmed);
   }
 
-  /// ADR-0032 — camera / gallery / remove sheet, then pick → resize on-device
-  /// (max 1024px JPEG, the picker's own params — no PII leaves the device
-  /// unresized) → upload via the cubit. The sheet returns an action; all async
-  /// gaps are mounted-guarded (the _editName lesson).
+  /// ADR-0032 — the shared photo flow (sheet → pick → resize on-device), with
+  /// this screen's cubit doing the upload/remove so its busy state + error
+  /// surfacing are unchanged. The flow itself lives in ONE place
+  /// ([runPhotoFlow]) and is shared with the Profile tab — there is one photo per
+  /// worker, so there is one way to change it.
   Future<void> _editPhoto(
     BuildContext context,
     ResumeEditCubit cubit,
     bool hasPhoto,
-  ) async {
-    final _PhotoAction? action = await showModalBottomSheet<_PhotoAction>(
-      context: context,
-      builder: (BuildContext sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            ListTile(
-              leading: const Icon(Icons.photo_camera_outlined),
-              title: const Text('Photo khichein'),
-              onTap: () => Navigator.of(sheetContext).pop(_PhotoAction.camera),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('Gallery se chunein'),
-              onTap: () => Navigator.of(sheetContext).pop(_PhotoAction.gallery),
-            ),
-            if (hasPhoto)
-              ListTile(
-                leading: const Icon(Icons.delete_outline),
-                title: const Text('Photo hatayein'),
-                onTap: () => Navigator.of(sheetContext).pop(_PhotoAction.remove),
-              ),
-          ],
-        ),
-      ),
+  ) {
+    return runPhotoFlow(
+      context,
+      hasPhoto: hasPhoto,
+      onUpload: (Uint8List bytes) => unawaited(cubit.uploadPhoto(bytes)),
+      onRemove: () => unawaited(cubit.removePhoto()),
     );
-    if (!mounted || action == null) return;
-
-    if (action == _PhotoAction.remove) {
-      unawaited(cubit.removePhoto());
-      return;
-    }
-
-    final XFile? picked;
-    try {
-      picked = await ImagePicker().pickImage(
-        source: action == _PhotoAction.camera
-            ? ImageSource.camera
-            : ImageSource.gallery,
-        // On-device resize + JPEG re-encode BEFORE any byte leaves the phone
-        // (ADR-0032 §6) — also keeps the PDF embed well under the size caps.
-        maxWidth: 1024,
-        maxHeight: 1024,
-        imageQuality: 85,
-        // Data minimization, honestly stated (bb-security-review L-1): on iOS this
-        // skips full metadata; on Android the resize re-encode strips GPS lat/long
-        // but the plugin copies back a few coarse EXIF tags (timestamps/orientation).
-        // Server-side strip at confirm is the hardening follow-up (TD71 family).
-        requestFullMetadata: false,
-      );
-    } catch (_) {
-      // The picker failing (no camera, OS denial) is not the worker's fault;
-      // surface nothing rather than a scary error — they can retry via the row.
-      return;
-    }
-    if (picked == null || !mounted) return; // cancelled / screen gone
-    final Uint8List bytes = await picked.readAsBytes();
-    if (!mounted) return;
-    unawaited(cubit.uploadPhoto(bytes));
   }
 }
-
-enum _PhotoAction { camera, gallery, remove }
 
 /// The name-spelling dialog. It OWNS its [TextEditingController] so the
 /// controller's lifetime is tied to this widget rather than to the awaiting

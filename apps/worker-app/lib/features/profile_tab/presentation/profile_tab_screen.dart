@@ -16,6 +16,7 @@ import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_verified_badge.dart';
 import '../../../router.dart';
 import 'cubit/profile_tab_cubit.dart';
+import 'widgets/profile_avatar.dart';
 import '../domain/profile_summary.dart';
 
 /// The tabbed Profile (spec §5.9) — distinct from the profiling ProfilePreview.
@@ -148,45 +149,14 @@ class _ProfileTabView extends StatelessWidget {
 
     return Row(
       children: <Widget>[
-        SizedBox(
-          width: 72,
-          height: 72,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: <Widget>[
-              Container(
-                width: 72,
-                height: 72,
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: <Color>[AppColors.saffron300, AppColors.saffron200],
-                  ),
-                ),
-                alignment: Alignment.center,
-                // Initials when a name exists; else a neutral avatar icon (no
-                // fabricated monogram).
-                child: s.initials != null
-                    ? Text(
-                        s.initials!,
-                        style: AppTypography.display(
-                            size: AppTypography.size2xl,
-                            weight: FontWeight.w800,
-                            color: AppColors.vermilion800),
-                      )
-                    : const Icon(Icons.person_rounded,
-                        size: 36, color: AppColors.vermilion800),
-              ),
-              if (s.verified)
-                const Positioned(
-                  right: -2,
-                  bottom: -2,
-                  child: BbSeal(),
-                ),
-            ],
-          ),
+        // ADR-0032 — the worker's real photo, with the edit entry point. The tab
+        // used to render initials/an icon only, and the comment below admitted
+        // the photo flow was reachable ONLY from the resume-edit screen. Same
+        // photo, same endpoints, same shared sheet — no second concept.
+        ProfileAvatar(
+          initials: s.initials,
+          verified: s.verified,
+          verifiedBadge: const BbSeal(),
         ),
         const SizedBox(width: AppSpacing.s4),
         Expanded(
