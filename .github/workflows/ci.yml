@@ -397,11 +397,30 @@ jobs:
             # without real secrets FAILS HERE at compose interpolation (job goes red)
             # instead of booting on the public dev defaults. `--no-deps api` on `up`
             # is load-bearing: it is what keeps the compose-internal throwaway
-            # postgres/redis/adminer from ever starting on this box (see the
-            # depends_on note in docker-compose.staging.yml) — staging must point at
-            # real backing services via DATABASE_URL/REDIS_URL.
+            # postgres/adminer from ever starting on this box (see the depends_on
+            # note in docker-compose.staging.yml) — staging's DATABASE_URL is the
+            # real (Supabase) Postgres, never the compose-internal one. Passing -f
+            # explicitly ALSO means the tracked docker-compose.override.yml (a
+            # local-dev-only postgres remap) is NOT auto-loaded here.
             COMPOSE="docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api"
             $COMPOSE pull api
+
+            # CD-1a: Redis IS box-local (owner decision) — it runs as this compose
+            # project's `redis` service, so unlike postgres it MUST start here. The
+            # api reaches it over the compose network at redis:6379, which is what
+            # the REDIS_URL secret must say (NOT localhost — inside the api container
+            # localhost is the api itself; and the host port is loopback-bound now).
+            #
+            # `--no-deps api` below would never start it (redis is only reachable as
+            # an api depends_on), so start it EXPLICITLY and FIRST. Naming the service
+            # starts ONLY it — redis declares no depends_on — so postgres/adminer
+            # still never start; --no-deps here keeps that true even if redis were
+            # later given one. Deliberately NOT `--wait`: docker-compose.staging.yml
+            # records that the box's compose version is unverified, and a flag it
+            # lacks would fail the deploy outright. Redis serves within ms and the
+            # api's own boot is far slower, so ordering is safe — and the CD-3 health
+            # gate below is the real backstop if it is not.
+            $COMPOSE up -d --no-deps redis
 
             # TODO(CD-2, held: 0031 human sign-off + D1): migrations-in-pipeline would
             # run HERE — after the image pull, BEFORE the new code boots (CLAUDE.md §2

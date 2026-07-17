@@ -55,10 +55,17 @@ services:
       # Must ALSO differ from JWT_SECRET (assertAdminAuthConfig — principal separation).
       ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:?required in staging — distinct from JWT_SECRET, never the dev default}
 
-      # ---- Real backing services. NEVER the compose-internal postgres/redis — the
-      # deploy runs `up --no-deps api`, so those never even start on this path.
+      # ---- Real backing services.
+      # Postgres: NEVER the compose-internal one — the deploy runs `up --no-deps api`
+      # so it never even starts on this path; DATABASE_URL is the real (Supabase) DB.
       DATABASE_URL: ${DATABASE_URL:?required in staging — the real Postgres, never the compose-internal one}
-      REDIS_URL: ${REDIS_URL:?required in staging — the real Redis, never the compose-internal one}
+      # Redis: box-local BY DECISION (CD-1a, owner) — it IS this compose project's
+      # `redis` service, started explicitly by the deploy script before the api (see
+      # .github/workflows/ci.yml), reached over the compose network. So REDIS_URL
+      # must be `redis://redis:6379`: NOT localhost (inside the api container that is
+      # the api itself) and NOT the host port (loopback-bound in docker-compose.yml).
+      # Still `${VAR:?}` — the value stays a secret, and an unset one must fail loud.
+      REDIS_URL: ${REDIS_URL:?required in staging — box-local redis over the compose network, i.e. redis://redis:6379}
 
       # ---- Worker OTP is REAL-ONLY (Fast2SMS — no console/mock path, CLAUDE.md §1).
       # The base file's dev-dummy defaults satisfy assertAuthConfig's presence check
