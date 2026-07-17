@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/features/notifications/domain/app_notification.dart';
 import 'package:badabhai_worker_app/features/notifications/domain/notifications_repository.dart';
@@ -22,7 +23,11 @@ Future<void> _pump(WidgetTester tester, List<AppNotification> items) async {
   await locator.reset();
   final MockNotificationsRepository repo = MockNotificationsRepository();
   when(() => repo.list()).thenAnswer((_) async => items);
+  // T5: opening the tab marks the rows read (session-local, no network).
+  when(() => repo.markAllRead()).thenAnswer((_) async {});
   locator.registerFactory<NotificationsCubit>(() => NotificationsCubit(repo));
+  // The screen refetches on tab focus (T4) and resolves this from the locator.
+  locator.registerLazySingleton<TabFocus>(() => TabFocus());
 
   tester.view.physicalSize = const Size(900, 1900);
   tester.view.devicePixelRatio = 1.0;

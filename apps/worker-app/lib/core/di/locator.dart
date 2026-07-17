@@ -8,6 +8,7 @@ import '../auth/device_id.dart';
 import '../auth/locale_store.dart';
 import '../otp/sms_otp_autofill.dart';
 import '../auth/reauth_signal.dart';
+import '../nav/tab_focus.dart';
 import '../auth/secure_token_store.dart';
 import '../config/app_config.dart';
 import '../session/session_repository.dart';
@@ -156,6 +157,11 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
     () => DeviceIdProvider(locator<SecureTokenStore>()),
   );
   locator.registerLazySingleton<ReauthSignal>(() => ReauthSignal());
+
+  // Which shell tab is visible. The IndexedStack keeps every visited branch
+  // mounted, so a tab root's create:/initState runs once and never again — this
+  // is the signal that lets each tab refetch when it comes back into view.
+  locator.registerLazySingleton<TabFocus>(() => TabFocus());
 
   // ONE ApiClient app-wide: MOCK vs REAL via the createApiClient factory
   // (kUseMocks), with the x-session-token rolling refresh wired to the session.

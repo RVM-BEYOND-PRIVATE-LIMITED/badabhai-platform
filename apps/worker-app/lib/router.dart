@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/di/locator.dart';
+import 'core/nav/tab_focus.dart';
 import 'core/widgets/bb_bottom_nav.dart';
 import 'features/auth/domain/auth_session_manager.dart';
 import 'features/notifications/domain/notifications_repository.dart';
@@ -400,6 +401,8 @@ class _ShellScaffold extends StatefulWidget {
 }
 
 class _ShellScaffoldState extends State<_ShellScaffold> {
+  TabFocus get _tabFocus => locator<TabFocus>();
+
   @override
   void initState() {
     super.initState();
@@ -408,17 +411,44 @@ class _ShellScaffoldState extends State<_ShellScaffold> {
     locator<NotificationsRepository>().refresh();
   }
 
+  /// Publishes the visible tab so each root can refetch when it comes back into
+  /// view (the IndexedStack keeps branches mounted, so nothing re-runs on its
+  /// own).
+  ///
+  /// Set SYNCHRONOUSLY here, before `goBranch` builds the target branch: on a
+  /// tab's FIRST visit its `create:` already loads, and if the focus signal
+  /// landed after that build the root would immediately load a second time.
+  /// Setting it first means the root mounts already-focused, and
+  /// [TabFocusRefetch] fires on change only.
+  void _onTabTapped(int index) {
+    final bool reTapped = index == widget.shell.currentIndex;
+    _tabFocus.value = index;
+    // Re-tapping the active tab resets it to its branch root.
+    widget.shell.goBranch(index, initialLocation: reTapped);
+  }
+
+  /// Safety net for branch changes that did NOT come from a tap — e.g. the
+  /// post-unlock restore or any `context.go` into another branch's location.
+  /// Post-framed because listeners must not fire during build; a no-op when the
+  /// tap handler already set it.
+  void _syncActiveTabAfterBuild() {
+    final int index = widget.shell.currentIndex;
+    if (_tabFocus.value == index) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _tabFocus.value = index;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    _syncActiveTabAfterBuild();
     return Scaffold(
       body: widget.shell,
       bottomNavigationBar: ValueListenableBuilder<int>(
         valueListenable: locator<NotificationsRepository>().unreadCount,
         builder: (BuildContext context, int unread, Widget? _) => BbBottomNav(
           currentIndex: widget.shell.currentIndex,
-          // Re-tapping the active tab resets it to its branch root.
-          onTap: (int i) => widget.shell
-              .goBranch(i, initialLocation: i == widget.shell.currentIndex),
+          onTap: _onTabTapped,
           alertsUnread: unread,
         ),
       ),

@@ -228,13 +228,16 @@ void main() {
     expect(find.text('Profile strength'), findsOneWidget);
     expect(_navIndex(tester), _kProfileTab);
 
-    await tester.tap(find.text('Alerts'));
-    await _pumpUntil(tester, find.byIcon(Icons.check));
-    // Close the loop: mark-all-read clears the reactive unread badge.
+    // T5: the badge is lit BEFORE Alerts is opened...
     expect(_navBadge('4'), findsOneWidget);
-    await tester.tap(find.byIcon(Icons.check));
+    await tester.tap(find.text('Alerts'));
+    await _pumpUntil(tester, find.text('Alerts'));
+    // ...and opening the tab IS the read — no tick to press. The mark-all-read
+    // action was removed: reading your own alerts should not need confirming.
     await _pumpUntilGone(tester, _navBadge('4'));
     expect(_navBadge('4'), findsNothing);
+    expect(find.byIcon(Icons.check), findsNothing,
+        reason: 'the mark-all-read tick is gone (T5)');
 
     await tester.tap(find.text('Resume'));
     await _pumpUntil(tester, find.text('Your resume'));

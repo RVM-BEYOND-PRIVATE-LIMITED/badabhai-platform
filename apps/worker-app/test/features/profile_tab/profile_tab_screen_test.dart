@@ -11,6 +11,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_progress_bar.dart';
 import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary.dart';
@@ -27,6 +28,8 @@ Future<void> _pump(WidgetTester tester, ProfileSummary summary) async {
   final MockProfileSummaryRepository repo = MockProfileSummaryRepository();
   when(() => repo.summary()).thenAnswer((_) async => summary);
   locator.registerFactory<ProfileTabCubit>(() => ProfileTabCubit(repo));
+  // The screen refetches on tab focus (T4) and resolves this from the locator.
+  locator.registerLazySingleton<TabFocus>(() => TabFocus());
 
   tester.view.physicalSize = const Size(900, 1900);
   tester.view.devicePixelRatio = 1.0;

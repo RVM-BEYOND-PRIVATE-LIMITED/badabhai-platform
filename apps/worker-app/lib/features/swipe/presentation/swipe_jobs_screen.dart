@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_models.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/nav/tab_focus.dart';
 import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -112,42 +113,52 @@ class _FeedViewState extends State<_FeedView> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: BlocConsumer<SwipeBloc, SwipeState>(
-          listenWhen: (SwipeState prev, SwipeState curr) =>
-              prev.decisionError != curr.decisionError ||
-              prev.appliedNonce != curr.appliedNonce ||
-              prev.queue != curr.queue,
-          listener: (BuildContext context, SwipeState state) {
-            if (state.appliedNonce != _shownAppliedNonce) {
-              _shownAppliedNonce = state.appliedNonce;
-              _pendingSkipId = null;
-              // Apply truly succeeded — confirm with a lightweight toast and let
-              // the deck advance to the next card (no full-screen confirmation).
-              _toast(context, 'Applied');
-            } else if (state.decisionError != _shownDecisionError) {
-              _shownDecisionError = state.decisionError;
-              _pendingSkipId = null; // a failed skip never confirms
-              _toast(context, 'Could not save. Please try again.');
-            } else if (_pendingSkipId != null &&
-                state.current?.jobId != _pendingSkipId) {
-              // The skipped head advanced away with no error — confirm the skip.
-              _pendingSkipId = null;
-              _toast(context, 'Skipped');
-            }
-          },
-          builder: (BuildContext context, SwipeState state) {
-            return switch (state.status) {
-              SwipeStatus.loading => const BbStatusView.loading(),
-              SwipeStatus.error => _error(context, state),
-              SwipeStatus.consentRequired => _consentRequired(context),
-              SwipeStatus.empty => _empty(context),
-              SwipeStatus.ready =>
-                state.filteredOut ? _noMatch(context) : _feed(context, state),
-            };
-          },
+    // The IndexedStack keeps this branch mounted, so initState's feed request
+    // runs only on the first visit — refetch when the tab comes back into view
+    // (T4). background: true keeps the current deck on screen while it reloads.
+    return TabFocusRefetch(
+      tabFocus: locator<TabFocus>(),
+      index: TabIndex.jobs,
+      onFocused: () => context
+          .read<SwipeBloc>()
+          .add(const SwipeFeedRequested(background: true)),
+      child: Scaffold(
+        body: SafeArea(
+          bottom: false,
+          child: BlocConsumer<SwipeBloc, SwipeState>(
+            listenWhen: (SwipeState prev, SwipeState curr) =>
+                prev.decisionError != curr.decisionError ||
+                prev.appliedNonce != curr.appliedNonce ||
+                prev.queue != curr.queue,
+            listener: (BuildContext context, SwipeState state) {
+              if (state.appliedNonce != _shownAppliedNonce) {
+                _shownAppliedNonce = state.appliedNonce;
+                _pendingSkipId = null;
+                // Apply truly succeeded — confirm with a lightweight toast and let
+                // the deck advance to the next card (no full-screen confirmation).
+                _toast(context, 'Applied');
+              } else if (state.decisionError != _shownDecisionError) {
+                _shownDecisionError = state.decisionError;
+                _pendingSkipId = null; // a failed skip never confirms
+                _toast(context, 'Could not save. Please try again.');
+              } else if (_pendingSkipId != null &&
+                  state.current?.jobId != _pendingSkipId) {
+                // The skipped head advanced away with no error — confirm the skip.
+                _pendingSkipId = null;
+                _toast(context, 'Skipped');
+              }
+            },
+            builder: (BuildContext context, SwipeState state) {
+              return switch (state.status) {
+                SwipeStatus.loading => const BbStatusView.loading(),
+                SwipeStatus.error => _error(context, state),
+                SwipeStatus.consentRequired => _consentRequired(context),
+                SwipeStatus.empty => _empty(context),
+                SwipeStatus.ready =>
+                  state.filteredOut ? _noMatch(context) : _feed(context, state),
+              };
+            },
+          ),
         ),
       ),
     );

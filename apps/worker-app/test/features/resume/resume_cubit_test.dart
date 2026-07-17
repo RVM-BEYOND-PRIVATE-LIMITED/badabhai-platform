@@ -54,4 +54,89 @@ void main() {
     final ResumeCubit cubit = ResumeCubit(repo);
     expect(() => cubit.resolveDownloadUrl(), throwsA(isA<UnauthorizedFailure>()));
   });
+
+  // T4 — the Resume tab refetches when it comes back into view. It must REUSE
+  // the existing resume: a forced generate on every tab switch would overwrite
+  // the row server-side, reset the PDF to 'pending', re-enqueue the render and
+  // burn one of the worker's 5 daily generates — just for looking at the tab.
+  group('tab-focus refresh (T4)', () {
+    test('refresh NEVER forces a regenerate', () async {
+      when(() => repo.generateResume(force: any(named: 'force')))
+          .thenAnswer((_) async => 'resume text');
+      final ResumeCubit cubit = ResumeCubit(repo);
+      addTearDown(cubit.close);
+
+      await cubit.refresh();
+
+      // force: false is the reuse path — the repo only POSTs generate when there
+      // genuinely is no resume yet.
+      verify(() => repo.generateResume()).called(1);
+      verifyNever(() => repo.generateResume(force: true));
+    });
+
+    test('a failed refresh keeps the resume already on screen', () async {
+      when(() => repo.generateResume(force: any(named: 'force')))
+          .thenThrow(const NetworkFailure());
+      final ResumeCubit cubit = ResumeCubit(repo);
+      addTearDown(cubit.close);
+
+      // The worker is reading a resume; a background blip must not replace it
+      // with an error screen.
+      cubit.showGenerated('good resume');
+      await cubit.refresh();
+
+      expect(cubit.state.status, ResumeStatus.ready);
+      expect(cubit.state.resumeText, 'good resume');
+    });
+
+    test('a failed refresh DOES surface when nothing good is on screen',
+        () async {
+      when(() => repo.generateResume(force: any(named: 'force')))
+          .thenThrow(const NetworkFailure());
+      final ResumeCubit cubit = ResumeCubit(repo);
+      addTearDown(cubit.close);
+
+      await cubit.refresh();
+
+      expect(cubit.state.status, ResumeStatus.failed);
+    });
+
+    test('refresh does not emit a spinner over a readable resume', () async {
+      when(() => repo.generateResume(force: any(named: 'force')))
+          .thenAnswer((_) async {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        return 'fresh';
+      });
+      final ResumeCubit cubit = ResumeCubit(repo);
+      addTearDown(cubit.close);
+      cubit.showGenerated('stale');
+
+      final List<ResumeStatus> seen = <ResumeStatus>[];
+      final sub = cubit.stream.listen((ResumeState s) => seen.add(s.status));
+      addTearDown(sub.cancel);
+
+      await cubit.refresh();
+
+      expect(seen, isNot(contains(ResumeStatus.loading)),
+          reason: 'the worker must not watch their resume flash to a spinner');
+      expect(cubit.state.resumeText, 'fresh');
+    });
+
+    test('overlapping loads are ignored', () async {
+      int calls = 0;
+      when(() => repo.generateResume(force: any(named: 'force')))
+          .thenAnswer((_) async {
+        calls++;
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        return 'resume text';
+      });
+      final ResumeCubit cubit = ResumeCubit(repo);
+      addTearDown(cubit.close);
+
+      // Tab focus can fire while the create:-time generate is still in flight.
+      await Future.wait<void>(<Future<void>>[cubit.generate(), cubit.refresh()]);
+
+      expect(calls, 1, reason: 'the second load must be ignored, not stacked');
+    });
+  });
 }

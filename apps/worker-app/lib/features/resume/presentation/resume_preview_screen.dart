@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
+import '../../../core/nav/tab_focus.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -75,19 +76,31 @@ class _ResumeViewState extends State<_ResumeView> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<ResumeCubit, ResumeState>(
-      builder: (BuildContext context, ResumeState state) {
-        return BbScaffold(
-          appBar: const BbAppBar(title: 'Your resume'),
-          body: switch (state.status) {
-            ResumeStatus.loading =>
-              const Center(child: CircularProgressIndicator()),
-            ResumeStatus.noProfile => _buildNoProfile(context),
-            ResumeStatus.failed => _buildFailed(context),
-            ResumeStatus.ready => _buildResume(context, state.resumeText),
-          },
-        );
-      },
+    // The IndexedStack keeps this branch mounted, so create: runs only on the
+    // first visit — refetch when the tab comes back into view (T4).
+    //
+    // refresh(), never generate(force: true): a forced generate on every tab
+    // switch would overwrite the resume row server-side, reset the PDF to
+    // 'pending' and re-enqueue the render — binning the worker's rendered PDF
+    // and burning their 5/day generate cap just for looking at the tab.
+    return TabFocusRefetch(
+      tabFocus: locator<TabFocus>(),
+      index: TabIndex.resume,
+      onFocused: () => context.read<ResumeCubit>().refresh(),
+      child: BlocBuilder<ResumeCubit, ResumeState>(
+        builder: (BuildContext context, ResumeState state) {
+          return BbScaffold(
+            appBar: const BbAppBar(title: 'Your resume'),
+            body: switch (state.status) {
+              ResumeStatus.loading =>
+                const Center(child: CircularProgressIndicator()),
+              ResumeStatus.noProfile => _buildNoProfile(context),
+              ResumeStatus.failed => _buildFailed(context),
+              ResumeStatus.ready => _buildResume(context, state.resumeText),
+            },
+          );
+        },
+      ),
     );
   }
 
@@ -147,13 +160,15 @@ class _ResumeViewState extends State<_ResumeView> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const Icon(Icons.badge_outlined, size: 48, color: AppColors.textMuted),
+            const Icon(Icons.badge_outlined,
+                size: 48, color: AppColors.textMuted),
             const SizedBox(height: AppSpacing.s4),
             Text('Abhi resume nahi ban sakta.',
                 textAlign: TextAlign.center,
                 style: AppTypography.display(size: AppTypography.sizeMd)),
             const SizedBox(height: AppSpacing.s2),
-            Text('Pehle apna profile poora karein — fir resume apne aap ban jayega.',
+            Text(
+                'Pehle apna profile poora karein — fir resume apne aap ban jayega.',
                 textAlign: TextAlign.center,
                 style: AppTypography.body(color: AppColors.textSecondary)),
             const SizedBox(height: AppSpacing.s6),
@@ -173,7 +188,8 @@ class _ResumeViewState extends State<_ResumeView> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Icon(Icons.cloud_off_rounded, size: 48, color: AppColors.textMuted),
+          const Icon(Icons.cloud_off_rounded,
+              size: 48, color: AppColors.textMuted),
           const SizedBox(height: AppSpacing.s4),
           Text('Resume abhi ban nahi paya.',
               textAlign: TextAlign.center,

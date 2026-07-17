@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
+import '../../../core/nav/tab_focus.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
@@ -37,33 +38,40 @@ class _ProfileTabView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: BbAppBar(
-        title: 'Profile',
-        actions: <Widget>[
-          IconButton(
-            tooltip: 'Settings',
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => context.push(Routes.settings),
-          ),
-        ],
-      ),
-      body: BlocBuilder<ProfileTabCubit, ProfileTabState>(
-        builder: (BuildContext context, ProfileTabState state) {
-          return switch (state.status) {
-            ProfileTabStatus.loading => const BbStatusView.loading(),
-            ProfileTabStatus.failed => BbStatusView(
-                icon: failureReason(state.failure).icon,
-                title: 'Profile load nahi hui.',
-                subtitle: failureReason(state.failure).reason,
-                action: FilledButton(
-                  onPressed: () => context.read<ProfileTabCubit>().load(),
-                  child: const Text('Try again'),
+    // The IndexedStack keeps this branch mounted, so create: runs only on the
+    // first visit — refetch when the tab comes back into view (T4).
+    return TabFocusRefetch(
+      tabFocus: locator<TabFocus>(),
+      index: TabIndex.profile,
+      onFocused: () => context.read<ProfileTabCubit>().refresh(),
+      child: Scaffold(
+        appBar: BbAppBar(
+          title: 'Profile',
+          actions: <Widget>[
+            IconButton(
+              tooltip: 'Settings',
+              icon: const Icon(Icons.settings_outlined),
+              onPressed: () => context.push(Routes.settings),
+            ),
+          ],
+        ),
+        body: BlocBuilder<ProfileTabCubit, ProfileTabState>(
+          builder: (BuildContext context, ProfileTabState state) {
+            return switch (state.status) {
+              ProfileTabStatus.loading => const BbStatusView.loading(),
+              ProfileTabStatus.failed => BbStatusView(
+                  icon: failureReason(state.failure).icon,
+                  title: 'Profile load nahi hui.',
+                  subtitle: failureReason(state.failure).reason,
+                  action: FilledButton(
+                    onPressed: () => context.read<ProfileTabCubit>().load(),
+                    child: const Text('Try again'),
+                  ),
                 ),
-              ),
-            ProfileTabStatus.ready => _profile(context, state.summary!),
-          };
-        },
+              ProfileTabStatus.ready => _profile(context, state.summary!),
+            };
+          },
+        ),
       ),
     );
   }
@@ -237,7 +245,8 @@ class _ProfileTabView extends StatelessWidget {
               Text('Profile strength',
                   style: AppTypography.body(
                       size: AppTypography.sizeSm, weight: FontWeight.w700)),
-              Text(meter, style: AppTypography.mono(color: AppColors.textMuted)),
+              Text(meter,
+                  style: AppTypography.mono(color: AppColors.textMuted)),
             ],
           ),
           // A fraction bar exists ONLY when a real denominator exists.
