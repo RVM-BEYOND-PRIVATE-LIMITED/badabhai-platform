@@ -40,10 +40,17 @@ export interface MintPayerSessionOptions {
   apiUrl?: string;
 }
 
+/**
+ * A decoded JSON response body. Every endpoint this helper drives returns a JSON object
+ * (or nothing), so an index signature of `unknown` is the honest type: callers must narrow
+ * or cast each field deliberately rather than inheriting `any`'s free pass.
+ */
+type JsonBody = Record<string, unknown> | null;
+
 /** Minimal HTTP shape returned by {@link httpJson}. */
 interface JsonResponse {
   status: number;
-  json: any;
+  json: JsonBody;
 }
 
 /** A JSON round-trip against the live API (no auth header by default). */
@@ -59,7 +66,7 @@ async function httpJson(
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
-  return { status: res.status, json: text ? JSON.parse(text) : null };
+  return { status: res.status, json: text ? (JSON.parse(text) as JsonBody) : null };
 }
 
 /**
@@ -103,5 +110,5 @@ export async function mintPayerSession(
   expect(token, "login/verify must return an access_token").toBeTruthy();
   expect(payerId, "login/verify must return the server-assigned payer_id").toBeTruthy();
 
-  return { payerId: payerId!, token: token!, email, role: verify.json.role as string };
+  return { payerId: payerId!, token: token!, email, role: verify.json?.role as string };
 }

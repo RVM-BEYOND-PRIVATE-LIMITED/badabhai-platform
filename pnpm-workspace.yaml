@@ -32,6 +32,16 @@ ignoredBuiltDependencies:
 # so this is a safe same-major patch that clears the advisory.
 overrides:
   multer: ">=2.2.0"
+  # DEP-2 (2026-07-17). Both are TRANSITIVE and build/dev-time only; their parents pin
+  # the vulnerable lines, so a range-keyed override is the only lever short of bumping
+  # the parents (deferred: drizzle-kit rides the drizzle-orm bump, TD49).
+  #   postcss <8.5.10 — pinned by next@15.5; the vite copy is already patched.
+  #   esbuild <0.28.1 — pulled by drizzle-kit@0.30 (0.18/0.19, via the deprecated
+  #     @esbuild-kit loader). The advisory is a DEV-SERVER issue; drizzle-kit only
+  #     bundles config files and never serves — but the override clears it anyway and
+  #     is proven by `db:generate` + the full build below.
+  postcss@<8.5.10: ">=8.5.10"
+  esbuild@<0.28.1: ">=0.28.1"
 # Dependency-audit (`pnpm audit --audit-level high`) tracked exceptions. Each entry
 # is a HIGH/CRITICAL advisory that does NOT apply to this codebase, rationale logged
 # in the tech-debt register. Scoped to specific GHSA ids so the audit STILL fails on
