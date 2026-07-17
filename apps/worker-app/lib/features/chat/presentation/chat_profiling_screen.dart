@@ -24,6 +24,11 @@ const double _kNearBottomThreshold = 120;
 /// Hinglish label on the jump-to-bottom pill.
 const String _kNewMessageLabel = 'Naye message';
 
+/// Banner copy when the chat session could not be opened (#343). Honest about
+/// the cause: the connection was not established, and sending retries it.
+const String _kSessionFailedLabel =
+    'Server se connection nahi bana — message bhejenge to dobara try hoga.';
+
 class ChatProfilingScreen extends StatelessWidget {
   const ChatProfilingScreen({super.key});
 
@@ -77,6 +82,11 @@ class _ChatViewState extends State<_ChatView> {
   void _sendText(String text) {
     if (text.trim().isEmpty) return;
     context.read<ChatBloc>().add(ChatMessageSent(text));
+  }
+
+  /// Re-send the failed bubble at [index] (#343) — in place, no duplicate.
+  void _retry(int index) {
+    context.read<ChatBloc>().add(ChatRetryRequested(index));
   }
 
   /// Whether the viewport is within [_kNearBottomThreshold] of the end.
@@ -179,6 +189,7 @@ class _ChatViewState extends State<_ChatView> {
             return SafeArea(
               child: Column(
                 children: <Widget>[
+                  if (state.sessionFailed) _sessionBanner(),
                   Expanded(
                     child: Stack(
                       children: <Widget>[
@@ -188,8 +199,14 @@ class _ChatViewState extends State<_ChatView> {
                           itemCount: state.messages.length,
                           itemBuilder: (BuildContext context, int i) {
                             final ChatMessage m = state.messages[i];
+                            final bool failed =
+                                m.status == ChatSendStatus.failed;
                             return BbChatBubble(
-                                text: m.text, fromWorker: m.fromWorker);
+                              text: m.text,
+                              fromWorker: m.fromWorker,
+                              failed: failed,
+                              onRetry: failed ? () => _retry(i) : null,
+                            );
                           },
                         ),
                         if (_hasUnreadBelow)
@@ -256,6 +273,39 @@ class _ChatViewState extends State<_ChatView> {
                 height: AppSpacing.tap,
                 child: Icon(Icons.send_rounded,
                     color: AppColors.textOnBrand, size: 22),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Shown when the chat session could not be opened (#343).
+  ///
+  /// The failure used to be swallowed entirely: the worker typed answer after
+  /// answer into a session that was never opened, saw no error, and only found
+  /// out when their profile came out empty. The next send re-opens the session
+  /// lazily, so this states the real cause and what to do — no false blame on
+  /// the worker's internet, and no fake "sent" impression.
+  Widget _sessionBanner() {
+    return Container(
+      width: double.infinity,
+      color: AppColors.red50,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.s4,
+        vertical: AppSpacing.s3,
+      ),
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.cloud_off, size: 18, color: AppColors.red600),
+          const SizedBox(width: AppSpacing.s2),
+          Flexible(
+            child: Text(
+              _kSessionFailedLabel,
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: AppColors.red600,
               ),
             ),
           ),

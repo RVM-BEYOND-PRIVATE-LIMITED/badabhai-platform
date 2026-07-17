@@ -32,15 +32,22 @@ void main() {
     verify: (_) => verify(() => repo.ensureSession()).called(1),
   );
 
+  // #343 — the spinner still drops (the worker can type), but the failure is no
+  // longer SWALLOWED: sessionFailed surfaces a banner, and the repository
+  // re-opens the session on the next send.
   blocTest<ChatBloc, ChatState>(
-    'ChatStarted still drops the spinner when ensureSession fails',
+    'ChatStarted drops the spinner AND surfaces a failed session-open',
     build: () {
       when(() => repo.ensureSession()).thenThrow(const NetworkFailure());
       return ChatBloc(repo);
     },
     act: (ChatBloc b) => b.add(const ChatStarted()),
     expect: () => const <ChatState>[
-      ChatState(messages: <ChatMessage>[_opening], initializing: false),
+      ChatState(
+        messages: <ChatMessage>[_opening],
+        initializing: false,
+        sessionFailed: true,
+      ),
     ],
     verify: (_) => verify(() => repo.ensureSession()).called(1),
   );
@@ -106,8 +113,12 @@ void main() {
     verify: (_) => verifyNever(() => repo.sendMessage(any())),
   );
 
+  // #343 — this test used to assert the SILENT DROP as intended behaviour
+  // ("frozen UI"), actively protecting the defect: an undelivered message stayed
+  // rendered as if it had been sent. It now asserts the opposite — the bubble is
+  // MARKED failed so the worker knows and can retry.
   blocTest<ChatBloc, ChatState>(
-    'a send failure keeps the worker message and adds no reply (frozen UI)',
+    'a send failure MARKS the worker message failed (never a silent drop)',
     build: () {
       when(() => repo.ensureSession()).thenAnswer((_) async {});
       when(() => repo.sendMessage(any())).thenThrow(const NetworkFailure());
@@ -126,16 +137,103 @@ void main() {
         initializing: false,
         sending: true,
       ),
-      // Failure: keep the worker message, drop the typing indicator, no reply.
+      // Failure: the message is kept BUT flagged undelivered + retryable.
       ChatState(
         messages: <ChatMessage>[
           _opening,
-          ChatMessage(text: 'cnc', fromWorker: true),
+          ChatMessage(
+            text: 'cnc',
+            fromWorker: true,
+            status: ChatSendStatus.failed,
+          ),
         ],
         initializing: false,
       ),
     ],
   );
+
+  group('send failure + retry (#343)', () {
+    test('tapping retry re-sends in place and heals the bubble', () async {
+      when(() => repo.ensureSession()).thenAnswer((_) async {});
+      // Fail once, then succeed.
+      int calls = 0;
+      when(() => repo.sendMessage('cnc')).thenAnswer((_) async {
+        calls++;
+        if (calls == 1) throw const NetworkFailure();
+        return const ChatTurn(reply: 'Got it.');
+      });
+
+      final ChatBloc bloc = ChatBloc(repo);
+      addTearDown(bloc.close);
+
+      bloc.add(const ChatMessageSent('cnc'));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(bloc.state.messages[1].status, ChatSendStatus.failed);
+
+      // The worker taps the failed bubble (index 1).
+      bloc.add(const ChatRetryRequested(1));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(bloc.state.messages[1].status, ChatSendStatus.sent,
+          reason: 'the bubble healed');
+      expect(
+        bloc.state.messages.map((ChatMessage m) => m.text).toList(),
+        <String>[_opening.text, 'cnc', 'Got it.'],
+        reason: 'retry must NOT append a duplicate bubble',
+      );
+      expect(calls, 2);
+    });
+
+    test('a still-failing retry re-marks the bubble failed', () async {
+      when(() => repo.ensureSession()).thenAnswer((_) async {});
+      when(() => repo.sendMessage(any())).thenThrow(const NetworkFailure());
+
+      final ChatBloc bloc = ChatBloc(repo);
+      addTearDown(bloc.close);
+
+      bloc.add(const ChatMessageSent('cnc'));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      bloc.add(const ChatRetryRequested(1));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(bloc.state.messages[1].status, ChatSendStatus.failed);
+      expect(bloc.state.sending, isFalse);
+    });
+
+    test('a successful send clears the failed-session banner', () async {
+      // Session open fails, but the next send heals it (repo-level self-heal).
+      when(() => repo.ensureSession()).thenThrow(const NetworkFailure());
+      when(() => repo.sendMessage('cnc'))
+          .thenAnswer((_) async => const ChatTurn(reply: 'Got it.'));
+
+      final ChatBloc bloc = ChatBloc(repo);
+      addTearDown(bloc.close);
+
+      bloc.add(const ChatStarted());
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(bloc.state.sessionFailed, isTrue);
+
+      bloc.add(const ChatMessageSent('cnc'));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(bloc.state.sessionFailed, isFalse,
+          reason: 'a delivered message proves the session is open again');
+    });
+
+    test('retry ignores a non-failed or out-of-range index', () async {
+      when(() => repo.ensureSession()).thenAnswer((_) async {});
+
+      final ChatBloc bloc = ChatBloc(repo);
+      addTearDown(bloc.close);
+
+      // index 0 is bada bhai's opening message — not retryable.
+      bloc.add(const ChatRetryRequested(0));
+      bloc.add(const ChatRetryRequested(99));
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      verifyNever(() => repo.sendMessage(any()));
+    });
+  });
 
   // #344 — bloc 8.x runs handlers CONCURRENTLY by default. The reply emit used
   // to spread a `withWorker` list captured BEFORE the await, so a slow reply

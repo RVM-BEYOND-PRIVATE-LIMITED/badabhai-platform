@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/error/failure.dart';
+import 'package:badabhai_worker_app/core/widgets/bb_chat_bubble.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
@@ -198,5 +200,58 @@ void main() {
 
     expect(find.text('Naye message'), findsNothing);
     expect(controller.position.pixels, controller.position.maxScrollExtent);
+  });
+
+  // #343 — an undelivered message used to render exactly like a delivered one.
+  group('send-failure surface (#343)', () {
+    testWidgets('a failed send marks the bubble and offers retry',
+        (WidgetTester tester) async {
+      when(() => repo.sendMessage(any())).thenThrow(const NetworkFailure());
+      await pumpScreen(tester);
+
+      await tester.enterText(find.byType(TextField), 'cnc');
+      await tester.tap(find.byIcon(Icons.send_rounded));
+      await tester.pumpAndSettle();
+
+      // The worker's text is still there — but no longer pretending it arrived.
+      expect(find.text('cnc'), findsOneWidget);
+      expect(find.text(kChatSendFailedLabel), findsOneWidget);
+    });
+
+    testWidgets('tapping a failed bubble re-sends it', (WidgetTester tester) async {
+      int calls = 0;
+      when(() => repo.sendMessage('cnc')).thenAnswer((_) async {
+        calls++;
+        if (calls == 1) throw const NetworkFailure();
+        return const ChatTurn(reply: 'Got it.');
+      });
+      await pumpScreen(tester);
+
+      await tester.enterText(find.byType(TextField), 'cnc');
+      await tester.tap(find.byIcon(Icons.send_rounded));
+      await tester.pumpAndSettle();
+      expect(find.text(kChatSendFailedLabel), findsOneWidget);
+
+      // Tap the failed bubble itself — the whole bubble is the retry control.
+      await tester.tap(find.text(kChatSendFailedLabel));
+      await tester.pumpAndSettle();
+
+      expect(calls, 2);
+      expect(find.text(kChatSendFailedLabel), findsNothing,
+          reason: 'the bubble healed');
+      expect(find.text('Got it.'), findsOneWidget);
+      expect(find.text('cnc'), findsOneWidget,
+          reason: 'retry must not duplicate the bubble');
+    });
+
+    testWidgets('a failed session-open shows the banner',
+        (WidgetTester tester) async {
+      when(() => repo.ensureSession()).thenThrow(const NetworkFailure());
+      await pumpScreen(tester);
+
+      expect(find.byIcon(Icons.cloud_off), findsOneWidget);
+      // The worker can still type — the banner informs, it does not block.
+      expect(find.byType(TextField), findsOneWidget);
+    });
   });
 }

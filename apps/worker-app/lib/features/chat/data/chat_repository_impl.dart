@@ -27,8 +27,20 @@ class ChatRepositoryImpl implements ChatRepository {
   @override
   Future<ChatTurn> sendMessage(String text) async {
     final String? token = _session.sessionToken;
+    if (token == null) throw const UnauthorizedFailure();
+
+    // SELF-HEAL (#343): this used to throw UnauthorizedFailure whenever
+    // sessionId was null and never re-attempt, so ONE failed session-open — a
+    // routine 2G timeout — made every later message throw forever. The worker
+    // kept answering into a dead session with no error, and extraction then ran
+    // against an empty transcript. Re-open lazily instead; ensureSession throws
+    // a mapped Failure if it genuinely cannot, which the caller now surfaces.
+    if (_session.sessionId == null) {
+      await ensureSession();
+    }
+
     final String? sessionId = _session.sessionId;
-    if (token == null || sessionId == null) throw const UnauthorizedFailure();
+    if (sessionId == null) throw const UnauthorizedFailure();
     try {
       final ChatReply reply = await _api.sendMessage(
         sessionId: sessionId,
