@@ -495,7 +495,7 @@ void main() {
       expect(m.requiresOtpAfter, isNull, reason: 'unknown before any login');
       await m.verifyOtp('+910000000000', '123456');
 
-      expect(m.authSession?.tier, 'full');
+      expect(m.authSession?.tier, 2);
       expect(m.requiresOtpAfter, _kRequiresOtpAfter);
       expect(m.refreshExpiresAt, isNotNull);
     });
@@ -772,7 +772,9 @@ class _SessionApi extends ScriptAuthApi {
         accessExpiresAt: DateTime.now().add(const Duration(minutes: 15)),
         refreshExpiresAt: DateTime.now().add(const Duration(days: 30)),
         session: AuthSession(
-          tier: 'full',
+          // Engagement-tier INDEX (a number, as SessionInfo.tier is typed) —
+          // not a label. See the auth_api_test regression around the int cast.
+          tier: 2,
           expiresAt: DateTime.parse('2026-08-01T10:00:00.000Z'),
           requiresOtpAfter: _kRequiresOtpAfter,
         ),

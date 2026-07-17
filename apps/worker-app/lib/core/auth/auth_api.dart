@@ -25,14 +25,20 @@ import 'device_id.dart';
 /// rejected mid-action.
 class AuthSession extends Equatable {
   const AuthSession({
-    required this.tier,
+    this.tier,
     this.expiresAt,
     this.requiresOtpAfter,
   });
 
-  /// Session tier as the server names it (an opaque label to the client — the
-  /// app must not invent tier semantics the backend does not state).
-  final String tier;
+  /// Engagement-tier INDEX exactly as the server computes it — `SessionInfo.tier`
+  /// is a NUMBER (`tierFor()` → an index into the backend's SESSION_TIERS, where a
+  /// higher tier earns a longer idle TTL). Opaque to the client: the app must not
+  /// invent tier semantics the backend does not state.
+  ///
+  /// Null when the field is ABSENT or unreadable — never defaulted to `0`, which
+  /// is a REAL tier (the lowest) and would read as "least engaged" rather than
+  /// "the server didn't say" (same tri-state posture as [OtpVerifyResult.consentAccepted]).
+  final int? tier;
 
   /// Absolute expiry of the rolling session. Null when the server omitted it.
   final DateTime? expiresAt;
@@ -47,7 +53,7 @@ class AuthSession extends Equatable {
   static AuthSession? fromJsonOrNull(dynamic raw) {
     if (raw is! Map<String, dynamic>) return null;
     return AuthSession(
-      tier: raw['tier'] as String? ?? '',
+      tier: _parseTier(raw['tier']),
       expiresAt: _parseIso(raw['expires_at']),
       requiresOtpAfter: _parseIso(raw['requires_otp_after']),
     );
@@ -62,6 +68,20 @@ class AuthSession extends Equatable {
 DateTime? _parseIso(dynamic raw) {
   if (raw is! String || raw.isEmpty) return null;
   return DateTime.tryParse(raw);
+}
+
+/// Parses the engagement-tier index off the wire. The backend types it as a
+/// NUMBER (`SessionInfo.tier`); a numeric string is tolerated so a server that
+/// stringifies it still logs the worker in. Anything else → null (unknown).
+///
+/// Never throws, and never casts: a hard `as String?` here is what threw
+/// `type 'int' is not a subtype of type 'String?'` on every real OTP verify —
+/// [AuthSession.fromJsonOrNull] promises a tolerant parse, so it must not
+/// contain a cast that can take down a login the server already granted.
+int? _parseTier(dynamic raw) {
+  if (raw is num) return raw.toInt();
+  if (raw is String) return int.tryParse(raw);
+  return null;
 }
 
 /// A token set the client holds after OTP/PIN verify or a refresh.
