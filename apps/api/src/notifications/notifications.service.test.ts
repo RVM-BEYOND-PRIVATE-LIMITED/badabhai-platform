@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { isEventName } from "@badabhai/event-schema";
+import { EVENT_REGISTRY, isEventName } from "@badabhai/event-schema";
 import type { EventRow } from "@badabhai/db";
 import { NotificationsService } from "./notifications.service";
 import type { NotificationsRepository } from "./notifications.repository";
@@ -234,10 +234,92 @@ describe("notifications allowlist — validity + faceless copy", () => {
     ]);
   });
 
-  it("no allowlisted event is a payer/demand-side signal (the half of the scope line that still holds)", () => {
+  /**
+   * DEMAND-SIDE BAN — by PAYLOAD SHAPE, not by name (TD83(a), 2026-07-17).
+   *
+   * The original ban was a hand-written prefix regex, and it was false assurance: two of
+   * its seven prefixes (`credit.`, `boost.`) matched NOTHING in the registry (the real
+   * names are `coupon.redeemed` / `job_posting.boosted`), and it MISSED `applicant.viewed`
+   * — the profile-view signal its own docstring named as must-never-surface — plus
+   * `resume.disclosed`. Both carry `worker_id`, so both would SCOPE to a worker and
+   * SURFACE.
+   *
+   * Name- and domain-matching cannot work here BY CONSTRUCTION: `resume.generated`
+   * (lifecycle, allowlisted) and `resume.disclosed` (demand-side) share both a prefix AND
+   * a `domain: "resume"`. Any discriminator built on either is unfixable.
+   *
+   * The discriminator that DOES hold: an event whose payload names a PAYER is, by
+   * definition, describing something the demand side did or received. Read straight off
+   * the registry's Zod schema, so it cannot drift as the registry grows.
+   */
+  const COUNTERPARTY_PAYLOAD_KEY = "payer_id";
+
+  /**
+   * The payload's field names, read from the registry's Zod schema.
+   *
+   * Duck-typed on purpose. `payload instanceof z.ZodObject` is UNRELIABLE here: this
+   * package and @badabhai/event-schema resolve their own copies of zod, so the class
+   * identities differ and `instanceof` is false for EVERY entry — which would make the
+   * ban below pass vacuously on an empty key list. Returns null (never []) when the
+   * shape cannot be read, so the caller can fail loud instead of silently passing.
+   */
+  function payloadShapeKeys(name: string): string[] | null {
+    const payload = (EVENT_REGISTRY as Record<string, { payload?: unknown }>)[name]?.payload as
+      | { shape?: unknown; _def?: { shape?: unknown } }
+      | undefined;
+    const shape = payload?.shape ?? payload?._def?.shape;
+    const resolved = typeof shape === "function" ? (shape as () => unknown)() : shape;
+    return resolved && typeof resolved === "object"
+      ? Object.keys(resolved as Record<string, unknown>)
+      : null;
+  }
+
+  it("EVERY registry payload's shape is readable — the ban below is never vacuous", () => {
+    // The guard that guards the guard. If a payload ever stops being introspectable
+    // (a zod upgrade, a z.union payload, a dual-package break), the ban silently
+    // inspects nothing and passes. Fail HERE instead, loudly.
+    for (const name of Object.keys(EVENT_REGISTRY)) {
+      expect(payloadShapeKeys(name), `${name}: payload shape unreadable — the ban would go vacuous`)
+        .not.toBeNull();
+    }
+  });
+
+  it("no allowlisted event's payload names a PAYER — demand-side signals can never reach a worker", () => {
     for (const name of NOTIFICATION_EVENT_NAMES) {
-      expect(name, `${name} is a demand-side signal — it must never reach a worker`).not.toMatch(
-        /^(unlock|contact|payment|payer|credit|boost|job_posting)\./,
+      const keys = payloadShapeKeys(name);
+      expect(keys, `${name}: payload shape unreadable`).not.toBeNull();
+      expect(
+        keys,
+        `${name} carries ${COUNTERPARTY_PAYLOAD_KEY} — it describes what a PAYER did/received and must never reach a worker`,
+      ).not.toContain(COUNTERPARTY_PAYLOAD_KEY);
+    }
+  });
+
+  it("the ban has TEETH — it rejects every known scope-AND-surface event in the registry", () => {
+    // Proven against REAL registry entries, not a hypothetical. Each of these carries
+    // `worker_id` (so the repository's payload leg WOULD scope it to a worker) AND
+    // `payer_id` (so it is demand-side) — i.e. allowlisting any one of them would ship a
+    // payer signal to a worker. The ban above must catch all of them.
+    //
+    // The two marked (*) are precisely what the old prefix regex missed.
+    const SCOPE_AND_SURFACE = [
+      "unlock.requested",
+      "unlock.granted",
+      "unlock.denied",
+      "unlock.cap_exceeded",
+      "contact.revealed",
+      "applicant.viewed", // (*) the profile-view signal
+      "resume.disclosed", // (*) shares prefix AND domain with allowlisted resume.generated
+    ];
+
+    for (const name of SCOPE_AND_SURFACE) {
+      const keys = payloadShapeKeys(name);
+      expect(keys, `${name}: payload shape unreadable`).not.toBeNull();
+      expect(keys, `${name} must carry worker_id (else it would not scope to a worker)`).toContain(
+        "worker_id",
+      );
+      expect(keys, `${name} must carry ${COUNTERPARTY_PAYLOAD_KEY} (the ban's discriminator)`).toContain(
+        COUNTERPARTY_PAYLOAD_KEY,
       );
     }
   });
