@@ -562,16 +562,31 @@ class ApiClient {
   }
 
   /// Confirms the account delete with the OTP (POST /auth/account/delete/confirm
-  /// — A4, WorkerAuthGuard). Worker-scoped: requires [authToken]. The API returns
-  /// 204 (no body). FAIL-CLOSED: a 401 (bad OTP) / 429 (rate) / 503 surfaces as
-  /// an [ApiException] the caller maps to honest copy.
-  Future<void> confirmAccountDelete({
+  /// — A4 + ADR-0031, WorkerAuthGuard). Worker-scoped: requires [authToken]. The
+  /// API returns 200 `{success, scheduled_for}` (was 204): the delete is only
+  /// SCHEDULED — the 7-day grace starts and the session stays valid so the
+  /// worker can cancel. FAIL-CLOSED: a 401 (bad OTP) / 429 (rate) / 503 surfaces
+  /// as an [ApiException] the caller maps to honest copy.
+  Future<AccountDeleteConfirmResult> confirmAccountDelete({
     required String authToken,
     required String otp,
   }) async {
-    await _post(
+    final Map<String, dynamic> json = await _post(
       '/auth/account/delete/confirm',
       <String, dynamic>{'otp': otp},
+      authToken: authToken,
+    );
+    return AccountDeleteConfirmResult.fromJson(json);
+  }
+
+  /// Cancels a pending account deletion (POST /auth/account/delete/cancel —
+  /// ADR-0031, WorkerAuthGuard). Worker-scoped: requires [authToken]; the body
+  /// is empty — the worker is taken from the token, never the body. Idempotent
+  /// server-side: cancelling with nothing pending is a 200 no-op.
+  Future<void> cancelAccountDelete({required String authToken}) async {
+    await _post(
+      '/auth/account/delete/cancel',
+      <String, dynamic>{},
       authToken: authToken,
     );
   }

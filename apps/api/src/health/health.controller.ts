@@ -22,6 +22,17 @@ interface HealthResponse {
  * host, error message, or stack. The status code is set via a passthrough
  * Response so the structured body (with `checks`) survives on a 503 too, instead
  * of being re-wrapped by the global exceptions filter.
+ *
+ * `checks.deletion_sweep` (ADR-0031) is reported but deliberately does NOT gate the
+ * status code. READINESS answers "can this process serve requests?" — a dead sweep
+ * scheduler does not stop a single request path; every worker/payer route is fine and
+ * the DB marker keeps the erasure work list intact, so erasure is DELAYED, not lost.
+ * 503-ing on it would (a) fail the CD /health gate and the staging smoke, i.e. treat a
+ * background-clock hiccup as platform-down, and (b) in a rotation, pull a healthy API out
+ * of service — turning a delayed erasure into a real outage. It is surfaced for
+ * DETECTION instead: the field here, the processor's terminal error log, and the alert
+ * threshold in docs/observability-runbook.md §7 (SEV2 if it stays down — DPDP erasure
+ * has stopped).
  */
 @Controller("health")
 export class HealthController {
@@ -33,6 +44,7 @@ export class HealthController {
   @Get()
   async check(@Res({ passthrough: true }) res: Response): Promise<HealthResponse> {
     const checks = await this.health.check();
+    // Gate: hard dependencies only — see the deletion_sweep note above.
     const healthy = checks.database === "up" && checks.redis === "up";
 
     res.status(healthy ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE);

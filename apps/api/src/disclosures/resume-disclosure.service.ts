@@ -47,6 +47,7 @@ type DisclosurePlan =
  *
  * FAIL-CLOSED ORDERING (addendum §1; every gate denies + discloses nothing on failure):
  *   [1] employer_sharing consent  → fail → neutral "unavailable" (no oracle)
+ *   [1b] ADR-0031 pending-deletion freeze (ruling (b)) → same neutral (re-checked in-tx)
  *   [2] SHARED worker cap (atomic) → fail → neutral "unavailable"
  *   [3] payment                    → REMOVED (free)
  *   [4] grant resume_disclosures   → status granted
@@ -84,6 +85,16 @@ export class ResumeDisclosureService {
     // fix; mirrors UnlockService). Both are tx-external reads on the global pool. ----
     const consented = await this.isConsentedForSharing(workerId);
     const workerPresent = consented || (await this.workerExists(workerId));
+
+    // ---- ADR-0031 payer-surface freeze (ruling (b)) — pending-deletion gate ------
+    // A worker inside the deletion grace window is not disclosable: deny with the SAME
+    // byte-identical neutral body (no oracle — indistinguishable from no-consent/
+    // capped/unknown/no-resume). Tx-external read beside the consent read (deadlock
+    // rule); the tx below RE-CHECKS under the lock. No denied row is written: the
+    // deny-reason enum carries no pending value and a leaving worker should accrue no
+    // new rows keyed on them.
+    if (await this.isPendingDeletion(workerId)) return neutralUnavailable();
+
     // The name-free render source (latest snapshot). Reading it pre-lock is safe — it
     // is not contended and carries NO PII (the real name is NOT in the snapshot).
     const source = consented ? await this.repo.findResumeSource(workerId) : undefined;
@@ -103,6 +114,15 @@ export class ResumeDisclosureService {
         }
         return { kind: "neutral" };
       }
+
+      // ---- ADR-0031 pending-deletion RE-CHECK (under the lock) --------------------
+      // The pre-lock gate denied the common case; this closes the race where the
+      // deletion is scheduled between that read and the lock — placed BEFORE the
+      // idempotent-reuse branch so a live disclosure is never RE-MINTED (a fresh
+      // signed URL is a new disclosure) during grace. ONE cheap tx-SCOPED pk read
+      // (deadlock rule); a gone row is the same neutral.
+      const marker = await this.repo.getWorkerDeletionMarker(tx, workerId);
+      if (!marker || marker.deletionScheduledAt !== null) return { kind: "neutral" };
 
       // ---- [2] SHARED worker-protection cap (atomic, under the lock) --------------
       if (await this.isOverSharedCap(tx, workerId)) {
@@ -327,6 +347,22 @@ export class ResumeDisclosureService {
       return (await this.workers.findById(workerId)) !== undefined;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * ADR-0031 payer-surface freeze (ruling (b)): true when the worker has a PENDING
+   * scheduled deletion (`deletion_scheduled_at` set) — a leaving worker's resume is
+   * not disclosable; the caller denies with the byte-identical neutral body (no
+   * oracle). Tx-EXTERNAL read (pre-lock only; the in-tx re-check uses the tx-scoped
+   * marker read). Fail closed: a read error counts as pending (disclose nothing).
+   */
+  private async isPendingDeletion(workerId: string): Promise<boolean> {
+    try {
+      const worker = await this.workers.findById(workerId);
+      return worker !== undefined && worker.deletionScheduledAt !== null;
+    } catch {
+      return true; // fail closed
     }
   }
 }

@@ -3,7 +3,7 @@ import { BullModule } from "@nestjs/bullmq";
 import { JwtModule } from "@nestjs/jwt";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
-import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
+import { ACCOUNT_DELETION_QUEUE, RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { SmsModule } from "../sms/sms.module";
 import { ConsentModule } from "../consent/consent.module";
 import { StorageModule } from "../storage/storage.module";
@@ -12,6 +12,7 @@ import { AuthService } from "./auth.service";
 import { OtpService } from "./otp.service";
 import { SessionService } from "./session.service";
 import { AccountDeletionService } from "./account-deletion.service";
+import { AccountDeletionSweepProcessor } from "./account-deletion-sweep.processor";
 import { WorkerAuthGuard } from "./worker-auth.guard";
 import { ConsentGuard, ConsentNotRevokedGuard } from "./consent.guard";
 import { TestLoginGuard } from "./test-login.guard";
@@ -37,6 +38,8 @@ import { PinHasher } from "./pin-hasher.service";
     // the queue only to obtain its client — no second connection), exactly like
     // RateLimitModule does.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
+    // ADR-0031 — the deletion-grace sweep queue (repeatable tick; DB marker authoritative).
+    BullModule.registerQueue({ name: ACCOUNT_DELETION_QUEUE }),
     // Sign worker session tokens with JWT_SECRET from validated server config.
     // Pin the algorithm to HS256 (defense-in-depth): never accept a token signed
     // with a different/`none` alg, so a future asymmetric-key change can't open an
@@ -62,6 +65,7 @@ import { PinHasher } from "./pin-hasher.service";
     OtpService,
     SessionService,
     AccountDeletionService,
+    AccountDeletionSweepProcessor,
     WorkerAuthGuard,
     ConsentGuard,
     ConsentNotRevokedGuard,

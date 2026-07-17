@@ -114,11 +114,26 @@ Read-only ops console views (internal, [`apps/web/src/app/ops`](../apps/web/src/
 | Workers | [`ops/workers/page.tsx`](../apps/web/src/app/ops/workers/page.tsx) | Worker / per-worker drill-down (PII-gated)          |
 
 **Health endpoint.** [`apps/api/src/health/health.controller.ts`](../apps/api/src/health/health.controller.ts)
-`GET /health` returns `{ status, service, environment, timestamp }` — a liveness
-probe only (no dependency checks today).
+`GET /health` is a real **readiness** probe: it returns
+`{ status, service, environment, timestamp, checks }` and actively probes its
+dependencies on every call over their EXISTING connections
+([`health.service.ts`](../apps/api/src/health/health.service.ts), each capped at a
+2s timeout):
 
-> TODO(verify): `/health` does not currently probe DB / Redis / AI-service
-> reachability — readiness/dependency checks are a follow-up (see §8).
+| `checks` key     | Probe                                                  | Gates the status code?                       |
+| ---------------- | ------------------------------------------------------ | -------------------------------------------- |
+| `database`       | `SELECT 1` over the pooled Drizzle connection          | **Yes** — `down` ⇒ `503` + `status: "error"` |
+| `redis`          | `PING` over the BullMQ ioredis client                  | **Yes** — `down` ⇒ `503` + `status: "error"` |
+| `deletion_sweep` | the ADR-0031 sweep job scheduler exists in Redis        | **No** — informational (see §7)              |
+
+Each check carries only `up` / `down` — never a connection string, host, error
+message, or stack, and no PII/identifiers of any kind. `deletion_sweep` deliberately
+does **not** 503: a dead background clock delays erasure but breaks no request path,
+and 503-ing would fail the CD health-gate + staging smoke (turning a delayed erasure
+into an outage). It is a **detection** signal — see §7.
+
+> TODO(verify): `/health` does not probe **AI-service** reachability — that check is
+> still a follow-up (see §8).
 
 ---
 
@@ -180,6 +195,54 @@ Redis.
 > TODO(verify): there is no dashboard for the BullMQ **failed set** today —
 > visibility is via logs + the terminal-failure event. A Bull Board / failed-job
 > view is a follow-up.
+
+### Account-deletion sweep not running (ADR-0031 — DPDP erasure)
+
+The 7-day grace ends in a **hard delete driven by a repeatable BullMQ job**
+([`account-deletion-sweep.processor.ts`](../apps/api/src/auth/account-deletion-sweep.processor.ts)).
+The DB marker (`workers.deletion_scheduled_at`) is authoritative, so a **lost job** is
+harmless — the next tick re-reads the marker. A failed **registration** is not: there is
+then no next tick at all, overdue rows accumulate unerased, and the API looks perfectly
+healthy. Two guards:
+
+- **Self-healing:** boot registration retries on a bounded backoff (1 attempt + 4 retries,
+  ~80s) — covers the transient cause (Redis not up yet / failing over / rolling deploy).
+- **Loud:** on exhaustion the processor logs a terminal `logger.error`
+  ("sweep scheduler registration FAILED after 5 attempts …"), and **`GET /health` reports
+  `checks.deletion_sweep: "down"`** (§4) — a live lookup of the scheduler in Redis, so it
+  also catches a scheduler removed out-of-band (Redis flush/eviction, a manual clean), not
+  just a failed boot.
+
+Neither path touches the marker: erasure is **delayed, never lost** — a re-registered
+sweep (or another replica) drains the backlog in schedule order on its next tick.
+
+**What to watch:** `checks.deletion_sweep` on `/health` (unauthenticated, so it is
+pollable by any uptime check), plus the terminal registration `error` log line.
+
+**Suggested alert threshold** (wire when alerting lands, §8): `deletion_sweep: "down"`
+for **> 15 minutes** (i.e. it outlived the retry ladder and a restart) → **SEV2**:
+DPDP erasure has stopped platform-wide, and the promise the app makes the worker
+("7 din mein delete ho jaata hai") is silently unmet. A `down` that clears within a
+couple of minutes is the backoff doing its job — SEV4-noise. Note this is a **global**
+signal, not per-worker: a leaver whose grace elapses during the gap is simply erased late.
+
+**First response:**
+
+1. Check `checks.redis` on the same response — if Redis is `down`, this is a Redis
+   incident (the API is already 503-ing); fix that first, the sweep re-registers on boot.
+2. Redis up but sweep `down` ⇒ the registration is failing on a **non-transient** cause
+   (that is exactly what the bounded ladder is designed to expose): read the API log for
+   `sweep scheduler registration attempt N/5 failed (reason: …)`. `NOPERM`/`WRONGPASS` =
+   Redis ACL/credentials for the queue prefix; a `TypeError`/unknown-command shape =
+   bullmq version mismatch against `upsertJobScheduler` (needs ≥ 5.16).
+3. Mitigate by restarting the API process once the cause is fixed — boot re-registers the
+   scheduler idempotently (`ACCOUNT_DELETION_SWEEP_SCHEDULER_ID`, same id, no duplicates).
+4. Quantify the backlog (how many workers are erasing late) with a **read-only** count of
+   due rows — never a manual delete; erasure only ever runs through
+   `AccountDeletionService.execute` (any production data operation ⇒ escalate, CLAUDE.md §7):
+   ```sql
+   SELECT count(*) FROM workers WHERE deletion_scheduled_at <= now();
+   ```
 
 ### AI spend-cap exceeded
 

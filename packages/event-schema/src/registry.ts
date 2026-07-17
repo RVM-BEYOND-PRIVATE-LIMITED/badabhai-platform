@@ -114,6 +114,23 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerAccountDeletedPayload,
   },
+  // ADR-0031 — 7-day deletion grace window (amends ADR-0026 Phase 5 D1/D2/D4). Confirm now
+  // SCHEDULES the erasure instead of executing it: this event records the schedule (opaque
+  // worker_id + the due timestamp — no PII). worker.account_deleted above remains the FINAL
+  // erasure record, emitted by the sweep once the grace elapses. First *_scheduled/_cancelled
+  // pair in the registry (paired-verb precedent: job_posting.paused/resumed). v1.
+  "worker.deletion_scheduled": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerDeletionScheduledPayload,
+  },
+  // ADR-0031 — the worker cancelled the pending deletion during grace (explicit action only —
+  // login never auto-cancels). Opaque worker_id only. v1.
+  "worker.deletion_cancelled": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerDeletionCancelledPayload,
+  },
   // OTP-5 global daily SEND circuit-breaker breach (worker SMS path). AGGREGATE /
   // PII-free: channel/cap enums + integer limit + UTC-day string ONLY — no worker id,
   // phone, IP, or code. Emitted once per breach (the spend ceiling tripped).

@@ -53,7 +53,14 @@ function make() {
     describe: vi.fn(async () => ({ tier: 1, expiresAtMs: Date.UTC(2026, 6, 27), requiresOtpAfterMs: null })),
   };
   const workers = {
+    // SELECT * — the account-delete step-up path needs the encrypted phone to send the OTP.
     findById: vi.fn(async () => ({ id: WORKER.id, status: "active", phoneE164: "ENC(+91999)" })),
+    // ADR-0031 — GET /auth/me's EXPLICIT-projection read: status + the deletion marker only.
+    // The absence of PII keys here is the point (see the /auth/me tests below).
+    findSelfView: vi.fn(async (): Promise<{ status: string; deletionScheduledAt: Date | null } | undefined> => ({
+      status: "active",
+      deletionScheduledAt: null,
+    })),
   };
   const ipRateLimit = {
     assertWithinHourlyIpCap: vi.fn(async () => undefined),
@@ -65,7 +72,12 @@ function make() {
     verify: vi.fn(async () => undefined),
   };
   const pii = { decrypt: vi.fn((t: string) => t.replace(/^ENC\(|\)$/g, "")) };
-  const accountDeletion = { execute: vi.fn(async () => undefined) };
+  // ADR-0031 — confirm SCHEDULES (never executes in-request); cancel is idempotent.
+  const accountDeletion = {
+    execute: vi.fn(async () => undefined),
+    schedule: vi.fn(async () => ({ scheduled_for: "2026-07-21T10:00:00.000Z" })),
+    cancel: vi.fn(async () => ({ cancelled: true })),
+  };
   const consents = { findLatestByWorker: vi.fn(async () => undefined) };
   const config = { OTP_MAX_SENDS_PER_HOUR: 5, TEST_LOGIN_MAX_PER_DAY: 200 } as ServerConfig;
   const controller = new AuthController(
@@ -260,6 +272,63 @@ describe("AuthController", () => {
     expect(JSON.stringify(res)).not.toMatch(/phone|full_?name/i);
   });
 
+  // ---- ADR-0031 — /auth/me is the pending-deletion seam for EVERY entry path ----
+
+  it("me CARRIES deletion_scheduled_for (ISO-8601) while a deletion is pending", async () => {
+    const { controller, workers } = make();
+    (workers.findSelfView as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: "active",
+      deletionScheduledAt: new Date("2026-07-21T10:00:00.000Z"),
+    });
+
+    const res = await controller.me(WORKER);
+
+    // The seam a PIN-unlock / refresh cold start can reach — OTP-verify is never hit there,
+    // so without this the app has no banner and no way to cancel for the rest of the grace.
+    expect(res).toEqual({
+      worker_id: WORKER.id,
+      status: "active",
+      deletion_scheduled_for: "2026-07-21T10:00:00.000Z",
+    });
+  });
+
+  it("me OMITS deletion_scheduled_for when nothing is pending (absent — never null)", async () => {
+    const { controller } = make();
+    const res = await controller.me(WORKER);
+    // Absent vs null matters: the client's rule is `field present ⇔ deletion pending`.
+    expect("deletion_scheduled_for" in res).toBe(false);
+    expect(JSON.stringify(res)).not.toMatch(/deletion_scheduled_for/);
+  });
+
+  it("me reads the marker EXPLICITLY (findSelfView) — never the SELECT-* findById that carries PII", async () => {
+    const { controller, workers } = make();
+    (workers.findSelfView as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: "active",
+      deletionScheduledAt: new Date("2026-07-21T10:00:00.000Z"),
+    });
+
+    const res = await controller.me(WORKER);
+
+    expect(workers.findSelfView).toHaveBeenCalledWith(WORKER.id);
+    expect(workers.findById).not.toHaveBeenCalled();
+    // The pending response is PII-free: no phone/name/hash key, and no encrypted blob
+    // (findById's row carries phoneE164: "ENC(+91999)" — it must not reach the wire).
+    const serialized = JSON.stringify(res);
+    expect(serialized).not.toMatch(/phone|full_?name|hash|ENC\(|\+91/i);
+    expect(Object.keys(res).sort()).toEqual([
+      "deletion_scheduled_for",
+      "status",
+      "worker_id",
+    ]);
+  });
+
+  it("me never FABRICATES a date: a worker row that vanished mid-session → status fallback, no field", async () => {
+    const { controller, workers } = make();
+    (workers.findSelfView as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+    const res = await controller.me(WORKER);
+    expect(res).toEqual({ worker_id: WORKER.id, status: "active" });
+  });
+
   it("refresh mints a fresh token from the bearer", async () => {
     const { controller, sessions } = make();
     const res = await controller.refresh(reqWith());
@@ -377,19 +446,23 @@ describe("AuthController", () => {
     expect(auth.issueAndSendWithSignals).toHaveBeenCalledWith("+91999", CTX);
   });
 
-  it("accountDeleteConfirm verifies the step-up OTP THEN runs the erasure (204)", async () => {
+  it("accountDeleteConfirm verifies the step-up OTP THEN schedules (ADR-0031) — 200 {success, scheduled_for}", async () => {
     const { controller, otp, accountDeletion } = make();
-    await controller.accountDeleteConfirm(WORKER, { otp: "123456" } as never);
+    const res = await controller.accountDeleteConfirm(WORKER, { otp: "123456" } as never, CTX);
     expect(otp.verify).toHaveBeenCalledWith("+91999", "123456");
-    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id);
+    // Confirm SCHEDULES — the erasure itself runs in the sweep after the grace elapses.
+    expect(accountDeletion.schedule).toHaveBeenCalledWith(WORKER.id, CTX);
+    expect(accountDeletion.execute).not.toHaveBeenCalled();
+    expect(res).toEqual({ success: true, scheduled_for: "2026-07-21T10:00:00.000Z" });
   });
 
-  it("accountDeleteConfirm does NOT delete when the OTP verify throws (fail closed)", async () => {
+  it("accountDeleteConfirm schedules NOTHING when the OTP verify throws (fail closed)", async () => {
     const { controller, otp, accountDeletion } = make();
     (otp.verify as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new UnauthorizedException("bad otp"));
     await expect(
-      controller.accountDeleteConfirm(WORKER, { otp: "000000" } as never),
+      controller.accountDeleteConfirm(WORKER, { otp: "000000" } as never, CTX),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(accountDeletion.schedule).not.toHaveBeenCalled();
     expect(accountDeletion.execute).not.toHaveBeenCalled();
   });
 
@@ -397,19 +470,23 @@ describe("AuthController", () => {
 
   it("accountDeleteConfirm IDENTITY is the GUARD's worker.id — a body worker_id is IGNORED (no IDOR)", async () => {
     // The handler signature only accepts {otp}; even if a hostile body smuggles a worker_id,
-    // execute() must always run against the TOKEN's worker.id, never the body. Assert the
-    // erasure + the OTP gate both target the guard identity, not the injected victim id.
+    // schedule() must always run against the TOKEN's worker.id, never the body. Assert the
+    // scheduling + the OTP gate both target the guard identity, not the injected victim id.
     const { controller, otp, accountDeletion } = make();
     const VICTIM = "99999999-9999-4999-8999-999999999999";
-    await controller.accountDeleteConfirm(WORKER, {
-      otp: "123456",
-      worker_id: VICTIM,
-    } as never);
+    await controller.accountDeleteConfirm(
+      WORKER,
+      {
+        otp: "123456",
+        worker_id: VICTIM,
+      } as never,
+      CTX,
+    );
     // The OTP was verified against the TOKEN worker's phone (resolved from WORKER.id).
     expect(otp.verify).toHaveBeenCalledWith("+91999", "123456");
-    // The erasure targets the GUARD's id — never the injected victim id.
-    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id);
-    expect(accountDeletion.execute).not.toHaveBeenCalledWith(VICTIM);
+    // The schedule targets the GUARD's id — never the injected victim id.
+    expect(accountDeletion.schedule).toHaveBeenCalledWith(WORKER.id, CTX);
+    expect(accountDeletion.schedule).not.toHaveBeenCalledWith(VICTIM, expect.anything());
   });
 
   it("accountDeleteRequest resolves the phone from the GUARD worker (not a body) — body is unused", async () => {
@@ -434,13 +511,42 @@ describe("AuthController", () => {
     expect(json).not.toMatch(/otp/i);
   });
 
-  it("accountDeleteConfirm returns void (204) and surfaces no PII", async () => {
+  it("accountDeleteConfirm returns 200 {success, scheduled_for} and surfaces no PII", async () => {
     const { controller } = make();
-    const res = await controller.accountDeleteConfirm(WORKER, { otp: "123456" } as never);
-    expect(res).toBeUndefined(); // 204 No Content — body is the PII-free event, not the response
+    const res = await controller.accountDeleteConfirm(WORKER, { otp: "123456" } as never, CTX);
+    expect(res).toEqual({ success: true, scheduled_for: "2026-07-21T10:00:00.000Z" });
+    const json = JSON.stringify(res);
+    // No decrypted phone, no OTP code — only the success flag + the PII-free due time.
+    expect(json).not.toContain("+91999");
+    expect(json).not.toMatch(/otp/i);
+  });
+
+  // ---- ADR-0031 — cancel-anytime during the grace window ----
+
+  it("accountDeleteCancel delegates to cancel(worker.id, ctx) and returns { success: true }", async () => {
+    const { controller, accountDeletion } = make();
+    const res = await controller.accountDeleteCancel(WORKER, CTX);
+    expect(accountDeletion.cancel).toHaveBeenCalledWith(WORKER.id, CTX);
+    expect(res).toEqual({ success: true });
+  });
+
+  it("accountDeleteCancel is idempotent: still { success: true } when nothing was pending (no oracle)", async () => {
+    const { controller, accountDeletion } = make();
+    (accountDeletion.cancel as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ cancelled: false });
+    const res = await controller.accountDeleteCancel(WORKER, CTX);
+    expect(res).toEqual({ success: true });
+  });
+
+  it("accountDeleteCancel NEVER runs the erasure or the OTP gate (purely recoverable action)", async () => {
+    const { controller, otp, accountDeletion } = make();
+    await controller.accountDeleteCancel(WORKER, CTX);
+    expect(otp.verify).not.toHaveBeenCalled();
+    expect(accountDeletion.execute).not.toHaveBeenCalled();
+    expect(accountDeletion.schedule).not.toHaveBeenCalled();
   });
 });
 
 // Guard metadata (401 for an unauthenticated caller) is asserted structurally in
-// account-deletion.module.boot.test.ts: both routes carry @UseGuards(WorkerAuthGuard), so an
-// unauthenticated request is rejected by the guard before either handler body runs.
+// account-deletion.module.boot.test.ts: all three deletion routes (request/confirm/cancel)
+// carry @UseGuards(WorkerAuthGuard), so an unauthenticated request is rejected by the guard
+// before any handler body runs. Cancel deliberately carries NO ConsentGuard (ADR-0031).

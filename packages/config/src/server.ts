@@ -257,6 +257,17 @@ export const serverEnvSchema = z.object({
   //   min(0) is DELIBERATE: 0 = PAUSED = the test-login kill-switch — the next mint
   //   is refused instantly (env-only, NO redeploy), without disarming the flag.
   TEST_LOGIN_MAX_PER_DAY: z.coerce.number().int().min(0).default(200),
+  // ADR-0031 — the PRE-erasure grace window (days). Confirm schedules the hard-delete at
+  // now() + this many days (workers.deletion_scheduled_at); the worker may cancel anytime
+  // until the sweep erases. positive(): 0 would silently restore ADR-0026's immediate
+  // erasure and break the app's disclosed "7 din" promise — an instant-delete regression
+  // must be an explicit code change, not an env value. NOT the same knob as the
+  // POST-erasure re-registration cool-down above.
+  ACCOUNT_DELETION_GRACE_DAYS: z.coerce.number().int().positive().default(7),
+  // Cadence (hours) of the deletion sweep that erases overdue rows. The DB marker is
+  // authoritative — a missed run only delays erasure until the next sweep. Fractional
+  // hours allowed for tests/staging (cadence precedent: PACE_WAVE_INTERVAL_HOURS).
+  ACCOUNT_DELETION_SWEEP_INTERVAL_HOURS: z.coerce.number().positive().default(1),
 
   // OTP shape + lifecycle. The code is generated with crypto.randomInt per digit,
   // stored ONLY as a keyed HMAC, single-use, and rate-limited per phone + per IP.
