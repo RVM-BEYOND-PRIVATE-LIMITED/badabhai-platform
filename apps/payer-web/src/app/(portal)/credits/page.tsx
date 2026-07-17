@@ -7,10 +7,12 @@ import {
   unlockUnitPriceInr,
 } from "../../../lib/pricing-config";
 import { buildTransactionHistory, creditExpirySchedule } from "../../../lib/credit-history";
+import { getLiveCatalog } from "../../../lib/live-catalog";
 import { formatInr } from "../../../lib/format";
 import { opaqueId } from "../../../lib/masking";
 import type { CreditTopUp, Dashboard, UnlockHistoryItem } from "../../../lib/contracts";
 import { Badge, Card, StatTile, Toast } from "../../../components/ds";
+import { CachedPricingNote } from "../../../components/cached-pricing-note";
 import { RetryButton } from "../../../components/retry-button";
 import { CreditsPanel } from "./credits-panel";
 
@@ -26,9 +28,13 @@ function day(ts: string): string {
  * Credit top-up + history (ADR-0019 Phase 1 — MOCK ledger, no real money / XT5) — DS1.4
  * re-skin onto the design system (visual only; data + config + RBAC unchanged).
  *
- * Packs and the per-unlock unit price are read from CONFIG (`DEFAULT_CATALOG` via
- * pricing-config), never hardcoded. There is no Razorpay / card path; a real-payment path
- * is a HARD human gate (Decision D / §7). All ₹ / counts render in mono tabular.
+ * Packs and the per-unlock unit price are read from the LIVE catalog (D-6:
+ * `getLiveCatalog` → GET /payer/pricing/catalog via pricing-config), never hardcoded —
+ * an ops price edit shows here without a rebuild. On a catalog fetch failure the page
+ * degrades to the compile-time defaults with the subtle cached-pricing note (fail-open
+ * is safe: the server re-resolves the real price at purchase, XT5). There is no
+ * Razorpay / card path; a real-payment path is a HARD human gate (Decision D / §7).
+ * All ₹ / counts render in mono tabular.
  *
  * PII-free (ids/amounts only — never a worker name/phone). ORG-RBAC: billing/wallet is an
  * OWNER-only surface — `requireOwner()` gates it SERVER-SIDE (a Recruiter gets a neutral 404).
@@ -36,8 +42,9 @@ function day(ts: string): string {
 export default async function CreditsPage() {
   await requireOwner(); // Owner-only billing/wallet — Recruiter ⇒ neutral 404 (no-oracle).
 
-  const packs = offeredCreditPacks();
-  const unit = unlockUnitPriceInr();
+  const { products, live } = await getLiveCatalog();
+  const packs = offeredCreditPacks(products);
+  const unit = unlockUnitPriceInr(products);
   const threshold = lowBalanceThreshold();
 
   let dashboard: Dashboard | null = null;
@@ -72,6 +79,8 @@ export default async function CreditsPage() {
         1 credit = 1 contact unlock{unit !== null ? ` (${formatInr(unit)} per unlock)` : ""}. Mock top-up —
         no real payment is taken in this staging preview.
       </p>
+
+      {!live ? <CachedPricingNote /> : null}
 
       {lowBalance ? (
         <Card variant="outline" className="credits-alert">

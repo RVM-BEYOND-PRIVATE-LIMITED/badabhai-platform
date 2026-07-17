@@ -27,6 +27,7 @@ import { WorkersController } from "../workers/workers.controller";
 import { PayerAuthController } from "../payer-portal/payer-auth.controller";
 import { PayerUnlocksController } from "../payer-portal/payer-unlocks.controller";
 import { PayerCapacityController } from "../payer-portal/payer-capacity.controller";
+import { PayerPricingController } from "../payer-portal/payer-pricing.controller";
 import { PayerReachController } from "../payer-portal/payer-reach.controller";
 import { AgencyJobsController } from "../agency/agency-jobs.controller";
 import { AgencyInvitesController } from "../agency/agency-invites.controller";
@@ -177,6 +178,10 @@ const CONTRACT: ControllerContract[] = [
     routes: { ownCapacity: [P], buyCapacity: [P] },
   },
   { name: "PayerReach", ctor: PayerReachController, routes: { applicants: [P] } },
+  // Payer-facing LIVE catalog read (D-6): read-only products projection, session-authed
+  // like every other payer-web data fetch (the ops GET /pricing/catalog stays its own
+  // principal above — it is slated for an admin guard and serves the FULL catalog).
+  { name: "PayerPricing", ctor: PayerPricingController, routes: { getCatalog: [P] } },
   // Agency Supply Portal (ADR-0022): EVERY route is agent-only — the VERTICAL-authz
   // [PayerAuthGuard, PayerRoleGuard] chain (@PayerRoles('agent')). Tenant isolation
   // (jobs.payer_id / agency_invites.inviter_payer_id) is enforced separately in the

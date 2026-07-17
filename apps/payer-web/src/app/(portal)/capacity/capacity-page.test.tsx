@@ -28,10 +28,14 @@ const getCapacity = vi.fn<() => Promise<Capacity>>();
 const hiringCapacityTiers = vi.fn(() => [
   { code: "growth", priceInr: 4999, maxActiveVacancies: 10 },
 ]);
+// The LIVE catalog seam (D-6): default = live (no cached-pricing note); a dedicated test
+// flips it to the fallback. The tier VALUES stay pinned by the pricing-config mock above.
+const getLiveCatalog = vi.fn(async () => ({ products: [], live: true }));
 
 vi.mock("../../../lib/auth", () => ({ requirePayer: () => requirePayer() }));
 vi.mock("../../../lib/payer-api", () => ({ getCapacity: () => getCapacity() }));
 vi.mock("../../../lib/pricing-config", () => ({ hiringCapacityTiers: () => hiringCapacityTiers() }));
+vi.mock("../../../lib/live-catalog", () => ({ getLiveCatalog: () => getLiveCatalog() }));
 // next/link → plain anchor; the child client components → inert markers (unit-tested elsewhere).
 vi.mock("next/link", () => ({
   default: ({ children, href }: { children: ReactNode; href: string }) => ({
@@ -106,6 +110,7 @@ beforeEach(() => {
   requirePayer.mockReset().mockResolvedValue(EMPLOYER);
   getCapacity.mockReset().mockResolvedValue(capacity({}));
   hiringCapacityTiers.mockClear();
+  getLiveCatalog.mockClear().mockResolvedValue({ products: [], live: true });
 });
 
 describe("capacity page — AT-CAPACITY banner derives from the REAL count (A2)", () => {
@@ -149,6 +154,21 @@ describe("capacity page — load failure degrades neutrally (no leak)", () => {
     // NO-LEAK: the thrown error message (which carries a deny cause) never reaches the screen.
     expect(joined).not.toContain("secret backend reason");
     expect(joined).not.toContain("forbidden");
+  });
+});
+
+describe("capacity page — D-6 cached-pricing fallback (live catalog unavailable)", () => {
+  it("renders the subtle cached-pricing note + the tier panel (never a blank pricing section)", async () => {
+    getLiveCatalog.mockResolvedValueOnce({ products: [], live: false });
+    const joined = collect(await CapacityPage()).text.join(" ");
+    expect(joined).toMatch(/cached pricing/i);
+    // The pricing section still renders (fallback tiers, not a blank page).
+    expect(joined).toContain("Add capacity");
+  });
+
+  it("does NOT render the cached-pricing note when the catalog is live", async () => {
+    const joined = collect(await CapacityPage()).text.join(" ");
+    expect(joined).not.toMatch(/cached pricing/i);
   });
 });
 

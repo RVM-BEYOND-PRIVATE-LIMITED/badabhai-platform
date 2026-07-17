@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { getPostings } from "../../../lib/payer-api";
 import { requirePayer } from "../../../lib/auth";
+import { getLiveCatalog } from "../../../lib/live-catalog";
 import { applicantQuotaStep } from "../../../lib/pricing-config";
 import type { PostingSummary } from "../../../lib/contracts";
 import { Badge, Card } from "../../../components/ds";
+import { CachedPricingNote } from "../../../components/cached-pricing-note";
 import { RetryButton } from "../../../components/retry-button";
 import { PostingsManager } from "./postings-manager";
 
@@ -19,13 +21,15 @@ export const dynamic = "force-dynamic";
  * `POST /payer/job-postings/:id/{pause|resume|quota-topup|close}` routes (#178/#180),
  * wired in the manager with per-row busy state + inline retryable errors.
  *
- * The quota top-up STEP copy is config-derived (catalog posting-quota tier) — this page
- * never hardcodes a quota number.
+ * The quota top-up STEP copy is config-derived from the LIVE catalog (D-6; fetch
+ * failure ⇒ compile-time defaults + the cached-pricing note) — this page never
+ * hardcodes a quota number.
  */
 export default async function PostingsPage() {
   const session = await requirePayer();
   const isAgency = session.role === "agent";
-  const quotaStep = applicantQuotaStep();
+  const { products, live } = await getLiveCatalog();
+  const quotaStep = applicantQuotaStep(products);
 
   let postings: PostingSummary[] | null = null;
   let error: string | null = null;
@@ -59,6 +63,8 @@ export default async function PostingsPage() {
             : "Top-up amounts come from the pricing config."}
         </p>
       </Card>
+
+      {!live ? <CachedPricingNote /> : null}
 
       {error || !postings ? (
         // B7: the seam either threw (→ `error`) OR returned no postings array (the future

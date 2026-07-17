@@ -1145,6 +1145,21 @@ export const creditLedger = pgTable(
     unlockId: uuid("unlock_id").references(() => unlocks.id, { onDelete: "set null" }),
     // For pack_purchase: the pack code bought (e.g. 'pack_10' | 'pack_25'). Null otherwise.
     packCode: text("pack_code"),
+    // The amount CHARGED for this movement, in whole ₹ (integer, never paise) — stamped at
+    // purchase time from the resolved pack (D-6). NULLABLE on purpose: only pack_purchase rows
+    // carry an amount (debits/ops grants stay null), AND every row written before this column
+    // existed is null. History renders the STAMPED value so a later ops price edit can never
+    // retroactively rewrite what a past purchase appears to have cost; a null legacy row
+    // renders an honest placeholder rather than a fabricated current-catalog price.
+    // PII-free (an integer amount, like `delta`). Additive + nullable (invariant #8).
+    //
+    // ⚠️ MIGRATION 0043 — APPLY BEFORE DEPLOY (owner-apply pending). Both sides name this
+    // column EXPLICITLY: the writer (UnlocksRepository.creditPack insert) and the reader
+    // (UnlocksRepository.listCreditLedgerByPayer select). App code deployed against an
+    // unmigrated DB therefore breaks the ledger INSERT (every pack purchase) AND the
+    // history READ — it is not a silently-ignored column. Order: apply 0043, then deploy.
+    // Rollback = drop the column (nothing else depends on it).
+    priceInr: integer("price_inr"),
     // OPAQUE external payment/order ref ONLY (e.g. a gateway order id) — NEVER card
     // number, UPI handle, or any PII. Null for ops grants / mock debits.
     paymentRef: text("payment_ref"),
