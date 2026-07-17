@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
+import '../api/api_client.dart' show kRequestTimeout;
 import 'auth_failure.dart';
 import 'device_id.dart';
 import 'locale_store.dart';
@@ -54,6 +55,7 @@ class AuthedClient {
     this.refreshSkew = const Duration(seconds: 90),
     this.maxNetworkRetries = 2,
     this.retryBackoff = const Duration(milliseconds: 300),
+    this.requestTimeout = kRequestTimeout,
   })  : _tokenStore = tokenStore,
         _deviceId = deviceId,
         _localeStore = localeStore,
@@ -84,6 +86,15 @@ class AuthedClient {
 
   /// Backoff between transport retries.
   final Duration retryBackoff;
+
+  /// Hard ceiling on a single HTTP attempt — shares [kRequestTimeout] with the
+  /// legacy ApiClient/payer seams. `package:http` has NO default timeout, so an
+  /// unbounded request on a dead-but-open 2G socket hangs FOREVER: the login
+  /// spinner never resolves, and a stalled `/auth/token/refresh` parks the
+  /// single-flight [_inFlightRefresh] so every later authed call hangs behind it
+  /// too. Bounding here is what makes [_attempt]'s `on TimeoutException` retry
+  /// reachable at all. Injectable so tests can drive it without a 15s wait.
+  final Duration requestTimeout;
 
   /// Single-flight guard: while a refresh is in-flight, all callers await this
   /// same Future instead of issuing parallel `/auth/token/refresh` calls.
@@ -189,17 +200,17 @@ class AuthedClient {
     );
     final String? encoded = body == null ? null : jsonEncode(body);
 
-    final http.Response res = switch (method) {
-      HttpMethod.get => await _client.get(uri, headers: headers),
-      HttpMethod.post =>
-        await _client.post(uri, headers: headers, body: encoded),
-      HttpMethod.put =>
-        await _client.put(uri, headers: headers, body: encoded),
-      HttpMethod.patch =>
-        await _client.patch(uri, headers: headers, body: encoded),
-      HttpMethod.delete =>
-        await _client.delete(uri, headers: headers, body: encoded),
-    };
+    // The timeout wraps the dispatch itself (not each verb) so EVERY method is
+    // bounded — a TimeoutException here is caught by _attempt and mapped to a
+    // NETWORK AuthFailure, giving the UI an honest error instead of a spinner.
+    final http.Response res = await switch (method) {
+      HttpMethod.get => _client.get(uri, headers: headers),
+      HttpMethod.post => _client.post(uri, headers: headers, body: encoded),
+      HttpMethod.put => _client.put(uri, headers: headers, body: encoded),
+      HttpMethod.patch => _client.patch(uri, headers: headers, body: encoded),
+      HttpMethod.delete => _client.delete(uri, headers: headers, body: encoded),
+    }
+        .timeout(requestTimeout);
 
     return _decode(res);
   }

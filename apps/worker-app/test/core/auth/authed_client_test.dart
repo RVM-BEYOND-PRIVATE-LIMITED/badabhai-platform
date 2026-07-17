@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -5,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+import 'package:badabhai_worker_app/core/api/api_client.dart' show kRequestTimeout;
 import 'package:badabhai_worker_app/core/auth/auth_failure.dart';
 import 'package:badabhai_worker_app/core/auth/authed_client.dart';
 import 'package:badabhai_worker_app/core/auth/device_id.dart';
@@ -21,6 +23,7 @@ AuthedClient _client(
   MockClient transport, {
   required SecureTokenStore tokenStore,
   required ReauthSignal signal,
+  Duration? requestTimeout,
 }) {
   return AuthedClient(
     baseUrl: 'http://test',
@@ -30,6 +33,9 @@ AuthedClient _client(
     reauthSignal: signal,
     client: transport,
     retryBackoff: Duration.zero,
+    // Default to the production constant; a test that exercises a stall passes a
+    // short one so it does not really wait 15s.
+    requestTimeout: requestTimeout ?? kRequestTimeout,
   );
 }
 
@@ -281,6 +287,81 @@ void main() {
       expect(refreshCalls, 0, reason: 'no refresh token → no network call');
       expect(fired, isTrue);
       expect(store.accessToken, isNull);
+    });
+
+    // #345 — package:http has no default timeout, so a dead-but-open 2G socket
+    // hung these futures FOREVER (spinner with no error, no retry). Without the
+    // .timeout() in _rawSend every test below hangs until the suite times out.
+    group('request timeout (#345)', () {
+      test('a stalled request surfaces NETWORK instead of hanging forever',
+          () async {
+        final SecureTokenStore store = SecureTokenStore(FakeSecureStore());
+        final AuthedClient client = _client(
+          // A socket that accepts the request and never answers.
+          MockClient((http.Request req) => Completer<http.Response>().future),
+          tokenStore: store,
+          signal: ReauthSignal(),
+          requestTimeout: const Duration(milliseconds: 20),
+        );
+
+        await expectLater(
+          client.send(HttpMethod.post, '/auth/otp/request',
+              body: <String, dynamic>{'phone': '+910000000000'}),
+          throwsA(isA<AuthFailure>()
+              .having((AuthFailure f) => f.code, 'code', AuthErrorCode.network)),
+        );
+      });
+
+      test('every verb is bounded, not just POST', () async {
+        for (final HttpMethod method in HttpMethod.values) {
+          final SecureTokenStore store = SecureTokenStore(FakeSecureStore());
+          final AuthedClient client = _client(
+            MockClient((http.Request req) => Completer<http.Response>().future),
+            tokenStore: store,
+            signal: ReauthSignal(),
+            requestTimeout: const Duration(milliseconds: 20),
+          );
+
+          await expectLater(
+            client.send(method, '/anything'),
+            throwsA(isA<AuthFailure>().having(
+                (AuthFailure f) => f.code, 'code', AuthErrorCode.network)),
+            reason: '$method must be bounded',
+          );
+        }
+      });
+
+      test(
+          'a hung refresh does not park the single-flight future and brick later calls',
+          () async {
+        final SecureTokenStore store = SecureTokenStore(FakeSecureStore());
+        await store.saveTokens(
+          refreshToken: 'r1',
+          // Already expired → forces a proactive refresh on the next authed call.
+          accessExpiresAt: DateTime.now().subtract(const Duration(hours: 1)),
+          accessToken: 'stale',
+        );
+        final AuthedClient client = _client(
+          MockClient((http.Request req) => Completer<http.Response>().future),
+          tokenStore: store,
+          signal: ReauthSignal(),
+          requestTimeout: const Duration(milliseconds: 20),
+        );
+
+        // First authed call: proactive refresh stalls out.
+        await expectLater(
+          client.send(HttpMethod.get, '/protected', authed: true),
+          throwsA(isA<AuthFailure>()),
+        );
+
+        // The bug: _inFlightRefresh stayed non-null forever, so this second call
+        // awaited a future that never completed. It must fail fast instead.
+        await expectLater(
+          client.send(HttpMethod.get, '/protected', authed: true),
+          throwsA(isA<AuthFailure>()),
+          reason: 'a second call must not hang behind the dead refresh',
+        );
+      });
     });
   });
 }
