@@ -285,10 +285,18 @@ class MainActivity : FlutterActivity() {
                 return
             }
             val manager = NotificationManagerCompat.from(this)
-            // POST_NOTIFICATIONS is requested once at startup. If the worker said
-            // no, respect it: fall back silently to the SnackBar rather than
-            // re-prompting at every download.
             if (!manager.areNotificationsEnabled()) {
+                // Android 13+ needs POST_NOTIFICATIONS. Ask HERE, at the moment
+                // the value is self-evident ("your file saved — want to be told
+                // where?"), rather than relying only on the cold startup prompt,
+                // which arrives with no context and is reflexively dismissed.
+                //
+                // This cannot nag: the guard is a no-op once granted, and Android
+                // itself stops showing the dialog after two dismissals and
+                // auto-denies. THIS download is never blocked on the answer — it
+                // is already saved, so we fall back to the SnackBar and the next
+                // download gets the notification.
+                requestNotificationPermissionIfNeeded()
                 result.success(false)
                 return
             }
