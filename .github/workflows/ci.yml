@@ -332,6 +332,27 @@ jobs:
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
+        # CD-1b: the docker-compose.staging.yml `${VAR:?}` gate reads the BOX's
+        # shell environment — GitHub environment/repo secrets do NOT reach it on
+        # their own (the first health-gated run proved it: INTERNAL_SERVICE_TOKEN
+        # was SET as an environment secret yet compose failed "missing a value").
+        # This env + `envs:` pair is the bridge: each var resolves environment-
+        # scoped secret first, repo secret as fallback, and drone-ssh exports the
+        # names listed in `envs:` into the remote session. Values never print —
+        # compose reads them from the environment and the script never echoes them.
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          PII_ENCRYPTION_KEY: ${{ secrets.PII_ENCRYPTION_KEY }}
+          PII_HASH_PEPPER: ${{ secrets.PII_HASH_PEPPER }}
+          PIN_PEPPER: ${{ secrets.PIN_PEPPER }}
+          ADMIN_JWT_SECRET: ${{ secrets.ADMIN_JWT_SECRET }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          INTERNAL_SERVICE_TOKEN: ${{ secrets.INTERNAL_SERVICE_TOKEN }}
+          FAST2SMS_API_KEY: ${{ secrets.FAST2SMS_API_KEY }}
+          FAST2SMS_SENDER_ID: ${{ secrets.FAST2SMS_SENDER_ID }}
+          FAST2SMS_DLT_TEMPLATE_ID: ${{ secrets.FAST2SMS_DLT_TEMPLATE_ID }}
+          CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
         with:
           host: ${{ secrets.LIGHTSAIL_HOST }}
           username: ${{ secrets.LIGHTSAIL_USER }}
@@ -341,6 +362,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,CORS_ALLOWED_ORIGINS
           script: |
             set -e
             # CD-1: never leave a registry credential (even an expired job token)
