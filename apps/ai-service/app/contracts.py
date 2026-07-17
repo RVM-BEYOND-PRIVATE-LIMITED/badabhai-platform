@@ -456,6 +456,11 @@ class TranscriptionInput(BaseModel):
     # When true (default), the AI service ALSO translates the transcript to English
     # (Sarvam /translate). English-source transcripts skip the call. Backward compatible.
     translate_to_english: bool = True
+    # Opaque worker ref (PII-free) → attributes real STT chunk spend to the TD27
+    # per-user daily cap (D-2 chunked path: one 120s note = up to 5 provider
+    # calls), so voice + chat + extraction + resume share one budget. Optional →
+    # backward compatible.
+    worker_ref: str | None = None
 
 
 class TranscriptionOutput(BaseModel):

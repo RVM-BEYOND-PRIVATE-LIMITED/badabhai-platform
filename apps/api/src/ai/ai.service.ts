@@ -127,9 +127,18 @@ export class AiService {
    * path returns a deterministic transcript. If the AI service is unreachable,
    * fall back to an EMPTY transcript (never fabricate one) so the processor
    * records a degraded result rather than inventing words.
+   *
+   * TIMEOUT BUDGET (D-2 chunked-sync STT — the ONE call that legitimately runs
+   * long; every other AI call keeps the 8s default): a REAL 120s note inside
+   * the ai-service is storage fetch <=20s (storage.py _TIMEOUT_SECONDS) +
+   * ceil(5 chunks / concurrency 2) = 3 waves x <=60s Sarvam per-call timeout =
+   * <=180s + translate <=60s => <=260s worst case; +10s overhead => 270s. The
+   * caller is the BullMQ VoiceTranscriptionProcessor (off the request path;
+   * BullMQ auto-extends the job lock while the handler runs), so holding the
+   * fetch is safe. Mock mode still answers in milliseconds.
    */
   async transcribe(input: TranscriptionInput): Promise<TranscriptionOutput> {
-    const remote = await this.post("/voice/transcribe", input, TranscriptionOutputSchema);
+    const remote = await this.post("/voice/transcribe", input, TranscriptionOutputSchema, 270_000);
     if (remote) return remote;
     return TranscriptionOutputSchema.parse({ transcript_text: "", confidence: 0, english_text: "", is_mock: true });
   }
@@ -149,16 +158,19 @@ export class AiService {
 
   /**
    * POST helper. Returns parsed output on success, or `null` on any failure so
-   * the caller can fall back to a mock. Uses a short timeout.
+   * the caller can fall back to a mock. Uses a short timeout by default;
+   * `timeoutMs` lets the one legitimately-long call (chunked STT — see
+   * `transcribe`) raise ONLY its own budget without touching every other path.
    */
   private async post<TOut>(
     path: string,
     body: unknown,
     schema: { parse: (v: unknown) => TOut },
+    timeoutMs = 8000,
   ): Promise<TOut | null> {
     const url = `${this.config.AI_SERVICE_URL}${path}`;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       // TD67: attach the service-level bearer when configured (the ai-service enforces
       // it on every route except /health once ITS side sets the same env var).

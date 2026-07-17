@@ -56,6 +56,23 @@ function make(opts: { findById?: unknown; transcribeThrows?: boolean } = {}) {
 }
 
 describe("VoiceTranscriptionProcessor", () => {
+  it("D-2: forwards the opaque worker_ref + duration so the ai-service can chunk + attribute spend", async () => {
+    // A 30-120s note costs up to 5 real Sarvam calls; worker_ref attributes them
+    // to this worker's TD27 per-user daily budget. It is an opaque UUID (PII-free
+    // — the same id already sent for chat/extraction), never a name or phone.
+    const { proc, ai } = make();
+    await proc.process(makeJob());
+    expect(ai.transcribe).toHaveBeenCalledWith({
+      voice_note_id: JOB.voiceNoteId,
+      storage_path: JOB.storagePath,
+      duration_seconds: JOB.durationSeconds,
+      language_code: undefined,
+      worker_ref: JOB.workerId,
+    });
+    // The transcription request carries refs + duration only — no PII.
+    expect(JSON.stringify(ai.transcribe.mock.calls)).not.toContain("transcript");
+  });
+
   it("happy path: persists transcript, marks completed, emits transcription_completed", async () => {
     const { proc, voice, aiJobs, events } = make();
     const res = await proc.process(makeJob());

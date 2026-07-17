@@ -144,6 +144,53 @@ def test_voice_transcribe_requires_storage_path():
     assert res.status_code == 422  # storage_path is required
 
 
+def test_voice_transcribe_returns_the_full_mock_transcript_for_a_120s_note():
+    # D-2 at the ENDPOINT: a 120s note (MAX_VOICE_NOTE_SECONDS) must come back
+    # with a full transcript in mock mode. It used to hit the 30s sync guard.
+    from app.stt import MOCK_TRANSCRIPT
+
+    for duration in (45, 120):
+        res = client.post(
+            "/voice/transcribe",
+            json={
+                "voice_note_id": "vn1",
+                "storage_path": "voice-notes/w/x.m4a",
+                "duration_seconds": duration,
+            },
+        )
+        assert res.status_code == 200
+        body = res.json()
+        assert body["transcript_text"] == MOCK_TRANSCRIPT
+        assert body["is_mock"] is True
+
+
+def test_voice_transcribe_accepts_and_forwards_the_opaque_worker_ref(monkeypatch):
+    # The D-2 spend-attribution seam: worker_ref rides the contract to the
+    # adapter (per-user daily cap). It is an opaque id — never PII.
+    from app import main as main_module
+    from app.stt import SttResult
+
+    seen = {}
+
+    async def _fake_transcribe(**kwargs):
+        seen.update(kwargs)
+        return SttResult("t", 0.9, "hi", True)
+
+    monkeypatch.setattr(main_module.stt_adapter, "transcribe", _fake_transcribe)
+    res = client.post(
+        "/voice/transcribe",
+        json={
+            "storage_path": "voice-notes/w/x.m4a",
+            "duration_seconds": 120,
+            "worker_ref": "opaque-worker-uuid",
+            "translate_to_english": False,
+        },
+    )
+    assert res.status_code == 200
+    assert seen["worker_ref"] == "opaque-worker-uuid"
+    assert seen["duration_seconds"] == 120
+
+
 def test_chat_turn_sends_no_history_so_history_pii_cannot_reach_the_llm(monkeypatch):
     # Privacy (COST-3): the chat turn is stateless — prior history is never sent to
     # the model. This is STRONGER than pseudonymizing history: even a raw phone in a
