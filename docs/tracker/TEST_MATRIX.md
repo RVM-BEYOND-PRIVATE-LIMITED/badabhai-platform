@@ -3,9 +3,10 @@
 Module × test-type × command/steps × expected × current × owner × status.
 
 **Last full re-run: 2026-07-16** — every "Automated gates" row below was executed on
-`main` @ `384d277` (clean tree) for this update; no result is carried forward from an
-older snapshot. Manual/click-through rows still reference the 2026-07-10 evidence audit
-([QA_EVIDENCE.md](QA_EVIDENCE.md)). Large artifacts live in
+`main` @ **`384d277`**; the tree has since fast-forwarded to **`2c850a5`** (#340, PRs → #342),
+so the counts below are a **floor, not a current reading** — re-run before citing. No result is
+carried forward from an older snapshot. Manual/click-through rows still reference the 2026-07-10
+evidence audit ([QA_EVIDENCE.md](QA_EVIDENCE.md)). Large artifacts live in
 [`docs/qa/evidence/`](../qa/evidence/); the written index is [QA_EVIDENCE.md](QA_EVIDENCE.md).
 Update both after each run.
 
@@ -26,14 +27,14 @@ Update both after each run.
 | payer-web | DS token gate | `pnpm lint:oxlint` (root script) | exit 0 | ✅ exit 0 — re-run 2026-07-16 | **Prakash / FE** | DONE |
 | Monorepo | format | `pnpm format:check` | exit 0 | ❌ **560 files** need Prettier (was 469 — drifting). **Not a CI gate** | any | PARTIAL |
 | E2E (Phase-1) | e2e | `RUN_E2E=1 pnpm --filter @badabhai/e2e test` (real PG+Redis) | flow passes | ⏭️ **10 suite files skipped** (RUN_E2E unset locally): contact-unlock, events-idempotency, payer-capacity, payer-tenancy, phase1-flow, phase1-onboarding, profile-idempotency, resume-signed-url, rls-spine, swipe-to-apply | QA/DevOps | **VERIFY — never run here** |
-| Staging smoke | smoke self-test | `pnpm staging:smoke:test` | pass | not re-run locally (`scripts/staging-smoke.test.mjs` present) | DevOps | VERIFY |
-| Staging smoke | live smoke | `pnpm staging:smoke` | 200 up/up | ⛔ **cannot run — no staging** | DevOps | BLOCKED |
+| **Staging smoke** | live smoke | `pnpm staging:smoke` | 200 up/up | 🔴 **PERMANENTLY RED — architecturally obsolete.** Its load-bearing assertion is `dev_otp` present ⇒ *"PROVES SMS_PROVIDER=console"* (`scripts/staging-smoke.mjs:8,12,113`), but `SMS_PROVIDER: z.literal("fast2sms")` makes `console` **fail Zod parse at boot**. It asserts a posture the config forbids. **Rewrite, not a patch** — see D-3 in [context-drift-2026-07-16.md](../registers/context-drift-2026-07-16.md) | DevOps + Backend | **BROKEN** |
+| Staging smoke | smoke self-test | `pnpm staging:smoke:test` | pass | not re-run locally; gates the same obsolete script | DevOps | VERIFY |
 | **ai-service** | unit | `pytest` (apps/ai-service) | all pass | ⚠️ **RED locally: 2 failed, 389 passed, 2 skipped** (2026-07-16). See **T1** — env-isolation gap, *not* a product regression. CI runs the same suite ([ci.yml:84](../../.github/workflows/ci.yml)) and `main` merged green ⇒ likely local-`.env`-dependent | ai-engineer | **PARTIAL** |
 | ai-service | lint | `ruff check .` | exit 0 | ⚠️ **ruff NOT installed locally** (confirmed) — CI covers ([ci.yml:81](../../.github/workflows/ci.yml)) | ai-engineer | VERIFY |
 | **worker-app** | analyze+test | `flutter analyze && flutter test` | pass | ⚠️ **local Flutter 3.27.4 < required 3.35.0** — cannot `pub get`. CI `worker-app.yml` **BLOCKING**, pinned **3.35.7** | Rishi | **VERIFY — never run here** |
 | **payer-app** *(new row)* | analyze+test | `flutter analyze && flutter test` | pass | ⚠️ same 3.27.4 blocker. CI `payer-app.yml` **BLOCKING**, pinned **3.35.7**, path-filtered to `apps/payer-app/**` | Rishi | **VERIFY — never run here** |
 | Secrets | scan | `security-scan.yml` (gitleaks/semgrep/audit) | no findings | advisory (`continue-on-error: true`) — flip-to-blocking criteria in the workflow header | DevOps | PARTIAL |
-| Migrations | drift/sequence | `supabase-checks.yml` | no drift | advisory. **40 migrations** (0000–0039; 0038+0039 owner-applied 2026-07-15) | database-architect | VERIFY |
+| Migrations | drift/sequence | `supabase-checks.yml` | no drift | advisory. **41 migrations** (0000–0040) at `2c850a5`; 0038+0039 owner-applied 2026-07-15 | database-architect | VERIFY |
 | **TAX / ADR-0030 runners** *(new row)* | data/offline | `db:seed:skills`, `db:embed:skills`, `db:growth:cluster`, `db:retag:skills` | idempotent, human-gated | **no matrix coverage** — human-gated by design; growth/retag never auto-run | ai-engineer / DBA | **GAP** |
 
 ## Alpha-gate click-through scripts (manual, run on staging once D1 done)

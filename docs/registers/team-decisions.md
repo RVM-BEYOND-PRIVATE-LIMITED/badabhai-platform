@@ -95,3 +95,42 @@ list**. There is no payer/worker app or auth yet, so the alpha surface is ops-on
   change to the reach-engine package itself. No LLM enters the rank/serve path.
 - Hands to **system-architect** for an ADR. Supersedes nothing; opens the first
   Reach-consuming surface within the alpha gate.
+
+### 2026-07-17 — Context-drift register rulings (owner, all ten — verbatim mapping)
+Owner answered the full [context-drift-2026-07-16](./context-drift-2026-07-16.md) decision
+queue in one pass. Recorded here so no builder re-litigates them:
+
+1. **A-1 (city ruling): the "cities are NOT PII" instruction is WITHDRAWN** — owner agreed
+   with the register's analysis. Cities stay masked from LLM input; the local-gazetteer
+   read (trusted service, no network) remains the matching path. No code change.
+2. **A-2 (Skills-15 / weight-lock governance): the 2026-06-19 CEO weight lock IS OPERATIVE**
+   — "the new decision supersedes the CEO's older decision" (i.e. it overrides ADR-0006's
+   ratified code-wins direction for the weight ledger). Consequence: a deterministic
+   **skills factor (weight 15) enters RANK via its own ADR**, which must edit
+   `packages/reach-engine/src/no-skills-in-rank.test.ts` in the same diff (the lock test
+   anticipates exactly this). LLMs/embeddings still never rank (invariant #4) — the factor
+   is closed-set `skill_id` overlap, deterministic.
+3. **B-1 (payer verification gate): DEFERRED** — "change this later when we move closer to
+   absolute production; right now let it be." `payers.status="pending"` stays unenforced
+   for the alpha; the register row stands as the tripwire.
+4. **B-9/B-10 (cost target + rollup + auto-downgrade): DEFERRED** — "no change in pricing,
+   decide later." Code stays ₹4/call target; the "4 paise" headline must NOT be cited
+   until a per-profile rollup exists.
+5. **B-7 (caps): DOCS ADOPT CODE** — "change it in the docs." The real numbers are ratified:
+   5 unlocks/worker/**day**, 30/payer/**hour** (no daily account ceiling), 10 distinct
+   payers/worker/week. The external context doc must be corrected to these.
+6. **B-8 (attribution key): STAYS invite-code-keyed** for now; no phone tie-break, no
+   90-day window column. Revisit explicitly, not by drift.
+7. **B-2 (LLM résumé-prose path): KEEP, as a gated add-on feature** — not deleted. It stays
+   behind default-false `AI_ENABLE_REAL_CALLS`; PDF remains deterministic-only.
+8. **D-2 (voice 30s vs 120s): BUILD IT PROPERLY = ASYNC STT** — owner wants the async
+   transcription path for 30–120s notes, not a UI cap. Real Sarvam creds remain §7.
+9. **D-3 (smoke/dev login): APPROVED — a gated test-login (session-mint) seam** "by default
+   just for testing." Hard constraints: env-gated OFF in production, strong token, never
+   `DEV_QUICK_LOGIN` (that stays dead), and it becomes the staging-smoke's auth path +
+   unblocks the RUN_E2E-skipped HTTP suites.
+10. **§13.1 (Flutter IAP) + §13.2 (Grievance Officer / production DPDP copy): DEFERRED**
+    to near-production.
+
+*Execution note:* B-4/B-5/B-6/B-11/B-12/D-1/D-6 + the in-repo doc-drift strings were
+greenlit wholesale ("complete all the tasks now") and ship as the 2026-07-17 build wave.
