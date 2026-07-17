@@ -110,6 +110,20 @@ _AADHAAR_RE = re.compile(r"\b\d{4}\s?\d{4}\s?\d{4}\b")
 # purpose still holds — the turn MASKS rather than BLOCKS, and signals.py reads
 # the RAW text locally, so salary extraction is unaffected.
 #
+# ACCEPTED COST of the DANDA (weighed, not waved through — see the Indic sweep
+# below). Adding `।` means two amounts separated ONLY by a danda now read as one
+# 10-digit phone: "salary 15,000। 18,000 expected" -> "salary [PHONE_1] expected".
+# It was the ONE new false positive the whole Indic/CJK sweep introduced. Weighed:
+#   * the profile is UNAFFECTED — signals.py reads the RAW text and still returns
+#     current=15,000 / expected=18,000 (asserted in the tests);
+#   * it MASKS rather than BLOCKS, so D-1's purpose holds;
+#   * the natural Hindi form keeps words between the figures ("salary 15,000 hai।
+#     aur 18,000 expected"), which does NOT trip it — a word breaks the run;
+#   * against that: WITHOUT the danda a full 10-digit phone leaks at every Hindi
+#     ASR utterance seam in a Hindi-first product (~4 seams per 120s note).
+# Mislabelling two salaries the profile still captures correctly is plainly worth
+# not leaking a phone number.
+#
 # A 14+ digit consecutive run matches nothing here and falls to the residual net
 # -> blocked (fail closed).
 #
@@ -120,8 +134,40 @@ _AADHAAR_RE = re.compile(r"\b\d{4}\s?\d{4}\s?\d{4}\b")
 # groups is not something a worker types by accident, so the safe reading is that
 # it is a phone. `\d` is Unicode-aware, so fullwidth/Devanagari digits already
 # mask correctly.
+#
+# INDIC / CJK sweep (found POST-MERGE by the #395 D-2 review; the S-4 fold-in was
+# Latin-centric and had NO Devanagari, and the shape matrix had no danda case, so
+# it passed review). The Hindi danda `।` U+0964 LEAKED: `number 98765। 43210`
+# walked out un-masked and un-blocked. That is not R30's word-split residual — a
+# danda is a SEPARATOR, the exact class this rule claims to catch. It matters more
+# than one codepoint suggests: this is a Hindi-first product, Hindi ASR terminates
+# utterances with a danda, and #395's chunked STT creates ~4 utterance-boundary
+# seams per 120s voice note — so the danda is precisely the artifact that appears
+# at a seam, splitting a phone across it.
+#
+# INCLUSION PRINCIPLE: a character joins this class when it is punctuation that
+# terminates or groups text in a script our users plausibly emit, AND it carries
+# no meaning in CNC/manufacturing worker text. Each group below was measured
+# against a realistic Hindi/Hinglish/CNC corpus for NEW false positives.
+#
+# DELIBERATELY EXCLUDED (stated boundary, not an oversight) — each closes a leak
+# but costs a MEASURED false positive on real worker text, and each is implausible
+# as a phone separator, so the trade is not worth it:
+#   `/`  dates + thread specs + fractions — "job 12/05/24 15/06/24 dono",
+#        "M8/1.25", "1/2 inch"                                  -> 1 measured FP
+#   `:`  times — "10:30:45 12:00:00 timing"                     -> 1 measured FP
+#   `*`  CNC part dimensions — "part size 100*200*300 mm"       -> 1 measured FP
+#   `+ # % = $ & ~ ^ < >` and quotes/brackets: arithmetic/technical meaning in
+#        manufacturing text (tolerance "+0.05", tool "#4", "50% scrap", `"` =
+#        inches). These measured 0 FP only because such strings are short; a
+#        longer tolerance list would trip them. Excluded on principle, not luck.
+# NOTE the asymmetry is deliberate: the FULLWIDTH forms (：．－) ARE included while
+# their ASCII twins (`:` `.` `-`) are judged separately — a worker types "10:30",
+# nobody types U+FF1A, so the fullwidth form is free to mask.
+# Consequence recorded as a residual in risks-register R30: an ASCII `/`- or `:`-
+# split phone ("98765/43210") is still undetected.
 _PHONE_SEPARATORS = (
-    r"\s.,\-()_"
+    r"\s.,\-()_;|"
     # dash family: hyphen, non-breaking hyphen, figure dash, en/em dash,
     # horizontal bar, minus sign, soft hyphen.
     "‐‑‒–—―−­"
@@ -129,6 +175,26 @@ _PHONE_SEPARATORS = (
     "·•"
     # zero-width / invisible joiners: ZWSP, ZWNJ, ZWJ, word-joiner, ZWNBSP.
     "​‌‍⁠﻿"
+    # INDIC (the #395 finding): Devanagari danda + double danda — the sentence
+    # terminators Hindi ASR emits, and the artifact at every STT chunk seam. Both
+    # codepoints are SHARED across Devanagari/Bengali/Gurmukhi/Gujarati/Oriya, so
+    # these two characters cover the Indic scripts our users actually write. Plus
+    # the Devanagari abbreviation sign.
+    "।॥॰"
+    # ARABIC-script punctuation: Urdu is an Indian scheduled language and is in
+    # the ASR's language set, so an Urdu-speaking worker's transcript can carry
+    # these. Comma, semicolon, full stop, decimal separator, thousands separator.
+    "،؛۔٫٬"
+    # CJK + FULLWIDTH forms: implausible from this product's users, but they cost
+    # ZERO false positives on worker text (nobody types an ideographic comma
+    # between phone digits) and they close the class against pasted / mixed-locale
+    # input. Ideographic comma + full stop, katakana middle dot, fullwidth comma /
+    # full stop / hyphen / colon, small hyphen.
+    "、。・，．－﹣："
+    # OTHER-SCRIPT dandas (Tibetan shad, Myanmar section sign): same functional
+    # class as U+0964 and likewise 0 measured FP. Included for consistency rather
+    # than drawing an arbitrary line at scripts we merely consider unlikely.
+    "།၊"
 )
 _PHONE_RE = re.compile(r"(?<!\d)\d(?:[" + _PHONE_SEPARATORS + r"]*\d){8,12}(?!\d)")
 _EMPLOYER_RE = re.compile(r"\b(?:[A-Z][\w&.]*\s+){1,4}" + _COMPANY_SUFFIX + r"\b")

@@ -458,6 +458,11 @@ export const TranscriptionInputSchema = z.object({
   // AI service ALSO translates the transcript to English when true (it defaults to
   // true server-side). Optional here → backward compatible input type.
   translate_to_english: z.boolean().optional(),
+  // Opaque worker ref (PII-free) → attributes real STT chunk spend to the TD27
+  // per-user daily cap (D-2 chunked path: one 120s note = up to 5 provider calls),
+  // so voice + chat + extraction + resume share one budget. Optional → backward
+  // compatible. Mirrors contracts.py TranscriptionInput.worker_ref.
+  worker_ref: z.string().min(1).optional(),
 });
 export type TranscriptionInput = z.infer<typeof TranscriptionInputSchema>;
 

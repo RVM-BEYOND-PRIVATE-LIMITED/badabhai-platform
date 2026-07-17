@@ -231,6 +231,34 @@ _SPLIT_PHONES = [
     "98765﻿43210",  # ZWNBSP / BOM
     "98765 43210",  # NBSP
     "98765 43210",  # narrow NBSP
+    # INDIC / CJK sweep — found POST-MERGE by the #395 D-2 review. The S-4 fold-in
+    # above was Latin-centric with NO Devanagari, and this matrix had no danda
+    # case, so a leak in the very class the rule claims to catch passed review.
+    # In a Hindi-first product the danda is THE artifact at an ASR chunk seam.
+    "98765। 43210",  # DANDA + space — the #395 STT chunk-seam shape
+    "98765।43210",  # Devanagari danda U+0964
+    "98765॥43210",  # Devanagari double danda U+0965
+    "98765॰43210",  # Devanagari abbreviation sign U+0970
+    "98765،43210",  # Arabic comma U+060C
+    "98765؛43210",  # Arabic semicolon U+061B
+    "98765۔43210",  # Arabic full stop U+06D4
+    "98765٫43210",  # Arabic decimal separator U+066B
+    "98765٬43210",  # Arabic thousands separator U+066C
+    "98765、43210",  # ideographic comma U+3001
+    "98765。43210",  # ideographic full stop U+3002
+    "98765・43210",  # katakana middle dot U+30FB
+    "98765，43210",  # fullwidth comma U+FF0C
+    "98765．43210",  # fullwidth full stop U+FF0E
+    "98765－43210",  # fullwidth hyphen U+FF0D
+    "98765﹣43210",  # small hyphen U+FE63
+    "98765：43210",  # fullwidth colon U+FF1A (ASCII ':' is deliberately excluded)
+    "98765།43210",  # Tibetan shad U+0F0D
+    "98765၊43210",  # Myanmar section sign U+104A
+    "98765;43210",  # ASCII semicolon
+    "98765|43210",  # ASCII pipe
+    # mixed / multi Indic separators at a seam
+    "98765। ।43210",
+    "98765।\n43210",
 ]
 
 
@@ -253,6 +281,10 @@ def test_s1_separator_split_phone_never_egresses(text):
         "98765  43210",
         "98765–43210",  # unicode en-dash (S-4)
         "98765​43210",  # zero-width space (S-4)
+        "98765। 43210",  # DANDA at an ASR chunk seam (#395) — leaked on merged main
+        "98765।43210",
+        "98765、43210",  # ideographic comma
+        "98765؛43210",  # Arabic semicolon
     ],
 )
 def test_s1_salary_and_split_phone_together_masks_both(phone):
@@ -486,6 +518,86 @@ def test_documented_boundary_split_short_runs_are_not_phone_shaped():
     # ...but the same digits CONSECUTIVE are caught (masked or blocked).
     assert pseudonymize("1661318").text == "[AMOUNT_1]"
     assert pseudonymize("12052024").blocked is True
+
+
+def test_indic_danda_seam_shape_is_masked_not_leaked():
+    """THE #395 finding, regression-locked. `number 98765। 43210` walked out
+    un-masked AND un-blocked on merged main: the S-4 unicode fold-in covered the
+    dash/zero-width families but had NO Devanagari, and the shape matrix had no
+    danda case, so a leak in the very class the rule claims to catch shipped.
+
+    Weight: this is a Hindi-first product, Hindi ASR terminates utterances with a
+    danda, and #395's chunked STT creates ~4 utterance-boundary seams per 120s
+    voice note — the danda is exactly the artifact that lands at a seam and splits
+    a phone across it.
+    """
+    result = pseudonymize("number 98765। 43210")
+    assert result.blocked is False
+    assert result.text == "number [PHONE_1]"
+    assert "98765" not in result.text and "43210" not in result.text
+
+
+def test_hindi_sentence_boundary_with_words_is_not_a_false_positive():
+    """The natural Hindi form keeps words between two figures, and a word BREAKS
+    the separator run — so the danda addition does not eat real salary text."""
+    result = pseudonymize("salary 15,000 hai। aur 18,000 expected")
+    assert result.blocked is False
+    assert "[PHONE_1]" not in result.text
+    assert "15,000" in result.text and "18,000" in result.text
+
+
+def test_danda_between_bare_amounts_over_masks_and_that_is_accepted():
+    """ACCEPTED OVER-MASK — the ONE new false positive the whole Indic/CJK sweep
+    introduced, weighed rather than waved through.
+
+    Two amounts separated ONLY by a danda (no words) read as one 10-digit phone.
+    Accepted because:
+      * the profile is UNAFFECTED — signals.py reads the RAW text and still
+        returns current=15,000 / expected=18,000 (asserted below);
+      * it MASKS rather than BLOCKS, so D-1's purpose holds;
+      * the natural Hindi form ("15,000 hai। aur 18,000") does NOT trip it;
+      * without the danda a full 10-digit phone leaks at EVERY Hindi ASR seam.
+    Mislabelling two salaries the profile still captures correctly is plainly
+    worth not leaking a phone number.
+    """
+    from app.profiling import signals
+
+    text = "salary 15,000। 18,000 expected"
+    result = pseudonymize(text)
+    assert result.blocked is False  # masks, never blocks -> D-1 holds
+    assert "[PHONE_1]" in result.text
+    sig = signals.detect(text)
+    assert sig.current_salary == 15_000
+    assert sig.expected_salary == 18_000
+
+
+@pytest.mark.parametrize(
+    ("text", "why"),
+    [
+        ("job 12/05/24 15/06/24 dono", "'/' = dates / thread specs / fractions"),
+        ("10:30:45 12:00:00 timing", "':' = times"),
+        ("part size 100*200*300 mm", "'*' = CNC part dimensions"),
+    ],
+)
+def test_excluded_separators_keep_real_worker_text_intact(text, why):
+    """The STATED exclusion boundary (see _PHONE_SEPARATORS). `/`, `:` and `*`
+    would each close a leak but cost a MEASURED false positive on real CNC/Hindi
+    worker text, and none is plausible as a phone separator — so they are
+    excluded on purpose. The residual (an ASCII `/`- or `:`-split phone) is
+    recorded in risks-register R30.
+
+    If this test starts failing, someone widened the class into domain-meaningful
+    punctuation — re-check the CNC text tradeoff before accepting it.
+    """
+    assert "[PHONE_1]" not in pseudonymize(text).text, why
+
+
+def test_documented_residual_ascii_slash_split_phone_is_not_detected():
+    """HONEST NEGATIVE — the cost of the exclusion above (risks-register R30).
+    An ASCII-slash-split phone is not detected. Kept visible rather than silent."""
+    result = pseudonymize("meri salary 1500000 hai, mera number 98765/43210 hai")
+    assert result.blocked is False
+    assert "98765/43210" in result.text  # the KNOWN, stated gap
 
 
 @pytest.mark.parametrize("phone", ["98765 aur 43210", "98765 haan 43210", "98765 and 43210"])

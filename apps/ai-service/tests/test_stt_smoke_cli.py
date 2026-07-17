@@ -6,14 +6,29 @@ Proves the CLI reuses the production adapter and stays correct end to end:
 - a real attempt with the gate OFF refuses (exit 2) rather than silently mocking;
 - ``--file`` real mode feeds LOCAL bytes to the real ``_transcribe_real`` (Sarvam
   stubbed) and returns is_mock=False — without any Supabase round-trip;
-- the >30s duration guard fails closed (exit 1) before any Sarvam call.
+- the >120s platform-cap guard fails closed (exit 1) before any Sarvam call;
+- a 30-120s note rides the D-2 chunked-sync path and prints the FULL transcript.
 """
 
+import pytest
+from audio_fixtures import build_wav
+
 from app import stt as stt_module
+from app.ai import cost_tracker
 from app.cli import stt_smoke
 from app.config import Settings
 from app.stt import MOCK_TRANSCRIPT, SttAdapter
 from app.translate import MOCK_ENGLISH
+
+
+@pytest.fixture(autouse=True)
+def _reset_ledger():
+    """The real STT path reserves chunk spend on the TD27 ledger; pin a fresh
+    in-process one (ignoring any ambient REDIS_URL/.env, which would fail closed
+    against an unreachable Redis and block these runs)."""
+    cost_tracker._ledger = cost_tracker.SpendLedger(Settings(_env_file=None, redis_url=None))
+    yield
+    cost_tracker._ledger = None
 
 
 def _real_settings(**overrides) -> Settings:
@@ -165,16 +180,70 @@ def test_file_mode_no_translate_skips_translation(tmp_path, monkeypatch, capsys)
     assert _StubAsyncClient.translate_called is False
 
 
-def test_file_mode_over_duration_fails_closed(tmp_path, monkeypatch, capsys):
+def test_file_mode_over_platform_cap_fails_closed(tmp_path, monkeypatch, capsys):
+    # >120s (MAX_VOICE_NOTE_SECONDS) — the platform cap, not the old 30s sync
+    # limit — is what refuses, before any Sarvam call.
     monkeypatch.setattr(stt_smoke, "Settings", lambda: _real_settings())
     monkeypatch.setattr(stt_module.httpx, "AsyncClient", _StubAsyncClient)
     _arm_sarvam({"transcript": "should-not-be-used"})
 
     f = tmp_path / "clip.wav"
     f.write_bytes(b"RIFFfakeaudio")
-    rc = stt_smoke.main(["--file", str(f), "--duration", "45"])
+    rc = stt_smoke.main(["--file", str(f), "--duration", "150"])
     out = capsys.readouterr().out
 
     assert rc == 1
     assert "error_code:    stt_call_failed" in out
     assert _StubAsyncClient.called is False  # guard fired before any Sarvam call
+
+
+def test_file_mode_45s_rides_the_chunked_path_and_prints_the_full_transcript(
+    tmp_path, monkeypatch, capsys
+):
+    # D-2 end to end through the CLI: a REAL 45s wav is split into 2 sync calls
+    # and the concatenated transcript is printed. This used to exit 1 with
+    # "batch STT not implemented".
+    monkeypatch.setattr(stt_smoke, "Settings", lambda: _real_settings())
+
+    class _PerChunkClient(_StubAsyncClient):
+        chunk_index = 0
+
+        async def post(self, url, **_kwargs):
+            if "translate" in url:
+                _StubAsyncClient.translate_called = True
+                return _StubAsyncClient.translate_response
+            _StubAsyncClient.called = True
+            i = _PerChunkClient.chunk_index
+            _PerChunkClient.chunk_index += 1
+            return _StubResponse(
+                200,
+                {
+                    "transcript": ["pehla hissa", "doosra hissa"][i],
+                    "language_code": "hi-IN",
+                    "language_probability": 0.9,
+                },
+            )
+
+    _PerChunkClient.chunk_index = 0
+    _StubAsyncClient.called = False
+    monkeypatch.setattr(stt_module.httpx, "AsyncClient", _PerChunkClient)
+    _arm_translate({"translated_text": "first part second part", "source_language_code": "hi-IN"})
+
+    f = tmp_path / "clip.wav"
+    f.write_bytes(build_wav(45.0))
+    rc = stt_smoke.main(["--file", str(f), "--duration", "45", "--language", "hi"])
+    out = capsys.readouterr().out
+
+    assert rc == 0
+    assert "is_mock:       False" in out
+    assert "pehla hissa doosra hissa" in out  # both chunks, in order
+    assert _PerChunkClient.chunk_index == 2
+
+
+def test_mock_mode_at_45s_prints_the_full_mock_transcript(capsys):
+    # The mock path is duration-agnostic (D-2): --mock --duration 45 must print
+    # the transcript, not fail closed against a provider it never calls.
+    rc = stt_smoke.main(["--mock", "--duration", "45"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert MOCK_TRANSCRIPT in out

@@ -7,10 +7,13 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/pdf_downloader.dart';
+import '../../../core/util/resume_file_name.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_scaffold.dart';
 import '../../../router.dart';
+import '../domain/resume_edit_repository.dart';
+import '../domain/resume_safe_fields.dart';
 import 'cubit/resume_cubit.dart';
 import 'resume_photo_header.dart';
 
@@ -181,13 +184,37 @@ class _DownloadResumeButton extends StatefulWidget {
 class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
   bool _loading = false;
 
+  /// The saved-file name, derived from the worker's OWN name (§2 self-read, no
+  /// LLM — see [resumeDownloadFileName]). PREFETCHED on mount so the tap adds no
+  /// latency; it stays the generic [kFallbackResumeFileName] until (and unless)
+  /// the name resolves. A name-fetch failure NEVER blocks the download — the
+  /// worker's name on the file is a nicety, not a precondition.
+  String _fileName = kFallbackResumeFileName;
+
+  @override
+  void initState() {
+    super.initState();
+    _prefetchFileName();
+  }
+
+  Future<void> _prefetchFileName() async {
+    try {
+      final ResumeSafeFields fields =
+          await locator<ResumeEditRepository>().load();
+      if (!mounted) return;
+      setState(() => _fileName = resumeDownloadFileName(fields.displayName));
+    } catch (_) {
+      // Best-effort: keep the fallback name (offline / session gone / unset name).
+    }
+  }
+
   Future<void> _download() async {
     final ResumeCubit cubit = context.read<ResumeCubit>();
     setState(() => _loading = true);
     await downloadSignedPdf(
       context,
       resolve: cubit.resolveDownloadUrl,
-      fileName: 'BadaBhai-Resume.pdf',
+      fileName: _fileName,
     );
     if (mounted) setState(() => _loading = false);
   }

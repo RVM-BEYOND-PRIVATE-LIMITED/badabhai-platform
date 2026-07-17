@@ -156,6 +156,16 @@ describe("TranscriptionInputSchema", () => {
     expect(TranscriptionInputSchema.safeParse({}).success).toBe(false);
     expect(TranscriptionInputSchema.safeParse({ storage_path: "" }).success).toBe(false);
   });
+  it("accepts an optional opaque worker_ref (D-2 spend attribution) and rejects an empty one", () => {
+    // contracts.py parity: TranscriptionInput.worker_ref (str | None = None).
+    expect(
+      TranscriptionInputSchema.safeParse({ storage_path: "w/s/v1.m4a", worker_ref: "w-1" })
+        .success,
+    ).toBe(true);
+    expect(
+      TranscriptionInputSchema.safeParse({ storage_path: "w/s/v1.m4a", worker_ref: "" }).success,
+    ).toBe(false);
+  });
 });
 
 describe("TranscriptionOutputSchema", () => {

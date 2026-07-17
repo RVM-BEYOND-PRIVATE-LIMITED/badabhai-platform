@@ -178,6 +178,13 @@ class Settings(BaseSettings):
     sarvam_api_key: str | None = None
     # Sarvam STT model id. Config so the future ``saaras:v3`` swap is one line.
     sarvam_stt_model: str = "saarika:v2.5"
+    # TD68/D-2: projected INR cost of ONE sync STT call (= one <=30s chunk) for
+    # the SpendLedger reserve->reconcile on the real path. ESTIMATE — saarika at
+    # ~Rs 30/audio-hour => ~Rs 0.25 per 30s chunk; calibrate against the invoice
+    # at the §7 real-Sarvam flip. Worst-case note = 5 chunks (120s / 29.5s) =
+    # Rs 1.25, bounded by ai_max_user_daily_cost_inr (Rs 6/user/day => ~4 full-
+    # length notes/user/day) and per chunk by ai_max_call_cost_inr.
+    sarvam_stt_cost_inr_per_chunk: float = 0.25
     # Sarvam text-translation model. mayura:v1 is required for auto-detect + code-mixed
     # (the only model that supports Hinglish source + source_language_code="auto").
     sarvam_translate_model: str = "mayura:v1"
