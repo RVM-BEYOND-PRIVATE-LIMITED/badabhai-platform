@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/auth/phone_format.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -32,10 +34,27 @@ class _PhoneLoginView extends StatefulWidget {
 }
 
 class _PhoneLoginViewState extends State<_PhoneLoginView> {
-  final TextEditingController _controller = TextEditingController(text: '+91');
+  /// Holds ONLY the 10 national digits. `+91` is fixed chrome (a prefixText), not
+  /// editable content: seeding it into the controller let the worker backspace it
+  /// away, and the raw field text went to requestOtp() verbatim — so a phone that
+  /// had lost its `+91` was sent as-is and the OTP simply never arrived.
+  final TextEditingController _controller = TextEditingController();
+
+  /// Enables the CTA only once the number can actually be dialled.
+  bool get _isComplete => _controller.text.length == kNationalNumberDigits;
+
+  @override
+  void initState() {
+    super.initState();
+    // Repaint the CTA as the digit count crosses 10.
+    _controller.addListener(_onChanged);
+  }
+
+  void _onChanged() => setState(() {});
 
   @override
   void dispose() {
+    _controller.removeListener(_onChanged);
     _controller.dispose();
     super.dispose();
   }
@@ -85,9 +104,20 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
                 controller: _controller,
                 keyboardType: TextInputType.phone,
                 style: AppTypography.mono(size: AppTypography.sizeLg),
-                decoration: const InputDecoration(
-                  hintText: '+91XXXXXXXXXX',
-                  prefixIcon: Icon(Icons.phone_outlined),
+                // Digits only, capped at 10: the field cannot hold a country
+                // code, spaces, or punctuation, so there is nothing to strip and
+                // nothing malformed to send.
+                inputFormatters: <TextInputFormatter>[
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(kNationalNumberDigits),
+                ],
+                decoration: InputDecoration(
+                  // Fixed chrome — rendered by the field, not stored in the
+                  // controller, so it cannot be selected or backspaced away.
+                  prefixText: '$kIndiaDialCode ',
+                  prefixStyle: AppTypography.mono(size: AppTypography.sizeLg),
+                  hintText: 'XXXXXXXXXX',
+                  prefixIcon: const Icon(Icons.phone_outlined),
                 ),
               ),
               const SizedBox(height: AppSpacing.s4),
@@ -112,11 +142,13 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
                 label: state.isSubmitting ? 'Sending OTP…' : 'Send OTP',
                 block: true,
                 loading: state.isSubmitting,
-                onPressed: state.isSubmitting
+                // Disabled until 10 digits — the cubit/manager contract is
+                // E.164, and a half-typed number can only ever fail.
+                onPressed: state.isSubmitting || !_isComplete
                     ? null
                     : () => context
                         .read<PhoneLoginCubit>()
-                        .submit(_controller.text.trim()),
+                        .submit(toE164(_controller.text)),
               ),
             ],
           ),

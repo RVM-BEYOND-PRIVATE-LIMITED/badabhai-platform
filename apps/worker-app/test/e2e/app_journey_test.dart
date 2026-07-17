@@ -149,7 +149,11 @@ void main() {
     // ── 2. LOGIN — regression guard for the go_router push fix (was a stale
     //     Navigator.pushNamed that throws under MaterialApp.router). ──
     await _pumpUntil(tester, find.text('Send OTP'));
-    await tester.enterText(find.byType(TextField), '+919876500000');
+    // T1: the field holds the 10 NATIONAL digits — '+91' is fixed chrome now,
+    // and the CTA stays disabled until 10 digits are in, so the tap needs a
+    // frame to see the enabled button.
+    await tester.enterText(find.byType(TextField), '9876500000');
+    await tester.pump();
     await tester.tap(find.text('Send OTP'));
 
     // ── 3. OTP ──
