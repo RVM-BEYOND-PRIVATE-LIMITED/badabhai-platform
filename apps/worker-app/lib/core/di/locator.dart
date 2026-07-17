@@ -106,6 +106,13 @@ Future<bool> _renewAuthOnUnauthorized() async {
   // and the router gate is inert (no lockout to fix) — leave that build exactly
   // as it is rather than wiping a session on a transient 401.
   if (!auth.persistentAuthEnabled) return false;
+  // Renew ONLY for a worker who is currently unlocked. relock() deliberately
+  // drops the bridged bearer (#368), so a request queued before the app paused
+  // now 401s behind the PIN screen — and refresh() ends in
+  // _setStatus(authenticated). Without this guard that lingering request would
+  // silently re-authenticate and OPEN THE PIN GATE on its own. `locked` must
+  // only ever be cleared by the PIN.
+  if (auth.status != AuthStatus.authenticated) return false;
   try {
     await auth.refresh();
     return true;

@@ -367,6 +367,59 @@ void main() {
       // Default status stays loggedOut; relock did nothing.
       expect(manager.status, AuthStatus.loggedOut);
     });
+
+    // #368 — relock claimed "no authed call slips through while locked" but only
+    // nulled AuthedClient's copy. The SAME token had been bridged into
+    // SessionRepository, and that is the bearer every legacy worker-scoped call
+    // actually sends, so a request queued before the pause still authenticated
+    // behind the PIN screen.
+    group('the bridged bearer is fenced too (#368)', () {
+      test('relock drops SessionRepository.sessionToken, not just the store',
+          () async {
+        api
+          ..isNewUser = false
+          ..pinIsSet = true;
+        await manager.verifyOtp('+91999', '1234');
+        expect(session.sessionToken, isNotNull, reason: 'bridged on login');
+
+        await manager.relock();
+
+        expect(store.accessToken, isNull);
+        expect(session.sessionToken, isNull,
+            reason: 'the bearer legacy ApiClient calls actually send');
+      });
+
+      test('relock keeps the ids so unlock re-bridges onto the same worker',
+          () async {
+        api
+          ..isNewUser = false
+          ..pinIsSet = true;
+        await manager.verifyOtp('+91999', '1234');
+        session.setSession('chat-session-1');
+
+        await manager.relock();
+
+        // Only the bearer is fenced — the worker and the open chat session must
+        // survive the lock.
+        expect(session.workerId, 'worker-9');
+        expect(session.sessionId, 'chat-session-1');
+      });
+
+      test('unlockWithPin restores a fresh bearer after the fence', () async {
+        api
+          ..isNewUser = false
+          ..pinIsSet = true;
+        await manager.verifyOtp('+91999', '1234');
+        await manager.relock();
+        expect(session.sessionToken, isNull);
+
+        await manager.unlockWithPin('1379');
+
+        expect(manager.status, AuthStatus.authenticated);
+        expect(session.sessionToken, 'access-unlock',
+            reason: 'unlock re-bridges a freshly minted token');
+      });
+    });
   });
 
   group('logout', () {

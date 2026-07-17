@@ -316,6 +316,13 @@ class AuthSessionManager extends ChangeNotifier {
     // Drop the live bearer so no authed call slips through while locked. The
     // refresh token + device id survive; the PIN re-mints a fresh access token.
     _tokenStore.accessToken = null;
+    // #368: the token above is only AuthedClient's copy. The SAME token was
+    // bridged into SessionRepository, and THAT is the bearer every legacy
+    // worker-scoped call (feed/chat/resume/profile/voice) actually sends — so
+    // an in-flight or queued request could still authenticate behind the PIN
+    // screen, making "locked" not actually fence API access as documented.
+    // Ids survive; unlockWithPin re-bridges a fresh token onto them.
+    _session.clearSessionToken();
     _setStatus(AuthStatus.locked);
   }
 

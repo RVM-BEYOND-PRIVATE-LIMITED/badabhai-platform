@@ -41,6 +41,27 @@ class SessionRepository {
     _session = _session.copyWith(sessionToken: token);
   }
 
+  /// Drops ONLY the bearer, keeping the worker/session ids (#368).
+  ///
+  /// The re-lock fence: [AuthSessionManager.relock] nulls the AuthedClient's
+  /// copy of the access token, but THIS is the bearer every legacy ApiClient
+  /// call actually sends. Leaving it meant a request queued just before the app
+  /// paused still authenticated happily behind the PIN screen — contradicting
+  /// relock's own "no authed call slips through while locked".
+  ///
+  /// Cannot be done with copyWith, which resolves `?? this.sessionToken` and so
+  /// can never null a field. The ids stay: unlockWithPin re-bridges a fresh
+  /// token onto the same worker, and the chat session must survive the lock.
+  void clearSessionToken() {
+    _session = Session(
+      phoneE164: _session.phoneE164,
+      workerId: _session.workerId,
+      sessionId: _session.sessionId,
+      profileId: _session.profileId,
+      resumeId: _session.resumeId,
+    );
+  }
+
   void setSession(String sessionId) {
     _session = _session.copyWith(sessionId: sessionId);
   }
