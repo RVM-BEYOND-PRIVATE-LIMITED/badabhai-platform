@@ -91,6 +91,8 @@ class _Harness extends StatelessWidget {
 }
 
 void main() {
+  _transientRetryTests();
+
   testWidgets(
       'happy path: fetch → save → complete notice, and "Kholein" opens the '
       'SAVED LOCAL file', (WidgetTester tester) async {
@@ -220,6 +222,10 @@ void main() {
     ));
     await tester.tap(find.text('go'));
     await tester.pump();
+    // A 5xx is now RETRIED (bounded) before the worker is told — the honest copy
+    // arrives once the budget is spent, not on the first blip. Advance past the
+    // 400ms + 800ms backoff.
+    await tester.pump(const Duration(seconds: 2));
     await tester.pump();
 
     expect(
@@ -437,6 +443,10 @@ void main() {
     ));
     await tester.tap(find.text('go'));
     await tester.pump();
+    // The 500 is retried (bounded) before the failure surfaces — advance past
+    // the backoff so the whole failure path, retries included, is covered by
+    // this privacy lock.
+    await tester.pump(const Duration(seconds: 2));
     await tester.pump();
     expect(find.textContaining(token), findsNothing);
 
@@ -458,5 +468,73 @@ void main() {
     expect(text, contains('BadaBhai sample PDF - mock download'));
     // Every byte is ASCII so xref offsets are exact.
     expect(bytes.every((int b) => b < 128), isTrue);
+  });
+}
+
+/// The reported symptom: "Server error (500), thodi der baad" — then the very
+/// next tap downloads fine. Only the 409 (still-rendering) case was ever
+/// retried, so a transient 5xx on either leg fell straight through to a failure
+/// notice. A blip the worker fixes by tapping again is a blip the app should
+/// ride out itself.
+void _transientRetryTests() {
+  testWidgets('a transient 500 on the STORAGE fetch is ridden out, not surfaced',
+      (WidgetTester tester) async {
+    final List<int> pdfBytes = <int>[0x25, 0x50, 0x44, 0x46, 9];
+    int calls = 0;
+    final _StubHttpClient client = _StubHttpClient((_) async {
+      calls++;
+      // Supabase Storage blips 500 on the signed-url GET, then serves fine.
+      if (calls == 1) {
+        return http.StreamedResponse(http.ByteStream.fromBytes(<int>[]), 500);
+      }
+      return http.StreamedResponse(http.ByteStream.fromBytes(pdfBytes), 200);
+    });
+
+    await tester.pumpWidget(_Harness(onTap: (_) async {}));
+    final BuildContext context = tester.element(find.text('go'));
+
+    await tester.runAsync(
+      () => downloadSignedPdf(
+        context,
+        resolve: () async => 'https://storage.example/x.pdf?token=t',
+        fileName: 'BadaBhai-Resume.pdf',
+        client: client,
+        saver: _FakeSaver(),
+        opener: _FakeOpener(),
+      ),
+    );
+    await tester.pump();
+
+    expect(calls, 2, reason: 'the app retried so the worker did not have to');
+    expect(find.text(kDownloadCompleteNotice), findsOneWidget);
+    expect(find.textContaining('Server error'), findsNothing);
+  });
+
+  testWidgets('a NON-transient 4xx still fails fast and honestly',
+      (WidgetTester tester) async {
+    int calls = 0;
+    final _StubHttpClient client = _StubHttpClient((_) async {
+      calls++;
+      // 403 = the signed url expired. Retrying cannot fix that.
+      return http.StreamedResponse(http.ByteStream.fromBytes(<int>[]), 403);
+    });
+
+    await tester.pumpWidget(_Harness(onTap: (_) async {}));
+    final BuildContext context = tester.element(find.text('go'));
+
+    await tester.runAsync(
+      () => downloadSignedPdf(
+        context,
+        resolve: () async => 'https://storage.example/x.pdf?token=t',
+        fileName: 'BadaBhai-Resume.pdf',
+        client: client,
+        saver: _FakeSaver(),
+        opener: _FakeOpener(),
+      ),
+    );
+    await tester.pump();
+
+    expect(calls, 1, reason: 'no pointless waiting on a considered answer');
+    expect(find.text(kDownloadCompleteNotice), findsNothing);
   });
 }

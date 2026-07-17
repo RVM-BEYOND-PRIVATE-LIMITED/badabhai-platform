@@ -9,6 +9,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/pdf_downloader.dart';
+import '../../../core/util/transient_retry.dart';
 import '../../../core/util/resume_file_name.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
@@ -333,12 +334,24 @@ class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
   /// (in-app fetch + MediaStore save; no url_launcher).
   Future<String?> _resolveWithReadyPoll(ResumeCubit cubit) async {
     for (int attempt = 0; attempt < _kReadyMaxAttempts; attempt++) {
+      final bool lastAttempt = attempt == _kReadyMaxAttempts - 1;
       try {
         return await cubit.resolveDownloadUrl();
       } on ResumeNotReadyFailure {
-        if (attempt == _kReadyMaxAttempts - 1) rethrow;
+        if (lastAttempt) rethrow;
         // Say WHY the wait is happening — the PDF is rendering, nothing is wrong.
         if (mounted && !_preparing) setState(() => _preparing = true);
+        await Future<void>.delayed(_kReadyPollInterval);
+      } catch (error) {
+        // A transient 5xx / transport blip on the mint is the OTHER reason a
+        // first tap failed and a second worked: only the 409 was retried, so a
+        // 500 fell straight through to "Server error (500)". Ride it out on the
+        // SAME bounded budget rather than nesting a second retry loop inside
+        // this one (which would multiply 20 attempts into 60 requests).
+        //
+        // Deliberately does NOT set _preparing: the PDF is not rendering, the
+        // server hiccuped, and claiming otherwise would be a lie.
+        if (lastAttempt || !isTransientFailure(error)) rethrow;
         await Future<void>.delayed(_kReadyPollInterval);
       }
     }

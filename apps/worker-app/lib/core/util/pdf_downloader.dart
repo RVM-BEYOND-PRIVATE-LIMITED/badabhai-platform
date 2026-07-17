@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
 import '../error/failure.dart';
+import 'transient_retry.dart';
 import '../error/failure_reason.dart';
 
 /// Hard ceiling on the in-app PDF byte download (the signed-url FETCH — the
@@ -202,7 +203,12 @@ Future<void> downloadSignedPdf(
         // MockApiClient sentinel — nothing to fetch; keep the flow walkable.
         tempFile.writeAsBytesSync(buildPlaceholderPdfBytes(), flush: true);
       } else {
-        await _fetchToFile(httpClient, uri, tempFile).timeout(timeout);
+        // Ride out a transient 5xx / transport blip on the Storage GET instead of
+        // telling the worker it failed. This is a plain GET of a signed url —
+        // idempotent, so a retry is free. The timeout bounds EACH attempt.
+        await retryTransient(
+          () => _fetchToFile(httpClient, uri!, tempFile).timeout(timeout),
+        );
       }
       try {
         saved = await saver.save(tempPath: tempFile.path, fileName: fileName);
