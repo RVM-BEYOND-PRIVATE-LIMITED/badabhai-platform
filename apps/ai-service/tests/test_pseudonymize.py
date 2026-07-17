@@ -195,13 +195,42 @@ def test_d1_seven_digit_phone_fragment_is_masked_not_leaked():
 # run co-occurred) — D-1 removes exactly that cover in the salary case. Detection
 # is now DIGIT-COUNT based (9-13 digits joined by at most one separator each).
 
+# Pins the THREAT CLASS (a 10-digit phone disguised by separators), not the
+# implementation. The first cut of this fix passed the single-separator forms
+# while REGRESSING on every multi-separator form main already caught — the list
+# below is what makes that impossible to repeat.
 _SPLIT_PHONES = [
+    # single separator
     "9876.543.210",
     "9876,543,210",
     "(98765)43210",
     "98765_43210",
     "98765-43210",
     "98765 43210",
+    # MULTI-separator — main masked all of these; the `?` quantifier egressed them
+    "98765, 43210",
+    "98765 - 43210",
+    "98765  43210",
+    "98765--43210",
+    "98765\r\n43210",
+    "98765\t\t43210",
+    "9876..543..210",
+    "9876 . 543 . 210",
+    "98765   -   43210",
+    # unicode separators (S-4) — the ASCII-only class let every one of these out
+    "98765–43210",  # en-dash
+    "98765—43210",  # em-dash
+    "98765−43210",  # minus sign
+    "98765‐43210",  # unicode hyphen
+    "98765­43210",  # soft hyphen
+    "98765·43210",  # middot
+    "98765​43210",  # ZERO-WIDTH SPACE
+    "98765‌43210",  # ZWNJ
+    "98765‍43210",  # ZWJ
+    "98765⁠43210",  # word-joiner
+    "98765﻿43210",  # ZWNBSP / BOM
+    "98765 43210",  # NBSP
+    "98765 43210",  # narrow NBSP
 ]
 
 
@@ -215,18 +244,45 @@ def test_s1_separator_split_phone_never_egresses(text):
     assert not re.search(r"\d", re.sub(r"\[[A-Z]+_\d+\]", "", result.text)), result.text
 
 
-def test_s1_salary_and_split_phone_together_masks_both():
-    """PR #392 S-1, THE regression: this is the case that proves the D-1 carve-out
-    did not open a hole. Pre-fix on this branch the amount masked to [AMOUNT_1],
-    which removed the residual net's incidental block, and the full 10-digit phone
-    egressed. Both must now mask."""
-    result = pseudonymize("meri salary 1500000 hai, mera number 98765.43210 hai")
+@pytest.mark.parametrize(
+    "phone",
+    [
+        "98765.43210",  # single separator (the original S-1 report)
+        "98765, 43210",  # TWO chars — S-1b: the `?` quantifier still egressed this
+        "98765 - 43210",
+        "98765  43210",
+        "98765–43210",  # unicode en-dash (S-4)
+        "98765​43210",  # zero-width space (S-4)
+    ],
+)
+def test_s1_salary_and_split_phone_together_masks_both(phone):
+    """PR #392 S-1/S-1b, THE regression: proves the D-1 carve-out did not open a
+    hole, across the whole separator class.
+
+    Mechanism: D-1 masks the co-occurring amount, which REMOVES the residual net's
+    incidental cover, so any phone the phone-rule misses walks straight out. The
+    first fix closed this only for SINGLE-separator instances — every form below
+    with a 2+ char or unicode separator still egressed.
+    """
+    result = pseudonymize(f"meri salary 1500000 hai, mera number {phone} hai")
     assert result.blocked is False
     assert "[AMOUNT_1]" in result.text and "[PHONE_1]" in result.text
-    assert "98765.43210" not in result.text
+    assert phone not in result.text
     assert "9876543210" not in result.text
     assert "1500000" not in result.text
     assert not re.search(r"\d", re.sub(r"\[[A-Z]+_\d+\]", "", result.text)), result.text
+
+
+def test_s1_never_regresses_against_the_old_char_class_rule():
+    """NO-REGRESSION lock (PR #392 S-1a). The rule this replaced accepted an
+    UNBOUNDED separator run (`[\\d\\s\\-]{7,}`). Widening the separator SET while
+    narrowing the separator COUNT to one silently lost 5 shapes main already
+    masked. Anything the OLD rule caught, the new rule must still catch.
+    """
+    old_rule = re.compile(r"(?<!\d)\+?\d[\d\s\-]{7,}\d(?!\d)")
+    for text in _SPLIT_PHONES + ["9876543210", "+91 9876543210", "98765 43210 "]:
+        if old_rule.search(text):
+            assert "[PHONE_1]" in pseudonymize(text).text, f"regressed vs old rule: {text!r}"
 
 
 @pytest.mark.parametrize(
@@ -237,16 +293,44 @@ def test_s1_salary_and_split_phone_together_masks_both():
         "normal text 2024, 15 items",
         "1,500,000",  # Indian thousands separator: 7 digits, NOT a phone
         "15,00,000",  # Indian lakh grouping: 7 digits
-        "salary 15,00,000, 2,50,000 expected",  # ", " splits -> two amounts
         "12.05.2024",  # date: 8 digits
         "10.5 lakh",
         "version 1.2.3",
     ],
 )
 def test_s1_digit_count_detection_has_no_phone_false_positives(text):
-    """Digit-COUNT (not char-count) is what makes widening the separator set safe:
-    a comma-grouped salary is 7 digits and can never become a [PHONE_n]."""
+    """Digit-COUNT (not char-count) is what keeps the wide separator set usable: a
+    single comma-grouped salary is 7 digits and never reaches phone length."""
     assert "[PHONE_1]" not in pseudonymize(text).text
+
+
+def test_s1_two_grouped_amounts_over_mask_to_phone_and_that_is_accepted():
+    """ACCEPTED OVER-MASK (PR #392 re-review). Two comma-grouped amounts in a row
+    total 13 digits joined by separators, so the phone rule claims them. This is
+    the one cost of the `*` quantifier and it is deliberately accepted:
+
+    - The safety doctrine already sanctions it: the LABEL is imprecise, the SAFETY
+      PROPERTY is unchanged. Over-masking is the locked safe direction; the token
+      name is not a privacy control.
+    - D-1's purpose survives intact — the turn is MASKED, not BLOCKED (which was
+      the entire complaint in register row D-1), and signals.py reads the RAW text
+      locally, so salary extraction is unaffected (asserted below).
+
+    The earlier `?` quantifier avoided this over-mask but bought an UNDER-MASK
+    with it: real 10-digit phones split by 2+ separators egressed. This test
+    exists so that trade is never silently re-made.
+    """
+    from app.profiling import signals
+
+    text = "salary 15,00,000, 2,50,000 expected"
+    result = pseudonymize(text)
+    assert result.blocked is False  # MASKS, never blocks -> D-1 holds
+    assert "[PHONE_1]" in result.text
+    assert not re.search(r"\d", re.sub(r"\[[A-Z]+_\d+\]", "", result.text))
+    # The local detector still sees the raw text, so the profile keeps both figures.
+    sig = signals.detect(text)
+    assert sig.current_salary == 1_500_000
+    assert sig.expected_salary == 250_000
 
 
 def test_s1_fourteen_digit_run_falls_to_the_residual_net():
@@ -386,18 +470,14 @@ def test_property_consecutive_seven_to_eight_digit_runs_never_egress():
 
 
 def test_documented_boundary_split_short_runs_are_not_phone_shaped():
-    """HONEST NEGATIVE (documents a real, pre-existing limit — see the risks
-    register row for S-1). A 7-8 digit run SPLIT by a separator ("1_661318",
-    "12.05.2024") is not phone-shaped (< 9 digits) and has no 7 CONSECUTIVE
-    digits, so it matches no net and passes through — exactly as it does on main.
+    """HONEST NEGATIVE #1 (risks-register R30, residual 2). A 7-8 digit run SPLIT
+    by a separator ("1_661318", "12.05.2024") is not phone-shaped (< 9 digits) and
+    has no 7 CONSECUTIVE digits, so it matches no net and passes — as on main.
 
-    This is deliberate, not an oversight: extending the residual net to
-    separator-split short runs would BLOCK every date a worker types
-    ("12.05.2024 ko join kiya") and comma-grouped salaries ("15,00,000") — the
-    over-blocking class D-1 exists to eliminate. Recorded so the boundary is a
-    decision on the record rather than an accident. If this test ever starts
-    failing, the gateway got STRICTER — re-check the date/salary UX before
-    accepting it.
+    Deliberate: extending the residual net to separator-split short runs would
+    BLOCK every date a worker types ("12.05.2024 ko join kiya") — the over-blocking
+    class D-1 exists to eliminate. If this test starts failing the gateway got
+    STRICTER; re-check the date UX before accepting it.
     """
     for text in ("1_661318", "12.05.2024", "15,00,000"):
         result = pseudonymize(text)
@@ -406,6 +486,39 @@ def test_documented_boundary_split_short_runs_are_not_phone_shaped():
     # ...but the same digits CONSECUTIVE are caught (masked or blocked).
     assert pseudonymize("1661318").text == "[AMOUNT_1]"
     assert pseudonymize("12052024").blocked is True
+
+
+@pytest.mark.parametrize("phone", ["98765 aur 43210", "98765 haan 43210", "98765 and 43210"])
+def test_documented_residual_word_split_phone_is_not_detected(phone):
+    """HONEST NEGATIVE #2 — the OPEN half of risks-register R30 (PR #392 S-5).
+
+    A 9-13 digit phone split by a WORD is NOT detected: a 10-digit phone is
+    trivially disguised this way, and with a salary co-occurring D-1 removes the
+    residual net's incidental cover so it egresses. Same class as #395's
+    chunk-seam shape.
+
+    This test asserts the GAP so it is a decision on the record, not an accident.
+    It is deliberately unfixed: a proximity net false-fires on
+    "salary 15000 se 18000" (structurally identical to "98765 se 43210") and would
+    mask real salary data — see the companion assertion below. Not live because
+    AI_ENABLE_REAL_CALLS=false (invariant #5); MUST be closed before that flips.
+
+    WHEN THIS GAP IS CLOSED this test will fail — that is the intended signal.
+    Update R30 to Closed rather than re-widening the gap to keep it green.
+    """
+    result = pseudonymize(f"meri salary 1500000 hai, mera number {phone} hai")
+    assert result.blocked is False
+    assert phone in result.text  # the KNOWN gap: digits survive
+
+
+def test_why_the_word_split_gap_is_not_patched_with_a_proximity_net():
+    """The companion to the above: the obvious fix is unsafe. "15000 se 18000" is
+    structurally identical to "98765 se 43210" — a proximity net masking the
+    latter would also destroy this REAL salary pair the profile depends on."""
+    from app.profiling import signals
+
+    sig = signals.detect("15000 se 18000 chahiye")
+    assert sig.current_salary == 15_000 and sig.expected_salary == 18_000
 
 
 def test_empty_string_is_not_blocked():

@@ -85,17 +85,52 @@ _AADHAAR_RE = re.compile(r"\b\d{4}\s?\d{4}\s?\d{4}\b")
 # case it exists to enable ("salary 1500000 hai, number 98765.43210 hai"), so the
 # real rule is fixed here rather than relying on an accident.
 #
-# Rule: a run of digits joined by AT MOST ONE separator char each, totalling 9-13
-# DIGITS, is phone-shaped (Indian mobiles are 10; +country code / STD prefixes
-# reach 12-13). Counting digits — not characters — is what makes the separator set
-# safe to widen: "1,500,000" is 7 digits, so the Indian thousands separator can
-# never turn a salary into a [PHONE_n]. Requiring a SINGLE separator between
-# digits keeps distinct numbers apart: "15,00,000, 2,50,000" is split by ", " (two
-# chars) and so reads as two 7-digit amounts, not one 13-digit phone.
+# Rule: a run of digits joined by ANY NUMBER of separator chars each, totalling
+# 9-13 DIGITS, is phone-shaped (Indian mobiles are 10; +country code / STD
+# prefixes reach 12-13). Counting digits — not characters — is what makes the
+# separator set safe to widen: "1,500,000" is 7 digits, so the Indian thousands
+# separator cannot turn a salary into a [PHONE_n] on digit count alone.
+#
+# The `*` quantifier is load-bearing (S-1a/S-1b, PR #392 re-review). An earlier
+# cut of this fix widened the separator SET but simultaneously narrowed the
+# separator COUNT to at most one (`[...]?`). That REGRESSED against the old rule,
+# whose `[\d\s\-]{7,}` accepted an unbounded run: "98765 - 43210", "98765  43210"
+# (two spaces), "98765--43210", CRLF- and tab-separated forms all masked before
+# and would have egressed after. It also left the original S-1 hole open for any
+# 2+ char separator ("98765, 43210"), by the very same mechanism: D-1 masks the
+# co-occurring amount, which removes the residual net's incidental cover, and the
+# phone walks out. Single-separator matching pinned the implementation, not the
+# threat class. `*` is verified 13/13 on the phone-shape matrix with no
+# regressions and no ReDoS (<=1ms at the 20k cap; `[sep]*` and `\d` are disjoint
+# classes, so there is no ambiguous backtracking).
+#
+# ACCEPTED COST of `*`: "salary 15,00,000, 2,50,000 expected" now masks to
+# [PHONE_1] rather than two [AMOUNT_n] — a BENIGN OVER-MASK, sanctioned by the
+# doctrine below: the label is imprecise, the safety property is not. D-1's
+# purpose still holds — the turn MASKS rather than BLOCKS, and signals.py reads
+# the RAW text locally, so salary extraction is unaffected.
+#
 # A 14+ digit consecutive run matches nothing here and falls to the residual net
 # -> blocked (fail closed).
-_PHONE_SEPARATORS = r"\s.,\-()_"
-_PHONE_RE = re.compile(r"(?<!\d)\d(?:[" + _PHONE_SEPARATORS + r"]?\d){8,12}(?!\d)")
+#
+# Unicode separators are folded in (S-4). Python's `\s` already covers NBSP /
+# narrow-NBSP / figure space / ideographic space, but NOT the dash family, the
+# zero-width family, soft hyphen, middot or bullet — each of which defeated the
+# ASCII-only class outright (verified). A zero-width space between two digit
+# groups is not something a worker types by accident, so the safe reading is that
+# it is a phone. `\d` is Unicode-aware, so fullwidth/Devanagari digits already
+# mask correctly.
+_PHONE_SEPARATORS = (
+    r"\s.,\-()_"
+    # dash family: hyphen, non-breaking hyphen, figure dash, en/em dash,
+    # horizontal bar, minus sign, soft hyphen.
+    "‐‑‒–—―−­"
+    # separator-ish punctuation a number can be written with.
+    "·•"
+    # zero-width / invisible joiners: ZWSP, ZWNJ, ZWJ, word-joiner, ZWNBSP.
+    "​‌‍⁠﻿"
+)
+_PHONE_RE = re.compile(r"(?<!\d)\d(?:[" + _PHONE_SEPARATORS + r"]*\d){8,12}(?!\d)")
 _EMPLOYER_RE = re.compile(r"\b(?:[A-Z][\w&.]*\s+){1,4}" + _COMPANY_SUFFIX + r"\b")
 _NAME_CUE_RE = re.compile(
     r"(?i:\bmy name is\b|\bmyself\b|\bi am\b|\bi'm\b|\bthis is\b|\bname is\b|"
@@ -143,10 +178,19 @@ _RESIDUAL_DIGITS_RE = re.compile(r"\d{7,}")
 # phone exposes a 7-8 digit consecutive sub-run ("1234567" in "1234567.890") that
 # money-first would tokenise, leaving the rest of the number raw.
 #
-# KNOWN BOUNDARY (deliberate, risks-register R30): a 7-8 digit run that is
-# SEPARATOR-SPLIT ("1_661318", "12.05.2024") is not phone-shaped and has no 7
-# consecutive digits, so it passes through. Tightening this would block every date
-# a worker types — the over-blocking class D-1 exists to remove.
+# KNOWN RESIDUAL — risks-register R30 is OPEN, not closed. Two gaps remain:
+#   1. A 9-13 digit phone split by a WORD ("98765 aur 43210", "98765 haan 43210")
+#      is NOT detected — a 10-digit phone is trivially disguised this way. It is
+#      deliberately not patched here: a proximity net false-fires on
+#      "salary 15000 se 18000" (structurally identical) and would mask real salary
+#      data. This needs a designed fix, not a rushed regex. Same class as the
+#      chunk-seam shape in #395.
+#   2. A 7-8 digit SEPARATOR-SPLIT run ("1_661318", "12.05.2024") is not
+#      phone-shaped and has no 7 consecutive digits, so it passes. Tightening this
+#      would block every date a worker types — the over-blocking class D-1 exists
+#      to remove.
+# Neither is live: AI_ENABLE_REAL_CALLS=false by default (invariant #5). Both MUST
+# be re-assessed before that flag flips.
 #
 # tests/test_pseudonymize.py locks all of the above (incl. randomised property
 # tests over 20,000 phone-shaped and 10,000 money-shaped cases — a fixed template
