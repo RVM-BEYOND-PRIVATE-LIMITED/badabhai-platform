@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 
@@ -26,10 +27,14 @@ class _StubHttpClient extends http.BaseClient {
 }
 
 class _FakeSaver implements PdfSaver {
-  _FakeSaver({this.throwOnSave = false, this.public = true});
+  _FakeSaver({this.throwOnSave = false, this.public = true, this.displayPath});
 
   final bool throwOnSave;
   final bool public;
+
+  /// What the real Kotlin saver now reports back: the human-readable location.
+  /// Null models an older platform side that reports none.
+  final String? displayPath;
   int calls = 0;
   String? tempPath;
   String? savedFileName;
@@ -51,6 +56,7 @@ class _FakeSaver implements PdfSaver {
       location: 'content://downloads/42',
       displayName: fileName,
       inPublicDownloads: public,
+      displayPath: displayPath,
     );
   }
 }
@@ -92,6 +98,7 @@ class _Harness extends StatelessWidget {
 
 void main() {
   _transientRetryTests();
+  _downloadNotificationTests();
 
   testWidgets(
       'happy path: fetch → save → complete notice, and "Kholein" opens the '
@@ -536,5 +543,145 @@ void _transientRetryTests() {
 
     expect(calls, 1, reason: 'no pointless waiting on a considered answer');
     expect(find.text(kDownloadCompleteNotice), findsNothing);
+  });
+}
+
+/// The download-complete NOTIFICATION: the receipt the system Download Manager
+/// gives you and an in-app download does not. The SnackBar is gone the moment
+/// the worker leaves the screen; this is what they still have when they want to
+/// find the file later.
+void _downloadNotificationTests() {
+  const MethodChannel channel = MethodChannel('badabhai.workerapp/downloads');
+
+  /// A saver that reports WHERE it wrote, exactly as the Kotlin side now does.
+  _FakeSaver savingTo(String displayPath) =>
+      _FakeSaver(displayPath: displayPath);
+
+  Future<void> runDownload(
+    WidgetTester tester, {
+    required PdfSaver saver,
+  }) async {
+    final _StubHttpClient client = _StubHttpClient(
+      (_) async => http.StreamedResponse(
+        http.ByteStream.fromBytes(<int>[0x25, 0x50, 0x44, 0x46]),
+        200,
+      ),
+    );
+    await tester.pumpWidget(_Harness(onTap: (_) async {}));
+    final BuildContext context = tester.element(find.text('go'));
+    await tester.runAsync(
+      () => downloadSignedPdf(
+        context,
+        resolve: () async => 'https://storage.example/x.pdf?token=tok_SECRET',
+        fileName: 'RAMESH_KUMAR_RESUME.pdf',
+        client: client,
+        saver: saver,
+        opener: _FakeOpener(),
+      ),
+    );
+    await tester.pump();
+  }
+
+  testWidgets('a successful save posts the notification with name + path',
+      (WidgetTester tester) async {
+    final List<MethodCall> calls = <MethodCall>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+        (MethodCall c) async {
+      calls.add(c);
+      return true;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+
+    await runDownload(tester,
+        saver: savingTo('Downloads/RAMESH_KUMAR_RESUME.pdf'));
+
+    final MethodCall call =
+        calls.singleWhere((MethodCall c) => c.method == 'notifyDownloadComplete');
+    final Map<dynamic, dynamic> args = call.arguments as Map<dynamic, dynamic>;
+    expect(args['displayName'], 'RAMESH_KUMAR_RESUME.pdf');
+    expect(args['displayPath'], 'Downloads/RAMESH_KUMAR_RESUME.pdf');
+    expect(args['location'], isNotEmpty);
+  });
+
+  testWidgets('PRIVACY: the signed url never reaches the notification',
+      (WidgetTester tester) async {
+    final List<MethodCall> calls = <MethodCall>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+        (MethodCall c) async {
+      calls.add(c);
+      return true;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+
+    await runDownload(tester, saver: savingTo('Downloads/x.pdf'));
+
+    // Only LOCAL values cross the channel — a token in a notification would sit
+    // in the OS shade, readable and retained.
+    expect(calls.toString(), isNot(contains('tok_SECRET')));
+    expect(calls.toString(), isNot(contains('storage.example')));
+  });
+
+  testWidgets('a NOTIFICATION FAILURE never fails the download',
+      (WidgetTester tester) async {
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+        (MethodCall c) async {
+      // Permission denied / channel muted / OEM quirk — the file is already on
+      // disk, so none of it may cost the worker their download.
+      throw PlatformException(code: 'notify_failed');
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+
+    await runDownload(tester, saver: savingTo('Downloads/x.pdf'));
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Download complete — Downloads/x.pdf mein hai'),
+        findsOneWidget);
+    expect(find.text(kDownloadOpenActionLabel), findsOneWidget);
+  });
+
+  testWidgets('NO platform side at all (MissingPlugin) still completes',
+      (WidgetTester tester) async {
+    // No mock handler registered → MissingPluginException.
+    await runDownload(tester, saver: savingTo('Downloads/x.pdf'));
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Download complete — Downloads/x.pdf mein hai'),
+        findsOneWidget);
+  });
+
+  testWidgets('the SnackBar names the REAL path, not "Downloads folder"',
+      (WidgetTester tester) async {
+    await runDownload(tester,
+        saver: savingTo('Downloads/RAMESH_KUMAR_RESUME.pdf'));
+
+    expect(
+      find.text('Download complete — Downloads/RAMESH_KUMAR_RESUME.pdf mein hai'),
+      findsOneWidget,
+    );
+    // The vague old line is gone when a real path is known.
+    expect(find.text(kDownloadCompleteNotice), findsNothing);
+  });
+
+  testWidgets('no displayPath → falls back to the old copy, no notification',
+      (WidgetTester tester) async {
+    final List<MethodCall> calls = <MethodCall>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+        (MethodCall c) async {
+      calls.add(c);
+      return true;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+
+    // An older platform side that reports no path: better vague than fabricated,
+    // and a notification whose job is to say WHERE has nothing to say.
+    await runDownload(tester, saver: _FakeSaver());
+
+    expect(calls.where((MethodCall c) => c.method == 'notifyDownloadComplete'),
+        isEmpty);
+    expect(find.text(kDownloadCompleteNotice), findsOneWidget);
   });
 }

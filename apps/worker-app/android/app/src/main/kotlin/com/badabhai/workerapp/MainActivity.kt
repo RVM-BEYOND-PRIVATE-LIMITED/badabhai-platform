@@ -4,6 +4,9 @@ import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.ContentValues
 import android.content.Intent
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -15,6 +18,8 @@ import android.os.Looper
 import android.provider.MediaStore
 import android.view.WindowManager
 import androidx.annotation.RequiresApi
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -90,6 +95,12 @@ class MainActivity : FlutterActivity() {
                         result = result,
                     )
                     "openSavedFile" -> openSavedFile(call.argument<String>("location"), result)
+                    "notifyDownloadComplete" -> notifyDownloadComplete(
+                        displayName = call.argument<String>("displayName"),
+                        displayPath = call.argument<String>("displayPath"),
+                        location = call.argument<String>("location"),
+                        result = result,
+                    )
                     else -> result.notImplemented()
                 }
             }
@@ -160,7 +171,15 @@ class MainActivity : FlutterActivity() {
         resolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)?.use { c ->
             if (c.moveToFirst()) finalName = c.getString(0) ?: fileName
         }
-        return mapOf("location" to uri.toString(), "displayName" to finalName, "public" to true)
+        // displayPath is the human-readable "where is my file" line. Only this
+        // side truly knows: MediaStore hands back an opaque content:// uri, which
+        // is meaningless to a worker looking for their PDF.
+        return mapOf(
+            "location" to uri.toString(),
+            "displayName" to finalName,
+            "public" to true,
+            "displayPath" to "${Environment.DIRECTORY_DOWNLOADS}/$finalName",
+        )
     }
 
     /** API 24–28 fallback: app-external Download dir, explicit "(1)" dedup. */
@@ -177,7 +196,17 @@ class MainActivity : FlutterActivity() {
             n++
         }
         source.copyTo(target)
-        return mapOf("location" to target.absolutePath, "displayName" to target.name, "public" to false)
+        // Below API 29 the file lives in the app-external dir, NOT public
+        // Downloads — say so with the real path rather than implying Downloads.
+        // Trimmed to the storage-relative part: the absolute /storage/emulated/0
+        // prefix is noise to a worker browsing their files.
+        val displayPath = target.absolutePath.substringAfter("/0/", target.absolutePath)
+        return mapOf(
+            "location" to target.absolutePath,
+            "displayName" to target.name,
+            "public" to false,
+            "displayPath" to displayPath,
+        )
     }
 
     /**
@@ -192,22 +221,122 @@ class MainActivity : FlutterActivity() {
             return
         }
         try {
-            val uri: Uri = if (location.startsWith("content://")) {
-                Uri.parse(location)
-            } else {
-                FileProvider.getUriForFile(this, "$packageName.downloads.fileprovider", File(location))
-            }
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/pdf")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(intent)
+            startActivity(viewIntentFor(location))
             result.success(true)
         } catch (e: ActivityNotFoundException) {
             result.success(false)
         } catch (e: Exception) {
             result.success(false)
         }
+    }
+
+    /**
+     * ACTION_VIEW on an already-SAVED LOCAL file — a `content://` MediaStore uri
+     * directly, or a pre-29 fallback path through this app's FileProvider.
+     *
+     * Shared by "Kholein" and the download notification's tap, deliberately: the
+     * two must open the file the SAME way, and duplicating the uri/flag handling
+     * is how they would quietly stop matching.
+     *
+     * PRIVACY: takes a LOCAL location only. A remote signed url never reaches
+     * this side of the channel, so none can end up in a PendingIntent the OS
+     * retains.
+     */
+    private fun viewIntentFor(location: String): Intent {
+        val uri: Uri = if (location.startsWith("content://")) {
+            Uri.parse(location)
+        } else {
+            FileProvider.getUriForFile(this, "$packageName.downloads.fileprovider", File(location))
+        }
+        return Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/pdf")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    }
+
+    /**
+     * Posts the "download finished, here is where it went" notification — the
+     * thing the system Download Manager gives you and an in-app download does
+     * not. The SnackBar is gone the moment the worker leaves the screen; this is
+     * what they still have an hour later when they want to find the file.
+     *
+     * BEST-EFFORT BY CONTRACT: it ALWAYS result.success(...) and never throws.
+     * The download already succeeded — the file is on disk — so a notification
+     * problem (permission denied, OEM quirk, channel blocked) must never turn a
+     * finished download into a failure. Returns whether it actually posted, so
+     * the Dart side can tell "shown" from "silently skipped".
+     *
+     * Tap opens the saved file via [viewIntentFor] — identical to "Kholein".
+     *
+     * PRIVACY: VISIBILITY_PRIVATE. The resume file name now carries the worker's
+     * REAL name (RAMESH_KUMAR_RESUME.pdf, #398), so the title is PII; this keeps
+     * it off the lock screen, where it would otherwise be readable by anyone
+     * holding the phone.
+     */
+    private fun notifyDownloadComplete(
+        displayName: String?,
+        displayPath: String?,
+        location: String?,
+        result: MethodChannel.Result,
+    ) {
+        try {
+            if (displayName == null || displayPath == null || location == null) {
+                result.success(false)
+                return
+            }
+            val manager = NotificationManagerCompat.from(this)
+            // POST_NOTIFICATIONS is requested once at startup. If the worker said
+            // no, respect it: fall back silently to the SnackBar rather than
+            // re-prompting at every download.
+            if (!manager.areNotificationsEnabled()) {
+                result.success(false)
+                return
+            }
+            createDownloadsChannel()
+
+            val pendingIntent = PendingIntent.getActivity(
+                this,
+                // Per-file request code so a second download's tap does not
+                // inherit the first file's intent.
+                displayPath.hashCode(),
+                viewIntentFor(location),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+
+            val notification = NotificationCompat.Builder(this, DOWNLOADS_NOTIFICATION_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle(displayName)
+                .setContentText(displayPath)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(displayPath))
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setContentIntent(pendingIntent)
+                .build()
+
+            // Per-file id: a resume and a kit downloaded back to back must both
+            // stay in the shade, not silently replace one another.
+            manager.notify(displayPath.hashCode(), notification)
+            result.success(true)
+        } catch (e: Exception) {
+            // Never let a notification problem fail a finished download.
+            result.success(false)
+        }
+    }
+
+    /** The "Downloads" channel — separate from the FCM one so a worker can mute
+     *  download receipts without losing real alerts. */
+    private fun createDownloadsChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val channel = NotificationChannel(
+            DOWNLOADS_NOTIFICATION_CHANNEL_ID,
+            "Downloads",
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = "Tells you where a downloaded resume or interview kit was saved"
+        }
+        getSystemService(NotificationManager::class.java)
+            ?.createNotificationChannel(channel)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -237,5 +366,8 @@ class MainActivity : FlutterActivity() {
         private const val NOTIF_PERMISSION_REQUEST = 2001
         private const val SMS_OTP_CHANNEL = "badabhai/sms_otp"
         private const val DOWNLOADS_CHANNEL = "badabhai.workerapp/downloads"
+
+        /** Notification channel for download receipts — NOT the FCM channel. */
+        private const val DOWNLOADS_NOTIFICATION_CHANNEL_ID = "bb_downloads_channel"
     }
 }
