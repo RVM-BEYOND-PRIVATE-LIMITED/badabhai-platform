@@ -123,6 +123,11 @@ export function createStubJobSourceOrThrow(): StubJobSource {
  *    fallback (no coordinates are stored or needed).
  *  - pay / experience / neededBy ← null becomes `undefined`, which the engine
  *    neutral-defaults (a blank never drops or penalizes anyone).
+ *  - `skillIds` (ADR-0033) is deliberately ABSENT: the `jobs` entity carries no
+ *    skill-id column (the canonicalized ids live on the separate `job_postings`
+ *    entity, TAX-6 — no join path, TD37), so the engine redistributes the skills
+ *    weight and a jobs-table job's ordering is exactly the non-skills factors'.
+ *    Do NOT invent ids here; demand-side ids arrive via a future additive migration.
  */
 export function jobSignalRowToJobSpec(row: JobSignalRow): JobSpec {
   return {

@@ -22,6 +22,15 @@ export interface JobSpec {
   jobId: string;
   /** Canonical role/trade ids the job accepts (e.g. ["vmc_operator"]). */
   roleIds: string[];
+  /**
+   * Canonical CLOSED-SET skill ids the job requires (ADR-0030 vocabulary, e.g.
+   * ["skill_milling"]) — the demand side of the ADR-0033 skills-overlap factor.
+   * OPTIONAL + additive: absent/empty means "job lists no skill requirements" and the
+   * factor's weight is redistributed (pre-ADR-0033 ordering preserved — see scoring.ts).
+   * These are opaque tokens compared by EXACT equality only — never embeddings, never
+   * similarity, never a model call (invariant #4).
+   */
+  skillIds?: string[];
   /** City-centroid of the job, for travel distance. */
   location?: GeoPoint;
   /** City slug fallback when no coordinates are available. */
@@ -56,10 +65,24 @@ export interface WorkerSignals {
   availability?: "immediate" | "notice_period" | "not_looking" | "unknown" | null;
   /** Days since last active (recency). Lower = more active. */
   lastActiveDaysAgo?: number | null;
+  /**
+   * Canonical CLOSED-SET skill ids the worker holds (ADR-0030 vocabulary; the supply
+   * side of the ADR-0033 skills-overlap factor). OPTIONAL + additive: absent/empty
+   * scores 0 on the skills factor ONLY (per the 2026-06-19 CEO lock ruling) — it never
+   * blocks, never penalizes any other factor, and the chat can confirm skills later.
+   */
+  skillIds?: string[];
 }
 
-/** The §3 signals the engine scores. */
-export type ReachSignal = "role" | "distance" | "experience" | "pay" | "availability" | "activity";
+/** The §3 signals the engine scores (+ `skills` since ADR-0033). */
+export type ReachSignal =
+  | "role"
+  | "distance"
+  | "skills"
+  | "experience"
+  | "pay"
+  | "availability"
+  | "activity";
 
 /** One scored signal — explainable (the "why", surfaced to ops). */
 export interface ScoreComponent {

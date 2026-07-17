@@ -6,6 +6,14 @@
  * 0..1 contribution; unknown signals fall back to a NEUTRAL default (benefit of the
  * doubt — the chat can ask later) rather than a penalty, so a blank field never
  * drops a worker. A fuller, stronger profile naturally scores higher (§5).
+ *
+ * ADR-0033 (2026-07-17): the 2026-06-19 CEO weight lock is operative — a
+ * deterministic closed-set skills-overlap factor enters RANK at weight .15 (see
+ * `skillsOverlap` / the WEIGHTS ledger below). The factor compares canonical
+ * `skill_id` tokens by exact equality ONLY — no embeddings, no similarity, no model
+ * call ever ranks (invariant #4). One deliberate exception to the neutral-default
+ * rule, per the ruling: a worker with NO confirmed skills scores 0 on this factor
+ * (never a block — sort-never-block holds; the chat can confirm skills later).
  */
 import type {
   GeoPoint,
@@ -16,14 +24,32 @@ import type {
   WorkerSignals,
 } from "./types";
 
-// §3 weights. Sum = 1.0. DIALS (§12) — tune later; the shape is fixed here.
+// The 2026-06-19 CEO weight lock, operative per the 2026-07-17 owner ruling (ADR-0033).
+// Sum = 1.0. The ledger is a FULL table (not a proportional re-scale of the old set):
+//
+//   | signal       | pre-ADR-0033 | CEO lock (ADR-0033) |
+//   | ------------ | ------------ | ------------------- |
+//   | role/trade   | .35          | .35                 |
+//   | distance     | .20          | .20                 |
+//   | skills       | — (locked out, TAX-6) | .15 (NEW — deterministic overlap) |
+//   | experience   | .15          | .15                 |
+//   | pay/salary   | .10          | .10                 |
+//   | availability | .10          | .05                 |
+//   | activity     | .10          | 0 (dropped from the score; the component is KEPT
+//   |              |              |    at weight 0 for explainability, the ranking
+//   |              |              |    tie-break, and LEARN feature continuity)      |
+//
+// When a job lists NO skill ids, the skills weight is redistributed proportionally
+// across the other factors (÷ (1 - WEIGHTS.skills)) so Σ stays 1.0 and a skill-less
+// job's ordering is EXACTLY what the non-skills factors produce (see scoreWorkerForJob).
 export const WEIGHTS = {
   role: 0.35, // "Does the worker do this kind of work?" — the biggest factor
   distance: 0.2, // "Can they get there?"
+  skills: 0.15, // "Do they hold the skills the job asks for?" (ADR-0033, closed-set overlap)
   experience: 0.15, // "Roughly the right experience?"
   pay: 0.1, // "Is the pay in their range?"
-  availability: 0.1, // "Can they start when needed?"
-  activity: 0.1, // "Are they active?"
+  availability: 0.05, // "Can they start when needed?"
+  activity: 0, // dropped by the CEO ledger; kept as a 0-weight explainable component
 } as const;
 
 const DEFAULT_MAX_TRAVEL_KM = 50;
@@ -56,6 +82,67 @@ export function haversineKm(a: GeoPoint, b: GeoPoint): number {
 }
 
 type Part = { raw: number; reason: string };
+
+/**
+ * Normalize a skill-id list into a usable set: non-blank strings only, trimmed,
+ * deduplicated. Garbage entries (non-strings, blanks) are dropped, so a corrupt list
+ * degrades to "fewer known ids", never a throw or a penalty on another factor.
+ */
+function usableSkillIds(ids: readonly string[] | null | undefined): Set<string> {
+  const set = new Set<string>();
+  if (!Array.isArray(ids)) return set;
+  for (const id of ids) {
+    if (typeof id !== "string") continue;
+    const trimmed = id.trim();
+    if (trimmed.length > 0) set.add(trimmed);
+  }
+  return set;
+}
+
+/**
+ * ADR-0033 — the deterministic skills-overlap factor (the CEO ledger's "Skills 15").
+ *
+ * `|worker ∩ jobRequired| / |jobRequired|` over DEDUPLICATED canonical closed-set
+ * `skill_id` tokens (ADR-0030 vocabulary), compared by EXACT string equality only.
+ * Pure + deterministic: no embeddings, no similarity, no model call, no clock
+ * (invariant #4 — LLMs/embeddings never rank; the vector layer assigns ids UPSTREAM,
+ * at profiling/posting time, never here).
+ *
+ * Zero-set semantics (ADR-0033 §factor):
+ *  - empty/absent JOB set → 0 here; the CALLER treats the factor as NOT APPLICABLE
+ *    and redistributes its weight (see scoreWorkerForJob) — order-neutral for
+ *    skill-less jobs, no flat score inflation.
+ *  - empty/absent WORKER set (job HAS requirements) → 0 on this factor ONLY —
+ *    never a block, never a penalty on any other factor.
+ * Bounded [0,1]; monotonically non-decreasing in the overlap.
+ */
+export function skillsOverlap(
+  workerSkillIds: readonly string[] | null | undefined,
+  jobSkillIds: readonly string[] | null | undefined,
+): number {
+  const jobSet = usableSkillIds(jobSkillIds);
+  if (jobSet.size === 0) return 0;
+  const workerSet = usableSkillIds(workerSkillIds);
+  if (workerSet.size === 0) return 0;
+  let matched = 0;
+  for (const id of jobSet) if (workerSet.has(id)) matched += 1;
+  return clamp01(matched / jobSet.size);
+}
+
+function scoreSkills(job: JobSpec, w: WorkerSignals): Part {
+  const jobSet = usableSkillIds(job.skillIds);
+  if (jobSet.size === 0) {
+    // Factor not applicable — the caller redistributes the weight (ADR-0033), so this
+    // raw contributes nothing and the reason documents why the weight shows 0.
+    return { raw: 0, reason: "job lists no skill requirements (weight redistributed)" };
+  }
+  if (usableSkillIds(w.skillIds).size === 0) {
+    return { raw: 0, reason: "no confirmed skills yet (scores 0 on this factor only — never a block)" };
+  }
+  const raw = skillsOverlap(w.skillIds, job.skillIds);
+  const matched = Math.round(raw * jobSet.size);
+  return { raw, reason: `${matched}/${jobSet.size} required skills matched` };
+}
 
 function scoreRole(job: JobSpec, w: WorkerSignals): Part {
   if (w.roleId == null) return { raw: 0.4, reason: "trade not stated yet (can ask in chat)" };
@@ -152,13 +239,24 @@ export function scoreWorkerForJob(
     num(opts.defaultMaxTravelKm) && opts.defaultMaxTravelKm > 0
       ? opts.defaultMaxTravelKm
       : DEFAULT_MAX_TRAVEL_KM;
+  // ADR-0033: the skills factor applies only when the job LISTS skill requirements.
+  // When it does not, its weight is redistributed proportionally over the remaining
+  // factors (÷ (1 - WEIGHTS.skills)) — the CEO-locked 35:20:15:10:5 proportions are
+  // preserved, Σ(effective weights) stays 1.0, and a skill-less job's ORDERING is
+  // exactly what the non-skills factors produce (the factor is order-neutral where no
+  // demand-side skills exist — chosen over "score 1.0 for everyone", which would have
+  // flatly inflated every skill-less job's score by +0.15 and shifted pushEligible).
+  // Components carry the EFFECTIVE weights, so score == Σ(weight × raw) always holds.
+  const skillsApply = usableSkillIds(job.skillIds).size > 0;
+  const scale = skillsApply ? 1 : 1 / (1 - WEIGHTS.skills);
   const parts: Array<{ signal: ScoreComponent["signal"]; weight: number } & Part> = [
-    { signal: "role", weight: WEIGHTS.role, ...scoreRole(job, worker) },
-    { signal: "distance", weight: WEIGHTS.distance, ...scoreDistance(job, worker, maxKm) },
-    { signal: "experience", weight: WEIGHTS.experience, ...scoreExperience(job, worker) },
-    { signal: "pay", weight: WEIGHTS.pay, ...scorePay(job, worker) },
-    { signal: "availability", weight: WEIGHTS.availability, ...scoreAvailability(job, worker) },
-    { signal: "activity", weight: WEIGHTS.activity, ...scoreActivity(worker) },
+    { signal: "role", weight: WEIGHTS.role * scale, ...scoreRole(job, worker) },
+    { signal: "distance", weight: WEIGHTS.distance * scale, ...scoreDistance(job, worker, maxKm) },
+    { signal: "skills", weight: skillsApply ? WEIGHTS.skills : 0, ...scoreSkills(job, worker) },
+    { signal: "experience", weight: WEIGHTS.experience * scale, ...scoreExperience(job, worker) },
+    { signal: "pay", weight: WEIGHTS.pay * scale, ...scorePay(job, worker) },
+    { signal: "availability", weight: WEIGHTS.availability * scale, ...scoreAvailability(job, worker) },
+    { signal: "activity", weight: WEIGHTS.activity * scale, ...scoreActivity(worker) },
   ];
   const score = clamp01(parts.reduce((s, p) => s + p.weight * p.raw, 0));
   const components: ScoreComponent[] = parts.map((p) => ({

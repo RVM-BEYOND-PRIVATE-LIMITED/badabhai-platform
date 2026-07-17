@@ -134,3 +134,35 @@ queue in one pass. Recorded here so no builder re-litigates them:
 
 *Execution note:* B-4/B-5/B-6/B-11/B-12/D-1/D-6 + the in-repo doc-drift strings were
 greenlit wholesale ("complete all the tasks now") and ship as the 2026-07-17 build wave.
+
+### 2026-07-17 — A-2 EXECUTED: the 06-19 CEO weight lock is in the code (ADR-0033)
+Ruling 2 above is **built**, same day, as
+[ADR-0033](../decisions/0033-rank-skills-overlap-factor.md). This row exists so the
+**2026-06-12 row above is not read as current** — it is **superseded on the weight ledger
+only**, and the supersession chain (06-12 code-wins → 06-19 CEO lock → 07-17 owner
+confirmation) is recorded in the ADR.
+- **Shipped ledger:** Trade .35 / Location .20 / **Skills .15 (NEW)** / Experience .15 /
+  Pay .10 / Availability **.05** (was .10) / Activity **0** (was .10). Σ = 1.00 — the CEO
+  table verbatim; no renormalization was needed (the lock listed a full ledger).
+- **The factor is deterministic:** `|worker ∩ jobRequired| / |jobRequired|` over canonical
+  closed-set `skill_id` tokens, **exact equality only — no embeddings, no similarity, no
+  model call, no clock** (invariant #4 absolute; the vector layer assigns ids UPSTREAM at
+  profiling/posting time). SORT-NEVER-BLOCK preserved; skill ids are faceless (no PII).
+- **Zero-set semantics:** a job listing **no** skills → the .15 is **redistributed**, so
+  skill-less jobs rank **exactly as before** (chosen over "score 1.0", which would have
+  inflated every such job +0.15); a worker with **no** confirmed skills → **0 on that
+  factor only**, never a block (a deliberate, ruling-mandated trim of ADR-0006's
+  neutral-default rule — max −0.15, sort-only, chat can confirm later).
+- **The TAX-6 CI lock was edited in the same diff** (its own instruction) → now the
+  **INVERSE lock**: the `/embedding/i` half is **KEPT and widened** (`cosine|similarity`),
+  plus determinism greps and a pin on the full weight ledger. Filename kept so existing
+  references still resolve.
+- **Live in the core, INERT in serving:** the `jobs` entity has no skill column (ids live
+  on `job_postings`, no join path — **TD37**), so serving output is byte-identical today.
+  Supply side rides the existing single-query projection (no N+1).
+- **Two interpretations flagged for veto** (the ledger was silent): **I1** "drop Activity"
+  = weight 0 with the component retained (it is the recency tie-break + a LEARN feature
+  axis); **I2** the skills-less-job redistribution. Both are in the ADR.
+- `@badabhai/reach-learn` baseline **pinned to the pre-0033 six-signal set** — offline,
+  unchanged, still no live influence (ADR-0017). Recalibration = tracked follow-up.
+- No schema, no migration, no event-payload change. Rollback = revert the commit.

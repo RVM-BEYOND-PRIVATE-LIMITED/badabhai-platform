@@ -10,5 +10,5 @@
  * intentionally NOT here. LLMs must never rank/decide matches; this engine does.
  */
 export * from "./types";
-export { scoreWorkerForJob, haversineKm, WEIGHTS } from "./scoring";
+export { scoreWorkerForJob, skillsOverlap, haversineKm, WEIGHTS } from "./scoring";
 export { rankWorkersForJob } from "./ranking";
