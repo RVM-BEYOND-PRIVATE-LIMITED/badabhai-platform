@@ -11,6 +11,7 @@ import { ConsentController } from "../consent/consent.controller";
 import { EventsController } from "../events/events.controller";
 import { HealthController } from "../health/health.controller";
 import { InterviewKitController } from "../interview-kit/interview-kit.controller";
+import { JobsController } from "../jobs/jobs.controller";
 import { JobPostingsController } from "../job-postings/job-postings.controller";
 import { MessagingController } from "../messaging/messaging.controller";
 import { CapacityController } from "../posting-plans/capacity.controller";
@@ -119,6 +120,10 @@ const CONTRACT: ControllerContract[] = [
   { name: "Events", ctor: EventsController, routes: { list: [] } },
   { name: "Health", ctor: HealthController, routes: { check: [] } },
   { name: "InterviewKit", ctor: InterviewKitController, routes: { download: [] } },
+  // Worker-scoped job detail (ADR-0024 final addendum): GET /jobs/:jobId is
+  // worker-authed + consent-gated, mirroring the /feed posture. Distinct surface
+  // from the ops JobPostings rows below (which stay FORBIDDEN on the worker path).
+  { name: "Jobs", ctor: JobsController, routes: { getJob: [C, W] } },
   {
     name: "JobPostings",
     ctor: JobPostingsController,
@@ -349,6 +354,13 @@ describe("API authz contract — guards on every controller route", () => {
     it("WorkersController.getMyProfileSummary runs [WorkerAuthGuard, ConsentGuard] in order", () => {
       const handler = (WorkersController.prototype as unknown as Record<string, object>)
         .getMyProfileSummary;
+      expect(guardNames(handler)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);
+    });
+
+    // Worker-scoped job detail read (ADR-0024 final addendum) — method-level
+    // guards, same auth-before-consent order as the other worker routes.
+    it("JobsController.getJob runs [WorkerAuthGuard, ConsentGuard] in order", () => {
+      const handler = (JobsController.prototype as unknown as Record<string, object>).getJob;
       expect(guardNames(handler)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);
     });
   });

@@ -8,6 +8,8 @@ import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/util/job_display.dart';
+import '../../../core/util/pay_format.dart';
 import '../../../core/widgets/bb_bottom_sheet.dart';
 import '../../../core/widgets/bb_job_card.dart';
 import '../../../core/widgets/bb_chip.dart';
@@ -382,15 +384,20 @@ class _FeedViewState extends State<_FeedView> {
   }
 }
 
-/// Maps a REAL [FeedItem] to the card. The feed carries ONLY title + place —
-/// no employer name (PII per CLAUDE.md §2), no pay, no shift, no tags, no
-/// spots-left — so none are set here. An earlier build invented all of them
-/// client-side from `jobId.hashCode` and rendered them as fact.
+/// Maps a REAL [FeedItem] to the card. Per the ADR-0024 addendum (2026-07-16)
+/// the feed now carries the REAL pay band + shift, so the card shows them when
+/// present — a null field simply leaves its row hidden (never invented). Still
+/// NEVER set here: company (employer identity is hidden entirely — nothing
+/// employer-shaped, PII per CLAUDE.md §2), tags, and spots-left (frozen — no
+/// real source). An earlier build invented all of them client-side from
+/// `jobId.hashCode` and rendered them as fact.
 BbJobCardData _cardData(FeedItem item) {
   return BbJobCardData(
     title: item.title,
     place: (item.area == null || item.area!.isEmpty)
         ? item.city
         : '${item.area}, ${item.city}',
+    payBand: formatPayBandCompact(item.payMin, item.payMax),
+    shift: shiftLabel(item.shift),
   );
 }

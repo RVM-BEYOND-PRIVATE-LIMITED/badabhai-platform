@@ -1121,6 +1121,18 @@ describe("job entity + agency_invite events (ADR-0022 — FACELESS, ids/enums/ba
     );
     expect(ok.success).toBe(true);
 
+    // ADR-0024 final addendum: the four worker-visible content KEYS are ADDITIVE
+    // enum members (no version bump) — the screened free text itself never enters.
+    const okNew = validateEvent(
+      jobEvent("job.updated", {
+        job_id: UUID_A,
+        payer_id: UUID_B,
+        status: "open",
+        changed_fields: ["description", "shift", "benefits", "requirements"],
+      }),
+    );
+    expect(okNew.success).toBe(true);
+
     const bad = validateEvent(
       jobEvent("job.updated", {
         job_id: UUID_A,

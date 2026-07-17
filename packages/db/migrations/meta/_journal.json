@@ -288,6 +288,13 @@
       "when": 1784180160100,
       "tag": "0040_worker_profile_photo",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1784267762855,
+      "tag": "0041_round_mathemanic",
+      "breakpoints": true
     }
   ]
 }

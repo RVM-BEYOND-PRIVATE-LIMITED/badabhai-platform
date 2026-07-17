@@ -1,6 +1,6 @@
 # ADR-0024: Worker-visible job-posting fields — PII boundary (job-detail stays mock-only)
 
-- Status: Accepted
+- Status: Accepted — **field ruling RATIFIED 2026-07-16 (see final addendum); the mock-only freeze is LIFTED for the ruled fields**
 - Date: 2026-06-27
 - Scope: `apps/worker-app` (Flutter) job surface + the future worker-facing job
   contract. No code change in this ADR — it gates one.
@@ -136,3 +136,75 @@ the Option-3 field ruling sits under **Recommendation** in recommendation
 language, and TD53's un-defer trigger reads *"ADR-0024 **ratified**"*. Whether
 Option 3 is binding or merely recommended is **UNKNOWN** and needs an owner call
 before any pay/employer field is built.
+
+> The UNKNOWN above is resolved by the final addendum below.
+
+## Final addendum (2026-07-16) — Field ruling RATIFIED (Prakash)
+
+**Ruling** (approved by Prakash; relayed by Divyanshu Pant, 2026-07-16). This
+resolves the ambiguity flagged in the 2026-07-15 addendum and lifts the
+mock-only freeze for the fields ruled visible below.
+
+- **HIDDEN — never on the worker read path, in any column OR free text:**
+  employer identity (company/legal/person name) and ALL contact details
+  (phone, email, address, contact links). These remain the paid / audited-reveal
+  information (ADR-0010 shape). `payer_id` never appears in any worker-facing
+  response.
+- **SHOWN — real, worker-visible:** `title`, `city`/`area`, the stored **pay
+  band** (`pay_min`–`pay_max`, per ADR-0012 banded storage), the experience
+  window, `needed_by`, **plus new fields: `description`, `shift`, `benefits`,
+  requirement tags.**
+- **Free-text guard (fail closed):** every free-text field (`title`,
+  `description`, `benefits`, tags) MUST be validated at the write path against
+  embedded employer identity / contact (reuse `looksLikePii` in
+  `@badabhai/validators`; reject on match). An employer typing their name or
+  phone into the description must be blocked, not stored.
+- **Supersedes** the Option-3 "masked employer descriptor" in one respect: NO
+  employer descriptor field is added at all — nothing about the employer is
+  shown, masked or otherwise. Pay shows as the stored band; nothing more precise
+  than the band is stored or shown.
+- **Out of scope of this ruling:** "spots left" stays frozen (no backing field);
+  the audited precise-reveal layer (Option 2) remains deferred.
+- **Consequence:** TD53's un-defer trigger ("ADR-0024 ratified") **fires** — the
+  worker-scoped job-detail contract may now be built per this ruling. It must
+  still NOT reuse the ops `GET /job-postings/:id`.
+
+### Build notes (recorded with the PR that implements this ruling)
+
+- **Guard implementation — three heuristics, not one.** `looksLikePii` is
+  documented as catching ONLY phone/email shapes — not employer names, not
+  links. To honor the HIDDEN clause fail-closed, every `jobs` write path
+  validates each free-text field (`title`, `description`, each
+  `benefits`/`requirements` item) with **`looksLikePii` + `looksLikeOrgName`**
+  (legal-entity suffixes — "Pvt Ltd" / "Private Limited" / "LLP" / …) **+
+  `looksLikeUrl`** (link shapes — covers the ruling's "contact links"), all in
+  `@badabhai/validators`. A match is a clear 400 naming the field, never the
+  content; nothing is stored. Heuristics are best-effort by design (documented
+  slip cases pinned in tests); authored/seeded content stays employer-free as
+  the primary control.
+- **Event ruling — the detail read emits NO event.** `GET /jobs/:jobId` is a
+  pure read of already-served content: the impression was already evented by
+  `feed.shown` when `/feed` served the card, and the state change that may
+  follow (apply) emits `application.submitted`. Reusing `feed.shown` for detail
+  renders was rejected: its payload requires a positive 1-based **feed
+  position** (`rank`), which a detail render does not have — a fake rank would
+  corrupt the impression spine, and mutating the shipped payload is barred by
+  §2.8. Detail-view analytics, if wanted later, are a NEW versioned event
+  (logged in future-improvements), never a repurposed one.
+- **Feed contract.** `FeedItem` additively gains `pay_min`, `pay_max`, `shift`
+  (nullable, honest nulls — same §8 argument as the 2026-07-15
+  experience-window addendum). `feed.shown` unchanged. `JOB_CHANGED_FIELDS`
+  (the `job.updated` `changed_fields` key enum) additively gains the four new
+  column KEYS — keys only, free text never enters a payload.
+- **Why this does not move the §2 boundary.** Employer identity stays off the
+  worker path entirely (stricter than Option 3); pay bands / year counts /
+  timing enums are PII-free by the schema's own classification; the new free
+  text is poster-authored worker-visible content, guarded fail-closed at write;
+  nothing here touches LLM input, events, `ai_jobs`, `audit_logs`, or logs. No
+  LLM, no ranking, no decision (§4).
+
+### Sign-off
+
+| Who     | Role | Decision                                                                                                      | Date       |
+| ------- | ---- | -------------------------------------------------------------------------------------------------------------- | ---------- |
+| Prakash | TL   | Approved (ruling relayed + recorded by Divyanshu; explicit confirmation requested at this PR's review — bb-security-review gate condition) | 2026-07-16 |

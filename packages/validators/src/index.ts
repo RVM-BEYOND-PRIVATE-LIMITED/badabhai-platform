@@ -138,6 +138,92 @@ export function looksLikePii(s: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Best-effort ORG-NAME shape detection (worker-visible job free text, ADR-0024)
+// ---------------------------------------------------------------------------
+
+// Strong legal-entity markers — safe to match ANYWHERE, case-insensitively (each
+// is a suffix shape that essentially never occurs in legitimate trade text):
+// Pvt Ltd / Pvt. Ltd., Private Limited, LLP, Inc, Corp/Corporation, "& Co" /
+// "and Co", and "Co." — where the DOT is REQUIRED so "co-worker" and words that
+// merely start with "co" ("control") stay legal.
+const ORG_SUFFIX_STRONG = new RegExp(
+  [
+    String.raw`\bpvt\.?\s+ltd\b`, // Pvt Ltd / Pvt. Ltd.
+    String.raw`\bprivate\s+limited\b`, // Private Limited
+    String.raw`\bllp\b`, // LLP
+    String.raw`\binc\b`, // Inc / Inc.
+    String.raw`\bcorp(?:oration)?\b`, // Corp / Corp. / Corporation
+    String.raw`(?:&|\band)\s+co\b`, // "& Co" / "and Co"
+    String.raw`\bco\.`, // "Co." (dot REQUIRED — bare "co"/"co-worker" pass)
+  ].join("|"),
+  "i",
+);
+
+// Bare "Ltd"/"Limited" WITHOUT a pvt/private prefix is genuinely ambiguous:
+// "limited experience ok" is legal trade prose. So the bare form is flagged only
+// in TRAILING ENTITY-SUFFIX POSITION — preceded by a Capitalized-ish token and at
+// end-of-string (or followed only by punctuation). The suffix is spelled with
+// per-letter classes because the Capitalized-token requirement forbids the `i`
+// flag (which would also case-fold the [A-Z] class).
+const ORG_TRAILING_LTD = new RegExp(
+  String.raw`(?:^|\s)[A-Z][\w&.'()-]*\s+(?:[Ll][Tt][Dd]|[Ll][Ii][Mm][Ii][Tt][Ee][Dd])\.?\s*(?:$|[.,;:!?)\]])`,
+);
+
+/**
+ * Best-effort heuristic: true if a string looks like it contains a LEGAL-ENTITY
+ * company name — an org-suffix marker such as "Pvt Ltd" / "Pvt. Ltd." /
+ * "Private Limited" / "LLP" / "Inc" / "Corp"/"Corporation" / "& Co"/"and Co" /
+ * "Co.", or a trailing bare "Ltd"/"Limited" in entity position. The fail-closed
+ * companion to {@link looksLikePii} for worker-visible job free text (title /
+ * description / benefits / requirements items) — ADR-0024 final addendum
+ * (2026-07-16): employer identity must never enter the worker-visible `jobs`
+ * columns, so every jobs write path rejects strings this flags.
+ *
+ * NOT a classifier: it is deliberately TIGHT to legal-entity suffix markers and
+ * will NOT catch a bare brand name ("Sharma Precision") or generic org-ish words
+ * ("Industries" / "Works" / "Engineering" alone — far too many false positives
+ * on legitimate trade text). Tradeoffs, documented and pinned by tests:
+ *  - bare "Ltd"/"Limited" is flagged ONLY as a TRAILING entity suffix (preceded
+ *    by a Capitalized-ish token, at end-of-string or followed by punctuation),
+ *    so plain prose like "limited experience ok" is never rejected;
+ *  - consequence: an all-lowercase "acme ltd" (or a mid-sentence bare "Ltd")
+ *    slips that tier — the strong markers still catch the Pvt Ltd / Private
+ *    Limited / LLP / Inc / Corp / & Co / Co. forms anywhere, case-blind.
+ * Callers must still keep employer identity out of these fields by policy.
+ */
+export function looksLikeOrgName(s: string): boolean {
+  return ORG_SUFFIX_STRONG.test(s) || ORG_TRAILING_LTD.test(s);
+}
+
+// ---------------------------------------------------------------------------
+// Best-effort URL / link shape detection (worker-visible job free text, ADR-0024)
+// ---------------------------------------------------------------------------
+
+// Link shapes: an explicit http(s) scheme, a "www." prefix, or a dotted common
+// TLD. The TLD tier requires the dot IMMEDIATELY before the TLD token
+// ("acme.in", "acme-components.com", "acme.co.in") — prose like "2.5 in" (space
+// before "in") or an org-suffix "Co." (dot AFTER "co") never matches.
+const URL_SCHEME = /\bhttps?:\/\//i;
+const URL_WWW = /\bwww\./i;
+const URL_TLD = /\.(?:com|net|org|co\.in|co|in|io|biz|info)\b/i;
+
+/**
+ * Best-effort heuristic: true if a string looks like it contains a URL / web
+ * link — an explicit http(s) scheme, a "www." prefix, or a dotted common TLD.
+ * The THIRD fail-closed companion (with {@link looksLikePii} and
+ * {@link looksLikeOrgName}) for worker-visible job free text — the ADR-0024
+ * final addendum's HIDDEN clause bars contact LINKS from every `jobs` write
+ * path, so a link-shaped string in title/description/benefits/requirements is
+ * rejected before it can reach a worker.
+ *
+ * NOT a classifier: spelled-out domains ("acme dot in") and exotic TLDs slip —
+ * callers must still keep contact routes out of these fields by policy.
+ */
+export function looksLikeUrl(s: string): boolean {
+  return URL_SCHEME.test(s) || URL_WWW.test(s) || URL_TLD.test(s);
+}
+
+// ---------------------------------------------------------------------------
 // Vacancy band derivation (ADR-0012: job_postings is BANDED, not an integer)
 // ---------------------------------------------------------------------------
 

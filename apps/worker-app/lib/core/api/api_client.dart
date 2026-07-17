@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../features/swipe/domain/job_detail.dart';
 import '../config/app_config.dart' show resolveApiBaseUrl;
 import 'api_models.dart';
 
@@ -383,6 +384,22 @@ class ApiClient {
         .whereType<Map<String, dynamic>>()
         .map(FeedItem.fromJson)
         .toList();
+  }
+
+  /// Fetches the FULL worker-visible posting for one job (GET /jobs/:jobId —
+  /// the ADR-0024 addendum, 2026-07-16). Worker-scoped — requires [authToken]
+  /// (WorkerAuthGuard + ConsentGuard: a 401 means re-login, a 403 means consent
+  /// is required); a 404 is the neutral "Job not found" for unknown/closed jobs.
+  ///
+  /// PII-free by contract: title, place, pay band, experience window,
+  /// needed-by, shift, description, requirements and benefits — NEVER an
+  /// employer/payer field of any kind (employer names are PII, CLAUDE.md §2).
+  /// [JobDetail.fromJson] parses NAMED keys only, so a contract-violating
+  /// employer-shaped key in the body is ignored, never surfaced.
+  Future<JobDetail> jobDetail(String jobId, {required String authToken}) async {
+    final Map<String, dynamic> json =
+        await _get('/jobs/$jobId', authToken: authToken);
+    return JobDetail.fromJson(json);
   }
 
   /// Fetches the worker's own applied/skipped jobs for the "Applied jobs" screen

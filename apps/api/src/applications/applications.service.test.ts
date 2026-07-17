@@ -223,11 +223,11 @@ describe("ApplicationsService — skip", () => {
 });
 
 describe("ApplicationsService — feed", () => {
-  // Job 1 carries a bounded experience window; job 2 carries NONE (both ends null)
-  // — the two shapes the worker app's experience filter must handle.
+  // Job 1 carries a bounded experience window + a pay band + a shift; job 2
+  // carries NONE of them (all null) — the two shapes the worker app must handle.
   const OPEN_JOBS = [
-    { id: "a0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", minExperienceYears: 2, maxExperienceYears: 5 },
-    { id: "a0000000-0000-0000-0000-000000000002", tradeKey: "fitter", title: "T2", city: "Pune", area: null, minExperienceYears: null, maxExperienceYears: null },
+    { id: "a0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", minExperienceYears: 2, maxExperienceYears: 5, payMin: 18000, payMax: 25000, shift: "night" },
+    { id: "a0000000-0000-0000-0000-000000000002", tradeKey: "fitter", title: "T2", city: "Pune", area: null, minExperienceYears: null, maxExperienceYears: null, payMin: null, payMax: null, shift: null },
   ];
 
   it("returns coarse PII-free items with 1-based rank and emits one feed.shown per item", async () => {
@@ -235,8 +235,8 @@ describe("ApplicationsService — feed", () => {
     const out = await svc.getFeed(WORKER_ID, 20, CTX);
 
     expect(out.jobs).toEqual([
-      { job_id: OPEN_JOBS[0]!.id, trade_key: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", min_experience_years: 2, max_experience_years: 5, rank: 1 },
-      { job_id: OPEN_JOBS[1]!.id, trade_key: "fitter", title: "T2", city: "Pune", area: null, min_experience_years: null, max_experience_years: null, rank: 2 },
+      { job_id: OPEN_JOBS[0]!.id, trade_key: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", min_experience_years: 2, max_experience_years: 5, pay_min: 18000, pay_max: 25000, shift: "night", rank: 1 },
+      { job_id: OPEN_JOBS[1]!.id, trade_key: "fitter", title: "T2", city: "Pune", area: null, min_experience_years: null, max_experience_years: null, pay_min: null, pay_max: null, shift: null, rank: 2 },
     ]);
 
     // One feed.shown per returned job (per-impression), batched via emitMany.
@@ -304,6 +304,67 @@ describe("ApplicationsService — feed", () => {
     // '5+ yrs' jobs are stored as [5, null]; the null max means infinity, and the
     // feed must not substitute a finite bound for it.
     expect(out.jobs[0]).toMatchObject({ min_experience_years: 5, max_experience_years: null });
+  });
+
+  // ── ADR-0024 final addendum: additive pay_min/pay_max/shift on the FeedItem ──
+
+  it("carries pay_min/pay_max/shift additively, nulls passed through un-coerced", async () => {
+    const { svc } = setup({ openJobs: OPEN_JOBS });
+    const out = await svc.getFeed(WORKER_ID, 20, CTX);
+
+    // Values pass through as stored (the band, never an exact salary)…
+    expect(out.jobs[0]).toMatchObject({ pay_min: 18000, pay_max: 25000, shift: "night" });
+    // …and a job with no band/shift keeps honest NULLs — never 0, never a
+    // fabricated shift, never dropped (same doctrine as the experience window).
+    expect(out.jobs[1]!.pay_min).toBeNull();
+    expect(out.jobs[1]!.pay_max).toBeNull();
+    expect(out.jobs[1]!.shift).toBeNull();
+  });
+
+  it("stays backward-compatible: a consumer reading only the OLD FeedItem keys still works", async () => {
+    const { svc } = setup({ openJobs: OPEN_JOBS });
+    const out = await svc.getFeed(WORKER_ID, 20, CTX);
+
+    // The pre-ADR-0024 shape is an INTACT SUBSET of every item (§8 additive-only):
+    // an old client destructuring these keys sees exactly what it saw before.
+    expect(out.jobs[0]).toMatchObject({
+      job_id: OPEN_JOBS[0]!.id,
+      trade_key: "cnc_operator",
+      title: "T1",
+      city: "Pune",
+      area: "PCMC",
+      min_experience_years: 2,
+      max_experience_years: 5,
+      rank: 1,
+    });
+    // …and the new keys are strictly additive — no old key was renamed/removed.
+    const OLD_KEYS = ["job_id", "trade_key", "title", "city", "area", "min_experience_years", "max_experience_years", "rank"];
+    for (const item of out.jobs) {
+      for (const k of OLD_KEYS) expect(Object.keys(item)).toContain(k);
+    }
+  });
+
+  it("does NOT leak pay/shift (or anything new) into the feed.shown payload — EXACTLY the old keys", async () => {
+    const { svc, events } = setup({ openJobs: OPEN_JOBS });
+    await svc.getFeed(WORKER_ID, 20, CTX);
+
+    // feed.shown is UNCHANGED by ADR-0024 (response-only fields): the payload
+    // key set stays byte-exact {worker_id, job_id, rank, score, hot} — asserted
+    // here against jobs that DO carry pay + shift, so a leak would be caught.
+    const batch = events.emitMany.mock.calls[0]![0] as Array<Record<string, unknown>>;
+    for (const e of batch) {
+      expect(Object.keys(e.payload as Record<string, unknown>).sort()).toEqual([
+        "hot",
+        "job_id",
+        "rank",
+        "score",
+        "worker_id",
+      ]);
+      // Belt-and-braces: the band values themselves never appear either.
+      expect(JSON.stringify(e.payload)).not.toContain("18000");
+      expect(JSON.stringify(e.payload)).not.toContain("25000");
+      expect(JSON.stringify(e.payload)).not.toContain("night");
+    }
   });
 
   it("does NOT add the experience window to the feed.shown payload (no event change, no version bump)", async () => {

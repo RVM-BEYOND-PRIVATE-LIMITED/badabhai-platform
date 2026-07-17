@@ -114,10 +114,18 @@ The Flutter worker-app build kit landed the 4-tab shell + all 17 screens **mock-
 the mock source.
 
 **Real endpoints + ADRs (the load-bearing deferrals):**
-- **Worker-facing job feed/detail PII ruling** — the rich card fields (company name, pay
-  band, "spots left") are MOCK-ONLY display data synthesised client-side; employer names
-  are PII (CLAUDE.md §2). A real `/feed`/job-detail exposing these needs an **ADR** first.
-  The real `FeedItem`/`getFeed` path stays PII-free and unchanged today.
+- **Worker-facing job feed/detail PII ruling** — RESOLVED by the
+  [ADR-0024 final addendum (2026-07-16)](../decisions/0024-worker-visible-job-fields-pii.md):
+  feed + detail are REAL now — pay band (`pay_min`–`pay_max`), shift, description,
+  requirements, benefits served worker-scoped; **employer identity stays off the worker
+  path entirely** (the masked descriptor was rejected, not just the legal name); "spots
+  left" still has NO backing field and stays frozen. Remaining future work: (a) the
+  audited precise employer reveal (ADR-0010 shape, Option 2) if product ever wants it;
+  (b) a detail-view analytics event — the addendum ruled the read emits NO event today;
+  if wanted later it is a NEW versioned event, never a repurposed `feed.shown`;
+  (c) fast-follow: `AgencyJobView` (the agency portal's own job read projection) does not
+  yet return `description`/`shift`/`benefits`/`requirements` — agencies can write the
+  four fields but not read them back; extend the view + payer-web form when picked up.
 - **Resume safe-fields** — real `GET`/`PATCH` for `{displayName, showPhoto, showPhone,
   nightShiftReady}` + **photo capture/storage** (DPDP/consent implications) — mock only.
 - **Interview-kit content source** — per-trade metadata + Q&A (DB vs object-store vs
@@ -169,9 +177,10 @@ each with a noted reason:
   `POST /voice/transcribe`, `GET /ai-jobs/:id` are built). Left per the "missing endpoint →
   leave it" directive; features stay mock at the repository layer. Voice real STT also
   stays a §7 provider-gate escalation (Sarvam keys/spend) — its ADR-0025 is deferred too.
-- **Worker-facing job-detail PII ruling** — ruled on in
-  [ADR-0024](../decisions/0024-worker-visible-job-fields-pii.md) (recommend masked employer
-  + banded pay, audited precise-reveal); job-detail stays mock-only until built (TD53).
+- **Worker-facing job-detail PII ruling** — RATIFIED + BUILT (final addendum 2026-07-16,
+  [ADR-0024](../decisions/0024-worker-visible-job-fields-pii.md)): banded pay + content
+  fields real, employer identity hidden entirely (masked descriptor rejected), TD53 Paid.
+  The audited precise-reveal (Option 2) remains the open future improvement.
 - **`integration_test` package** was intentionally **not** added: it routes `integration_test/`
   to on-device / `flutter drive` runs (needs a connected device), which contradicts the
   headless "Dart-first, no emulator" mock-mode design and the CI `flutter test` gate. The

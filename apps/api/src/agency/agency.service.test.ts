@@ -27,6 +27,10 @@ type JobRow = {
   minExperienceYears: number | null;
   maxExperienceYears: number | null;
   neededBy: "immediate" | "soon" | "flexible" | null;
+  description: string | null;
+  shift: "day" | "night" | "rotational" | null;
+  benefits: string[] | null;
+  requirements: string[] | null;
   status: "open" | "closed";
   applicantsReceived: number;
   createdAt: Date;
@@ -46,6 +50,10 @@ function jobRow(overrides: Partial<JobRow> = {}): JobRow {
     minExperienceYears: null,
     maxExperienceYears: null,
     neededBy: null,
+    description: null,
+    shift: null,
+    benefits: null,
+    requirements: null,
     status: "open",
     applicantsReceived: 0,
     createdAt: new Date(),
@@ -153,6 +161,68 @@ describe("AgencyService.createJob", () => {
     assertNoPiiStrings(evt.payload);
     expect(JSON.stringify(evt.payload)).not.toContain(TITLE);
   });
+
+  // ADR-0024 final addendum (2026-07-16): the four worker-visible content fields
+  // pass through createJob to the repository create() — and the screened free
+  // text still NEVER enters the job.created payload (ids/enums/bands only).
+  it("passes description/shift/benefits/requirements through to the repository create()", async () => {
+    const { svc, emit, jobsRepo } = make();
+    const DESCRIPTION = "Operate and set VMC machines on the day line.";
+    const dto = CreateAgencyJobSchema.parse({
+      trade_key: "cnc_operator",
+      title: TITLE,
+      city: CITY,
+      description: DESCRIPTION,
+      shift: "day",
+      benefits: ["PF + ESI", "Canteen"],
+      requirements: ["Fanuc control", "ITI / Diploma"],
+    });
+    await svc.createJob(PAYER_A, dto, CTX);
+
+    expect(jobsRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payerId: PAYER_A,
+        description: DESCRIPTION,
+        shift: "day",
+        benefits: ["PF + ESI", "Canteen"],
+        requirements: ["Fanuc control", "ITI / Diploma"],
+      }),
+      "open",
+    );
+
+    // The job.created payload keeps its EXACT shipped key set — none of the new
+    // content fields (nor their values) leak into the event spine.
+    const evt = firstEmit(emit);
+    expect(Object.keys(evt.payload).sort()).toEqual(
+      [
+        "job_id",
+        "payer_id",
+        "status",
+        "trade_key",
+        "city",
+        "pay_min",
+        "pay_max",
+        "min_experience_years",
+        "max_experience_years",
+      ].sort(),
+    );
+    expect(JSON.stringify(evt.payload)).not.toContain(DESCRIPTION);
+    expect(JSON.stringify(evt.payload)).not.toContain("PF + ESI");
+  });
+
+  it("omitted new fields land as honest NULLs on create (never fabricated)", async () => {
+    const { svc, jobsRepo } = make();
+    const dto = CreateAgencyJobSchema.parse({
+      trade_key: "cnc_operator",
+      title: TITLE,
+      city: CITY,
+    });
+    await svc.createJob(PAYER_A, dto, CTX);
+    expect(jobsRepo.create).toHaveBeenCalledWith(
+      expect.objectContaining({ description: null, shift: null, benefits: null, requirements: null }),
+      "open",
+    );
+  });
 });
 
 describe("AgencyService — no-oracle on owned reads/edits", () => {
@@ -193,6 +263,32 @@ describe("AgencyService.updateJob", () => {
     expect(evt.payload.changed_fields).toEqual(["title", "pay_min", "pay_max"]);
     // KEYS only — the new title value must not appear in the payload.
     expect(JSON.stringify(evt.payload)).not.toContain("Updated Role Title");
+  });
+
+  // ADR-0024 final addendum: the four content fields are ADDITIVE members of the
+  // JOB_CHANGED_FIELDS key enum — the event carries the KEYS, never the text.
+  it("emits job.updated with the new content field KEYS only (values never leak)", async () => {
+    const { svc, emit } = make({ ownedJob: jobRow() });
+    const dto = UpdateAgencyJobSchema.parse({
+      description: "Set and run VMC machines on the day line.",
+      shift: "night",
+      benefits: ["Canteen"],
+      requirements: ["ITI / Diploma"],
+    });
+    await svc.updateJob(PAYER_A, JOB_ID, dto, CTX);
+
+    const evt = firstEmit(emit);
+    expect(evt.event_name).toBe("job.updated");
+    expect(evt.payload.changed_fields).toEqual([
+      "description",
+      "shift",
+      "benefits",
+      "requirements",
+    ]);
+    const serialized = JSON.stringify(evt.payload);
+    expect(serialized).not.toContain("Set and run VMC machines");
+    expect(serialized).not.toContain("Canteen");
+    expect(serialized).not.toContain("ITI / Diploma");
   });
 
   it("rejects an edit on a closed job", async () => {

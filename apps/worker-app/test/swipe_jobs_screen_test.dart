@@ -15,7 +15,9 @@ import 'package:badabhai_worker_app/features/swipe/presentation/bloc/swipe_bloc.
 import 'package:badabhai_worker_app/features/swipe/presentation/swipe_jobs_screen.dart';
 import 'package:badabhai_worker_app/router.dart';
 
-/// A single seeded feed job in the API's JSON shape (snake_case).
+/// A single seeded feed job in the API's JSON shape (snake_case). Pay/shift
+/// (the ADR-0024 addendum's additive keys) are only included when set, so the
+/// default fixture doubles as the OLD wire shape — proving it still parses.
 Map<String, dynamic> _job({
   required String id,
   String trade = 'cnc_operator',
@@ -23,6 +25,9 @@ Map<String, dynamic> _job({
   String city = 'Pune',
   String? area = 'Chakan',
   int rank = 1,
+  int? payMin,
+  int? payMax,
+  String? shift,
 }) {
   return <String, dynamic>{
     'job_id': id,
@@ -31,6 +36,9 @@ Map<String, dynamic> _job({
     'city': city,
     'area': area,
     'rank': rank,
+    if (payMin != null) 'pay_min': payMin,
+    if (payMax != null) 'pay_max': payMax,
+    if (shift != null) 'shift': shift,
   };
 }
 
@@ -99,7 +107,8 @@ void main() {
   // cubit from get_it — so the locator must be wired. Idempotent.
   setUpAll(setupLocator);
 
-  testWidgets('renders the head job card with title, place and mock fields', (
+  testWidgets('renders the head job card with title, place and the REAL '
+      'pay band + shift from the feed (ADR-0024 addendum)', (
     WidgetTester tester,
   ) async {
     http.Request? captured;
@@ -109,7 +118,14 @@ void main() {
       return http.Response(
         jsonEncode(<String, dynamic>{
           'jobs': <Map<String, dynamic>>[
-            _job(id: 'job-1', title: 'VMC Operator', city: 'Pune'),
+            _job(
+              id: 'job-1',
+              title: 'VMC Operator',
+              city: 'Pune',
+              payMin: 16000,
+              payMax: 26000,
+              shift: 'day',
+            ),
           ],
         }),
         200,
@@ -124,8 +140,38 @@ void main() {
     expect(captured?.headers['authorization'], 'Bearer test-token');
     expect(find.text('VMC Operator'), findsOneWidget);
     expect(find.text('Chakan, Pune'), findsOneWidget);
+    // Real wire pay/shift render compactly; still NOTHING employer-shaped
+    // and no spots-left (frozen — never set).
+    expect(find.text('₹16k–26k'), findsOneWidget);
+    expect(find.text('Day'), findsOneWidget);
+    expect(find.byIcon(Icons.verified), findsNothing);
+    expect(find.textContaining('spots'), findsNothing);
     expect(find.byKey(const Key('swipeApplyButton')), findsOneWidget);
     expect(find.byKey(const Key('swipeSkipButton')), findsOneWidget);
+  });
+
+  testWidgets('a feed job WITHOUT pay/shift keys (old shape) renders no pay '
+      'or shift row — hidden, never invented', (
+    WidgetTester tester,
+  ) async {
+    final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
+      if (req.url.path == '/workers/me/applications') return _noDecisions();
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'jobs': <Map<String, dynamic>>[
+            _job(id: 'job-1', title: 'VMC Operator', city: 'Pune'),
+          ],
+        }),
+        200,
+      );
+    }));
+
+    await tester.pumpWidget(_harness(bloc));
+    await tester.pumpAndSettle();
+
+    expect(find.text('VMC Operator'), findsOneWidget);
+    expect(find.byIcon(Icons.currency_rupee), findsNothing);
+    expect(find.byIcon(Icons.schedule), findsNothing);
   });
 
   testWidgets('empty feed shows the no-more-jobs state', (

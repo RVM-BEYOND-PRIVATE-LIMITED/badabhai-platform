@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:badabhai_worker_app/core/api/api_client.dart';
 import 'package:badabhai_worker_app/core/api/mock_api_client.dart';
+import 'package:badabhai_worker_app/features/swipe/domain/job_detail.dart';
 import 'package:badabhai_worker_app/features/voice/data/voice_pipeline_impl.dart';
 
 /// Maintenance invariant (CLAUDE.md §2): every NEW public ApiClient method MUST
@@ -76,5 +77,62 @@ void main() {
 
   test('confirmAccountDelete (A4) completes (204-equivalent no-op)', () async {
     await api.confirmAccountDelete(authToken: 'mock', otp: '1234');
+  });
+
+  test(
+      'jobDetail (ADR-0024 addendum) returns canned PII-free detail with '
+      'NOTHING employer-shaped', () async {
+    final JobDetail d =
+        await api.jobDetail('mock-job-0001', authToken: 'mock');
+    expect(d.jobId, 'mock-job-0001');
+    expect(d.payMin, 16000);
+    expect(d.payMax, 26000);
+    expect(d.shift, 'day');
+    expect(d.neededBy, 'immediate');
+    expect(d.requirements, isNotEmpty);
+    expect(d.benefits, isNotEmpty);
+
+    // The canned copy carries no employer/PII-shaped string on ANY canned id.
+    for (final String id in <String>[
+      'mock-job-0001',
+      'mock-job-0002',
+      'mock-job-0003',
+      'mock-job-0004',
+    ]) {
+      final JobDetail detail = await api.jobDetail(id, authToken: 'mock');
+      final String dump = detail.props
+          .map((Object? p) => p is List ? p.join(' ') : '$p')
+          .join(' ');
+      expect(dump.contains('Pvt'), isFalse);
+      expect(dump.contains('Ltd'), isFalse);
+      expect(dump.contains('@'), isFalse);
+      expect(RegExp(r'\d{7,}').hasMatch(dump), isFalse);
+    }
+  });
+
+  test('jobDetail mirrors the real neutral 404 for an unknown job', () {
+    expect(
+      () => api.jobDetail('mock-job-9999', authToken: 'mock'),
+      throwsA(
+        isA<ApiException>()
+            .having((ApiException e) => e.statusCode, 'statusCode', 404),
+      ),
+    );
+  });
+
+  test(
+      'the canned feed pay/shift stay in PARITY with the canned details — '
+      'like the real feed and detail routes reading the same jobs row',
+      () async {
+    final List<FeedItem> feed = await api.getFeed(authToken: 'mock');
+    expect(feed, isNotEmpty);
+    for (final FeedItem item in feed) {
+      final JobDetail detail =
+          await api.jobDetail(item.jobId, authToken: 'mock');
+      expect(detail.payMin, item.payMin, reason: '${item.jobId} pay_min');
+      expect(detail.payMax, item.payMax, reason: '${item.jobId} pay_max');
+      expect(detail.shift, item.shift, reason: '${item.jobId} shift');
+      expect(detail.title, item.title, reason: '${item.jobId} title');
+    }
   });
 }

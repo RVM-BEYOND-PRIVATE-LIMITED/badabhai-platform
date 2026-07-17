@@ -853,6 +853,12 @@ export type JobStatus = "open" | "closed";
  */
 export type JobNeededBy = "immediate" | "soon" | "flexible";
 
+/**
+ * Work-shift enum for the worker-visible job card (ADR-0024 addendum 2026-07-16).
+ * Coarse, non-PII — never an employer identity signal.
+ */
+export type JobShift = "day" | "night" | "rotational";
+
 /** Apply/skip decision. Mirrors the `applications` event family. */
 export type ApplicationAction = "applied" | "skipped";
 
@@ -911,6 +917,19 @@ export const jobs = pgTable(
     maxExperienceYears: integer("max_experience_years"),
     // When the job needs someone (coarse enum).
     neededBy: text("needed_by").$type<JobNeededBy>(),
+    // ── Worker-visible job content (ADR-0024 addendum 2026-07-16) ──────────────
+    // Shown VERBATIM to workers on the job card/detail. ALL NULLABLE + additive.
+    // These strings MUST NEVER contain employer identity or contact info — no
+    // employer/company names, phone numbers, emails, addresses, or URLs (the
+    // seeder fail-closed guards this; ADR-0009 §2 privacy line still applies).
+    // Short role/work description (a few sentences). Never an employer name.
+    description: text("description"),
+    // Coarse shift enum for the job card (day/night/rotational). Non-PII.
+    shift: text("shift").$type<JobShift>(),
+    // Short PII-free benefit strings (e.g. "PF + ESI", "Canteen").
+    benefits: jsonb("benefits").$type<string[]>(),
+    // Short requirement tags (e.g. "Fanuc control", "ITI / Diploma"). PII-free.
+    requirements: jsonb("requirements").$type<string[]>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -939,6 +958,10 @@ export const jobs = pgTable(
     check(
       "jobs_needed_by_chk",
       sql`${t.neededBy} IS NULL OR ${t.neededBy} IN ('immediate', 'soon', 'flexible')`,
+    ),
+    check(
+      "jobs_shift_chk",
+      sql`${t.shift} IS NULL OR ${t.shift} IN ('day', 'night', 'rotational')`,
     ),
   ],
 );
