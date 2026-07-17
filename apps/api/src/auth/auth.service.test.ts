@@ -403,6 +403,103 @@ describe("AuthService (real OTP)", () => {
     expect(names).toEqual(["worker.otp_verified"]);
   });
 
+  // ---- D-3 — the GATED test-login mint (rides the SAME post-verification seam) ----
+
+  it("testLogin creates a new worker via the SHARED seam, mints the SAME login shape, and emits created + test_login (never otp_verified)", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const createOrGetByPhoneHash = vi
+      .fn()
+      .mockResolvedValue({ worker: { id: "11111111-1111-4111-8111-111111111111", status: "active" }, created: true });
+    const workers = {
+      findByPhoneHash: vi.fn().mockResolvedValue(undefined),
+      createOrGetByPhoneHash,
+    };
+    const otp = makeOtp();
+    const sessions = makeSessions();
+    const svc = new AuthService(
+      { emit } as never,
+      workers as never,
+      pii,
+      otp as never,
+      sessions as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+
+    const res = await svc.testLogin(PHONE, ctx);
+
+    // The OTP machinery is NEVER touched — the guard is the gate, not a code.
+    expect(otp.issueAndSend).not.toHaveBeenCalled();
+    expect(otp.verify).not.toHaveBeenCalled();
+
+    // SAME response shape as verifyOtp (the shared seam — no forked mint logic).
+    expect(res.is_new_worker).toBe(true);
+    expect(res.worker_id).toBe("11111111-1111-4111-8111-111111111111");
+    expect(res.access_token).toBe("jwt.token.value");
+    expect(res.token_type).toBe("Bearer");
+    expect(res.pin_set).toBe(false);
+    expect(res.refresh_token).toBe("rt_opaque_value");
+    expect(res.session.tier).toBe(0);
+    expect(typeof res.session.expires_at).toBe("string");
+    expect(sessions.create).toHaveBeenCalledWith("11111111-1111-4111-8111-111111111111", undefined);
+
+    // worker.created (once, keyed) + the DISTINCT worker.test_login — never otp_verified.
+    const names = emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
+    expect(names).toEqual(["worker.created", "worker.test_login"]);
+    expect(names).not.toContain("worker.otp_verified");
+
+    // The test_login payload is the PII-free mirror of otp_verified — and it VALIDATES.
+    const arg = emit.mock.calls[1]![0] as { event_name: string; payload: Record<string, unknown> };
+    // The keyed HASH only — matching the `pii` stub above (`hmac:<len>`), never the phone.
+    expect(arg.payload).toEqual({
+      worker_id: "11111111-1111-4111-8111-111111111111",
+      phone_hash: `hmac:${PHONE.length}`,
+      is_new_worker: true,
+    });
+    expect(JSON.stringify(arg)).not.toContain("9876543210"); // never the raw phone
+    const built = validateEvent({
+      event_id: "11111111-1111-4111-8111-111111111111",
+      event_name: arg.event_name,
+      event_version: 1,
+      occurred_at: "2026-07-17T00:00:00.000Z",
+      actor: { actor_type: "worker", actor_id: "11111111-1111-4111-8111-111111111111" },
+      subject: { subject_type: "worker", subject_id: "11111111-1111-4111-8111-111111111111" },
+      source: "api",
+      correlation_id: "22222222-2222-4222-8222-222222222222",
+      causation_id: null,
+      payload: arg.payload,
+      metadata: { environment: "test", service: "api" },
+    });
+    expect(built.success).toBe(true);
+  });
+
+  it("testLogin for an EXISTING worker emits ONLY worker.test_login (no created, no consent write anywhere)", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const workers = {
+      findByPhoneHash: vi.fn().mockResolvedValue({ id: "worker-1", status: "active" }),
+      createOrGetByPhoneHash: vi.fn(),
+    };
+    const svc = new AuthService(
+      { emit } as never,
+      workers as never,
+      pii,
+      makeOtp() as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+
+    const res = await svc.testLogin(PHONE, ctx);
+
+    expect(res.is_new_worker).toBe(false);
+    expect(workers.createOrGetByPhoneHash).not.toHaveBeenCalled();
+    const names = emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
+    expect(names).toEqual(["worker.test_login"]);
+    // Consent is NEITHER created nor bypassed: no consent.accepted is ever emitted here —
+    // the minted session behaves exactly like an OTP session downstream (ConsentGuard applies).
+    expect(names).not.toContain("consent.accepted");
+  });
+
   it("verifyOtp with device_info registers the device and binds the session via did", async () => {
     const emit = vi.fn().mockResolvedValue(undefined);
     const workers = {

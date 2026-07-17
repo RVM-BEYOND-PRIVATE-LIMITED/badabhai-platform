@@ -30,13 +30,16 @@ import {
   CurrentWorker,
   type AuthenticatedWorker,
 } from "./worker-auth.guard";
+import { TestLoginGuard } from "./test-login.guard";
 import {
   OtpRequestSchema,
   OtpVerifySchema,
+  TestLoginSchema,
   TokenRefreshSchema,
   AccountDeleteConfirmSchema,
   type OtpRequestDto,
   type OtpVerifyDto,
+  type TestLoginDto,
   type TokenRefreshDto,
   type AccountDeleteConfirmDto,
   type AccountDeleteRequestResponse,
@@ -106,14 +109,53 @@ export class AuthController {
     @Ctx() ctx: RequestContext,
   ): Promise<LoginResponse> {
     const login = await this.auth.verifyOtp(dto.phone, dto.otp, ctx, dto.device_info);
-    // TD62 — ADDITIVE consent signal for the app's client-side consent routing
-    // (§6's server gate — ConsentGuard — is unchanged and still authoritative).
-    // Same pattern as the A5 check in tokenRefresh below: ACTIVE = a latest row
-    // exists and is not revoked. No event changes; the boolean is never PII.
-    // Review F1: at this point the OTP is CONSUMED and the session MINTED — a
-    // consent-read blip must not 500 a login that server-side succeeded (the worker
-    // would burn another OTP against the TD60 daily cap to recover). On failure the
-    // field is OMITTED: the app's tri-state treats absent as unknown/pass-through.
+    return this.withConsentFlag(login);
+  }
+
+  /**
+   * D-3 — the GATED test-login mint seam (staging smoke / e2e ONLY). Invisible by
+   * default: {@link TestLoginGuard} answers a NEUTRAL 404 while TEST_LOGIN_ENABLED
+   * is off and a neutral 401 on a wrong/missing `x-test-login-token` — BEFORE the
+   * body pipe runs (no shape oracle). assertAuthConfig makes arming the flag in
+   * production a BOOT FAILURE, so this handler can never execute there.
+   *
+   * Mints a REAL worker session for the synthetic test phone through the SAME
+   * AuthService seam the OTP verify path uses and returns the SAME LoginResponse
+   * shape (incl. the TD62 consent_accepted compose) — so everything downstream
+   * (ConsentGuard, tiers, refresh, revocation) treats it exactly like an OTP
+   * session. Consent is NEVER created or bypassed here. Emits the distinct
+   * `worker.test_login` event. Per-IP capped like /auth/otp/request (fail-closed).
+   */
+  @Post("test-login")
+  @HttpCode(200)
+  @UseGuards(TestLoginGuard)
+  async testLogin(
+    @Body(new ZodValidationPipe(TestLoginSchema)) dto: TestLoginDto,
+    @Req() req: Request,
+    @Ctx() ctx: RequestContext,
+  ): Promise<LoginResponse> {
+    await this.ipRateLimit.assertWithinHourlyIpCap(
+      "test_login",
+      req.ip ?? "unknown",
+      this.config.OTP_MAX_SENDS_PER_HOUR,
+    );
+    const login = await this.auth.testLogin(dto.phone, ctx);
+    return this.withConsentFlag(login);
+  }
+
+  /**
+   * TD62 — compose the ADDITIVE consent_accepted signal onto a minted login
+   * (§6's server gate — ConsentGuard — is unchanged and still authoritative).
+   * Same pattern as the A5 check in tokenRefresh below: ACTIVE = a latest row
+   * exists and is not revoked. No event changes; the boolean is never PII.
+   * Review F1: at this point the session is already MINTED — a consent-read blip
+   * must not 500 a login that server-side succeeded (the worker would burn
+   * another OTP against the TD60 daily cap to recover). On failure the field is
+   * OMITTED: the app's tri-state treats absent as unknown/pass-through.
+   */
+  private async withConsentFlag(
+    login: Omit<LoginResponse, "consent_accepted">,
+  ): Promise<LoginResponse> {
     try {
       const latest = await this.consents.findLatestByWorker(login.worker_id);
       return { ...login, consent_accepted: latest != null && latest.revokedAt === null };

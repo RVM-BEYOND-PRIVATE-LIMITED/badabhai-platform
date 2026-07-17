@@ -29,6 +29,8 @@ function make() {
     requestOtp: vi.fn(async () => ({ success: true, channel: "sms" })),
     // pin_set is surfaced on the login response (ADR-0026 Phase 4) — the controller passes it through.
     verifyOtp: vi.fn(async () => ({ worker_id: WORKER.id, access_token: "tok", pin_set: false })),
+    // D-3 — the gated test-login mint (same login shape; the guard gates the route).
+    testLogin: vi.fn(async () => ({ worker_id: WORKER.id, access_token: "tok", pin_set: false })),
     // F4 (#168): the shared failure-signal seam — the account-delete step-up request
     // routes its Fast2SMS send through this so a delivery failure emits worker.otp_send_failed.
     issueAndSendWithSignals: vi.fn(async () => ({ resendInSeconds: 30 })),
@@ -181,6 +183,55 @@ describe("AuthController", () => {
     expect(res.worker_id).toBe(WORKER.id);
     expect(res.access_token).toBe("tok");
     expect("consent_accepted" in res).toBe(false); // omitted, never a defaulted value
+  });
+
+  // ---- D-3 — POST /auth/test-login (the guard 404s/401s the route; here: handler behaviour) ----
+
+  it("testLogin applies the per-IP cap FIRST, then delegates the phone to the mint seam", async () => {
+    const { controller, auth, ipRateLimit } = make();
+    await controller.testLogin({ phone: "+91999" } as never, reqWith(), CTX);
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("test_login", "1.2.3.4", 5);
+    expect(auth.testLogin).toHaveBeenCalledWith("+91999", CTX);
+  });
+
+  it("testLogin cap rejection blocks the mint (fail closed)", async () => {
+    const { controller, auth, ipRateLimit } = make();
+    (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ConflictException("cap"),
+    );
+    await expect(controller.testLogin({ phone: "+91999" } as never, reqWith(), CTX)).rejects.toBeTruthy();
+    expect(auth.testLogin).not.toHaveBeenCalled();
+  });
+
+  it("testLogin does NOT mark consent: a never-consented worker gets consent_accepted false and consent is only READ", async () => {
+    // Consent is NOT bypassed — the minted session behaves exactly like an OTP session:
+    // the response carries the same TD62 tri-state compose (false here), and the only
+    // consent interaction is the READ (ConsentRepository has no write called; the §6
+    // ConsentGuard still denies the profiling routes until the worker accepts).
+    const { controller, consents } = make();
+    (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+    const res = await controller.testLogin({ phone: "+91999" } as never, reqWith(), CTX);
+    expect(consents.findLatestByWorker).toHaveBeenCalledWith(WORKER.id);
+    expect(res.consent_accepted).toBe(false);
+  });
+
+  it("testLogin returns the SAME login shape as verifyOtp (session/token pass-through, no PII)", async () => {
+    const { controller } = make();
+    const res = await controller.testLogin({ phone: "+91999" } as never, reqWith(), CTX);
+    expect(res.worker_id).toBe(WORKER.id);
+    expect(res.access_token).toBe("tok");
+    expect(res.pin_set).toBe(false);
+    expect(JSON.stringify(res)).not.toMatch(/phone|full_?name/i);
+  });
+
+  it("testLogin: a consent-read FAILURE still returns the 200 login — field OMITTED (F1 parity with verifyOtp)", async () => {
+    const { controller, consents } = make();
+    (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("db blip"),
+    );
+    const res = await controller.testLogin({ phone: "+91999" } as never, reqWith(), CTX);
+    expect(res.worker_id).toBe(WORKER.id);
+    expect("consent_accepted" in res).toBe(false);
   });
 
   it("me returns the authed worker id + status (no PII)", async () => {

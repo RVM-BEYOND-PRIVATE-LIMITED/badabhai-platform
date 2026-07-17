@@ -121,6 +121,8 @@ authoritative env spec.** "Kind" = where it lives.
 | `AI_ENABLE_REAL_CALLS` | workflow **env** + **host** | MOCK-only gate — **stays `false`** (§7 to flip). | `false` |
 | `AI_INTERNAL_TOKEN` | `staging` **secret** (OPTIONAL — TD67) | ONE service-level bearer for the ai-service. Unset = open internal posture. When flipping: set the SAME value (≥16 chars) on the ai-service host env, the api host env, AND the db-runner env — a half-flip 401s api→ai calls (api degrades to mock, logged at ERROR). Verify via ai-service `/health.service_auth_enabled`. | `<random-32+char-secret>` |
 | `MESSAGING_ENABLE_REAL` | workflow **env** + **host** | MOCK-only gate — **stays `false`** (§7 to flip). | `false` |
+| `TEST_LOGIN_ENABLED` | workflow **env** + **host** (OPTIONAL — D-3) | Arms `POST /auth/test-login`, the gated worker session-mint seam the smoke's authed stage + the e2e suites use (worker OTP is real-only, so no test can drive a real code). Default **`false`** ⇒ the route is a **neutral 404**. Staging **may** set `true`; **PRODUCTION MUST NOT** — the API **refuses to boot** with it on unless `NODE_ENV` is explicitly `development`/`test`/`staging` (`assertAuthConfig`). Requires `TEST_LOGIN_TOKEN` (below) — enabled without it is also a **boot failure** (TD67: never arm vacuously). | `false` (staging: `true`) |
+| `TEST_LOGIN_TOKEN` | `staging` **secret** (OPTIONAL — D-3) | The **≥32-char** secret `TestLoginGuard` compares (HMAC timing-safe) against the `x-test-login-token` header. Set but NOT enabled ⇒ **inert** (route still 404s). An **empty/short** value is a **Zod parse error at boot** in EVERY env — never "silently off". Pass the SAME value to the smoke as `SMOKE_TEST_LOGIN_TOKEN` (absent ⇒ the smoke runs **health-only**). Treat as a secret: never logged/evented. | `<random-32+char-secret>` |
 | `API_PORT` | **host** | Port the API listens on (host-dependent; code default `3001`). | `3001` (or the host's injected `PORT`) |
 | `CORS_ALLOWED_ORIGINS` | **host** (optional) | Allow-list if the ops/payer web call the API. In `NODE_ENV=development` CORS already reflects the origin; set this when you tighten. | `https://ops.<host>,https://app.<host>` |
 
@@ -128,30 +130,57 @@ authoritative env spec.** "Kind" = where it lives.
 > `SMS_PROVIDER` / `*_ENABLE_REAL` / `API_PORT` / `CORS_ALLOWED_ORIGINS` rows must ALSO be set on the
 > **host** that runs the long-lived API. The PII keys + `JWT_SECRET` must be **byte-identical** in
 > both places.
+>
+> **D-3 test-login (`TEST_LOGIN_ENABLED` + `TEST_LOGIN_TOKEN`):** both are OPTIONAL and OFF by
+> default. To run the smoke's authed stage on staging, set BOTH on the **host** (the API must see
+> them) and give the CD job the same token as `SMOKE_TEST_LOGIN_TOKEN`. **PRODUCTION MUST NOT set
+> `TEST_LOGIN_ENABLED=true`** — that is not a convention but a **structural block**: the boot
+> guard rejects the flag outside an explicit `development`/`test`/`staging` `NODE_ENV`, so an
+> unset/typo'd `NODE_ENV` on a prod box fails closed (the API will not start) rather than leaving
+> an OTP-less login route armed.
 
 ---
 
-## Verify — the `/health` + mock-OTP smoke
+## Verify — the `/health` + gated-authed smoke
 
 The CD runs this automatically after deploy; you can also run it by hand:
 
 ```bash
+# health-only (the default posture — no token needed)
 STAGING_API_BASE_URL=https://staging-api.<your-host> pnpm staging:smoke
+
+# + the authed stage (requires the API armed with TEST_LOGIN_ENABLED + TEST_LOGIN_TOKEN)
+STAGING_API_BASE_URL=https://staging-api.<your-host> \
+  SMOKE_TEST_LOGIN_TOKEN=<the API's TEST_LOGIN_TOKEN> pnpm staging:smoke
 ```
 
-It asserts, failing loudly on any miss ([scripts/staging-smoke.mjs](../../scripts/staging-smoke.mjs)):
+**Rewritten for D-3** (owner ruling: [team-decisions.md](../registers/team-decisions.md) 2026-07-17
+item 9). The old smoke's load-bearing assertion was `dev_otp` presence ⇒ *"PROVES
+SMS_PROVIDER=console"* — a posture the config now **forbids** (`SMS_PROVIDER: z.literal("fast2sms")`
+⇒ `console` fails Zod parse at boot since `d2f228e`), so steps (b)–(d) were **permanently red**.
+It now asserts, failing loudly on any miss ([scripts/staging-smoke.mjs](../../scripts/staging-smoke.mjs)):
+
+**Stage 1 — always:**
 
 - **(a)** `GET /health` → `200` + `status:"ok"` — a **real readiness check**: it probes Postgres +
   Redis and returns `{ status, service, environment, timestamp, checks: { database, redis } }`,
   responding **503** (with `checks` showing which is `down`) when a dependency is unreachable. So the
   CD's `/health` wait genuinely gates on DB + Redis being up.
-- **(b–d) ⚠️ BROKEN — smoke steps (b)–(d) assert `dev_otp` presence, which was removed in commit
-  `d2f228e`.** `dev_otp` does not exist in any OTP response with the current `SMS_PROVIDER=fast2sms`
-  posture. Steps (b)–(d) always fail. **Only step (a) is usable as an automated gate.** The OTP
-  login round-trip (steps b–d) must be verified manually using a team-allowlisted phone until ESC-1
-  is resolved (see [doc-reconciliation-2026-07-15.md](../registers/doc-reconciliation-2026-07-15.md)).
 
-Step (a) proves **DB + Redis readiness directly** and is the only working automated gate.
+**Stage 2 — ONLY when `SMOKE_TEST_LOGIN_TOKEN` is set** (absent ⇒ skipped, and the smoke still
+PASSes on health alone — the **default posture**):
+
+- **(b)** `POST /auth/test-login` (`x-test-login-token` header + a synthetic `{phone}`) → `200` +
+  `access_token` present. A **404** here means `TEST_LOGIN_ENABLED` is off on the target; a **401**
+  means the token mismatches — both fail loudly.
+- **(c)** `GET /auth/me` (Bearer) → `200` + `worker_id` — one cheap authed read proving the minted
+  session actually resolves through `WorkerAuthGuard` + Redis.
+
+Stage 2 also proves `REDIS_URL` end-to-end (the per-IP cap + session store fail closed without it).
+**Privacy:** the smoke never prints the phone (fully masked), the gate token, or the access token.
+
+> The **real** OTP round-trip (a live Fast2SMS code) remains a **manual** check with a
+> team-allowlisted phone — the test-login seam deliberately does **not** exercise the SMS provider.
 
 ---
 

@@ -79,6 +79,7 @@ const A = "AdminAuthGuard";
 const AR = "AdminRolesGuard";
 const CNR = "ConsentNotRevokedGuard";
 const SI = "SkillsInternalGuard";
+const TL = "TestLoginGuard";
 
 const CONTRACT: ControllerContract[] = [
   { name: "Actions", ctor: ActionsController, routes: { record: [], recordBatch: [] } },
@@ -102,9 +103,13 @@ const CONTRACT: ControllerContract[] = [
     // A5 (ADR-0026 amendment): /auth/refresh adds ConsentNotRevokedGuard (block a REVOKED-consent
     // resume; a never-consented worker is still allowed). tokenRefresh enforces the SAME rule
     // in-controller (the worker is resolved from the token, not an authed request) — stays [].
+    // D-3: testLogin rides TestLoginGuard — a NEUTRAL 404 while TEST_LOGIN_ENABLED is
+    // off (the default) + an HMAC timing-safe x-test-login-token check when on; arming
+    // it in production is a BOOT failure (assertAuthConfig). Never open.
     routes: {
       requestOtp: [],
       verifyOtp: [],
+      testLogin: [TL],
       me: [W],
       refresh: [CNR, W],
       logout: [W],

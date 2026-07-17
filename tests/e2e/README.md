@@ -47,6 +47,41 @@ $env:RUN_E2E=1; pnpm --filter @badabhai/e2e test
 | `E2E_DATABASE_URL` | `DATABASE_URL` or `postgresql://badabhai:badabhai@localhost:5432/badabhai` | DB to read `events` from. |
 | `E2E_CAPACITY_ENFORCED` | _(unset → shadow)_                                  | Capacity e2e (ADR-0016 D5) only. Set to `1` ONLY when the API was started with `CAPACITY_ENFORCEMENT_ENABLED=true`. Gates the enforcement cases (real pauses) vs the default shadow case so they never contradict on one running config. |
 
+## TODO — un-skip the worker suites on the D-3 test-login seam
+
+Five suites are hard-`describe.skip`ped because worker login is REAL-ONLY (Fast2SMS;
+the `dev_otp` echo was removed in `d2f228e`) so no test can complete an OTP
+round-trip: **phase1-flow, contact-unlock, payer-tenancy, payer-capacity,
+swipe-to-apply** (+ `phase1-onboarding`'s `it.skip`).
+
+**The unblocking seam now exists** — `POST /auth/test-login`
+([`apps/api/src/auth/auth.controller.ts`](../../apps/api/src/auth/auth.controller.ts),
+D-3, owner ruling `docs/registers/team-decisions.md` 2026-07-17 item 9). It returns the
+**identical `LoginResponse` shape** as `/auth/otp/verify` (`access_token`, `worker_id`,
+`is_new_worker`, `status`, `pin_set`, `refresh_token`, `session`, `consent_accepted`),
+so each suite's `login()` helper is a **drop-in swap** — replace the two-call
+`otp/request` → `otp/verify` (`dev_otp`) dance with ONE call:
+
+```js
+// was: const r1 = await req("POST", "/auth/otp/request", { body: { phone } });
+//      const r2 = await req("POST", "/auth/otp/verify", { body: { phone, otp: r1.json.dev_otp } });
+const r = await req("POST", "/auth/test-login", {
+  headers: { "x-test-login-token": process.env.E2E_TEST_LOGIN_TOKEN },
+  body: { phone },
+});
+return { workerId: r.json.worker_id, token: r.json.access_token, phone };
+```
+
+Requires the API started with `TEST_LOGIN_ENABLED=true` + a ≥32-char `TEST_LOGIN_TOKEN`
+(`NODE_ENV=development`/`test`/`staging` only — arming it in production is a **boot
+failure** by `assertAuthConfig`). Consent is **not** bypassed: the minted session behaves
+exactly like an OTP session, so each suite keeps its explicit `POST /consent` step.
+
+> The suite rewrites are deliberately **out of scope** for the D-3 seam PR — this note is
+> the pointer for the follow-up. `tests/e2e/helpers/payer-session.ts` is a **separate**
+> gap: it mints a PAYER session and still assumes a payer `dev_otp` echo; the D-3 seam is
+> worker-only and does not unblock it.
+
 > **Capacity enforcement posture (ADR-0016 D5).** The API defaults to
 > `CAPACITY_ENFORCEMENT_ENABLED=false` (shadow: over-cap plans stay active). Run
 > `payer-capacity.e2e.test.ts` in TWO passes to cover both postures:

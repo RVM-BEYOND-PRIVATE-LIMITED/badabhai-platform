@@ -17,6 +17,15 @@ export const OtpVerifySchema = z.object({
 });
 export type OtpVerifyDto = z.infer<typeof OtpVerifySchema>;
 
+/** Body of POST /auth/test-login (D-3 — the GATED test-login mint seam; staging
+ * smoke / e2e only, prod-boot-blocked). Carries ONLY the synthetic test phone —
+ * the gate secret rides the `x-test-login-token` header (TestLoginGuard), never
+ * the body. The response is the SAME LoginResponse shape as /auth/otp/verify. */
+export const TestLoginSchema = z.object({
+  phone: e164PhoneSchema,
+});
+export type TestLoginDto = z.infer<typeof TestLoginSchema>;
+
 /** Response of POST /auth/otp/request. The code is delivered ONLY to the worker's
  * phone via the real SMS provider — it is never returned here (real-only). */
 export interface OtpRequestResponse {

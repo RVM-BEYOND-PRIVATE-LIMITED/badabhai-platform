@@ -19,7 +19,9 @@ import type { DeviceInfoDto } from "./devices.dto";
  * emits `worker.otp_requested`. `verifyOtp` verifies the code FIRST (OtpService
  * throws on a bad/expired code, so a failed verify never touches the worker
  * table), then create-or-gets the worker (TD23 race-safe), mints a rolling
- * session, and emits `worker.created` (once) + `worker.otp_verified`.
+ * session, and emits `worker.created` (once) + `worker.otp_verified`. `testLogin`
+ * (D-3, gated + prod-boot-blocked) drives the SAME post-verification mint seam
+ * and emits `worker.test_login` instead — never `worker.otp_verified`.
  *
  * PRIVACY: the raw phone is never logged or put into an event — only its keyed
  * HASH. The OTP code never appears in any log/event/return value here.
@@ -136,6 +138,82 @@ export class AuthService {
     // is down (fail closed). No worker is created on a failed verify.
     await this.otp.verify(phone, otp);
 
+    // Post-verification mint (the SHARED seam — also driven by testLogin below).
+    const { response, worker, phoneHash, isNew } = await this.mintLoginForPhone(
+      phone,
+      ctx,
+      deviceInfo,
+    );
+
+    // No idempotencyKey: a worker legitimately verifies/logs in many times, so
+    // each otp_verified is a distinct fact (likewise otp_requested resends above).
+    await this.events.emit({
+      event_name: "worker.otp_verified",
+      actor: { actor_type: "worker", actor_id: worker.id },
+      subject: { subject_type: "worker", subject_id: worker.id },
+      payload: { worker_id: worker.id, phone_hash: phoneHash, is_new_worker: isNew },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+
+    return response;
+  }
+
+  /**
+   * D-3 — the GATED test-login mint (POST /auth/test-login; staging smoke / e2e
+   * ONLY). The route is invisible unless TEST_LOGIN_ENABLED + TEST_LOGIN_TOKEN are
+   * armed (TestLoginGuard: neutral 404 / 401), and assertAuthConfig makes arming it
+   * in production a BOOT FAILURE — this method can never run there.
+   *
+   * It rides the SAME post-verification seam as {@link verifyOtp} (no forked
+   * session-mint logic): create-or-get the worker by phone_hash, mint the rolling
+   * session + refresh token, return the identical LoginResponse shape. What it
+   * SKIPS is only the OTP verify itself — everything downstream (ConsentGuard,
+   * consent.accepted gating, session tiers, revocation) treats the minted session
+   * EXACTLY like an OTP session: consent is neither created nor bypassed here.
+   *
+   * Emits the DISTINCT `worker.test_login` event (never worker.otp_verified), so a
+   * test mint is always distinguishable on the audit spine. PII posture is the OTP
+   * path's: only the keyed phone HASH enters the event; the raw phone/token never do.
+   */
+  async testLogin(
+    phone: string,
+    ctx: RequestContext,
+  ): Promise<Omit<LoginResponse, "consent_accepted">> {
+    const { response, worker, phoneHash, isNew } = await this.mintLoginForPhone(phone, ctx);
+
+    // No idempotencyKey: each test mint is a distinct fact (like otp_verified).
+    await this.events.emit({
+      event_name: "worker.test_login",
+      actor: { actor_type: "worker", actor_id: worker.id },
+      subject: { subject_type: "worker", subject_id: worker.id },
+      payload: { worker_id: worker.id, phone_hash: phoneHash, is_new_worker: isNew },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+    this.logger.log("test login minted");
+
+    return response;
+  }
+
+  /**
+   * The POST-VERIFICATION login mint — the single seam both {@link verifyOtp} (after
+   * a real OTP verify) and {@link testLogin} (after the TestLoginGuard gate) drive.
+   * Create-or-get the worker for the phone's keyed hash (TD23 race-safe, emitting
+   * worker.created exactly once), register an optional trusted device, mint the
+   * rolling session + opaque refresh token, and surface pin_set. The caller emits
+   * its OWN outcome event (worker.otp_verified vs worker.test_login) — never here.
+   */
+  private async mintLoginForPhone(
+    phone: string,
+    ctx: RequestContext,
+    deviceInfo?: DeviceInfoDto,
+  ): Promise<{
+    response: Omit<LoginResponse, "consent_accepted">;
+    worker: { id: string; status: string };
+    phoneHash: string;
+    isNew: boolean;
+  }> {
     const phoneHash = this.pii.hashPhone(phone);
 
     let worker = await this.workers.findByPhoneHash(phoneHash);
@@ -184,18 +262,7 @@ export class AuthService {
     // worker_credentials row → false. Only the boolean is surfaced — never the PIN/hash.
     const pinSet = !!(await this.pins.findByWorkerId(worker.id));
 
-    // No idempotencyKey: a worker legitimately verifies/logs in many times, so
-    // each otp_verified is a distinct fact (likewise otp_requested resends above).
-    await this.events.emit({
-      event_name: "worker.otp_verified",
-      actor: { actor_type: "worker", actor_id: worker.id },
-      subject: { subject_type: "worker", subject_id: worker.id },
-      payload: { worker_id: worker.id, phone_hash: phoneHash, is_new_worker: isNew },
-      correlationId: ctx.correlationId,
-      requestId: ctx.requestId,
-    });
-
-    return {
+    const response: Omit<LoginResponse, "consent_accepted"> = {
       access_token: minted.access.token,
       token_type: "Bearer",
       expires_in_seconds: minted.access.expiresInSeconds,
@@ -216,5 +283,6 @@ export class AuthService {
             : new Date(minted.session.requiresOtpAfterMs).toISOString(),
       },
     };
+    return { response, worker, phoneHash, isNew };
   }
 }
