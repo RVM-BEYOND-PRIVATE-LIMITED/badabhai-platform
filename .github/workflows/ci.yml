@@ -343,6 +343,9 @@ jobs:
           command_timeout: 10m
           script: |
             set -e
+            # CD-1: never leave a registry credential (even an expired job token)
+            # in the box's ~/.docker/config.json — logout on EVERY exit path.
+            trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
             echo "Starting deployment..."
             cd ~/deployments/badabhai-platform
             echo "Pulling latest code from main..."
