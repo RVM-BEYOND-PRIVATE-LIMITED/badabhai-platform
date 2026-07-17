@@ -20,6 +20,7 @@ import {
   CurrentWorker,
   type AuthenticatedWorker,
 } from "../auth/worker-auth.guard";
+import { ConsentGuard } from "../auth/consent.guard";
 import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { ResumeService } from "./resume.service";
@@ -51,10 +52,23 @@ export class ResumeController {
    * not 400/403 — for consistency with the sibling download route's
    * no-existence-oracle posture (the response must never confirm that another
    * worker or their profile exists).
+   *
+   * CONSENT-GATED (B-3, CLAUDE.md §2 invariant 6: no AI processing before
+   * `consent.accepted`). Resume generation sends the worker's profile to an LLM,
+   * so it is AI processing and carries {@link ConsentGuard} — the same gate the
+   * sibling worker-AI routes (chat / voice / profiles) already had. The gap was
+   * not merely theoretical: reaching this route implies a profile (and so a past
+   * consent), but a worker who WITHDREW consent could still generate — sending
+   * their profile to an LLM post-withdrawal. Guard order matters: WorkerAuthGuard
+   * first (it attaches `req.worker`, which ConsentGuard reads).
+   *
+   * Applied PER-ROUTE, never class-level: the sibling `InternalServiceGuard`
+   * routes carry no worker session, so a class-level ConsentGuard would 401 the
+   * extraction pipeline.
    */
   @Post("generate")
   @HttpCode(201)
-  @UseGuards(WorkerAuthGuard)
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
   generate(
     @Body(new ZodValidationPipe(GenerateResumeSchema)) dto: GenerateResumeDto,
     @CurrentWorker() worker: AuthenticatedWorker,
