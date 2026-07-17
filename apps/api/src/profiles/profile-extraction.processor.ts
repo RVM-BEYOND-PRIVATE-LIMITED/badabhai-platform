@@ -2,6 +2,7 @@ import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Logger } from "@nestjs/common";
 import type { Job } from "bullmq";
 import type { DraftProfile, AICallMetadata } from "@badabhai/ai-contracts";
+import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { EventsService } from "../events/events.service";
 import { AiService } from "../ai/ai.service";
 import { ChatRepository } from "../chat/chat.repository";
@@ -77,6 +78,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
         canonicalTradeId: profile.canonical_trade_id,
         canonicalRoleId: profile.canonical_role_id,
         skills: profile.skills,
+        // B-6: stamp the taxonomy version in force at this skills WRITE (ADR-0030
+        // §c "versioned"). Write-path only — reads never touch it; older rows
+        // honestly carry NULL ("written before versioning").
+        taxonomyVersion: String(SKILL_TAXONOMY_VERSION),
         machines: profile.machines,
         experience: profile.experience,
         salaryExpectation: profile.salary_expectation,

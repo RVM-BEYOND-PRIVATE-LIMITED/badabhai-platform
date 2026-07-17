@@ -57,7 +57,7 @@ The vocabulary is a **closed set**: a matchable field only ever receives a `skil
 ### (c) Immutable ids; versioned; retag — never renamed, never reused
 
 - `skill_id` is **immutable and never reused** (like ADR-0028's occupation ids). A deprecated skill is marked `status='deprecated'`, never deleted or recycled, so historical rows stay meaningful.
-- The vocabulary carries a **`taxonomyVersion`**. A version bump (new/merged/deprecated entries, re-embedding on a new model) triggers **re-embed + retag**: re-embed aliases, re-run resolution over open `unresolved_phrase` rows, and re-tag where the floor is now cleared — additively, behind the id space.
+- The vocabulary carries a **`taxonomyVersion`**. A version bump (new/merged/deprecated entries, re-embedding on a new model) triggers **re-embed + retag**: re-embed aliases, re-run resolution over open `unresolved_phrase` rows, and re-tag where the floor is now cleared — additively, behind the id space. _(Implemented 2026-07-17, context-drift register B-6: `SKILL_TAXONOMY_VERSION` is stamped on nullable `worker_profiles.taxonomy_version` at every skills write — extraction create + TAX-9 retag, migration 0041; pre-existing rows carry NULL.)_
 
 ### (d) One pipeline for BOTH worker and job; the LLM never invents an id (SG-3)
 
