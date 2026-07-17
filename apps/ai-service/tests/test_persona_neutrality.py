@@ -84,6 +84,73 @@ def test_every_interview_question_is_under_20_words():
         assert n <= 20, f"{topic.id} question is {n} words: {topic.question!r}"
 
 
+# --- B-5: ONE question per turn ---------------------------------------------
+# docs/registers/context-drift-2026-07-16.md row B-5 (owner ruling 2026-07-17):
+# 4 bank questions bundled two asks, and the register notes the existing persona
+# test "counts WORDS, not questions, so it passes". These close that gap: they
+# count ASKS. Bundled asks are now sequential topics — a longer flow is expected
+# and correct per the locked decision.
+
+
+def _ask_count(text: str) -> int:
+    """Number of asks in a served turn = number of '?' terminators. A question may
+    LIST alternatives ("Fanuc, Siemens ya Haas?") — that is ONE ask, one '?'."""
+    return text.count("?")
+
+
+def test_every_bank_question_is_exactly_one_ask():
+    for topic in topics_for("cnc_vmc"):
+        n = _ask_count(topic.question)
+        assert n == 1, f"{topic.id} bundles {n} asks: {topic.question!r}"
+
+
+def test_no_bank_question_conflates_current_and_preferred_location():
+    # B-4's half of the same ruling, asserted on the question layer: the two
+    # location topics exist and neither asks both.
+    ids = {t.id for t in topics_for("cnc_vmc")}
+    assert {"current_location", "preferred_locations"} <= ids
+    assert "location" not in ids  # the conflated topic is gone
+
+
+def test_every_served_turn_asks_exactly_one_question():
+    # The turn the WORKER actually receives (vocative/ack + question) must carry
+    # exactly one ask — this is what the register's word-count test missed.
+    _tid, opening = interview_engine.first_question("cnc_vmc")
+    assert _ask_count(opening) == 1, opening
+
+    state = None
+    seen = 0
+    # Drive the full interview with a non-answer so every topic is served in turn.
+    for _ in range(len(topics_for("cnc_vmc")) + 1):
+        reply, asked_id, state, _ready = interview_engine.next_turn(
+            state, "theek hai ji", "cnc_vmc"
+        )
+        if asked_id is None:  # wrap-up: a statement, no ask
+            assert _ask_count(reply) == 0, reply
+            break
+        assert _ask_count(reply) == 1, f"turn asked {_ask_count(reply)}: {reply!r}"
+        seen += 1
+    assert seen >= 4  # the essential topics were each served on their own turn
+
+
+def test_clarify_reserve_turn_also_carries_exactly_one_ask():
+    # The COST-4 clarify path re-serves the last question verbatim — still one ask.
+    from app.contracts import ConversationState
+
+    for topic in topics_for("cnc_vmc"):
+        st = ConversationState(asked_question_ids=[topic.id], turn_count=1)
+        out = interview_engine.clarify_turn(st, "matlab kya?", "cnc_vmc")
+        assert out is not None, topic.id
+        assert _ask_count(out[0]) == 1, f"{topic.id} re-serve: {out[0]!r}"
+
+
+def test_followups_and_clarifications_are_one_ask_each():
+    for f in interview_engine.suggested_followups("cnc_vmc"):
+        assert _ask_count(f) == 1, f
+    for field, q in _CLARIFY.items():
+        assert _ask_count(q) == 1, f"clarify {field}: {q!r}"
+
+
 def test_clarify_and_followup_questions_are_under_20_words():
     for field, q in _CLARIFY.items():
         assert len(q.split()) <= 20, f"clarify {field}: {q!r}"

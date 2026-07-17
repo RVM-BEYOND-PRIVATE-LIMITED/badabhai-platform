@@ -164,11 +164,13 @@ def test_old_payload_without_skill_labels_still_parses_and_degrades():
 
 # --- SG-2: the pseudonymize gate at the résumé boundary ----------------------------
 def test_blocked_label_is_dropped_from_artifact_and_llm_payload(monkeypatch):
-    # "1234567" (7-digit run) trips the fail-closed residual-digit block (a 10-digit
-    # run would be MASKED as a phone instead — covered by the masked-label test).
+    # "12345678" (8-digit run above the D-1 plausible-salary ceiling) trips the
+    # fail-closed residual-digit block (a 10-digit run would be MASKED as a phone,
+    # and an in-range 7-8 digit run as [AMOUNT_n] — covered by the masked-label
+    # tests; masked labels are dropped by certification all the same).
     from app.pseudonymize import pseudonymize
 
-    bad = "welding grade 1234567"
+    bad = "welding grade 12345678"
     assert pseudonymize(bad).blocked is True  # honest precondition
 
     from app import main as app_main
@@ -189,13 +191,13 @@ def test_blocked_label_is_dropped_from_artifact_and_llm_payload(monkeypatch):
     assert resp.status_code == 200  # résumé ALWAYS completes
     body = resp.json()
     # Dropped from the worker-facing artifact...
-    assert bad not in body["resume_text"] and "1234567" not in body["resume_text"]
+    assert bad not in body["resume_text"] and "12345678" not in body["resume_text"]
     assert bad not in str(body["resume_json"])
     # ...AND from the exact payload handed to the LLM seam (same filtered profile).
     import json as _json
 
     llm_payload = _json.dumps(captured["messages"])
-    assert bad not in llm_payload and "1234567" not in llm_payload
+    assert bad not in llm_payload and "12345678" not in llm_payload
     # The clean label in the SAME request still renders (proves the gate is per-label).
     assert "MIG welding" in body["resume_text"] and "MIG welding" in llm_payload
 
@@ -290,7 +292,7 @@ def test_map_rich_to_legacy_certifies_labels_at_rest():
     from app.pseudonymize import pseudonymize
 
     masked = "welding in Pune"  # city gazetteer hit -> would be masked
-    blocked = "welding grade 1234567"  # 7-digit run -> fail-closed block
+    blocked = "welding grade 12345678"  # out-of-range 8-digit run -> fail-closed block
     assert pseudonymize(masked).replaced_entities > 0  # honest preconditions
     assert pseudonymize(blocked).blocked is True
 
