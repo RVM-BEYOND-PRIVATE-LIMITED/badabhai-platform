@@ -192,9 +192,16 @@ const CONTRACT: ControllerContract[] = [
   // acting worker_id is session-derived (XB-A); a legacy body worker_id must match
   // the session or the route 404s (no existence oracle, matching `download`).
   {
+    // B-3: `generate` is CONSENT-GATED (§2 invariant 6) — it sends the worker's profile to
+    // an LLM, so it is AI processing and carries [C, W] like every sibling worker-AI route
+    // (chat / voice / profiles). It shipped [W]-only; the live hole was a worker who
+    // WITHDREW consent still generating. See resume-consent.authz.test.ts.
+    // `download` stays [W]: it mints a signed URL for an ALREADY-rendered PDF — serving a
+    // worker their own artifact is not AI processing, and gating it on consent would
+    // decide a DPDP data-access question that is the owner's, not this fix's.
     name: "Resume",
     ctor: ResumeController,
-    routes: { generate: [W], get: [I], regenerate: [I], download: [W], share: [I] },
+    routes: { generate: [C, W], get: [I], regenerate: [I], download: [W], share: [I] },
   },
   {
     name: "Unlocks",
