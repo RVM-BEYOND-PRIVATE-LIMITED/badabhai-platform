@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { OtpSendCapExceededException } from "../common/otp-send-cap";
@@ -9,7 +9,7 @@ import { OtpService } from "./otp.service";
 import { SessionService } from "./session.service";
 import { DevicesService } from "./devices.service";
 import { PinRepository } from "./pin.repository";
-import type { LoginResponse, OtpRequestResponse } from "./auth.dto";
+import { isSyntheticTestPhone, type LoginResponse, type OtpRequestResponse } from "./auth.dto";
 import type { DeviceInfoDto } from "./devices.dto";
 
 /**
@@ -175,11 +175,29 @@ export class AuthService {
    * Emits the DISTINCT `worker.test_login` event (never worker.otp_verified), so a
    * test mint is always distinguishable on the audit spine. PII posture is the OTP
    * path's: only the keyed phone HASH enters the event; the raw phone/token never do.
+   *
+   * SECURITY (review M1) — THIS IS THE MINT CHOKEPOINT for the synthetic-phone rule.
+   * The seam serves ONLY the reserved unassignable range ({@link isSyntheticTestPhone});
+   * anything else is refused BEFORE any worker is found/created. Enforced here rather
+   * than in the controller/DTO so no future caller of this method can bypass it.
    */
   async testLogin(
     phone: string,
     ctx: RequestContext,
   ): Promise<Omit<LoginResponse, "consent_accepted">> {
+    // Refuse a real-looking number: staging runs REAL Fast2SMS, so real workers can
+    // exist there — without this the seam could mint a session for ANY existing worker
+    // (mintLoginForPhone find-or-creates by phone_hash). The NEUTRAL 404 is the same
+    // shape TestLoginGuard returns while disabled, so a token holder cannot distinguish
+    // "seam off" from "phone not allowed" (no oracle). The refusal is logged PII-FREE
+    // (no phone, no hash) so an operator can still debug a mis-configured smoke.
+    if (!isSyntheticTestPhone(phone)) {
+      this.logger.warn(
+        "test login refused: phone outside the reserved synthetic range (see docs/ops/staging-service-deploy-runbook.md)",
+      );
+      throw new NotFoundException("Not found");
+    }
+
     const { response, worker, phoneHash, isNew } = await this.mintLoginForPhone(phone, ctx);
 
     // No idempotencyKey: each test mint is a distinct fact (like otp_verified).

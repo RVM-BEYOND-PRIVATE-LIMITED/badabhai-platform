@@ -250,6 +250,13 @@ export const serverEnvSchema = z.object({
   // no client-side/dev-mode bypass; the seam is a server secret + env gate.
   TEST_LOGIN_ENABLED: booleanFromString,
   TEST_LOGIN_TOKEN: z.string().min(32).optional(),
+  // GLOBAL daily mint ceiling for the test-login seam (security review L1). The
+  // per-IP hour cap alone leaves a token holder able to rotate IPs for unlimited
+  // mints; this is the IP-INDEPENDENT backstop (the OTP-5 breaker's role for the
+  // SMS path). Generous enough for smoke + e2e; far below "unbounded".
+  //   min(0) is DELIBERATE: 0 = PAUSED = the test-login kill-switch — the next mint
+  //   is refused instantly (env-only, NO redeploy), without disarming the flag.
+  TEST_LOGIN_MAX_PER_DAY: z.coerce.number().int().min(0).default(200),
 
   // OTP shape + lifecycle. The code is generated with crypto.randomInt per digit,
   // stored ONLY as a keyed HMAC, single-use, and rate-limited per phone + per IP.

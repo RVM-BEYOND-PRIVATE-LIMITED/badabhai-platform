@@ -134,6 +134,37 @@ test("FAIL (exit 1) on a WRONG gate token (401) — and neither token value leak
   assert.ok(!out.includes(wrong), "provided token leaked");
 });
 
+// Review L2 — the gate token rides a header; a non-loopback http:// base would put it
+// on the wire in plaintext. The check fires BEFORE any request is made.
+test("FAIL (exit 1) when the authed stage is armed over non-loopback http:// (TLS gate)", async () => {
+  const child = spawn(process.execPath, [SMOKE], {
+    env: {
+      ...process.env,
+      STAGING_API_BASE_URL: "http://staging-api.example.test",
+      SMOKE_TEST_LOGIN_TOKEN: GATE_TOKEN,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let out = "";
+  child.stdout.on("data", (c) => (out += c));
+  child.stderr.on("data", (c) => (out += c));
+  const [code] = await once(child, "exit");
+  assert.equal(code, 1, `expected exit 1, got ${code}\n${out}`);
+  assert.match(out, /FAIL/);
+  assert.match(out, /PLAINTEXT/);
+  assert.ok(!out.includes(GATE_TOKEN), "gate token leaked to output");
+  // It must not even have attempted the request (no stage output at all).
+  assert.ok(!out.includes("/health           OK"), "made a request despite the TLS gate");
+});
+
+test("health-only over non-loopback http:// is ALLOWED (no secret on the wire)", async () => {
+  // The TLS gate is scoped to the authed stage: the health probe sends no secret, so a
+  // plain-http health-only run must still work (it is what CD gates on today).
+  const { code, out } = await runSmoke();
+  assert.equal(code, 0, `expected exit 0, got ${code}\n${out}`);
+  assert.match(out, /PASS/);
+});
+
 test("FAIL (exit 1) when /health is unhealthy (503) — even in health-only mode", async () => {
   const { code, out } = await runSmoke({
     health: { code: 503, body: { status: "error", checks: { database: "down", redis: "up" } } },

@@ -8,6 +8,10 @@ import { AuthService } from "./auth.service";
 
 const ctx = { requestId: "req-1", correlationId: "11111111-1111-4111-8111-111111111111" };
 const PHONE = "+919876543210";
+// D-3 (review M1): the ONLY range the gated test-login mint serves — `+91` + five
+// zeros + 5 digits. Unassignable (a real Indian mobile starts 6-9 after +91), so it
+// can never collide with a real worker even on staging's REAL Fast2SMS.
+const SYNTHETIC_PHONE = "+910000000000";
 
 // Stub PII crypto: keyed-hash + encrypt that never echo the raw phone.
 const pii = {
@@ -426,7 +430,7 @@ describe("AuthService (real OTP)", () => {
       makePins() as never,
     );
 
-    const res = await svc.testLogin(PHONE, ctx);
+    const res = await svc.testLogin(SYNTHETIC_PHONE, ctx);
 
     // The OTP machinery is NEVER touched — the guard is the gate, not a code.
     expect(otp.issueAndSend).not.toHaveBeenCalled();
@@ -453,10 +457,10 @@ describe("AuthService (real OTP)", () => {
     // The keyed HASH only — matching the `pii` stub above (`hmac:<len>`), never the phone.
     expect(arg.payload).toEqual({
       worker_id: "11111111-1111-4111-8111-111111111111",
-      phone_hash: `hmac:${PHONE.length}`,
+      phone_hash: `hmac:${SYNTHETIC_PHONE.length}`,
       is_new_worker: true,
     });
-    expect(JSON.stringify(arg)).not.toContain("9876543210"); // never the raw phone
+    expect(JSON.stringify(arg)).not.toContain(SYNTHETIC_PHONE); // never the raw phone
     const built = validateEvent({
       event_id: "11111111-1111-4111-8111-111111111111",
       event_name: arg.event_name,
@@ -471,6 +475,84 @@ describe("AuthService (real OTP)", () => {
       metadata: { environment: "test", service: "api" },
     });
     expect(built.success).toBe(true);
+  });
+
+  // Review M1 — the mint serves ONLY the reserved unassignable synthetic range.
+  it("testLogin REFUSES a real-looking phone with a neutral 404 and never touches the worker table", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const workers = {
+      findByPhoneHash: vi.fn(),
+      createOrGetByPhoneHash: vi.fn(),
+    };
+    const sessions = makeSessions();
+    const svc = new AuthService(
+      { emit } as never,
+      workers as never,
+      pii,
+      makeOtp() as never,
+      sessions as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+
+    // A REAL Indian mobile (+91 then 10 digits starting 9) — staging runs real
+    // Fast2SMS, so such a worker can genuinely exist. The seam must never mint it.
+    await expect(svc.testLogin("+919876543210", ctx)).rejects.toMatchObject({ status: 404 });
+
+    // Refused BEFORE any find-or-create / mint / event — no session, no worker, no spine row.
+    expect(workers.findByPhoneHash).not.toHaveBeenCalled();
+    expect(workers.createOrGetByPhoneHash).not.toHaveBeenCalled();
+    expect(sessions.create).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("testLogin refuses every non-synthetic shape (no oracle: all the SAME neutral 404)", async () => {
+    const emit = vi.fn().mockResolvedValue(undefined);
+    const svc = new AuthService(
+      { emit } as never,
+      { findByPhoneHash: vi.fn(), createOrGetByPhoneHash: vi.fn() } as never,
+      pii,
+      makeOtp() as never,
+      makeSessions() as never,
+      makeDevices() as never,
+      makePins() as never,
+    );
+    for (const phone of [
+      "+919876543210", // real Indian mobile
+      "+910000123456", // only FOUR leading zeros — one short of the reserved run
+      "+9100000123456", // right prefix but too long
+      "+91000001234", // right prefix but too short
+      "+911000000000", // leading 1, not the zero-run
+      "+14155550123", // non-India (US)
+      "+920000000000", // the zero-run, but the WRONG country code
+    ]) {
+      await expect(svc.testLogin(phone, ctx), `must refuse ${phone}`).rejects.toMatchObject({
+        status: 404,
+      });
+    }
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("testLogin ACCEPTS the reserved synthetic range (+9100000XXXXX — incl. the smoke default)", async () => {
+    for (const phone of ["+910000000000", "+910000099999"]) {
+      const emit = vi.fn().mockResolvedValue(undefined);
+      const svc = new AuthService(
+        { emit } as never,
+        {
+          findByPhoneHash: vi.fn().mockResolvedValue({ id: "worker-1", status: "active" }),
+          createOrGetByPhoneHash: vi.fn(),
+        } as never,
+        pii,
+        makeOtp() as never,
+        makeSessions() as never,
+        makeDevices() as never,
+        makePins() as never,
+      );
+      const res = await svc.testLogin(phone, ctx);
+      expect(res.access_token, `must mint for ${phone}`).toBe("jwt.token.value");
+      const names = emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
+      expect(names).toEqual(["worker.test_login"]);
+    }
   });
 
   it("testLogin for an EXISTING worker emits ONLY worker.test_login (no created, no consent write anywhere)", async () => {
@@ -489,7 +571,7 @@ describe("AuthService (real OTP)", () => {
       makePins() as never,
     );
 
-    const res = await svc.testLogin(PHONE, ctx);
+    const res = await svc.testLogin(SYNTHETIC_PHONE, ctx);
 
     expect(res.is_new_worker).toBe(false);
     expect(workers.createOrGetByPhoneHash).not.toHaveBeenCalled();

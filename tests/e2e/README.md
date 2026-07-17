@@ -77,6 +77,14 @@ Requires the API started with `TEST_LOGIN_ENABLED=true` + a ≥32-char `TEST_LOG
 failure** by `assertAuthConfig`). Consent is **not** bypassed: the minted session behaves
 exactly like an OTP session, so each suite keeps its explicit `POST /consent` step.
 
+> **The `phone` MUST be in the reserved synthetic range `+9100000XXXXX`** (`+91` + five zeros
+> + 5 free digits — 100,000 addresses, e.g. `+910000000042`). Anything else gets a neutral
+> **404** from the mint chokepoint. Suites currently build random real-looking numbers
+> (`+9198…`) — those must be swapped for synthetic ones, and the range is wide enough to keep
+> per-test isolation (use a per-test counter/random 5 digits instead of a random mobile).
+> The range is unassignable (a real Indian mobile starts 6–9 after `+91`), which is exactly
+> why the seam can never mint a session for a real worker.
+
 > The suite rewrites are deliberately **out of scope** for the D-3 seam PR — this note is
 > the pointer for the follow-up. `tests/e2e/helpers/payer-session.ts` is a **separate**
 > gap: it mints a PAYER session and still assumes a payer `dev_otp` echo; the D-3 seam is

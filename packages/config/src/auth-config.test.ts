@@ -128,6 +128,13 @@ describe("TEST_LOGIN_* (D-3 gated test-login seam — prod-boot-blocked, TD67 fa
     });
     expect(() => assertAuthConfig(c, "")).toThrow(/TEST_LOGIN_ENABLED/i);
     expect(() => assertAuthConfig(c, "prod")).toThrow(/TEST_LOGIN_ENABLED/i); // typo ≠ staging
+    // CASE-typos must NOT slip through the allow-list (the match is exact, never
+    // case-folded): "Production"/"Staging"/"DEVELOPMENT" are all unknown envs ⇒ refuse.
+    for (const typo of ["Production", "PRODUCTION", "Staging", "STAGING", "DEVELOPMENT", "Test"]) {
+      expect(() => assertAuthConfig(c, typo), `${typo} must not arm the seam`).toThrow(
+        /TEST_LOGIN_ENABLED/i,
+      );
+    }
     // Truly UNSET env: an explicit `undefined` arg falls back to process.env.NODE_ENV
     // (the default param), so delete it for the assertion — same pattern as the
     // "treats UNSET NODE_ENV as non-dev" test above.
@@ -150,6 +157,16 @@ describe("TEST_LOGIN_* (D-3 gated test-login seam — prod-boot-blocked, TD67 fa
     expect(() => cfg({ TEST_LOGIN_TOKEN: "" })).toThrow();
     expect(() => cfg({ TEST_LOGIN_TOKEN: "short" })).toThrow();
     expect(() => cfg({ TEST_LOGIN_ENABLED: "true", TEST_LOGIN_TOKEN: "" })).toThrow();
+  });
+
+  // Review L1 — the IP-INDEPENDENT daily backstop (a token holder rotating IPs).
+  it("TEST_LOGIN_MAX_PER_DAY defaults to 200, coerces, and allows 0 as the kill-switch", () => {
+    expect(cfg().TEST_LOGIN_MAX_PER_DAY).toBe(200);
+    expect(cfg({ TEST_LOGIN_MAX_PER_DAY: "25" }).TEST_LOGIN_MAX_PER_DAY).toBe(25);
+    // 0 = PAUSED (refuse the next mint) — deliberate, mirrors OTP_GLOBAL_MAX_SENDS_PER_DAY.
+    expect(cfg({ TEST_LOGIN_MAX_PER_DAY: "0" }).TEST_LOGIN_MAX_PER_DAY).toBe(0);
+    // Negative is nonsense — rejected (fail closed).
+    expect(() => cfg({ TEST_LOGIN_MAX_PER_DAY: "-1" })).toThrow();
   });
 });
 

@@ -27,11 +27,19 @@
 // (fully masked), NEVER prints the gate token or the access token. Output is a
 // clean PASS/FAIL summary only.
 //
+// TRANSPORT: when the authed stage is armed the base MUST be https:// (loopback
+// exempted) — the gate token rides a header and would otherwise go out in the clear.
+//
 // Env:
 //   STAGING_API_BASE_URL    (required)  e.g. https://staging-api.example
 //   SMOKE_TEST_LOGIN_TOKEN  (optional)  the API's TEST_LOGIN_TOKEN; absent =>
 //                                       health-only smoke (stage 2 skipped)
-//   STAGING_SMOKE_PHONE     (optional)  default a clearly-synthetic reserved number
+//   STAGING_SMOKE_PHONE     (optional)  default a clearly-synthetic reserved number.
+//                                       MUST be in the API's reserved synthetic range
+//                                       `+9100000XXXXX` — the mint refuses anything
+//                                       else with a neutral 404 (a real Indian mobile
+//                                       is +91 then 10 digits starting 6-9, so this
+//                                       range can never be a real worker).
 
 const BASE_URL_RAW = process.env.STAGING_API_BASE_URL;
 const TEST_LOGIN_TOKEN = process.env.SMOKE_TEST_LOGIN_TOKEN;
@@ -60,6 +68,32 @@ function normalizeBase(u) {
   return u.replace(/\/+$/, "");
 }
 
+/**
+ * TLS gate for the AUTHED stage (review L2). The gate token rides an HTTP header,
+ * so an `http://` base would put it on the wire in PLAINTEXT. When the authed
+ * stage is armed the base MUST be https:// — with a narrow exemption for loopback
+ * (localhost / 127.0.0.1 / [::1]), where there is no network hop to sniff and the
+ * self-test + local runs live. The health-only stage sends no secret, so it is
+ * unaffected.
+ */
+function assertTransportSafeForSecrets(base) {
+  let url;
+  try {
+    url = new URL(base);
+  } catch {
+    fail(`STAGING_API_BASE_URL is not a valid URL: ${base}`);
+  }
+  if (url.protocol === "https:") return;
+  const host = url.hostname;
+  const isLoopback = host === "localhost" || host === "127.0.0.1" || host === "::1";
+  if (url.protocol === "http:" && isLoopback) return;
+  fail(
+    `refusing to send the test-login token over ${url.protocol}// to a non-loopback host — ` +
+      "the gate secret would travel in PLAINTEXT. Use an https:// STAGING_API_BASE_URL, " +
+      "or unset SMOKE_TEST_LOGIN_TOKEN to run the health-only smoke.",
+  );
+}
+
 async function readJson(res) {
   const text = await res.text();
   try {
@@ -76,6 +110,9 @@ async function main() {
   }
   const base = normalizeBase(BASE_URL_RAW.trim());
   const authedStage = Boolean(TEST_LOGIN_TOKEN && TEST_LOGIN_TOKEN.trim());
+
+  // Fail BEFORE any request when the authed stage would leak the token in the clear.
+  if (authedStage) assertTransportSafeForSecrets(base);
 
   console.log("[staging-smoke] START");
   console.log(`[staging-smoke]   target : ${base}`);

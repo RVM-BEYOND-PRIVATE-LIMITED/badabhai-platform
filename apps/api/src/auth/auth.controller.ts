@@ -124,7 +124,14 @@ export class AuthController {
    * shape (incl. the TD62 consent_accepted compose) — so everything downstream
    * (ConsentGuard, tiers, refresh, revocation) treats it exactly like an OTP
    * session. Consent is NEVER created or bypassed here. Emits the distinct
-   * `worker.test_login` event. Per-IP capped like /auth/otp/request (fail-closed).
+   * `worker.test_login` event.
+   *
+   * TWO caps, both fail-closed (review L1): the per-IP hour cap (as
+   * /auth/otp/request) AND a GLOBAL daily ceiling — the per-IP cap alone would let a
+   * token holder rotate IPs for unlimited mints, so the IP-INDEPENDENT backstop is
+   * what actually bounds the seam (TEST_LOGIN_MAX_PER_DAY; 0 = kill-switch). The
+   * SERVICE additionally refuses any phone outside the reserved synthetic range
+   * (review M1) — that is the mint chokepoint, and it answers the same neutral 404.
    */
   @Post("test-login")
   @HttpCode(200)
@@ -138,6 +145,10 @@ export class AuthController {
       "test_login",
       req.ip ?? "unknown",
       this.config.OTP_MAX_SENDS_PER_HOUR,
+    );
+    await this.ipRateLimit.assertWithinGlobalDailyCap(
+      "test_login",
+      this.config.TEST_LOGIN_MAX_PER_DAY,
     );
     const login = await this.auth.testLogin(dto.phone, ctx);
     return this.withConsentFlag(login);

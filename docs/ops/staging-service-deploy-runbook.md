@@ -121,8 +121,9 @@ authoritative env spec.** "Kind" = where it lives.
 | `AI_ENABLE_REAL_CALLS` | workflow **env** + **host** | MOCK-only gate — **stays `false`** (§7 to flip). | `false` |
 | `AI_INTERNAL_TOKEN` | `staging` **secret** (OPTIONAL — TD67) | ONE service-level bearer for the ai-service. Unset = open internal posture. When flipping: set the SAME value (≥16 chars) on the ai-service host env, the api host env, AND the db-runner env — a half-flip 401s api→ai calls (api degrades to mock, logged at ERROR). Verify via ai-service `/health.service_auth_enabled`. | `<random-32+char-secret>` |
 | `MESSAGING_ENABLE_REAL` | workflow **env** + **host** | MOCK-only gate — **stays `false`** (§7 to flip). | `false` |
-| `TEST_LOGIN_ENABLED` | workflow **env** + **host** (OPTIONAL — D-3) | Arms `POST /auth/test-login`, the gated worker session-mint seam the smoke's authed stage + the e2e suites use (worker OTP is real-only, so no test can drive a real code). Default **`false`** ⇒ the route is a **neutral 404**. Staging **may** set `true`; **PRODUCTION MUST NOT** — the API **refuses to boot** with it on unless `NODE_ENV` is explicitly `development`/`test`/`staging` (`assertAuthConfig`). Requires `TEST_LOGIN_TOKEN` (below) — enabled without it is also a **boot failure** (TD67: never arm vacuously). | `false` (staging: `true`) |
-| `TEST_LOGIN_TOKEN` | `staging` **secret** (OPTIONAL — D-3) | The **≥32-char** secret `TestLoginGuard` compares (HMAC timing-safe) against the `x-test-login-token` header. Set but NOT enabled ⇒ **inert** (route still 404s). An **empty/short** value is a **Zod parse error at boot** in EVERY env — never "silently off". Pass the SAME value to the smoke as `SMOKE_TEST_LOGIN_TOKEN` (absent ⇒ the smoke runs **health-only**). Treat as a secret: never logged/evented. | `<random-32+char-secret>` |
+| `TEST_LOGIN_ENABLED` | workflow **env** + **host** (OPTIONAL — D-3) | Arms `POST /auth/test-login`, the gated worker session-mint seam the smoke's authed stage + the e2e suites use (worker OTP is real-only, so no test can drive a real code). Default **`false`** ⇒ the route is a **neutral 404**. Settable **ONLY on the HOST path** (the `staging-cd.yml` env, which runs `NODE_ENV=staging`) — **NOT** on the CD-0/Lightsail compose box, which runs `NODE_ENV=production` in-container and therefore **cannot arm D-3 by design** (see the box note below). **PRODUCTION MUST NOT** set it: the API **refuses to boot** with it on unless `NODE_ENV` is explicitly `development`/`test`/`staging` (`assertAuthConfig`). Requires `TEST_LOGIN_TOKEN` (below) — enabled without it is also a **boot failure** (TD67: never arm vacuously). | `false` (host path may set `true`) |
+| `TEST_LOGIN_TOKEN` | `staging` **secret** (OPTIONAL — D-3) | The **≥32-char** secret `TestLoginGuard` compares (HMAC timing-safe) against the `x-test-login-token` header. Set but NOT enabled ⇒ **inert** (route still 404s). An **empty/short** value is a **Zod parse error at boot** in EVERY env — never "silently off". Pass the SAME value to the smoke as `SMOKE_TEST_LOGIN_TOKEN` (absent ⇒ the smoke runs **health-only**). The smoke additionally **refuses to send it over non-loopback `http://`** (it would be plaintext on the wire) — the base must be `https://`. Treat as a secret: never logged/evented. | `<random-32+char-secret>` |
+| `TEST_LOGIN_MAX_PER_DAY` | workflow **env** + **host** (OPTIONAL — D-3) | GLOBAL (IP-independent) daily ceiling on test-login mints — the backstop above the per-IP hour cap, since a token holder could otherwise rotate IPs for unlimited mints. Default **`200`**. **`0` = PAUSED = the test-login kill-switch** (refuses the next mint instantly, env-only, no redeploy — without having to disarm the flag). | `200` |
 | `API_PORT` | **host** | Port the API listens on (host-dependent; code default `3001`). | `3001` (or the host's injected `PORT`) |
 | `CORS_ALLOWED_ORIGINS` | **host** (optional) | Allow-list if the ops/payer web call the API. In `NODE_ENV=development` CORS already reflects the origin; set this when you tighten. | `https://ops.<host>,https://app.<host>` |
 
@@ -132,12 +133,41 @@ authoritative env spec.** "Kind" = where it lives.
 > both places.
 >
 > **D-3 test-login (`TEST_LOGIN_ENABLED` + `TEST_LOGIN_TOKEN`):** both are OPTIONAL and OFF by
-> default. To run the smoke's authed stage on staging, set BOTH on the **host** (the API must see
-> them) and give the CD job the same token as `SMOKE_TEST_LOGIN_TOKEN`. **PRODUCTION MUST NOT set
+> default. To run the smoke's authed stage on the **host path**, set BOTH on the host (the API must
+> see them) and give the CD job the same token as `SMOKE_TEST_LOGIN_TOKEN`. **PRODUCTION MUST NOT set
 > `TEST_LOGIN_ENABLED=true`** — that is not a convention but a **structural block**: the boot
 > guard rejects the flag outside an explicit `development`/`test`/`staging` `NODE_ENV`, so an
 > unset/typo'd `NODE_ENV` on a prod box fails closed (the API will not start) rather than leaving
 > an OTP-less login route armed.
+
+### ⚠️ D-3 on the CD-0 / Lightsail compose box: it CANNOT be armed, and the "obvious fix" is a trap
+
+**Two staging paths exist and they run DIFFERENT `NODE_ENV`s:**
+
+| Path | `NODE_ENV` | Can arm D-3? |
+| --- | --- | --- |
+| **Host path** — [`staging-cd.yml`](../../.github/workflows/staging-cd.yml) (`NODE_ENV: staging`) | `staging` | **Yes** |
+| **CD-0 box** — [`docker-compose.staging.yml`](../../docker-compose.staging.yml) (`NODE_ENV: production`, in-container) | `production` | **No — by design** |
+
+On the **CD-0/Lightsail box** the overlay deliberately pins `NODE_ENV: production` (so the
+fail-closed asserts + strict CORS are ACTIVE). Setting `TEST_LOGIN_ENABLED=true` there makes
+`assertAuthConfig` throw at boot → the container **crash-loops** → the **CD-3 `/health` gate fails
+the deploy**. That is the gate working correctly: **fail-closed, no silent arming.** Run the smoke
+**health-only** on that box (omit `SMOKE_TEST_LOGIN_TOKEN`) — which is the default posture.
+
+> **🚨 DO NOT "fix" the crash-loop by changing the overlay's `NODE_ENV` to `staging`.** It looks
+> like the one-line remedy and it is the most dangerous edit in this file. `NODE_ENV=production` is
+> load-bearing for **more than D-3**: seven `packages/db` runners gate destructive work on exactly
+> `process.env.NODE_ENV === "production"` —
+> [`seed.ts`](../../packages/db/src/seed.ts), [`seed-demand.ts`](../../packages/db/src/seed-demand.ts),
+> [`seed-reach-pool.ts`](../../packages/db/src/seed-reach-pool.ts), [`seed-skills.ts`](../../packages/db/src/seed-skills.ts),
+> [`retag-skills.ts`](../../packages/db/src/retag-skills.ts), [`growth-cluster.ts`](../../packages/db/src/growth-cluster.ts),
+> [`embed-skill-aliases.ts`](../../packages/db/src/embed-skill-aliases.ts).
+> Flipping the overlay to `staging` turns **every one of them from "refuses to run" to RUNNABLE
+> against that box's database** — seeds and the skill **re-tag** (a bulk mutation of `skill_id`
+> assignments) included. You would trade a loud, contained boot failure for a quiet, destructive
+> capability. **If you need the authed stage, use the HOST path** (which is already `staging`), or
+> leave the box health-only.
 
 ---
 
@@ -171,8 +201,18 @@ It now asserts, failing loudly on any miss ([scripts/staging-smoke.mjs](../../sc
 PASSes on health alone — the **default posture**):
 
 - **(b)** `POST /auth/test-login` (`x-test-login-token` header + a synthetic `{phone}`) → `200` +
-  `access_token` present. A **404** here means `TEST_LOGIN_ENABLED` is off on the target; a **401**
-  means the token mismatches — both fail loudly.
+  `access_token` present. A **404** here means `TEST_LOGIN_ENABLED` is off on the target **or the
+  phone is outside the reserved synthetic range** (the same neutral 404 — no oracle); a **401**
+  means the token mismatches — all fail loudly.
+
+  > **RESERVED SYNTHETIC PHONE RANGE — `+9100000XXXXX`** (`+91` + five zeros + 5 free digits; the
+  > smoke's default is `+910000000000`). The mint serves **ONLY** this range and refuses anything
+  > else with a neutral 404. **Why:** staging runs **REAL Fast2SMS**, so real workers can exist
+  > there — an unrestricted mint would let a token holder open a session for **any existing
+  > worker**. A real Indian mobile is `+91` followed by 10 digits starting **6–9**, so a
+  > five-zero subscriber prefix is **unassignable** and can never collide with a real number.
+  > The range is **hard-coded**, not an env knob (a widenable allowlist is one mis-set var away
+  > from serving real numbers). Override `STAGING_SMOKE_PHONE` only within this range.
 - **(c)** `GET /auth/me` (Bearer) → `200` + `worker_id` — one cheap authed read proving the minted
   session actually resolves through `WorkerAuthGuard` + Redis.
 

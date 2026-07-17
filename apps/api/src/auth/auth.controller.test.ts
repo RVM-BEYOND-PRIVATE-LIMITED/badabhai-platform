@@ -23,6 +23,10 @@ import type { RequestContext } from "../common/request-context";
 
 const CTX = { correlationId: "c", requestId: "r" } as RequestContext;
 const WORKER: AuthenticatedWorker = { id: "11111111-1111-4111-8111-111111111111", sid: "sid-1" };
+// D-3 (review M1): a phone in the reserved synthetic range the test-login mint serves.
+// The synthetic-range REFUSAL itself is the SERVICE's chokepoint (auth.service.test.ts);
+// here the service is a double, so these cases cover the controller's caps/compose only.
+const SYNTHETIC_PHONE = "+910000000000";
 
 function make() {
   const auth = {
@@ -51,7 +55,11 @@ function make() {
   const workers = {
     findById: vi.fn(async () => ({ id: WORKER.id, status: "active", phoneE164: "ENC(+91999)" })),
   };
-  const ipRateLimit = { assertWithinHourlyIpCap: vi.fn(async () => undefined) };
+  const ipRateLimit = {
+    assertWithinHourlyIpCap: vi.fn(async () => undefined),
+    // Review L1 — the IP-INDEPENDENT daily backstop on the test-login mint.
+    assertWithinGlobalDailyCap: vi.fn(async () => undefined),
+  };
   const otp = {
     issueAndSend: vi.fn(async () => ({ resendInSeconds: 30 })),
     verify: vi.fn(async () => undefined),
@@ -59,7 +67,7 @@ function make() {
   const pii = { decrypt: vi.fn((t: string) => t.replace(/^ENC\(|\)$/g, "")) };
   const accountDeletion = { execute: vi.fn(async () => undefined) };
   const consents = { findLatestByWorker: vi.fn(async () => undefined) };
-  const config = { OTP_MAX_SENDS_PER_HOUR: 5 } as ServerConfig;
+  const config = { OTP_MAX_SENDS_PER_HOUR: 5, TEST_LOGIN_MAX_PER_DAY: 200 } as ServerConfig;
   const controller = new AuthController(
     auth as unknown as AuthService,
     sessions as unknown as SessionService,
@@ -187,19 +195,30 @@ describe("AuthController", () => {
 
   // ---- D-3 — POST /auth/test-login (the guard 404s/401s the route; here: handler behaviour) ----
 
-  it("testLogin applies the per-IP cap FIRST, then delegates the phone to the mint seam", async () => {
+  it("testLogin applies BOTH caps (per-IP hour + global day) BEFORE delegating to the mint seam", async () => {
     const { controller, auth, ipRateLimit } = make();
-    await controller.testLogin({ phone: "+91999" } as never, reqWith(), CTX);
+    await controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX);
     expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("test_login", "1.2.3.4", 5);
-    expect(auth.testLogin).toHaveBeenCalledWith("+91999", CTX);
+    // Review L1 — the IP-INDEPENDENT backstop: a token holder rotating IPs is still bounded.
+    expect(ipRateLimit.assertWithinGlobalDailyCap).toHaveBeenCalledWith("test_login", 200);
+    expect(auth.testLogin).toHaveBeenCalledWith(SYNTHETIC_PHONE, CTX);
   });
 
-  it("testLogin cap rejection blocks the mint (fail closed)", async () => {
+  it("testLogin per-IP cap rejection blocks the mint (fail closed)", async () => {
     const { controller, auth, ipRateLimit } = make();
     (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new ConflictException("cap"),
     );
-    await expect(controller.testLogin({ phone: "+91999" } as never, reqWith(), CTX)).rejects.toBeTruthy();
+    await expect(controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX)).rejects.toBeTruthy();
+    expect(auth.testLogin).not.toHaveBeenCalled();
+  });
+
+  it("testLogin GLOBAL daily cap rejection blocks the mint (L1 — the IP-rotation backstop)", async () => {
+    const { controller, auth, ipRateLimit } = make();
+    (ipRateLimit.assertWithinGlobalDailyCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ConflictException("global cap"),
+    );
+    await expect(controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX)).rejects.toBeTruthy();
     expect(auth.testLogin).not.toHaveBeenCalled();
   });
 
@@ -210,14 +229,14 @@ describe("AuthController", () => {
     // ConsentGuard still denies the profiling routes until the worker accepts).
     const { controller, consents } = make();
     (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
-    const res = await controller.testLogin({ phone: "+91999" } as never, reqWith(), CTX);
+    const res = await controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX);
     expect(consents.findLatestByWorker).toHaveBeenCalledWith(WORKER.id);
     expect(res.consent_accepted).toBe(false);
   });
 
   it("testLogin returns the SAME login shape as verifyOtp (session/token pass-through, no PII)", async () => {
     const { controller } = make();
-    const res = await controller.testLogin({ phone: "+91999" } as never, reqWith(), CTX);
+    const res = await controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX);
     expect(res.worker_id).toBe(WORKER.id);
     expect(res.access_token).toBe("tok");
     expect(res.pin_set).toBe(false);
@@ -229,7 +248,7 @@ describe("AuthController", () => {
     (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("db blip"),
     );
-    const res = await controller.testLogin({ phone: "+91999" } as never, reqWith(), CTX);
+    const res = await controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX);
     expect(res.worker_id).toBe(WORKER.id);
     expect("consent_accepted" in res).toBe(false);
   });
