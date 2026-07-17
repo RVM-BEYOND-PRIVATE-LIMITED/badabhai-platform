@@ -81,6 +81,39 @@ final GetIt locator = GetIt.instance;
 /// mode for an end-to-end widget test without relying on the compile-time
 /// `kUseMocks` dart-define (which is `false` under a plain `flutter test`). In
 /// production [main] calls `setupLocator()` with no argument, so the live wiring
+/// Renews auth after a 401 on the legacy worker-scoped path (#351).
+///
+/// Those calls (feed, chat, resume, profile, voice, notifications, applications)
+/// carry `SessionRepository.sessionToken` and bypass AuthedClient's refresh
+/// interceptor entirely, so a revoked or expired session used to dead-end the
+/// worker: the 401 became UnauthorizedFailure, nothing refreshed, nothing fired
+/// ReauthSignal, and AuthSessionManager stayed `authenticated` — which made the
+/// router bounce every attempt to reach /login.
+///
+///  - refresh OK        → true; the caller retries once with the fresh bearer.
+///  - unrecoverable     → AuthSessionManager wipes + flips to loggedOut (via
+///                        _wipeAndLogOut / ReauthSignal), which FREES the router;
+///                        false here so the original 401 still surfaces.
+///  - transport failure → false; the session is untouched (a flaky link must not
+///                        log the worker out).
+///
+/// Resolved lazily and defensively: the ApiClient singleton can be built before
+/// `initAuthLocator` runs (and legacy widget tests never wire auth at all).
+Future<bool> _renewAuthOnUnauthorized() async {
+  if (!locator.isRegistered<AuthSessionManager>()) return false;
+  final AuthSessionManager auth = locator<AuthSessionManager>();
+  // With persistent-auth OFF there is no persisted refresh token to renew from,
+  // and the router gate is inert (no lockout to fix) — leave that build exactly
+  // as it is rather than wiping a session on a transient 401.
+  if (!auth.persistentAuthEnabled) return false;
+  try {
+    await auth.refresh();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 /// goes through [createApiClient] exactly as before.
 void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // The override only applies to a FRESH graph. Guard against a silent no-op:
@@ -125,6 +158,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
         apiClient ??
         createApiClient(
           onSessionTokenRefreshed: locator<SessionRepository>().setSessionToken,
+          // #351: a 401 here gets ONE renew + retry; an unrecoverable refresh
+          // flips the manager to loggedOut, which is what frees the router.
+          onUnauthorized: _renewAuthOnUnauthorized,
+          currentAuthToken: () => locator<SessionRepository>().sessionToken,
         ),
   );
 
