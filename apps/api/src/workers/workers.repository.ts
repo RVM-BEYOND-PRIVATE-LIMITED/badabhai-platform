@@ -345,6 +345,26 @@ export class WorkersRepository {
     });
   }
 
+  /**
+   * ADR-0032 — flip a resume row out of `rendered` so a re-render actually runs.
+   *
+   * The render processor early-returns when `render_status === 'rendered'` (its
+   * idempotency guard), so enqueueing a job against a rendered row is a NO-OP.
+   * A photo change makes the existing PDF stale, so the row must leave `rendered`
+   * first. Mirrors the reset ResumeRepository.createInitial already performs on
+   * an overwrite: pending + no pdf key + no rendered-at.
+   *
+   * Only ever called immediately before enqueueing the re-render, and only when
+   * rendering is actually enabled — otherwise this would strip a worker's
+   * perfectly good PDF and nothing would ever rebuild it.
+   */
+  async markResumePendingForRerender(resumeId: string): Promise<void> {
+    await this.db
+      .update(generatedResumes)
+      .set({ renderStatus: "pending", pdfStorageKey: null, renderedAt: null })
+      .where(eq(generatedResumes.id, resumeId));
+  }
+
   async latestResume(workerId: string): Promise<GeneratedResume | undefined> {
     const rows = await this.db
       .select()

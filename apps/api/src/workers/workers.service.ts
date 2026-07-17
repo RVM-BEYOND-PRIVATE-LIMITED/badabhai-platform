@@ -6,6 +6,8 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { Inject } from "@nestjs/common";
+import { InjectQueue } from "@nestjs/bullmq";
+import { Queue } from "bullmq";
 import { randomUUID } from "node:crypto";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
@@ -13,6 +15,7 @@ import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
 import { StorageService } from "../storage/storage.service";
+import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { WorkersRepository } from "./workers.repository";
 import { toProfileSummary } from "./profile-summary.mapper";
 import type {
@@ -43,7 +46,75 @@ export class WorkersService {
     private readonly events: EventsService,
     private readonly storage: StorageService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+    // ADR-0032 A1 — re-render the resume when the photo (or the show-photo pref)
+    // changes. This is the SAME async seam ResumeService uses, not a
+    // service-to-service call, so no module cycle is introduced.
+    //
+    // NOT wired as an event consumer despite worker.photo_uploaded /
+    // worker.photo_removed already existing, because there is nothing to consume
+    // them WITH: EventsService only exposes emit()/emitMany() and the `events`
+    // table is the audit SPINE (CLAUDE.md §1), not a message bus — nothing
+    // subscribes to it anywhere in the codebase. Adding a dispatcher is an
+    // architecture change (§3) and would need its own ADR, so it is deliberately
+    // not smuggled in under a photo ticket. The events stay the audit record;
+    // BullMQ stays the work queue.
+    @InjectQueue(RESUME_RENDER_QUEUE) private readonly renderQueue: Queue,
   ) {}
+
+  /**
+   * ADR-0032 A1 — the worker's rendered PDF is now stale; rebuild it.
+   *
+   * Called after a photo confirm/delete, and after the show-photo pref flips.
+   * Without this the "your photo appears on your resume automatically" promise
+   * was simply untrue: the photo events had no consumers, so nothing re-rendered
+   * and the PDF kept whatever photo it was built with.
+   *
+   * FAIL-SOFT by contract (mirrors ResumeService.enqueueRender): a queue or DB
+   * failure must never fail the worker's photo request — the photo itself was
+   * saved, and a stale PDF is a far smaller problem than a 500 on upload. It is
+   * logged, never swallowed silently.
+   *
+   * Skips when rendering is DISABLED: the reset below strips pdf_storage_key, and
+   * with the kill-switch off nothing would ever rebuild it — so a worker with a
+   * perfectly good PDF would silently lose it and be left with a permanently
+   * 'pending' row. Keeping a slightly stale PDF beats destroying it.
+   */
+  private async requestResumeRerender(
+    workerId: string,
+    ctx: RequestContext,
+    reason: string,
+  ): Promise<void> {
+    try {
+      if (!this.config.RESUME_RENDER_ENABLED) {
+        this.logger.log(
+          `resume re-render skipped for worker ${workerId.slice(0, 8)}… (${reason}): rendering disabled; keeping the existing PDF`,
+        );
+        return;
+      }
+
+      const resume = await this.workers.latestResume(workerId);
+      if (!resume) return; // nothing generated yet — the first generate embeds it
+
+      // The processor early-returns on a 'rendered' row, so the reset is what
+      // makes the enqueue mean anything at all.
+      await this.workers.markResumePendingForRerender(resume.id);
+      await this.renderQueue.add("render", {
+        resumeId: resume.id,
+        workerId,
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+      this.logger.log(
+        `resume re-render enqueued for worker ${workerId.slice(0, 8)}… (${reason})`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `could not enqueue resume re-render for worker ${workerId.slice(0, 8)}… (${reason}); the PDF stays as-is (reason: ${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      );
+    }
+  }
 
   /**
    * Record the worker's real name. The name is PII (TD21): it is encrypted at
@@ -241,6 +312,14 @@ export class WorkersService {
       requestId: ctx.requestId,
     });
 
+    // A1: the PDF now shows the OLD photo (or none) — rebuild it. Only when the
+    // worker actually shows their photo on the resume: the render gates the embed
+    // on resumeShowPhoto, so re-rendering with the pref off would burn a render to
+    // produce a byte-identical PDF.
+    if (updated.resumeShowPhoto) {
+      await this.requestResumeRerender(workerId, ctx, "photo_uploaded");
+    }
+
     this.logger.log(`profile photo recorded for worker ${workerId}`); // never the key/URL
     return { worker_id: workerId, has_photo: true };
   }
@@ -309,6 +388,13 @@ export class WorkersService {
       requestId: ctx.requestId,
     });
 
+    // A1: the PDF still embeds the photo the worker just deleted — rebuild it
+    // WITHOUT the photo. Same show_photo gate: with the pref off the PDF never
+    // carried the photo, so there is nothing to remove from it.
+    if (worker.resumeShowPhoto) {
+      await this.requestResumeRerender(workerId, ctx, "photo_removed");
+    }
+
     this.logger.log(`profile photo removed for worker ${workerId}`);
     return { worker_id: workerId, has_photo: false };
   }
@@ -344,6 +430,16 @@ export class WorkersService {
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
+
+    // A1 (same gap, same fix): flipping show_photo changes what the PDF should
+    // contain, and nothing re-rendered it either — turning the pref ON never made
+    // the photo appear on the resume. Only when it actually CHANGED, and only when
+    // the worker has a photo: with no photo on file the PDF is identical either
+    // way, so a render would be pure waste.
+    const showPhotoChanged = worker.resumeShowPhoto !== updated.resumeShowPhoto;
+    if (showPhotoChanged && worker.photoStorageKey) {
+      await this.requestResumeRerender(workerId, ctx, "show_photo_changed");
+    }
 
     this.logger.log(`resume prefs updated for worker ${workerId}`);
     return { worker_id: workerId };
