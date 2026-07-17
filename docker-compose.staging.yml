@@ -12,8 +12,11 @@
 # Fail-loud contract: every `${VAR:?}` below errors at COMPOSE time (before any
 # container starts) when the box lacks real values — a box still on the public
 # repo-literal dev defaults is UNDEPLOYABLE instead of silently live on them.
-# Values come from the shell env or the project .env on the box
-# (STAGING-SECRETS-1); they are never committed (CLAUDE.md §6).
+# Values: on CI deploys they arrive from GitHub environment/repo secrets via the
+# deploy step's env+envs passthrough (CD-1b) and ALWAYS shadow the box's shell/.env
+# — even when empty (fail-loud either way). Manual/rollback runs from a box shell
+# read the shell env or the project .env instead (STAGING-SECRETS-1); values are
+# never committed (CLAUDE.md §6).
 #
 # depends_on: the base api service depends_on the compose-internal postgres and
 # redis. An overlay cannot DELETE a depends_on entry by omission (compose merges
@@ -71,6 +74,11 @@ services:
       # TD33/TD50) and has NO boot assert — this compose-level requirement is the only
       # fail-loud gate for it.
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?required in staging — the dev default is a public repo literal}
+      # TD72(a): outside dev an EMPTY CORS list resolves to deny-all (origin:false)
+      # with no boot assert — the first otherwise-green deploy would silently block
+      # every payer-web/ops browser call while /health (no CORS) reports healthy.
+      # Fail loud at compose time instead.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?required in staging — empty means deny-all for browsers (TD72a)}
 
       # ---- Resume PDF render: explicitly OFF on this box (R27 owner queue). The base
       # file enables it for the local render runbook, but its SUPABASE_URL /
