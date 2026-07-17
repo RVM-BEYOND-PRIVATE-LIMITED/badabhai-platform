@@ -199,9 +199,9 @@ void main() {
     expect(find.text('Your resume'), findsOneWidget);
     // The Alerts badge reflects the reactive unread count. The shell fires a
     // best-effort refresh() on mount, so the badge populates from the real mock
-    // feed (4 unread) BEFORE Alerts is opened — wait for the async fetch to land.
-    await _pumpUntil(tester, _navBadge('4'));
-    expect(_navBadge('4'), findsOneWidget);
+    // feed (5 unread) BEFORE Alerts is opened — wait for the async fetch to land.
+    await _pumpUntil(tester, _navBadge('5'));
+    expect(_navBadge('5'), findsOneWidget);
 
     // ── 8. TAB THROUGH every branch (each its own mock-backed screen). The
     //     IndexedStack offstages inactive branches, so default finders only see
@@ -232,16 +232,18 @@ void main() {
     expect(find.text('Profile strength'), findsOneWidget);
     expect(_navIndex(tester), _kProfileTab);
 
-    // T5: the badge is lit BEFORE Alerts is opened...
-    expect(_navBadge('4'), findsOneWidget);
+    // T5: the badge is lit BEFORE Alerts is opened. FIVE now, not four — #403
+    // added the worker's own application.submitted to the feed.
+    expect(_navBadge('5'), findsOneWidget);
     await tester.tap(find.text('Alerts'));
     await _pumpUntil(tester, find.text('Alerts'));
     // ...and opening the tab IS the read — no tick to press. The mark-all-read
     // action was removed: reading your own alerts should not need confirming.
-    await _pumpUntilGone(tester, _navBadge('4'));
-    expect(_navBadge('4'), findsNothing);
+    await _pumpUntilGone(tester, _navBadge('5'));
+    expect(_navBadge('5'), findsNothing);
     expect(find.byIcon(Icons.check), findsNothing,
         reason: 'the mark-all-read tick is gone (T5)');
+
 
     await tester.tap(find.text('Resume'));
     await _pumpUntil(tester, find.text('Your resume'));

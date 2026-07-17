@@ -10,7 +10,12 @@ import {
 } from "./notifications.dto";
 
 /** Minimal EventRow the service actually reads (id, eventName, occurredAt). */
-function row(eventName: string, id: string, occurredAt: string): EventRow {
+function row(
+  eventName: string,
+  id: string,
+  occurredAt: string,
+  overrides: Partial<Record<string, unknown>> = {},
+): EventRow {
   return {
     id,
     eventName,
@@ -29,7 +34,28 @@ function row(eventName: string, id: string, occurredAt: string): EventRow {
     idempotencyKey: null,
     metadata: {},
     createdAt: new Date(occurredAt),
+    ...overrides,
   } as unknown as EventRow;
+}
+
+/**
+ * A REAL `application.submitted` row as applications.service.ts emits it:
+ * actor={worker,workerId}, subject={job,jobId}, payload={worker_id,job_id,rank,
+ * source_surface}. Every payload field is a loud sentinel — none may reach the wire.
+ */
+function applicationRow(id: string, occurredAt: string, workerId: string): EventRow {
+  return row("application.submitted", id, occurredAt, {
+    actorType: "worker",
+    actorId: workerId,
+    subjectType: "job", // NOT "worker" — the subject leg cannot scope this event
+    subjectId: "job-SENTINEL-9",
+    payload: {
+      worker_id: workerId,
+      job_id: "job-SENTINEL-9",
+      rank: 424242,
+      source_surface: "SENTINEL_FEED",
+    },
+  });
 }
 
 function setup(rows: EventRow[]) {
@@ -94,6 +120,70 @@ describe("NotificationsService.getForWorker — projection", () => {
   });
 });
 
+describe("application.submitted → the worker's OWN apply receipt (2026-07-17 widening)", () => {
+  const WORKER_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+  it("surfaces in the feed for its OWN worker as type `application_sent` with the exact faceless copy", async () => {
+    const { svc } = setup([applicationRow("e-app-1", "2026-07-17T10:00:00.000Z", WORKER_A)]);
+    const out = await svc.getForWorker(WORKER_A);
+
+    expect(out).toEqual([
+      {
+        id: "e-app-1",
+        type: "application_sent",
+        // Copy pinned as LITERALS (not via the template map, which would be
+        // tautological): a copy change must be a deliberate test change.
+        title: "Application bhej di",
+        body: "Aapki application aage pahunch gayi.",
+        created_at: "2026-07-17T10:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("the rendered copy matches the allowlist template exactly (no drift between map and wire)", async () => {
+    const { svc } = setup([applicationRow("e-app-1", "2026-07-17T10:00:00.000Z", WORKER_A)]);
+    const [note] = await svc.getForWorker(WORKER_A);
+    const template = NOTIFICATION_TEMPLATES["application.submitted"]!;
+    expect(note!.type).toBe(template.type);
+    expect(note!.title).toBe(template.title);
+    expect(note!.body).toBe(template.body);
+  });
+
+  it("the wire row carries EXACTLY {id,type,title,body,created_at} — no job_id/worker_id/rank/source_surface", async () => {
+    const { svc } = setup([applicationRow("e-app-1", "2026-07-17T10:00:00.000Z", WORKER_A)]);
+    const [note] = await svc.getForWorker(WORKER_A);
+
+    // Exact key set — an added passthrough field (job_id, rank, …) fails here.
+    expect(Object.keys(note!).sort()).toEqual(["body", "created_at", "id", "title", "type"]);
+
+    // …and no payload VALUE survives the projection, under any key name.
+    const json = JSON.stringify(note);
+    expect(json).not.toContain("job-SENTINEL-9");
+    expect(json).not.toContain("SENTINEL_FEED");
+    expect(json).not.toContain("424242");
+    expect(json).not.toContain(WORKER_A);
+    expect(json).not.toMatch(/job_id|worker_id|rank|source_surface|payer/i);
+  });
+
+  it("does NOT surface for a DIFFERENT worker — the feed renders only what the worker-scoped read returns", async () => {
+    // Worker B's read: the repository's SQL predicate (subject|actor|payload legs,
+    // all bound to the CALLER) matches no row of worker A's apply, so the read is
+    // empty. The service invents nothing — B's feed is empty.
+    // NOTE: this pins the SERVICE half (it adds no rows of its own). The SQL half —
+    // that A's apply cannot match B's predicate, which for subject_type='job' rests
+    // entirely on the actor + payload legs — is pinned in notifications.repository.test.ts.
+    const { svc, repo } = setup([]);
+    const out = await svc.getForWorker("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+
+    expect(out).toEqual([]);
+    // The read is scoped by the CALLER's id — never a payload/subject id from a row.
+    expect(repo.findForWorker).toHaveBeenCalledWith(
+      "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      expect.any(Number),
+    );
+  });
+});
+
 describe("notifications allowlist — validity + faceless copy", () => {
   it("every allowlisted name is a REAL registered event (no typos/drift)", () => {
     for (const name of NOTIFICATION_EVENT_NAMES) {
@@ -116,6 +206,39 @@ describe("notifications allowlist — validity + faceless copy", () => {
       expect(text, `${name} copy must not carry ₹/pay`).not.toMatch(/₹|\brs\.?\b|\bsalary\b|\bpay\b/i);
       expect(text, `${name} copy must not carry a phone-like digit run`).not.toMatch(/\d{4,}/);
       expect(text, `${name} copy must not carry an email`).not.toContain("@");
+    }
+  });
+
+  /**
+   * MEMBERSHIP SNAPSHOT — the one test in this file that is NOT derived from the map,
+   * and the reason it exists: every other allowlist test above takes the map as its
+   * own oracle, so they all stay green when a new entry is added. The copy sweep only
+   * judges COPY, not PROVENANCE — so a demand/payer signal with innocent-looking copy
+   * (e.g. `unlock.granted` → "Kisi ne aapki profile dekhi", whose payload carries
+   * `worker_id` and would therefore scope + surface) sails through every one of them.
+   *
+   * This list is the deliberate-review gate: adding an event to the feed MUST be a
+   * conscious edit here. Before adding one, check it is the WORKER's own lifecycle or
+   * own act — never something an EMPLOYER did (2026-07-17 scope ruling, see
+   * notifications.dto.ts + docs/registers/architecture-log.md).
+   */
+  it("the allowlist membership is EXACTLY these events — adding one is a deliberate, reviewed edit", () => {
+    expect([...NOTIFICATION_EVENT_NAMES].sort()).toEqual([
+      "application.submitted",
+      "profile.confirmed",
+      "resume.generated",
+      "resume.regenerated",
+      "voice_note.transcription_completed",
+      "worker.device_registered",
+      "worker.logged_out_all",
+    ]);
+  });
+
+  it("no allowlisted event is a payer/demand-side signal (the half of the scope line that still holds)", () => {
+    for (const name of NOTIFICATION_EVENT_NAMES) {
+      expect(name, `${name} is a demand-side signal — it must never reach a worker`).not.toMatch(
+        /^(unlock|contact|payment|payer|credit|boost|job_posting)\./,
+      );
     }
   });
 });

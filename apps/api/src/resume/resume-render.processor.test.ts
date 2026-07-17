@@ -26,11 +26,20 @@ const SNAPSHOT = {
 
 const PDF = Buffer.from("%PDF-1.7 fake bytes");
 
-function makeJob(over: { attemptsMade?: number; attempts?: number } = {}): Job<ResumeRenderJobData> {
+function makeJob(
+  over: {
+    attemptsMade?: number;
+    attempts?: number;
+    force?: boolean;
+    failClosed?: boolean;
+  } = {},
+): Job<ResumeRenderJobData> {
   return {
     data: {
       resumeId: RESUME_ID,
       workerId: WORKER_ID,
+      ...(over.force === undefined ? {} : { force: over.force }),
+      ...(over.failClosed === undefined ? {} : { failClosed: over.failClosed }),
       correlationId: "c",
       requestId: "r",
     },
@@ -166,6 +175,155 @@ describe("ResumeRenderProcessor — lifecycle (TD5)", () => {
     expect(renderer.renderPdf).not.toHaveBeenCalled();
     expect(storage.uploadPdf).not.toHaveBeenCalled();
     expect(resumes.markRendered).not.toHaveBeenCalled();
+  });
+
+  // TD77 — `force` is what lets a photo added AFTER the first render reach the PDF.
+  it("force: RE-renders an already-'rendered' resume, in place (same version + key)", async () => {
+    const { proc, renderer, storage, resumes } = setup({
+      resume: {
+        id: RESUME_ID,
+        workerId: WORKER_ID,
+        version: 1,
+        renderStatus: "rendered",
+        sourceProfileSnapshot: SNAPSHOT,
+      },
+    });
+    const res = await proc.process(makeJob({ force: true }));
+
+    expect(res).toEqual({ rendered: true });
+    expect(renderer.renderPdf).toHaveBeenCalledTimes(1);
+    // Overwrites the SAME object key — no new version is minted, so the existing
+    // PDF stays downloadable until the fresh one lands (no 409 window).
+    expect(storage.uploadPdf).toHaveBeenCalledWith(
+      `resumes/${WORKER_ID}/${RESUME_ID}/v1.pdf`,
+      expect.anything(),
+    );
+    expect(resumes.markRendered).toHaveBeenCalledWith(
+      RESUME_ID,
+      `resumes/${WORKER_ID}/${RESUME_ID}/v1.pdf`,
+    );
+  });
+
+  // TD77 REGRESSION — the forced re-render must never be able to take a working
+  // resume away. `force` is the only path that re-processes an already-'rendered'
+  // row, so without these guards a photo change + a render/upload hiccup would flip
+  // the row to 'failed' and 409 a resume that downloaded fine a second earlier.
+  it("force + render fails: KEEPS the existing rendered PDF (never marks it failed)", async () => {
+    const { proc, resumes } = setup({
+      resume: {
+        id: RESUME_ID,
+        workerId: WORKER_ID,
+        version: 1,
+        renderStatus: "rendered",
+        sourceProfileSnapshot: SNAPSHOT,
+      },
+      renderResult: null, // WeasyPrint hiccup on the forced re-render
+    });
+    const res = await proc.process(makeJob({ force: true, attemptsMade: 2, attempts: 3 }));
+
+    expect(res).toEqual({ rendered: false });
+    // The row must STAY 'rendered' — the old PDF is still valid + downloadable.
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+  });
+
+  it("force + upload fails on the final attempt: KEEPS the existing rendered PDF", async () => {
+    const { proc, resumes, storage } = setup({
+      resume: {
+        id: RESUME_ID,
+        workerId: WORKER_ID,
+        version: 1,
+        renderStatus: "rendered",
+        sourceProfileSnapshot: SNAPSHOT,
+      },
+    });
+    storage.uploadPdf = vi.fn(async () => {
+      throw new Error("storage upload failed with status 500");
+    });
+    const res = await proc.process(makeJob({ force: true, attemptsMade: 2, attempts: 3 }));
+
+    expect(res).toEqual({ rendered: false });
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+  });
+
+  it("force + failClosed (photo REMOVED) + render fails: marks failed rather than serve the erased face", async () => {
+    // §2/DPDP: the existing PDF still embeds the face the worker just erased, so
+    // degrading open here would keep SERVING removed PII. A 409 is the honest cost.
+    const { proc, resumes } = setup({
+      resume: {
+        id: RESUME_ID,
+        workerId: WORKER_ID,
+        version: 1,
+        renderStatus: "rendered",
+        sourceProfileSnapshot: SNAPSHOT,
+      },
+      renderResult: null,
+    });
+    const res = await proc.process(
+      makeJob({ force: true, failClosed: true, attemptsMade: 2, attempts: 3 }),
+    );
+
+    expect(res).toEqual({ rendered: false });
+    expect(resumes.markRenderFailed).toHaveBeenCalledWith(RESUME_ID);
+  });
+
+  it("force + failClosed + the RENDER KILL-SWITCH OFF: STILL marks failed (erasure outranks the kill-switch)", async () => {
+    // REGRESSION (PR #402 review, High): the kill-switch branch used to be tested
+    // BEFORE the failClosed branch, so with RESUME_RENDER_ENABLED=false the row was
+    // left untouched — i.e. still 'rendered' — and the download gate happily kept
+    // serving the PDF embedding the face the worker had just erased. It never
+    // self-healed either: a later DELETE /workers/me/photo skips the re-render once
+    // show_photo is already off. When we CANNOT re-render the face off the PDF, taking
+    // it out of service matters MORE, not less.
+    const { proc, resumes } = setup({
+      resume: {
+        id: RESUME_ID,
+        workerId: WORKER_ID,
+        version: 1,
+        renderStatus: "rendered",
+        sourceProfileSnapshot: SNAPSHOT,
+      },
+      renderResult: null,
+      renderEnabled: false,
+    });
+    const res = await proc.process(
+      makeJob({ force: true, failClosed: true, attemptsMade: 2, attempts: 3 }),
+    );
+
+    expect(res).toEqual({ rendered: false });
+    expect(resumes.markRenderFailed).toHaveBeenCalledWith(RESUME_ID);
+  });
+
+  it("failClosed on a NOT-yet-rendered row + kill-switch OFF: stays pending, NOT failed", async () => {
+    // Guard the fix above: `failClosed` outranks the kill-switch only when a PDF
+    // actually exists to keep serving. With nothing rendered there is no face to
+    // erase, so the kill-switch steady state must survive — leave the row pending so
+    // it renders once rendering is switched back on, rather than 409ing it forever.
+    const { proc, resumes } = setup({ renderResult: null, renderEnabled: false });
+    await proc.process(makeJob({ force: true, failClosed: true, attemptsMade: 2, attempts: 3 }));
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+  });
+
+  it("a FIRST render (not forced) that fails IS still marked failed (unchanged)", async () => {
+    // Guard the guard: the wasRendered exemption must not swallow a genuine
+    // first-render failure on a pending row.
+    const { proc, resumes } = setup({ renderResult: null });
+    await proc.process(makeJob({ attemptsMade: 2, attempts: 3 }));
+    expect(resumes.markRenderFailed).toHaveBeenCalledWith(RESUME_ID);
+  });
+
+  it("force:false is still idempotent (only an explicit force overrides the skip)", async () => {
+    const { proc, renderer } = setup({
+      resume: {
+        id: RESUME_ID,
+        workerId: WORKER_ID,
+        version: 1,
+        renderStatus: "rendered",
+        sourceProfileSnapshot: SNAPSHOT,
+      },
+    });
+    const res = await proc.process(makeJob({ force: false }));
+    expect(res).toEqual({ rendered: true });
+    expect(renderer.renderPdf).not.toHaveBeenCalled();
   });
 
   it("no-ops (no throw) when the resume row is missing", async () => {

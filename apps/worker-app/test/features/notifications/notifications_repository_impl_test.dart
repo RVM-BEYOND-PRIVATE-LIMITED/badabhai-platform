@@ -123,6 +123,87 @@ void main() {
     }
   });
 
+  test('application_sent decodes to its OWN kind (not the security fallback) '
+      'and keeps the server-rendered copy verbatim', () async {
+    final NotificationsRepositoryImpl repo =
+        _repo(MockClient((http.Request req) async {
+      return _ok(<String, dynamic>{
+        'notifications': <Map<String, dynamic>>[
+          _noti(
+            id: 'e1',
+            type: 'application_sent',
+            title: 'Application bhej di',
+            body: 'Aapki application aage pahunch gayi.',
+            createdAt: DateTime.now().toUtc().toIso8601String(),
+          ),
+        ],
+      });
+    }));
+
+    final List<AppNotification> items = await repo.list();
+
+    // Mapped explicitly — must NOT land on the unknown-type fallback.
+    expect(items.single.kind, NotificationKind.applicationSent);
+    expect(items.single.kind, isNot(NotificationKind.security));
+
+    // Copy is SERVER-rendered: passed through byte-for-byte, never composed.
+    expect(items.single.title, 'Application bhej di');
+    expect(items.single.subtitle, 'Aapki application aage pahunch gayi.');
+  });
+
+  test('an unknown/future type still falls back to security (posture kept)',
+      () async {
+    final NotificationsRepositoryImpl repo =
+        _repo(MockClient((http.Request req) async {
+      return _ok(<String, dynamic>{
+        'notifications': <Map<String, dynamic>>[
+          _noti(
+            id: 'e1',
+            type: 'some_future_type',
+            title: 'Kuch naya',
+            body: 'Server ne naya type bheja.',
+            createdAt: DateTime.now().toUtc().toIso8601String(),
+          ),
+        ],
+      });
+    }));
+
+    final List<AppNotification> items = await repo.list();
+    expect(items.single.kind, NotificationKind.security);
+  });
+
+  test('the application_sent row is faceless (ADR-0024): no employer/company '
+      'word, no identity marker, no pay, no phone', () async {
+    final NotificationsRepositoryImpl repo =
+        _repo(MockClient((http.Request req) async {
+      return _ok(<String, dynamic>{
+        'notifications': <Map<String, dynamic>>[
+          _noti(
+            id: 'e1',
+            type: 'application_sent',
+            title: 'Application bhej di',
+            body: 'Aapki application aage pahunch gayi.',
+            createdAt: DateTime.now().toUtc().toIso8601String(),
+          ),
+        ],
+      });
+    }));
+
+    final List<AppNotification> items = await repo.list();
+    final String text = '${items.single.title} ${items.single.subtitle}';
+    // Same bright line as the sibling sweeps above: the server copy names no
+    // counterparty at all, not even the generic noun (mirrors the API-side guard
+    // in notifications.service.test.ts).
+    expect(text.toLowerCase(), isNot(contains('employer')));
+    expect(text.toLowerCase(), isNot(contains('company')));
+    // …and no identity-shaped marker (posture of the mock-client PII sweep).
+    expect(text, isNot(contains('Pvt')));
+    expect(text, isNot(contains('Ltd')));
+    expect(text, isNot(contains('@')));
+    expect(text, isNot(contains('₹')));
+    expect(text, isNot(matches(RegExp(r'\d{4,}')))); // no phone/pay digit runs
+  });
+
   test('markAllRead clears the badge and re-list marks them read', () async {
     final NotificationsRepositoryImpl repo =
         _repo(MockClient((http.Request req) async {

@@ -8,7 +8,8 @@ The spend ledger (TD27) is a name-stable ``SpendLedger`` facade over a pluggable
 ``SpendStore`` backend:
 
 - ``InProcessSpendBackend`` — ``threading.Lock`` counters; the default when
-  ``REDIS_URL`` is unset (local dev + CI run with NO Redis). Caps are per-process.
+  ``AI_SPEND_REDIS_URL`` is unset (local dev + CI run with NO Redis). Caps are
+  per-process.
 - ``RedisSpendBackend`` — ``redis.asyncio`` + Lua; caps enforce GLOBALLY across
   Uvicorn workers. Fails CLOSED (an unverifiable cap never permits a real spend).
 
@@ -25,7 +26,7 @@ import uuid
 from abc import ABC, abstractmethod
 from datetime import UTC, date, datetime, timedelta
 
-from ..config import Settings
+from ..config import ConfigError, Settings
 from ..contracts import AICallMetadata
 from ..logging_config import get_logger
 from .model_config import provider_for_model, rate_inr_per_1k
@@ -140,7 +141,8 @@ class SpendStore(ABC):
 
 class InProcessSpendBackend(SpendStore):
     """Today's logic: daily / total / per-user dicts under a ``threading.Lock``.
-    The default when ``REDIS_URL`` is unset (single-process caps; CI Redis-free).
+    The default when ``AI_SPEND_REDIS_URL`` is unset (single-process caps; CI
+    Redis-free).
 
     reserve = check-all-then-increment-all (atomic within the process);
     refund   = decrement, floored at 0. Net effect: success leaves +actual; a
@@ -309,11 +311,31 @@ return "OK"
 """
 
 
+# AI-ENV-1 / 1d: connect + socket timeout (seconds) for the spend-ledger Redis.
+# WHY 2.0: the ledger Redis is same-network infrastructure (docker network / VPC) —
+# a healthy reserve is a single round-trip answering in low single-digit ms, so 2s is
+# ~100x the expected p99 and cannot trip on a merely loaded box. Without an explicit
+# timeout the client inherits the OS TCP connect behaviour: a MEASURED 21.0s stall
+# per reserve against a routable-but-silent host (Windows dev box) — and reserve runs
+# once PER CANDIDATE MODEL, so a 2-candidate chain stalled ~42s before falling back to
+# mock. That is a config error wearing a latency costume. 2s bounds it while staying
+# far above any legitimate same-network variance.
+#
+# This changes the LATENCY and the MESSAGE of a misconfiguration — NEVER the VERDICT.
+# A timeout raises inside reserve()'s except -> "spend_store_unavailable" -> the router
+# blocks the real call -> mock fallback. Fail-closed is preserved exactly: an
+# unverifiable cap still never permits an unaccounted real spend.
+_REDIS_TIMEOUT_SECONDS = 2.0
+
+
 class RedisSpendBackend(SpendStore):
     """``redis.asyncio`` + Lua backend — caps enforce GLOBALLY across Uvicorn
     workers. FAILS CLOSED: any Redis error on reserve returns the block reason
     ``spend_store_unavailable`` (an unverifiable cap never permits a real spend).
     refund/snapshot never raise (the router must never crash on a ledger error).
+
+    Connect/socket timeouts are bounded (``_REDIS_TIMEOUT_SECONDS``) so an
+    unreachable host fails FAST and closed instead of stalling every real call.
 
     Key layout (PII-free):
       aispend:daily:{UTC_DATE}            INR, TTL to next UTC midnight + 1h
@@ -330,7 +352,28 @@ class RedisSpendBackend(SpendStore):
 
         self._redis_url = redis_url
         # decode_responses=True so GET/SCARD return str/int, not bytes.
-        self._client = aioredis.from_url(redis_url, decode_responses=True)
+        # socket_connect_timeout bounds the TCP handshake (the 21s-stall case);
+        # socket_timeout bounds a connection that opens then goes silent (a
+        # half-open/blackholed peer), which the connect timeout alone would miss.
+        #
+        # from_url performs NO network I/O (the connection is lazy) but it DOES parse
+        # eagerly and can raise: Settings' validator catches the common scheme typo, and
+        # this catches everything else it rejects at parse time (e.g. a non-integer port
+        # -> "Port could not be cast to integer value"). Re-raised naming the variable
+        # so the operator is pointed at the config, not into the redis library. §2: the
+        # value is never included — only the error type, which is shape info, not data.
+        try:
+            self._client = aioredis.from_url(
+                redis_url,
+                decode_responses=True,
+                socket_connect_timeout=_REDIS_TIMEOUT_SECONDS,
+                socket_timeout=_REDIS_TIMEOUT_SECONDS,
+            )
+        except Exception as exc:
+            raise ConfigError(
+                "AI_SPEND_REDIS_URL is not a usable Redis URL "
+                f"({type(exc).__name__}) — value omitted, it may carry credentials"
+            ) from None  # `from None`: the original may echo the URL in its message
 
     def _daily_key(self, day: str) -> str:
         return f"{self._PREFIX}:daily:{day}"
@@ -369,10 +412,15 @@ class RedisSpendBackend(SpendStore):
         except Exception as exc:
             # Fail CLOSED: an unverifiable cap NEVER permits a real spend.
             # PII-free log (reason + amount only); the router blocks -> mock.
+            # NAMES the variable so a config error is diagnosable — never its VALUE,
+            # which may carry credentials (redis://user:pass@host). §2.
             logger.warning(
-                "spend store unavailable on reserve; blocking real call",
+                "spend ledger Redis unreachable; blocking real call (fail-closed). "
+                "Check AI_SPEND_REDIS_URL",
                 extra={"extra": {
                     "reason": "spend_store_unavailable",
+                    "config_var": "AI_SPEND_REDIS_URL",
+                    "timeout_seconds": _REDIS_TIMEOUT_SECONDS,
                     "projected_inr": projected_inr,
                     "error_type": type(exc).__name__,
                 }},
@@ -469,9 +517,14 @@ class SpendLedger:
     """Process-level rolling spend + retry-budget ledger (TD27).
 
     Name-stable facade over a pluggable ``SpendStore`` backend, selected by
-    ``settings.redis_url``: unset => ``InProcessSpendBackend`` (single-process
+    ``settings.ai_spend_redis_url``: unset => ``InProcessSpendBackend`` (single-process
     caps; the dev/test/CI default); set => ``RedisSpendBackend`` (caps enforce
     GLOBALLY across Uvicorn workers, fails closed if Redis is unreachable).
+
+    The selection is LOGGED ONCE here, at construction (AI-ENV-1 / 1c): "unset" and
+    "misconfigured" used to look identical from outside the process, so a per-process
+    cap silently standing in for a global one was invisible. The log names the
+    variable, never its value (§2).
 
     Holds ONLY PII-free numbers (INR, counts, the UTC date) and the OPAQUE
     ``worker_ref`` — never message content, tokens-of-a-specific-user, or any id
@@ -489,10 +542,31 @@ class SpendLedger:
     def __init__(self, settings: Settings) -> None:
         self._lock = threading.Lock()
         self._retry_times: list[float] = []
-        if settings.redis_url:
-            self._store: SpendStore = RedisSpendBackend(settings.redis_url)
+        if settings.ai_spend_redis_url:
+            self._store: SpendStore = RedisSpendBackend(settings.ai_spend_redis_url)
         else:
             self._store = InProcessSpendBackend()
+        self._log_backend_selection()
+
+    def _log_backend_selection(self) -> None:
+        """Emit the selected-backend line ONCE, at construction (never per call).
+        Reuses ``backend_name`` — the same value /health reports — so the log and the
+        health hook can never disagree. Names AI_SPEND_REDIS_URL; NEVER prints its
+        value (it may carry credentials). §2."""
+        if self.backend_name == "redis":
+            message = "spend ledger: RedisSpendBackend (global caps)"
+        else:
+            message = (
+                "spend ledger: InProcessSpendBackend (per-process caps — "
+                "set AI_SPEND_REDIS_URL for global)"
+            )
+        logger.info(
+            message,
+            extra={"extra": {
+                "spend_store": self.backend_name,
+                "config_var": "AI_SPEND_REDIS_URL",
+            }},
+        )
 
     @property
     def backend_name(self) -> str:
@@ -564,7 +638,7 @@ class SpendLedger:
 
 # Module-level singleton, built LAZILY from get_settings() so import stays cheap
 # and no Redis client is constructed at import time (mock-only boot never needs
-# redis installed when REDIS_URL is unset).
+# redis installed when AI_SPEND_REDIS_URL is unset).
 _ledger: SpendLedger | None = None
 
 

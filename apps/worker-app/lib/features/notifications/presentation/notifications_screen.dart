@@ -86,6 +86,12 @@ class _NotificationsView extends StatelessWidget {
           Icons.graphic_eq_rounded,
           BbNotiTone.brand
         ),
+      // Green is the DS's "go / success — an applied confirmation" tone; the
+      // send glyph matches the app's existing sent affordance (chat/voice).
+      NotificationKind.applicationSent => (
+          Icons.send_rounded,
+          BbNotiTone.green
+        ),
       NotificationKind.security => (Icons.security_rounded, BbNotiTone.saffron),
     };
     return BbListRow.notification(

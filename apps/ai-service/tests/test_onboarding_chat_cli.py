@@ -21,7 +21,13 @@ from app.config import Settings
 from app.contracts import AICallMetadata
 
 
-def _meta(task_type: str, *, real_call: bool = False, provider: str = "google") -> AICallMetadata:
+def _meta(
+    task_type: str,
+    *,
+    real_call: bool = False,
+    provider: str = "google",
+    error_code: str | None = None,
+) -> AICallMetadata:
     return AICallMetadata(
         ai_call_id="test",
         task_type=task_type,
@@ -33,6 +39,7 @@ def _meta(task_type: str, *, real_call: bool = False, provider: str = "google") 
         estimated_cost_inr=0.0,
         latency_ms=1,
         success=True,
+        error_code=error_code,
         created_at="2026-06-13T00:00:00Z",
     )
 
@@ -439,7 +446,13 @@ def test_main_uses_real_router_in_mock_mode_without_network(monkeypatch, capsys)
 
 def test_offline_fallback_note_printed_when_not_real():
     """VISIBILITY: when a chat turn is served by the offline mock (real_call False),
-    the worker is told via an inline note. The panel stays authoritative."""
+    the worker is told via an inline note. The panel stays authoritative.
+
+    MSG-1: this turn carries NO error_code — it is the ordinary mock-mode path
+    (AI_ENABLE_REAL_CALLS=false), which is not a failure at all. The note must say
+    so and must NOT claim "model unavailable" (it previously did, for every mock
+    turn regardless of cause — sending operators to debug a healthy model).
+    """
     printed: list[str] = []
 
     router = _ScriptedRouter(
@@ -454,7 +467,64 @@ def test_offline_fallback_note_printed_when_not_real():
         )
     )
     joined = "\n".join(printed)
-    assert "model unavailable" in joined
+    # Still asserts the note IS printed (the visibility guarantee this test exists
+    # for) — now demanding the HONEST wording rather than the misleading one.
+    assert "offline fallback (mock)" in joined
+    assert "real calls off" in joined
+    assert "model unavailable" not in joined
+
+
+# --- MSG-1: distinct block reasons must produce DISTINCT, accurate notes -------
+
+def test_mock_note_names_the_real_reason_per_error_code():
+    """MSG-1: every fallback cause used to collapse into "model unavailable". Each
+    now surfaces its OWN cause. The unreachable-ledger case is the one that cost real
+    debugging time: it is a CONFIG error, must name AI_SPEND_REDIS_URL, and must NOT
+    be described as a spend cap."""
+    note = onboarding_chat._provider_note(
+        _meta("profiling_chat_turn", real_call=False, error_code="spend_store_unavailable")
+    )
+    assert "AI_SPEND_REDIS_URL" in note
+    assert "spend ledger unreachable" in note
+    assert "NOT a spend cap" in note
+    assert "model unavailable" not in note
+
+    capped = onboarding_chat._provider_note(
+        _meta("profiling_chat_turn", real_call=False, error_code="daily_cap_exceeded")
+    )
+    assert "daily spend cap reached" in capped
+    # A budget stop is NOT a config error: it must not send anyone to the Redis var.
+    assert "AI_SPEND_REDIS_URL" not in capped
+    assert capped != note  # the two causes are distinguishable, not collapsed
+
+    user_capped = onboarding_chat._provider_note(
+        _meta("profiling_chat_turn", real_call=False, error_code="user_daily_cap_exceeded")
+    )
+    assert "per-user daily spend cap reached" in user_capped
+    assert user_capped != capped  # per-user cap != process daily cap
+
+    killed = onboarding_chat._provider_note(
+        _meta("profiling_chat_turn", real_call=False, error_code="kill_switch_engaged")
+    )
+    assert "kill switch" in killed
+
+    ceiling = onboarding_chat._provider_note(
+        _meta("profiling_chat_turn", real_call=False, error_code="cost_ceiling_exceeded")
+    )
+    assert "per-call cost ceiling exceeded" in ceiling
+
+    # All five causes are mutually distinguishable (the whole point of MSG-1).
+    assert len({note, capped, user_capped, killed, ceiling}) == 5
+
+
+def test_mock_note_never_leaks_a_config_value():
+    """§2: the note NAMES the variable, never prints its value (a Redis URL can
+    carry credentials). The note is built from closed-set codes only."""
+    note = onboarding_chat._provider_note(
+        _meta("profiling_chat_turn", real_call=False, error_code="spend_store_unavailable")
+    )
+    assert "redis://" not in note
+    assert "AI_SPEND_REDIS_URL" in note
 
 
 def test_provider_note_names_claude_haiku_when_anthropic_serves():

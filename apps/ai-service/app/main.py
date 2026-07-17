@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -81,7 +82,45 @@ router = AIRouter(settings)
 stt_adapter = SttAdapter(settings)
 translate_adapter = TranslateAdapter(settings)
 
-app = FastAPI(title="BadaBhai AI Service", version="0.1.0")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """AI-ENV-1 / 1c: construct the spend ledger AT BOOT so its backend choice is
+    logged at STARTUP, not on the first AI call.
+
+    The ledger is a lazy singleton, so without this hook nothing announced the
+    selected backend until real AI traffic arrived — which defeats the point of the
+    log. "Unset" (per-process caps, a deliberate default) and "misconfigured" were
+    indistinguishable from outside the process precisely when you most need to
+    know: at deploy time, before any traffic. This matters MOST under the TD67-locked
+    posture, where ``/health`` trims ``spend_store`` out of its payload and the log
+    is the ONLY signal.
+
+    Safe to do at boot: ``SpendLedger`` construction performs NO network I/O
+    (``redis.asyncio.from_url`` is lazy — it connects on first command), so a
+    well-formed but UNREACHABLE Redis still boots fine and still fails CLOSED per call.
+    It does not import anything ``main`` has not already imported, so there is no cycle.
+
+    DELIBERATELY UNGUARDED. ``from_url`` does no I/O but it does PARSE eagerly, so a
+    malformed URL raises here rather than returning. Letting that abort the boot is the
+    CORRECT outcome, and the reason there is no try/except:
+
+    - Both malformed-URL paths now fail with a message that NAMES AI_SPEND_REDIS_URL —
+      the scheme typo at ``Settings()`` (config.py's validator, so it aborts at import,
+      before this hook), anything else at ``RedisSpendBackend.__init__``. A loud, named,
+      boot-time failure is precisely what this PR exists to produce.
+    - Swallowing it would be strictly worse: the service would boot with no usable
+      ledger, and the next real call would re-enter ``get_ledger()`` and raise INSIDE
+      ``router.run`` — breaching the router's never-raise contract and turning a config
+      typo into a worker-facing 500 instead of a mock fallback.
+    - Fail-closed: a ledger that cannot be constructed cannot verify a cap, and an
+      unverifiable cap must never permit real spend.
+    """
+    cost_tracker.get_ledger()
+    yield
+
+
+app = FastAPI(title="BadaBhai AI Service", version="0.1.0", lifespan=_lifespan)
 
 # TD67: paths reachable WITHOUT the service token. Everything else (including /docs
 # and /openapi.json) is gated once AI_INTERNAL_TOKEN is set. NOTE: /health itself
@@ -158,7 +197,7 @@ async def ai_spend(user_ref: str | None = None) -> dict:
     Numbers / model ids / UTC date only — never message content. Pass an opaque
     ``user_ref`` to also see that worker's spend vs the per-user daily cap. Scope is
     per-process with the in-process backend; GLOBAL across workers with Redis
-    (REDIS_URL set). snapshot is async (may touch Redis); await it.
+    (AI_SPEND_REDIS_URL set). snapshot is async (may touch Redis); await it.
     """
     return await cost_tracker.get_ledger().snapshot(settings, user_ref=user_ref)
 

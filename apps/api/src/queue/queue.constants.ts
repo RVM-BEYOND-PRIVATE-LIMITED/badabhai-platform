@@ -59,6 +59,34 @@ export interface ResumeGenerateJobData {
 export interface ResumeRenderJobData {
   resumeId: string;
   workerId: string;
+  /**
+   * ADR-0032 / TD77 — re-render a resume whose PDF is ALREADY rendered.
+   *
+   * The processor is idempotent by default ("already rendered → skip"), which is
+   * right for retries but means a PRESENTATION-only change made AFTER the first
+   * render (a profile photo added/replaced/removed, or the show_photo pref
+   * flipped) would never reach the PDF. Producers of such a change set this to
+   * re-render in place: SAME resume id + version + object key, so no new version
+   * is minted and the existing PDF stays downloadable until the fresh one lands.
+   *
+   * LLM-FREE: the render reads the stored profile snapshot + the server-decrypted
+   * name + the photo bytes — it never calls the AI service, so a re-render costs
+   * no AI spend. Omitted/false keeps today's skip-if-rendered behaviour.
+   */
+  force?: boolean;
+  /**
+   * ADR-0032 / TD77 — this forced re-render's job is to take PII (the worker's
+   * face) OFF the PDF: photo removed, or show_photo turned off while a photo
+   * exists.
+   *
+   * It changes the TERMINAL-FAILURE rule. A forced re-render normally degrades
+   * OPEN (keep serving the existing PDF — the photo just isn't on it yet), because
+   * a cosmetic refresh must never cost a worker their downloadable resume. But in
+   * the REMOVE direction the existing PDF still embeds the face the worker asked us
+   * to erase, so serving it is a §2/DPDP leak: that case fails CLOSED instead
+   * (mark the row not-rendered → download 409s) rather than serve erased PII.
+   */
+  failClosed?: boolean;
   /** Tracing ids carried from the originating HTTP request. */
   correlationId: string;
   requestId: string;

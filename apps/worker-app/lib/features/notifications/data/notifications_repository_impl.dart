@@ -96,6 +96,8 @@ class NotificationsRepositoryImpl implements NotificationsRepository {
         return NotificationKind.profileReady;
       case 'voice_processed':
         return NotificationKind.voiceProcessed;
+      case 'application_sent':
+        return NotificationKind.applicationSent;
       case 'security':
       default:
         return NotificationKind.security;

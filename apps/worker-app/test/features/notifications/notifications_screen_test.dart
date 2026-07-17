@@ -5,6 +5,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
+import 'package:badabhai_worker_app/core/theme/app_colors.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/features/notifications/domain/app_notification.dart';
 import 'package:badabhai_worker_app/features/notifications/domain/notifications_repository.dart';
@@ -83,6 +84,40 @@ void main() {
     // And the known old mock employer/pay strings are gone.
     expect(find.textContaining('Sharma Precision'), findsNothing);
     expect(find.textContaining('Deccan Auto'), findsNothing);
+    expect(find.textContaining('₹'), findsNothing);
+  });
+
+  testWidgets(
+      'an application_sent row renders the SERVER copy verbatim with the sent '
+      'icon and the green (applied-confirmation) tone', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, <AppNotification>[
+      _n('e1', NotificationKind.applicationSent, 'Application bhej di',
+          'Aapki application aage pahunch gayi.'),
+    ]);
+
+    // Server-rendered copy, not app-composed.
+    expect(find.text('Application bhej di'), findsOneWidget);
+    expect(
+        find.text('Aapki application aage pahunch gayi.'), findsOneWidget);
+
+    // Right icon…
+    expect(find.byIcon(Icons.send_rounded), findsOneWidget);
+
+    // …and the green tone (BbNotiTone.green paints success on successTint).
+    final Icon icon = tester.widget<Icon>(find.byIcon(Icons.send_rounded));
+    expect(icon.color, AppColors.success);
+    final Container tile = tester.widget<Container>(
+      find
+          .ancestor(of: find.byIcon(Icons.send_rounded), matching: find.byType(Container))
+          .first,
+    );
+    expect((tile.decoration! as BoxDecoration).color, AppColors.successTint);
+
+    // No employer IDENTITY (ADR-0024): no company name, pay or phone shape.
+    expect(find.textContaining('Pvt'), findsNothing);
+    expect(find.textContaining('Ltd'), findsNothing);
     expect(find.textContaining('₹'), findsNothing);
   });
 
