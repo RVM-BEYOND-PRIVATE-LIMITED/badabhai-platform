@@ -228,36 +228,49 @@ also supported. **Every other container fails closed** — never guess.
 | Worst-case note spend | **₹1.25** (5 × ₹0.25) | Under `AI_MAX_USER_DAILY_COST_INR` (₹6) ⇒ **~4 full-length notes/user/day**; each chunk call is far under the ₹10 `AI_MAX_CALL_COST_INR` ceiling (which bounds the **rate**, not the **count** — see H-1 below). |
 | `_MAX_AAC_FRAMES` | **10,000** (was 20,000,000) | Memory guard, not a formality: run-length tables let a ~500 B file demand tens of millions of list slots (measured 508 B → 320 MB). An honest 120s note is 1,875 frames @16kHz. |
 
-### ⚠️ Chunking INTRODUCES a phone-leak at chunk seams (H-2) — #392 must land first
+### Chunking introduces phone-leak risk at chunk seams (H-2) — mostly closed by #392 (merged)
 
 **This addendum originally claimed a boundary-split phone "is still masked, byte-identically
 to the unsplit case, test-locked". That claim was FALSE and is withdrawn.** It generalized
-from the single shape the test happened to lock (a bare join-space). The truth:
+from the single shape the test happened to lock (a bare join-space). The old `_PHONE_RE`
+class was `[\d\s\-]`, so any other seam artifact broke the digit run, and
+`_RESIDUAL_DIGITS_RE = \d{7,}` never fired on two 5-digit halves — the number was not even
+*blocked*; it reached LLM input.
 
-- `_PHONE_RE`'s character class is `[\d\s\-]`, so it spans **only** spaces/dashes. Any other
-  seam artifact breaks the digit run.
-- `_RESIDUAL_DIGITS_RE = \d{7,}` does **not** fire either, because neither half is a 7-digit
-  run — so the number is **not even blocked**. It reaches LLM input.
-- Measured leaks: `98765. 43210` (period), `98765। 43210` (danda), comma, ellipsis — and,
-  requiring no punctuation assumption at all, **one filler word**: `98765 haan 43210`.
-- **Chunking is what introduces this.** An unsplit note has no seam; a 120s note has **4**.
-  An STT seam is an utterance boundary, so terminal punctuation or a filler rendered from
-  the clipped syllable is ordinary, not exotic.
+**Chunking is what introduces the seams.** An unsplit note has none; a 120s note has **4**.
+A seam is an utterance boundary, so terminal punctuation — or a filler word rendered from the
+clipped syllable — is ordinary there, not exotic.
 
-**The fix is NOT in this PR.** [PR #392](../../) replaces `_PHONE_RE` with digit-count
-normalization, closing this exact root cause (an independent reviewer found the same cause on
-main via `9876.543.210`). Two concurrent edits to the pseudonymize gateway would collide, so
-this branch deliberately does not touch it.
+**Status 2026-07-17: [PR #392](0029-voice-audio-at-rest-and-upload-seam.md) is MERGED** and
+the ordering dependency this addendum previously carried is **satisfied**. `_PHONE_RE` is now
+digit-count based (9–13 digits joined by **any run** of separators, `[sep]*`). Re-measured on
+merged main, per seam artifact (`test_stt_real.py`):
 
-> **ORDERING DEPENDENCY — binding:** **#392 MUST merge before #395, and Sarvam MUST NOT be
-> armed until it has.** The seam cases are pinned as `xfail(strict=True)` in
-> `test_stt_real.py` (`_SEAM_LEAK_CASES`): they document the live gap without reddening CI,
-> and the moment #392 lands they XPASS → strict turns that into a **failure**, forcing
-> whoever rebases to delete the marker. That red is the intended signal.
+| Seam artifact | Result | Status |
+|---|---|---|
+| bare space, period, comma, ellipsis | **MASKED** | closed by #392 — asserted as normal tests |
+| **danda `।` (U+0964)** | **LEAKS** | **gateway gap — escalated** (`xfail(strict=True)`) |
+| **filler word** (`98765 haan 43210`) | **LEAKS** | **R30 residual — deliberate** (`xfail(strict=True)`) |
 
-Until #392 lands, the honest statement of the boundary is: **a phone split across a chunk
-seam by anything other than a space or dash leaks to LLM input.** The mock path is
-unaffected (no provider, no chunking), so nothing leaks today at the default gate.
+**Two residual leaks, neither patched from this PR** (`pseudonymize.py` is a freshly merged,
+separately reviewed + mutation-tested gateway; an STT PR is the wrong place to edit it):
+
+1. **Devanagari danda (new finding).** #392's S-4 unicode pass folded in the dash family,
+   soft hyphen, middot/bullet and the zero-width family — but **not `।` U+0964 / `॥` U+0965**,
+   the Hindi full stop, in a Hindi-first product. It is a *separator* artifact, i.e. exactly
+   the class #392 reports as **13/13 closed**; the shape matrix simply contained no Devanagari
+   case. A Hindi STT seam is precisely where a danda appears. **Fix is one character in
+   `_PHONE_SEPARATORS`** — owner: the pseudonymize/#392 owner.
+2. **Word-split (R30, open by design).** `98765 haan 43210` is undetected. #392 deliberately
+   did **not** close this: a proximity net cannot distinguish it from `salary 15000 se 18000`,
+   a real salary range, and masking that would destroy the signal D-1's carve-out exists to
+   preserve. Pinned by `test_the_r30_word_split_carve_out_keeps_a_real_salary_pair_extractable`
+   so nobody "closes" R30 at the cost of real data.
+
+Both are `xfail(strict=True)`: they document the live gaps without reddening CI, and the
+moment either is fixed they XPASS → strict turns that into a **failure**, forcing the marker's
+removal. The mock path is unaffected (no provider, no chunking), so nothing leaks at the
+default gate — but **Sarvam must not be armed while R30 (and the danda gap) are open.**
 
 ### Invariants (verified, not assumed)
 
@@ -322,11 +335,13 @@ migration. The queue path already made this async from the API's perspective (Bu
 `VoiceTranscriptionProcessor`, off the request path, lock auto-extended) — **confirmed**;
 the fix was entirely inside the ai-service handler.
 
-### Residuals — all three gate the real-Sarvam flip
+### Residuals — all gate the real-Sarvam flip
 
-1. **#392 must merge first (H-2).** A phone split across a chunk seam by anything other than
-   a space/dash leaks to LLM input. Chunking introduces the seams; #392 fixes the gateway.
-   **Do not arm Sarvam before #392 is on main.**
+1. ~~#392 must merge first~~ **DONE — #392 is merged**, closing the space/period/comma/ellipsis
+   seam class. **Two seam leaks remain (H-2 table above): the Devanagari danda (a gap in #392's
+   separator class — one-character fix, escalated to the gateway owner) and R30's word-split
+   (open by design).** **Do not arm Sarvam while R30 is open** — chunking makes it likelier
+   (4 seams/note; a clipped syllable renders as a filler word).
 2. **TD59 is now materially worse.** The worker-app polls ~14s for a transcript; a real 120s
    note can take ~4 minutes. Fix TD59 (server-side merge, or an adaptive poll budget) before
    the flip, or a completed transcript strands and the worker re-records an already-billed clip.
