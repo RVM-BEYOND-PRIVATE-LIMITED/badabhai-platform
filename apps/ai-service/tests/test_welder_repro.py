@@ -41,8 +41,10 @@ def _run(coro):
 @pytest.fixture(autouse=True)
 def _reset_ledger():
     """Fresh, deterministic in-process ledger per test (retry budget + spend),
-    ignoring any ambient REDIS_URL/.env — mirrors tests/test_spend_cap.py."""
-    cost_tracker._ledger = cost_tracker.SpendLedger(Settings(_env_file=None, redis_url=None))
+    ignoring any ambient AI_SPEND_REDIS_URL/.env — mirrors tests/test_spend_cap.py."""
+    cost_tracker._ledger = cost_tracker.SpendLedger(
+        Settings(_env_file=None, ai_spend_redis_url=None)
+    )
     yield
     cost_tracker._ledger = None
 

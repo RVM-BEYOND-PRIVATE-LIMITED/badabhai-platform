@@ -29,6 +29,21 @@ logger = get_logger("ai.router")
 # A chat message in OpenAI-style format (mapped to Gemini by the client).
 Message = dict[str, str]
 
+# MSG-1: an accurate headline per spend-ledger block reason. The ledger already
+# returns a CLOSED SET of distinct reasons; collapsing them into one "spend cap
+# reached" line made a CONFIG error (unreachable Redis) indistinguishable from a
+# real budget stop. Keys mirror the reasons produced by cost_tracker's backends
+# (the Lua script + the fail-closed except path). PII-free, no value interpolation.
+_SPEND_BLOCK_LOG_MESSAGES = {
+    "spend_store_unavailable": (
+        "spend ledger unreachable; blocking real call (fail-closed, NOT a cap) — "
+        "check AI_SPEND_REDIS_URL"
+    ),
+    "daily_cap_exceeded": "daily spend cap reached; blocking real call",
+    "cumulative_cap_exceeded": "cumulative spend cap reached; blocking real call",
+    "user_daily_cap_exceeded": "per-user daily spend cap reached; blocking real call",
+}
+
 
 class AIRouter:
     def __init__(self, settings: Settings, tracer: LangfuseTracer | None = None) -> None:
@@ -108,8 +123,17 @@ class AIRouter:
                 worst_case_inr, self._settings, user_ref=user_ref
             )
             if reason is not None:
+                # MSG-1: surface the REAL reason. This used to log "spend cap
+                # reached" for EVERY block reason, including
+                # ``spend_store_unavailable`` — so an unreachable/misconfigured
+                # ledger Redis (a CONFIG error) presented as a cap/model problem
+                # and cost real debugging time. The reason is a closed set; map it
+                # to an accurate headline. Distinguishing them changes only the
+                # MESSAGE — every reason still blocks the real call (fail-closed).
                 logger.warning(
-                    "spend cap reached; blocking real call",
+                    _SPEND_BLOCK_LOG_MESSAGES.get(
+                        reason, "real call blocked by the spend ledger"
+                    ),
                     extra={"extra": {
                         "task": task_type, "model": model, "reason": reason,
                         "worst_case_inr": worst_case_inr,

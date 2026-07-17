@@ -19,12 +19,14 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def _fresh_inprocess_ledger():
     """TD68: the real-path tests now reach ``cost_tracker.get_ledger()``. Force a
-    fresh, deterministic IN-PROCESS ledger (ignore any ambient REDIS_URL / .env —
+    fresh, deterministic IN-PROCESS ledger (ignore any ambient AI_SPEND_REDIS_URL / .env —
     a dev box's unreachable Redis would fail-closed and flip these tests) and never
     leak state across tests. Same idiom as test_spend_cap.py."""
     from app.config import Settings
 
-    cost_tracker._ledger = cost_tracker.SpendLedger(Settings(_env_file=None, redis_url=None))
+    cost_tracker._ledger = cost_tracker.SpendLedger(
+        Settings(_env_file=None, ai_spend_redis_url=None)
+    )
     yield
     cost_tracker._ledger = None
 

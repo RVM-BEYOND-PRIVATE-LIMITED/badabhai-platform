@@ -20,9 +20,11 @@ def _run(coro):
 @pytest.fixture(autouse=True)
 def _reset_ledger():
     """The real path now reserves STT chunk spend on the TD27 ledger, so pin a
-    fresh IN-PROCESS ledger (ignoring any ambient REDIS_URL/.env — a dev box
+    fresh IN-PROCESS ledger (ignoring any ambient AI_SPEND_REDIS_URL/.env — a dev box
     pointing at an unreachable Redis would otherwise fail closed and block)."""
-    cost_tracker._ledger = cost_tracker.SpendLedger(Settings(_env_file=None, redis_url=None))
+    cost_tracker._ledger = cost_tracker.SpendLedger(
+        Settings(_env_file=None, ai_spend_redis_url=None)
+    )
     yield
     cost_tracker._ledger = None
 

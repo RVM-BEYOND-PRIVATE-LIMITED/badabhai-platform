@@ -32,10 +32,12 @@ def _run(coro):
 def _reset_ledger():
     """Force a fresh, deterministic IN-PROCESS ledger before each test. These
     tests prove the in-process backend (the Redis backend has its own suite), so
-    rebuild the singleton ignoring any ambient REDIS_URL / .env — otherwise a dev
-    box whose root .env sets REDIS_URL would build a RedisSpendBackend that fails
-    closed against an unreachable Redis. Also guarantees no cross-test state leak."""
-    cost_tracker._ledger = cost_tracker.SpendLedger(Settings(_env_file=None, redis_url=None))
+    rebuild the singleton ignoring any ambient AI_SPEND_REDIS_URL / .env — otherwise
+    a dev box that sets it would build a RedisSpendBackend that fails closed against
+    an unreachable Redis. Also guarantees no cross-test state leak."""
+    cost_tracker._ledger = cost_tracker.SpendLedger(
+        Settings(_env_file=None, ai_spend_redis_url=None)
+    )
     yield
     cost_tracker._ledger = None
 
