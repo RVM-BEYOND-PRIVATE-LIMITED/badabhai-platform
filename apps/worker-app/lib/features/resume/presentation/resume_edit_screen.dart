@@ -56,7 +56,11 @@ class _ResumeEditViewState extends State<_ResumeEditView> {
           ScaffoldMessenger.of(context)
             ..clearSnackBars()
             ..showSnackBar(const SnackBar(content: Text('Saved')));
-          context.pop();
+          // Hand the preview the one fact it needs: did the NAME change? The
+          // name is baked in at generation time, so the preview must regenerate
+          // to show the new spelling (and to name the downloaded PDF with it,
+          // #398). Popping bare `null` is why an edited name never appeared.
+          context.pop(state.nameChanged);
         } else if (state.saveErrorNonce != _shownError) {
           // A save failed — surface the honest reason and stay on the screen so
           // the worker can fix it and retry (mirrors the load-failed path).

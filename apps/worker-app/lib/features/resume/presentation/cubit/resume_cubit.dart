@@ -23,10 +23,18 @@ class ResumeCubit extends Cubit<ResumeState> {
 
   final ResumeRepository _repo;
 
-  Future<void> generate() async {
+  /// Loads the resume — reusing the existing one unless [force].
+  ///
+  /// [force] is for a deliberate rebuild after the worker edits their NAME (it
+  /// is baked in at generation time, so a PATCHed name is invisible until the
+  /// resume is regenerated). It re-POSTs generate, which server-side also resets
+  /// the PDF to pending and re-enqueues the render, so the downloaded file
+  /// carries the new name too (#398). Never force on a routine open: it spends
+  /// one of the worker's 5 daily generates and throws away the rendered PDF.
+  Future<void> generate({bool force = false}) async {
     emit(const ResumeState(status: ResumeStatus.loading));
     try {
-      final String text = await _repo.generateResume();
+      final String text = await _repo.generateResume(force: force);
       if (isClosed) return; // screen popped before generation resolved
       emit(ResumeState(status: ResumeStatus.ready, resumeText: text));
     } on ProfileIncompleteFailure {

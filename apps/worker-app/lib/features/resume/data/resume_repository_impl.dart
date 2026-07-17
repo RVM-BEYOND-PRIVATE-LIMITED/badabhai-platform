@@ -11,7 +11,7 @@ class ResumeRepositoryImpl implements ResumeRepository {
   final SessionRepository _session;
 
   @override
-  Future<String> generateResume() async {
+  Future<String> generateResume({bool force = false}) async {
     final String? workerId = _session.workerId;
     final String? token = _session.sessionToken;
     if (workerId == null || token == null) {
@@ -20,11 +20,18 @@ class ResumeRepositoryImpl implements ResumeRepository {
 
     String? profileId = _session.profileId;
 
-    // A worker who logged in (OTP/PIN) without re-running profiling this session
-    // has no in-memory profileId. Restore it from the server, and reuse an
-    // already-generated resume if one exists (auto-generated on profile.confirmed)
-    // instead of regenerating. No profile at all → guide them to finish profiling.
-    if (profileId == null) {
+    // Resolve the profile and REUSE an existing resume — on EVERY open, not only
+    // when profileId happens to be null.
+    //
+    // The reuse short-circuit used to live inside `if (profileId == null)`, and
+    // that block set profileId itself. So it fired at most once per session:
+    // every later Resume-tab open fell straight through to POST /resume/generate.
+    // Server-side that is createInitial(overwrite: true) — it resets
+    // render_status to 'pending' and pdf_storage_key to null. The app was
+    // destroying its own rendered PDF on each open (a self-inflicted 409 on the
+    // very next download) and spending the worker's 5/day generate cap to do it
+    // (then 429). Reuse is now the default and generate the exception.
+    if (!force) {
       try {
         final WorkerProfileBundle bundle =
             await _api.getWorkerProfile(workerId: workerId, authToken: token);
@@ -37,6 +44,23 @@ class ResumeRepositoryImpl implements ResumeRepository {
           _session.setResume(bundle.resumeId!);
           return bundle.resumeText!;
         }
+      } on Failure {
+        rethrow;
+      } catch (error) {
+        throw mapError(error);
+      }
+    } else if (profileId == null) {
+      // Deliberate rebuild, but this session never ran profiling — resolve the
+      // profile id WITHOUT taking the reuse branch, or the stale cached text
+      // would be returned and the regenerate silently skipped (F3).
+      try {
+        final WorkerProfileBundle bundle =
+            await _api.getWorkerProfile(workerId: workerId, authToken: token);
+        if (!bundle.hasProfile) {
+          throw const ProfileIncompleteFailure();
+        }
+        _session.setProfile(bundle.profileId!);
+        profileId = bundle.profileId;
       } on Failure {
         rethrow;
       } catch (error) {

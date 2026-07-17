@@ -135,6 +135,25 @@ class AuthSessionManager extends ChangeNotifier {
   String? _resumeLocation;
   String? get resumeLocation => _resumeLocation;
 
+  /// The ADR-0026 session block from the last OTP/PIN verify or refresh (F5).
+  ///
+  /// Parsed and retained rather than dropped on the floor. [requiresOtpAfter] is
+  /// the useful part: the server states when a refresh/PIN will STOP being
+  /// enough, so the app can pre-empt a forced re-OTP instead of finding out by
+  /// being rejected mid-action. Null on an older server that omits the block —
+  /// callers must treat null as "unknown", never as "never".
+  AuthSession? _authSession;
+  AuthSession? get authSession => _authSession;
+
+  /// When a full OTP re-login becomes mandatory, or null if unknown/not
+  /// scheduled. Convenience over [authSession].
+  DateTime? get requiresOtpAfter => _authSession?.requiresOtpAfter;
+
+  /// Absolute expiry of the persisted refresh token, or null when the server did
+  /// not say. Past it, the remembered device cannot silently re-auth.
+  DateTime? _refreshExpiresAt;
+  DateTime? get refreshExpiresAt => _refreshExpiresAt;
+
   void stashResumeLocation(String location) => _resumeLocation = location;
 
   void clearResumeLocation() => _resumeLocation = null;
@@ -187,6 +206,9 @@ class AuthSessionManager extends ChangeNotifier {
   /// exactly as on main. Throws [AuthFailure] on a bad / expired code.
   Future<OtpVerifyResult> verifyOtp(String phoneE164, String otp) async {
     final OtpVerifyResult result = await _authApi.otpVerify(phoneE164, otp);
+    // F5: retain the session view + refresh expiry the response carries — in
+    // every build, not just the persistent-auth one.
+    _captureSessionView(result.tokens);
     // GAP A: persist the freshly minted tokens on the REAL path so a later cold
     // start can find the refresh token and reach the device-bound PIN fast path.
     // (MockAuthApi also writes the store; this re-persists the same values.)
@@ -249,6 +271,7 @@ class AuthSessionManager extends ChangeNotifier {
     }
     final PinVerifyResult result =
         await _authApi.pinVerify(pin, refreshToken: refresh);
+    _captureSessionView(result.tokens); // F5
     // GAP A: persist the rotated tokens so the next cold start stays on the fast
     // path with the freshest refresh token.
     await _persistTokens(result.tokens);
@@ -269,6 +292,7 @@ class AuthSessionManager extends ChangeNotifier {
       throw const AuthFailure(AuthErrorCode.reauthRequired);
     }
     final AuthTokens tokens = await _authApi.tokenRefresh(refresh);
+    _captureSessionView(tokens); // F5
     // GAP A: persist the rotated tokens from the on-demand refresh too.
     await _persistTokens(tokens);
     final String? workerId = await _tokenStore.readWorkerId();
@@ -351,6 +375,24 @@ class AuthSessionManager extends ChangeNotifier {
   /// the proactive-refresh skew works off the real expiry. The access token is
   /// kept in memory only (the store never writes it to disk). No-op when the
   /// persistent-auth layer is OFF (the real/default build keeps no PIN gate).
+  /// Retains the ADR-0026 session view + refresh expiry from a freshly minted
+  /// token set (F5). Separate from [_persistTokens] because that no-ops when the
+  /// persistent-auth layer is OFF, whereas `requires_otp_after` is worth knowing
+  /// in EVERY build. Absent fields leave the previous value alone rather than
+  /// nulling it: a response that simply omits the block is "no news", not
+  /// "cancelled".
+  void _clearSessionView() {
+    _authSession = null;
+    _refreshExpiresAt = null;
+  }
+
+  void _captureSessionView(AuthTokens tokens) {
+    if (tokens.session != null) _authSession = tokens.session;
+    if (tokens.refreshExpiresAt != null) {
+      _refreshExpiresAt = tokens.refreshExpiresAt;
+    }
+  }
+
   Future<void> _persistTokens(AuthTokens tokens) async {
     if (!_persistentAuthEnabled) return;
     await _tokenStore.saveTokens(
@@ -386,6 +428,7 @@ class AuthSessionManager extends ChangeNotifier {
     _consentAccepted = null; // TD62: unknown again until the next login
     _pinSet = false; // #352: the store's pin_set went with the clear()
     _resumeLocation = null; // #349: a new login must not land on the old screen
+    _clearSessionView(); // F5
     _setStatus(AuthStatus.loggedOut);
   }
 
@@ -395,6 +438,7 @@ class AuthSessionManager extends ChangeNotifier {
     _consentAccepted = null; // TD62: unknown again until the next login
     _pinSet = false; // #352: keep the in-memory flag in step with the store
     _resumeLocation = null; // #349: a new login must not land on the old screen
+    _clearSessionView(); // F5: a new worker must not inherit the old session view
     _setStatus(AuthStatus.loggedOut);
   }
 

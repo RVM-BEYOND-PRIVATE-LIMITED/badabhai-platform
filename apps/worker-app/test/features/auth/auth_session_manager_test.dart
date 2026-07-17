@@ -478,6 +478,50 @@ void main() {
     });
   });
 
+  // F5 — the manager now RETAINS the session view the responses carry, so the
+  // app can pre-empt a forced re-OTP instead of discovering it by rejection.
+  group('session view is surfaced (F5)', () {
+    test('verifyOtp surfaces requiresOtpAfter + refreshExpiresAt', () async {
+      final _SessionApi sessionApi = _SessionApi(store);
+      final AuthSessionManager m = AuthSessionManager(
+        authApi: sessionApi,
+        tokenStore: store,
+        session: session,
+        reauthSignal: reauth,
+        persistentAuthEnabled: true,
+      );
+      addTearDown(m.dispose);
+
+      expect(m.requiresOtpAfter, isNull, reason: 'unknown before any login');
+      await m.verifyOtp('+910000000000', '123456');
+
+      expect(m.authSession?.tier, 'full');
+      expect(m.requiresOtpAfter, _kRequiresOtpAfter);
+      expect(m.refreshExpiresAt, isNotNull);
+    });
+
+    test('logout clears it — a new worker must not inherit it', () async {
+      final _SessionApi sessionApi = _SessionApi(store);
+      final AuthSessionManager m = AuthSessionManager(
+        authApi: sessionApi,
+        tokenStore: store,
+        session: session,
+        reauthSignal: reauth,
+        persistentAuthEnabled: true,
+      );
+      addTearDown(m.dispose);
+
+      await m.verifyOtp('+910000000000', '123456');
+      expect(m.requiresOtpAfter, isNotNull);
+
+      await m.logout();
+
+      expect(m.requiresOtpAfter, isNull);
+      expect(m.authSession, isNull);
+      expect(m.refreshExpiresAt, isNull);
+    });
+  });
+
   test('revokeDevice delegates to the api', () async {
     await manager.revokeDevice('other');
     expect(api.revokeCalls, 1);
@@ -705,5 +749,35 @@ class _NoStoreWriteApi extends ScriptAuthApi {
   Future<void> pinSet(String pin) async {
     // The real endpoint just 204s — no client-side store write.
     pinIsSet = true;
+  }
+}
+
+
+/// The instant the scripted server says a full OTP re-login becomes mandatory.
+final DateTime _kRequiresOtpAfter = DateTime.parse('2026-07-31T10:00:00.000Z');
+
+/// An api whose otpVerify carries the ADR-0026 session block (F5).
+class _SessionApi extends ScriptAuthApi {
+  _SessionApi(super.store);
+
+  @override
+  Future<OtpVerifyResult> otpVerify(String phone, String otp) async {
+    return OtpVerifyResult(
+      workerId: 'worker-9',
+      isNewUser: false,
+      pinSet: true,
+      tokens: AuthTokens(
+        access: 'access-otp',
+        refresh: 'refresh-1',
+        accessExpiresAt: DateTime.now().add(const Duration(minutes: 15)),
+        refreshExpiresAt: DateTime.now().add(const Duration(days: 30)),
+        session: AuthSession(
+          tier: 'full',
+          expiresAt: DateTime.parse('2026-08-01T10:00:00.000Z'),
+          requiresOtpAfter: _kRequiresOtpAfter,
+        ),
+      ),
+      consentAccepted: null,
+    );
   }
 }

@@ -37,7 +37,7 @@ Future<MockResumeEditRepository> _pump(
   registerFallbackValue(_fields);
   when(() => repo.load()).thenAnswer((_) async => _fields);
   if (saveThrows == null) {
-    when(() => repo.save(any())).thenAnswer((_) async {});
+    when(() => repo.save(any())).thenAnswer((_) async => false);
   } else {
     when(() => repo.save(any())).thenThrow(saveThrows);
   }

@@ -22,6 +22,7 @@ class ResumeEditState extends Equatable {
     this.saveFailure,
     this.photoUrl,
     this.photoBusy = false,
+    this.nameChanged = false,
   });
 
   final ResumeEditStatus status;
@@ -30,6 +31,14 @@ class ResumeEditState extends Equatable {
 
   /// Bumped on a successful save — the screen shows a snackbar + pops once.
   final int savedNonce;
+
+  /// Whether the last successful save actually CHANGED the worker's name.
+  ///
+  /// The screen pops this back to the preview, which regenerates the resume so
+  /// the new spelling is baked in (and picked up by the #398 download file
+  /// name). False for a prefs-only save, so an unchanged name never spends one
+  /// of the worker's 5 daily generates.
+  final bool nameChanged;
 
   /// Bumped on a FAILED save (or a failed photo action — same honest snackbar) —
   /// the screen surfaces the reason and stays put so the worker can retry.
@@ -62,6 +71,7 @@ class ResumeEditState extends Equatable {
     String? photoUrl,
     bool clearPhotoUrl = false,
     bool? photoBusy,
+    bool? nameChanged,
   }) {
     return ResumeEditState(
       status: status ?? this.status,
@@ -73,6 +83,7 @@ class ResumeEditState extends Equatable {
       saveFailure: saveFailure ?? this.saveFailure,
       photoUrl: clearPhotoUrl ? null : (photoUrl ?? this.photoUrl),
       photoBusy: photoBusy ?? this.photoBusy,
+      nameChanged: nameChanged ?? this.nameChanged,
     );
   }
 
@@ -87,6 +98,7 @@ class ResumeEditState extends Equatable {
         saveFailure,
         photoUrl,
         photoBusy,
+        nameChanged,
       ];
 }
 
@@ -221,9 +233,16 @@ class ResumeEditCubit extends Cubit<ResumeEditState> {
     _saving = true;
     emit(state.copyWith(saving: true));
     try {
-      await _repo.save(fields);
+      // TRUE only when the NAME actually changed — the preview regenerates on
+      // that, so the new spelling is baked into the resume text and the #398
+      // download file name. A prefs-only save must not spend a daily generate.
+      final bool nameChanged = await _repo.save(fields);
       if (isClosed) return;
-      emit(state.copyWith(saving: false, savedNonce: state.savedNonce + 1));
+      emit(state.copyWith(
+        saving: false,
+        savedNonce: state.savedNonce + 1,
+        nameChanged: nameChanged,
+      ));
     } catch (error) {
       if (isClosed) return;
       // Surface the failure so the screen can show an honest error (and let the

@@ -67,7 +67,9 @@ void main() {
   blocTest<ResumeEditCubit, ResumeEditState>(
     'save -> saving then saving:false with savedNonce bumped',
     build: () {
-      when(() => repo.save(any())).thenAnswer((_) async {});
+      // false = prefs-only save (no name change) → the preview must NOT
+      // regenerate. The name-change case is covered in its own test below.
+      when(() => repo.save(any())).thenAnswer((_) async => false);
       return build();
     },
     seed: () =>
@@ -239,4 +241,45 @@ void main() {
     ],
     verify: (_) => verify(() => photos.removePhoto()).called(1),
   );
+
+  // F1 — the name is baked into the resume at GENERATION time, so a PATCHed name
+  // stayed invisible in the preview (and in the #398 download file name) until
+  // the resume was rebuilt. The repository already knows whether the name
+  // changed; the cubit carries that fact out so the preview can regenerate —
+  // and ONLY then, since a needless generate spends one of the worker's 5/day.
+  group('nameChanged is carried out of save (F1)', () {
+    blocTest<ResumeEditCubit, ResumeEditState>(
+      'a NAME change reports nameChanged: true',
+      build: () {
+        when(() => repo.save(any())).thenAnswer((_) async => true);
+        return build();
+      },
+      seed: () => const ResumeEditState(
+          status: ResumeEditStatus.ready, fields: _fields),
+      act: (ResumeEditCubit c) => c.save(),
+      skip: 1, // the saving:true frame
+      expect: () => <Matcher>[
+        isA<ResumeEditState>()
+            .having((ResumeEditState s) => s.nameChanged, 'nameChanged', isTrue)
+            .having((ResumeEditState s) => s.savedNonce, 'savedNonce', 1),
+      ],
+    );
+
+    blocTest<ResumeEditCubit, ResumeEditState>(
+      'a prefs-only save reports nameChanged: false (no wasted regenerate)',
+      build: () {
+        when(() => repo.save(any())).thenAnswer((_) async => false);
+        return build();
+      },
+      seed: () => const ResumeEditState(
+          status: ResumeEditStatus.ready, fields: _fields),
+      act: (ResumeEditCubit c) => c.save(),
+      skip: 1,
+      expect: () => <Matcher>[
+        isA<ResumeEditState>()
+            .having((ResumeEditState s) => s.nameChanged, 'nameChanged', isFalse)
+            .having((ResumeEditState s) => s.savedNonce, 'savedNonce', 1),
+      ],
+    );
+  });
 }

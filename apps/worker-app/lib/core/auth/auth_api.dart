@@ -15,6 +15,55 @@ import 'auth_failure.dart';
 import 'authed_client.dart';
 import 'device_id.dart';
 
+/// ADR-0026 rolling-session view, ridden by the OTP/PIN verify + refresh
+/// responses as `session: { tier, expires_at, requires_otp_after }`.
+///
+/// The whole block used to be parsed away — the client kept only the access
+/// token. [requiresOtpAfter] in particular is the server TELLING the app the
+/// instant a refresh/PIN will stop being enough and a full OTP re-login becomes
+/// mandatory; dropping it meant the app could only discover that by being
+/// rejected mid-action.
+class AuthSession extends Equatable {
+  const AuthSession({
+    required this.tier,
+    this.expiresAt,
+    this.requiresOtpAfter,
+  });
+
+  /// Session tier as the server names it (an opaque label to the client — the
+  /// app must not invent tier semantics the backend does not state).
+  final String tier;
+
+  /// Absolute expiry of the rolling session. Null when the server omitted it.
+  final DateTime? expiresAt;
+
+  /// After this instant a fresh OTP is REQUIRED (a refresh/PIN will not do).
+  /// Null = no forced re-OTP is scheduled, or an older server that omits it.
+  final DateTime? requiresOtpAfter;
+
+  /// Tolerant by design: a missing/!map/unparsable block yields null rather than
+  /// throwing, so an older API can never brick login (same posture as TD62's
+  /// tri-state `consent_accepted`).
+  static AuthSession? fromJsonOrNull(dynamic raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    return AuthSession(
+      tier: raw['tier'] as String? ?? '',
+      expiresAt: _parseIso(raw['expires_at']),
+      requiresOtpAfter: _parseIso(raw['requires_otp_after']),
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[tier, expiresAt, requiresOtpAfter];
+}
+
+/// Parses an ISO-8601 instant, or null when absent/blank/malformed. Never throws
+/// — a bad timestamp must not take down a successful login.
+DateTime? _parseIso(dynamic raw) {
+  if (raw is! String || raw.isEmpty) return null;
+  return DateTime.tryParse(raw);
+}
+
 /// A token set the client holds after OTP/PIN verify or a refresh.
 ///
 /// [access] is the in-memory bearer; [refresh] is rotated on every refresh and
@@ -25,25 +74,50 @@ class AuthTokens extends Equatable {
     required this.access,
     required this.refresh,
     required this.accessExpiresAt,
+    this.refreshExpiresAt,
+    this.session,
   });
 
   final String access;
   final String refresh;
   final DateTime accessExpiresAt;
 
-  /// Parses `{ access_token, refresh_token, expires_in_seconds }` (the shared
-  /// shape of /auth/otp/verify, /auth/token/refresh, /auth/pin/verify).
+  /// Absolute expiry of the REFRESH token (`refresh_expires_in_seconds`). Past
+  /// this, the remembered device cannot silently re-auth and the worker must do
+  /// a full OTP login. Null when the server omitted the field.
+  final DateTime? refreshExpiresAt;
+
+  /// The ADR-0026 rolling-session block, when the server sent one.
+  final AuthSession? session;
+
+  /// Parses the shared shape of /auth/otp/verify, /auth/token/refresh and
+  /// /auth/pin/verify: `{ access_token, refresh_token, expires_in_seconds,
+  /// refresh_expires_in_seconds, session: { tier, expires_at,
+  /// requires_otp_after } }`.
+  ///
+  /// The last two were previously dropped on the floor at all three call sites.
+  /// Every added field is OPTIONAL — an older server that omits them still logs
+  /// the worker in exactly as before.
   factory AuthTokens.fromJson(Map<String, dynamic> json) {
     final int expiresIn = (json['expires_in_seconds'] as num?)?.toInt() ?? 0;
+    final int? refreshExpiresIn =
+        (json['refresh_expires_in_seconds'] as num?)?.toInt();
     return AuthTokens(
       access: json['access_token'] as String? ?? '',
       refresh: json['refresh_token'] as String? ?? '',
       accessExpiresAt: DateTime.now().add(Duration(seconds: expiresIn)),
+      // Client-computed absolute instant, mirroring accessExpiresAt: the server
+      // sends a DURATION, and a duration is useless after the app restarts.
+      refreshExpiresAt: refreshExpiresIn == null
+          ? null
+          : DateTime.now().add(Duration(seconds: refreshExpiresIn)),
+      session: AuthSession.fromJsonOrNull(json['session']),
     );
   }
 
   @override
-  List<Object?> get props => <Object?>[access, refresh, accessExpiresAt];
+  List<Object?> get props =>
+      <Object?>[access, refresh, accessExpiresAt, refreshExpiresAt, session];
 }
 
 /// Result of POST /auth/otp/verify.
