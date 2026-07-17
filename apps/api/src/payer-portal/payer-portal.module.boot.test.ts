@@ -6,11 +6,13 @@ import { PayerUnlocksController } from "./payer-unlocks.controller";
 import { PayerReachController } from "./payer-reach.controller";
 import { PayerDisclosureController } from "./payer-disclosure.controller";
 import { PayerJobPostingsController } from "./payer-job-postings.controller";
+import { PayerPricingController } from "./payer-pricing.controller";
 import { PayersModule } from "../payers/payers.module";
 import { UnlocksModule } from "../unlocks/unlocks.module";
 import { ReachModule } from "../reach/reach.module";
 import { ResumeDisclosureModule } from "../disclosures/resume-disclosure.module";
 import { JobPostingsModule } from "../job-postings/job-postings.module";
+import { PricingModule } from "../pricing/pricing.module";
 import { PayerAuthGuard } from "../payers/payer-auth.guard";
 import {
   PAYER_LOGIN_CHANNEL,
@@ -68,6 +70,7 @@ describe("PayerPortalModule wiring (cross-module DI regression guard)", () => {
     expect(imports).toContain(ReachModule); // R22 reach-view reuse
     expect(imports).toContain(ResumeDisclosureModule); // payer masked-resume view reuse
     expect(imports).toContain(JobPostingsModule); // payer self-serve posting reuse
+    expect(imports).toContain(PricingModule); // D-6 live-catalog read reuses PricingService
   });
 
   it("declares the auth + unlocks + reach + disclosure + job-postings payer controllers", () => {
@@ -77,6 +80,7 @@ describe("PayerPortalModule wiring (cross-module DI regression guard)", () => {
     expect(controllers).toContain(PayerReachController);
     expect(controllers).toContain(PayerDisclosureController);
     expect(controllers).toContain(PayerJobPostingsController);
+    expect(controllers).toContain(PayerPricingController); // D-6 live catalog read
   });
 
   it("provides the auth service, OTP store, XB-G cap, and the (real-only) login channels", () => {
@@ -104,6 +108,7 @@ describe("PayerPortalModule wiring (cross-module DI regression guard)", () => {
     expect(getMeta("__guards__", PayerReachController)).toContain(PayerAuthGuard);
     expect(getMeta("__guards__", PayerDisclosureController)).toContain(PayerAuthGuard);
     expect(getMeta("__guards__", PayerJobPostingsController)).toContain(PayerAuthGuard);
+    expect(getMeta("__guards__", PayerPricingController)).toContain(PayerAuthGuard);
     // PayerAuthController: NO class-level guard (signup/login are public; refresh/logout
     // are guarded per-method, so the class metadata must be empty).
     expect(getMeta("__guards__", PayerAuthController)).toHaveLength(0);

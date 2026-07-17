@@ -19,10 +19,15 @@ const requirePayer = vi.fn();
 const buyCapacity = vi.fn();
 const hiringCapacityTiers = vi.fn();
 const revalidatePath = vi.fn();
+// The LIVE catalog seam (D-6): the value guard now checks the tier against the LIVE tiers.
+// The seam itself fails OPEN to the defaults (live-catalog.test.ts) — here it just feeds
+// the (mocked) pricing-config reader, so the guard's behaviour stays the thing under test.
+const getLiveCatalog = vi.fn();
 
 vi.mock("../../../lib/auth", () => ({ requirePayer: () => requirePayer() }));
 vi.mock("../../../lib/payer-api", () => ({ buyCapacity: (i: { tier: string }) => buyCapacity(i) }));
 vi.mock("../../../lib/pricing-config", () => ({ hiringCapacityTiers: () => hiringCapacityTiers() }));
+vi.mock("../../../lib/live-catalog", () => ({ getLiveCatalog: () => getLiveCatalog() }));
 vi.mock("next/cache", () => ({ revalidatePath: (p: string) => revalidatePath(p) }));
 
 const { upgradeCapacityAction } = await import("./actions");
@@ -36,6 +41,7 @@ beforeEach(() => {
   requirePayer.mockReset().mockResolvedValue({ payerId: "p", role: "employer", displayLabel: "Acme" });
   buyCapacity.mockReset();
   hiringCapacityTiers.mockReset().mockReturnValue(TIERS);
+  getLiveCatalog.mockReset().mockResolvedValue({ products: [], live: true });
   revalidatePath.mockReset();
 });
 
@@ -43,6 +49,7 @@ describe("upgradeCapacityAction — gate FIRST (requirePayer before any work)", 
   it("runs requirePayer FIRST; an unauthenticated caller never reaches the tier check or seam", async () => {
     requirePayer.mockRejectedValueOnce(new Error("NEXT_REDIRECT"));
     await expect(upgradeCapacityAction({ tier: "growth" })).rejects.toThrow("NEXT_REDIRECT");
+    expect(getLiveCatalog).not.toHaveBeenCalled();
     expect(hiringCapacityTiers).not.toHaveBeenCalled();
     expect(buyCapacity).not.toHaveBeenCalled();
   });

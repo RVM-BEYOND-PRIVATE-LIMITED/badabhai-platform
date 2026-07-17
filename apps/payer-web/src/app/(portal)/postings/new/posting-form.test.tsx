@@ -153,14 +153,17 @@ vi.mock("../../../../components/ds/select-menu", () => ({
 const { PostingForm } = await import("./posting-form");
 
 // useState call order in the source: fields, fieldErrors, error, navigating (then useTransition).
+// `quotaStep` is the D-6 prop: the SERVER page resolves it from the LIVE catalog and passes it
+// down (this client form never fetches the catalog), so tests inject it like any other prop.
 function render(seed: {
   fields: Record<string, string>;
   fieldErrors: Record<string, unknown>;
   navigating?: boolean;
+  quotaStep?: number | null;
 }) {
   stateQueue = [seed.fields, seed.fieldErrors, null, seed.navigating ?? false];
   stateCursor = 0;
-  return PostingForm() as ReactElement;
+  return PostingForm({ quotaStep: seed.quotaStep ?? null }) as ReactElement;
 }
 
 interface Collected {
@@ -296,6 +299,27 @@ describe("PostingForm render — disable-submit-until-valid", () => {
     const submit = buttons.find((b) => b.type === "submit");
     expect(submit!.disabled).toBe(true);
     expect(submit!.text).toBe("Posting…");
+  });
+});
+
+describe("PostingForm render — D-6: the applicant-quota badge follows the SERVER-passed live step", () => {
+  /** The rendered text fragments joined (JSX splits "Band " + the band into two fragments). */
+  const joined = (seed: Parameters<typeof render>[0]) =>
+    collect(render(seed)).texts.join("").replace(/\s+/g, " ");
+
+  it("renders the derived quota from the passed step (a live ops edit changes it, no rebuild)", () => {
+    // The server page resolves the step from the LIVE catalog. Band "1-5" (5 vacancies) → 1× step.
+    const text = joined({ fields: VALID_FIELDS, fieldErrors: {}, quotaStep: 25 });
+    expect(text).toContain("Band 1-5");
+    // The LIVE step drives the badge — a compile-time DEFAULT_CATALOG read would render 10.
+    expect(text).toContain("25 applicant slots");
+  });
+
+  it("omits the quota badge when no step was resolvable (fail-closed display, still no crash)", () => {
+    const text = joined({ fields: VALID_FIELDS, fieldErrors: {}, quotaStep: null });
+    // The band chip still renders (it is not catalog-derived); the quota badge does not.
+    expect(text).toContain("Band 1-5");
+    expect(text).not.toContain("applicant slots");
   });
 });
 

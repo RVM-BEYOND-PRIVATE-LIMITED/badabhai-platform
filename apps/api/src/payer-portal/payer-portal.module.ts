@@ -10,6 +10,7 @@ import { PostingPlansModule } from "../posting-plans/posting-plans.module";
 import { ReachModule } from "../reach/reach.module";
 import { ResumeDisclosureModule } from "../disclosures/resume-disclosure.module";
 import { JobPostingsModule } from "../job-postings/job-postings.module";
+import { PricingModule } from "../pricing/pricing.module";
 import { WHATSAPP_PROVIDER, type WhatsAppProvider } from "../messaging/whatsapp.provider";
 import { MockWhatsAppProvider } from "../messaging/mock-whatsapp.provider";
 import { MetaWhatsAppProvider } from "../messaging/meta-whatsapp.provider";
@@ -28,6 +29,7 @@ import { PayerAuthController } from "./payer-auth.controller";
 import { PayerReachController } from "./payer-reach.controller";
 import { PayerDisclosureController } from "./payer-disclosure.controller";
 import { PayerJobPostingsController } from "./payer-job-postings.controller";
+import { PayerPricingController } from "./payer-pricing.controller";
 import { PayerOrgMembersController } from "./payer-org-members.controller";
 import { PayerOrgInvitesController } from "./payer-org-invites.controller";
 import { PayerAuthService } from "./payer-auth.service";
@@ -78,6 +80,9 @@ import {
     // The payer-self job-posting CRUD (ADR-0022 module 9) reuses JobPostingsService
     // unchanged in its lifecycle rules, behind PayerAuthGuard + owner-scoping.
     JobPostingsModule,
+    // The payer-facing LIVE catalog read (D-6) reuses PricingService (the one
+    // fail-closed engine) unchanged — a read-only products projection, no write path.
+    PricingModule,
     // Reuse BullMQ's Redis connection (client only) for the payer OTP store + XB-G cap.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
   ],
@@ -88,6 +93,7 @@ import {
     PayerReachController,
     PayerDisclosureController,
     PayerJobPostingsController,
+    PayerPricingController,
     PayerOrgMembersController,
     PayerOrgInvitesController,
   ],

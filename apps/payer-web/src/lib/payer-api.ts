@@ -46,6 +46,7 @@ import {
 import { revealResultSchema } from "./contracts";
 import { assertNoAgencyPII } from "./assert-no-agency-pii";
 import { payerFetch } from "./payer-http";
+import { getLiveCatalog } from "./live-catalog";
 import { findCreditPack, quotaTopUpTier } from "./pricing-config";
 
 /**
@@ -269,12 +270,17 @@ export async function topUp(input: { packCode: string }): Promise<TopUpResult | 
  * Bearer only, the ledger is payer-scoped server-side). The AUTHORITATIVE `credit_ledger`
  * rows replace the old client-recorded mock history: positive pack movements (delta > 0
  * with a pack_code) ARE the top-ups. PII-free (ids/amounts/config pack code only);
- * `priceInr` is resolved from the @badabhai/pricing catalog (XT5 — never a wire amount).
+ * `priceInr` is resolved from the LIVE pricing catalog (D-6; XT5 — never a wire amount),
+ * falling back to the compile-time defaults only when the catalog fetch fails.
  */
 export async function getCreditTopUps(): Promise<CreditTopUp[]> {
   const wire = await payerFetch("/payer/credits/ledger?limit=50", {
     schema: creditLedgerWireSchema,
   });
+  // The LIVE catalog (D-6): pack prices come from the API's active catalog, so an ops
+  // price edit shows here without a rebuild. getLiveCatalog fails OPEN to the defaults
+  // (display-only — the server enforced the real price when the pack was charged).
+  const { products } = await getLiveCatalog();
   // KNOWN CAP: the read is the newest 50 MOVEMENTS (the server's max page; no cursor
   // exists on PayerLedgerQuerySchema yet), so a very active payer's oldest top-ups age
   // out of this view. A cursor-paged ledger read is a small backend follow-up.
@@ -283,7 +289,7 @@ export async function getCreditTopUps(): Promise<CreditTopUp[]> {
     .map((row) => {
       // A pack that has left the catalog (drift) has NO current price — omit it (the
       // page renders a dash), never a fake ₹0 (XT5: prices come from config or not at all).
-      const pack = findCreditPack(row.pack_code!);
+      const pack = findCreditPack(products, row.pack_code!);
       return creditTopUpSchema.parse({
         topUpId: row.id,
         packCode: row.pack_code,
@@ -828,7 +834,13 @@ export interface QuotaTopUpOutcome {
 export async function topUpPostingQuota(input: {
   postingId: string;
 }): Promise<QuotaTopUpOutcome | null> {
-  const tier = quotaTopUpTier();
+  // The LIVE catalog (D-6): the tier CODE + display views come from the API's active
+  // catalog (an ops tier edit reaches this body without a rebuild), falling open to
+  // the compile-time defaults on fetch failure — the backend re-resolves price + grant
+  // through the pricing engine either way (XT5), so a stale code at worst 400s, never
+  // mis-charges.
+  const { products } = await getLiveCatalog();
+  const tier = quotaTopUpTier(products);
   if (!tier) throw new Error("no quota top-up tier configured"); // fail-closed, config-sourced
   try {
     await payerFetch(`/payer/job-postings/${input.postingId}/quota-topup`, {
