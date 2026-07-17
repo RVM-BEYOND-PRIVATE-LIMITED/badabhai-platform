@@ -14,7 +14,7 @@ describe("worker_profiles.taxonomy_version — B-6 additive version stamp", () =
   it("maps to the taxonomy_version column, NULLABLE with NO default (old rows unaffected)", () => {
     const col = workerProfiles.taxonomyVersion;
     expect(col.name).toBe("taxonomy_version");
-    expect(col.notNull).toBe(false); // nullable — migration 0041 backfills NOTHING by design
+    expect(col.notNull).toBe(false); // nullable — migration 0042 backfills NOTHING by design
     expect(col.hasDefault).toBe(false); // absence of a stamp must stay honest, never defaulted
   });
 
