@@ -105,6 +105,14 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
 
   final ChatRepository _repo;
 
+  /// How many sends are awaiting a reply right now.
+  ///
+  /// bloc 8.x processes events CONCURRENTLY by default (no transformer is
+  /// registered), so two quick sends — or a send racing a [ChatVoiceMerged] —
+  /// overlap. The counter keeps [ChatState.sending] honest: the typing indicator
+  /// must stay up until the LAST in-flight reply lands, not the first (#344).
+  int _inFlightSends = 0;
+
   Future<void> _onStarted(ChatStarted event, Emitter<ChatState> emit) async {
     try {
       await _repo.ensureSession();
@@ -122,33 +130,45 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     final String text = event.text.trim();
     if (text.isEmpty) return;
 
-    final List<ChatMessage> withWorker = <ChatMessage>[
-      ...state.messages,
-      ChatMessage(text: text, fromWorker: true),
-    ];
     // Show the typing indicator and drop the previous turn's chips (they belong
     // to a question already answered).
     emit(state.copyWith(
-      messages: withWorker,
+      messages: <ChatMessage>[
+        ...state.messages,
+        ChatMessage(text: text, fromWorker: true),
+      ],
       sending: true,
       followups: const <String>[],
     ));
 
+    _inFlightSends++;
     try {
       final ChatTurn turn = await _repo.sendMessage(text);
+      _inFlightSends--;
+      // Append to CURRENT state, never to a list captured before the await
+      // (#344): while this reply was in flight, a second send or a voice merge
+      // may have appended bubbles. Re-emitting a pre-await snapshot ERASED
+      // them from the visible transcript — the worker watched their own answers
+      // vanish mid-profiling.
+      // Append to CURRENT state, never to a list captured before the await
+      // (#344): while this reply was in flight, a second send or a voice merge
+      // may have appended bubbles. Re-emitting a pre-await snapshot ERASED them
+      // from the visible transcript — the worker watched their own answers
+      // vanish mid-profiling.
       emit(state.copyWith(
         messages: <ChatMessage>[
-          ...withWorker,
+          ...state.messages,
           ChatMessage(text: turn.reply, fromWorker: false),
         ],
-        sending: false,
+        sending: _inFlightSends > 0,
         followups: turn.followups,
       ));
     } on Failure catch (_) {
+      _inFlightSends--;
       // The frozen UI has no send-failure affordance — keep the worker's
       // message and just drop the typing indicator rather than inventing new
       // error copy.
-      emit(state.copyWith(sending: false));
+      emit(state.copyWith(sending: _inFlightSends > 0));
     }
   }
 
@@ -163,7 +183,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         ChatMessage(text: event.transcript, fromWorker: true),
         ChatMessage(text: event.reply, fromWorker: false),
       ],
-      sending: false,
+      // A voice merge must not clear a TYPED send's indicator that is still
+      // awaiting its reply (#344) — only report idle when nothing is in flight.
+      sending: _inFlightSends > 0,
       followups: const <String>[],
     ));
   }
