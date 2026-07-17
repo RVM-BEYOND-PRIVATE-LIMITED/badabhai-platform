@@ -360,6 +360,14 @@ export const workerProfiles = pgTable(
     canonicalTradeId: text("canonical_trade_id"),
     canonicalRoleId: text("canonical_role_id"),
     skills: jsonb("skills").$type<string[]>().notNull().default(jsonArray),
+    // B-6 (context-drift register 2026-07-16): the @badabhai/taxonomy
+    // SKILL_TAXONOMY_VERSION in force when `skills` was last WRITTEN (extraction
+    // create; offline TAX-9 retag). Stamped only where skills are (re)written —
+    // never touched on read. NULLABLE by design, no backfill: NULL honestly means
+    // "written before versioning existed". Text (not integer) so a future version
+    // scheme (date-tagged / semver on re-embed) needs no lossy migration; equality
+    // is the only operation, never ordering.
+    taxonomyVersion: text("taxonomy_version"),
     machines: jsonb("machines").$type<string[]>().notNull().default(jsonArray),
     experience: jsonb("experience").notNull().default(jsonObject),
     salaryExpectation: jsonb("salary_expectation").notNull().default(jsonObject),
