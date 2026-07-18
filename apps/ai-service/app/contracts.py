@@ -68,6 +68,13 @@ class ConversationState(BaseModel):
     # of the same question. clarify_turn increments it and refuses past 2 (falls
     # through to next_turn); every next_turn resets it to 0.
     clarify_count: int = 0
+    # INTERVIEW-1 re-ask bound (additive, defaulted => backward compatible; mirrored in
+    # @badabhai/ai-contracts ConversationStateSchema): how many times each topic has
+    # been ASKED. asked_question_ids is a dedup SET and cannot count, so the bounded
+    # re-ask needs its own counter. _next_topic refuses past MAX_ASKS_PER_TOPIC (2), so
+    # a topic the (CNC/VMC-only) detector can never parse is asked twice, never forever.
+    # Topic ids only — no PII.
+    ask_counts: dict[str, int] = Field(default_factory=dict)
 
 
 # --- Profiling turn --------------------------------------------------------

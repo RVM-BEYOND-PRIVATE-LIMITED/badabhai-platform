@@ -1,6 +1,9 @@
 """Interview engine tests (CNC/VMC)."""
 
+from collections import Counter
+
 from app.profiling import interview_engine
+from app.profiling.question_bank import topic_by_id, topics_for
 
 
 def test_first_question_is_role_and_neutral_toned():
@@ -173,6 +176,224 @@ def test_b4_state_only_answer_does_not_satisfy_current_location():
     assert "current_location" not in state.answered_topics
     assert ready is False
     assert signals.detect("bihar mai hu").current_state == "Bihar"  # not dropped
+
+
+# --- INTERVIEW-1: bounded re-ask ---------------------------------------------
+# Before INTERVIEW-1, _next_topic closed a topic the moment it was ASKED, so an
+# ESSENTIAL topic the worker never actually answered silently shipped an
+# incomplete profile. It is now re-asked — but ONLY under a hard bound, because
+# "answered" is judged by the CNC/VMC-only gazetteer: an out-of-scope worker
+# (welding) giving a PERFECT answer reads as unanswered, and an unbounded re-ask
+# would loop them forever. The bound is the safety property of this whole change.
+
+_ANSWERS = {
+    "role": "cnc turner hoon",
+    "machines": "vmc chalata hu",
+    "experience": "4 saal ka experience hai",
+    "skills": "setting aur drawing reading aata hai",
+    "current_location": "pune me hu",
+    "preferred_locations": "delhi bhi chalega",
+    "controllers": "fanuc chalaya hai",
+    "salary_current": "abhi 25000 milte hain",
+    "salary_expected": "30000 chahiye",
+    "availability": "15 din lagenge",
+    "education": "ITI kiya hai",
+}
+_GARBAGE = "haan ji theek hai"
+
+
+def _run_interview(reply_for, max_turns: int = 40):
+    """Drive next_turn until wrap-up. ``reply_for(asked_id)`` supplies the worker's
+    message. Returns ``(ask_log, final_state, final_ready, turns)``."""
+    state = None
+    ask_log: list[str] = []
+    message = "namaste"
+    ready = False
+    for turn in range(1, max_turns + 1):
+        _reply, asked_id, state, ready = interview_engine.next_turn(
+            state, message, "cnc_vmc"
+        )
+        if asked_id is None:
+            return ask_log, state, ready, turn
+        ask_log.append(asked_id)
+        message = reply_for(asked_id)
+    raise AssertionError(
+        f"interview did not terminate in {max_turns} turns — ask log: {ask_log}"
+    )
+
+
+def test_worker_who_answers_everything_is_asked_each_topic_exactly_once():
+    """Required test 1: the happy path must not regress into nagging."""
+    ask_log, state, _ready, _turns = _run_interview(lambda tid: _ANSWERS[tid])
+    assert len(ask_log) == len(set(ask_log)), f"a topic was re-asked: {ask_log}"
+    assert all(c == 1 for c in state.ask_counts.values()), state.ask_counts
+    assert set(state.ask_counts) == set(ask_log)
+
+
+def test_unparseable_machines_answer_is_re_asked_once_then_the_engine_moves_on():
+    """Required test 2: an essential the detector cannot parse gets a SECOND ask
+    (with the retry wording) and then the interview moves on — never a third."""
+    served: list[str] = []
+    state = None
+    message = "cnc turner hoon"
+    for _ in range(12):
+        reply, asked_id, state, _ready = interview_engine.next_turn(
+            state, message, "cnc_vmc"
+        )
+        if asked_id is None:
+            break
+        served.append(reply)
+        # Answer everything EXCEPT machines, which gets an unparseable reply.
+        message = _GARBAGE if asked_id == "machines" else _ANSWERS[asked_id]
+
+    assert state.ask_counts["machines"] == 2
+    assert "machines" not in state.answered_topics
+    machines_turns = [r for r in served if "machine" in r.lower()]
+    assert len(machines_turns) == 2, machines_turns
+    # The second serve uses the NARROWER retry wording, not the same string again.
+    retry = topic_by_id("cnc_vmc", "machines").retry_question
+    assert machines_turns[0] != machines_turns[1]
+    assert machines_turns[1].endswith(retry)
+    assert retry.count("?") == 1 and len(retry.split()) <= 20
+
+
+def test_no_topic_is_ever_asked_more_than_twice_under_a_totally_blind_detector(
+    monkeypatch,
+):
+    """Required test 3 — THE ANTI-LOOP LOCK, the most important test here.
+
+    The gazetteer is CNC/VMC-only, so a welder's perfect answer can read as NO
+    answer at all. This stubs detection to ALWAYS fail (the worst case, strictly
+    worse than the real welding gap) and proves the interview still TERMINATES and
+    that MAX_ASKS_PER_TOPIC is never exceeded by ANY topic.
+
+    Mutation proof: delete the `_ask_count(...) < MAX_ASKS_PER_TOPIC` guard from
+    `_next_topic` and this test fails — the essential re-ask branch then returns the
+    same unanswered essential forever and `_run_interview` raises "did not
+    terminate".
+    """
+    monkeypatch.setattr(
+        interview_engine.signals, "detect_answered_topics", lambda *a, **k: {}
+    )
+    ask_log, state, ready, turns = _run_interview(lambda _tid: _GARBAGE)
+
+    counts = Counter(ask_log)
+    assert max(counts.values()) <= interview_engine.MAX_ASKS_PER_TOPIC, counts
+    assert counts == Counter(state.ask_counts)
+    # Every ESSENTIAL topic got its full (bounded) budget: exactly two asks.
+    for topic_id in interview_engine.ESSENTIAL_TOPICS:
+        assert counts[topic_id] == 2, (topic_id, counts)
+    # ...and nothing else was re-asked: optional/non-essential topics ask ONCE.
+    for topic_id, n in counts.items():
+        if topic_id not in interview_engine.ESSENTIAL_TOPICS:
+            assert n == 1, (topic_id, counts)
+    # It terminated, and honestly: nothing was answered, so it is NOT ready.
+    assert turns <= interview_engine.MAX_INTERVIEW_TURNS + 1
+    assert ready is False
+    assert state.answered_topics == []
+
+
+def test_the_turn_ceiling_terminates_the_interview_as_a_final_backstop(monkeypatch):
+    """Required test 6 (ceiling): even with a blind detector AND an inflated topic
+    bank, no interview can serve questions past MAX_INTERVIEW_TURNS."""
+    monkeypatch.setattr(
+        interview_engine.signals, "detect_answered_topics", lambda *a, **k: {}
+    )
+    # 40 extra always-open topics: without the ceiling this would run 40+ turns.
+    from app.profiling.question_bank import Topic, topics_for
+
+    inflated = list(topics_for("cnc_vmc")) + [
+        Topic(f"filler_{i}", f"F{i}", f"Filler {i} kya hai?") for i in range(40)
+    ]
+    monkeypatch.setattr(
+        interview_engine, "topics_for", lambda _rf: inflated
+    )
+    _ask_log, state, ready, turns = _run_interview(lambda _tid: _GARBAGE, max_turns=80)
+    assert turns == interview_engine.MAX_INTERVIEW_TURNS + 1
+    assert state.turn_count == interview_engine.MAX_INTERVIEW_TURNS + 1
+    assert ready is False
+
+
+def test_an_answered_topic_is_never_re_asked(monkeypatch):
+    """Required test 4: the ABSOLUTE rule — re-ask is only ever for UNANSWERED
+    topics. Asserted even with the detector blind AFTER the first answer, so the
+    only thing keeping the topic closed is `answered_topics`."""
+    _r1, asked1, st1, _ready1 = interview_engine.next_turn(
+        None, "cnc turner hoon", "cnc_vmc"
+    )
+    assert asked1 == "machines"  # role answered on turn 1, so it is NOT re-asked
+    assert "role" in st1.answered_topics
+
+    # Blind the detector from here: nothing more can be answered, so `role` staying
+    # closed is due to `answered_topics` alone — not to the ask bound.
+    monkeypatch.setattr(
+        interview_engine.signals, "detect_answered_topics", lambda *a, **k: {}
+    )
+    state = st1
+    for _ in range(25):
+        _reply, asked_id, state, _rd = interview_engine.next_turn(
+            state, _GARBAGE, "cnc_vmc"
+        )
+        if asked_id is None:
+            break
+        assert asked_id != "role", "an ANSWERED topic was re-asked"
+    # role was answered on turn 1 before it was ever asked, so it is never served.
+    assert state.ask_counts.get("role", 0) == 0
+    assert "role" not in state.asked_question_ids
+
+
+def test_extraction_ready_is_false_when_essentials_are_unanswered(monkeypatch):
+    """Required test 5 — the false-ready fix. Running out of questions is NOT the
+    same as being ready; the old code returned a hardcoded True there, which is how
+    an unanswered essential shipped as a 'complete' profile.
+
+    Mutation proof: restore `return ..., True` on the wrap-up branch of `next_turn`
+    and this test fails.
+    """
+    monkeypatch.setattr(
+        interview_engine.signals, "detect_answered_topics", lambda *a, **k: {}
+    )
+    _ask_log, state, ready, _turns = _run_interview(lambda _tid: _GARBAGE)
+    assert ready is False
+    assert interview_engine._extraction_ready(state) is False
+    assert not any(t in state.answered_topics for t in interview_engine.ESSENTIAL_TOPICS)
+
+
+def test_legacy_state_without_ask_counts_deserializes_and_stays_bounded():
+    """Required test 6 (back-compat, CLAUDE.md §2 #8): ask_counts is additive +
+    defaulted, so an in-flight state minted before INTERVIEW-1 must load — and must
+    NOT be handed a fresh full ask budget for topics it already asked."""
+    from app.contracts import ConversationState
+
+    legacy = ConversationState.model_validate(
+        {
+            "role_family": "cnc_vmc",
+            "turn_count": 3,
+            "answered_topics": ["role"],
+            "asked_question_ids": ["role", "machines"],
+            "collected": {"role": "CNC Turner/Operator"},
+        }
+    )
+    assert legacy.ask_counts == {}  # defaulted, not required
+    # machines was already asked once under the old state shape -> it gets ONE more
+    # ask (2 total), never two more.
+    assert interview_engine._ask_count(legacy, "machines") == 1
+
+    _reply, asked_id, st, _ready = interview_engine.next_turn(legacy, _GARBAGE, "cnc_vmc")
+    assert asked_id == "machines"
+    assert st.ask_counts["machines"] == 2
+    _r2, asked2, st2, _rd2 = interview_engine.next_turn(st, _GARBAGE, "cnc_vmc")
+    assert asked2 != "machines"  # budget spent — no third ask
+    assert st2.ask_counts["machines"] == 2
+
+
+def test_ask_counts_holds_topic_ids_only_no_pii():
+    """CLAUDE.md §2 #2: ConversationState carries profile signals, never identity
+    PII. ask_counts keys are bank topic ids and values are ints — by construction."""
+    known = {t.id for t in topics_for("cnc_vmc")}
+    _ask_log, state, _ready, _turns = _run_interview(lambda tid: _ANSWERS[tid])
+    assert set(state.ask_counts) <= known
+    assert all(isinstance(v, int) for v in state.ask_counts.values())
 
 
 def test_b5_bare_amount_reply_to_expected_salary_keys_expected():

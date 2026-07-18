@@ -74,6 +74,15 @@ export const ConversationStateSchema = z.object({
    * through to next_turn); every next_turn resets it to 0.
    */
   clarify_count: z.number().int().nonnegative().default(0),
+  /**
+   * INTERVIEW-1 re-ask bound (additive, defaulted => backward compatible; mirrors
+   * contracts.py ConversationState): per-topic ASK count. `asked_question_ids` is a
+   * dedup set and cannot count, so the bounded re-ask needs its own counter. The
+   * engine's `_next_topic` refuses past MAX_ASKS_PER_TOPIC (2), so a topic the
+   * CNC/VMC-only detector can never parse is asked twice, never forever.
+   * Topic ids only — no PII.
+   */
+  ask_counts: z.record(z.string(), z.number().int().nonnegative()).default({}),
 });
 export type ConversationState = z.infer<typeof ConversationStateSchema>;
 

@@ -36,6 +36,25 @@ ESSENTIAL_TOPICS: tuple[str, ...] = ("role", "machines", "experience", "current_
 # blocked forever: the ASK satisfies the gate, an answer is not required.
 MUST_ASK_TOPICS: tuple[str, ...] = ("preferred_locations",)
 
+# INTERVIEW-1 re-ask bound. THIS CONSTANT IS THE SAFETY PROPERTY of the re-ask
+# feature — do not remove it or make it conditional.
+#
+# Before INTERVIEW-1 a topic was closed the moment it was ASKED, so an essential
+# the worker never actually answered silently shipped an incomplete profile. The
+# fix re-asks it — but "answered" is judged by ``signals.detect_answered_topics``,
+# whose gazetteer is CNC/VMC-only (welding/TIG/MIG are out of scope there). An
+# UNBOUNDED re-ask would therefore loop a welder giving a PERFECT answer forever.
+# So the re-ask is hard-capped at this many ASKS PER TOPIC, counted in
+# ``ConversationState.ask_counts`` — the bound holds even if the detector is
+# TOTALLY BLIND (tests/test_interview_engine.py locks that with a stubbed detector).
+MAX_ASKS_PER_TOPIC = 2
+
+# Final backstop: the hard ceiling on question-serving turns. Even if a future
+# topic set + a detection gap conspired, the interview cannot run past this — turn
+# MAX_INTERVIEW_TURNS + 1 wraps up unconditionally. Sized so a fully BLIND run
+# still serves every essential its 2 asks and every other topic its 1 ask.
+MAX_INTERVIEW_TURNS = 15
+
 # In-flight ConversationStates minted before the B-4/B-5 split may carry the
 # retired combined topic ids. Map them to the topic their context-free detection
 # actually keyed on (detect() puts the FIRST city in current_city and a cue-less
@@ -147,18 +166,39 @@ def next_turn(
 
     extraction_ready = _extraction_ready(st)
 
-    # 2. Choose the next question (core first, then optional, don't re-nag).
-    next_topic = _next_topic(topics, st)
+    # 2. Choose the next question (essentials first — including their ONE bounded
+    #    re-ask — then the ask-once topics). MAX_INTERVIEW_TURNS is the final
+    #    backstop: past it we wrap up no matter what is still open.
+    over_ceiling = st.turn_count > MAX_INTERVIEW_TURNS
+    next_topic = None if over_ceiling else _next_topic(topics, st)
     if next_topic is None or extraction_ready:
-        return _vocative(worker_name) + _WRAP_UP, None, st, True
+        # INTERVIEW-1 false-ready fix: report the HONEST readiness, not a hardcoded
+        # True. Wrapping up because we ran out of questions (or hit the ceiling) is
+        # NOT the same as having the essentials answered — claiming ready there was
+        # exactly how an unanswered essential shipped as a silently complete profile.
+        # Downstream then knows the profile is incomplete (e.g. role: null) instead
+        # of being surprised by it.
+        return _vocative(worker_name) + _WRAP_UP, None, st, extraction_ready
 
+    # Read the prior count BEFORE touching asked_question_ids — _ask_count floors at
+    # 1 for anything already in that list (the pre-INTERVIEW-1 back-compat path), so
+    # appending first would score a topic's FIRST ask as its second.
+    prior_asks = _ask_count(st, next_topic.id)
+    st.ask_counts[next_topic.id] = prior_asks + 1
     if next_topic.id not in st.asked_question_ids:
         st.asked_question_ids.append(next_topic.id)
+    # A RE-ask uses the narrower, more concrete wording — re-serving the identical
+    # string reads as broken (and the concrete examples help the detector).
+    question = (
+        next_topic.retry_question
+        if prior_asks and next_topic.retry_question
+        else next_topic.question
+    )
     # Turn 1 is the OPEN vocative slot: greet by name/token, then the first
     # question (no ack — the greeting IS the opener). Later turns ack only.
     if st.turn_count == 1:
-        return _vocative(worker_name) + next_topic.question, next_topic.id, st, extraction_ready
-    return _ACK + next_topic.question, next_topic.id, st, extraction_ready
+        return _vocative(worker_name) + question, next_topic.id, st, extraction_ready
+    return _ACK + question, next_topic.id, st, extraction_ready
 
 
 # COST-4 clarify bound: max CONSECUTIVE re-serves of one question. The predicate has
@@ -283,14 +323,57 @@ def suggested_followups(role_family: str = "cnc_vmc") -> list[str]:
     return list(_FOLLOWUPS)
 
 
+def _ask_count(st: ConversationState, topic_id: str) -> int:
+    """How many times ``topic_id`` has been ASKED, safe for pre-INTERVIEW-1 states.
+
+    In-flight states minted before ``ask_counts`` existed have a populated
+    ``asked_question_ids`` and an EMPTY ``ask_counts``. Reading 0 there would hand
+    such a topic a fresh full budget (up to 3 asks total), so a topic already in
+    ``asked_question_ids`` floors at 1 — the bound errs toward asking LESS, never
+    more, which is the safe direction for an anti-loop guard.
+    """
+    counted = st.ask_counts.get(topic_id, 0)
+    if counted == 0 and topic_id in st.asked_question_ids:
+        return 1
+    return counted
+
+
 def _next_topic(topics: list[Topic], st: ConversationState) -> Topic | None:
-    # Unanswered core topics we haven't already asked.
+    """Pick the next topic to serve, in STRICT priority order.
+
+    1. An UNANSWERED **essential** under :data:`MAX_ASKS_PER_TOPIC` — first ask or
+       the single bounded re-ask. This is the INTERVIEW-1 fix: before it, a topic
+       was closed forever the moment it was asked, so an essential the worker never
+       answered silently shipped an incomplete profile.
+    2. Any other unanswered topic that has NEVER been asked (core before optional).
+       Non-essential topics are asked ONCE and never re-asked —
+       ``preferred_locations`` in particular only needs the ASK to satisfy
+       :data:`MUST_ASK_TOPICS`.
+
+    Two invariants hold in EVERY branch:
+
+    - **An ANSWERED topic is never returned.** Absolute — every branch tests
+      ``topic.id not in st.answered_topics``.
+    - **No topic is ever returned once it has been asked**
+      :data:`MAX_ASKS_PER_TOPIC` **times**, whatever the detector does. The bound
+      is a pure function of ``ask_counts``, so a detector that never reports an
+      answer (welding today) still terminates the interview.
+    """
+    # 1. Unanswered ESSENTIAL topics — the only re-askable class.
     for topic in topics:
-        is_open = topic.id not in st.answered_topics and topic.id not in st.asked_question_ids
+        if (
+            topic.id in ESSENTIAL_TOPICS
+            and topic.id not in st.answered_topics
+            and _ask_count(st, topic.id) < MAX_ASKS_PER_TOPIC
+        ):
+            return topic
+    # 2. Unanswered core topics we haven't already asked (ask-once).
+    for topic in topics:
+        is_open = topic.id not in st.answered_topics and _ask_count(st, topic.id) == 0
         if topic.core and is_open:
             return topic
-    # Unanswered optional topics we haven't already asked.
+    # 3. Unanswered optional topics we haven't already asked (ask-once).
     for topic in topics:
-        if topic.id not in st.answered_topics and topic.id not in st.asked_question_ids:
+        if topic.id not in st.answered_topics and _ask_count(st, topic.id) == 0:
             return topic
     return None

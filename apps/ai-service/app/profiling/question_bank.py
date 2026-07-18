@@ -31,6 +31,14 @@ class Topic:
     # Ask PRIORITY: core topics are served before optional ones. Readiness itself
     # is the engine's ESSENTIAL_TOPICS / MUST_ASK_TOPICS, not this flag.
     core: bool = False
+    # INTERVIEW-1: wording for the ONE bounded RE-ask of an unanswered ESSENTIAL
+    # topic (engine MAX_ASKS_PER_TOPIC = 2). Deliberately NARROWER and more
+    # CONCRETE than ``question`` — re-serving an identical string reads as broken,
+    # and naming concrete machines/cities raises the odds the (CNC/VMC-only)
+    # gazetteer detects the answer. Same B-5 rule: exactly one "?", <= 20 words,
+    # aap-form, no vocative. Only ESSENTIAL topics carry one; optional topics are
+    # asked once and never re-asked, so they leave this None.
+    retry_question: str | None = None
 
 
 ROLE_FAMILIES: dict[str, dict] = {
@@ -54,16 +62,19 @@ _CNC_VMC_TOPICS: list[Topic] = [
         "role", "Role / trade",
         "Aap kaunsa kaam karte hain — CNC, VMC, HMC operator, setter ya programmer?",
         core=True,
+        retry_question="Aap machine par kya karte hain — operator, setter, programmer ya welder?",
     ),
     Topic(
         "machines", "Machine exposure",
         "Kaunsi machine — VMC, CNC lathe, HMC ya grinding?",
         core=True,
+        retry_question="Machine ka naam — jaise VMC, CNC lathe, TIG, MIG?",
     ),
     Topic(
         "experience", "Experience",
         "Kitne saal ka experience hai?",
         core=True,
+        retry_question="Kitne saal se yeh kaam kar rahe hain — jaise 2 saal, 5 saal?",
     ),
     Topic(
         "skills", "Skills",
@@ -75,6 +86,7 @@ _CNC_VMC_TOPICS: list[Topic] = [
         "current_location", "Current location",
         "Abhi kis sheher mein hain?",
         core=True,
+        retry_question="Abhi aap kis sheher mein rehte hain — jaise Pune, Delhi, Rajkot?",
     ),
     Topic(
         "preferred_locations", "Preferred locations",
