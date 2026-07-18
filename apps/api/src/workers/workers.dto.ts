@@ -119,4 +119,19 @@ export interface WorkerProfileSummary {
   city: string | null;
   /** Recomputed on read (countFields-equivalent); `0` when no profile. Never stored. */
   strength: number;
+  /**
+   * Worker-confirmed canonical skill labels from the latest profile (e.g.
+   * "CNC operating", "GD&T"). PII-FREE by construction — canonical taxonomy
+   * labels, never a name/phone/employer. `[]` when none/no profile. Additive
+   * (backward-compatible): older clients ignore it.
+   */
+  skills: string[];
+  /** Canonical machine labels (e.g. "VMC", "Lathe"). PII-FREE; `[]` when none. */
+  machines: string[];
+  /**
+   * `experience.total_years` — a NUMBER only. The free-text `experience.summary`
+   * is deliberately NOT projected: it can carry §2 PII (employer names). `null`
+   * when unknown/no profile.
+   */
+  experience_years: number | null;
 }

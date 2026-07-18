@@ -173,6 +173,9 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
       trade: { canonical_trade_id: null, canonical_role_id: null, display_name: null },
       city: null,
       strength: 0,
+      skills: [],
+      machines: [],
+      experience_years: null,
     });
   });
 
@@ -191,7 +194,29 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
       // countFields recompute: role(1) + trade(1) + skills(2) + machines(1)
       // + total_years(1) + salary(1) + cities(1) + availability(1) = 9
       strength: 9,
+      // Additive projections (skills/machines are the canonical labels; only the
+      // NUMBER of experience is surfaced — never the free-text summary).
+      skills: ["skill_fanuc", "skill_measuring_instruments"],
+      machines: ["mach_vmc"],
+      experience_years: 4,
     });
+  });
+
+  it("projects skills/machines LABELS + experience YEARS only — never the free-text experience.summary (§2), and narrows malformed JSONB", async () => {
+    const { svc } = summarySetup({
+      ...CONFIRMED_PROFILE,
+      // Dirty inputs the mapper must narrow, not trust:
+      skills: ["  cnc operating  ", 42, "", null, "gd&t"], // trim; drop non-strings/blanks
+      machines: "not-an-array", // non-array ⇒ []
+      experience: { total_years: 6.5, summary: "Ramesh Industries Pvt Ltd (employer PII)" },
+    });
+    const res = await svc.getProfileSummary("w-1");
+    expect(res.skills).toEqual(["cnc operating", "gd&t"]);
+    expect(res.machines).toEqual([]);
+    expect(res.experience_years).toBe(6.5);
+    // The free-text summary can carry §2 employer PII — it must NEVER reach the wire.
+    expect(res).not.toHaveProperty("experience");
+    expect(JSON.stringify(res)).not.toContain("employer PII");
   });
 
   it("malformed/empty location_preference JSONB ⇒ city null, no throw", async () => {

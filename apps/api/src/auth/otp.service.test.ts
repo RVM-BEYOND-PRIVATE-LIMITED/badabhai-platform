@@ -14,12 +14,14 @@ const PHONE = "+919876543210";
 const config = {
   OTP_LENGTH: 6,
   OTP_TTL_SECONDS: 300,
-  OTP_MAX_ATTEMPTS: 5,
+  OTP_MAX_ATTEMPTS: 500,
   OTP_RESEND_COOLDOWN_SECONDS: 30,
-  OTP_MAX_SENDS_PER_HOUR: 5,
-  // High enough that only the suites explicitly targeting the DAILY cap trip it (the
-  // hourly-cap test issues 6 sends against one phone — well under 50). TD60.
-  OTP_MAX_SENDS_PER_DAY: 50,
+  OTP_MAX_SENDS_PER_HOUR: 500,
+  // Daily backstop MUST sit at/above the hourly cap (a lower daily is incoherent — it
+  // would trip FIRST and make the hourly cap unreachable). Kept above the hourly cap so
+  // the hourly-cap suite — which issues OTP_MAX_SENDS_PER_HOUR sends against one phone —
+  // trips the HOURLY window; the dedicated DAILY-cap suite sets its own low cap (3). TD60.
+  OTP_MAX_SENDS_PER_DAY: 1000,
   // Worker OTP is REAL-ONLY (fast2sms; no console fallback), so isRealOtpSmsActive is always
   // true and the global daily breaker ALWAYS enforces. Default a HIGH global cap so the
   // breaker never trips for the throttle/verify suites (each test gets a fresh Redis store,
@@ -265,7 +267,9 @@ describe("OtpService global daily send circuit-breaker (OTP-5 spend ceiling — 
   }
 
   it("blocks the REAL send once the global daily count reaches the cap (neutral 429, no send)", async () => {
-    const { svc, redis, sms } = realSetup({ OTP_GLOBAL_MAX_SENDS_PER_DAY: 3 } as Partial<ServerConfig>);
+    const { svc, redis, sms } = realSetup({
+      OTP_GLOBAL_MAX_SENDS_PER_DAY: 3,
+    } as Partial<ServerConfig>);
     // Pre-seed the counter at cap-1 so the next send's INCR reaches the cap.
     redis.store.set(globalKeyToday(), "2");
     redis.store.delete(`otp:cooldown:${phoneHash}`);
@@ -287,7 +291,9 @@ describe("OtpService global daily send circuit-breaker (OTP-5 spend ceiling — 
   });
 
   it("allows the real send while under the cap and increments the global counter", async () => {
-    const { svc, redis, sms } = realSetup({ OTP_GLOBAL_MAX_SENDS_PER_DAY: 5 } as Partial<ServerConfig>);
+    const { svc, redis, sms } = realSetup({
+      OTP_GLOBAL_MAX_SENDS_PER_DAY: 5,
+    } as Partial<ServerConfig>);
     await expect(svc.issueAndSend(PHONE)).resolves.toBeDefined();
     expect(sms.sendOtp).toHaveBeenCalledTimes(1);
     expect(redis.store.get(globalKeyToday())).toBe("1");
@@ -318,7 +324,11 @@ describe("OtpService global daily send circuit-breaker (OTP-5 spend ceiling — 
 });
 
 describe("OtpService.verify", () => {
-  async function seedCode(): Promise<{ svc: OtpService; redis: ReturnType<typeof makeRedis>; code: string }> {
+  async function seedCode(): Promise<{
+    svc: OtpService;
+    redis: ReturnType<typeof makeRedis>;
+    code: string;
+  }> {
     const { svc, redis, sms } = setup();
     await svc.issueAndSend(PHONE);
     const code = (sms.sendOtp as ReturnType<typeof vi.fn>).mock.calls[0]![0].code as string;

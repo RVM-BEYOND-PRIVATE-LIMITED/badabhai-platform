@@ -17,9 +17,9 @@ const config = {
   NODE_ENV: "test",
   OTP_LENGTH: 6,
   OTP_TTL_SECONDS: 300,
-  OTP_MAX_ATTEMPTS: 5,
+  OTP_MAX_ATTEMPTS: 500,
   OTP_RESEND_COOLDOWN_SECONDS: 30,
-  OTP_MAX_SENDS_PER_HOUR: 5,
+  OTP_MAX_SENDS_PER_HOUR: 500,
 } as unknown as ServerConfig;
 
 // Length-stable keyed-HMAC stub that does NOT echo a usable secret outside the envelope —
@@ -252,7 +252,9 @@ describe("AdminOtpService — resend cooldown + hourly send cap (neutral, PII-fr
   it("the hourly send counter is keyed PII-FREE (email-HASH + UTC hour, never the raw email)", async () => {
     const { svc, redis } = setup();
     await svc.issueAndSend(EMAIL_HASH);
-    const sendCountKeys = [...redis.store.keys()].filter((k) => k.startsWith("admin_otp:sendcount:"));
+    const sendCountKeys = [...redis.store.keys()].filter((k) =>
+      k.startsWith("admin_otp:sendcount:"),
+    );
     expect(sendCountKeys.length).toBe(1);
     const sendKey = sendCountKeys[0] ?? "";
     // The key namespace carries only the opaque email-HASH + UTC-hour stamp — never the raw

@@ -79,6 +79,31 @@ function readAvailabilityStatus(availability: unknown): string | null {
 }
 
 /**
+ * A JSONB `skills`/`machines` column → a clean `string[]`: keep non-blank trimmed
+ * strings, drop everything else (a malformed row yields `[]`, never a throw). The
+ * labels are canonical taxonomy strings — PII-free by construction.
+ */
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    const s = nonBlankStringOrNull(item);
+    if (s) out.push(s);
+  }
+  return out;
+}
+
+/**
+ * `experience.total_years` → a finite, non-negative number, else `null`. ONLY the
+ * number is read — `experience.summary` (free text, possible §2 employer PII) is
+ * never projected to the wire.
+ */
+function readExperienceYears(experience: unknown): number | null {
+  const years = asObject(experience)?.total_years;
+  return typeof years === "number" && Number.isFinite(years) && years >= 0 ? years : null;
+}
+
+/**
  * Human display name for the trade block: taxonomy first
  * (`getRole(canonicalRoleId).name`), then the authored trade-content fallback
  * (`resolveTradeContent(...).display_name`), else `null`. Null ids never reach
@@ -118,13 +143,16 @@ function computeStrength(p: ProfileSummarySource): number {
   return n;
 }
 
-/** No-profile-yet summary: everything null/zero, `profile_status: "none"`. */
+/** No-profile-yet summary: everything null/zero/empty, `profile_status: "none"`. */
 const NO_PROFILE: WorkerProfileSummary = {
   profile_status: "none",
   confirmed_at: null,
   trade: { canonical_trade_id: null, canonical_role_id: null, display_name: null },
   city: null,
   strength: 0,
+  skills: [],
+  machines: [],
+  experience_years: null,
 };
 
 /** Map the latest profile row (or its absence) to the wire summary. */
@@ -146,5 +174,8 @@ export function toProfileSummary(
     },
     city: readCity(profile.locationPreference),
     strength: computeStrength(profile),
+    skills: readStringArray(profile.skills),
+    machines: readStringArray(profile.machines),
+    experience_years: readExperienceYears(profile.experience),
   };
 }
