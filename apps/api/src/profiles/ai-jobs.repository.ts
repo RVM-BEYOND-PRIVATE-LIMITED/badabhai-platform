@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { type Database, aiJobs, type AiJob, type NewAiJob } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
@@ -28,6 +28,35 @@ export class AiJobsRepository {
 
   async findById(id: string): Promise<AiJob | undefined> {
     const rows = await this.db.select().from(aiJobs).where(eq(aiJobs.id, id)).limit(1);
+    return rows[0];
+  }
+
+  /**
+   * Newest `profile_extraction` job for a chat session that is still in flight
+   * (`queued`/`running`) or already succeeded (`completed`) — i.e. a job whose
+   * existence makes a second extraction for the same session pure duplicate AI
+   * spend (issue #420).
+   *
+   * `failed` is deliberately EXCLUDED so a session whose extraction failed can
+   * still be retried; the guard must never permanently wedge a session.
+   *
+   * The predicate reads `input_ref->>'session_id'`, matching the shape written
+   * by `ProfilesService.extract` (`{ worker_id, session_id }`). `session_id` is
+   * an opaque UUID — no PII crosses this boundary (CLAUDE.md §2 invariant 2).
+   */
+  async findActiveExtractionForSession(sessionId: string): Promise<AiJob | undefined> {
+    const rows = await this.db
+      .select()
+      .from(aiJobs)
+      .where(
+        and(
+          eq(aiJobs.jobType, "profile_extraction"),
+          inArray(aiJobs.status, ["queued", "running", "completed"]),
+          sql`${aiJobs.inputRef}->>'session_id' = ${sessionId}`,
+        ),
+      )
+      .orderBy(desc(aiJobs.createdAt))
+      .limit(1);
     return rows[0];
   }
 

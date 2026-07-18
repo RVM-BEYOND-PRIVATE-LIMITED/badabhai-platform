@@ -39,10 +39,38 @@ export class ProfilesService {
    * with the ai_job_id; the client polls `GET /ai-jobs/:id` until completed,
    * then reads `output_ref.profile_id`. The work itself runs in
    * ProfileExtractionProcessor (which emits extraction_completed/failed).
+   *
+   * Session-scoped idempotency (issue #420): two independent triggers fire for
+   * the same interview — the server auto-trigger in ChatService on the
+   * `extraction_ready` flip, and the worker app's unconditional
+   * `POST /profile/extract` on the profile-preview screen. Without a guard that
+   * is 2 ai_jobs + up to 2 worker_profiles per normal completion. If a
+   * `profile_extraction` job for this `session_id` is already queued/running (or
+   * has already completed), we return THAT job instead of spending again.
+   *
+   * Deliberate carve-outs:
+   *  - `failed` prior jobs do NOT dedupe → a failed extraction stays retryable.
+   *  - a null `session_id` falls through to create-always: there is no session to
+   *    scope to, and deduping null-against-null would collapse unrelated calls.
    */
   async extract(input: ExtractProfileInput, ctx: RequestContext) {
     const worker = await this.workers.findById(input.worker_id);
     if (!worker) throw new NotFoundException(`Worker ${input.worker_id} not found`);
+
+    const sessionId = input.session_id ?? null;
+    if (sessionId) {
+      const existing = await this.aiJobs.findActiveExtractionForSession(sessionId);
+      if (existing) {
+        // No second `profile.extraction_requested`: one event per extraction
+        // actually requested of the AI, otherwise the event spine over-reports
+        // spend. The skip itself is logged (opaque UUIDs only, no PII).
+        this.logger.log(
+          `extract deduped session=${sessionId} worker=${input.worker_id} ` +
+            `existing_ai_job=${existing.id} status=${existing.status}`,
+        );
+        return { ai_job_id: existing.id, status: existing.status };
+      }
+    }
 
     const job = await this.aiJobs.create({
       jobType: "profile_extraction",
