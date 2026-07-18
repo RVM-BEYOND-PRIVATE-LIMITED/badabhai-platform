@@ -55,6 +55,7 @@ _ROLE_ANCHORS: dict[str, tuple[str, ...]] = {
     "role_hmc_operator": ("hmc", "horizontal machining", "horizonta"),
     "role_cnc_grinding_operator": ("grinding", "grinder", "grindr", "ghisai", "cylindrical"),
     "role_cnc_turner_operator": ("turner", "turning", "lathe"),
+    "role_welder": ("welder", "welding", "mig", "tig", "arc"),  # TAX-WELD-1
 }
 
 _SKILL_ANCHORS: dict[str, tuple[str, ...]] = {
@@ -66,6 +67,12 @@ _SKILL_ANCHORS: dict[str, tuple[str, ...]] = {
     "skill_gdt_reading": ("gd&t", "gdt", "drawing"),
     "skill_tool_offset_setting": ("tool offset", "offset"),
     "skill_fixture_setup": ("fixture",),
+    # TAX-WELD-1 — anchors for the pre-existing welding corpus ids.
+    "skill_mig_welding": ("mig", "gmaw"),
+    "skill_tig_welding": ("tig", "gtaw"),
+    "skill_arc_welding": ("arc", "smaw", "stick"),
+    "skill_gas_cutting": ("gas cutting", "oxy"),
+    "skill_welder_occupation": ("welder", "welding"),
 }
 
 _MACHINE_ANCHORS: dict[str, tuple[str, ...]] = {

@@ -55,6 +55,7 @@ ROLE_TO_TRADE: dict[str, str] = {
     "role_hmc_operator": "dom_hmc_machining",
     "role_cnc_grinding_operator": "dom_grinding",
     "role_cnc_turner_operator": "dom_cnc_machining",
+    "role_welder": "dom_welding",  # TAX-WELD-1
 }
 
 # Sentinel: a per-field expectation is "not asserted for this case". Distinct
@@ -169,13 +170,34 @@ _CORE: list[GoldCase] = [
              ("mach_cnc_lathe",), "core"),
     GoldCase("cnc turner hu, lathe pe turning karta hu", "role_cnc_turner_operator",
              ("mach_cnc_lathe",), "core"),
+    # role_welder (Welder) — TAX-WELD-1. Welding was previously a NEGATIVE tier
+    # (expected role None, "outside CNC/VMC scope" by design), which made a real
+    # welder unmatchable. It is now an in-scope role; the expected skill ids are the
+    # PRE-EXISTING active corpus ids (skill-corpus.ts), none minted for this change.
+    # No welding machine id is asserted: the taxonomy has no `mach_*` welding id and
+    # the corpus models TIG/MIG/arc as SKILLS.
+    GoldCase("welder hun main", "role_welder", (), "core",
+             expected_skills=("skill_welder_occupation",)),
+    GoldCase("tig aur mig machine chala leta hun", "role_welder", (), "core",
+             expected_skills=("skill_tig_welding", "skill_mig_welding")),
+    GoldCase("welding ka kaam karta hu, 6 saal se", "role_welder", (), "core",
+             expected_skills=("skill_welder_occupation",), expected_experience=6.0),
+    GoldCase("arc welding aur gas cutting dono karta hu", "role_welder", (), "core",
+             expected_skills=("skill_arc_welding", "skill_gas_cutting")),
+    GoldCase("mig welding welder hu, 4 saal ka experience", "role_welder", (), "core",
+             expected_skills=("skill_mig_welding", "skill_welder_occupation"),
+             expected_experience=4.0),
 ]
 
 # --- NEGATIVE: heuristic is expected to return None (scored WITH the gate) ------
 _NEGATIVE: list[GoldCase] = [
     GoldCase("sirf helper hu", None, (), "negative"),
     GoldCase("main helper hu factory me", None, (), "negative"),
-    GoldCase("welding ka kaam karta hu", None, (), "negative"),
+    # TAX-WELD-1: "welding ka kaam karta hu" USED TO LIVE HERE (expected role None).
+    # It is now a CORE case expecting role_welder — the one deliberate expectation
+    # FLIP in this change, and the whole point of the task. Replaced with another
+    # genuinely out-of-scope trade so the negative tier keeps its size + its teeth.
+    GoldCase("carpenter hu, lakdi ka kaam karta hu", None, (), "negative"),
     GoldCase("fitter hu, assembly line pe", None, (), "negative"),
     GoldCase("electrician hu, wiring karta hu", None, (), "negative"),
     GoldCase("kuch nahi aata abhi, naya hu", None, (), "negative"),

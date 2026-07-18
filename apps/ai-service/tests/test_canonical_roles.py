@@ -10,7 +10,9 @@ from __future__ import annotations
 from app.profiling import canonical_roles as cr
 
 
-def test_role_trade_covers_the_seven_launch_roles():
+def test_role_trade_covers_the_launch_roles_plus_welder():
+    # TAX-WELD-1: role_welder joins the CLOSED set (a wider enumerated whitelist —
+    # ADR-0028 §(d) — never free text). The 7 machining ids are unchanged.
     assert set(cr.ROLE_IDS) == {
         "role_vmc_operator",
         "role_hmc_operator",
@@ -19,9 +21,13 @@ def test_role_trade_covers_the_seven_launch_roles():
         "role_cnc_grinding_operator",
         "role_cnc_programmer",
         "role_cam_programmer",
+        "role_welder",
     }
     # Every id maps to a trade id.
     assert all(cr.ROLE_TRADE[r] for r in cr.ROLE_IDS)
+    assert cr.ROLE_TRADE["role_welder"] == "dom_welding"
+    # Every advertised id carries a description (the model is never shown a bare id).
+    assert set(cr.ROLE_DESCRIPTIONS) == set(cr.ROLE_IDS)
 
 
 def test_normalize_role_id_accepts_only_known_ids():

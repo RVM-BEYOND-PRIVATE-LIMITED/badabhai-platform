@@ -45,6 +45,12 @@ _CONTROLLERS: list[tuple[str, str, str | None]] = [
 ]
 
 # Roles, most specific first: (keyword, label, role_id, trade_id).
+#
+# TAX-WELD-1: the welding entries are DELIBERATELY LAST. First-keyword-wins, so every
+# CNC/VMC keyword still shadows them — a worker who says "vmc pe kaam karta hu aur
+# welding bhi" stays a VMC operator. Welding can therefore only ever ADD a role where
+# there was `None` before; it can never take one away. That ordering is the structural
+# guarantee behind "CNC/VMC extraction unchanged".
 _ROLES: list[tuple[str, str, str, str]] = [
     ("cam programmer", "CAM Programmer", "role_cam_programmer", "dom_programming"),
     ("programmer", "CNC Programmer", "role_cnc_programmer", "dom_programming"),
@@ -54,7 +60,54 @@ _ROLES: list[tuple[str, str, str, str]] = [
     ("grinding", "CNC Grinding Operator", "role_cnc_grinding_operator", "dom_grinding"),
     ("turner", "CNC Turner/Operator", "role_cnc_turner_operator", "dom_cnc_machining"),
     ("turning", "CNC Turner/Operator", "role_cnc_turner_operator", "dom_cnc_machining"),
+    ("welder", "Welder", "role_welder", "dom_welding"),
+    ("welding", "Welder", "role_welder", "dom_welding"),
 ]
+
+# --- Welding (TAX-WELD-1) ---------------------------------------------------
+# WIRING, NOT MINTING. Every id below ALREADY EXISTS, `status: "active"`, in
+# `packages/taxonomy/src/skill-corpus.ts` (ADR-0030 / TAX-2), and every keyword below
+# is ALREADY a canonical ENGLISH/technical alias of that skill in the same corpus:
+#
+#   skill_mig_welding      MIG welding / GMAW / MIG/MAG            (domain: welding)
+#   skill_tig_welding      TIG welding / GTAW                      (domain: welding)
+#   skill_arc_welding      arc welding / SMAW / stick welding      (domain: welding)
+#   skill_gas_cutting      gas cutting / oxy-fuel cutting          (domain: fabrication)
+#   skill_welder_occupation  Welder / "welder"                     (domain: welding)
+#
+# NO new skill_id is minted here and NO unratified Hinglish/vernacular alias is added
+# (that needs RVM ratification — ADR-0030 §7 gate (d)). The one Hindi phrase that IS
+# ratified for this family, "welding ka kaam" -> skill_welder_occupation
+# (`wedge-aliases.ts`, ratified: true), is covered by the plain "welding" keyword.
+#
+# MATCHED WITH WORD BOUNDARIES, unlike the substring tables above: "tig" is a substring
+# of "fatigue" and "mig" of "emigration"/"mitigate", so a bare `in` test would corrupt
+# profiles. Most specific first (mig/mag before mig).
+_WELDING: list[tuple[str, str, str]] = [
+    (r"mig\s*/\s*mag", "MIG welding", "skill_mig_welding"),
+    (r"gmaw", "MIG welding", "skill_mig_welding"),
+    (r"mig\s+welding", "MIG welding", "skill_mig_welding"),
+    (r"mig", "MIG welding", "skill_mig_welding"),
+    (r"gtaw", "TIG welding", "skill_tig_welding"),
+    (r"tig\s+welding", "TIG welding", "skill_tig_welding"),
+    (r"tig", "TIG welding", "skill_tig_welding"),
+    (r"smaw", "arc welding", "skill_arc_welding"),
+    (r"stick\s+welding", "arc welding", "skill_arc_welding"),
+    (r"arc\s+welding", "arc welding", "skill_arc_welding"),
+    (r"oxy[\s-]*fuel(?:\s+cutting)?", "gas cutting", "skill_gas_cutting"),
+    (r"gas\s+cutting", "gas cutting", "skill_gas_cutting"),
+    (r"welder", "welding", "skill_welder_occupation"),
+    (r"welding", "welding", "skill_welder_occupation"),
+]
+_WELDING_RE: list[tuple[re.Pattern[str], str, str]] = [
+    (re.compile(rf"\b{pat}\b", re.IGNORECASE), label, sid) for pat, label, sid in _WELDING
+]
+
+# Welding-DOMAIN skill ids (skill_gas_cutting is domain `fabrication` — a gas cutter is
+# a cutter, not necessarily a welder, so it alone must NOT imply the welder role).
+_WELDING_DOMAIN_SKILL_IDS = frozenset(
+    {"skill_mig_welding", "skill_tig_welding", "skill_arc_welding", "skill_welder_occupation"}
+)
 
 # Operational skills: (keyword, label, skill_id).
 _SKILLS: list[tuple[str, str, str]] = [
@@ -251,6 +304,21 @@ def _parse_amount(num: str, unit: str | None) -> int | None:
     return int(value)
 
 
+def _detect_welding(lower: str, sig: Signals) -> None:
+    """Append welding skill LABELS + canonical skill ids found in ``lower``.
+
+    Order-preserving and de-duplicated. Writes ONLY the five pre-existing, active
+    ``skill_*`` ids listed on :data:`_WELDING` — it can never mint an id, and it never
+    writes free text into a matchable field. Deliberately writes NO ``mach_*`` id: the
+    taxonomy has no welding machine id and the corpus models TIG/MIG/arc as SKILLS, so
+    inventing one would be minting.
+    """
+    for pattern, label, skill_id in _WELDING_RE:
+        if pattern.search(lower):
+            _append_unique(sig.skills, label)
+            _append_unique(sig.skill_ids, skill_id)
+
+
 def detect(text: str) -> Signals:
     """Detect all profile signals in ``text`` (raw worker text, trusted local)."""
     sig = Signals()
@@ -269,6 +337,9 @@ def detect(text: str) -> Signals:
             if skill_id:
                 _append_unique(sig.skill_ids, skill_id)
 
+    # Welding (TAX-WELD-1) — word-boundary matched; maps ONLY to existing corpus ids.
+    _detect_welding(lower, sig)
+
     # Role (first match wins)
     for kw, label, rid, tid in _ROLES:
         if kw in lower:
@@ -276,6 +347,14 @@ def detect(text: str) -> Signals:
             sig.role_id = rid
             sig.trade_id = tid
             break
+
+    # TAX-WELD-1 role fallback: a welder who never says the word "welder"/"welding"
+    # ("TIG aur MIG machine chala leta hun") is still a welder. Only fires when NO
+    # CNC/VMC role matched, so it can never displace an in-scope machining role.
+    if sig.role_id is None and any(s in _WELDING_DOMAIN_SKILL_IDS for s in sig.skill_ids):
+        sig.primary_role = "Welder"
+        sig.role_id = "role_welder"
+        sig.trade_id = "dom_welding"
 
     # Operational skills + knowledge levels
     for kw, label, skill_id in _SKILLS:
@@ -383,12 +462,21 @@ def _detect_salary(text: str, lower: str, sig: Signals) -> None:
 
 def role_id_for_label(label: str) -> tuple[str, str] | None:
     """Map a model-emitted role LABEL/phrase to its ``(role_id, trade_id)`` via the
-    gazetteer keywords, or None when no IN-SCOPE CNC/VMC role matches (e.g. welding).
-    First keyword match wins, mirroring detect()'s most-specific-first ordering."""
+    gazetteer keywords, or None when no in-scope role matches. First keyword match
+    wins, mirroring detect()'s most-specific-first ordering.
+
+    TAX-WELD-1: welding is now IN scope (``role_welder``/``dom_welding``), so
+    "mig_tig_welder" — the exact label the observed welder session produced — maps
+    instead of dropping to None. The welding keywords sit LAST in ``_ROLES``, so a
+    label naming a CNC/VMC role still wins. A welding-PROCESS-only label ("MIG
+    welding") falls back to the same role via the welding table."""
     low = (label or "").lower()
     for kw, _label, rid, tid in _ROLES:
         if kw in low:
             return rid, tid
+    for pattern, _label, sid in _WELDING_RE:
+        if sid in _WELDING_DOMAIN_SKILL_IDS and pattern.search(low):
+            return "role_welder", "dom_welding"
     return None
 
 
@@ -407,7 +495,10 @@ def machine_ids_for_labels(labels: list[str]) -> list[str]:
 def skill_ids_for_labels(labels: list[str]) -> list[str]:
     """Map model-emitted skill AND controller LABELS to canonical skill ids
     (controllers feed a legacy skill id, e.g. Fanuc -> skill_fanuc), mirroring
-    detect(). Order-preserving, de-duplicated; unknown labels yield nothing."""
+    detect(). Order-preserving, de-duplicated; unknown labels yield nothing.
+
+    TAX-WELD-1: welding labels ("MIG welding", "TIG welding", "arc welding", "gas
+    cutting") now map to their pre-existing corpus ids instead of yielding nothing."""
     out: list[str] = []
     for label in labels:
         low = (label or "").lower()
@@ -416,6 +507,9 @@ def skill_ids_for_labels(labels: list[str]) -> list[str]:
                 _append_unique(out, sid)
         for kw, _label, sid in _CONTROLLERS:
             if sid and kw in low:
+                _append_unique(out, sid)
+        for pattern, _label, sid in _WELDING_RE:
+            if pattern.search(low):
                 _append_unique(out, sid)
     return out
 

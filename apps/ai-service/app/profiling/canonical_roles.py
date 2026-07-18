@@ -29,6 +29,9 @@ ROLE_DESCRIPTIONS: dict[str, str] = {
     "role_cnc_grinding_operator": "CNC grinding operator (cylindrical/surface, sizing by grinding)",
     "role_cnc_programmer": "writes / edits CNC programs (G-code / M-code)",
     "role_cam_programmer": "CAM programming — tool paths in Mastercam / Fusion / NX",
+    # TAX-WELD-1: welding is in scope. The id is added to the CLOSED set (a wider
+    # enumerated whitelist, never free text — ADR-0028 §(d)), not to a free-form field.
+    "role_welder": "welder — MIG / TIG / arc / gas welding as the main job",
 }
 
 
@@ -52,12 +55,15 @@ def canonicalization_instruction() -> str:
         "programer/'cnc program banata hu'/'g-code likhta hu' -> role_cnc_programmer; "
         "'cam programing'/'tool path' -> role_cam_programmer; grindr/'ghisai'/'round part "
         "size pe laana' -> role_cnc_grinding_operator; lathe/turning/'katai' -> "
-        "role_cnc_turner_operator.\n"
+        "role_cnc_turner_operator; welder/'welding ka kaam'/MIG/TIG/GMAW/GTAW/arc/stick "
+        "welding -> role_welder.\n"
         "- Choose role_cnc_setter_operator ONLY if the worker calls themselves a setter or "
         "says setting/setup is their MAIN job. Incidental setting by an operator (e.g. just "
         "'tool offset setting') KEEPS the operator role.\n"
+        "- Choose role_welder only when welding is the MAIN job. A machining worker who "
+        "welds incidentally KEEPS their machining role.\n"
         "- Use null when the worker is only a helper/labourer, the trade is unrelated "
-        "to CNC/VMC, OR they state no concrete role/machine/task (e.g. 'naya hu', "
+        "to CNC/VMC or welding, OR they state no concrete role/machine/task (e.g. 'naya hu', "
         "'kuch nahi aata', 'abhi seekh raha hu' with nothing specific). Do NOT guess a "
         "role from thin air. Output ONLY an id from the set above, or null.\n"
     )
