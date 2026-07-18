@@ -217,6 +217,29 @@ _FULL_ANSWER = (
     "faridabad me hu pune chalega"
 )
 
+_UNSET = object()
+
+
+def _drive_to_close(worker_name=_UNSET):
+    """Run the interview to its CLOSE turn and return ``(close_message, ready)``.
+
+    Since #424 a single essentials-answering message no longer wraps up: salary_current
+    / salary_expected / availability are MUST_ASK, so the close is reached only after
+    they have been RAISED. Non-answers are used deliberately — the ASK satisfies the
+    gate, and this keeps the test about the VOCATIVE, not about detection.
+    """
+    kwargs = {} if worker_name is _UNSET else {"worker_name": worker_name}
+    reply, asked, state, ready = interview_engine.next_turn(
+        None, _FULL_ANSWER, "cnc_vmc", **kwargs
+    )
+    for _ in range(20):
+        if asked is None:
+            return reply, ready
+        reply, asked, state, ready = interview_engine.next_turn(
+            state, "theek hai ji", "cnc_vmc", **kwargs
+        )
+    raise AssertionError("interview never reached the close turn")
+
 
 def test_default_emits_placeholder_token_at_open_and_close_never_a_real_name():
     # AI-PERSONA-2 (SG-1): the ai-service NEVER emits a real name — only the
@@ -229,10 +252,8 @@ def test_default_emits_placeholder_token_at_open_and_close_never_a_real_name():
     assert ready_open is False and asked_open is not None
     assert open_turn.startswith(f"{_PLACEHOLDER} ji, ")  # turn 1 = open slot
 
-    close, asked_close, _st2, ready_close = interview_engine.next_turn(
-        None, _FULL_ANSWER, "cnc_vmc"
-    )
-    assert ready_close is True and asked_close is None
+    close, ready_close = _drive_to_close()
+    assert ready_close is True
     assert close.startswith(f"{_PLACEHOLDER} ji, ")
 
     # A MID-interview ack turn (turn >= 2) carries NO vocative — ack only.
@@ -250,9 +271,7 @@ def test_worker_name_none_opts_out_of_the_vocative_cleanly():
     _tid, opening = interview_engine.first_question("cnc_vmc", worker_name=None)
     assert "ji," not in opening and _PLACEHOLDER not in opening
 
-    close, _asked, _st, ready = interview_engine.next_turn(
-        None, _FULL_ANSWER, "cnc_vmc", worker_name=None
-    )
+    close, ready = _drive_to_close(worker_name=None)
     assert ready is True
     assert "ji," not in close and _PLACEHOLDER not in close
 

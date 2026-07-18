@@ -121,7 +121,15 @@ function readCity(locationPreference: unknown): string | null {
   const obj = asObject(locationPreference);
   if (!obj) return null;
 
-  const scalar = nonBlankStringOrNull(obj.city) ?? nonBlankStringOrNull(obj.city_slug);
+  // Issue #423 — `current_city` joins the existing scalar preferences: where the
+  // worker IS is what the feed should match on, not where they said they'd like to
+  // work. The `preferred_cities` fallback below stays for profiles extracted before
+  // current and preferred locations were split, where the current city was prepended
+  // to that array and is the only place it exists.
+  const scalar =
+    nonBlankStringOrNull(obj.city) ??
+    nonBlankStringOrNull(obj.city_slug) ??
+    nonBlankStringOrNull(obj.current_city);
   if (scalar) return scalar;
 
   const cities = obj.preferred_cities;

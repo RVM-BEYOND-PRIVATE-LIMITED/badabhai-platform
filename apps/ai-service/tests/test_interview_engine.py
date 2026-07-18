@@ -42,8 +42,15 @@ def test_extraction_ready_after_essential_info():
     msg = "vmc operator, 4 saal, setting aur drawing reading karta hu, faridabad me hu pune chalega"
     _reply, asked_id, state, ready = interview_engine.next_turn(None, msg, "cnc_vmc")
     assert all(t in state.answered_topics for t in interview_engine.ESSENTIAL_TOPICS)
-    assert ready is True
-    assert asked_id is None  # wrap-up, no further question
+    # Issue #424 (owner ruling 2026-07-18): essentials answered is NO LONGER enough.
+    # salary_current / salary_expected / availability joined MUST_ASK, so the engine
+    # keeps interviewing until they have been RAISED.
+    assert ready is False
+    assert asked_id is not None
+    _further, state, ready = _drive_to_wrap_up(state, asked_id, lambda tid: _ANSWERS[tid])
+    assert ready is True  # ...and then it wraps up
+    for topic_id in interview_engine.MUST_ASK_TOPICS:
+        assert topic_id in state.answered_topics or topic_id in state.asked_question_ids
 
 
 def test_state_carries_forward_across_turns():
@@ -75,6 +82,25 @@ def _drive(messages: list[str], state=None):
     return out
 
 
+def _drive_to_wrap_up(state, asked_id, reply_for, max_turns: int = 40):
+    """Continue an IN-PROGRESS interview to the wrap-up turn, answering each ask via
+    ``reply_for(asked_id)``. Returns ``(further_ask_log, final_state, final_ready)``.
+
+    Needed since #424: essentials-answered no longer wraps up in a single turn, so a
+    test that owns some OTHER property (detection keying, vocative placement) has to
+    walk the rest of the interview instead of asserting an immediate close."""
+    ask_log: list[str] = []
+    ready = False
+    for _ in range(max_turns):
+        if asked_id is None:
+            return ask_log, state, ready
+        ask_log.append(asked_id)
+        _reply, asked_id, state, ready = interview_engine.next_turn(
+            state, reply_for(asked_id), "cnc_vmc"
+        )
+    raise AssertionError(f"interview did not wrap up — further asks: {ask_log}")
+
+
 def test_b4_ready_cannot_flip_until_preferred_locations_is_asked():
     """Register row B-4: essentials answered (current location included) is NOT
     enough — the preferred-locations question must have been served."""
@@ -91,13 +117,19 @@ def test_b4_ready_cannot_flip_until_preferred_locations_is_asked():
 def test_b4_preferred_asked_but_unanswered_satisfies_the_gate():
     # The schema keeps preferred_locations optional (contracts.py: default []),
     # so the ASK satisfies the gate — a worker with no preference is not stuck.
+    # #424 generalizes this to EVERY must-ask: a worker who answers none of them
+    # still reaches wrap-up, because the obligation is on us to ASK, not on them
+    # to answer. This drives the whole tail with a non-answer to prove exactly that.
     _r1, asked1, st1, ready1 = interview_engine.next_turn(
         None, "vmc operator, 4 saal, setting aata hai, faridabad me hu", "cnc_vmc"
     )
     assert asked1 == "preferred_locations" and ready1 is False
-    _r2, asked2, st2, ready2 = interview_engine.next_turn(st1, "theek hai ji", "cnc_vmc")
+    further, st2, ready2 = _drive_to_wrap_up(st1, asked1, lambda _tid: "theek hai ji")
     assert ready2 is True  # asked (not answered) satisfies MUST_ASK
-    assert asked2 is None  # wrap-up
+    for topic_id in interview_engine.MUST_ASK_TOPICS:
+        assert topic_id in st2.asked_question_ids, f"{topic_id} never asked: {further}"
+        assert topic_id not in st2.answered_topics  # ...and never answered
+    assert len(further) == len(set(further))  # no nagging on the way there
 
 
 def test_b4_single_city_reply_to_preferred_question_keys_the_right_field():
@@ -108,7 +140,7 @@ def test_b4_single_city_reply_to_preferred_question_keys_the_right_field():
     )
     assert asked1 == "preferred_locations"
     _r2, _a2, st2, ready2 = interview_engine.next_turn(st1, "Delhi bhi chalega", "cnc_vmc")
-    assert ready2 is True
+    assert ready2 is False  # #424: salary/availability must-asks still pending
     assert st2.collected["preferred_locations"] == ["Delhi"]
     assert st2.collected["current_location"] == "Faridabad"  # unchanged
 
@@ -119,7 +151,7 @@ def test_b4_flexibility_reply_answers_preferred():
     )
     assert asked1 == "preferred_locations"
     _r2, _a2, st2, ready2 = interview_engine.next_turn(st1, "kahin bhi chalega", "cnc_vmc")
-    assert ready2 is True
+    assert ready2 is False  # #424: salary/availability must-asks still pending
     assert "preferred_locations" in st2.answered_topics
 
 
@@ -134,7 +166,9 @@ def test_b4_combined_answer_satisfies_both_location_topics():
     assert "preferred_locations" in state.answered_topics
     assert state.collected["current_location"] == "Pune"
     assert state.collected["preferred_locations"] == ["Delhi"]
-    assert ready is True and asked_id is None
+    # #424: both location topics are satisfied, but the salary/availability
+    # must-asks are not — so the engine keeps going instead of wrapping up here.
+    assert ready is False and asked_id is not None
 
 
 def test_b4_legacy_combined_state_ids_are_normalized_and_preferred_still_asked():
@@ -158,8 +192,111 @@ def test_b4_legacy_combined_state_ids_are_normalized_and_preferred_still_asked()
     assert asked_id == "skills"
     _r2, asked2, st2, ready2 = interview_engine.next_turn(st, "setting aata hai", "cnc_vmc")
     assert asked2 == "preferred_locations" and ready2 is False
-    _r3, asked3, _st3, ready3 = interview_engine.next_turn(st2, "Delhi chalega", "cnc_vmc")
-    assert ready3 is True and asked3 is None
+    _r3, asked3, st3, ready3 = interview_engine.next_turn(st2, "Delhi chalega", "cnc_vmc")
+    # #424: the legacy "salary" id normalizes to salary_current (answered), but
+    # salary_expected and availability are new must-asks and were never raised
+    # under the old bank either — so they are still owed before wrap-up.
+    assert ready3 is False and asked3 is not None
+    assert "salary_current" in st3.answered_topics
+    _further, st4, ready4 = _drive_to_wrap_up(st3, asked3, lambda _tid: "theek hai ji")
+    assert ready4 is True
+    for topic_id in ("salary_expected", "availability"):
+        assert topic_id in st4.asked_question_ids
+
+
+# --- Issue #424: salary + availability are MUST_ASK (owner ruling 2026-07-18) ---
+# The readiness gate used to cover 5 topics. Because `next_turn` wraps up the instant
+# readiness flips, and `detect_answered_topics` can mark several topics answered from
+# ONE fluent sentence, a worker could be wrapped up having never been asked what they
+# earn, what they want, or when they can join — the exact fields payers filter on.
+# The ruling promotes all three to MUST_ASK (they must be ASKED) and DELIBERATELY NOT
+# to ESSENTIAL (they need not be ANSWERED — nobody is forced to disclose their salary
+# to get a profile).
+
+
+def test_424_salary_and_availability_are_must_ask_but_never_essential():
+    """The ruling, pinned as a constant so a later edit is a deliberate decision."""
+    for topic_id in ("salary_current", "salary_expected", "availability"):
+        assert topic_id in interview_engine.MUST_ASK_TOPICS, topic_id
+        # The other half of the ruling, and the one that protects the worker: an
+        # ESSENTIAL must be ANSWERED, so adding these there would let a refusal to
+        # state a salary keep re-asking and land on `unanswered_essentials`.
+        assert topic_id not in interview_engine.ESSENTIAL_TOPICS, topic_id
+    # preferred_locations (B-4) is unchanged — this is additive, not a replacement.
+    assert "preferred_locations" in interview_engine.MUST_ASK_TOPICS
+
+
+def test_424_every_must_ask_id_exists_verbatim_in_the_question_bank():
+    """A must-ask id with no matching bank topic could never be SERVED by
+    `_next_topic`, so readiness would stay False until the ask ceiling tripped —
+    a silent, hard-to-diagnose stall. This pins the ids against the bank."""
+    bank_ids = {t.id for t in topics_for("cnc_vmc")}
+    for topic_id in interview_engine.MUST_ASK_TOPICS:
+        assert topic_id in bank_ids, f"must-ask {topic_id!r} is not a bank topic"
+        assert topic_by_id("cnc_vmc", topic_id) is not None
+
+
+def test_424_a_fluent_worker_is_still_asked_salary_and_availability():
+    """THE ISSUE #424 REGRESSION TEST. One message answers every essential plus both
+    location topics — under the old 5-topic gate the engine wrapped up right there and
+    money/notice-period were never raised. Now it must keep interviewing."""
+    _reply, asked_id, state, ready = interview_engine.next_turn(
+        None,
+        "vmc operator, 4 saal, setting aur drawing reading karta hu, "
+        "faridabad me hu pune chalega",
+        "cnc_vmc",
+    )
+    assert all(t in state.answered_topics for t in interview_engine.ESSENTIAL_TOPICS)
+    assert "preferred_locations" in state.answered_topics
+    assert ready is False, "wrapped up before salary/availability were raised"
+
+    further, state, ready = _drive_to_wrap_up(state, asked_id, lambda _tid: "theek hai ji")
+    assert ready is True
+    for topic_id in ("salary_current", "salary_expected", "availability"):
+        assert topic_id in further, f"{topic_id} never asked: {further}"
+        assert topic_id in state.asked_question_ids
+
+
+def test_424_no_worker_persona_reaches_wrap_up_with_a_must_ask_unraised():
+    """The INVARIANT, swept over how differently workers actually reply: whatever the
+    path, `extraction_ready` may not be True at wrap-up unless every MUST_ASK topic was
+    asked or answered. The 'answers every topic' persona is the discriminating one —
+    it is exactly the fluent worker the old gate cut short."""
+    for label, reply_for in (
+        ("answers every topic", lambda tid: _ANSWERS[tid]),
+        ("answers nothing extractable", lambda _tid: _GARBAGE),
+        ("one-word replies", lambda _tid: "haan"),
+    ):
+        _log, state, ready, _turns = _run_interview(reply_for)
+        assert ready is True, label
+        # Checked against the CONSTANT (so the invariant tracks any future must-ask)
+        # AND against the three ids the ruling named LITERALLY — without the literals
+        # this test would pass vacuously if someone reverted the constant.
+        expected = set(interview_engine.MUST_ASK_TOPICS) | {
+            "salary_current",
+            "salary_expected",
+            "availability",
+        }
+        for topic_id in sorted(expected):
+            raised = (
+                topic_id in state.asked_question_ids
+                or topic_id in state.answered_topics
+            )
+            assert raised, f"[{label}] wrapped up with {topic_id} unraised"
+
+
+def test_424_promoting_the_topics_did_not_start_nagging_the_worker():
+    """The cost side of the ruling: MUST_ASK topics are non-essential, so they keep
+    the ask-ONCE rule even when the worker never answers them. If this fails, the
+    promotion accidentally made them re-askable and the interview nags about money."""
+    ask_log, state, _ready, _turns = _run_interview(lambda _tid: "theek hai ji")
+    counts = Counter(ask_log)
+    for topic_id in ("salary_current", "salary_expected", "availability"):
+        assert counts[topic_id] == 1, (topic_id, dict(counts))
+        assert topic_id not in state.answered_topics  # asked, never answered
+        assert topic_id not in state.unanswered_essentials  # ...and not an essential
+    # The whole run still fits the ask budget the backstop is sized against.
+    assert sum(state.ask_counts.values()) < interview_engine.MAX_ENGINE_ASKS
 
 
 def test_b4_state_only_answer_does_not_satisfy_current_location():
@@ -531,8 +668,17 @@ def test_unanswered_essentials_is_empty_when_everything_is_answered():
         "faridabad me hu pune chalega",
         "cnc_vmc",
     )
-    assert ready is True and asked_id is None
     assert state.unanswered_essentials == []  # clean default = complete
+    # #424: the ESSENTIALS gap list is empty, yet readiness is still False — the two
+    # gates are deliberately independent. unanswered_essentials tracks what must be
+    # ANSWERED; MUST_ASK tracks what must be RAISED. Promoting salary/availability to
+    # MUST_ASK must NOT make them show up as unanswered essentials.
+    assert ready is False and asked_id is not None
+    for topic_id in ("salary_current", "salary_expected", "availability"):
+        assert topic_id not in state.unanswered_essentials
+    _further, state, ready = _drive_to_wrap_up(state, asked_id, lambda _tid: "theek hai ji")
+    assert ready is True
+    assert state.unanswered_essentials == []
 
 
 def test_legacy_state_without_ask_counts_deserializes_and_stays_bounded():

@@ -102,3 +102,36 @@ def test_merge_model_draft_does_not_overlay_location_or_salary():
     assert out.current_city == base.current_city      # NOT overwritten by the model
     assert out.current_salary == base.current_salary  # NOT overwritten
     assert "VMC" in out.machines                       # non-local field still overlaid
+
+
+def test_issue_423_current_city_is_not_emitted_as_a_preferred_location():
+    """The legacy shape must keep "where I am" separate from "where I'll work".
+
+    _MESSY says "faridabad me hu, pune bhi chalega" — I am IN Faridabad, Pune ALSO
+    works. Before the split, _build_legacy prepended the current city to
+    preferred_cities, so Faridabad was recorded as somewhere the worker had asked
+    to be placed. The engine never conflated them (question_bank: "current AND
+    preferred location, never conflated"); only the legacy projection did.
+    """
+    _rich, legacy = profile_extractor.extract(_MESSY, "cnc_vmc")
+    loc = legacy.location_preference
+
+    assert loc.current_city == "Faridabad"
+    assert "Faridabad" not in loc.preferred_cities
+    assert "Pune" in loc.preferred_cities
+
+
+def test_issue_423_no_stated_preference_leaves_preferred_empty_not_the_current_city():
+    """The path that made an ai-service-only fix unsafe.
+
+    current_location is ESSENTIAL (must be answered); preferred_locations is only
+    MUST_ASK (may go unanswered), so "city known, no preference stated" is a
+    designed-for outcome — and it is precisely the case where the old code invented
+    a preference. preferred_cities must stay EMPTY here, which is why every
+    consumer reads current_city first and falls back to the array.
+    """
+    _rich, legacy = profile_extractor.extract("vmc 4 saal faridabad me hu", "cnc_vmc")
+    loc = legacy.location_preference
+
+    assert loc.current_city == "Faridabad"
+    assert loc.preferred_cities == []

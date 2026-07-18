@@ -173,6 +173,17 @@ export const SalaryExpectationSchema = z.object({
 });
 
 export const LocationPreferenceSchema = z.object({
+  // Issue #423 — where the worker IS, kept separate from where they WANT to work.
+  // The interview engine has always treated these as distinct topics
+  // (question_bank.py: "current AND preferred location, never conflated"), but the
+  // legacy shape had nowhere to put the current city, so `_build_legacy` prepended it
+  // to `preferred_cities` — turning "I live in Pune" into "I want to work in Pune".
+  //
+  // ADDITIVE + defaulted → backward compatible: rows written before this field exist
+  // parse fine and keep `current_city: null`, which is why every consumer reads
+  // `current_city ?? preferred_cities[0]` rather than switching outright. Mirrors the
+  // Pydantic LocationPreference in contracts.py (§7 parity).
+  current_city: z.string().nullable().default(null),
   preferred_cities: z.array(z.string()).default([]),
   willing_to_relocate: z.boolean().nullable().default(null),
 });
