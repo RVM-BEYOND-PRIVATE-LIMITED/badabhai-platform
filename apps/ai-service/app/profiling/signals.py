@@ -415,41 +415,163 @@ _AVAIL_NOW = (
 # Joining/starting INTENT: ability or future forms only. Past-tense joins ("2019 me
 # company join ki thi", "kal join ki thi") are history, not availability, so they are
 # deliberately unmatched.
+#
+# BARE `ready` IS NOT HERE — adversarial review of #436, HIGH-1. The first cut ended
+# this alternation with `|ready)`, which combined with the adverb-adjacency rule below
+# to re-create the EXACT bug class this module exists to kill, in the register it most
+# needed to protect. On a shop floor "job" means the WORKPIECE, and "ready" is what you
+# say about a part, a tool, a fixture or a drawing:
+#
+#     "job abhi ready hai"            -> immediate   (the PART is ready)
+#     "machine abhi ready hai"        -> immediate
+#     "tool aaj ready ho jayega"      -> immediate
+#     "fixture aaj ready karna hai"   -> immediate
+#     "kal meri shaadi hai to ready rahunga" -> immediate
+#
+# `ready` now only counts when it is attributed to the WORKER (a first-person copula,
+# or an explicit "main/mai/I am"), or carries the "to join" suffix — the same
+# self-attribution test that `available` already correctly required.
 _AVAIL_JOIN = (
     r"(?:join\s+kar\s+(?:sakta|sakti|sakte)|join\s+(?:kar\s+)?"
     r"(?:lunga|loonga|luga|karunga|karoonga|sakunga)|joining\s+(?:kar\s+)?"
     r"(?:sakta|sakti|sakte|lunga)|aa\s+(?:sakta|sakti|sakte|jaunga|jaungi)|"
-    r"(?:start|shuru)\s+kar\s+(?:sakta|sakti|sakte|dunga)|ready)"
+    r"(?:start|shuru)\s+kar\s+(?:sakta|sakti|sakte|dunga))"
 )
-_IMMEDIATE_CUE_RE: tuple[re.Pattern[str], ...] = tuple(
+
+# STRONG cues: the word itself is the answer, whoever is speaking. No blocker needed.
+_IMMEDIATE_STRONG_RE: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE)
     for p in (
-        # Unambiguous immediacy words — these ARE the answer on their own.
         r"\bimmediate(?:ly)?\b",
         r"\bturant\b",
         r"\bfaura?n\b",
         r"\bforan\b",
-        r"\bready\s+to\s+join\b",
-        # Being free / idle right now. Requires the copula, so "freelance" (no word
-        # boundary anyway) and "free size job" can never fire it.
-        r"\b(?:free|khaali|khali|faarig|farig|fursat)\s+(?:hu|hun|hoon|hai|hain|ho)\b",
-        rf"\b(?:{_AVAIL_NOW}|main|mai|bilkul)\s+(?:free|khaali|khali)\b",
-        # "available" attributed to the WORKER, never to a job/machine — "koi job
-        # available hai kya?" is a question about vacancies, not a start date.
-        rf"\b(?:main|mai|hum|i\s*am|i'?m|{_AVAIL_NOW})\s+available\b"
-        r"(?!\s+(?:machine|machines|job|jobs|kaam|work|vacanc|position))",
-        r"\bavailable\s+(?:hu|hun|hoon)\b",
-        # Not currently working — a complete availability answer.
-        r"\b(?:kaam|job|naukri|kuch)\s+(?:nahi+n?|nhi)\s+"
-        r"(?:kar\s+raha|kar\s+rahi|hai|mil\s+raha|milta)\b",
-        r"\b(?:job|naukri|company|kaam)\s+chhod\s+(?:di|diya|dia|dii)\b",
-        r"\bberozgar\b",
+        # `ready` WITH the joining suffix — "ready to join", "join karne ke liye ready".
+        r"\bready\s+(?:to\s+)?join\b",
+        r"\bjoin\w*\s+(?:ke\s+liye|kar\w*\s+ke\s+liye)\s+ready\b",
         # A time adverb NEXT TO a join/start intent, in either word order. This is the
         # ONLY way "abhi"/"aaj"/"kal" can contribute, and the whole point of the fix.
         rf"\b{_AVAIL_NOW}\b[^.;!?]{{0,20}}?\b{_AVAIL_JOIN}\b",
         rf"\b{_AVAIL_JOIN}\b[^.;!?]{{0,20}}?\b{_AVAIL_NOW}\b",
     )
 )
+
+# SELF-STATE cues: "I am, right now, not working / free / ready". These are real
+# availability answers, but every one of them is SUBJECT- and TENSE-sensitive, so each
+# is additionally gated on :func:`_self_state_blocked`.
+#
+# FIRST PERSON IS REQUIRED (adversarial review of #436, HIGH-2). The first cut accepted
+# `hai`/`hain` here and justified it with "the copula makes this safe". That reasoning
+# was wrong: `hai`/`hain` are THIRD person, so objects became available workers —
+# "machine free hai", "wo free hai". `available` in the very same tuple already demanded
+# `main|mai|hum|i am`; these cues are now consistent with it.
+_IMMEDIATE_SELF_STATE_RE: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        # Being free / idle. First-person copula ONLY, so "machine free hai" and the
+        # "freelance"/"free size job" substrings can never fire it.
+        r"\b(?:free|khaali|khali|faarig|farig|fursat)\s+(?:hu|hun|hoon)\b",
+        rf"\b(?:{_AVAIL_NOW}|main|mai|bilkul)\s+(?:free|khaali|khali)\b",
+        # `ready` attributed to the worker.
+        r"\bready\s+(?:hu|hun|hoon)\b",
+        r"\b(?:main|mai|hum|i\s*am|i'?m)\s+ready\b",
+        # "available" attributed to the WORKER, never to a job/machine — "koi job
+        # available hai kya?" is a question about vacancies, not a start date.
+        rf"\b(?:main|mai|hum|i\s*am|i'?m|{_AVAIL_NOW})\s+available\b"
+        r"(?!\s+(?:machine|machines|job|jobs|kaam|work|vacanc|position))",
+        r"\bavailable\s+(?:hu|hun|hoon)\b",
+        # Not currently working. `hai`, `mil raha` and `milta` were DROPPED (review
+        # MEDIUM-3): "yahan acha kaam nahi milta" is a complaint about the current job,
+        # and "kaam nahi hai" is as often about the shop's workload as the worker's.
+        r"\b(?:kaam|job|naukri|kuch)\s+(?:nahi+n?|nhi)\s+(?:kar\s+raha|kar\s+rahi)\b",
+        # Left the job. Past-perfect ("chhod di THI") is handled by the tense blocker.
+        r"\b(?:job|naukri|company|kaam)\s+chhod\s+(?:di|diya|dia|dii)\b",
+        # First person only: "mera bhai berozgar hai" is someone else's unemployment.
+        r"\bberozgar\s+(?:hu|hun|hoon)\b",
+    )
+)
+
+# Blockers for the SELF-STATE family (adversarial review of #436, HIGH-2 + MEDIUM-3).
+# Read in a window AROUND the cue, not over the whole message, so an unrelated later
+# clause cannot suppress a genuine answer.
+_SELF_STATE_WINDOW_BEFORE = 34
+_SELF_STATE_WINDOW_AFTER = 16
+
+# The cue describes a THING, not the worker. "job" is deliberately here: on a shop
+# floor it means the workpiece.
+_SELF_STATE_OBJECT = (
+    r"\b(?:machine|machines|tool|tools|fixture|jig|drawing|piece|part|parts|spindle|"
+    r"job|component|material|order)\b"
+)
+# The cue describes SOMEONE ELSE.
+_SELF_STATE_THIRD_PARTY = (
+    r"\b(?:wo|woh|uska|uski|unka|unki|bhai|dost|saathi|beta|papa|friend|colleague|"
+    r"bandha|aadmi|ladka)\b"
+)
+# The state is TIME-SCOPED — free on Sunday / at lunch is not free for a job.
+_SELF_STATE_TIME_SCOPE = (
+    r"\b(?:sunday|saturday|monday|tuesday|wednesday|thursday|friday|ravivar|itwar|"
+    r"shanivar|weekend|chutti|holiday|lunch|shaam|subah|raat|dopahar|evening|"
+    r"morning|night|shift)\b"
+)
+# The state is in the PAST.
+_SELF_STATE_PAST_BEFORE = r"\b(?:pehle|pichl[ae]|pichli|puran[ae]|purani|last)\b"
+_SELF_STATE_PAST_AFTER = r"\b(?:tha|thi|the)\b"
+# ...or it has since been resolved: "berozgar tha pehle, ab kaam mil gaya".
+_SELF_STATE_RESOLVED = r"\b(?:kaam|job|naukri)\s+mil\s+(?:gaya|gayi|gya|gyi)\b"
+
+_SELF_STATE_BEFORE_RE = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        _SELF_STATE_OBJECT,
+        _SELF_STATE_THIRD_PARTY,
+        _SELF_STATE_TIME_SCOPE,
+        _SELF_STATE_PAST_BEFORE,
+    )
+)
+_SELF_STATE_AFTER_RE = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (_SELF_STATE_PAST_AFTER, _SELF_STATE_RESOLVED)
+)
+
+
+def _self_state_blocked(text: str, start: int, end: int) -> bool:
+    """True when a SELF-STATE availability cue is not about the worker being free NOW.
+
+    Three ways that happens, each a MEASURED failure from the review of #436, not a
+    hypothetical:
+
+    - the subject is an OBJECT ("machine free hai", "machine sahi kaam nahi kar rahi")
+      or a THIRD PARTY ("mera bhai berozgar hai");
+    - the state is TIME-SCOPED ("sunday free hu", "lunch me free hu") — free at a time
+      is not free for a job;
+    - the state is PAST or already RESOLVED ("pichli job chhod di THI 2019 me",
+      "berozgar tha pehle ab kaam mil gaya").
+
+    Windowed rather than whole-message so a later unrelated clause cannot suppress a
+    real answer. Fail direction stays toward "unknown": a blocked cue leaves
+    availability unset, and #429's must-ask gate then asks the question properly.
+    """
+    before = text[max(0, start - _SELF_STATE_WINDOW_BEFORE): start]
+    after = text[end: end + _SELF_STATE_WINDOW_AFTER]
+    return any(p.search(before) for p in _SELF_STATE_BEFORE_RE) or any(
+        p.search(after) for p in _SELF_STATE_AFTER_RE
+    )
+
+
+def _has_immediate_cue(text: str) -> bool:
+    """True when ``text`` carries a genuine "can start now" cue.
+
+    Strong cues fire on their own; self-state cues must also survive
+    :func:`_self_state_blocked`.
+    """
+    if any(p.search(text) for p in _IMMEDIATE_STRONG_RE):
+        return True
+    for pattern in _IMMEDIATE_SELF_STATE_RE:
+        for match in pattern.finditer(text):
+            if not _self_state_blocked(text, match.start(), match.end()):
+                return True
+    return False
 
 # Notice-period durations. Deliberately EXCLUDES "saal"/"year": years are experience,
 # never a notice period — and the experience clause is precisely what the old bare
@@ -481,6 +603,45 @@ _NOTICE_CUE_RE: tuple[re.Pattern[str], ...] = tuple(
 # din lagenge?" but say nothing on their own in the middle of a transcript, so they
 # must never run context-free — that is how "6 month" became a notice period.
 _ASKED_NOTICE_RE = re.compile(rf"\b{_AVAIL_NUM}\s*{_AVAIL_UNIT}\b", re.IGNORECASE)
+
+# ...and even in that context, a duration is only a NOTICE if it is time-until, not
+# time-since or a work pattern (adversarial review of #436, MEDIUM-5). `last_asked` is
+# ``asked_question_ids[-1]`` — "the last question we asked", NOT "the question this
+# message answers" — so while availability is pending the worker may still be talking
+# about something else:
+#
+#     "10 din pehle join kiya tha"    -> notice_period   (time AGO)
+#     "hafte me 6 din kaam karta hu"  -> notice_period   (a work WEEK)
+#     "do mahine se salary nahi mili" -> notice_period   (time SINCE)
+#
+# "X se" is "for the last X" while "X baad"/"X mein" is "in X" — the distinction that
+# separates all three of these from a real notice period.
+_ASKED_NOTICE_BLOCKERS_RE: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\bpehle\b",            # "10 din pehle" — that many days AGO
+        r"\bse\b",               # "do mahine se" — FOR the last two months
+        r"\bkaam\s+kar",         # "hafte me 6 din kaam karta hu" — a work pattern
+        r"\bexperience\b",
+    )
+)
+_ASKED_NOTICE_BLOCK_WINDOW = 14
+
+
+def _asked_notice_blocked(text: str, start: int, end: int) -> bool:
+    """True when a bare duration in an availability-context message is not a notice."""
+    window = text[max(0, start - _ASKED_NOTICE_BLOCK_WINDOW): start] + " " + text[
+        end: end + _ASKED_NOTICE_BLOCK_WINDOW
+    ]
+    return any(p.search(window) for p in _ASKED_NOTICE_BLOCKERS_RE)
+
+
+def _asked_notice_duration(text: str) -> bool:
+    """A bare duration that really does read as "this long until I can join"."""
+    return any(
+        not _asked_notice_blocked(text, m.start(), m.end())
+        for m in _ASKED_NOTICE_RE.finditer(text)
+    )
 _ASKED_IMMEDIATE_RE: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE)
     for p in (
@@ -490,9 +651,12 @@ _ASKED_IMMEDIATE_RE: tuple[re.Pattern[str], ...] = tuple(
         r"\bkabhi\s+bhi\b",
         r"\bjab\s+(?:bolo|bhi|kaho|chaho|bulao|bulaye)\b",
         r"\banytime\b",
-        # A bare time adverb IS the answer to "how many days to join?".
-        rf"^\W*{_AVAIL_NOW}\b",
-        rf"\b{_AVAIL_NOW}\s*(?:hi|se|se\s+hi)?\s*$",
+        # A bare time adverb IS the answer to "how many days to join?" — but only when
+        # it is the WHOLE answer. Anchored at BOTH ends (review of #436, HIGH-1): the
+        # first cut anchored only the start, so any long sentence that happened to open
+        # with a time word was read as a start date —
+        # "kal meri shaadi hai to ready rahunga" -> immediate.
+        rf"^\W*{_AVAIL_NOW}(?:\s+(?:hi|se|tak|ko|hi\s+se|se\s+hi))?\W*$",
         # Ability to join, with no immediacy adverb attached.
         rf"\b{_AVAIL_JOIN}\b",
     )
@@ -914,11 +1078,11 @@ def detect(text: str) -> Signals:
 
     # Availability — raw text: "abhi kuch nahi kar raha" is an IMMEDIATE answer.
     #
-    # Issue #424 follow-up: word-boundary GENUINE cues only (see _IMMEDIATE_CUE_RE).
+    # Issue #424 follow-up: word-boundary GENUINE cues only (see _has_immediate_cue).
     # A bare time adverb is NOT a cue, so answering our own "Abhi kis sheher mein
     # hain?" no longer fabricates "immediate". Immediate is still checked first, as
     # before, so an explicit "turant" beats an incidental duration in the same text.
-    if any(p.search(raw_lower) for p in _IMMEDIATE_CUE_RE):
+    if _has_immediate_cue(raw_lower):
         sig.availability = "immediate"
     elif any(p.search(raw_lower) for p in _NOTICE_CUE_RE):
         sig.availability = "notice_period"
@@ -1175,7 +1339,7 @@ def detect_answered_topics(
         # anywhere else, which is exactly how "6 month ka experience hai" used to be
         # recorded as a notice period. Duration is tested FIRST: "abhi 15 din" is a
         # notice, not an immediate start.
-        if _ASKED_NOTICE_RE.search(lower):
+        if _asked_notice_duration(lower):
             availability = "notice_period"
         elif any(p.search(lower) for p in _ASKED_IMMEDIATE_RE):
             availability = "immediate"
