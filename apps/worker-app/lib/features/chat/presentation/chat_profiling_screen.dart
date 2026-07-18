@@ -8,6 +8,7 @@ import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
+import '../../../core/widgets/bb_bottom_sheet.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_bubble.dart';
 import '../../../core/widgets/bb_chip.dart';
@@ -28,6 +29,43 @@ const String _kNewMessageLabel = 'Naye message';
 /// the cause: the connection was not established, and sending retries it.
 const String _kSessionFailedLabel =
     'Server se connection nahi bana — message bhejenge to dobara try hoga.';
+
+// ---------------------------------------------------------------------------
+// #421 — readiness copy for the "build my profile" CTA.
+//
+// The engine decides when it has enough to build a profile (`extraction_ready`).
+// Before that, the CTA is SOFTENED, never dead: it keeps its ≥48px tap target
+// and stays tappable, and tapping it opens a warm sheet that explains what is
+// missing and offers BOTH "keep talking" and "build it anyway". A hard-disabled
+// button with no explanation would be worse than the bug for a first-time,
+// low-literacy worker — and a client-side gate must never be able to trap a
+// worker in a chat they cannot leave.
+// ---------------------------------------------------------------------------
+
+/// CTA label once the engine says the interview is complete.
+const String kChatDoneReadyLabel = 'Ho gaya — meri profile banaiye';
+
+/// CTA label while the interview is still short — an invitation, not a block.
+const String kChatDoneNotReadyLabel = 'Thodi aur baat karein';
+
+/// Helper line under the transcript while the interview is still short.
+const String kChatNotReadyHelper =
+    'Abhi kuch baatein baaki hain — kaam, machine aur experience bata dijiye, '
+    'profile utni hi dumdaar banegi.';
+
+/// Nudge-sheet heading.
+const String kChatNudgeTitle = 'Ek minute, bhai';
+
+/// Nudge-sheet body — honest about the cost of stopping now.
+const String kChatNudgeBody =
+    'Aap abhi profile bana sakte hain, par woh adhoori rahegi. Do-teen sawaal '
+    'aur ho jayein to company ko poori baat dikhegi.';
+
+/// Nudge-sheet primary action — back to the chat.
+const String kChatNudgeContinueLabel = 'Baat jaari rakhein';
+
+/// Nudge-sheet escape hatch — the worker is never trapped.
+const String kChatNudgeProceedLabel = 'Phir bhi profile banaiye';
 
 class ChatProfilingScreen extends StatelessWidget {
   const ChatProfilingScreen({super.key});
@@ -96,13 +134,25 @@ class _ChatViewState extends State<_ChatView> {
     return pos.pixels >= pos.maxScrollExtent - _kNearBottomThreshold;
   }
 
+  /// How many measure-and-jump passes [_animateToBottom] may take to settle.
+  ///
+  /// One is not enough for a `ListView.builder`: while items below the viewport
+  /// are unbuilt it only ESTIMATES `maxScrollExtent` from the items it has laid
+  /// out. With bubbles of very different heights (a multi-line opener at the
+  /// top, one-word answers below) that estimate can be far too large, so the
+  /// animation OVERSHOOTS and a single corrective jump lands against a figure
+  /// that is itself stale — parking the transcript past its last bubble in
+  /// empty space. Each jump forces a layout pass, which sharpens the estimate,
+  /// so a few bounded passes converge.
+  static const int _kBottomSettleSteps = 5;
+
   /// Smooth-scroll to the newest message after the list has rebuilt.
   ///
   /// A freshly-appended bubble can still be growing the list's
   /// `maxScrollExtent` on the frame we kick the animation off, so the captured
-  /// target lands a few pixels short of the true bottom. We animate to the
-  /// best-known extent, then on completion re-check and snap the residual gap
-  /// so the newest message is always fully in view.
+  /// target misses the true bottom in either direction. We animate to the
+  /// best-known extent, then converge on the real one (see
+  /// [_kBottomSettleSteps]) so the newest message is always fully in view.
   void _animateToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!_scroll.hasClients) return;
@@ -111,10 +161,16 @@ class _ChatViewState extends State<_ChatView> {
         duration: AppMotion.base,
         curve: AppMotion.easeOut,
       );
-      if (!_scroll.hasClients) return;
-      final double end = _scroll.position.maxScrollExtent;
-      if (_scroll.position.pixels < end) {
+      // Re-measure and re-jump until pixels and the reported end agree (or the
+      // step budget runs out — never loop on a list that will not settle).
+      for (int step = 0; step < _kBottomSettleSteps; step++) {
+        if (!mounted || !_scroll.hasClients) return;
+        final double end = _scroll.position.maxScrollExtent;
+        if ((_scroll.position.pixels - end).abs() < 0.5) return;
+        // Also corrects an OVERSHOOT (pixels beyond the true end), which used to
+        // leave the transcript parked past its last bubble in empty space.
         _scroll.jumpTo(end);
+        await WidgetsBinding.instance.endOfFrame;
       }
     });
   }
@@ -158,7 +214,111 @@ class _ChatViewState extends State<_ChatView> {
     bloc.add(ChatVoiceMerged(
       transcript: outcome.transcript,
       reply: outcome.reply,
+      // A voice answer is a normal chat turn server-side, so it carries the
+      // engine's readiness decision too (#421).
+      extractionReady: outcome.extractionReady,
     ));
+  }
+
+  /// The "build my profile" CTA + (when the interview is still short) the
+  /// helper line above it (#421).
+  ///
+  /// Not-ready is a SOFT gate: the button keeps its full-width ≥48px target and
+  /// stays tappable — it just changes voice from "done" to "let's talk a bit
+  /// more", and routes through [_confirmEarlyFinish] instead of straight to the
+  /// preview. Nothing here can leave the worker stuck.
+  Widget _doneCta(bool ready) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.s4, 0, AppSpacing.s4, AppSpacing.s4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          if (!ready) ...<Widget>[
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.s2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const Padding(
+                    padding: EdgeInsets.only(top: 2),
+                    child: Icon(Icons.chat_bubble_outline,
+                        size: 18, color: AppColors.textSecondary),
+                  ),
+                  const SizedBox(width: AppSpacing.s2),
+                  Expanded(
+                    child: Text(
+                      kChatNotReadyHelper,
+                      style: AppTypography.body(
+                        size: AppTypography.sizeBase,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          BbButton(
+            label: ready ? kChatDoneReadyLabel : kChatDoneNotReadyLabel,
+            block: true,
+            variant:
+                ready ? BbButtonVariant.primary : BbButtonVariant.secondary,
+            iconLeft: ready ? Icons.check_circle_outline : Icons.forum_outlined,
+            onPressed: ready ? _openProfilePreview : _confirmEarlyFinish,
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openProfilePreview() => context.push(Routes.profilePreview);
+
+  /// Warm nudge when the engine has not called the interview complete yet.
+  ///
+  /// Explains WHY in one plain Hinglish line and offers both ways out: keep
+  /// talking (the default, primary) or build the profile anyway. The escape
+  /// hatch is deliberate — the client must never be the reason a worker cannot
+  /// finish (e.g. if `extraction_ready` were missing from a reply, which the
+  /// parser reads as "not ready").
+  Future<void> _confirmEarlyFinish() async {
+    final bool? proceed = await showBbBottomSheet<bool>(
+      context: context,
+      builder: (BuildContext sheetContext) => Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Text(
+            kChatNudgeTitle,
+            style: AppTypography.display(size: AppTypography.sizeLg),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          Text(
+            kChatNudgeBody,
+            style: AppTypography.body(
+              size: AppTypography.sizeBase,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.s5),
+          BbButton(
+            label: kChatNudgeContinueLabel,
+            block: true,
+            onPressed: () => Navigator.of(sheetContext).pop(false),
+          ),
+          const SizedBox(height: AppSpacing.s2),
+          BbButton(
+            label: kChatNudgeProceedLabel,
+            block: true,
+            variant: BbButtonVariant.ghost,
+            onPressed: () => Navigator.of(sheetContext).pop(true),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true) return;
+    if (!mounted) return;
+    _openProfilePreview();
   }
 
   @override
@@ -224,16 +384,7 @@ class _ChatViewState extends State<_ChatView> {
                   else if (state.followups.isNotEmpty)
                     _followups(state.followups),
                   _inputBar(),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                        AppSpacing.s4, 0, AppSpacing.s4, AppSpacing.s4),
-                    child: BbButton(
-                      label: 'Done — build my profile',
-                      block: true,
-                      iconLeft: Icons.check_circle_outline,
-                      onPressed: () => context.push(Routes.profilePreview),
-                    ),
-                  ),
+                  _doneCta(state.extractionReady),
                 ],
               ),
             );

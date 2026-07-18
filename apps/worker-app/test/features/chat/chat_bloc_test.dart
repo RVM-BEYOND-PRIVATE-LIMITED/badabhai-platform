@@ -10,10 +10,9 @@ import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.da
 
 class MockChatRepository extends Mock implements ChatRepository {}
 
-const ChatMessage _opening = ChatMessage(
-  text: 'Bada Bhai here. Which machines do you run?',
-  fromWorker: false,
-);
+// The opener is now owned by the bloc (#422) — reference the exported
+// constant so a copy change can never silently desync the tests from the app.
+const ChatMessage _opening = kChatOpeningMessage;
 
 void main() {
   late MockChatRepository repo;

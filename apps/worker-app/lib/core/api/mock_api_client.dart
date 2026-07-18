@@ -56,6 +56,7 @@ class MockApiClient extends ApiClient {
       blocked: false,
       isMock: true,
       suggestedFollowups: turn.followups,
+      extractionReady: turn.extractionReady,
     );
   }
 
@@ -636,11 +637,17 @@ class MockApiClient extends ApiClient {
   }
 }
 
-/// One canned assistant turn (reply + suggested follow-up chips).
+/// One canned assistant turn (reply + suggested follow-up chips + the engine's
+/// `extraction_ready` for that turn).
 class _CannedTurn {
-  const _CannedTurn(this.reply, this.followups);
+  const _CannedTurn(this.reply, this.followups, {this.extractionReady = false});
   final String reply;
   final List<String> followups;
+
+  /// Mirrors the real engine (#421): readiness only arrives once enough topics
+  /// have been covered, so mock mode exercises the SAME gate as production
+  /// instead of silently unlocking the CTA on turn one.
+  final bool extractionReady;
 }
 
 /// A few PII-free assistant turns cycled by [MockApiClient.sendMessage].
@@ -660,6 +667,7 @@ const List<_CannedTurn> _cannedTurns = <_CannedTurn>[
   _CannedTurn(
     'Thanks — that is enough to build your profile. Tap continue when ready.',
     <String>['Continue'],
+    extractionReady: true,
   ),
 ];
 

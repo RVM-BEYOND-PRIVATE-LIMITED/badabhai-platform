@@ -49,7 +49,13 @@ class ChatRepositoryImpl implements ChatRepository {
       );
       // Carry the backend's tap-to-answer suggestions through to the UI. A
       // blocked reply (pseudonymize fail-closed) arrives with an empty list.
-      return ChatTurn(reply: reply.reply, followups: reply.suggestedFollowups);
+      // `extractionReady` is the engine's interview-completeness decision
+      // (#421) — it gates the "build my profile" CTA downstream.
+      return ChatTurn(
+        reply: reply.reply,
+        followups: reply.suggestedFollowups,
+        extractionReady: reply.extractionReady,
+      );
     } catch (error) {
       throw mapError(error);
     }
