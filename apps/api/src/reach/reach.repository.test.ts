@@ -119,7 +119,19 @@ describe("ReachRepository.listSignalRows — ADR-0031 pending-deletion pool excl
       ].sort(),
     );
     // The joined workers table must not leak columns into the projection.
-    for (const banned of ["embedding", "rawProfile", "phoneE164", "phoneHash", "fullName", "deletionScheduledAt"]) {
+    // `richProfileDraft` is on this list because it carries `current_city`,
+    // `education` and `certifications` — exactly the free-text detail the faceless
+    // payer surface must not see. Not a live leak (SIGNAL_COLUMNS is an explicit
+    // allowlist and never included it); this closes the guard's under-coverage.
+    for (const banned of [
+      "embedding",
+      "rawProfile",
+      "phoneE164",
+      "phoneHash",
+      "fullName",
+      "deletionScheduledAt",
+      "richProfileDraft",
+    ]) {
       expect(captured.selection).not.toHaveProperty(banned);
     }
   });
