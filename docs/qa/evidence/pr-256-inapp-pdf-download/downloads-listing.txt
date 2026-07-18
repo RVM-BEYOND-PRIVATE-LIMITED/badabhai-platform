@@ -1,0 +1,10 @@
+-rwxrwx--- 1 u0_a294 media_rw      610 2026-07-17 10:39 BadaBhai-Interview-Kit-cnc_operator.pdf
+-rwxrwx--- 1 u0_a294 media_rw      610 2026-07-17 10:37 BadaBhai-Resume (1).pdf
+-rwxrwx--- 1 u0_a294 media_rw      610 2026-07-17 10:37 BadaBhai-Resume (2).pdf
+-rwxrwx--- 1 u0_a294 media_rw      610 2026-07-17 10:38 BadaBhai-Resume (3).pdf
+-rwxrwx--- 1 u0_a294 media_rw      610 2026-07-17 10:36 BadaBhai-Resume.pdf
+Row: 613 _display_name=BadaBhai-Resume.pdf, _size=610, mime_type=application/pdf
+Row: 614 _display_name=BadaBhai-Resume (1).pdf, _size=610, mime_type=application/pdf
+Row: 615 _display_name=BadaBhai-Resume (2).pdf, _size=610, mime_type=application/pdf
+Row: 616 _display_name=BadaBhai-Resume (3).pdf, _size=610, mime_type=application/pdf
+Row: 617 _display_name=BadaBhai-Interview-Kit-cnc_operator.pdf, _size=610, mime_type=application/pdf
