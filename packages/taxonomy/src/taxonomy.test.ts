@@ -2,9 +2,11 @@ import { describe, it, expect } from "vitest";
 import { ROLES, getRole, getMachine, DOMAINS } from "./index";
 
 describe("taxonomy", () => {
-  it("exposes the 7 initial CNC/VMC roles", () => {
-    expect(ROLES).toHaveLength(7);
+  it("exposes the 7 initial CNC/VMC roles plus the TAX-WELD-1 welder role", () => {
+    expect(ROLES).toHaveLength(8);
     expect(getRole("role_vmc_operator")?.name).toBe("VMC Operator");
+    expect(getRole("role_welder")?.name).toBe("Welder");
+    expect(getRole("role_welder")?.domainId).toBe("dom_welding");
   });
 
   it("every role references a known domain", () => {

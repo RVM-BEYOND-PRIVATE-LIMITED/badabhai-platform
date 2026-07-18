@@ -19,7 +19,6 @@ Two subtleties this test bakes in on purpose:
 
 from __future__ import annotations
 
-import json
 import re
 
 from app.ai.model_config import get_route
@@ -52,15 +51,21 @@ def _worker_facing_strings() -> dict[str, str]:
     out: dict[str, str] = {}
     for topic in topics_for("cnc_vmc"):
         out[f"question:{topic.id}"] = topic.question
+        # INTERVIEW-1: the bounded RE-ask wording is worker-facing too.
+        if topic.retry_question is not None:
+            out[f"retry_question:{topic.id}"] = topic.retry_question
     out["ack"] = interview_engine._ACK
     out["wrap_up"] = interview_engine._WRAP_UP
     for i, f in enumerate(interview_engine.suggested_followups("cnc_vmc")):
         out[f"followup:{i}"] = f
     for field, q in _CLARIFY.items():
         out[f"clarify:{field}"] = q
-    # The CLI's own worker-facing copy (a separate model-driven path).
+    # The CLI's own worker-facing copy. CLI-1: the CLI no longer has a model-driven
+    # path of its own — it drives THIS engine, so its only remaining own-words are
+    # the intro banner and the kickoff nudge. Every question it shows comes from the
+    # question bank above.
     out["cli_intro"] = onboarding_chat._INTRO
-    out["cli_mock_message"] = json.loads(onboarding_chat._CHAT_MOCK_JSON)["message"]
+    out["cli_kickoff"] = onboarding_chat._KICKOFF
     return out
 
 
@@ -82,6 +87,25 @@ def test_every_interview_question_is_under_20_words():
     for topic in topics_for("cnc_vmc"):
         n = len(topic.question.split())
         assert n <= 20, f"{topic.id} question is {n} words: {topic.question!r}"
+
+
+def test_every_retry_question_is_one_ask_under_20_words_and_actually_different():
+    # INTERVIEW-1: the re-ask must obey B-5 (exactly one "?") and the 20-word cap,
+    # and must NOT be the same string — re-serving verbatim reads as broken.
+    for topic in topics_for("cnc_vmc"):
+        rq = topic.retry_question
+        if rq is None:
+            continue
+        assert rq.count("?") == 1, f"{topic.id} retry bundles asks: {rq!r}"
+        assert len(rq.split()) <= 20, f"{topic.id} retry is {len(rq.split())} words: {rq!r}"
+        assert rq != topic.question, f"{topic.id} retry is a verbatim re-serve"
+
+
+def test_every_re_askable_essential_topic_has_a_retry_question():
+    # Only ESSENTIAL topics are ever re-asked, and each must have distinct wording.
+    for topic_id in interview_engine.ESSENTIAL_TOPICS:
+        topic = next(t for t in topics_for("cnc_vmc") if t.id == topic_id)
+        assert topic.retry_question is not None, topic_id
 
 
 # --- B-5: ONE question per turn ---------------------------------------------
@@ -165,10 +189,10 @@ def test_ack_is_at_most_two_words():
 def test_system_prompts_enforce_the_neutrality_rules():
     # These are INSTRUCTIONS: they must name the banned words to forbid them, so
     # we assert they ENFORCE the persona rather than that they are token-free.
-    for label, p in (
-        ("engine", prompts.BADA_BHAI_SYSTEM_PROMPT.lower()),
-        ("cli", onboarding_chat._CHAT_SYSTEM_PROMPT.lower()),
-    ):
+    # CLI-1: there is only ONE chat system prompt now. The CLI used to carry a
+    # second, divergent copy for its own model-driven loop; it now calls
+    # build_chat_messages, so BADA_BHAI_SYSTEM_PROMPT is the single source.
+    for label, p in (("engine", prompts.BADA_BHAI_SYSTEM_PROMPT.lower()),):
         assert "aap" in p, label
         assert "20 word" in p, label
         assert "gender" in p, label  # "Never assume gender"
@@ -193,6 +217,29 @@ _FULL_ANSWER = (
     "faridabad me hu pune chalega"
 )
 
+_UNSET = object()
+
+
+def _drive_to_close(worker_name=_UNSET):
+    """Run the interview to its CLOSE turn and return ``(close_message, ready)``.
+
+    Since #424 a single essentials-answering message no longer wraps up: salary_current
+    / salary_expected / availability are MUST_ASK, so the close is reached only after
+    they have been RAISED. Non-answers are used deliberately — the ASK satisfies the
+    gate, and this keeps the test about the VOCATIVE, not about detection.
+    """
+    kwargs = {} if worker_name is _UNSET else {"worker_name": worker_name}
+    reply, asked, state, ready = interview_engine.next_turn(
+        None, _FULL_ANSWER, "cnc_vmc", **kwargs
+    )
+    for _ in range(20):
+        if asked is None:
+            return reply, ready
+        reply, asked, state, ready = interview_engine.next_turn(
+            state, "theek hai ji", "cnc_vmc", **kwargs
+        )
+    raise AssertionError("interview never reached the close turn")
+
 
 def test_default_emits_placeholder_token_at_open_and_close_never_a_real_name():
     # AI-PERSONA-2 (SG-1): the ai-service NEVER emits a real name — only the
@@ -205,10 +252,8 @@ def test_default_emits_placeholder_token_at_open_and_close_never_a_real_name():
     assert ready_open is False and asked_open is not None
     assert open_turn.startswith(f"{_PLACEHOLDER} ji, ")  # turn 1 = open slot
 
-    close, asked_close, _st2, ready_close = interview_engine.next_turn(
-        None, _FULL_ANSWER, "cnc_vmc"
-    )
-    assert ready_close is True and asked_close is None
+    close, ready_close = _drive_to_close()
+    assert ready_close is True
     assert close.startswith(f"{_PLACEHOLDER} ji, ")
 
     # A MID-interview ack turn (turn >= 2) carries NO vocative — ack only.
@@ -226,9 +271,7 @@ def test_worker_name_none_opts_out_of_the_vocative_cleanly():
     _tid, opening = interview_engine.first_question("cnc_vmc", worker_name=None)
     assert "ji," not in opening and _PLACEHOLDER not in opening
 
-    close, _asked, _st, ready = interview_engine.next_turn(
-        None, _FULL_ANSWER, "cnc_vmc", worker_name=None
-    )
+    close, ready = _drive_to_close(worker_name=None)
     assert ready is True
     assert "ji," not in close and _PLACEHOLDER not in close
 

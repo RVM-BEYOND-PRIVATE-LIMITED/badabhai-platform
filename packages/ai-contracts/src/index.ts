@@ -74,6 +74,32 @@ export const ConversationStateSchema = z.object({
    * through to next_turn); every next_turn resets it to 0.
    */
   clarify_count: z.number().int().nonnegative().default(0),
+  /**
+   * INTERVIEW-1 re-ask bound (additive, defaulted => backward compatible; mirrors
+   * contracts.py ConversationState): per-topic ASK count. `asked_question_ids` is a
+   * dedup set and cannot count, so the bounded re-ask needs its own counter. The
+   * engine's `_next_topic` refuses past MAX_ASKS_PER_TOPIC (2), so a topic the
+   * CNC/VMC-only detector can never parse is asked twice, never forever.
+   * Topic ids only — no PII.
+   *
+   * NOT a total: the COST-4 clarify path re-serves the last question WITHOUT
+   * incrementing this (those re-serves are bounded separately by `clarify_count`).
+   * `ask_counts` counts engine-driven asks only.
+   */
+  ask_counts: z.record(z.string(), z.number().int().nonnegative()).default({}),
+  /**
+   * INTERVIEW-1 completeness signal (additive, defaulted => backward compatible;
+   * mirrors contracts.py ConversationState): the ESSENTIAL topics the worker never
+   * actually answered. Empty array = complete.
+   *
+   * This — NOT `extraction_ready` — declares an incomplete profile.
+   * `extraction_ready` keeps its frozen v1 meaning ("the interview is over, run
+   * extraction") because it is the sole gate on extraction downstream, so making it
+   * false on a gap would yield no profile and no resume at all. This list is read to
+   * MARK the extracted profile incomplete, making a `role: null` resume a known
+   * outcome. Topic ids only — no PII. The API-side consumer is a follow-up task.
+   */
+  unanswered_essentials: z.array(z.string()).default([]),
 });
 export type ConversationState = z.infer<typeof ConversationStateSchema>;
 
@@ -147,6 +173,17 @@ export const SalaryExpectationSchema = z.object({
 });
 
 export const LocationPreferenceSchema = z.object({
+  // Issue #423 — where the worker IS, kept separate from where they WANT to work.
+  // The interview engine has always treated these as distinct topics
+  // (question_bank.py: "current AND preferred location, never conflated"), but the
+  // legacy shape had nowhere to put the current city, so `_build_legacy` prepended it
+  // to `preferred_cities` — turning "I live in Pune" into "I want to work in Pune".
+  //
+  // ADDITIVE + defaulted → backward compatible: rows written before this field exist
+  // parse fine and keep `current_city: null`, which is why every consumer reads
+  // `current_city ?? preferred_cities[0]` rather than switching outright. Mirrors the
+  // Pydantic LocationPreference in contracts.py (§7 parity).
+  current_city: z.string().nullable().default(null),
   preferred_cities: z.array(z.string()).default([]),
   willing_to_relocate: z.boolean().nullable().default(null),
 });

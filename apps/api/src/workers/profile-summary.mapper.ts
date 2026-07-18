@@ -57,12 +57,23 @@ function toIsoOrNull(value: Date | string | null): string | null {
 }
 
 /**
- * `location_preference` JSONB → the summary city: first non-blank entry of the
- * canonical `preferred_cities` (LocationPreferenceSchema). `null` when the JSONB
- * is absent, not an object, or the array is missing/empty/malformed.
+ * `location_preference` JSONB → the summary city.
+ *
+ * Issue #423 — prefers the worker's own `current_city`, then falls back to the first
+ * non-blank `preferred_cities` entry. The fallback is NOT dead code: before current
+ * and preferred locations were split, `_build_legacy` PREPENDED the current city to
+ * that array, so on every profile extracted before the split it is the only place the
+ * city exists. Reading `current_city` alone would blank the city for all of them.
+ *
+ * `null` when the JSONB is absent, not an object, or both sources are
+ * missing/empty/malformed.
  */
 function readCity(locationPreference: unknown): string | null {
-  const cities = asObject(locationPreference)?.preferred_cities;
+  const obj = asObject(locationPreference);
+  const current = nonBlankStringOrNull(obj?.current_city);
+  if (current) return current;
+
+  const cities = obj?.preferred_cities;
   if (!Array.isArray(cities)) return null;
   for (const c of cities) {
     const city = nonBlankStringOrNull(c);
@@ -76,6 +87,31 @@ function readCity(locationPreference: unknown): string | null {
 function readAvailabilityStatus(availability: unknown): string | null {
   if (typeof availability === "string") return nonBlankStringOrNull(availability);
   return nonBlankStringOrNull(asObject(availability)?.status);
+}
+
+/**
+ * A JSONB `skills`/`machines` column → a clean `string[]`: keep non-blank trimmed
+ * strings, drop everything else (a malformed row yields `[]`, never a throw). The
+ * labels are canonical taxonomy strings — PII-free by construction.
+ */
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    const s = nonBlankStringOrNull(item);
+    if (s) out.push(s);
+  }
+  return out;
+}
+
+/**
+ * `experience.total_years` → a finite, non-negative number, else `null`. ONLY the
+ * number is read — `experience.summary` (free text, possible §2 employer PII) is
+ * never projected to the wire.
+ */
+function readExperienceYears(experience: unknown): number | null {
+  const years = asObject(experience)?.total_years;
+  return typeof years === "number" && Number.isFinite(years) && years >= 0 ? years : null;
 }
 
 /**
@@ -118,13 +154,16 @@ function computeStrength(p: ProfileSummarySource): number {
   return n;
 }
 
-/** No-profile-yet summary: everything null/zero, `profile_status: "none"`. */
+/** No-profile-yet summary: everything null/zero/empty, `profile_status: "none"`. */
 const NO_PROFILE: WorkerProfileSummary = {
   profile_status: "none",
   confirmed_at: null,
   trade: { canonical_trade_id: null, canonical_role_id: null, display_name: null },
   city: null,
   strength: 0,
+  skills: [],
+  machines: [],
+  experience_years: null,
 };
 
 /** Map the latest profile row (or its absence) to the wire summary. */
@@ -146,5 +185,8 @@ export function toProfileSummary(
     },
     city: readCity(profile.locationPreference),
     strength: computeStrength(profile),
+    skills: readStringArray(profile.skills),
+    machines: readStringArray(profile.machines),
+    experience_years: readExperienceYears(profile.experience),
   };
 }

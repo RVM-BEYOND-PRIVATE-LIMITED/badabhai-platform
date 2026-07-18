@@ -274,6 +274,14 @@ def test_extractable_answer_trumps_clarify_and_advances(monkeypatch, msg, topic)
 def test_third_consecutive_clarify_falls_through_to_the_engine(monkeypatch):
     # Bounded clarifies: after 2 consecutive re-serves the third genuine clarify
     # falls through to next_turn — the interview can never loop on one question.
+    #
+    # INTERVIEW-1 changed what "falls through" LANDS on. This test used to assert
+    # the engine jumped to "machines", i.e. it ABANDONED an unanswered essential
+    # forever — the exact bug INTERVIEW-1 fixes. The engine now spends role's ONE
+    # bounded re-ask (state carries asked_question_ids=["role"] and no ask_counts,
+    # so the back-compat floor scores it as 1 of 2) and only then moves on. The
+    # clarify bound itself is untouched: clarify_count still resets on every
+    # next_turn, and the loop is still impossible — now bounded by ask_counts too.
     calls, client = _install(monkeypatch, _real_settings(rephrase=False))
     state = dict(_CLARIFY_STATE, clarify_count=2)
     res = client.post(
@@ -282,11 +290,21 @@ def test_third_consecutive_clarify_falls_through_to_the_engine(monkeypatch):
     )
     assert res.status_code == 200
     body = res.json()
-    # next_turn ran: role is already in asked_question_ids, so the engine moves on.
-    assert body["asked_question_id"] == "machines"
+    assert body["asked_question_id"] == "role"  # the ONE bounded re-ask
     st = body["updated_state"]
-    assert "machines" in st["asked_question_ids"]
+    assert st["ask_counts"]["role"] == 2  # budget now spent
     assert st["clarify_count"] == 0  # every next_turn resets the streak
+
+    # ...and the next ENGINE turn moves on — role can never be asked a third time.
+    # (A non-clarify message: a fresh "matlab kya?" would take the clarify re-serve
+    # path, which is bounded by clarify_count, not by ask_counts.)
+    res2 = client.post(
+        "/profiling/respond",
+        json={"session_id": "s1", "message_text": "haan ji theek hai", "conversation_state": st},
+    )
+    body2 = res2.json()
+    assert body2["asked_question_id"] == "machines"
+    assert body2["updated_state"]["ask_counts"]["role"] == 2
 
 
 def test_second_consecutive_clarify_still_reserves(monkeypatch):

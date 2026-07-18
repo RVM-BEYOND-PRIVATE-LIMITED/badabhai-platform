@@ -20,6 +20,45 @@ export const DeviceInfoSchema = z.object({
 export type DeviceInfoDto = z.infer<typeof DeviceInfoSchema>;
 
 /**
+ * Body of PATCH /auth/devices/me/push-token (ADR-0034).
+ *
+ * Carries ONLY the token. Identity is the session: the worker from `WorkerAuthGuard`,
+ * the device from the token's `did` claim — a `worker_id`/`device_id` here would be a
+ * direct IDOR onto another worker's device row. `.strict()` so one cannot be smuggled
+ * in later.
+ *
+ * The 512 bound matches `DeviceInfoSchema.push_token` (FCM tokens are ~163 chars today,
+ * but the format is not contractually fixed).
+ */
+export const UpdatePushTokenSchema = z
+  .object({
+    push_token: z.string().min(1).max(512),
+  })
+  .strict();
+export type UpdatePushTokenDto = z.infer<typeof UpdatePushTokenSchema>;
+
+/**
+ * Response of PATCH /auth/devices/me/push-token (ADR-0034 rev-3).
+ *
+ * WHY THIS EXISTS: every push payload carries the device's opaque `push_target` nonce so
+ * the client can DROP a message not meant for its live session — the second layer of the
+ * shared-handset defence. rev-2 generated that nonce server-side but never handed it to
+ * anyone (this route was 204, and `DeviceListItem` omits it), so the check was
+ * structurally unbuildable. This is the ONLY place it is surfaced.
+ *
+ * NOT PII and not correlatable: a random per-install UUID, rotated on every token
+ * registration, returned solely to the session that owns the device row.
+ *
+ * `null` means the write did not land — unknown / not-owned / revoked device, or a
+ * session with no `did`. Those stay indistinguishable FROM EACH OTHER (the property the
+ * 204 was protecting); all a caller learns is whether its OWN device is still active,
+ * which `GET /auth/devices` already tells it.
+ */
+export interface UpdatePushTokenResponse {
+  push_token_target: string | null;
+}
+
+/**
  * A trusted-device row as surfaced by GET /auth/devices. PRIVACY: the `device_hash`
  * (HMAC) and the `push_token` are DELIBERATELY excluded — the wire shape carries only
  * the opaque row id, coarse descriptors, timestamps, and whether it is the caller's

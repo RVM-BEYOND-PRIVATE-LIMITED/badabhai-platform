@@ -96,6 +96,13 @@ services:
       # add SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY here as `${VAR:?}` fail-loud
       # entries (deliberately NOT added today — keeping the required-secret set equal
       # to the owner's STAGING-SECRETS-1 list).
+      #
+      # KEPT "false" (PR #405 review): that PR flipped this to "true" WITHOUT adding the
+      # two storage entries the precondition above requires, which would have armed the
+      # render against unconfigured storage — a green boot followed by a runtime throw at
+      # the first render, exactly what this flag exists to prevent. Verified at the time:
+      # this compose file declares no SUPABASE_* entry and no env_file, and no workflow
+      # injects them. Flip it in the SAME change that adds the creds, not before.
       RESUME_RENDER_ENABLED: "false"
 
       # ---- KNOWN-SURVIVING DEV VALUE (deliberate for now — R27 owner queue). The base

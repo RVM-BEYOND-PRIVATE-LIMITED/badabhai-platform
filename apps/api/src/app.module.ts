@@ -7,6 +7,7 @@ import { EventsModule } from "./events/events.module";
 import { AiModule } from "./ai/ai.module";
 import { WorkersModule } from "./workers/workers.module";
 import { NotificationsModule } from "./notifications/notifications.module";
+import { PushModule } from "./push/push.module";
 import { HealthModule } from "./health/health.module";
 import { AuthModule } from "./auth/auth.module";
 import { ConsentModule } from "./consent/consent.module";
@@ -46,6 +47,9 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     AiModule,
     WorkersModule,
     NotificationsModule,
+    // ADR-0034 — worker push (consumer half: provider + processor). Ships INERT:
+    // PUSH_ENABLE_REAL defaults false, so the mock provider is bound and nothing sends.
+    PushModule,
     RateLimitModule,
     PdfModule,
     // Feature modules:

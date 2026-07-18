@@ -38,6 +38,7 @@ import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_bottom_nav.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_keypad.dart';
+import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
 
 import '../core/auth/fakes.dart';
 
@@ -184,11 +185,18 @@ void main() {
 
     // ── 5. CHAT — send one message (exercises ChatRepository.sendMessage), then
     //     build the profile. ──
-    await _pumpUntil(tester, find.text('Done — build my profile'));
+    //     After ONE message the mock engine has not reported extraction_ready
+    //     (#421), so the CTA is the softened "thodi aur baat karein" and
+    //     tapping it opens the nudge sheet — whose escape hatch still lets the
+    //     worker through. This walks that path deliberately: the gate must
+    //     never be able to strand the journey.
+    await _pumpUntil(tester, find.text(kChatDoneNotReadyLabel));
     await tester.enterText(find.byType(TextField), 'CNC, 4 years, Fanuc');
     await tester.tap(find.byIcon(Icons.send_rounded));
-    await _pumpUntil(tester, find.text('Done — build my profile'));
-    await tester.tap(find.text('Done — build my profile'));
+    await _pumpUntil(tester, find.text(kChatDoneNotReadyLabel));
+    await tester.tap(find.text(kChatDoneNotReadyLabel));
+    await _pumpUntil(tester, find.text(kChatNudgeProceedLabel));
+    await tester.tap(find.text(kChatNudgeProceedLabel));
 
     // ── 6. PROFILE PREVIEW — extraction resolves, confirm to generate. ──
     await _pumpUntil(tester, find.text('Confirm & generate resume'));

@@ -5,8 +5,10 @@ Two decoupled failures were observed in a welder's session:
      per-call metadata (~11 calls / 1 failure), because the router logged only
      ``type(exc).__name__`` and attributed a Haiku-served failure to Gemini; and
   B) DROPPED CANONICAL DATA — every whitelist-backed field (role/skills/city) came
-     back empty for a welder, which is largely BY DESIGN (welding is outside the
-     CNC/VMC gazetteer) except the city, which was a real bug ("dilli"/"bihar").
+     back empty for a welder. The city drop ("dilli"/"bihar") was fixed in WS3. The
+     role/skills drop was originally recorded as BY DESIGN (welding was outside the
+     CNC/VMC gazetteer); TAX-WELD-1 CLOSES it — welding is now detected and mapped to
+     the pre-existing, active welding skill ids, so a welder is matchable.
 
 Both are reproduced here with NO network and NO real key leaving the process:
 the provider dispatcher (``app.ai.providers.complete``) is monkeypatched to raise
@@ -170,25 +172,39 @@ _WELDER_MODEL_JSON = json.dumps(
 )
 
 
-def test_repro_welder_canonical_gap_is_by_design():
-    # The model's welding role is NOT in the closed CNC/VMC set -> rejected, so it
-    # can never enter a matchable field (the whitelist trust boundary holds).
+def test_welder_canonicalizes_after_tax_weld_1():
+    # TAX-WELD-1 CLOSES repro B's canonical gap. It used to be "by design": welding was
+    # excluded from the gazetteer, so this welder came back role/trade null with no
+    # skills — unmatchable. The five skill ids and the wedge alias "welding ka kaam"
+    # already existed (active/ratified) in packages/taxonomy; this was WIRING, not
+    # minting. The closed-set trust boundary is UNCHANGED and still load-bearing:
+    # the model's free-text "mig_tig_welder" is STILL rejected as a canonical id...
     assert normalize_role_id(extract_canonical_role_id(_WELDER_MODEL_JSON)) is None
+    assert normalize_role_id("mig_tig_welder") is None
 
-    # The local gazetteer detector finds no CNC/VMC role/skill/machine for welding.
+    # ...but the deterministic local gazetteer now detects welding itself.
     sig = signals.detect(_WELDER_TEXT)
-    assert sig.role_id is None
-    assert sig.skill_ids == []
-    assert sig.machine_ids == []
+    assert sig.role_id == "role_welder"
+    assert sig.trade_id == "dom_welding"
+    assert sig.skill_ids == [
+        "skill_mig_welding",
+        "skill_tig_welding",
+        "skill_welder_occupation",
+    ]
+    assert sig.machine_ids == []  # no welding `mach_*` id exists — none invented
 
-    # The rich draft keeps the model's welding LABELS (human-readable), but the
-    # legacy DraftProfile's canonical ids stay empty -> matchable fields are null.
+    # The rich draft still keeps the model's raw LABELS (human-readable), and the
+    # legacy DraftProfile now carries real, closed-set matchable ids.
     rich, legacy = profile_extractor.extract(_WELDER_TEXT)
     rich = profile_extractor.merge_model_draft(rich, _WELDER_MODEL_JSON)
     assert rich.primary_role == "mig_tig_welder"
-    assert legacy.canonical_role_id is None
-    assert legacy.canonical_trade_id is None
-    assert legacy.skills == []
+    assert legacy.canonical_role_id == "role_welder"
+    assert legacy.canonical_trade_id == "dom_welding"
+    assert legacy.skills == [
+        "skill_mig_welding",
+        "skill_tig_welding",
+        "skill_welder_occupation",
+    ]
 
 
 def test_repro_welder_city_and_state_captured_after_ws3():

@@ -45,6 +45,37 @@ _CONTROLLERS: list[tuple[str, str, str | None]] = [
 ]
 
 # Roles, most specific first: (keyword, label, role_id, trade_id).
+#
+# TAX-WELD-1 contains NO welding entry here, deliberately. An earlier cut put
+# ("welder"/"welding") LAST in this table and argued that first-keyword-wins meant
+# welding "can only ever ADD a role where there was None, never take one away".
+# That claim was TRUE but NOT SUFFICIENT, and it is corrected here:
+#
+#   This table has no entry for `cnc`, `lathe`, `milling` or bare `operator`. So a
+#   large population of real machining workers ALREADY resolves to role_id None, and
+#   "only fills a None" silently meant "captures those workers as welders":
+#     "cnc operator hun, welding bhi kar leta hun"       -> role_welder  (WRONG)
+#     "pehle welding karta tha, ab CNC lathe chalata hu" -> role_welder  (WRONG; past tense)
+#
+#   Filling a None WRONGLY is strictly WORSE than leaving it None. packages/
+#   reach-engine/src/scoring.ts `scoreRole` returns 0.4 for a null roleId ("trade not
+#   stated yet") but 0.0 for a NON-MATCHING one ("different trade"), at WEIGHTS.role
+#   = 0.35. MEASURED on a VMC/turner job by scoring the same worker with roleId null
+#   vs role_welder: an absolute score drop of 0.1647, i.e. 0.4 x 0.35 / (1 - 0.15) —
+#   the skills-factor renormalisation — so the drop is the SAME for any skill-less
+#   job regardless of the other factors. Relative cost depends on the baseline
+#   (24.5% on a strong-match fixture, ~33% on a weaker one).
+#
+# The precise, load-bearing claim is therefore:
+#   welding NEVER displaces an ASSIGNED role, AND it is only allowed to fill a `None`
+#   when there is NO machining signal anywhere in the text and no blocker (negation /
+#   welding-adjacent non-welder context). Both halves are enforced in ONE place —
+#   `_assign_welding_role` — not by table ordering.
+#
+# Keeping welding OUT of this table also removes a real inconsistency: this loop is
+# plain substring (`kw in lower`), so a "welding" entry here fired on "spotwelding" /
+# "weldingwala" and set a role while `_WELDING_RE` (word-boundary) produced NO skill
+# id. All welding role logic now runs off `_WELDING_RE`, so role and skills agree.
 _ROLES: list[tuple[str, str, str, str]] = [
     ("cam programmer", "CAM Programmer", "role_cam_programmer", "dom_programming"),
     ("programmer", "CNC Programmer", "role_cnc_programmer", "dom_programming"),
@@ -54,6 +85,106 @@ _ROLES: list[tuple[str, str, str, str]] = [
     ("grinding", "CNC Grinding Operator", "role_cnc_grinding_operator", "dom_grinding"),
     ("turner", "CNC Turner/Operator", "role_cnc_turner_operator", "dom_cnc_machining"),
     ("turning", "CNC Turner/Operator", "role_cnc_turner_operator", "dom_cnc_machining"),
+]
+
+# --- Welding (TAX-WELD-1) ---------------------------------------------------
+# WIRING, NOT MINTING. Every id below ALREADY EXISTS, `status: "active"`, in
+# `packages/taxonomy/src/skill-corpus.ts` (ADR-0030 / TAX-2), and every keyword below
+# is ALREADY a canonical ENGLISH/technical alias of that skill in the same corpus:
+#
+#   skill_mig_welding      MIG welding / GMAW / MIG/MAG            (domain: welding)
+#   skill_tig_welding      TIG welding / GTAW                      (domain: welding)
+#   skill_arc_welding      arc welding / SMAW / stick welding      (domain: welding)
+#   skill_gas_cutting      gas cutting / oxy-fuel cutting          (domain: fabrication)
+#   skill_welder_occupation  Welder / "welder"                     (domain: welding)
+#
+# NO new skill_id is minted here and NO unratified Hinglish/vernacular alias is added
+# (that needs RVM ratification — ADR-0030 §7 gate (d)). The one Hindi phrase that IS
+# ratified for this family, "welding ka kaam" -> skill_welder_occupation
+# (`wedge-aliases.ts`, ratified: true), is covered by the plain "welding" keyword.
+#
+# MATCHED WITH WORD BOUNDARIES, unlike the substring tables above: "tig" is a substring
+# of "fatigue" and "mig" of "emigration"/"mitigate", so a bare `in` test would corrupt
+# profiles. Most specific first (mig/mag before mig).
+_WELDING: list[tuple[str, str, str]] = [
+    (r"mig\s*/\s*mag", "MIG welding", "skill_mig_welding"),
+    (r"gmaw", "MIG welding", "skill_mig_welding"),
+    (r"mig\s+welding", "MIG welding", "skill_mig_welding"),
+    (r"mig", "MIG welding", "skill_mig_welding"),
+    (r"gtaw", "TIG welding", "skill_tig_welding"),
+    (r"tig\s+welding", "TIG welding", "skill_tig_welding"),
+    (r"tig", "TIG welding", "skill_tig_welding"),
+    (r"smaw", "arc welding", "skill_arc_welding"),
+    (r"stick\s+welding", "arc welding", "skill_arc_welding"),
+    (r"arc\s+welding", "arc welding", "skill_arc_welding"),
+    (r"oxy[\s-]*fuel(?:\s+cutting)?", "gas cutting", "skill_gas_cutting"),
+    (r"gas\s+cutting", "gas cutting", "skill_gas_cutting"),
+    (r"welder", "welding", "skill_welder_occupation"),
+    (r"welding", "welding", "skill_welder_occupation"),
+]
+_WELDING_RE: list[tuple[re.Pattern[str], str, str]] = [
+    (re.compile(rf"\b{pat}\b", re.IGNORECASE), label, sid) for pat, label, sid in _WELDING
+]
+
+# Welding-DOMAIN skill ids (skill_gas_cutting is domain `fabrication` — a gas cutter is
+# a cutter, not necessarily a welder, so it alone must NOT imply the welder role).
+_WELDING_DOMAIN_SKILL_IDS = frozenset(
+    {"skill_mig_welding", "skill_tig_welding", "skill_arc_welding", "skill_welder_occupation"}
+)
+
+# --- Machining signal: the guard that stops welding capturing a machining worker ---
+# ANY hit here means the text carries machining evidence, so welding must NOT assign
+# the role — even when `_ROLES` matched nothing. This is what makes "welding only ever
+# fills a None" actually safe (see the `_ROLES` note above): the Nones that welding is
+# now barred from filling are exactly the machining ones.
+#
+# WORD-BOUNDARY matched, and deliberately NOT containing bare "machine": a real welder
+# says "TIG aur MIG machine chala leta hun", and "welding machine" is a welder's own
+# tool. Fail direction is intentionally toward None (0.4, "trade not stated") rather
+# than a confident wrong role (0.0, "different trade").
+# Roles that are part of the CLOSED role SET but are NOT keyword-matched by `_ROLES`.
+#
+# `_ROLES` is a KEYWORD TABLE; the closed set is `_ROLES` plus these. The two were the
+# same list until TAX-WELD-1, which is why an earlier cut had to put a "welding" keyword
+# in `_ROLES` just to get `role_welder` into `canonical_roles.ROLE_TRADE` — and that
+# keyword is exactly what captured machining workers. Decoupling them lets welding be
+# a first-class role in the closed set (so the model may propose it, `normalize_role_id`
+# accepts it, and the rich->legacy mapper validates it) while its ASSIGNMENT from raw
+# text stays behind the single gate in `_assign_welding_role`.
+_EXTRA_ROLE_TRADES: tuple[tuple[str, str], ...] = (
+    ("role_welder", "dom_welding"),
+)
+
+_MACHINING_CONTEXT: tuple[str, ...] = (
+    r"cnc", r"vmc", r"hmc", r"lathe", r"milling", r"machining", r"turning", r"turner",
+    r"grinding", r"grinder", r"boring", r"drilling", r"setter", r"programmer",
+    r"mastercam", r"fanuc", r"siemens", r"haas", r"heidenhain", r"mitsubishi",
+    r"g\s*-?\s*code", r"m\s*-?\s*code", r"tool\s+offset",
+)
+_MACHINING_CONTEXT_RE: list[re.Pattern[str]] = [
+    re.compile(rf"\b{p}\b", re.IGNORECASE) for p in _MACHINING_CONTEXT
+]
+
+# --- Blockers: welding words present, but the worker is NOT (claiming to be) a welder.
+# These suppress the welder ROLE only; the skill ids are still recorded (a phrase-level
+# fix, not a general negation parser — see the module note in tests/test_welding_gazetteer.py).
+#
+# NEGATION is Hindi-word-order aware: Hindi negates AFTER the verb ("welding nahi
+# karta"), English before ("I don't do welding"), so a window on BOTH sides is checked.
+_WELDING_NEGATION = r"(?:nahi+n?|nah[ií]|mat|kabhi\s+nahi+n?|not|no|never|n't)"
+_WELDING_ROLE_BLOCKERS: tuple[str, ...] = (
+    # Explicit denial: "welding nahi karta, sirf helper hu" / "I don't do welding".
+    rf"\b(?:welder|welding)\b[^.;!?]{{0,24}}?\b{_WELDING_NEGATION}\b",
+    rf"\b{_WELDING_NEGATION}\b[^.;!?]{{0,24}}?\b(?:welder|welding)\b",
+    # Welding-ADJACENT non-welders: the welding word modifies a NOUN (a consumable or
+    # a machine being serviced/sold), it is not the work the worker performs.
+    r"\bwelding\s+(?:rod|rods|wire|electrode|electrodes|filler|gas|cylinder)s?\b",
+    r"\bwelding\s+machine\b[^.;!?]{0,24}?\b(?:repair|repairing|maintenance|service)\b",
+    r"\b(?:welder|welding)\b[^.;!?]{0,24}?"
+    r"\b(?:supply|supplier|supplies|sale|sales|sell|selling|bechta|bechti|dealer|dukan)\b",
+)
+_WELDING_ROLE_BLOCKERS_RE: list[re.Pattern[str]] = [
+    re.compile(p, re.IGNORECASE) for p in _WELDING_ROLE_BLOCKERS
 ]
 
 # Operational skills: (keyword, label, skill_id).
@@ -97,8 +228,23 @@ _MATERIALS: list[tuple[str, str]] = [
 
 _ROLE_LABELS: dict[str, str] = {rid: label for _, label, rid, _ in _ROLES}
 
+# P1-3(a): DECIMAL-SAFE experience.
+#
+# The previous `(\d{1,2})` had no left boundary, so on "2.5 saal" the engine
+# skipped the unmatchable "2." and matched the FRACTION — "5 saal", a 2.5-year
+# worker shipped as five years. Two fixes, both load-bearing:
+#
+# - ``(?<![\d.])`` refuses to start a match immediately after a digit or a dot,
+#   so the second half of a decimal can never be read as the whole number;
+# - the optional ``(?:\.\d+)?`` group captures the fraction, so "2.5 saal" is 2.5.
+#
+# The trailing ``\b`` closes a second wrong-data path in the same regex: the bare
+# ``sal`` alternative used to match INSIDE a longer word, so "2 salary" scored as
+# two years of experience. (The old pattern's final ``saal\b`` alternative was
+# unreachable — ``saal`` already matched — and is dropped.)
 _EXPERIENCE_RE = re.compile(
-    r"(\d{1,2})\s*\+?\s*(?:years|year|yrs|yr|saal|sal|saal\b)", re.IGNORECASE
+    r"(?<![\d.])(\d{1,2}(?:\.\d+)?)\s*\+?\s*(?:years|year|yrs|yr|saal|sal)\b",
+    re.IGNORECASE,
 )
 # Detect the canonical cities AND their Hinglish aliases (dilli, bombay, ...) so a
 # colloquial name is captured, then normalized to its canonical form.
@@ -178,10 +324,503 @@ _SALARY_RE = re.compile(
     re.IGNORECASE,
 )
 _EXPECTED_CUES = ("expect", "chahiye", "chahie", "want", "expected", "demand", " chah")
+
+# --- P1-3(b)/(c): salary PERIOD + year-vs-money cues ------------------------
+# Read in a TIGHT window around the amount — wide enough for "1.5 lakh saal ka",
+# narrow enough that the "5 saal" of an experience clause elsewhere in the same
+# sentence cannot mark an unrelated amount as annual.
+_PERIOD_WINDOW_BEFORE = 14
+_PERIOD_WINDOW_AFTER = 18
+
+# Annual cues are read ASYMMETRICALLY on purpose. AFTER the amount, a bare "saal"
+# is the annual marker ("1.5 lakh saal ka"). BEFORE it, a bare "saal" is far more
+# likely to be the EXPERIENCE clause ("5 saal se 25000 milta hai") — reading that
+# as annual would divide a correct monthly wage by twelve, trading one wrong number
+# for another. So the before-set carries only unambiguously annual words.
+_ANNUAL_CUES_AFTER: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\bsaal\b", r"\bsal\b", r"\bsaalana\b", r"\bsalana\b", r"\bsalaana\b",
+        r"\bvarsh\b", r"\bannum\b", r"\bannual\w*", r"\byearly\b", r"\byear\b",
+        r"\bper\s*year\b", r"\bp\.?\s?a\.?\b", r"\blpa\b",
+    )
+)
+_ANNUAL_CUES_BEFORE: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\bsaalana\b", r"\bsalana\b", r"\bsalaana\b", r"\bvarsh\b",
+        r"\bannual\w*", r"\byearly\b", r"\bper\s*year\b", r"\bhar\s*saal\b",
+    )
+)
+_MONTHLY_CUES: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\bmahin[ae]\b", r"\bmaheen[ae]\b", r"\bmonth\w*", r"\bmasik\b",
+        r"\bp\.?\s?m\.?\b",
+    )
+)
+# What makes a bare 4-digit number MONEY rather than a calendar year. Anchored
+# patterns, not substrings: a loose "rs" would fire on the "rs" inside "years".
+_MONEY_CUES: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"₹", r"\brs\.?\b", r"\binr\b", r"\brupee\w*", r"\brupa?y[ae]?\b",
+        r"\bsal+ary\b", r"\btanakha\b", r"\btankha\b", r"\bpaga?ar?\b",
+        r"\bmil(?:ta|te|ti)\b", r"\bkama\w*", r"\bpay\w*", r"\bwage\w*",
+        r"\bstipend\b", r"\bincome\b", r"\bctc\b", r"\bmahin[ae]\b",
+        r"\bmonth\w*", r"\bmasik\b", r"\bexpect\w*", r"\bchahi\w*",
+    )
+)
 _RELOCATE_CUES = ("relocat", "shift", "chalega", "ready", "ja sakta", "kahin bhi", "anywhere",
                   "bahar", "outside")
-_IMMEDIATE_CUES = ("immediate", "abhi", "turant", "free", "available", "ready to join")
-_NOTICE_CUES = ("notice", "din lag", "days", "month", "mahina", "15 din", "30 din")
+# --- Availability (issue #424 follow-up: STOP FABRICATING "immediate") ------
+#
+# THE DEFECT (measured, post-merge review of #429). These cues were BARE SUBSTRINGS:
+#
+#     _IMMEDIATE_CUES = ("immediate", "abhi", "turant", "free", "available", ...)
+#     _NOTICE_CUES    = ("notice", "din lag", "days", "month", "mahina", ...)
+#
+# "abhi" merely means "right now / currently", and the question bank's OWN questions
+# open with it — "Abhi kis sheher mein hain?" (current_location) and "Abhi salary
+# kitni hai?" (salary_current). So the NATURAL answer to our own question invented an
+# availability the worker never stated:
+#
+#     "abhi pune me hu"      -> {current_location: Pune,  availability: immediate}
+#     "abhi 25000 milte hain"-> {salary_current: 25000,   availability: immediate}
+#     "6 month ka experience hai"                      -> availability: notice_period
+#     "freelance kaam karta hu" / "VMC free size job"  -> availability: immediate
+#
+# That is FABRICATION, not a coverage gap, and it is LIVE: availability is a reach
+# scoring signal (apps/api/src/reach/reach.job-source.ts) and is rendered on the
+# worker's resume. We were telling payers a worker could start immediately on the
+# strength of the adverb in OUR question. It also silently satisfied the must-ask
+# gate #429 added for `availability`, so that gate never fired on the common path.
+#
+# THE RULE: availability requires a GENUINE availability cue — joining / starting /
+# being free / a notice duration — matched with WORD BOUNDARIES. A bare time adverb
+# is only ever a MODIFIER: "abhi"/"aaj"/"kal" count only when they sit next to a
+# join-or-start intent ("abhi join kar sakta hu", "aaj se ready hu"). Same shape as
+# the TAX-WELD-1 blockers: the decision is made in ONE place with adjacency, not by
+# hoping a keyword list is unambiguous.
+#
+# FAIL DIRECTION is deliberately toward "unknown". `availability` is a MUST_ASK topic
+# (interview_engine.MUST_ASK_TOPICS, #424), so an undetected availability is simply
+# ASKED — which is exactly what that gate is for. A FABRICATED one is never corrected:
+# nothing downstream ever re-asks a topic the detector already marked answered.
+
+# Time adverbs. NOT cues on their own — they only qualify a join/start intent.
+_AVAIL_NOW = (
+    r"(?:abhi|filhal|filhaal|turant|fauran|foran|aaj|kal|immediately|right\s+now)"
+)
+# Joining/starting INTENT: ability or future forms only. Past-tense joins ("2019 me
+# company join ki thi", "kal join ki thi") are history, not availability, so they are
+# deliberately unmatched.
+#
+# BARE `ready` IS NOT HERE — adversarial review of #436, HIGH-1. The first cut ended
+# this alternation with `|ready)`, which combined with the adverb-adjacency rule below
+# to re-create the EXACT bug class this module exists to kill, in the register it most
+# needed to protect. On a shop floor "job" means the WORKPIECE, and "ready" is what you
+# say about a part, a tool, a fixture or a drawing:
+#
+#     "job abhi ready hai"            -> immediate   (the PART is ready)
+#     "machine abhi ready hai"        -> immediate
+#     "tool aaj ready ho jayega"      -> immediate
+#     "fixture aaj ready karna hai"   -> immediate
+#     "kal meri shaadi hai to ready rahunga" -> immediate
+#
+# `ready` now only counts when it is attributed to the WORKER (a first-person copula,
+# or an explicit "main/mai/I am"), or carries the "to join" suffix — the same
+# self-attribution test that `available` already correctly required.
+_AVAIL_JOIN = (
+    r"(?:join\s+kar\s+(?:sakta|sakti|sakte)|join\s+(?:kar\s+)?"
+    r"(?:lunga|loonga|luga|karunga|karoonga|sakunga)|joining\s+(?:kar\s+)?"
+    r"(?:sakta|sakti|sakte|lunga)|aa\s+(?:sakta|sakti|sakte|jaunga|jaungi)|"
+    r"(?:start|shuru)\s+kar\s+(?:sakta|sakti|sakte|dunga))"
+)
+
+# STRONG cues: the word itself is the answer, whoever is speaking. No blocker needed.
+_IMMEDIATE_STRONG_RE: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\bimmediate(?:ly)?\b",
+        r"\bturant\b",
+        r"\bfaura?n\b",
+        r"\bforan\b",
+        # `ready` WITH the joining suffix — "ready to join", "join karne ke liye ready".
+        r"\bready\s+(?:to\s+)?join\b",
+        r"\bjoin\w*\s+(?:ke\s+liye|kar\w*\s+ke\s+liye)\s+ready\b",
+        # A time adverb NEXT TO a join/start intent, in either word order. This is the
+        # ONLY way "abhi"/"aaj"/"kal" can contribute, and the whole point of the fix.
+        rf"\b{_AVAIL_NOW}\b[^.;!?]{{0,20}}?\b{_AVAIL_JOIN}\b",
+        rf"\b{_AVAIL_JOIN}\b[^.;!?]{{0,20}}?\b{_AVAIL_NOW}\b",
+    )
+)
+
+# SELF-STATE cues: "I am, right now, not working / free / ready". These are real
+# availability answers, but every one of them is SUBJECT- and TENSE-sensitive, so each
+# is additionally gated on :func:`_self_state_blocked`.
+#
+# FIRST PERSON IS REQUIRED (adversarial review of #436, HIGH-2). The first cut accepted
+# `hai`/`hain` here and justified it with "the copula makes this safe". That reasoning
+# was wrong: `hai`/`hain` are THIRD person, so objects became available workers —
+# "machine free hai", "wo free hai". `available` in the very same tuple already demanded
+# `main|mai|hum|i am`; these cues are now consistent with it.
+_IMMEDIATE_SELF_STATE_RE: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        # Being free / idle. First-person copula ONLY, so "machine free hai" and the
+        # "freelance"/"free size job" substrings can never fire it.
+        r"\b(?:free|khaali|khali|faarig|farig|fursat)\s+(?:hu|hun|hoon)\b",
+        rf"\b(?:{_AVAIL_NOW}|main|mai|bilkul)\s+(?:free|khaali|khali)\b",
+        # `ready` attributed to the worker.
+        r"\bready\s+(?:hu|hun|hoon)\b",
+        r"\b(?:main|mai|hum|i\s*am|i'?m)\s+ready\b",
+        # "available" attributed to the WORKER, never to a job/machine — "koi job
+        # available hai kya?" is a question about vacancies, not a start date.
+        rf"\b(?:main|mai|hum|i\s*am|i'?m|{_AVAIL_NOW})\s+available\b"
+        r"(?!\s+(?:machine|machines|job|jobs|kaam|work|vacanc|position))",
+        r"\bavailable\s+(?:hu|hun|hoon)\b",
+        # Not currently working. `hai`, `mil raha` and `milta` were DROPPED (review
+        # MEDIUM-3): "yahan acha kaam nahi milta" is a complaint about the current job,
+        # and "kaam nahi hai" is as often about the shop's workload as the worker's.
+        r"\b(?:kaam|job|naukri|kuch)\s+(?:nahi+n?|nhi)\s+(?:kar\s+raha|kar\s+rahi)\b",
+        # Left the job. Past-perfect ("chhod di THI") is handled by the tense blocker.
+        r"\b(?:job|naukri|company|kaam)\s+chhod\s+(?:di|diya|dia|dii)\b",
+        # First person only: "mera bhai berozgar hai" is someone else's unemployment.
+        r"\bberozgar\s+(?:hu|hun|hoon)\b",
+    )
+)
+
+# Blockers for the SELF-STATE family (adversarial review of #436, HIGH-2 + MEDIUM-3).
+# Read in a window AROUND the cue, not over the whole message, so an unrelated later
+# clause cannot suppress a genuine answer.
+_SELF_STATE_WINDOW_BEFORE = 34
+_SELF_STATE_WINDOW_AFTER = 16
+
+# The cue describes a THING, not the worker. "job" is deliberately here: on a shop
+# floor it means the workpiece.
+_SELF_STATE_OBJECT = (
+    r"\b(?:machine|machines|tool|tools|fixture|jig|drawing|piece|part|parts|spindle|"
+    r"job|component|material|order)\b"
+)
+# The cue describes SOMEONE ELSE.
+_SELF_STATE_THIRD_PARTY = (
+    r"\b(?:wo|woh|uska|uski|unka|unki|bhai|dost|saathi|beta|papa|friend|colleague|"
+    r"bandha|aadmi|ladka)\b"
+)
+# The state is TIME-SCOPED — free on Sunday / at lunch is not free for a job.
+_SELF_STATE_TIME_SCOPE = (
+    r"\b(?:sunday|saturday|monday|tuesday|wednesday|thursday|friday|ravivar|itwar|"
+    r"shanivar|weekend|chutti|holiday|lunch|shaam|subah|raat|dopahar|evening|"
+    r"morning|night|shift)\b"
+)
+# The state is in the PAST.
+_SELF_STATE_PAST_BEFORE = r"\b(?:pehle|pichl[ae]|pichli|puran[ae]|purani|last)\b"
+_SELF_STATE_PAST_AFTER = r"\b(?:tha|thi|the)\b"
+# ...or it has since been resolved: "berozgar tha pehle, ab kaam mil gaya".
+_SELF_STATE_RESOLVED = r"\b(?:kaam|job|naukri)\s+mil\s+(?:gaya|gayi|gya|gyi)\b"
+
+_SELF_STATE_BEFORE_RE = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        _SELF_STATE_OBJECT,
+        _SELF_STATE_THIRD_PARTY,
+        _SELF_STATE_TIME_SCOPE,
+        _SELF_STATE_PAST_BEFORE,
+    )
+)
+_SELF_STATE_AFTER_RE = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (_SELF_STATE_PAST_AFTER, _SELF_STATE_RESOLVED)
+)
+
+
+def _self_state_blocked(text: str, start: int, end: int) -> bool:
+    """True when a SELF-STATE availability cue is not about the worker being free NOW.
+
+    Three ways that happens, each a MEASURED failure from the review of #436, not a
+    hypothetical:
+
+    - the subject is an OBJECT ("machine free hai", "machine sahi kaam nahi kar rahi")
+      or a THIRD PARTY ("mera bhai berozgar hai");
+    - the state is TIME-SCOPED ("sunday free hu", "lunch me free hu") — free at a time
+      is not free for a job;
+    - the state is PAST or already RESOLVED ("pichli job chhod di THI 2019 me",
+      "berozgar tha pehle ab kaam mil gaya").
+
+    Windowed rather than whole-message so a later unrelated clause cannot suppress a
+    real answer. Fail direction stays toward "unknown": a blocked cue leaves
+    availability unset, and #429's must-ask gate then asks the question properly.
+    """
+    before = text[max(0, start - _SELF_STATE_WINDOW_BEFORE): start]
+    after = text[end: end + _SELF_STATE_WINDOW_AFTER]
+    return any(p.search(before) for p in _SELF_STATE_BEFORE_RE) or any(
+        p.search(after) for p in _SELF_STATE_AFTER_RE
+    )
+
+
+def _has_immediate_cue(text: str) -> bool:
+    """True when ``text`` carries a genuine "can start now" cue.
+
+    Strong cues fire on their own; self-state cues must also survive
+    :func:`_self_state_blocked`.
+    """
+    if any(p.search(text) for p in _IMMEDIATE_STRONG_RE):
+        return True
+    for pattern in _IMMEDIATE_SELF_STATE_RE:
+        for match in pattern.finditer(text):
+            if not _self_state_blocked(text, match.start(), match.end()):
+                return True
+    return False
+
+# Notice-period durations. Deliberately EXCLUDES "saal"/"year": years are experience,
+# never a notice period — and the experience clause is precisely what the old bare
+# "month"/"mahina"/"days" cues were misreading.
+_AVAIL_NUM = (
+    r"(?:\d{1,3}|ek|do|teen|tin|char|chaar|paanch|panch|chhah|chhe|saat|aath|das|"
+    r"pandrah|bees|tees|one|two|three|four|five|six|seven|ten|fifteen|twenty|thirty)"
+)
+_AVAIL_UNIT = (
+    r"(?:din|days?|hafte|haftey|hafta|weeks?|mahin[ae]|maheen[ae]|months?)"
+)
+# A duration only means NOTICE when it is the time something TAKES — "15 din lagenge",
+# "30 din baad". A duration on its own ("6 month ka experience hai") means nothing
+# about availability, so it is left to the context-gated read in
+# detect_answered_topics, where we know the availability question was the one asked.
+_NOTICE_CUE_RE: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\bnotice\b",
+        r"\bresign\b",
+        r"\bnext\s+month\b",
+        rf"\b{_AVAIL_NUM}\s*{_AVAIL_UNIT}\b[^.;!?]{{0,14}}?\b(?:lag\w*|baad|bad)\b",
+        rf"\blag\w*\b[^.;!?]{{0,14}}?\b{_AVAIL_NUM}\s*{_AVAIL_UNIT}\b",
+    )
+)
+
+# Read ONLY when the availability question is the one that was just asked (see
+# detect_answered_topics). These phrasings are real answers to "join karne mein kitne
+# din lagenge?" but say nothing on their own in the middle of a transcript, so they
+# must never run context-free — that is how "6 month" became a notice period.
+_ASKED_NOTICE_RE = re.compile(rf"\b{_AVAIL_NUM}\s*{_AVAIL_UNIT}\b", re.IGNORECASE)
+
+# ...and even in that context, a duration is only a NOTICE if it is time-until, not
+# time-since or a work pattern (adversarial review of #436, MEDIUM-5). `last_asked` is
+# ``asked_question_ids[-1]`` — "the last question we asked", NOT "the question this
+# message answers" — so while availability is pending the worker may still be talking
+# about something else:
+#
+#     "10 din pehle join kiya tha"    -> notice_period   (time AGO)
+#     "hafte me 6 din kaam karta hu"  -> notice_period   (a work WEEK)
+#     "do mahine se salary nahi mili" -> notice_period   (time SINCE)
+#
+# "X se" is "for the last X" while "X baad"/"X mein" is "in X" — the distinction that
+# separates all three of these from a real notice period.
+_ASKED_NOTICE_BLOCKERS_RE: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\bpehle\b",            # "10 din pehle" — that many days AGO
+        r"\bse\b",               # "do mahine se" — FOR the last two months
+        r"\bkaam\s+kar",         # "hafte me 6 din kaam karta hu" — a work pattern
+        r"\bexperience\b",
+    )
+)
+_ASKED_NOTICE_BLOCK_WINDOW = 14
+
+
+def _asked_notice_blocked(text: str, start: int, end: int) -> bool:
+    """True when a bare duration in an availability-context message is not a notice."""
+    window = text[max(0, start - _ASKED_NOTICE_BLOCK_WINDOW): start] + " " + text[
+        end: end + _ASKED_NOTICE_BLOCK_WINDOW
+    ]
+    return any(p.search(window) for p in _ASKED_NOTICE_BLOCKERS_RE)
+
+
+def _asked_notice_duration(text: str) -> bool:
+    """A bare duration that really does read as "this long until I can join"."""
+    return any(
+        not _asked_notice_blocked(text, m.start(), m.end())
+        for m in _ASKED_NOTICE_RE.finditer(text)
+    )
+_ASKED_IMMEDIATE_RE: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        # "whenever you say" — genuinely immediate. Matched EXPLICITLY so it stops
+        # being read as immediate for the wrong reason (the old cue found the "abhi"
+        # inside "kabhi"; "kabhi kabhi" = "sometimes" scored the same way).
+        r"\bkabhi\s+bhi\b",
+        r"\bjab\s+(?:bolo|bhi|kaho|chaho|bulao|bulaye)\b",
+        r"\banytime\b",
+        # A bare time adverb IS the answer to "how many days to join?" — but only when
+        # it is the WHOLE answer. Anchored at BOTH ends (review of #436, HIGH-1): the
+        # first cut anchored only the start, so any long sentence that happened to open
+        # with a time word was read as a start date —
+        # "kal meri shaadi hai to ready rahunga" -> immediate.
+        rf"^\W*{_AVAIL_NOW}(?:\s+(?:hi|se|tak|ko|hi\s+se|se\s+hi))?\W*$",
+        # Ability to join, with no immediacy adverb attached.
+        rf"\b{_AVAIL_JOIN}\b",
+    )
+)
+
+
+# --- P1-2: negation ---------------------------------------------------------
+#
+# THE DEFECT: every cue below is a plain substring/regex test, so a DENIAL read as
+# an assertion — "iti nahi kiya" -> education ["ITI"], "diploma nahi hai" ->
+# ["Diploma"], "setting nahi aati, sirf chalata hu" -> skills ["basic setting"].
+# That is the OPPOSITE of what the worker said, and it ships onto their resume.
+#
+# THE RULE (see the PR body): in Hindi/Hinglish the negator FOLLOWS what it negates
+# ("ITI nahi kiya", "setting nahi aati", "diploma nahi hai"), so the scope is a
+# BACKWARD window of _NEGATION_BACK_WORDS words from the negator, CLAMPED to the
+# enclosing clause. Those characters are blanked out before ANY cue matching runs.
+#
+# Backward-ONLY is a deliberate choice, not an oversight. The contrastive
+# "X nahi, Y karta hu" is extremely common and often written WITHOUT the comma
+# ("CNC nahi VMC karta hu"); a forward window would swallow the correction Y — the
+# very value the worker is asserting. The cost is that a PRE-posed negator
+# ("na ITI na diploma", "no ITI") is not suppressed. That direction is the safe
+# one to miss: we prefer MISSING data (the topic gets re-asked / stays empty) over
+# WRONG data, which is the whole point of this fix.
+_NEGATION_BACK_WORDS = 3
+
+# Clause boundaries. Punctuation (incl. the Devanagari danda) plus the contrastive
+# connectors that start a NEW assertion — "setting nahi aati, sirf chalata hu".
+# A spurious split only ever SHRINKS a negation scope, which is the safe direction.
+_CLAUSE_SPLIT_RE = re.compile(
+    r"[,;:.!?|/\n\r।]+|\s(?:lekin|magar|balki|but|sirf|only|bas|kintu|parantu)\s",
+    re.IGNORECASE,
+)
+
+# Unambiguous negators: these are never a tag/affirmation in worker speech.
+_NEGATORS: frozenset[str] = frozenset(
+    {
+        "nahi", "nahin", "nahee", "nahii", "nai", "nhi", "nahiin",
+        "mat", "not", "never",
+        "नहीं", "नही", "नहि", "मत", "न",
+    }
+)
+# NOT included: bare English "no". In this domain it is far more often the
+# ABBREVIATION ("part no. 12", "drawing no. 45") than a denial, and as a negator it
+# would blank the three words before it — deleting "drawing" from a worker who
+# reads drawings. "nahi" and its spellings carry the real load in worker replies.
+
+# "na" / "ना" are negators ONLY sometimes: Hinglish also uses a CLAUSE-FINAL "na"
+# as an affirmative tag ("VMC chalata hu na" = "I do run VMC, right?"). Treating
+# that as a denial would delete the very machine the worker just claimed, so "na"
+# only negates when it is followed by more words in its clause AND is not sitting
+# right after a verb/copula (the tag position).
+_TAG_ONLY_NEGATORS: frozenset[str] = frozenset({"na", "ना"})
+_TAG_PRECEDERS: frozenset[str] = frozenset(
+    {
+        "hu", "hun", "hoon", "hai", "hain", "ho", "hota", "hoti",
+        "tha", "the", "thi", "karta", "karte", "karti", "aata", "aati", "aate",
+        "chalata", "chalate", "chalati", "theek", "thik", "haan", "han", "sahi", "ok",
+    }
+)
+
+_WORD_RE = re.compile(r"\S+")
+# Trim leading/trailing punctuation so "nahi," tokenizes as "nahi".
+_TOKEN_TRIM = " \t\r\n.,;:!?\"'()[]{}-–—।|/"
+
+# Which TOPIC a negated cue belongs to. Only cue families whose denial is itself a
+# complete answer are listed (see detect_answered_topics) — deliberately NOT
+# machines/role/location/salary, where "VMC nahi" is a denial, not an answer.
+_NEGATABLE_TOPIC_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "education",
+        re.compile(r"\biti\b|diploma|\b(?:b\.?tech|be|degree|engineering)\b|nsdc|rvm", re.I),
+    ),
+    (
+        "skills",
+        re.compile(
+            r"setting|set\s?up|"
+            + "|".join(re.escape(kw) for kw, _label, _sid in _SKILLS),
+            re.IGNORECASE,
+        ),
+    ),
+)
+
+# Topics for which a DENIAL is a COMPLETE answer, so the ask is satisfied ("kya
+# training li hai?" -> "ITI nahi kiya"; "kya aata hai?" -> "setting nahi aati").
+# Deliberately excludes the essentials (role/machines/current_location) and salary:
+# "VMC nahi chalaya" is a denial, not an answer, and closing those asks on it would
+# ship an incomplete profile silently — the engine must still ask them.
+_NEGATION_ANSWERS_TOPICS: frozenset[str] = frozenset({"education", "skills"})
+
+# P1-1: an EXPLICIT self-correction. Only these let a value for a topic that is NOT
+# the one being asked overwrite an already-collected value (see interview_engine).
+_CORRECTION_MARKERS: tuple[str, ...] = (
+    "nahi nahi", "nahin nahin", "nhi nhi", "nahi nhi", "nai nai",
+    "galat", "ghalat", "sorry", "correction", "correct kar",
+    "actually", "asal mein", "asal me", "sudhar", "wapas se",
+    "नहीं नहीं", "गलत",
+)
+
+
+def _clause_bounds(text: str) -> list[tuple[int, int]]:
+    """(start, end) offsets of each clause in ``text`` (splitters excluded)."""
+    bounds: list[tuple[int, int]] = []
+    cursor = 0
+    for sep in _CLAUSE_SPLIT_RE.finditer(text):
+        if sep.start() > cursor:
+            bounds.append((cursor, sep.start()))
+        cursor = sep.end()
+    if cursor < len(text):
+        bounds.append((cursor, len(text)))
+    return bounds
+
+
+def _is_negator(token: str, prev_token: str | None, is_clause_final: bool) -> bool:
+    if token in _NEGATORS:
+        return True
+    if token in _TAG_ONLY_NEGATORS:
+        # Clause-final "na" is the affirmative tag, and "…hu na" is too.
+        return not is_clause_final and (prev_token or "") not in _TAG_PRECEDERS
+    return False
+
+
+def _apply_negation(text: str) -> tuple[str, set[str]]:
+    """Blank out negated spans and report which TOPICS were negated.
+
+    Returns ``(masked_text, negated_topic_ids)``. Masking replaces the negated
+    characters with spaces, so the string keeps its LENGTH and every offset-based
+    reader downstream (city spans, salary windows, ``_level_near``) is unaffected.
+    """
+    if not text:
+        return text, set()
+    chars = list(text)
+    negated_spans: list[tuple[int, int]] = []
+    for c_start, c_end in _clause_bounds(text):
+        words = [
+            (m.start() + c_start, m.end() + c_start, m.group(0).strip(_TOKEN_TRIM).lower())
+            for m in _WORD_RE.finditer(text[c_start:c_end])
+        ]
+        for i, (_ws, _we, word) in enumerate(words):
+            prev_token = words[i - 1][2] if i > 0 else None
+            if not _is_negator(word, prev_token, is_clause_final=i == len(words) - 1):
+                continue
+            back = words[max(0, i - _NEGATION_BACK_WORDS): i]
+            if not back:
+                continue
+            negated_spans.append((back[0][0], back[-1][1]))
+    topics: set[str] = set()
+    for start, end in negated_spans:
+        span_text = text[start:end]
+        for topic_id, pattern in _NEGATABLE_TOPIC_CUES:
+            if pattern.search(span_text):
+                topics.add(topic_id)
+        for k in range(start, end):
+            chars[k] = " "
+    return "".join(chars), topics
+
+
+def is_correction(text: str) -> bool:
+    """P1-1: True when the worker is EXPLICITLY correcting themselves ("nahi nahi,
+    10 saal"). Only then may a value for a topic other than the one being asked
+    overwrite what was already collected."""
+    low = (text or "").lower()
+    return any(marker in low for marker in _CORRECTION_MARKERS)
 
 
 @dataclass
@@ -233,7 +872,14 @@ def _level_near(text: str, keyword: str) -> KnowledgeLevel:
     return "basic"
 
 
-def _parse_amount(num: str, unit: str | None) -> int | None:
+def _parse_amount(num: str, unit: str | None, months: int = 1) -> int | None:
+    """Parse an amount to a MONTHLY rupee figure.
+
+    ``months`` is the period the stated amount covers (1 = monthly, 12 = annual),
+    so an annual figure is divided down instead of being stored as a monthly one
+    (P1-3(b)). The plausibility ceiling is applied to the MONTHLY result, which is
+    what the field actually means.
+    """
     try:
         value = float(num.replace(",", ""))
     except ValueError:
@@ -243,6 +889,8 @@ def _parse_amount(num: str, unit: str | None) -> int | None:
         value *= 1_000
     elif unit in ("lakh", "lac", "l"):
         value *= 100_000
+    if months > 1:
+        value /= months
     # Ceiling shared with the pseudonymizer's D-1 money carve-out (single source
     # of truth in pseudonymize.py): what this accepts as a salary, the gateway
     # masks as [AMOUNT_n] instead of blocking the turn.
@@ -251,10 +899,90 @@ def _parse_amount(num: str, unit: str | None) -> int | None:
     return int(value)
 
 
+def _detect_welding(lower: str, sig: Signals) -> None:
+    """Append welding skill LABELS + canonical skill ids found in ``lower``.
+
+    Order-preserving and de-duplicated. Writes ONLY the five pre-existing, active
+    ``skill_*`` ids listed on :data:`_WELDING` — it can never mint an id, and it never
+    writes free text into a matchable field. Deliberately writes NO ``mach_*`` id: the
+    taxonomy has no welding machine id and the corpus models TIG/MIG/arc as SKILLS, so
+    inventing one would be minting.
+    """
+    for pattern, label, skill_id in _WELDING_RE:
+        if pattern.search(lower):
+            _append_unique(sig.skills, label)
+            _append_unique(sig.skill_ids, skill_id)
+
+
+def has_machining_signal(lower: str, sig: Signals) -> bool:
+    """True when ``lower`` carries ANY machining evidence.
+
+    Three independent sources, so a machining worker is caught even when `_ROLES`
+    (which has no `cnc`/`lathe`/`milling`/`operator` entry) assigns nothing:
+    a detected machine id, a detected controller, or a machining keyword.
+    """
+    return bool(
+        sig.machine_ids
+        or sig.controllers
+        or any(p.search(lower) for p in _MACHINING_CONTEXT_RE)
+    )
+
+
+def welding_role_blocked(lower: str) -> bool:
+    """True when welding words are present but the worker is not claiming the trade
+    (explicit denial, or a welding-adjacent non-welder: rod supplier, machine repair)."""
+    return any(p.search(lower) for p in _WELDING_ROLE_BLOCKERS_RE)
+
+
+def _assign_welding_role(lower: str, sig: Signals) -> None:
+    """Assign ``role_welder``/``dom_welding`` — the ONLY place welding sets a role.
+
+    Every condition is a guard against a MEASURED failure, not a hypothetical:
+
+    - ``sig.role_id is None``   — never displace an assigned machining role.
+    - no machining signal       — and never fill a MACHINING None either. Welding
+      keywords co-occur with machining work constantly ("cnc operator hun, welding
+      bhi kar leta hun"; "pehle welding karta tha, ab CNC lathe chalata hu"), and a
+      wrong role scores 0.0 in the Reach engine where None scores 0.4 — so filling
+      those Nones was a ranking REGRESSION for real machining workers.
+    - not blocked               — explicit denial ("welding nahi karta, sirf helper
+      hu") and welding-adjacent non-welders (rod supply, machine repair) must not
+      become welders.
+    - a welding-DOMAIN skill    — `skill_gas_cutting` alone (domain `fabrication`)
+      never implies the welder role.
+
+    Skills are left untouched by all of this: the worker still gets their welding
+    skill ids, they just do not get a welder ROLE they did not claim.
+    """
+    if sig.role_id is not None:
+        return
+    if has_machining_signal(lower, sig) or welding_role_blocked(lower):
+        return
+    if not any(s in _WELDING_DOMAIN_SKILL_IDS for s in sig.skill_ids):
+        return
+    sig.primary_role = "Welder"
+    sig.role_id = "role_welder"
+    sig.trade_id = "dom_welding"
+
+
 def detect(text: str) -> Signals:
-    """Detect all profile signals in ``text`` (raw worker text, trusted local)."""
+    """Detect all profile signals in ``text`` (raw worker text, trusted local).
+
+    P1-2: NEGATED spans are blanked (:func:`_apply_negation`) before the CAPABILITY
+    cue tables run, so a denial can no longer assert its own opposite. Masking
+    preserves string length, so all offset-based logic here is unchanged.
+    """
     sig = Signals()
-    lower = text.lower()
+    # Negation applies to the CAPABILITY cue families (role / machines /
+    # controllers / skills / knowledge / education) — the ones where a denial was
+    # measured shipping its own opposite. Location, availability, salary and
+    # experience keep reading the ORIGINAL text: masking them cost real answers in
+    # measurement ("abhi kuch nahi kar raha" loses the availability cue, "Pune se
+    # bahar nahi jaunga" loses Pune) and their negation was not part of this fix.
+    # Negation there is a KNOWN, deliberately UNCHANGED gap.
+    masked, _negated_topics = _apply_negation(text)
+    lower = masked.lower()
+    raw_lower = text.lower()
 
     # Machines
     for kw, label, mid in _MACHINES:
@@ -269,6 +997,9 @@ def detect(text: str) -> Signals:
             if skill_id:
                 _append_unique(sig.skill_ids, skill_id)
 
+    # Welding (TAX-WELD-1) — word-boundary matched; maps ONLY to existing corpus ids.
+    _detect_welding(lower, sig)
+
     # Role (first match wins)
     for kw, label, rid, tid in _ROLES:
         if kw in lower:
@@ -276,6 +1007,12 @@ def detect(text: str) -> Signals:
             sig.role_id = rid
             sig.trade_id = tid
             break
+
+    # TAX-WELD-1: the ONE place welding may assign a role (word-boundary matched, and
+    # gated on machining evidence + blockers). Runs after the _ROLES loop so it can
+    # never displace an assigned role, and after machines/controllers so the machining
+    # signal it consults is already populated.
+    _assign_welding_role(lower, sig)
 
     # Operational skills + knowledge levels
     for kw, label, skill_id in _SKILLS:
@@ -322,6 +1059,8 @@ def detect(text: str) -> Signals:
         _append_unique(sig.secondary_roles, "CNC Setter-Operator")
 
     # Location — cities (with alias normalization: dilli -> Delhi).
+    # Reads the RAW text (see the note at the top of detect): masking here deleted
+    # the answer in "Pune se bahar nahi jaunga", which IS a Pune preference.
     cities = [_canonical_city(m.group(0)) for m in _CITY_RE.finditer(text)]
     # de-dup preserving order
     seen: set[str] = set()
@@ -331,16 +1070,21 @@ def detect(text: str) -> Signals:
         sig.preferred_locations = ordered[1:]
     # State-level location (captured instead of dropped; does not replace a city).
     sig.current_state = _detect_state(text)
-    if any(c in lower for c in _RELOCATE_CUES) or sig.preferred_locations:
+    if any(c in raw_lower for c in _RELOCATE_CUES) or sig.preferred_locations:
         sig.relocation_willingness = True
 
-    # Salary (current vs expected by nearby cue)
-    _detect_salary(text, lower, sig)
+    # Salary (current vs expected by nearby cue) — raw text, as above.
+    _detect_salary(text, raw_lower, sig)
 
-    # Availability
-    if any(c in lower for c in _IMMEDIATE_CUES):
+    # Availability — raw text: "abhi kuch nahi kar raha" is an IMMEDIATE answer.
+    #
+    # Issue #424 follow-up: word-boundary GENUINE cues only (see _has_immediate_cue).
+    # A bare time adverb is NOT a cue, so answering our own "Abhi kis sheher mein
+    # hain?" no longer fabricates "immediate". Immediate is still checked first, as
+    # before, so an explicit "turant" beats an incidental duration in the same text.
+    if _has_immediate_cue(raw_lower):
         sig.availability = "immediate"
-    elif any(c in lower for c in _NOTICE_CUES):
+    elif any(p.search(raw_lower) for p in _NOTICE_CUE_RE):
         sig.availability = "notice_period"
 
     # Education / certifications
@@ -358,12 +1102,56 @@ def detect(text: str) -> Signals:
     return sig
 
 
+def _looks_like_a_year(num: str, unit: str | None, near: str) -> bool:
+    """P1-3(c): "2012 se kaam kar raha hu" is a START YEAR, not a salary.
+
+    A bare 4-digit number in the calendar range is only accepted as money when the
+    text right around it actually says money (a currency mark, a pay word, or a
+    per-period word). Otherwise it is dropped — an unrecorded salary is re-askable,
+    a fabricated ₹2,012 salary ships onto the resume.
+    """
+    if unit:
+        return False  # "2012 k" / "2012 lakh" is not a year
+    digits = num.replace(",", "")
+    if not (len(digits) == 4 and digits.isdigit() and 1900 <= int(digits) <= 2099):
+        return False
+    return not any(cue.search(near) for cue in _MONEY_CUES)
+
+
+def _period_months(near_before: str, near_after: str) -> int | None:
+    """How many months the amount covers: 1 (monthly, the default), 12 (annual), or
+    None when the cues CONFLICT.
+
+    P1-3(b): "1.5 lakh saal ka" is ANNUAL and used to be stored as a ₹1,50,000
+    MONTHLY salary. Period cues are read in a TIGHT window (a wide one would attach
+    the "5 saal" of an experience clause to an unrelated amount later in the
+    sentence). Ambiguous (both an annual and a monthly cue) -> None -> not recorded,
+    per "prefer no number over a wrong number".
+    """
+    annual = any(cue.search(near_after) for cue in _ANNUAL_CUES_AFTER) or any(
+        cue.search(near_before) for cue in _ANNUAL_CUES_BEFORE
+    )
+    monthly = any(
+        cue.search(near_before) or cue.search(near_after) for cue in _MONTHLY_CUES
+    )
+    if annual and monthly:
+        return None
+    return 12 if annual else 1
+
+
 def _detect_salary(text: str, lower: str, sig: Signals) -> None:
     for m in _SALARY_RE.finditer(text):
         num, unit = m.group(1), m.group(2)
         if not unit and len(num.replace(",", "")) <= 2:
             continue  # bare 1-2 digit number with no unit -> likely years, skip
-        amount = _parse_amount(num, unit)
+        near_before = lower[max(0, m.start() - _PERIOD_WINDOW_BEFORE): m.start()]
+        near_after = lower[m.end(): m.end() + _PERIOD_WINDOW_AFTER]
+        if _looks_like_a_year(num, unit, near_before + " " + near_after):
+            continue
+        months = _period_months(near_before, near_after)
+        if months is None:
+            continue  # ambiguous period -> record nothing
+        amount = _parse_amount(num, unit, months)
         if amount is None or amount < 1_000:
             continue
         window = lower[max(0, m.start() - 25): m.end() + 10]
@@ -383,12 +1171,32 @@ def _detect_salary(text: str, lower: str, sig: Signals) -> None:
 
 def role_id_for_label(label: str) -> tuple[str, str] | None:
     """Map a model-emitted role LABEL/phrase to its ``(role_id, trade_id)`` via the
-    gazetteer keywords, or None when no IN-SCOPE CNC/VMC role matches (e.g. welding).
-    First keyword match wins, mirroring detect()'s most-specific-first ordering."""
+    gazetteer keywords, or None when no in-scope role matches. First keyword match
+    wins, mirroring detect()'s most-specific-first ordering.
+
+    TAX-WELD-1: welding is now IN scope (``role_welder``/``dom_welding``), so
+    "mig_tig_welder" — the exact label the observed welder session produced — maps
+    instead of dropping to None. A label naming a CNC/VMC role still wins, because
+    ``_ROLES`` is consulted FIRST and carries no welding entry. A welding-PROCESS-only
+    label ("MIG welding") reaches the same role via the welding table.
+
+    Separators are normalised to spaces before the word-boundary welding match:
+    ``_`` and ``-`` are word characters to ``re``, so ``\\bwelder\\b`` would not fire
+    on the snake_case label "mig_tig_welder" that the real session produced.
+
+    The machining gate from :func:`_assign_welding_role` applies here too, so the
+    "welding never captures a machining worker" invariant holds on the model-label
+    path as well as the raw-text path — one rule, both live routes."""
     low = (label or "").lower()
     for kw, _label, rid, tid in _ROLES:
         if kw in low:
             return rid, tid
+    normalized = re.sub(r"[_\-/]+", " ", low)
+    if any(p.search(normalized) for p in _MACHINING_CONTEXT_RE):
+        return None
+    for pattern, _label, sid in _WELDING_RE:
+        if sid in _WELDING_DOMAIN_SKILL_IDS and pattern.search(normalized):
+            return "role_welder", "dom_welding"
     return None
 
 
@@ -407,7 +1215,10 @@ def machine_ids_for_labels(labels: list[str]) -> list[str]:
 def skill_ids_for_labels(labels: list[str]) -> list[str]:
     """Map model-emitted skill AND controller LABELS to canonical skill ids
     (controllers feed a legacy skill id, e.g. Fanuc -> skill_fanuc), mirroring
-    detect(). Order-preserving, de-duplicated; unknown labels yield nothing."""
+    detect(). Order-preserving, de-duplicated; unknown labels yield nothing.
+
+    TAX-WELD-1: welding labels ("MIG welding", "TIG welding", "arc welding", "gas
+    cutting") now map to their pre-existing corpus ids instead of yielding nothing."""
     out: list[str] = []
     for label in labels:
         low = (label or "").lower()
@@ -416,6 +1227,9 @@ def skill_ids_for_labels(labels: list[str]) -> list[str]:
                 _append_unique(out, sid)
         for kw, _label, sid in _CONTROLLERS:
             if sid and kw in low:
+                _append_unique(out, sid)
+        for pattern, _label, sid in _WELDING_RE:
+            if pattern.search(low):
                 _append_unique(out, sid)
     return out
 
@@ -452,8 +1266,19 @@ def detect_answered_topics(
     The salary topics split the same way (B-5 unbundling): ``salary_current`` /
     ``salary_expected``, with a bare cue-less amount answering the EXPECTED
     question attributed to expected (``detect`` defaults it to current).
+
+    P1-2 (negation): a DENIAL still ANSWERS the question it was asked — "ITI nahi
+    kiya" answers the education ask, "setting nahi aati" answers the skills ask —
+    so the topic is reported with a ``None`` value: marked answered (never
+    re-asked, and the clarify path still sees an answer), with NOTHING collected.
+    This applies only to the topic CURRENTLY being asked and only to the topics
+    where a "no" is a COMPLETE answer (:data:`_NEGATION_ANSWERS_TOPICS`) — a
+    passing "VMC nahi chalaya" must not silently close the essential machines ask.
     """
     sig = detect(text)
+    _masked, negated_topics = _apply_negation(text)
+    # RAW text here: the only consumer below is the current-location cue check, and
+    # location deliberately keeps its pre-fix reading (see detect()).
     lower = text.lower()
     answered: dict[str, object] = {}
     if sig.role_id:
@@ -504,8 +1329,31 @@ def detect_answered_topics(
         if sig.expected_salary is not None:
             answered["salary_expected"] = sig.expected_salary
 
-    if sig.availability != "unknown":
-        answered["availability"] = sig.availability
+    availability = sig.availability
+    if availability == "unknown" and last_asked_topic_id == "availability":
+        # Context-gated widening (issue #424 follow-up), the same shape as the B-4
+        # location and B-5 salary attribution above: a bare duration ("15 din",
+        # "ek mahina", "10 days"), a bare time adverb ("abhi"), an "anytime" phrase
+        # ("kabhi bhi", "jab bolo tab") or a plain ability to join IS an answer to
+        # "Join karne mein kitne din lagenge?" — but says nothing about availability
+        # anywhere else, which is exactly how "6 month ka experience hai" used to be
+        # recorded as a notice period. Duration is tested FIRST: "abhi 15 din" is a
+        # notice, not an immediate start.
+        if _asked_notice_duration(lower):
+            availability = "notice_period"
+        elif any(p.search(lower) for p in _ASKED_IMMEDIATE_RE):
+            availability = "immediate"
+    if availability != "unknown":
+        answered["availability"] = availability
     if sig.education or sig.certifications:
         answered["education"] = sig.education + sig.certifications
+
+    # P1-2: a denial ANSWERS the question it was asked (value None -> nothing is
+    # collected, but the topic is not re-asked and is not mistaken for silence).
+    if (
+        last_asked_topic_id in _NEGATION_ANSWERS_TOPICS
+        and last_asked_topic_id in negated_topics
+        and last_asked_topic_id not in answered
+    ):
+        answered[last_asked_topic_id] = None
     return answered

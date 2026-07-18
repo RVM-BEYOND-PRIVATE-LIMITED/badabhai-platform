@@ -88,6 +88,14 @@ export class ProfileExtractionProcessor extends WorkerHost {
         locationPreference: profile.location_preference,
         availability: profile.availability,
         rawProfile: profile,
+        // Issue #419 — persist the RICH draft the response has always carried. Before
+        // this, apps/api read only `result.profile` (the narrow legacy DraftProfile) and
+        // silently dropped controllers, education, certifications, the current-vs-expected
+        // salary split, availability and current_city/current_state — every answer the
+        // interview collected beyond the legacy shape. `?? null` because the field is
+        // nullable in the contract (the mock/AI-down path returns none), and NULL is the
+        // honest value for "this extraction produced no rich draft".
+        richProfileDraft: result.worker_profile_draft ?? null,
       });
 
       await this.aiJobs.markCompleted(aiJobId, { profile_id: saved.id }, toAiJobUsage(aiMeta));

@@ -46,13 +46,22 @@ class ChatRetryRequested extends ChatEvent {
 /// is bada bhai's answer. This appends both bubbles locally — NO network call,
 /// or the message would be sent twice.
 class ChatVoiceMerged extends ChatEvent {
-  const ChatVoiceMerged({required this.transcript, required this.reply});
+  const ChatVoiceMerged({
+    required this.transcript,
+    required this.reply,
+    this.extractionReady = false,
+  });
 
   final String transcript;
   final String reply;
 
+  /// The engine's readiness decision for the turn the voice note produced
+  /// (#421) — a worker who finishes the interview BY VOICE must unlock the
+  /// same CTA as one who typed.
+  final bool extractionReady;
+
   @override
-  List<Object?> get props => <Object?>[transcript, reply];
+  List<Object?> get props => <Object?>[transcript, reply, extractionReady];
 }
 
 // ---------------- State ----------------
@@ -64,6 +73,7 @@ class ChatState extends Equatable {
     this.sending = false,
     this.followups = const <String>[],
     this.sessionFailed = false,
+    this.extractionReady = false,
   });
 
   /// Ordered, append-only transcript.
@@ -85,12 +95,23 @@ class ChatState extends Equatable {
   /// session that was never opened.
   final bool sessionFailed;
 
+  /// True once the interview engine has reported `extraction_ready` on any turn
+  /// of this session (#421) — i.e. it has enough answers to build a profile.
+  ///
+  /// STICKY by design: it latches on the first `true` and never falls back to
+  /// false. The engine's own signal is monotonic in practice (past readiness it
+  /// wraps up and keeps returning true), and a transient false — a degraded
+  /// reply, a field lost in a partial parse — must never yank the CTA out from
+  /// under a worker who was already told they could finish.
+  final bool extractionReady;
+
   ChatState copyWith({
     List<ChatMessage>? messages,
     bool? initializing,
     bool? sending,
     List<String>? followups,
     bool? sessionFailed,
+    bool? extractionReady,
   }) {
     return ChatState(
       messages: messages ?? this.messages,
@@ -98,25 +119,69 @@ class ChatState extends Equatable {
       sending: sending ?? this.sending,
       followups: followups ?? this.followups,
       sessionFailed: sessionFailed ?? this.sessionFailed,
+      // Latch: once ready, always ready (see the field doc).
+      extractionReady: this.extractionReady || (extractionReady ?? false),
     );
   }
 
   @override
-  List<Object?> get props =>
-      <Object?>[messages, initializing, sending, followups, sessionFailed];
+  List<Object?> get props => <Object?>[
+        messages,
+        initializing,
+        sending,
+        followups,
+        sessionFailed,
+        extractionReady,
+      ];
 }
 
 // ---------------- Bloc ----------------
 
-/// The opening bada-bhai prompt (unchanged copy).
-const ChatMessage _openingMessage = ChatMessage(
-  text: 'Bada Bhai here. Which machines do you run?',
+/// The opening bada-bhai prompt — a CLIENT-side line shown before the engine's
+/// first turn exists (#422).
+///
+/// WHY IT IS STILL CANNED. There is no seam to fetch the engine's real first
+/// turn without new backend work, and this change is client-only:
+///   * `POST /chat/session` returns `{session_id, status, started_at}` only —
+///     no reply (`apps/api/src/chat/chat.service.ts` `startSession`).
+///   * `POST /chat/message` is the only path into the engine and its body is
+///     validated by `PostMessageSchema` with `nonEmptyMessageSchema`
+///     (`apps/api/src/chat/chat.dto.ts`), so an empty-history / empty-text call
+///     is rejected — and faking a worker message to trigger turn 1 would put a
+///     message the worker never said into the stored transcript that extraction
+///     later reads.
+///   * The engine DOES expose `first_question()`
+///     (`apps/ai-service/app/profiling/interview_engine.py`), but it has zero
+///     callers and no route on the FastAPI app — nothing serves it.
+///
+/// So the copy is instead ALIGNED with the contract the rest of the flow obeys:
+///   * Hinglish, aap-form, warm — matching the mentor voice in `question_bank`.
+///   * The engine's ACTUAL first topic is `role`, not machines, and this asks
+///     that question verbatim from the `role` topic — so the engine's turn 1
+///     (which serves the first UNANSWERED topic) advances to `machines` rather
+///     than repeating itself, and the worker is never asked the wrong thing
+///     first.
+///   * NO vocative. The persona's `"{{worker_name}} ji, "` slot is filled
+///     server-side after the event is emitted; the client holds no name here
+///     and must not render one, so we take the engine's documented
+///     `worker_name=None` shape (no vocative) rather than inventing one.
+///
+/// Residual gap: this string still duplicates engine copy client-side and can
+/// drift from `question_bank.py`. Closing that needs a server-served opener
+/// (backend work — out of scope for a client-only fix).
+const String kChatOpeningText =
+    'Namaste! Main Bada Bhai. Koi test nahi, bas baat karni hai. '
+    'Aap kaunsa kaam karte hain — CNC, VMC, HMC operator, setter ya programmer?';
+
+/// The opening bada-bhai prompt as a transcript bubble.
+const ChatMessage kChatOpeningMessage = ChatMessage(
+  text: kChatOpeningText,
   fromWorker: false,
 );
 
 class ChatBloc extends Bloc<ChatEvent, ChatState> {
   ChatBloc(this._repo)
-      : super(const ChatState(messages: <ChatMessage>[_openingMessage])) {
+      : super(const ChatState(messages: <ChatMessage>[kChatOpeningMessage])) {
     on<ChatStarted>(_onStarted);
     on<ChatMessageSent>(_onMessageSent);
     on<ChatRetryRequested>(_onRetryRequested);
@@ -198,6 +263,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         followups: turn.followups,
         // A delivered message proves the session is open again.
         sessionFailed: false,
+        // The engine's interview-completeness decision for this turn (#421).
+        // copyWith LATCHES this, so a later turn cannot un-ready the CTA.
+        extractionReady: turn.extractionReady,
       ));
     } on Failure catch (_) {
       _inFlightSends--;
@@ -262,6 +330,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // awaiting its reply (#344) — only report idle when nothing is in flight.
       sending: _inFlightSends > 0,
       followups: const <String>[],
+      // The voice turn went through the SAME chat endpoint, so it carries the
+      // same readiness decision (#421).
+      extractionReady: event.extractionReady,
     ));
   }
 }

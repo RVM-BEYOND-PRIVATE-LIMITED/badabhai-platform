@@ -1,15 +1,15 @@
 # BadaBhai — Project Memory
 
-> Rebuilt 2026-07-14 from a full repo re-audit (schema, ADRs, registers, git, tracker).
+> Rebuilt 2026-07-14; updated 2026-07-18 (PRs #232–#408, ADRs 0031–0033, migrations 0039–0044).
 > Pairs with **CLAUDE.md** (invariants) and **team-memory.md** (ownership + active work).
-> Live detail: ADRs in `docs/decisions/` (0001–0031), registers in `docs/registers/`,
-> daily execution state in `docs/tracker/` (PROJECT_STATUS, BLOCKERS, DECISION_LOG, …).
+> Live detail: ADRs in `docs/decisions/` (0001–0033), registers in `docs/registers/`,
+> daily execution state in `docs/tracker/` (PROJECT_STATUS, BLOCKERS, DECISION_LOG, ROADMAP, …).
 
 # Project Overview
 
 - AI "placement-team" for blue/grey-collar India; launch vertical = CNC/VMC manufacturing (15 trades built). Hospitality vertical: PRD **CEO-signed 2026-06-18**, all 9 `hosp_*` trades' resume + interview-kit content drafted in code — **not live pending per-trade RVM ratification PASS**. Faceless data-exchange: workers stay anonymous until a payer **pays to unlock** (₹40 flat, CEO-locked). North star = weekly PAID unlocks. Workers are free.
 - **Phase 1 (worker profiling + resume) is the locked core; Phase-2 alpha-gate streams have landed additively behind launch gates** — swipe-to-apply, Reach feed, job postings, monetization/pricing, contact unlock, payer/agency portal, WhatsApp funnel (mock), PACE, admin portal, worker PIN auth, org tenancy, skills taxonomy. Real-money / real-provider / production-legal portions remain deferred (CLAUDE.md §8).
-- **Status 2026-07-14: alpha NO-GO.** Sole capstone blocker = **B1 real-handset run against staging** (emulator evidence from PR #190 does not count). **P0: staging API not deployed — past the 2026-07-04 deadline** (owner Prakash; runbook `docs/ops/staging-service-deploy-runbook.md`). Alpha target 2026-08-15, soft launch Sep.
+- **Status 2026-07-18: alpha IN PROGRESS.** **B1 CLOSED 2026-07-18** (owner-attested) — staging live, 0042+0043 applied, R27 triaged, real OTP (Fast2SMS), resume download verified. `docs/qa/evidence/staging/` not captured — rests on owner attestation (not a challenge; capture on next run). Remaining to full alpha GO: TD81 (ai-service not in staging compose — chat/profile-extraction mocked), gates 1/2/5 (payer-company/agency/RBAC/admin smoke never run on real stack), OTP-safety half (gate 4). **Phase 2 (internal RVM pilot) UNBLOCKED.** Alpha target 2026-08-15, soft launch Sep. **Repo is PUBLIC.**
 
 # Architecture
 
@@ -23,7 +23,7 @@
 # Tech Stack
 
 - pnpm 11 + Turborepo · NestJS (TS strict) · FastAPI · Next.js ×2 (payer-web external, web ops) · Flutter (go_router shell, ADR-0023; Flutter 3.35.7 vs older CI pin = TD61).
-- **DB: ONE Supabase Postgres project (`Badabhai-DB`, ap-south-1) — the `main` DB is the only database. No localhost/dev/staging DB.** Drizzle authors the schema; **39 migrations** (0000–0038; 0038 applied by owner 2026-07-15). CI/e2e use a throwaway per-run Postgres container, never the real DB.
+- **DB: ONE Supabase Postgres project (`Badabhai-DB`, ap-south-1) — the `main` DB is the only database. No localhost/dev/staging DB.** Drizzle authors the schema; **45 migrations** (0000–0044; 0038 applied 2026-07-15; 0039 applied 2026-07-15; **0042 + 0043 are apply-before-deploy** for next staging push). CI/e2e use a throwaway per-run Postgres container, never the real DB.
 - Redis + BullMQ (live). Vertex `text-multilingual-embedding-002` (768-dim) for profiling embeddings + skill aliases. Sarvam STT (mock default, ADR-0029 voice-at-rest Proposed). ZeptoMail (sandbox gate) for member invites. Langfuse placeholder.
 - **Packages (10):** event-schema, db, config, types, validators, taxonomy, ai-contracts (Zod↔Pydantic mirror), **pricing (BUILT: fail-closed `resolvePrice`, ADR-0013)**, **reach-engine (BUILT)**, **reach-learn (BUILT, offline)**.
 - **CI (6 workflows):** ci.yml (lint/typecheck/test/build + ruff/pytest + full-chain e2e on ephemeral pgvector Postgres), security-scan.yml, supabase-checks.yml, worker-app.yml (Flutter, blocking), staging-cd.yml + staging-demand-verify.yml (both `workflow_dispatch`). Dependabot enabled (CI-1, #218).
@@ -34,7 +34,7 @@
 - **Payer tenancy (3, ADR-0019/0022/0027):** `payers` (role employer|agent; email/phone/org **encrypted**), `payer_orgs` (tenant root), `payer_members` (invite→accept→remove; token hashed).
 - **Chat/voice (3):** `chat_sessions` (conversation_state JSONB + archive storage path), `chat_messages`, `voice_notes` (transcripts = PII-class, never in events/LLM).
 - **Profiling (5, ADR-0005):** `worker_profiles` (ai_job_id unique = idempotent extraction; embedding vector(768) HNSW), `profiles`/`questions`/`profile_questions`/`worker_answers` (1 per worker+question; free text pseudonymized pre-persist).
-- **Resume (1):** `generated_resumes` (v1 idempotent per profile; pdf_storage_key; render_status).
+- **Resume (1):** `generated_resumes` (v1 idempotent per profile; pdf_storage_key; render_status; photo→PDF re-render wired ADR-0032).
 - **Spine (3):** `events` (idempotency_key), `ai_jobs` (+ model/tokens/cost_inr), `audit_logs` — refs only.
 - **Jobs (3):** `job_postings` (ops+payer, vacancy **band**), `jobs` (faceless feed jobs, banded pay/exp), `applications` (apply/skip unique per worker+job). Two job-shaped entities is known debt (TD37).
 - **Unlock/credits (4, ADR-0010):** `unlocks` (worker_id SET NULL for DSAR), `payer_credits`, `credit_ledger` (append-only), `unlock_routing` (relay handle, never phone).
@@ -58,14 +58,15 @@
 
 - `domain.action` naming; envelope: event_id/name/version, occurred_at, actor{}, subject{}, source, correlation_id, causation_id, payload, metadata. Payloads = ids/hashes/enums only.
 - **100 events, 28 domains** (top: worker 16, ai 9, job_posting 7, admin 6, resume 5, profile 5, payer 5). All version 1; incompatible change ⇒ version bump, never mutate.
-- `createEvent`/`validateEvent` (registry-driven, two-stage Zod). ADR-0031 (Accepted) adds `worker.deletion_scheduled/cancelled` → **107** events.
+- `createEvent`/`validateEvent` (registry-driven, two-stage Zod). ADR-0031 (Accepted + MERGED #400) adds `worker.deletion_scheduled/cancelled` → **102** events (100 base + 2).
 
 # Security & Privacy Rules
 
 - CLAUDE.md §2 invariants govern. PII set: phone, full name, address, employer names, ID tokens — never in LLM input/events/ai_jobs/audit_logs/logs.
 - **Launch gates — 11 boolean env vars, ALL default false:** AI_ENABLE_REAL_CALLS, PAYMENTS_ENABLE_REAL, MESSAGING_ENABLE_REAL, MEMBER_INVITES_ENABLE_REAL, RESUME_RENDER_ENABLED, AUTH_ROLLING_TIERS_ENABLED, ADMIN_PII_REVEAL_ENABLED, ZEPTOMAIL_SANDBOX_MODE, CAPACITY_ENFORCEMENT_ENABLED, PACE_ENABLED, PACE_ADJACENCY_ENABLED. Payments/messaging/invites **refuse to boot** if true without provider creds. Flips need human sign-off, staging first.
-- Worker auth = ADR-0026 (OTP + device PIN, scrypt, lockout cycles; `kPersistentAuth` ON since PR #201; TD62 consent-routing HIGH open). Payer auth = PayerAuthGuard + org roles (ADR-0027). Admin = ADR-0025 (roles + MFA flag). **Payer-facing money routes (`/payer/unlocks*`, `/payer/job-postings/:id/plan|boost`) are `PayerAuthGuard`-protected, session-derived `payer_id` (XB-A, PRs #110/#119/#179). LC-1 residual = ops `/unlocks*` internal surface only (InternalServiceGuard, deliberate safe-interim, TD33/TD50 — retire blocked on ADMIN-4..8).**
-- Top open risks: R1 RLS unfinalized, R3 mock providers, R4/R19 DPDP legal copy, R10 conversation-bucket erasure, R24 admin privilege, R25 PIN/session.
+- Worker auth = ADR-0026 (OTP + device PIN, scrypt, lockout cycles; `kPersistentAuth` ON since PR #201; **TD62 consent-routing RESOLVED 2026-07-15 #240**). Payer auth = PayerAuthGuard + org roles (ADR-0027). Admin = ADR-0025 (roles + MFA flag). **Payer-facing money routes (`/payer/unlocks*`, `/payer/job-postings/:id/plan|boost`) are `PayerAuthGuard`-protected, session-derived `payer_id` (XB-A, PRs #110/#119/#179). LC-1 residual = ops `/unlocks*` internal surface only (InternalServiceGuard, deliberate safe-interim, TD33/TD50 — retire blocked on ADMIN-4..8).**
+- **POST /resume/generate** is now `WorkerAuthGuard`, session-derived `worker_id`, no-oracle 404s, profile confirmed-gate (B-3, #385 / #252 TD70 — R26 CLOSED).
+- Top open risks: R1 RLS unfinalized, R3 mock providers, R4/R19 DPDP legal copy, R10 conversation-bucket erasure, R24 admin privilege, R25 PIN/session, **R27** box dev-secrets (triage before redeploy), **R28** GET /workers/:id/profile unauthenticated decrypted name (bounded; fix before external traffic), **R30** word-split phone pseudonymize (honest negative; gates AI_ENABLE_REAL_CALLS), **R31** /pricing/catalog unauthenticated (bounded; fix before real payments), **TD81** ai-service missing from compose (staging mocks AI silently).
 
 # Coding Conventions
 
@@ -73,16 +74,16 @@
 - Vitest (unit + `tests/e2e` against ephemeral PG), Pytest, `flutter analyze && flutter test` (blocking). Gate: `pnpm lint && typecheck && test && build` + `ruff check . && pytest`.
 - Repos = Drizzle only, PII-excluding projections; services emit events; controllers thin. AI contracts stay Zod↔Pydantic mirrored (recent parity PRs #191/#193).
 
-# Current Workstreams (2026-07-15)
+# Current Workstreams (2026-07-18)
 
-- **No open PRs as of 2026-07-15.** HEAD `548acd4` (PR #231 docs sync). TAX-7 growth loop (#230), TAX-8 résumé guard (#227/#228), TAX-5 calibration (#225/#226), voice pipeline (ADR-0029, #198), kPersistentAuth ON (#201) all merged since 2026-07-14.
-- **Recently shipped (#182–#231):** B5.x org tenancy (ADR-0027), TAX-0..8 skills taxonomy series (ADR-0030) + fork-B embed runner + FORK-B-1, COST-2/3/4, AI-PERSONA-1/2, worker-app backend wiring + Flutter 3.35.7 (Rishi), TD54 self-serve reads, name-edit, voice pipeline (ADR-0029 mock), throttle residuals (TD60), kPersistentAuth ON + payer REAL-mode (#201), job-side canonical (#222–#226), alerts feed (#221), TAX-7 growth loop (#230), TAX-8 résumé guard (#228), docs syncs.
-- **Blockers:** P0 staging deploy (overdue 07-04, still unprovisioned 2026-07-15) → B1 capstone; P1 TD62 kPersistentAuth consent-routing (HIGH, mobile). FE wiring CLOSED (#194). OTP is REAL-ONLY (`SMS_PROVIDER: fast2sms`); staging needs Fast2SMS creds to boot.
-- **Pending decisions:** ADR-0031 (deletion grace), ADR-0005/0028/0029 Proposed; Q5/Q11 RLS identity; Q13 PACE adjacency (CEO); hospitality per-trade RVM ratification.
-- Key dates: DPAs ≤07-07 (check status), alpha 2026-08-15, soft launch Sep 2026.
+- **No open PRs as of 2026-07-18.** HEAD `085e2f6` (#408). 45 migrations, 34 ADRs, 2,465 TS tests green.
+- **Recently shipped (#232–#408, highlights):** TAX-9 versioning/replaced_by (#232), TD67 ai-service auth bearer (#235), TD68+COST-4 SpendLedger join (#238), PIN residuals+F4+A5 re-mint (#239), **TD62 RESOLVED** consent-routing tri-state (#240), RATIFY-1 22 aliases (#244), Q14 DECIDED skill_labels on résumé (#245), TD22-1 PII token v2 kid+keyring (#247/#250), TD25a trust-proxy regression suite (#248), TD70 /resume/generate WorkerAuthGuard (#252), CD-0..CD-5 hardening (#253 + #383/#384/#386), in-app PDF download (#256), WA-1..4 applied-jobs fixes (#326), ADR-0032 profile photo (#340 / #402 photo→PDF), gated test-login D-3 (#391), B-4/B-5/D-1 location split + one-ask + salary carve-out (#392), ADR-0033 skills-overlap factor .15 (#394), D-2 chunked async STT with DoS hardening (#395), R31 pricing/catalog auth fix (#396), R2 Indic danda danda fix (#397), ADR-0031 deletion grace (#400), AI-ENV-1 env_file anchor + REDIS_URL→AI_SPEND_REDIS_URL (#401), alerts worker-own-apply (#403), TD83(a) demand-side events banned by payload shape (#404), storage/interview-kit 503 fix (#405), guard template suffix fixes (#407/#408), ten owner rulings codified (#387).
+- **Blockers:** ✅ P0 CLEARED (B1 CLOSED 2026-07-18, owner-attested). **New P1:** TD81 ai-service missing from compose (staging mocks AI silently behind 200 `/health`); gates 1/2/5 unrun on staging; OTP-safety half (gate 4); R28 unauthenticated name-read (bounded); R31 unauthenticated pricing/catalog (bounded); TD61 Flutter CI pin. FE wiring CLOSED (#194). TD62 RESOLVED (#240).
+- **Pending decisions:** ADR-0005/0028/0029 Proposed; Q5/Q11 RLS identity; Q13 PACE adjacency (CEO); hospitality per-trade RVM ratification (pending, content drafted). ADR-0031 ACCEPTED + MERGED (#400). R27 box triage (owner-only).
+- Key dates: SECRETS-1 → B1 ~07-21/22; alpha 2026-08-15; soft launch Sep 2026.
 
 # Developer Notes (token-savers)
 
 - Windows: `corepack pnpm` (pnpm not on PATH); `PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false`; build via `corepack pnpm --filter "@badabhai/<pkg>..." run build`; clear `*.tsbuildinfo` before API builds; e2e Postgres on **5433** (host PG owns 5432).
-- **DB connect:** Session pooler `aws-1-ap-south-1.pooler.supabase.com:5432` + `?sslmode=require` (direct host IPv6-only); `DATABASE_URL` in root `.env` — load into shell before `pnpm db:migrate`. Never `supabase db push` (Drizzle owns migrations). **Check the latest migration number (0038) before `db:generate` — never collide.**
+- **DB connect:** Session pooler `aws-1-ap-south-1.pooler.supabase.com:5432` + `?sslmode=require` (direct host IPv6-only); `DATABASE_URL` in root `.env` — load into shell before `pnpm db:migrate`. Never `supabase db push` (Drizzle owns migrations). **Check the latest migration number (0044) before `db:generate` — never collide. Migrations 0042 + 0043 are apply-before-deploy for the next staging push.**
 - `docs/tracker/` = daily execution state; `docs/registers/` = project memory; update in the same PR. Escalate per CLAUDE.md §7 (invariants, stack, destructive migrations, real keys/spend, production data).

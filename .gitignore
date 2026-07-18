@@ -37,6 +37,14 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
+# ---- Flutter ----
+# Path-agnostic: only the worker-app path was ignored below, so a stray
+# `apps/.dart_tool/` got committed (Dart tooling writes one wherever it resolves a
+# package graph). Its package_config.json embeds ABSOLUTE local paths
+# (file:///home/<user>/.pub-cache/...) — machine-specific, useless to anyone else,
+# and regenerated on every `pub get`. Ignore it at ANY depth so this cannot recur.
+.dart_tool/
+
 # ---- Flutter (apps/worker-app) ----
 apps/worker-app/.dart_tool/
 apps/worker-app/.flutter-plugins

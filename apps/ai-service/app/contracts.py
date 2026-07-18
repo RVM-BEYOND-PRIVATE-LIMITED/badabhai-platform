@@ -7,9 +7,15 @@ sync. PRIVACY: these never carry raw identity (no phone, name, address, employer
 from __future__ import annotations
 
 import math
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+# INTERVIEW-1 §7 parity: Zod's `z.number().int().nonnegative()` REJECTS -1 and the
+# string "2". Plain `int` here would accept both (Pydantic coerces "2" -> 2), so the
+# two schemas would disagree on the input domain — and the permissive side is the one
+# enforcing the interview's ask bound. strict=True + ge=0 makes them agree.
+AskCount = Annotated[int, Field(ge=0, strict=True)]
 
 
 # --- Conversation ----------------------------------------------------------
@@ -68,6 +74,29 @@ class ConversationState(BaseModel):
     # of the same question. clarify_turn increments it and refuses past 2 (falls
     # through to next_turn); every next_turn resets it to 0.
     clarify_count: int = 0
+    # INTERVIEW-1 re-ask bound (additive, defaulted => backward compatible; mirrored in
+    # @badabhai/ai-contracts ConversationStateSchema): how many times each topic has
+    # been ASKED. asked_question_ids is a dedup SET and cannot count, so the bounded
+    # re-ask needs its own counter. _next_topic refuses past MAX_ASKS_PER_TOPIC (2), so
+    # a topic the (CNC/VMC-only) detector can never parse is asked twice, never forever.
+    # Topic ids only — no PII.
+    #
+    # NOT a total: the COST-4 clarify path (clarify_turn) RE-SERVES the last question
+    # without incrementing this — those re-serves are bounded separately by
+    # clarify_count. ask_counts counts ENGINE-driven asks only.
+    ask_counts: dict[str, AskCount] = Field(default_factory=dict)
+    # INTERVIEW-1 completeness signal (additive, defaulted => backward compatible;
+    # mirrored in @badabhai/ai-contracts ConversationStateSchema): the ESSENTIAL
+    # topics the worker never actually answered, in ESSENTIAL_TOPICS order. Empty
+    # list = complete.
+    #
+    # This — NOT extraction_ready — is how an incomplete profile is declared.
+    # extraction_ready keeps its frozen v1 meaning ("the interview is over, run
+    # extraction") because it is the sole gate on extraction downstream, so making it
+    # False on a gap would mean no profile and no resume at all. This list is read to
+    # MARK the extracted profile incomplete, making a role: null resume a known
+    # outcome. Topic ids only — no PII. The API-side consumer is a follow-up task.
+    unanswered_essentials: list[str] = Field(default_factory=list)
 
 
 # --- Profiling turn --------------------------------------------------------
@@ -125,6 +154,15 @@ class SalaryExpectation(BaseModel):
 
 
 class LocationPreference(BaseModel):
+    # Issue #423 — where the worker IS, kept separate from where they WANT to work.
+    # The engine has always treated these as distinct topics (question_bank.py:
+    # "current AND preferred location, never conflated"), but the legacy shape had
+    # nowhere to put the current city, so _build_legacy prepended it to
+    # preferred_cities — turning "I live in Pune" into "I want to work in Pune".
+    #
+    # ADDITIVE + defaulted -> backward compatible. Mirrors LocationPreferenceSchema
+    # in packages/ai-contracts (§7 parity).
+    current_city: str | None = None
     preferred_cities: list[str] = Field(default_factory=list)
     willing_to_relocate: bool | None = None
 

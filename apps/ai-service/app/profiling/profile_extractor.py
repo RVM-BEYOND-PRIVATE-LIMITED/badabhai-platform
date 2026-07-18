@@ -28,11 +28,15 @@ from . import signals
 from .canonical_roles import ROLE_TRADE, coerce_json_text, normalize_role_id
 from .signals import Signals
 
-# Adjacency flag value: the profile canonicalized to NOTHING in the CNC/VMC
-# taxonomy (e.g. a welder). Set on WorkerProfileDraft.unmatchable_reason so the
-# profile is explicitly marked adjacent rather than silently half-empty. Adopting
-# a broader occupation taxonomy (NCO-2015/ISCO-08) that brings such trades in-scope
-# is an ADR-gated backend workstream — out of scope for apps/ai-service.
+# Adjacency flag value: the profile canonicalized to NOTHING in the launch
+# taxonomy. Set on WorkerProfileDraft.unmatchable_reason so the profile is explicitly
+# marked adjacent rather than silently half-empty. Adopting the full broader occupation
+# taxonomy (NCO-2015/ISCO-08, ADR-0028) is still an ADR-gated backend workstream.
+#
+# TAX-WELD-1: WELDING IS NO LONGER AN EXAMPLE OF THIS. A welder now canonicalizes to
+# role_welder / dom_welding + the pre-existing welding skill ids, so they are no longer
+# flagged adjacent. The flag still fires for genuinely out-of-scope trades (fitter,
+# electrician, carpenter, helper).
 UNMATCHABLE_OUTSIDE_SCOPE = "outside_cnc_vmc_scope"
 
 # Allowed values for the enum-typed draft fields. Used by ``merge_model_draft`` to
@@ -125,7 +129,12 @@ def _build_rich(sig: Signals, role_family: str) -> WorkerProfileDraft:
 
 
 def _build_legacy(sig: Signals) -> DraftProfile:
-    cities = ([sig.current_city] if sig.current_city else []) + sig.preferred_locations
+    # Issue #423 — the current city is NO LONGER prepended to preferred_cities. The
+    # engine keeps `current_location` and `preferred_locations` as separate topics
+    # (question_bank.py: "never conflated"), and the legacy shape now has its own
+    # `current_city` field, so "I live in Pune" stops being recorded as "I want to
+    # work in Pune". Consumers read `current_city ?? preferred_cities[0]`, which is
+    # why rows written before this field existed keep working.
     return DraftProfile(
         canonical_trade_id=sig.trade_id,
         canonical_role_id=sig.role_id,
@@ -137,7 +146,8 @@ def _build_legacy(sig: Signals) -> DraftProfile:
             amount_max=float(sig.expected_salary) if sig.expected_salary else None,
         ),
         location_preference=LocationPreference(
-            preferred_cities=cities,
+            current_city=sig.current_city,
+            preferred_cities=sig.preferred_locations,
             willing_to_relocate=sig.relocation_willingness,
         ),
         availability=Availability(status=sig.availability),
@@ -301,8 +311,10 @@ def map_rich_to_legacy(
     an LLM phrase can never inject an id the vector layer did not assign). Default (no store
     / flag off) → unchanged gazetteer-only behavior, so the raw phrase is preserved (rollback).
 
-    When nothing canonicalizes (e.g. welding "mig_tig_welder"), the canonical ids
-    stay null — the caller marks the profile adjacent via ``unmatchable_reason``.
+    When nothing canonicalizes (a genuinely out-of-scope trade — fitter, electrician,
+    carpenter), the canonical ids stay null and the caller marks the profile adjacent
+    via ``unmatchable_reason``. TAX-WELD-1: welding ("mig_tig_welder") is no longer
+    such a case — it maps to role_welder + the pre-existing welding skill ids.
     ``base`` is copied, not mutated.
     """
     legacy = base.model_copy(deep=True) if base is not None else DraftProfile()

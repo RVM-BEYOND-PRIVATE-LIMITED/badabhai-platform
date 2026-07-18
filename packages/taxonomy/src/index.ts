@@ -29,6 +29,9 @@ export const DOMAINS = [
   { id: "dom_hmc_machining", name: "HMC Machining" },
   { id: "dom_grinding", name: "Grinding" },
   { id: "dom_programming", name: "CNC/CAM Programming" },
+  // TAX-WELD-1: welding brought in scope so an adjacent-trade welder carries a
+  // canonical occupation instead of null. Additive; no existing id renamed/reused.
+  { id: "dom_welding", name: "Welding" },
 ] as const satisfies readonly TaxonomyNode[];
 
 // ---- Roles (initial CNC/VMC set) ----
@@ -48,6 +51,10 @@ export const ROLES = [
     name: "CNC Grinding Operator",
     domainId: "dom_grinding",
   },
+  // TAX-WELD-1. Mirrored in apps/ai-service `signals._ROLES` (the Python side of the
+  // same id space). The welding SKILL ids this role co-occurs with already exist,
+  // active, in `skill-corpus.ts` — none was minted for this change.
+  { id: "role_welder", name: "Welder", domainId: "dom_welding" },
 ] as const satisfies readonly Role[];
 
 // ---- Skills (placeholder) ----

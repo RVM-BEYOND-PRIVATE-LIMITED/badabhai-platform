@@ -262,7 +262,7 @@ void main() {
   // stacked two preview screens and enqueued two concurrent extraction AI jobs
   // (duplicate real spend). Counting preview MOUNTS is the assertion that
   // matters: one mount == one POST /profile/extract.
-  group('Done — build my profile double-tap guard (#372)', () {
+  group('ready-CTA double-tap guard (#372)', () {
     /// Mounts the chat screen on a real router whose `/profiling` route counts
     /// its mounts — a stand-in for ProfilePreviewScreen's extract-on-mount.
     Future<({GoRouter router, int Function() mounts})> pumpRouted(
@@ -293,13 +293,24 @@ void main() {
       await tester.pumpWidget(MaterialApp.router(routerConfig: router));
       await tester.pump();
       await tester.pumpAndSettle();
+
+      // #421 gates the ready CTA on the engine's `extraction_ready`. Drive one
+      // ready turn so the button under test is the PRIMARY path — the
+      // not-ready path opens the nudge sheet instead, which is its own guard.
+      when(() => repo.sendMessage(any())).thenAnswer(
+        (_) async => const ChatTurn(reply: 'bas ho gaya', extractionReady: true),
+      );
+      await tester.enterText(find.byType(TextField), 'CNC operator hun');
+      await tester.testTextInput.receiveAction(TextInputAction.send);
+      await tester.pumpAndSettle();
+
       return (router: router, mounts: () => mounts);
     }
 
     testWidgets('a double-tap opens the preview exactly once',
         (WidgetTester tester) async {
       final int Function() mounts = (await pumpRouted(tester)).mounts;
-      final Finder done = find.text('Done — build my profile');
+      final Finder done = find.text(kChatDoneReadyLabel);
 
       // Both taps land inside the SAME frame — the real double-tap on a laggy
       // low-end device. Nothing is pumped between them, so the disabled state
@@ -318,7 +329,7 @@ void main() {
       final ({GoRouter router, int Function() mounts}) harness =
           await pumpRouted(tester);
       final int Function() mounts = harness.mounts;
-      final Finder done = find.text('Done — build my profile');
+      final Finder done = find.text(kChatDoneReadyLabel);
 
       await tester.tap(done);
       await tester.pumpAndSettle();
@@ -327,7 +338,7 @@ void main() {
       // Back out of the preview — the worker must be able to try again.
       harness.router.pop();
       await tester.pumpAndSettle();
-      expect(find.text('Done — build my profile'), findsOneWidget);
+      expect(find.text(kChatDoneReadyLabel), findsOneWidget);
 
       await tester.tap(done);
       await tester.pumpAndSettle();

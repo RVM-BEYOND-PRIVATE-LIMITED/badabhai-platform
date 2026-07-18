@@ -3,7 +3,7 @@
   "purpose": "History of every Flutter issue/error reported and resolved, across both Flutter apps. Read this BEFORE writing new Flutter functionality so a past issue is not reintroduced. Every entry must carry a root_cause and a prevention_rule that new code is checked against.",
   "scope": ["apps/worker-app", "apps/payer-app"],
   "toolchain": { "flutter": "3.35.7", "dart": "3.9.2" },
-  "last_updated": "2026-07-15",
+  "last_updated": "2026-07-17",
   "entry_schema": {
     "id": "FI-### — sequential, never reused",
     "date": "YYYY-MM-DD the issue was reported",
@@ -18,6 +18,39 @@
     "status": "resolved | open | wont-fix",
     "tags": ["freeform keywords for grep"]
   },
-  "next_id": "FI-001",
-  "issues": []
+  "next_id": "FI-003",
+  "issues": [
+    {
+      "id": "FI-001",
+      "date": "2026-07-16",
+      "app": "worker-app",
+      "area": "state",
+      "title": "Revoking a device threw 'Cannot emit new states after calling close' and the list never refreshed",
+      "symptom": "Bad state: Cannot emit new states after calling close\n#0      BlocBase.emit (package:bloc/src/bloc_base.dart:97:9)\n#1      DevicesCubit.load (package:badabhai_worker_app/features/auth/presentation/cubit/devices_cubit.dart:48:5)\n#2      DevicesCubit.revoke (package:badabhai_worker_app/features/auth/presentation/cubit/devices_cubit.dart:68:11)\n<asynchronous suspension>\n#3      _DeviceTile._confirmRevoke (package:badabhai_worker_app/features/auth/presentation/devices_screen.dart:176:13)\n<asynchronous suspension>",
+      "root_cause": "DevicesCubit.load() guarded its two POST-await emits with `if (isClosed) return;` but NOT the `emit(loading)` on its first line — that one looks synchronous and therefore safe. It is not: revoke() calls `await _manager.revokeDevice(id)` and only THEN calls load(), so load()'s first line is itself reached after an await. If the DevicesCubit closed during that await (every worker-app cubit is screen-scoped — BlocProvider is created inside the screen's build, so it closes on pop), the first emit throws. The trap is that an emit's safety depends on the whole call graph, not on the method it sits in.",
+      "fix": "NOT FIXED — the user has hidden the Devices section, so the reported instance is dormant by scope decision. The bug class was swept across all 31 Cubits/Blocs in both apps instead (see FI-002 note: audit was interrupted and is INCOMPLETE — re-run before trusting the app is clean).",
+      "files_changed": [],
+      "prevention_rule": "An emit is UNSAFE if it is reachable after ANY await on ANY call path without an `if (isClosed) return;` in between — including an emit on the FIRST line of a method that some other method calls post-await, and emits inside .then()/Timer/StreamSubscription callbacks. Guard by call-graph reachability, never by 'is there an await above it in this method'. Screen-scoped cubits (BlocProvider in a screen build) close on pop, so any in-flight await can land on a closed cubit.",
+      "status": "wont-fix",
+      "tags": ["bloc", "cubit", "emit-after-close", "isClosed", "async", "lifecycle", "devices"]
+    },
+    {
+      "id": "FI-002",
+      "date": "2026-07-17",
+      "app": "worker-app",
+      "area": "api-client",
+      "title": "Verify OTP crashed with a bad int→String cast; the login was granted server-side but the app was stuck on the OTP screen",
+      "symptom": "Exception has occurred.\n_TypeError (type 'int' is not a subtype of type 'String?' in type cast)\n(thrown on tapping Verify OTP)",
+      "root_cause": "Wire-contract mismatch. The backend types the session tier as a NUMBER — `SessionInfo { tier: number; ... }` in apps/api/src/auth/auth.dto.ts (and pin.dto.ts), where the value is the engagement-tier INDEX from tierFor() (0..3) and is passed straight through at auth.service.ts:296. The Flutter client parsed it as a label: `tier: raw['tier'] as String? ?? ''` in AuthSession.fromJsonOrNull. Casting the int 0..3 to String? throws _TypeError. It fired on OTP verify because OtpVerifyResult.fromJson → AuthTokens.fromJson → AuthSession.fromJsonOrNull(json['session']). The same session block also rides /auth/pin/verify and /auth/token/refresh, so PIN unlock and token refresh had the identical latent crash. WHY IT SHIPPED: the unit fixtures invented `'tier': 'full'` — a string the API has never sent — so the suite validated the client against a fictional contract and stayed green while every real login threw. Worse, the crash landed AFTER the server had already minted the session and consumed the OTP: the worker was authenticated server-side but stranded on the OTP screen, and retrying burned another OTP against the TD60 daily cap. MockAuthApi never builds a session block, so mock mode never reproduced it either.",
+      "fix": "AuthSession.tier: String → int? (the real backend type), parsed by a new fail-soft `_parseTier` that accepts num, tolerates a numeric string, and returns null for anything unreadable — never casts, never throws, matching the tolerant-parse promise fromJsonOrNull already documented. Null (not 0) for absent/unreadable, since 0 is a real tier (the lowest) and would masquerade as 'least engaged' rather than 'unknown'. Test fixtures corrected to the real int shape, plus two regressions: an int tier parses, and an unreadable tier degrades to null without bricking the login. Verified: flutter analyze clean, 639/639 worker-app tests pass.",
+      "files_changed": [
+        "apps/worker-app/lib/core/auth/auth_api.dart",
+        "apps/worker-app/test/core/auth/auth_api_test.dart",
+        "apps/worker-app/test/features/auth/auth_session_manager_test.dart"
+      ],
+      "prevention_rule": "Never hand-write a JSON fixture from an assumption about the wire shape — read the backend DTO (apps/api/src/**/*.dto.ts) and copy the ACTUAL types. A fixture that invents a field's type makes the test suite certify the bug. Concretely: (1) for every `as T` on a JSON field, confirm T against the backend interface, and remember TS `number` → Dart `num/int`, never String; (2) a parser documented as tolerant must contain NO hard casts — use `is` checks or tryParse and degrade to null; (3) parsers on the post-auth path must never throw, because the server has already committed the session and consumed the OTP — a client-side throw strands an authenticated worker and burns their OTP quota; (4) mock-mode green ≠ real-backend green, since MockAuthApi omits blocks the real API always sends.",
+      "status": "resolved",
+      "tags": ["json", "cast", "_TypeError", "contract-drift", "otp", "auth", "session", "tier", "test-fixture", "backend-parity"]
+    }
+  ]
 }

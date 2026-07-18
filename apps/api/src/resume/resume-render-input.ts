@@ -36,7 +36,13 @@ export function buildResumeRenderInput(
     photoDataUri,
     // Prefer the recruiter-readable trade title over a raw taxonomy id.
     canonicalRole: trade?.display_name ?? draft.canonical_role_id,
-    location: draft.location_preference.preferred_cities[0] ?? null,
+    // Issue #423 — the worker's CURRENT city is what belongs on a résumé, and it now
+    // has its own field. The `preferred_cities[0]` fallback is NOT dead code: before
+    // the split the current city was prepended to that list, so for every profile
+    // extracted before this change it is still the only place the city exists.
+    // Dropping the fallback would blank the location line on all of them.
+    location:
+      draft.location_preference.current_city ?? draft.location_preference.preferred_cities[0] ?? null,
     experienceYears: draft.experience.total_years,
     availability: humanizeAvailability(draft.availability.status),
     summary: buildSummary(draft, trade),

@@ -74,6 +74,31 @@ This adoption **does not block Track A** — the in-flight ai-service canonicali
 
 Each phase is independently reversible: revert the phase's PR; earlier phases keep working because the crosswalk keeps the legacy `role_*` ids valid throughout.
 
+> **AMENDMENT 2026-07-18 — one Phase-2-shaped slice landed AHEAD of Phase 1 (owner-ruled).**
+>
+> TAX-WELD-1 (PR #412) added **`role_welder` + `dom_welding`** to the closed whitelist in both
+> `signals.py`/`canonical_roles.py` and `packages/taxonomy`, so a welder extracts to a non-null
+> role + trade instead of `role: null, trade: null, skill_ids: []`. By the table above that is
+> Phase 2 work, and its gate (**"Phase 1 merged AND Track A's staging `--real` negative-tier
+> eval passes"**) was **not** met — Phase 1 is still unbuilt. The owner ruled to ship it anyway
+> (recorded verbatim in [team-decisions](../registers/team-decisions.md#2026-07-18--tax-weld-1-ships-role_welder--dom_welding-minted-ahead-of-adr-0028-phase-1-owner)).
+>
+> **Read the table as still accurate for everything except this slice.** Specifically, Phase 1
+> is NOT discharged: the NCO-2015/ISCO-08 id space, the versioned `taxonomyVersion`, the
+> crosswalk from the legacy 7-role set, and the **WS4 mapper backfill** all remain unbuilt and
+> still gated exactly as written. Phase 2 remains OPEN.
+>
+> **What the slice relies on, so Phase 1's author can check it still holds:** the addition is
+> additive to an *enumerated* whitelist (§(d) — "strictly safer, never looser"), `normalize_role_id`
+> still rejects everything outside the set, and welding entries sit LAST in the first-keyword-wins
+> `_ROLES` list, so welding can only ADD a role where there was `None` (measured: 1 of 56 gold
+> texts changed). **The negative-tier eval that Phase 2's gate exists to force has NOT been run
+> for these two ids** — that debt is inherited by Phase 1/2, not discharged here.
+>
+> **Phase 1 must absorb, not re-mint, these two ids**: give `role_welder`/`dom_welding` their
+> NCO-2015/ISCO-08 codes in the crosswalk like the original seven, so no worker profiled in the
+> interim carries an id the standard space cannot resolve.
+
 ---
 
 ## Consequences

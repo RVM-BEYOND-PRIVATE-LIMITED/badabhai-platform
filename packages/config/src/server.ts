@@ -474,6 +474,40 @@ export const serverEnvSchema = z.object({
   // staging-first behind PAYMENTS_ENABLE_REAL. Unused in alpha (mock ledger).
   PAYMENTS_PROVIDER_KEY: z.string().min(1).optional(),
 
+  // Worker push notifications (ADR-0034 — FCM). SECURITY ALERTS ONLY in this phase
+  // (new-device login + logged-out-everywhere); resume/profile/voice pushes are
+  // deferred. PUSH_ENABLE_REAL is the master gate and DEFAULTS FALSE: with it off the
+  // MOCK provider is bound and nothing leaves the process. Flipping it true requires
+  // the service-account credential AND is human-gated + staging-first (CLAUDE.md §7);
+  // a real-enabled flag without the credential fails CLOSED at boot via
+  // assertPushConfig. booleanFromString so a falsey string stays OFF.
+  //
+  // DELIBERATELY SEPARATE from MESSAGING_ENABLE_REAL / WHATSAPP_* above: that is the
+  // ADR-0020 WhatsApp invite funnel — a different provider, a different spend profile,
+  // and a different kill-switch. One switch must never govern both channels.
+  PUSH_ENABLE_REAL: booleanFromString,
+  // Firebase service-account key, BASE64-ENCODED. Base64 is not decoration: the raw
+  // key is multi-line JSON containing a PEM private key, and the CI deploy bridges
+  // secrets to the box as shell env vars (ci.yml `envs:`), which mangles embedded
+  // newlines/quotes. Encoding it keeps the secret a single opaque token end-to-end.
+  // NEVER committed; supplied only in staging-first. The decoded credential and every
+  // provider response body stay OUT of logs (a response body echoes the push token).
+  FCM_SERVICE_ACCOUNT_B64: z.string().min(1).optional(),
+  FCM_PROJECT_ID: z.string().min(1).optional(),
+  // Global daily ceiling on REAL pushes AND the kill-switch.
+  //   min(0) is DELIBERATE: 0 = PAUSED = halt every push (including security), env-only,
+  //   NO redeploy — the OTP_GLOBAL_MAX_SENDS_PER_DAY lever, same semantics.
+  // NOTE: `security`-type pushes are EXEMPT from the numeric ceiling (see PushService).
+  // The OTP caps bound real MONEY (paid SMS); FCM is free, and under the ruled scope
+  // every push is a security alert — so a numeric cap would silently drop the one
+  // message class that must always arrive. A breach is emitted, never silently dropped.
+  PUSH_GLOBAL_MAX_SENDS_PER_DAY: z.coerce.number().int().min(0).default(5000),
+  // Per-IP hourly cap on PATCH /auth/devices/me/push-token. The client re-sends on every
+  // FCM token rotation and on app start, so an unthrottled route is a cheap
+  // write-amplification surface. Generous — a legit device sends this rarely.
+  // Fail-closed (a Redis outage rejects) like every other IP cap.
+  PUSH_TOKEN_UPDATES_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(30),
+
   // WhatsApp invite funnel + re-engagement (ADR-0020). MOCK provider in alpha — no
   // real message is sent and the worker's phone never leaves to Meta. MESSAGING_ENABLE_REAL
   // is the master gate (mirrors AI_ENABLE_REAL_CALLS / PAYMENTS_ENABLE_REAL) and DEFAULTS
@@ -984,6 +1018,81 @@ export function assertPaymentsConfig(config: ServerConfig): void {
  * staging-first escalation (CLAUDE.md §7); this guard only enforces the config
  * invariant, not the human approval.
  */
+/**
+ * Reason REAL push sends cannot run, or null when they are allowed (ADR-0034 — the
+ * direct analogue of `realMessagingBlockedReason`). Fails CLOSED: a real send needs the
+ * flag AND a decodable service-account credential AND a project id.
+ */
+export function realPushBlockedReason(config: ServerConfig): string | null {
+  if (!config.PUSH_ENABLE_REAL) return "PUSH_ENABLE_REAL is false";
+  if (!config.FCM_SERVICE_ACCOUNT_B64) return "FCM_SERVICE_ACCOUNT_B64 is not set";
+  if (!config.FCM_PROJECT_ID) return "FCM_PROJECT_ID is not set";
+  return null;
+}
+
+export function areRealPushesEnabled(config: ServerConfig): boolean {
+  return realPushBlockedReason(config) === null;
+}
+
+/**
+ * Decode + validate the base64 Firebase service-account credential (ADR-0034), or null
+ * when it is unset. THROWS on a malformed value so a mangled paste fails at BOOT rather
+ * than at the first send — the whole reason the key is transported base64-encoded.
+ *
+ * §2: the returned material is a SECRET. It must never be logged, evented, or echoed in
+ * an error — the messages below name only the env var and the rule violated.
+ */
+export function getFcmServiceAccount(
+  config: ServerConfig,
+): { clientEmail: string; privateKey: string } | null {
+  const raw = config.FCM_SERVICE_ACCOUNT_B64;
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(raw, "base64").toString("utf8"));
+  } catch {
+    throw new Error(
+      "FCM_SERVICE_ACCOUNT_B64 must be base64 of the service-account JSON (decode/parse failed)",
+    );
+  }
+  if (parsed === null || typeof parsed !== "object") {
+    throw new Error("FCM_SERVICE_ACCOUNT_B64 must decode to a JSON object");
+  }
+  const obj = parsed as Record<string, unknown>;
+  const clientEmail = obj.client_email;
+  const privateKey = obj.private_key;
+  if (typeof clientEmail !== "string" || clientEmail.length === 0) {
+    throw new Error("FCM_SERVICE_ACCOUNT_B64 is missing client_email");
+  }
+  if (typeof privateKey !== "string" || !privateKey.includes("PRIVATE KEY")) {
+    throw new Error("FCM_SERVICE_ACCOUNT_B64 is missing a usable private_key");
+  }
+  return { clientEmail, privateKey };
+}
+
+/**
+ * Fail-closed boot guard for worker push (ADR-0034; mirrors `assertMessagingConfig`).
+ * A half-configured real provider must NOT run silently as mock, and a mangled
+ * base64 credential must not survive to the first send. Alpha default:
+ * PUSH_ENABLE_REAL=false → no-op. Call once at boot (main.ts).
+ */
+export function assertPushConfig(config: ServerConfig): void {
+  // Validate the credential shape whenever it is supplied, even with the gate OFF: a
+  // half-armed secret must be loud (the TD67 lesson), not discovered when we flip on.
+  const account = getFcmServiceAccount(config);
+  if (!config.PUSH_ENABLE_REAL) return;
+  const missing: string[] = [];
+  if (!account) missing.push("FCM_SERVICE_ACCOUNT_B64");
+  if (!config.FCM_PROJECT_ID) missing.push("FCM_PROJECT_ID");
+  if (missing.length > 0) {
+    throw new Error(
+      `PUSH_ENABLE_REAL is true but ${missing.join(" + ")} ${
+        missing.length > 1 ? "are" : "is"
+      } not set — refusing to boot a half-configured real push provider (ADR-0034, fail closed)`,
+    );
+  }
+}
+
 export function assertMessagingConfig(config: ServerConfig): void {
   if (!config.MESSAGING_ENABLE_REAL) return;
   const missing: string[] = [];

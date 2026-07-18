@@ -1,7 +1,7 @@
 # BadaBhai — Team Memory
 
-> Rebuilt 2026-07-14 from git history (all refs), open PRs (gh), `docs/tracker/`, and the
-> registers. Single source of truth for ownership + active work. **Update in place — do
+> Rebuilt 2026-07-14; updated 2026-07-18 (PRs #232–#408, ADRs 0031–0033, migrations 0039–0044).
+> Single source of truth for ownership + active work. **Update in place — do
 > not recreate.** Ownership = declared split in
 > [claude-working-guide §4](../docs/claude-working-guide.md) cross-checked against git;
 > shared areas are marked.
@@ -10,7 +10,7 @@
 
 - **3 active committers:** Prakash Kantumutchu (**TL / integrator**, ~374 commits), Divyanshu Pant (backend, ~135 — the user), Rishi Ojha (Flutter/mobile, ~16, active since 2026-06-26). Akshit (CEO) signs off ADRs/gates. Utkarsh is the announced Company/Agency web owner (2026-06-19 roster) but has **no repo commits yet** — payer-web is Prakash's in practice.
 - Process: automation-first + one human reviewer; specialist agents review, human confirms. Prakash merges most PRs.
-- **Status: alpha NO-GO** — sole capstone blocker B1 (real handset vs staging); **P0: staging API deploy overdue since 2026-07-04 (owner Prakash)**. Alpha 2026-08-15.
+- **Status: alpha IN PROGRESS** — **B1 CLOSED 2026-07-18** (owner-attested; staging live, real OTP, resume download). Remaining to full GO: TD81 (ai-service not in compose), gates 1/2/5/4-half. Phase 2 UNBLOCKED. Alpha 2026-08-15. Utkarsh: no repo commits — removed 2026-06-29.
 
 # Developer Ownership
 
@@ -37,8 +37,8 @@
 # Shared Infrastructure (coordinate before touching)
 
 - **event-schema registry** — 100 events / 28 domains, all v1; every new domain edits it.
-- **packages/db** — 39 migrations (0000–0038); sequential numbering, **check latest before `db:generate`**; renumber-on-merge is a recurring conflict. ONE Supabase DB (the `main`, the only database) — risky migrations need backup + sign-off.
-- **Auth stack** — WorkerAuthGuard (OTP+PIN, ADR-0026; `kPersistentAuth` ON since #201), ConsentGuard/ConsentNotRevokedGuard, PayerAuthGuard + role/org guards (ADR-0027), AdminAuthGuard/AdminRolesGuard (ADR-0025), InternalServiceGuard (ops `/unlocks*` only — NOT payer-facing; LC-1 residual, TD33, retire blocked on ADMIN-4..8).
+- **packages/db** — **45 migrations** (0000–0044; **0042+0043 apply-before-deploy**); sequential numbering, **check latest (0044) before `db:generate`**; renumber-on-merge is a recurring conflict. ONE Supabase DB (the `main`, the only database) — risky migrations need backup + sign-off.
+- **Auth stack** — WorkerAuthGuard (OTP+PIN, ADR-0026; `kPersistentAuth` ON since #201; **TD62 RESOLVED #240**), ConsentGuard/ConsentNotRevokedGuard, PayerAuthGuard + role/org guards (ADR-0027), AdminAuthGuard/AdminRolesGuard (ADR-0025), InternalServiceGuard (ops `/unlocks*` only — NOT payer-facing; LC-1 residual, TD33, retire blocked on ADMIN-4..8). **POST /resume/generate** now WorkerAuthGuard (B-3, #385, R26 CLOSED).
 - **Shared libs** — validators, types, config (env gates), taxonomy, ai-contracts (**keep Zod↔Pydantic parity**; last synced #191/#193), pricing, reach-engine, reach-learn.
 - `app.module.ts` (32 modules) and `docs/registers/` + `docs/tracker/` — merge hotspots.
 
@@ -46,20 +46,24 @@
 
 11 boolean env gates, **all default false** (packages/config/src/server.ts): AI_ENABLE_REAL_CALLS, PAYMENTS_ENABLE_REAL, MESSAGING_ENABLE_REAL, MEMBER_INVITES_ENABLE_REAL, RESUME_RENDER_ENABLED, AUTH_ROLLING_TIERS_ENABLED, ADMIN_PII_REVEAL_ENABLED, ZEPTOMAIL_SANDBOX_MODE, CAPACITY_ENFORCEMENT_ENABLED, PACE_ENABLED, PACE_ADJACENCY_ENABLED. Payments/messaging/member-invites **fail closed at boot** if enabled without provider creds. **Any flip = human sign-off + staging first** (CLAUDE.md §7). B1 needs `RESUME_RENDER_ENABLED=true` on staging.
 
-# Active Workstreams (2026-07-15)
+# Active Workstreams (2026-07-18)
 
-- **B1 alpha capstone** — blocked on P0 staging deploy (runbook: `docs/ops/staging-service-deploy-runbook.md`; REAL-ONLY OTP now required, needs Fast2SMS creds); then real-handset run + 3 evidence artifacts + PDF download. Owner: Prakash (deploy), Rishi (device run).
-- **TAX-9 versioning/re-tag** (ADR-0030 P3) — unblocked; no owner assigned yet. RVM vernacular ratification packet in `docs/registers/skill-vernacular-ratification-packet.md`.
-- **TD62 kPersistentAuth consent-routing fix** — HIGH open; Rishi + Divyanshu. Backend: add `consent_accepted` to `GET /workers/me`; Mobile: gate router.dart on it.
-- **ADR-0031 deletion grace (7-day)** — Divyanshu drafted; **PENDING Prakash+Akshit**; when accepted: migration 0039 (expand-only), events →102, cancel endpoint, BullMQ sweep.
-- **Payer-web FE wiring (FE-1..7) CLOSED** — all mock→live by PR #194 (2026-07-10). No open FE work.
+- **B1 alpha capstone — CLOSED 2026-07-18** (owner-attested: staging live, 0042+0043 applied, R27 triaged, real OTP, resume download). `docs/qa/evidence/staging/` not captured — close on next run. Phase 2 UNBLOCKED.
+- **TAX-9 COMPLETE** (#232, migration 0039 applied 2026-07-15). RATIFY-1 DONE (22/22 aliases 2026-07-16). `SKILL_CANONICALIZE_ENABLED` flip awaits post-B1 staging verify.
+- **ADR-0031 deletion grace MERGED** (#400, 2026-07-16). Migration 0040 applied. Prod endpoint §7-gated.
+- **ADR-0032 profile photo MERGED** (#340 + #402 photo→PDF re-render, 2026-07-16).
+- **ADR-0033 skills-overlap factor .15 MERGED** (#394, 2026-07-17). CEO 06-19 weight ledger now operative.
+- **TD62 RESOLVED** (#240, 2026-07-15). kPersistentAuth ON + consent-routing tri-state gate live.
+- **R28 OPEN** — GET /workers/:id/profile returns decrypted name unauthenticated (bounded; Divyanshu fix before external traffic).
+- **R31 OPEN** — PUT/GET /pricing/catalog unauthenticated (bounded by PAYMENTS_ENABLE_REAL=false; Divyanshu fix before real payments).
+- **TD81 OPEN** — ai-service not in staging compose file (staging mocks AI while reporting healthy; Divyanshu/DevOps).
 - **LC-1 payer-facing CLOSED.** Ops surface retire blocked on ADMIN-4..8 (TD33/TD50).
-- **Parked/waiting:** hospitality vertical (PRD CEO-signed 06-18, content drafted in code, awaiting per-trade RVM ratification), phase-2 seeding/agency-payout stubs, PACE adjacency (Q13, CEO).
+- **Parked/waiting:** hospitality vertical (per-trade RVM ratification pending), PACE adjacency (Q13, CEO), TD61 Flutter CI pin bump (3.27.4→3.35.7, Rishi+DevOps), TD55 Argon2id, voice-audio DSAR erase (before real voice ships), PAYER-PIN-1.
 
-# Current PR Status (gh-verified 2026-07-15)
+# Current PR Status (gh-verified 2026-07-18)
 
-- **No open PRs.** HEAD: `548acd4` (PR #231 docs sync). Latest merged: **#230** TAX-7 growth loop (Prakash), **#231** docs sync.
-- Recently merged (#182–#231): tenancy B5.x, TAX-0..8 (ADR-0030) + fork-B + FORK-B-1, COST-2/3/4, PERSONA-1/2, worker-app wiring + 3.35.7 (Rishi), TD54 reads, name-edit #204, PDF-409 #209, liberal feed #216, TD25/TD60 #197, voice pipeline ADR-0029 #198, CI-1 #218, payer-web FE wiring #194, kPersistentAuth ON #201, job-side canonical #222–#226, alerts #221, TAX-5/6/7/8 #225-#230, docs syncs.
+- **No open PRs.** HEAD: `085e2f6` (#408 guard template suffix fix). Latest merged: #407/#408 guard fixes, #405 storage/interview-kit fix, #404 TD83(a) alerts, #403 worker-own-apply in alerts, #402 photo→PDF re-render, #401 AI-ENV-1, #400 ADR-0031 deletion grace.
+- Recently merged since 07-15 (#232–#408, 66+ PRs): TAX-9 (#232), TD67 (#235), TD68+COST-4 (#238), TD62 (#240), RATIFY-1 (#244), Q14 (#245), TD22-1 (#247/#250), TD25a (#248), TD70 (#252), CD-0..5 (#253+#383/#384/#386), in-app PDF (#256), WA-1..4 (#326), ADR-0032 (#340), ten rulings (#387), B-6 (#388), TD53 (#389), D-3 (#391), B-4/B-5/D-1 (#392), ADR-0033 (#394), D-2 (#395), R31-partial (#396), danda (#397), ADR-0031 (#400), AI-ENV-1 (#401), photo→PDF (#402), alerts (#403/#404), storage fix (#405), guard fixes (#407/#408).
 
 # Important Domain Knowledge
 
@@ -77,7 +81,7 @@
 
 # Do Not Rediscover
 
-- ADRs **0001–0031** (`docs/decisions/`) + `docs/registers/team-decisions.md` (note: its top rows end 06-15; the 06-19 CEO locks in memory/master-context supersede where they conflict — e.g. RANK weights).
+- ADRs **0001–0033** (`docs/decisions/`) + `docs/registers/team-decisions.md` (note: its top rows end 06-15; the 06-19 CEO locks in memory/master-context supersede where they conflict — e.g. RANK weights; ADR-0033 makes CEO 06-19 ledger operative with Skills weight .15).
 - 39-table schema map + PII placement → project-memory.md; conventions (Zod pipe, exceptions filter, repo/service split, test stack) → project-memory.md.
 - Event naming `domain.action`, registry-driven validation, idempotency keys.
 - Windows dev gotchas + single-Supabase-DB connection recipe → project-memory "Developer Notes".
