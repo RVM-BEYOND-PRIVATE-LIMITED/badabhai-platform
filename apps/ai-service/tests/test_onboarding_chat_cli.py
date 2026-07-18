@@ -498,6 +498,39 @@ def test_name_never_passed_into_any_router_call_but_renders_locally():
     assert onboarding_chat.WORKER_NAME_PLACEHOLDER not in joined
 
 
+def test_router_receives_the_MASKED_text_never_the_raw_answer():
+    """§2 #2/#3: what reaches the router must be ``pseudonymize(...).text``, not the
+    worker's raw words.
+
+    The suite covered the BLOCK path (an answer that fails closed never reaches the
+    model) but not the REDACTION path — the far commoner case, where pseudonymize
+    does not block and instead MASKS in place:
+
+        'abhi Pune mein hu'          -> 'abhi [CITY_1] mein hu'
+        'Tata Motors mein kaam kiya' -> '[EMPLOYER_1] mein kaam kiya'
+
+    Without this, swapping ``safe.text`` for ``answer`` in the chat turn ships raw
+    worker text to the LLM with a green suite. Scoped to router MESSAGES on purpose:
+    the engine and the heuristic extractor legitimately read the raw text
+    in-process (no network) — the boundary is the router call, not the function."""
+    router = _ScriptedRouter()
+    raw_city, raw_employer = "Pune", "Tata Motors"
+    answer = f"abhi {raw_city} mein hu, {raw_employer} mein kaam kiya, vmc operator"
+
+    resume, _calls = _drive(router, ["Suresh", "shuru", answer, "done"])
+
+    sent = router.all_message_text()
+    # The masked placeholders DID cross the boundary (proving the answer was carried
+    # through, not merely dropped — otherwise the raw-absence check below is vacuous).
+    assert "[CITY_1]" in sent, sent
+    assert "[EMPLOYER_1]" in sent, sent
+    # ...and the raw values did NOT, in any call (chat turn or extraction).
+    assert raw_city not in sent, f"raw city reached the router: {sent}"
+    assert raw_employer not in sent, f"raw employer reached the router: {sent}"
+    # The local heuristic still saw the RAW text, so the profile is not degraded.
+    assert resume["current_city"] == raw_city
+
+
 def test_render_worker_name_drops_the_token_when_no_name():
     token = onboarding_chat.WORKER_NAME_PLACEHOLDER
     assert onboarding_chat._render_worker_name(f"{token} ji, namaste", "") == "namaste"
