@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/bold/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<link rel="stylesheet" href="bb_ds/styles.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  @keyframes bb-stamp { from { transform: scale(0.3); opacity: 0; } }
+  @keyframes pa-slidein { from { transform: translateX(28px); opacity: 0; } }
+  @keyframes pa-rise { from { transform: translateY(14px); opacity: 0; } }
+  @keyframes pa-unblur { from { filter: blur(7px); opacity: 0.3; } to { filter: blur(0); opacity: 1; } }
+  .pa-screen::-webkit-scrollbar { width: 0; }
+  .pa-status { color: var(--text-primary); }
+  .pa-blur { filter: blur(5px); user-select: none; }
+  .pa-pick { border: 2px solid var(--border-default); transition: var(--transition-control); }
+  .pa-pick--on { border-color: var(--brand); background: var(--brand-tint); box-shadow: var(--ring-focus); }
+  .pa-unlocked { animation: pa-unblur 0.5s var(--ease-out); border-color: var(--success) !important; }
+  .pa-blink { animation: pa-rise 0.32s var(--ease-out); }
+</style>
+</helmet>
+<div style="min-height: 100vh; background: radial-gradient(circle at 50% 0%, #2c2218, #160f08); display: flex; align-items: center; justify-content: center; padding: 32px 16px; font-family: var(--font-sans);">
+  <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
+    <div style="display:flex; align-items:center; gap:10px; color:#F4DEBE;">
+      <span style="font-family: var(--font-display); font-weight: 800; font-size: 18px; letter-spacing:-0.02em;">BadaBhai</span>
+      <span style="font-size:12px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; color:#B29977;">Payer App · Company + Agency</span>
+    </div>
+
+    <div style="width: 390px; height: 844px; background: #0b0a07; border-radius: 48px; padding: 13px; box-shadow: 0 40px 90px rgba(0,0,0,0.55), inset 0 0 0 2px #2a2620; position: relative;">
+      <div style="position:absolute; top:26px; left:50%; transform:translateX(-50%); width:120px; height:30px; background:#0b0a07; border-radius:16px; z-index:30;"></div>
+      <div style="width:100%; height:100%; background: var(--surface-page); border-radius: 37px; overflow: hidden; display:flex; flex-direction:column; position:relative;">
+
+        <!-- status bar -->
+        <div class="{{ statusClass }}" style="height:50px; display:flex; align-items:center; justify-content:space-between; padding:4px 30px 0; flex:none; z-index:20;">
+          <span style="font-weight:700; font-size:15px;">9:41</span>
+          <span style="display:flex; gap:6px; font-size:15px;"><i class="ph-fill ph-cell-signal-full"></i><i class="ph-fill ph-wifi-high"></i><i class="ph-fill ph-battery-high"></i></span>
+        </div>
+
+        <!-- ============ LOGIN ============ -->
+        <sc-if value="{{ show.login }}" hint-placeholder-val="{{ true }}">
+        <div class="pa-screen" style="flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; justify-content:space-between; padding:8px 26px 30px;">
+          <div style="text-align:center; padding-top:30px;">
+            <div style="width:64px; height:64px; margin:0 auto; border-radius:22%; background:var(--brand); display:flex; align-items:center; justify-content:center; box-shadow:var(--shadow-brand); color:#fff; font-size:32px;"><i class="ph-fill ph-handshake"></i></div>
+            <h1 style="font-family:var(--font-display); font-weight:800; font-size:29px; line-height:1.14; color:var(--text-primary); margin:20px 0 0;">Hire faster,<br>bada bhai ke saath.</h1>
+            <p style="font-size:16px; color:var(--text-secondary); margin:10px 0 0; line-height:1.45;">Post a job, browse verified candidates, unlock contact for ₹40. One login for companies and agencies.</p>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:16px;">
+            <div>
+              <div style="font-size:13px; font-weight:700; color:var(--text-primary); margin-bottom:8px;">I am signing in as</div>
+              <div style="display:flex; gap:10px;">
+                <button onClick="{{ pickCompany }}" class="{{ companyPickClass }}" style="flex:1; padding:14px 10px; border-radius:var(--radius-md); cursor:pointer; text-align:left; background:var(--surface-card);">
+                  <i class="ph-fill ph-buildings" style="font-size:24px; color:var(--brand-press);"></i>
+                  <div style="font-family:var(--font-display); font-weight:700; font-size:16px; color:var(--text-primary); margin-top:6px;">Company</div>
+                  <div style="font-size:12px; color:var(--text-muted);">Hire for your plant</div>
+                </button>
+                <button onClick="{{ pickAgency }}" class="{{ agencyPickClass }}" style="flex:1; padding:14px 10px; border-radius:var(--radius-md); cursor:pointer; text-align:left; background:var(--surface-card);">
+                  <i class="ph-fill ph-users-three" style="font-size:24px; color:var(--saffron-deep);"></i>
+                  <div style="font-family:var(--font-display); font-weight:700; font-size:16px; color:var(--text-primary); margin-top:6px;">Agency</div>
+                  <div style="font-size:12px; color:var(--text-muted);">Hire + earn on supply</div>
+                </button>
+              </div>
+            </div>
+
+            <div class="bb-field">
+              <label class="bb-field__label">Phone number</label>
+              <div class="bb-input-wrap">
+                <span class="bb-input__icon bb-input__icon--left"><i class="ph ph-phone"></i></span>
+                <input class="bb-input bb-input--has-left" value="+91 98220 11234" inputmode="tel" />
+              </div>
+            </div>
+
+            <button class="bb-btn bb-btn--primary bb-btn--lg bb-btn--block" onClick="{{ doLogin }}">Get OTP <i class="ph ph-arrow-right"></i></button>
+            <p style="font-size:12px; color:var(--text-faint); line-height:1.5; text-align:center; margin:0;"><i class="ph-fill ph-shield-check" style="color:var(--success);"></i> DPDP-compliant · data stored in India. By continuing you agree to our terms.</p>
+          </div>
+        </div>
+        </sc-if>
+
+        <!-- ============ APP (tabbed) ============ -->
+        <sc-if value="{{ show.app }}" hint-placeholder-val="{{ true }}">
+        <div style="flex:1; min-height:0; display:flex; flex-direction:column;">
+          <div class="pa-screen" style="flex:1; min-height:0; overflow-y:auto;">
+
+            <!-- ===== HOME ===== -->
+            <sc-if value="{{ show.home }}" hint-placeholder-val="{{ true }}">
+            <div style="padding:6px 18px 24px; display:flex; flex-direction:column; gap:16px;">
+              <div style="display:flex; align-items:center; gap:12px; padding-top:4px;">
+                <span class="bb-avatar bb-avatar--brand" style="width:44px; height:44px; font-size:17px;"><span class="bb-avatar__initials">{{ acct.initials }}</span></span>
+                <div style="flex:1; min-width:0;">
+                  <div style="font-family:var(--font-display); font-weight:700; font-size:18px; color:var(--text-primary); line-height:1.1;">{{ acct.name }}</div>
+                  <div style="font-size:12px; color:var(--text-muted);">{{ acct.plan }}</div>
+                </div>
+                <button class="bb-iconbtn bb-iconbtn--outline"><i class="ph ph-bell"></i></button>
+              </div>
+
+              <!-- AGENCY earn summary -->
+              <sc-if value="{{ isAgency }}" hint-placeholder-val="{{ true }}">
+              <div class="bb-card bb-card--ink" style="background:linear-gradient(150deg,#7a4e08,#3d2a08); border:none; padding:18px;">
+                <div style="display:flex; align-items:center; justify-content:space-between;">
+                  <div style="font-size:12px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--saffron-200);"><i class="ph-fill ph-wallet"></i> Earn · Supply</div>
+                  <button onClick="{{ goEarn }}" style="background:rgba(255,255,255,0.14); border:none; color:#fff; font-family:var(--font-sans); font-weight:700; font-size:12px; padding:6px 12px; border-radius:var(--radius-pill); cursor:pointer;">Open <i class="ph ph-arrow-right"></i></button>
+                </div>
+                <div style="display:flex; gap:18px; margin-top:14px;">
+                  <div><div style="font-family:var(--font-mono); font-weight:700; font-size:26px; color:#fff;">₹3,840</div><div style="font-size:11px; color:var(--saffron-100);">Earned this month</div></div>
+                  <div><div style="font-family:var(--font-mono); font-weight:700; font-size:26px; color:#fff;">₹1,200</div><div style="font-size:11px; color:var(--saffron-100);">Pending payout</div></div>
+                  <div><div style="font-family:var(--font-mono); font-weight:700; font-size:26px; color:#fff;">38</div><div style="font-size:11px; color:var(--saffron-100);">In window</div></div>
+                </div>
+              </div>
+              </sc-if>
+
+              <!-- HIRE hero stat -->
+              <div style="font-size:12px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted); margin-top:2px;"><i class="ph-fill ph-briefcase"></i> Hire · Demand</div>
+              <div class="bb-card" style="padding:20px; border:var(--border-double); border-color:var(--brand-border);">
+                <div style="font-size:13px; font-weight:600; color:var(--text-muted);">Paid unlocks this week</div>
+                <div style="font-family:var(--font-mono); font-weight:700; font-size:52px; color:var(--text-primary); line-height:1; margin-top:8px; letter-spacing:-0.02em;">128</div>
+                <div style="display:inline-flex; align-items:center; gap:4px; font-size:13px; font-weight:600; color:var(--success); margin-top:8px;"><i class="ph-bold ph-trend-up"></i> +12% vs last week</div>
+              </div>
+
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                <div class="bb-stat"><div class="bb-stat__head"><span class="bb-stat__label">Repeat-unlock rate</span><span class="bb-stat__icon"><i class="ph ph-repeat"></i></span></div><div class="bb-stat__value">62%</div><div class="bb-stat__delta bb-stat__delta--flat"><i class="ph-bold ph-minus"></i>health metric</div></div>
+                <div class="bb-stat"><div class="bb-stat__head"><span class="bb-stat__label">Credit balance</span><span class="bb-stat__icon"><i class="ph ph-lock-key-open"></i></span></div><div class="bb-stat__value">{{ credits }}</div><div class="bb-stat__delta bb-stat__delta--up"><a onClick="{{ goCredits }}" style="cursor:pointer; color:var(--success);"><i class="ph-bold ph-plus"></i>Buy credits</a></div></div>
+                <div class="bb-stat"><div class="bb-stat__head"><span class="bb-stat__label">Active jobs</span><span class="bb-stat__icon"><i class="ph ph-briefcase"></i></span></div><div class="bb-stat__value">3</div><div class="bb-stat__delta bb-stat__delta--up"><i class="ph-bold ph-trend-up"></i>1 near quota</div></div>
+                <div class="bb-stat"><div class="bb-stat__head"><span class="bb-stat__label">Candidates for you</span><span class="bb-stat__icon"><i class="ph ph-users"></i></span></div><div class="bb-stat__value">{{ candCount }}</div><div class="bb-stat__delta bb-stat__delta--up"><i class="ph-bold ph-trend-up"></i>relevant now</div></div>
+              </div>
+
+              <div style="display:flex; gap:10px;">
+                <button class="bb-btn bb-btn--primary" style="flex:1;" onClick="{{ goPost }}"><i class="ph ph-plus-circle"></i> Post a job</button>
+                <button class="bb-btn bb-btn--secondary" style="flex:1;" onClick="{{ goFind }}"><i class="ph ph-magnifying-glass"></i> Browse</button>
+              </div>
+
+              <div style="font-family:var(--font-display); font-weight:700; font-size:16px; color:var(--text-primary); margin-top:4px;">Recent activity</div>
+              <div class="bb-card" style="padding:6px 16px;">
+                <div style="display:flex; gap:12px; align-items:center; padding:12px 0; border-bottom:1px solid var(--divider);"><span style="width:34px;height:34px;border-radius:50%;background:var(--success-tint);color:var(--green-700);display:flex;align-items:center;justify-content:center;"><i class="ph-fill ph-lock-key-open"></i></span><div style="flex:1;"><div style="font-size:14px;color:var(--text-primary);"><b>Unlocked</b> Ramesh K. · CNC Setter</div><div style="font-size:12px;color:var(--text-muted);">12 min ago</div></div></div>
+                <div style="display:flex; gap:12px; align-items:center; padding:12px 0; border-bottom:1px solid var(--divider);"><span style="width:34px;height:34px;border-radius:50%;background:var(--brand-tint);color:var(--brand-press);display:flex;align-items:center;justify-content:center;"><i class="ph-fill ph-hand-swipe-right"></i></span><div style="flex:1;"><div style="font-size:14px;color:var(--text-primary);"><b>9 new applicants</b> on VMC Setter</div><div style="font-size:12px;color:var(--text-muted);">1 hr ago</div></div></div>
+                <div style="display:flex; gap:12px; align-items:center; padding:12px 0;"><span style="width:34px;height:34px;border-radius:50%;background:var(--warning-tint);color:var(--saffron-deep);display:flex;align-items:center;justify-content:center;"><i class="ph-fill ph-warning"></i></span><div style="flex:1;"><div style="font-size:14px;color:var(--text-primary);"><b>CNC Setter</b> is 70% to quota</div><div style="font-size:12px;color:var(--text-muted);">2 hr ago</div></div></div>
+              </div>
+            </div>
+            </sc-if>
+
+            <!-- ===== FIND (masked feed) ===== -->
+            <sc-if value="{{ show.find }}" hint-placeholder-val="{{ true }}">
+            <div style="padding:6px 18px 24px; display:flex; flex-direction:column; gap:14px;">
+              <div style="padding-top:4px;">
+                <div style="font-size:12px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-muted);">Candidates for CNC Setter</div>
+                <div style="font-family:var(--font-display); font-weight:800; font-size:24px; color:var(--text-primary);">Browse &amp; unlock</div>
+              </div>
+              <div class="bb-input-wrap">
+                <span class="bb-input__icon bb-input__icon--left"><i class="ph ph-magnifying-glass"></i></span>
+                <input class="bb-input bb-input--has-left" placeholder="Search trade, skill, location…" />
+              </div>
+              <div style="display:flex; gap:8px; flex-wrap:nowrap; overflow-x:auto; padding-bottom:2px;">
+                <span class="bb-chip bb-chip--selected"><i class="ph ph-map-pin"></i> Pune · 25 km</span>
+                <span class="bb-chip bb-chip--selected"><i class="ph ph-shield-check"></i> Verified</span>
+                <span class="bb-chip"><i class="ph ph-medal"></i> 3+ yrs</span>
+                <span class="bb-chip"><i class="ph ph-clock"></i> Available now</span>
+              </div>
+              <div style="font-size:13px; color:var(--text-muted);"><b style="color:var(--text-primary);">{{ candCount }}</b> verified candidates · sorted by relevance, never by who paid</div>
+
+              <sc-for list="{{ candidates }}" as="c" hint-placeholder-count="4">
+              <div class="{{ c.cardClass }}" style="display:flex; gap:13px; align-items:center; background:var(--surface-card); border:1px solid var(--border-subtle); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); padding:15px;">
+                <span class="{{ c.avatarClass }}" style="width:50px; height:50px; font-size:19px; position:relative;"><span class="bb-avatar__initials">{{ c.avatarText }}</span><span class="bb-avatar__seal"><i class="ph-fill ph-seal-check"></i></span></span>
+                <div style="flex:1; min-width:0;">
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <span class="{{ c.nameClass }}" style="font-weight:700; font-size:16px; color:var(--text-primary);">{{ c.shownName }}</span>
+                    <i class="ph-fill ph-seal-check" style="color:var(--success); font-size:15px;"></i>
+                    <sc-if value="{{ c.hot }}" hint-placeholder-val="{{ false }}"><span class="bb-badge bb-badge--solid bb-badge--danger" style="padding:3px 7px;"><i class="ph-fill ph-fire"></i> Hot</span></sc-if>
+                  </div>
+                  <div style="font-size:13px; color:var(--text-secondary); margin-top:3px; font-weight:600;">{{ c.trade }} · {{ c.skill }}</div>
+                  <div style="display:flex; flex-wrap:wrap; gap:3px 12px; font-size:12px; color:var(--text-muted); margin-top:4px;">
+                    <span><i class="ph ph-medal"></i> {{ c.exp }}</span>
+                    <span><i class="ph ph-map-pin"></i> {{ c.loc }}</span>
+                    <span style="color:var(--success); font-weight:600;"><i class="ph-fill ph-circle"></i> {{ c.avail }}</span>
+                  </div>
+                </div>
+                <div style="flex:none; display:flex; flex-direction:column; align-items:flex-end; gap:7px;">
+                  <sc-if value="{{ c.match }}" hint-placeholder-val="{{ false }}"><span class="bb-badge bb-badge--success">{{ c.match }}</span></sc-if>
+                  <sc-if value="{{ c.masked }}" hint-placeholder-val="{{ true }}"><button class="bb-btn bb-btn--primary bb-btn--sm" onClick="{{ c.onUnlock }}"><i class="ph ph-lock-key-open"></i> ₹40</button></sc-if>
+                  <sc-if value="{{ c.unlocked }}" hint-placeholder-val="{{ false }}"><button class="bb-btn bb-btn--success bb-btn--sm" onClick="{{ c.onView }}"><i class="ph-fill ph-phone"></i> View</button></sc-if>
+                </div>
+              </div>
+              </sc-for>
+            </div>
+            </sc-if>
+
+            <!-- ===== JOBS ===== -->
+            <sc-if value="{{ show.jobs }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:6px 18px 24px; display:flex; flex-direction:column; gap:14px;">
+              <div style="display:flex; align-items:flex-end; justify-content:space-between; padding-top:4px;">
+                <div><div style="font-size:12px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-muted);">My job postings</div><div style="font-family:var(--font-display); font-weight:800; font-size:24px; color:var(--text-primary);">3 jobs</div></div>
+                <button class="bb-btn bb-btn--primary bb-btn--sm" onClick="{{ goPost }}"><i class="ph ph-plus"></i> Post</button>
+              </div>
+              <sc-for list="{{ jobs }}" as="j" hint-placeholder-count="3">
+              <div class="bb-card" style="padding:16px; opacity:{{ j.rowOpacity }};">
+                <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:8px;">
+                  <div style="font-family:var(--font-display); font-weight:700; font-size:18px; color:var(--text-primary);">{{ j.title }}</div>
+                  <span class="{{ j.statusBadge }}">{{ j.statusLabel }}</span>
+                </div>
+                <div style="font-size:13px; color:var(--text-muted); margin-top:2px;">{{ j.band }} · {{ j.applicants }} applicants · {{ j.unlocks }} unlocks used</div>
+                <div style="display:flex; gap:7px; margin-top:10px;">
+                  <sc-if value="{{ j.verified }}" hint-placeholder-val="{{ true }}"><span class="bb-badge bb-badge--success"><i class="ph-fill ph-shield-check"></i> Verified job</span></sc-if>
+                  <sc-if value="{{ j.boosted }}" hint-placeholder-val="{{ false }}"><span class="bb-badge bb-badge--brand"><i class="ph-fill ph-rocket-launch"></i> Boosted</span></sc-if>
+                </div>
+                <div class="{{ j.progressTone }}" style="margin-top:12px;">
+                  <div class="bb-progress__head"><span>Applicant quota</span><span class="bb-progress__pct">{{ j.filled }}/{{ j.quota }}</span></div>
+                  <div class="bb-progress__track"><div class="bb-progress__fill" style="width:{{ j.pct }}%;"></div></div>
+                </div>
+                <div style="display:flex; gap:8px; margin-top:12px;">
+                  <button class="bb-btn bb-btn--secondary bb-btn--sm" style="flex:1;"><i class="ph ph-users-three"></i> Applicants</button>
+                  <button class="bb-btn bb-btn--tonal bb-btn--sm" style="flex:1;"><i class="ph ph-rocket-launch"></i> Boost</button>
+                </div>
+              </div>
+              </sc-for>
+            </div>
+            </sc-if>
+
+            <!-- ===== POST A JOB ===== -->
+            <sc-if value="{{ show.post }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:6px 18px 24px; display:flex; flex-direction:column; gap:14px;">
+              <div style="display:flex; align-items:center; gap:10px; padding-top:4px;">
+                <button class="bb-iconbtn bb-iconbtn--outline" onClick="{{ back }}"><i class="ph ph-arrow-left"></i></button>
+                <div style="font-family:var(--font-display); font-weight:800; font-size:22px; color:var(--text-primary);">Post a job</div>
+                <span class="bb-badge bb-badge--success" style="margin-left:auto;">Free</span>
+              </div>
+              <div class="bb-field"><label class="bb-field__label">Job title</label><input class="bb-input" value="CNC Setter" /></div>
+              <div class="bb-field"><label class="bb-field__label">Trade</label><div class="bb-select-wrap"><select class="bb-input bb-select"><option>CNC Setter</option><option>VMC Setter</option><option>CNC Operator</option><option>Quality Inspector</option><option>Welder / Fabricator</option><option>Fitter</option></select><span class="bb-select__chevron"><i class="ph ph-caret-down"></i></span></div></div>
+              <div style="display:flex; gap:10px;">
+                <div class="bb-field" style="flex:1;"><label class="bb-field__label">Location</label><input class="bb-input" value="Pimpri, Pune" /></div>
+                <div class="bb-field" style="flex:1;"><label class="bb-field__label">Vacancies</label><div class="bb-select-wrap"><select class="bb-input bb-select"><option>1</option><option>2–4</option><option selected>5–10</option><option>10+</option></select><span class="bb-select__chevron"><i class="ph ph-caret-down"></i></span></div></div>
+              </div>
+              <div style="display:flex; gap:10px;">
+                <div class="bb-field" style="flex:1;"><label class="bb-field__label">Monthly salary</label><input class="bb-input" value="₹22k–28k" /></div>
+                <div class="bb-field" style="flex:1;"><label class="bb-field__label">Experience</label><input class="bb-input" value="3+ yrs" /></div>
+              </div>
+              <div class="bb-field"><label class="bb-field__label">Key skills</label><div style="display:flex; gap:7px; flex-wrap:wrap; margin-top:2px;"><span class="bb-chip bb-chip--selected">Fanuc <i class="ph ph-x"></i></span><span class="bb-chip bb-chip--selected">VMC setting <i class="ph ph-x"></i></span><span class="bb-chip">+ Add skill</span></div></div>
+              <div style="display:flex; gap:10px; align-items:flex-start; background:var(--success-tint); border:var(--border-festive); border-radius:var(--radius-md); padding:14px;">
+                <i class="ph-fill ph-shield-check" style="color:var(--green-700); font-size:22px;"></i>
+                <div style="font-size:13px; color:var(--green-700); line-height:1.45;"><b>Confirm this is a real, open role.</b> We verify before workers see it — ghost jobs waste swipes. You'll get a <b>Verified job</b> badge once approved. Posting is free.</div>
+              </div>
+              <label class="bb-switch" style="justify-content:space-between; flex-direction:row-reverse;"><input type="checkbox" /><span class="bb-switch__track"><span class="bb-switch__thumb"></span></span><span style="flex:1; font-size:15px;">Boost this posting <span style="color:var(--text-muted); font-size:13px;">— more reach, within relevance</span></span></label>
+              <button class="bb-btn bb-btn--primary bb-btn--lg bb-btn--block" onClick="{{ doPostJob }}"><i class="ph ph-paper-plane-right"></i> Submit for verification</button>
+            </div>
+            </sc-if>
+
+            <!-- ===== REVEALED PROFILE ===== -->
+            <sc-if value="{{ show.reveal }}" hint-placeholder-val="{{ false }}">
+            <div class="pa-blink" style="padding:6px 18px 24px; display:flex; flex-direction:column; gap:16px;">
+              <div style="display:flex; align-items:center; gap:10px; padding-top:4px;">
+                <button class="bb-iconbtn bb-iconbtn--outline" onClick="{{ back }}"><i class="ph ph-arrow-left"></i></button>
+                <div style="font-family:var(--font-display); font-weight:800; font-size:20px; color:var(--text-primary);">Candidate</div>
+                <span class="bb-badge bb-badge--success" style="margin-left:auto;"><i class="ph-fill ph-lock-key-open"></i> Unlocked</span>
+              </div>
+              <div class="bb-card" style="text-align:center; padding:22px; border:var(--border-double); border-color:var(--brand-border);">
+                <span class="bb-avatar bb-avatar--brand" style="width:84px; height:84px; font-size:30px; margin:0 auto;"><span class="bb-avatar__initials">{{ revealInitials }}</span><span class="bb-avatar__seal" style="font-size:18px;"><i class="ph-fill ph-seal-check"></i></span></span>
+                <div style="font-family:var(--font-display); font-weight:800; font-size:24px; color:var(--text-primary); margin-top:12px;">{{ reveal.name }}</div>
+                <div style="font-size:15px; color:var(--text-secondary); font-weight:600;">{{ reveal.trade }} · {{ reveal.exp }}</div>
+                <div style="display:inline-flex; align-items:center; gap:6px; margin-top:10px; background:var(--surface-sunken); padding:8px 16px; border-radius:var(--radius-pill); font-family:var(--font-mono); font-weight:700; font-size:16px; color:var(--text-primary);"><i class="ph-fill ph-phone" style="color:var(--success);"></i> {{ reveal.phone }}</div>
+              </div>
+              <div class="bb-card" style="padding:16px;">
+                <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-brand); margin-bottom:8px;">Skills</div>
+                <div style="display:flex; gap:7px; flex-wrap:wrap;"><span class="bb-badge bb-badge--neutral">{{ reveal.skill }}</span><span class="bb-badge bb-badge--neutral">Quality check</span><span class="bb-badge bb-badge--neutral">Shift work</span></div>
+                <div style="font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--text-brand); margin:16px 0 8px;">Location &amp; availability</div>
+                <div style="font-size:14px; color:var(--text-secondary);"><i class="ph ph-map-pin"></i> {{ reveal.loc }} · <span style="color:var(--success); font-weight:600;">{{ reveal.avail }}</span></div>
+              </div>
+              <div class="bb-card bb-card--interactive" style="display:flex; align-items:center; gap:14px; padding:16px;">
+                <span style="width:46px; height:46px; border-radius:var(--radius-md); background:var(--brand-tint); color:var(--brand-press); display:flex; align-items:center; justify-content:center; font-size:24px;"><i class="ph-fill ph-file-text"></i></span>
+                <div style="flex:1;"><div style="font-weight:700; font-size:15px; color:var(--text-primary);">AI branded resume</div><div style="font-size:13px; color:var(--text-muted);">Generated by BadaBhai · PDF</div></div>
+                <i class="ph ph-download-simple" style="font-size:22px; color:var(--text-muted);"></i>
+              </div>
+              <button class="bb-btn bb-btn--success bb-btn--lg bb-btn--block"><i class="ph-fill ph-whatsapp-logo"></i> Contact on WhatsApp</button>
+            </div>
+            </sc-if>
+
+            <!-- ===== BUY CREDITS ===== -->
+            <sc-if value="{{ show.credits }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:6px 18px 24px; display:flex; flex-direction:column; gap:14px;">
+              <div style="display:flex; align-items:center; gap:10px; padding-top:4px;">
+                <button class="bb-iconbtn bb-iconbtn--outline" onClick="{{ back }}"><i class="ph ph-arrow-left"></i></button>
+                <div style="font-family:var(--font-display); font-weight:800; font-size:22px; color:var(--text-primary);">Buy credits</div>
+              </div>
+              <div class="bb-card bb-card--ink" style="padding:16px;"><div style="font-size:13px; color:var(--ink-300);">Current balance</div><div style="font-family:var(--font-mono); font-weight:700; font-size:34px; color:#fff;">{{ credits }} <span style="font-size:15px; color:var(--ink-300);">unlocks</span></div></div>
+              <sc-for list="{{ packs }}" as="p" hint-placeholder-count="3">
+              <button onClick="{{ p.onBuy }}" class="bb-card" style="display:flex; align-items:center; gap:14px; padding:16px; cursor:pointer; text-align:left; border:{{ p.border }};">
+                <div style="flex:1;"><div style="font-family:var(--font-display); font-weight:800; font-size:24px; color:var(--text-primary);">{{ p.n }} <span style="font-size:14px; color:var(--text-muted); font-weight:600;">unlocks</span></div><div style="font-size:13px; color:var(--text-muted);">{{ p.per }}</div></div>
+                <sc-if value="{{ p.best }}" hint-placeholder-val="{{ false }}"><span class="bb-badge bb-badge--solid bb-badge--brand">Best value</span></sc-if>
+                <div style="font-family:var(--font-mono); font-weight:700; font-size:18px; color:var(--brand-press);">{{ p.price }}</div>
+              </button>
+              </sc-for>
+              <div style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-muted); justify-content:center; margin-top:2px;"><i class="ph ph-lock-simple"></i> Secure checkout · Razorpay · UPI / card</div>
+              <div style="font-family:var(--font-display); font-weight:700; font-size:16px; color:var(--text-primary); margin-top:4px;">Unlock ledger</div>
+              <div class="bb-card" style="padding:6px 16px;">
+                <div style="display:flex; justify-content:space-between; padding:11px 0; border-bottom:1px solid var(--divider); font-size:14px;"><span style="color:var(--text-secondary);">200-pack purchase</span><span style="font-family:var(--font-mono); color:var(--success); font-weight:700;">+200</span></div>
+                <div style="display:flex; justify-content:space-between; padding:11px 0; border-bottom:1px solid var(--divider); font-size:14px;"><span style="color:var(--text-secondary);">Unlocked Ramesh K.</span><span style="font-family:var(--font-mono); color:var(--text-muted); font-weight:700;">−1</span></div>
+                <div style="display:flex; justify-content:space-between; padding:11px 0; font-size:14px;"><span style="color:var(--text-secondary);">Unlocked Imran S.</span><span style="font-family:var(--font-mono); color:var(--text-muted); font-weight:700;">−1</span></div>
+              </div>
+            </div>
+            </sc-if>
+
+            <!-- ===== ACCOUNT ===== -->
+            <sc-if value="{{ show.account }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:6px 18px 24px; display:flex; flex-direction:column; gap:14px;">
+              <div style="font-family:var(--font-display); font-weight:800; font-size:24px; color:var(--text-primary); padding-top:6px;">Account</div>
+              <div class="bb-card" style="display:flex; align-items:center; gap:14px; padding:16px;">
+                <span class="bb-avatar bb-avatar--brand" style="width:54px; height:54px; font-size:20px;"><span class="bb-avatar__initials">{{ acct.initials }}</span></span>
+                <div style="flex:1;"><div style="font-family:var(--font-display); font-weight:700; font-size:18px; color:var(--text-primary);">{{ acct.name }}</div><div style="font-size:13px; color:var(--text-muted);">{{ acct.plan }}</div></div>
+              </div>
+              <div class="bb-card" style="padding:6px 16px;">
+                <div style="display:flex; align-items:center; gap:12px; padding:14px 0; border-bottom:1px solid var(--divider);"><i class="ph ph-buildings" style="font-size:22px; color:var(--text-muted);"></i><span style="flex:1; font-size:15px; color:var(--text-primary);">Company profile</span><i class="ph ph-caret-right" style="color:var(--text-faint);"></i></div>
+                <div style="display:flex; align-items:center; gap:12px; padding:14px 0; border-bottom:1px solid var(--divider);"><i class="ph ph-credit-card" style="font-size:22px; color:var(--text-muted);"></i><span style="flex:1; font-size:15px; color:var(--text-primary);">Billing &amp; credits</span><i class="ph ph-caret-right" style="color:var(--text-faint);"></i></div>
+                <div style="display:flex; align-items:center; gap:12px; padding:14px 0; border-bottom:1px solid var(--divider);"><i class="ph ph-shield-check" style="font-size:22px; color:var(--text-muted);"></i><span style="flex:1; font-size:15px; color:var(--text-primary);">Privacy &amp; DPDP consent</span><i class="ph ph-caret-right" style="color:var(--text-faint);"></i></div>
+                <div style="display:flex; align-items:center; gap:12px; padding:14px 0;"><i class="ph ph-sign-out" style="font-size:22px; color:var(--danger);"></i><span style="flex:1; font-size:15px; color:var(--danger);">Sign out</span></div>
+              </div>
+            </div>
+            </sc-if>
+
+            <!-- ===== EARN HUB (agency supply) ===== -->
+            <sc-if value="{{ show.earn }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:6px 18px 24px; display:flex; flex-direction:column; gap:14px;">
+              <div style="padding-top:4px;"><div style="font-size:12px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--saffron-deep);"><i class="ph-fill ph-wallet"></i> Supply · Earn</div><div style="font-family:var(--font-display); font-weight:800; font-size:24px; color:var(--text-primary);">Mitra-Leader</div></div>
+              <div class="bb-card" style="padding:18px; background:linear-gradient(150deg,#FEF4DD,#FBE3AC); border:none;">
+                <div style="font-size:13px; color:var(--saffron-700); font-weight:600;">Earned this month</div>
+                <div style="font-family:var(--font-mono); font-weight:700; font-size:44px; color:var(--ink-900); line-height:1; margin-top:6px;">₹3,840</div>
+                <div style="display:flex; gap:18px; margin-top:14px;">
+                  <div><div style="font-family:var(--font-mono); font-weight:700; font-size:18px; color:var(--ink-900);">₹1,200</div><div style="font-size:11px; color:var(--saffron-700);">Pending payout</div></div>
+                  <div><div style="font-family:var(--font-mono); font-weight:700; font-size:18px; color:var(--ink-900);">38</div><div style="font-size:11px; color:var(--saffron-700);">In window</div></div>
+                  <div><div style="font-family:var(--font-mono); font-weight:700; font-size:18px; color:var(--ink-900);">25%</div><div style="font-size:11px; color:var(--saffron-700);">Rev share</div></div>
+                </div>
+              </div>
+              <button onClick="{{ goReferral }}" class="bb-card bb-card--interactive" style="display:flex; align-items:center; gap:14px; padding:16px; text-align:left; cursor:pointer;"><span style="width:44px;height:44px;border-radius:var(--radius-md);background:var(--brand-tint);color:var(--brand-press);display:flex;align-items:center;justify-content:center;font-size:22px;"><i class="ph-fill ph-link"></i></span><div style="flex:1;"><div style="font-weight:700; font-size:15px; color:var(--text-primary);">Referral hub</div><div style="font-size:13px; color:var(--text-muted);">Get your link · how earning works</div></div><i class="ph ph-caret-right" style="color:var(--text-faint);"></i></button>
+              <button onClick="{{ goReferred }}" class="bb-card bb-card--interactive" style="display:flex; align-items:center; gap:14px; padding:16px; text-align:left; cursor:pointer;"><span style="width:44px;height:44px;border-radius:var(--radius-md);background:var(--info-tint);color:var(--teal-700);display:flex;align-items:center;justify-content:center;font-size:22px;"><i class="ph-fill ph-users"></i></span><div style="flex:1;"><div style="font-weight:700; font-size:15px; color:var(--text-primary);">Referred workers</div><div style="font-size:13px; color:var(--text-muted);">4 introduced · window countdowns</div></div><i class="ph ph-caret-right" style="color:var(--text-faint);"></i></button>
+              <button onClick="{{ goPayouts }}" class="bb-card bb-card--interactive" style="display:flex; align-items:center; gap:14px; padding:16px; text-align:left; cursor:pointer;"><span style="width:44px;height:44px;border-radius:var(--radius-md);background:var(--success-tint);color:var(--green-700);display:flex;align-items:center;justify-content:center;font-size:22px;"><i class="ph-fill ph-bank"></i></span><div style="flex:1;"><div style="font-weight:700; font-size:15px; color:var(--text-primary);">Earnings &amp; payouts</div><div style="font-size:13px; color:var(--text-muted);">₹500 min · payout history</div></div><i class="ph ph-caret-right" style="color:var(--text-faint);"></i></button>
+              <button onClick="{{ goKyc }}" class="bb-card bb-card--interactive" style="display:flex; align-items:center; gap:14px; padding:16px; text-align:left; cursor:pointer;"><span style="width:44px;height:44px;border-radius:var(--radius-md);background:var(--surface-sunken);color:var(--ink-700);display:flex;align-items:center;justify-content:center;font-size:22px;"><i class="ph-fill ph-identification-card"></i></span><div style="flex:1;"><div style="font-weight:700; font-size:15px; color:var(--text-primary);">KYC</div><div style="font-size:13px; color:var(--text-muted);">Required before first payout</div></div><span class="{{ kycBadgeClass }}">{{ kycBadgeLabel }}</span></button>
+            </div>
+            </sc-if>
+
+            <!-- ===== REFERRAL HUB ===== -->
+            <sc-if value="{{ show.referral }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:6px 18px 24px; display:flex; flex-direction:column; gap:16px;">
+              <div style="display:flex; align-items:center; gap:10px; padding-top:4px;"><button class="bb-iconbtn bb-iconbtn--outline" onClick="{{ back }}"><i class="ph ph-arrow-left"></i></button><div style="font-family:var(--font-display); font-weight:800; font-size:22px; color:var(--text-primary);">Referral hub</div></div>
+              <div class="bb-card" style="text-align:center; padding:22px; border:var(--border-festive);">
+                <div style="width:150px; height:150px; margin:0 auto; background:#fff; border:1px solid var(--border-default); border-radius:var(--radius-md); display:flex; align-items:center; justify-content:center; color:var(--ink-900); font-size:96px;"><i class="ph ph-qr-code"></i></div>
+                <div style="font-family:var(--font-mono); font-size:14px; color:var(--text-secondary); margin-top:14px; background:var(--surface-sunken); padding:10px; border-radius:var(--radius-sm); word-break:break-all;">badabhai.in/r/APEX-7K2</div>
+                <button class="bb-btn bb-btn--primary bb-btn--lg bb-btn--block" style="margin-top:12px;" onClick="{{ copyLink }}"><i class="ph ph-copy"></i> Copy &amp; share link</button>
+              </div>
+              <div style="font-family:var(--font-display); font-weight:700; font-size:16px; color:var(--text-primary);">How earning works</div>
+              <div style="display:flex; flex-direction:column; gap:12px;">
+                <div style="display:flex; gap:12px; align-items:flex-start;"><span style="width:28px;height:28px;border-radius:50%;background:var(--brand);color:#fff;font-family:var(--font-mono);font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;font-size:14px;">1</span><div style="font-size:14px; color:var(--text-secondary); line-height:1.45;"><b style="color:var(--text-primary);">Introduce a worker</b> — share your link. First-to-introduce by phone wins attribution.</div></div>
+                <div style="display:flex; gap:12px; align-items:flex-start;"><span style="width:28px;height:28px;border-radius:50%;background:var(--brand);color:#fff;font-family:var(--font-mono);font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;font-size:14px;">2</span><div style="font-size:14px; color:var(--text-secondary); line-height:1.45;"><b style="color:var(--text-primary);">They get profiled</b> by bada bhai and become a live candidate.</div></div>
+                <div style="display:flex; gap:12px; align-items:flex-start;"><span style="width:28px;height:28px;border-radius:50%;background:var(--success);color:#fff;font-family:var(--font-mono);font-weight:700;display:flex;align-items:center;justify-content:center;flex:none;font-size:14px;">3</span><div style="font-size:14px; color:var(--text-secondary); line-height:1.45;"><b style="color:var(--text-primary);">Anyone unlocks them within 90 days</b> → you earn <b style="color:var(--success);">25%</b> of that unlock.</div></div>
+              </div>
+            </div>
+            </sc-if>
+
+            <!-- ===== REFERRED WORKERS ===== -->
+            <sc-if value="{{ show.referred }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:6px 18px 24px; display:flex; flex-direction:column; gap:14px;">
+              <div style="display:flex; align-items:center; gap:10px; padding-top:4px;"><button class="bb-iconbtn bb-iconbtn--outline" onClick="{{ back }}"><i class="ph ph-arrow-left"></i></button><div style="font-family:var(--font-display); font-weight:800; font-size:22px; color:var(--text-primary);">Referred workers</div></div>
+              <sc-for list="{{ referred }}" as="w" hint-placeholder-count="4">
+              <div class="bb-card" style="padding:15px; opacity:{{ w.opacity }};">
+                <div style="display:flex; align-items:center; gap:12px;">
+                  <span class="bb-avatar bb-avatar--masked" style="width:42px; height:42px; font-size:15px;"><span class="bb-avatar__initials">••</span></span>
+                  <div style="flex:1;"><div style="font-weight:700; font-size:15px; color:var(--text-primary); font-family:var(--font-mono);">Worker {{ w.label }}</div><div style="font-size:13px; color:var(--text-muted);">{{ w.trade }}</div></div>
+                  <span class="{{ w.badgeClass }}">{{ w.status }}</span>
+                </div>
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-top:12px; padding-top:12px; border-top:1px solid var(--divider);">
+                  <span style="font-size:13px; color:var(--text-muted);">{{ w.windowText }}</span>
+                  <span style="font-family:var(--font-mono); font-weight:700; font-size:16px; color:{{ w.earnedColor }};">{{ w.earned }}</span>
+                </div>
+              </div>
+              </sc-for>
+            </div>
+            </sc-if>
+
+            <!-- ===== EARNINGS & PAYOUTS ===== -->
+            <sc-if value="{{ show.payouts }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:6px 18px 24px; display:flex; flex-direction:column; gap:14px;">
+              <div style="display:flex; align-items:center; gap:10px; padding-top:4px;"><button class="bb-iconbtn bb-iconbtn--outline" onClick="{{ back }}"><i class="ph ph-arrow-left"></i></button><div style="font-family:var(--font-display); font-weight:800; font-size:22px; color:var(--text-primary);">Earnings &amp; payouts</div></div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                <div class="bb-card" style="padding:16px;"><div style="font-size:12px; color:var(--text-muted); font-weight:600;">Total earned</div><div style="font-family:var(--font-mono); font-weight:700; font-size:26px; color:var(--text-primary); margin-top:6px;">₹18,520</div></div>
+                <div class="bb-card" style="padding:16px;"><div style="font-size:12px; color:var(--text-muted); font-weight:600;">This month</div><div style="font-family:var(--font-mono); font-weight:700; font-size:26px; color:var(--success); margin-top:6px;">₹3,840</div></div>
+              </div>
+              <div class="bb-card" style="padding:16px;">
+                <div style="display:flex; justify-content:space-between; align-items:baseline;"><span style="font-size:13px; font-weight:600; color:var(--text-primary);">Pending payout</span><span style="font-family:var(--font-mono); font-weight:700; color:var(--text-primary);">₹1,200 / ₹500</span></div>
+                <div class="bb-progress bb-progress--success" style="margin-top:10px;"><div class="bb-progress__track bb-progress--thick"><div class="bb-progress__fill" style="width:100%;"></div></div></div>
+                <div style="font-size:12px; color:var(--success); margin-top:8px;"><i class="ph-fill ph-check-circle"></i> Above ₹500 minimum — ready to pay out</div>
+                <button class="bb-btn bb-btn--success bb-btn--block" style="margin-top:12px;"><i class="ph ph-bank"></i> Withdraw to bank</button>
+              </div>
+              <div style="font-family:var(--font-display); font-weight:700; font-size:16px; color:var(--text-primary);">Payout history</div>
+              <div class="bb-card" style="padding:6px 16px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--divider);"><div><div style="font-size:14px; color:var(--text-primary);">May payout</div><div style="font-size:12px; color:var(--text-muted);">UPI · 02 Jun</div></div><span style="font-family:var(--font-mono); font-weight:700; color:var(--success);">₹4,160</span></div>
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0;"><div><div style="font-size:14px; color:var(--text-primary);">April payout</div><div style="font-size:12px; color:var(--text-muted);">UPI · 03 May</div></div><span style="font-family:var(--font-mono); font-weight:700; color:var(--success);">₹2,980</span></div>
+              </div>
+            </div>
+            </sc-if>
+
+            <!-- ===== KYC ===== -->
+            <sc-if value="{{ show.kyc }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:6px 18px 24px; display:flex; flex-direction:column; gap:14px;">
+              <div style="display:flex; align-items:center; gap:10px; padding-top:4px;"><button class="bb-iconbtn bb-iconbtn--outline" onClick="{{ back }}"><i class="ph ph-arrow-left"></i></button><div style="font-family:var(--font-display); font-weight:800; font-size:22px; color:var(--text-primary);">KYC</div><span class="{{ kycBadgeClass }}" style="margin-left:auto;">{{ kycBadgeLabel }}</span></div>
+              <div style="display:flex; gap:10px; align-items:flex-start; background:var(--info-tint); border-radius:var(--radius-md); padding:14px;"><i class="ph-fill ph-lock-key" style="color:var(--teal-700); font-size:22px;"></i><div style="font-size:13px; color:var(--teal-700); line-height:1.45;">Your PAN and bank details are encrypted and used only to send payouts. Required before your first withdrawal.</div></div>
+              <sc-if value="{{ kycReview }}" hint-placeholder-val="{{ false }}">
+              <div class="bb-card" style="text-align:center; padding:26px;"><div style="width:60px;height:60px;border-radius:50%;background:var(--warning-tint);color:var(--saffron-deep);display:flex;align-items:center;justify-content:center;font-size:30px;margin:0 auto;"><i class="ph-fill ph-hourglass-medium"></i></div><div style="font-family:var(--font-display); font-weight:700; font-size:18px; color:var(--text-primary); margin-top:12px;">Under review</div><p style="font-size:14px; color:var(--text-muted); margin:6px 0 0;">We're verifying your details. This usually takes 1–2 working days.</p></div>
+              </sc-if>
+              <sc-if value="{{ kycNone }}" hint-placeholder-val="{{ true }}">
+              <div class="bb-field"><label class="bb-field__label">Full name (as on PAN)</label><input class="bb-input" placeholder="Apex Staffing Pvt Ltd" /></div>
+              <div class="bb-field"><label class="bb-field__label">PAN number</label><input class="bb-input" placeholder="ABCDE1234F" /></div>
+              <div class="bb-field"><label class="bb-field__label">Bank account number</label><input class="bb-input" placeholder="0000 0000 0000" inputmode="numeric" /></div>
+              <div class="bb-field"><label class="bb-field__label">IFSC code</label><input class="bb-input" placeholder="HDFC0001234" /></div>
+              <button class="bb-btn bb-btn--primary bb-btn--lg bb-btn--block" onClick="{{ submitKyc }}"><i class="ph ph-shield-check"></i> Submit for verification</button>
+              </sc-if>
+            </div>
+            </sc-if>
+
+
+          </div>
+
+          <!-- bottom nav -->
+          <nav class="bb-bottomnav" style="flex:none;">
+            <sc-for list="{{ navTabs }}" as="t" hint-placeholder-count="5">
+            <button class="{{ t.cls }}" onClick="{{ t.onClick }}"><i class="{{ t.icon }}"></i><span>{{ t.label }}</span></button>
+            </sc-for>
+          </nav>
+        </div>
+        </sc-if>
+
+        <!-- ============ UNLOCK DIALOG ============ -->
+        <sc-if value="{{ pendingOpen }}" hint-placeholder-val="{{ false }}">
+        <div class="bb-scrim" style="position:absolute; z-index:40;">
+          <div class="bb-dialog" style="max-width:330px;">
+            <div class="bb-dialog__head"><div class="bb-dialog__title">Unlock this candidate?</div></div>
+            <div class="bb-dialog__body">
+              You'll see <b>{{ pending.shownName }}</b>'s real name, photo and phone number. <b>1 credit (₹40)</b> will be used — <b>{{ credits }} left</b> after this.
+              <div style="display:flex; align-items:center; gap:8px; margin-top:12px; background:var(--info-tint); color:var(--teal-700); padding:10px 12px; border-radius:var(--radius-sm); font-size:13px;"><i class="ph-fill ph-info"></i> Fair-use: up to 3 unlocks per worker per week. Unlocking never changes a worker's ranking.</div>
+            </div>
+            <div class="bb-dialog__foot bb-dialog__foot--stack">
+              <button class="bb-btn bb-btn--primary bb-btn--lg bb-btn--block" onClick="{{ confirmUnlock }}"><i class="ph ph-lock-key-open"></i> Unlock for ₹40</button>
+              <button class="bb-btn bb-btn--ghost bb-btn--block" onClick="{{ cancelUnlock }}">Cancel</button>
+            </div>
+          </div>
+        </div>
+        </sc-if>
+
+        <!-- ============ TOAST ============ -->
+        <sc-if value="{{ toastOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute; left:16px; right:16px; bottom:90px; display:flex; justify-content:center; z-index:50;">
+          <div class="{{ toastClass }}" style="width:100%;"><span class="bb-toast__icon"><i class="ph-fill ph-check-circle"></i></span><div class="bb-toast__content"><div class="bb-toast__title">{{ toastTitle }}</div><div class="bb-toast__msg">{{ toastMsg }}</div></div></div>
+        </div>
+        </sc-if>
+
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:454,&quot;height&quot;:908}}">
+class Component extends DCLogic {
+  state = {
+    booted: false,
+    role: 'company',
+    tab: 'home',
+    sub: null,
+    credits: 200,
+    unlocked: {},
+    pending: null,
+    reveal: null,
+    toast: null,
+    kyc: 'none',
+  };
+
+  candidates = [
+    { id: 1, name: 'Ramesh Kumar', trade: 'CNC Setter', skill: 'Fanuc, VMC programming', exp: '6 yrs', loc: 'Pimpri, Pune', avail: 'Available now', hot: true, match: 'Strong fit', phone: '+91 98765 43210' },
+    { id: 2, name: 'Suresh Patil', trade: 'VMC Setter', skill: 'Siemens, fixture setting', exp: '4 yrs', loc: 'Chakan, Pune', avail: 'Available now', hot: false, match: 'Good fit', phone: '+91 98701 22890' },
+    { id: 3, name: 'Imran Shaikh', trade: 'CNC Operator', skill: 'Fanuc, GD&T reading', exp: '8 yrs', loc: 'Bhosari, Pune', avail: '2 weeks notice', hot: true, match: 'Strong fit', phone: '+91 99204 55178' },
+    { id: 4, name: 'Vikas More', trade: 'Quality Inspector', skill: 'CMM, GD&T', exp: '3 yrs', loc: 'Hadapsar, Pune', avail: 'Available now', hot: false, match: 'Good fit', phone: '+91 97653 09921' },
+    { id: 5, name: 'Ganesh Jadhav', trade: 'CNC Operator', skill: 'Mazak, turning', exp: '2 yrs', loc: 'Wagholi, Pune', avail: 'Immediate', hot: false, match: null, phone: '+91 98810 76340' },
+    { id: 6, name: 'Sanjay Pawar', trade: 'Welder / Fabricator', skill: 'MIG, TIG, ARC', exp: '5 yrs', loc: 'Ranjangaon, Pune', avail: 'Available now', hot: false, match: 'Good fit', phone: '+91 90110 28845' },
+  ];
+
+  jobs = [
+    { title: 'CNC Setter', band: '5–10 vacancies', filled: 7, quota: 10, applicants: 23, unlocks: 12, status: 'live', verified: true, boosted: true },
+    { title: 'VMC Setter', band: '1 vacancy', filled: 1, quota: 1, applicants: 9, unlocks: 3, status: 'filled', verified: true, boosted: false },
+    { title: 'Quality Inspector', band: '2–4 vacancies', filled: 0, quota: 4, applicants: 0, unlocks: 0, status: 'review', verified: false, boosted: false },
+  ];
+
+  referred = [
+    { id: 1, label: '••• 3210', trade: 'CNC Operator', status: 'In window', days: 62, earned: '₹0', expired: false, paid: false },
+    { id: 2, label: '••• 8842', trade: 'VMC Setter', status: 'Earned', days: 41, earned: '₹40', expired: false, paid: true },
+    { id: 3, label: '••• 1190', trade: 'Welder', status: 'In window', days: 12, earned: '₹0', expired: false, paid: false },
+    { id: 4, label: '••• 5567', trade: 'Fitter', status: 'Expired', days: 0, earned: '₹0', expired: true, paid: false },
+  ];
+
+  packs = [
+    { n: '50', price: '₹2,000', per: '₹40 / unlock', best: false },
+    { n: '200', price: '₹7,600', per: '₹38 / unlock', best: false },
+    { n: '1,000', price: '₹34,000', per: '₹34 / unlock · 15% off', best: true },
+  ];
+
+  initials(name) { return name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase(); }
+  redacted(name) { const p = name.trim().split(/\s+/); return p[0][0] + '█████ ' + (p[1] ? p[1][0] + '.' : ''); }
+
+  fireToast(title, msg, tone) {
+    this.setState({ toast: { title, msg, tone: tone || 'success' } });
+    clearTimeout(this._t);
+    this._t = setTimeout(() => this.setState({ toast: null }), 2400);
+  }
+
+  renderVals() {
+    const s = this.state;
+    const isAgency = s.role === 'agency';
+    const cur = s.sub || s.tab;
+    const acct = isAgency
+      ? { name: 'Apex Staffing', plan: 'Agency · supply + demand', initials: 'AS' }
+      : { name: 'Kalyani Industries', plan: 'Company account', initials: 'KI' };
+
+    const show = {
+      login: !s.booted,
+      app: s.booted,
+      home: s.booted && cur === 'home',
+      find: s.booted && cur === 'find',
+      jobs: s.booted && cur === 'jobs',
+      account: s.booted && cur === 'account',
+      post: s.booted && cur === 'post',
+      credits: s.booted && cur === 'credits',
+      reveal: s.booted && cur === 'reveal',
+      earn: s.booted && cur === 'earn',
+      referral: s.booted && cur === 'referral',
+      referred: s.booted && cur === 'referred',
+      payouts: s.booted && cur === 'payouts',
+      kyc: s.booted && cur === 'kyc',
+    };
+
+    const candidates = this.candidates.map(c => {
+      const masked = !s.unlocked[c.id];
+      return {
+        ...c,
+        masked,
+        unlocked: !masked,
+        shownName: masked ? this.redacted(c.name) : c.name,
+        avatarText: masked ? '••' : this.initials(c.name),
+        avatarClass: 'bb-avatar ' + (masked ? 'bb-avatar--masked' : 'bb-avatar--brand'),
+        nameClass: masked ? 'pa-blur' : '',
+        cardClass: masked ? '' : 'pa-unlocked',
+        onUnlock: () => this.setState({ pending: c }),
+        onView: () => this.setState({ reveal: c, sub: 'reveal' }),
+      };
+    });
+
+    const navDefs = [
+      { id: 'home', icon: 'house', label: 'Home' },
+      { id: 'find', icon: 'magnifying-glass', label: 'Candidates' },
+      { id: 'jobs', icon: 'briefcase', label: 'Jobs' },
+    ];
+    if (isAgency) navDefs.push({ id: 'earn', icon: 'wallet', label: 'Earn' });
+    navDefs.push({ id: 'account', icon: 'user', label: 'Account' });
+    const navTabs = navDefs.map(n => ({
+      icon: (cur === n.id ? 'ph-fill ph-' : 'ph ph-') + n.icon,
+      label: n.label,
+      cls: 'bb-bottomnav__item' + (cur === n.id ? ' bb-bottomnav__item--active' : ''),
+      onClick: () => this.setState({ tab: n.id, sub: null }),
+    }));
+
+    const seg = (on) => 'bb-tab' + (on ? ' bb-tab--active' : '');
+    const pick = (on) => 'pa-pick' + (on ? ' pa-pick--on' : '');
+
+    return {
+      show, isAgency, acct, credits: s.credits, candidates, navTabs,
+      candCount: this.candidates.length,
+      statusClass: 'pa-status',
+      companyPickClass: pick(s.role === 'company'),
+      agencyPickClass: pick(s.role === 'agency'),
+      roleTabCompany: seg(!isAgency),
+      roleTabAgency: seg(isAgency),
+      jobs: this.jobs.map(j => ({
+        ...j,
+        pct: Math.round((j.filled / j.quota) * 100),
+        statusLabel: j.status === 'live' ? 'Active' : j.status === 'filled' ? 'Quota reached' : 'In review',
+        statusBadge: 'bb-badge ' + (j.status === 'live' ? 'bb-badge--success' : j.status === 'filled' ? 'bb-badge--neutral' : 'bb-badge--warning'),
+        rowOpacity: j.status === 'filled' ? '0.62' : '1',
+        progressTone: j.status === 'filled' ? 'bb-progress bb-progress--success' : 'bb-progress',
+      })),
+      referred: this.referred.map(w => ({
+        ...w,
+        opacity: w.expired ? '0.55' : '1',
+        badgeClass: 'bb-badge ' + (w.paid ? 'bb-badge--success' : w.expired ? 'bb-badge--neutral' : 'bb-badge--info'),
+        windowText: w.expired ? 'Window expired · no resets' : w.paid ? 'Unlocked · earned' : w.days + ' days left in window',
+        earnedColor: w.paid ? 'var(--success)' : 'var(--text-faint)',
+      })),
+      packs: this.packs.map(p => ({
+        ...p,
+        border: p.best ? 'var(--border-double)' : '1px solid var(--border-subtle)',
+        onBuy: () => { this.setState({ sub: null, tab: 'home' }); this.fireToast('Credits added', p.n + ' unlocks added to your balance.'); },
+      })),
+      reveal: s.reveal || {},
+      revealInitials: s.reveal ? this.initials(s.reveal.name) : '',
+      kycNone: s.kyc === 'none', kycReview: s.kyc === 'review', kycVerified: s.kyc === 'verified',
+      kycBadgeClass: s.kyc === 'verified' ? 'bb-badge bb-badge--success' : s.kyc === 'review' ? 'bb-badge bb-badge--warning' : 'bb-badge bb-badge--neutral',
+      kycBadgeLabel: s.kyc === 'verified' ? 'Verified' : s.kyc === 'review' ? 'In review' : 'Not started',
+      // dialog
+      pendingOpen: !!s.pending, pending: s.pending || {},
+      // toast
+      toastOpen: !!s.toast, toastTitle: s.toast?.title, toastMsg: s.toast?.msg,
+      toastClass: 'bb-toast bb-toast--' + (s.toast?.tone || 'success'),
+      // handlers
+      pickCompany: () => this.setState({ role: 'company' }),
+      pickAgency: () => this.setState({ role: 'agency' }),
+      doLogin: () => this.setState({ booted: true, tab: 'home', sub: null }),
+      setCompany: () => this.setState({ role: 'company', tab: 'home', sub: null }),
+      setAgency: () => this.setState({ role: 'agency', tab: 'home', sub: null }),
+      goPost: () => this.setState({ sub: 'post' }),
+      goCredits: () => this.setState({ sub: 'credits' }),
+      goFind: () => this.setState({ tab: 'find', sub: null }),
+      goEarn: () => this.setState({ tab: 'earn', sub: null }),
+      goJobs: () => this.setState({ tab: 'jobs', sub: null }),
+      goReferral: () => this.setState({ sub: 'referral' }),
+      goReferred: () => this.setState({ sub: 'referred' }),
+      goPayouts: () => this.setState({ sub: 'payouts' }),
+      goKyc: () => this.setState({ sub: 'kyc' }),
+      back: () => this.setState({ sub: null }),
+      confirmUnlock: () => {
+        const c = this.state.pending;
+        this.setState(st => ({ unlocked: { ...st.unlocked, [c.id]: true }, credits: st.credits - 1, pending: null, reveal: c, sub: 'reveal' }));
+        this.fireToast('Unlocked!', 'Contact details are now visible.');
+      },
+      cancelUnlock: () => this.setState({ pending: null }),
+      doPostJob: () => { this.setState({ sub: null, tab: 'jobs' }); this.fireToast('Submitted for verification', 'We\u2019ll confirm this role is real, usually within a day.'); },
+      buyPack: (n) => { this.setState({ sub: null, tab: 'home' }); this.fireToast('Credits added', n + ' unlocks added to your balance.'); },
+      submitKyc: () => { this.setState({ kyc: 'review' }); this.fireToast('KYC submitted', 'Your PAN and bank details are under review.'); },
+      copyLink: () => this.fireToast('Link copied', 'Share it on WhatsApp to start earning.'),
+    };
+  }
+}
+</script>
+</body>
+</html>
