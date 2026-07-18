@@ -8,7 +8,10 @@ Classification: **P0** blocks alpha/runtime proof · **P1** blocks an important 
 
 | Blocker | Type | Sev | Blocks | Task progress now | Max until resolved | Owner | Decision needed? |
 | ------- | ---- | --- | ------ | ----------------: | -----------------: | ----- | ---------------- |
-| **Staging not deployed — PAST 2026-07-04 deadline** (no `API_BASE_URL`; no `/health` proof) | Infra | **P0 CRITICAL** | Worker-app B1 handset run; all staging proof; alpha gate | Alpha 58% | 90% | Prakash | No — D1✅ decided; execution missing |
+| ~~**Staging not deployed**~~ ✅ **RESOLVED 2026-07-18** — staging live, `0042`+`0043` applied, R27 box triaged, **real OTP**, **B1 CLOSED** (owner-attested, [QA_EVIDENCE](QA_EVIDENCE.md)). Open 19 days; cost 14 days of schedule | Infra | ~~P0~~ **CLEARED** | — | — | — | Prakash | No |
+| **[TD81](../registers/tech-debt-register.md) — staging runs MOCKED AI behind a 200 `/health`** (the `ai-service` is absent from [`docker-compose.yml`](../../docker-compose.yml)) | Infra/AI | **P1** | Any "real profiling verified on staging" claim; chat + profile-extraction proof | AI-service staging proof 0% | — | Owner + DevOps | **Yes** — deploy the service, or make the mock LOUD in `/health` |
+| **Remaining alpha gates never run on staging** — payer-company (1), agency (2), RBAC/admin smoke (5), OTP-safety half (4) | QA | **P1** | Full alpha GO | Alpha ~78% | 90% | QA + Prakash | No — newly unblocked, just needs running |
+| **Staging artifacts uncaptured** — `docs/qa/evidence/staging/` does not exist; B1 rests on owner attestation, not files | Process | **P2** | Reproducible proof for a later verifier | n/a | — | Rishi/QA | No — capture on next run |
 | Ops `/unlocks*` surface retire — blocked on ADMIN-4..8 + headless payer mint (LC-1 residual, TD33/TD50). **Note:** payer-facing unlock/reveal is ALREADY `PayerAuthGuard`-protected (`payer-unlocks.controller.ts:41`, PR #110/#119). Only the ops internal surface remains. | Backend/Security | **P1** | Ops unlock retire | 72% | 82% | Divyanshu + security | Blocked on ADMIN-4..8 |
 | Admin PII-reveal (3b) — process cadence not yet operational (R24/OQ-7) — D4 DECIDED | Security/Process | **P2** | Treating reveal as production-ready | 78% | 90% | Prakash | No — establish weekly review cadence |
 | E2E local: 14 fails (stale local scoop DB — missing ADR-0026 tables; `db:migrate` blocked by 42P07) | Technical | **P2** | Local e2e proof | n/a | — | Divyanshu | No (drop/recreate local DB; local-only) |
@@ -39,25 +42,23 @@ Classification: **P0** blocks alpha/runtime proof · **P1** blocks an important 
 **Backend/API:** Ops `/unlocks*` LC-1 residual (InternalServiceGuard retire blocked on ADMIN-4..8). R28 OPEN: `GET /workers/:id/profile` returns decrypted worker name unauthenticated (bounded: box not public, no real names; arms on exposure). R31 OPEN: `PUT/GET /pricing/catalog` unauthenticated (bounded: `PAYMENTS_ENABLE_REAL=false`). Payer-facing routes ARE PayerAuthGuard-protected — not a payer blocker.
 **Frontend:** FE wiring batch (FE-1..FE-7) CLOSED by PR #194. Worker-app mock tabs (polish, Phase-2). TD62 RESOLVED 2026-07-15.
 **Legal:** DPDP production consent copy + erasure (LEGAL_GATE); real-money payments; admin PII-reveal process cadence.
-**Infra:** **staging not deployed (P0 CRITICAL — PAST deadline 2026-07-04, +14 days)**. CD pipeline EXISTS and is GREEN (CD-0..CD-5). Sole remaining gate = STAGING-SECRETS-1 (real secrets into GitHub `staging` Environment). R27 box: was running dev secrets + throwaway Postgres — treat all sessions/PII as compromised; triage before new deploy.
-**Env/secrets:** staging GitHub Environment real secrets NOT set (STAGING-SECRETS-1); must include `CORS_ALLOWED_ORIGINS` (TD72a — omitting silently blocks every browser call while `/health` reports healthy). See [ENV_AND_SECRETS_TRACKER.md](ENV_AND_SECRETS_TRACKER.md).
+**Infra:** ✅ **Staging LIVE 2026-07-18** — STAGING-SECRETS-1 cleared, 0042+0043 applied, R27 triaged, real OTP active, B1 owner-attested. **TD81 still open (P1):** ai-service absent from compose → chat/profile-extraction on staging are mocked while `/health` 200s.
+**Env/secrets:** staging GitHub Environment provisioned ✅. See [ENV_AND_SECRETS_TRACKER.md](ENV_AND_SECRETS_TRACKER.md).
 
-## P0 — single alpha gate · Deadline: **SLIPPED — was 2026-07-04, +14 days. Re-forecast: B1 ~07-21/22 if SECRETS-1 lands 07-18**
+## ✅ P0 CLEARED 2026-07-18 — alpha now IN PROGRESS
 
-**D1 DECIDED (2026-06-29): AWS Lightsail/EC2. CD pipeline BUILT and VERIFIED GREEN (CD-0..CD-5). P0 narrowed from "no pipeline" to "no secrets".**
+**B1 CLOSED (owner-attested 2026-07-18):** staging live, 0042+0043 applied, R27 triaged, real OTP (Fast2SMS), resume download verified. Cost: 14 days slip.
 
-> ⚠️ **OTP is REAL-ONLY** (`SMS_PROVIDER: z.literal("fast2sms")` — `console` fails boot). Staging requires **Fast2SMS creds** before anyone can log in. **45 migrations** (0000–0044) — **apply 0042 + 0043 BEFORE deploy** (0042 breaks extraction INSERTs; 0043 breaks every credit purchase). The staging smoke script was rewritten (#391, D-3 gated test-login with synthetic `+9100000XXXXX` phones).
+**Note:** `docs/qa/evidence/staging/` was not written — B1 rests on owner attestation rather than captured artifacts (`/health` output, events-chain export, clean logcat). Not a challenge to the result; capture on next run (cheap).
 
-> ⚠️ **Two things will make staging lie even after green:** (1) **TD81** — ai-service is NOT in the compose file; staging degrades to mocked AI while `/health` 200s; (2) **R30** — word-split phone bypasses pseudonymize (honest negative, gates `AI_ENABLE_REAL_CALLS`).
-
-**Remaining critical path (strictly ordered — steps 1–3 are owner-only, non-delegable):**
-1. Prakash: **STAGING-SECRETS-1** — real secrets into GitHub `staging` Environment (generated fresh, NEVER from `.env`). **Include `CORS_ALLOWED_ORIGINS`** (TD72a). ~half a day.
-2. Prakash: Apply migration **0042** then **0043** — both apply-before-deploy.
-3. Prakash: Triage the R27 box — stop dev-secret API + throwaway Postgres; decide volume fate.
-4. Deploy → `/health` 200 (connectivity gate only — an unmigrated DB still 200s, hence step 2 first). Set `RESUME_RENDER_ENABLED=true` + WeasyPrint; decide `PAYER_LOGIN_METHOD`.
-5. **OTP-7** — Fast2SMS creds + team allowlist. No mock path exists — without this nobody can log in.
-6. Rishi: REAL-mode handset build against staging → onboarding→chat→profile→PDF → 4 evidence artifacts to `docs/qa/evidence/staging/`.
-7. All 6 alpha-gate scripts in [TEST_MATRIX.md](TEST_MATRIX.md) pass with evidence → B1 CLOSED.
+**Remaining path to full alpha GO (all newly unblocked):**
+1. **TD81** — deploy ai-service into staging compose, or make mock LOUD in `/health` (P1; blocks "real profiling proven on staging")
+2. Run gate 1 — payer-company click-through on staging
+3. Run gate 2 — agency click-through on staging
+4. Run gate 4 (OTP-safety half) — wrong-code neutrality, breaker at cap=0, kill-switch, no-phone/no-code log scan
+5. Run gate 5 — RBAC + admin ops smoke
+6. Capture staging artifacts → `docs/qa/evidence/staging/`
+7. All 6 alpha-gate scripts pass with evidence → **Full alpha GO**
 
 ---
 _Update the cap columns whenever a blocker is cleared; move resolved rows to a "Resolved" section with the clearing evidence + date._

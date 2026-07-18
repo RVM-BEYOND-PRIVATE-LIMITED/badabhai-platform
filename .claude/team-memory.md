@@ -10,7 +10,7 @@
 
 - **3 active committers:** Prakash Kantumutchu (**TL / integrator**, ~374 commits), Divyanshu Pant (backend, ~135 — the user), Rishi Ojha (Flutter/mobile, ~16, active since 2026-06-26). Akshit (CEO) signs off ADRs/gates. Utkarsh is the announced Company/Agency web owner (2026-06-19 roster) but has **no repo commits yet** — payer-web is Prakash's in practice.
 - Process: automation-first + one human reviewer; specialist agents review, human confirms. Prakash merges most PRs.
-- **Status: alpha NO-GO** — sole capstone blocker **STAGING-SECRETS-1** (owner-only, ~half day; CD pipeline GREEN). Re-forecast: SECRETS-1 today → B1 ~07-21/22. Alpha 2026-08-15. Utkarsh: no repo commits — removed from team roster 2026-06-29.
+- **Status: alpha IN PROGRESS** — **B1 CLOSED 2026-07-18** (owner-attested; staging live, real OTP, resume download). Remaining to full GO: TD81 (ai-service not in compose), gates 1/2/5/4-half. Phase 2 UNBLOCKED. Alpha 2026-08-15. Utkarsh: no repo commits — removed 2026-06-29.
 
 # Developer Ownership
 
@@ -48,7 +48,7 @@
 
 # Active Workstreams (2026-07-18)
 
-- **B1 alpha capstone** — blocked on **STAGING-SECRETS-1** (P0, owner-only, ~half day). CD pipeline GREEN. Then: apply 0042+0043 → triage R27 box → deploy → OTP-7 → Rishi real-handset run + 4 evidence artifacts + PDF download. Owner: Prakash (secrets+deploy), Rishi (device run). Re-forecast: SECRETS-1 today → B1 ~07-21/22.
+- **B1 alpha capstone — CLOSED 2026-07-18** (owner-attested: staging live, 0042+0043 applied, R27 triaged, real OTP, resume download). `docs/qa/evidence/staging/` not captured — close on next run. Phase 2 UNBLOCKED.
 - **TAX-9 COMPLETE** (#232, migration 0039 applied 2026-07-15). RATIFY-1 DONE (22/22 aliases 2026-07-16). `SKILL_CANONICALIZE_ENABLED` flip awaits post-B1 staging verify.
 - **ADR-0031 deletion grace MERGED** (#400, 2026-07-16). Migration 0040 applied. Prod endpoint §7-gated.
 - **ADR-0032 profile photo MERGED** (#340 + #402 photo→PDF re-render, 2026-07-16).
