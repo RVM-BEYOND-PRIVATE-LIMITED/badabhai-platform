@@ -86,6 +86,50 @@ describe("ConversationStateSchema (contracts.py parity — COST-4 clarify bound)
   });
 });
 
+describe("ConversationStateSchema (contracts.py parity — INTERVIEW-1 ask_counts)", () => {
+  it("defaults ask_counts to {} so LEGACY states without the field still load", () => {
+    // Backward compat (CLAUDE.md §2 #8): a state minted before INTERVIEW-1 carries
+    // asked_question_ids but no ask_counts — it must parse, not throw.
+    const st = ConversationStateSchema.parse({
+      role_family: "cnc_vmc",
+      turn_count: 4,
+      answered_topics: ["role"],
+      asked_question_ids: ["role", "machines"],
+      collected: { role: "VMC Operator" },
+    });
+    expect(st.ask_counts).toEqual({});
+    expect(st.unanswered_essentials).toEqual([]);
+    expect(st.asked_question_ids).toEqual(["role", "machines"]);
+  });
+  it("defaults unanswered_essentials to [] and round-trips the declared gaps", () => {
+    // The completeness signal: extraction_ready keeps its frozen v1 meaning ("the
+    // interview is over, run extraction"), so THIS is what declares an incomplete
+    // profile — a role: null resume becomes a known outcome, not a surprise.
+    expect(ConversationStateSchema.parse({}).unanswered_essentials).toEqual([]);
+    const st = ConversationStateSchema.parse({
+      answered_topics: ["role", "experience"],
+      unanswered_essentials: ["machines", "current_location"],
+    });
+    expect(st.unanswered_essentials).toEqual(["machines", "current_location"]);
+  });
+  it("rejects a non-string-array unanswered_essentials", () => {
+    expect(() => ConversationStateSchema.parse({ unanswered_essentials: "machines" })).toThrow();
+    expect(() => ConversationStateSchema.parse({ unanswered_essentials: [1] })).toThrow();
+  });
+  it("round-trips per-topic ask counts at the bound", () => {
+    const st = ConversationStateSchema.parse({
+      ask_counts: { role: 1, machines: 2 },
+      clarify_count: 1,
+    });
+    expect(st.ask_counts).toEqual({ role: 1, machines: 2 });
+    expect(st.clarify_count).toBe(1);
+  });
+  it("rejects a negative / non-integer ask count (same convention as clarify_count)", () => {
+    expect(() => ConversationStateSchema.parse({ ask_counts: { role: -1 } })).toThrow();
+    expect(() => ConversationStateSchema.parse({ ask_counts: { role: 1.5 } })).toThrow();
+  });
+});
+
 describe("AICallMetadataSchema (contracts.py parity)", () => {
   const minimal = {
     ai_call_id: "c1",

@@ -51,6 +51,9 @@ def _worker_facing_strings() -> dict[str, str]:
     out: dict[str, str] = {}
     for topic in topics_for("cnc_vmc"):
         out[f"question:{topic.id}"] = topic.question
+        # INTERVIEW-1: the bounded RE-ask wording is worker-facing too.
+        if topic.retry_question is not None:
+            out[f"retry_question:{topic.id}"] = topic.retry_question
     out["ack"] = interview_engine._ACK
     out["wrap_up"] = interview_engine._WRAP_UP
     for i, f in enumerate(interview_engine.suggested_followups("cnc_vmc")):
@@ -84,6 +87,25 @@ def test_every_interview_question_is_under_20_words():
     for topic in topics_for("cnc_vmc"):
         n = len(topic.question.split())
         assert n <= 20, f"{topic.id} question is {n} words: {topic.question!r}"
+
+
+def test_every_retry_question_is_one_ask_under_20_words_and_actually_different():
+    # INTERVIEW-1: the re-ask must obey B-5 (exactly one "?") and the 20-word cap,
+    # and must NOT be the same string — re-serving verbatim reads as broken.
+    for topic in topics_for("cnc_vmc"):
+        rq = topic.retry_question
+        if rq is None:
+            continue
+        assert rq.count("?") == 1, f"{topic.id} retry bundles asks: {rq!r}"
+        assert len(rq.split()) <= 20, f"{topic.id} retry is {len(rq.split())} words: {rq!r}"
+        assert rq != topic.question, f"{topic.id} retry is a verbatim re-serve"
+
+
+def test_every_re_askable_essential_topic_has_a_retry_question():
+    # Only ESSENTIAL topics are ever re-asked, and each must have distinct wording.
+    for topic_id in interview_engine.ESSENTIAL_TOPICS:
+        topic = next(t for t in topics_for("cnc_vmc") if t.id == topic_id)
+        assert topic.retry_question is not None, topic_id
 
 
 # --- B-5: ONE question per turn ---------------------------------------------

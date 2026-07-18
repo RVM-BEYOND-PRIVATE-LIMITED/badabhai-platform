@@ -57,6 +57,15 @@ function freshState(roleFamily: string): ConversationState {
     // COST-4 clarify bound (additive contract field). The API-side mock advances
     // every turn (it has no clarify path), so the streak counter stays 0 here.
     clarify_count: 0,
+    // INTERVIEW-1 per-topic ask counts (additive contract field). This API-side
+    // mock optimistically marks the last-asked topic answered every turn, so it
+    // never re-asks and the map stays empty here; the Python engine owns the
+    // bounded re-ask.
+    ask_counts: {},
+    // INTERVIEW-1 completeness signal (additive contract field). This mock marks
+    // the last-asked topic answered every turn, so it reports no gaps; the Python
+    // engine computes the real list. Acting on it is a follow-up task.
+    unanswered_essentials: [],
   };
 }
 
