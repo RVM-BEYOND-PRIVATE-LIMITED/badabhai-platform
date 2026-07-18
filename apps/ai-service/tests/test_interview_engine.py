@@ -260,8 +260,18 @@ def test_424_a_fluent_worker_is_still_asked_salary_and_availability():
 def test_424_no_worker_persona_reaches_wrap_up_with_a_must_ask_unraised():
     """The INVARIANT, swept over how differently workers actually reply: whatever the
     path, `extraction_ready` may not be True at wrap-up unless every MUST_ASK topic was
-    asked or answered. The 'answers every topic' persona is the discriminating one —
-    it is exactly the fluent worker the old gate cut short."""
+    ASKED. The 'answers every topic' persona is the discriminating one — it is exactly
+    the fluent worker the old gate cut short.
+
+    ASKED, not "asked or answered". The weaker `asked or answered` form is what let the
+    availability over-match hide (post-merge review of #429): ``_ANSWERS`` answers the
+    SALARY question with "abhi 25000 milte hain", and the old bare-substring cue read
+    the "abhi" in it as ``availability = immediate``. So availability was marked
+    ANSWERED without ever being asked, the weaker assertion passed through that branch,
+    and the docstring's claim to cover "exactly the fluent worker the old gate cut
+    short" was not true on the common path. A must-ask topic the worker was never asked
+    is not raised, however it got into ``answered_topics``.
+    """
     for label, reply_for in (
         ("answers every topic", lambda tid: _ANSWERS[tid]),
         ("answers nothing extractable", lambda _tid: _GARBAGE),
@@ -278,11 +288,10 @@ def test_424_no_worker_persona_reaches_wrap_up_with_a_must_ask_unraised():
             "availability",
         }
         for topic_id in sorted(expected):
-            raised = (
-                topic_id in state.asked_question_ids
-                or topic_id in state.answered_topics
+            assert topic_id in state.asked_question_ids, (
+                f"[{label}] wrapped up with {topic_id} never ASKED "
+                f"(answered_topics={state.answered_topics})"
             )
-            assert raised, f"[{label}] wrapped up with {topic_id} unraised"
 
 
 def test_424_promoting_the_topics_did_not_start_nagging_the_worker():
@@ -565,6 +574,41 @@ def test_the_ask_budget_has_real_headroom_over_a_blind_run(monkeypatch):
     ask_log, state, _ready, _turns = _run_interview(lambda _tid: _GARBAGE)
     assert len(ask_log) == budget
     assert sum(state.ask_counts.values()) == budget
+
+
+def test_actually_asking_availability_did_not_move_the_ask_budget():
+    """The #424 follow-up (the availability over-match fix) makes `availability` get
+    ASKED on paths where a fabricated "immediate" used to close it. That spends one
+    more ask on those paths — this pins that it cannot approach the ceiling.
+
+    The arithmetic is unchanged, because `availability` is a NON-essential, ask-ONCE
+    topic and was therefore ALREADY counted once in the blind-run worst case:
+
+        4 essentials x MAX_ASKS_PER_TOPIC(2) = 8
+      + 7 ask-once topics x 1                = 7
+      -------------------------------------------
+        blind-run worst case                 = 15   <  MAX_ENGINE_ASKS = 20
+
+    So the fix moves REAL runs closer to that bound, never past it. Measured: the
+    fluent 'answers every topic' persona went 8 -> 9 asks (availability now asked),
+    and the worst persona is unchanged at 15.
+    """
+    log_fluent, state_fluent, ready, _turns = _run_interview(lambda tid: _ANSWERS[tid])
+    assert ready is True
+    assert "availability" in state_fluent.asked_question_ids
+    assert len(log_fluent) == 9
+
+    worst = 0
+    for reply_for in (
+        lambda tid: _ANSWERS[tid],
+        lambda _tid: _GARBAGE,
+        lambda _tid: "haan",
+        lambda _tid: "theek hai ji",
+    ):
+        _log, state, _ready, _turns = _run_interview(reply_for)
+        worst = max(worst, sum(state.ask_counts.values()))
+    assert worst == _blind_ask_budget() == 15
+    assert worst < interview_engine.MAX_ENGINE_ASKS
 
 
 def _drive_with_clarifies(message: str, max_turns: int = 200):

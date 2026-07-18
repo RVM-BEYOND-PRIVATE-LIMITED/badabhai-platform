@@ -29,8 +29,8 @@ is a key in the returned dict; that is exactly the condition under which
 
 - Fixtures: **265** across **11** topics.
 - Human-labelled `accept` (a valid answer): **252**.
-- Of those, parser accepted: **150** (**60%** overall).
-- Parser gaps (valid answer, not accepted): **102**.
+- Of those, parser accepted: **158** (**63%** overall).
+- Parser gaps (valid answer, not accepted): **94**.
 - **Fabrications** (nothing to record, parser stored a VALUE): **0**.
 - Denials absorbed (nothing to record, topic marked answered, nothing stored): **2**.
 
@@ -235,12 +235,16 @@ deliberately implements nothing.
    `skills=['welding']`. Attributed to **#412, not #426**. For a worker in the
    CNC/VMC family this fills `role` from a MACHINE answer, and under the new
    first-write-wins rule that value then sticks unless `role` was already set.
-2. **`kabhi` is read as `abhi`.** The availability cue is a plain substring test, so
-   "kabhi" (ever), "kabhi kabhi" (occasionally) and "kabhi bhi" (whenever) all set
-   `availability = immediate`. Pre-existing and NOT caused by #426 — no corpus fixture
-   covered it, and probing for the negation gap surfaced it. It is also why
-   "vmc nahi chalaya kabhi" marks availability even though negation correctly
-   suppressed `machines`.
+2. **`kabhi` was read as `abhi` — FIXED by the #424 follow-up.** The availability cue
+   used to be a plain substring test, so "kabhi" (ever), "kabhi kabhi" (occasionally)
+   and "kabhi bhi" (whenever) all set `availability = immediate`; so did every answer
+   to the bank's own "**Abhi** kis sheher mein hain?" / "**Abhi** salary kitni hai?".
+   The cue family is now word-boundary matched and requires a GENUINE availability cue
+   (join/start intent, being free, a notice duration) — a bare time adverb only counts
+   next to a join intent. "vmc nahi chalaya kabhi" no longer marks availability.
+   Pre-existing and NOT caused by #426; surfaced by probing for the negation gap and
+   fixed once #429 made `availability` a MUST_ASK topic that the false positive was
+   silently satisfying.
 3. **`salary_expected` stores the refused number.** "25000 nahi chahiye, 30000
    chahiye" records 25000: the parser is both first-number-wins and negation-blind,
    and the two compose into the worst available answer.
@@ -372,9 +376,9 @@ stored?) so the verdict cannot be talked into being green.
 | asked topic | worker answer | full detector output | note |
 | --- | --- | --- | --- |
 | `machines` | `welding machine` | `role`=Welder, `skills`=['welding'] | `machines` NOT marked, but `role`+`skills` are closed on a welding read |
-| `machines` | `kabhi` | `availability`=immediate | 'abhi' is substring-matched inside 'kabhi' |
-| `machines` | `kabhi kabhi` | `availability`=immediate | 'sometimes' reads as 'available immediately' |
-| `availability` | `kabhi bhi` | `availability`=immediate | 'whenever' reads as 'immediately' — right answer, wrong reason |
+| `machines` | `kabhi` | _nothing_ | FIXED (#424 follow-up): 'abhi' was substring-matched inside 'kabhi'; the cue is now word-boundary matched AND needs a real availability cue |
+| `machines` | `kabhi kabhi` | _nothing_ | FIXED (#424 follow-up): 'sometimes' no longer reads as 'available immediately' |
+| `availability` | `kabhi bhi` | `availability`=immediate | 'whenever' — still immediate, now for the RIGHT reason: matched explicitly as an anytime phrase, and only because the availability question was the one asked |
 
 ## Per-topic acceptance
 
@@ -389,7 +393,7 @@ stored?) so the verdict cannot be talked into being green.
 | `controllers` | 24 | 22 | 13 | 59% | 9 |
 | `salary_current` | 24 | 23 | 19 | 83% | 4 |
 | `salary_expected` | 24 | 23 | 14 | 61% | 9 |
-| `availability` | 24 | 24 | 14 | 58% | 10 |
+| `availability` | 24 | 24 | 22 | 92% | 2 |
 | `education` | 24 | 21 | 11 | 52% | 10 |
 
 ## Topics ranked by gap size
@@ -398,15 +402,15 @@ stored?) so the verdict cannot be talked into being green.
 | ---: | --- | ---: | ---: | --- |
 | 1 | `role` | 15 | 35% | **ESSENTIAL** |
 | 2 | `experience` | 12 | 50% | **ESSENTIAL** |
-| 3 | `availability` | 10 | 58% | optional |
-| 4 | `education` | 10 | 52% | optional |
-| 5 | `controllers` | 9 | 59% | optional |
-| 6 | `machines` | 9 | 61% | **ESSENTIAL** |
-| 7 | `salary_expected` | 9 | 61% | optional |
-| 8 | `skills` | 9 | 61% | optional |
-| 9 | `preferred_locations` | 8 | 65% | MUST_ASK |
-| 10 | `current_location` | 7 | 70% | **ESSENTIAL** |
-| 11 | `salary_current` | 4 | 83% | optional |
+| 3 | `education` | 10 | 52% | optional |
+| 4 | `controllers` | 9 | 59% | optional |
+| 5 | `machines` | 9 | 61% | **ESSENTIAL** |
+| 6 | `salary_expected` | 9 | 61% | optional |
+| 7 | `skills` | 9 | 61% | optional |
+| 8 | `preferred_locations` | 8 | 65% | MUST_ASK |
+| 9 | `current_location` | 7 | 70% | **ESSENTIAL** |
+| 10 | `salary_current` | 4 | 83% | optional |
+| 11 | `availability` | 2 | 92% | optional |
 
 ## Rejected answers a human would call valid (the parser gaps)
 
@@ -459,7 +463,7 @@ stored?) so the verdict cannot be talked into being green.
 | `पाँच साल का तजुर्बा` | devanagari | _nothing_ |  |
 | `2012 se kaam kar raha hu` | hinglish | _nothing_ | start year |
 | `fresher hu` | hinglish | _nothing_ | zero experience is a value |
-| `naya hu, abhi start kiya` | hinglish | `availability` |  |
+| `naya hu, abhi start kiya` | hinglish | _nothing_ |  |
 
 ### `skills` — 9 gap(s)
 
@@ -537,20 +541,12 @@ stored?) so the verdict cannot be talked into being green.
 | `negotiable` | english | _nothing_ |  |
 | `जो भी मिले` | devanagari | _nothing_ |  |
 
-### `availability` — 10 gap(s)
+### `availability` — 2 gap(s)
 
 | worker answer | register | detected instead | note |
 | --- | --- | --- | --- |
-| `7 din` | hinglish | _nothing_ |  |
-| `do mahine baad` | hinglish | _nothing_ |  |
-| `1 week` | english | _nothing_ |  |
-| `2 hafte` | hinglish | _nothing_ |  |
-| `ek hafte mein` | hinglish | _nothing_ |  |
-| `aaj se ready hu` | hinglish | _nothing_ |  |
-| `kal se` | hinglish | _nothing_ |  |
 | `जल्दी जॉइन कर सकता हूँ` | devanagari | _nothing_ |  |
 | `पंद्रह दिन` | devanagari | _nothing_ |  |
-| `jab bolo tab` | hinglish | _nothing_ |  |
 
 ### `education` — 10 gap(s)
 
@@ -601,17 +597,12 @@ mark is only safe when the worker really did volunteer that other topic.
 | `role` | `skills` | 13 |
 | `machines` | `role` | 11 |
 | `role` | `machines` | 5 |
-| `salary_current` | `availability` | 3 |
 | `machines` | `skills` | 2 |
-| `preferred_locations` | `availability` | 2 |
-| `current_location` | `availability` | 1 |
 | `current_location` | `preferred_locations` | 1 |
 | `education` | `experience` | 1 |
 | `education` | `role` | 1 |
-| `experience` | `availability` | 1 |
 | `preferred_locations` | `current_location` | 1 |
 | `role` | `availability` | 1 |
-| `salary_expected` | `availability` | 1 |
 
 ### The dangerous subset: answer accepted ONLY for another topic
 
@@ -628,7 +619,6 @@ unrelated topic is silently closed on evidence the worker never gave.
 | `role` | `main CNC operator ka kaam karta hu` | `skills`=['machine operation'] |
 | `role` | `V M C operator` | `skills`=['machine operation'] |
 | `machines` | `welding machine` | `role`=Welder, `skills`=['welding'] |
-| `experience` | `naya hu, abhi start kiya` | `availability`=immediate |
 
 ## Accepted, but is the recorded VALUE right?
 
@@ -688,10 +678,10 @@ script answers whichever topic the engine asks.
 
 - turns: **15**
 - extraction_ready: **True**
-- answered topics: `['skills']`
+- answered topics: `['skills', 'availability']`
 - **unanswered essentials: `['role', 'machines', 'experience', 'current_location']`**
 - never asked at all: `['skills']`
-- collected: `{'skills': ['machine operation']}`
+- collected: `{'skills': ['machine operation'], 'availability': 'notice_period'}`
 
 ### B — worker whose phrasing happens to match the gazetteer
 
@@ -881,7 +871,7 @@ the shape of a fix, in the order the data ranks them. None of them is done here.
 | `experience` | `पाँच साल का तजुर्बा` | NO | — | accept |
 | `experience` | `2012 se kaam kar raha hu` | NO | — | accept |
 | `experience` | `fresher hu` | NO | — | accept |
-| `experience` | `naya hu, abhi start kiya` | NO | `availability` | accept |
+| `experience` | `naya hu, abhi start kiya` | NO | — | accept |
 | `experience` | `yaad nahi` | NO | — | reject |
 | `skills` | `setting aata hai` | yes | `skills` | accept |
 | `skills` | `tool offset kar leta hu` | yes | `skills` | accept |
@@ -922,7 +912,7 @@ the shape of a fix, in the order the data ranks them. None of them is done here.
 | `current_location` | `Aurangabad` | yes | `current_location` | accept |
 | `current_location` | `Ludhiana` | yes | `current_location` | accept |
 | `current_location` | `Peenya, Bangalore` | yes | `current_location`, `preferred_locations` | accept |
-| `current_location` | `abhi Pune mein rehta hu` | yes | `availability`, `current_location` | accept |
+| `current_location` | `abhi Pune mein rehta hu` | yes | `current_location` | accept |
 | `current_location` | `Chakan` | NO | — | accept |
 | `current_location` | `Ranjangaon` | NO | — | accept |
 | `current_location` | `Bhiwadi` | NO | — | accept |
@@ -940,7 +930,7 @@ the shape of a fix, in the order the data ranks them. None of them is done here.
 | `preferred_locations` | `anywhere in India` | yes | `preferred_locations` | accept |
 | `preferred_locations` | `relocate kar sakta hu` | yes | `preferred_locations` | accept |
 | `preferred_locations` | `Chennai Bangalore dono chalega` | yes | `preferred_locations` | accept |
-| `preferred_locations` | `abhi Pune mein hu, Delhi bhi chalega` | yes | `availability`, `current_location`, `preferred_locations` | accept |
+| `preferred_locations` | `abhi Pune mein hu, Delhi bhi chalega` | yes | `current_location`, `preferred_locations` | accept |
 | `preferred_locations` | `Rajkot Ahmedabad` | yes | `preferred_locations` | accept |
 | `preferred_locations` | `Mumbai` | yes | `preferred_locations` | accept |
 | `preferred_locations` | `Hyderabad` | yes | `preferred_locations` | accept |
@@ -954,7 +944,7 @@ the shape of a fix, in the order the data ranks them. None of them is done here.
 | `preferred_locations` | `koi bhi jagah` | NO | — | accept |
 | `preferred_locations` | `जहाँ भी काम मिले` | NO | — | accept |
 | `preferred_locations` | `Pune se bahar nahi jaunga` | yes | `preferred_locations` | accept |
-| `preferred_locations` | `abhi soch nahi paya` | NO | `availability` | reject |
+| `preferred_locations` | `abhi soch nahi paya` | NO | — | reject |
 | `controllers` | `Fanuc` | yes | `controllers` | accept |
 | `controllers` | `fanuc aur siemens` | yes | `controllers` | accept |
 | `controllers` | `Siemens` | yes | `controllers` | accept |
@@ -986,9 +976,9 @@ the shape of a fix, in the order the data ranks them. None of them is done here.
 | `salary_current` | `18000 rupaye` | yes | `salary_current` | accept |
 | `salary_current` | `₹20,000` | yes | `salary_current` | accept |
 | `salary_current` | `20 thousand` | yes | `salary_current` | accept |
-| `salary_current` | `monthly 25000` | yes | `availability`, `salary_current` | accept |
-| `salary_current` | `25000 per month` | yes | `availability`, `salary_current` | accept |
-| `salary_current` | `abhi 19500 milta hai` | yes | `availability`, `salary_current` | accept |
+| `salary_current` | `monthly 25000` | yes | `salary_current` | accept |
+| `salary_current` | `25000 per month` | yes | `salary_current` | accept |
+| `salary_current` | `abhi 19500 milta hai` | yes | `salary_current` | accept |
 | `salary_current` | `12 hazar` | yes | `salary_current` | accept |
 | `salary_current` | `salary 30k hai` | yes | `salary_current` | accept |
 | `salary_current` | `haath mein 21000 aata hai` | yes | `salary_current` | accept |
@@ -1017,7 +1007,7 @@ the shape of a fix, in the order the data ranks them. None of them is done here.
 | `salary_expected` | `30k plus rehna` | yes | `salary_expected` | accept |
 | `salary_expected` | `24000 chahiye ghar ke liye` | yes | `salary_expected` | accept |
 | `salary_expected` | `25 hazaar chahiye` | NO | — | accept |
-| `salary_expected` | `abhi se 5000 zyada` | yes | `availability`, `salary_expected` | accept |
+| `salary_expected` | `abhi se 5000 zyada` | yes | `salary_expected` | accept |
 | `salary_expected` | `double chahiye` | NO | — | accept |
 | `salary_expected` | `jo aap theek samjhe` | NO | — | accept |
 | `salary_expected` | `aapke hisab se` | NO | — | accept |
@@ -1031,26 +1021,26 @@ the shape of a fix, in the order the data ranks them. None of them is done here.
 | `availability` | `immediate` | yes | `availability` | accept |
 | `availability` | `15 din` | yes | `availability` | accept |
 | `availability` | `30 din` | yes | `availability` | accept |
-| `availability` | `7 din` | NO | — | accept |
+| `availability` | `7 din` | yes | `availability` | accept |
 | `availability` | `20 din lagenge` | yes | `availability` | accept |
 | `availability` | `10 days` | yes | `availability` | accept |
 | `availability` | `ek mahina` | yes | `availability` | accept |
-| `availability` | `do mahine baad` | NO | — | accept |
+| `availability` | `do mahine baad` | yes | `availability` | accept |
 | `availability` | `notice period hai` | yes | `availability` | accept |
 | `availability` | `notice de diya hai` | yes | `availability` | accept |
 | `availability` | `next month` | yes | `availability` | accept |
-| `availability` | `1 week` | NO | — | accept |
-| `availability` | `2 hafte` | NO | — | accept |
-| `availability` | `ek hafte mein` | NO | — | accept |
+| `availability` | `1 week` | yes | `availability` | accept |
+| `availability` | `2 hafte` | yes | `availability` | accept |
+| `availability` | `ek hafte mein` | yes | `availability` | accept |
 | `availability` | `abhi free hu` | yes | `availability` | accept |
 | `availability` | `abhi available hu` | yes | `availability` | accept |
 | `availability` | `turant join kar sakta hu` | yes | `availability` | accept |
-| `availability` | `aaj se ready hu` | NO | — | accept |
-| `availability` | `kal se` | NO | — | accept |
+| `availability` | `aaj se ready hu` | yes | `availability` | accept |
+| `availability` | `kal se` | yes | `availability` | accept |
 | `availability` | `abhi job kar raha hu, 1 mahina lagega` | yes | `availability` | accept |
 | `availability` | `जल्दी जॉइन कर सकता हूँ` | NO | — | accept |
 | `availability` | `पंद्रह दिन` | NO | — | accept |
-| `availability` | `jab bolo tab` | NO | — | accept |
+| `availability` | `jab bolo tab` | yes | `availability` | accept |
 | `education` | `ITI kiya hai` | yes | `education` | accept |
 | `education` | `iti` | yes | `education` | accept |
 | `education` | `ITI fitter` | yes | `education` | accept |
