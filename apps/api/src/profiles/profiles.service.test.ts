@@ -6,6 +6,7 @@ import { ProfilesService, EXTRACTION_IN_FLIGHT_WINDOW_MS } from "./profiles.serv
 import type { ProfilesRepository } from "./profiles.repository";
 import type { AiJobsRepository } from "./ai-jobs.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
+import type { ChatRepository } from "../chat/chat.repository";
 import type { EventsService } from "../events/events.service";
 import type { ProfileExtractionJobData, ResumeGenerateJobData } from "../queue/queue.constants";
 import type { RequestContext } from "../common/request-context";
@@ -74,6 +75,13 @@ function setup() {
     ),
   };
   const workers = { findById: vi.fn(async () => undefined as Record<string, unknown> | undefined) };
+  // Issue #435 — the session the caller named. Defaults to a session OWNED by WORKER,
+  // so every pre-existing test keeps its old meaning; the ownership tests override it.
+  const chat = {
+    findSession: vi.fn(async (id: string) => ({ id, workerId: WORKER }) as
+      | { id: string; workerId: string }
+      | undefined),
+  };
   const events = { emit: vi.fn(async (p: { event_name: string; payload: Record<string, unknown> }) => p) };
   const extractionQueue = { add: vi.fn(async () => undefined) };
   const resumeGenerateQueue = { add: vi.fn(async () => undefined) };
@@ -81,14 +89,70 @@ function setup() {
     profiles as unknown as ProfilesRepository,
     aiJobs as unknown as AiJobsRepository,
     workers as unknown as WorkersRepository,
+    chat as unknown as ChatRepository,
     events as unknown as EventsService,
     extractionQueue as unknown as Queue<ProfileExtractionJobData>,
     resumeGenerateQueue as unknown as Queue<ResumeGenerateJobData>,
   );
-  return { svc, profiles, aiJobs, workers, events, extractionQueue, resumeGenerateQueue };
+  return { svc, profiles, aiJobs, workers, chat, events, extractionQueue, resumeGenerateQueue };
 }
 
 describe("ProfilesService.extract", () => {
+  it("issue #435: 404s when the session belongs to ANOTHER worker — nothing enqueued", async () => {
+    // THE EXPLOIT. session_id arrives in the request BODY. Without an ownership check the
+    // job is created as { worker_id: attacker, session_id: victim's }, and
+    // ProfileExtractionProcessor.buildTranscript then reads the VICTIM's transcript and
+    // extracts it into the ATTACKER's worker_profiles row — their trade, machines,
+    // experience, salary and location. Both job and profile are attributable to the
+    // attacker, so nothing downstream flags it.
+    const { svc, aiJobs, chat, workers, extractionQueue, events } = setup();
+    const VICTIM = "22222222-2222-4222-8222-222222222222";
+    workers.findById.mockResolvedValue({ id: WORKER });
+    chat.findSession.mockResolvedValue({ id: "sess-victim", workerId: VICTIM });
+
+    await expect(
+      svc.extract({ worker_id: WORKER, session_id: "sess-victim" }, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    // No job, no queue work, no event — the request dies before any of it.
+    expect(aiJobs.create).not.toHaveBeenCalled();
+    expect(extractionQueue.add).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("issue #435: a MISSING session and a NOT-OWNED session are byte-identical (no oracle)", async () => {
+    // 404 not 403, matching ChatService.postMessage: a session id must never tell a
+    // caller whether someone else's session exists.
+    const { svc, chat, workers } = setup();
+    workers.findById.mockResolvedValue({ id: WORKER });
+
+    chat.findSession.mockResolvedValue(undefined);
+    const missing = await svc
+      .extract({ worker_id: WORKER, session_id: "sess-x" }, CTX)
+      .catch((e: Error) => e);
+
+    chat.findSession.mockResolvedValue({ id: "sess-x", workerId: "33333333-3333-4333-8333-333333333333" });
+    const notOwned = await svc
+      .extract({ worker_id: WORKER, session_id: "sess-x" }, CTX)
+      .catch((e: Error) => e);
+
+    expect(missing).toBeInstanceOf(NotFoundException);
+    expect(notOwned).toBeInstanceOf(NotFoundException);
+    expect((notOwned as Error).message).toBe((missing as Error).message);
+  });
+
+  it("issue #435: the ownership check runs BEFORE the dedupe lookup", async () => {
+    // Otherwise a foreign session id could still be probed through dedupe behaviour.
+    const { svc, chat, aiJobs, workers } = setup();
+    workers.findById.mockResolvedValue({ id: WORKER });
+    chat.findSession.mockResolvedValue({ id: "s", workerId: "44444444-4444-4444-8444-444444444444" });
+
+    await expect(svc.extract({ worker_id: WORKER, session_id: "s" }, CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(aiJobs.findExtractionDedupeCandidate).not.toHaveBeenCalled();
+  });
+
   it("404s when the worker does not exist (nothing enqueued)", async () => {
     const { svc, aiJobs } = setup();
     await expect(svc.extract({ worker_id: WORKER, session_id: null }, CTX)).rejects.toBeInstanceOf(
@@ -375,17 +439,29 @@ describe("ProfilesService.extract — session-scoped idempotency (#420)", () => 
 
   // --- scoping / bounds handed to the repository ----------------------------
 
-  it("another worker's job on the SAME session never dedupes the owner (no persistent denial)", async () => {
-    const { svc, aiJobs, extractionQueue } = setupWithStore();
+  it("another worker cannot touch the owner's session at all, and the owner still extracts", async () => {
+    // WAS: "another worker's job on the SAME session never dedupes the owner". That
+    // version had the attacker's call SUCCEED and only checked the owner still got a
+    // distinct job — it took the #435 hole as its premise ("the controller takes
+    // session_id straight from the body"). With ownership enforced the attacker never
+    // gets a job at all, so the denial it guarded against cannot even begin.
+    //
+    // Both properties are kept, and the first is now stronger:
+    //   1. the foreign call is REFUSED (was: allowed, but scoped);
+    //   2. the owner is still not denied — the #430 worker_id predicate on the dedupe
+    //      lookup, which is what this test was really protecting.
+    const { svc, aiJobs, extractionQueue, chat } = setupWithStore();
+    chat.findSession.mockResolvedValue({ id: SESSION, workerId: WORKER });
 
-    // Worker A calls extract with worker B's session id (the controller takes
-    // session_id straight from the body). B must still get their own extraction.
-    const attacker = await svc.extract({ worker_id: OTHER, session_id: SESSION }, CTX);
+    await expect(svc.extract({ worker_id: OTHER, session_id: SESSION }, CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(aiJobs.create).not.toHaveBeenCalled();
+
     const owner = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
-
-    expect(owner.ai_job_id).not.toBe(attacker.ai_job_id);
-    expect(aiJobs.create).toHaveBeenCalledTimes(2);
-    expect(extractionQueue.add).toHaveBeenCalledTimes(2);
+    expect(owner.ai_job_id).toBeDefined();
+    expect(aiJobs.create).toHaveBeenCalledTimes(1);
+    expect(extractionQueue.add).toHaveBeenCalledTimes(1);
   });
 
   it("passes the authenticated worker_id and a ~10min in-flight floor to the lookup", async () => {

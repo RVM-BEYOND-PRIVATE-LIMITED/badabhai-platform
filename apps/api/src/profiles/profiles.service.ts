@@ -9,6 +9,7 @@ import { Queue } from "bullmq";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
+import { ChatRepository } from "../chat/chat.repository";
 import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository } from "./ai-jobs.repository";
 import {
@@ -44,6 +45,11 @@ export class ProfilesService {
     private readonly profiles: ProfilesRepository,
     private readonly aiJobs: AiJobsRepository,
     private readonly workers: WorkersRepository,
+    // Issue #435 — resolves the body-supplied session so extract() can verify the
+    // caller OWNS it. ProfilesModule already imports ChatModule (forwardRef) for this
+    // very repository (the processor reads transcripts through it), so this introduces
+    // no new module edge and no new cycle.
+    private readonly chat: ChatRepository,
     private readonly events: EventsService,
     @InjectQueue(PROFILE_EXTRACTION_QUEUE)
     private readonly extractionQueue: Queue<ProfileExtractionJobData>,
@@ -81,6 +87,26 @@ export class ProfilesService {
 
     const sessionId = input.session_id ?? null;
     if (sessionId) {
+      // OWNERSHIP (issue #435). `session_id` arrives from the REQUEST BODY, so without
+      // this a worker could pass someone else's session id: the job is created with
+      // `input_ref = { worker_id: caller, session_id: victim's }`, and
+      // ProfileExtractionProcessor.buildTranscript then reads the VICTIM's chat
+      // transcript and extracts it into the CALLER's worker_profiles row. Their trade,
+      // machines, experience, salary and location become the caller's profile, and
+      // because both the job and the profile are attributable to the caller nothing
+      // downstream flags it.
+      //
+      // 404 (not 403), matching ChatService.postMessage exactly, so a session id is
+      // never an existence oracle for another worker's session — a miss and a
+      // not-owned are byte-identical.
+      //
+      // Checked BEFORE the dedupe lookup below so a foreign id cannot be probed
+      // through dedupe behaviour either.
+      const session = await this.chat.findSession(sessionId);
+      if (!session || session.workerId !== input.worker_id) {
+        throw new NotFoundException(`Session ${sessionId} not found`);
+      }
+
       const existing = await this.aiJobs.findExtractionDedupeCandidate({
         sessionId,
         workerId: input.worker_id,
