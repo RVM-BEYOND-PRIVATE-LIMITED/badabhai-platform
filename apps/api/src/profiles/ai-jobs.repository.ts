@@ -93,6 +93,7 @@ export class AiJobsRepository {
         salaryExpectation: workerProfiles.salaryExpectation,
         locationPreference: workerProfiles.locationPreference,
         availability: workerProfiles.availability,
+        richProfileDraft: workerProfiles.richProfileDraft,
         profileId: workerProfiles.id,
       })
       .from(aiJobs)
@@ -131,6 +132,7 @@ export class AiJobsRepository {
               salaryExpectation: row.salaryExpectation,
               locationPreference: row.locationPreference,
               availability: row.availability,
+              richProfileDraft: row.richProfileDraft,
             },
     };
   }
