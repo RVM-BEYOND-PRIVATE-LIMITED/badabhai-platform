@@ -91,6 +91,15 @@ export class DevicesRepository {
 
     const row = updated[0];
     if (!row) throw new Error("device upsert hit a conflict but no row was found");
+    // ADR-0034 D5b.2 — claim on the TOUCH path too, not just the insert above. The rule is
+    // "registering a token (login OR the PATCH route) nulls it on every other row", and a
+    // returning worker hits THIS branch, not the insert. Without it the shared-handset leak
+    // is only half closed: handset H where workers A and B have both logged in holds two
+    // rows (the unique key is worker_id + device_hash), so B logging in again with token T
+    // would take T while A's row still held it — and A's device_registered /
+    // logged_out_all alerts would fire at a handset A no longer has. That is exactly the
+    // misdelivery the SIM-swap targeting rule exists to prevent.
+    if (hasToken) await this.claimPushToken(input.pushToken as string, row.id);
     return { device: row, created: false };
   }
 

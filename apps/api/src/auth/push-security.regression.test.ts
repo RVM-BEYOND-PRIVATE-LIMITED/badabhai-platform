@@ -9,8 +9,14 @@ import { DevicesService } from "./devices.service";
  * that does not stop anything. They live in one file so the reasons stay attached to the
  * assertions — a future refactor that "simplifies" any of these reopens a leak.
  *
- * The repository-level SQL is exercised by the integration suite; these pin the
- * SERVICE-level contract (what must be called, and what must never be).
+ * These pin the SERVICE-level contract (what must be called, and what must never be).
+ *
+ * The repository write payloads are pinned separately in
+ * devices.repository.push-token.test.ts. An earlier version of this comment claimed they
+ * were "exercised by the integration suite" — they were not: `registerOrTouch` appeared in
+ * tests only as a `vi.fn()` mock, so defect (a) had NO lock at all and the (b) lock never
+ * reached the login path (which is how the touch-path claim gap survived review). Keep both
+ * halves — service-level here, payload-level there.
  */
 
 const WORKER_A = "11111111-1111-4111-8111-111111111111";
