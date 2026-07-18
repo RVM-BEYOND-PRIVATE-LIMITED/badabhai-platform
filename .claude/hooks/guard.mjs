@@ -79,11 +79,23 @@ const NON_ENV_SECRET =
  */
 const ENV_TEMPLATE_SUFFIX = /\.(example|sample|template)$/i;
 
-/** Every `.env*` token in a string. NOTE the `*`: dotenv names carry ARBITRARILY
- * MANY segments (`.env.staging.example`). With `?` only the first was captured,
- * so the suffix test above never saw the real extension and every
- * `.env.<name>.example` was misread as the secret `.env.<name>`. */
-const ENV_TOKEN = /\.env(\.[a-z0-9_]+)*\b/gi;
+/**
+ * Every `.env*` token in a string — the WHOLE filename run, up to a shell
+ * delimiter.
+ *
+ * Do NOT go back to segment-matching with a trailing `\b`. Two bugs came from it:
+ * `(\.[a-z0-9_]+)?` captured only ONE segment, so `.env.staging.example` was read
+ * as the secret `.env.staging`; and even with many segments, `\b` ends the token at
+ * the first char outside `[a-z0-9_]`, so `.env.staging.example~` (an EDITOR BACKUP,
+ * which holds whatever was in the buffer) truncated to `...example` and passed the
+ * template test. Consuming to a delimiter means the suffix test always sees the
+ * real extension.
+ *
+ * Erring long is the safe direction: an over-long token FAILS the template test and
+ * blocks. An over-short one can silently pass. So keep this class to shell
+ * metacharacters only — do not add separators to make tokens "tidier".
+ */
+const ENV_TOKEN = /\.env[^\s'"`|;&<>()]*/gi;
 
 /** A file path that holds secrets. Base-name based so templates stay readable. */
 function isSecretFilePath(p) {
