@@ -182,9 +182,12 @@ def test_b4_state_only_answer_does_not_satisfy_current_location():
 # Before INTERVIEW-1, _next_topic closed a topic the moment it was ASKED, so an
 # ESSENTIAL topic the worker never actually answered silently shipped an
 # incomplete profile. It is now re-asked — but ONLY under a hard bound, because
-# "answered" is judged by the CNC/VMC-only gazetteer: an out-of-scope worker
-# (welding) giving a PERFECT answer reads as unanswered, and an unbounded re-ask
+# "answered" is judged by a FINITE gazetteer: an out-of-scope worker (a fitter, an
+# electrician) giving a PERFECT answer reads as unanswered, and an unbounded re-ask
 # would loop them forever. The bound is the safety property of this whole change.
+# (TAX-WELD-1 moved WELDING in-scope, so a welder is no longer an example of this —
+# but the bound is not about welding: it must hold for whatever is out of scope
+# next, which is why the locks below stub the detector blind rather than name a trade.)
 
 _ANSWERS = {
     "role": "cnc turner hoon",
@@ -262,10 +265,12 @@ def test_no_topic_is_ever_asked_more_than_twice_under_a_totally_blind_detector(
 ):
     """Required test 3 — THE ANTI-LOOP LOCK, the most important test here.
 
-    The gazetteer is CNC/VMC-only, so a welder's perfect answer can read as NO
-    answer at all. This stubs detection to ALWAYS fail (the worst case, strictly
-    worse than the real welding gap) and proves the interview still TERMINATES and
-    that MAX_ASKS_PER_TOPIC is never exceeded by ANY topic.
+    The gazetteer is finite, so an out-of-scope worker's perfect answer can read as
+    NO answer at all. This stubs detection to ALWAYS fail (the worst case, strictly
+    worse than any real gazetteer gap) and proves the interview still TERMINATES and
+    that MAX_ASKS_PER_TOPIC is never exceeded by ANY topic. Deliberately trade-
+    agnostic: TAX-WELD-1 brought welding in scope and this lock did not move, which
+    is the point — the bound cannot depend on which trades the gazetteer knows.
 
     Mutation proof: delete the `_ask_count(...) < MAX_ASKS_PER_TOPIC` guard from
     `_next_topic` and this test fails — the essential re-ask branch then returns the
@@ -360,11 +365,15 @@ def test_wrap_up_is_extraction_ready_EVEN_WITH_essentials_unanswered(monkeypatch
 
     It is the SOLE gate on the profile.extraction_ready event in
     apps/api/src/chat/chat.service.ts, and therefore on extraction itself. If it
-    went False on a gap, a worker whose answers the CNC/VMC-only gazetteer cannot
-    parse (a welder saying "TIG aur MIG") would finish the interview with NO
-    profile and NO resume — strictly worse than the bug INTERVIEW-1 fixes, and
-    aimed at exactly the population we are trying to help. Changing when a frozen
+    went False on a gap, a worker whose answers the finite gazetteer cannot parse
+    (a fitter saying "assembly line pe fitting karta hu") would finish the interview
+    with NO profile and NO resume — strictly worse than the bug INTERVIEW-1 fixes,
+    and aimed at exactly the population we are trying to help. Changing when a frozen
     v1 signal fires is also a behavioural contract change (CLAUDE.md §2 #8).
+
+    The example is deliberately no longer a welder: TAX-WELD-1 brought welding in
+    scope. The guard is unchanged, because the NEXT out-of-scope trade needs it just
+    as much — which is why the detector is stubbed blind rather than fed a trade.
 
     Mutation proof: make the wrap-up branch return `extraction_ready` (the honest
     readiness) instead of True and this test fails.
@@ -609,14 +618,23 @@ def test_every_retry_option_offered_actually_resolves_against_the_detector():
     invite answers we provably cannot record. Every example option offered in a
     retry_question is executed against the real detector here.
 
-    (Out-of-scope trades stay unparseable regardless of wording: 'welder', 'TIG',
-    'MIG' return {} — that is TAX-WELD-1's gap, and the ASK BOUND is what protects
-    those workers. Asserted below so the limitation stays visible.)
+    THE PROPERTY: every option we OFFER for topic T resolves T against
+    ``detect_answered_topics``. Mutation proof: add an option to any retry_question
+    that the detector cannot key to that topic (e.g. put "TIG" in the `machines`
+    retry, or "fitter" in the `role` retry) and the first loop below fails.
+
+    TAX-WELD-1 changed what belongs here. Welding used to be listed as a documented
+    limitation ('welder'/'TIG'/'MIG' returned {}); it now resolves, so 'welder' is
+    OFFERED under `role` and carries the property like any other option. What is
+    still asserted below is the narrower, real constraint: welding keys `role` and
+    `skills` but NOT `machines`, which is exactly why the `machines` retry must not
+    offer it.
     """
     from app.profiling import signals
 
     offered = {
-        "role": ["VMC operator", "CNC turner", "setter", "programmer"],
+        # TAX-WELD-1: 'welder' joins this list — it is now a recordable answer.
+        "role": ["VMC operator", "CNC turner", "setter", "programmer", "welder"],
         "machines": ["VMC", "lathe", "HMC"],
         "experience": ["2 saal", "5 saal"],
         "current_location": ["Pune", "Delhi", "Rajkot"],
@@ -631,9 +649,25 @@ def test_every_retry_option_offered_actually_resolves_against_the_detector():
 
     # Bare 'operator' keys skills, NOT role — so it is never offered alone.
     assert "role" not in signals.detect_answered_topics("operator", "role")
-    # The known, documented gap this PR's bound exists to survive.
-    for unparseable in ("welder", "TIG", "MIG", "TIG aur MIG"):
-        assert signals.detect_answered_topics(unparseable, "machines") == {}
+
+    # TAX-WELD-1: welding answers resolve, but they key `role`/`skills` only. There
+    # is no welding `mach_*` id in the taxonomy, so they can never answer `machines`.
+    # This is why the `machines` retry offers VMC/lathe/HMC and not TIG/MIG.
+    machines_retry = topic_by_id("cnc_vmc", "machines").retry_question.lower()
+    for welding_answer in ("welder", "TIG", "MIG", "TIG aur MIG"):
+        resolved = signals.detect_answered_topics(welding_answer, "machines")
+        assert "machines" not in resolved, (
+            f"{welding_answer!r} now keys `machines` — the machines retry may offer it"
+        )
+        assert "role" in resolved, f"{welding_answer!r} no longer resolves role"
+        assert welding_answer.lower() not in machines_retry, (
+            f"machines retry offers {welding_answer!r}, which cannot answer `machines`"
+        )
+
+    # ...and a genuinely out-of-scope trade still resolves NOTHING. This is the
+    # population the ASK BOUND (not the wording) exists to protect.
+    for out_of_scope in ("fitter", "electrician", "carpenter"):
+        assert signals.detect_answered_topics(out_of_scope, "role") == {}
 
 
 # --- LOW-4: clarify must re-serve the wording the worker actually saw --------
