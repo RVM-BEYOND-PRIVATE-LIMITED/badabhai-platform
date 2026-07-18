@@ -129,7 +129,12 @@ def _build_rich(sig: Signals, role_family: str) -> WorkerProfileDraft:
 
 
 def _build_legacy(sig: Signals) -> DraftProfile:
-    cities = ([sig.current_city] if sig.current_city else []) + sig.preferred_locations
+    # Issue #423 — the current city is NO LONGER prepended to preferred_cities. The
+    # engine keeps `current_location` and `preferred_locations` as separate topics
+    # (question_bank.py: "never conflated"), and the legacy shape now has its own
+    # `current_city` field, so "I live in Pune" stops being recorded as "I want to
+    # work in Pune". Consumers read `current_city ?? preferred_cities[0]`, which is
+    # why rows written before this field existed keep working.
     return DraftProfile(
         canonical_trade_id=sig.trade_id,
         canonical_role_id=sig.role_id,
@@ -141,7 +146,8 @@ def _build_legacy(sig: Signals) -> DraftProfile:
             amount_max=float(sig.expected_salary) if sig.expected_salary else None,
         ),
         location_preference=LocationPreference(
-            preferred_cities=cities,
+            current_city=sig.current_city,
+            preferred_cities=sig.preferred_locations,
             willing_to_relocate=sig.relocation_willingness,
         ),
         availability=Availability(status=sig.availability),

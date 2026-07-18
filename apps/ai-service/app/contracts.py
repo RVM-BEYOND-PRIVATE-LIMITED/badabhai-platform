@@ -154,6 +154,15 @@ class SalaryExpectation(BaseModel):
 
 
 class LocationPreference(BaseModel):
+    # Issue #423 — where the worker IS, kept separate from where they WANT to work.
+    # The engine has always treated these as distinct topics (question_bank.py:
+    # "current AND preferred location, never conflated"), but the legacy shape had
+    # nowhere to put the current city, so _build_legacy prepended it to
+    # preferred_cities — turning "I live in Pune" into "I want to work in Pune".
+    #
+    # ADDITIVE + defaulted -> backward compatible. Mirrors LocationPreferenceSchema
+    # in packages/ai-contracts (§7 parity).
+    current_city: str | None = None
     preferred_cities: list[str] = Field(default_factory=list)
     willing_to_relocate: bool | None = None
 
