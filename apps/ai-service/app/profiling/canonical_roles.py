@@ -13,12 +13,20 @@ from __future__ import annotations
 
 import json
 
-from .signals import _ROLES
+from .signals import _EXTRA_ROLE_TRADES, _ROLES
 
 # role_id -> trade_id, straight from the gazetteer (the taxonomy source of truth).
-ROLE_TRADE: dict[str, str] = {rid: tid for _, _, rid, tid in _ROLES}
+#
+# `_ROLES` (keyword-matched) PLUS `_EXTRA_ROLE_TRADES` (in the closed set, but assigned
+# by dedicated gated logic rather than a keyword — `role_welder`, whose assignment runs
+# through `signals._assign_welding_role`). The closed SET and the keyword TABLE are
+# deliberately not the same thing: see the note on `_EXTRA_ROLE_TRADES`.
+ROLE_TRADE: dict[str, str] = {
+    **{rid: tid for _, _, rid, tid in _ROLES},
+    **dict(_EXTRA_ROLE_TRADES),
+}
 # Ordered, de-duplicated role ids (the closed allow-set offered to the model).
-ROLE_IDS: tuple[str, ...] = tuple(dict.fromkeys(rid for _, _, rid, _ in _ROLES))
+ROLE_IDS: tuple[str, ...] = tuple(ROLE_TRADE)
 
 # One-line descriptions shown to the model. Keys MUST stay a subset of ROLE_IDS.
 ROLE_DESCRIPTIONS: dict[str, str] = {
@@ -29,6 +37,9 @@ ROLE_DESCRIPTIONS: dict[str, str] = {
     "role_cnc_grinding_operator": "CNC grinding operator (cylindrical/surface, sizing by grinding)",
     "role_cnc_programmer": "writes / edits CNC programs (G-code / M-code)",
     "role_cam_programmer": "CAM programming — tool paths in Mastercam / Fusion / NX",
+    # TAX-WELD-1: welding is in scope. The id is added to the CLOSED set (a wider
+    # enumerated whitelist, never free text — ADR-0028 §(d)), not to a free-form field.
+    "role_welder": "welder — MIG / TIG / arc / gas welding as the main job",
 }
 
 
@@ -52,12 +63,15 @@ def canonicalization_instruction() -> str:
         "programer/'cnc program banata hu'/'g-code likhta hu' -> role_cnc_programmer; "
         "'cam programing'/'tool path' -> role_cam_programmer; grindr/'ghisai'/'round part "
         "size pe laana' -> role_cnc_grinding_operator; lathe/turning/'katai' -> "
-        "role_cnc_turner_operator.\n"
+        "role_cnc_turner_operator; welder/'welding ka kaam'/MIG/TIG/GMAW/GTAW/arc/stick "
+        "welding -> role_welder.\n"
         "- Choose role_cnc_setter_operator ONLY if the worker calls themselves a setter or "
         "says setting/setup is their MAIN job. Incidental setting by an operator (e.g. just "
         "'tool offset setting') KEEPS the operator role.\n"
+        "- Choose role_welder only when welding is the MAIN job. A machining worker who "
+        "welds incidentally KEEPS their machining role.\n"
         "- Use null when the worker is only a helper/labourer, the trade is unrelated "
-        "to CNC/VMC, OR they state no concrete role/machine/task (e.g. 'naya hu', "
+        "to CNC/VMC or welding, OR they state no concrete role/machine/task (e.g. 'naya hu', "
         "'kuch nahi aata', 'abhi seekh raha hu' with nothing specific). Do NOT guess a "
         "role from thin air. Output ONLY an id from the set above, or null.\n"
     )

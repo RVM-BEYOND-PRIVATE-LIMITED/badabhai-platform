@@ -45,6 +45,37 @@ _CONTROLLERS: list[tuple[str, str, str | None]] = [
 ]
 
 # Roles, most specific first: (keyword, label, role_id, trade_id).
+#
+# TAX-WELD-1 contains NO welding entry here, deliberately. An earlier cut put
+# ("welder"/"welding") LAST in this table and argued that first-keyword-wins meant
+# welding "can only ever ADD a role where there was None, never take one away".
+# That claim was TRUE but NOT SUFFICIENT, and it is corrected here:
+#
+#   This table has no entry for `cnc`, `lathe`, `milling` or bare `operator`. So a
+#   large population of real machining workers ALREADY resolves to role_id None, and
+#   "only fills a None" silently meant "captures those workers as welders":
+#     "cnc operator hun, welding bhi kar leta hun"       -> role_welder  (WRONG)
+#     "pehle welding karta tha, ab CNC lathe chalata hu" -> role_welder  (WRONG; past tense)
+#
+#   Filling a None WRONGLY is strictly WORSE than leaving it None. packages/
+#   reach-engine/src/scoring.ts `scoreRole` returns 0.4 for a null roleId ("trade not
+#   stated yet") but 0.0 for a NON-MATCHING one ("different trade"), at WEIGHTS.role
+#   = 0.35. MEASURED on a VMC/turner job by scoring the same worker with roleId null
+#   vs role_welder: an absolute score drop of 0.1647, i.e. 0.4 x 0.35 / (1 - 0.15) —
+#   the skills-factor renormalisation — so the drop is the SAME for any skill-less
+#   job regardless of the other factors. Relative cost depends on the baseline
+#   (24.5% on a strong-match fixture, ~33% on a weaker one).
+#
+# The precise, load-bearing claim is therefore:
+#   welding NEVER displaces an ASSIGNED role, AND it is only allowed to fill a `None`
+#   when there is NO machining signal anywhere in the text and no blocker (negation /
+#   welding-adjacent non-welder context). Both halves are enforced in ONE place —
+#   `_assign_welding_role` — not by table ordering.
+#
+# Keeping welding OUT of this table also removes a real inconsistency: this loop is
+# plain substring (`kw in lower`), so a "welding" entry here fired on "spotwelding" /
+# "weldingwala" and set a role while `_WELDING_RE` (word-boundary) produced NO skill
+# id. All welding role logic now runs off `_WELDING_RE`, so role and skills agree.
 _ROLES: list[tuple[str, str, str, str]] = [
     ("cam programmer", "CAM Programmer", "role_cam_programmer", "dom_programming"),
     ("programmer", "CNC Programmer", "role_cnc_programmer", "dom_programming"),
@@ -54,6 +85,106 @@ _ROLES: list[tuple[str, str, str, str]] = [
     ("grinding", "CNC Grinding Operator", "role_cnc_grinding_operator", "dom_grinding"),
     ("turner", "CNC Turner/Operator", "role_cnc_turner_operator", "dom_cnc_machining"),
     ("turning", "CNC Turner/Operator", "role_cnc_turner_operator", "dom_cnc_machining"),
+]
+
+# --- Welding (TAX-WELD-1) ---------------------------------------------------
+# WIRING, NOT MINTING. Every id below ALREADY EXISTS, `status: "active"`, in
+# `packages/taxonomy/src/skill-corpus.ts` (ADR-0030 / TAX-2), and every keyword below
+# is ALREADY a canonical ENGLISH/technical alias of that skill in the same corpus:
+#
+#   skill_mig_welding      MIG welding / GMAW / MIG/MAG            (domain: welding)
+#   skill_tig_welding      TIG welding / GTAW                      (domain: welding)
+#   skill_arc_welding      arc welding / SMAW / stick welding      (domain: welding)
+#   skill_gas_cutting      gas cutting / oxy-fuel cutting          (domain: fabrication)
+#   skill_welder_occupation  Welder / "welder"                     (domain: welding)
+#
+# NO new skill_id is minted here and NO unratified Hinglish/vernacular alias is added
+# (that needs RVM ratification — ADR-0030 §7 gate (d)). The one Hindi phrase that IS
+# ratified for this family, "welding ka kaam" -> skill_welder_occupation
+# (`wedge-aliases.ts`, ratified: true), is covered by the plain "welding" keyword.
+#
+# MATCHED WITH WORD BOUNDARIES, unlike the substring tables above: "tig" is a substring
+# of "fatigue" and "mig" of "emigration"/"mitigate", so a bare `in` test would corrupt
+# profiles. Most specific first (mig/mag before mig).
+_WELDING: list[tuple[str, str, str]] = [
+    (r"mig\s*/\s*mag", "MIG welding", "skill_mig_welding"),
+    (r"gmaw", "MIG welding", "skill_mig_welding"),
+    (r"mig\s+welding", "MIG welding", "skill_mig_welding"),
+    (r"mig", "MIG welding", "skill_mig_welding"),
+    (r"gtaw", "TIG welding", "skill_tig_welding"),
+    (r"tig\s+welding", "TIG welding", "skill_tig_welding"),
+    (r"tig", "TIG welding", "skill_tig_welding"),
+    (r"smaw", "arc welding", "skill_arc_welding"),
+    (r"stick\s+welding", "arc welding", "skill_arc_welding"),
+    (r"arc\s+welding", "arc welding", "skill_arc_welding"),
+    (r"oxy[\s-]*fuel(?:\s+cutting)?", "gas cutting", "skill_gas_cutting"),
+    (r"gas\s+cutting", "gas cutting", "skill_gas_cutting"),
+    (r"welder", "welding", "skill_welder_occupation"),
+    (r"welding", "welding", "skill_welder_occupation"),
+]
+_WELDING_RE: list[tuple[re.Pattern[str], str, str]] = [
+    (re.compile(rf"\b{pat}\b", re.IGNORECASE), label, sid) for pat, label, sid in _WELDING
+]
+
+# Welding-DOMAIN skill ids (skill_gas_cutting is domain `fabrication` — a gas cutter is
+# a cutter, not necessarily a welder, so it alone must NOT imply the welder role).
+_WELDING_DOMAIN_SKILL_IDS = frozenset(
+    {"skill_mig_welding", "skill_tig_welding", "skill_arc_welding", "skill_welder_occupation"}
+)
+
+# --- Machining signal: the guard that stops welding capturing a machining worker ---
+# ANY hit here means the text carries machining evidence, so welding must NOT assign
+# the role — even when `_ROLES` matched nothing. This is what makes "welding only ever
+# fills a None" actually safe (see the `_ROLES` note above): the Nones that welding is
+# now barred from filling are exactly the machining ones.
+#
+# WORD-BOUNDARY matched, and deliberately NOT containing bare "machine": a real welder
+# says "TIG aur MIG machine chala leta hun", and "welding machine" is a welder's own
+# tool. Fail direction is intentionally toward None (0.4, "trade not stated") rather
+# than a confident wrong role (0.0, "different trade").
+# Roles that are part of the CLOSED role SET but are NOT keyword-matched by `_ROLES`.
+#
+# `_ROLES` is a KEYWORD TABLE; the closed set is `_ROLES` plus these. The two were the
+# same list until TAX-WELD-1, which is why an earlier cut had to put a "welding" keyword
+# in `_ROLES` just to get `role_welder` into `canonical_roles.ROLE_TRADE` — and that
+# keyword is exactly what captured machining workers. Decoupling them lets welding be
+# a first-class role in the closed set (so the model may propose it, `normalize_role_id`
+# accepts it, and the rich->legacy mapper validates it) while its ASSIGNMENT from raw
+# text stays behind the single gate in `_assign_welding_role`.
+_EXTRA_ROLE_TRADES: tuple[tuple[str, str], ...] = (
+    ("role_welder", "dom_welding"),
+)
+
+_MACHINING_CONTEXT: tuple[str, ...] = (
+    r"cnc", r"vmc", r"hmc", r"lathe", r"milling", r"machining", r"turning", r"turner",
+    r"grinding", r"grinder", r"boring", r"drilling", r"setter", r"programmer",
+    r"mastercam", r"fanuc", r"siemens", r"haas", r"heidenhain", r"mitsubishi",
+    r"g\s*-?\s*code", r"m\s*-?\s*code", r"tool\s+offset",
+)
+_MACHINING_CONTEXT_RE: list[re.Pattern[str]] = [
+    re.compile(rf"\b{p}\b", re.IGNORECASE) for p in _MACHINING_CONTEXT
+]
+
+# --- Blockers: welding words present, but the worker is NOT (claiming to be) a welder.
+# These suppress the welder ROLE only; the skill ids are still recorded (a phrase-level
+# fix, not a general negation parser — see the module note in tests/test_welding_gazetteer.py).
+#
+# NEGATION is Hindi-word-order aware: Hindi negates AFTER the verb ("welding nahi
+# karta"), English before ("I don't do welding"), so a window on BOTH sides is checked.
+_WELDING_NEGATION = r"(?:nahi+n?|nah[ií]|mat|kabhi\s+nahi+n?|not|no|never|n't)"
+_WELDING_ROLE_BLOCKERS: tuple[str, ...] = (
+    # Explicit denial: "welding nahi karta, sirf helper hu" / "I don't do welding".
+    rf"\b(?:welder|welding)\b[^.;!?]{{0,24}}?\b{_WELDING_NEGATION}\b",
+    rf"\b{_WELDING_NEGATION}\b[^.;!?]{{0,24}}?\b(?:welder|welding)\b",
+    # Welding-ADJACENT non-welders: the welding word modifies a NOUN (a consumable or
+    # a machine being serviced/sold), it is not the work the worker performs.
+    r"\bwelding\s+(?:rod|rods|wire|electrode|electrodes|filler|gas|cylinder)s?\b",
+    r"\bwelding\s+machine\b[^.;!?]{0,24}?\b(?:repair|repairing|maintenance|service)\b",
+    r"\b(?:welder|welding)\b[^.;!?]{0,24}?"
+    r"\b(?:supply|supplier|supplies|sale|sales|sell|selling|bechta|bechti|dealer|dukan)\b",
+)
+_WELDING_ROLE_BLOCKERS_RE: list[re.Pattern[str]] = [
+    re.compile(p, re.IGNORECASE) for p in _WELDING_ROLE_BLOCKERS
 ]
 
 # Operational skills: (keyword, label, skill_id).
@@ -251,6 +382,72 @@ def _parse_amount(num: str, unit: str | None) -> int | None:
     return int(value)
 
 
+def _detect_welding(lower: str, sig: Signals) -> None:
+    """Append welding skill LABELS + canonical skill ids found in ``lower``.
+
+    Order-preserving and de-duplicated. Writes ONLY the five pre-existing, active
+    ``skill_*`` ids listed on :data:`_WELDING` — it can never mint an id, and it never
+    writes free text into a matchable field. Deliberately writes NO ``mach_*`` id: the
+    taxonomy has no welding machine id and the corpus models TIG/MIG/arc as SKILLS, so
+    inventing one would be minting.
+    """
+    for pattern, label, skill_id in _WELDING_RE:
+        if pattern.search(lower):
+            _append_unique(sig.skills, label)
+            _append_unique(sig.skill_ids, skill_id)
+
+
+def has_machining_signal(lower: str, sig: Signals) -> bool:
+    """True when ``lower`` carries ANY machining evidence.
+
+    Three independent sources, so a machining worker is caught even when `_ROLES`
+    (which has no `cnc`/`lathe`/`milling`/`operator` entry) assigns nothing:
+    a detected machine id, a detected controller, or a machining keyword.
+    """
+    return bool(
+        sig.machine_ids
+        or sig.controllers
+        or any(p.search(lower) for p in _MACHINING_CONTEXT_RE)
+    )
+
+
+def welding_role_blocked(lower: str) -> bool:
+    """True when welding words are present but the worker is not claiming the trade
+    (explicit denial, or a welding-adjacent non-welder: rod supplier, machine repair)."""
+    return any(p.search(lower) for p in _WELDING_ROLE_BLOCKERS_RE)
+
+
+def _assign_welding_role(lower: str, sig: Signals) -> None:
+    """Assign ``role_welder``/``dom_welding`` — the ONLY place welding sets a role.
+
+    Every condition is a guard against a MEASURED failure, not a hypothetical:
+
+    - ``sig.role_id is None``   — never displace an assigned machining role.
+    - no machining signal       — and never fill a MACHINING None either. Welding
+      keywords co-occur with machining work constantly ("cnc operator hun, welding
+      bhi kar leta hun"; "pehle welding karta tha, ab CNC lathe chalata hu"), and a
+      wrong role scores 0.0 in the Reach engine where None scores 0.4 — so filling
+      those Nones was a ranking REGRESSION for real machining workers.
+    - not blocked               — explicit denial ("welding nahi karta, sirf helper
+      hu") and welding-adjacent non-welders (rod supply, machine repair) must not
+      become welders.
+    - a welding-DOMAIN skill    — `skill_gas_cutting` alone (domain `fabrication`)
+      never implies the welder role.
+
+    Skills are left untouched by all of this: the worker still gets their welding
+    skill ids, they just do not get a welder ROLE they did not claim.
+    """
+    if sig.role_id is not None:
+        return
+    if has_machining_signal(lower, sig) or welding_role_blocked(lower):
+        return
+    if not any(s in _WELDING_DOMAIN_SKILL_IDS for s in sig.skill_ids):
+        return
+    sig.primary_role = "Welder"
+    sig.role_id = "role_welder"
+    sig.trade_id = "dom_welding"
+
+
 def detect(text: str) -> Signals:
     """Detect all profile signals in ``text`` (raw worker text, trusted local)."""
     sig = Signals()
@@ -269,6 +466,9 @@ def detect(text: str) -> Signals:
             if skill_id:
                 _append_unique(sig.skill_ids, skill_id)
 
+    # Welding (TAX-WELD-1) — word-boundary matched; maps ONLY to existing corpus ids.
+    _detect_welding(lower, sig)
+
     # Role (first match wins)
     for kw, label, rid, tid in _ROLES:
         if kw in lower:
@@ -276,6 +476,12 @@ def detect(text: str) -> Signals:
             sig.role_id = rid
             sig.trade_id = tid
             break
+
+    # TAX-WELD-1: the ONE place welding may assign a role (word-boundary matched, and
+    # gated on machining evidence + blockers). Runs after the _ROLES loop so it can
+    # never displace an assigned role, and after machines/controllers so the machining
+    # signal it consults is already populated.
+    _assign_welding_role(lower, sig)
 
     # Operational skills + knowledge levels
     for kw, label, skill_id in _SKILLS:
@@ -383,12 +589,32 @@ def _detect_salary(text: str, lower: str, sig: Signals) -> None:
 
 def role_id_for_label(label: str) -> tuple[str, str] | None:
     """Map a model-emitted role LABEL/phrase to its ``(role_id, trade_id)`` via the
-    gazetteer keywords, or None when no IN-SCOPE CNC/VMC role matches (e.g. welding).
-    First keyword match wins, mirroring detect()'s most-specific-first ordering."""
+    gazetteer keywords, or None when no in-scope role matches. First keyword match
+    wins, mirroring detect()'s most-specific-first ordering.
+
+    TAX-WELD-1: welding is now IN scope (``role_welder``/``dom_welding``), so
+    "mig_tig_welder" — the exact label the observed welder session produced — maps
+    instead of dropping to None. A label naming a CNC/VMC role still wins, because
+    ``_ROLES`` is consulted FIRST and carries no welding entry. A welding-PROCESS-only
+    label ("MIG welding") reaches the same role via the welding table.
+
+    Separators are normalised to spaces before the word-boundary welding match:
+    ``_`` and ``-`` are word characters to ``re``, so ``\\bwelder\\b`` would not fire
+    on the snake_case label "mig_tig_welder" that the real session produced.
+
+    The machining gate from :func:`_assign_welding_role` applies here too, so the
+    "welding never captures a machining worker" invariant holds on the model-label
+    path as well as the raw-text path — one rule, both live routes."""
     low = (label or "").lower()
     for kw, _label, rid, tid in _ROLES:
         if kw in low:
             return rid, tid
+    normalized = re.sub(r"[_\-/]+", " ", low)
+    if any(p.search(normalized) for p in _MACHINING_CONTEXT_RE):
+        return None
+    for pattern, _label, sid in _WELDING_RE:
+        if sid in _WELDING_DOMAIN_SKILL_IDS and pattern.search(normalized):
+            return "role_welder", "dom_welding"
     return None
 
 
@@ -407,7 +633,10 @@ def machine_ids_for_labels(labels: list[str]) -> list[str]:
 def skill_ids_for_labels(labels: list[str]) -> list[str]:
     """Map model-emitted skill AND controller LABELS to canonical skill ids
     (controllers feed a legacy skill id, e.g. Fanuc -> skill_fanuc), mirroring
-    detect(). Order-preserving, de-duplicated; unknown labels yield nothing."""
+    detect(). Order-preserving, de-duplicated; unknown labels yield nothing.
+
+    TAX-WELD-1: welding labels ("MIG welding", "TIG welding", "arc welding", "gas
+    cutting") now map to their pre-existing corpus ids instead of yielding nothing."""
     out: list[str] = []
     for label in labels:
         low = (label or "").lower()
@@ -416,6 +645,9 @@ def skill_ids_for_labels(labels: list[str]) -> list[str]:
                 _append_unique(out, sid)
         for kw, _label, sid in _CONTROLLERS:
             if sid and kw in low:
+                _append_unique(out, sid)
+        for pattern, _label, sid in _WELDING_RE:
+            if pattern.search(low):
                 _append_unique(out, sid)
     return out
 

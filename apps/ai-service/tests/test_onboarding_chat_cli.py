@@ -385,22 +385,41 @@ def test_chat_messages_match_build_chat_messages_with_empty_history():
 def test_input_size_is_flat_across_turns():
     """The observed symptom of the old bug was input tokens climbing every turn
     (581 -> 757 in one real session). Answers are LONG and identical-length here, so
-    a history re-send would inflate each turn by ~90 chars — far beyond the small
-    variation the engine's own question lengths can explain."""
+    a history re-send would inflate each turn by ~90 chars.
+
+    This used to assert `spread < len(long_answer)`, which was a COINCIDENTAL margin,
+    not the property: it tolerated up to 92 chars of silent accumulation, and it broke
+    the moment a bank question got longer (TAX-WELD-1 lengthened the `role` retry).
+    It now asserts the EXACT invariant instead — strictly stronger, and independent of
+    how the bank is worded: across turns whose user message is the SAME length, the
+    input size minus the served question is CONSTANT. One accumulated character fails.
+    """
     router = _ScriptedRouter()
     long_answer = "hmm " * 22 + "theek"  # ~93 chars, carries no extractable signal
     answers = ["Suresh", "shuru"] + [long_answer] * 8 + ["done"]
     _drive(router, answers)
 
-    sizes = [
-        sum(len(m["content"]) for m in c["messages"]) for c in router.chat_calls()
-    ]
+    calls = router.chat_calls()
+    sizes = [sum(len(m["content"]) for m in c["messages"]) for c in calls]
     assert len(sizes) >= 6
-    # Only the engine's question length varies; nothing accumulates. The longest
-    # bank question is ~80 chars, so a spread of one answer-length (93) can only be
-    # explained by accumulation.
-    spread = max(sizes) - min(sizes)
-    assert spread < len(long_answer), f"input size accumulates across turns: {sizes}"
+
+    # Compare only turns whose USER message is identical in length, so the sole
+    # remaining variable is the engine's own question.
+    comparable = [c for c in calls if len(c["messages"][1]["content"]) == len(long_answer)]
+    assert len(comparable) >= 6, f"not enough comparable turns: {len(comparable)}"
+    residuals = {
+        sum(len(m["content"]) for m in c["messages"]) - len(c["messages"][2]["content"])
+        for c in comparable
+    }
+    assert len(residuals) == 1, f"input size accumulates across turns: {residuals}"
+
+    # Belt and braces: even the RAW spread over those turns must stay within what the
+    # bank's own question lengths can explain — derived from the bank, never hard-coded.
+    lengths = [len(t.question) for t in topics_for("cnc_vmc")]
+    lengths += [len(t.retry_question) for t in topics_for("cnc_vmc") if t.retry_question]
+    comparable_sizes = [sum(len(m["content"]) for m in c["messages"]) for c in comparable]
+    assert max(comparable_sizes) - min(comparable_sizes) <= max(lengths) - min(lengths)
+
     # ...and it must not climb monotonically, which is what a re-send looks like.
     growth = [b - a for a, b in zip(sizes, sizes[1:], strict=False)]
     assert not all(g > 0 for g in growth), f"input size grows every turn: {sizes}"
