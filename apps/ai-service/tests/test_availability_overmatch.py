@@ -207,3 +207,219 @@ def test_the_fabricated_value_no_longer_satisfies_the_424_must_ask_gate():
     assert "availability" not in state.collected
     assert ready is False, "wrapped up with a fabricated availability"
     assert "availability" in interview_engine.MUST_ASK_TOPICS
+
+
+# ============================================================================
+# Adversarial review of #436 — the fix introduced a NEW over-match family in the
+# same shop-floor register it exists to protect. 12 phrases that were CLEAN on the
+# pre-#436 baseline started fabricating. Each block below is one review finding.
+#
+# The review also found the BIAS that let all of this through: the first cut of this
+# module had exactly three lines containing "nahi" and ALL THREE WERE POSITIVE cases.
+# `ready` appeared only as "ready to join"/"aaj se ready hu", both positive; the
+# brand-new `berozgar` cue had zero negative coverage. Every blind spot sat exactly
+# where no negative case had been written. Hence the negative sweeps below.
+# ============================================================================
+
+
+# --- HIGH-1: bare `ready` re-created the bug class in CNC vocabulary ---------
+# On a shop floor "job" is the WORKPIECE, and `ready` is what you say about a part, a
+# tool, a fixture or a drawing. `_AVAIL_JOIN` ended with `|ready)`, so the adverb-
+# adjacency rule turned every one of these into a start date.
+
+
+@pytest.mark.parametrize(
+    ("text", "asked"),
+    [
+        ("job abhi ready hai", "role"),
+        ("machine abhi ready hai", "machines"),
+        ("abhi drawing ready hai", "skills"),
+        ("tool aaj ready ho jayega", "machines"),
+        ("kal tak ready ho jayega piece", "machines"),
+        ("fixture aaj ready karna hai", "skills"),
+        ("kal meri shaadi hai to ready rahunga", "availability"),
+        ("part kal ready hoga", "machines"),
+        ("setting ready hai machine par", "skills"),
+    ],
+)
+def test_ready_said_about_a_thing_is_not_an_availability_answer(text: str, asked: str):
+    assert _availability(text, asked) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "ready to join",
+        "main ready hu",
+        "mai ready hu",
+        "mai join karne ke liye ready hu",
+        "aaj se ready hu",
+        "join karne ke liye ready hu",
+    ],
+)
+def test_ready_attributed_to_the_worker_still_resolves(text: str):
+    assert _availability(text, "availability") == "immediate"
+
+
+# --- HIGH-2: free/khaali accepted a THIRD-PERSON copula ---------------------
+# `hai`/`hain` are third person, so objects became available workers. The `available`
+# cue in the same tuple already demanded `main|mai|hum|i am`; these now match it.
+
+
+@pytest.mark.parametrize(
+    ("text", "asked"),
+    [
+        ("machine free hai", "machines"),
+        ("wo free hai", "role"),
+        ("woh abhi khaali hai", "role"),
+        ("machine khali hai", "machines"),
+        # Time-SCOPED: free at a time is not free for a job.
+        ("sunday free hu", "availability"),
+        ("lunch me free hu", "availability"),
+        ("raat me free hu", "availability"),
+        ("chutti ke din free hu", "availability"),
+    ],
+)
+def test_free_said_about_a_thing_or_a_time_slot_is_not_availability(
+    text: str, asked: str
+):
+    assert _availability(text, asked) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "abhi free hu",
+        "main free hu",
+        "mai khaali hu",
+        "abhi khaali hu",
+        "bilkul free hu",
+    ],
+)
+def test_the_worker_saying_they_are_free_still_resolves(text: str):
+    assert _availability(text, "availability") == "immediate"
+
+
+# --- MEDIUM-3: the new context-free cues were tense- and subject-blind -------
+
+
+@pytest.mark.parametrize(
+    ("text", "asked"),
+    [
+        # PAST tense / already resolved — one of these was a clean regression against
+        # the pre-#436 baseline.
+        ("berozgar tha pehle ab kaam mil gaya", "availability"),
+        ("pichli job chhod di thi 2019 me", "role"),
+        ("purani company chhod di thi", "role"),
+        ("pehle khaali tha", "availability"),
+        # THIRD PARTY — someone else's unemployment.
+        ("mera bhai berozgar hai", "role"),
+        ("mera dost berozgar hai", "role"),
+        # The subject is a MACHINE, not the worker.
+        ("machine sahi kaam nahi kar rahi", "machines"),
+        ("machine abhi kaam nahi kar rahi", "machines"),
+        # A complaint about the CURRENT job, not unemployment.
+        ("yahan acha kaam nahi milta", "salary_current"),
+        ("is company me kaam nahi milta", "salary_current"),
+    ],
+)
+def test_unemployment_cues_are_subject_and_tense_aware(text: str, asked: str):
+    assert _availability(text, asked) is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "abhi berozgar hu",
+        "main berozgar hu",
+        "abhi kuch nahi kar raha",
+        "abhi khaali hu, kaam nahi kar raha",
+        "job chhod di hai, abhi free hu",
+    ],
+)
+def test_the_worker_saying_they_are_not_working_still_resolves(text: str):
+    assert _availability(text, "availability") == "immediate"
+
+
+# --- MEDIUM-5: a duration is only a notice if it is time-UNTIL --------------
+# `last_asked` is "the last question we asked", NOT "the question this message
+# answers", so while availability is pending the worker may still be on another
+# subject. "X se" is "for the last X"; "X baad"/"X mein" is "in X".
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "10 din pehle join kiya tha",
+        "hafte me 6 din kaam karta hu",
+        "do mahine se salary nahi mili",
+        "3 saal 6 month ka experience hai",
+        "2 mahine se yahi kaam kar raha hu",
+    ],
+)
+def test_a_duration_that_is_not_time_until_joining_is_not_a_notice_period(text: str):
+    assert _availability(text, "availability") is None
+
+
+@pytest.mark.parametrize(
+    "text", ["15 din", "7 din", "10 days", "ek mahina", "2 hafte", "do mahine baad"]
+)
+def test_a_real_notice_duration_still_resolves(text: str):
+    assert _availability(text, "availability") == "notice_period"
+
+
+# --- The negative sweep the first cut was missing entirely ------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "asked"),
+    [
+        # Negations the CUE SHAPE now rejects, because the negator breaks the required
+        # adjacency. (The ones it does NOT reject are pinned as xfail below — see
+        # MEDIUM-4; this file must not pretend that gap is closed.)
+        ("berozgar nahi hu", "availability"),
+        ("ready nahi hu", "availability"),
+        ("abhi join nahi kar sakta", "availability"),
+        # Third-party / object subjects across the whole cue family.
+        ("uska bhai free hai", "role"),
+        ("company me kaam nahi hai", "salary_current"),
+        # Past tense across the family.
+        ("pehle main free tha", "availability"),
+    ],
+)
+def test_negated_past_and_third_party_statements_do_not_assert_availability(
+    text: str, asked: str
+):
+    assert _availability(text, asked) is None
+
+
+# --- MEDIUM-4: PRE-EXISTING negation blindness, deliberately NOT fixed here --
+
+
+@pytest.mark.xfail(
+    reason=(
+        "KNOWN OPEN GAP, tracked as issue #442. Availability reads `raw_lower` and "
+        "NOT the negation-masked text (signals.py, deliberate and pre-existing: masking "
+        "cost real answers elsewhere). So a worker explicitly saying they CANNOT start "
+        "now is recorded as able to start now. Fixing it is a change to the negation "
+        "seam, not to this cue family, so it is pinned here rather than silently "
+        "carried. Do NOT delete these to make the suite green."
+    ),
+    strict=True,
+)
+@pytest.mark.parametrize(
+    "text",
+    [
+        "abhi available nahi hu",
+        "turant join nahi kar sakta",
+        "abhi free nahi hu",
+        "main available nahi hu",
+        "turant nahi aa sakta",
+        "abhi khaali nahi hu",
+    ],
+)
+def test_xfail_negated_availability_is_still_recorded_as_immediate(text: str):
+    """Pinned OPEN so the gap stops being invisible. When the negation seam is
+    extended to availability, these flip to XPASS and `strict=True` fails the suite —
+    which is the signal to remove the xfail marker, not the tests."""
+    assert _availability(text, "availability") is None
