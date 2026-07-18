@@ -92,6 +92,11 @@ import { PinHasher } from "./pin-hasher.service";
   // ConsentGuard depends on ConsentRepository, which lives in ConsentModule — a
   // module can only re-export a provider it OWNS, so we re-export the MODULE
   // (ConsentModule), which propagates its own export (ConsentRepository) onward.
-  exports: [WorkerAuthGuard, ConsentGuard, SessionService, ConsentModule],
+  // DevicesRepository is exported for PushModule (ADR-0034), which imports AuthModule to
+  // reach it for token invalidation. Providing it is NOT enough — a provider is private to
+  // its module unless exported, so without this line PushService's 4th ctor param resolves
+  // to null and the API fails to BOOT (exactly the failure this comment block warns about;
+  // it took down the E2E run for #417 while every unit suite stayed green).
+  exports: [WorkerAuthGuard, ConsentGuard, SessionService, ConsentModule, DevicesRepository],
 })
 export class AuthModule {}
