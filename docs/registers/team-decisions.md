@@ -96,6 +96,58 @@ list**. There is no payer/worker app or auth yet, so the alpha surface is ops-on
 - Hands to **system-architect** for an ADR. Supersedes nothing; opens the first
   Reach-consuming surface within the alpha gate.
 
+### 2026-07-18 — TAX-WELD-1 ships: `role_welder` / `dom_welding` minted ahead of ADR-0028 Phase 1 (owner)
+
+**Ruling: proceed and merge** (owner, verbatim: *"solve PR 412 and merge to main"*). Recorded
+here because it is a deliberate, knowing deviation from a written ADR gate — not drift, and
+not something a future reader should have to reconstruct from a diff.
+
+**What was escalated.** A welder was unmatchable: *"TIG aur MIG machine chala leta hun"* and
+*"Welder hun main"* both extracted to `role: null, trade: null, skill_ids: []`. The five
+welding **skills** (`skill_mig_welding`, `skill_tig_welding`, `skill_arc_welding`,
+`skill_gas_cutting`, `skill_welder_occupation`) already existed `status: "active"` with
+English aliases (TIG / MIG / GTAW / GMAW / SMAW / stick welding), so wiring them into the
+ai-service gazetteer minted **zero new `skill_id`s**. But there was **no `role_welder` and no
+`dom_welding`** — `packages/taxonomy` held exactly 7 roles / 5 domains, all CNC/VMC — so a
+non-null role + trade was unreachable without minting a **role** id.
+
+**Why that needed a ruling.** [ADR-0028](../decisions/0028-international-occupation-taxonomy-adoption.md)'s
+phase table gates **Phase 2** — *"`signals.py` / `canonical_roles.py` target the expanded
+closed set"*, precisely this change — on **"Phase 1 merged AND Track A's staging `--real`
+negative-tier eval passes."** Phase 1 has **not** merged. `profile_extractor.py` also carried
+an explicit comment that bringing adjacent trades in scope "is an ADR-gated backend
+workstream". So this is a **one-role slice of Phase 2 taken without Phase 1**.
+
+**Ruled: accepted deviation, merge now.** Rationale recorded for the ADR's eventual Phase-1
+author: the change is *additive to a closed whitelist* (ADR-0028 §(d) — "a larger **enumerated**
+whitelist, not free text… strictly safer, never looser"); `normalize_role_id` still rejects
+everything outside the set (`"mig_tig_welder"` stays rejected, pinned by test); and the
+no-regression is **structural, not merely tested** — welding entries sit LAST in `signals._ROLES`
+and matching is first-keyword-wins, so welding can only ever ADD a role where there was `None`.
+Measured: replaying all 56 pre-change gold texts changed **exactly one line**, the welding one.
+
+**What this does NOT do** — so nobody mistakes the slice for the phase:
+- It does **not** discharge ADR-0028 Phase 1. The shared NCO-2015/ISCO-08 id space, the
+  crosswalk, and the WS4 mapper backfill all remain unbuilt and still gated.
+- It does **not** make a welder matchable end-to-end: the reach RANK Role factor exact-matches
+  `canonical_role_id` against a job's `roleIds`, and **no seeded job maps to `role_welder`**.
+  A welder is now profiled and matchable *in principle*, with nothing to match against.
+- `apps/api/src/resume/trade-content.ts` has **no welding trade content** —
+  `resolveTradeContent` returns `undefined`, so a welder's résumé falls back to generic copy.
+  Graceful and non-fabricating, but thin.
+- The **wedge set was NOT extended**. `test_wedge_set_is_fully_scored_on_real_vectors` asserts
+  `len(snapshot.cases) == len(WEDGE_SET)` and `model != "mock-embedding"`, so adding a case
+  needs REAL `gemini-embedding-001@768` vectors — ADR-0030 §7 gates (b) + (e), real spend +
+  the PII-egress retention gate. Escalated rather than faking a snapshot. Wedge numbers are
+  therefore unchanged: **anchor-path precision 1.000 / recall 0.350**. Do **not** cite the
+  0.800 oracle for launch.
+- **No vernacular alias was shipped.** Candidates for RVM (ADR-0030 gate (d)) are listed in
+  PR #412 — `welding karta hun`, `welding wala kaam`, `katai gas se`, and `jodna` / `jod ka
+  kaam` (flagged **high false-positive risk**, do not ship without ratification).
+- **Genuinely missing, reported not created:** `skill_spot_welding` (a distinct process; today
+  falls through to the generic welding token), `skill_gas_welding` (the corpus has gas
+  *cutting* only), and no welding `mach_*` id exists.
+
 ### 2026-07-17 — Context-drift register rulings (owner, all ten — verbatim mapping)
 Owner answered the full [context-drift-2026-07-16](./context-drift-2026-07-16.md) decision
 queue in one pass. Recorded here so no builder re-litigates them:
