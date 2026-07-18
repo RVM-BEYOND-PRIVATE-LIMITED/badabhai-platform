@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { describe, it, expect } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
-import type { SQL } from "drizzle-orm";
+import { Column, Param, StringChunk, is, type SQL } from "drizzle-orm";
 import { aiJobs, workerProfiles, type Database } from "@badabhai/db";
 import { AiJobsRepository } from "./ai-jobs.repository";
 
@@ -193,6 +193,218 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — the predicate (#420
       "skills",
       "status",
     ]);
+  });
+});
+
+/* -------------------------------------------------------------------------
+ * BEHAVIOURAL evaluation of the predicate (PR #438 review, MEDIUM 2).
+ *
+ * Everything above matches STRINGS over generated SQL, and that is weaker than
+ * it looks. The scoping regression it is meant to catch — hoisting the age bound
+ * out of the in-flight branch into the top-level and() — can be reintroduced in
+ * a form that passes every assertion above:
+ *
+ *     sql`${aiJobs.createdAt}>${args.inFlightSince}`   // note: no spaces
+ *
+ * Drizzle renders that as `"ai_jobs"."created_at">$n`, so `/"created_at" >/g`
+ * still counts exactly 1 and the shape regex still matches the untouched
+ * disjunction. The whole suite stays green while the COMPLETED leg is age-bounded
+ * again and #420 re-opens for any worker slower than the in-flight window.
+ *
+ * The service tests cannot catch it either: their fake re-implements the
+ * predicate, hard-coding the intended semantics, so it is true by construction.
+ *
+ * So the predicate is evaluated here as a BOOLEAN FUNCTION over candidate rows,
+ * by interpreting the Drizzle AST directly. That is rendering-independent —
+ * whitespace, operator spelling and leg order cannot affect it — and it tests the
+ * guarantee itself ("does a completed job of ANY age still match?") rather than
+ * the shape of the SQL that is supposed to imply it. No database is involved.
+ * ---------------------------------------------------------------------------*/
+
+/** The `ai_jobs` fields the dedupe predicate reads. */
+interface CandidateRow {
+  jobType: string;
+  status: string;
+  createdAt: Date;
+  inputRef: Record<string, string>;
+}
+
+const COLUMN_READERS: Record<string, (row: CandidateRow) => unknown> = {
+  job_type: (r) => r.jobType,
+  status: (r) => r.status,
+  created_at: (r) => r.createdAt,
+  input_ref: (r) => r.inputRef,
+};
+
+/** Comparable scalar: Dates by epoch, everything else as-is. */
+const scalar = (v: unknown): unknown => (v instanceof Date ? v.getTime() : v);
+
+type Item = { op: string } | { operand: unknown };
+const isOp = (i: Item): i is { op: string } => "op" in i;
+
+/** Direct chunks of a SQL node, with StringChunks flattened to operator text. */
+function itemsOf(node: unknown): Item[] {
+  const chunks = (node as { queryChunks?: unknown[] }).queryChunks;
+  if (!Array.isArray(chunks)) throw new Error("not a SQL node");
+  const items: Item[] = [];
+  for (const chunk of chunks) {
+    if (is(chunk, StringChunk)) {
+      for (const piece of chunk.value) {
+        const op = piece.trim();
+        if (op !== "") items.push({ op });
+      }
+    } else if (Array.isArray(chunk)) {
+      // `inArray` passes its value list through as one raw array chunk.
+      for (const element of chunk) items.push({ operand: element });
+    } else {
+      items.push({ operand: chunk });
+    }
+  }
+  return items;
+}
+
+/** Unwrap the `(`…`)` Drizzle wraps every and()/or() group in. */
+function stripParens(items: Item[]): Item[] {
+  const first = items[0];
+  const last = items[items.length - 1];
+  if (items.length >= 2 && first && last && isOp(first) && first.op === "(" && isOp(last) && last.op === ")") {
+    return items.slice(1, -1);
+  }
+  return items;
+}
+
+/** Split a chunk list on a top-level boolean operator into its operand groups. */
+function splitOn(items: Item[], op: "and" | "or"): unknown[] {
+  return items.filter((i) => !isOp(i) || i.op !== op).map((i) => (i as { operand: unknown }).operand);
+}
+
+/**
+ * Evaluate a Drizzle condition against a row.
+ *
+ * Handles exactly the operator vocabulary this predicate uses — `and`, `or`,
+ * `=`, `>`, `in`, and the `->>'key'` jsonb extraction. Anything else throws
+ * loudly rather than silently evaluating to a passing value, so a future leg
+ * built from an unsupported operator fails the test instead of being ignored.
+ */
+function evaluateCondition(node: unknown, row: CandidateRow): boolean {
+  const items = stripParens(itemsOf(node));
+  const ops = items.filter(isOp).map((i) => i.op);
+
+  // A bare wrapper: `(<sql>)` with nothing else. Drizzle nests these freely.
+  if (ops.length === 0 && items.length === 1) {
+    return evaluateCondition((items[0] as { operand: unknown }).operand, row);
+  }
+  if (ops.includes("and") && ops.includes("or")) {
+    throw new Error("mixed and/or at one level — Drizzle should have grouped these");
+  }
+  if (ops.includes("and")) {
+    return splitOn(items, "and").every((child) => evaluateCondition(child, row));
+  }
+  if (ops.includes("or")) {
+    return splitOn(items, "or").some((child) => evaluateCondition(child, row));
+  }
+
+  // Leaf comparison: <column> <operator> <value…>
+  const operands = items.filter((i): i is { operand: unknown } => !isOp(i)).map((i) => i.operand);
+  const column = operands.find((o) => is(o, Column));
+  if (!column) throw new Error(`no column in leaf: ${ops.join(" ")}`);
+
+  const reader = COLUMN_READERS[column.name];
+  if (!reader) throw new Error(`unhandled column: ${column.name}`);
+
+  const values = operands
+    .filter((o) => !is(o, Column))
+    .map((o) => (is(o, Param) ? (o as Param).value : o));
+
+  let left: unknown = reader(row);
+  let operator = ops.join(" ");
+
+  // `input_ref->>'session_id' = $n`: descend into the jsonb, then compare.
+  const jsonb = /^->>'([^']+)'\s*(.*)$/.exec(operator);
+  if (jsonb) {
+    const [, key, rest] = jsonb;
+    left = (left as Record<string, unknown>)[key!];
+    operator = rest!.trim();
+  }
+
+  switch (operator) {
+    case "=":
+      return scalar(left) === scalar(values[0]);
+    case ">":
+      return (scalar(left) as number) > (scalar(values[0]) as number);
+    case "in":
+      return values.some((v) => scalar(v) === scalar(left));
+    default:
+      throw new Error(`unhandled operator: ${operator}`);
+  }
+}
+
+describe("AiJobsRepository.findExtractionDedupeCandidate — the predicate, EVALUATED", () => {
+  const FRESH = new Date(SINCE.getTime() + 60_000); // inside the in-flight window
+  const STALE = new Date(SINCE.getTime() - 60_000); // outside it
+
+  const row = (patch: Partial<CandidateRow> = {}): CandidateRow => ({
+    jobType: "profile_extraction",
+    status: "completed",
+    createdAt: FRESH,
+    inputRef: { session_id: SESSION, worker_id: WORKER },
+    ...patch,
+  });
+
+  const matches = async (patch: Partial<CandidateRow> = {}): Promise<boolean> => {
+    const { captured } = await run();
+    return evaluateCondition(captured.where, row(patch));
+  };
+
+  it("sanity: the evaluator agrees the baseline row matches", async () => {
+    expect(await matches()).toBe(true);
+  });
+
+  /**
+   * THE #420 GUARANTEE, stated behaviourally. A worker who finishes an interview
+   * and reopens profile-preview long after the in-flight window must still match
+   * their completed job — otherwise every mount burns a fresh ai_job, a fresh
+   * worker_profiles row and a real AI call.
+   *
+   * This is the assertion the no-space hoisting mutation cannot survive.
+   */
+  it("a COMPLETED job matches at ANY age — the age bound must not reach this leg", async () => {
+    expect(await matches({ status: "completed", createdAt: STALE })).toBe(true);
+    expect(
+      await matches({ status: "completed", createdAt: new Date(SINCE.getTime() - 86_400_000) }),
+    ).toBe(true);
+  });
+
+  it("queued/running match only while FRESH — a zombie job must never be returned", async () => {
+    expect(await matches({ status: "queued", createdAt: FRESH })).toBe(true);
+    expect(await matches({ status: "running", createdAt: FRESH })).toBe(true);
+    expect(await matches({ status: "queued", createdAt: STALE })).toBe(false);
+    expect(await matches({ status: "running", createdAt: STALE })).toBe(false);
+  });
+
+  it("the age bound is STRICT — a job created exactly at the floor is not in flight", async () => {
+    expect(await matches({ status: "queued", createdAt: SINCE })).toBe(false);
+  });
+
+  it("a FAILED job never matches, at any age — extraction stays retryable", async () => {
+    expect(await matches({ status: "failed", createdAt: FRESH })).toBe(false);
+    expect(await matches({ status: "failed", createdAt: STALE })).toBe(false);
+  });
+
+  it("another WORKER's job never matches — no cross-worker denial", async () => {
+    expect(
+      await matches({ inputRef: { session_id: SESSION, worker_id: "someone-else" } }),
+    ).toBe(false);
+  });
+
+  it("another SESSION's job never matches", async () => {
+    expect(
+      await matches({ inputRef: { session_id: "other-session", worker_id: WORKER } }),
+    ).toBe(false);
+  });
+
+  it("a transcription job on the same session never matches", async () => {
+    expect(await matches({ jobType: "voice_transcription" })).toBe(false);
   });
 });
 

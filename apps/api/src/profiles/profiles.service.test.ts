@@ -52,11 +52,33 @@ const FILLED_PROFILE: FakeProfile = { ...EMPTY_PROFILE, skills: ["vmc_operation"
 /**
  * A REAL extraction the gazetteer could not canonicalize (TD94). Identical to
  * EMPTY_PROFILE across every legacy column — the rich draft is the only signal
- * that the AI actually answered.
+ * that the AI actually extracted something.
+ *
+ * `skills` is the real `WorkerProfileDraft` field (an earlier fixture said
+ * `skill_labels`, which does not exist on the draft; it passed only while the
+ * dedupe leg tested the draft's NULLNESS rather than its content — PR #438
+ * review).
  */
 const CONTENT_POOR_REAL_PROFILE: FakeProfile = {
   ...EMPTY_PROFILE,
-  richProfileDraft: { skill_labels: ["cnc operator"] },
+  richProfileDraft: { skills: ["machine operation"] },
+};
+
+/**
+ * The AI was reachable but the transcript carried nothing ("hmm"). The draft is
+ * NON-NULL yet contentless — only the fields every draft has. This must NOT
+ * dedupe, or one early extraction pins the session forever (PR #438 review).
+ */
+const CONTENTLESS_DRAFT_PROFILE: FakeProfile = {
+  ...EMPTY_PROFILE,
+  richProfileDraft: {
+    role_family: "cnc_vmc",
+    experience_level: "unknown",
+    availability: "unknown",
+    confidence_score: 0.3,
+    missing_fields: ["primary_role", "current_city"],
+    clarification_questions: ["Aap kaun si machine chalate hain?"],
+  },
 };
 
 function setup() {
@@ -346,6 +368,24 @@ describe("ProfilesService.extract — session-scoped idempotency (#420)", () => 
     expect(third).toEqual({ ai_job_id: first.ai_job_id, status: "completed" });
     expect(aiJobs.create).toHaveBeenCalledOnce();
     expect(extractionQueue.add).toHaveBeenCalledOnce();
+  });
+
+  it("does NOT dedupe against a COMPLETED job whose rich draft is non-null but CONTENTLESS", async () => {
+    const { svc, aiJobs, complete } = setupWithStore();
+
+    // The #438 regression this closes: `/profile/extract` returns a draft
+    // unconditionally, so an extraction on a near-empty session completes with a
+    // NON-NULL but empty draft. Treating that as content pinned the session
+    // forever — the worker could finish the whole interview and every later
+    // extract would dedupe to this empty job. It must stay retryable.
+    const first = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+    complete(first.ai_job_id, CONTENTLESS_DRAFT_PROFILE);
+
+    const second = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+
+    expect(second.ai_job_id).not.toBe(first.ai_job_id);
+    expect(second.status).toBe("queued");
+    expect(aiJobs.create).toHaveBeenCalledTimes(2);
   });
 
   // --- must NOT suppress a needed extraction --------------------------------
