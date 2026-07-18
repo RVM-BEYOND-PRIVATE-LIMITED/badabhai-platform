@@ -18,6 +18,23 @@ import {
   type ResumeGenerateJobData,
 } from "../queue/queue.constants";
 import type { ExtractProfileInput, ConfirmProfileInput } from "./profiles.dto";
+import { hasExtractedContent } from "./profile-content";
+
+/**
+ * How long a `queued`/`running` extraction job is believed to be genuinely in
+ * flight. Older than this it is treated as a zombie and a fresh extraction is
+ * allowed (issue #420 review).
+ *
+ * 10 minutes is ~20x the longest legitimate lifecycle: the AI call has an 8s
+ * timeout (`AiService.post`) and BullMQ retries it at most 3 times with 1s
+ * exponential backoff (`queue.module.ts`), so a healthy job reaches a terminal
+ * status in well under a minute. Nothing reaps stuck ai_jobs, and `extract`
+ * INSERTs `queued` before enqueueing — a crash in that window strands a row that
+ * no processor will ever touch. The window must therefore be comfortably longer
+ * than any real run (so a slow-but-live job is never double-enqueued) and short
+ * enough that a stranded session self-heals on a later tap rather than never.
+ */
+export const EXTRACTION_IN_FLIGHT_WINDOW_MS = 10 * 60 * 1000;
 
 @Injectable()
 export class ProfilesService {
@@ -44,14 +61,19 @@ export class ProfilesService {
    * the same interview — the server auto-trigger in ChatService on the
    * `extraction_ready` flip, and the worker app's unconditional
    * `POST /profile/extract` on the profile-preview screen. Without a guard that
-   * is 2 ai_jobs + up to 2 worker_profiles per normal completion. If a
-   * `profile_extraction` job for this `session_id` is already queued/running (or
-   * has already completed), we return THAT job instead of spending again.
+   * is 2 ai_jobs + up to 2 worker_profiles per normal completion.
    *
-   * Deliberate carve-outs:
-   *  - `failed` prior jobs do NOT dedupe → a failed extraction stays retryable.
-   *  - a null `session_id` falls through to create-always: there is no session to
-   *    scope to, and deduping null-against-null would collapse unrelated calls.
+   * A prior job for the same (worker, session) suppresses a new one ONLY when it
+   * is genuinely redundant. Every other case must still create, because being
+   * wrong in that direction leaves a worker with no profile at all — strictly
+   * worse than the double spend this guards:
+   *  - `failed` → never dedupes; retry stays possible.
+   *  - stale `queued`/`running` (older than EXTRACTION_IN_FLIGHT_WINDOW_MS) →
+   *    never dedupes; treated as a zombie, since nothing reaps stuck ai_jobs.
+   *  - `completed` but with an EMPTY profile (the AI-down fallback persists one
+   *    with status "extracted") → never dedupes; see `hasExtractedContent`.
+   *  - null `session_id` → create-always. There is no session to scope to, and
+   *    deduping null-against-null would collapse genuinely unrelated calls.
    */
   async extract(input: ExtractProfileInput, ctx: RequestContext) {
     const worker = await this.workers.findById(input.worker_id);
@@ -59,8 +81,18 @@ export class ProfilesService {
 
     const sessionId = input.session_id ?? null;
     if (sessionId) {
-      const existing = await this.aiJobs.findActiveExtractionForSession(sessionId);
-      if (existing) {
+      const existing = await this.aiJobs.findExtractionDedupeCandidate({
+        sessionId,
+        workerId: input.worker_id,
+        inFlightSince: new Date(Date.now() - EXTRACTION_IN_FLIGHT_WINDOW_MS),
+      });
+      // A completed job only counts if it actually produced something. An empty
+      // profile from the AI-down fallback must NOT pin the session forever.
+      const usable =
+        existing !== undefined &&
+        (existing.status !== "completed" || hasExtractedContent(existing.profile));
+
+      if (existing && usable) {
         // No second `profile.extraction_requested`: one event per extraction
         // actually requested of the AI, otherwise the event spine over-reports
         // spend. The skip itself is logged (opaque UUIDs only, no PII).
@@ -69,6 +101,12 @@ export class ProfilesService {
             `existing_ai_job=${existing.id} status=${existing.status}`,
         );
         return { ai_job_id: existing.id, status: existing.status };
+      }
+      if (existing) {
+        this.logger.log(
+          `extract re-running session=${sessionId} worker=${input.worker_id}: prior ai_job ` +
+            `${existing.id} completed with an empty profile`,
+        );
       }
     }
 
