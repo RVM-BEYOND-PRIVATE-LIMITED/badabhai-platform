@@ -100,11 +100,13 @@ function setup() {
   // Issue #435 — the session the caller named. Defaults to a session OWNED by WORKER,
   // so every pre-existing test keeps its old meaning; the ownership tests override it.
   const chat = {
-    findSession: vi.fn(async (id: string) => ({ id, workerId: WORKER }) as
-      | { id: string; workerId: string }
-      | undefined),
+    findSession: vi.fn(
+      async (id: string) => ({ id, workerId: WORKER }) as { id: string; workerId: string } | undefined,
+    ),
   };
-  const events = { emit: vi.fn(async (p: { event_name: string; payload: Record<string, unknown> }) => p) };
+  const events = {
+    emit: vi.fn(async (p: { event_name: string; payload: Record<string, unknown> }) => p),
+  };
   const extractionQueue = { add: vi.fn(async () => undefined) };
   const resumeGenerateQueue = { add: vi.fn(async () => undefined) };
   const svc = new ProfilesService(
@@ -200,7 +202,9 @@ describe("ProfilesService.extract", () => {
       ServiceUnavailableException,
     );
     expect(aiJobs.markFailed).toHaveBeenCalledOnce();
-    expect(events.emit.mock.calls.map((c) => c[0].event_name)).toContain("profile.extraction_failed");
+    expect(events.emit.mock.calls.map((c) => c[0].event_name)).toContain(
+      "profile.extraction_failed",
+    );
   });
 });
 

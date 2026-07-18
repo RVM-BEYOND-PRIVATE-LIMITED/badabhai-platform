@@ -22,9 +22,11 @@ import { AiJobsRepository } from "./ai-jobs.repository";
  *      only while fresh; `failed` never.
  *   4. newest-first ordering — `asc` here would return the OLDEST job forever.
  *
- * SCOPE: this proves the predicate's SHAPE and its BOUND PARAMS, not executed
- * Postgres semantics. That is the strongest offline proof available, and it is
- * the one that catches the real regression: a dropped or loosened leg.
+ * SCOPE: this first suite proves the predicate's SHAPE and its BOUND PARAMS, not
+ * executed Postgres semantics. The second suite ("the predicate, EVALUATED")
+ * closes that gap by interpreting the Drizzle AST as a boolean function over
+ * candidate rows — still no Postgres, but rendering-independent and behavioural,
+ * so a regression that merely reformats the SQL cannot hide in it.
  */
 
 const dialect = new PgDialect();
@@ -140,15 +142,22 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — the predicate (#420
    *
    * Asserting only "SINCE is bound somewhere" and "there is an ` or `" is
    * satisfied by a REAL regression: hoisting `gt(createdAt, inFlightSince)` out of
-   * the in-flight branch into the top-level `and()`. That compiles, and the whole
-   * suite (161 files / 1787 tests) stays green — while age-bounding the COMPLETED
-   * leg too. A worker who finishes an interview and reopens profile-preview 11
-   * minutes later then matches nothing, so every mount burns a new ai_job, a new
-   * worker_profiles row and a real AI call: #420 re-opens for anyone slower than
-   * EXTRACTION_IN_FLIGHT_WINDOW_MS.
+   * the in-flight branch into the top-level `and()`, which age-bounds the
+   * COMPLETED leg too. A worker who finishes an interview and reopens
+   * profile-preview 11 minutes later then matches nothing, so every mount burns a
+   * new ai_job, a new worker_profiles row and a real AI call: #420 re-opens for
+   * anyone slower than EXTRACTION_IN_FLIGHT_WINDOW_MS.
    *
    * So: the age bound must live INSIDE the in-flight branch, and the completed
    * leg must be a bare status equality.
+   *
+   * NOTE (PR #438 review): these two assertions are STRING matches over generated
+   * SQL, and the hoist survives both when written without spaces
+   * (`sql`${aiJobs.createdAt}>${args.inFlightSince}``) — Drizzle then renders
+   * `"created_at">$n`, so the count below still sees exactly one match. They are
+   * kept as a cheap shape check, but the guarantee itself is enforced
+   * behaviourally in the EVALUATED suite below, which is what actually kills that
+   * mutation.
    */
   it("scopes the age bound to the IN-FLIGHT branch only — completed must stay unbounded", async () => {
     const { captured } = await run();
@@ -267,7 +276,15 @@ function itemsOf(node: unknown): Item[] {
 function stripParens(items: Item[]): Item[] {
   const first = items[0];
   const last = items[items.length - 1];
-  if (items.length >= 2 && first && last && isOp(first) && first.op === "(" && isOp(last) && last.op === ")") {
+  if (
+    items.length >= 2 &&
+    first &&
+    last &&
+    isOp(first) &&
+    first.op === "(" &&
+    isOp(last) &&
+    last.op === ")"
+  ) {
     return items.slice(1, -1);
   }
   return items;
@@ -275,7 +292,9 @@ function stripParens(items: Item[]): Item[] {
 
 /** Split a chunk list on a top-level boolean operator into its operand groups. */
 function splitOn(items: Item[], op: "and" | "or"): unknown[] {
-  return items.filter((i) => !isOp(i) || i.op !== op).map((i) => (i as { operand: unknown }).operand);
+  return items
+    .filter((i) => !isOp(i) || i.op !== op)
+    .map((i) => (i as { operand: unknown }).operand);
 }
 
 /**
@@ -392,15 +411,15 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — the predicate, EVAL
   });
 
   it("another WORKER's job never matches — no cross-worker denial", async () => {
-    expect(
-      await matches({ inputRef: { session_id: SESSION, worker_id: "someone-else" } }),
-    ).toBe(false);
+    expect(await matches({ inputRef: { session_id: SESSION, worker_id: "someone-else" } })).toBe(
+      false,
+    );
   });
 
   it("another SESSION's job never matches", async () => {
-    expect(
-      await matches({ inputRef: { session_id: "other-session", worker_id: WORKER } }),
-    ).toBe(false);
+    expect(await matches({ inputRef: { session_id: "other-session", worker_id: WORKER } })).toBe(
+      false,
+    );
   });
 
   it("a transcription job on the same session never matches", async () => {

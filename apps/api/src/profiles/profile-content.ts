@@ -42,12 +42,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
  * filled when the AI has the least to say, so counting them would restore the
  * vacuous reachability probe this replaced.
  */
-const RICH_DRAFT_CONTENT_ARRAYS = [
-  "skills",
-  "controllers",
-  "education",
-  "certifications",
-] as const;
+const RICH_DRAFT_CONTENT_ARRAYS = ["skills", "controllers", "education", "certifications"] as const;
 
 /**
  * `WorkerProfileDraft` scalar fields that are null unless the AI extracted

@@ -97,9 +97,9 @@ describe("hasExtractedContent — malformed jsonb never throws", () => {
   });
 
   it("does not treat a non-array preferred_cities as content", () => {
-    expect(hasExtractedContent({ ...empty, locationPreference: { preferred_cities: "pune" } })).toBe(
-      false,
-    );
+    expect(
+      hasExtractedContent({ ...empty, locationPreference: { preferred_cities: "pune" } }),
+    ).toBe(false);
   });
 });
 
