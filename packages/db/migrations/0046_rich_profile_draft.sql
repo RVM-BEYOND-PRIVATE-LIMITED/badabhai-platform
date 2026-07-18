@@ -1,0 +1,22 @@
+-- Issue #419 — persist the AI service's RICH WorkerProfileDraft.
+--
+-- ADDITIVE + backward-compatible. One nullable column, no default, no backfill:
+--   * worker_profiles.rich_profile_draft (new, nullable) — the 28-field
+--     WorkerProfileDraft the extraction response has ALWAYS carried
+--     (ProfileExtractionOutputSchema.worker_profile_draft) and that apps/api
+--     discarded. NULL honestly means "extracted before this column existed",
+--     the same posture as taxonomy_version.
+--
+-- Why a NEW column rather than reusing raw_profile: resume.service.ts parses
+-- raw_profile with DraftProfileSchema, so widening that column would break resume
+-- generation (§8 backward compatibility).
+--
+-- §2: the stored shape carries NO employer name, worker name, phone, address or
+-- id-doc token — verified field-by-field against WorkerProfileDraftSchema. Location
+-- is city/state only, no finer than the location_preference column beside it. The
+-- value is written here and nowhere else: never into events, ai_jobs, audit_logs,
+-- logs or LLM input.
+--
+-- ROLLBACK (safe — the column is nullable and nothing reads it yet):
+--   ALTER TABLE "worker_profiles" DROP COLUMN "rich_profile_draft";
+ALTER TABLE "worker_profiles" ADD COLUMN "rich_profile_draft" jsonb;

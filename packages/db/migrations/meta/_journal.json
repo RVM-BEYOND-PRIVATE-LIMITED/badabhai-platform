@@ -323,6 +323,13 @@
       "when": 1784356486967,
       "tag": "0045_push_deliveries",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1784362498596,
+      "tag": "0046_rich_profile_draft",
+      "breakpoints": true
     }
   ]
 }
