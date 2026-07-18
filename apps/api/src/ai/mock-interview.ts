@@ -62,6 +62,10 @@ function freshState(roleFamily: string): ConversationState {
     // never re-asks and the map stays empty here; the Python engine owns the
     // bounded re-ask.
     ask_counts: {},
+    // INTERVIEW-1 completeness signal (additive contract field). This mock marks
+    // the last-asked topic answered every turn, so it reports no gaps; the Python
+    // engine computes the real list. Acting on it is a follow-up task.
+    unanswered_essentials: [],
   };
 }
 

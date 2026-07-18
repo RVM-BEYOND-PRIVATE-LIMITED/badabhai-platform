@@ -98,7 +98,23 @@ describe("ConversationStateSchema (contracts.py parity — INTERVIEW-1 ask_count
       collected: { role: "VMC Operator" },
     });
     expect(st.ask_counts).toEqual({});
+    expect(st.unanswered_essentials).toEqual([]);
     expect(st.asked_question_ids).toEqual(["role", "machines"]);
+  });
+  it("defaults unanswered_essentials to [] and round-trips the declared gaps", () => {
+    // The completeness signal: extraction_ready keeps its frozen v1 meaning ("the
+    // interview is over, run extraction"), so THIS is what declares an incomplete
+    // profile — a role: null resume becomes a known outcome, not a surprise.
+    expect(ConversationStateSchema.parse({}).unanswered_essentials).toEqual([]);
+    const st = ConversationStateSchema.parse({
+      answered_topics: ["role", "experience"],
+      unanswered_essentials: ["machines", "current_location"],
+    });
+    expect(st.unanswered_essentials).toEqual(["machines", "current_location"]);
+  });
+  it("rejects a non-string-array unanswered_essentials", () => {
+    expect(() => ConversationStateSchema.parse({ unanswered_essentials: "machines" })).toThrow();
+    expect(() => ConversationStateSchema.parse({ unanswered_essentials: [1] })).toThrow();
   });
   it("round-trips per-topic ask counts at the bound", () => {
     const st = ConversationStateSchema.parse({

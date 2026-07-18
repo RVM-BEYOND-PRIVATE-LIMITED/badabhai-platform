@@ -287,10 +287,13 @@ def test_no_topic_is_ever_asked_more_than_twice_under_a_totally_blind_detector(
     for topic_id, n in counts.items():
         if topic_id not in interview_engine.ESSENTIAL_TOPICS:
             assert n == 1, (topic_id, counts)
-    # It terminated, and honestly: nothing was answered, so it is NOT ready.
+    # It TERMINATED — the point of the bound.
     assert turns <= interview_engine.MAX_INTERVIEW_TURNS + 1
-    assert ready is False
     assert state.answered_topics == []
+    # ...and it still hands the worker off to extraction (see the regression guard
+    # below), declaring the gaps explicitly rather than silently.
+    assert ready is True
+    assert state.unanswered_essentials == list(interview_engine.ESSENTIAL_TOPICS)
 
 
 def test_the_turn_ceiling_terminates_the_interview_as_a_final_backstop(monkeypatch):
@@ -311,7 +314,9 @@ def test_the_turn_ceiling_terminates_the_interview_as_a_final_backstop(monkeypat
     _ask_log, state, ready, turns = _run_interview(lambda _tid: _GARBAGE, max_turns=80)
     assert turns == interview_engine.MAX_INTERVIEW_TURNS + 1
     assert state.turn_count == interview_engine.MAX_INTERVIEW_TURNS + 1
-    assert ready is False
+    # Wrapping up at the ceiling still runs extraction, with the gaps declared.
+    assert ready is True
+    assert state.unanswered_essentials == list(interview_engine.ESSENTIAL_TOPICS)
 
 
 def test_an_answered_topic_is_never_re_asked(monkeypatch):
@@ -342,21 +347,58 @@ def test_an_answered_topic_is_never_re_asked(monkeypatch):
     assert "role" not in state.asked_question_ids
 
 
-def test_extraction_ready_is_false_when_essentials_are_unanswered(monkeypatch):
-    """Required test 5 — the false-ready fix. Running out of questions is NOT the
-    same as being ready; the old code returned a hardcoded True there, which is how
-    an unanswered essential shipped as a 'complete' profile.
+def test_wrap_up_is_extraction_ready_EVEN_WITH_essentials_unanswered(monkeypatch):
+    """THE REGRESSION GUARD. `extraction_ready` keeps its frozen v1 meaning: "the
+    interview is OVER, run extraction".
 
-    Mutation proof: restore `return ..., True` on the wrap-up branch of `next_turn`
-    and this test fails.
+    It is the SOLE gate on the profile.extraction_ready event in
+    apps/api/src/chat/chat.service.ts, and therefore on extraction itself. If it
+    went False on a gap, a worker whose answers the CNC/VMC-only gazetteer cannot
+    parse (a welder saying "TIG aur MIG") would finish the interview with NO
+    profile and NO resume — strictly worse than the bug INTERVIEW-1 fixes, and
+    aimed at exactly the population we are trying to help. Changing when a frozen
+    v1 signal fires is also a behavioural contract change (CLAUDE.md §2 #8).
+
+    Mutation proof: make the wrap-up branch return `extraction_ready` (the honest
+    readiness) instead of True and this test fails.
     """
     monkeypatch.setattr(
         interview_engine.signals, "detect_answered_topics", lambda *a, **k: {}
     )
     _ask_log, state, ready, _turns = _run_interview(lambda _tid: _GARBAGE)
-    assert ready is False
+
+    # NOTHING was answered...
+    assert state.answered_topics == []
     assert interview_engine._extraction_ready(state) is False
-    assert not any(t in state.answered_topics for t in interview_engine.ESSENTIAL_TOPICS)
+    # ...and the worker is STILL handed off to extraction.
+    assert ready is True
+    # The incompleteness is explicit, not silent: extraction/ops can see the gaps.
+    assert state.unanswered_essentials == list(interview_engine.ESSENTIAL_TOPICS)
+
+
+def test_unanswered_essentials_lists_exactly_the_essentials_still_missing():
+    """The completeness signal is specific, not a bare bool — it names the gaps."""
+    _r1, _a1, st1, _rd1 = interview_engine.next_turn(None, "cnc turner hoon", "cnc_vmc")
+    assert "role" in st1.answered_topics
+    assert st1.unanswered_essentials == ["machines", "experience", "current_location"]
+
+    _r2, _a2, st2, _rd2 = interview_engine.next_turn(st1, "vmc chalata hu", "cnc_vmc")
+    assert st2.unanswered_essentials == ["experience", "current_location"]
+    # Order is ESSENTIAL_TOPICS order, and it only ever shrinks as answers land.
+    assert st2.unanswered_essentials == [
+        t for t in interview_engine.ESSENTIAL_TOPICS if t not in st2.answered_topics
+    ]
+
+
+def test_unanswered_essentials_is_empty_when_everything_is_answered():
+    _reply, asked_id, state, ready = interview_engine.next_turn(
+        None,
+        "vmc operator, 4 saal, setting aur drawing reading karta hu, "
+        "faridabad me hu pune chalega",
+        "cnc_vmc",
+    )
+    assert ready is True and asked_id is None
+    assert state.unanswered_essentials == []  # clean default = complete
 
 
 def test_legacy_state_without_ask_counts_deserializes_and_stays_bounded():
@@ -375,6 +417,7 @@ def test_legacy_state_without_ask_counts_deserializes_and_stays_bounded():
         }
     )
     assert legacy.ask_counts == {}  # defaulted, not required
+    assert legacy.unanswered_essentials == []  # ditto — both fields are additive
     # machines was already asked once under the old state shape -> it gets ONE more
     # ask (2 total), never two more.
     assert interview_engine._ask_count(legacy, "machines") == 1

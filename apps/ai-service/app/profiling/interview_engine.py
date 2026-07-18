@@ -84,6 +84,20 @@ def _extraction_ready(st: ConversationState) -> bool:
         t in st.answered_topics or t in st.asked_question_ids for t in MUST_ASK_TOPICS
     )
 
+
+def _unanswered_essentials(st: ConversationState) -> list[str]:
+    """INTERVIEW-1: which ESSENTIAL topics the worker never actually answered.
+
+    This is the EXPLICIT completeness signal. ``extraction_ready`` deliberately
+    stays "the interview is over — run extraction" (its frozen v1 meaning, and the
+    sole gate on extraction downstream), so this list — not that flag — is how an
+    incomplete profile is declared. Empty list = every essential answered.
+
+    Returned in ESSENTIAL_TOPICS order, so it is stable/comparable across turns.
+    Topic ids only, never PII.
+    """
+    return [t for t in ESSENTIAL_TOPICS if t not in st.answered_topics]
+
 # Topic-specific follow-up nudges used as suggested_followups.
 _FOLLOWUPS = [
     "Controller kaunsa — Fanuc ya Siemens?",
@@ -165,6 +179,9 @@ def next_turn(
             st.collected[topic_id] = value
 
     extraction_ready = _extraction_ready(st)
+    # INTERVIEW-1 completeness signal: refresh the gap list on EVERY turn, so the
+    # state a caller persists always describes the interview as it actually stands.
+    st.unanswered_essentials = _unanswered_essentials(st)
 
     # 2. Choose the next question (essentials first — including their ONE bounded
     #    re-ask — then the ask-once topics). MAX_INTERVIEW_TURNS is the final
@@ -172,13 +189,22 @@ def next_turn(
     over_ceiling = st.turn_count > MAX_INTERVIEW_TURNS
     next_topic = None if over_ceiling else _next_topic(topics, st)
     if next_topic is None or extraction_ready:
-        # INTERVIEW-1 false-ready fix: report the HONEST readiness, not a hardcoded
-        # True. Wrapping up because we ran out of questions (or hit the ceiling) is
-        # NOT the same as having the essentials answered — claiming ready there was
-        # exactly how an unanswered essential shipped as a silently complete profile.
-        # Downstream then knows the profile is incomplete (e.g. role: null) instead
-        # of being surprised by it.
-        return _vocative(worker_name) + _WRAP_UP, None, st, extraction_ready
+        # extraction_ready keeps its ORIGINAL v1 meaning here: "the interview is
+        # OVER — run extraction". It is deliberately True even when essentials are
+        # still unanswered, for two reasons:
+        #
+        # 1. It is the SOLE gate on the profile.extraction_ready event downstream
+        #    (chat.service.ts), so returning False would mean an incomplete
+        #    interview yields NO profile and NO resume at all — strictly worse than
+        #    the bug INTERVIEW-1 fixes, and it would hit hardest exactly the worker
+        #    the detector fails (a welder whose "TIG aur MIG" cannot be parsed).
+        # 2. Changing WHEN a frozen v1 signal fires is a behavioural change to a
+        #    shipped contract (CLAUDE.md §2 #8), even with the payload untouched.
+        #
+        # Incompleteness is instead reported EXPLICITLY and additively via
+        # st.unanswered_essentials, so a role: null resume is a KNOWN, inspectable
+        # outcome rather than a silent surprise.
+        return _vocative(worker_name) + _WRAP_UP, None, st, True
 
     # Read the prior count BEFORE touching asked_question_ids — _ask_count floors at
     # 1 for anything already in that list (the pre-INTERVIEW-1 back-compat path), so

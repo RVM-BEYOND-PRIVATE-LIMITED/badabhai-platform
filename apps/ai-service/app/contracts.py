@@ -74,7 +74,23 @@ class ConversationState(BaseModel):
     # re-ask needs its own counter. _next_topic refuses past MAX_ASKS_PER_TOPIC (2), so
     # a topic the (CNC/VMC-only) detector can never parse is asked twice, never forever.
     # Topic ids only — no PII.
+    #
+    # NOT a total: the COST-4 clarify path (clarify_turn) RE-SERVES the last question
+    # without incrementing this — those re-serves are bounded separately by
+    # clarify_count. ask_counts counts ENGINE-driven asks only.
     ask_counts: dict[str, int] = Field(default_factory=dict)
+    # INTERVIEW-1 completeness signal (additive, defaulted => backward compatible;
+    # mirrored in @badabhai/ai-contracts ConversationStateSchema): the ESSENTIAL
+    # topics the worker never actually answered, in ESSENTIAL_TOPICS order. Empty
+    # list = complete.
+    #
+    # This — NOT extraction_ready — is how an incomplete profile is declared.
+    # extraction_ready keeps its frozen v1 meaning ("the interview is over, run
+    # extraction") because it is the sole gate on extraction downstream, so making it
+    # False on a gap would mean no profile and no resume at all. This list is read to
+    # MARK the extracted profile incomplete, making a role: null resume a known
+    # outcome. Topic ids only — no PII. The API-side consumer is a follow-up task.
+    unanswered_essentials: list[str] = Field(default_factory=list)
 
 
 # --- Profiling turn --------------------------------------------------------

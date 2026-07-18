@@ -81,8 +81,25 @@ export const ConversationStateSchema = z.object({
    * engine's `_next_topic` refuses past MAX_ASKS_PER_TOPIC (2), so a topic the
    * CNC/VMC-only detector can never parse is asked twice, never forever.
    * Topic ids only — no PII.
+   *
+   * NOT a total: the COST-4 clarify path re-serves the last question WITHOUT
+   * incrementing this (those re-serves are bounded separately by `clarify_count`).
+   * `ask_counts` counts engine-driven asks only.
    */
   ask_counts: z.record(z.string(), z.number().int().nonnegative()).default({}),
+  /**
+   * INTERVIEW-1 completeness signal (additive, defaulted => backward compatible;
+   * mirrors contracts.py ConversationState): the ESSENTIAL topics the worker never
+   * actually answered. Empty array = complete.
+   *
+   * This — NOT `extraction_ready` — declares an incomplete profile.
+   * `extraction_ready` keeps its frozen v1 meaning ("the interview is over, run
+   * extraction") because it is the sole gate on extraction downstream, so making it
+   * false on a gap would yield no profile and no resume at all. This list is read to
+   * MARK the extracted profile incomplete, making a `role: null` resume a known
+   * outcome. Topic ids only — no PII. The API-side consumer is a follow-up task.
+   */
+  unanswered_essentials: z.array(z.string()).default([]),
 });
 export type ConversationState = z.infer<typeof ConversationStateSchema>;
 
