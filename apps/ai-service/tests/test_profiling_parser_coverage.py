@@ -315,16 +315,22 @@ def test_findings_this_rerun_exposed() -> None:
         "role": "Welder",
         "skills": ["welding"],
     }
-    # 2. The availability cue is a plain substring test, so "abhi" matches inside
-    #    "kabhi": "ever"/"occasionally"/"whenever" all read as "immediately".
-    assert d("kabhi", "machines") == {"availability": "immediate"}
-    assert d("kabhi kabhi", "machines") == {"availability": "immediate"}
-    # 3. ...which is why a correctly-negated `machines` answer still marks
-    #    availability: negation suppressed VMC, "kabhi" supplied the false cue.
+    # 2. FIXED by the #424 follow-up. The availability cue USED to be a plain
+    #    substring test, so "abhi" matched inside "kabhi" and
+    #    "ever"/"occasionally"/"whenever" all read as "immediately". The cue family is
+    #    now word-boundary matched and requires a genuine availability cue.
+    assert d("kabhi", "machines") == {}
+    assert d("kabhi kabhi", "machines") == {}
+    # 3. ...which is why a correctly-negated `machines` answer no longer marks
+    #    availability either: negation suppressed VMC, and "kabhi" no longer supplies
+    #    a false cue.
     assert d("vmc nahi chalaya kabhi", "machines") == {
         "skills": ["machine operation"],
-        "availability": "immediate",
     }
+    # 4. "kabhi bhi" is STILL immediate — but now for the right reason (an explicit
+    #    anytime phrase) and only when the availability question was the one asked.
+    assert d("kabhi bhi", "availability") == {"availability": "immediate"}
+    assert d("kabhi bhi", "machines") == {}
 
 
 def test_denials_are_absorbed_not_fabricated() -> None:
@@ -347,16 +353,32 @@ def test_denials_are_absorbed_not_fabricated() -> None:
             assert m.fixture.topic in signals._NEGATION_ANSWERS_TOPICS
 
 
-def test_overall_acceptance_did_not_move() -> None:
-    """#426 fixed what the parser RECORDS, not what it RECOGNISES.
+def test_overall_acceptance_is_pinned() -> None:
+    """Coverage is the headline number in the report. Pinned so a coverage change
+    cannot slip in unmeasured behind a value fix.
 
-    Coverage is the headline number in the report and it is UNCHANGED at 150/252.
-    Pinned so a coverage change cannot slip in unmeasured behind a value fix.
+    History of this number, each figure MEASURED at the time it was written:
+
+    - **150/252 after #426**, which fixed what the parser RECORDS, not what it
+      RECOGNISES — so coverage was deliberately unchanged.
+    - **158/252 after the #424 follow-up** (the availability over-match fix). All
+      eight are `availability` fixtures that the old bare-substring cue table could
+      not read and the new cue set can: "7 din", "do mahine baad", "1 week",
+      "2 hafte", "ek hafte mein", "aaj se ready hu", "kal se", "jab bolo tab".
+      The same change REMOVED eight false positives on other topics (see
+      ``test_denials_are_absorbed_not_fabricated`` and the report's Fabrications
+      section) — those never counted toward acceptance, because acceptance only
+      scores the topic that was ASKED.
     """
     rows = measure_all()
     should_accept = [m for m in rows if m.fixture.expected == "accept"]
     accepted = [m for m in should_accept if m.accepted]
-    assert (len(accepted), len(should_accept)) == (150, 252)
+    assert (len(accepted), len(should_accept)) == (158, 252)
+
+    availability = [
+        m for m in should_accept if m.fixture.topic == "availability" and m.accepted
+    ]
+    assert len(availability) == 22, "availability coverage moved — re-measure"
 
 
 def test_role_gazetteer_has_no_cnc_or_operator_keyword() -> None:
@@ -422,12 +444,21 @@ def test_scripted_interview_shows_the_engine_level_consequence() -> None:
     A worker who answers every question plausibly — but in registers the gazetteer
     does not cover — reaches the wrap-up with all four ESSENTIAL_TOPICS unanswered,
     ``extraction_ready`` True (its frozen v1 meaning: "the interview is over"), and
-    one collected field: `skills`, a topic that was NEVER ASKED.
+    two collected fields: `skills`, a topic that was NEVER ASKED, and `availability`.
+
+    ``availability`` is new here and is a real IMPROVEMENT from the #424 follow-up,
+    not a regression: this worker answers the availability question with "do mahine
+    baad", which the old bare-substring cue table could not read at all ("mahine"
+    is not "mahina"). It is now read as ``notice_period`` — and read from the ANSWER
+    to that question, rather than from the "abhi" in some other reply.
     """
     plausible = simulate(SCRIPT_PLAUSIBLE)
     assert plausible.unanswered_essentials == list(interview_engine.ESSENTIAL_TOPICS)
     assert plausible.extraction_ready is True
-    assert plausible.collected == {"skills": ["machine operation"]}
+    assert plausible.collected == {
+        "skills": ["machine operation"],
+        "availability": "notice_period",
+    }
     assert "skills" in plausible.never_asked
 
     # The bounded re-ask still holds: each essential is asked at most twice.
@@ -536,6 +567,11 @@ def test_the_429_must_ask_gate_holds_across_every_scripted_interview() -> None:
         assert sim.must_asks_never_asked == [], (
             f"#429 regression: {sim.must_asks_never_asked} reached wrap-up unasked"
         )
+    # The EXACT set, not just membership — so a topic silently joining or leaving the
+    # never-asked list surfaces here instead of passing unnoticed. Kept from #436; its
+    # per-topic MUST_ASK loop is dropped as redundant with `must_asks_never_asked == []`
+    # above, which already states that claim over the whole constant.
+    assert friendly.never_asked == ["machines", "skills", "education"]
 
 
 def test_a_later_answer_no_longer_overwrites_an_already_collected_value() -> None:

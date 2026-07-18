@@ -373,8 +373,130 @@ _MONEY_CUES: tuple[re.Pattern[str], ...] = tuple(
 )
 _RELOCATE_CUES = ("relocat", "shift", "chalega", "ready", "ja sakta", "kahin bhi", "anywhere",
                   "bahar", "outside")
-_IMMEDIATE_CUES = ("immediate", "abhi", "turant", "free", "available", "ready to join")
-_NOTICE_CUES = ("notice", "din lag", "days", "month", "mahina", "15 din", "30 din")
+# --- Availability (issue #424 follow-up: STOP FABRICATING "immediate") ------
+#
+# THE DEFECT (measured, post-merge review of #429). These cues were BARE SUBSTRINGS:
+#
+#     _IMMEDIATE_CUES = ("immediate", "abhi", "turant", "free", "available", ...)
+#     _NOTICE_CUES    = ("notice", "din lag", "days", "month", "mahina", ...)
+#
+# "abhi" merely means "right now / currently", and the question bank's OWN questions
+# open with it — "Abhi kis sheher mein hain?" (current_location) and "Abhi salary
+# kitni hai?" (salary_current). So the NATURAL answer to our own question invented an
+# availability the worker never stated:
+#
+#     "abhi pune me hu"      -> {current_location: Pune,  availability: immediate}
+#     "abhi 25000 milte hain"-> {salary_current: 25000,   availability: immediate}
+#     "6 month ka experience hai"                      -> availability: notice_period
+#     "freelance kaam karta hu" / "VMC free size job"  -> availability: immediate
+#
+# That is FABRICATION, not a coverage gap, and it is LIVE: availability is a reach
+# scoring signal (apps/api/src/reach/reach.job-source.ts) and is rendered on the
+# worker's resume. We were telling payers a worker could start immediately on the
+# strength of the adverb in OUR question. It also silently satisfied the must-ask
+# gate #429 added for `availability`, so that gate never fired on the common path.
+#
+# THE RULE: availability requires a GENUINE availability cue — joining / starting /
+# being free / a notice duration — matched with WORD BOUNDARIES. A bare time adverb
+# is only ever a MODIFIER: "abhi"/"aaj"/"kal" count only when they sit next to a
+# join-or-start intent ("abhi join kar sakta hu", "aaj se ready hu"). Same shape as
+# the TAX-WELD-1 blockers: the decision is made in ONE place with adjacency, not by
+# hoping a keyword list is unambiguous.
+#
+# FAIL DIRECTION is deliberately toward "unknown". `availability` is a MUST_ASK topic
+# (interview_engine.MUST_ASK_TOPICS, #424), so an undetected availability is simply
+# ASKED — which is exactly what that gate is for. A FABRICATED one is never corrected:
+# nothing downstream ever re-asks a topic the detector already marked answered.
+
+# Time adverbs. NOT cues on their own — they only qualify a join/start intent.
+_AVAIL_NOW = (
+    r"(?:abhi|filhal|filhaal|turant|fauran|foran|aaj|kal|immediately|right\s+now)"
+)
+# Joining/starting INTENT: ability or future forms only. Past-tense joins ("2019 me
+# company join ki thi", "kal join ki thi") are history, not availability, so they are
+# deliberately unmatched.
+_AVAIL_JOIN = (
+    r"(?:join\s+kar\s+(?:sakta|sakti|sakte)|join\s+(?:kar\s+)?"
+    r"(?:lunga|loonga|luga|karunga|karoonga|sakunga)|joining\s+(?:kar\s+)?"
+    r"(?:sakta|sakti|sakte|lunga)|aa\s+(?:sakta|sakti|sakte|jaunga|jaungi)|"
+    r"(?:start|shuru)\s+kar\s+(?:sakta|sakti|sakte|dunga)|ready)"
+)
+_IMMEDIATE_CUE_RE: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        # Unambiguous immediacy words — these ARE the answer on their own.
+        r"\bimmediate(?:ly)?\b",
+        r"\bturant\b",
+        r"\bfaura?n\b",
+        r"\bforan\b",
+        r"\bready\s+to\s+join\b",
+        # Being free / idle right now. Requires the copula, so "freelance" (no word
+        # boundary anyway) and "free size job" can never fire it.
+        r"\b(?:free|khaali|khali|faarig|farig|fursat)\s+(?:hu|hun|hoon|hai|hain|ho)\b",
+        rf"\b(?:{_AVAIL_NOW}|main|mai|bilkul)\s+(?:free|khaali|khali)\b",
+        # "available" attributed to the WORKER, never to a job/machine — "koi job
+        # available hai kya?" is a question about vacancies, not a start date.
+        rf"\b(?:main|mai|hum|i\s*am|i'?m|{_AVAIL_NOW})\s+available\b"
+        r"(?!\s+(?:machine|machines|job|jobs|kaam|work|vacanc|position))",
+        r"\bavailable\s+(?:hu|hun|hoon)\b",
+        # Not currently working — a complete availability answer.
+        r"\b(?:kaam|job|naukri|kuch)\s+(?:nahi+n?|nhi)\s+"
+        r"(?:kar\s+raha|kar\s+rahi|hai|mil\s+raha|milta)\b",
+        r"\b(?:job|naukri|company|kaam)\s+chhod\s+(?:di|diya|dia|dii)\b",
+        r"\bberozgar\b",
+        # A time adverb NEXT TO a join/start intent, in either word order. This is the
+        # ONLY way "abhi"/"aaj"/"kal" can contribute, and the whole point of the fix.
+        rf"\b{_AVAIL_NOW}\b[^.;!?]{{0,20}}?\b{_AVAIL_JOIN}\b",
+        rf"\b{_AVAIL_JOIN}\b[^.;!?]{{0,20}}?\b{_AVAIL_NOW}\b",
+    )
+)
+
+# Notice-period durations. Deliberately EXCLUDES "saal"/"year": years are experience,
+# never a notice period — and the experience clause is precisely what the old bare
+# "month"/"mahina"/"days" cues were misreading.
+_AVAIL_NUM = (
+    r"(?:\d{1,3}|ek|do|teen|tin|char|chaar|paanch|panch|chhah|chhe|saat|aath|das|"
+    r"pandrah|bees|tees|one|two|three|four|five|six|seven|ten|fifteen|twenty|thirty)"
+)
+_AVAIL_UNIT = (
+    r"(?:din|days?|hafte|haftey|hafta|weeks?|mahin[ae]|maheen[ae]|months?)"
+)
+# A duration only means NOTICE when it is the time something TAKES — "15 din lagenge",
+# "30 din baad". A duration on its own ("6 month ka experience hai") means nothing
+# about availability, so it is left to the context-gated read in
+# detect_answered_topics, where we know the availability question was the one asked.
+_NOTICE_CUE_RE: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\bnotice\b",
+        r"\bresign\b",
+        r"\bnext\s+month\b",
+        rf"\b{_AVAIL_NUM}\s*{_AVAIL_UNIT}\b[^.;!?]{{0,14}}?\b(?:lag\w*|baad|bad)\b",
+        rf"\blag\w*\b[^.;!?]{{0,14}}?\b{_AVAIL_NUM}\s*{_AVAIL_UNIT}\b",
+    )
+)
+
+# Read ONLY when the availability question is the one that was just asked (see
+# detect_answered_topics). These phrasings are real answers to "join karne mein kitne
+# din lagenge?" but say nothing on their own in the middle of a transcript, so they
+# must never run context-free — that is how "6 month" became a notice period.
+_ASKED_NOTICE_RE = re.compile(rf"\b{_AVAIL_NUM}\s*{_AVAIL_UNIT}\b", re.IGNORECASE)
+_ASKED_IMMEDIATE_RE: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        # "whenever you say" — genuinely immediate. Matched EXPLICITLY so it stops
+        # being read as immediate for the wrong reason (the old cue found the "abhi"
+        # inside "kabhi"; "kabhi kabhi" = "sometimes" scored the same way).
+        r"\bkabhi\s+bhi\b",
+        r"\bjab\s+(?:bolo|bhi|kaho|chaho|bulao|bulaye)\b",
+        r"\banytime\b",
+        # A bare time adverb IS the answer to "how many days to join?".
+        rf"^\W*{_AVAIL_NOW}\b",
+        rf"\b{_AVAIL_NOW}\s*(?:hi|se|se\s+hi)?\s*$",
+        # Ability to join, with no immediacy adverb attached.
+        rf"\b{_AVAIL_JOIN}\b",
+    )
+)
 
 
 # --- P1-2: negation ---------------------------------------------------------
@@ -791,9 +913,14 @@ def detect(text: str) -> Signals:
     _detect_salary(text, raw_lower, sig)
 
     # Availability — raw text: "abhi kuch nahi kar raha" is an IMMEDIATE answer.
-    if any(c in raw_lower for c in _IMMEDIATE_CUES):
+    #
+    # Issue #424 follow-up: word-boundary GENUINE cues only (see _IMMEDIATE_CUE_RE).
+    # A bare time adverb is NOT a cue, so answering our own "Abhi kis sheher mein
+    # hain?" no longer fabricates "immediate". Immediate is still checked first, as
+    # before, so an explicit "turant" beats an incidental duration in the same text.
+    if any(p.search(raw_lower) for p in _IMMEDIATE_CUE_RE):
         sig.availability = "immediate"
-    elif any(c in raw_lower for c in _NOTICE_CUES):
+    elif any(p.search(raw_lower) for p in _NOTICE_CUE_RE):
         sig.availability = "notice_period"
 
     # Education / certifications
@@ -1038,8 +1165,22 @@ def detect_answered_topics(
         if sig.expected_salary is not None:
             answered["salary_expected"] = sig.expected_salary
 
-    if sig.availability != "unknown":
-        answered["availability"] = sig.availability
+    availability = sig.availability
+    if availability == "unknown" and last_asked_topic_id == "availability":
+        # Context-gated widening (issue #424 follow-up), the same shape as the B-4
+        # location and B-5 salary attribution above: a bare duration ("15 din",
+        # "ek mahina", "10 days"), a bare time adverb ("abhi"), an "anytime" phrase
+        # ("kabhi bhi", "jab bolo tab") or a plain ability to join IS an answer to
+        # "Join karne mein kitne din lagenge?" — but says nothing about availability
+        # anywhere else, which is exactly how "6 month ka experience hai" used to be
+        # recorded as a notice period. Duration is tested FIRST: "abhi 15 din" is a
+        # notice, not an immediate start.
+        if _ASKED_NOTICE_RE.search(lower):
+            availability = "notice_period"
+        elif any(p.search(lower) for p in _ASKED_IMMEDIATE_RE):
+            availability = "immediate"
+    if availability != "unknown":
+        answered["availability"] = availability
     if sig.education or sig.certifications:
         answered["education"] = sig.education + sig.certifications
 

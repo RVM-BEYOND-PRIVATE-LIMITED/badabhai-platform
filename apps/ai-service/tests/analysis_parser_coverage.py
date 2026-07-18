@@ -171,9 +171,14 @@ NEGATION_PROBE: tuple[tuple[str, str, str, str, str], ...] = (
 NEW_FINDING_PROBE: tuple[tuple[str, str, str], ...] = (
     ("machines", "welding machine",
      "`machines` NOT marked, but `role`+`skills` are closed on a welding read"),
-    ("machines", "kabhi", "'abhi' is substring-matched inside 'kabhi'"),
-    ("machines", "kabhi kabhi", "'sometimes' reads as 'available immediately'"),
-    ("availability", "kabhi bhi", "'whenever' reads as 'immediately' — right answer, wrong reason"),
+    ("machines", "kabhi",
+     "FIXED (#424 follow-up): 'abhi' was substring-matched inside 'kabhi'; the cue "
+     "is now word-boundary matched AND needs a real availability cue"),
+    ("machines", "kabhi kabhi",
+     "FIXED (#424 follow-up): 'sometimes' no longer reads as 'available immediately'"),
+    ("availability", "kabhi bhi",
+     "'whenever' — still immediate, now for the RIGHT reason: matched explicitly as an "
+     "anytime phrase, and only because the availability question was the one asked"),
 )
 
 # Two scripted interviews, run through the REAL engine (mock mode, no network), to
@@ -488,12 +493,16 @@ deliberately implements nothing.
    `skills=['welding']`. Attributed to **#412, not #426**. For a worker in the
    CNC/VMC family this fills `role` from a MACHINE answer, and under the new
    first-write-wins rule that value then sticks unless `role` was already set.
-2. **`kabhi` is read as `abhi`.** The availability cue is a plain substring test, so
-   "kabhi" (ever), "kabhi kabhi" (occasionally) and "kabhi bhi" (whenever) all set
-   `availability = immediate`. Pre-existing and NOT caused by #426 — no corpus fixture
-   covered it, and probing for the negation gap surfaced it. It is also why
-   "vmc nahi chalaya kabhi" marks availability even though negation correctly
-   suppressed `machines`.
+2. **`kabhi` was read as `abhi` — FIXED by the #424 follow-up.** The availability cue
+   used to be a plain substring test, so "kabhi" (ever), "kabhi kabhi" (occasionally)
+   and "kabhi bhi" (whenever) all set `availability = immediate`; so did every answer
+   to the bank's own "**Abhi** kis sheher mein hain?" / "**Abhi** salary kitni hai?".
+   The cue family is now word-boundary matched and requires a GENUINE availability cue
+   (join/start intent, being free, a notice duration) — a bare time adverb only counts
+   next to a join intent. "vmc nahi chalaya kabhi" no longer marks availability.
+   Pre-existing and NOT caused by #426; surfaced by probing for the negation gap and
+   fixed once #429 made `availability` a MUST_ASK topic that the false positive was
+   silently satisfying.
 3. **`salary_expected` stores the refused number.** "25000 nahi chahiye, 30000
    chahiye" records 25000: the parser is both first-number-wins and negation-blind,
    and the two compose into the worst available answer.
