@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/auth/auth_api.dart';
 import '../../../../core/auth/auth_error_messages.dart';
 import '../../../../core/auth/auth_failure.dart';
 import '../../../../core/otp/sms_otp_autofill.dart';
@@ -15,6 +16,7 @@ class PhoneLoginState extends Equatable {
     this.status = PhoneLoginStatus.initial,
     this.phone,
     this.message,
+    this.resendIn,
   });
 
   final PhoneLoginStatus status;
@@ -23,22 +25,34 @@ class PhoneLoginState extends Equatable {
   final String? phone;
   final String? message;
 
+  /// The server's `resend_in_seconds` from the send that just succeeded (#336).
+  ///
+  /// Carried so the OTP screen opens with the cooldown ALREADY RUNNING. Without
+  /// it the resend button is armed the instant the screen appears while the
+  /// server still rejects for `OTP_RESEND_COOLDOWN_SECONDS` — so the worker
+  /// whose SMS has not arrived (the whole reason the button exists) taps it and
+  /// gets a red OTP_RATE_LIMITED. A button that only produces an error is worse
+  /// than no button.
+  final Duration? resendIn;
+
   bool get isSubmitting => status == PhoneLoginStatus.submitting;
 
   PhoneLoginState copyWith({
     PhoneLoginStatus? status,
     String? phone,
     String? message,
+    Duration? resendIn,
   }) {
     return PhoneLoginState(
       status: status ?? this.status,
       phone: phone ?? this.phone,
+      resendIn: resendIn ?? this.resendIn,
       message: message,
     );
   }
 
   @override
-  List<Object?> get props => <Object?>[status, phone, message];
+  List<Object?> get props => <Object?>[status, phone, message, resendIn];
 }
 
 /// Drives the phone-entry screen: a single OTP request through
@@ -82,9 +96,15 @@ class PhoneLoginCubit extends Cubit<PhoneLoginState> {
     // BadaBhai to read this message?" prompt.
     if (_canReceiveSms(phoneE164)) unawaited(_openOtpAutofillWindow());
     try {
-      await _manager.requestOtp(phoneE164);
+      // #336 — the result was previously discarded, which is why the OTP
+      // screen's resend button had no server cooldown to honour.
+      final OtpRequestResult result = await _manager.requestOtp(phoneE164);
       if (isClosed) return;
-      emit(state.copyWith(status: PhoneLoginStatus.success, phone: phoneE164));
+      emit(state.copyWith(
+        status: PhoneLoginStatus.success,
+        phone: phoneE164,
+        resendIn: result.resendIn,
+      ));
     } on AuthFailure catch (failure) {
       if (isClosed) return;
       emit(state.copyWith(

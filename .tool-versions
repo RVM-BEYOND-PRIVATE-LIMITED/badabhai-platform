@@ -1,0 +1,42 @@
+# BadaBhai repo toolchain pin — the Flutter SDK the two mobile apps are built and
+# CI-gated on. TD71 (#462).
+#
+# WHY THIS FILE EXISTS
+# Dev machines ran Flutter 3.27.4 while CI ran 3.35.7, and nothing in the repo
+# stated which was correct. That gap produced TD71 twice: worker-app's
+# pubspec.lock was committed from 3.27.4 (carrying a `_macros` entry that does
+# not exist in Dart 3.7+), so CI's `pub get` silently re-resolved and rewrote it
+# and the green "Worker app (analyze/test)" check was validating a resolution
+# that was never committed. TD61 was the same class of drift, inverted. The pin
+# now lives in ONE place devs and tooling can both read.
+#
+# HOW IT IS ENFORCED (three places — keep them in lockstep on any bump)
+#   1. this file                                     — dev machines
+#   2. .github/workflows/worker-app.yml  (flutter-version: "3.35.7")
+#   3. .github/workflows/payer-app.yml   (flutter-version: "3.35.7")
+# The apps' `environment:` blocks (apps/{worker,payer}-app/pubspec.yaml) floor at
+# Flutter >=3.35.0 so an old SDK fails LOUD at `pub get` rather than as a
+# confusing transitive resolution error.
+#
+# WHY .tool-versions AND NOT .fvmrc
+# This format is read by asdf and mise, and IGNORED — harmlessly, with no error
+# and no install prompt — by anyone using neither. It does not intercept a plain
+# `flutter` command, so nobody is forced to adopt a version manager; for them it
+# is simply the documented answer to "which SDK?". fvm was the alternative but is
+# more intrusive (it wants `fvm flutter ...` at every call site and an .fvm/
+# symlink dir), and `.fvmrc` is resolved from the current directory rather than
+# by walking up the tree, so it could not sit at the repo root and cover both
+# apps. asdf/mise DO walk up, so this one file applies inside apps/worker-app
+# and apps/payer-app. It is also the format `subosito/flutter-action@v2` can
+# consume via its `flutter-version-file:` input — so the workflows can later be
+# pointed here and the drift closed structurally instead of by convention.
+#
+# The `-stable` suffix is the asdf-flutter version identifier for the same build
+# CI names plainly as "3.35.7" (Dart 3.9.2).
+flutter 3.35.7-stable
+
+# Node is deliberately NOT pinned here: package.json already declares
+# `engines.node: ">=20"` + `packageManager: pnpm@11.5.2`, and hard-pinning one
+# exact Node version in this file would be STRICTER than the contract the repo
+# actually holds itself to — it would break asdf users who are on a perfectly
+# valid Node 22.

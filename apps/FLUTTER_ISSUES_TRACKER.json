@@ -3,7 +3,7 @@
   "purpose": "History of every Flutter issue/error reported and resolved, across both Flutter apps. Read this BEFORE writing new Flutter functionality so a past issue is not reintroduced. Every entry must carry a root_cause and a prevention_rule that new code is checked against.",
   "scope": ["apps/worker-app", "apps/payer-app"],
   "toolchain": { "flutter": "3.35.7", "dart": "3.9.2" },
-  "last_updated": "2026-07-17",
+  "last_updated": "2026-07-18",
   "entry_schema": {
     "id": "FI-### — sequential, never reused",
     "date": "YYYY-MM-DD the issue was reported",
@@ -28,10 +28,10 @@
       "title": "Revoking a device threw 'Cannot emit new states after calling close' and the list never refreshed",
       "symptom": "Bad state: Cannot emit new states after calling close\n#0      BlocBase.emit (package:bloc/src/bloc_base.dart:97:9)\n#1      DevicesCubit.load (package:badabhai_worker_app/features/auth/presentation/cubit/devices_cubit.dart:48:5)\n#2      DevicesCubit.revoke (package:badabhai_worker_app/features/auth/presentation/cubit/devices_cubit.dart:68:11)\n<asynchronous suspension>\n#3      _DeviceTile._confirmRevoke (package:badabhai_worker_app/features/auth/presentation/devices_screen.dart:176:13)\n<asynchronous suspension>",
       "root_cause": "DevicesCubit.load() guarded its two POST-await emits with `if (isClosed) return;` but NOT the `emit(loading)` on its first line — that one looks synchronous and therefore safe. It is not: revoke() calls `await _manager.revokeDevice(id)` and only THEN calls load(), so load()'s first line is itself reached after an await. If the DevicesCubit closed during that await (every worker-app cubit is screen-scoped — BlocProvider is created inside the screen's build, so it closes on pop), the first emit throws. The trap is that an emit's safety depends on the whole call graph, not on the method it sits in.",
-      "fix": "NOT FIXED — the user has hidden the Devices section, so the reported instance is dormant by scope decision. The bug class was swept across all 31 Cubits/Blocs in both apps instead (see FI-002 note: audit was interrupted and is INCOMPLETE — re-run before trusting the app is clean).",
-      "files_changed": [],
+      "fix": "FIXED 2026-07-18 (GitHub #464). The first emit in DevicesCubit.load() is now guarded with `if (isClosed) return;` — it was reachable AFTER an await via revoke() -> load() on a screen-scoped cubit that closes on pop, which is what made emit-after-close possible. The 'Aapke devices' row in settings_screen.dart is restored, so the screen is reachable again: hiding it had removed the only in-app way for a worker to revoke a session on a lost or stolen phone. Regression tests cover the close-mid-flight path and the Settings navigation. Supersedes the earlier wont-fix, which was recorded when the entry point was hidden rather than the crash fixed. NOTE the FI-002 sweep is still INCOMPLETE — re-run before trusting the app is clean.",
+      "files_changed": ["apps/worker-app/lib/features/auth/presentation/cubit/devices_cubit.dart", "apps/worker-app/lib/features/settings/presentation/settings_screen.dart", "apps/worker-app/test/features/auth/devices_cubit_test.dart", "apps/worker-app/test/features/settings/settings_screen_test.dart"],
       "prevention_rule": "An emit is UNSAFE if it is reachable after ANY await on ANY call path without an `if (isClosed) return;` in between — including an emit on the FIRST line of a method that some other method calls post-await, and emits inside .then()/Timer/StreamSubscription callbacks. Guard by call-graph reachability, never by 'is there an await above it in this method'. Screen-scoped cubits (BlocProvider in a screen build) close on pop, so any in-flight await can land on a closed cubit.",
-      "status": "wont-fix",
+      "status": "resolved",
       "tags": ["bloc", "cubit", "emit-after-close", "isClosed", "async", "lifecycle", "devices"]
     },
     {

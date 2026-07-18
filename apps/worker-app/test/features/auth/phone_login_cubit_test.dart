@@ -28,8 +28,13 @@ void main() {
     expect: () => const <PhoneLoginState>[
       PhoneLoginState(
           status: PhoneLoginStatus.submitting, phone: '+919912345678'),
+      // #336 — success now also carries the server's resend cooldown, so the
+      // OTP screen can open with the countdown already running instead of an
+      // armed button the server would reject.
       PhoneLoginState(
-          status: PhoneLoginStatus.success, phone: '+919912345678'),
+          status: PhoneLoginStatus.success,
+          phone: '+919912345678',
+          resendIn: Duration(seconds: 30)),
     ],
     verify: (_) => verify(() => manager.requestOtp('+919912345678')).called(1),
   );
@@ -73,8 +78,13 @@ void main() {
     expect: () => const <PhoneLoginState>[
       PhoneLoginState(
           status: PhoneLoginStatus.submitting, phone: '+919912345678'),
+      // #336 — success now also carries the server's resend cooldown, so the
+      // OTP screen can open with the countdown already running instead of an
+      // armed button the server would reject.
       PhoneLoginState(
-          status: PhoneLoginStatus.success, phone: '+919912345678'),
+          status: PhoneLoginStatus.success,
+          phone: '+919912345678',
+          resendIn: Duration(seconds: 30)),
     ],
     verify: (_) => verify(() => manager.requestOtp('+919912345678')).called(1),
   );

@@ -1,9 +1,16 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/http.dart' as http;
+import 'package:share_plus/share_plus.dart';
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
+import '../../../core/error/failure_reason.dart';
 import '../../../core/nav/tab_focus.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -147,12 +154,16 @@ class _ResumeViewState extends State<_ResumeView> {
               ),
               const Divider(height: 1, color: AppColors.divider),
               // In-card actions: download the PDF (GET /resume/:id/download —
-              // real, worker-authed) + the safe-field edit entry-point.
+              // real, worker-authed), SHARE that PDF to WhatsApp (#336 — the
+              // parity item that was never built), + the safe-field edit
+              // entry-point.
               Padding(
                 padding: const EdgeInsets.all(AppSpacing.s4),
                 child: Column(
                   children: <Widget>[
                     const _DownloadResumeButton(),
+                    const SizedBox(height: AppSpacing.s2),
+                    const ResumeShareButton(),
                     const SizedBox(height: AppSpacing.s2),
                     _EditResumeButton(onReturned: _onEditReturned),
                   ],
@@ -285,6 +296,73 @@ const Duration _kReadyPollInterval = Duration(milliseconds: 1500);
 /// error. The worker is not waiting on their phone; they are waiting on a render.
 const String kResumePreparingLabel = 'PDF taiyaar ho rahi hai…';
 
+/// The saved/shared file name derived from the worker's OWN name (§2 self-read,
+/// no LLM — see [resumeDownloadFileName]), or [kFallbackResumeFileName] when the
+/// name cannot be read.
+///
+/// NEVER throws: a name-fetch failure (offline / session gone / unset name) must
+/// not cost the worker their PDF — the name on the file is a nicety, not a
+/// precondition. Shared by the download and share buttons so the document a
+/// factory owner receives on WhatsApp carries the same NAME_..._RESUME.pdf the
+/// Downloads folder does.
+Future<String> _loadResumeFileName() async {
+  try {
+    final ResumeSafeFields fields = await locator<ResumeEditRepository>().load();
+    return resumeDownloadFileName(fields.displayName);
+  } catch (_) {
+    return kFallbackResumeFileName;
+  }
+}
+
+/// Resolves the signed url, tolerating the SHORT "still rendering" window.
+///
+/// A generate resets the row to render_status 'pending' and re-enqueues the
+/// render, so right after an edit-driven regenerate the first download
+/// legitimately 409s (→ [ResumeNotReadyFailure]). One-shotting that told the
+/// worker their download failed when it was simply seconds early. Poll briefly
+/// instead — the caller's button stays in its loading state, so this reads as
+/// "checking…" rather than a stall. [onPreparing] fires the first time a 409 is
+/// seen so the button can say WHY it is waiting.
+///
+/// Deliberately BOUNDED and short: when rendering is disabled server-side the
+/// PDF never arrives, and the worker must get the honest "taiyaar ho rahi hai"
+/// rather than an indefinite spinner. Only the not-ready case retries — every
+/// other failure surfaces immediately. The url handling itself is untouched
+/// (in-app fetch; no url_launcher).
+///
+/// Top-level rather than a method on the download button because the SHARE
+/// button (#336) mints the same url and must tolerate the same render window —
+/// a worker who just regenerated and tapped "WhatsApp par bhejein" would
+/// otherwise be told their resume failed while it was still rendering fine.
+Future<String?> resolveSignedResumeUrl(
+  ResumeCubit cubit, {
+  required VoidCallback onPreparing,
+}) async {
+  for (int attempt = 0; attempt < _kReadyMaxAttempts; attempt++) {
+    final bool lastAttempt = attempt == _kReadyMaxAttempts - 1;
+    try {
+      return await cubit.resolveDownloadUrl();
+    } on ResumeNotReadyFailure {
+      if (lastAttempt) rethrow;
+      // Say WHY the wait is happening — the PDF is rendering, nothing is wrong.
+      onPreparing();
+      await Future<void>.delayed(_kReadyPollInterval);
+    } catch (error) {
+      // A transient 5xx / transport blip on the mint is the OTHER reason a
+      // first tap failed and a second worked: only the 409 was retried, so a
+      // 500 fell straight through to "Server error (500)". Ride it out on the
+      // SAME bounded budget rather than nesting a second retry loop inside
+      // this one (which would multiply 20 attempts into 60 requests).
+      //
+      // Deliberately does NOT call onPreparing: the PDF is not rendering, the
+      // server hiccuped, and claiming otherwise would be a lie.
+      if (lastAttempt || !isTransientFailure(error)) rethrow;
+      await Future<void>.delayed(_kReadyPollInterval);
+    }
+  }
+  return null; // unreachable: the last attempt either returns or rethrows.
+}
+
 class _DownloadResumeButton extends StatefulWidget {
   const _DownloadResumeButton();
 
@@ -321,54 +399,15 @@ class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
   }
 
   Future<void> _prefetchFileName() async {
-    try {
-      final ResumeSafeFields fields =
-          await locator<ResumeEditRepository>().load();
-      if (!mounted) return;
-      setState(() => _fileName = resumeDownloadFileName(fields.displayName));
-    } catch (_) {
-      // Best-effort: keep the fallback name (offline / session gone / unset name).
-    }
+    final String name = await _loadResumeFileName();
+    if (!mounted) return;
+    setState(() => _fileName = name);
   }
 
-  /// Resolves the signed url, tolerating the SHORT "still rendering" window.
-  ///
-  /// A generate resets the row to render_status 'pending' and re-enqueues the
-  /// render, so right after an edit-driven regenerate the first download
-  /// legitimately 409s (→ [ResumeNotReadyFailure]). One-shotting that told the
-  /// worker their download failed when it was simply seconds early. Poll briefly
-  /// instead — the button stays in its loading state, so this reads as
-  /// "checking…" rather than a stall.
-  ///
-  /// Deliberately BOUNDED and short: when rendering is disabled server-side the
-  /// PDF never arrives, and the worker must get the honest "taiyaar ho rahi hai"
-  /// rather than an indefinite spinner. Only the not-ready case retries — every
-  /// other failure surfaces immediately. The url handling itself is untouched
-  /// (in-app fetch + MediaStore save; no url_launcher).
-  Future<String?> _resolveWithReadyPoll(ResumeCubit cubit) async {
-    for (int attempt = 0; attempt < _kReadyMaxAttempts; attempt++) {
-      final bool lastAttempt = attempt == _kReadyMaxAttempts - 1;
-      try {
-        return await cubit.resolveDownloadUrl();
-      } on ResumeNotReadyFailure {
-        if (lastAttempt) rethrow;
-        // Say WHY the wait is happening — the PDF is rendering, nothing is wrong.
-        if (mounted && !_preparing) setState(() => _preparing = true);
-        await Future<void>.delayed(_kReadyPollInterval);
-      } catch (error) {
-        // A transient 5xx / transport blip on the mint is the OTHER reason a
-        // first tap failed and a second worked: only the 409 was retried, so a
-        // 500 fell straight through to "Server error (500)". Ride it out on the
-        // SAME bounded budget rather than nesting a second retry loop inside
-        // this one (which would multiply 20 attempts into 60 requests).
-        //
-        // Deliberately does NOT set _preparing: the PDF is not rendering, the
-        // server hiccuped, and claiming otherwise would be a lie.
-        if (lastAttempt || !isTransientFailure(error)) rethrow;
-        await Future<void>.delayed(_kReadyPollInterval);
-      }
-    }
-    return null; // unreachable: the last attempt either returns or rethrows.
+  /// Marks the button "PDF taiyaar ho rahi hai…" the first time the ready-poll
+  /// sees a 409. Passed to [resolveSignedResumeUrl] as its `onPreparing` hook.
+  void _markPreparing() {
+    if (mounted && !_preparing) setState(() => _preparing = true);
   }
 
   Future<void> _download() async {
@@ -382,7 +421,8 @@ class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
     if (!mounted) return;
     await downloadSignedPdf(
       context,
-      resolve: () => _resolveWithReadyPoll(cubit),
+      resolve: () =>
+          resolveSignedResumeUrl(cubit, onPreparing: _markPreparing),
       fileName: _fileName,
     );
     if (mounted) {
@@ -403,6 +443,218 @@ class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
       iconLeft: Icons.download_rounded,
       loading: _loading,
       onPressed: _loading ? null : _download,
+    );
+  }
+}
+
+// Worker-facing share copy, exported so tests assert the exact honest lines.
+const String kResumeShareLabel = 'WhatsApp par bhejein';
+const String kResumeSharePreparingNotice = 'Resume taiyaar kar rahe hain…';
+const String kResumeShareGenericFailureNotice =
+    'Resume bhej nahi paye. Dobara koshish karein.';
+const String kResumeShareNoLinkNotice =
+    'PDF link abhi nahi mil paya. Dobara koshish karein.';
+const String kResumeShareMockNotice =
+    'Demo resume bheja nahi ja sakta. Asli resume ban jaane par bhejein.';
+
+/// The message that travels ALONGSIDE the attached PDF.
+///
+/// Deliberately carries no name, no phone number and no link: the worker's
+/// details are already inside the document they chose to send, and anything
+/// extra here would be PII we put into a chat thread on their behalf. Written
+/// gender-neutrally — every worker sends the same line.
+const String kResumeShareText =
+    'Mera resume — BadaBhai app se banaya hai. Kaam ke liye baat karte hain.';
+
+/// Hands the resume PDF to the platform share sheet.
+///
+/// Takes BYTES and a file name — never a url — so the signed credential is
+/// structurally incapable of reaching a chat thread through this seam (see the
+/// #354 note on [ResumeShareButton]). Injected so tests never touch the native
+/// share plugin.
+typedef ResumeShareFn = Future<void> Function({
+  required Uint8List bytes,
+  required String fileName,
+  required String text,
+});
+
+/// Production [ResumeShareFn] — the system share sheet with the PDF attached.
+Future<void> _shareResumeFile({
+  required Uint8List bytes,
+  required String fileName,
+  required String text,
+}) async {
+  // fileNameOverrides is not optional here: cross_file drops XFile.name on every
+  // platform except web, and without the override share_plus stages the
+  // attachment under an invented uuid — the factory owner would receive
+  // "a1b2c3d4.pdf" instead of RAMESH_KUMAR_RESUME.pdf and have no idea whose
+  // resume they just opened.
+  await Share.shareXFiles(
+    <XFile>[XFile.fromData(bytes, mimeType: 'application/pdf', name: fileName)],
+    fileNameOverrides: <String>[fileName],
+    text: text,
+  );
+}
+
+/// Pulls the resume PDF's BYTES from the signed [uri] into memory.
+///
+/// In-app, exactly like the download path: the url is a single-use credential
+/// and must never be handed to another app or process. Non-200 → typed
+/// [ServerFailure] so the honest status reaches the worker; a 5xx blip is ridden
+/// out (a GET is idempotent, so the retry is free), and [kPdfDownloadTimeout]
+/// bounds EACH attempt so a dead-but-open socket cannot spin the button forever.
+///
+/// Held in memory rather than staged through a temp file the way the download
+/// does: a resume PDF is a few hundred KB, and this way the app keeps no copy of
+/// its own to clean up (share_plus stages the attachment in the OS temp dir it
+/// manages, and the OS reclaims that).
+Future<Uint8List> _fetchResumePdfBytes(http.Client client, Uri uri) {
+  return retryTransient(() async {
+    final http.Response res =
+        await client.get(uri).timeout(kPdfDownloadTimeout);
+    if (res.statusCode != 200) throw ServerFailure(res.statusCode);
+    return res.bodyBytes;
+  });
+}
+
+/// "WhatsApp par bhejein" — shares the resume as an attached PDF (#336).
+///
+/// The build-kit parity item that was never built: the worker could save their
+/// PDF to Downloads but had no way to actually SEND it to the factory owner who
+/// asked for it, which is the entire point of having a resume. The system sheet
+/// is used rather than a `wa.me` deep link — a deep link can only carry text (so
+/// it could only carry the url, see below), and the sheet puts WhatsApp first on
+/// virtually every worker's phone while still working when it is not installed.
+///
+/// SECURITY — SHARE THE FILE, NEVER THE URL (#354). DO NOT "SIMPLIFY" THIS.
+/// The url minted by GET /resume/:id/download is a SIGNED, time-limited
+/// credential: anyone holding it can pull the worker's resume until it expires.
+/// Pasting it into a chat would hand that credential to WhatsApp, to everyone in
+/// the group, and to every forward after that — permanently out of our control,
+/// and pointing at a document full of the worker's PII. #354 was exactly this
+/// bug in the payer app (a signed url reaching the system clipboard). So: the
+/// url is fetched IN-APP, held in memory only, never logged or displayed, and
+/// only the resulting BYTES cross the share boundary. [ResumeShareFn] takes
+/// bytes precisely so a later edit cannot casually pass a url through it.
+///
+/// DOWNLOAD-THEN-SHARE, always — there is no "download it first" precondition
+/// and no disabled state. Tapping mints a fresh url, pulls the bytes and hands
+/// the file to the sheet. Sharing whatever the Download button happened to leave
+/// behind was the alternative and it is worse on every count: the saved file is
+/// an opaque `content://` MediaStore handle on API 29+ (not readable as a path),
+/// it goes stale the moment an edit-driven regenerate re-renders the PDF, and a
+/// worker who never tapped Download would face a dead button with nothing
+/// explaining why. A failure here NEVER falls back to sharing the url — it says
+/// the real reason and shares nothing.
+class ResumeShareButton extends StatefulWidget {
+  const ResumeShareButton({super.key, this.share, this.httpClient});
+
+  /// Injectable ONLY as test seams; production passes neither (same convention
+  /// as [downloadSignedPdf]).
+  final ResumeShareFn? share;
+  final http.Client? httpClient;
+
+  @override
+  State<ResumeShareButton> createState() => _ResumeShareButtonState();
+}
+
+class _ResumeShareButtonState extends State<ResumeShareButton> {
+  bool _loading = false;
+
+  /// True once the ready-poll has seen at least one "still rendering" 409 — the
+  /// button then says so instead of looking like a dead spinner.
+  bool _preparing = false;
+
+  void _markPreparing() {
+    if (mounted && !_preparing) setState(() => _preparing = true);
+  }
+
+  Future<void> _share() async {
+    final ResumeCubit cubit = context.read<ResumeCubit>();
+    // Captured before the async gaps so we never touch `context` after an await
+    // (use_build_context_synchronously).
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    setState(() => _loading = true);
+    messenger
+      ..clearSnackBars()
+      ..showSnackBar(
+          const SnackBar(content: Text(kResumeSharePreparingNotice)));
+
+    // Resolved at tap time rather than prefetched on mount the way the download
+    // button does it: a second load() per mount would double this screen's
+    // network work to save a few hundred ms the worker cannot notice behind the
+    // "taiyaar kar rahe hain" notice. Never throws — worst case the document is
+    // named BadaBhai_Resume.pdf, which is not worth failing a share over.
+    final String fileName = await _loadResumeFileName();
+
+    String? reason; // the actual failure to surface, or null on success
+    try {
+      final String? url =
+          await resolveSignedResumeUrl(cubit, onPreparing: _markPreparing);
+      final Uri? uri = (url == null || url.isEmpty) ? null : Uri.tryParse(url);
+      if (uri == null) {
+        // Minted, but no usable url came back.
+        reason = kResumeShareNoLinkNotice;
+      } else if (uri.scheme == 'mock') {
+        // MOCK MODE: MockApiClient's `mock://` sentinel points nowhere. The
+        // download path writes a placeholder PDF instead, but those bytes live
+        // behind pdf_downloader's @visibleForTesting buildPlaceholderPdfBytes —
+        // off-limits from lib/ — so say so plainly rather than send a corrupt
+        // zero-byte "resume" into someone's WhatsApp.
+        reason = kResumeShareMockNotice;
+      } else {
+        final http.Client client = widget.httpClient ?? http.Client();
+        try {
+          final Uint8List bytes = await _fetchResumePdfBytes(client, uri);
+          await (widget.share ?? _shareResumeFile)(
+            bytes: bytes,
+            fileName: fileName,
+            text: kResumeShareText,
+          );
+        } finally {
+          if (widget.httpClient == null) client.close();
+        }
+      }
+    } on Failure catch (f) {
+      // The typed cause (network / server 5xx / 401 / PDF-not-rendered / …), so
+      // the worker hears the REAL reason — never a generic "check your internet".
+      reason = failureReason(f).reason;
+    } on TimeoutException {
+      reason = failureReason(const NetworkFailure()).reason;
+    } on http.ClientException {
+      reason = failureReason(const NetworkFailure()).reason;
+    } on SocketException {
+      reason = failureReason(const NetworkFailure()).reason;
+    } catch (_) {
+      // Includes a PlatformException from the share sheet itself.
+      reason = kResumeShareGenericFailureNotice;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _preparing = false;
+    });
+    // On success the share sheet IS the confirmation — drop the "taiyaar kar
+    // rahe hain" line rather than stacking another notice on top of it.
+    messenger.clearSnackBars();
+    if (reason != null) {
+      messenger.showSnackBar(SnackBar(content: Text(reason)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BbButton(
+      // Same honest progress line the download button shows while the server
+      // renders — waiting on a render is not an error.
+      label: _preparing ? kResumePreparingLabel : kResumeShareLabel,
+      block: true,
+      variant: BbButtonVariant.secondary,
+      iconLeft: Icons.share_rounded,
+      loading: _loading,
+      // Busy for the WHOLE share so a double-tap can't open two sheets.
+      onPressed: _loading ? null : _share,
     );
   }
 }

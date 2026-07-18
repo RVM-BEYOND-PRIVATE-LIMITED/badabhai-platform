@@ -35,6 +35,7 @@ import 'package:badabhai_worker_app/core/auth/locale_store.dart';
 import 'package:badabhai_worker_app/core/auth/mock_auth_api.dart';
 import 'package:badabhai_worker_app/core/auth/secure_token_store.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/features/notifications/data/notification_read_store.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_bottom_nav.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_keypad.dart';
@@ -113,6 +114,11 @@ void main() {
     await initAuthLocator(
       localeStore: LocaleStore(FakePrefs()),
       authApi: MockAuthApi(locator<SecureTokenStore>()),
+      // #456 — same reason as the LocaleStore fake above: the real read store
+      // goes through the SharedPreferences channel, which never answers under
+      // FakeAsync. The Alerts feed awaits it before mapping a row, so the real
+      // one would hang the badge assertion below rather than just losing state.
+      readStore: const SessionOnlyNotificationReadStore(),
       persistentAuthEnabled: true,
     );
     // Cold start: no remembered token → loggedOut → the journey starts at login.

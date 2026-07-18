@@ -25,6 +25,7 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 class MainActivity : FlutterActivity() {
 
@@ -95,8 +96,13 @@ class MainActivity : FlutterActivity() {
                         result = result,
                     )
                     "openSavedFile" -> openSavedFile(call.argument<String>("location"), result)
+                    // #465 — pdf_downloader.dart STILL sends "displayName" over
+                    // this channel (its call site is shared and unchanged), and
+                    // we deliberately never read it. The resume file name is the
+                    // worker's real legal name; not binding it here is what keeps
+                    // it out of the notification path entirely. An unread arg key
+                    // is inert to MethodChannel, so the contract stays compatible.
                     "notifyDownloadComplete" -> notifyDownloadComplete(
-                        displayName = call.argument<String>("displayName"),
                         displayPath = call.argument<String>("displayPath"),
                         location = call.argument<String>("location"),
                         result = result,
@@ -268,19 +274,34 @@ class MainActivity : FlutterActivity() {
      *
      * Tap opens the saved file via [viewIntentFor] — identical to "Kholein".
      *
-     * PRIVACY: VISIBILITY_PRIVATE. The resume file name now carries the worker's
-     * REAL name (RAMESH_KUMAR_RESUME.pdf, #398), so the title is PII; this keeps
-     * it off the lock screen, where it would otherwise be readable by anyone
-     * holding the phone.
+     * PRIVACY (#465 / TD85): NOTHING here is derived from the worker's name.
+     * Since #398 the resume file name IS the worker's real legal name
+     * (RAM_KUMAR_SHARMA_RESUME.pdf), so the old title (displayName), text and
+     * bigText (displayPath) each wrote that name into the OS notification store.
+     * VISIBILITY_PRIVATE was the old mitigation and it only ever governed
+     * lock-screen RENDERING — it does nothing about NotificationListenerService,
+     * which any app the worker has granted notification access reads every posted
+     * notification with, needing no further permission and giving the worker no
+     * signal. In the sideload-heavy low-end Android segment this product targets,
+     * the booster/"cleaner" utilities that ask for that access as a matter of
+     * course are exactly that app — the same threat model [applyScreenCaptureBlock]
+     * invokes to justify app-wide FLAG_SECURE. So this notification now names the
+     * FOLDER, never the file. The real name stays where it is useful and bounded:
+     * on disk, and in the in-app SnackBar (downloadCompleteNoticeFor).
+     *
+     * TD85 is logged "awaiting security ruling" on whether the OS notification
+     * store counts as a CLAUDE.md §2 sink. This lands ahead of that ruling on
+     * purpose: it is strictly PII-REDUCING and costs the worker nothing — the tap
+     * still opens the file, so discoverability is untouched — so it cannot be
+     * wrong in the harmful direction whichever way the ruling lands.
      */
     private fun notifyDownloadComplete(
-        displayName: String?,
         displayPath: String?,
         location: String?,
         result: MethodChannel.Result,
     ) {
         try {
-            if (displayName == null || displayPath == null || location == null) {
+            if (displayPath == null || location == null) {
                 result.success(false)
                 return
             }
@@ -302,29 +323,75 @@ class MainActivity : FlutterActivity() {
             }
             createDownloadsChannel()
 
+            // Name the FOLDER, never the file (#465). displayPath is
+            // "Download/RAM_KUMAR_SHARMA_RESUME.pdf" on API 29+ (or the pre-29
+            // app-external equivalent); everything BEFORE the last '/' is pure
+            // directory and carries no name. Derived rather than hard-coding
+            // "Downloads" because below API 29 the file genuinely is NOT in
+            // public Downloads (see [saveToAppExternalDownloads]) — asserting it
+            // was would send the worker hunting in a folder their PDF isn't in.
+            val folder = displayPath.substringBeforeLast('/', "")
+            val body = if (folder.isEmpty()) {
+                "File save ho gayi — kholne ke liye tap karein"
+            } else {
+                "$folder folder mein save ho gayi — kholne ke liye tap karein"
+            }
+
+            // Per-download id, derived from NOTHING (#465). This was
+            // displayPath.hashCode() — i.e. an id computed from the worker's own
+            // name, sitting in the same notification record a listener service
+            // reads; a 32-bit hash of a known "NAME_RESUME.pdf" shape is
+            // guessable against a name list, so the hash leaked what the title
+            // just stopped leaking. A counter gives the uniqueness the id existed
+            // for — a resume and a kit downloaded back to back must both stay in
+            // the shade, and a second download's tap must not inherit the first
+            // file's intent through FLAG_UPDATE_CURRENT — while deriving from no
+            // worker data at all. It also can't collide the way a hash can.
+            // Accepted trade: the counter restarts with the process, so a much
+            // later download can replace a stale receipt from a previous run.
+            // These are auto-cancelling "where did it go" receipts, and the newer
+            // one is the one the worker just asked for.
+            val notificationId = downloadNotificationSeq.getAndIncrement()
+
             val pendingIntent = PendingIntent.getActivity(
                 this,
-                // Per-file request code so a second download's tap does not
-                // inherit the first file's intent.
-                displayPath.hashCode(),
+                notificationId,
                 viewIntentFor(location),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
 
             val notification = NotificationCompat.Builder(this, DOWNLOADS_NOTIFICATION_CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                .setContentTitle(displayName)
-                .setContentText(displayPath)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(displayPath))
+                // Not "Resume download complete": this ONE channel method serves
+                // the resume AND the interview kit, and the Kotlin side is never
+                // told which. A generic title is the only one that is always true
+                // — and it happens to say less, which is the point.
+                .setContentTitle("Download complete")
+                .setContentText(body)
+                // BigTextStyle KEPT — but over the folder-only [body], never the
+                // file path it used to expand (#465). Dropping it entirely was an
+                // over-correction that broke the notification on exactly the
+                // devices this product targets: below API 29 the file lives at
+                // "Android/data/com.badabhai.workerapp/files/Download", and
+                // setContentText is a single ELLIPSIZED line, so an API 24-28
+                // worker saw "Android/data/com.badabhai.work…" and learned
+                // nothing. A directory is not PII, so expanding it costs no
+                // privacy and restores the notification's only job: say where the
+                // file went.
+                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                // PUBLIC now, and that is an upgrade, not a relaxation: the
+                // content is generic, so redacting it on the lock screen would
+                // replace a useful "where's my file" line with "Contents hidden"
+                // and defeat the notification's only job. If anyone ever puts the
+                // file name back in here, this must go back to VISIBILITY_PRIVATE
+                // — but the real answer is: don't put the file name back in here.
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setContentIntent(pendingIntent)
                 .build()
 
-            // Per-file id: a resume and a kit downloaded back to back must both
-            // stay in the shade, not silently replace one another.
-            manager.notify(displayPath.hashCode(), notification)
+            manager.notify(notificationId, notification)
             result.success(true)
         } catch (e: Exception) {
             // Never let a notification problem fail a finished download.
@@ -377,5 +444,12 @@ class MainActivity : FlutterActivity() {
 
         /** Notification channel for download receipts — NOT the FCM channel. */
         private const val DOWNLOADS_NOTIFICATION_CHANNEL_ID = "bb_downloads_channel"
+
+        /**
+         * Supplies the per-download notification / PendingIntent id (#465).
+         * Atomic because [notifyDownloadComplete] is reachable from the platform
+         * thread while a [saveToDownloads] worker thread is still in flight.
+         */
+        private val downloadNotificationSeq = AtomicInteger(1)
     }
 }
