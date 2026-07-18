@@ -16,23 +16,48 @@ came back):
 - ``test_chat_turn_never_resends_history`` / ``test_input_size_is_flat_across_turns``
   — every chat call carries exactly {system, this message, this question} and no
   earlier answer (fails if the history re-send returns).
-- ``test_full_run_asks_every_topic_once_in_bank_order`` — all 11 topics, in bank
-  order, each exactly once.
-- ``test_clarify_reserves_the_same_question_at_most_twice`` — the only sanctioned
+- ``test_full_run_asks_every_topic_in_bank_order_with_the_bounded_re_ask`` — all 11
+  topics, in bank order; essentials twice (INTERVIEW-1's bounded re-ask, since a
+  signal-free answer genuinely leaves them unanswered), everything else once.
+- ``test_full_run_never_asks_any_topic_a_third_time`` — the multiplicity bound.
+- ``test_clarify_reserves_the_same_question_at_most_twice`` — the other sanctioned
   repeat, bounded by ``_MAX_CONSECUTIVE_CLARIFIES``.
 """
 
 import asyncio
 import json
+from collections import Counter
 
 from app.cli import onboarding_chat
 from app.config import Settings
 from app.contracts import AICallMetadata
 from app.profiling import interview_engine
 from app.profiling.prompts import BADA_BHAI_SYSTEM_PROMPT, build_chat_messages
-from app.profiling.question_bank import topics_for
+from app.profiling.question_bank import topic_by_id, topics_for
 
 BANK_ORDER = [t.id for t in topics_for("cnc_vmc")]
+
+
+def _expected_blind_ask_order() -> list[str]:
+    """The exact ask sequence a SIGNAL-FREE worker must produce, DERIVED from the
+    engine's constants + the bank (never hard-coded), so it tracks them the way the
+    engine's own headroom pin does.
+
+    Two rules produce it, both of them the engine's documented contract:
+
+    - ``_next_topic`` serves unanswered ESSENTIAL topics first (in bank order),
+      each up to ``MAX_ASKS_PER_TOPIC`` — INTERVIEW-1's bounded re-ask. With no
+      extractable signal they are never marked answered, so each takes its full
+      budget before the next topic is served.
+    - Everything else is asked exactly ONCE, in bank order, and never re-asked.
+    """
+    essentials = [t for t in BANK_ORDER if t in interview_engine.ESSENTIAL_TOPICS]
+    others = [t for t in BANK_ORDER if t not in interview_engine.ESSENTIAL_TOPICS]
+    return [
+        topic_id
+        for topic_id in essentials
+        for _ in range(interview_engine.MAX_ASKS_PER_TOPIC)
+    ] + others
 
 
 def _meta(
@@ -381,9 +406,17 @@ def test_input_size_is_flat_across_turns():
     assert not all(g > 0 for g in growth), f"input size grows every turn: {sizes}"
 
 
-def test_full_run_asks_every_topic_once_in_bank_order():
-    """Coverage: a worker who gives no extractable signal is asked EVERY topic in
-    the question bank, in bank order, each exactly once, then gets the wrap-up.
+def test_full_run_asks_every_topic_in_bank_order_with_the_bounded_re_ask():
+    """COVERAGE (the property this test has always owned): a worker who gives no
+    extractable signal is asked EVERY topic in the bank, in bank order, then gets
+    the wrap-up. Still fails if a topic is SKIPPED or served OUT OF ORDER.
+
+    What changed with INTERVIEW-1: the four ESSENTIAL topics are now asked TWICE
+    (the bounded re-ask), because signal-free answers genuinely leave them
+    unanswered — previously an essential was closed the moment it was asked and the
+    profile shipped incomplete in silence. Non-essentials are still asked exactly
+    once. The expectation is derived from ESSENTIAL_TOPICS + MAX_ASKS_PER_TOPIC, so
+    a third ask, a skip, or a reordering all fail this assertion.
 
     (With informative answers the engine wraps up EARLIER by design — see
     ``test_engine_wraps_up_once_essentials_are_answered``.)"""
@@ -391,9 +424,53 @@ def test_full_run_asks_every_topic_once_in_bank_order():
     _resume, _calls, asked_order, printed = _adaptive_drive(
         router, lambda _topic: "hmm theek hai"
     )
-    assert asked_order == BANK_ORDER, f"{asked_order} != {BANK_ORDER}"
+    expected = _expected_blind_ask_order()
+    assert asked_order == expected, f"{asked_order} != {expected}"
+    # Coverage is explicit and order-independent too: nothing may be dropped.
+    assert set(asked_order) == set(BANK_ORDER)
     assert len(BANK_ORDER) == 11  # the bank really has 11 topics
     assert "resume ban raha hai" in printed  # the wrap-up turn ran
+
+
+def test_full_run_never_asks_any_topic_a_third_time():
+    """The multiplicity half, asserted separately so the bound is legible: each
+    ESSENTIAL topic is asked exactly MAX_ASKS_PER_TOPIC times and every other topic
+    exactly once — no topic may EVER exceed the bound, whatever the detector does."""
+    router = _ScriptedRouter()
+    _resume, _calls, asked_order, _printed = _adaptive_drive(
+        router, lambda _topic: "hmm theek hai"
+    )
+    counts = Counter(asked_order)
+    # The PRODUCT rule, pinned as a literal on purpose: at most ONE re-ask, i.e.
+    # never a third ask. The order expectation above is derived from the constant so
+    # it tracks the bank, but that means RAISING the constant would silently move it
+    # — this line is what stops that. Changing it is a deliberate product decision
+    # (more nagging of workers the detector cannot parse) and must be re-reviewed.
+    assert interview_engine.MAX_ASKS_PER_TOPIC == 2
+    assert max(counts.values()) <= 2, dict(counts)
+    assert max(counts.values()) <= interview_engine.MAX_ASKS_PER_TOPIC
+    for topic_id in BANK_ORDER:
+        expected_n = (
+            interview_engine.MAX_ASKS_PER_TOPIC
+            if topic_id in interview_engine.ESSENTIAL_TOPICS
+            else 1
+        )
+        assert counts[topic_id] == expected_n, (topic_id, dict(counts))
+
+
+def test_full_run_re_ask_uses_the_retry_wording_not_a_verbatim_repeat():
+    """The second ask of an essential must be the narrower ``retry_question`` — a
+    verbatim re-serve reads as broken. Checked on what the ROUTER was handed, i.e.
+    the line the worker actually sees."""
+    router = _ScriptedRouter()
+    _adaptive_drive(router, lambda _topic: "hmm theek hai")
+    served = [c["mock_response"] for c in router.chat_calls()]
+    for topic_id in interview_engine.ESSENTIAL_TOPICS:
+        topic = topic_by_id("cnc_vmc", topic_id)
+        assert topic.retry_question is not None, topic_id
+        assert any(topic.retry_question in line for line in served), (
+            f"{topic_id} was re-asked without its retry wording"
+        )
 
 
 def test_engine_wraps_up_once_essentials_are_answered():
@@ -420,12 +497,26 @@ def test_engine_wraps_up_once_essentials_are_answered():
     assert len(asked_order) < len(BANK_ORDER)
 
 
-def test_no_question_repeats_outside_the_clarify_path():
+def test_no_question_repeats_beyond_the_sanctioned_bounded_re_ask():
+    """The engine must never nag. There are now exactly TWO sanctioned repeats —
+    ``clarify_turn`` re-serving a question the worker did not understand (covered
+    below) and INTERVIEW-1's ONE bounded re-ask of an UNANSWERED essential. Anything
+    else is a regression, so this pins the exact permitted multiplicity per topic
+    rather than blanket uniqueness."""
     router = _ScriptedRouter()
     _resume, _calls, asked_order, _printed = _adaptive_drive(
         router, lambda _topic: "hmm theek hai"
     )
-    assert len(asked_order) == len(set(asked_order)), f"repeat detected: {asked_order}"
+    for topic_id, n in Counter(asked_order).items():
+        limit = (
+            interview_engine.MAX_ASKS_PER_TOPIC
+            if topic_id in interview_engine.ESSENTIAL_TOPICS
+            else 1
+        )
+        assert n <= limit, f"{topic_id} asked {n}x (limit {limit}): {asked_order}"
+    # A NON-essential is never repeated at all — the ask-once rule is absolute.
+    non_essential = [t for t in asked_order if t not in interview_engine.ESSENTIAL_TOPICS]
+    assert len(non_essential) == len(set(non_essential)), asked_order
 
 
 def test_clarify_reserves_the_same_question_at_most_twice():
