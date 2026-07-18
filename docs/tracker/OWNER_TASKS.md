@@ -11,6 +11,42 @@ Do not overload: one primary task per developer per day.
 
 ---
 
+## 2026-07-18 — CD pipeline GREEN; P0 = STAGING-SECRETS-1 only (+14d slip)
+
+> **State:** HEAD `085e2f6` (#408). **45 migrations** (0000–0044; **0042 + 0043 apply-before-deploy**). **34 ADRs** (0001–0033). 2,465 TS tests green. CD pipeline BUILT and VERIFIED GREEN (CD-0..CD-5, ephemeral GITHUB_TOKEN login). Repo is PUBLIC. **OTP REAL-ONLY.** TD62 consent-routing RESOLVED (#240, 2026-07-15). 10 owner rulings codified (#387). Since 07-15: ADR-0031 deletion grace (#400), ADR-0032 profile photo (#340/#402), ADR-0033 skills-overlap (.15, #394), CD hardening, phone separator + danda fix (#392/#397), chunked STT D-2 (#395), gated test-login D-3 (#391), live pricing D-6 (#393), B-3/B-4/B-5 (#385/#392), alerts fixes (#403–#405), guard fixes (#407/#408).
+
+> ⚠️ **R27 residual:** box was running on public dev secrets + throwaway Postgres. Treat every session/PII minted there as compromised. CD now deploys clean — but the box must be re-provisioned with fresh secrets.
+
+### Prakash — P0 CRITICAL: STAGING-SECRETS-1 (owner-only, ~half day, non-delegable)
+The CD pipeline exists and is verified green. The **only remaining gate** is secrets provisioning.
+1. **STAGING-SECRETS-1**: real secrets into the GitHub `staging` Environment — generated fresh (NEVER from `.env`). **Include `CORS_ALLOWED_ORIGINS`** (TD72a — omitting silently blocks every browser call while `/health` 200s).
+2. Apply migration **0042** then **0043** — both apply-before-deploy (0042 breaks extraction; 0043 breaks credits).
+3. Triage R27 box: stop dev-secret API + throwaway Postgres; decide volume fate.
+4. Deploy → `/health` 200. Set `RESUME_RENDER_ENABLED=true` + WeasyPrint; decide `PAYER_LOGIN_METHOD`.
+5. OTP-7: Fast2SMS creds + team allowlist activation.
+6. Also: **SECRET-1** (10 min) — restrict Google API key in Google Console.
+- See [ROADMAP.md](ROADMAP.md) critical path for full ordered list.
+- **Re-forecast: if SECRETS-1 lands today → B1 closes ~07-21/22.**
+
+### Divyanshu — P1: R28 + R31 (bounded but armed on exposure)
+- **R28**: `GET /workers/:id/profile` returns decrypted worker name unauthenticated. Fix: add `InternalServiceGuard` to list/getProfile/setName + strip `resumeText`/`resumeJson.name`. (Bounded: box not public + no real worker names yet; arms on first external traffic.)
+- **R31**: `PUT/GET /pricing/catalog` completely unauthenticated — anyone reaching API can rewrite payer billing rates. Fix: add auth guard. (Bounded: `PAYMENTS_ENABLE_REAL=false`; fix before real payments.)
+- **TD81**: ai-service is not in the staging compose file — staging degrades to mocked AI while `/health` 200s. Either add it to compose or make the mock status LOUD in `/health` before staging is handed to QA/Rishi for B1.
+
+### Rishi — Prep B1 (gated on Prakash's staging + OTP-7)
+- `flutter analyze && flutter test` locally (Flutter 3.35.7 required — local toolchain at 3.27.4 is stale, TD61).
+- Prep REAL-mode build (`--dart-define=USE_MOCKS=false --dart-define=API_BASE_URL=https://<staging-api>`).
+- When `STAGING_API_BASE_URL` + OTP-7 confirmed: REAL OTP to allowlisted phone → onboarding → chat → profile → PDF download → 4 evidence artifacts to `docs/qa/evidence/staging/`.
+
+### All — post-SECRETS-1
+- **TAX-9 versioning/re-tag** (migration 0039 applied 2026-07-15; #232): no follow-on work required unless retag runner is exercised.
+- **RVM vernacular ratification DONE** (22/22 aliases RATIFY-1, 2026-07-16). Remaining: flip `SKILL_CANONICALIZE_ENABLED` on staging post-B1.
+- **ADR-0031 prod endpoint** (§7-gated) — activate after staging is stable.
+- **TD61**: Flutter CI pin bump (3.27.4 → 3.35.7 + payer-app CI gate). Owner: DevOps + Rishi.
+- **Move ~70 repo-scope secrets into env scope** (WA-6..10) — after SECRETS-1.
+
+---
+
 ## 2026-07-15 — TAX-7 merged; staging STILL P0 (11 days past deadline)
 
 > **State:** HEAD `548acd4` (#231 docs sync). 39 migrations (0000–0038, **0038 applied**). ADR-0030 P1+P2 COMPLETE (TAX-0..8 merged). kPersistentAuth ON (PR #201). FE wiring CLOSED (PR #194). No open PRs. **OTP is REAL-ONLY** — `SMS_PROVIDER: z.literal("fast2sms")`; `SMS_PROVIDER=console` fails boot. Staging requires Fast2SMS creds.
