@@ -22,6 +22,7 @@ import { DevicesService } from "./devices.service";
 const WORKER_A = "11111111-1111-4111-8111-111111111111";
 const DEVICE_1 = "33333333-3333-4333-8333-333333333333";
 const TOKEN = "fcm-shared-handset-token";
+const TARGET = "55555555-5555-4555-8555-555555555555";
 
 const pii = { hmac: vi.fn((v: string) => `hmac:${v}`) } as never;
 
@@ -29,7 +30,7 @@ function build(repo: Record<string, unknown>, push?: { enqueue: ReturnType<typeo
   const emit = vi.fn().mockResolvedValue({ event_id: "e-1" });
   const merged = {
     listPushTargets: vi.fn().mockResolvedValue([]),
-    setPushToken: vi.fn().mockResolvedValue({ id: DEVICE_1 }),
+    setPushToken: vi.fn().mockResolvedValue({ id: DEVICE_1, pushTarget: TARGET }),
     claimPushToken: vi.fn().mockResolvedValue(0),
     ...repo,
   };
@@ -67,6 +68,44 @@ describe("D5b.2 — a shared handset must not leak security alerts across worker
     await svc.updatePushToken(WORKER_A, undefined, TOKEN);
     expect(repo.setPushToken).not.toHaveBeenCalled();
     expect(repo.claimPushToken).not.toHaveBeenCalled();
+  });
+});
+
+describe("rev-3 — the push_target MUST reach the client, or the drop-filter is dead code", () => {
+  it("returns the rotated target on a successful write", async () => {
+    // rev-2 minted this nonce and surfaced it NOWHERE: the route was 204 and
+    // DeviceListItem omits it. Every payload still echoed a `target` the client had no
+    // way to compare against, so the shared-handset drop-filter could not be built at
+    // all. If this ever returns to void, that defence silently dies again.
+    const { svc } = build({});
+    await expect(svc.updatePushToken(WORKER_A, DEVICE_1, TOKEN)).resolves.toBe(TARGET);
+  });
+
+  it("returns null — never a stale or invented target — when the write did not land", async () => {
+    // A non-null target here would have the client store a nonce the server never set,
+    // so EVERY subsequent push would mismatch and be dropped: a silent, total outage of
+    // the security channel on that device.
+    const revoked = build({ setPushToken: vi.fn().mockResolvedValue(undefined) });
+    await expect(revoked.svc.updatePushToken(WORKER_A, DEVICE_1, TOKEN)).resolves.toBeNull();
+
+    const noDid = build({});
+    await expect(noDid.svc.updatePushToken(WORKER_A, undefined, TOKEN)).resolves.toBeNull();
+  });
+
+  it("the three no-op causes stay indistinguishable from one another", async () => {
+    // The 204 existed so a caller could not tell unknown / not-owned / revoked apart.
+    // They must all still collapse to the SAME null — the repo returning undefined is
+    // the single signal for all three, so no cause is separately observable.
+    const results = await Promise.all(
+      [undefined, undefined, undefined].map((r) =>
+        build({ setPushToken: vi.fn().mockResolvedValue(r) }).svc.updatePushToken(
+          WORKER_A,
+          DEVICE_1,
+          TOKEN,
+        ),
+      ),
+    );
+    expect(new Set(results)).toEqual(new Set([null]));
   });
 });
 

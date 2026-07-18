@@ -22,6 +22,7 @@ import {
   UpdatePushTokenSchema,
   type DeviceListResponse,
   type UpdatePushTokenDto,
+  type UpdatePushTokenResponse,
 } from "./devices.dto";
 
 /**
@@ -45,32 +46,44 @@ export class DevicesController {
   }
 
   /**
-   * ADR-0034 — record the FCM token for the caller's OWN device. 204 No Content.
+   * ADR-0034 — record the FCM token for the caller's OWN device.
    *
    * Identity is entirely from the session: the worker from the guard, the device from
    * the token's `did` claim. The body carries ONLY the token — a device/worker id there
    * would be a direct IDOR onto another worker's row.
    *
+   * RETURNS the device's rotated `push_target` (rev-3). Every push payload echoes that
+   * nonce so the client can drop a message not meant for its live session; rev-2 minted
+   * it but surfaced it NOWHERE (this route was 204, `DeviceListItem` omits it), leaving
+   * that defence unbuildable. This write is what rotates the nonce, so it is the only
+   * point at which client and server can agree on its value.
+   *
    * A missing `did`, or a device that is unknown / not owned / revoked, is a silent
-   * no-op (still 204) — no oracle distinguishing those cases.
+   * no-op returning `push_token_target: null` — those cases stay indistinguishable from
+   * ONE ANOTHER, which is the property the 204 protected. The only new bit is whether
+   * the caller's OWN device is still active, which `GET /auth/devices` already reveals.
    *
    * Rate-limited per IP: the client re-sends on every token rotation and on app start,
    * so an unthrottled route is a cheap write-amplification surface. Fails closed (429)
    * if Redis is down, exactly like the other capped routes.
    */
   @Patch("me/push-token")
-  @HttpCode(204)
   async updatePushToken(
     @CurrentWorker() worker: AuthenticatedWorker,
     @Body(new ZodValidationPipe(UpdatePushTokenSchema)) dto: UpdatePushTokenDto,
     @Ip() ip: string,
-  ): Promise<void> {
+  ): Promise<UpdatePushTokenResponse> {
     await this.ipRateLimit.assertWithinHourlyIpCap(
       "push_token_update",
       ip,
       this.config.PUSH_TOKEN_UPDATES_PER_IP_PER_HOUR,
     );
-    await this.devices.updatePushToken(worker.id, worker.deviceId, dto.push_token);
+    const target = await this.devices.updatePushToken(
+      worker.id,
+      worker.deviceId,
+      dto.push_token,
+    );
+    return { push_token_target: target };
   }
 
   /** Revoke one of the current worker's devices (signs that device out). 204 No Content. */

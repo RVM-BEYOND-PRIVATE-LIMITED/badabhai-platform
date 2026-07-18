@@ -123,20 +123,24 @@ export class DevicesService {
    *     create an unbound, un-revocable push target.
    *   - unknown / not-owned / REVOKED device → NO-OP. A revoked device must never be
    *     re-armed for push; that would undo the logout-all panic button.
-   * Both collapse to 204 — no oracle distinguishing them.
+   * Both collapse to a `null` target — no oracle distinguishing them.
    *
    * On success the token is claimed EXCLUSIVELY (stealing it from any stale row on the
    * same handset) and `push_target` is rotated so a stale in-flight payload can no
    * longer match.
+   *
+   * RETURNS the rotated `push_target` (ADR-0034 rev-3) so the client can store it and
+   * drop any push whose target does not match. The nonce is rotated by this very write,
+   * so returning it here is the only moment the client and server agree on its value.
    */
   async updatePushToken(
     workerId: string,
     deviceId: string | undefined,
     token: string,
-  ): Promise<void> {
-    if (!deviceId) return;
+  ): Promise<string | null> {
+    if (!deviceId) return null;
     const updated = await this.repo.setPushToken(workerId, deviceId, token);
-    if (!updated) return;
+    if (!updated) return null;
     // A token addresses ONE install: any other row holding it is stale (a shared or
     // handed-down handset). Without this, the previous worker's SECURITY alerts would
     // be delivered to whoever holds the phone now.
@@ -145,6 +149,7 @@ export class DevicesService {
       // Count only — never the token or either worker's identity beyond the caller.
       this.logger.log(`push token claimed from ${stolen} stale device row(s)`);
     }
+    return updated.pushTarget;
   }
 
   /** The worker's active (non-revoked) devices — hash + push_token are never surfaced. */
