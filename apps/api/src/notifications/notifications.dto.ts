@@ -106,6 +106,26 @@ export const NOTIFICATION_TEMPLATES: Readonly<Record<string, NotificationTemplat
 export const NOTIFICATION_EVENT_NAMES: readonly string[] = Object.keys(NOTIFICATION_TEMPLATES);
 
 /**
+ * The SECURITY subset — the events that get RESERVED slots in the feed (TD82).
+ *
+ * DERIVED from the templates by `type === "security"`, exactly like the list above, so
+ * it cannot drift either: marking a template `security` is the ONLY way in, and the
+ * allowlist stays the single boundary.
+ *
+ * WHY a reserved leg exists: the feed is capped (newest-first), and every event here
+ * was once-per-worker-lifetime until `application.submitted` landed (2026-07-17) — the
+ * first HIGH-FREQUENCY, per-worker-unbounded event in the feed, on a swipe surface
+ * designed for rapid tapping (ADR-0009). Without a reserve, a worker who applies to
+ * enough jobs in one session pushes an account-takeover tripwire
+ * (`worker.device_registered`) out of the window — SILENTLY, since there is no
+ * pagination and no server-side read state. A degraded security channel would look
+ * exactly like a quiet one.
+ */
+export const SECURITY_EVENT_NAMES: readonly string[] = Object.entries(NOTIFICATION_TEMPLATES)
+  .filter(([, t]) => t.type === "security")
+  .map(([name]) => name);
+
+/**
  * One notification row on the wire. PII-FREE: no `worker_id` (it IS the caller), no
  * `payer_id`, no employer, no pay — only the event id, coarse type, faceless copy,
  * and the ISO timestamp.
