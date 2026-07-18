@@ -2,4 +2,10 @@
 <resources>
     <!-- FCM default notification channel id (must match FirebaseManager.CHANNEL_ID). -->
     <string name="default_notification_channel_id">bb_default_channel</string>
+
+    <!-- Overrides uCrop 2.2.10's own string (its default is "Crop"). The crop screen's
+         confirm action is shown WITH TEXT (see menu/ucrop_menu_activity.xml), so this is
+         the visible button label — "Done" reads as finishing the edit, which is what the
+         worker is actually doing. -->
+    <string name="ucrop_menu_crop">Done</string>
 </resources>

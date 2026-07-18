@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+  OVERRIDES uCrop 2.2.10's own res/menu/ucrop_menu_activity.xml. Verbatim copy of the
+  library menu with ONE change: the confirm item is `always|withText` instead of
+  `ifRoom`, so it renders as a labelled DONE action in the toolbar rather than a bare
+  tick icon (the label itself comes from the `ucrop_menu_crop` string, overridden to
+  "Done" in values/strings.xml).
+
+  `always` also guarantees the confirm action can never collapse into an overflow menu
+  on a narrow screen — the worker must always have a visible way to finish the crop.
+
+  Both ids are kept EXACTLY as uCrop declares them: UCropActivity.onCreateOptionsMenu
+  does menu.findItem(R.id.menu_loader).getIcon() and menu.findItem(R.id.menu_crop),
+  and it re-applies the tick drawable to menu_crop programmatically — so the icon still
+  appears beside the "Done" text. Dropping or renaming either item would crash it.
+-->
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+      xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/menu_crop"
+        android:icon="@drawable/ucrop_ic_done"
+        android:title="@string/ucrop_menu_crop"
+        app:showAsAction="always|withText"/>
+
+    <item
+        android:id="@+id/menu_loader"
+        android:enabled="false"
+        android:icon="@drawable/ucrop_vector_loader_animated"
+        android:title=""
+        app:showAsAction="ifRoom"/>
+
+</menu>

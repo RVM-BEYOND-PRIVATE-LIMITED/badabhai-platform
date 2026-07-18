@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+  OVERRIDES uCrop 2.2.10's own res/layout/ucrop_activity_photobox.xml (app resources
+  win over a library's for the same name). Verbatim copy of the library layout with
+  ONE addition: android:fitsSystemWindows on the root.
+
+  WHY: the app targets SDK 36, so Android enforces edge-to-edge — the window extends
+  behind the system bars and `windowOptOutEdgeToEdgeEnforcement` is ignored at this
+  target level. uCrop's layout has no inset handling, so its Toolbar drew UNDERNEATH
+  the status bar: the confirm ("Done") action sat inside the status-bar strip, where
+  taps go to the system bar and never reach the menu item — the crop screen looked
+  finished but could not be confirmed.
+
+  fitsSystemWindows makes this root consume the system-window insets and apply them as
+  PADDING, so the toolbar sits below the status bar (and the controls above the nav
+  bar). Applied HERE rather than via the activity theme deliberately: doing both would
+  inset twice and double the padding.
+
+  Keep every id/attribute below in sync with uCrop if the dependency is upgraded —
+  UCropActivity resolves these ids (ucrop_photobox, toolbar, toolbar_title,
+  ucrop_frame, image_view_logo, ucrop, controls_wrapper) by name.
+-->
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/ucrop_photobox"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fitsSystemWindows="true">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/ucrop_color_toolbar"
+        android:minHeight="?attr/actionBarSize">
+
+        <TextView
+            android:id="@+id/toolbar_title"
+            style="@style/TextAppearance.Widget.AppCompat.Toolbar.Title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="start"
+            android:text="@string/ucrop_label_edit_photo"
+            android:textColor="@color/ucrop_color_toolbar_widget" />
+
+    </androidx.appcompat.widget.Toolbar>
+
+    <FrameLayout
+        android:id="@+id/ucrop_frame"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_above="@+id/controls_wrapper"
+        android:layout_below="@+id/toolbar"
+        android:layout_marginBottom="-12dp">
+
+        <ImageView
+            android:id="@+id/image_view_logo"
+            android:layout_width="@dimen/ucrop_default_crop_logo_size"
+            android:layout_height="@dimen/ucrop_default_crop_logo_size"
+            android:layout_gravity="center"
+            app:srcCompat="@drawable/ucrop_vector_ic_crop"
+            tools:background="@drawable/ucrop_vector_ic_crop"
+            tools:ignore="ContentDescription,MissingPrefix" />
+
+        <com.yalantis.ucrop.view.UCropView
+            android:id="@+id/ucrop"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:alpha="0" />
+
+    </FrameLayout>
+
+    <FrameLayout
+        android:id="@+id/controls_wrapper"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:visibility="gone" />
+
+</RelativeLayout>
