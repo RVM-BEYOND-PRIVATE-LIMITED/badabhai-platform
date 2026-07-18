@@ -9,6 +9,8 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
+import { PushEnqueuer } from "../push/push-enqueuer.service";
+import { DevicesRepository } from "./devices.repository";
 import { computeRollingSession, istDateString } from "./session-tiers";
 
 /**
@@ -149,6 +151,11 @@ export class SessionService {
     private readonly events: EventsService,
     private readonly pii: PiiCryptoService,
     @InjectQueue(RESUME_RENDER_QUEUE) private readonly queue: Queue,
+    // ADR-0034 — logout-all must also revoke device rows (the panic button) and warn
+    // the devices it just signed out. Both live in the auth module, so no cycle; the
+    // push seam is queue-only (PushQueueModule), so none is introduced either.
+    private readonly devices: DevicesRepository,
+    private readonly push: PushEnqueuer,
   ) {}
 
   private ttlSeconds(): number {
@@ -836,12 +843,39 @@ export class SessionService {
       count = 0;
     }
 
-    await this.events.emit({
+    // ADR-0034 — the panic button must also stop PUSH. Killing Redis sessions alone left
+    // every device row active with a live push token, so a worker who logged out
+    // everywhere because their handset was STOLEN kept that handset receiving pushes
+    // indefinitely. Fan-out targets non-revoked devices, so revoking here is what makes
+    // "log out everywhere" actually mean everywhere. Re-login re-trusts the device.
+    // Best-effort: a device/DB failure must never fail the logout itself.
+    let revokedDevices: { id: string }[] = [];
+    try {
+      revokedDevices = await this.devices.revokeAllForWorker(workerId);
+    } catch (err) {
+      this.logger.error(
+        `logout-all device revoke failed (reason: ${err instanceof Error ? err.message : String(err)})`,
+      );
+    }
+
+    const emitted = await this.events.emit({
       event_name: "worker.logged_out_all",
       actor: { actor_type: "worker", actor_id: workerId },
       subject: { subject_type: "worker", subject_id: workerId },
       payload: { worker_id: workerId, sessions_revoked: count },
     });
+
+    // Warn the devices that were just signed out. This is the ONE case allowed to target
+    // JUST-REVOKED devices — telling them is the entire point of the alert. Refs only
+    // (opaque row ids); no token, no copy. Best-effort, never fails the logout.
+    if (revokedDevices.length > 0) {
+      await this.push.enqueue({
+        workerId,
+        sourceEventId: emitted.event_id,
+        eventName: "worker.logged_out_all",
+        deviceIds: revokedDevices.map((d) => d.id),
+      });
+    }
     return count;
   }
 

@@ -19,6 +19,32 @@ export const ACCOUNT_DELETION_QUEUE = "account-deletion";
  */
 export const ACCOUNT_DELETION_SWEEP_SCHEDULER_ID = "account-deletion-sweep";
 
+/** ADR-0034 worker push-notification queue. */
+export const PUSH_QUEUE = "worker-push";
+
+/**
+ * Payload enqueued to deliver ONE push fan-out (ADR-0034).
+ *
+ * REFS ONLY — no push token, no rendered copy, no name. `deviceIds` are opaque
+ * `worker_devices.id` uuids; the processor resolves the token itself, so a token never
+ * sits in Redis. The copy is static and server-rendered from NOTIFICATION_TEMPLATES,
+ * keyed by `eventName`, so it is fully reconstructible and never travels.
+ *
+ * TARGETING is decided by the PRODUCER, not the processor, because only the producer
+ * knows the intent: a new-device alert must reach the worker's OTHER phones (never the
+ * one that just logged in — otherwise a SIM-swap attacker gets the warning and the real
+ * owner does not), and a logout-all alert must reach the devices it JUST revoked.
+ */
+export interface PushJobData {
+  workerId: string;
+  /** The event that triggered this push — the dedupe key + the audit link. */
+  sourceEventId: string;
+  /** Allowlisted event name; the copy is looked up from it. */
+  eventName: string;
+  /** Explicit targets (opaque device row ids). Never tokens. */
+  deviceIds: string[];
+}
+
 /** Payload enqueued for an async profile-extraction job (refs only, no PII). */
 export interface ProfileExtractionJobData {
   workerId: string;

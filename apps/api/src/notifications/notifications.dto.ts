@@ -28,6 +28,20 @@ interface NotificationTemplate {
   type: NotificationType;
   title: string;
   body: string;
+  /**
+   * ADR-0034 — does this template ALSO go out as an FCM push?
+   *
+   * Deliberately a field on the SAME map rather than a second list: the in-app feed and
+   * push then share one allowlist and cannot drift, and the §2 guarantee that makes the
+   * feed safe (static, server-rendered copy; the event payload is never read) covers
+   * push unchanged — which matters more here, because an FCM payload crosses Google's
+   * infrastructure.
+   *
+   * SCOPE (owner ruling 2026-07-17): SECURITY ALERTS ONLY. Resume/profile/voice pushes
+   * are deferred — they are valuable but they are not why we are shipping this, and a
+   * quiet start is the right posture for a channel that buzzes a worker's phone.
+   */
+  push: boolean;
 }
 
 /**
@@ -54,24 +68,28 @@ export const NOTIFICATION_TEMPLATES: Readonly<Record<string, NotificationTemplat
     type: "resume_ready",
     title: "Resume taiyaar hai",
     body: "Aapka naya resume ban gaya — dekhein aur download karein.",
+    push: false, // deferred (ADR-0034 scope: security only)
   },
   // resume.regenerated — actor=system, worker_id in payload.
   "resume.regenerated": {
     type: "resume_updated",
     title: "Resume update hua",
     body: "Aapke resume ka naya version taiyaar hai.",
+    push: false, // deferred
   },
   // profile.confirmed — actor=worker, subject=profile.
   "profile.confirmed": {
     type: "profile_ready",
     title: "Profile taiyaar hai",
     body: "Aapki profile confirm ho gayi.",
+    push: false, // deferred
   },
   // voice_note.transcription_completed — actor=ai_service, worker_id in payload.
   "voice_note.transcription_completed": {
     type: "voice_processed",
     title: "Voice note taiyaar",
     body: "Aapka voice note process ho gaya.",
+    push: false, // deferred
   },
   // application.submitted — actor=worker, worker_id in payload. (subject=job, so the
   // subject leg of the repository's OR does NOT match; the actor + payload legs do.)
@@ -84,18 +102,26 @@ export const NOTIFICATION_TEMPLATES: Readonly<Record<string, NotificationTemplat
     type: "application_sent",
     title: "Application bhej di",
     body: "Aapki application aage pahunch gayi.",
+    push: false, // NEVER: the worker just tapped apply — buzzing them about their own action is noise
   },
   // worker.device_registered — actor=subject=worker.
   "worker.device_registered": {
     type: "security",
     title: "Naye device se login",
     body: "Aapke account mein ek naye device se login hua.",
+    // PUSH: the SIM-swap alarm. Goes to the worker's OTHER devices, never the one that
+    // just logged in — otherwise an attacker's handset gets the warning and the real
+    // owner does not (owner ruling 2026-07-17).
+    push: true,
   },
   // worker.logged_out_all — actor=subject=worker.
   "worker.logged_out_all": {
     type: "security",
     title: "Sabhi devices se logout",
     body: "Aapko sabhi devices se logout kar diya gaya.",
+    // PUSH: goes to the devices this operation JUST revoked — the one case allowed to
+    // target revoked devices, because telling them is the entire point.
+    push: true,
   },
 };
 
@@ -123,6 +149,19 @@ export const NOTIFICATION_EVENT_NAMES: readonly string[] = Object.keys(NOTIFICAT
  */
 export const SECURITY_EVENT_NAMES: readonly string[] = Object.entries(NOTIFICATION_TEMPLATES)
   .filter(([, t]) => t.type === "security")
+  .map(([name]) => name);
+
+/**
+ * ADR-0034 — the PUSH subset. DERIVED from the templates (`push === true`) exactly like
+ * the two lists above, so it cannot drift: flagging a template is the ONLY way an event
+ * can buzz a phone, and the allowlist stays the single boundary.
+ *
+ * ⚠ `worker.push_sent` / `worker.push_send_failed` must NEVER be added to
+ * NOTIFICATION_TEMPLATES. A push emits an event; if that event were itself pushable the
+ * fan-out would push → emit → push forever. `push.service.test.ts` pins the disjointness.
+ */
+export const PUSH_EVENT_NAMES: readonly string[] = Object.entries(NOTIFICATION_TEMPLATES)
+  .filter(([, t]) => t.push)
   .map(([name]) => name);
 
 /**

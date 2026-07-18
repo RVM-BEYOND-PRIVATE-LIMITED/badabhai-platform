@@ -9,6 +9,7 @@ import {
   isUsingDevJwtDefault,
   assertPaymentsConfig,
   assertMessagingConfig,
+  assertPushConfig,
   assertPayerAuthConfig,
   assertMemberInvitesConfig,
   assertAdminAuthConfig,
@@ -27,6 +28,7 @@ async function bootstrap(): Promise<void> {
   assertAuthConfig(config); // fail closed on dev JWT secret / console SMS / half-set Fast2SMS outside dev/test
   assertPaymentsConfig(config); // fail closed if real payments enabled without a provider key (ADR-0010 F-6)
   assertMessagingConfig(config); // fail closed if real WhatsApp enabled without Meta credentials (ADR-0020)
+  assertPushConfig(config); // fail closed if real push enabled without an FCM credential (ADR-0034)
   assertPayerAuthConfig(config); // fail closed on a half-configured payer login method / dev JWT (ADR-0019 B)
   assertMemberInvitesConfig(config); // fail closed if real invite email enabled without email creds / accept URL (ADR-0027 B5.4)
   assertAdminAuthConfig(config); // fail closed on a dev/shared admin JWT or half-set MFA/TOTP (ADR-0025 ADMIN-1)

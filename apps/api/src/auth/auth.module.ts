@@ -6,6 +6,7 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { ACCOUNT_DELETION_QUEUE, RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { SmsModule } from "../sms/sms.module";
 import { ConsentModule } from "../consent/consent.module";
+import { PushQueueModule } from "../push/push-queue.module";
 import { StorageModule } from "../storage/storage.module";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
@@ -40,6 +41,11 @@ import { PinHasher } from "./pin-hasher.service";
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
     // ADR-0031 — the deletion-grace sweep queue (repeatable tick; DB marker authoritative).
     BullModule.registerQueue({ name: ACCOUNT_DELETION_QUEUE }),
+    // ADR-0034 — PRODUCER-only push wiring (the queue + PushEnqueuer). Deliberately NOT
+    // PushModule: the push PROCESSOR needs this module's device data, so importing the
+    // full module here would be a cycle. This one knows only the queue, so the
+    // dependency runs one way (auth -> push-queue, push -> auth).
+    PushQueueModule,
     // Sign worker session tokens with JWT_SECRET from validated server config.
     // Pin the algorithm to HS256 (defense-in-depth): never accept a token signed
     // with a different/`none` alg, so a future asymmetric-key change can't open an
