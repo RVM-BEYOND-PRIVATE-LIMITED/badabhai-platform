@@ -68,6 +68,19 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerDeviceRegisteredPayload,
   },
+  // ADR-0034 — worker push notifications. NOTE: these two must NEVER be added to
+  // NOTIFICATION_TEMPLATES. A push emits an event; if that event were itself pushable
+  // the fan-out would push -> emit -> push forever. A test pins the disjointness.
+  "worker.push_sent": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerPushSentPayload,
+  },
+  "worker.push_send_failed": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerPushSendFailedPayload,
+  },
   "worker.device_revoked": {
     version: 1,
     domain: "worker",

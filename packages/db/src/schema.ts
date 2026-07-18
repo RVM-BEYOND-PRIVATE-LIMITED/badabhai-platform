@@ -279,6 +279,13 @@ export const workerDevices = pgTable(
     // Opaque push token (FCM/APNS) — stored raw (a hash can't be pushed to), kept
     // OUT of events/logs/LLM like the device hash. Nullable (set when the app opts in).
     pushToken: text("push_token"),
+    // ADR-0034 — opaque per-install nonce echoed in the push payload so the client can
+    // DROP a message that is not for its live session. An FCM token addresses an app
+    // INSTALL, not a person: on a shared/handed-down handset a token can move between
+    // workers, and a payload carrying no identifier at all leaves the client unable to
+    // tell. This is NOT a worker id and is not correlatable to a person — it is rotated
+    // on every registration. Nullable until the device registers a push token.
+    pushTarget: uuid("push_target"),
     // Play Integrity (R5/TD55): deferred — default false, never gated on yet.
     attestationVerified: boolean("attestation_verified").notNull().default(false),
     trustedAt: timestamp("trusted_at", { withTimezone: true }).notNull().defaultNow(),
@@ -292,11 +299,63 @@ export const workerDevices = pgTable(
     uniqueIndex("worker_devices_worker_device_uq").on(t.workerId, t.deviceHash),
     // Device-list lookups by worker.
     index("worker_devices_worker_id_idx").on(t.workerId),
+    // ADR-0034 — supports "steal-on-register": when a device registers a push token,
+    // that SAME token is nulled on every OTHER row holding it (a token addresses one
+    // install, so a second holder is by definition stale). Without this the shared-
+    // handset case delivers worker A's SECURITY alerts to worker B's phone. Partial:
+    // only non-null tokens are ever looked up, and most rows have none.
+    index("worker_devices_push_token_idx")
+      .on(t.pushToken)
+      .where(sql`${t.pushToken} IS NOT NULL`),
     // Pin the platform union at the DB (mirrors admin_users_role_chk).
     check(
       "worker_devices_platform_chk",
       sql`${t.platform} IN ('android', 'ios', 'web', 'unknown')`,
     ),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by the migration (ADR-0004 posture)
+
+// ---------------------------------------------------------------------------
+// push_deliveries — one row per (source event, device) push attempt (ADR-0034).
+//
+// PURPOSE: dedupe (a given event pushes to a given device at most once) + a delivery
+// audit trail + the record that drives token invalidation. It is NOT the event spine:
+// the spine records that a push was SENT (worker.push_sent); this records the
+// per-device outcome.
+//
+// §2: stores `device_id` — NEVER the push token, never the rendered copy, never a
+// name. The copy is static and server-rendered from NOTIFICATION_TEMPLATES, so it is
+// reconstructible from `event_id` alone and does not need storing.
+//
+// ERASURE (ADR-0031): `device_id` cascades from worker_devices, which itself cascades
+// from workers — so `workers → worker_devices → push_deliveries` erases in ONE delete
+// with no new leg in AccountDeletionService. `event_id` deliberately does NOT cascade:
+// the audit spine is PII-free and outlives the worker by design, so it is SET NULL.
+// RLS-enabled (FORCE + REVOKE in the migration) like every sibling identity table.
+// ---------------------------------------------------------------------------
+export type PushDeliveryStatus = "sent" | "failed";
+
+export const pushDeliveries = pgTable(
+  "push_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The event that triggered the push. SET NULL (not cascade) — see header.
+    eventId: uuid("event_id").references(() => events.id, { onDelete: "set null" }),
+    // The target device. Cascades so DPDP erasure needs no extra leg.
+    deviceId: uuid("device_id")
+      .notNull()
+      .references(() => workerDevices.id, { onDelete: "cascade" }),
+    status: text("status").$type<PushDeliveryStatus>().notNull(),
+    // Closed enum, PII-free — never a provider response body (which echoes the token).
+    failureReason: text("failure_reason"),
+    attemptedAt: timestamp("attempted_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // THE dedupe key: one attempt per (event, device).
+    uniqueIndex("push_deliveries_event_device_uq").on(t.eventId, t.deviceId),
+    index("push_deliveries_device_id_idx").on(t.deviceId),
+    check("push_deliveries_status_chk", sql`${t.status} IN ('sent', 'failed')`),
   ],
 ).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by the migration (ADR-0004 posture)
 
@@ -1726,6 +1785,8 @@ export type WorkerConsent = typeof workerConsents.$inferSelect;
 export type NewWorkerConsent = typeof workerConsents.$inferInsert;
 export type WorkerDevice = typeof workerDevices.$inferSelect;
 export type NewWorkerDevice = typeof workerDevices.$inferInsert;
+export type PushDelivery = typeof pushDeliveries.$inferSelect;
+export type NewPushDelivery = typeof pushDeliveries.$inferInsert;
 export type WorkerCredential = typeof workerCredentials.$inferSelect;
 export type NewWorkerCredential = typeof workerCredentials.$inferInsert;
 export type WorkerProfile = typeof workerProfiles.$inferSelect;
@@ -1956,6 +2017,7 @@ export const schema = {
   adminUsers,
   workerFlags,
   workerDevices,
+  pushDeliveries,
   workerCredentials,
   payerOrgs,
   payerMembers,

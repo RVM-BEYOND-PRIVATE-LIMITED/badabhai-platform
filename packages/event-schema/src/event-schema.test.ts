@@ -2063,13 +2063,80 @@ describe("messaging.suppressed reason enum (ADR-0020; pending_deletion added by 
   });
 });
 
+// ADR-0034 — push events. The push TOKEN is the delivery address and a secret; the
+// rendered copy is static and reconstructible. Neither may ever enter the spine, and
+// `.strict()` is what makes that structural rather than a convention.
+describe("worker.push_sent / worker.push_send_failed (ADR-0034)", () => {
+  function pushEvent(name: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: name,
+      actor: { actor_type: "system" },
+      subject: { subject_type: "worker", subject_id: UUID_A },
+      payload,
+    };
+  }
+  const base = { worker_id: UUID_A, source_event_id: UUID_B };
+
+  it("accepts the PII-free shape", () => {
+    const ok = validateEvent(
+      pushEvent("worker.push_sent", { ...base, type: "security", device_count: 2 }),
+    );
+    expect(ok.success).toBe(true);
+  });
+
+  it("REJECTS a smuggled push_token (the delivery address is a secret)", () => {
+    const bad = validateEvent(
+      pushEvent("worker.push_sent", {
+        ...base,
+        type: "security",
+        device_count: 1,
+        push_token: "fcm-secret-token",
+      }),
+    );
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("REJECTS smuggled copy / device ids (reconstructible or identifying)", () => {
+    for (const extra of [{ title: "Naye device se login" }, { device_ids: [UUID_C] }]) {
+      const bad = validateEvent(
+        pushEvent("worker.push_sent", {
+          ...base,
+          type: "security",
+          device_count: 1,
+          ...extra,
+        }),
+      );
+      expect(bad.success).toBe(false);
+    }
+  });
+
+  it("failure reason is a CLOSED enum — never a provider response body", () => {
+    const ok = validateEvent(
+      pushEvent("worker.push_send_failed", { ...base, reason: "unregistered" }),
+    );
+    expect(ok.success).toBe(true);
+
+    const bad = validateEvent(
+      pushEvent("worker.push_send_failed", {
+        ...base,
+        reason: '{"error":{"details":[{"token":"fcm-secret"}]}}',
+      }),
+    );
+    expect(bad.success).toBe(false);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 107 event names (105 prior + worker.deletion_scheduled/cancelled [ADR-0031])", () => {
-    expect(EVENT_NAMES).toHaveLength(107);
+  it("exposes all 109 event names (107 prior + worker.push_sent/push_send_failed [ADR-0034])", () => {
+    expect(EVENT_NAMES).toHaveLength(109);
     expect(isEventName("skill.phrase_unresolved")).toBe(true);
     expect(isEventName("worker.otp_send_failed")).toBe(true);
     expect(isEventName("worker.deletion_scheduled")).toBe(true);
     expect(isEventName("worker.deletion_cancelled")).toBe(true);
+    expect(isEventName("worker.push_sent")).toBe(true);
+    expect(isEventName("worker.push_send_failed")).toBe(true);
     expect(isEventName("worker.resume_prefs_updated")).toBe(true);
     expect(isEventName("worker.test_login")).toBe(true);
     expect(isEventName("worker.photo_uploaded")).toBe(true);

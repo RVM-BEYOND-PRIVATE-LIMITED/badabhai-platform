@@ -20,6 +20,24 @@ export const DeviceInfoSchema = z.object({
 export type DeviceInfoDto = z.infer<typeof DeviceInfoSchema>;
 
 /**
+ * Body of PATCH /auth/devices/me/push-token (ADR-0034).
+ *
+ * Carries ONLY the token. Identity is the session: the worker from `WorkerAuthGuard`,
+ * the device from the token's `did` claim — a `worker_id`/`device_id` here would be a
+ * direct IDOR onto another worker's device row. `.strict()` so one cannot be smuggled
+ * in later.
+ *
+ * The 512 bound matches `DeviceInfoSchema.push_token` (FCM tokens are ~163 chars today,
+ * but the format is not contractually fixed).
+ */
+export const UpdatePushTokenSchema = z
+  .object({
+    push_token: z.string().min(1).max(512),
+  })
+  .strict();
+export type UpdatePushTokenDto = z.infer<typeof UpdatePushTokenSchema>;
+
+/**
  * A trusted-device row as surfaced by GET /auth/devices. PRIVACY: the `device_hash`
  * (HMAC) and the `push_token` are DELIBERATELY excluded — the wire shape carries only
  * the opaque row id, coarse descriptors, timestamps, and whether it is the caller's

@@ -76,6 +76,7 @@ const LOCKED_TABLES = [
   "skill", // ADR-0030/TAX-1: canonical skill vocabulary (reference data); RLS+FORCE+REVOKE in migration 0037
   "skill_alias", // ADR-0030/TAX-1: embedded aliases + vector(768) (reference data); RLS+FORCE+REVOKE in migration 0037
   "unresolved_phrase", // ADR-0030/TAX-1: below-floor growth queue — PSEUDONYMIZED phrase + count, NO worker_id; RLS+FORCE+REVOKE in migration 0037
+  "push_deliveries", // ADR-0034: one row per (source event, device) push attempt — faceless (opaque event/device ids + status, NO worker_id and no copy); RLS+FORCE+REVOKE in migration 0045
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

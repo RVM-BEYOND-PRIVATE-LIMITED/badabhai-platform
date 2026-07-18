@@ -27,16 +27,33 @@ function makeDeviceRow(over: Record<string, unknown> = {}) {
   };
 }
 
+const EVENT_ID = "9f8e7d6c-1111-4111-8111-000000000009";
+
 function build(over: {
   repo?: Record<string, unknown>;
   emit?: ReturnType<typeof vi.fn>;
   sessions?: Record<string, unknown>;
+  push?: { enqueue: ReturnType<typeof vi.fn> };
 }) {
-  const emit = over.emit ?? vi.fn().mockResolvedValue(undefined);
-  const repo = over.repo ?? {};
+  const emit = over.emit ?? vi.fn().mockResolvedValue({ event_id: EVENT_ID });
+  // Defaults MERGED (not replaced): a test that overrides `repo` must still get the
+  // ADR-0034 lookups, otherwise the service's best-effort catch swallows a missing-mock
+  // TypeError and the assertion fails for a reason that has nothing to do with the test.
+  const repo: Record<string, unknown> = {
+    listPushTargets: vi.fn().mockResolvedValue([]),
+    ...(over.repo ?? {}),
+  };
   const sessions = over.sessions ?? { revokeByDevice: vi.fn().mockResolvedValue(0) };
-  const svc = new DevicesService(repo as never, { emit } as never, pii, sessions as never);
-  return { svc, emit, repo, sessions };
+  // ADR-0034 — the new-device security alert producer.
+  const push = over.push ?? { enqueue: vi.fn().mockResolvedValue(undefined) };
+  const svc = new DevicesService(
+    repo as never,
+    { emit } as never,
+    pii,
+    sessions as never,
+    push as never,
+  );
+  return { svc, emit, repo, sessions, push };
 }
 
 describe("DevicesService (ADR-0026 Phase 2 — trusted-device binding)", () => {

@@ -118,6 +118,43 @@ export const WorkerDeviceRevokedPayload = z.object({
   device_id: uuidSchema,
 });
 
+// ADR-0034 — server-initiated push. A push was SENT / FAILED for a worker.
+//
+// PII-FREE and DELIBERATELY MINIMAL. The `push_token` is the delivery ADDRESS and a
+// secret: it must NEVER appear here (nor in logs / ai_jobs / audit_logs) — the same
+// line `worker_devices.push_token` already holds. The rendered COPY is never carried
+// either: it is static and server-rendered from NOTIFICATION_TEMPLATES, so it is fully
+// reconstructible from `type` alone. `source_event_id` is the event that triggered the
+// push, so the spine stays traceable without duplicating anything.
+//
+// `.strict()` on BOTH so a future field cannot be smuggled in without a version bump
+// (§8) — in particular a token or a body of provider output.
+export const WorkerPushSentPayload = z
+  .object({
+    worker_id: uuidSchema,
+    source_event_id: uuidSchema,
+    /** Coarse NotificationType (e.g. "security") — never free text. */
+    type: z.string().min(1).max(64),
+    /** How many devices it went to. A count, never the device ids or tokens. */
+    device_count: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const WorkerPushSendFailedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    source_event_id: uuidSchema,
+    /** Closed enum — never a provider response body (which echoes the token). */
+    reason: z.enum([
+      "unregistered",
+      "invalid_argument",
+      "quota",
+      "transport",
+      "provider_error",
+    ]),
+  })
+  .strict();
+
 // ADR-0026 Phase 5 — DPDP worker-initiated account deletion. The worker's identity row
 // (and every PII-bearing child) has been hard-erased; the billing/intent rows survive with
 // their identity join nulled (D3). PII-FREE: the now-erased worker's opaque id + non-negative

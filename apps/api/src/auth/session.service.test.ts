@@ -126,17 +126,31 @@ function setup(
   opts: {
     jwt?: { exp?: number; verifyThrows?: boolean };
     config?: Partial<ServerConfig>;
+    devices?: { revokeAllForWorker: ReturnType<typeof vi.fn> };
+    push?: { enqueue: ReturnType<typeof vi.fn> };
   } = {},
 ) {
   const redis = makeRedis();
   const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
   const jwt = makeJwt(opts.jwt);
-  const emit = vi.fn().mockResolvedValue(undefined);
+  // emit() returns the persisted event — revokeAll reads `event_id` to link the push.
+  const emit = vi.fn().mockResolvedValue({ event_id: "99999999-9999-4999-8999-999999999999" });
   const events = { emit } as never;
   const pii = makePii();
   const config = { ...BASE_CONFIG, ...opts.config } as ServerConfig;
-  const svc = new SessionService(config, jwt as unknown as JwtService, events, pii, queue);
-  return { svc, redis, jwt, emit };
+  // ADR-0034 — logout-all also revokes device rows (panic button) and warns them.
+  const devices = opts.devices ?? { revokeAllForWorker: vi.fn().mockResolvedValue([]) };
+  const push = opts.push ?? { enqueue: vi.fn().mockResolvedValue(undefined) };
+  const svc = new SessionService(
+    config,
+    jwt as unknown as JwtService,
+    events,
+    pii,
+    queue,
+    devices as never,
+    push as never,
+  );
+  return { svc, redis, jwt, emit, devices, push };
 }
 
 describe("SessionService.create", () => {
@@ -361,6 +375,51 @@ describe("SessionService.revoke / revokeAll", () => {
     expect(ev).toBeDefined();
     expect(Object.keys(ev!.payload).sort()).toEqual(["sessions_revoked", "worker_id"].sort());
     expect(ev!.payload).toEqual({ worker_id: "worker-1", sessions_revoked: 2 });
+  });
+
+  // ADR-0034 D5b.3 — REGRESSION LOCK. revokeAll used to kill only Redis sessions,
+  // leaving device rows active with live push tokens. So a worker who hit "log out
+  // everywhere" because their handset was STOLEN left that handset receiving every
+  // future push, indefinitely. The panic button has to stop delivery too.
+  it("revokeAll REVOKES the device rows — the panic button stops push, not just sessions", async () => {
+    const devices = {
+      revokeAllForWorker: vi.fn().mockResolvedValue([{ id: "device-1" }, { id: "device-2" }]),
+    };
+    const push = { enqueue: vi.fn().mockResolvedValue(undefined) };
+    const { svc } = setup({ devices, push });
+
+    await svc.revokeAll("worker-1");
+
+    expect(devices.revokeAllForWorker).toHaveBeenCalledWith("worker-1");
+    // ...and warns exactly those devices. This is the ONE case allowed to target
+    // just-revoked devices, because telling them is the entire point of the alert.
+    expect(push.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workerId: "worker-1",
+        eventName: "worker.logged_out_all",
+        deviceIds: ["device-1", "device-2"],
+      }),
+    );
+  });
+
+  it("revokeAll: a device-revoke failure never fails the logout itself", async () => {
+    const devices = {
+      revokeAllForWorker: vi.fn().mockRejectedValue(new Error("db down")),
+    };
+    const push = { enqueue: vi.fn() };
+    const { svc } = setup({ devices, push });
+    await svc.create("worker-1");
+
+    // Must still resolve — signing out is more important than the courtesy alert.
+    await expect(svc.revokeAll("worker-1")).resolves.toBe(1);
+    expect(push.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("revokeAll with no devices enqueues nothing", async () => {
+    const push = { enqueue: vi.fn() };
+    const { svc } = setup({ devices: { revokeAllForWorker: vi.fn().mockResolvedValue([]) }, push });
+    await svc.revokeAll("worker-1");
+    expect(push.enqueue).not.toHaveBeenCalled();
   });
 });
 
