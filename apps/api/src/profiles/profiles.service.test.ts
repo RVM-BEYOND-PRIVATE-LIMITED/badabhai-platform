@@ -101,7 +101,8 @@ function setup() {
   // so every pre-existing test keeps its old meaning; the ownership tests override it.
   const chat = {
     findSession: vi.fn(
-      async (id: string) => ({ id, workerId: WORKER }) as { id: string; workerId: string } | undefined,
+      async (id: string) =>
+        ({ id, workerId: WORKER }) as { id: string; workerId: string } | undefined,
     ),
   };
   const events = {
@@ -155,7 +156,10 @@ describe("ProfilesService.extract", () => {
       .extract({ worker_id: WORKER, session_id: "sess-x" }, CTX)
       .catch((e: Error) => e);
 
-    chat.findSession.mockResolvedValue({ id: "sess-x", workerId: "33333333-3333-4333-8333-333333333333" });
+    chat.findSession.mockResolvedValue({
+      id: "sess-x",
+      workerId: "33333333-3333-4333-8333-333333333333",
+    });
     const notOwned = await svc
       .extract({ worker_id: WORKER, session_id: "sess-x" }, CTX)
       .catch((e: Error) => e);
@@ -169,7 +173,10 @@ describe("ProfilesService.extract", () => {
     // Otherwise a foreign session id could still be probed through dedupe behaviour.
     const { svc, chat, aiJobs, workers } = setup();
     workers.findById.mockResolvedValue({ id: WORKER });
-    chat.findSession.mockResolvedValue({ id: "s", workerId: "44444444-4444-4444-8444-444444444444" });
+    chat.findSession.mockResolvedValue({
+      id: "s",
+      workerId: "44444444-4444-4444-8444-444444444444",
+    });
 
     await expect(svc.extract({ worker_id: WORKER, session_id: "s" }, CTX)).rejects.toBeInstanceOf(
       NotFoundException,
@@ -497,9 +504,9 @@ describe("ProfilesService.extract — session-scoped idempotency (#420)", () => 
     const { svc, aiJobs, extractionQueue, chat } = setupWithStore();
     chat.findSession.mockResolvedValue({ id: SESSION, workerId: WORKER });
 
-    await expect(svc.extract({ worker_id: OTHER, session_id: SESSION }, CTX)).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      svc.extract({ worker_id: OTHER, session_id: SESSION }, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
     expect(aiJobs.create).not.toHaveBeenCalled();
 
     const owner = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
