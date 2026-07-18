@@ -49,17 +49,32 @@ const String kChatDoneReadyLabel = 'Ho gaya — meri profile banaiye';
 const String kChatDoneNotReadyLabel = 'Thodi aur baat karein';
 
 /// Helper line under the transcript while the interview is still short.
+///
+/// Deliberately NAMES NO TOPICS. The chat reply carries only `asked_question_id`
+/// and `extraction_ready` — there is no missing-topics field, so the client
+/// CANNOT know what is actually blocking readiness and must not pretend to.
+///
+/// An earlier draft read "kaam, machine aur experience bata dijiye". That was a
+/// lie with a concrete victim: a worker who has already answered role, machines
+/// and experience but not, say, `current_location` is still not ready — and the
+/// app would tell them to state the exact three things they just said. A
+/// low-literacy worker reads that as "it did not hear me", repeats themselves,
+/// and still does not get ready. The list was also stale as of #429, which added
+/// salary_current / salary_expected / availability to the readiness bar.
+///
+/// Naming the real gaps needs a `missing_essentials` field on the chat reply —
+/// backend work, deliberately out of scope here.
 const String kChatNotReadyHelper =
-    'Abhi kuch baatein baaki hain — kaam, machine aur experience bata dijiye, '
-    'profile utni hi dumdaar banegi.';
+    'Do-teen sawaal aur baaki hain — bas jawab dete rahiye, profile utni hi '
+    'dumdaar banegi.';
 
 /// Nudge-sheet heading.
 const String kChatNudgeTitle = 'Ek minute, bhai';
 
 /// Nudge-sheet body — honest about the cost of stopping now.
 const String kChatNudgeBody =
-    'Aap abhi profile bana sakte hain, par woh adhoori rahegi. Do-teen sawaal '
-    'aur ho jayein to company ko poori baat dikhegi.';
+    'Aap abhi profile bana sakte hain, par woh adhoori rahegi. Thodi baat aur '
+    'ho jaye to company ko aapki poori baat dikhegi.';
 
 /// Nudge-sheet primary action — back to the chat.
 const String kChatNudgeContinueLabel = 'Baat jaari rakhein';
@@ -136,14 +151,31 @@ class _ChatViewState extends State<_ChatView> {
 
   /// How many measure-and-jump passes [_animateToBottom] may take to settle.
   ///
-  /// One is not enough for a `ListView.builder`: while items below the viewport
-  /// are unbuilt it only ESTIMATES `maxScrollExtent` from the items it has laid
-  /// out. With bubbles of very different heights (a multi-line opener at the
-  /// top, one-word answers below) that estimate can be far too large, so the
-  /// animation OVERSHOOTS and a single corrective jump lands against a figure
-  /// that is itself stale — parking the transcript past its last bubble in
-  /// empty space. Each jump forces a layout pass, which sharpens the estimate,
-  /// so a few bounded passes converge.
+  /// One is not enough once bubble heights VARY. A `ListView.builder` only
+  /// ESTIMATES `maxScrollExtent` from the items it has currently laid out, so
+  /// when the worker is scrolled UP — the multi-line opener on screen, the
+  /// one-line answers below it unbuilt — the estimate is inflated. The
+  /// animation then targets that inflated figure, overshoots the true end, and
+  /// the old single corrective jump measured against a value that was itself
+  /// still stale, leaving the transcript parked past its last bubble in blank
+  /// space with nothing to scroll it back.
+  ///
+  /// MEASURED (400x700, `_kChatOpeningText` as the first bubble, one-word
+  /// replies, worker scrolled to the top before the reply lands):
+  ///
+  ///   |  turns |  pixels |     max | overshoot |
+  ///   |--------|---------|---------|-----------|
+  ///   |      6 |   881.7 |   857.0 |     +24.7 |
+  ///   |     12 |  1949.7 |  1589.0 |    +360.7 |
+  ///   |     20 |  3373.8 |  2565.0 |    +808.8 |
+  ///
+  /// It is zero in every one of those fixtures when the worker is already AT
+  /// the bottom (the estimate is then formed from the short bubbles), and zero
+  /// with a single-line opener — which is why this only became reachable when
+  /// the opener grew (#422), and why it is fixed in that same change.
+  ///
+  /// Each jump forces a layout pass, which sharpens the estimate, so a few
+  /// bounded passes converge. Bounded so it can never spin.
   static const int _kBottomSettleSteps = 5;
 
   /// Smooth-scroll to the newest message after the list has rebuilt.
@@ -167,8 +199,8 @@ class _ChatViewState extends State<_ChatView> {
         if (!mounted || !_scroll.hasClients) return;
         final double end = _scroll.position.maxScrollExtent;
         if ((_scroll.position.pixels - end).abs() < 0.5) return;
-        // Also corrects an OVERSHOOT (pixels beyond the true end), which used to
-        // leave the transcript parked past its last bubble in empty space.
+        // Also corrects an OVERSHOOT (pixels beyond the true end), which left
+        // the transcript parked past its last bubble in empty space.
         _scroll.jumpTo(end);
         await WidgetsBinding.instance.endOfFrame;
       }

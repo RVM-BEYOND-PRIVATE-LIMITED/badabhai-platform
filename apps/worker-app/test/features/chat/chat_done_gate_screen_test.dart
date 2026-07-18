@@ -181,4 +181,77 @@ void main() {
       }
     });
   });
+
+  // -------------------------------------------------------- scroll overshoot
+
+  // #422 fallout, not a pre-existing bug: the longer opener made the FIRST
+  // bubble multi-line, and a `ListView.builder` estimates `maxScrollExtent`
+  // from the items it has laid out. Scrolled UP (opener on screen, one-line
+  // answers below unbuilt) the estimate is inflated, the auto-scroll targets
+  // it, and the old single corrective jump measured against a still-stale
+  // figure — leaving the worker parked past the last bubble in blank space.
+  //
+  // Verified by measurement, not assumption. With the old single-step settle
+  // and the CURRENT opener: 6 turns overshoot +24.7px, 12 turns +360.7px, 20
+  // turns +808.8px. With a single-line opener (main's), and with the worker
+  // already at the bottom, overshoot is 0.0 in every one of those fixtures —
+  // which is why this only became reachable with #422 and is fixed with it.
+  //
+  // The scrolled-UP step is the load-bearing ingredient; a fixture that sends
+  // from the bottom measures 0.0 and proves nothing.
+  group('auto-scroll does not overshoot the end (#422 fallout)', () {
+    /// Small viewport so a handful of bubbles overflow and the list scrolls.
+    Future<ScrollController> pumpTranscript(
+      WidgetTester tester, {
+      required int turns,
+    }) async {
+      tester.view.physicalSize = const Size(400, 700);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      when(() => repo.sendMessage(any()))
+          .thenAnswer((_) async => const ChatTurn(reply: 'ok bhai'));
+
+      await tester.pumpWidget(const MaterialApp(home: ChatProfilingScreen()));
+      await tester.pump();
+      await tester.pumpAndSettle();
+
+      for (int i = 0; i < turns; i++) {
+        await tester.enterText(find.byType(TextField), 'msg $i');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pumpAndSettle();
+      }
+      return tester
+          .widget<Scrollable>(find.byType(Scrollable).first)
+          .controller!;
+    }
+
+    for (final int turns in <int>[6, 12, 20]) {
+      testWidgets(
+          'a reply landing while the worker is scrolled UP settles exactly at '
+          'the end ($turns turns)', (WidgetTester tester) async {
+        final ScrollController scroll =
+            await pumpTranscript(tester, turns: turns);
+
+        // The ingredient: the worker has scrolled back to re-read something.
+        scroll.jumpTo(0);
+        await tester.pumpAndSettle();
+
+        await tester.enterText(find.byType(TextField), 'final line');
+        await tester.testTextInput.receiveAction(TextInputAction.send);
+        await tester.pumpAndSettle();
+
+        final double overshoot =
+            scroll.position.pixels - scroll.position.maxScrollExtent;
+        expect(
+          overshoot,
+          lessThan(0.5),
+          reason: 'the transcript must not park past its last bubble '
+              '(single-step settle overshot by up to 808px here)',
+        );
+        expect(scroll.position.pixels, scroll.position.maxScrollExtent);
+      });
+    }
+  });
 }
