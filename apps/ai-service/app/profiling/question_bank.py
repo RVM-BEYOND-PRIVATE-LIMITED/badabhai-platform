@@ -32,12 +32,23 @@ class Topic:
     # is the engine's ESSENTIAL_TOPICS / MUST_ASK_TOPICS, not this flag.
     core: bool = False
     # INTERVIEW-1: wording for the ONE bounded RE-ask of an unanswered ESSENTIAL
-    # topic (engine MAX_ASKS_PER_TOPIC = 2). Deliberately NARROWER and more
-    # CONCRETE than ``question`` — re-serving an identical string reads as broken,
-    # and naming concrete machines/cities raises the odds the (CNC/VMC-only)
-    # gazetteer detects the answer. Same B-5 rule: exactly one "?", <= 20 words,
-    # aap-form, no vocative. Only ESSENTIAL topics carry one; optional topics are
-    # asked once and never re-asked, so they leave this None.
+    # topic (engine MAX_ASKS_PER_TOPIC = 2). It is a UX rewording — re-serving an
+    # identical string reads as broken — and NOT a detection fix.
+    #
+    # Be precise about that, because an earlier draft of this comment was wrong.
+    # Rewording cannot make an out-of-scope trade parseable: measured against
+    # ``signals.detect_answered_topics``, 'welder', 'TIG', 'MIG' and 'TIG aur MIG'
+    # all return {} no matter how they are solicited. That gap is the gazetteer's
+    # (TAX-WELD-1), and what protects those workers is the engine's ASK BOUND, not
+    # this string.
+    #
+    # What the wording CAN do is avoid soliciting answers we know fail. Every
+    # example offered below was executed against ``detect_answered_topics`` and
+    # RESOLVES to its own topic today. Note 'operator' alone does NOT resolve
+    # ``role`` (it keys ``skills``), so the role retry always pairs it with a
+    # machine. Same B-5 rule: exactly one "?", <= 20 words, aap-form, no vocative.
+    # Only ESSENTIAL topics carry one; optional topics are asked once and never
+    # re-asked, so they leave this None.
     retry_question: str | None = None
 
 
@@ -62,19 +73,26 @@ _CNC_VMC_TOPICS: list[Topic] = [
         "role", "Role / trade",
         "Aap kaunsa kaam karte hain — CNC, VMC, HMC operator, setter ya programmer?",
         core=True,
-        retry_question="Aap machine par kya karte hain — operator, setter, programmer ya welder?",
+        # Every option resolves `role`: 'VMC operator', 'CNC turner', 'setter',
+        # 'programmer'. Bare 'operator' does NOT, so it never stands alone here.
+        retry_question="Machine ke saath bataiye — VMC operator, CNC turner, setter ya programmer?",
     ),
     Topic(
         "machines", "Machine exposure",
         "Kaunsi machine — VMC, CNC lathe, HMC ya grinding?",
         core=True,
-        retry_question="Machine ka naam — jaise VMC, CNC lathe, TIG, MIG?",
+        # 'VMC', 'CNC lathe', 'lathe', 'HMC', 'grinding' all resolve `machines`.
+        # TIG/MIG deliberately NOT offered: they return {} today, so soliciting
+        # them would invite an answer we cannot record (TAX-WELD-1 owns that gap).
+        retry_question="Jis machine par kaam karte hain uska naam kya hai — VMC, lathe ya HMC?",
     ),
     Topic(
         "experience", "Experience",
         "Kitne saal ka experience hai?",
         core=True,
-        retry_question="Kitne saal se yeh kaam kar rahe hain — jaise 2 saal, 5 saal?",
+        # '2 saal' / '5 saal' resolve. ('6 mahine' does NOT — so months are not
+        # offered as an example, even though the worker may still answer that way.)
+        retry_question="Kitne saal se yeh kaam kar rahe hain — jaise 2 saal ya 5 saal?",
     ),
     Topic(
         "skills", "Skills",
@@ -86,7 +104,8 @@ _CNC_VMC_TOPICS: list[Topic] = [
         "current_location", "Current location",
         "Abhi kis sheher mein hain?",
         core=True,
-        retry_question="Abhi aap kis sheher mein rehte hain — jaise Pune, Delhi, Rajkot?",
+        # City names resolve `current_location` (Pune/Delhi/Rajkot all verified).
+        retry_question="Abhi aap kis sheher mein rehte hain — jaise Pune, Delhi ya Rajkot?",
     ),
     Topic(
         "preferred_locations", "Preferred locations",

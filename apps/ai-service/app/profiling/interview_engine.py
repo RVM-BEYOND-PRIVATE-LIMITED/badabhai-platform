@@ -49,11 +49,23 @@ MUST_ASK_TOPICS: tuple[str, ...] = ("preferred_locations",)
 # TOTALLY BLIND (tests/test_interview_engine.py locks that with a stubbed detector).
 MAX_ASKS_PER_TOPIC = 2
 
-# Final backstop: the hard ceiling on question-serving turns. Even if a future
-# topic set + a detection gap conspired, the interview cannot run past this — turn
-# MAX_INTERVIEW_TURNS + 1 wraps up unconditionally. Sized so a fully BLIND run
-# still serves every essential its 2 asks and every other topic its 1 ask.
-MAX_INTERVIEW_TURNS = 15
+# Final backstop, counted in ENGINE ASKS — deliberately NOT in turns.
+#
+# The first cut of this ceiling counted ``turn_count`` at 15, with a blind run
+# needing EXACTLY 15 asks: zero headroom. ``clarify_turn`` also increments
+# ``turn_count`` while serving NO new topic, so every "matlab kya?" deleted one
+# topic from the TAIL of the interview — a worker who re-read the same question
+# once never got asked ``education``; six times and ``preferred_locations`` (the
+# sole MUST_ASK) was never asked either. That is a silent coverage regression, so
+# the budget is now spent in ASKS: ``sum(ask_counts.values())`` is monotonic,
+# incremented ONLY where a question is actually served, and therefore immune to
+# clarify turns by construction.
+#
+# Sized with real headroom over the current bank's blind-run budget (4 essentials
+# x MAX_ASKS_PER_TOPIC + 7 ask-once topics = 15). test_interview_engine.py pins
+# that budget against this constant, so the zero-margin coupling cannot silently
+# come back if the bank grows.
+MAX_ENGINE_ASKS = 20
 
 # In-flight ConversationStates minted before the B-4/B-5 split may carry the
 # retired combined topic ids. Map them to the topic their context-free detection
@@ -83,6 +95,19 @@ def _extraction_ready(st: ConversationState) -> bool:
     return all(
         t in st.answered_topics or t in st.asked_question_ids for t in MUST_ASK_TOPICS
     )
+
+
+def _served_question(topic: Topic, ask_number: int) -> str:
+    """The exact wording served for ``topic`` on its ``ask_number``-th ask.
+
+    Single source of truth for "which string did the worker actually see", so
+    :func:`next_turn` (which serves it) and :func:`clarify_turn` (which RE-serves
+    it) can never disagree — re-serving the ORIGINAL wording after the retry
+    wording was shown reads as the bot going backwards.
+    """
+    if ask_number > 1 and topic.retry_question:
+        return topic.retry_question
+    return topic.question
 
 
 def _unanswered_essentials(st: ConversationState) -> list[str]:
@@ -184,9 +209,17 @@ def next_turn(
     st.unanswered_essentials = _unanswered_essentials(st)
 
     # 2. Choose the next question (essentials first — including their ONE bounded
-    #    re-ask — then the ask-once topics). MAX_INTERVIEW_TURNS is the final
-    #    backstop: past it we wrap up no matter what is still open.
-    over_ceiling = st.turn_count > MAX_INTERVIEW_TURNS
+    #    re-ask — then the ask-once topics). The backstops are the final word: past
+    #    either one we wrap up no matter what is still open.
+    #
+    #    The ASK budget is the meaningful ceiling — it only counts turns on which a
+    #    question was actually served, so clarify turns can never consume it and
+    #    starve the tail of the interview. MAX_INTERVIEW_TURNS is a second,
+    #    deliberately slack guard against a caller looping next_turn forever.
+    # Clamped per value for the same reason as _ask_count: a stored negative must
+    # not be able to buy extra asks by dragging the total down.
+    engine_asks = sum(max(0, n) for n in st.ask_counts.values())
+    over_ceiling = engine_asks >= MAX_ENGINE_ASKS or st.turn_count > MAX_INTERVIEW_TURNS
     next_topic = None if over_ceiling else _next_topic(topics, st)
     if next_topic is None or extraction_ready:
         # extraction_ready keeps its ORIGINAL v1 meaning here: "the interview is
@@ -213,13 +246,7 @@ def next_turn(
     st.ask_counts[next_topic.id] = prior_asks + 1
     if next_topic.id not in st.asked_question_ids:
         st.asked_question_ids.append(next_topic.id)
-    # A RE-ask uses the narrower, more concrete wording — re-serving the identical
-    # string reads as broken (and the concrete examples help the detector).
-    question = (
-        next_topic.retry_question
-        if prior_asks and next_topic.retry_question
-        else next_topic.question
-    )
+    question = _served_question(next_topic, prior_asks + 1)
     # Turn 1 is the OPEN vocative slot: greet by name/token, then the first
     # question (no ack — the greeting IS the opener). Later turns ack only.
     if st.turn_count == 1:
@@ -232,6 +259,14 @@ def next_turn(
 # extractable signal), so an unbounded re-serve could loop the interview forever —
 # after this many the turn falls through to next_turn and the interview moves on.
 _MAX_CONSECUTIVE_CLARIFIES = 2
+
+# Slack outer guard against a caller looping next_turn forever. DERIVED, not
+# guessed: between two engine asks a worker can spend at most
+# _MAX_CONSECUTIVE_CLARIFIES clarify turns (the next one falls through to
+# next_turn), so the worst-case turn count is the ask budget times one ask plus its
+# clarifies. Writing the relationship down is the point — the previous flat 15 hid
+# exactly this coupling and silently truncated the interview.
+MAX_INTERVIEW_TURNS = MAX_ENGINE_ASKS * (1 + _MAX_CONSECUTIVE_CLARIFIES)
 
 
 def clarify_turn(
@@ -260,7 +295,11 @@ def clarify_turn(
 
     Returns the SAME tuple shape as :func:`next_turn` —
     ``(assistant_message_mock, asked_question_id, updated_state, extraction_ready)`` —
-    where the mock reply is the LAST asked question verbatim and the updated state is
+    where the mock reply is the last asked question AS IT WAS SERVED — if that topic
+    was on its bounded RE-ask, the worker saw ``retry_question``, so that is what is
+    re-served (re-derived from ``ask_counts`` via :func:`_served_question`). Replying
+    to "matlab kya?" with the ORIGINAL, earlier wording reads as going backwards. The
+    updated state is
     a deep copy advanced by ``turn_count`` + ``clarify_count`` ONLY
     (``asked_question_ids`` / ``answered_topics`` / ``collected`` unchanged, so the
     topic stays re-askable and answerable). Returns None when there is nothing
@@ -285,7 +324,14 @@ def clarify_turn(
     st = state.model_copy(deep=True)
     st.turn_count += 1  # progress advances; the topic itself remains re-askable
     st.clarify_count += 1  # the consecutive-streak counter (next_turn resets it)
-    return topic.question, last_id, st, _extraction_ready(st)
+    # Re-serve the wording the worker ACTUALLY saw. ask_counts is not incremented:
+    # a clarify is not a new ask, and the ask budget must stay clarify-immune.
+    return (
+        _served_question(topic, _ask_count(state, last_id)),
+        last_id,
+        st,
+        _extraction_ready(st),
+    )
 
 
 # COST-4: clarification markers — each is an INTERROGATIVE phrase, never a bare word
@@ -357,8 +403,14 @@ def _ask_count(st: ConversationState, topic_id: str) -> int:
     such a topic a fresh full budget (up to 3 asks total), so a topic already in
     ``asked_question_ids`` floors at 1 — the bound errs toward asking LESS, never
     more, which is the safe direction for an anti-loop guard.
+
+    The value is also CLAMPED at 0. ``contracts.py`` types this as a non-negative
+    strict int, but a ``ConversationState`` can be mutated in-process after
+    validation (``model_copy`` does not re-validate), and a stored ``-1`` would
+    otherwise buy extra asks and defeat the bound outright — the safety property
+    must not depend on the caller having validated.
     """
-    counted = st.ask_counts.get(topic_id, 0)
+    counted = max(0, st.ask_counts.get(topic_id, 0))
     if counted == 0 and topic_id in st.asked_question_ids:
         return 1
     return counted
@@ -382,8 +434,9 @@ def _next_topic(topics: list[Topic], st: ConversationState) -> Topic | None:
       ``topic.id not in st.answered_topics``.
     - **No topic is ever returned once it has been asked**
       :data:`MAX_ASKS_PER_TOPIC` **times**, whatever the detector does. The bound
-      is a pure function of ``ask_counts``, so a detector that never reports an
-      answer (welding today) still terminates the interview.
+      is a pure function of :func:`_ask_count` — which clamps at 0, so it holds for
+      every input the state can carry, not just validated ones — so a detector that
+      never reports an answer (welding today) still terminates the interview.
     """
     # 1. Unanswered ESSENTIAL topics — the only re-askable class.
     for topic in topics:

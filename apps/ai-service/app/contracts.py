@@ -7,9 +7,15 @@ sync. PRIVACY: these never carry raw identity (no phone, name, address, employer
 from __future__ import annotations
 
 import math
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
+
+# INTERVIEW-1 §7 parity: Zod's `z.number().int().nonnegative()` REJECTS -1 and the
+# string "2". Plain `int` here would accept both (Pydantic coerces "2" -> 2), so the
+# two schemas would disagree on the input domain — and the permissive side is the one
+# enforcing the interview's ask bound. strict=True + ge=0 makes them agree.
+AskCount = Annotated[int, Field(ge=0, strict=True)]
 
 
 # --- Conversation ----------------------------------------------------------
@@ -78,7 +84,7 @@ class ConversationState(BaseModel):
     # NOT a total: the COST-4 clarify path (clarify_turn) RE-SERVES the last question
     # without incrementing this — those re-serves are bounded separately by
     # clarify_count. ask_counts counts ENGINE-driven asks only.
-    ask_counts: dict[str, int] = Field(default_factory=dict)
+    ask_counts: dict[str, AskCount] = Field(default_factory=dict)
     # INTERVIEW-1 completeness signal (additive, defaulted => backward compatible;
     # mirrored in @badabhai/ai-contracts ConversationStateSchema): the ESSENTIAL
     # topics the worker never actually answered, in ESSENTIAL_TOPICS order. Empty
