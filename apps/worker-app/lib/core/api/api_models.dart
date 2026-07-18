@@ -290,6 +290,7 @@ class ChatReply extends Equatable {
     required this.blocked,
     required this.isMock,
     required this.suggestedFollowups,
+    this.extractionReady = false,
   });
 
   final String reply;
@@ -297,10 +298,28 @@ class ChatReply extends Equatable {
   final bool isMock;
   final List<String> suggestedFollowups;
 
+  /// The interview engine's completeness decision for THIS turn (#421): true
+  /// once it has enough answers to extract a profile.
+  ///
+  /// DEFAULT `false` when the field is absent/null (an older API build, a
+  /// truncated body, a future contract change). Rationale: `true` would make a
+  /// parse miss silently REMOVE the gate and restore the exact bug this fixes —
+  /// an unnoticeable failure. `false` only makes the client show its
+  /// keep-talking nudge; the "build my profile" CTA stays TAPPABLE either way
+  /// (see [ChatProfilingScreen]), so a false negative costs the worker one
+  /// extra confirmation tap and can never trap them in the chat.
+  final bool extractionReady;
+
   factory ChatReply.fromJson(Map<String, dynamic> json) => ChatReply(
         reply: json['reply'] as String? ?? '',
         blocked: json['blocked'] as bool? ?? false,
         isMock: json['is_mock'] as bool? ?? false,
+        // Absent / null / NON-BOOL -> false. `is bool` rather than a cast for
+        // the #371 reason: a cast on an unexpected type (a 0/1, a string)
+        // throws out of parsing and loses bada bhai's whole reply over one
+        // progress flag.
+        extractionReady:
+            json['extraction_ready'] is bool ? json['extraction_ready'] as bool : false,
         // #371: whereType, not `map((e) => e as String)` — a single non-string
         // entry (a null, a number, an object from a future contract change) used
         // to throw a raw TypeError out of parsing and take down the whole reply,
@@ -312,7 +331,8 @@ class ChatReply extends Equatable {
       );
 
   @override
-  List<Object?> get props => <Object?>[reply, blocked, isMock, suggestedFollowups];
+  List<Object?> get props =>
+      <Object?>[reply, blocked, isMock, suggestedFollowups, extractionReady];
 }
 
 /// Result of POST /profile/extract.

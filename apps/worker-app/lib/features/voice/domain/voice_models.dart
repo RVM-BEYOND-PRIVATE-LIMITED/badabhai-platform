@@ -28,11 +28,20 @@ class RecordedClip extends Equatable {
 /// PII NOTE: the transcript is worker-authored content — held transiently in
 /// state to display, never logged or persisted on device.
 class VoiceNoteOutcome extends Equatable {
-  const VoiceNoteOutcome({required this.transcript, required this.reply});
+  const VoiceNoteOutcome({
+    required this.transcript,
+    required this.reply,
+    this.extractionReady = false,
+  });
 
   final String transcript;
   final String reply;
 
+  /// The engine's `extraction_ready` for the chat turn this voice note produced
+  /// (#421). Carried back so a worker who answers BY VOICE unlocks the
+  /// "build my profile" CTA exactly like one who typed.
+  final bool extractionReady;
+
   @override
-  List<Object?> get props => <Object?>[transcript, reply];
+  List<Object?> get props => <Object?>[transcript, reply, extractionReady];
 }

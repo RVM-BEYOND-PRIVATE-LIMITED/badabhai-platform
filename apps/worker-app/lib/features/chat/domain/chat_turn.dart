@@ -7,11 +7,21 @@ import 'package:equatable/equatable.dart';
 /// chips so a low-literacy worker can answer without typing. Empty when the
 /// backend sent none (including when the reply was blocked / a safe fallback).
 class ChatTurn extends Equatable {
-  const ChatTurn({required this.reply, this.followups = const <String>[]});
+  const ChatTurn({
+    required this.reply,
+    this.followups = const <String>[],
+    this.extractionReady = false,
+  });
 
   final String reply;
   final List<String> followups;
 
+  /// The interview engine's own completeness decision, carried from the
+  /// backend's `extraction_ready` (#421). False until the engine says it has
+  /// enough to build a profile — and false when the field is missing (see
+  /// `ChatReply.extractionReady` for why that default is the safe one).
+  final bool extractionReady;
+
   @override
-  List<Object?> get props => <Object?>[reply, followups];
+  List<Object?> get props => <Object?>[reply, followups, extractionReady];
 }

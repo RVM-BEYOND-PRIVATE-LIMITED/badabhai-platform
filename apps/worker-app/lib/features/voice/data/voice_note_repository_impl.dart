@@ -128,7 +128,11 @@ class VoiceNoteRepositoryImpl implements VoiceNoteRepository {
 
       // Merge the transcript into the profiling chat like a typed message.
       final ChatTurn turn = await _chat.sendMessage(transcript);
-      return VoiceNoteOutcome(transcript: transcript, reply: turn.reply);
+      return VoiceNoteOutcome(
+        transcript: transcript,
+        reply: turn.reply,
+        extractionReady: turn.extractionReady,
+      );
     } catch (error) {
       // A clip that never reached the uploader is raw audio on disk with no
       // owner (the uploader's own `finally` only covers its leg) — delete it,
