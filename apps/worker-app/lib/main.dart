@@ -11,6 +11,11 @@ Future<void> main() async {
   // Wire the synchronous, plugin-free graph, then the async auth singletons
   // (LocaleStore + AuthApi + AuthSessionManager). The latter MUST be awaited
   // before the first authed request and before the router reads the manager.
+  //
+  // #315: this await is also what makes the UI language work. BadaBhaiApp reads
+  // LocaleStore ONCE in initState to pick its Locale, so the store has to be
+  // registered before runApp below — skip the await and every worker silently
+  // gets the Hindi default no matter what they chose.
   setupLocator();
   await initAuthLocator();
 

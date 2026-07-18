@@ -43,3 +43,10 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# #315 — gen-l10n output. Machine-generated from lib/l10n/*.arb at `flutter pub
+# get` (the `generate: true` flag in pubspec.yaml), so CI's pub get → analyze →
+# test order always produces it before anything reads it. Committing it would
+# mean review noise on every copy change and a tree that can silently disagree
+# with the ARBs it came from. The ARBs ARE tracked — they are the source.
+lib/l10n/gen/

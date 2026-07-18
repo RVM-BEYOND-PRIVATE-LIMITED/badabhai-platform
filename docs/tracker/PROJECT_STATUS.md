@@ -1,35 +1,77 @@
 # BadaBhai Project Progress
 
-**Last updated:** 2026-07-10 (PR #189 Flutter wiring + NEW payer-app, PR #190 evidence refresh; 60-screenshot audit; Worker App 67→69)
-**Updated by:** Control-room (evidence audit + tracker sync)
-**Branch:** `origin/main` (HEAD: `905fd1f` — B1 evidence screenshots, Jul 10) · Local: `docs/tracker-sync-and-b1-evidence`
-**Environment:** Local (Windows, no Docker). **Staging STILL NOT DEPLOYED — deadline slipped past 2026-07-04.** Confidence basis = static + unit tests + **60 emulator screenshots (local backend, 2026-07-09 session — audited, [QA_EVIDENCE 2026-07-10](QA_EVIDENCE.md))**; **zero staging/handset proof (no /health, no events chain, no logcat, no PDF).**
+**Last updated:** 2026-07-18 (**B1 CLOSED by owner attestation** — staging live; blocker state reconciled against [BLOCKERS.md](BLOCKERS.md) `86b4f6e`)
+**Updated by:** Control-room (blocker reconciliation) · prior full evidence audit 2026-07-10
+**Branch:** `origin/main` (HEAD: `f321b6e`, 2026-07-18 — worker-app #464/#465/#456/#462/#336, PR #470)
+**Environment:** **Staging LIVE since 2026-07-18** (`0042`+`0043` applied, R27 triaged, **real OTP via Fast2SMS**). Confidence basis = static + unit tests + **60 emulator screenshots (local backend, 2026-07-09 — audited, [QA_EVIDENCE 2026-07-10](QA_EVIDENCE.md))** + **an owner attestation of the staging run**. ⚠️ **Still zero captured staging artifacts:** `docs/qa/evidence/staging/` does not exist — no per-screen screenshots, no exported events chain, no clean logcat. B1 rests on attestation, not files (standing **P2**, BLOCKERS.md).
 
 > **Numbers are evidence-based and conservative.** Cap rule: **no area exceeds 85%** until staging + handset proof exists. Phase weights = CLAUDE.md/owner defaults.
+>
+> **The percentages below are as of the 2026-07-10 re-score and were NOT re-scored on 2026-07-18.**
+> This pass reconciled **blocker state only** (B1/P0), because that is what had gone
+> actively wrong: this file was still printing "NO-GO on B1" eight days after B1 closed.
+> A real re-score is owed once the staging gates actually run — see the note under
+> "Overall Progress".
 
-## BadaBhai Progress Snapshot (2026-07-10)
+> ### ⚠️ Read before trusting "B1 CLOSED"
+>
+> **B1 closed by OWNER ATTESTATION, not by evidence artifacts.** Attested 2026-07-18
+> (commit `86b4f6e`): staging live, `0042`+`0043` applied, R27 triaged, real OTP (Fast2SMS),
+> **resume download verified**. The three required artifacts — (a) per-screen screenshots,
+> (b) the staging `events` chain for the run's `worker_id`, (c) clean logcat — were **never
+> captured**. No one but the attesting owner can re-check this today.
+>
+> **Two things this closure does NOT establish:**
+> 1. **Swipe device-verify (feed/apply/skip on a handset) is UNKNOWN.** The attestation names
+>    OTP and resume download and never mentions it. Do not record it as verified.
+> 2. **The stack is not verified end-to-end.** **[TD81](../registers/tech-debt-register.md)** /
+>    issue [#453](https://github.com/badabhai/badabhai-platform/issues/453): the `ai-service` is
+>    **absent from [`docker-compose.yml`](../../docker-compose.yml)**, so staging **chat and
+>    profile-extraction run silently MOCKED while `/health` returns 200**. That is the exact
+>    middle of the chain B1 was designed to prove — the attested span (OTP at one end, resume
+>    download at the other) brackets it rather than covering it. **Alpha GO did not arrive with
+>    B1; the critical path moved to TD81 + the four unrun staging gates.**
+>
+> **Migration drift (noted, not resolved):** the attestation names `0042`+`0043`, but the repo
+> carries through **`0046`** (`0044` dated 2026-07-17 — *before* the attestation; `0045`/`0046`
+> same day as it). **The staging migration level above `0043` is UNKNOWN.** Owner-verify.
+
+## BadaBhai Progress Snapshot (scores 2026-07-10 · blockers 2026-07-18)
 - **Overall Project: 75%** · **Alpha Readiness: 58%** · **Release Readiness: 29%**
 - Payer Web 78% · Worker App 69% · Backend/API 84% · OTP/Auth/Security 80% · Agency Demand 70% · Resume+Kit 75% · Infra/Staging 45% · Docs/Process 85%
-- _Re-score driver (since 72% on Jun 29): 16 PRs merged — A-batch fixes (#173–#176), B-batch backend (#177–#180), B5 org-tenancy (#182–#186, ADR-0027), AI-service retry storm fixed (#187, ADR-0028). LC-1 closed for money routes (#179). Backend 80→84, Payer Web 74→78, OTP/Auth 78→80, Agency 68→70, AI-service 75→80, Docs 80→85. **Jul 10:** PR #189 (worker-app A1/A3/A4 wiring + NEW Flutter payer-app) + PR #190 (60-screenshot evidence refresh) → Worker App 67→69 (evidence: [QA_EVIDENCE 2026-07-10](QA_EVIDENCE.md)). **Infra/Staging unchanged (45%) — staging not deployed, slipped past deadline.**_
-- **P0 Blockers: 1** (staging not provisioned — PAST deadline 2026-07-04, now CRITICAL)
-- **P1 Blockers: 1** (**ops-internal** unlock surface retire — the ops [`unlocks.controller.ts`](../../apps/api/src/unlocks/unlocks.controller.ts) keeps `InternalServiceGuard` as a deliberate safe-interim, TD33/TD50, blocked on ADMIN-4..8; **not** payer-facing, **not** called by payer-web)
+- _Re-score driver (since 72% on Jun 29): 16 PRs merged — A-batch fixes (#173–#176), B-batch backend (#177–#180), B5 org-tenancy (#182–#186, ADR-0027), AI-service retry storm fixed (#187, ADR-0028). LC-1 closed for money routes (#179). Backend 80→84, Payer Web 74→78, OTP/Auth 78→80, Agency 68→70, AI-service 75→80, Docs 80→85. **Jul 10:** PR #189 (worker-app A1/A3/A4 wiring + NEW Flutter payer-app) + PR #190 (60-screenshot evidence refresh) → Worker App 67→69 (evidence: [QA_EVIDENCE 2026-07-10](QA_EVIDENCE.md)). **Infra/Staging unchanged (45%) — staging not deployed, slipped past deadline.**_ ~~(that last clause was true on 2026-07-10; **staging went live 2026-07-18** — the 45% is held for lack of gate runs, not for lack of a box)~~
+- **P0 Blockers: 0** — ✅ **CLEARED 2026-07-18.** Staging provisioned; **B1 CLOSED (owner-attested, artifacts uncaptured)**. Was open 19 days; cost 14 days of schedule. **New critical path is P1, not P0:** [TD81](../registers/tech-debt-register.md)/[#453](https://github.com/badabhai/badabhai-platform/issues/453) (staging AI silently mocked behind a 200 `/health`) + alpha gates 1/2/4/5 never run on the real stack.
+- **P1 Blockers: 3** — raised from 1 on 2026-07-18, because clearing P0 promoted the work the P0 line above already names. The old count predated that and contradicted it within two lines.
+  1. **TD81 / [#453](https://github.com/badabhai/badabhai-platform/issues/453)** — staging runs **mocked AI behind a 200 `/health`**. This is first: it silently weakens every profiling-path claim made against staging, including B1's own event-chain evidence.
+  2. **Alpha gates 1/2/4/5 never run on the real stack** (payer-company, agency, RBAC/admin smoke, the OTP-safety half of gate 4). Not failures — *unrun*, which is not the same as passing.
+  3. **Ops-internal unlock surface retire** — the ops [`unlocks.controller.ts`](../../apps/api/src/unlocks/unlocks.controller.ts) keeps `InternalServiceGuard` as a deliberate safe-interim (TD33/TD50), blocked on ADMIN-4..8. **Not** payer-facing, **not** called by payer-web — the mildest of the three, kept last on purpose.
   - ⚠️ **Correction (2026-07-16):** the previous "unlock/reveal LC-1 — InternalServiceGuard + body payer_id still open" entry was a **PHANTOM** — it conflated the *ops* controller with the *payer* one. **LC-1 is CLOSED on the payer surface**: [`payer-unlocks.controller.ts:40-41`](../../apps/api/src/payer-portal/payer-unlocks.controller.ts) puts the **whole class** behind `PayerAuthGuard` with `payer_id` from the session (XB-A), and reveal enforces ownership at the chokepoint. CLAUDE.md §8 has it right. The same phantom appears in the 2026-07-14 context doc §11 — see [context-drift-2026-07-16.md](../registers/context-drift-2026-07-16.md).
-- **Decisions Needed: 0** — all D1–D8 closed. **Alpha deadline SLIPPED — was 2026-07-04, now targeting ASAP (est. 2026-07-07/08 when staging lands).**
+- **Decisions Needed: 1** — D1–D8 all closed, but **TD81 is an open OWNER DECISION**: deploy the `ai-service` into staging compose, **or** accept mocked-AI staging and make it **LOUD** in `/health`. Settle it before anyone validates real profiling on staging. **Alpha target now 2026-08-15** (soft launch Sep); the 2026-07-04 date slipped 14 days on staging.
 
-**Build health (re-verified on `origin/main` `a143a7d`):** `pnpm lint` ✅ · `pnpm typecheck` ✅ · `pnpm test` ✅ (1289/1289 api tests, 129 files) · `pnpm build` ✅. AI-service: `ruff` ✅ · `pytest` ✅ (gates green per PR #187). **The branch is green.** 40 migrations (0000–0039, all applied — 0038+0039 applied by owner 2026-07-15).
+**Build health (last full re-verify: `origin/main` `085e2f6` / #408 — per [BLOCKERS.md](BLOCKERS.md)):** `pnpm lint` ✅ · `pnpm typecheck` ✅ · `pnpm test` ✅ (**2,465 tests / 23 tasks**) · `pnpm build` ✅. AI-service: `ruff` ✅ · `pytest` ✅. **The branch is green.** **47 migrations in-repo (0000–0046);** staging is attested at `0043` — **`0044`–`0046` unconfirmed on the box** (see the migration-drift note above).
 
-**What this means:** the codebase is **broad, green, and well-tested at the unit level** (api 1141 tests,
-payer-web 517, ai-service ~220, worker-app 46 files) but **not one flow is proven on real infrastructure**.
-The gap to alpha is **verification + staging**, not "more code".
+**What this means:** the codebase is **broad, green, and well-tested at the unit level**, and as of
+2026-07-18 **one flow — the worker core path — has an owner's word that it ran on real staging**
+(real OTP + resume download). Everything else on the box is still **unproven**: the four alpha
+gates (payer-company, agency, OTP-safety half, RBAC/admin smoke) have never been run there, and
+under TD81 the AI half of the worker flow was **answered by a mock**. The gap to alpha remains
+**verification + staging**, not "more code" — with the added twist that staging now *looks*
+healthy while silently mocking AI, which is a worse failure mode than being visibly down.
 
 ---
 
 ## Overall Progress
 
+> **Percentages are the 2026-07-10 re-score, carried forward unchanged.** Only the Status /
+> Blockers / Evidence columns were reconciled on 2026-07-18. Deliberately **not** re-scored
+> upward on B1's closure: an attestation with no artifacts, over a stack whose AI leg is mocked,
+> does not justify moving numbers. **Next re-score: after the four staging gates run and
+> `docs/qa/evidence/staging/` exists.**
+
 | Area | Progress | Status | Confidence | P0/P1 Blockers | Evidence |
 | ---- | -------: | ------ | ---------- | -------------- | -------- |
-| Overall Project | 75% | IN_PROGRESS | Medium | 1 P0 / 1 P1 | gates green; 18 PRs merged Jun 30–Jul 10; 60 audited emulator screenshots (local backend); no staging/handset proof |
-| Alpha Readiness | 58% | BLOCKED | Medium | 1 P0 — staging not deployed, PAST deadline 2026-07-04 | NO-GO on B1; 60 emulator/local screenshots audited (worker wiring real, payer-app mock-mode); still need staging /health + events + logcat + PDF |
+| Overall Project | 75% | IN_PROGRESS | Medium | **0 P0** / several P1 | gates green; 60 audited emulator screenshots (local backend); staging live 2026-07-18 but **attested, not evidenced** |
+| Alpha Readiness | 58% | **IN_PROGRESS** (was BLOCKED) | **Low-Medium** | 0 P0 · **P1: TD81** (staging AI silently mocked, [#453](https://github.com/badabhai/badabhai-platform/issues/453)) + gates 1/2/4/5 unrun | **B1 CLOSED 2026-07-18 — owner attestation only** (real OTP + resume download). ❌ `docs/qa/evidence/staging/` absent: no screenshots, no events chain, no logcat. ❓ **Swipe device-verify UNKNOWN** — not in the attestation. **B1 closing ≠ alpha GO** |
 | Release Readiness | 29% | BLOCKED | High | RLS deferred, real providers off, no DR/cost doc; ops unlock retire (TD33/TD50) — **payer LC-1 is CLOSED** | [RELEASE_READINESS.md](RELEASE_READINESS.md) |
 
 ## Phase Progress (weights = CLAUDE.md/owner defaults, WEIGHTS_PENDING)
@@ -37,12 +79,12 @@ The gap to alpha is **verification + staging**, not "more code".
 | Phase | Weight | Progress | Weighted | Status | Owner (proposed) | Top Blocker |
 | ----- | -----: | -------: | -------: | ------ | ---------------- | ----------- |
 | Payer Web Alpha | 25% | 78% | 19.5 | VERIFY | Prakash / Divyanshu | No staging run; FE wiring (FE-1..FE-7) in progress; B5 Team wired (#186) |
-| Worker App Alpha | 20% | 69% | 13.8 | BLOCKED | Rishi (Flutter) | B1 handset (P0 — staging not live); PR #189 wiring merged + emulator-run audit; no PDF/logcat/staging proof |
+| Worker App Alpha | 20% | 69% | 13.8 | **VERIFY** (was BLOCKED) | Rishi (Flutter) | **B1 unblocked + closed by attestation 2026-07-18**; PDF download handset-verified 2026-07-17 (PR #256, `USE_MOCKS=true` — real signed-URL fetch still unproven). Residual: no logcat/events artifacts; **swipe device-verify UNKNOWN**; chat/extraction on staging are mocked (TD81) |
 | Backend/API/Event | 20% | 84% | 16.8 | VERIFY | Divyanshu | **LC-1 CLOSED on the payer surface** (plan/boost #179; unlock/reveal `PayerAuthGuard` per #110/#119); residual = ops-internal retire (TD33/TD50); B5 org API merged |
 | OTP/Auth/Security | 10% | 80% | 8.0 | VERIFY | Divyanshu | PIN throttle hardened (#175); consent-on-resume (#176); real-send unproven on staging |
 | Agency Demand Alpha | 10% | 70% | 7.0 | VERIFY | Prakash | B5 payer invites (#185) merged; no staging run |
 | Resume + Interview Kit | 7% | 75% | 5.25 | VERIFY | Divyanshu | PDF requires `RESUME_RENDER_ENABLED=true` + WeasyPrint on staging (D5) |
-| Infra/Staging/Release | 5% | 45% | 2.25 | BLOCKED | Prakash | **Staging STILL not deployed — PAST deadline. P0 CRITICAL.** |
+| Infra/Staging/Release | 5% | 45% | 2.25 | **IN_PROGRESS** (was BLOCKED) | Prakash | ✅ **Staging LIVE 2026-07-18** (P0 cleared, 14-day slip). **New P1: TD81** — `ai-service` absent from compose, so the box serves **mocked AI behind a 200 `/health`**. Score held at 45% pending gate runs + artifacts |
 | Docs/Tracker/Process | 3% | 85% | 2.55 | IN_PROGRESS | TPM | ADR-0027 (#181) + ADR-0028 (#188) added; tracker updated |
 | **TOTAL** | **100%** | **75%** | **75.15** | | | |
 
@@ -64,7 +106,12 @@ The gap to alpha is **verification + staging**, not "more code".
 | Team / Org RBAC | 78% | VERIFY | B5.1–B5.5 all merged (#182–#186, ADR-0027); payer-web Team page wired (#186) | Staging click-through; account-edit (PROFILE-4) |
 | Account / Profile | 55% | PARTIAL | read live; `PATCH /payer/me` live; FE edit wiring = **FE-account** | Wire account edit |
 
-### Worker App Alpha (69%) — **P0: not yet proven on real staging/handset (B1 PAST DEADLINE)**
+### Worker App Alpha (69%) — **B1 CLOSED 2026-07-18 (owner-attested; artifacts NOT captured)**
+
+> "Next Action: Handset run" in the rows below is **partially satisfied** by the attested
+> 2026-07-18 staging run, which enumerated **OTP** and **resume download** only. Rows it did not
+> name — chat, profile extraction, swipe — remain **unevidenced**, and for chat/extraction the
+> staging box was answering from the **mock** (TD81). Do not tick these off wholesale.
 | Main Task | Progress | Status | Evidence | Next Action |
 | --------- | -------: | ------ | -------- | ----------- |
 | Scaffold + router (ADR-0023) | 85% | VERIFY | `router.dart` go_router stateful shell | Handset run |
@@ -119,7 +166,8 @@ Retry storm root cause fixed (#187): transport failures now surface reason code;
 | Unlock/Reveal | Per-payer auth on money route | 100% | **DONE** | — | payer surface rides `PayerAuthGuard`; `payer_id` from session (XB-A) | Verified 2026-07-16 — ops-internal retire (TD33/TD50) is the only residual |
 | Posting plans | Guard the `/plan` + `/boost` routes | 50% | IN_PROGRESS | D3 decided (guard) | controller fix in progress | Auth guard + ownership check |
 | Admin PII reveal (3b) | Reason-gated reveal committed + green | 78% | VERIFY | D4: cadence must go live | merged green; D4 owner = Prakash (weekly review) | Weekly audit-stream review + 1-yr retention operational |
-| Worker app | Handset onboarding->resume on staging | 0% | BLOCKED | B1 / staging — **PAST deadline 2026-07-04** | 60 emulator/local screenshots audited (2026-07-10) — still missing staging /health + events + clean logcat + PDF-open proof | 3 evidence families (screenshots + events + logcat), plus PDF `resume.downloaded` |
+| Worker app | Handset onboarding->resume on staging | **60%** | **PARTIAL** (was BLOCKED) | **Artifacts uncaptured (P2)**; chat/extraction leg mocked (**TD81**) | **Owner attestation 2026-07-18**: staging live, real OTP, resume download verified. PDF open/save handset-verified 2026-07-17 (PR #256, mock mode). **Still missing all three evidence families** — `docs/qa/evidence/staging/` does not exist | 3 evidence families (screenshots + events + logcat), plus PDF `resume.downloaded`. **Unchanged — the acceptance bar was not met; it was substituted with an attestation** |
+| Worker app | Swipe device-verify (feed/apply/skip on handset) | **UNKNOWN** | **UNKNOWN** | Never evidenced | Absent from the 2026-07-18 attestation; no artifact exists. Code is CLOSED (ADR-0009 Stream C) — the **device** run is what is unknown | Handset feed/apply/skip + matching events; rides the next B1 session |
 | Credits | Real credit-ledger history read | 50% | PARTIAL | endpoint | UI on mock store | History from live ledger |
 
 ---
@@ -130,7 +178,8 @@ Retry storm root cause fixed (#187): transport failures now surface reason code;
 
 **PARTIAL** (some working, some missing): payer-web manage-postings, unlock/reveal, wallet, capacity, team-RBAC, account (all now live-wired — #194); worker-app swipe(job-detail), notifications, settings; **payer-app (Flutter, #189): UI complete + real bindings written, live seam unverified (screenshots are mock-mode); payouts/KYC/home-metrics design-only**. _(Backend unlock/reveal + posting-plans are payer-authed — the old "LC-1 / unguarded" note here was the phantom; see [context-drift-2026-07-16.md](../registers/context-drift-2026-07-16.md).)_
 
-**BLOCKED:** worker-app alpha (B1 handset/staging); staging CD (unwired).
+**BLOCKED:** staging CD (unwired). _(worker-app alpha left this bucket 2026-07-18 — B1 closed by
+attestation. It is **VERIFY-with-caveats**, not DONE: no artifacts, swipe unverified, AI mocked.)_
 
 **PARKED (do not build now):** voice/STT, agency payouts/KYC/bulk-upload, learned Reach ranking, real payments/WhatsApp/STT providers, raw-phone reveal, production legal copy, finalized RLS.
 
@@ -138,7 +187,7 @@ Retry storm root cause fixed (#187): transport failures now surface reason code;
 
 **LEGAL_GATE:** DPDP production consent copy + erasure policy; real-money payments; real-send OTP activation; **admin PII-reveal operational conditions (R24/OQ-7: weekly review + 1-yr retention).**
 
-**UNKNOWN (needs runtime check):** dark-theme parity completeness; formal WCAG/a11y conformance; e2e suite behaviour against real PG+Redis (only CI-run today).
+**UNKNOWN (needs runtime check):** dark-theme parity completeness; formal WCAG/a11y conformance; e2e suite behaviour against real PG+Redis (only CI-run today); **swipe device-verify (feed/apply/skip on a handset) — never evidenced, absent from the B1 attestation**; **staging migration level above `0043`** (repo carries through `0046`); **whether any staging profiling result to date came from a real LLM or the mock** (TD81 — `/health` cannot currently tell you).
 
 ---
-_Math: overall = Σ(phase% × weight) = 75.15 → reported 75% (conservative; no staging/handset proof). Re-scored 2026-07-09 after 16 PRs (Jun 30–Jul 8); Worker App 67→69 on 2026-07-10 (PR #189 wiring + 60-screenshot audit). Next re-score after staging /health 200 + B1 handset evidence. Staging P0 is the only gate._
+_Math: overall = Σ(phase% × weight) = 75.15 → reported 75% (conservative). Re-scored 2026-07-09 after 16 PRs (Jun 30–Jul 8); Worker App 67→69 on 2026-07-10 (PR #189 wiring + 60-screenshot audit). **2026-07-18: blocker state reconciled against [BLOCKERS.md](BLOCKERS.md) (`86b4f6e`) — percentages deliberately NOT moved.** B1 closed on an owner attestation with **zero captured artifacts**, over a staging box whose AI leg is mocked (TD81) — that is not the kind of proof that earns points. **Next re-score after: `docs/qa/evidence/staging/` exists (screenshots + events chain + clean logcat), swipe is device-verified, and TD81 is settled.** The gate is no longer staging-deployment; it is staging **proof**._

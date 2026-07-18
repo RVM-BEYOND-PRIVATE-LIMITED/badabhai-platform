@@ -1,0 +1,50 @@
+# gen-l10n configuration — #315 FOUNDATION pass (pipeline only, not the copy).
+#
+# WHAT THIS UNBLOCKS
+# The worker app had persisted-locale plumbing but no localization pipeline:
+# LocaleStore (core/auth/locale_store.dart) has stored the worker's language
+# since PASS 1 and every request already carries it as `X-Locale`, but the UI
+# itself had no `intl`, no ARBs and no delegates — so the stored locale changed
+# what the SERVER answered in and nothing about what the WORKER read. This file
+# closes the client half. Copy extraction (~30 screens of Hinglish literals) is
+# deliberately NOT part of this pass; see the ARB header comments.
+#
+# TEMPLATE IS HINDI, ON PURPOSE
+# `hi` is the app's shipping default (LocaleStore.defaultLocale) and every
+# literal in the codebase today is already Hinglish. Making app_hi.arb the
+# template therefore makes this a faithful MOVE of existing copy, not a
+# translation — and it makes gen-l10n's missing-message fallback land on Hindi
+# rather than English. That fallback is load-bearing: app_mr.arb / app_bho.arb
+# are intentionally empty, and gen-l10n fills every message a locale is missing
+# from the TEMPLATE locale (gen_l10n.dart: `localeWithFallback = _templateArbLocale`).
+# So an untranslated Marathi build shows Hindi, never English, and never a blank.
+#
+# Expect `flutter pub get` to print `"mr": N untranslated message(s).` — that is
+# the truth and it is NOT suppressed (`suppress-warnings` deliberately unset).
+# It is the standing reminder that #315 is not finished.
+#
+# Generation runs at `flutter pub get` (flutter_tools packages.dart gates on the
+# `generate: true` flag in pubspec.yaml), so CI's pub get → analyze → test order
+# in .github/workflows/worker-app.yml produces lib/l10n/gen/ before analyze reads
+# it. Nothing here is committed by hand.
+arb-dir: lib/l10n
+template-arb-file: app_hi.arb
+
+# Generated output is kept in its OWN subdirectory rather than dumped beside the
+# ARBs: `lib/l10n/*.arb` is hand-edited by humans/translators, `lib/l10n/gen/*`
+# is machine output that must never be edited. Separate dirs make that obvious
+# and make the generated tree trivially ignorable.
+#
+# NOTE: `synthetic-package` is deliberately absent. It was REMOVED in Flutter
+# 3.32 and the option now only earns a warning (or a hard toolExit if set to
+# true), so the old `package:flutter_gen/gen_l10n/...` import path does not
+# exist on our pinned 3.35.7 — the import is the normal package path below.
+output-dir: lib/l10n/gen
+output-localization-file: app_localizations.dart
+output-class: AppLocalizations
+
+# Non-nullable `AppLocalizations.of(context)`. Safe because the delegates are
+# installed unconditionally on the single MaterialApp (lib/app.dart) — there is
+# no code path that reads a string outside that scope. Saves a `!` at every one
+# of the (eventually ~30 screens') call sites.
+nullable-getter: false

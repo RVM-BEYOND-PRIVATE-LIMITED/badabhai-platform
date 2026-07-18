@@ -26,9 +26,11 @@ dependencies:
   # 7.1.0); 5.2.4 is the last compiling build. A caret would re-pull 5.2.5.
   firebase_core: ^4.12.0
   firebase_crashlytics: 5.2.4
-  # Display (Baloo 2) + body (Mukta) of the "Desi Vernacular Pop" theme.
-  # Roboto Mono (data: ₹, IDs, phone) is self-hosted below so figures render
-  # identically offline.
+  # #350 — Baloo 2 + Mukta are now SELF-HOSTED under `fonts:` below (as Roboto
+  # Mono already was), so nothing here fetches at runtime. google_fonts stays a
+  # dependency only because core/theme/app_typography.dart keeps the pre-#350
+  # fetch branch behind `bundledBrandFonts`, and because it owns
+  # `GoogleFonts.config.allowRuntimeFetching`, which that file forces to false.
   google_fonts: ^6.2.1
   # State management + DI: BLoC/Cubit for presentation, Equatable for immutable
   # value states/models, get_it as the composition-root service locator.
@@ -73,3 +75,43 @@ flutter:
         - asset: assets/fonts/RobotoMono-BoldItalic.ttf
           weight: 700
           style: italic
+    # #350 — Baloo 2 (display) + Mukta (body), the locked Desi Vernacular Pop
+    # brand families, now SELF-HOSTED with their Devanagari subsets. They used
+    # to be fetched over HTTP by google_fonts on first use, so a recruiter who
+    # opened the app cold in a plant office or on a site visit got fallback
+    # glyphs and a mid-flow reflow — on the OTP and post-job screens, under
+    # their thumb — and the first launch handed the device's IP/UA to
+    # fonts.gstatic.com for families we can simply carry.
+    #
+    # Baloo 2 upstream is VARIABLE-only (Baloo2[wght].ttf); these are static
+    # instances cut from it at wght 600/700/800 with fontTools varLib.instancer,
+    # so each weight is a real face rather than one variable file declared three
+    # times. Mukta ships statics upstream and is used as-is. Both are SIL OFL
+    # 1.1 — OFL-Baloo2.txt / OFL-Mukta.txt sit beside the binaries as the
+    # licence requires for redistribution.
+    #
+    # Weights are exactly what this app's type scale asks for: Baloo 2 600/700/800
+    # (titleMedium/titleLarge are 600, everything else 700/800) and Mukta
+    # 400/600/700. The one exception is the error-text style in app_theme.dart,
+    # which asks for w500 — Mukta has no 500 face upstream, so Flutter resolves
+    # it to the nearest declared weight. That was equally true on the google_fonts
+    # path, so bundling changes nothing about it.
+    #
+    # Cost: ~2.5MB of assets. Paid deliberately — a one-time APK cost beats a
+    # per-install download that can simply fail on a factory-floor connection.
+    - family: Baloo 2
+      fonts:
+        - asset: assets/fonts/Baloo2-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Baloo2-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Baloo2-ExtraBold.ttf
+          weight: 800
+    - family: Mukta
+      fonts:
+        - asset: assets/fonts/Mukta-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Mukta-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Mukta-Bold.ttf
+          weight: 700
