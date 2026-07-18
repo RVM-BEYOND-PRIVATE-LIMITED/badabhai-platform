@@ -19,7 +19,6 @@ Two subtleties this test bakes in on purpose:
 
 from __future__ import annotations
 
-import json
 import re
 
 from app.ai.model_config import get_route
@@ -58,9 +57,12 @@ def _worker_facing_strings() -> dict[str, str]:
         out[f"followup:{i}"] = f
     for field, q in _CLARIFY.items():
         out[f"clarify:{field}"] = q
-    # The CLI's own worker-facing copy (a separate model-driven path).
+    # The CLI's own worker-facing copy. CLI-1: the CLI no longer has a model-driven
+    # path of its own — it drives THIS engine, so its only remaining own-words are
+    # the intro banner and the kickoff nudge. Every question it shows comes from the
+    # question bank above.
     out["cli_intro"] = onboarding_chat._INTRO
-    out["cli_mock_message"] = json.loads(onboarding_chat._CHAT_MOCK_JSON)["message"]
+    out["cli_kickoff"] = onboarding_chat._KICKOFF
     return out
 
 
@@ -165,10 +167,10 @@ def test_ack_is_at_most_two_words():
 def test_system_prompts_enforce_the_neutrality_rules():
     # These are INSTRUCTIONS: they must name the banned words to forbid them, so
     # we assert they ENFORCE the persona rather than that they are token-free.
-    for label, p in (
-        ("engine", prompts.BADA_BHAI_SYSTEM_PROMPT.lower()),
-        ("cli", onboarding_chat._CHAT_SYSTEM_PROMPT.lower()),
-    ):
+    # CLI-1: there is only ONE chat system prompt now. The CLI used to carry a
+    # second, divergent copy for its own model-driven loop; it now calls
+    # build_chat_messages, so BADA_BHAI_SYSTEM_PROMPT is the single source.
+    for label, p in (("engine", prompts.BADA_BHAI_SYSTEM_PROMPT.lower()),):
         assert "aap" in p, label
         assert "20 word" in p, label
         assert "gender" in p, label  # "Never assume gender"
