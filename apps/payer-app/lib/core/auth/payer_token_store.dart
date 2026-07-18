@@ -78,10 +78,40 @@ class PayerTokenStore {
   bool get hasSession => _accessToken != null && _accessToken!.isNotEmpty;
 
   /// Hydrates the in-memory cache from secure storage (cold start).
+  ///
+  /// #377 — FAIL SOFT, never wedge the boot. `main()` awaits this BEFORE
+  /// `runApp`, so anything thrown here escapes `main` and the first frame never
+  /// renders: the payer sits on the native splash on EVERY launch with no way
+  /// out but manually clearing app data.
+  ///
+  /// The realistic trigger is a restored Google backup: this store runs on
+  /// EncryptedSharedPreferences, and a restore brings the prefs XML across but
+  /// NOT the Keystore master key, so every read throws (BadPadding / keystore
+  /// error). `allowBackup="false"` in the manifest stops new backups, but a
+  /// device restoring one made by an older install still lands here.
+  ///
+  /// An unreadable store is indistinguishable from an empty one, so treat it as
+  /// "no session": drop the unusable material and start at Login. The payer
+  /// signs in again with an email OTP — annoying, but recoverable.
   Future<void> load() async {
-    _accessToken = await _store.read(_kAccessToken);
-    _payerId = await _store.read(_kPayerId);
-    _role = await _store.read(_kRole);
+    try {
+      _accessToken = await _store.read(_kAccessToken);
+      _payerId = await _store.read(_kPayerId);
+      _role = await _store.read(_kRole);
+    } catch (_) {
+      _accessToken = null;
+      _payerId = null;
+      _role = null;
+      // Best-effort wipe. clear() goes through the same backing store that just
+      // threw, so it may throw too — swallow that. Failing to clear must not
+      // resurrect the boot wedge this exists to prevent; a successful login
+      // overwrites the bad entries anyway.
+      try {
+        await clear();
+      } catch (_) {
+        // Nothing more we can do — deliberately ignored.
+      }
+    }
   }
 
   /// Persists a fresh session after a successful verify / refresh.

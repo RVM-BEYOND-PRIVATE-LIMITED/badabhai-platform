@@ -8,12 +8,6 @@ import 'features/auth/domain/auth_session_manager.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Crash reporting FIRST — fail-closed. On a device that can't start Firebase
-  // (non-GMS / exotic ROM / bare emulator) this returns with reporting disabled
-  // and the app keeps running; it never throws. Installs the Flutter + async +
-  // isolate error handlers only when Crashlytics is actually available.
-  await CrashReporter.init(appName: 'worker-app', ownPackage: 'badabhai_worker_app');
-
   // Wire the synchronous, plugin-free graph, then the async auth singletons
   // (LocaleStore + AuthApi + AuthSessionManager). The latter MUST be awaited
   // before the first authed request and before the router reads the manager.
@@ -22,8 +16,21 @@ Future<void> main() async {
 
   // Resolve the cold-start auth state once (remembered refresh token → locked →
   // PIN; none → loggedOut → phone) BEFORE the first frame, so the router's
-  // redirect routes correctly from app open.
+  // redirect routes correctly from app open. This is a local Keystore read —
+  // bounded, and the router's first redirect is wrong without it.
   await locator<AuthSessionManager>().bootstrap();
 
   runApp(const BadaBhaiApp());
+
+  // Crash reporting comes up AFTER the first frame (#379) — never before it.
+  // It is fail-closed but not fast: it awaits native Firebase init, which on a
+  // non-GMS / AOSP ROM can hang until its 8s timeout instead of erroring. Doing
+  // that ahead of runApp froze the worker on the static native splash for ~8s
+  // on EVERY cold start. Deferred, it costs no crash coverage: init installs
+  // the Dart error handlers before it awaits Firebase and buffers anything
+  // raised in the gap. Not awaited — it never throws.
+  CrashReporter.initAfterFirstFrame(
+    appName: 'worker-app',
+    ownPackage: 'badabhai_worker_app',
+  );
 }

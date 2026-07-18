@@ -34,7 +34,15 @@ class _ConsentView extends StatelessWidget {
       listener: (BuildContext context, ConsentState state) {
         if (state.status == ConsentStatus.success) {
           // Capture the worker's name once (consent-gated) before chat profiling.
-          context.push(Routes.name);
+          //
+          // #381 — go, NOT push. Pushing left the ACCEPTED consent screen alive
+          // underneath, so system back walked the worker straight back onto a
+          // consent they had already given — and re-accepting fires a second
+          // `consent.accepted` onto the event-first audit spine (§1), which is
+          // the record of WHEN consent was granted. Replacing the route is also
+          // the honest model: consent is a gate you pass through once, not a
+          // page you browse.
+          context.go(Routes.name);
         }
       },
       builder: (BuildContext context, ConsentState state) {

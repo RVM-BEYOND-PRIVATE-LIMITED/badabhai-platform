@@ -13,6 +13,8 @@ class ProfileState extends Equatable {
     this.status = ProfileStatus.extracting,
     this.failure,
     this.summary,
+    this.confirming = false,
+    this.confirmFailure,
   });
 
   final ProfileStatus status;
@@ -27,8 +29,21 @@ class ProfileState extends Equatable {
   /// missed (extraction still succeeded); the view then degrades honestly.
   final ProfileSummary? summary;
 
+  /// True while `POST /profile/confirm` is in flight (#360). The CTA binds this
+  /// so the worker sees the tap was registered — on 2G the request can run the
+  /// full 15s timeout, and an unbound button looked simply dead.
+  final bool confirming;
+
+  /// The typed cause of a FAILED confirm (#360). Distinct from [failure], which
+  /// belongs to the `failed` status: a confirm error keeps the worker on the
+  /// READY view (their profile is intact and retryable), so it needs its own
+  /// slot. Non-null for exactly one emission — the view announces it, and the
+  /// next attempt clears it.
+  final Failure? confirmFailure;
+
   @override
-  List<Object?> get props => <Object?>[status, failure, summary];
+  List<Object?> get props =>
+      <Object?>[status, failure, summary, confirming, confirmFailure];
 }
 
 /// Drives the profile-preview screen: run the async extraction on open, then
@@ -67,13 +82,31 @@ class ProfileCubit extends Cubit<ProfileState> {
   Future<void> confirm() async {
     if (_confirming || state.status != ProfileStatus.ready) return;
     _confirming = true;
+    // #360 — announce the in-flight request. Clears any previous confirmFailure
+    // so a retry does not re-trigger the old error announcement.
+    emit(ProfileState(
+      status: ProfileStatus.ready,
+      summary: state.summary,
+      confirming: true,
+    ));
     try {
       await _repo.confirmProfile();
       if (isClosed) return;
       emit(ProfileState(
           status: ProfileStatus.confirmed, summary: state.summary));
-    } on Failure catch (_) {
-      // No confirm-error affordance in the frozen UI — stay on the ready view.
+    } on Failure catch (failure) {
+      if (isClosed) return;
+      // #360 — this used to emit NOTHING ("no confirm-error affordance in the
+      // frozen UI"), so a failed confirm on a weak link was indistinguishable
+      // from a dead button: 15s of nothing, then still nothing. The worker taps
+      // repeatedly and abandons at the FINAL step of the Phase-1 exit flow.
+      // Stay on the ready view — the profile is intact and the retry is one tap
+      // — but surface the real reason.
+      emit(ProfileState(
+        status: ProfileStatus.ready,
+        summary: state.summary,
+        confirmFailure: failure,
+      ));
     } finally {
       _confirming = false;
     }

@@ -16,6 +16,9 @@ import '../domain/jobs_repository.dart';
 import '../domain/swipe_repository.dart';
 import 'cubit/job_detail_cubit.dart';
 
+/// TalkBack label for the icon-only sticky close button (#375).
+const String kCloseSemanticLabel = 'Band karein';
+
 /// Full job posting. Reached full-screen from a Feed card (or an Applied row),
 /// which hands over the light [JobDetail] it already holds — the header (title
 /// + place) renders instantly from it while the FULL worker-visible posting is
@@ -384,18 +387,24 @@ class _JobDetailViewState extends State<_JobDetailView> {
   Widget _applyRow(BuildContext context, JobDetailState state) {
     return Row(
       children: <Widget>[
-        Material(
-          color: AppColors.surfaceCard,
-          shape: const CircleBorder(
-            side: BorderSide(color: AppColors.borderStrong, width: 2),
-          ),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: state.applying ? null : () => context.pop(),
-            child: const SizedBox(
-              width: 56,
-              height: 56,
-              child: Icon(Icons.close, color: AppColors.textMuted, size: 26),
+        // #375 — icon-only close: without a label TalkBack announces nothing
+        // actionable and the only way back out of the detail is unidentifiable.
+        Semantics(
+          button: true,
+          label: kCloseSemanticLabel,
+          child: Material(
+            color: AppColors.surfaceCard,
+            shape: const CircleBorder(
+              side: BorderSide(color: AppColors.borderStrong, width: 2),
+            ),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: state.applying ? null : () => context.pop(),
+              child: const SizedBox(
+                width: 56,
+                height: 56,
+                child: Icon(Icons.close, color: AppColors.textMuted, size: 26),
+              ),
             ),
           ),
         ),

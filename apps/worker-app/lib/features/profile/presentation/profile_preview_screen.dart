@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
+import '../../../core/error/failure.dart';
 import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -33,12 +34,27 @@ class _ProfileView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return BlocConsumer<ProfileCubit, ProfileState>(
-      listenWhen: (prev, curr) => prev.status != curr.status,
+      // #360: a failed confirm keeps status == ready, so a status-only
+      // listenWhen would never announce it. Watch confirmFailure too.
+      listenWhen: (prev, curr) =>
+          prev.status != curr.status ||
+          prev.confirmFailure != curr.confirmFailure,
       listener: (BuildContext context, ProfileState state) {
         if (state.status == ProfileStatus.confirmed) {
           // Profile confirmed — generate the resume (Building) then enter the
           // shell. context.go clears the onboarding stack (point of no return).
           context.go(Routes.building);
+          return;
+        }
+        final Failure? failed = state.confirmFailure;
+        if (failed != null) {
+          // Say the REAL reason (never a generic "check internet"), and leave
+          // the worker on the ready view where retry is one tap.
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(content: Text(failureReason(failed).reason)),
+            );
         }
       },
       builder: (BuildContext context, ProfileState state) {
@@ -51,6 +67,10 @@ class _ProfileView extends StatelessWidget {
                   label: 'Confirm & generate resume',
                   block: true,
                   iconLeft: Icons.description_outlined,
+                  // #360 — on 2G this request can run the full 15s timeout. An
+                  // unbound button looked dead, so the worker tapped repeatedly
+                  // at the last step of the flow and gave up.
+                  loading: state.confirming,
                   onPressed: context.read<ProfileCubit>().confirm,
                 )
               : null,

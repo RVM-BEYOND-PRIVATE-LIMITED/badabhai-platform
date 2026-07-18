@@ -46,6 +46,10 @@ class BbJobCardData {
   final int? spotsLeft;
 }
 
+/// TalkBack label for the title button. Hinglish, matching the app voice and the
+/// `Semantics(button: true, label: ...)` pattern the voice screen already ships.
+const String kJobCardTitleSemanticLabel = 'Job kholein — poori jaankari';
+
 /// The festive job card — `.aw-job` (ui.css §160–172). A purely **visual** card
 /// (no drag, no Skip/Apply CTA row — the Feed deck layers those on later). Wraps
 /// [BbFestiveCard] so each job leads with the truck-art double-vermilion frame.
@@ -100,16 +104,16 @@ class _TitleRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              GestureDetector(
-                onTap: onTitleTap,
-                child: Text(
-                  data.title,
-                  style: AppTypography.display(
-                    size: AppTypography.sizeXl,
-                    weight: FontWeight.w800,
-                  ),
-                ),
-              ),
+              // #362 — in the Feed deck this title is the ONLY route to the job
+              // detail (the pan recognizer claims the rest of the card), so it
+              // has to be a real button rather than a bare GestureDetector on a
+              // ~26px text line: a tap landing just under the glyphs used to
+              // fall through to the drag and only wiggle the card. Static cards
+              // (no callback) keep a plain, non-interactive title.
+              if (onTitleTap == null)
+                _titleText(data.title)
+              else
+                _TitleButton(onTap: onTitleTap!, title: _titleText(data.title)),
               // Only when a REAL employer name exists (never on the live feed).
               if (data.company != null) ...<Widget>[
                 const SizedBox(height: AppSpacing.s1),
@@ -142,6 +146,63 @@ class _TitleRow extends StatelessWidget {
         const SizedBox(width: AppSpacing.s3),
         const _LogoTile(),
       ],
+    );
+  }
+
+  Text _titleText(String title) => Text(
+        title,
+        style: AppTypography.display(
+          size: AppTypography.sizeXl,
+          weight: FontWeight.w800,
+        ),
+      );
+}
+
+/// The job title as a proper button (#362): a ≥48px (`AppSpacing.tap`) hit
+/// target, a visible ripple, a chevron so a low-literacy worker can SEE it opens
+/// something, and a button role + Hinglish label for TalkBack.
+class _TitleButton extends StatelessWidget {
+  const _TitleButton({required this.onTap, required this.title});
+
+  final VoidCallback onTap;
+  final Widget title;
+
+  @override
+  Widget build(BuildContext context) {
+    // MergeSemantics collapses the title Text + this annotation into ONE node,
+    // so TalkBack reads "<job title>, job kholein — poori jaankari, button" as a
+    // single focusable button. Without it the Text keeps its own node and the
+    // label is dropped, which is exactly the "announced as plain text" defect.
+    return MergeSemantics(
+      child: Semantics(
+        button: true,
+        label: kJobCardTitleSemanticLabel,
+        child: Material(
+          // BbFestiveCard is a plain DecoratedBox with an OPAQUE white fill, so
+          // without a local transparent Material the ink would splash on the
+          // Scaffold underneath the card and never be seen.
+          type: MaterialType.transparency,
+          child: InkWell(
+            key: const Key('jobCardTitleButton'),
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(AppRadii.sm),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: AppSpacing.tap),
+              child: Row(
+                children: <Widget>[
+                  Expanded(child: title),
+                  const SizedBox(width: AppSpacing.s2),
+                  const Icon(
+                    Icons.chevron_right,
+                    size: 22,
+                    color: AppColors.brandPress,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

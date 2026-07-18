@@ -252,9 +252,9 @@ class _PendingDeletionBanner extends StatelessWidget {
 }
 
 /// The OTP-entry step of account delete. Reacts to [AccountDeleteCubit]: shows a
-/// countdown from the resend cooldown, submits the OTP, surfaces the honest error
-/// (bad OTP / rate-limit), and pops once the delete is SCHEDULED (the banner
-/// behind it takes over).
+/// countdown from the resend cooldown, offers a REAL resend once it elapses,
+/// submits the OTP, surfaces the honest error (bad OTP / rate-limit), and pops
+/// once the delete is SCHEDULED (the banner behind it takes over).
 class _DeleteOtpDialog extends StatefulWidget {
   const _DeleteOtpDialog();
 
@@ -291,17 +291,36 @@ class _DeleteOtpDialogState extends State<_DeleteOtpDialog> {
     super.dispose();
   }
 
+  /// #361 — the REAL resend. Re-hits the same step-up OTP request the pre-dialog
+  /// flow used (POST /auth/account/delete/request); the listener below restarts
+  /// the countdown off the fresh cooldown when it lands, and a failure (e.g. 429)
+  /// surfaces inline through the existing error line. Not awaited on purpose:
+  /// the cubit is the single source of truth for this dialog's state.
+  void _resend(BuildContext context) {
+    unawaited(context.read<AccountDeleteCubit>().requestDelete());
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocConsumer<AccountDeleteCubit, AccountDeleteState>(
       listener: (BuildContext context, AccountDeleteState state) {
         if (state.status == AccountDeleteStatus.scheduled) {
           Navigator.of(context).pop(true);
+          return;
+        }
+        // #361 — a successful resend hands back a NEW cooldown; restart the
+        // countdown from it so the control re-arms only when the server allows
+        // another send. (Only fires on a transition, so the initial otpSent the
+        // dialog opens on is already covered by initState.)
+        if (state.status == AccountDeleteStatus.otpSent) {
+          setState(() => _remaining = state.resendInSeconds);
+          _startCountdown();
         }
       },
       builder: (BuildContext context, AccountDeleteState state) {
-        final bool busy = state.status == AccountDeleteStatus.confirming ||
-            state.status == AccountDeleteStatus.sendingOtp;
+        final bool sending = state.status == AccountDeleteStatus.sendingOtp;
+        final bool busy =
+            state.status == AccountDeleteStatus.confirming || sending;
         final bool isError = state.status == AccountDeleteStatus.error;
         return AlertDialog(
           title: const Text('OTP daalein'),
@@ -341,13 +360,35 @@ class _DeleteOtpDialogState extends State<_DeleteOtpDialog> {
                 ),
               ],
               const SizedBox(height: AppSpacing.s2),
-              Text(
-                _remaining > 0
-                    ? 'Dobara bhejne ke liye $_remaining second'
-                    : 'Naya OTP bhej sakte hain',
-                style: AppTypography.body(
-                    size: AppTypography.sizeXs, color: AppColors.textFaint),
-              ),
+              // #361 — while the cooldown runs this is (correctly) just a
+              // countdown caption; the moment it elapses it becomes a REAL
+              // tappable resend. It used to swap to the plain text "Naya OTP
+              // bhej sakte hain", which promised an affordance that did not
+              // exist — a lost delete-OTP dead-ended the legally-required DPDP
+              // deletion flow behind copy telling the worker to do something
+              // the dialog gave them no way to do.
+              if (_remaining > 0)
+                Text(
+                  'Dobara bhejne ke liye $_remaining second',
+                  style: AppTypography.body(
+                      size: AppTypography.sizeXs, color: AppColors.textFaint),
+                )
+              else
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    // Disabled mid-flight so a double tap can't burn two OTPs
+                    // (and trip the server's rate limit against the worker).
+                    onPressed: busy ? null : () => _resend(context),
+                    child: sending
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Dobara OTP bhejein'),
+                  ),
+                ),
             ],
           ),
           actions: <Widget>[
@@ -361,7 +402,10 @@ class _DeleteOtpDialogState extends State<_DeleteOtpDialog> {
                   ? null
                   : () =>
                       context.read<AccountDeleteCubit>().confirmDelete(_otp.text),
-              child: busy
+              // #361 — spinner only for the CONFIRM round trip. `busy` also
+              // covers a resend, and showing two spinners at once would read as
+              // "the delete is going through" while nothing is being confirmed.
+              child: state.status == AccountDeleteStatus.confirming
                   ? const SizedBox(
                       width: 18,
                       height: 18,

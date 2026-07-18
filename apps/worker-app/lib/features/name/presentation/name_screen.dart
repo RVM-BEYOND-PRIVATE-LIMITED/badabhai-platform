@@ -66,7 +66,13 @@ class _NameViewState extends State<_NameView> {
       listenWhen: (NameState p, NameState c) => p.status != c.status,
       listener: (BuildContext context, NameState state) {
         if (state.status == NameStatus.success) {
-          context.push(Routes.chatProfiling);
+          // #381 — go, NOT push. Pushing left the SUBMITTED name screen alive
+          // underneath, so system back from the profiling chat dropped the
+          // worker onto a name they had already saved, inviting a duplicate
+          // submit. Onboarding is a one-way sequence; each completed step
+          // replaces the last rather than stacking. (ProfilePreviewScreen
+          // already does the same with go(Routes.building).)
+          context.go(Routes.chatProfiling);
         } else if (state.status == NameStatus.failed) {
           ScaffoldMessenger.of(context)
             ..clearSnackBars()

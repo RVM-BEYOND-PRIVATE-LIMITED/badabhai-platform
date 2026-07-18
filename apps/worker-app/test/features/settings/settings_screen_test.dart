@@ -189,6 +189,104 @@ void main() {
     expect(locator<SessionRepository>().deletionScheduledFor, isNull);
   });
 
+  // ---- #361 — the delete-OTP dialog's resend ----
+  //
+  // The dialog used to swap its countdown for the plain text "Naya OTP bhej
+  // sakte hain" and offer nothing to tap, so a lost delete-OTP dead-ended the
+  // legally-required DPDP deletion flow behind copy telling the worker to do
+  // something the dialog gave them no way to do.
+
+  /// Drives Settings → confirm → OTP dialog, with the first delete-OTP request
+  /// answering [firstCooldown] seconds of cooldown.
+  Future<void> openDeleteOtpDialog(
+    WidgetTester tester, {
+    int firstCooldown = 0,
+  }) async {
+    locator<SessionRepository>()
+        .setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok');
+    when(() => api.requestAccountDelete(authToken: any(named: 'authToken')))
+        .thenAnswer((_) async => AccountDeleteRequestResult(
+            success: true, resendInSeconds: firstCooldown));
+
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.light(),
+      home: const SettingsScreen(),
+    ));
+
+    await tester.tap(find.text('Account delete karein'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete karein')); // confirm the 7-day grace
+    await tester.pumpAndSettle();
+
+    expect(find.text('OTP daalein'), findsOneWidget);
+  }
+
+  testWidgets(
+      'once the cooldown elapses the dialog offers a REAL resend, not the old '
+      'dead-end caption', (WidgetTester tester) async {
+    await openDeleteOtpDialog(tester);
+
+    // The copy that promised an affordance that did not exist is gone...
+    expect(find.text('Naya OTP bhej sakte hain'), findsNothing);
+    // ...replaced by something the worker can actually tap.
+    expect(find.widgetWithText(TextButton, 'Dobara OTP bhejein'), findsOneWidget);
+    final TextButton resend =
+        tester.widget(find.widgetWithText(TextButton, 'Dobara OTP bhejein'));
+    expect(resend.onPressed, isNotNull);
+  });
+
+  testWidgets('the resend re-requests the OTP and restarts the countdown from '
+      'the fresh server cooldown', (WidgetTester tester) async {
+    await openDeleteOtpDialog(tester);
+    // The resend answers a real cooldown, which must re-arm the control.
+    when(() => api.requestAccountDelete(authToken: any(named: 'authToken')))
+        .thenAnswer((_) async =>
+            const AccountDeleteRequestResult(success: true, resendInSeconds: 30));
+
+    await tester.tap(find.text('Dobara OTP bhejein'));
+    await tester.pump(); // sendingOtp
+    await tester.pump(); // otpSent → listener restarts the countdown
+
+    // A SECOND request actually went out on the session token — this is a real
+    // resend, not just a re-render.
+    verify(() => api.requestAccountDelete(authToken: 'tok')).called(2);
+    // And the button re-arms behind the server's own cooldown rather than
+    // letting the worker burn OTPs back to back.
+    expect(find.text('Dobara bhejne ke liye 30 second'), findsOneWidget);
+    expect(find.text('Dobara OTP bhejein'), findsNothing);
+
+    // Close the dialog so the countdown timer is disposed with its State.
+    await tester.tap(find.text('Rehne dein'));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('a rate-limited resend surfaces the honest reason in the dialog',
+      (WidgetTester tester) async {
+    await openDeleteOtpDialog(tester);
+    when(() => api.requestAccountDelete(authToken: any(named: 'authToken')))
+        .thenThrow(ApiException(429, 'too many'));
+
+    await tester.tap(find.text('Dobara OTP bhejein'));
+    await tester.pump();
+    await tester.pump();
+
+    // Not a silent no-op: the worker is told why, and can try again.
+    expect(find.text('Bahut requests. Thodi der baad dobara try karein.'),
+        findsOneWidget);
+    expect(find.text('Dobara OTP bhejein'), findsOneWidget);
+  });
+
+  testWidgets('while the cooldown runs there is no resend to tap',
+      (WidgetTester tester) async {
+    await openDeleteOtpDialog(tester, firstCooldown: 45);
+
+    expect(find.text('Dobara bhejne ke liye 45 second'), findsOneWidget);
+    expect(find.text('Dobara OTP bhejein'), findsNothing);
+
+    await tester.tap(find.text('Rehne dein'));
+    await tester.pumpAndSettle();
+  });
+
   testWidgets(
       'ADR-0031 cold start via PIN UNLOCK with NOTHING pending → the ordinary '
       'delete row, no banner, no fabricated date', (WidgetTester tester) async {

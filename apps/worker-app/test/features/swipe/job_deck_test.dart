@@ -152,7 +152,12 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('dragging up shows the golden bottom tint; absent at rest', (
+  // #374 — this test used to assert the OPPOSITE: that dragging up ramped a
+  // golden saffron "add to Priority" band. That action was deleted (an empty
+  // repository no-op that still toasted success) but the tint survived, so the
+  // card charged up committed-looking feedback and then snapped back. The
+  // up-drag must now be silent: follow-the-finger only, no tint at all.
+  testWidgets('dragging up paints NO tint — the Priority affordance is gone', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(_host(JobDeck(
@@ -169,19 +174,121 @@ void main() {
     await gesture.moveBy(const Offset(0, -60));
     await tester.pump();
 
-    final List<LinearGradient> bands = _bandGradients(tester);
-    expect(bands, isNotEmpty);
-    final LinearGradient g = bands.first;
-    // Golden (saffron) strongest at the bottom edge, fading to transparent by
-    // the vertical centre — only the bottom half is tinted.
-    expect(g.colors.first.a, greaterThan(0));
-    expect(g.colors.first.r, AppColors.saffron.r);
-    expect(g.colors.last.a, 0);
-    expect(g.begin, Alignment.bottomCenter);
-    expect(g.end, Alignment.center);
+    // Still nothing — and in particular nothing saffron.
+    expect(_bandGradients(tester), isEmpty);
 
     await gesture.up();
     await tester.pumpAndSettle();
+  });
+
+  // #374 — the up-drag also used to PROMOTE the behind card (slide it up to the
+  // front position), which reads as "a commit is about to land" for a gesture
+  // that commits nothing. Promotion is horizontal-only now.
+  testWidgets('dragging up does not promote the behind card', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(_host(JobDeck(
+      cards: <JobDeckItem>[_item('j1', 'First'), _item('j2', 'Second')],
+      onApply: () {},
+      onSkip: () {},
+    )));
+
+    final double restY = tester.getTopLeft(find.text('Second')).dy;
+
+    final TestGesture gesture =
+        await tester.startGesture(tester.getCenter(find.text('First')));
+    await gesture.moveBy(const Offset(0, -120));
+    await tester.pump();
+
+    // The behind card has not budged from its resting peek.
+    expect(tester.getTopLeft(find.text('Second')).dy, restY);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    // A horizontal drag, by contrast, still promotes it.
+    final TestGesture sideways =
+        await tester.startGesture(tester.getCenter(find.text('First')));
+    await sideways.moveBy(const Offset(120, 0));
+    await tester.pump();
+    expect(tester.getTopLeft(find.text('Second')).dy, lessThan(restY));
+
+    await sideways.up();
+    await tester.pumpAndSettle();
+  });
+
+  // #363 — a drag frame must NOT rebuild the deck. The card subtrees are built
+  // once and handed to the ValueListenableBuilders as `child`, so the same
+  // BbJobCard widget instance survives a pointer move; under the old
+  // setState-per-pan-update the whole deck (both cards, band and CTA row) was
+  // rebuilt from scratch on every frame.
+  testWidgets('a drag frame reuses the card widgets instead of rebuilding', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(_host(JobDeck(
+      cards: <JobDeckItem>[_item('j1', 'First'), _item('j2', 'Second')],
+      onApply: () {},
+      onSkip: () {},
+    )));
+
+    List<BbJobCard> cards() => tester.widgetList<BbJobCard>(
+          find.byType(BbJobCard),
+        ).toList();
+
+    final List<BbJobCard> before = cards();
+    final TestGesture gesture =
+        await tester.startGesture(tester.getCenter(find.text('First')));
+    await gesture.moveBy(const Offset(40, 0));
+    await tester.pump();
+
+    final List<BbJobCard> after = cards();
+    expect(after.length, before.length);
+    for (int i = 0; i < before.length; i++) {
+      expect(identical(before[i], after[i]), isTrue,
+          reason: 'BbJobCard #$i was rebuilt during a drag frame');
+    }
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+  });
+
+  // #363 — each card sits behind a RepaintBoundary so the drag only
+  // re-composites a cached raster instead of re-rasterizing BbFestiveCard's
+  // blur-20 shadow and its per-dash-segment CustomPaint border every frame.
+  testWidgets('each job card is isolated behind a RepaintBoundary', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(_host(JobDeck(
+      cards: <JobDeckItem>[_item('j1', 'First'), _item('j2', 'Second')],
+      onApply: () {},
+      onSkip: () {},
+    )));
+
+    // Asserted on the DIRECT parent: MaterialApp/Scaffold already contribute a
+    // couple of ambient RepaintBoundary ancestors, so a plain `find.ancestor`
+    // would pass even with no boundary of our own.
+    expect(
+      find.byWidgetPredicate(
+        (Widget w) => w is RepaintBoundary && w.child is BbJobCard,
+      ),
+      findsNWidgets(2),
+      reason: 'front and behind cards must each sit under their own boundary',
+    );
+  });
+
+  // #375 — the skip circle is icon-only; TalkBack announced just "button".
+  testWidgets('the skip button carries a spoken label', (
+    WidgetTester tester,
+  ) async {
+    final SemanticsHandle handle = tester.ensureSemantics();
+    await tester.pumpWidget(_host(JobDeck(
+      cards: <JobDeckItem>[_item('j1', 'First')],
+      onApply: () {},
+      onSkip: () {},
+    )));
+
+    expect(find.bySemanticsLabel(kSkipSemanticLabel), findsOneWidget);
+    handle.dispose();
   });
 
   testWidgets('the Apply button commits and fires onApply once', (
@@ -270,5 +377,36 @@ void main() {
     expect(skipped, 0);
     // The card is still there, settled back at rest.
     expect(find.text('First'), findsOneWidget);
+  });
+
+  // #363 — the queue advance resets the drag from didUpdateWidget, i.e. from
+  // inside a build pass. Guards the notifier reset against a "markNeedsBuild
+  // called during build" regression and proves the new head lands at rest.
+  testWidgets('advancing the queue settles the new head back at centre', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(_host(JobDeck(
+      cards: <JobDeckItem>[_item('j1', 'First'), _item('j2', 'Second')],
+      onApply: () {},
+      onSkip: () {},
+    )));
+
+    final Offset restTopLeft = tester.getTopLeft(find.text('First'));
+
+    await tester.tap(find.byKey(const Key('swipeApplyButton')));
+    await tester.pumpAndSettle(); // fly the head off-screen
+
+    // Parent accepts the decision and advances the queue.
+    await tester.pumpWidget(_host(JobDeck(
+      cards: <JobDeckItem>[_item('j2', 'Second')],
+      onApply: () {},
+      onSkip: () {},
+    )));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('First'), findsNothing);
+    // The promoted card sits exactly where the front card rests, not off-screen.
+    expect(tester.getTopLeft(find.text('Second')), restTopLeft);
   });
 }

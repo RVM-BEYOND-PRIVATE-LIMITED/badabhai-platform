@@ -113,6 +113,10 @@ void setupLocator({
       authApi: locator<PayerAuthApi>(),
       accountApi: locator<PayerAccountApi>(),
       tokenStore: locator<PayerTokenStore>(),
+      // #369 — CreditsCubit is the ONLY app-wide singleton cubit, so it is the
+      // only state that survives sign-out. Reset it here or the next payer to
+      // sign in on this device sees the previous payer's balance.
+      onSessionCleared: () => locator<CreditsCubit>().reset(),
     ),
   );
   locator.registerLazySingleton<CreditsCubit>(

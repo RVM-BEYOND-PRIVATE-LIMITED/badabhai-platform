@@ -47,6 +47,17 @@ class CreditsCubit extends Cubit<CreditsState> {
     }
   }
 
+  /// Drops the balance back to unknown (#369).
+  ///
+  /// This cubit is an app-wide lazySingleton, so unlike every per-mount cubit it
+  /// SURVIVES sign-out. Without this, the signed-out payer's balance stayed in
+  /// state and the next payer's Home rendered it as their own — and because
+  /// [load]'s failure path deliberately keeps the last-known balance, a failed
+  /// first fetch for the new account left the PREVIOUS account's number on
+  /// screen indefinitely. On a shared office device that is one payer reading
+  /// another's balance. Sign-out must therefore reset to the honest '—'.
+  void reset() => emit(const CreditsState());
+
   /// Spend 1 credit to unlock a candidate, then re-read server truth through
   /// the guarded [load] — the value returned by `unlockCandidate` is
   /// deliberately NOT trusted (its internal credits re-read can mask a

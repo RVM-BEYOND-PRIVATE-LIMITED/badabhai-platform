@@ -56,14 +56,28 @@ class DevicesCubit extends Cubit<DevicesState> {
         status: DevicesStatus.failed,
         message: authErrorMessage(failure, _locale),
       ));
+    } catch (_) {
+      // #367 — a non-AuthFailure (e.g. a PlatformException from the secure
+      // store) otherwise escaped and left this stuck on `loading`: a permanent
+      // spinner with no retry affordance, since the failed view is what carries
+      // one. Fail to the honest failed state instead.
+      if (isClosed) return;
+      emit(DevicesState(
+        status: DevicesStatus.failed,
+        message: authErrorMessage(
+            const AuthFailure(AuthErrorCode.unknown), _locale),
+      ));
     }
   }
 
   Future<void> revoke(String deviceId) async {
     try {
       await _manager.revokeDevice(deviceId);
-    } on AuthFailure catch (_) {
-      // Surface the failure by re-loading; the list is the source of truth.
+    } catch (_) {
+      // #367 — was `on AuthFailure`, so a non-AuthFailure escaped revoke() and
+      // skipped the reload below, leaving a revoked-looking list that never
+      // refreshed. Any failure is surfaced the same way: re-load, because the
+      // list is the source of truth.
     }
     await load();
   }

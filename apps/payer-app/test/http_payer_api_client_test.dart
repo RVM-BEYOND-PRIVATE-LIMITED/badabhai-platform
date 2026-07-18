@@ -57,6 +57,41 @@ void main() {
       expect(req.headers['authorization'], 'Bearer tok-abc');
     });
 
+    // #370 — the non-2xx guard below is not enough on its own: PayerHttp._decode
+    // turns ANY unparseable/non-object body into `{}`, so a 200 carrying
+    // captive-portal HTML (or a drifted contract) sailed past it and `?? 0` then
+    // minted a confident "0 credits" — telling the payer their balance was wiped.
+    test('#370: a 2xx with a malformed/contract-breaking body throws instead of '
+        'fabricating a 0 balance', () async {
+      final List<http.Response> badBodies = <http.Response>[
+        // Captive-portal HTML served as 200.
+        http.Response('<html><body>Sign in to WiFi</body></html>', 200),
+        // Valid JSON, but not an object.
+        http.Response('[1,2,3]', 200),
+        // Object without the contracted key.
+        _json(<String, dynamic>{'credits': 42}),
+        // Right key, wrong type.
+        _json(<String, dynamic>{'balance': 'many'}),
+      ];
+      for (final http.Response body in badBodies) {
+        final h = _harness(<String, http.Response>{'GET /payer/credits': body});
+        await expectLater(
+          h.api.fetchCreditBalance(),
+          throwsA(isA<PayerApiException>()),
+          reason: 'an undecodable 200 is a contract error, not a zero balance',
+        );
+      }
+    });
+
+    test('#370: a well-formed 2xx still returns the real balance (incl. a true 0)',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'GET /payer/credits': _json(<String, dynamic>{'balance': 0}),
+      });
+      // A REAL zero must still pass — the fix rejects missing/garbage, not 0.
+      expect(await h.api.fetchCreditBalance(), 0);
+    });
+
     // fetchCredits used to swallow EVERY non-2xx and return 0 — a real 500/401
     // rendered as an honest-looking "0 credits". It must fail instead.
     test('fetchCredits non-2xx → PayerApiException (never a fabricated 0)',

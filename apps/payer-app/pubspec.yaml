@@ -41,6 +41,14 @@ dependencies:
   uuid: ^4.5.1
   # Client-side QR rendering for the agency referral link (no PII, no network).
   qr_flutter: ^4.1.0
+  # #354 — opens the SIGNED masked-résumé URL straight in the OS browser
+  # (LaunchMode.externalApplication). That url is a bearer capability: anyone
+  # holding it can fetch the worker's résumé with NO BadaBhai auth. It used to be
+  # written to the shared OS clipboard, which any focused app/IME can read, which
+  # Gboard/Samsung/Windows Phone Link sync OFF-DEVICE, and which Android keeps in
+  # clipboard history — so the token outlived the screen. Handing it to the
+  # browser is a one-shot transfer with no persistent copy.
+  url_launcher: ^6.3.1
 
 dev_dependencies:
   flutter_test:

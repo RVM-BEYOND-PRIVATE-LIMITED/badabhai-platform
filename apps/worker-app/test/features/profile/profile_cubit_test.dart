@@ -89,7 +89,11 @@ void main() {
     seed: () =>
         const ProfileState(status: ProfileStatus.ready, summary: realSummary),
     act: (ProfileCubit c) => c.confirm(),
+    // #360: an in-flight emission now precedes the result, so the CTA can show
+    // a loading state instead of looking dead for the whole request.
     expect: () => const <ProfileState>[
+      ProfileState(
+          status: ProfileStatus.ready, summary: realSummary, confirming: true),
       ProfileState(status: ProfileStatus.confirmed, summary: realSummary),
     ],
     verify: (_) => verify(() => repo.confirmProfile()).called(1),
@@ -103,18 +107,42 @@ void main() {
     verify: (_) => verifyNever(() => repo.confirmProfile()),
   );
 
-  // The frozen UI has no confirm-error affordance: a confirm failure is
-  // swallowed and the screen stays on the ready view (emits nothing).
+  // #360 — this used to assert "no emission": a failed confirm produced ZERO
+  // feedback, so on a weak link the worker saw 15s of nothing and then still
+  // nothing, tapped repeatedly, and abandoned at the FINAL step of the flow.
+  // It must now stay on the ready view (the profile is intact, retry is one tap)
+  // AND carry the typed cause so the screen can state the real reason.
   blocTest<ProfileCubit, ProfileState>(
-    'confirm failure -> stays ready, no emission',
+    'confirm failure -> stays ready and ANNOUNCES the typed failure',
     build: () {
       when(() => repo.confirmProfile()).thenThrow(const NetworkFailure());
       return ProfileCubit(repo, summaryRepo);
     },
     seed: () => const ProfileState(status: ProfileStatus.ready),
     act: (ProfileCubit c) => c.confirm(),
-    expect: () => const <ProfileState>[],
+    expect: () => const <ProfileState>[
+      ProfileState(status: ProfileStatus.ready, confirming: true),
+      ProfileState(
+          status: ProfileStatus.ready, confirmFailure: NetworkFailure()),
+    ],
     verify: (_) => verify(() => repo.confirmProfile()).called(1),
+  );
+
+  // A retry must clear the previous error, or the screen would re-announce a
+  // stale failure on the next attempt.
+  blocTest<ProfileCubit, ProfileState>(
+    'a retry after a failed confirm clears the previous confirmFailure',
+    build: () {
+      when(() => repo.confirmProfile()).thenAnswer((_) async {});
+      return ProfileCubit(repo, summaryRepo);
+    },
+    seed: () => const ProfileState(
+        status: ProfileStatus.ready, confirmFailure: NetworkFailure()),
+    act: (ProfileCubit c) => c.confirm(),
+    expect: () => const <ProfileState>[
+      ProfileState(status: ProfileStatus.ready, confirming: true),
+      ProfileState(status: ProfileStatus.confirmed),
+    ],
   );
 
   // Re-entrancy guard: a concurrent double-confirm must not fire confirmProfile
@@ -133,8 +161,11 @@ void main() {
       c.confirm(); // dropped by the guard
     },
     wait: const Duration(milliseconds: 50),
-    expect: () =>
-        const <ProfileState>[ProfileState(status: ProfileStatus.confirmed)],
+    // The guard still drops the second tap — only ONE in-flight emission.
+    expect: () => const <ProfileState>[
+      ProfileState(status: ProfileStatus.ready, confirming: true),
+      ProfileState(status: ProfileStatus.confirmed),
+    ],
     verify: (_) => verify(() => repo.confirmProfile()).called(1),
   );
 

@@ -109,6 +109,10 @@ class _ChatViewState extends State<_ChatView> {
   /// the "Naye message" jump pill rather than yanking the transcript down.
   bool _hasUnreadBelow = false;
 
+  /// True while the profile preview is being opened (#372) — see
+  /// [_openProfilePreview] for why a bool and not just the disabled state.
+  bool _openingPreview = false;
+
   @override
   void initState() {
     super.initState();
@@ -297,14 +301,35 @@ class _ChatViewState extends State<_ChatView> {
             variant:
                 ready ? BbButtonVariant.primary : BbButtonVariant.secondary,
             iconLeft: ready ? Icons.check_circle_outline : Icons.forum_outlined,
-            onPressed: ready ? _openProfilePreview : _confirmEarlyFinish,
+            // #372's visible half: the same-frame half lives in
+            // `_openProfilePreview`. Only the READY path can stack previews —
+            // the not-ready path opens a sheet, which is its own guard.
+            onPressed: ready
+                ? (_openingPreview ? null : _openProfilePreview)
+                : _confirmEarlyFinish,
           ),
         ],
       ),
     );
   }
 
-  void _openProfilePreview() => context.push(Routes.profilePreview);
+  /// Opens the profile preview at most once per round trip (#372).
+  ///
+  /// The boolean is checked SYNCHRONOUSLY, before the frame that disables the
+  /// button paints: a real double-tap lands both taps inside the same frame, so
+  /// the disabled state alone would arrive too late to stop the second push —
+  /// which stacked duplicate preview screens AND duplicate extraction jobs.
+  Future<void> _openProfilePreview() async {
+    if (_openingPreview) return;
+    setState(() => _openingPreview = true);
+    try {
+      await context.push(Routes.profilePreview);
+    } finally {
+      // Confirming the profile leaves via `go(/building)` — this screen is gone
+      // by then, hence the mounted check before re-arming the button.
+      if (mounted) setState(() => _openingPreview = false);
+    }
+  }
 
   /// Warm nudge when the engine has not called the interview complete yet.
   ///

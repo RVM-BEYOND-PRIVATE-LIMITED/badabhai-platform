@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:http/http.dart' as http;
 
@@ -22,6 +23,67 @@ const String kConsentVersion = '2026-06-01';
 /// the UI shows an honest "couldn't reach the server" with a Try-again instead
 /// of an infinite spinner. 15s is generous for a slow link yet bounded.
 const Duration kRequestTimeout = Duration(seconds: 15);
+
+/// Default number of polls' worth of BUDGET for an async AI job (#378).
+///
+/// Kept at 40 because it defines the total wait together with
+/// [kAiJobPollInterval] (40 x 350ms = 14s) — it is no longer the number of
+/// requests actually made. See [buildAiJobPollSchedule].
+const int kAiJobPollMaxAttempts = 40;
+
+/// Base gap between AI-job polls — also the FIRST gap. See
+/// [buildAiJobPollSchedule].
+const Duration kAiJobPollInterval = Duration(milliseconds: 350);
+
+/// Builds the delay schedule for [ApiClient.awaitProfileId] /
+/// [ApiClient.awaitAiJob] — one delay per poll, in order (#378).
+///
+/// The old cadence was a FLAT [pollInterval] repeated [maxAttempts] times:
+/// 350ms x 40 = ~3 requests/second sustained for 14s. The *wait* is not the
+/// problem — an LLM extraction genuinely takes seconds and the profiling /
+/// voice UX is tuned to that budget (see #282) — the *request count* is: up to
+/// 40 round-trips per extraction on a metered prepaid connection, holding the
+/// cellular radio in its high-power state, with every device on the network
+/// hitting `/ai-jobs` in lockstep at the same fixed rate.
+///
+/// So: same total budget, spent differently. Gaps grow 350ms -> 700ms -> 1.4s
+/// -> 2.8s (capped at 8x the base, so a slow job still gets checked a few times
+/// a minute), each carries +/-25% jitter so a herd of devices de-syncs, and the
+/// tail gap is clamped so the delays sum to EXACTLY
+/// `pollInterval * maxAttempts`. Net effect: ~8 requests instead of 40 across
+/// the SAME 14s — the wait is never shortened, only the polling is.
+///
+/// The first poll still fires immediately (no initial delay): a job that is
+/// already terminal — a fast/cached transcription, or a re-await after the
+/// screen rebuilt — must not be made artificially slower.
+List<Duration> buildAiJobPollSchedule({
+  int maxAttempts = kAiJobPollMaxAttempts,
+  Duration pollInterval = kAiJobPollInterval,
+  math.Random? random,
+}) {
+  final int base = pollInterval.inMicroseconds;
+  final int budget = base * maxAttempts;
+  if (base <= 0 || budget <= 0) return const <Duration>[];
+
+  final math.Random rnd = random ?? math.Random();
+  final int cap = base * 8;
+  final List<Duration> delays = <Duration>[];
+  int spent = 0;
+  int next = base;
+
+  while (spent < budget) {
+    // Jitter in [0.75, 1.25). Applied to the UNJITTERED curve so drift can't
+    // compound across attempts.
+    final int jittered = math.max(1, (next * (0.75 + rnd.nextDouble() * 0.5)).round());
+    // Clamp the tail: overrunning would extend the timeout past what callers
+    // budgeted, and stopping short would shorten the wait — both are wrong.
+    final int delay = spent + jittered >= budget ? budget - spent : jittered;
+    delays.add(Duration(microseconds: delay));
+    spent += delay;
+    next = math.min(next * 2, cap);
+  }
+  return delays;
+}
 
 /// HTTP client for the NestJS API (see apps/api).
 ///
@@ -157,15 +219,22 @@ class ApiClient {
 
   /// Polls [getAiJob] until the job completes and yields a `profile_id`.
   ///
-  /// Bounded poll: [maxAttempts] tries spaced [pollInterval] apart. Throws
-  /// [ApiException] if the job fails, or [ProfileExtractionTimeout] if the
-  /// budget is exhausted while still queued/running.
+  /// Bounded poll over a total budget of `maxAttempts * pollInterval` (14s by
+  /// default), spent on a jittered exponential-backoff schedule rather than a
+  /// flat 350ms drumbeat (#378 — same wait, ~5x fewer requests; see
+  /// [buildAiJobPollSchedule]). Throws [ApiException] if the job fails, or
+  /// [ProfileExtractionTimeout] if the budget is exhausted while still
+  /// queued/running.
   Future<String> awaitProfileId(
     String aiJobId, {
-    int maxAttempts = 40,
-    Duration pollInterval = const Duration(milliseconds: 350),
+    int maxAttempts = kAiJobPollMaxAttempts,
+    Duration pollInterval = kAiJobPollInterval,
   }) async {
-    for (int attempt = 0; attempt < maxAttempts; attempt++) {
+    final List<Duration> schedule = buildAiJobPollSchedule(
+      maxAttempts: maxAttempts,
+      pollInterval: pollInterval,
+    );
+    for (int attempt = 0; attempt < schedule.length; attempt++) {
       final AiJob job = await getAiJob(aiJobId);
       if (job.isCompleted) {
         final String? profileId = job.profileId;
@@ -180,7 +249,7 @@ class ApiClient {
           job.errorMessage ?? 'profile extraction failed',
         );
       }
-      await Future<void>.delayed(pollInterval);
+      await Future<void>.delayed(schedule[attempt]);
     }
     throw ProfileExtractionTimeout(aiJobId);
   }
@@ -539,18 +608,24 @@ class ApiClient {
   }
 
   /// Polls [getAiJob] until the job reaches a terminal state (completed OR
-  /// failed) and returns it. Bounded: [maxAttempts] tries spaced [pollInterval]
-  /// apart. Throws [ProfileExtractionTimeout] (reused as a generic AI-job
-  /// timeout) if the budget is exhausted while still queued/running.
+  /// failed) and returns it. Bounded by the same `maxAttempts * pollInterval`
+  /// budget as [awaitProfileId], spent on the jittered backoff schedule from
+  /// [buildAiJobPollSchedule] (#378 — transcription waits are the other hot
+  /// polling path). Throws [ProfileExtractionTimeout] (reused as a generic
+  /// AI-job timeout) if the budget is exhausted while still queued/running.
   Future<AiJob> awaitAiJob(
     String aiJobId, {
-    int maxAttempts = 40,
-    Duration pollInterval = const Duration(milliseconds: 350),
+    int maxAttempts = kAiJobPollMaxAttempts,
+    Duration pollInterval = kAiJobPollInterval,
   }) async {
-    for (int attempt = 0; attempt < maxAttempts; attempt++) {
+    final List<Duration> schedule = buildAiJobPollSchedule(
+      maxAttempts: maxAttempts,
+      pollInterval: pollInterval,
+    );
+    for (int attempt = 0; attempt < schedule.length; attempt++) {
       final AiJob job = await getAiJob(aiJobId);
       if (job.isTerminal) return job;
-      await Future<void>.delayed(pollInterval);
+      await Future<void>.delayed(schedule[attempt]);
     }
     throw ProfileExtractionTimeout(aiJobId);
   }

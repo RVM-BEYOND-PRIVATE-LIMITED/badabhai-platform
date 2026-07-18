@@ -108,6 +108,9 @@ class _DigitKey extends StatelessWidget {
   }
 }
 
+/// TalkBack label for the icon-only backspace key (#375).
+const String kBackspaceSemanticLabel = 'Aakhri digit hatayein';
+
 class _BackspaceKey extends StatelessWidget {
   const _BackspaceKey({required this.onTap});
 
@@ -115,16 +118,25 @@ class _BackspaceKey extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkResponse(
-      onTap: onTap,
-      radius: AppSpacing.s9,
-      child: SizedBox(
-        width: AppSpacing.s11,
-        height: AppSpacing.s10,
-        child: Icon(
-          Icons.backspace_outlined,
-          size: AppSpacing.s6,
-          color: onTap == null ? AppColors.textFaint : AppColors.textSecondary,
+    // #375 — the digit keys are announced because they carry text; this one is a
+    // bare Icon, so TalkBack read only "button". A worker who mistyped a digit
+    // could not find the key to correct it and drove into the PIN lockout — on
+    // the auth path, on a keypad whose whole reason for existing is low-literacy
+    // accessibility.
+    return Semantics(
+      button: true,
+      label: kBackspaceSemanticLabel,
+      child: InkResponse(
+        onTap: onTap,
+        radius: AppSpacing.s9,
+        child: SizedBox(
+          width: AppSpacing.s11,
+          height: AppSpacing.s10,
+          child: Icon(
+            Icons.backspace_outlined,
+            size: AppSpacing.s6,
+            color: onTap == null ? AppColors.textFaint : AppColors.textSecondary,
+          ),
         ),
       ),
     );
