@@ -3,27 +3,41 @@
 LOCAL DEV TOOL ONLY. Run with:  python -m app.cli.onboarding_chat
 
 What it is / is NOT:
-- The interview is now MODEL-DRIVEN: "Bada Bhai" (the model behind
-  ``router.run("profiling_chat_turn", ...)``) decides each question, reacts to
-  the worker's answer, and signals when it has enough to extract. The router's
-  Gemini-primary / Haiku-fallback chain is handled internally; this CLI only
-  supplies pseudonymized messages and a deterministic mock fallback.
+- CLI-1: the interview is DETERMINISTIC and ENGINE-DRIVEN, mirroring the
+  production path ``chat.service.ts -> POST /profiling/respond`` turn for turn:
+  pseudonymize -> ``interview_engine.clarify_turn`` (when ``needs_rephrase``) else
+  ``interview_engine.next_turn`` -> ``build_chat_messages`` ->
+  ``router.run("profiling_chat_turn", ...)`` -> thread the returned
+  ``ConversationState`` into the next turn -> stop on ``extraction_ready``.
+  This CLI previously ran its OWN model-driven loop that shipped nowhere; it
+  validated nothing real. It now exercises the same engine the API does.
+- The MODEL NEVER CHOOSES A QUESTION. The engine picks the topic; in real mode the
+  LLM may only PHRASE that one question (COST-4 rephrase branch, off by default).
+  The engine's ``topic_id`` is printed beside every turn so drift is visible.
+- COST-3: the chat turn is STATELESS. ``build_chat_messages([], ...)`` is called
+  with an EMPTY history on purpose (its docstring: history is intentionally
+  unused), so per-turn input tokens stay FLAT instead of growing O(n^2).
 - It reuses the PRODUCTION building blocks unchanged: the pseudonymization gate
-  (``app.pseudonymize.pseudonymize``), the profile extractor
+  (``app.pseudonymize.pseudonymize``), the interview engine
+  (``app.profiling.interview_engine``), the profile extractor
   (``app.profiling.profile_extractor``), and the router (``app.ai.router.AIRouter``).
 - It uses NO database, NO event emission, and starts NO HTTP server.
 - Real LLM calls happen ONLY if the same env gate is on (AI_ENABLE_REAL_CALLS +
-  GEMINI_FLASH_API_KEY, with the task allowlist). By default everything is mock.
+  GEMINI_FLASH_API_KEY, with the task allowlist) AND, for a chat turn, only on the
+  clarify/rephrase branch. By default everything is mock.
 
 PRIVACY INVARIANT (mirrors production):
 - The worker's NAME is captured ONCE into a LOCAL variable and is NEVER placed in
-  any text sent to the model — not to ``router.run`` and not into the
-  pseudonymized conversation history. The name is injected into the resume
-  LOCALLY, after the AI step. Every worker message that COULD reach the model is
-  pseudonymized FIRST and fails closed: if pseudonymization blocks, we do not
-  call the model and ask the worker to rephrase WITHOUT personal details.
-- Nothing is persisted; the transcript and resume (and the pseudonymized chat
-  history) live only in process memory and on stdout.
+  any text sent to the model — not to ``router.run`` and not into anything the
+  engine returns. The engine emits only the literal ``{{worker_name}}`` token
+  (AI-PERSONA-2); this CLI interpolates the real name over that token LOCALLY at
+  PRINT time only — the same post-emit seam ``ChatService.renderWorkerName``
+  implements in NestJS. The name is injected into the resume LOCALLY, after the AI
+  step. Every worker message that COULD reach the model is pseudonymized FIRST and
+  fails closed: if pseudonymization blocks, we do not call the model and ask the
+  worker to rephrase WITHOUT personal details.
+- Nothing is persisted; the transcript, resume and ConversationState live only in
+  process memory and on stdout.
 
 The resume JSON schema (simple, documented):
     {
@@ -54,20 +68,25 @@ import sys
 from ..ai.model_config import provider_for_model
 from ..ai.router import AIRouter
 from ..config import get_settings
-from ..contracts import AICallMetadata, WorkerProfileDraft
-from ..profiling import profile_extractor
+from ..contracts import AICallMetadata, ConversationState, WorkerProfileDraft
+from ..profiling import interview_engine, profile_extractor
 from ..profiling.canonical_roles import (
     ROLE_TRADE,
     canonicalization_instruction,
     extract_canonical_role_id,
     normalize_role_id,
 )
-from ..profiling.prompts import EXTRACTION_SYSTEM_PROMPT
+from ..profiling.interview_engine import WORKER_NAME_PLACEHOLDER
+from ..profiling.prompts import EXTRACTION_SYSTEM_PROMPT, build_chat_messages
+from ..profiling.question_bank import topics_for
 from ..pseudonymize import pseudonymize
 
-# Backstop so a wandering chat can't loop forever (the model usually finishes
-# sooner by setting ``ready_to_extract``).
-_MAX_TURNS = 10
+# Backstop so a stalled session can't loop forever. The ENGINE is the real stop
+# condition (it returns extraction_ready once ESSENTIAL_TOPICS are answered and
+# MUST_ASK_TOPICS asked); this only bounds a pathological run. Must be > the
+# number of topics in the bank so a worker who answers nothing can still be asked
+# every question before the backstop trips.
+_MAX_TURNS = 30
 
 _INTRO = (
     "\nNamaste. Main Bada Bhai hoon. Chaliye 2 minute mein "
@@ -76,59 +95,13 @@ _INTRO = (
     "ya company ka naam likhne ki zaroorat nahi hai.)\n"
 )
 
-# The model is "Bada Bhai" and DRIVES the interview: it picks each question,
-# reacts to the answer, and decides readiness. It must reply with STRICT JSON so
-# the loop can read both the line to show AND the readiness flag. Every worker
-# turn in the history is pseudonymized; the name is never present here.
-_CHAT_SYSTEM_PROMPT = (
-    "You are 'Bada Bhai', a senior who has worked the CNC/VMC shop floor and is "
-    "interviewing a worker in India to build their job profile. On their side — "
-    "not an examiner, not a salesman.\n"
-    "Style:\n"
-    "- Ask EXACTLY ONE question at a time, under 20 words. Acknowledge the "
-    "previous answer in MAX 2 words (\"Theek hai.\" / \"Achha.\"), never praise "
-    "or gush (no \"waah\", \"zabardast\", \"bahut acha\", \"bilkul\"), never "
-    "restate their answer.\n"
-    "- NEVER use bhai, bhaiya, beta, behen, yaar. Never assume gender. Always use "
-    "\"aap\". Prefer present tense.\n"
-    "- MATCH THE WORKER'S LANGUAGE: if they write in Hindi, reply in Hindi; in "
-    "English, reply English; in Hinglish, reply Hinglish. Mirror their words.\n"
-    "- Never sound like an exam. Never reject, judge, or rank the worker.\n"
-    "Coverage — over the chat, try to learn: role / trade, machines worked on, "
-    "controllers (Fanuc, Siemens, etc.), years of experience, skills (setting, "
-    "programming, drawing reading), current + preferred location, current + "
-    "expected salary, and joining availability.\n"
-    "STOP CONDITION — set ready_to_extract=true (and send a short closing "
-    "line in the worker's language, telling them their resume is being made) as "
-    "soon as EITHER:\n"
-    "  (a) you have reasonable coverage of the areas above, OR\n"
-    "  (b) the worker signals they are done / disengaging / want a job now (e.g. "
-    "'bas', 'itna hi', 'ho gaya', 'done', 'aur nahi', 'naukri laga do'). Do NOT "
-    "keep asking after that — respect it and wrap up.\n"
-    "NEVER REPEAT a question you already asked. If an answer is vague, ask ONE "
-    "different clarifying question; if it is STILL vague, move on to another area "
-    "or wrap up — never ask the same thing again.\n"
-    "ROLE — the worker may only say a generic 'CNC'. Probe ONCE to disambiguate "
-    "(VMC? CNC lathe/turning? grinding? setter? programmer?). If they still can't "
-    "say, leave it — do not push.\n"
-    "HARD RULES — you must NEVER ask for or repeat: phone number, full name, home "
-    "address, or company/employer name. The worker's answers may contain "
-    "placeholder tokens like [CITY_1] or [PHONE_1]; treat them as already-masked "
-    "and never ask for the real value.\n"
-    "OUTPUT FORMAT — reply with STRICT JSON ONLY, no prose around it, exactly:\n"
-    '{"message": "<one line to show the worker, in their language>", '
-    '"ready_to_extract": <true|false>}'
-)
-
-# Deterministic offline fallback handed to the router as ``mock_response`` for a
-# chat turn. Safe (no PII, asks a generic coverage question) and valid JSON so
-# the lenient parser always succeeds even with no model available.
-_CHAT_MOCK_JSON = json.dumps(
-    {
-        "message": "Theek hai. Kaunsi machine par kaam karte hain?",
-        "ready_to_extract": False,
-    },
-    ensure_ascii=False,
+# The worker has to say SOMETHING before the engine can run its first turn — that
+# is exactly how production works (``POST /profiling/respond`` needs a
+# ``message_text``). This is a harness affordance, NOT an interview question: the
+# first real question comes from the engine's turn 1.
+_KICKOFF = (
+    "(Shuru karne ke liye kuch bhi likhein — jaise 'shuru' — ya seedha apna kaam "
+    "bata dein.)"
 )
 
 
@@ -167,79 +140,46 @@ def _build_resume_json(name: str, rich: WorkerProfileDraft, legacy) -> dict:
     }
 
 
-# Strong, fairly-unambiguous closing phrases (Hindi / Hinglish / English). The
-# MODEL is the primary closer (via its STOP CONDITION); this CLI-side check is a
-# SAFETY NET so an obvious "I'm done" always ends the interview even if the model
-# misses it. Kept to multi-word / unambiguous cues to avoid false positives on
-# words like a bare "bas" inside a substantive answer (e.g. "bas 2 saal kiya").
-_CLOSING_CUES: tuple[str, ...] = (
-    "itna hi", "itni hi", "bas itna", "bas ab", "ab bas", "ho gaya", "ho gya",
-    "hogaya", "khatam", "khatm", "aur nahi", "aur nai", "ab nahi", "kuch aur nahi",
-    "naukri laga", "naukri dila", "job laga", "job dila", "thats all", "that's all",
-    "i am done", "im done", "nothing else", "no more",
-)
+def _render_worker_name(reply: str, name: str | None) -> str:
+    """Post-emit personalization — the CLI mirror of ``ChatService.renderWorkerName``.
+
+    AI-PERSONA-2 / §2: the interview engine only ever emits the literal
+    ``{{worker_name}}`` TOKEN (not PII). The real name is interpolated over that
+    token HERE — locally, at PRINT time, AFTER every model call — so the name never
+    crosses the LLM boundary. With no usable name, the token AND its trailing
+    ``" ji, "`` are dropped so the line degrades cleanly (no stray braces).
+    """
+    if WORKER_NAME_PLACEHOLDER not in reply:
+        return reply
+    first = (name or "").strip().split(" ")[0] if (name or "").strip() else ""
+    if first:
+        return reply.replace(f"{WORKER_NAME_PLACEHOLDER} ji, ", f"{first} ji, ").replace(
+            WORKER_NAME_PLACEHOLDER, first
+        )
+    return reply.replace(f"{WORKER_NAME_PLACEHOLDER} ji, ", "").replace(
+        WORKER_NAME_PLACEHOLDER, ""
+    )
 
 
-def _wants_to_close(answer: str) -> bool:
-    """True if the worker's answer is a clear request to finish. Conservative on
-    purpose (see ``_CLOSING_CUES``). The literal 'done' is handled separately."""
-    low = answer.lower()
-    return any(cue in low for cue in _CLOSING_CUES)
+def _progress_line(state: ConversationState | None, role_family: str) -> str:
+    """One-line coverage view: what the engine has ANSWERED, what it has ASKED, and
+    what is still REMAINING in the question bank. PII-free (topic ids only)."""
+    answered = list(state.answered_topics) if state else []
+    asked = list(state.asked_question_ids) if state else []
+    seen = set(answered) | set(asked)
+    remaining = [t.id for t in topics_for(role_family) if t.id not in seen]
+    return f"  answered={answered} asked={asked} remaining={remaining}"
 
 
-def _fallback_message(content: str) -> str:
-    """Message to show when ``_parse_chat_json`` finds no ``message`` in the model
-    reply. Prefer the model's OWN words (a conversational model often replies in
-    prose instead of JSON — that prose is a fine thing to show) over a canned line;
-    only when nothing usable is left do we nudge the worker toward finishing. This
-    is what stops the old behaviour of repeating one static question forever."""
-    text = (content or "").strip()
-    if text.startswith("```"):  # strip a ```json ... ``` fence
-        text = text.strip("`").strip()
-        if text[:4].lower() == "json":
-            text = text[4:].strip()
-    # Bare JSON we already failed to read, or nothing -> a closing-oriented nudge.
-    if not text or text.startswith("{") or text.startswith("["):
-        return "Theek hai. Aur kuch batana ho to batayein, warna 'done' likh dein."
-    return text
-
-
-def _parse_chat_json(content: str) -> dict:
-    """Leniently parse a chat turn's STRICT-JSON reply.
-
-    Tolerates stray text around the object (some models wrap JSON in prose or a
-    ```json fence): try a direct ``json.loads`` first, then fall back to the first
-    balanced ``{...}`` span. On any failure return a safe deterministic dict so
-    the loop never crashes on malformed model output (fail-safe, never fail-open:
-    the worst case is one extra generic question, never a privacy leak)."""
-    text = (content or "").strip()
-    for candidate in (text, _first_json_object(text)):
-        if not candidate:
-            continue
-        try:
-            data = json.loads(candidate)
-        except (ValueError, TypeError):
-            continue
-        if isinstance(data, dict):
-            return data
-    return {"message": "", "ready_to_extract": False}
-
-
-def _first_json_object(text: str) -> str | None:
-    """Return the first balanced ``{...}`` substring, or None."""
-    start = text.find("{")
-    if start == -1:
-        return None
-    depth = 0
-    for i in range(start, len(text)):
-        ch = text[i]
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : i + 1]
-    return None
+def _turn_line(turn_no: int, topic_id: str | None, meta: AICallMetadata) -> str:
+    """Per-turn engine/cost header. ``topic_id`` is the topic the ENGINE chose for
+    this turn (``-`` on the wrap-up turn, which asks nothing) — printed so any drift
+    between the engine's choice and the phrasing shown is immediately visible."""
+    return (
+        f"  [turn {turn_no}] topic_id={topic_id or '-'} "
+        f"in_tokens={meta.input_tokens} out_tokens={meta.output_tokens} "
+        f"real_call={meta.real_call}"
+    )
 
 
 _PROVIDER_LABELS = {"google": "Gemini", "anthropic": "Claude Haiku"}
@@ -342,6 +282,14 @@ def _startup_status(settings) -> str:
             "        WARNING: 'profiling_chat_turn' is NOT in AI_REAL_CALL_TASKS, so CHAT\n"
             "        turns stay MOCK. Add it (or blank AI_REAL_CALL_TASKS) for a real chat."
         )
+    if not settings.ai_profiling_rephrase_enabled:
+        # NOT a warning — this is the intended COST-4 default. The engine chooses AND
+        # phrases every straight-line question, so chat turns are templated-only and
+        # cost nothing; a real chat call fires only on the clarify/rephrase branch.
+        lines.append(
+            "        note: AI_PROFILING_REPHRASE_ENABLED is off (default) — chat turns\n"
+            "        are templated by the interview engine; only extraction calls a model."
+        )
     return "\n".join(lines)
 
 
@@ -351,16 +299,28 @@ async def _run_chat(
     input_fn=None,
     print_fn=None,
     role_family: str = "cnc_vmc",
+    settings=None,
 ) -> tuple[dict, list[AICallMetadata]]:
-    """Drive the MODEL-driven interview loop and return ``(resume_json, calls)``.
+    """Drive the ENGINE-driven interview loop and return ``(resume_json, calls)``.
 
-    The model ("Bada Bhai", behind ``router.run("profiling_chat_turn", ...)``)
-    decides each question and when it has enough; this CLI only pseudonymizes the
-    worker's answers, maintains the pseudonymized history, and shows the model's
-    line. ``calls`` is the ordered list of every ``AICallMetadata`` returned by
-    the router this run: each chat turn's meta, then the final extraction meta.
-    Each entry is PII-free by contract (see ``AICallMetadata``), so the caller can
-    render an ops cost/metadata panel WITHOUT touching the name or transcript.
+    CLI-1 — this mirrors ``chat.service.ts -> POST /profiling/respond`` turn for
+    turn (see ``main.profiling_respond``), which is the ONLY sequence that ships:
+
+      1. ``pseudonymize`` the raw answer FIRST (fail-closed gate).
+      2. ``interview_engine.needs_rephrase`` -> ``clarify_turn`` (re-serve the last
+         question) when it is a clarification, else ``interview_engine.next_turn``.
+      3. ``build_chat_messages([], engine_question, pseudonymized_text)`` — EMPTY
+         history (COST-3 stateless turn: flat input tokens, never O(n^2)).
+      4. ``router.run("profiling_chat_turn", ...)`` with ``real_call_allowed`` only
+         on the clarify+rephrase-flag branch, so the LLM may PHRASE the engine's
+         question but NEVER choose one.
+      5. Thread the returned ``ConversationState`` into the next turn; stop on
+         ``extraction_ready``.
+
+    ``calls`` is the ordered list of every ``AICallMetadata`` the router returned
+    this run: each chat turn's meta, then the final extraction meta. Each entry is
+    PII-free by contract (see ``AICallMetadata``), so the caller can render an ops
+    cost/metadata panel WITHOUT touching the name or transcript.
 
     ``input_fn``/``print_fn`` are injectable so tests can script stdin/stdout
     without a real terminal. They default to the builtins, resolved at call time
@@ -368,34 +328,37 @@ async def _run_chat(
     """
     input_fn = input_fn or input
     print_fn = print_fn or print
+    settings = settings if settings is not None else get_settings()
     print_fn(_INTRO)
 
     # Ordered ledger of every router.run meta this run (chat turns + final
     # extraction). PII-free by contract; powers the cost/metadata panel.
     calls: list[AICallMetadata] = []
 
-    # 1. Capture the NAME once into a LOCAL variable. It NEVER enters model input
-    #    or the pseudonymized history below.
+    # 1. Capture the NAME once into a LOCAL variable. It NEVER enters model input;
+    #    it is interpolated over the engine's {{worker_name}} token at PRINT time
+    #    only (_render_worker_name), mirroring ChatService.renderWorkerName.
     name = input_fn("Sabse pehle, aapka naam kya hai? ").strip() or "Worker"
 
-    # 2. MODEL-DRIVEN interview loop. We keep a PSEUDONYMIZED conversation history
-    #    (only safe, masked text ever reaches the model) and the RAW worker answers
-    #    locally for the trusted heuristic extraction. The model picks each
-    #    question and decides readiness via ``ready_to_extract``.
-    history: list[dict[str, str]] = []  # [{role: user/assistant, text: <pseudonymized>}]
+    # 2. ENGINE-DRIVEN interview loop. The ConversationState is the ONLY memory —
+    #    exactly like production, where chat.service.ts persists it on the session
+    #    and passes it back each turn. The RAW answers are kept locally for the
+    #    trusted heuristic extraction; nothing but pseudonymized text is ever
+    #    handed to the router.
+    state: ConversationState | None = None
     transcript_lines: list[str] = []  # RAW answers, local-only (never sent anywhere)
 
-    print_fn("\nBada Bhai: Sabse pehle — aap kaunsa kaam karte hain?")
+    print_fn(f"\nBada Bhai: {_KICKOFF}")
 
-    last_message: str | None = None  # for the no-repeat guard
     for _turn in range(_MAX_TURNS):
         answer = input_fn("You: ").strip()
         if answer.lower() == "done":
             break
 
         # Pseudonymize FIRST (fail-closed). A blocked answer is NEVER sent to the
-        # model and NEVER added to history; we re-prompt without consuming a turn
-        # against the model.
+        # model, never reaches the engine, and never enters the transcript; we
+        # re-prompt without consuming a turn against the model. Mirrors the
+        # endpoint's step 1, which returns _BLOCKED_REPLY before touching anything.
         safe = pseudonymize(answer)
         if safe.blocked:
             print_fn(
@@ -406,49 +369,60 @@ async def _run_chat(
             )
             continue
 
-        # Safe to use this answer: keep the RAW copy locally and the MASKED copy
-        # for the model.
+        # Safe to use this answer: keep the RAW copy locally (the engine + the
+        # heuristic extractor read raw text in-process, no network) and the MASKED
+        # copy for anything that could leave the service.
         transcript_lines.append(answer)
-        history.append({"role": "user", "text": safe.text})
 
-        # Build messages: system persona + pseudonymized prior turns + the latest
-        # pseudonymized answer (already appended as the final user turn). The name
-        # is never present in any of these.
-        messages = [{"role": "system", "content": _CHAT_SYSTEM_PROMPT}]
-        for item in history:
-            messages.append({"role": item["role"], "content": item["text"]})
+        # COST-4 clarify branch BEFORE advancing (endpoint step 2): a clarifying
+        # message is not an answer, so clarify_turn RE-SERVES the last question
+        # instead of letting next_turn mis-advance past it. clarify_turn returns
+        # None (-> next_turn) when there is nothing re-servable, when the message
+        # actually carries an answer, or when the consecutive clarify budget
+        # (_MAX_CONSECUTIVE_CLARIFIES = 2) is spent.
+        is_clarify = interview_engine.needs_rephrase(answer)
+        turn = (
+            interview_engine.clarify_turn(state, answer, role_family)
+            if is_clarify
+            else None
+        )
+        if turn is None:
+            turn = interview_engine.next_turn(state, answer, role_family)
+        engine_question, asked_id, state, extraction_ready = turn
 
-        content, meta = await router.run(
+        # Endpoint step 3: the straight-line path is TEMPLATED-ONLY — the engine
+        # already chose an on-persona <20-word question, so real_call_allowed is
+        # False and the router returns it verbatim with zero output tokens. Only
+        # the clarify branch (with the rephrase flag on) may spend a real call, and
+        # then the LLM is handed THAT question to phrase — never a choice of which.
+        wants_rephrase = settings.ai_profiling_rephrase_enabled and is_clarify
+        # COST-3: EMPTY history on purpose. build_chat_messages ignores `history` by
+        # design; passing the transcript here is the O(n^2) regression CLI-1 removed.
+        messages = build_chat_messages([], engine_question, safe.text)
+
+        reply_text, meta = await router.run(
             "profiling_chat_turn",
             messages=messages,
-            mock_response=_CHAT_MOCK_JSON,
-            real_call_allowed=True,
+            mock_response=engine_question,
+            real_call_allowed=wants_rephrase,
         )
         calls.append(meta)
 
-        # Prefer the model's parsed message; on a parse miss, show its OWN words
-        # (a conversational model often replies in prose) — NOT a canned line that
-        # would repeat forever.
-        data = _parse_chat_json(content)
-        message = (data.get("message") or "").strip() or _fallback_message(content)
-        history.append({"role": "assistant", "text": message})
-        print_fn(f"\nBada Bhai: {message}")
+        # Personalize LOCALLY, after the model call — the {{worker_name}} token is
+        # what crossed the boundary, the real name only lands here.
+        print_fn(f"\nBada Bhai: {_render_worker_name(reply_text, name)}")
+        print_fn(_turn_line(state.turn_count, asked_id, meta))
+        print_fn(_progress_line(state, role_family))
 
         # VISIBILITY ("no mock"): the worker must always know the provider.
         note = _provider_note(meta)
         if note is not None:
             print_fn(note)
 
-        # END the interview when: the model says it's ready; OR the worker clearly
-        # asked to finish (safety net independent of the model); OR the bot just
-        # repeated its previous line (a stall — don't loop on it).
-        if (
-            data.get("ready_to_extract") is True
-            or _wants_to_close(answer)
-            or message == last_message
-        ):
+        # The ENGINE owns the stop condition (ESSENTIAL_TOPICS answered +
+        # MUST_ASK_TOPICS asked) — exactly the flag chat.service.ts acts on.
+        if extraction_ready:
             break
-        last_message = message
 
     # 3. Extraction (REUSE existing). Pseudonymize the accumulated worker answers
     #    FIRST (fail-closed). The name is injected post-AI in _build_resume_json.
@@ -613,7 +587,7 @@ def main() -> None:
     router = AIRouter(settings)
     # Print readiness FIRST so a silent all-mock run can never be a mystery.
     print(_startup_status(settings))
-    resume, calls = asyncio.run(_run_chat(router))
+    resume, calls = asyncio.run(_run_chat(router, settings=settings))
     print("\n=== RESUME (JSON) ===")
     print(json.dumps(resume, indent=2, ensure_ascii=False))
     # Ops panel — PII-free metadata only (never the name/transcript).
