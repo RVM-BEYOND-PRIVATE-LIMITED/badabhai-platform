@@ -48,6 +48,19 @@ class SetPinCubit extends Cubit<SetPinState> {
         status: SetPinStatus.failure,
         message: authErrorMessage(failure, _locale),
       ));
+    } catch (_) {
+      // #367 — same hole as EnterPinCubit: `submitting` is exited nowhere but
+      // this try/catch and `isSubmitting` blocks re-entry, so a non-AuthFailure
+      // (e.g. a PlatformException from the Keystore-backed secure store while
+      // persisting the PIN) wedged the cubit in `submitting` forever — a dead
+      // spinner on the FIRST screen a new worker must clear, with every retry
+      // tap swallowed by the guard.
+      if (isClosed) return;
+      emit(SetPinState(
+        status: SetPinStatus.failure,
+        message: authErrorMessage(
+            const AuthFailure(AuthErrorCode.unknown), _locale),
+      ));
     }
   }
 }

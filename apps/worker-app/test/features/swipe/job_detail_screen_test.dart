@@ -286,6 +286,22 @@ void main() {
     expect(find.text('Apply karein'), findsNothing);
   });
 
+  // #375 — the sticky close is icon-only (InkWell + bare Icons.close), so
+  // TalkBack announced nothing actionable and the only way back out of the
+  // detail was unidentifiable non-visually.
+  testWidgets('the sticky close button carries a spoken label',
+      (WidgetTester tester) async {
+    final SemanticsHandle handle = tester.ensureSemantics();
+    final JobDetailCubit cubit = _cubit(MockApiClient(), lightFull);
+    final (Widget app, GoRouter router) = _harness(cubit, lightFull);
+    await tester.pumpWidget(app);
+    router.push('/detail');
+    await tester.pumpAndSettle();
+
+    expect(find.bySemanticsLabel(kCloseSemanticLabel), findsOneWidget);
+    handle.dispose();
+  });
+
   // ── WA-2: the CTA is gated on the worker's OWN application state ──────────
   group('WA-2 applied-CTA gate (locator create-path)', () {
     tearDown(() async => locator.reset());

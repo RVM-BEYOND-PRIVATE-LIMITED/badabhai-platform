@@ -13,6 +13,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
+import 'package:badabhai_worker_app/core/widgets/bb_chip.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_progress_bar.dart';
 import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary.dart';
 import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary_repository.dart';
@@ -95,5 +96,41 @@ void main() {
 
     expect(find.text('6/12'), findsOneWidget);
     expect(find.byType(BbProgressBar), findsOneWidget);
+  });
+
+  testWidgets(
+      'Skills aur anubhav section renders experience + skill/machine chips',
+      (WidgetTester tester) async {
+    await _pump(
+      tester,
+      const ProfileSummary(
+        tradeLabel: 'VMC Operator',
+        strengthSignals: 9,
+        skills: <String>['CNC operating', 'GD&T'],
+        machines: <String>['VMC'],
+        experienceYears: 4,
+      ),
+    );
+
+    expect(find.text('Skills aur anubhav'), findsOneWidget);
+    expect(find.text('Anubhav: 4 saal'), findsOneWidget);
+    // Every skill + machine renders as a DS chip.
+    expect(find.widgetWithText(BbChip, 'CNC operating'), findsOneWidget);
+    expect(find.widgetWithText(BbChip, 'GD&T'), findsOneWidget);
+    expect(find.widgetWithText(BbChip, 'VMC'), findsOneWidget);
+    expect(find.byType(BbChip), findsNWidgets(3));
+  });
+
+  testWidgets('Skills section shows an honest empty state when nothing shared yet',
+      (WidgetTester tester) async {
+    await _pump(
+        tester, const ProfileSummary(tradeLabel: 'Fitter', strengthSignals: 0));
+
+    expect(find.text('Skills aur anubhav'), findsOneWidget);
+    expect(
+      find.text('Abhi kuch nahi — chat mein apne skills aur experience batayein.'),
+      findsOneWidget,
+    );
+    expect(find.byType(BbChip), findsNothing);
   });
 }

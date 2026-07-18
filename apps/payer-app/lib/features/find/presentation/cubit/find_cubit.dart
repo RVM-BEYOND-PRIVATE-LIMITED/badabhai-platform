@@ -75,11 +75,24 @@ class FindCubit extends Cubit<FindState> {
   /// applicant is marked unlocked (with its `unlockId`) so a later "View" can
   /// reveal without re-unlocking. Returns the typed result for the caller to
   /// route (reveal on grant, neutral toast on `unavailable`).
+  ///
+  /// #348 — an OUTAGE surfaces as an error state AND rethrows. Both matter: the
+  /// state keeps this cubit consistent with its siblings ([load]/[selectJob],
+  /// which already emit [FindStatus.error]), and the rethrow lets the tap
+  /// handler show a retry toast. It must NOT be swallowed into
+  /// `UnlockResult.unavailable()` — that is the neutral DENY, and conflating an
+  /// outage with a deny is exactly the bug #346 fixed one layer down.
   Future<UnlockResult> unlockApplicant(Applicant applicant) async {
-    final UnlockResult result = await _api.unlock(
-      workerId: applicant.workerId,
-      jobId: state.selectedJob?.id,
-    );
+    final UnlockResult result;
+    try {
+      result = await _api.unlock(
+        workerId: applicant.workerId,
+        jobId: state.selectedJob?.id,
+      );
+    } catch (_) {
+      emit(state.copyWith(status: FindStatus.error));
+      rethrow;
+    }
     if (result.granted) {
       emit(state.copyWith(
         applicants: state.applicants

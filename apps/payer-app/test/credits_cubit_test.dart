@@ -104,4 +104,34 @@ void main() {
     expect(cubit.state.error, isTrue);
     expect(cubit.state.balance, known);
   });
+
+  // #369 — this cubit is an app-wide lazySingleton, so its state survives
+  // sign-out. Without reset, the next payer to sign in on a shared device reads
+  // the previous payer's balance — and because the failure path above KEEPS the
+  // last-known value, a failed first fetch leaves it on screen indefinitely.
+  group('reset on sign-out (#369)', () {
+    test('drops a loaded balance back to unknown', () async {
+      await cubit.load();
+      expect(cubit.state.balance, isNotNull);
+
+      cubit.reset();
+
+      expect(cubit.state.balance, isNull,
+          reason: "the next payer must start at '—', not payer A's number");
+      expect(cubit.state.error, isFalse);
+    });
+
+    test('a failed load AFTER reset cannot resurrect the previous balance',
+        () async {
+      await cubit.load(); // payer A's balance is now last-known
+      cubit.reset(); // payer A signs out
+
+      api.failBalance = true;
+      await cubit.load(); // payer B signs in; first fetch fails
+
+      expect(cubit.state.error, isTrue);
+      expect(cubit.state.balance, isNull,
+          reason: "payer A's balance must not be retained as B's last-known");
+    });
+  });
 }

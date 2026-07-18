@@ -191,14 +191,53 @@ class AuthSessionManager extends ChangeNotifier {
       _setStatus(AuthStatus.loggedOut);
       return AuthStatus.loggedOut;
     }
-    final String? refresh = await _tokenStore.readRefreshToken();
-    // #352: read the persisted PIN flag BEFORE the status flip, so the redirect
-    // that fires on notify can route locked → set-PIN (no PIN yet) vs enter-PIN.
-    _pinSet = await _tokenStore.readPinSet();
+    final String? refresh;
+    try {
+      refresh = await _tokenStore.readRefreshToken();
+      // #352: read the persisted PIN flag BEFORE the status flip, so the redirect
+      // that fires on notify can route locked → set-PIN (no PIN yet) vs enter-PIN.
+      _pinSet = await _tokenStore.readPinSet();
+    } catch (_) {
+      // #355 — FAIL SOFT, never wedge the boot.
+      //
+      // main() awaits bootstrap() BEFORE runApp, so anything thrown here escaped
+      // main and runApp never executed: the worker sat on the native splash on
+      // EVERY launch, with no way out but manually clearing app data — an
+      // unrecoverable-looking break for a low-literacy worker.
+      //
+      // The realistic trigger is a restored Google backup: flutter_secure_storage
+      // runs on EncryptedSharedPreferences, and a restore brings the prefs XML
+      // across but NOT the Keystore master key, so every read throws
+      // (BadPadding / keystore error). allowBackup=false stops new backups, but a
+      // device restoring one made by an older install still lands here.
+      //
+      // An unreadable store is indistinguishable from an empty one, so treat it
+      // as "no token": drop the unusable material and start at phone login. The
+      // worker logs in again — annoying, but recoverable.
+      await _discardUnreadableStore();
+      _pinSet = false;
+      _setStatus(AuthStatus.loggedOut);
+      return AuthStatus.loggedOut;
+    }
     final AuthStatus next =
         (refresh != null && refresh.isNotEmpty) ? AuthStatus.locked : AuthStatus.loggedOut;
     _setStatus(next);
     return next;
+  }
+
+  /// Best-effort wipe of a store we could not read (#355).
+  ///
+  /// clear() goes through the same backing store that just threw, so it may
+  /// throw too — swallow that. Failing to clear must not resurrect the boot
+  /// wedge this exists to prevent; the worker still reaches phone login, and a
+  /// successful login overwrites the bad entries anyway.
+  Future<void> _discardUnreadableStore() async {
+    try {
+      await _tokenStore.clear();
+    } catch (_) {
+      // Nothing more we can do — deliberately ignored.
+    }
+    _session.clear();
   }
 
   // --- OTP login ------------------------------------------------------------

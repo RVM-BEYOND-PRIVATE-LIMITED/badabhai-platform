@@ -10,6 +10,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_list_row.dart';
 import '../../../core/widgets/bb_progress_bar.dart';
 import '../../../core/widgets/bb_status_view.dart';
@@ -84,6 +85,8 @@ class _ProfileTabView extends StatelessWidget {
         _header(s),
         const SizedBox(height: AppSpacing.s5),
         _strengthCard(s),
+        const SizedBox(height: AppSpacing.s4),
+        _skillsCard(s),
         const SizedBox(height: AppSpacing.s4),
         _kitShortcut(context),
         const SizedBox(height: AppSpacing.s4),
@@ -234,6 +237,88 @@ class _ProfileTabView extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// Skills, machines and years of experience as a STRUCTURED section — the data
+  /// the LLM extracts after registration, surfaced here instead of only being
+  /// baked into the resume text (the user's ask). Every field is PII-free: the
+  /// canonical skill/machine labels and a years NUMBER — never the free-text
+  /// experience summary (which the backend deliberately keeps off the wire, §2).
+  /// Renders an honest empty state until the worker has shared any.
+  Widget _skillsCard(ProfileSummary s) {
+    final bool hasAny =
+        s.skills.isNotEmpty || s.machines.isNotEmpty || s.experienceYears != null;
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surfaceCard,
+        borderRadius: BorderRadius.circular(AppRadii.lg),
+        border: Border.all(color: AppColors.borderSubtle),
+      ),
+      padding: const EdgeInsets.all(AppSpacing.s4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text('Skills aur anubhav',
+              style: AppTypography.body(
+                  size: AppTypography.sizeSm, weight: FontWeight.w700)),
+          const SizedBox(height: AppSpacing.s3),
+          if (!hasAny)
+            Text(
+              'Abhi kuch nahi — chat mein apne skills aur experience batayein.',
+              style: AppTypography.body(color: AppColors.textMuted),
+            )
+          else ...<Widget>[
+            if (s.experienceYears != null) ...<Widget>[
+              Row(
+                children: <Widget>[
+                  const Icon(Icons.work_outline_rounded,
+                      size: 18, color: AppColors.textMuted),
+                  const SizedBox(width: AppSpacing.s2),
+                  Text('Anubhav: ${_experienceLabel(s.experienceYears!)}',
+                      style: AppTypography.body(
+                          size: AppTypography.sizeSm, weight: FontWeight.w600)),
+                ],
+              ),
+              if (s.skills.isNotEmpty || s.machines.isNotEmpty)
+                const SizedBox(height: AppSpacing.s3),
+            ],
+            if (s.skills.isNotEmpty) ...<Widget>[
+              _chipGroup('Skills', s.skills),
+              if (s.machines.isNotEmpty) const SizedBox(height: AppSpacing.s3),
+            ],
+            if (s.machines.isNotEmpty) _chipGroup('Machines', s.machines),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// A labelled wrap of DS chips (skills or machines). Labels are rendered as
+  /// received — canonical, worker-confirmed strings.
+  Widget _chipGroup(String label, List<String> items) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(label,
+            style: AppTypography.body(
+                size: AppTypography.sizeXs, color: AppColors.textMuted)),
+        const SizedBox(height: AppSpacing.s2),
+        Wrap(
+          spacing: AppSpacing.s2,
+          runSpacing: AppSpacing.s2,
+          children: <Widget>[
+            for (final String item in items) BbChip(label: item),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// "4 saal" / "2.5 saal" — drop a trailing ".0" so whole years read cleanly.
+  String _experienceLabel(double years) {
+    final bool whole = years == years.roundToDouble();
+    final String n = whole ? years.toStringAsFixed(0) : years.toStringAsFixed(1);
+    return '$n saal';
   }
 
   Widget _kitShortcut(BuildContext context) {

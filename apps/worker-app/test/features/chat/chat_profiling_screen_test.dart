@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
@@ -11,6 +12,7 @@ import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
+import 'package:badabhai_worker_app/router.dart';
 
 class MockChatRepository extends Mock implements ChatRepository {}
 
@@ -252,6 +254,84 @@ void main() {
       expect(find.byIcon(Icons.cloud_off), findsOneWidget);
       // The worker can still type — the banner informs, it does not block.
       expect(find.byType(TextField), findsOneWidget);
+    });
+  });
+
+  // #372 — the Done push was unguarded, and ProfilePreviewScreen builds a fresh
+  // ProfileCubit that fires extract() on EVERY mount. A double-tap therefore
+  // stacked two preview screens and enqueued two concurrent extraction AI jobs
+  // (duplicate real spend). Counting preview MOUNTS is the assertion that
+  // matters: one mount == one POST /profile/extract.
+  group('Done — build my profile double-tap guard (#372)', () {
+    /// Mounts the chat screen on a real router whose `/profiling` route counts
+    /// its mounts — a stand-in for ProfilePreviewScreen's extract-on-mount.
+    Future<({GoRouter router, int Function() mounts})> pumpRouted(
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = const Size(400, 700);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      int mounts = 0;
+      final GoRouter router = GoRouter(
+        initialLocation: Routes.chatProfiling,
+        routes: <RouteBase>[
+          GoRoute(
+            path: Routes.chatProfiling,
+            builder: (_, __) => const ChatProfilingScreen(),
+          ),
+          GoRoute(
+            path: Routes.profilePreview,
+            builder: (_, __) {
+              mounts++;
+              return const Scaffold(body: Center(child: Text('PREVIEW')));
+            },
+          ),
+        ],
+      );
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      await tester.pump();
+      await tester.pumpAndSettle();
+      return (router: router, mounts: () => mounts);
+    }
+
+    testWidgets('a double-tap opens the preview exactly once',
+        (WidgetTester tester) async {
+      final int Function() mounts = (await pumpRouted(tester)).mounts;
+      final Finder done = find.text('Done — build my profile');
+
+      // Both taps land inside the SAME frame — the real double-tap on a laggy
+      // low-end device. Nothing is pumped between them, so the disabled state
+      // has not painted yet and only the synchronous guard can stop the second.
+      await tester.tap(done);
+      await tester.tap(done, warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(mounts(), 1,
+          reason: 'a second mount is a second POST /profile/extract');
+      expect(find.text('PREVIEW'), findsOneWidget);
+    });
+
+    testWidgets('the guard re-arms after the preview pops back',
+        (WidgetTester tester) async {
+      final ({GoRouter router, int Function() mounts}) harness =
+          await pumpRouted(tester);
+      final int Function() mounts = harness.mounts;
+      final Finder done = find.text('Done — build my profile');
+
+      await tester.tap(done);
+      await tester.pumpAndSettle();
+      expect(mounts(), 1);
+
+      // Back out of the preview — the worker must be able to try again.
+      harness.router.pop();
+      await tester.pumpAndSettle();
+      expect(find.text('Done — build my profile'), findsOneWidget);
+
+      await tester.tap(done);
+      await tester.pumpAndSettle();
+      expect(mounts(), 2, reason: 'the guard must not latch permanently');
     });
   });
 }

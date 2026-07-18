@@ -169,6 +169,36 @@ void main() {
       expect(dto.canonicalTradeId, isNull);
       expect(dto.city, isNull);
       expect(dto.strength, 0);
+      // Additive skills/experience seam: absent ⇒ empty list / null, never a crash.
+      expect(dto.skills, isEmpty);
+      expect(dto.machines, isEmpty);
+      expect(dto.experienceYears, isNull);
+    });
+
+    test('getProfileSummary parses skills/machines/experience_years and drops '
+        'non-string array junk', () async {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async => http.Response(
+              jsonEncode(<String, dynamic>{
+                'profile_status': 'confirmed',
+                'confirmed_at': '2026-06-01T00:00:00.000Z',
+                'city': 'Pune',
+                'strength': 9,
+                // Dirty array: a stray non-string must be filtered, not crash.
+                'skills': <dynamic>['CNC operating', 42, 'GD&T'],
+                'machines': <dynamic>['VMC'],
+                'experience_years': 4,
+              }),
+              200,
+            )),
+      );
+
+      final ProfileSummaryDto dto =
+          await api.getProfileSummary(authToken: 'tok');
+      expect(dto.skills, <String>['CNC operating', 'GD&T']);
+      expect(dto.machines, <String>['VMC']);
+      expect(dto.experienceYears, 4.0);
     });
   });
 }

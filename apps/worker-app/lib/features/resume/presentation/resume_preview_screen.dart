@@ -75,6 +75,19 @@ class _ResumeViewState extends State<_ResumeView> {
     }
   }
 
+  /// The Resume tab came back into view. Refetch the resume text AND the photo
+  /// strip. The photo can be changed from the PROFILE tab (ADR-0032 B1-B3 — one
+  /// photo flow, reachable from Profile too), so on returning here we must
+  /// re-fetch it; without bumping [_photoNonce] the header — which loads only in
+  /// initState — kept showing mount-time state until the worker opened and
+  /// backed out of the editor. Bumping the nonce rebuilds a fresh header that
+  /// re-fetches. refresh() (not generate) for the text, for the reason below.
+  void _onTabFocused() {
+    if (!mounted) return;
+    setState(() => _photoNonce++);
+    context.read<ResumeCubit>().refresh();
+  }
+
   @override
   Widget build(BuildContext context) {
     // The IndexedStack keeps this branch mounted, so create: runs only on the
@@ -87,7 +100,7 @@ class _ResumeViewState extends State<_ResumeView> {
     return TabFocusRefetch(
       tabFocus: locator<TabFocus>(),
       index: TabIndex.resume,
-      onFocused: () => context.read<ResumeCubit>().refresh(),
+      onFocused: _onTabFocused,
       child: BlocBuilder<ResumeCubit, ResumeState>(
         builder: (BuildContext context, ResumeState state) {
           return BbScaffold(

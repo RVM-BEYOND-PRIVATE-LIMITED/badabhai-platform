@@ -74,14 +74,33 @@ class _CreditsView extends StatelessWidget {
                   onPressed: onBack,
                 ),
                 const SizedBox(width: AppSpacing.s3),
+                // #376 — was 'Buy credits'. The purchase surface was removed
+                // (see the class doc above): there is no pack, price, or
+                // checkout element anywhere on this screen, so that title
+                // promised the one capability it does not have. A payer sent
+                // here by Home's "View ledger" with 0 credits would scroll for
+                // a buy button that does not exist and conclude the app is
+                // broken. The title now names what the screen actually is.
                 Text(
-                  'Buy credits',
+                  'Credits',
                   style: AppTypography.display(
                     size: AppTypography.sizeLg,
                     weight: FontWeight.w800,
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: AppSpacing.s2),
+            // #376 — and say the missing capability out loud, so "where do I
+            // buy?" is answered on the screen instead of read as a bug. Scoped
+            // to this app (which is the true statement) — not a promise about
+            // when or where purchasing will appear.
+            Text(
+              'Buying credits is not available in the app yet.',
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: AppColors.textSecondary,
+              ),
             ),
             const SizedBox(height: AppSpacing.s4),
             BbCard(

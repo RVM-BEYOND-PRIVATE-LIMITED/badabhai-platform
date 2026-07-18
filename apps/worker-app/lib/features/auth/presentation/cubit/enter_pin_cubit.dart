@@ -68,6 +68,22 @@ class EnterPinCubit extends Cubit<EnterPinState> {
         message: authErrorMessage(failure, _locale),
         suggestForgot: _failCount >= _forgotThreshold,
       ));
+    } catch (_) {
+      // #367 — catching ONLY AuthFailure left a hole that locks the worker out
+      // of their own app. `submitting` is exited nowhere but this try/catch, and
+      // `isSubmitting` blocks re-entry, so anything else thrown here (a
+      // PlatformException from the Keystore-backed secure store is the realistic
+      // one) left the cubit stuck in `submitting` FOREVER: a dead spinner, and
+      // every retry tap swallowed by the guard. Unlike a wrong PIN this is not
+      // the worker's fault, so it does NOT count toward _failCount / the
+      // forgot-PIN nudge — it just has to be recoverable.
+      if (isClosed) return;
+      emit(EnterPinState(
+        status: EnterPinStatus.failure,
+        message: authErrorMessage(
+            const AuthFailure(AuthErrorCode.unknown), _locale),
+        suggestForgot: state.suggestForgot,
+      ));
     }
   }
 }

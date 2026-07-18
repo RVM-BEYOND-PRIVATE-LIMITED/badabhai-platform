@@ -41,6 +41,14 @@ class _AppShellState extends State<AppShell> {
   String? _sub;
   RevealArgs? _revealed;
 
+  /// #382 — the tabs the payer has actually opened. The branches live in an
+  /// [IndexedStack] so leaving a tab HIDES it instead of disposing it, but a
+  /// never-visited tab stays an empty placeholder: mounting all five eagerly
+  /// would fire every tab's `load()` on cold start (Find alone costs
+  /// `GET /payer/job-postings` + `GET /payer/reach/jobs/:id/applicants`) for
+  /// surfaces the payer may never open. Grows to at most five entries.
+  final Set<String> _visited = <String>{'home'};
+
   @override
   void initState() {
     super.initState();
@@ -84,6 +92,9 @@ class _AppShellState extends State<AppShell> {
   void _selectTab(String id) => setState(() {
         _tab = id;
         _sub = null;
+        // #382 — first visit mounts the branch; from then on it stays in the
+        // tree and keeps its cubit, list and scroll offset.
+        _visited.add(id);
         CrashReporter.setScreen('payer/$id');
       });
 
@@ -104,17 +115,12 @@ class _AppShellState extends State<AppShell> {
         CrashReporter.setScreen('payer/reveal');
       });
 
-  Widget _buildBody() {
-    final String? sub = _sub;
-    if (sub != null) {
-      return switch (sub) {
-        'post' => PostJobScreen(onBack: _back),
-        'credits' => CreditsScreen(onBack: _back),
-        'reveal' => RevealScreen(args: _revealed!, onBack: _back),
-        _ => const SizedBox.shrink(),
-      };
-    }
-    return switch (_tab) {
+  /// One tab branch, or an empty placeholder until that tab has been visited
+  /// (see [_visited]). Every branch here builds its own `BlocProvider`, so what
+  /// this returns is exactly what the IndexedStack keeps alive.
+  Widget _tabBody(String id) {
+    if (!_visited.contains(id)) return const SizedBox.shrink();
+    return switch (id) {
       'home' => HomeScreen(
           session: widget.session,
           onPost: () => _openSub('post'),
@@ -132,18 +138,73 @@ class _AppShellState extends State<AppShell> {
     };
   }
 
+  Widget _buildBody() {
+    // #382 — this used to `switch` a whole subtree per tab, so every hop
+    // disposed the outgoing tab's cubit and rebuilt+reloaded the incoming one:
+    // Find refetched postings + applicants, reset the job selection to the
+    // first open job and lost the applicant scroll on every return (and the
+    // same on every Post/Credits/Reveal round-trip). An IndexedStack keeps each
+    // visited branch mounted and merely hides it. The overlay gets ONE extra
+    // slot past the tabs, so opening it hides the tabs instead of tearing them
+    // down.
+    final String? sub = _sub;
+    final int tabIndex = _tabs.indexWhere((BbNavTab t) => t.id == _tab);
+    return IndexedStack(
+      // An unknown tab id falls back to the first branch — the old switch's
+      // SizedBox default, minus the risk of an out-of-range stack index.
+      index: sub != null ? _tabs.length : (tabIndex < 0 ? 0 : tabIndex),
+      // The body was previously the Scaffold's full-bleed child; the default
+      // loose sizing would shrink-wrap it, so keep the tight fill.
+      sizing: StackFit.expand,
+      children: <Widget>[
+        for (final BbNavTab tab in _tabs) _tabBody(tab.id),
+        // The overlay slot. Unlike a tab this one is deliberately rebuilt from
+        // scratch on open/dismiss: Post must open on a blank form, and Reveal
+        // is bound to the [RevealArgs] of the card that opened it.
+        switch (sub) {
+          'post' => PostJobScreen(onBack: _back),
+          'credits' => CreditsScreen(onBack: _back),
+          'reveal' => RevealScreen(args: _revealed!, onBack: _back),
+          _ => const SizedBox.shrink(),
+        },
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // The active nav id stays highlighted while a sub-overlay is open if the
     // overlay belongs to that tab; default to the current tab otherwise.
     final String navId = _tab;
-    return Scaffold(
-      backgroundColor: AppColors.surfacePage,
-      body: SafeArea(bottom: false, child: _buildBody()),
-      bottomNavigationBar: BbBottomNav(
-        tabs: _tabs,
-        currentId: navId,
-        onSelect: _selectTab,
+    // #359 — the tab and the Post/Credits/Reveal overlays are setState state,
+    // NOT Navigator routes, so the Android system back used to reach the
+    // shell's root route unopposed and finish the activity: a half-filled
+    // Post-a-job form (11 controllers of typed input) was lost on the primary
+    // Android affordance, with only the small in-screen arrow doing the right
+    // thing. Back now unwinds the in-shell stack the way the payer built it —
+    // overlay first, then a non-home tab back to Home — and only bubbles out
+    // (exiting the app) from a bare Home, which is the shell's true root.
+    // Routes pushed above the shell (Disclosure history, dialogs) are real
+    // routes and pop normally; this PopScope belongs to the shell's route and
+    // never sees their back presses.
+    return PopScope<Object?>(
+      canPop: _sub == null && _tab == 'home',
+      onPopInvokedWithResult: (bool didPop, Object? result) {
+        if (didPop) return;
+        if (_sub != null) {
+          _back();
+        } else if (_tab != 'home') {
+          _selectTab('home');
+        }
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.surfacePage,
+        body: SafeArea(bottom: false, child: _buildBody()),
+        bottomNavigationBar: BbBottomNav(
+          tabs: _tabs,
+          currentId: navId,
+          onSelect: _selectTab,
+        ),
       ),
     );
   }

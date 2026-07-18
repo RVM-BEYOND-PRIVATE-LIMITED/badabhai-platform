@@ -210,6 +210,15 @@ String? _authRedirect(BuildContext context, GoRouterState state) {
   }
 }
 
+/// #380 — the guard for `/jobs/detail/:jobId`. The screen renders the tapped
+/// row's REAL [JobDetail], which travels as in-memory `extra`; `extra` survives
+/// neither a deep link nor go_router state restoration, and there is no
+/// worker-facing job-detail endpoint to re-fetch `:jobId` from. So a navigation
+/// that arrives without one has nothing truthful to show — send it to the feed
+/// instead of building a screen around a null (or, worse, a fabricated job).
+String? _jobDetailRedirect(BuildContext context, GoRouterState state) =>
+    state.extra is JobDetail ? null : Routes.jobs;
+
 GoRouter _buildRouter() {
   return GoRouter(
     navigatorKey: _rootNavKey,
@@ -299,8 +308,26 @@ GoRouter _buildRouter() {
                     // tapped (feed / applied). There is no worker-facing
                     // job-detail route, so the row's data IS the source of
                     // truth — the screen never synthesises anything.
-                    builder: (_, GoRouterState s) =>
-                        JobDetailScreen(detail: s.extra! as JobDetail),
+                    //
+                    // #380 — but this route is PATH-addressable and `extra` is
+                    // in-memory only: it is not serialized, so a deep link, a
+                    // notification tap, or go_router state restoration reaches
+                    // `/jobs/detail/<id>` with `extra == null`. The old
+                    // `s.extra! as JobDetail` red-screened there with "Null
+                    // check operator used on a null value". We cannot fetch the
+                    // job by `:jobId` (no worker-facing detail endpoint) and we
+                    // must not synthesise one from the id, so degrade the only
+                    // truthful way there is: bounce to the feed, where the row
+                    // that owns the data lives.
+                    redirect: _jobDetailRedirect,
+                    builder: (_, GoRouterState s) {
+                      final JobDetail? detail = s.extra as JobDetail?;
+                      // Belt-and-braces: the redirect above already bounces the
+                      // extra-less case, so this only guards against the route
+                      // being reached some other way. Never throw at the worker.
+                      if (detail == null) return const SwipeJobsScreen();
+                      return JobDetailScreen(detail: detail);
+                    },
                   ),
                 ],
               ),

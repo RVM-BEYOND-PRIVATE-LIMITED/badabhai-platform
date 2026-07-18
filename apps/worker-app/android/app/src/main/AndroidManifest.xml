@@ -6,10 +6,28 @@
     <!-- Firebase Cloud Messaging (native): network + show notifications on Android 13+. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- #355: Android defaults allowBackup to TRUE, which auto-backs the app's data
+         up to the worker's Google Drive. Two reasons that is wrong here:
+
+         1. It ships auth material (the refresh token + worker id) into a cloud
+            backup at all — exactly what SecureTokenStore's "NEVER written to
+            shared_preferences, NEVER logged" posture exists to prevent.
+         2. flutter_secure_storage runs on EncryptedSharedPreferences, whose
+            documented failure mode is precisely this: restore the prefs XML onto a
+            NEW device and the Keystore master key does NOT come with it, so every
+            later read throws (BadPadding / keystore error).
+
+         The app hits that read on every cold start BEFORE the first frame, so a
+         restored worker was stuck on the native splash forever with no way out but
+         clearing app data. AuthSessionManager.bootstrap() now also degrades a
+         throwing store to "no token" — defense in depth, because a backup can still
+         be restored from an older install made while this flag was still on. -->
     <application
         android:label="badabhai_worker_app"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="false">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -58,6 +76,15 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="@string/default_notification_channel_id" />
+
+        <!-- ADR-0032 profile-photo crop (image_cropper → uCrop). uCrop ships its own
+             AppCompat-themed activity that must be declared by the host app. Portrait-
+             locked to match the app; the theme comes from the appcompat lib uCrop
+             pulls in transitively. -->
+        <activity
+            android:name="com.yalantis.ucrop.UCropActivity"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
 
         <!-- Grants the PDF viewer per-file read access to downloads saved by the
              API<29 fallback (app-external Download dir). API 29+ saves via

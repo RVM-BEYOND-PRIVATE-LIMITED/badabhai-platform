@@ -30,6 +30,22 @@ void main() {
       expect(find.byType(TextField), findsNothing);
     });
 
+    // #375 — the digit keys are announced because they carry text; backspace is
+    // a bare Icon in an InkResponse, so TalkBack read only "button". A worker
+    // who mistyped could not find the key to fix it and drove into the lockout.
+    testWidgets('the backspace key carries a spoken label',
+        (WidgetTester tester) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: BbPinKeypad(onDigit: (_) {}, onBackspace: () {}),
+        ),
+      ));
+
+      expect(find.bySemanticsLabel(kBackspaceSemanticLabel), findsOneWidget);
+      handle.dispose();
+    });
+
     testWidgets('disabled keypad emits nothing', (WidgetTester tester) async {
       final List<String> digits = <String>[];
       await tester.pumpWidget(MaterialApp(

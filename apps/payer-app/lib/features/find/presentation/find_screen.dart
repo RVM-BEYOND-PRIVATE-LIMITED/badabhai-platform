@@ -12,7 +12,6 @@ import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chip.dart';
-import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import '../../../core/widgets/bb_unlock_dialog.dart';
@@ -83,7 +82,27 @@ class _FindView extends StatelessWidget {
     );
     if (confirmed != true || !context.mounted) return;
 
-    final UnlockResult result = await cubit.unlockApplicant(applicant);
+    // #348 — the spend tap MUST NOT be able to end in silence. PayerHttp throws
+    // on transport failure (its 15s timeout is designed to fire), and #346 now
+    // makes a 5xx/429 throw too. Unguarded, both escaped as an unhandled async
+    // exception out of this handler: the confirm dialog had already closed, so
+    // the payer saw NOTHING — no toast, no reveal, no state change — could not
+    // tell whether a credit had been spent, and tapped again, risking a
+    // duplicate spend. An outage is retryable and must say so, which is also
+    // distinct from the neutral deny below.
+    final UnlockResult result;
+    try {
+      result = await cubit.unlockApplicant(applicant);
+    } catch (_) {
+      if (!context.mounted) return;
+      showBbToast(
+        context,
+        title: 'Something went wrong',
+        message: "Couldn't complete the unlock — please try again.",
+        icon: Icons.refresh,
+      );
+      return;
+    }
     if (!context.mounted) return;
 
     if (!result.granted) {
@@ -143,148 +162,172 @@ class _FindView extends StatelessWidget {
             : 'CNC Setter';
         final int count = real ? state.applicants.length : state.candidates.length;
 
-        return ListView(
+        // #364 — the feed builds LAZILY. This was a plain `ListView(children:
+        // [...])` that expanded EVERY applicant/candidate inline. Precisely
+        // what that cost: SliverChildListDelegate does still inflate only the
+        // elements near the viewport, so the cards were NOT all laid out — but
+        // every one of them was CONSTRUCTED (each card widget plus its two
+        // callback closures), here inside build(), and therefore again in full
+        // on every FindCubit emission. A single unlock's re-emit rebuilt the
+        // widget for all of the other rows. The applicant list is server-fed
+        // and unbounded, so a posting with 150+ applicants pays that on each
+        // emission, on the mid/low-end Android this market runs.
+        // ListView.builder puts that construction behind the same laziness the
+        // element inflation already had: the (single, cheap) header block stays
+        // at index 0 and each card is built only as it scrolls into view.
+        //
+        // When the REAL feed is empty the one "no applicants" row takes the
+        // place of the card rows, so the row count is never 0 there.
+        final int rowCount = real
+            ? (state.applicants.isEmpty ? 1 : state.applicants.length)
+            : state.candidates.length;
+
+        return ListView.builder(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
             AppSpacing.s2,
             AppSpacing.gutter,
             AppSpacing.s6,
           ),
-          children: <Widget>[
-            Text(
-              'CANDIDATES FOR ${role.toUpperCase()}',
-              style: AppTypography.eyebrow(color: AppColors.textMuted),
-            ),
-            const SizedBox(height: 2),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: <Widget>[
-                Expanded(
+          itemCount: rowCount + 1,
+          itemBuilder: (BuildContext context, int index) {
+            if (index == 0) {
+              return _header(context, real: real, role: role, count: count,
+                  state: state);
+            }
+            final int row = index - 1;
+            if (real) {
+              if (state.applicants.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.s6),
                   child: Text(
-                    'Browse & unlock',
-                    style: AppTypography.display(
-                      size: AppTypography.sizeXl,
-                      weight: FontWeight.w800,
-                    ),
+                    'No applicants for this job yet.',
+                    textAlign: TextAlign.center,
+                    style: AppTypography.body(color: AppColors.textSecondary),
                   ),
+                );
+              }
+              final Applicant a = state.applicants[row];
+              return Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+                child: _ApplicantCard(
+                  applicant: a,
+                  onUnlock: () => _unlockApplicant(context, a),
+                  onView: () => onReveal(RevealArgs.real(
+                    applicant: a,
+                    unlockId: a.unlockId ?? '',
+                    jobId: state.selectedJob?.id,
+                  )),
                 ),
-                // Entry to the caller's own masked-résumé disclosure history.
-                TextButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      settings:
-                          const RouteSettings(name: 'payer/disclosures'),
-                      builder: (_) => const DisclosureHistoryScreen(),
-                    ),
-                  ),
-                  icon: const Icon(Icons.history, size: 18),
-                  label: const Text('History'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.s3),
-            const BbField(
-              hint: 'Search trade, skill, location…',
-              icon: Icons.search,
-            ),
-            const SizedBox(height: AppSpacing.s3),
-            if (real && state.jobs.length > 1)
-              _JobSelector(jobs: state.jobs, selected: state.selectedJob)
-            else
-              _staticFilters(),
-            const SizedBox(height: AppSpacing.s2),
-            RichText(
-              text: TextSpan(
-                style: AppTypography.body(
-                  size: AppTypography.sizeSm,
-                  color: AppColors.textMuted,
-                ),
-                children: <InlineSpan>[
-                  TextSpan(
-                    text: '$count',
-                    style: AppTypography.body(
-                      size: AppTypography.sizeSm,
-                      weight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const TextSpan(
-                    text: ' matched candidates · sorted by relevance, '
-                        'never by who paid',
-                  ),
-                ],
+              );
+            }
+            final Candidate c = state.candidates[row];
+            return Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+              child: _CandidateCard(
+                candidate: c,
+                onUnlock: () => _unlockCandidate(context, c),
+                onView: () =>
+                    onReveal(RevealArgs.mock(c.copyWith(unlocked: true))),
               ),
-            ),
-            const SizedBox(height: AppSpacing.s3),
-            if (real)
-              ...<Widget>[
-                if (state.applicants.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: AppSpacing.s6),
-                    child: Text(
-                      'No applicants for this job yet.',
-                      textAlign: TextAlign.center,
-                      style: AppTypography.body(color: AppColors.textSecondary),
-                    ),
-                  )
-                else
-                  for (final Applicant a in state.applicants) ...<Widget>[
-                    _ApplicantCard(
-                      applicant: a,
-                      onUnlock: () => _unlockApplicant(context, a),
-                      onView: () => onReveal(RevealArgs.real(
-                        applicant: a,
-                        unlockId: a.unlockId ?? '',
-                        jobId: state.selectedJob?.id,
-                      )),
-                    ),
-                    const SizedBox(height: AppSpacing.s3),
-                  ],
-              ]
-            else
-              for (final Candidate c in state.candidates) ...<Widget>[
-                _CandidateCard(
-                  candidate: c,
-                  onUnlock: () => _unlockCandidate(context, c),
-                  onView: () =>
-                      onReveal(RevealArgs.mock(c.copyWith(unlocked: true))),
-                ),
-                const SizedBox(height: AppSpacing.s3),
-              ],
-          ],
+            );
+          },
         );
       },
     );
   }
 
-  Widget _staticFilters() {
-    return SizedBox(
-      height: AppSpacing.tap,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        children: const <Widget>[
-          BbChip(
-            label: 'Pune · 25 km',
-            icon: Icons.location_on_outlined,
-            selected: true,
-          ),
-          SizedBox(width: AppSpacing.s2),
-          BbChip(
-            label: 'Verified',
-            icon: Icons.verified_user_outlined,
-            selected: true,
-          ),
-          SizedBox(width: AppSpacing.s2),
-          BbChip(label: '3+ yrs', icon: Icons.military_tech_outlined),
-          SizedBox(width: AppSpacing.s2),
-          BbChip(label: 'Available now', icon: Icons.schedule),
+  /// Index 0 of the lazy feed (#364): eyebrow · title+History · search · filters
+  /// or job selector · the count line. Stretch cross-axis so the children keep
+  /// the full-width constraint they had as direct `ListView` children (the
+  /// horizontal filter/selector strips need a bounded width).
+  Widget _header(
+    BuildContext context, {
+    required bool real,
+    required String role,
+    required int count,
+    required FindState state,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        Text(
+          'CANDIDATES FOR ${role.toUpperCase()}',
+          style: AppTypography.eyebrow(color: AppColors.textMuted),
+        ),
+        const SizedBox(height: 2),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                'Browse & unlock',
+                style: AppTypography.display(
+                  size: AppTypography.sizeXl,
+                  weight: FontWeight.w800,
+                ),
+              ),
+            ),
+            // Entry to the caller's own masked-résumé disclosure history.
+            TextButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  settings: const RouteSettings(name: 'payer/disclosures'),
+                  builder: (_) => const DisclosureHistoryScreen(),
+                ),
+              ),
+              icon: const Icon(Icons.history, size: 18),
+              label: const Text('History'),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+        // #358 — the search field and the "filter" chips that used to sit here
+        // are GONE, not hidden. Neither was ever wired: the BbField had no
+        // controller/onChanged so typing filtered nothing, and _staticFilters()
+        // rendered hardcoded chips — 'Pune · 25 km' and 'Verified' shown as
+        // SELECTED — over real applicants. That is a fabricated assertion about
+        // people the payer is about to spend ₹40 to unlock: it claims the list
+        // is radius-filtered and identity-verified when nothing of the sort ran.
+        // A Delhi employer saw "Pune · 25 km". Same call the worker app already
+        // made about its own decorative chips ("they could only ever have been
+        // decorative"). Real filtering can come back when a real filter API does.
+        const SizedBox(height: AppSpacing.s3),
+        // The job selector is REAL (server-fed postings) and stays — but only
+        // when there is a genuine choice to make.
+        if (real && state.jobs.length > 1) ...<Widget>[
+          _JobSelector(jobs: state.jobs, selected: state.selectedJob),
+          const SizedBox(height: AppSpacing.s2),
         ],
-      ),
+        RichText(
+          text: TextSpan(
+            style: AppTypography.body(
+              size: AppTypography.sizeSm,
+              color: AppColors.textMuted,
+            ),
+            children: <InlineSpan>[
+              TextSpan(
+                text: '$count',
+                style: AppTypography.body(
+                  size: AppTypography.sizeSm,
+                  weight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const TextSpan(
+                text: ' matched candidates · sorted by relevance, '
+                    'never by who paid',
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s3),
+      ],
     );
   }
+
 }
 
 /// REAL feed job selector — switches which owned open posting drives the feed.

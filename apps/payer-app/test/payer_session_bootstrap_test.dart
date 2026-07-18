@@ -107,14 +107,36 @@ void main() {
       expect(cubit.state!.account.plan, 'Agency · supply + demand');
     });
 
-    test('fetchMe failure → canned accountFor(role) fallback (never blank)',
-        () async {
+    // #356 — this used to assert the CANNED accountFor() identity on failure,
+    // which meant a real payer whose /payer/me timed out was shown another
+    // company's name ("Kalyani Industries") as their own signed-in account for
+    // the whole session. Fabricated identity is worse than an honest unknown.
+    test('#356: fetchMe failure → NEUTRAL unknown identity, never a canned '
+        'company name', () async {
       final AppSessionCubit cubit = AppSessionCubit(
           accountApi: _FakeAccountApi(companyMe, throwOnFetch: true));
 
       await cubit.signInFromLogin(_login('employer'));
 
-      expect(cubit.state!.account.name, 'Kalyani Industries'); // accountFor
+      final PayerAccount account = cubit.state!.account;
+      expect(account.name, isNot('Kalyani Industries'),
+          reason: 'never show one payer another payer\'s org name');
+      expect(account.name, isNot('Apex Staffing'));
+      expect(account.name, 'Your account');
+      expect(account.initials, '?', reason: 'no monogram can be derived');
+      // The ROLE is genuinely known (server-decided), so the plan stays honest.
+      expect(account.plan, 'Company account');
+    });
+
+    test('#356: the agency role also degrades neutrally (plan stays honest)',
+        () async {
+      final AppSessionCubit cubit = AppSessionCubit(
+          accountApi: _FakeAccountApi(agencyMe, throwOnFetch: true));
+
+      await cubit.signInFromLogin(_login('agent'));
+
+      expect(cubit.state!.account.name, 'Your account');
+      expect(cubit.state!.account.plan, 'Agency · supply + demand');
     });
 
     test('no account api wired → canned accountFor (mock/test path)', () async {
@@ -153,8 +175,9 @@ void main() {
       expect(cubit.state, isNull);
     });
 
-    test('persisted bearer but /payer/me fails (transient) → restores via canned '
-        'fallback (offline-friendly, token intact)', () async {
+    test('persisted bearer but /payer/me fails (transient) → still restores the '
+        'session, with a NEUTRAL identity (offline-friendly, token intact)',
+        () async {
       final PayerTokenStore tokens = PayerTokenStore(InMemoryKeyValueStore());
       await tokens.save(accessToken: 'tok', payerId: 'p1', role: 'employer');
       final AppSessionCubit cubit = AppSessionCubit(
@@ -164,8 +187,14 @@ void main() {
 
       await cubit.bootstrap();
 
+      // The POINT of this test: a transient /payer/me failure must NOT log the
+      // payer out — the bearer is intact, so the session resumes.
+      expect(cubit.state, isNotNull);
       expect(cubit.state!.role, PayerRole.company);
-      expect(cubit.state!.account.name, 'Kalyani Industries');
+      expect(tokens.hasSession, isTrue);
+      // #356: but the identity is unknown, so it is not invented.
+      expect(cubit.state!.account.name, 'Your account');
+      expect(cubit.state!.account.name, isNot('Kalyani Industries'));
     });
 
     test('expired token: /payer/me 401 clears the bearer mid-resolve → stays '
@@ -184,4 +213,84 @@ void main() {
       expect(tokens.hasSession, isFalse);
     });
   });
+
+  // #369 — CreditsCubit is an app-wide lazySingleton, so unlike every per-mount
+  // cubit its state SURVIVES sign-out. On a shared office device that means the
+  // next payer to sign in reads the previous payer's balance.
+  group('signOut clears app-wide singleton state (#369)', () {
+    test('the sign-out hook fires AFTER the session and bearer are cleared',
+        () async {
+      final PayerTokenStore tokens = PayerTokenStore(InMemoryKeyValueStore());
+      await tokens.save(accessToken: 'tok', payerId: 'p1', role: 'employer');
+      bool cleared = false;
+      AppSession? stateWhenCalled;
+      final AppSessionCubit cubit = AppSessionCubit(tokenStore: tokens);
+      final AppSessionCubit wired = AppSessionCubit(
+        tokenStore: tokens,
+        onSessionCleared: () {
+          cleared = true;
+          stateWhenCalled = cubit.state;
+        },
+      );
+
+      await wired.signOut();
+
+      expect(cleared, isTrue, reason: 'singletons must be told to reset');
+      expect(stateWhenCalled, isNull);
+      expect(tokens.hasSession, isFalse);
+    });
+
+  });
+
+  // #377 — main() awaits PayerTokenStore.load() BEFORE runApp, so a throw here
+  // escapes main and the first frame never renders: the payer sits on the native
+  // splash on EVERY launch with no way out but clearing app data. The trigger is
+  // a restored Google backup — EncryptedSharedPreferences' XML comes across but
+  // the Keystore master key does not, so every read throws.
+  group('PayerTokenStore.load — unreadable store (#377)', () {
+    test('degrades to a cleared, signed-out state instead of wedging the boot',
+        () async {
+      final PayerTokenStore store = PayerTokenStore(_ThrowingSecureStore());
+
+      // The assertion IS that this does not throw.
+      await store.load();
+
+      expect(store.accessToken, isNull);
+      expect(store.payerId, isNull);
+      expect(store.role, isNull);
+      expect(store.hasSession, isFalse,
+          reason: 'an unreadable store is indistinguishable from an empty one');
+    });
+
+    test('a session bootstrapped over an unreadable store lands on Login',
+        () async {
+      final PayerTokenStore store = PayerTokenStore(_ThrowingSecureStore());
+      await store.load();
+      final AppSessionCubit cubit = AppSessionCubit(
+        accountApi: _FakeAccountApi(companyMe),
+        tokenStore: store,
+      );
+
+      await cubit.bootstrap();
+
+      expect(cubit.state, isNull);
+    });
+  });
+}
+
+/// A secure store whose EVERY operation throws (#377) — the post-backup-restore
+/// reality. `delete` throws too, so the best-effort wipe on the failure path is
+/// exercised as well: failing to clear must still not resurrect the boot wedge.
+class _ThrowingSecureStore implements SecureKeyValueStore {
+  @override
+  Future<String?> read(String key) async =>
+      throw Exception('keystore: BadPaddingException');
+
+  @override
+  Future<void> write(String key, String value) async =>
+      throw Exception('keystore: BadPaddingException');
+
+  @override
+  Future<void> delete(String key) async =>
+      throw Exception('keystore: BadPaddingException');
 }

@@ -752,6 +752,9 @@ class ProfileSummaryDto extends Equatable {
     required this.city,
     required this.strength,
     this.strengthMax,
+    this.skills = const <String>[],
+    this.machines = const <String>[],
+    this.experienceYears,
   });
 
   /// `"none"` when the worker has no profile row yet; else a ProfileStatus.
@@ -777,6 +780,18 @@ class ProfileSummaryDto extends Equatable {
   /// fabricates a denominator while it is null.
   final int? strengthMax;
 
+  /// Canonical skill labels from the latest profile (PII-free taxonomy strings);
+  /// `[]` when none. Additive wire field — absent on older backends.
+  final List<String> skills;
+
+  /// Canonical machine labels (PII-free); `[]` when none.
+  final List<String> machines;
+
+  /// `experience.total_years` — a NUMBER only. The backend deliberately omits the
+  /// free-text `experience.summary` (possible §2 employer PII), so this is the
+  /// only experience signal on the wire. `null` when unknown/no profile.
+  final double? experienceYears;
+
   factory ProfileSummaryDto.fromJson(Map<String, dynamic> json) {
     final Map<String, dynamic> trade =
         (json['trade'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
@@ -789,6 +804,16 @@ class ProfileSummaryDto extends Equatable {
       city: json['city'] as String?,
       strength: (json['strength'] as num?)?.toInt() ?? 0,
       strengthMax: (json['strength_max'] as num?)?.toInt(),
+      // Defensive: keep only real strings; a malformed/absent array ⇒ [].
+      skills: (json['skills'] as List<dynamic>?)
+              ?.whereType<String>()
+              .toList(growable: false) ??
+          const <String>[],
+      machines: (json['machines'] as List<dynamic>?)
+              ?.whereType<String>()
+              .toList(growable: false) ??
+          const <String>[],
+      experienceYears: (json['experience_years'] as num?)?.toDouble(),
     );
   }
 
@@ -802,6 +827,9 @@ class ProfileSummaryDto extends Equatable {
         city,
         strength,
         strengthMax,
+        skills,
+        machines,
+        experienceYears,
       ];
 }
 

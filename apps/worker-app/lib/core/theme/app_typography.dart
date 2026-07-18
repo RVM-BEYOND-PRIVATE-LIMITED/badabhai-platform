@@ -6,19 +6,66 @@ import 'app_colors.dart';
 /// BadaBhai typography — ported from `tokens/typography.css`.
 ///
 ///  - **Baloo 2** — display & brand voice. Warm, rounded, sturdy; carries
-///    Devanagari. Headlines, the logo, big worker-facing moments. (google_fonts)
+///    Devanagari. Headlines, the logo, big worker-facing moments.
 ///  - **Mukta** — body & all UI. Calm, highly legible, multilingual. Carries
-///    Hinglish/regional copy at low-literacy sizes. (google_fonts)
+///    Hinglish/regional copy at low-literacy sizes.
 ///  - **Roboto Mono** — data: wages, IDs, OTP, counts. Tabular numerals.
 ///    Self-hosted (see pubspec) so figures render identically offline.
 ///
 /// Body never below 16px; worker-facing copy skews larger (18–20). Generous
 /// line-height (1.5); headlines tight (1.1) with slight negative tracking.
+///
+/// **#350 — brand-font DELIVERY.** This class is the ONLY google_fonts call site
+/// in `lib/`, so it is also the single seam where font delivery is decided. See
+/// [bundledBrandFonts] and `assets/fonts/README.md` for the state of that
+/// migration and the exact binaries it is waiting on.
 class AppTypography {
   AppTypography._();
 
   /// Self-hosted data font family (declared in pubspec under `fonts:`).
   static const String monoFamily = 'Roboto Mono';
+
+  /// Display family. Doubles as the pubspec `fonts:` family name once the
+  /// binaries land — see [bundledBrandFonts].
+  static const String displayFamily = 'Baloo 2';
+
+  /// Body/UI family. Same deal as [displayFamily].
+  static const String bodyFamily = 'Mukta';
+
+  /// #350 — whether the Baloo 2 + Mukta BINARIES ship inside the APK.
+  ///
+  /// `false` (today): the binaries are not in the repo, so we go on asking
+  /// google_fonts for them, which fetches over HTTP on first use. That is bad
+  /// for exactly our audience — an APK sideloaded via SHAREit or a first launch
+  /// on 2G renders every headline and body string in the platform fallback and
+  /// reflows mid-flow as the files land — but it is strictly better than the
+  /// alternative available without binaries: forcing
+  /// `allowRuntimeFetching = false` right now would guarantee the fallback for
+  /// EVERY worker, online ones included, and silently drop the locked Desi
+  /// Vernacular Pop type system on the floor.
+  ///
+  /// `true`: [display]/[body]/[eyebrow] resolve straight off the bundled asset
+  /// families and google_fonts is never called, so no request is ever made. The
+  /// switch is deliberately the LAST step of the migration — flip it in the same
+  /// commit that adds the files and the pubspec `fonts:` entries, never before,
+  /// or the app renders fallback glyphs for families that do not exist.
+  ///
+  /// Mutable (not `const`) so a test can drive BOTH sides of the seam; ship it
+  /// `false` and restore it in `tearDown`.
+  static bool bundledBrandFonts = false;
+
+  /// #350 — once the binaries are bundled, slam the network door: google_fonts
+  /// must never quietly fetch a family we already ship.
+  ///
+  /// Only ever TIGHTENS the config, never re-enables fetching. Widget tests set
+  /// `allowRuntimeFetching = false` themselves; flipping it back to `true` here
+  /// would put the whole suite on the network. Deliberately NOT memoised — the
+  /// write is idempotent and a one-shot latch would just be hidden state that
+  /// makes the switch un-flippable within a process (tests do flip it).
+  static void _hardenFontLoading() {
+    if (!bundledBrandFonts) return;
+    GoogleFonts.config.allowRuntimeFetching = false;
+  }
 
   // ---- type scale (px) ----
   static const double size2xs = 11;
@@ -40,6 +87,17 @@ class AppTypography {
     double height = 1.1,
     double letterSpacing = -0.3,
   }) {
+    _hardenFontLoading();
+    if (bundledBrandFonts) {
+      return TextStyle(
+        fontFamily: displayFamily,
+        fontSize: size,
+        fontWeight: weight,
+        color: color,
+        height: height,
+        letterSpacing: letterSpacing,
+      );
+    }
     return GoogleFonts.baloo2(
       fontSize: size,
       fontWeight: weight,
@@ -57,9 +115,9 @@ class AppTypography {
     double height = 1.5,
     double letterSpacing = 0,
   }) {
-    return GoogleFonts.mukta(
-      fontSize: size,
-      fontWeight: weight,
+    return _mukta(
+      size: size,
+      weight: weight,
       color: color,
       height: height,
       letterSpacing: letterSpacing,
@@ -68,12 +126,41 @@ class AppTypography {
 
   /// Tiny uppercase eyebrow / status-chip label — Mukta bold, wide tracking.
   static TextStyle eyebrow({Color color = AppColors.textBrand}) {
-    return GoogleFonts.mukta(
-      fontSize: sizeXs,
-      fontWeight: FontWeight.w700,
+    return _mukta(
+      size: sizeXs,
+      weight: FontWeight.w700,
       color: color,
       height: 1.2,
       letterSpacing: 0.9,
+    );
+  }
+
+  /// The one Mukta resolver behind [body] + [eyebrow], so the #350 delivery
+  /// branch lives in exactly one place per family.
+  static TextStyle _mukta({
+    required double size,
+    required FontWeight weight,
+    required Color color,
+    required double height,
+    required double letterSpacing,
+  }) {
+    _hardenFontLoading();
+    if (bundledBrandFonts) {
+      return TextStyle(
+        fontFamily: bodyFamily,
+        fontSize: size,
+        fontWeight: weight,
+        color: color,
+        height: height,
+        letterSpacing: letterSpacing,
+      );
+    }
+    return GoogleFonts.mukta(
+      fontSize: size,
+      fontWeight: weight,
+      color: color,
+      height: height,
+      letterSpacing: letterSpacing,
     );
   }
 

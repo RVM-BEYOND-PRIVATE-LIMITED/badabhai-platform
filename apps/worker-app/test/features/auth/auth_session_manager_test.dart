@@ -173,6 +173,25 @@ class _NonPersistingApi extends AuthApi {
       _mint('access-ref-np', 'refresh-ref-np');
 }
 
+/// A secure store whose EVERY operation throws (#355) — the post-backup-restore
+/// reality: the EncryptedSharedPreferences XML was restored onto a new device
+/// but the Keystore master key was not, so reads fail with BadPadding/keystore
+/// errors. `delete` throws too, so the best-effort wipe on the failure path is
+/// exercised as well: failing to clear must still not resurrect the boot wedge.
+class ThrowingSecureStore implements SecureKeyValueStore {
+  @override
+  Future<String?> read(String key) async =>
+      throw Exception('keystore: BadPaddingException');
+
+  @override
+  Future<void> write(String key, String value) async =>
+      throw Exception('keystore: BadPaddingException');
+
+  @override
+  Future<void> delete(String key) async =>
+      throw Exception('keystore: BadPaddingException');
+}
+
 void main() {
   late FakeSecureStore secureBacking;
   late SecureTokenStore store;
@@ -216,6 +235,34 @@ void main() {
       final AuthStatus s = await manager.bootstrap();
       expect(s, AuthStatus.loggedOut);
       expect(manager.status, AuthStatus.loggedOut);
+    });
+
+    // #355 — main() awaits bootstrap() BEFORE runApp, so a throw here escapes
+    // main and the app never renders a frame: the worker sits on the native
+    // splash on EVERY launch with no way out but clearing app data. The trigger
+    // is a restored Google backup — EncryptedSharedPreferences' XML comes across
+    // but the Keystore master key does not, so every read throws.
+    test('#355: an UNREADABLE store degrades to loggedOut instead of wedging the boot',
+        () async {
+      final AuthSessionManager m = AuthSessionManager(
+        authApi: api,
+        tokenStore: SecureTokenStore(ThrowingSecureStore()),
+        session: session,
+        reauthSignal: reauth,
+        persistentAuthEnabled: true,
+      );
+      addTearDown(m.dispose);
+
+      // The assertion IS that this does not throw.
+      final AuthStatus s = await m.bootstrap();
+
+      expect(s, AuthStatus.loggedOut,
+          reason: 'an unreadable store is indistinguishable from an empty one');
+      expect(m.status, AuthStatus.loggedOut);
+      expect(m.isReady, isTrue, reason: 'the router must be allowed to render');
+      expect(m.pinSet, isFalse,
+          reason: 'a stale pin_set would strand the worker on Enter-PIN');
+      expect(session.sessionToken, isNull);
     });
 
     // #352 — `locked` alone cannot distinguish "enter your PIN" from "choose

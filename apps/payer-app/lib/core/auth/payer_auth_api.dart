@@ -105,12 +105,19 @@ class HttpPayerAuthApi implements PayerAuthApi {
 
   @override
   Future<void> loginRequest({required String email}) async {
-    await _http.send(
+    final PayerResponse res = await _http.send(
       PayerMethod.post,
       '/payer/login/request',
       authed: false,
       body: <String, dynamic>{'email': email},
     );
+    // #347 — the SAME rule signup() above already enforces, applied to the leg
+    // that actually sends the OTP. PayerHttp.send returns non-2xx instead of
+    // throwing, so a 429 (per-email OTP cap) or 5xx completed "successfully" and
+    // LoginScreen flipped to "We sent a 6-digit code to <email>" for a code that
+    // was never sent — the payer then waits for an email that will not arrive and
+    // loops on "That code did not work" with no honest rate-limit message.
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
   }
 
   @override
@@ -124,6 +131,16 @@ class HttpPayerAuthApi implements PayerAuthApi {
       authed: false,
       body: <String, dynamic>{'email': email, 'code': code},
     );
+    // #347 — deliberately NARROWER than a blanket !isSuccess guard. A wrong or
+    // expired code is a 4xx VERDICT ON THE CODE, and the existing empty-
+    // accessToken path already renders its precise copy ("That code did not
+    // work") — throwing here would replace that with a vaguer error. But a 429
+    // (attempt cap) or a 5xx is not a verdict on the code at all: swallowing
+    // those told a payer their CORRECT code was wrong and sent them into a retry
+    // loop that burned the cap further. Those, and only those, throw.
+    if (res.statusCode == 429 || res.statusCode >= 500) {
+      throw PayerApiException(res.statusCode);
+    }
     return PayerLoginResult.fromJson(res.body);
   }
 

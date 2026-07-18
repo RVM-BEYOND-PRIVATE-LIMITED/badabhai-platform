@@ -327,9 +327,16 @@ class _FeedViewState extends State<_FeedView> {
         children: <Widget>[
           const Icon(Icons.swipe, size: 18, color: AppColors.textMuted),
           const SizedBox(width: AppSpacing.s2),
-          Text('Skip · Apply',
-              style: AppTypography.body(
-                  size: AppTypography.sizeSm, color: AppColors.textMuted)),
+          // #362 — the hint used to read only "Skip · Apply", so nothing on the
+          // screen told a worker that the job title opens the full posting.
+          // Flexible because the line is now long enough to overflow a narrow
+          // phone.
+          Flexible(
+            child: Text('Skip · Apply · Naam par tap = poori jaankari',
+                textAlign: TextAlign.center,
+                style: AppTypography.body(
+                    size: AppTypography.sizeSm, color: AppColors.textMuted)),
+          ),
         ],
       ),
     );

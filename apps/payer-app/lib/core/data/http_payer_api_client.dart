@@ -229,7 +229,15 @@ class HttpPayerApiClient implements PayerApiClient {
         await _http.send(PayerMethod.get, '/payer/credits');
     // A non-2xx must not decode to a fabricated 0 balance shown as success.
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
-    return (res.body['balance'] as num?)?.toInt() ?? 0;
+    // #370 — nor may a 2xx with the WRONG BODY. PayerHttp._decode turns any
+    // unparseable/non-object body into `{}`, so captive-portal HTML, a proxy
+    // interception or contract drift all sailed past the guard above and then
+    // `?? 0` minted a confident "0 credits" — telling the payer their balance was
+    // wiped. A missing/non-numeric `balance` is a CONTRACT ERROR, not a zero:
+    // throw so CreditsCubit keeps the last-known value and shows '—' + error.
+    final Object? balance = res.body['balance'];
+    if (balance is! num) throw PayerApiException(res.statusCode);
+    return balance.toInt();
   }
 
   @override
@@ -281,6 +289,14 @@ class HttpPayerApiClient implements PayerApiClient {
         if (jobId != null) 'job_id': jobId,
       },
     );
+    // #346 — a transport/server failure is NOT a neutral deny. Without this
+    // guard a 500/503/429 (whose Nest error envelope carries no `unlock_id`)
+    // fell through to UnlockResult.unavailable() and the payer was told the
+    // candidate "is not available to unlock right now" — permanent-sounding, so
+    // they move on — when the API was simply down or they hit the rate cap.
+    // Same rule disclose() already states: a non-2xx must NOT decode to the
+    // neutral-deny copy.
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
     // Money denials come back as HTTP 200 {status:"unavailable"} — never trust
     // the status/HTTP code alone: a grant MUST carry a real unlock_id.
     final String? unlockId = res.body['unlock_id'] as String?;
@@ -299,6 +315,11 @@ class HttpPayerApiClient implements PayerApiClient {
       PayerMethod.post,
       '/payer/unlocks/$unlockId/reveal',
     );
+    // #346 — worse here than on unlock: the payer has ALREADY SPENT the credit.
+    // A 5xx on reveal used to render the neutral "unavailable" deny, so they were
+    // told the contact does not exist instead of being offered a retry for
+    // something they paid for. A non-2xx is an outage, not a deny.
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
     // A relay is real only when a relay_handle is present; {status:"unavailable"}
     // (or a missing handle) is the neutral deny.
     final String? handle = res.body['relay_handle'] as String?;

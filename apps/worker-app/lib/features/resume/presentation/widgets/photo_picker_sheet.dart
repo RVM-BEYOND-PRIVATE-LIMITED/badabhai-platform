@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:image_cropper/image_cropper.dart';
 import 'package:image_picker/image_picker.dart';
 
 /// What the worker chose in the photo sheet.
@@ -81,12 +82,20 @@ Future<PhotoAction?> showPhotoPickerSheet(
   );
 }
 
-/// Picks an image and returns its resized JPEG bytes, or null when the worker
-/// cancelled or the picker itself failed.
+/// Picks an image, SQUARE-CROPS it on-device, and returns the resized JPEG
+/// bytes, or null when the worker cancelled (the pick OR the crop) or the picker
+/// itself failed.
 ///
 /// The picker caps are load-bearing, not cosmetic: the resize + JPEG re-encode
 /// happens BEFORE any byte leaves the device (ADR-0032 §6) and keeps the upload
 /// inside the server's 2MB cap and the PDF embed small.
+///
+/// A profile photo is a FACE, not an arbitrary rectangle, so every pick is
+/// routed through a locked 1:1 crop (both sources). The crop re-encodes JPEG
+/// ≤1024px, so the on-device minimization guarantee still holds. Cancelling the
+/// crop cancels the whole change (the worker asked to crop); a crop *failure*
+/// (not a cancel) falls back to the already-resized picked image so a glitch
+/// never blocks setting a photo.
 ///
 /// A picker failure (no camera, OS denial) returns null and surfaces NOTHING:
 /// it is not the worker's fault and not worth a scary error — the row is still
@@ -112,5 +121,46 @@ Future<Uint8List?> pickPhotoBytes(PhotoAction action) async {
     return null;
   }
   if (picked == null) return null;
-  return picked.readAsBytes();
+  return _cropSquareBytes(picked);
+}
+
+/// Runs the picked image through a locked 1:1 crop (see [pickPhotoBytes]).
+Future<Uint8List?> _cropSquareBytes(XFile picked) async {
+  try {
+    final CroppedFile? cropped = await ImageCropper().cropImage(
+      sourcePath: picked.path,
+      // A hard 1:1 lock — a profile photo is square; the worker only positions it.
+      aspectRatio: const CropAspectRatio(ratioX: 1, ratioY: 1),
+      maxWidth: 1024,
+      maxHeight: 1024,
+      compressFormat: ImageCompressFormat.jpg,
+      compressQuality: 85,
+      uiSettings: <PlatformUiSettings>[
+        AndroidUiSettings(
+          toolbarTitle: 'Photo crop karein',
+          lockAspectRatio: true,
+          hideBottomControls: true,
+          initAspectRatio: CropAspectRatioPreset.square,
+          aspectRatioPresets: const <CropAspectRatioPreset>[
+            CropAspectRatioPreset.square,
+          ],
+        ),
+        IOSUiSettings(
+          title: 'Photo crop karein',
+          aspectRatioLockEnabled: true,
+          resetAspectRatioEnabled: false,
+          aspectRatioPresets: const <CropAspectRatioPreset>[
+            CropAspectRatioPreset.square,
+          ],
+        ),
+      ],
+    );
+    // Cancelled the crop → cancel the whole change; they explicitly asked to crop.
+    if (cropped == null) return null;
+    return cropped.readAsBytes();
+  } catch (_) {
+    // Cropper itself failed (not a cancel) — never block setting a photo: use the
+    // already-resized picked image as-is.
+    return picked.readAsBytes();
+  }
 }

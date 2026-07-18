@@ -73,6 +73,14 @@ dependencies:
   #     permission, and the camera intent handles its own prompt.
   #   - flutter_image_compress — pickImage(maxWidth, imageQuality) covers it.
   image_picker: ^1.1.2
+  # ADR-0032 — square-crop the picked photo BEFORE upload (a profile photo is a
+  # face, not an arbitrary rectangle). Runs entirely ON DEVICE after the picker,
+  # then re-encodes JPEG ≤1024px so the resize + minimization guarantee still
+  # holds before any byte leaves the phone. Android uses the bundled uCrop
+  # activity (declared in AndroidManifest.xml); iOS uses TOCropViewController via
+  # the plugin's pod — no extra Info.plist keys beyond the camera/photos usage
+  # strings image_picker already requires.
+  image_cropper: ^9.1.0
 
 dev_dependencies:
   flutter_test:
@@ -102,3 +110,27 @@ flutter:
         - asset: assets/fonts/RobotoMono-BoldItalic.ttf
           weight: 700
           style: italic
+    # #350 — Baloo 2 (display) + Mukta (body) are STILL runtime-fetched by
+    # google_fonts because their binaries are not in the repo; a sideloaded or
+    # 2G first launch therefore renders fallback glyphs and reflows mid-flow.
+    # The declarations below are the asset plan, commented out because Flutter
+    # fails the build on an `asset:` that does not exist. Land the six .ttf
+    # files (Devanagari subset — exact list + weights + sources in
+    # assets/fonts/README.md), uncomment this block, THEN flip
+    # AppTypography.bundledBrandFonts to true — in that order, same commit.
+    # - family: Baloo 2
+    #   fonts:
+    #     - asset: assets/fonts/Baloo2-SemiBold.ttf
+    #       weight: 600
+    #     - asset: assets/fonts/Baloo2-Bold.ttf
+    #       weight: 700
+    #     - asset: assets/fonts/Baloo2-ExtraBold.ttf
+    #       weight: 800
+    # - family: Mukta
+    #   fonts:
+    #     - asset: assets/fonts/Mukta-Regular.ttf
+    #       weight: 400
+    #     - asset: assets/fonts/Mukta-SemiBold.ttf
+    #       weight: 600
+    #     - asset: assets/fonts/Mukta-Bold.ttf
+    #       weight: 700

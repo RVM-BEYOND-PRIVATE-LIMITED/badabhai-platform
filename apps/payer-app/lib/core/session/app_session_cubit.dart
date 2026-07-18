@@ -18,10 +18,18 @@ class AppSessionCubit extends Cubit<AppSession?> {
     PayerAuthApi? authApi,
     PayerAccountApi? accountApi,
     PayerTokenStore? tokenStore,
+    void Function()? onSessionCleared,
   })  : _authApi = authApi,
         _accountApi = accountApi,
         _tokenStore = tokenStore,
+        _onSessionCleared = onSessionCleared,
         super(null);
+
+  /// Invoked by [signOut] AFTER the session is cleared, so app-wide singletons
+  /// that outlive a session can drop the previous payer's data (#369 — the
+  /// shared [CreditsCubit] balance). Optional so MOCK mode / unit tests can
+  /// construct a bare cubit. Wired in the locator.
+  final void Function()? _onSessionCleared;
 
   /// Optional so MOCK-mode / unit tests can construct a bare cubit. When wired
   /// (real app): [_authApi] revokes on [signOut], [_accountApi] resolves the
@@ -90,19 +98,26 @@ class AppSessionCubit extends Cubit<AppSession?> {
   }
 
   /// REAL (`kUseMocks` false + an account api wired) → `GET /payer/me` mapped to
-  /// the PII-light display identity; on ANY failure (network/5xx/401) — and in
-  /// MOCK / when no account api is wired — the canned [accountFor] projection.
-  /// Never throws: a session always resolves to a shown identity.
+  /// the PII-light display identity; on ANY failure (network/5xx/401) the
+  /// NEUTRAL [_unknownAccount]. In MOCK / when no account api is wired, the
+  /// canned [accountFor] projection. Never throws: a session always resolves to
+  /// a shown identity.
   Future<PayerAccount> _resolveAccount(PayerRole role) async {
     if (kUseMocks || _accountApi == null) return accountFor(role);
     try {
       // Bounded so a captive-portal / black-hole server can never pin the
-      // cold-start splash open — a timeout falls through to the canned identity.
+      // cold-start splash open — a timeout falls through to the neutral identity.
       final PayerMe me =
           await _accountApi.fetchMe().timeout(const Duration(seconds: 8));
       return _accountFromMe(me);
     } catch (_) {
-      return accountFor(role);
+      // #356 — NEVER the canned demo identity here. accountFor() returns
+      // hardcoded names ("Kalyani Industries" / "Apex Staffing"), so a real payer
+      // whose /payer/me timed out was shown ANOTHER COMPANY's name as their own
+      // signed-in account, for the whole session (the identity is never
+      // re-resolved). That is fabricated data — the same class this codebase
+      // already hardened the credits path against ("never a fabricated 0").
+      return _unknownAccount(role);
     }
   }
 
@@ -119,8 +134,24 @@ class AppSessionCubit extends Cubit<AppSession?> {
     }
     await _tokenStore?.clear();
     emit(null);
+    // #369 — drop app-wide singleton state that outlives the session (the shared
+    // credit balance). Last, so a throwing listener can never strand a live
+    // session: the bearer is already wiped and the state already cleared.
+    _onSessionCleared?.call();
   }
 }
+
+/// The REAL-mode identity when `GET /payer/me` could not be resolved (#356).
+///
+/// Honest by construction: the ROLE is genuinely known (server-decided at login,
+/// or persisted with the bearer), so the plan label is real — but the org name is
+/// NOT known, so it is not invented. The header renders a neutral placeholder and
+/// a "?" monogram instead of some other company's name.
+PayerAccount _unknownAccount(PayerRole role) => PayerAccount(
+      name: 'Your account',
+      plan: role.isAgency ? 'Agency · supply + demand' : 'Company account',
+      initials: '?',
+    );
 
 /// Maps the PII-light `GET /payer/me` body to the display identity. Deliberately
 /// DROPS `email` + `phoneLast4` (PII, CLAUDE.md §2) — the header renders only an

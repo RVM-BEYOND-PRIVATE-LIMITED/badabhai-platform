@@ -56,6 +56,15 @@ class _ChatViewState extends State<_ChatView> {
   /// the "Naye message" jump pill rather than yanking the transcript down.
   bool _hasUnreadBelow = false;
 
+  /// True from the tap on "Done — build my profile" until the pushed preview
+  /// comes back. #372 — the push used to be unguarded, and ProfilePreviewScreen
+  /// builds a FRESH ProfileCubit that fires `extract()` on every mount: a
+  /// double-tap (routine on the low-end devices we target) stacked two preview
+  /// screens AND enqueued two concurrent extraction AI jobs — duplicate real
+  /// spend per §COST, plus a second spinner on back that reads as the app
+  /// looping.
+  bool _openingPreview = false;
+
   @override
   void initState() {
     super.initState();
@@ -161,6 +170,23 @@ class _ChatViewState extends State<_ChatView> {
     ));
   }
 
+  /// Opens the profile preview at most once per round trip (#372).
+  ///
+  /// The boolean is checked SYNCHRONOUSLY, before the frame that disables the
+  /// button paints: a real double-tap lands both taps inside the same frame, so
+  /// the disabled state alone would arrive too late to stop the second push.
+  Future<void> _openProfilePreview() async {
+    if (_openingPreview) return;
+    setState(() => _openingPreview = true);
+    try {
+      await context.push(Routes.profilePreview);
+    } finally {
+      // Confirming the profile leaves via `go(/building)` — this screen is gone
+      // by then, hence the mounted check before re-arming the button.
+      if (mounted) setState(() => _openingPreview = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -231,7 +257,11 @@ class _ChatViewState extends State<_ChatView> {
                       label: 'Done — build my profile',
                       block: true,
                       iconLeft: Icons.check_circle_outline,
-                      onPressed: () => context.push(Routes.profilePreview),
+                      // Disabled for the whole round trip (#372) — the visible
+                      // half of the guard; `_openProfilePreview` holds the
+                      // same-frame half.
+                      onPressed:
+                          _openingPreview ? null : _openProfilePreview,
                     ),
                   ),
                 ],

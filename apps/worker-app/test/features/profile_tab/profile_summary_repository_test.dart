@@ -109,6 +109,49 @@ void main() {
     expect(s.strengthMax, 12);
   });
 
+  test('skills / machines / experience years flow through to the domain summary',
+      () async {
+    when(() => api.getProfileSummary(authToken: any(named: 'authToken')))
+        .thenAnswer((_) async => const ProfileSummaryDto(
+              profileStatus: 'confirmed',
+              confirmedAt: '2026-06-01T00:00:00.000Z',
+              tradeDisplayName: 'VMC Operator',
+              canonicalTradeId: null,
+              canonicalRoleId: null,
+              city: 'Pune',
+              strength: 9,
+              skills: <String>['CNC operating', 'GD&T'],
+              machines: <String>['VMC'],
+              experienceYears: 4,
+            ));
+
+    final ProfileSummary s =
+        await ProfileSummaryRepositoryImpl(api, session).summary();
+    expect(s.skills, <String>['CNC operating', 'GD&T']);
+    expect(s.machines, <String>['VMC']);
+    expect(s.experienceYears, 4.0);
+  });
+
+  test('no skills/experience → empty lists + null years (honest empty state)',
+      () async {
+    when(() => api.getProfileSummary(authToken: any(named: 'authToken')))
+        .thenAnswer((_) async => const ProfileSummaryDto(
+              profileStatus: 'none',
+              confirmedAt: null,
+              tradeDisplayName: null,
+              canonicalTradeId: null,
+              canonicalRoleId: null,
+              city: null,
+              strength: 0,
+            ));
+
+    final ProfileSummary s =
+        await ProfileSummaryRepositoryImpl(api, session).summary();
+    expect(s.skills, isEmpty);
+    expect(s.machines, isEmpty);
+    expect(s.experienceYears, isNull);
+  });
+
   test('a 401 surfaces a typed Failure (real reason, not a silent spinner)',
       () async {
     when(() => api.getProfileSummary(authToken: any(named: 'authToken')))

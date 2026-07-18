@@ -28,6 +28,11 @@ const String _kSendLabel = 'Bhej dein';
 const String _kCancelLabel = 'Cancel karein';
 const String _kProcessingCaption =
     'Aapki baat likh rahe hain… thoda intezaar karein.';
+
+/// Shown when a back press is held during Processing (#373). States the REAL
+/// reason the back did nothing — never a silent no-op.
+const String kVoiceBackBlockedLabel =
+    'Aapki baat bheji ja rahi hai — bas ek pal ruk jaayein.';
 const String _kErrorTitle = 'Voice note nahi gaya.';
 const String _kRetryLabel = 'Dobara try karein';
 const String _kTypeInsteadLabel = 'Type karke bhejein';
@@ -39,6 +44,10 @@ const String _kTypeInsteadLabel = 'Type karke bhejein';
 /// Errors are honest and worker-safe ([failureReason]); a denied mic permission
 /// or a 503 (voice not enabled server-side) never dead-ends — the worker can
 /// always fall back to typing.
+///
+/// Back is HELD while the pipeline is in flight (#373): leaving mid-Processing
+/// still merged the transcript into the server chat session but dropped the
+/// outcome, so the answer existed server-side and nowhere on screen.
 class VoiceNoteScreen extends StatelessWidget {
   const VoiceNoteScreen({super.key});
 
@@ -66,27 +75,51 @@ class _VoiceNoteView extends StatelessWidget {
           // appends both bubbles (see ChatVoiceMerged).
           context.pop((state as VoiceNoteSuccess).outcome);
         },
-        builder: (BuildContext context, VoiceNoteState state) =>
-            switch (state) {
-          VoiceNoteIdle() => _IdleView(
-              onStart: () => context.read<VoiceNoteCubit>().startRecording(),
-            ),
-          VoiceNoteRecording(:final int elapsedSeconds) => _RecordingView(
-              elapsedSeconds: elapsedSeconds,
-              maxSeconds: context.read<VoiceNoteCubit>().maxSeconds,
-              onSend: () => context.read<VoiceNoteCubit>().stopAndSend(),
-              onCancel: () =>
-                  context.read<VoiceNoteCubit>().cancelRecording(),
-            ),
-          VoiceNoteProcessing() =>
-            const BbStatusView.loading(caption: _kProcessingCaption),
-          // Brief frame between success and the pop — keep the spinner up.
-          VoiceNoteSuccess() => const BbStatusView.loading(),
-          VoiceNoteError(:final Failure failure) => _ErrorView(
-              failure: failure,
-              onRetry: () => context.read<VoiceNoteCubit>().reset(),
-              onTypeInstead: () => context.pop(),
-            ),
+        builder: (BuildContext context, VoiceNoteState state) {
+          // #373 — once the pipeline is running the transcript is ALREADY on
+          // its way into the SERVER chat session (the last leg is
+          // `chat.sendMessage`), and the cubit closing does not cancel that
+          // detached future. A back press here used to pop a null outcome, so
+          // the answer landed server-side but never rendered in chat: the
+          // worker re-typed it and extraction saw the same answer twice.
+          // Hold the route until the pipeline is terminal. This is BOUNDED —
+          // `awaitAiJob` caps its polling (~14s) and an error state releases
+          // the back button immediately, with typing always open as a fallback.
+          final bool pipelineInFlight =
+              state is VoiceNoteProcessing || state is VoiceNoteSuccess;
+          return PopScope<Object?>(
+            canPop: !pipelineInFlight,
+            onPopInvokedWithResult: (bool didPop, Object? result) {
+              if (didPop) return;
+              ScaffoldMessenger.of(context)
+                ..hideCurrentSnackBar()
+                ..showSnackBar(
+                  const SnackBar(content: Text(kVoiceBackBlockedLabel)),
+                );
+            },
+            child: switch (state) {
+              VoiceNoteIdle() => _IdleView(
+                  onStart: () =>
+                      context.read<VoiceNoteCubit>().startRecording(),
+                ),
+              VoiceNoteRecording(:final int elapsedSeconds) => _RecordingView(
+                  elapsedSeconds: elapsedSeconds,
+                  maxSeconds: context.read<VoiceNoteCubit>().maxSeconds,
+                  onSend: () => context.read<VoiceNoteCubit>().stopAndSend(),
+                  onCancel: () =>
+                      context.read<VoiceNoteCubit>().cancelRecording(),
+                ),
+              VoiceNoteProcessing() =>
+                const BbStatusView.loading(caption: _kProcessingCaption),
+              // Brief frame between success and the pop — keep the spinner up.
+              VoiceNoteSuccess() => const BbStatusView.loading(),
+              VoiceNoteError(:final Failure failure) => _ErrorView(
+                  failure: failure,
+                  onRetry: () => context.read<VoiceNoteCubit>().reset(),
+                  onTypeInstead: () => context.pop(),
+                ),
+            },
+          );
         },
       ),
     );

@@ -2,10 +2,27 @@
     <!-- Firebase Cloud Messaging (native): network + show notifications on Android 13+. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- #377: Android defaults allowBackup to TRUE, which auto-backs the app's data
+         up to the payer's Google Drive. Two reasons that is wrong here:
+
+         1. It ships the persisted bearer token into a cloud backup at all — which
+            PayerTokenStore's secure-storage posture exists to prevent.
+         2. flutter_secure_storage runs on EncryptedSharedPreferences, whose
+            documented failure mode is precisely this: restore the prefs XML onto a
+            NEW device and the Keystore master key does NOT come with it, so every
+            later read throws (BadPadding / keystore error).
+
+         main() awaits PayerTokenStore.load() BEFORE the first frame, so a restored
+         payer was stuck on the native splash with no way out but clearing app data.
+         load() now also degrades a throwing store to "no session" — defense in
+         depth, because a backup can still be restored from an older install made
+         while this flag was still on. -->
     <application
         android:label="payer_app"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:fullBackupContent="false">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -64,6 +81,22 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- #354 — lets url_launcher resolve a BROWSER for the signed masked-résumé
+             url under the Android 11+ (API 30+) package-visibility rules. Without
+             this query canLaunchUrl/launchUrl see no handler and the launch fails,
+             which would push us straight back to the clipboard fallback this issue
+             exists to remove. Scheme-only (no host): the signed url's host is
+             environment-dependent, and a host filter would silently break staging.
+
+             NOTE this deliberately differs from the worker app's queries block,
+             which declares VIEW application/pdf instead: the worker app fetches
+             its signed pdf IN-APP and only opens the resulting LOCAL file, so it
+             never launches an https intent. The payer side hands the url to the
+             browser, so https is the intent it must be able to see. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
         </intent>
     </queries>
 </manifest>
