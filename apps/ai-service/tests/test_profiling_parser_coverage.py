@@ -437,11 +437,25 @@ def test_scripted_interview_shows_the_engine_level_consequence() -> None:
     for topic in interview_engine.ESSENTIAL_TOPICS:
         assert asked_counts.get(topic, 0) <= interview_engine.MAX_ASKS_PER_TOPIC
 
-    # The contrast case: gazetteer-friendly phrasing fills every essential — and the
-    # interview then wraps up so early that seven topics are never asked at all.
+    # The contrast case: gazetteer-friendly phrasing fills every essential, so the
+    # interview wraps up early and several topics are never asked at all.
+    #
+    # UPDATED for the #424 owner ruling (2026-07-18). This assertion originally read
+    # `"salary_current" in friendly.never_asked` — a true and deliberate MEASUREMENT of
+    # the coverage gap at the time. That gap is now partly CLOSED: salary_current,
+    # salary_expected and availability were promoted to MUST_ASK, so the engine must
+    # raise them before wrapping up (the worker still need not answer). #418 and #429
+    # were in flight together, each green alone, and the semantic conflict only
+    # appeared once both were on main — so this is the measurement catching up to the
+    # ruling, not a weakened assertion.
     friendly = simulate(SCRIPT_GAZETTEER_FRIENDLY)
     assert friendly.unanswered_essentials == []
-    assert "salary_current" in friendly.never_asked
+    # The promotion, observed end-to-end rather than trusted from the constant.
+    assert "salary_current" not in friendly.never_asked
+    assert "salary_expected" not in friendly.never_asked
+    assert "availability" not in friendly.never_asked
+    # ...and the gap that REMAINS: education was not promoted, so a fluent worker can
+    # still finish without ever being asked about it. That is the honest residual.
     assert "education" in friendly.never_asked
 
 
