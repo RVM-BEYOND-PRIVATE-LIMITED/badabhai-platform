@@ -1,0 +1,60 @@
+{
+  "@@locale": "en",
+  "@@x-note": "English. TRANSLATED — but only where the meaning is unambiguous, and five of these ten strings are not translations at all: they are the English defaults ALREADY shipping in core/error/failure.dart (NetworkFailure, UnknownFailure, ConsentRequiredFailure, ProfileTimeoutFailure) and the already-Latin 'Try again' CTA. Those are noted per key. Unlike app_mr.arb / app_bho.arb this file is COMPLETE on purpose: `en` is the only non-Hindi locale we currently claim to support, and the l10n test asserts its key set matches the template exactly — a key missing here would silently serve Hindi to an English user, which is the classic silent i18n break.",
+
+  "actionTryAgain": "Try again",
+  "@actionTryAgain": {
+    "description": "Identical to the template — the shipping Hinglish literal is already the English word."
+  },
+
+  "errorNetwork": "Can't reach the server. Please try again.",
+  "@errorNetwork": {
+    "description": "NOT a fresh translation: this is NetworkFailure's own shipping English default in core/error/failure.dart. Keeps the deliberate 'can't reach the server' framing rather than 'no internet'."
+  },
+
+  "errorGeneric": "Something went wrong. Please try again.",
+  "@errorGeneric": {
+    "description": "UnknownFailure's shipping English default in core/error/failure.dart."
+  },
+
+  "errorSessionExpired": "Your session has ended. Please log in again.",
+  "@errorSessionExpired": {
+    "description": "Translated. UnauthorizedFailure's terser default is 'Please log in again.'; this keeps the failureReason variant's cause-first framing, which is what the stuck-screen view needs."
+  },
+
+  "errorConsentRequired": "Please accept consent to continue.",
+  "@errorConsentRequired": {
+    "description": "ConsentRequiredFailure's shipping English default in core/error/failure.dart. Consent wording is Product + Security's call — do not reword."
+  },
+
+  "errorRateLimited": "Too many requests. Please try again in a little while.",
+  "@errorRateLimited": {
+    "description": "Translated. Asks the worker to wait; must not blame the connection."
+  },
+
+  "errorOtpInvalid": "That OTP is not correct. Please enter it again.",
+  "@errorOtpInvalid": {
+    "description": "Translated. Must not read 'log in again' — the session is fine, only the code was wrong."
+  },
+
+  "errorProfileIncomplete": "Please complete your profile first.",
+  "@errorProfileIncomplete": {
+    "description": "Translated from ProfileIncompleteFailure's Hinglish copy."
+  },
+
+  "errorProfileTimeout": "This is taking longer than usual. Please try again.",
+  "@errorProfileTimeout": {
+    "description": "ProfileTimeoutFailure's shipping English default in core/error/failure.dart."
+  },
+
+  "errorServerStatus": "Server error ({statusCode}). Please try again shortly.",
+  "@errorServerStatus": {
+    "description": "Translated. The status code is shown verbatim — never number-formatted, so no thousands separator turns 503 into '503' vs '5,03'.",
+    "placeholders": {
+      "statusCode": {
+        "type": "int",
+        "example": "503"
+      }
+    }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "@@locale": "hi",
+  "@@x-note": "TEMPLATE ARB (#315 foundation). Every string here is MOVED VERBATIM from an existing Dart literal — nothing was rewritten, retranslated or invented. Sources are named per key below so the move is auditable. This is a deliberately SMALL seed that proves the pipeline end to end (a plain string, a repeated CTA, and one ICU-placeholder message); the remaining ~30 screens of Hinglish literals are follow-up work and are NOT extracted here, because a mass mechanical edit would collide with every in-flight PR. Because this file is the gen-l10n template, every message missing from app_mr.arb / app_bho.arb falls back to THESE Hindi values — see l10n.yaml.",
+
+  "actionTryAgain": "Try again",
+  "@actionTryAgain": {
+    "description": "Retry CTA on a failed/stuck screen. Moved verbatim from the six identical `const Text('Try again')` literals in notifications_screen, resume_preview_screen, swipe_jobs_screen, job_detail_screen, devices_screen and profile_tab_screen. Already Latin-script in the shipping Hinglish copy."
+  },
+
+  "errorNetwork": "Server se connect nahi ho pa raha. Dobara try karein.",
+  "@errorNetwork": {
+    "description": "Cannot reach the API. Verbatim from failureReason(NetworkFailure) in core/error/failure_reason.dart. Says 'cannot reach the server', NOT 'no internet': at this layer a refused localhost and a dead connection are indistinguishable, and blaming the worker's connection would be a lie. Keep that distinction in every translation."
+  },
+
+  "errorGeneric": "Kuch gadbad ho gayi. Dobara try karein.",
+  "@errorGeneric": {
+    "description": "Unclassified failure. Verbatim from the `_` fallback arm of failureReason in core/error/failure_reason.dart."
+  },
+
+  "errorSessionExpired": "Session khatam ho gaya. Dobara login karein.",
+  "@errorSessionExpired": {
+    "description": "HTTP 401 — the session is gone. Verbatim from failureReason(UnauthorizedFailure)."
+  },
+
+  "errorConsentRequired": "Aage badhne ke liye consent dena hoga.",
+  "@errorConsentRequired": {
+    "description": "HTTP 403 — the DPDP consent gate (CLAUDE.md invariant #6). Verbatim from failureReason(ConsentRequiredFailure). CONSENT COPY: any change to the meaning of this string is a Product + Security decision, not a translator's call."
+  },
+
+  "errorRateLimited": "Bahut requests. Thodi der baad dobara try karein.",
+  "@errorRateLimited": {
+    "description": "HTTP 429. Verbatim from failureReason(RateLimitedFailure). Asks the worker to wait rather than blaming the network."
+  },
+
+  "errorOtpInvalid": "OTP sahi nahi. Dobara daalein.",
+  "@errorOtpInvalid": {
+    "description": "The typed OTP was wrong/expired. Verbatim from failureReason(OtpInvalidFailure). Must NEVER read 'log in again' — the session is fine, only the code was wrong."
+  },
+
+  "errorProfileIncomplete": "Pehle apna profile poora karein.",
+  "@errorProfileIncomplete": {
+    "description": "No profile yet, so there is nothing to build a resume from. Verbatim from failureReason(ProfileIncompleteFailure). Guides the worker to finish profiling instead of blaming the net."
+  },
+
+  "errorProfileTimeout": "Zyada time lag raha hai. Dobara try karein.",
+  "@errorProfileTimeout": {
+    "description": "The async profile-extraction job overran the client budget. Verbatim from failureReason(ProfileTimeoutFailure)."
+  },
+
+  "errorServerStatus": "Server error ({statusCode}). Thodi der baad try karein.",
+  "@errorServerStatus": {
+    "description": "Non-2xx with the actual status code shown, because an honest cause beats a generic one. Verbatim from failureReason(ServerFailure). This key exists in the seed specifically to exercise an ICU placeholder through the pipeline.",
+    "placeholders": {
+      "statusCode": {
+        "type": "int",
+        "example": "503"
+      }
+    }
+  }
+}

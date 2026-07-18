@@ -29,6 +29,20 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # #315 — localization. `flutter_localizations` supplies the Global{Material,
+  # Widgets,Cupertino}Localizations delegates that dress the FRAMEWORK's own
+  # strings (date pickers, the text-selection menu, semantics labels) in the
+  # worker's language; without it a Hindi app still says "Cut / Copy / Paste".
+  # `intl` is what gen-l10n's output imports for ICU message + number handling.
+  #
+  # intl is `any` ON PURPOSE, not a caret: flutter_localizations pins one EXACT
+  # intl version per SDK, so any range we write here is either redundant or a
+  # resolution conflict waiting for the next SDK bump — exactly the class of
+  # avoidable pub-get breakage TD71 already cost this repo twice. `any` lets
+  # flutter_localizations decide and pubspec.lock record it.
+  flutter_localizations:
+    sdk: flutter
+  intl: any
   cupertino_icons: ^1.0.8
   http: ^1.2.0
   # Crash reporting (FlutterFire). firebase_core boots the SDK from the native
@@ -113,6 +127,14 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
+  # #315 — run gen-l10n from l10n.yaml. flutter_tools gates localization
+  # codegen on exactly this flag (packages.dart: `if
+  # (project.manifest.generateLocalizations)`), and it runs during
+  # `flutter pub get`. That ordering is why CI stays green without committing
+  # generated code: .github/workflows/worker-app.yml does pub get → analyze →
+  # test, so lib/l10n/gen/ exists before the analyzer opens the imports.
+  generate: true
+
   fonts:
     # Data font — wages, IDs, OTP cells, counts. Self-hosted (real binaries)
     # so numbers render identically with no network. Sourced from the
@@ -129,27 +151,35 @@ flutter:
         - asset: assets/fonts/RobotoMono-BoldItalic.ttf
           weight: 700
           style: italic
-    # #350 — Baloo 2 (display) + Mukta (body) are STILL runtime-fetched by
-    # google_fonts because their binaries are not in the repo; a sideloaded or
-    # 2G first launch therefore renders fallback glyphs and reflows mid-flow.
-    # The declarations below are the asset plan, commented out because Flutter
-    # fails the build on an `asset:` that does not exist. Land the six .ttf
-    # files (Devanagari subset — exact list + weights + sources in
-    # assets/fonts/README.md), uncomment this block, THEN flip
-    # AppTypography.bundledBrandFonts to true — in that order, same commit.
-    # - family: Baloo 2
-    #   fonts:
-    #     - asset: assets/fonts/Baloo2-SemiBold.ttf
-    #       weight: 600
-    #     - asset: assets/fonts/Baloo2-Bold.ttf
-    #       weight: 700
-    #     - asset: assets/fonts/Baloo2-ExtraBold.ttf
-    #       weight: 800
-    # - family: Mukta
-    #   fonts:
-    #     - asset: assets/fonts/Mukta-Regular.ttf
-    #       weight: 400
-    #     - asset: assets/fonts/Mukta-SemiBold.ttf
-    #       weight: 600
-    #     - asset: assets/fonts/Mukta-Bold.ttf
-    #       weight: 700
+    # #350 — Baloo 2 (display) + Mukta (body), the locked Desi Vernacular Pop
+    # brand families, now SELF-HOSTED with their Devanagari subsets. They used
+    # to be fetched over HTTP by google_fonts on first use, so a worker who
+    # sideloaded the APK or first-launched on 2G got fallback glyphs and a
+    # mid-flow reflow — on the OTP/PIN screens, under their thumb.
+    #
+    # Baloo 2 upstream is VARIABLE-only (Baloo2[wght].ttf); these are static
+    # instances cut from it at wght 600/700/800 with fontTools varLib.instancer,
+    # so each weight is a real face rather than one variable file declared three
+    # times. Mukta ships statics upstream and is used as-is. Both are SIL OFL
+    # 1.1 — OFL-Baloo2.txt / OFL-Mukta.txt sit beside the binaries as the
+    # licence requires for redistribution.
+    #
+    # Cost: ~1.9MB of assets per app. Paid deliberately — the audience is
+    # metered-data and often offline, so a one-time APK cost beats a per-install
+    # download that can simply fail.
+    - family: Baloo 2
+      fonts:
+        - asset: assets/fonts/Baloo2-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Baloo2-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Baloo2-ExtraBold.ttf
+          weight: 800
+    - family: Mukta
+      fonts:
+        - asset: assets/fonts/Mukta-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Mukta-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Mukta-Bold.ttf
+          weight: 700

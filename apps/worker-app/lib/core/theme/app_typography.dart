@@ -50,9 +50,14 @@ class AppTypography {
   /// commit that adds the files and the pubspec `fonts:` entries, never before,
   /// or the app renders fallback glyphs for families that do not exist.
   ///
-  /// Mutable (not `const`) so a test can drive BOTH sides of the seam; ship it
-  /// `false` and restore it in `tearDown`.
-  static bool bundledBrandFonts = false;
+  /// Mutable (not `const`) so a test can drive BOTH sides of the seam; restore
+  /// it in `tearDown`.
+  ///
+  /// TRUE since #350: the six Devanagari-carrying binaries (Baloo 2 at wght
+  /// 600/700/800, statically instanced from the upstream variable font; Mukta
+  /// 400/600/700) ship in `assets/fonts/` and are declared in `pubspec.yaml`,
+  /// so google_fonts is never called and no font request leaves the device.
+  static bool bundledBrandFonts = true;
 
   /// #350 — once the binaries are bundled, slam the network door: google_fonts
   /// must never quietly fetch a family we already ship.
