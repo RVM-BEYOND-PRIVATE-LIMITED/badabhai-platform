@@ -498,6 +498,11 @@ def test_scripted_interview_shows_the_engine_level_consequence() -> None:
     # ALSO never asked, while the profile reports itself complete. Report finding 7,
     # measured in full by test_an_essential_topic_can_be_marked_answered_without_being_asked.
     assert friendly.essentials_never_asked == ["machines"]
+    # The EXACT set, not just membership — so a topic silently joining or leaving the
+    # never-asked list surfaces here instead of passing unnoticed. Kept from #436; its
+    # per-topic MUST_ASK loop is dropped as redundant with `must_asks_never_asked == []`
+    # above, which already states that claim over the whole constant.
+    assert friendly.never_asked == ["machines", "skills", "education"]
     assert friendly.extraction_ready is True
 
 
@@ -567,11 +572,6 @@ def test_the_429_must_ask_gate_holds_across_every_scripted_interview() -> None:
         assert sim.must_asks_never_asked == [], (
             f"#429 regression: {sim.must_asks_never_asked} reached wrap-up unasked"
         )
-    # The EXACT set, not just membership — so a topic silently joining or leaving the
-    # never-asked list surfaces here instead of passing unnoticed. Kept from #436; its
-    # per-topic MUST_ASK loop is dropped as redundant with `must_asks_never_asked == []`
-    # above, which already states that claim over the whole constant.
-    assert friendly.never_asked == ["machines", "skills", "education"]
 
 
 def test_a_later_answer_no_longer_overwrites_an_already_collected_value() -> None:
