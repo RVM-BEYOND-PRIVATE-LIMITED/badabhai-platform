@@ -40,18 +40,18 @@ Before anything: the Flutter gate is **real**, not advisory. CLAUDE.md §5 still
   exactly this reason.
 - **The local run that mirrors CI (run from `apps/worker-app`):**
   ```bash
-  flutter --version                # MUST report 3.27.4 (the pinned CI SDK) — not the pubspec floor
+  flutter --version                # MUST report 3.35.7 (the pinned CI SDK)
   flutter pub get
   flutter analyze && flutter test  # byte-for-byte the two CI steps; green here ⇒ green on the gate
   ```
-  Same SDK + same two commands as the workflow → if it's green locally on **3.27.4**, the merge
+  Same SDK + same two commands as the workflow → if it's green locally on **3.35.7**, the merge
   gate is green. (Version drift is the only way the two diverge — see §1.1.)
 
 ### 1.1 Prerequisites (install once)
 
 | Tool | Pinned version | Why exactly this |
 | ---- | -------------- | ---------------- |
-| **Flutter SDK** | **3.27.4 (stable)** | CI gate is pinned to 3.27.4 ([`worker-app.yml`](../../.github/workflows/worker-app.yml), TD7). `pubspec.yaml` only floors `>=3.22.0` — **ignore the floor, match CI** or `flutter analyze` will diverge from the merge gate. |
+| **Flutter SDK** | **3.35.7 (stable)** | CI gate is pinned to 3.35.7 ([`worker-app.yml`](../../.github/workflows/worker-app.yml), TD7), and `/.tool-versions` pins the same. TD71 (#462): `pubspec.yaml` now floors `>=3.35.0` / Dart `>=3.9.0` to MATCH, so an old SDK fails loudly at `pub get` instead of producing a confusing transitive resolution error. The floor and CI no longer disagree. |
 | **pnpm + Node** | repo root toolchain | Only if you also touch the API. Worker-app work alone needs only Flutter. |
 | **Android SDK + `adb`** | current stable | Build/install/logcat. A **physical** Android device (Android-first); emulator does NOT count for the capstone. |
 
@@ -62,7 +62,7 @@ cd badabhai-platform && pnpm install
 
 # 2. Get the worker app building.
 cd apps/worker-app
-flutter --version          # MUST report 3.27.4 — if not, switch channels/versions first
+flutter --version          # MUST report 3.35.7 — if not, switch channels/versions first
 flutter pub get
 flutter analyze && flutter test    # the exact CI gate — must be green BEFORE you change anything
 ```
@@ -264,7 +264,7 @@ in the same change.
 
 ## What the Jun-25 dev does in their first 3 days
 
-**Day 1:** install Flutter **3.27.4** (match CI, not the pubspec floor), clone, `flutter pub get`,
+**Day 1:** install Flutter **3.35.7** (CI and the pubspec floor now agree — TD71/#462), clone, `flutter pub get`,
 get `flutter analyze && flutter test` green, then build the app onto a **real handset** pointed at
 **staging** via `--dart-define=API_BASE_URL` and run the [device-capstone runbook](b1-device-capstone-runbook.md)
 once as a smoke test — confirming with DevOps that staging is actually deployed (this is the one
@@ -285,7 +285,7 @@ job is to unblock and support it, then ship G1c → G2 → G3 in that order.
 This punch-list is **self-contained for someone with zero prior context.** A new Android dev can,
 without asking anyone:
 
-- **Set up in <1hr** (§1): pinned tool versions (Flutter **3.27.4**, not the pubspec floor),
+- **Set up in <1hr** (§1): pinned tool versions (Flutter **3.35.7**, matching `/.tool-versions` and the pubspec floor),
   copy-paste clone/build/run commands, the staging `--dart-define` wiring, and the one gate that
   can still block them (DevOps staging URL + `GET /health` → escalate, don't work around).
 - **Know the gate is real** (§1.0): CI is **blocking + green**, with the exact local commands that

@@ -134,9 +134,20 @@ class _SettingsView extends StatelessWidget {
             subtitle: 'On',
             onTap: () => _comingSoon(context),
           ),
-          // HIDDEN FOR NOW: the 'Aapke devices' card. Removing the entry point
-          // leaves DevicesScreen and Routes.devices in place — restore this row
-          // to bring the screen back.
+          // #464 — RESTORED. This row is the worker's only in-app way to kick a
+          // lost or stolen handset off their account. It had been removed to
+          // sidestep an emit-after-close crash in DevicesCubit.load (FI-001),
+          // which left DevicesScreen and Routes.devices built but UNREACHABLE:
+          // the thief kept a live session and the refresh token sat in secure
+          // storage on hardware they controlled, while the worker's only
+          // recourse was "contact support" — not a real option for a
+          // first-time smartphone user. The crash is now guarded at its source.
+          BbListRow.setting(
+            icon: Icons.devices_other_outlined,
+            title: 'Aapke devices',
+            subtitle: 'Logged-in devices dekhein · hatayein',
+            onTap: () => context.push(Routes.devices),
+          ),
           BbListRow.setting(
             icon: Icons.verified_user_outlined,
             title: 'Privacy & data',

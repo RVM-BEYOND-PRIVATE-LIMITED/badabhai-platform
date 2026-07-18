@@ -45,6 +45,16 @@ class DevicesCubit extends Cubit<DevicesState> {
   final String _locale;
 
   Future<void> load() async {
+    // #464 (FI-001) — this reads like a synchronous first line and therefore a
+    // safe emit. It is not: revoke() below awaits _manager.revokeDevice() and
+    // only THEN calls load(), so this emit is reached AFTER an await. Every
+    // worker-app cubit is screen-scoped (BlocProvider is created inside
+    // DevicesScreen.build), so it closes on pop — a worker who confirmed
+    // "Hatayein" on a stolen phone and immediately backed out landed here on a
+    // closed cubit and got "Bad state: Cannot emit new states after calling
+    // close". An emit's safety depends on the whole call graph, not on the
+    // method it sits in.
+    if (isClosed) return;
     emit(const DevicesState(status: DevicesStatus.loading));
     try {
       final List<AuthDevice> devices = await _manager.listDevices();

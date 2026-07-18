@@ -240,8 +240,18 @@ GoRouter _buildRouter() {
       GoRoute(
         path: Routes.otpVerify,
         // The submitted phone rides as typed `extra` (was ModalRoute arguments).
-        builder: (_, GoRouterState s) =>
-            OtpVerifyScreen(phone: s.extra as String?),
+        //
+        // #336 — `extra` now also carries the server's `resend_in_seconds`, so
+        // the screen opens with the cooldown ALREADY running. It stays tolerant
+        // of a bare String: a deep link or an older push that supplies only the
+        // phone still works, and simply starts with the resend armed.
+        builder: (_, GoRouterState s) {
+          final Object? extra = s.extra;
+          if (extra is OtpVerifyArgs) {
+            return OtpVerifyScreen(phone: extra.phone, resendIn: extra.resendIn);
+          }
+          return OtpVerifyScreen(phone: extra as String?);
+        },
       ),
       // ---------------- Persistent auth (PASS 2) ----------------
       GoRoute(

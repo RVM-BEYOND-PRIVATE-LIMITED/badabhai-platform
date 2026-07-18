@@ -52,6 +52,7 @@ import '../../features/kit/data/interview_kit_repository_impl.dart';
 import '../../features/kit/domain/interview_kit_repository.dart';
 import '../../features/kit/presentation/cubit/kit_detail_cubit.dart';
 import '../../features/kit/presentation/cubit/kit_list_cubit.dart';
+import '../../features/notifications/data/notification_read_store.dart';
 import '../../features/notifications/data/notifications_repository_impl.dart';
 import '../../features/notifications/domain/notifications_repository.dart';
 import '../../features/notifications/presentation/cubit/notifications_cubit.dart';
@@ -228,7 +229,16 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // same reactive unread count.
   locator.registerLazySingleton<NotificationsRepository>(
     () => NotificationsRepositoryImpl(
-        locator<ApiClient>(), locator<SessionRepository>()),
+      locator<ApiClient>(),
+      locator<SessionRepository>(),
+      // #456 — persistence only if the async init actually registered a store.
+      // Resolved HERE (inside the lazy factory), not at registration time, so
+      // the lookup happens on first USE — by which point initAuthLocator has
+      // run in the real app. Absent (widget tests) → session-only default.
+      readStore: locator.isRegistered<NotificationReadStore>()
+          ? locator<NotificationReadStore>()
+          : null,
+    ),
   );
   locator.registerLazySingleton<ApplicationsRepository>(
     () => ApplicationsRepositoryImpl(
@@ -384,6 +394,7 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
 Future<void> initAuthLocator({
   LocaleStore? localeStore,
   AuthApi? authApi,
+  NotificationReadStore? readStore,
   bool persistentAuthEnabled = kPersistentAuth,
 }) async {
   if (locator.isRegistered<AuthApi>()) return;
@@ -393,6 +404,22 @@ Future<void> initAuthLocator({
         SharedPrefsKeyValueStore(await SharedPreferences.getInstance()),
       );
   locator.registerSingleton<LocaleStore>(store);
+
+  // #456 — Alerts read-state persistence registers HERE, not in setupLocator,
+  // for the plugin-free-sync-graph reason documented above: the notifications
+  // repository awaits this store before mapping a row, so a store that never
+  // answers (which is exactly what the SharedPreferences channel does under
+  // `flutter_test`) would hang the Alerts feed rather than merely losing the
+  // read state. Widget tests never await this function, so they keep the
+  // session-only default; the real app always comes through here.
+  // A test-supplied [readStore] wins, exactly like [localeStore] above — the
+  // mock-mode e2e awaits this function, so without the seam it would take the
+  // real plugin and hang.
+  if (!locator.isRegistered<NotificationReadStore>()) {
+    locator.registerSingleton<NotificationReadStore>(
+      readStore ?? const SharedPrefsNotificationReadStore(),
+    );
+  }
 
   // MOCK vs REAL pick lives in createAuthApi (kUseMocks), mirroring
   // createApiClient. The full signing chain (device id, locale, refresh, reauth)

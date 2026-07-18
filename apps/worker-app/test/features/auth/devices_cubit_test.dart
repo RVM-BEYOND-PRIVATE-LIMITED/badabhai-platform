@@ -170,6 +170,43 @@ void main() {
     expect(cubit.state.status, DevicesStatus.loading);
   });
 
+  // #464 (FI-001) — THE crash that got the Settings entry point deleted instead
+  // of fixed, stranding every worker with a stolen phone. load()'s first line is
+  // `emit(loading)`, which looks synchronous and therefore safe; it is not.
+  // revoke() awaits revokeDevice() and only THEN calls load(), so that emit is
+  // reached after an await — and DevicesCubit is screen-scoped, so a worker who
+  // confirms "Hatayein" and immediately backs out closes it mid-flight. The emit
+  // then threw "Bad state: Cannot emit new states after calling close" out of
+  // _DeviceTile._confirmRevoke.
+  test('a revoke whose reload lands after close does not throw', () async {
+    when(() => manager.revokeDevice(any())).thenAnswer((_) async {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
+    when(() => manager.listDevices()).thenAnswer((_) async => <AuthDevice>[]);
+    final DevicesCubit cubit = DevicesCubit(manager);
+
+    final Future<void> pending = cubit.revoke('d-2');
+    await cubit.close(); // the worker pops DevicesScreen mid-revoke
+    await expectLater(pending, completes);
+
+    // The revoke itself still went out — the stolen device IS kicked off; only
+    // the dead cubit's UI refresh is skipped.
+    verify(() => manager.revokeDevice('d-2')).called(1);
+    // Nothing emitted, and no pointless re-fetch on a closed cubit.
+    expect(cubit.state, const DevicesState());
+    verifyNever(() => manager.listDevices());
+  });
+
+  test('load() called on an already-closed cubit is an inert no-op', () async {
+    when(() => manager.listDevices())
+        .thenAnswer((_) async => <AuthDevice>[_device('d-1')]);
+    final DevicesCubit cubit = DevicesCubit(manager);
+    await cubit.close();
+
+    await expectLater(cubit.load(), completes);
+    verifyNever(() => manager.listDevices());
+  });
+
   // SECURITY (CLAUDE.md §2): device rows are opaque ids + platform metadata. No
   // phone number or worker name may ride along in what the cubit holds.
   test('device state carries only opaque ids and platform metadata', () async {

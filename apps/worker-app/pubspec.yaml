@@ -4,8 +4,27 @@ publish_to: "none"
 version: 0.1.0+1
 
 environment:
-  sdk: ">=3.4.0 <4.0.0"
-  flutter: ">=3.22.0"
+  # TD71 (#462): these bounds MUST describe the toolchain the app is actually
+  # built and gated on — they used to say `sdk: ">=3.4.0" / flutter: ">=3.22.0"`,
+  # which was a LIE and cost real debugging time. The committed pubspec.lock
+  # floors Dart at `>=3.8.0-0`, so a dev on 3.22 never got a "your SDK is too
+  # old" error — pub tried to honour the declared floor, failed to find a
+  # resolution for some unrelated transitive, and reported THAT instead. The
+  # same toolchain gap had to be diagnosed twice independently (the #256 review,
+  # then again from scratch in PR #326) because nothing declared the real floor.
+  #
+  # Floors are Flutter 3.35 / Dart 3.9 (not the lock's bare 3.8) because the
+  # SHIPPING Android config is derived from the Flutter SDK itself:
+  # android/app/build.gradle takes compileSdk + ndkVersion from `flutter.*`, and
+  # the move to 3.35.7 was made for the Android 15 16 KB page-size requirement
+  # (minSdk 24 is 3.35's own default). Building on an older SDK silently
+  # produces an APK Android 15 rejects — fail LOUD at `pub get` instead.
+  #
+  # Every Flutter 3.35.x ships a Dart 3.9.x, so the two bounds are co-extensive.
+  # CI pins 3.35.7 / Dart 3.9.2 (.github/workflows/worker-app.yml) and the repo
+  # pin is /.tool-versions — keep all three in lockstep on any bump.
+  sdk: ">=3.9.0 <4.0.0"
+  flutter: ">=3.35.0"
 
 dependencies:
   flutter:

@@ -13,6 +13,7 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_scaffold.dart';
 import '../../../router.dart';
 import 'cubit/phone_login_cubit.dart';
+import 'otp_verify_screen.dart';
 
 class PhoneLoginScreen extends StatelessWidget {
   const PhoneLoginScreen({super.key});
@@ -69,7 +70,13 @@ class _PhoneLoginViewState extends State<_PhoneLoginView> {
           // submitted phone rides as typed `extra`; the OTP route reads it via
           // `s.extra`. (Was a stale Navigator-1.0 pushNamed that would throw
           // "Could not find a generator for route" under go_router.)
-          context.push(Routes.otpVerify, extra: state.phone);
+          // #336 — carry the server's resend cooldown across, so the OTP
+          // screen opens with the countdown already running instead of an
+          // armed button the server will reject.
+          context.push(
+            Routes.otpVerify,
+            extra: OtpVerifyArgs(phone: state.phone, resendIn: state.resendIn),
+          );
         } else if (state.status == PhoneLoginStatus.failure) {
           // Surface the OTP-request failure instead of silently reverting the
           // button. The message is the mapper's generic, PII-safe copy.
