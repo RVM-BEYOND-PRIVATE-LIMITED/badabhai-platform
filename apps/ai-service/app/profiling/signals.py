@@ -228,8 +228,23 @@ _MATERIALS: list[tuple[str, str]] = [
 
 _ROLE_LABELS: dict[str, str] = {rid: label for _, label, rid, _ in _ROLES}
 
+# P1-3(a): DECIMAL-SAFE experience.
+#
+# The previous `(\d{1,2})` had no left boundary, so on "2.5 saal" the engine
+# skipped the unmatchable "2." and matched the FRACTION — "5 saal", a 2.5-year
+# worker shipped as five years. Two fixes, both load-bearing:
+#
+# - ``(?<![\d.])`` refuses to start a match immediately after a digit or a dot,
+#   so the second half of a decimal can never be read as the whole number;
+# - the optional ``(?:\.\d+)?`` group captures the fraction, so "2.5 saal" is 2.5.
+#
+# The trailing ``\b`` closes a second wrong-data path in the same regex: the bare
+# ``sal`` alternative used to match INSIDE a longer word, so "2 salary" scored as
+# two years of experience. (The old pattern's final ``saal\b`` alternative was
+# unreachable — ``saal`` already matched — and is dropped.)
 _EXPERIENCE_RE = re.compile(
-    r"(\d{1,2})\s*\+?\s*(?:years|year|yrs|yr|saal|sal|saal\b)", re.IGNORECASE
+    r"(?<![\d.])(\d{1,2}(?:\.\d+)?)\s*\+?\s*(?:years|year|yrs|yr|saal|sal)\b",
+    re.IGNORECASE,
 )
 # Detect the canonical cities AND their Hinglish aliases (dilli, bombay, ...) so a
 # colloquial name is captured, then normalized to its canonical form.
@@ -309,10 +324,217 @@ _SALARY_RE = re.compile(
     re.IGNORECASE,
 )
 _EXPECTED_CUES = ("expect", "chahiye", "chahie", "want", "expected", "demand", " chah")
+
+# --- P1-3(b)/(c): salary PERIOD + year-vs-money cues ------------------------
+# Read in a TIGHT window around the amount — wide enough for "1.5 lakh saal ka",
+# narrow enough that the "5 saal" of an experience clause elsewhere in the same
+# sentence cannot mark an unrelated amount as annual.
+_PERIOD_WINDOW_BEFORE = 14
+_PERIOD_WINDOW_AFTER = 18
+
+# Annual cues are read ASYMMETRICALLY on purpose. AFTER the amount, a bare "saal"
+# is the annual marker ("1.5 lakh saal ka"). BEFORE it, a bare "saal" is far more
+# likely to be the EXPERIENCE clause ("5 saal se 25000 milta hai") — reading that
+# as annual would divide a correct monthly wage by twelve, trading one wrong number
+# for another. So the before-set carries only unambiguously annual words.
+_ANNUAL_CUES_AFTER: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\bsaal\b", r"\bsal\b", r"\bsaalana\b", r"\bsalana\b", r"\bsalaana\b",
+        r"\bvarsh\b", r"\bannum\b", r"\bannual\w*", r"\byearly\b", r"\byear\b",
+        r"\bper\s*year\b", r"\bp\.?\s?a\.?\b", r"\blpa\b",
+    )
+)
+_ANNUAL_CUES_BEFORE: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\bsaalana\b", r"\bsalana\b", r"\bsalaana\b", r"\bvarsh\b",
+        r"\bannual\w*", r"\byearly\b", r"\bper\s*year\b", r"\bhar\s*saal\b",
+    )
+)
+_MONTHLY_CUES: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\bmahin[ae]\b", r"\bmaheen[ae]\b", r"\bmonth\w*", r"\bmasik\b",
+        r"\bp\.?\s?m\.?\b",
+    )
+)
+# What makes a bare 4-digit number MONEY rather than a calendar year. Anchored
+# patterns, not substrings: a loose "rs" would fire on the "rs" inside "years".
+_MONEY_CUES: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"₹", r"\brs\.?\b", r"\binr\b", r"\brupee\w*", r"\brupa?y[ae]?\b",
+        r"\bsal+ary\b", r"\btanakha\b", r"\btankha\b", r"\bpaga?ar?\b",
+        r"\bmil(?:ta|te|ti)\b", r"\bkama\w*", r"\bpay\w*", r"\bwage\w*",
+        r"\bstipend\b", r"\bincome\b", r"\bctc\b", r"\bmahin[ae]\b",
+        r"\bmonth\w*", r"\bmasik\b", r"\bexpect\w*", r"\bchahi\w*",
+    )
+)
 _RELOCATE_CUES = ("relocat", "shift", "chalega", "ready", "ja sakta", "kahin bhi", "anywhere",
                   "bahar", "outside")
 _IMMEDIATE_CUES = ("immediate", "abhi", "turant", "free", "available", "ready to join")
 _NOTICE_CUES = ("notice", "din lag", "days", "month", "mahina", "15 din", "30 din")
+
+
+# --- P1-2: negation ---------------------------------------------------------
+#
+# THE DEFECT: every cue below is a plain substring/regex test, so a DENIAL read as
+# an assertion — "iti nahi kiya" -> education ["ITI"], "diploma nahi hai" ->
+# ["Diploma"], "setting nahi aati, sirf chalata hu" -> skills ["basic setting"].
+# That is the OPPOSITE of what the worker said, and it ships onto their resume.
+#
+# THE RULE (see the PR body): in Hindi/Hinglish the negator FOLLOWS what it negates
+# ("ITI nahi kiya", "setting nahi aati", "diploma nahi hai"), so the scope is a
+# BACKWARD window of _NEGATION_BACK_WORDS words from the negator, CLAMPED to the
+# enclosing clause. Those characters are blanked out before ANY cue matching runs.
+#
+# Backward-ONLY is a deliberate choice, not an oversight. The contrastive
+# "X nahi, Y karta hu" is extremely common and often written WITHOUT the comma
+# ("CNC nahi VMC karta hu"); a forward window would swallow the correction Y — the
+# very value the worker is asserting. The cost is that a PRE-posed negator
+# ("na ITI na diploma", "no ITI") is not suppressed. That direction is the safe
+# one to miss: we prefer MISSING data (the topic gets re-asked / stays empty) over
+# WRONG data, which is the whole point of this fix.
+_NEGATION_BACK_WORDS = 3
+
+# Clause boundaries. Punctuation (incl. the Devanagari danda) plus the contrastive
+# connectors that start a NEW assertion — "setting nahi aati, sirf chalata hu".
+# A spurious split only ever SHRINKS a negation scope, which is the safe direction.
+_CLAUSE_SPLIT_RE = re.compile(
+    r"[,;:.!?|/\n\r।]+|\s(?:lekin|magar|balki|but|sirf|only|bas|kintu|parantu)\s",
+    re.IGNORECASE,
+)
+
+# Unambiguous negators: these are never a tag/affirmation in worker speech.
+_NEGATORS: frozenset[str] = frozenset(
+    {
+        "nahi", "nahin", "nahee", "nahii", "nai", "nhi", "nahiin",
+        "mat", "not", "never",
+        "नहीं", "नही", "नहि", "मत", "न",
+    }
+)
+# NOT included: bare English "no". In this domain it is far more often the
+# ABBREVIATION ("part no. 12", "drawing no. 45") than a denial, and as a negator it
+# would blank the three words before it — deleting "drawing" from a worker who
+# reads drawings. "nahi" and its spellings carry the real load in worker replies.
+
+# "na" / "ना" are negators ONLY sometimes: Hinglish also uses a CLAUSE-FINAL "na"
+# as an affirmative tag ("VMC chalata hu na" = "I do run VMC, right?"). Treating
+# that as a denial would delete the very machine the worker just claimed, so "na"
+# only negates when it is followed by more words in its clause AND is not sitting
+# right after a verb/copula (the tag position).
+_TAG_ONLY_NEGATORS: frozenset[str] = frozenset({"na", "ना"})
+_TAG_PRECEDERS: frozenset[str] = frozenset(
+    {
+        "hu", "hun", "hoon", "hai", "hain", "ho", "hota", "hoti",
+        "tha", "the", "thi", "karta", "karte", "karti", "aata", "aati", "aate",
+        "chalata", "chalate", "chalati", "theek", "thik", "haan", "han", "sahi", "ok",
+    }
+)
+
+_WORD_RE = re.compile(r"\S+")
+# Trim leading/trailing punctuation so "nahi," tokenizes as "nahi".
+_TOKEN_TRIM = " \t\r\n.,;:!?\"'()[]{}-–—।|/"
+
+# Which TOPIC a negated cue belongs to. Only cue families whose denial is itself a
+# complete answer are listed (see detect_answered_topics) — deliberately NOT
+# machines/role/location/salary, where "VMC nahi" is a denial, not an answer.
+_NEGATABLE_TOPIC_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "education",
+        re.compile(r"\biti\b|diploma|\b(?:b\.?tech|be|degree|engineering)\b|nsdc|rvm", re.I),
+    ),
+    (
+        "skills",
+        re.compile(
+            r"setting|set\s?up|"
+            + "|".join(re.escape(kw) for kw, _label, _sid in _SKILLS),
+            re.IGNORECASE,
+        ),
+    ),
+)
+
+# Topics for which a DENIAL is a COMPLETE answer, so the ask is satisfied ("kya
+# training li hai?" -> "ITI nahi kiya"; "kya aata hai?" -> "setting nahi aati").
+# Deliberately excludes the essentials (role/machines/current_location) and salary:
+# "VMC nahi chalaya" is a denial, not an answer, and closing those asks on it would
+# ship an incomplete profile silently — the engine must still ask them.
+_NEGATION_ANSWERS_TOPICS: frozenset[str] = frozenset({"education", "skills"})
+
+# P1-1: an EXPLICIT self-correction. Only these let a value for a topic that is NOT
+# the one being asked overwrite an already-collected value (see interview_engine).
+_CORRECTION_MARKERS: tuple[str, ...] = (
+    "nahi nahi", "nahin nahin", "nhi nhi", "nahi nhi", "nai nai",
+    "galat", "ghalat", "sorry", "correction", "correct kar",
+    "actually", "asal mein", "asal me", "sudhar", "wapas se",
+    "नहीं नहीं", "गलत",
+)
+
+
+def _clause_bounds(text: str) -> list[tuple[int, int]]:
+    """(start, end) offsets of each clause in ``text`` (splitters excluded)."""
+    bounds: list[tuple[int, int]] = []
+    cursor = 0
+    for sep in _CLAUSE_SPLIT_RE.finditer(text):
+        if sep.start() > cursor:
+            bounds.append((cursor, sep.start()))
+        cursor = sep.end()
+    if cursor < len(text):
+        bounds.append((cursor, len(text)))
+    return bounds
+
+
+def _is_negator(token: str, prev_token: str | None, is_clause_final: bool) -> bool:
+    if token in _NEGATORS:
+        return True
+    if token in _TAG_ONLY_NEGATORS:
+        # Clause-final "na" is the affirmative tag, and "…hu na" is too.
+        return not is_clause_final and (prev_token or "") not in _TAG_PRECEDERS
+    return False
+
+
+def _apply_negation(text: str) -> tuple[str, set[str]]:
+    """Blank out negated spans and report which TOPICS were negated.
+
+    Returns ``(masked_text, negated_topic_ids)``. Masking replaces the negated
+    characters with spaces, so the string keeps its LENGTH and every offset-based
+    reader downstream (city spans, salary windows, ``_level_near``) is unaffected.
+    """
+    if not text:
+        return text, set()
+    chars = list(text)
+    negated_spans: list[tuple[int, int]] = []
+    for c_start, c_end in _clause_bounds(text):
+        words = [
+            (m.start() + c_start, m.end() + c_start, m.group(0).strip(_TOKEN_TRIM).lower())
+            for m in _WORD_RE.finditer(text[c_start:c_end])
+        ]
+        for i, (_ws, _we, word) in enumerate(words):
+            prev_token = words[i - 1][2] if i > 0 else None
+            if not _is_negator(word, prev_token, is_clause_final=i == len(words) - 1):
+                continue
+            back = words[max(0, i - _NEGATION_BACK_WORDS): i]
+            if not back:
+                continue
+            negated_spans.append((back[0][0], back[-1][1]))
+    topics: set[str] = set()
+    for start, end in negated_spans:
+        span_text = text[start:end]
+        for topic_id, pattern in _NEGATABLE_TOPIC_CUES:
+            if pattern.search(span_text):
+                topics.add(topic_id)
+        for k in range(start, end):
+            chars[k] = " "
+    return "".join(chars), topics
+
+
+def is_correction(text: str) -> bool:
+    """P1-1: True when the worker is EXPLICITLY correcting themselves ("nahi nahi,
+    10 saal"). Only then may a value for a topic other than the one being asked
+    overwrite what was already collected."""
+    low = (text or "").lower()
+    return any(marker in low for marker in _CORRECTION_MARKERS)
 
 
 @dataclass
@@ -364,7 +586,14 @@ def _level_near(text: str, keyword: str) -> KnowledgeLevel:
     return "basic"
 
 
-def _parse_amount(num: str, unit: str | None) -> int | None:
+def _parse_amount(num: str, unit: str | None, months: int = 1) -> int | None:
+    """Parse an amount to a MONTHLY rupee figure.
+
+    ``months`` is the period the stated amount covers (1 = monthly, 12 = annual),
+    so an annual figure is divided down instead of being stored as a monthly one
+    (P1-3(b)). The plausibility ceiling is applied to the MONTHLY result, which is
+    what the field actually means.
+    """
     try:
         value = float(num.replace(",", ""))
     except ValueError:
@@ -374,6 +603,8 @@ def _parse_amount(num: str, unit: str | None) -> int | None:
         value *= 1_000
     elif unit in ("lakh", "lac", "l"):
         value *= 100_000
+    if months > 1:
+        value /= months
     # Ceiling shared with the pseudonymizer's D-1 money carve-out (single source
     # of truth in pseudonymize.py): what this accepts as a salary, the gateway
     # masks as [AMOUNT_n] instead of blocking the turn.
@@ -449,9 +680,23 @@ def _assign_welding_role(lower: str, sig: Signals) -> None:
 
 
 def detect(text: str) -> Signals:
-    """Detect all profile signals in ``text`` (raw worker text, trusted local)."""
+    """Detect all profile signals in ``text`` (raw worker text, trusted local).
+
+    P1-2: NEGATED spans are blanked (:func:`_apply_negation`) before the CAPABILITY
+    cue tables run, so a denial can no longer assert its own opposite. Masking
+    preserves string length, so all offset-based logic here is unchanged.
+    """
     sig = Signals()
-    lower = text.lower()
+    # Negation applies to the CAPABILITY cue families (role / machines /
+    # controllers / skills / knowledge / education) — the ones where a denial was
+    # measured shipping its own opposite. Location, availability, salary and
+    # experience keep reading the ORIGINAL text: masking them cost real answers in
+    # measurement ("abhi kuch nahi kar raha" loses the availability cue, "Pune se
+    # bahar nahi jaunga" loses Pune) and their negation was not part of this fix.
+    # Negation there is a KNOWN, deliberately UNCHANGED gap.
+    masked, _negated_topics = _apply_negation(text)
+    lower = masked.lower()
+    raw_lower = text.lower()
 
     # Machines
     for kw, label, mid in _MACHINES:
@@ -528,6 +773,8 @@ def detect(text: str) -> Signals:
         _append_unique(sig.secondary_roles, "CNC Setter-Operator")
 
     # Location — cities (with alias normalization: dilli -> Delhi).
+    # Reads the RAW text (see the note at the top of detect): masking here deleted
+    # the answer in "Pune se bahar nahi jaunga", which IS a Pune preference.
     cities = [_canonical_city(m.group(0)) for m in _CITY_RE.finditer(text)]
     # de-dup preserving order
     seen: set[str] = set()
@@ -537,16 +784,16 @@ def detect(text: str) -> Signals:
         sig.preferred_locations = ordered[1:]
     # State-level location (captured instead of dropped; does not replace a city).
     sig.current_state = _detect_state(text)
-    if any(c in lower for c in _RELOCATE_CUES) or sig.preferred_locations:
+    if any(c in raw_lower for c in _RELOCATE_CUES) or sig.preferred_locations:
         sig.relocation_willingness = True
 
-    # Salary (current vs expected by nearby cue)
-    _detect_salary(text, lower, sig)
+    # Salary (current vs expected by nearby cue) — raw text, as above.
+    _detect_salary(text, raw_lower, sig)
 
-    # Availability
-    if any(c in lower for c in _IMMEDIATE_CUES):
+    # Availability — raw text: "abhi kuch nahi kar raha" is an IMMEDIATE answer.
+    if any(c in raw_lower for c in _IMMEDIATE_CUES):
         sig.availability = "immediate"
-    elif any(c in lower for c in _NOTICE_CUES):
+    elif any(c in raw_lower for c in _NOTICE_CUES):
         sig.availability = "notice_period"
 
     # Education / certifications
@@ -564,12 +811,56 @@ def detect(text: str) -> Signals:
     return sig
 
 
+def _looks_like_a_year(num: str, unit: str | None, near: str) -> bool:
+    """P1-3(c): "2012 se kaam kar raha hu" is a START YEAR, not a salary.
+
+    A bare 4-digit number in the calendar range is only accepted as money when the
+    text right around it actually says money (a currency mark, a pay word, or a
+    per-period word). Otherwise it is dropped — an unrecorded salary is re-askable,
+    a fabricated ₹2,012 salary ships onto the resume.
+    """
+    if unit:
+        return False  # "2012 k" / "2012 lakh" is not a year
+    digits = num.replace(",", "")
+    if not (len(digits) == 4 and digits.isdigit() and 1900 <= int(digits) <= 2099):
+        return False
+    return not any(cue.search(near) for cue in _MONEY_CUES)
+
+
+def _period_months(near_before: str, near_after: str) -> int | None:
+    """How many months the amount covers: 1 (monthly, the default), 12 (annual), or
+    None when the cues CONFLICT.
+
+    P1-3(b): "1.5 lakh saal ka" is ANNUAL and used to be stored as a ₹1,50,000
+    MONTHLY salary. Period cues are read in a TIGHT window (a wide one would attach
+    the "5 saal" of an experience clause to an unrelated amount later in the
+    sentence). Ambiguous (both an annual and a monthly cue) -> None -> not recorded,
+    per "prefer no number over a wrong number".
+    """
+    annual = any(cue.search(near_after) for cue in _ANNUAL_CUES_AFTER) or any(
+        cue.search(near_before) for cue in _ANNUAL_CUES_BEFORE
+    )
+    monthly = any(
+        cue.search(near_before) or cue.search(near_after) for cue in _MONTHLY_CUES
+    )
+    if annual and monthly:
+        return None
+    return 12 if annual else 1
+
+
 def _detect_salary(text: str, lower: str, sig: Signals) -> None:
     for m in _SALARY_RE.finditer(text):
         num, unit = m.group(1), m.group(2)
         if not unit and len(num.replace(",", "")) <= 2:
             continue  # bare 1-2 digit number with no unit -> likely years, skip
-        amount = _parse_amount(num, unit)
+        near_before = lower[max(0, m.start() - _PERIOD_WINDOW_BEFORE): m.start()]
+        near_after = lower[m.end(): m.end() + _PERIOD_WINDOW_AFTER]
+        if _looks_like_a_year(num, unit, near_before + " " + near_after):
+            continue
+        months = _period_months(near_before, near_after)
+        if months is None:
+            continue  # ambiguous period -> record nothing
+        amount = _parse_amount(num, unit, months)
         if amount is None or amount < 1_000:
             continue
         window = lower[max(0, m.start() - 25): m.end() + 10]
@@ -684,8 +975,19 @@ def detect_answered_topics(
     The salary topics split the same way (B-5 unbundling): ``salary_current`` /
     ``salary_expected``, with a bare cue-less amount answering the EXPECTED
     question attributed to expected (``detect`` defaults it to current).
+
+    P1-2 (negation): a DENIAL still ANSWERS the question it was asked — "ITI nahi
+    kiya" answers the education ask, "setting nahi aati" answers the skills ask —
+    so the topic is reported with a ``None`` value: marked answered (never
+    re-asked, and the clarify path still sees an answer), with NOTHING collected.
+    This applies only to the topic CURRENTLY being asked and only to the topics
+    where a "no" is a COMPLETE answer (:data:`_NEGATION_ANSWERS_TOPICS`) — a
+    passing "VMC nahi chalaya" must not silently close the essential machines ask.
     """
     sig = detect(text)
+    _masked, negated_topics = _apply_negation(text)
+    # RAW text here: the only consumer below is the current-location cue check, and
+    # location deliberately keeps its pre-fix reading (see detect()).
     lower = text.lower()
     answered: dict[str, object] = {}
     if sig.role_id:
@@ -740,4 +1042,13 @@ def detect_answered_topics(
         answered["availability"] = sig.availability
     if sig.education or sig.certifications:
         answered["education"] = sig.education + sig.certifications
+
+    # P1-2: a denial ANSWERS the question it was asked (value None -> nothing is
+    # collected, but the topic is not re-asked and is not mistaken for silence).
+    if (
+        last_asked_topic_id in _NEGATION_ANSWERS_TOPICS
+        and last_asked_topic_id in negated_topics
+        and last_asked_topic_id not in answered
+    ):
+        answered[last_asked_topic_id] = None
     return answered
