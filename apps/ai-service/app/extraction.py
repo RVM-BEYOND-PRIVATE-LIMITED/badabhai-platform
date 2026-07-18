@@ -55,6 +55,12 @@ def build_resume(profile: DraftProfile) -> tuple[str, dict]:
     )
     skills = _skills_entries(profile)
     lines.append("Skills: " + (", ".join(skills) if skills else "(to be confirmed)"))
+    # Issue #423 — label each honestly. Before the split these shared one list, so a
+    # worker's CURRENT city was rendered under "Preferred locations:" — a claim they
+    # never made. Emitted only when present, so a worker who stated no preference
+    # produces no "Preferred locations" line at all rather than an invented one.
+    if profile.location_preference.current_city:
+        lines.append(f"Current location: {profile.location_preference.current_city}")
     if profile.location_preference.preferred_cities:
         cities = ", ".join(profile.location_preference.preferred_cities)
         lines.append(f"Preferred locations: {cities}")

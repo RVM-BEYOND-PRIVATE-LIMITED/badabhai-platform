@@ -57,12 +57,23 @@ function toIsoOrNull(value: Date | string | null): string | null {
 }
 
 /**
- * `location_preference` JSONB → the summary city: first non-blank entry of the
- * canonical `preferred_cities` (LocationPreferenceSchema). `null` when the JSONB
- * is absent, not an object, or the array is missing/empty/malformed.
+ * `location_preference` JSONB → the summary city.
+ *
+ * Issue #423 — prefers the worker's own `current_city`, then falls back to the first
+ * non-blank `preferred_cities` entry. The fallback is NOT dead code: before current
+ * and preferred locations were split, `_build_legacy` PREPENDED the current city to
+ * that array, so on every profile extracted before the split it is the only place the
+ * city exists. Reading `current_city` alone would blank the city for all of them.
+ *
+ * `null` when the JSONB is absent, not an object, or both sources are
+ * missing/empty/malformed.
  */
 function readCity(locationPreference: unknown): string | null {
-  const cities = asObject(locationPreference)?.preferred_cities;
+  const obj = asObject(locationPreference);
+  const current = nonBlankStringOrNull(obj?.current_city);
+  if (current) return current;
+
+  const cities = obj?.preferred_cities;
   if (!Array.isArray(cities)) return null;
   for (const c of cities) {
     const city = nonBlankStringOrNull(c);

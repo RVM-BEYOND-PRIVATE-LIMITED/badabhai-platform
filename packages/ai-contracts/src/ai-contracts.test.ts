@@ -44,6 +44,22 @@ describe("DraftProfileSchema", () => {
     expect(profile.skill_labels).toEqual(["MIG welding", "TIG welding"]);
     expect(profile.skills).toEqual(["skill_milling"]);
   });
+  it("issue #423: current_city is its own field, defaulting to null (contracts.py parity)", () => {
+    // Additive + defaulted, so a payload written before the split still parses and
+    // simply reports no current city — which is exactly why every consumer keeps a
+    // `?? preferred_cities[0]` fallback rather than switching outright.
+    expect(DraftProfileSchema.parse({}).location_preference.current_city).toBeNull();
+  });
+  it("issue #423: a current city is NOT emitted as a preferred location", () => {
+    // The defect: `_build_legacy` prepended the current city to preferred_cities, so
+    // "I live in Pune" was recorded as "I want to work in Pune". The two are now
+    // independent — setting one must never populate the other.
+    const loc = DraftProfileSchema.parse({
+      location_preference: { current_city: "pune" },
+    }).location_preference;
+    expect(loc.current_city).toBe("pune");
+    expect(loc.preferred_cities).toEqual([]);
+  });
 });
 
 describe("ResumeGenerationInputSchema (contracts.py parity — Q14/ADR-0030 OQ#3)", () => {
