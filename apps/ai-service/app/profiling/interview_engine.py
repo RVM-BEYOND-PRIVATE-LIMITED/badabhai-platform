@@ -110,6 +110,46 @@ def _served_question(topic: Topic, ask_number: int) -> str:
     return topic.question
 
 
+def _may_commit(
+    st: ConversationState,
+    topic_id: str,
+    last_asked: str | None,
+    correcting: bool,
+) -> bool:
+    """P1-1 — THE OVERWRITE RULE. May this detected value be written to
+    ``st.collected[topic_id]``?
+
+    THE DEFECT it fixes: every detected value used to be assigned unconditionally,
+    so an INCIDENTAL later mention silently replaced an established one. Answer the
+    experience question with "10 saal", then answer the EDUCATION question with
+    "ITI aur 3 saal apprenticeship", and the ten-year machinist shipped as a
+    three-year one — on their resume, with no trace.
+
+    The rule, in priority order:
+
+    1. **The topic being asked always commits.** ``topic_id == last_asked`` is the
+       DELIBERATE answer to the question on screen — including the engine's one
+       bounded re-ask, where a second, better answer must be able to replace the
+       first. (Detection is what makes this attributable: ``detect_answered_topics``
+       already takes ``last_asked``.)
+    2. **An explicit correction commits.** ``signals.is_correction`` ("nahi nahi,
+       10 saal", "galat bola", "sorry, 5 saal") — the worker is overriding on
+       purpose, whatever question is on screen.
+    3. **Otherwise: first write wins.** A cross-topic signal picked up in passing
+       may FILL an empty slot (that is free information) but may never overwrite one
+       the worker already established.
+
+    KNOWN LIMIT (stated, not hidden): an unmarked change of mind about a topic that
+    is NOT the one being asked ("waise 12 saal ho gaye" while answering education)
+    is IGNORED rather than applied. That is the deliberate direction — a stale but
+    worker-stated value beats a silently rewritten one, and the confirm step is
+    where a worker fixes it.
+    """
+    if topic_id == last_asked or correcting:
+        return True
+    return topic_id not in st.collected
+
+
 def _unanswered_essentials(st: ConversationState) -> list[str]:
     """INTERVIEW-1: which ESSENTIAL topics the worker never actually answered.
 
@@ -195,12 +235,17 @@ def next_turn(
     #    asked (B-4: a city answering the preferred-locations question is a
     #    preference, not a current location).
     last_asked = st.asked_question_ids[-1] if st.asked_question_ids else None
+    correcting = signals.is_correction(worker_message_raw)
     for topic_id, value in signals.detect_answered_topics(
         worker_message_raw, last_asked
     ).items():
         if topic_id not in st.answered_topics:
             st.answered_topics.append(topic_id)
-        if value is not None:
+        if value is None:
+            # P1-2: a DENIAL ("ITI nahi kiya") answers the ask without producing a
+            # value — mark the topic answered, collect nothing.
+            continue
+        if _may_commit(st, topic_id, last_asked, correcting):
             st.collected[topic_id] = value
 
     extraction_ready = _extraction_ready(st)
