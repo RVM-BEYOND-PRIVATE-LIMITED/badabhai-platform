@@ -14,11 +14,13 @@ id) — and scores four things:
    topic already in ``answered_topics``, so a wrong mark permanently closes a topic
    the worker was never asked about.
 
-THIS RUN IS **POST-#426**. The first revision of this harness measured the parser at
-commit ``6d23419``; PR #426 ("P1 profiling correctness", ``fea207d``) then fixed four
-of the defect classes it found, and PR #412 (TAX-WELD-1, ``41d0cb7``) added welding to
-the gazetteer. Everything below is re-measured against the CURRENT parser. The
-pre-#426 numbers are retained ONLY as a labelled historical column in
+THIS RUN IS **POST-#426 / POST-#429**. The first revision of this harness measured the
+parser at commit ``6d23419``. Since then: PR #426 ("P1 profiling correctness",
+``fea207d``) fixed four of the defect classes it found; PR #412 (TAX-WELD-1,
+``41d0cb7``) added welding to the gazetteer; and PR #429 (issue #424, ``64d4001``)
+promoted salary/availability to ``MUST_ASK_TOPICS``, which changed the SHAPE of the
+scripted interviews. Everything below is re-measured against the CURRENT engine and
+parser. The pre-#426 numbers are retained ONLY as a labelled historical column in
 :data:`POST_426_DELTA` — never re-derived, never presented as current.
 
 ZERO network. ZERO LLM calls. Deterministic — the parser is pure regex + gazetteer.
@@ -225,10 +227,45 @@ SCRIPT_LATE_CORRECTION: dict[str, str] = {
 _FALLBACK_REPLY = "haan ji"
 
 
+def _essential_closure_table(rows: list[Measurement]) -> str:
+    """How often each ESSENTIAL topic is closed by some OTHER topic's answer.
+
+    Evidence for finding 7. Counts fixtures whose asked topic is NOT the essential
+    but whose detector output marks it anyway — i.e. the essential gets closed, and
+    `_next_topic` will then never ask it.
+    """
+    out = ["| essential topic | closed by another topic's answer | example |",
+           "| --- | ---: | --- |"]
+    for essential in interview_engine.ESSENTIAL_TOPICS:
+        closers = [
+            m for m in rows
+            if m.fixture.topic != essential and essential in m.detected
+        ]
+        example = (
+            f"`{closers[0].fixture.topic}` answer `{closers[0].fixture.text}`"
+            if closers else "—"
+        )
+        plural = "fixture" if len(closers) == 1 else "fixtures"
+        out.append(f"| `{essential}` | {len(closers)} {plural} | {example} |")
+    return "\n".join(out)
+
+
+def _ALL_SIMS() -> list[SimulatedInterview]:  # noqa: N802 - report-local helper
+    """Every scripted interview in this report, simulated once."""
+    return [
+        simulate(s) for s in (
+            SCRIPT_PLAUSIBLE,
+            SCRIPT_GAZETTEER_FRIENDLY,
+            SCRIPT_LATE_OVERWRITE,
+            SCRIPT_LATE_CORRECTION,
+        )
+    ]
+
+
 # Authored analysis. Every claim below is demonstrated by a fixture in this report,
 # by a probe table above, or locked by an assertion in
 # tests/test_profiling_parser_coverage.py. Line numbers are as of the commit that
-# last updated this file (POST-#426 / POST-#412).
+# last updated this file (POST-#426 / POST-#412 / POST-#429).
 
 
 def _findings(rows: list[Measurement]) -> str:
@@ -246,17 +283,32 @@ def _findings(rows: list[Measurement]) -> str:
     delta_open = [r for r in POST_426_DELTA if recorded_value(r[1], r[0]) != r[3]]
     n_fixed = len(POST_426_DELTA) - len(delta_open)
 
-    return f"""
-## Findings — this is a POST-#426 re-measurement
+    # Finding 7 evidence, all measured.
+    sims = _ALL_SIMS()
+    friendly_never_asked = simulate(SCRIPT_GAZETTEER_FRIENDLY).never_asked
+    must_ask_never = sorted({t for s in sims for t in s.must_asks_never_asked})
+    ess_never = sorted({t for s in sims for t in s.essentials_never_asked})
+    role_closers = len(
+        [m for m in rows if m.fixture.topic != "role" and "role" in m.detected]
+    )
+    essential_closure_table = _essential_closure_table(rows)
 
-The first revision of this report measured the parser at commit `6d23419`. Two PRs
-have landed on it since, and this run re-measures against both:
+    return f"""
+## Findings — this is a POST-#426 / POST-#429 re-measurement
+
+The first revision of this report measured the parser at commit `6d23419`. Three PRs
+have landed on it since, and this run re-measures against all three:
 
 - **#426** (`fea207d`, "P1 profiling correctness") fixed four of the defect classes
   this report found — value parsing, negation on capability cues, the overwrite rule,
   and test-time network egress.
 - **#412** (`41d0cb7`, TAX-WELD-1) wired welding into the gazetteer, which changes one
   corpus row and the `role` retry wording.
+- **#429** (`64d4001`, issue #424, owner ruling) promoted `salary_current` /
+  `salary_expected` / `availability` to `MUST_ASK_TOPICS`. This changed the ENGINE,
+  not the parser: no acceptance number moves, but the scripted interviews are
+  reshaped and the never-asked hazard in finding 3 is narrowed — see **finding 7**,
+  which is the more serious form that narrowing exposed.
 
 **The defects are not deleted from this report.** The section "What #426 changed"
 keeps the pre-fix value beside the current one, because the record of what was wrong
@@ -343,7 +395,7 @@ se bataiye — VMC operator, CNC turner, setter, programmer ya welder?" — it d
 The parseable prompt still only arrives on the SECOND attempt, after the honest first
 answer was silently dropped.
 
-### 3. Dead topics (UNCHANGED)
+### 3. Dead topics (UNCHANGED) — but see finding 7, which grew out of this
 
 **None.** All 11 topics are satisfied by at least one plausible answer
 (`test_no_topic_is_structurally_dead`). The failure mode measured here is partial
@@ -353,9 +405,16 @@ coverage, not structural deadness. Two adjacent hazards are real, though:
   {len(role_machine)} role/machine answers without ever being asked, so in practice
   it is frequently a topic the worker never sees;
 - **early wrap-up** — the engine stops as soon as `_extraction_ready` holds, so a
-  worker whose four essentials land in the first few turns is never asked about
-  salary, availability, controllers or education at all (scripted interview B:
-  seven of eleven topics never asked).
+  worker whose essentials land in the first few turns is never asked about the rest.
+
+**#429 narrowed the second one.** Promoting `salary_current` / `salary_expected` /
+`availability` to `MUST_ASK_TOPICS` means `_extraction_ready` now also requires those
+to have been ASKED, so the wrap-up can no longer skip money and notice period.
+Measured on scripted interview B: `never_asked` was seven topics before #429 and is
+`{friendly_never_asked}` now.
+
+It did NOT close the hazard, it moved it — see finding 7, which is the more serious
+form and is the reason this revision exists.
 
 ### 4. A later answer OVERWRITES an already-collected value — **FIXED by #426**
 
@@ -439,6 +498,64 @@ deliberately implements nothing.
    chahiye" records 25000: the parser is both first-number-wins and negation-blind,
    and the two compose into the worst available answer.
 4. **The correction marker is message-scoped** — see the residual in section 4.
+
+### 7. An ESSENTIAL topic can be marked answered WITHOUT EVER BEING ASKED
+
+**This is the most serious finding in this report.** It surfaced while re-measuring
+after #429 and it is not the hazard finding 3 originally described — it is a worse
+one that finding 3's wording ("salary, availability, controllers or education") had
+been quietly standing in front of.
+
+`_extraction_ready` gates the four `ESSENTIAL_TOPICS` on **answered**, never on
+**asked**:
+
+    if not all(t in st.answered_topics for t in ESSENTIAL_TOPICS):
+        return False
+    # app/profiling/interview_engine.py:113-114
+
+and `_unanswered_essentials` — the EXPLICIT completeness signal, the thing that is
+supposed to declare an incomplete profile — is computed the same way:
+
+    return [t for t in ESSENTIAL_TOPICS if t not in st.answered_topics]
+
+Neither looks at `asked_question_ids`. But `detect_answered_topics` marks topics from
+CROSS-TOPIC inference, so an essential can be closed by a DIFFERENT question's
+answer, and `_next_topic` then never returns it because it is already in
+`answered_topics`.
+
+**Measured on scripted interview B** (a worker whose phrasing matches the gazetteer):
+
+- `extraction_ready` = **True**
+- `unanswered_essentials` = **`[]`** — the profile reports itself COMPLETE
+- yet `machines`, an ESSENTIAL topic, is in `never_asked`
+
+The worker was asked "aap kaunsa kaam karte hain?" and said "VMC operator". The
+gazetteer read "vmc" out of that ONE answer and filled `machines=['VMC']`. **The
+machine question was never put to them.** A worker who runs a VMC *and* an HMC *and*
+a lathe ships as VMC-only, and every completeness signal the system has says nothing
+is missing.
+
+This is not confined to `machines`. Across the corpus, each essential is closed by
+some OTHER topic's answer in:
+
+{essential_closure_table}
+
+`role` is the largest: {role_closers} fixtures for other topics close it — mostly
+`machines` answers, because the gazetteer stores `vmc`/`hmc` as ROLES as well as
+machines (finding 2). `role` happens to be asked first in bank order, so it is asked
+before anything can pre-empt it; that is ORDERING luck, not a guarantee.
+
+**Why #429 does not cover this.** #429 fixed exactly this shape of hole for the
+MUST_ASK topics, and it fixed it with an **asked-or-answered** gate. The essentials
+kept the answered-only gate — reasonably, since an essential must genuinely be
+ANSWERED — but the consequence is that inference satisfies them while the question
+goes unasked. Measured across all four scripted interviews below:
+
+- `MUST_ASK_TOPICS` never asked: **{must_ask_never or "none — the #429 gate holds"}**
+- `ESSENTIAL_TOPICS` never asked: **{ess_never}**
+
+Written up, NOT fixed here — this PR changes zero runtime files. The shape of a fix
+is in "Suggested next steps" item 0.
 """
 
 
@@ -511,6 +628,23 @@ class SimulatedInterview:
     never_asked: list[str]
     extraction_ready: bool
     turns: int
+
+    @property
+    def essentials_never_asked(self) -> list[str]:
+        """ESSENTIAL topics the worker was never actually asked about.
+
+        The sharp one. ``_extraction_ready`` gates essentials on ANSWERED, and
+        ``unanswered_essentials`` — the explicit completeness signal — is likewise
+        computed from ``answered_topics``. Neither looks at whether the question was
+        ever put to the worker, so an essential closed by INFERENCE from some other
+        answer is invisible to both.
+        """
+        return [t for t in interview_engine.ESSENTIAL_TOPICS if t in self.never_asked]
+
+    @property
+    def must_asks_never_asked(self) -> list[str]:
+        """MUST_ASK topics never asked. Should always be empty — that is the gate."""
+        return [t for t in interview_engine.MUST_ASK_TOPICS if t in self.never_asked]
 
 
 def simulate(script: dict[str, str], role_family: str = "cnc_vmc") -> SimulatedInterview:
@@ -585,16 +719,20 @@ def build_report(rows: list[Measurement]) -> str:
     fabrications = [m for m in rows if m.is_fabrication]
     denials = [m for m in rows if m.is_denial_absorbed]
 
-    add("# Deterministic profiling parser — coverage measurement (POST-#426)")
+    add("# Deterministic profiling parser — coverage measurement (POST-#426 / #429)")
     add("")
     add("> **Measurement only. The PR carrying this report changes ZERO runtime files** —")
     add("> it touches `tests/` and `docs/` only. Where a fix looks warranted it is written")
     add("> down under \"Suggested next steps\", not implemented.")
     add(">")
     add("> **Re-measured against `origin/main` AFTER PR #426** (`fea207d`, P1 profiling")
-    add("> correctness) and PR #412 (`41d0cb7`, TAX-WELD-1). The first revision of this")
+    add("> correctness), **#412** (`41d0cb7`, TAX-WELD-1) and **#429** (`64d4001`, issue")
+    add("> #424 — salary/availability promoted to MUST_ASK). The first revision of this")
     add("> report measured commit `6d23419`; those numbers survive only as the labelled")
     add("> `pre-#426` column below, never as current behaviour.")
+    add(">")
+    add("> **Read finding 7 first** — an ESSENTIAL topic can be marked answered without")
+    add("> ever being asked, and the completeness signal cannot see it.")
     add(">")
     add("> Generated by `apps/ai-service/tests/analysis_parser_coverage.py` from the")
     add("> synthetic corpus in `apps/ai-service/tests/profiling_answer_corpus.py`.")
@@ -860,6 +998,13 @@ def build_report(rows: list[Measurement]) -> str:
         add(f"- answered topics: `{sim.answered}`")
         add(f"- **unanswered essentials: `{sim.unanswered_essentials}`**")
         add(f"- never asked at all: `{sim.never_asked}`")
+        if sim.essentials_never_asked:
+            add(f"- **ESSENTIAL topics NEVER ASKED (finding 7): "
+                f"`{sim.essentials_never_asked}`** — closed by inference from another "
+                f"answer, and invisible to `unanswered_essentials` above")
+        if sim.must_asks_never_asked:
+            add(f"- MUST_ASK topics never asked: `{sim.must_asks_never_asked}` "
+                f"(would be a #429 regression)")
         add(f"- collected: `{sim.collected}`")
         add("")
 
@@ -868,6 +1013,22 @@ def build_report(rows: list[Measurement]) -> str:
     add("This PR is measurement-only and changes zero runtime files. The items below are")
     add("the shape of a fix, in the order the data ranks them. None of them is done here.")
     add("")
+    add("0. **An ESSENTIAL topic marked answered without ever being asked** (finding 7)")
+    add("   — ranked above everything else because it defeats the completeness signal")
+    add("   itself: `unanswered_essentials` reports `[]` while `machines` was never put")
+    add("   to the worker. #429 already established the pattern for a fix — it gave the")
+    add("   MUST_ASK topics an **asked-or-answered** gate. The essentials cannot simply")
+    add("   copy that (an essential must be genuinely ANSWERED, and asked-or-answered")
+    add("   would WEAKEN them). Two directions worth the owner's call, neither")
+    add("   implemented here:")
+    add("   - **require asked AND answered for essentials** — strictly stronger, but it")
+    add("     costs turns and could re-ask something the worker already volunteered;")
+    add("   - **keep the inference but confirm it** — ask the question with the inferred")
+    add("     value pre-filled (\"aap VMC chalate hain — aur koi machine?\"), which keeps")
+    add("     the turn count and still gives the worker the chance to correct/extend.")
+    add("   Whichever is chosen, `unanswered_essentials` should probably distinguish")
+    add("   \"answered by the worker\" from \"inferred and never confirmed\" — today it")
+    add("   cannot, and that is what makes this silent.")
     add("1. **Negation on VALUE cues** (finding 5) — the only class that writes a")
     add("   confidently WRONG value rather than leaving a field empty. `_apply_negation`")
     add("   already produces the masked text; the work is deciding, per topic, whether a")

@@ -454,9 +454,88 @@ def test_scripted_interview_shows_the_engine_level_consequence() -> None:
     assert "salary_current" not in friendly.never_asked
     assert "salary_expected" not in friendly.never_asked
     assert "availability" not in friendly.never_asked
+    # Same claim, stated over the whole constant so a FUTURE promotion is covered too
+    # without anyone having to remember to add a line here.
+    assert friendly.must_asks_never_asked == []
+
     # ...and the gap that REMAINS: education was not promoted, so a fluent worker can
     # still finish without ever being asked about it. That is the honest residual.
     assert "education" in friendly.never_asked
+    # `skills` too — auto-closed by the role answer (report finding 3).
+    assert "skills" in friendly.never_asked
+    # And the sharp one the #429 promotion left behind: `machines` is ESSENTIAL and is
+    # ALSO never asked, while the profile reports itself complete. Report finding 7,
+    # measured in full by test_an_essential_topic_can_be_marked_answered_without_being_asked.
+    assert friendly.essentials_never_asked == ["machines"]
+    assert friendly.extraction_ready is True
+
+
+def test_an_essential_topic_can_be_marked_answered_without_being_asked() -> None:
+    """Report finding 7 — the most serious thing in this report, pinned OPEN.
+
+    ``_extraction_ready`` gates ESSENTIAL_TOPICS on ANSWERED, never on ASKED, and
+    ``_unanswered_essentials`` — the explicit completeness signal — is computed the
+    same way. But ``detect_answered_topics`` marks topics by CROSS-TOPIC inference, so
+    an essential can be closed by a different question's answer and ``_next_topic``
+    then never returns it.
+
+    Measured: the worker is asked ONE question ("aap kaunsa kaam karte hain?"), says
+    "VMC operator", and the gazetteer fills ``machines=['VMC']`` out of it. The machine
+    question is never put to them, yet the profile reports itself COMPLETE.
+
+    This is NOT what #429 fixed. #429 gave the MUST_ASK topics an asked-or-answered
+    gate (asserted separately below); the essentials kept the answered-only gate.
+
+    If this test starts failing, the hazard was closed — good. Re-run the harness,
+    update report finding 7, and narrow the assertion instead of deleting it.
+    """
+    friendly = simulate(SCRIPT_GAZETTEER_FRIENDLY)
+
+    # The engine considers this profile finished and complete...
+    assert friendly.extraction_ready is True
+    assert friendly.unanswered_essentials == []
+    # ...but an ESSENTIAL topic was never asked.
+    assert "machines" in interview_engine.ESSENTIAL_TOPICS
+    assert friendly.essentials_never_asked == ["machines"]
+    assert "machines" not in [asked for asked, _reply in friendly.transcript]
+    # It is "answered" purely by inference from the ROLE answer.
+    assert ("role", "VMC operator") in friendly.transcript
+    assert friendly.collected["machines"] == ["VMC"]
+    assert signals.detect_answered_topics("VMC operator", "role") == {
+        "role": "VMC Operator",
+        "machines": ["VMC"],
+        "skills": ["machine operation"],
+    }
+
+    # The completeness signal cannot tell "the worker told us" from "we guessed":
+    # `machines` is in `answered_topics` exactly like the topics actually asked.
+    assert "machines" in friendly.answered
+
+
+def test_the_429_must_ask_gate_holds_across_every_scripted_interview() -> None:
+    """#429 (issue #424) — salary/availability can no longer be skipped.
+
+    The MUST_ASK gate is asked-or-answered, so a wrap-up may not leave any of them
+    unasked. Pinned across all four scripted interviews so a future ordering or
+    readiness change cannot quietly undo the owner's ruling.
+    """
+    assert interview_engine.MUST_ASK_TOPICS == (
+        "preferred_locations",
+        "salary_current",
+        "salary_expected",
+        "availability",
+    ), "MUST_ASK_TOPICS changed — re-run the harness and update report findings 3 and 7"
+
+    for script in (
+        SCRIPT_PLAUSIBLE,
+        SCRIPT_GAZETTEER_FRIENDLY,
+        SCRIPT_LATE_OVERWRITE,
+        SCRIPT_LATE_CORRECTION,
+    ):
+        sim = simulate(script)
+        assert sim.must_asks_never_asked == [], (
+            f"#429 regression: {sim.must_asks_never_asked} reached wrap-up unasked"
+        )
 
 
 def test_a_later_answer_no_longer_overwrites_an_already_collected_value() -> None:
