@@ -23,7 +23,15 @@ function makeJob(over: { attemptsMade?: number; attempts?: number } = {}) {
   } as never;
 }
 
-function make(opts: { findById?: unknown; extractThrows?: boolean; aiMetadata?: unknown } = {}) {
+function make(
+  opts: {
+    findById?: unknown;
+    extractThrows?: boolean;
+    aiMetadata?: unknown;
+    /** Issue #419 — the rich WorkerProfileDraft the response carries; omit to simulate none. */
+    richDraft?: unknown;
+  } = {},
+) {
   const draft = DraftProfileSchema.parse({});
   const profiles = { create: vi.fn().mockResolvedValue({ id: PROFILE }) };
   const aiJobs = {
@@ -44,6 +52,9 @@ function make(opts: { findById?: unknown; extractThrows?: boolean; aiMetadata?: 
             blocked: false,
             is_mock: true,
             ai_metadata: opts.aiMetadata ?? null,
+            // Issue #419 — the response has always carried the rich draft; `undefined`
+            // here reproduces an AI service that omits it entirely.
+            worker_profile_draft: opts.richDraft,
           }),
   };
   const proc = new ProfileExtractionProcessor(
@@ -77,6 +88,49 @@ describe("ProfileExtractionProcessor", () => {
     expect(events.emit.mock.calls[0]![0].event_name).toBe("profile.extraction_completed");
     const names = events.emit.mock.calls.map((c) => c[0].event_name);
     expect(names).not.toContain("ai.cost_recorded");
+  });
+
+  it("issue #419: PERSISTS the rich WorkerProfileDraft instead of discarding it", async () => {
+    // REGRESSION: the extraction response has always carried worker_profile_draft (28
+    // fields — controllers, education, certifications, current vs expected salary,
+    // availability, current_city/current_state), and the processor read only
+    // `result.profile` (the narrow legacy shape). Everything the interview collected
+    // beyond the legacy fields was silently thrown away.
+    const richDraft = {
+      role_family: "cnc_vmc",
+      controllers: ["fanuc", "siemens"],
+      education: ["iti_fitter"],
+      certifications: ["nsqf_l4"],
+      current_salary: 18000,
+      expected_salary: 25000,
+      availability: "immediate",
+      current_city: "pune",
+      current_state: "maharashtra",
+      preferred_locations: ["pune", "chakan"],
+    };
+    const { proc, profiles } = make({ richDraft });
+    await proc.process(makeJob());
+
+    expect(profiles.create).toHaveBeenCalledWith(
+      expect.objectContaining({ richProfileDraft: richDraft }),
+    );
+    // ...and the legacy column is untouched: raw_profile is parsed elsewhere with
+    // DraftProfileSchema (resume.service.ts), so the rich shape must NOT land there.
+    const arg = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+    expect(arg.rawProfile).toEqual(DraftProfileSchema.parse({}));
+    expect(arg.rawProfile).not.toEqual(richDraft);
+  });
+
+  it("issue #419: a response with NO rich draft stores null, never undefined", async () => {
+    // The contract makes the field nullable (the mock / AI-down path returns none).
+    // `undefined` would make drizzle omit the column rather than write NULL, so the
+    // `?? null` in the processor is load-bearing.
+    const { proc, profiles } = make();
+    await proc.process(makeJob());
+
+    const arg = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+    expect(arg).toHaveProperty("richProfileDraft");
+    expect(arg.richProfileDraft).toBeNull();
   });
 
   it("persists AI usage/cost on completion + emits ai.cost_recorded (operational fields only, no PII)", async () => {

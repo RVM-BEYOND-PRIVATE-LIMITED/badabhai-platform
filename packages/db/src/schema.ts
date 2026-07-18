@@ -447,6 +447,29 @@ export const workerProfiles = pgTable(
     locationPreference: jsonb("location_preference").notNull().default(jsonObject),
     availability: jsonb("availability").notNull().default(jsonObject),
     rawProfile: jsonb("raw_profile").notNull().default(jsonObject),
+    // Issue #419 — the AI service's RICH WorkerProfileDraft (28 fields: controllers,
+    // education, certifications, current vs expected salary, availability,
+    // current_city/current_state, ...). The extraction response has always carried it
+    // (ProfileExtractionOutputSchema.worker_profile_draft) and apps/api discarded it, so
+    // everything the interview asked beyond the narrow legacy shape was thrown away.
+    //
+    // Stored as-is, additively, in its OWN column — `raw_profile` cannot be reused for it
+    // because resume.service.ts parses that column with DraftProfileSchema, so widening it
+    // would break resume generation (§8).
+    //
+    // NULLABLE with no default and no backfill: NULL honestly means "extracted before this
+    // column existed", exactly like `taxonomy_version` above.
+    //
+    // §2: verified field-by-field against the schema — no employer name, worker name,
+    // phone, address, or id-doc token. Location is city/state only, no finer than the
+    // `location_preference` column beside it. It is written HERE and nowhere else: never
+    // into events, ai_jobs, audit_logs, logs, or LLM input. The one field to watch on any
+    // future widening is `clarification_questions`, the only free-text the model authors.
+    //
+    // Untyped jsonb like `experience`/`salary_expectation` beside it, so packages/db does
+    // not take a dependency on @badabhai/ai-contracts; the API validates with the Zod
+    // schema at the write site.
+    richProfileDraft: jsonb("rich_profile_draft"),
     // Managed Vertex embedding (text-multilingual-embedding-002, 768-dim) for
     // semantic similarity. Nullable until the profile is embedded (plan G3).
     embedding: vector("embedding", { dimensions: 768 }),
