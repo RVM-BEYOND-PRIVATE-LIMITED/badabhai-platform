@@ -65,19 +65,38 @@ function readStdin() {
 const NON_ENV_SECRET =
   /(\.pem\b|\.key\b|\.p12\b|\.pfx\b|\.keystore\b|\.jks\b|\bid_rsa\b|service-account[\w.-]*\.json|credentials[\w-]*\.json)/i;
 
-/** A file path that holds secrets. Base-name based so `.env.example` stays readable. */
+/**
+ * A dotenv-ish NAME that is a secret-free TEMPLATE, so it stays readable.
+ *
+ * Matches on the trailing extension, NOT an exact basename, so multi-segment
+ * templates (`.env.staging.example`, `.env.production.sample`) are recognised —
+ * these are tracked in git and are the files an operator is meant to copy from.
+ * Anything else in the `.env*` family is a secret: `.env`, `.env.local`,
+ * `.env.staging`, and `.env.example.bak` (a backup, not a template).
+ *
+ * SINGLE SOURCE OF TRUTH for both the file-tool and shell predicates below —
+ * they previously each re-implemented this and drifted apart.
+ */
+const ENV_TEMPLATE_SUFFIX = /\.(example|sample|template)$/i;
+
+/** Every `.env*` token in a string. NOTE the `*`: dotenv names carry ARBITRARILY
+ * MANY segments (`.env.staging.example`). With `?` only the first was captured,
+ * so the suffix test above never saw the real extension and every
+ * `.env.<name>.example` was misread as the secret `.env.<name>`. */
+const ENV_TOKEN = /\.env(\.[a-z0-9_]+)*\b/gi;
+
+/** A file path that holds secrets. Base-name based so templates stay readable. */
 function isSecretFilePath(p) {
   if (!p) return false;
   const base = String(p).replace(/\\/g, "/").toLowerCase().split("/").pop() || "";
-  if (base === ".env.example" || base === ".env.sample" || base === ".env.template") return false;
-  if (base === ".env" || base.startsWith(".env.")) return true;
+  if (base === ".env" || base.startsWith(".env.")) return !ENV_TEMPLATE_SUFFIX.test(base);
   return NON_ENV_SECRET.test(base);
 }
 
-/** Command references a secret file (.env / key / cert / cloud creds), excluding .env.example. */
+/** Command references a secret file (.env / key / cert / cloud creds), excluding templates. */
 function touchesSecretFile(cmd) {
-  const envTokens = cmd.match(/\.env(\.[a-z0-9_]+)?\b/gi) || [];
-  if (envTokens.some((t) => !/\.(example|sample|template)$/i.test(t))) return true;
+  const envTokens = cmd.match(ENV_TOKEN) || [];
+  if (envTokens.some((t) => !ENV_TEMPLATE_SUFFIX.test(t))) return true;
   return NON_ENV_SECRET.test(cmd);
 }
 

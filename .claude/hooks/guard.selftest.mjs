@@ -60,6 +60,21 @@ const cases = [
   // --- file tools ---
   { n: "Read .env", p: file("Read", ".env"), e: 2 },
   { n: "Read .env.example", p: file("Read", ".env.example"), e: 0 },
+  // --- multi-segment TEMPLATES are readable (tracked in git, secret-free) ---
+  // Regression: an exact-basename allowlist + a single-segment token regex made the
+  // guard block EVERY `.env.<name>.example`, so nobody could edit the staging templates.
+  { n: "Read .env.staging.example", p: file("Read", "apps/ai-service/.env.staging.example"), e: 0 },
+  { n: "Read .env.production.sample", p: file("Read", ".env.production.sample"), e: 0 },
+  { n: "cat .env.staging.example", p: cmd("cat apps/api/.env.staging.example"), e: 0 },
+  { n: "grep .env.staging.example", p: cmd('grep -n "REDIS" apps/api/.env.staging.example'), e: 0 },
+  // ...but the REAL multi-segment env files stay blocked (no loosening).
+  { n: "Read .env.staging", p: file("Read", "apps/api/.env.staging"), e: 2 },
+  { n: "Read .env.production.local", p: file("Read", ".env.production.local"), e: 2 },
+  { n: "cat .env.staging", p: cmd("cat apps/api/.env.staging"), e: 2 },
+  { n: "cat .env.production.local", p: cmd("cat .env.production.local"), e: 2 },
+  // A BACKUP of a template is not a template — a copy may hold real values.
+  { n: "Read .env.example.bak", p: file("Read", ".env.example.bak"), e: 2 },
+  { n: "cat .env.example.bak", p: cmd("cat .env.example.bak"), e: 2 },
   { n: "Read src/main.ts", p: file("Read", "apps/api/src/main.ts"), e: 0 },
   { n: "Edit ai-svc .env", p: file("Edit", "apps/ai-service/.env"), e: 2 },
   { n: "Read service-account.json", p: file("Read", "infra/service-account.json"), e: 2 },
