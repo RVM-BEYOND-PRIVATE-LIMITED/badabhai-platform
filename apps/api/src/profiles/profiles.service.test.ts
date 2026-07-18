@@ -26,6 +26,7 @@ type FakeProfile = {
   salaryExpectation: unknown;
   locationPreference: unknown;
   availability: unknown;
+  richProfileDraft: unknown;
 };
 
 type FakeCandidate = { id: string; status: string; profile: FakeProfile | null };
@@ -40,10 +41,22 @@ const EMPTY_PROFILE: FakeProfile = {
   salaryExpectation: { amount_min: null, amount_max: null },
   locationPreference: { preferred_cities: [] },
   availability: { status: "unknown" },
+  // The fallback carries no `worker_profile_draft`, so the column is null.
+  richProfileDraft: null,
 };
 
 /** A profile with real extracted content. */
 const FILLED_PROFILE: FakeProfile = { ...EMPTY_PROFILE, skills: ["vmc_operation"] };
+
+/**
+ * A REAL extraction the gazetteer could not canonicalize (TD94). Identical to
+ * EMPTY_PROFILE across every legacy column — the rich draft is the only signal
+ * that the AI actually answered.
+ */
+const CONTENT_POOR_REAL_PROFILE: FakeProfile = {
+  ...EMPTY_PROFILE,
+  richProfileDraft: { skill_labels: ["cnc operator"] },
+};
 
 function setup() {
   const profiles = {
@@ -248,6 +261,25 @@ describe("ProfilesService.extract — session-scoped idempotency (#420)", () => 
     const second = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
 
     expect(second).toEqual({ ai_job_id: first.ai_job_id, status: "completed" });
+    expect(aiJobs.create).toHaveBeenCalledOnce();
+    expect(extractionQueue.add).toHaveBeenCalledOnce();
+  });
+
+  it("dedupes against a COMPLETED job whose extraction canonicalized NOTHING but carries a rich draft (TD94)", async () => {
+    const { svc, aiJobs, extractionQueue, complete } = setupWithStore();
+
+    // The unbounded-spend loop this closes: without the rich-draft leg this
+    // profile is indistinguishable from the AI-down fallback, so the session
+    // never becomes dedupe-eligible and EVERY profile-preview mount burns a
+    // fresh ai_job + worker_profiles row + AI call, indefinitely.
+    const first = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+    complete(first.ai_job_id, CONTENT_POOR_REAL_PROFILE);
+
+    const second = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+    const third = await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
+
+    expect(second).toEqual({ ai_job_id: first.ai_job_id, status: "completed" });
+    expect(third).toEqual({ ai_job_id: first.ai_job_id, status: "completed" });
     expect(aiJobs.create).toHaveBeenCalledOnce();
     expect(extractionQueue.add).toHaveBeenCalledOnce();
   });

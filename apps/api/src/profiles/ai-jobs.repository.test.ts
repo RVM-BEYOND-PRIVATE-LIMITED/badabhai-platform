@@ -128,12 +128,40 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — the predicate (#420
     expect(params).toContain("queued");
     expect(params).toContain("running");
     expect(params).toContain("completed");
-    // The age floor is bound (Drizzle serializes the Date to its ISO string),
-    // and applied with a `>` against created_at.
+    // The age floor is bound (Drizzle serializes the Date to its ISO string), and
+    // applied with a STRICT `>` against created_at — `>=` must not satisfy this.
     expect(params).toContain(SINCE.toISOString());
-    expect(sql).toContain('"created_at" >');
-    // The disjunction exists: in-flight-and-fresh OR completed.
-    expect(sql).toContain(" or ");
+    expect(sql).toMatch(/"created_at" > \$\d+/);
+    expect(sql).not.toMatch(/"created_at" >=/);
+  });
+
+  /**
+   * The SHAPE of the disjunction, not merely the presence of its parts.
+   *
+   * Asserting only "SINCE is bound somewhere" and "there is an ` or `" is
+   * satisfied by a REAL regression: hoisting `gt(createdAt, inFlightSince)` out of
+   * the in-flight branch into the top-level `and()`. That compiles, and the whole
+   * suite (161 files / 1787 tests) stays green — while age-bounding the COMPLETED
+   * leg too. A worker who finishes an interview and reopens profile-preview 11
+   * minutes later then matches nothing, so every mount burns a new ai_job, a new
+   * worker_profiles row and a real AI call: #420 re-opens for anyone slower than
+   * EXTRACTION_IN_FLIGHT_WINDOW_MS.
+   *
+   * So: the age bound must live INSIDE the in-flight branch, and the completed
+   * leg must be a bare status equality.
+   */
+  it("scopes the age bound to the IN-FLIGHT branch only — completed must stay unbounded", async () => {
+    const { captured } = await run();
+    const { sql } = compile(captured.where);
+
+    // ((status in (...) and created_at > $n) or status = $m)
+    expect(sql).toMatch(
+      /\(\s*\(\s*"ai_jobs"\."status" in \([^)]*\)\s+and\s+"ai_jobs"\."created_at" > \$\d+\s*\)\s+or\s+"ai_jobs"\."status" = \$\d+\s*\)/i,
+    );
+
+    // …and the bound appears EXACTLY once, so it cannot ALSO sit at top level
+    // (hoisting it leaves the two legs intact and would slip past the regex).
+    expect(sql.match(/"created_at" >/g)).toHaveLength(1);
   });
 
   it("never matches a FAILED job — 'failed' is not bound anywhere in the predicate", async () => {
@@ -160,6 +188,7 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — the predicate (#420
       "locationPreference",
       "machines",
       "profileId",
+      "richProfileDraft",
       "salaryExpectation",
       "skills",
       "status",
@@ -187,6 +216,7 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — row mapping", () =>
         salaryExpectation: null,
         locationPreference: null,
         availability: null,
+        richProfileDraft: null,
       },
     ]);
     expect(result).toEqual({ id: "job-1", status: "completed", profile: null });
@@ -206,6 +236,7 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — row mapping", () =>
         salaryExpectation: {},
         locationPreference: {},
         availability: { status: "unknown" },
+        richProfileDraft: { skill_labels: ["cnc operator"] },
       },
     ]);
     expect(result?.id).toBe("job-1");
@@ -218,6 +249,7 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — row mapping", () =>
       salaryExpectation: {},
       locationPreference: {},
       availability: { status: "unknown" },
+      richProfileDraft: { skill_labels: ["cnc operator"] },
     });
   });
 });

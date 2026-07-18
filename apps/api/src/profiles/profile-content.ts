@@ -16,6 +16,12 @@ export interface ProfileContentFields {
   salaryExpectation: unknown;
   locationPreference: unknown;
   availability: unknown;
+  /**
+   * `worker_profiles.rich_profile_draft` (issue #419 / PR #428). Written on every
+   * extraction as `result.worker_profile_draft ?? null`, so non-null means the AI
+   * returned a real rich draft. jsonb → `unknown`; only its nullness is read.
+   */
+  richProfileDraft: unknown;
 }
 
 /** Narrow an untyped jsonb column to a plain object without reaching for `any`. */
@@ -43,22 +49,41 @@ function asRecord(value: unknown): Record<string, unknown> | null {
  * A fallback-produced profile can NEVER satisfy this predicate: it is
  * `DraftProfileSchema.parse({})`, i.e. every field at its schema default — null
  * ids, empty skills/machines arrays, null total_years, null salary bounds, empty
- * preferred_cities, availability "unknown". Every leg below is false by
- * construction, so this is a structural guarantee, not a heuristic threshold.
+ * preferred_cities, availability "unknown", and (since it carries no
+ * `worker_profile_draft`) a null `rich_profile_draft`. Every leg below is false
+ * by construction, so this is a structural guarantee, not a heuristic threshold.
  *
- * SIGNALS DELIBERATELY NOT USED:
- *  - `worker_profiles.rich_profile_draft` (issue #419 / PR #428) is null on the
- *    mock/AI-down path, so it looks like a cleaner marker. It is not: the column
- *    only exists once migration 0046 is applied, so keying the guard on it would
- *    turn every extract into a 500 on a deploy that runs ahead of its migration.
- *    It is also null for every row written before 0046 and, per
- *    `ProfileExtractionOutputSchema`, `worker_profile_draft` is
- *    `.nullable().default(null)` — a real extraction may legitimately carry none.
- *  - `ai_jobs.real_call` is false on the mock path, but ALSO false for every
- *    healthy extraction while `AI_ENABLE_REAL_CALLS=false` (CLAUDE.md §2
- *    invariant 5, and TD81 for staging), which would disable the completed-job
- *    dedupe in precisely the environment #420 was reported in.
- * The columns below predate both and are written on every path.
+ * WHY `rich_profile_draft` IS ONE OF THE LEGS (PR #430 review, corrected):
+ * the legacy columns are a strict SUBSET of what an extraction produces — they
+ * mirror `countFields`, which counts only canonical/legacy columns. `skill_labels`
+ * and the rest of the rich draft live inside the draft jsonb and are counted by
+ * NOTHING. So a REAL extraction where the gazetteer canonicalized nothing (TD94:
+ * a plain "CNC operator" yields no canonical role) persists with null ids and
+ * empty arrays and would read as "no content" — leaving that worker's session
+ * permanently dedupe-INELIGIBLE, i.e. a fresh ai_job, a fresh worker_profiles row
+ * and a fresh AI call on EVERY profile-preview mount, indefinitely. That is the
+ * unbounded-spend loop #420 was filed about. A non-null rich draft proves the AI
+ * answered, so it is added as an ADDITIONAL disjunct.
+ *
+ * PR #430 rejected this signal for three reasons; the FIRST was wrong and is
+ * retracted here:
+ *  - RETRACTED: "the column only exists once migration 0046 is applied, so
+ *    reading it 500s on a deploy that runs ahead of its migration." Reading it
+ *    adds NO coupling that the write path does not already have:
+ *    `ProfilesRepository.create` (profiles.repository.ts) already does
+ *    `.insert(workerProfiles).values(input)` where `input.richProfileDraft` is
+ *    always set (profile-extraction.processor.ts), and `.returning()` with no
+ *    projection selects every column. Extraction therefore already fails hard
+ *    without 0046 — the incremental risk from READING the column is nil.
+ *  - STILL TRUE, but only against using it ALONE: it is null for every row
+ *    written before 0046, and per `ProfileExtractionOutputSchema`
+ *    `worker_profile_draft` is `.nullable().default(null)`, so a real extraction
+ *    may legitimately carry none. As an OR leg neither bites: when null this
+ *    degrades to exactly the previous behaviour.
+ *  - STILL REJECTED: `ai_jobs.real_call` is false on the mock path, but ALSO
+ *    false for every healthy extraction while `AI_ENABLE_REAL_CALLS=false`
+ *    (CLAUDE.md §2 invariant 5, and TD81 for staging), which would disable the
+ *    completed-job dedupe in precisely the environment #420 was reported in.
  */
 export function hasExtractedContent(profile: ProfileContentFields | null | undefined): boolean {
   if (!profile) return false;
@@ -81,6 +106,10 @@ export function hasExtractedContent(profile: ProfileContentFields | null | undef
   const availability = asRecord(profile.availability);
   const status = availability?.["status"];
   if (typeof status === "string" && status !== "unknown") return true;
+
+  // The rich draft the legacy columns do not cover. Null on the AI-down fallback
+  // (and on every pre-0046 row), non-null whenever the AI actually answered.
+  if (profile.richProfileDraft != null) return true;
 
   return false;
 }
