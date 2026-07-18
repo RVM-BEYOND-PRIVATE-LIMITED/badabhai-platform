@@ -48,7 +48,13 @@ class ProfileTabCubit extends Cubit<ProfileTabState> {
   final ApiClient? _api;
   final SessionRepository? _session;
 
+  /// True while a load is in flight — the tab-focus refetch must not stack a
+  /// second one on top of the create:-time load.
+  bool _loading = false;
+
   Future<void> load() async {
+    if (_loading) return;
+    _loading = true;
     emit(const ProfileTabState(status: ProfileTabStatus.loading));
     try {
       final ProfileSummary summary = await _repo.summary();
@@ -57,6 +63,29 @@ class ProfileTabCubit extends Cubit<ProfileTabState> {
     } on Failure catch (f) {
       if (isClosed) return;
       emit(ProfileTabState(status: ProfileTabStatus.failed, failure: f));
+    } finally {
+      _loading = false;
+    }
+  }
+
+  /// Tab-focus refetch (T4). No spinner and no wipe: the worker is looking at
+  /// their profile, and a blip on a background refetch must not replace it with
+  /// a loading state or an error view. Failure is only surfaced when there was
+  /// nothing good on screen already.
+  Future<void> refresh() async {
+    if (_loading) return;
+    _loading = true;
+    try {
+      final ProfileSummary summary = await _repo.summary();
+      if (isClosed) return;
+      emit(ProfileTabState(status: ProfileTabStatus.ready, summary: summary));
+    } on Failure catch (f) {
+      if (isClosed) return;
+      if (state.status != ProfileTabStatus.ready) {
+        emit(ProfileTabState(status: ProfileTabStatus.failed, failure: f));
+      }
+    } finally {
+      _loading = false;
     }
   }
 

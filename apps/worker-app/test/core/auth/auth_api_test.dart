@@ -397,4 +397,149 @@ void main() {
       expect(path, '/auth/devices/dev-123');
     });
   });
+
+  // F5 — AuthTokens.fromJson read only access_token/refresh_token/
+  // expires_in_seconds, so refresh_expires_in_seconds and the whole
+  // `session { tier, expires_at, requires_otp_after }` block were dropped on the
+  // floor at ALL THREE parse sites. requires_otp_after is the server telling the
+  // app when a refresh/PIN will stop being enough — dropping it meant the app
+  // could only discover a forced re-OTP by being rejected mid-action.
+  group('AuthTokens retains the session block (F5)', () {
+    // `tier` is a NUMBER on the wire — the backend's engagement-tier index
+    // (SessionInfo.tier, `tierFor()` → 0..3). This fixture used to invent
+    // `'tier': 'full'`, a string the API has never sent, which is exactly why the
+    // suite stayed green while every real OTP verify threw
+    // `type 'int' is not a subtype of type 'String?'` against the live backend.
+    Map<String, dynamic> body() => <String, dynamic>{
+          'access_token': 'a1',
+          'refresh_token': 'r1',
+          'expires_in_seconds': 900,
+          'refresh_expires_in_seconds': 2592000,
+          'session': <String, dynamic>{
+            'tier': 2,
+            'expires_at': '2026-08-01T10:00:00.000Z',
+            'requires_otp_after': '2026-07-31T10:00:00.000Z',
+          },
+        };
+
+    test('parses refresh expiry + tier + requires_otp_after', () {
+      final AuthTokens t = AuthTokens.fromJson(body());
+
+      expect(t.access, 'a1');
+      expect(t.refresh, 'r1');
+      expect(t.session, isNotNull);
+      expect(t.session!.tier, 2);
+      expect(t.session!.requiresOtpAfter,
+          DateTime.parse('2026-07-31T10:00:00.000Z'));
+      expect(t.session!.expiresAt, DateTime.parse('2026-08-01T10:00:00.000Z'));
+      // A DURATION on the wire becomes an absolute instant, mirroring
+      // accessExpiresAt — a duration is useless after an app restart.
+      expect(t.refreshExpiresAt, isNotNull);
+      expect(t.refreshExpiresAt!.isAfter(DateTime.now()), isTrue);
+    });
+
+    test('an OLDER server omitting the block still logs the worker in', () {
+      final AuthTokens t = AuthTokens.fromJson(<String, dynamic>{
+        'access_token': 'a1',
+        'refresh_token': 'r1',
+        'expires_in_seconds': 900,
+      });
+
+      // Every added field is OPTIONAL — absence must never brick login.
+      expect(t.access, 'a1');
+      expect(t.session, isNull);
+      expect(t.refreshExpiresAt, isNull);
+    });
+
+    test('a malformed session block degrades to null, never throws', () {
+      expect(
+        AuthTokens.fromJson(<String, dynamic>{
+          'access_token': 'a1',
+          'refresh_token': 'r1',
+          'expires_in_seconds': 900,
+          'session': 'not-an-object',
+        }).session,
+        isNull,
+      );
+      // A bad timestamp must not take down an otherwise successful login.
+      final AuthTokens t = AuthTokens.fromJson(<String, dynamic>{
+        'access_token': 'a1',
+        'refresh_token': 'r1',
+        'expires_in_seconds': 900,
+        'session': <String, dynamic>{
+          'tier': 2,
+          'expires_at': 'garbage',
+          'requires_otp_after': null,
+        },
+      });
+      expect(t.session!.tier, 2);
+      expect(t.session!.expiresAt, isNull);
+      expect(t.session!.requiresOtpAfter, isNull);
+    });
+
+    // REGRESSION (the live crash): `tier` arrives as an int, because that is what
+    // the backend sends. A cast to String? here threw _TypeError and took down a
+    // login the server had ALREADY granted — the worker was authenticated on the
+    // server and stuck on the OTP screen.
+    test('an int tier parses — the real backend shape never throws', () {
+      final AuthTokens t = AuthTokens.fromJson(<String, dynamic>{
+        'access_token': 'a1',
+        'refresh_token': 'r1',
+        'expires_in_seconds': 900,
+        'session': <String, dynamic>{
+          'tier': 0, // tier 0 = the lowest real tier, not "absent"
+          'expires_at': '2026-08-01T10:00:00.000Z',
+          'requires_otp_after': null,
+        },
+      });
+      expect(t.session!.tier, 0);
+      expect(t.access, 'a1', reason: 'the login itself must survive');
+    });
+
+    // The block promises a TOLERANT parse: a tier shape we cannot read degrades
+    // to null (unknown) and must never brick a granted login. Null, not 0 —
+    // 0 is a real tier and would read as "least engaged" rather than "unknown".
+    test('an unreadable tier degrades to null, never throws', () {
+      for (final Object? bad in <Object?>[null, 'full', <String>['x'], true]) {
+        final AuthTokens t = AuthTokens.fromJson(<String, dynamic>{
+          'access_token': 'a1',
+          'refresh_token': 'r1',
+          'expires_in_seconds': 900,
+          'session': <String, dynamic>{'tier': bad},
+        });
+        expect(t.session!.tier, isNull, reason: 'tier: $bad');
+        expect(t.access, 'a1', reason: 'the login must survive tier: $bad');
+      }
+      // A stringified number is still a number the server meant.
+      expect(
+        AuthTokens.fromJson(<String, dynamic>{
+          'access_token': 'a1',
+          'refresh_token': 'r1',
+          'expires_in_seconds': 900,
+          'session': <String, dynamic>{'tier': '3'},
+        }).session!.tier,
+        3,
+      );
+    });
+
+    test('the session rides the OTP-verify response end-to-end', () async {
+      final AuthApi api = _api(MockClient((http.Request req) async {
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'worker_id': 'w1',
+            'is_new_worker': false,
+            'pin_set': true,
+            ...body(),
+          }),
+          200,
+        );
+      }));
+
+      final OtpVerifyResult r = await api.otpVerify('+910000000000', '123456');
+
+      expect(r.tokens.session?.requiresOtpAfter,
+          DateTime.parse('2026-07-31T10:00:00.000Z'));
+      expect(r.tokens.refreshExpiresAt, isNotNull);
+    });
+  });
 }

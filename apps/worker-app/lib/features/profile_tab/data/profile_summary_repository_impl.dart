@@ -40,6 +40,11 @@ class ProfileSummaryRepositoryImpl implements ProfileSummaryRepository {
         // UI shows an honest count, not a fake fraction.
         strengthSignals: dto.strength,
         strengthMax: dto.strengthMax,
+        // Structured skills/experience for the "Skills aur anubhav" section —
+        // PII-free canonical labels + a years number (never the summary text).
+        skills: dto.skills,
+        machines: dto.machines,
+        experienceYears: dto.experienceYears,
       );
     } catch (error) {
       throw mapError(error);

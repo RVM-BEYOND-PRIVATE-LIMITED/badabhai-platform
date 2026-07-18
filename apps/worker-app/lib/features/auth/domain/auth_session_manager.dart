@@ -115,6 +115,62 @@ class AuthSessionManager extends ChangeNotifier {
   bool _ready = false;
   bool get isReady => _ready;
 
+  /// Whether this device has a PIN to unlock WITH (#352).
+  ///
+  /// [AuthStatus.locked] alone cannot tell "enter your PIN" apart from "choose
+  /// your first PIN": a brand-new worker is locked between OTP verify and
+  /// setPin. Persisted (SecureTokenStore `pin_set`, wiped by `clear()`) so a
+  /// cold start knows the difference — without it, a worker who killed the app
+  /// on the Set-PIN screen restarted into Enter-PIN and was asked for a PIN that
+  /// never existed, with no way out but the forgot-PIN OTP.
+  ///
+  /// Server-sourced: written from `OtpVerifyResult.pinSet`, never a client
+  /// guess.
+  bool _pinSet = false;
+  bool get pinSet => _pinSet;
+
+  /// Where the worker was when the app re-locked, so unlocking returns them
+  /// there instead of dumping them on the Resume tab (#349).
+  ///
+  /// Relock replaces the whole stack from ANY location, and post-unlock routing
+  /// used to hardcode Routes.resume. A worker 10 questions into the profiling
+  /// chat who took a >5-minute phone call came back to "Abhi resume nahi ban
+  /// sakta", with consent + name to re-tap and no visible transcript — it looked
+  /// like everything they had said was lost.
+  ///
+  /// PEEK + explicit [clearResumeLocation], not a consuming take: the router
+  /// redirect and EnterPinScreen both resolve the post-unlock target, and a
+  /// consuming read would let whichever ran first strand the other on the
+  /// fallback. Cleared once the worker has actually landed off the auth surface.
+  ///
+  /// Deliberately does NOT notifyListeners — it is written from inside the
+  /// router's redirect, and notifying there would re-enter it.
+  String? _resumeLocation;
+  String? get resumeLocation => _resumeLocation;
+
+  /// The ADR-0026 session block from the last OTP/PIN verify or refresh (F5).
+  ///
+  /// Parsed and retained rather than dropped on the floor. [requiresOtpAfter] is
+  /// the useful part: the server states when a refresh/PIN will STOP being
+  /// enough, so the app can pre-empt a forced re-OTP instead of finding out by
+  /// being rejected mid-action. Null on an older server that omits the block —
+  /// callers must treat null as "unknown", never as "never".
+  AuthSession? _authSession;
+  AuthSession? get authSession => _authSession;
+
+  /// When a full OTP re-login becomes mandatory, or null if unknown/not
+  /// scheduled. Convenience over [authSession].
+  DateTime? get requiresOtpAfter => _authSession?.requiresOtpAfter;
+
+  /// Absolute expiry of the persisted refresh token, or null when the server did
+  /// not say. Past it, the remembered device cannot silently re-auth.
+  DateTime? _refreshExpiresAt;
+  DateTime? get refreshExpiresAt => _refreshExpiresAt;
+
+  void stashResumeLocation(String location) => _resumeLocation = location;
+
+  void clearResumeLocation() => _resumeLocation = null;
+
   void _setStatus(AuthStatus next) {
     if (_status == next && _ready) return;
     _status = next;
@@ -136,6 +192,9 @@ class AuthSessionManager extends ChangeNotifier {
       return AuthStatus.loggedOut;
     }
     final String? refresh = await _tokenStore.readRefreshToken();
+    // #352: read the persisted PIN flag BEFORE the status flip, so the redirect
+    // that fires on notify can route locked → set-PIN (no PIN yet) vs enter-PIN.
+    _pinSet = await _tokenStore.readPinSet();
     final AuthStatus next =
         (refresh != null && refresh.isNotEmpty) ? AuthStatus.locked : AuthStatus.loggedOut;
     _setStatus(next);
@@ -162,6 +221,9 @@ class AuthSessionManager extends ChangeNotifier {
   /// expired code.
   Future<OtpVerifyResult> verifyOtp(String phoneE164, String otp) async {
     final OtpVerifyResult result = await _authApi.otpVerify(phoneE164, otp);
+    // F5: retain the session view + refresh expiry the response carries — in
+    // every build, not just the persistent-auth one.
+    _captureSessionView(result.tokens);
     // GAP A: persist the freshly minted tokens on the REAL path so a later cold
     // start can find the refresh token and reach the device-bound PIN fast path.
     // (MockAuthApi also writes the store; this re-persists the same values.)
@@ -170,6 +232,12 @@ class AuthSessionManager extends ChangeNotifier {
     if (_persistentAuthEnabled) {
       await _persistTokens(result.tokens);
       await _tokenStore.writeWorkerId(result.workerId);
+      // #352: persist the SERVER's pin_set alongside the tokens. Only
+      // MockAuthApi ever wrote this key, so on the real path a cold start could
+      // not tell "has a PIN" from "never set one" and always sent the worker to
+      // Enter-PIN.
+      _pinSet = result.pinSet;
+      await _tokenStore.writePinSet(result.pinSet);
     }
     // TD62: capture the server's consent signal BEFORE the status flip so the
     // router redirect that fires on the notify sees both together.
@@ -202,6 +270,10 @@ class AuthSessionManager extends ChangeNotifier {
   /// — the OTP that preceded it already minted tokens. Throws [AuthFailure].
   Future<void> setPin(String pin) async {
     await _authApi.pinSet(pin);
+    // #352: the device now HAS a PIN — remember it, so a cold start routes to
+    // enter-PIN rather than asking the worker to choose one all over again.
+    _pinSet = true;
+    if (_persistentAuthEnabled) await _tokenStore.writePinSet(true);
     _setStatus(AuthStatus.authenticated);
   }
 
@@ -220,6 +292,7 @@ class AuthSessionManager extends ChangeNotifier {
     }
     final PinVerifyResult result =
         await _authApi.pinVerify(pin, refreshToken: refresh);
+    _captureSessionView(result.tokens); // F5
     // GAP A: persist the rotated tokens so the next cold start stays on the fast
     // path with the freshest refresh token.
     await _persistTokens(result.tokens);
@@ -244,6 +317,7 @@ class AuthSessionManager extends ChangeNotifier {
       throw const AuthFailure(AuthErrorCode.reauthRequired);
     }
     final AuthTokens tokens = await _authApi.tokenRefresh(refresh);
+    _captureSessionView(tokens); // F5
     // GAP A: persist the rotated tokens from the on-demand refresh too.
     await _persistTokens(tokens);
     final String? workerId = await _tokenStore.readWorkerId();
@@ -268,6 +342,10 @@ class AuthSessionManager extends ChangeNotifier {
   /// otpInvalid) or a weak/format PIN (400 → pinWeak).
   Future<void> confirmPinReset(String phoneE164, String otp, String pin) async {
     await _authApi.pinResetConfirm(phoneE164, otp, pin);
+    // #352: the reset just set a NEW PIN — record it, or the worker who resets
+    // and then cold-starts would be sent to set-PIN again.
+    _pinSet = true;
+    if (_persistentAuthEnabled) await _tokenStore.writePinSet(true);
     final String? refresh = await _tokenStore.readRefreshToken();
     _setStatus((refresh != null && refresh.isNotEmpty)
         ? AuthStatus.locked
@@ -290,6 +368,13 @@ class AuthSessionManager extends ChangeNotifier {
     // Drop the live bearer so no authed call slips through while locked. The
     // refresh token + device id survive; the PIN re-mints a fresh access token.
     _tokenStore.accessToken = null;
+    // #368: the token above is only AuthedClient's copy. The SAME token was
+    // bridged into SessionRepository, and THAT is the bearer every legacy
+    // worker-scoped call (feed/chat/resume/profile/voice) actually sends — so
+    // an in-flight or queued request could still authenticate behind the PIN
+    // screen, making "locked" not actually fence API access as documented.
+    // Ids survive; unlockWithPin re-bridges a fresh token onto them.
+    _session.clearSessionToken();
     _setStatus(AuthStatus.locked);
   }
 
@@ -363,6 +448,26 @@ class AuthSessionManager extends ChangeNotifier {
   /// kept in memory only (the store never writes it to disk). No-op when the
   /// persistent-auth layer is OFF (an explicit `PERSISTENT_AUTH=false` build,
   /// which keeps no PIN gate and so persists nothing).
+  /// Retains the ADR-0026 session view + refresh expiry from a freshly minted
+  /// token set (F5). Separate from [_persistTokens] because that no-ops when the
+  /// persistent-auth layer is OFF, whereas `requires_otp_after` is worth knowing
+  /// in EVERY build. Absent fields leave the previous value alone rather than
+  /// nulling it: a response that simply omits the block is "no news", not
+  /// "cancelled".
+  void _captureSessionView(AuthTokens tokens) {
+    if (tokens.session != null) _authSession = tokens.session;
+    if (tokens.refreshExpiresAt != null) {
+      _refreshExpiresAt = tokens.refreshExpiresAt;
+    }
+  }
+
+  /// Drops the retained session view — a new worker must not inherit the old
+  /// one. Paired with every wipe/reauth path.
+  void _clearSessionView() {
+    _authSession = null;
+    _refreshExpiresAt = null;
+  }
+
   Future<void> _persistTokens(AuthTokens tokens) async {
     if (!_persistentAuthEnabled) return;
     await _tokenStore.saveTokens(
@@ -396,13 +501,19 @@ class AuthSessionManager extends ChangeNotifier {
     // PASS 1's interceptor already cleared SecureTokenStore before firing.
     _session.clear();
     _consentAccepted = null; // TD62: unknown again until the next login
+    _pinSet = false; // #352: the store's pin_set went with the clear()
+    _resumeLocation = null; // #349: a new login must not land on the old screen
+    _clearSessionView(); // F5
     _setStatus(AuthStatus.loggedOut);
   }
 
   Future<void> _wipeAndLogOut() async {
-    await _tokenStore.clear();
+    await _tokenStore.clear(); // also deletes pin_set
     _session.clear();
     _consentAccepted = null; // TD62: unknown again until the next login
+    _pinSet = false; // #352: keep the in-memory flag in step with the store
+    _resumeLocation = null; // #349: a new login must not land on the old screen
+    _clearSessionView(); // F5: a new worker must not inherit the old session view
     _setStatus(AuthStatus.loggedOut);
   }
 

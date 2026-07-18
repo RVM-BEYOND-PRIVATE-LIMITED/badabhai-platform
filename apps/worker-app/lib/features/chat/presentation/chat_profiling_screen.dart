@@ -10,6 +10,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_bubble.dart';
+import '../../../core/widgets/bb_chip.dart';
 import '../../../router.dart';
 import '../../voice/domain/voice_models.dart';
 import '../domain/chat_message.dart';
@@ -22,6 +23,11 @@ const double _kNearBottomThreshold = 120;
 
 /// Hinglish label on the jump-to-bottom pill.
 const String _kNewMessageLabel = 'Naye message';
+
+/// Banner copy when the chat session could not be opened (#343). Honest about
+/// the cause: the connection was not established, and sending retries it.
+const String _kSessionFailedLabel =
+    'Server se connection nahi bana — message bhejenge to dobara try hoga.';
 
 class ChatProfilingScreen extends StatelessWidget {
   const ChatProfilingScreen({super.key});
@@ -68,8 +74,19 @@ class _ChatViewState extends State<_ChatView> {
   void _send() {
     final String text = _controller.text;
     if (text.trim().isEmpty) return;
-    context.read<ChatBloc>().add(ChatMessageSent(text));
+    _sendText(text);
     _controller.clear();
+  }
+
+  /// Send an answer from a tap-to-answer chip — same path as typing it.
+  void _sendText(String text) {
+    if (text.trim().isEmpty) return;
+    context.read<ChatBloc>().add(ChatMessageSent(text));
+  }
+
+  /// Re-send the failed bubble at [index] (#343) — in place, no duplicate.
+  void _retry(int index) {
+    context.read<ChatBloc>().add(ChatRetryRequested(index));
   }
 
   /// Whether the viewport is within [_kNearBottomThreshold] of the end.
@@ -172,6 +189,7 @@ class _ChatViewState extends State<_ChatView> {
             return SafeArea(
               child: Column(
                 children: <Widget>[
+                  if (state.sessionFailed) _sessionBanner(),
                   Expanded(
                     child: Stack(
                       children: <Widget>[
@@ -181,8 +199,14 @@ class _ChatViewState extends State<_ChatView> {
                           itemCount: state.messages.length,
                           itemBuilder: (BuildContext context, int i) {
                             final ChatMessage m = state.messages[i];
+                            final bool failed =
+                                m.status == ChatSendStatus.failed;
                             return BbChatBubble(
-                                text: m.text, fromWorker: m.fromWorker);
+                              text: m.text,
+                              fromWorker: m.fromWorker,
+                              failed: failed,
+                              onRetry: failed ? () => _retry(i) : null,
+                            );
                           },
                         ),
                         if (_hasUnreadBelow)
@@ -195,6 +219,10 @@ class _ChatViewState extends State<_ChatView> {
                       ],
                     ),
                   ),
+                  if (state.sending)
+                    _typingIndicator()
+                  else if (state.followups.isNotEmpty)
+                    _followups(state.followups),
                   _inputBar(),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(
@@ -249,6 +277,90 @@ class _ChatViewState extends State<_ChatView> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Shown when the chat session could not be opened (#343).
+  ///
+  /// The failure used to be swallowed entirely: the worker typed answer after
+  /// answer into a session that was never opened, saw no error, and only found
+  /// out when their profile came out empty. The next send re-opens the session
+  /// lazily, so this states the real cause and what to do — no false blame on
+  /// the worker's internet, and no fake "sent" impression.
+  Widget _sessionBanner() {
+    return Container(
+      width: double.infinity,
+      color: AppColors.red50,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.s4,
+        vertical: AppSpacing.s3,
+      ),
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.cloud_off, size: 18, color: AppColors.red600),
+          const SizedBox(width: AppSpacing.s2),
+          Flexible(
+            child: Text(
+              _kSessionFailedLabel,
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: AppColors.red600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// "Bada Bhai type kar raha hai…" — shown while a reply is in flight so a
+  /// real (1–3s) LLM turn does not look frozen.
+  ///
+  /// Deliberately STATIC (a dots glyph, not a spinning `CircularProgressIndicator`):
+  /// an indefinite animation never lets `WidgetTester.pumpAndSettle` settle, and
+  /// the value here is the honest "still working" cue, not motion.
+  Widget _typingIndicator() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.s4, AppSpacing.s1, AppSpacing.s4, AppSpacing.s2),
+      child: Row(
+        children: <Widget>[
+          const Icon(Icons.more_horiz, size: 20, color: AppColors.brand),
+          const SizedBox(width: AppSpacing.s2),
+          Flexible(
+            child: Text(
+              'Bada Bhai type kar raha hai…',
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: AppColors.textMuted,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Tap-to-answer chips from the backend's `suggested_followups`. Tapping one
+  /// sends it exactly like a typed answer — so a worker who cannot type quickly
+  /// can still answer. Horizontally scrollable so long suggestions never clip.
+  Widget _followups(List<String> followups) {
+    return Container(
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.s4, AppSpacing.s1, AppSpacing.s4, AppSpacing.s2),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: <Widget>[
+            for (final String f in followups) ...<Widget>[
+              BbChip(label: f, onTap: () => _sendText(f)),
+              const SizedBox(width: AppSpacing.s2),
+            ],
+          ],
+        ),
       ),
     );
   }

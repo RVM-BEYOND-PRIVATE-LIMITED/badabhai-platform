@@ -35,6 +35,11 @@ void main() {
           .thenThrow(const AuthFailure(AuthErrorCode.network));
 
       await tester.pumpWidget(const MaterialApp(home: PhoneLoginScreen()));
+      // T1: the CTA is disabled until 10 digits are entered — this used to tap
+      // an EMPTY field and still fire a request, because the controller came
+      // pre-seeded with '+91'.
+      await tester.enterText(find.byType(TextField), '9876543210');
+      await tester.pump();
       await tester.tap(find.text('Send OTP'));
       await tester.pump(); // submitting
       await tester.pump(); // failure -> listener fires the SnackBar

@@ -3,10 +3,13 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/di/locator.dart';
+import '../../../core/error/failure.dart';
+import '../../../core/nav/tab_focus.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/pdf_downloader.dart';
+import '../../../core/util/transient_retry.dart';
 import '../../../core/util/resume_file_name.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
@@ -41,24 +44,77 @@ class ResumePreviewScreen extends StatelessWidget {
   }
 }
 
-class _ResumeView extends StatelessWidget {
+class _ResumeView extends StatefulWidget {
   const _ResumeView();
 
   @override
+  State<_ResumeView> createState() => _ResumeViewState();
+}
+
+class _ResumeViewState extends State<_ResumeView> {
+  /// Bumped every time the worker returns from the edit screen, and used as the
+  /// [ResumePhotoHeader]'s key so a NEW State is built and the photo re-fetched.
+  ///
+  /// The header loads only in initState, so without this a photo the worker just
+  /// added/removed never appeared on return — the preview kept showing the photo
+  /// state from when the screen first mounted. Keyed rather than lifting the
+  /// photo into ResumeCubit: the header is deliberately self-contained and
+  /// fail-silent (the photo is garnish; it must never cost the worker their
+  /// resume text), and a key keeps that property.
+  int _photoNonce = 0;
+
+  /// Returning from the editor: the photo may have changed either way, so always
+  /// refetch it. Regenerate ONLY on a real name change — the name is baked in at
+  /// generation time, and an unconditional regenerate would spend one of the
+  /// worker's 5 daily generates and bin the rendered PDF.
+  void _onEditReturned(bool nameChanged) {
+    if (!mounted) return;
+    setState(() => _photoNonce++);
+    if (nameChanged) {
+      context.read<ResumeCubit>().generate(force: true);
+    }
+  }
+
+  /// The Resume tab came back into view. Refetch the resume text AND the photo
+  /// strip. The photo can be changed from the PROFILE tab (ADR-0032 B1-B3 — one
+  /// photo flow, reachable from Profile too), so on returning here we must
+  /// re-fetch it; without bumping [_photoNonce] the header — which loads only in
+  /// initState — kept showing mount-time state until the worker opened and
+  /// backed out of the editor. Bumping the nonce rebuilds a fresh header that
+  /// re-fetches. refresh() (not generate) for the text, for the reason below.
+  void _onTabFocused() {
+    if (!mounted) return;
+    setState(() => _photoNonce++);
+    context.read<ResumeCubit>().refresh();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return BlocBuilder<ResumeCubit, ResumeState>(
-      builder: (BuildContext context, ResumeState state) {
-        return BbScaffold(
-          appBar: const BbAppBar(title: 'Your resume'),
-          body: switch (state.status) {
-            ResumeStatus.loading =>
-              const Center(child: CircularProgressIndicator()),
-            ResumeStatus.noProfile => _buildNoProfile(context),
-            ResumeStatus.failed => _buildFailed(context),
-            ResumeStatus.ready => _buildResume(context, state.resumeText),
-          },
-        );
-      },
+    // The IndexedStack keeps this branch mounted, so create: runs only on the
+    // first visit — refetch when the tab comes back into view (T4).
+    //
+    // refresh(), never generate(force: true): a forced generate on every tab
+    // switch would overwrite the resume row server-side, reset the PDF to
+    // 'pending' and re-enqueue the render — binning the worker's rendered PDF
+    // and burning their 5/day generate cap just for looking at the tab.
+    return TabFocusRefetch(
+      tabFocus: locator<TabFocus>(),
+      index: TabIndex.resume,
+      onFocused: _onTabFocused,
+      child: BlocBuilder<ResumeCubit, ResumeState>(
+        builder: (BuildContext context, ResumeState state) {
+          return BbScaffold(
+            appBar: const BbAppBar(title: 'Your resume'),
+            body: switch (state.status) {
+              ResumeStatus.loading =>
+                const Center(child: CircularProgressIndicator()),
+              ResumeStatus.noProfile => _buildNoProfile(context),
+              ResumeStatus.failed => _buildFailed(context),
+              ResumeStatus.ready => _buildResume(context, state.resumeText),
+            },
+          );
+        },
+      ),
     );
   }
 
@@ -79,7 +135,9 @@ class _ResumeView extends StatelessWidget {
               // finally gates something). Self-contained + fail-silent: works
               // on both entry paths (generate + Building handoff) and never
               // fabricates a placeholder into the resume itself.
-              const ResumePhotoHeader(),
+              // Keyed on the edit-return nonce so a photo the worker just
+              // added/removed is re-fetched instead of showing mount-time state.
+              ResumePhotoHeader(key: ValueKey<int>(_photoNonce)),
               Padding(
                 padding: const EdgeInsets.all(AppSpacing.s4),
                 child: Text(
@@ -96,13 +154,7 @@ class _ResumeView extends StatelessWidget {
                   children: <Widget>[
                     const _DownloadResumeButton(),
                     const SizedBox(height: AppSpacing.s2),
-                    BbButton(
-                      label: 'Edit resume',
-                      block: true,
-                      variant: BbButtonVariant.ghost,
-                      iconLeft: Icons.edit_outlined,
-                      onPressed: () => context.push(Routes.resumeEdit),
-                    ),
+                    _EditResumeButton(onReturned: _onEditReturned),
                   ],
                 ),
               ),
@@ -122,13 +174,15 @@ class _ResumeView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const Icon(Icons.badge_outlined, size: 48, color: AppColors.textMuted),
+            const Icon(Icons.badge_outlined,
+                size: 48, color: AppColors.textMuted),
             const SizedBox(height: AppSpacing.s4),
             Text('Abhi resume nahi ban sakta.',
                 textAlign: TextAlign.center,
                 style: AppTypography.display(size: AppTypography.sizeMd)),
             const SizedBox(height: AppSpacing.s2),
-            Text('Pehle apna profile poora karein — fir resume apne aap ban jayega.',
+            Text(
+                'Pehle apna profile poora karein — fir resume apne aap ban jayega.',
                 textAlign: TextAlign.center,
                 style: AppTypography.body(color: AppColors.textSecondary)),
             const SizedBox(height: AppSpacing.s6),
@@ -148,7 +202,8 @@ class _ResumeView extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          const Icon(Icons.cloud_off_rounded, size: 48, color: AppColors.textMuted),
+          const Icon(Icons.cloud_off_rounded,
+              size: 48, color: AppColors.textMuted),
           const SizedBox(height: AppSpacing.s4),
           Text('Resume abhi ban nahi paya.',
               textAlign: TextAlign.center,
@@ -174,6 +229,62 @@ class _ResumeView extends StatelessWidget {
 /// this screen (started/complete SnackBars, "Kholein" opens the saved file).
 /// The button stays busy (disabled) for the WHOLE download so a double-tap
 /// can't produce double files. The url is fetched in memory, never logged.
+/// "Edit resume" — opens the safe-field editor and, when the worker actually
+/// CHANGED THEIR NAME, regenerates the resume on return.
+///
+/// The name is baked into the resume at generation time, so a PATCHed name was
+/// invisible here: the editor popped a bare `null` and the preview kept showing
+/// the old text (and downloaded a PDF titled with the old name, #398).
+/// Regenerating rebuilds the text AND — because a generate resets the row to
+/// render_status 'pending' server-side — re-enqueues the PDF render.
+///
+/// Gated on `changed == true` deliberately: an unconditional regenerate would
+/// spend one of the worker's 5 daily generates and bin the rendered PDF on every
+/// prefs-only save.
+class _EditResumeButton extends StatelessWidget {
+  const _EditResumeButton({required this.onReturned});
+
+  /// Called when the editor pops, with TRUE when the worker's NAME changed.
+  final ValueChanged<bool> onReturned;
+
+  @override
+  Widget build(BuildContext context) {
+    return BbButton(
+      label: 'Edit resume',
+      block: true,
+      variant: BbButtonVariant.ghost,
+      iconLeft: Icons.edit_outlined,
+      onPressed: () async {
+        // The editor pops `true` only when the name actually changed; a
+        // dismissed screen pops null.
+        final bool? changed = await context.push<bool>(Routes.resumeEdit);
+        onReturned(changed == true);
+      },
+    );
+  }
+}
+
+/// How many times the download resolver re-checks a "still rendering" 409, and
+/// how long it waits between checks.
+///
+/// 20 x 1500ms = 30s of waiting. The budget MUST outlast the server's own render
+/// timeout — PdfRenderer.RENDER_TIMEOUT_MS is 20s — plus the Storage upload that
+/// follows it. The previous ~6s budget was the first-tap download failure: a
+/// cold WeasyPrint start (with a photo to fetch and embed) routinely runs past
+/// 6s, so the poll gave up and told the worker it had failed while the render
+/// was still perfectly healthy. They tapped again, and the second tap often
+/// worked purely because the render had finished in the meantime.
+///
+/// Still BOUNDED, because it must be: when rendering is disabled server-side the
+/// row stays 'pending' forever, and the worker has to get the honest "taiyaar ho
+/// rahi hai" rather than an endless spinner.
+const int _kReadyMaxAttempts = 20;
+const Duration _kReadyPollInterval = Duration(milliseconds: 1500);
+
+/// Button label while the PDF is still rendering — honest progress, not an
+/// error. The worker is not waiting on their phone; they are waiting on a render.
+const String kResumePreparingLabel = 'PDF taiyaar ho rahi hai…';
+
 class _DownloadResumeButton extends StatefulWidget {
   const _DownloadResumeButton();
 
@@ -183,6 +294,17 @@ class _DownloadResumeButton extends StatefulWidget {
 
 class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
   bool _loading = false;
+
+  /// True once the ready-poll has seen at least one "still rendering" 409 — the
+  /// button then says so instead of looking like a dead spinner.
+  bool _preparing = false;
+
+  /// The in-flight name prefetch. AWAITED at tap time (not just fired on mount):
+  /// _fileName is read when the file is saved, so a worker who tapped Download
+  /// before the prefetch resolved silently got the generic
+  /// BadaBhai_Resume.pdf instead of NAME_..._RESUME.pdf — the #398 naming
+  /// vanishing exactly for the fastest taps.
+  Future<void>? _namePrefetch;
 
   /// The saved-file name, derived from the worker's OWN name (§2 self-read, no
   /// LLM — see [resumeDownloadFileName]). PREFETCHED on mount so the tap adds no
@@ -194,7 +316,8 @@ class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
   @override
   void initState() {
     super.initState();
-    _prefetchFileName();
+    // Started on mount so the tap usually adds no latency; the tap awaits it.
+    _namePrefetch = _prefetchFileName();
   }
 
   Future<void> _prefetchFileName() async {
@@ -208,25 +331,78 @@ class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
     }
   }
 
+  /// Resolves the signed url, tolerating the SHORT "still rendering" window.
+  ///
+  /// A generate resets the row to render_status 'pending' and re-enqueues the
+  /// render, so right after an edit-driven regenerate the first download
+  /// legitimately 409s (→ [ResumeNotReadyFailure]). One-shotting that told the
+  /// worker their download failed when it was simply seconds early. Poll briefly
+  /// instead — the button stays in its loading state, so this reads as
+  /// "checking…" rather than a stall.
+  ///
+  /// Deliberately BOUNDED and short: when rendering is disabled server-side the
+  /// PDF never arrives, and the worker must get the honest "taiyaar ho rahi hai"
+  /// rather than an indefinite spinner. Only the not-ready case retries — every
+  /// other failure surfaces immediately. The url handling itself is untouched
+  /// (in-app fetch + MediaStore save; no url_launcher).
+  Future<String?> _resolveWithReadyPoll(ResumeCubit cubit) async {
+    for (int attempt = 0; attempt < _kReadyMaxAttempts; attempt++) {
+      final bool lastAttempt = attempt == _kReadyMaxAttempts - 1;
+      try {
+        return await cubit.resolveDownloadUrl();
+      } on ResumeNotReadyFailure {
+        if (lastAttempt) rethrow;
+        // Say WHY the wait is happening — the PDF is rendering, nothing is wrong.
+        if (mounted && !_preparing) setState(() => _preparing = true);
+        await Future<void>.delayed(_kReadyPollInterval);
+      } catch (error) {
+        // A transient 5xx / transport blip on the mint is the OTHER reason a
+        // first tap failed and a second worked: only the 409 was retried, so a
+        // 500 fell straight through to "Server error (500)". Ride it out on the
+        // SAME bounded budget rather than nesting a second retry loop inside
+        // this one (which would multiply 20 attempts into 60 requests).
+        //
+        // Deliberately does NOT set _preparing: the PDF is not rendering, the
+        // server hiccuped, and claiming otherwise would be a lie.
+        if (lastAttempt || !isTransientFailure(error)) rethrow;
+        await Future<void>.delayed(_kReadyPollInterval);
+      }
+    }
+    return null; // unreachable: the last attempt either returns or rethrows.
+  }
+
   Future<void> _download() async {
     final ResumeCubit cubit = context.read<ResumeCubit>();
     setState(() => _loading = true);
+    // Let the name land before the file is saved (#398). It was fire-and-forget,
+    // so a fast tap raced it and saved the generic name. Never blocking: the
+    // prefetch swallows its own failures and simply leaves the fallback, so a
+    // worker with no name on file still gets their PDF.
+    await _namePrefetch;
+    if (!mounted) return;
     await downloadSignedPdf(
       context,
-      resolve: cubit.resolveDownloadUrl,
+      resolve: () => _resolveWithReadyPoll(cubit),
       fileName: _fileName,
     );
-    if (mounted) setState(() => _loading = false);
+    if (mounted) {
+      setState(() {
+        _loading = false;
+        _preparing = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return BbButton(
-      label: 'Download Resume',
+      // Honest progress while the server renders — not an error, and not a
+      // silent spinner.
+      label: _preparing ? kResumePreparingLabel : 'Download Resume',
       block: true,
       iconLeft: Icons.download_rounded,
       loading: _loading,
-      onPressed: _download,
+      onPressed: _loading ? null : _download,
     );
   }
 }

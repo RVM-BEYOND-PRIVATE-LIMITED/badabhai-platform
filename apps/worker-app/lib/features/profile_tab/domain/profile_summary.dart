@@ -17,6 +17,9 @@ class ProfileSummary extends Equatable {
     this.verified = false,
     required this.strengthSignals,
     this.strengthMax,
+    this.skills = const <String>[],
+    this.machines = const <String>[],
+    this.experienceYears,
   });
 
   /// The worker's name, or `null` when the backend omits it (current reality —
@@ -47,6 +50,17 @@ class ProfileSummary extends Equatable {
   /// then no fraction/percent is fabricated.
   final int? strengthMax;
 
+  /// Worker-confirmed canonical skill labels (`skills`); `[]` when none. PII-free
+  /// taxonomy strings — safe to render as chips.
+  final List<String> skills;
+
+  /// Canonical machine labels (`machines`); `[]` when none. PII-free.
+  final List<String> machines;
+
+  /// Total years of experience (`experience.total_years`), a NUMBER only — the
+  /// free-text summary is never on the wire (§2). `null` when unknown.
+  final double? experienceYears;
+
   @override
   List<Object?> get props => <Object?>[
         displayName,
@@ -56,5 +70,8 @@ class ProfileSummary extends Equatable {
         verified,
         strengthSignals,
         strengthMax,
+        skills,
+        machines,
+        experienceYears,
       ];
 }

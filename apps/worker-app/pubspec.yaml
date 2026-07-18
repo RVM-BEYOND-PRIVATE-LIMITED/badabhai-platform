@@ -73,6 +73,14 @@ dependencies:
   #     permission, and the camera intent handles its own prompt.
   #   - flutter_image_compress — pickImage(maxWidth, imageQuality) covers it.
   image_picker: ^1.1.2
+  # ADR-0032 — square-crop the picked photo BEFORE upload (a profile photo is a
+  # face, not an arbitrary rectangle). Runs entirely ON DEVICE after the picker,
+  # then re-encodes JPEG ≤1024px so the resize + minimization guarantee still
+  # holds before any byte leaves the phone. Android uses the bundled uCrop
+  # activity (declared in AndroidManifest.xml); iOS uses TOCropViewController via
+  # the plugin's pod — no extra Info.plist keys beyond the camera/photos usage
+  # strings image_picker already requires.
+  image_cropper: ^9.1.0
 
 dev_dependencies:
   flutter_test:

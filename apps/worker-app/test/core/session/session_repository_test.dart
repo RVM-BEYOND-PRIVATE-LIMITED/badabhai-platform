@@ -70,4 +70,36 @@ void main() {
     expect(s.workerId, 'w1');
     expect(s.sessionToken, 't1');
   });
+
+  test(
+      'clearSessionToken drops ONLY the bearer — the pending-deletion flag and '
+      'the ids survive a re-lock', () {
+    // REGRESSION (PR #406 review, High): clearSessionToken rebuilds Session with
+    // the raw constructor, and it omitted deletionScheduledFor — so every re-lock
+    // destroyed the ADR-0031 pending-deletion flag. On unlock, _syncDeletionState
+    // re-reads /auth/me and papered over it on a good connection; but its contract
+    // is to LEAVE a known-pending flag alone when that read fails, and by then the
+    // value was gone. account_delete_cubit reads this field alone with no server
+    // fallback, so the worker lost the "cancel deletion" affordance for the rest of
+    // the session — inside a 7-day window ending in irreversible deletion.
+    final SessionRepository s = SessionRepository();
+    s.setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 't1');
+    s.setSession('sess-1');
+    s.setProfile('prof-1');
+    s.setResume('res-1');
+    final DateTime due = DateTime.utc(2026, 7, 24, 9);
+    s.setDeletionScheduledFor(due);
+
+    s.clearSessionToken();
+
+    // The bearer is gone — that is the whole point of the re-lock fence (#368).
+    expect(s.sessionToken, isNull);
+    // ...and NOTHING else is. relock's own comment promises "Ids survive".
+    expect(s.deletionScheduledFor, due);
+    expect(s.phoneE164, '+910000000000');
+    expect(s.workerId, 'w1');
+    expect(s.sessionId, 'sess-1');
+    expect(s.profileId, 'prof-1');
+    expect(s.resumeId, 'res-1');
+  });
 }

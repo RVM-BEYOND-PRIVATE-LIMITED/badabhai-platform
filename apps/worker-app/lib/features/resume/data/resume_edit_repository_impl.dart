@@ -50,7 +50,7 @@ class ResumeEditRepositoryImpl implements ResumeEditRepository {
   }
 
   @override
-  Future<void> save(ResumeSafeFields fields) async {
+  Future<bool> save(ResumeSafeFields fields) async {
     final String? token = _session.sessionToken;
     if (token == null) {
       throw const UnauthorizedFailure();
@@ -60,7 +60,8 @@ class ResumeEditRepositoryImpl implements ResumeEditRepository {
       // empty/all-digits name, and a prefs-only save must not re-encrypt/re-emit
       // an unchanged name.
       final String name = fields.displayName.trim();
-      if (name.isNotEmpty && name != _loadedName?.trim()) {
+      final bool nameChanged = name.isNotEmpty && name != _loadedName?.trim();
+      if (nameChanged) {
         await _api.updateName(fullName: name, authToken: token);
         _loadedName = name; // a re-save with the same name is now a no-op
       }
@@ -69,6 +70,11 @@ class ResumeEditRepositoryImpl implements ResumeEditRepository {
         nightShiftReady: fields.nightShiftReady,
         authToken: token,
       );
+      // Reported so the preview can regenerate: the name is baked into the
+      // resume at GENERATION time, so a PATCHed name is invisible until the
+      // resume is rebuilt. Only a real change regenerates — the server's 5/day
+      // generate cap is not worth spending on a prefs-only save.
+      return nameChanged;
     } catch (error) {
       throw mapError(error);
     }

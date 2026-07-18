@@ -33,8 +33,13 @@ const Duration kRequestTimeout = Duration(seconds: 15);
 /// in the `workers` table and pseudonymizes before any LLM call. This client
 /// never talks to an LLM directly.
 class ApiClient {
-  ApiClient({String? baseUrl, http.Client? client, this.onSessionTokenRefreshed})
-      : baseUrl = baseUrl ?? resolveApiBaseUrl(),
+  ApiClient({
+    String? baseUrl,
+    http.Client? client,
+    this.onSessionTokenRefreshed,
+    this.onUnauthorized,
+    this.currentAuthToken,
+  })  : baseUrl = baseUrl ?? resolveApiBaseUrl(),
         _client = client ?? http.Client();
 
   final String baseUrl;
@@ -45,6 +50,27 @@ class ApiClient {
   /// Lets the caller (e.g. a screen) update the stored session token so the
   /// session stays alive without a separate refresh call. Never logs the token.
   final void Function(String freshToken)? onSessionTokenRefreshed;
+
+  /// Invoked ONCE when a worker-scoped call comes back 401 (#351).
+  ///
+  /// Every worker-scoped product call (feed, chat, resume, profile, voice,
+  /// notifications, applications) goes through THIS client using
+  /// SessionRepository.sessionToken as its bearer — not through AuthedClient's
+  /// refresh interceptor. Without this hook a 401 was simply mapped to
+  /// UnauthorizedFailure: nothing refreshed with the perfectly good persisted
+  /// refresh token, and nothing fired ReauthSignal, so AuthSessionManager stayed
+  /// `authenticated` and the router actively BOUNCED the worker away from
+  /// /login. Every tab showed "Please log in again" forever with no way out.
+  ///
+  /// Return true when auth was renewed and the request deserves one retry.
+  /// Returning false (or an unrecoverable refresh, which flips the manager to
+  /// loggedOut and frees the router) leaves the original 401 to surface.
+  final Future<bool> Function()? onUnauthorized;
+
+  /// Reads the CURRENT bearer, after [onUnauthorized] renewed it. Callers pass
+  /// their token by value, so the retry would otherwise re-send the same dead
+  /// one and 401 again.
+  final String? Function()? currentAuthToken;
 
   Future<void> acceptConsent({
     required String workerId,
@@ -641,15 +667,45 @@ class ApiClient {
     String path,
     Map<String, dynamic> body, {
     String? authToken,
-  }) async {
+  }) {
     final Uri uri = Uri.parse('$baseUrl$path');
-    final http.Response res = await _client
-        .post(
-          uri,
-          headers: _headers(contentType: true, authToken: authToken),
-          body: jsonEncode(body),
-        )
-        .timeout(kRequestTimeout);
+    final String encoded = jsonEncode(body);
+    return _send(
+      (String? token) => _client.post(
+        uri,
+        headers: _headers(contentType: true, authToken: token),
+        body: encoded,
+      ),
+      authToken,
+    );
+  }
+
+  /// Issues [request], and on a 401 for a worker-scoped call gives auth ONE
+  /// chance to renew before retrying with the fresh bearer (#351).
+  ///
+  /// Bounded to a single retry — [onUnauthorized] renews at most once per call,
+  /// so a genuinely dead session surfaces its 401 instead of looping. Only fires
+  /// when the caller actually sent a bearer: an unauthenticated 401 is a real
+  /// answer, not a stale token.
+  Future<Map<String, dynamic>> _send(
+    Future<http.Response> Function(String? authToken) request,
+    String? authToken,
+  ) async {
+    http.Response res = await request(authToken).timeout(kRequestTimeout);
+
+    final Future<bool> Function()? renew = onUnauthorized;
+    // Conditions inlined so `authToken` promotes to non-null for the retry.
+    if (res.statusCode == 401 &&
+        renew != null &&
+        authToken != null &&
+        authToken.isNotEmpty) {
+      final bool renewed = await renew();
+      if (renewed) {
+        // Re-read the bearer: the caller's copy is the one that just 401'd.
+        final String fresh = currentAuthToken?.call() ?? authToken;
+        res = await request(fresh).timeout(kRequestTimeout);
+      }
+    }
     return _decode(res);
   }
 
@@ -661,41 +717,42 @@ class ApiClient {
     String path,
     Map<String, dynamic> body, {
     String? authToken,
-  }) async {
+  }) {
     final Uri uri = Uri.parse('$baseUrl$path');
-    final http.Response res = await _client
-        .patch(
-          uri,
-          headers: _headers(contentType: true, authToken: authToken),
-          body: jsonEncode(body),
-        )
-        .timeout(kRequestTimeout);
-    return _decode(res);
+    final String encoded = jsonEncode(body);
+    return _send(
+      (String? token) => _client.patch(
+        uri,
+        headers: _headers(contentType: true, authToken: token),
+        body: encoded,
+      ),
+      authToken,
+    );
   }
 
-  Future<Map<String, dynamic>> _delete(String path, {String? authToken}) async {
+  Future<Map<String, dynamic>> _delete(String path, {String? authToken}) {
     final Uri uri = Uri.parse('$baseUrl$path');
-    final http.Response res = await _client
-        .delete(
-          uri,
-          headers: _headers(contentType: false, authToken: authToken),
-        )
-        .timeout(kRequestTimeout);
-    return _decode(res);
+    return _send(
+      (String? token) => _client.delete(
+        uri,
+        headers: _headers(contentType: false, authToken: token),
+      ),
+      authToken,
+    );
   }
 
   /// GET JSON and return the decoded object. Throws [ApiException] on non-2xx.
   ///
   /// When [authToken] is supplied it is sent as `Authorization: Bearer <token>`.
-  Future<Map<String, dynamic>> _get(String path, {String? authToken}) async {
+  Future<Map<String, dynamic>> _get(String path, {String? authToken}) {
     final Uri uri = Uri.parse('$baseUrl$path');
-    final http.Response res = await _client
-        .get(
-          uri,
-          headers: _headers(contentType: false, authToken: authToken),
-        )
-        .timeout(kRequestTimeout);
-    return _decode(res);
+    return _send(
+      (String? token) => _client.get(
+        uri,
+        headers: _headers(contentType: false, authToken: token),
+      ),
+      authToken,
+    );
   }
 
   /// Builds request headers, adding the bearer token only when present.

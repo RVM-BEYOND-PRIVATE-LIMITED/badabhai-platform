@@ -6,7 +6,9 @@ import '../auth/auth_api.dart';
 import '../auth/auth_factory.dart';
 import '../auth/device_id.dart';
 import '../auth/locale_store.dart';
+import '../otp/sms_otp_autofill.dart';
 import '../auth/reauth_signal.dart';
+import '../nav/tab_focus.dart';
 import '../auth/secure_token_store.dart';
 import '../config/app_config.dart';
 import '../session/session_repository.dart';
@@ -80,6 +82,46 @@ final GetIt locator = GetIt.instance;
 /// mode for an end-to-end widget test without relying on the compile-time
 /// `kUseMocks` dart-define (which is `false` under a plain `flutter test`). In
 /// production [main] calls `setupLocator()` with no argument, so the live wiring
+/// Renews auth after a 401 on the legacy worker-scoped path (#351).
+///
+/// Those calls (feed, chat, resume, profile, voice, notifications, applications)
+/// carry `SessionRepository.sessionToken` and bypass AuthedClient's refresh
+/// interceptor entirely, so a revoked or expired session used to dead-end the
+/// worker: the 401 became UnauthorizedFailure, nothing refreshed, nothing fired
+/// ReauthSignal, and AuthSessionManager stayed `authenticated` — which made the
+/// router bounce every attempt to reach /login.
+///
+///  - refresh OK        → true; the caller retries once with the fresh bearer.
+///  - unrecoverable     → AuthSessionManager wipes + flips to loggedOut (via
+///                        _wipeAndLogOut / ReauthSignal), which FREES the router;
+///                        false here so the original 401 still surfaces.
+///  - transport failure → false; the session is untouched (a flaky link must not
+///                        log the worker out).
+///
+/// Resolved lazily and defensively: the ApiClient singleton can be built before
+/// `initAuthLocator` runs (and legacy widget tests never wire auth at all).
+Future<bool> _renewAuthOnUnauthorized() async {
+  if (!locator.isRegistered<AuthSessionManager>()) return false;
+  final AuthSessionManager auth = locator<AuthSessionManager>();
+  // With persistent-auth OFF there is no persisted refresh token to renew from,
+  // and the router gate is inert (no lockout to fix) — leave that build exactly
+  // as it is rather than wiping a session on a transient 401.
+  if (!auth.persistentAuthEnabled) return false;
+  // Renew ONLY for a worker who is currently unlocked. relock() deliberately
+  // drops the bridged bearer (#368), so a request queued before the app paused
+  // now 401s behind the PIN screen — and refresh() ends in
+  // _setStatus(authenticated). Without this guard that lingering request would
+  // silently re-authenticate and OPEN THE PIN GATE on its own. `locked` must
+  // only ever be cleared by the PIN.
+  if (auth.status != AuthStatus.authenticated) return false;
+  try {
+    await auth.refresh();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 /// goes through [createApiClient] exactly as before.
 void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // The override only applies to a FRESH graph. Guard against a silent no-op:
@@ -116,6 +158,11 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerLazySingleton<ReauthSignal>(() => ReauthSignal());
 
+  // Which shell tab is visible. The IndexedStack keeps every visited branch
+  // mounted, so a tab root's create:/initState runs once and never again — this
+  // is the signal that lets each tab refetch when it comes back into view.
+  locator.registerLazySingleton<TabFocus>(() => TabFocus());
+
   // ONE ApiClient app-wide: MOCK vs REAL via the createApiClient factory
   // (kUseMocks), with the x-session-token rolling refresh wired to the session.
   // A test-supplied [apiClient] override wins (mock-mode e2e).
@@ -124,6 +171,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
         apiClient ??
         createApiClient(
           onSessionTokenRefreshed: locator<SessionRepository>().setSessionToken,
+          // #351: a 401 here gets ONE renew + retry; an unrecoverable refresh
+          // flips the manager to loggedOut, which is what frees the router.
+          onUnauthorized: _renewAuthOnUnauthorized,
+          currentAuthToken: () => locator<SessionRepository>().sessionToken,
         ),
   );
 
@@ -221,10 +272,15 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   // Auth cubits resolve [AuthSessionManager] + [LocaleStore] LAZILY (the factory
   // closure runs on demand, after [initAuthLocator] has registered both). The
   // live flows route through the manager, not a repository.
+  // OTP SMS auto-read. Singleton: the consent window is opened when the OTP is
+  // REQUESTED (PhoneLoginCubit) and the code is consumed later on the OTP screen,
+  // so both must share one instance.
+  locator.registerLazySingleton<SmsOtpAutofill>(() => SmsOtpAutofill());
   locator.registerFactory<PhoneLoginCubit>(
     () => PhoneLoginCubit(
       locator<AuthSessionManager>(),
       locale: locator<LocaleStore>().read(),
+      otpAutofill: locator<SmsOtpAutofill>(),
     ),
   );
   locator.registerFactory<OtpVerifyCubit>(

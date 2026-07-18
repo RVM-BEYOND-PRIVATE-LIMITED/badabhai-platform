@@ -8,7 +8,6 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_scaffold.dart';
 import '../../../router.dart';
-import '../domain/auth_session_manager.dart';
 import 'cubit/enter_pin_cubit.dart';
 import 'widgets/bb_pin_keypad.dart';
 import 'widgets/bb_pin_view.dart';
@@ -67,19 +66,18 @@ class _EnterPinViewState extends State<_EnterPinView> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocConsumer<EnterPinCubit, EnterPinState>(
-      listenWhen: (EnterPinState p, EnterPinState c) => p.status != c.status,
-      listener: (BuildContext context, EnterPinState state) {
-        if (state.status == EnterPinStatus.done) {
-          // Authenticated — the router redirect lifts us into the shell. Nudge
-          // it toward the Resume tab (the worker's home after unlock) — unless
-          // the server said this worker has NO active consent (TD62): then the
-          // consent gate comes first. Only a definitive false routes there.
-          final bool needsConsent =
-              locator<AuthSessionManager>().consentAccepted == false;
-          context.go(needsConsent ? Routes.consent : Routes.resume);
-        }
-      },
+    // On unlock the ROUTER REDIRECT owns where we land — it fires on the status
+    // change via `refreshListenable`, restores the location the re-lock
+    // interrupted (#349), falls back to the Resume tab, and applies the TD62
+    // consent gate.
+    //
+    // This screen deliberately does NOT navigate (hence BlocBuilder, not
+    // BlocConsumer). It used to `go(Resume)` on done, which is half of #349: the
+    // redirect would correctly restore the stashed location and clear the stash,
+    // then that listener fired, read a now-empty stash, and clobbered the worker
+    // back to the Resume tab. Two owners of post-unlock routing was the bug —
+    // there is now one.
+    return BlocBuilder<EnterPinCubit, EnterPinState>(
       builder: (BuildContext context, EnterPinState state) {
         final bool error = state.status == EnterPinStatus.failure;
         return BbScaffold(

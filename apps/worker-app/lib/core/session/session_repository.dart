@@ -42,6 +42,38 @@ class SessionRepository {
     _session = _session.copyWith(sessionToken: token);
   }
 
+  /// Drops ONLY the bearer, keeping the worker/session ids (#368).
+  ///
+  /// The re-lock fence: [AuthSessionManager.relock] nulls the AuthedClient's
+  /// copy of the access token, but THIS is the bearer every legacy ApiClient
+  /// call actually sends. Leaving it meant a request queued just before the app
+  /// paused still authenticated happily behind the PIN screen — contradicting
+  /// relock's own "no authed call slips through while locked".
+  ///
+  /// Cannot be done with copyWith, which resolves `?? this.sessionToken` and so
+  /// can never null a field. The ids stay: unlockWithPin re-bridges a fresh
+  /// token onto the same worker, and the chat session must survive the lock.
+  ///
+  /// EVERY non-token field must be carried forward explicitly — the raw
+  /// constructor is the ONLY place that can silently drop one, and omitting
+  /// `deletionScheduledFor` here destroyed the ADR-0031 pending-deletion flag on
+  /// every re-lock. `_syncDeletionState` re-reads it from `/auth/me` on unlock and
+  /// so hid the bug on a good connection, but its documented contract is to leave
+  /// a known-pending flag untouched when that read FAILS — and by then the value
+  /// was already gone. The worker then lost the "Delete cancel karein" affordance
+  /// (account_delete_cubit reads this field alone, with no server fallback) for the
+  /// rest of the session, inside a 7-day window that ends in irreversible deletion.
+  void clearSessionToken() {
+    _session = Session(
+      phoneE164: _session.phoneE164,
+      workerId: _session.workerId,
+      sessionId: _session.sessionId,
+      profileId: _session.profileId,
+      resumeId: _session.resumeId,
+      deletionScheduledFor: _session.deletionScheduledFor,
+    );
+  }
+
   void setSession(String sessionId) {
     _session = _session.copyWith(sessionId: sessionId);
   }
