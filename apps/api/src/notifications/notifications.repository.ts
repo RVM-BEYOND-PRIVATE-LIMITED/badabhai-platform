@@ -2,7 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import { type Database, events } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
-import { NOTIFICATION_EVENT_NAMES } from "./notifications.dto";
+import { NOTIFICATION_EVENT_NAMES, SECURITY_EVENT_NAMES } from "./notifications.dto";
 
 /** The projection reads ONLY these columns — the event `payload` is deliberately
  * NOT selected, so PII-bearing payload never even enters API memory (§2 defense
@@ -35,6 +35,35 @@ export class NotificationsRepository {
   /** The worker's OWN allowlisted events, newest first, capped at `limit`. Selects
    * ONLY id/event_name/occurred_at — never the payload. */
   async findForWorker(workerId: string, limit: number): Promise<NotificationEventRow[]> {
+    return this.findByNames(workerId, NOTIFICATION_EVENT_NAMES, limit);
+  }
+
+  /**
+   * The worker's OWN SECURITY events only, newest first, capped at `limit` (TD82).
+   *
+   * Identical scoping + projection to {@link findForWorker} — same three-leg worker OR,
+   * same no-payload SELECT — narrowed to {@link SECURITY_EVENT_NAMES}. The service
+   * unions this with the main feed so a burst of high-frequency events (applies) can
+   * never evict an account-takeover tripwire.
+   */
+  async findSecurityForWorker(workerId: string, limit: number): Promise<NotificationEventRow[]> {
+    return this.findByNames(workerId, SECURITY_EVENT_NAMES, limit);
+  }
+
+  /**
+   * Shared read for both legs. `names` is ALWAYS a compile-time-derived subset of the
+   * allowlist (never caller input), and `workerId` is always the CALLER's id from the
+   * bearer token — never a path/body/payload id.
+   */
+  private async findByNames(
+    workerId: string,
+    names: readonly string[],
+    limit: number,
+  ): Promise<NotificationEventRow[]> {
+    // Defensive: `inArray(col, [])` is a degenerate predicate. An empty name list means
+    // "nothing can match", so answer that directly rather than emit an odd query.
+    if (names.length === 0) return [];
+
     // Worker is the subject, OR the actor, OR named in the payload — cover all three.
     const forWorker: SQL = or(
       and(eq(events.subjectType, "worker"), eq(events.subjectId, workerId))!,
@@ -49,7 +78,7 @@ export class NotificationsRepository {
         occurredAt: events.occurredAt,
       })
       .from(events)
-      .where(and(inArray(events.eventName, [...NOTIFICATION_EVENT_NAMES]), forWorker))
+      .where(and(inArray(events.eventName, [...names]), forWorker))
       .orderBy(desc(events.occurredAt), desc(events.id))
       .limit(limit);
   }

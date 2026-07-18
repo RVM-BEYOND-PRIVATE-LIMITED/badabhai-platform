@@ -7,6 +7,7 @@ import type { NotificationsRepository } from "./notifications.repository";
 import {
   NOTIFICATION_EVENT_NAMES,
   NOTIFICATION_TEMPLATES,
+  SECURITY_EVENT_NAMES,
 } from "./notifications.dto";
 
 /** Minimal EventRow the service actually reads (id, eventName, occurredAt). */
@@ -58,8 +59,21 @@ function applicationRow(id: string, occurredAt: string, workerId: string): Event
   });
 }
 
-function setup(rows: EventRow[]) {
-  const repo = { findForWorker: vi.fn(async (_id: string, _limit: number) => rows) };
+/**
+ * Mocks BOTH repository legs (TD82). The security leg EMULATES the real query rather
+ * than echoing `rows`: it filters to {@link SECURITY_EVENT_NAMES} and applies its own
+ * limit, exactly as the SQL does — so a test that overflows the main feed sees the same
+ * union the database would produce.
+ */
+function setup(rows: EventRow[], securityRows?: EventRow[]) {
+  const repo = {
+    findForWorker: vi.fn(async (_id: string, limit: number) => rows.slice(0, limit)),
+    findSecurityForWorker: vi.fn(async (_id: string, limit: number) =>
+      (securityRows ?? rows)
+        .filter((r) => SECURITY_EVENT_NAMES.includes(r.eventName))
+        .slice(0, limit),
+    ),
+  };
   const svc = new NotificationsService(repo as unknown as NotificationsRepository);
   return { svc, repo };
 }
@@ -181,6 +195,87 @@ describe("application.submitted → the worker's OWN apply receipt (2026-07-17 w
       "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       expect.any(Number),
     );
+  });
+});
+
+describe("TD82 — security alerts get RESERVED slots and cannot be evicted by applies", () => {
+  const WORKER = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+  /** N applies, newest first, all NEWER than `olderThan`. */
+  function applyFlood(n: number, olderThan: string): EventRow[] {
+    const base = new Date(olderThan).getTime();
+    return Array.from({ length: n }, (_, i) =>
+      // +1 minute apart, all after the tripwire → they outrank it on occurred_at.
+      row("application.submitted", `e-apply-${i}`, new Date(base + (i + 1) * 60_000).toISOString()),
+    ).reverse(); // newest first, as the repository returns
+  }
+
+  it("THE TD82 SCENARIO: a device-registration tripwire survives a 50-apply flood", async () => {
+    // Attacker registers a device on a compromised account; the worker then swipes 50
+    // distinct jobs in one session. Pre-fix, the tripwire fell out of the newest-50
+    // window and the worker never saw it — silently, since there is no pagination and
+    // no server-side read state.
+    const TRIPWIRE = "2026-07-17T08:00:00.000Z";
+    const tripwire = row("worker.device_registered", "e-tripwire", TRIPWIRE);
+    const flood = applyFlood(50, TRIPWIRE);
+
+    // The main leg is capped at 50 and every apply is newer → the tripwire is EVICTED
+    // from it. Only the reserved security leg can carry it.
+    const mainLeg = [...flood, tripwire];
+    const { svc } = setup(mainLeg);
+    const out = await svc.getForWorker(WORKER);
+
+    const tripwireRow = out.find((n) => n.id === "e-tripwire");
+    expect(tripwireRow, "the device-registration tripwire must NOT be evicted").toBeDefined();
+    expect(tripwireRow!.type).toBe("security");
+  });
+
+  it("the reserved leg is queried with its OWN bound — the caller's id and the security cap", async () => {
+    const { svc, repo } = setup([]);
+    await svc.getForWorker(WORKER);
+
+    // Both legs bound to the CALLER — never a payload/subject id from a row.
+    expect(repo.findForWorker).toHaveBeenCalledWith(WORKER, expect.any(Number));
+    expect(repo.findSecurityForWorker).toHaveBeenCalledWith(WORKER, expect.any(Number));
+  });
+
+  it("dedupes across the two legs — a security event inside the newest 50 appears ONCE", async () => {
+    // The overlap case: the tripwire is recent enough to be in BOTH legs.
+    const tripwire = row("worker.device_registered", "e-dup", "2026-07-17T10:00:00.000Z");
+    const { svc } = setup([tripwire, row("resume.generated", "e-other", "2026-07-17T09:00:00.000Z")]);
+
+    const out = await svc.getForWorker(WORKER);
+    expect(out.filter((n) => n.id === "e-dup")).toHaveLength(1);
+  });
+
+  it("the merged feed stays newest-first across BOTH legs", async () => {
+    const { svc } = setup([
+      row("application.submitted", "e-new", "2026-07-17T12:00:00.000Z"),
+      row("worker.device_registered", "e-mid", "2026-07-17T11:00:00.000Z"),
+      row("resume.generated", "e-old", "2026-07-17T10:00:00.000Z"),
+    ]);
+
+    const out = await svc.getForWorker(WORKER);
+    expect(out.map((n) => n.id)).toEqual(["e-new", "e-mid", "e-old"]);
+  });
+
+  it("the security set is DERIVED from the templates — it cannot drift from the allowlist", () => {
+    // Every reserved name must be an allowlisted name with type 'security'; nothing else.
+    const expected = Object.entries(NOTIFICATION_TEMPLATES)
+      .filter(([, t]) => t.type === "security")
+      .map(([name]) => name)
+      .sort();
+    expect([...SECURITY_EVENT_NAMES].sort()).toEqual(expected);
+
+    for (const name of SECURITY_EVENT_NAMES) {
+      expect(NOTIFICATION_EVENT_NAMES, `${name} must also be allowlisted`).toContain(name);
+    }
+  });
+
+  it("the reserve is NON-EMPTY — an empty security set would silently disable the guarantee", () => {
+    // If every security template were ever retyped/removed, the reserved leg would
+    // short-circuit to [] and TD82 would regress with all tests still green.
+    expect(SECURITY_EVENT_NAMES.length).toBeGreaterThan(0);
   });
 });
 

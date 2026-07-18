@@ -4,7 +4,7 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import { events, type Database } from "@badabhai/db";
 import { NotificationsRepository } from "./notifications.repository";
-import { NOTIFICATION_EVENT_NAMES } from "./notifications.dto";
+import { NOTIFICATION_EVENT_NAMES, SECURITY_EVENT_NAMES } from "./notifications.dto";
 
 /**
  * STRUCTURAL tests for the Alerts feed read (the worker-scoping predicate + the
@@ -75,6 +75,13 @@ const WORKER_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 async function runFor(workerId: string, limit = 50) {
   const { db, captured } = makeDb([]);
   await new NotificationsRepository(db).findForWorker(workerId, limit);
+  return captured;
+}
+
+/** Same capture, for the TD82 reserved security leg. */
+async function runSecurityFor(workerId: string, limit = 10) {
+  const { db, captured } = makeDb([]);
+  await new NotificationsRepository(db).findSecurityForWorker(workerId, limit);
   return captured;
 }
 
@@ -184,5 +191,48 @@ describe("NotificationsRepository.findForWorker — bounded, newest first", () =
     const { db } = makeDb(rows);
     const out = await new NotificationsRepository(db).findForWorker(WORKER_A, 50);
     expect(out).toBe(rows);
+  });
+});
+
+describe("NotificationsRepository.findSecurityForWorker — the TD82 reserved leg", () => {
+  it("keeps the SAME no-payload projection as the main feed", async () => {
+    const captured = await runSecurityFor(WORKER_A);
+    expect(Object.keys(captured.selection!).sort()).toEqual(["eventName", "id", "occurredAt"]);
+    expect(captured.selection).not.toHaveProperty("payload");
+  });
+
+  it("filters to the SECURITY subset only — no application.submitted, no lifecycle events", async () => {
+    const { params } = compile((await runSecurityFor(WORKER_A)).where);
+    for (const name of SECURITY_EVENT_NAMES) {
+      expect(params, `${name} must be a bound filter param`).toContain(name);
+    }
+    // The whole point of the reserve: the high-frequency event cannot occupy it.
+    expect(params).not.toContain("application.submitted");
+  });
+
+  it("binds the CALLER's id in all three worker legs — never a row-derived id", async () => {
+    const { params } = compile((await runSecurityFor(WORKER_A)).where);
+    expect(params.filter((p) => p === WORKER_A)).toHaveLength(3);
+    expect(params).not.toContain(WORKER_B);
+  });
+
+  it("is newest-first and honors its own (smaller) reserved bound", async () => {
+    const captured = await runSecurityFor(WORKER_A, 10);
+    expect(captured.limit).toBe(10);
+    const [first, second] = captured.orderBy!.map((o) => compile(o).sql);
+    expect(first).toContain('"events"."occurred_at" desc');
+    expect(second).toContain('"events"."id" desc');
+  });
+
+  it("short-circuits to [] on an empty name set — never emits a degenerate IN ()", async () => {
+    // Guards the defensive branch: if the security set were ever emptied, the query
+    // must not be built at all (an `in ()` predicate is a footgun, not a filter).
+    const { db, captured } = makeDb([]);
+    const repo = new NotificationsRepository(db) as unknown as {
+      findByNames: (w: string, n: readonly string[], l: number) => Promise<unknown[]>;
+    };
+    const out = await repo.findByNames(WORKER_A, [], 10);
+    expect(out).toEqual([]);
+    expect(captured.selection, "no query should have been built").toBeUndefined();
   });
 });
