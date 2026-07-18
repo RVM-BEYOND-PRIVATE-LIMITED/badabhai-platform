@@ -34,7 +34,27 @@ ESSENTIAL_TOPICS: tuple[str, ...] = ("role", "machines", "experience", "current_
 # ("current AND preferred — do not conflate"), but the schema keeps it optional
 # (contracts.py: list, default []) — so a worker with no preference is not
 # blocked forever: the ASK satisfies the gate, an answer is not required.
-MUST_ASK_TOPICS: tuple[str, ...] = ("preferred_locations",)
+#
+# Issue #424 (owner ruling 2026-07-18): salary_current / salary_expected /
+# availability are the fields payers actually filter on, yet they gated NOTHING —
+# a fluent worker whose first message answered role+machines+experience+skills
+# could be wrapped up having never been asked about money or notice period. They
+# are promoted to MUST_ASK, DELIBERATELY NOT to ESSENTIAL_TOPICS: an essential
+# must be ANSWERED, and forcing a worker to disclose their salary before they can
+# get a profile is not wanted. The ASK is the obligation; the answer stays theirs
+# to give or skip — the same asked-or-answered contract preferred_locations has.
+#
+# The ids below are the question_bank topic ids VERBATIM (question_bank.py:
+# "salary_current", "salary_expected", "availability"). A must-ask id that is not
+# in the bank could never be served by _next_topic and would deadlock readiness
+# until the ask ceiling tripped — test_every_must_ask_topic_exists_in_the_bank
+# pins that.
+MUST_ASK_TOPICS: tuple[str, ...] = (
+    "preferred_locations",
+    "salary_current",
+    "salary_expected",
+    "availability",
+)
 
 # INTERVIEW-1 re-ask bound. THIS CONSTANT IS THE SAFETY PROPERTY of the re-ask
 # feature — do not remove it or make it conditional.
@@ -469,9 +489,17 @@ def _next_topic(topics: list[Topic], st: ConversationState) -> Topic | None:
        was closed forever the moment it was asked, so an essential the worker never
        answered silently shipped an incomplete profile.
     2. Any other unanswered topic that has NEVER been asked (core before optional).
-       Non-essential topics are asked ONCE and never re-asked —
-       ``preferred_locations`` in particular only needs the ASK to satisfy
-       :data:`MUST_ASK_TOPICS`.
+       Non-essential topics are asked ONCE and never re-asked — the
+       :data:`MUST_ASK_TOPICS` (``preferred_locations``, ``salary_current``,
+       ``salary_expected``, ``availability``) only need the ASK to satisfy the
+       readiness gate, so one serve each is enough.
+
+    This is also WHY the gate is enforceable: any must-ask topic that is neither
+    answered nor asked has ``_ask_count == 0``, so branch 2 or 3 necessarily
+    returns it. ``_next_topic`` therefore cannot return None while a must-ask is
+    still unraised — only the ask/turn ceiling in :func:`next_turn` can end the
+    interview before then, and :data:`MAX_ENGINE_ASKS` is sized above the bank's
+    worst-case blind run precisely so that cannot happen.
 
     Two invariants hold in EVERY branch:
 
