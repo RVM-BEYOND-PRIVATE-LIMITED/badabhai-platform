@@ -371,8 +371,115 @@ _MONEY_CUES: tuple[re.Pattern[str], ...] = tuple(
         r"\bmonth\w*", r"\bmasik\b", r"\bexpect\w*", r"\bchahi\w*",
     )
 )
-_RELOCATE_CUES = ("relocat", "shift", "chalega", "ready", "ja sakta", "kahin bhi", "anywhere",
-                  "bahar", "outside")
+# --- Relocation willingness (issue #437: STOP FABRICATING willing_to_relocate) ---
+#
+# THE DEFECT (measured, 16/16 shop-floor phrases). These cues were BARE SUBSTRINGS:
+#
+#     _RELOCATE_CUES = ("relocat", "shift", "chalega", "ready", "ja sakta",
+#                       "kahin bhi", "anywhere", "bahar", "outside")
+#
+# Every one of the short ones is CORE CNC/VMC SHOP VOCABULARY. They are what our
+# target worker says describing the job they already have — not edge phrasing:
+#
+#     "night shift karta hu"              -> relocate=True   (working HOURS)
+#     "outside diameter turning karta hu" -> relocate=True   (turning terminology)
+#     "bahar ka diameter check karta hu"  -> relocate=True   ("bahar" = OUTER)
+#     "vmc chalega mujhe"                 -> relocate=True   ("chalega" = it runs)
+#     "ready hu machine ke liye"          -> relocate=True   (ready at the machine)
+#
+# So this fires on ordinary answers to OUR OWN machine and experience questions, and
+# `willing_to_relocate` is PAYER-FACING: it reaches location_preference on the
+# persisted profile and prints on the resume. A worker who never said a word about
+# moving was advertised as willing to move, and nothing ever corrected it, because
+# nothing re-asks a field the detector already filled.
+#
+# THE RULE, the same shape #436/#443 gave availability: relocation needs an explicit
+# PLACE-CHANGE intent. A word that is only relocation-flavoured in context ("chalega",
+# "ready", "bahar", "ja sakta") is a MODIFIER, never a cue on its own — it counts only
+# when a PLACE it could apply to sits next to it. The decision is made in one place,
+# with adjacency, instead of hoping a keyword list is unambiguous.
+#
+# FAIL DIRECTION is toward "unknown" (None), per the issue: an unset
+# willing_to_relocate can still be asked; a fabricated one never gets corrected.
+
+# GENERALITY-OF-PLACE idioms. These are the ONE group that stands alone: "anywhere"
+# has no meaning except flexibility about WHERE, so it needs no verb beside it.
+# Measured, not assumed — gating these on a verb cost two real corpus positives,
+# "Maharashtra mein kahin bhi" and "anywhere in India", which are complete and
+# unambiguous answers to "kahan kaam karna chahte hain?".
+#
+# Note which tokens are NOT here: every one #437 reported fabricating ("shift",
+# "ready", "chalega", "outside", "bahar") is below, adjacency-gated. This group is
+# untouched by that issue because none of it collides with shop vocabulary.
+_RELOCATE_ANYWHERE = (
+    r"(?:kahin\s+bhi|kahi\s+bhi|kahee\s+bhi|anywhere|any\s+where|"
+    r"any\s+(?:city|place|location)|koi\s+bhi\s+(?:sheher|shehar|shahar|city|jagah|"
+    r"state|rajya)|india\s+me[in]?\s+kahin|out\s+of\s+station)"
+)
+# Places a move could be TO, INCLUDING the ambiguous ones. "bahar"/"outside" are here
+# and not above because "bahar JAANA" is leaving town while "bahar KA diameter" is the
+# outer diameter — only the verb beside it decides. "dusre sheher" likewise: on its own
+# it is as often work history ("dusre sheher me kaam kiya tha") as an intention.
+_RELOCATE_PLACE = (
+    rf"(?:{_RELOCATE_ANYWHERE}|bahar|baahar|outside|kahin\s+aur|kahi\s+aur|"
+    r"out\s+of\s+city|dusr[ae]\s+(?:sheher|shehar|shahar|city|jagah|state|rajya)|"
+    r"doosr[ae]\s+(?:sheher|shehar|city|jagah)|second\s+city)"
+)
+# Moving/going VERBS — the intent half of the pair.
+_RELOCATE_GO = (
+    r"(?:ja\s+sakta|ja\s+sakti|ja\s+sakte|jaa\s+sakta|jaane|jane|jana|jaana|"
+    r"jaunga|jaungi|jaaunga|nikal\s+sakta|rehne|rahne|settle|move|shift)"
+)
+# ACCEPTANCE — "that works for me". Only ever read against a PLACE.
+_RELOCATE_OK = (
+    r"(?:chalega|chalegi|chal\s+jayega|thik\s+hai|theek\s+hai|ok\s+hai|"
+    r"koi\s+dikkat\s+nahi|problem\s+nahi)"
+)
+# WILLINGNESS — "I am ready/prepared". Only ever read against a move.
+_RELOCATE_READY = r"(?:ready|taiyaar|taiyar|tayyar|rajee|raji)"
+
+_RELOCATE_CUE_RE: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        # Explicit and unambiguous in English — the word means only this.
+        r"\brelocat\w*",
+        r"\btransfer\s+(?:le\s+)?(?:sakta|sakti|sakte|lunga|loonga)\b",
+        # Generality of place — a complete flexibility answer on its own.
+        rf"\b{_RELOCATE_ANYWHERE}\b",
+        # A PLACE next to a GO verb, in either order: "bahar ja sakta hu",
+        # "kahin bhi jaane ko taiyaar", "dusre sheher shift ho sakta hu".
+        rf"\b{_RELOCATE_PLACE}\b[^.;!?]{{0,24}}?\b{_RELOCATE_GO}\b",
+        rf"\b{_RELOCATE_GO}\b[^.;!?]{{0,24}}?\b{_RELOCATE_PLACE}\b",
+        # A PLACE the worker ACCEPTS: "kahin bhi chalega", "koi bhi city chalega".
+        # `chalega` alone is the machine verb ("vmc chalega mujhe") and never fires.
+        rf"\b{_RELOCATE_PLACE}\b[^.;!?]{{0,24}}?\b{_RELOCATE_OK}\b",
+        # READY/TAIYAAR attached to a MOVE, never to a machine: "bahar jaane ko
+        # taiyaar hu", "relocate karne ke liye ready hu", "shift hone ko taiyaar hu".
+        # "ready hu machine ke liye" has no move to attach to, so it stays unset.
+        rf"\b{_RELOCATE_READY}\b[^.;!?]{{0,30}}?\b(?:{_RELOCATE_GO}|relocat\w*)\b",
+        rf"\b(?:{_RELOCATE_GO}|relocat\w*)\b[^.;!?]{{0,30}}?\b{_RELOCATE_READY}\b",
+        # "shift"/"move" as a PLACE-CHANGE verb: it must take a becoming-form
+        # ("shift ho jaunga", "shift hone ko taiyaar"). "night shift karta hu",
+        # "general shift", "shift me 12 ghante" carry no such form and stay unset.
+        r"\b(?:shift|shifting)\s+(?:ho|hona|hone|hoke|ho\s+kar|kar\s+sakta|"
+        r"kar\s+sakti)\b",
+    )
+)
+
+def _has_relocate_cue(text: str, masked: str | None = None) -> bool:
+    """True when ``text`` states a genuine willingness to CHANGE PLACE (#437).
+
+    ``masked`` is the negation-masked text of the same length; when supplied, a cue
+    whose characters fall inside a negated span is discarded, so "bahar nahi jaunga"
+    and "relocate nahi kar sakta" no longer assert the opposite of what was said.
+    """
+    for pattern in _RELOCATE_CUE_RE:
+        for match in pattern.finditer(text):
+            if masked is None or not _negation_vetoed(
+                masked, text, match.start(), match.end()
+            ):
+                return True
+    return False
 # --- Availability (issue #424 follow-up: STOP FABRICATING "immediate") ------
 #
 # THE DEFECT (measured, post-merge review of #429). These cues were BARE SUBSTRINGS:
@@ -480,14 +587,26 @@ _IMMEDIATE_SELF_STATE_RE: tuple[re.Pattern[str], ...] = tuple(
         rf"\b(?:main|mai|hum|i\s*am|i'?m|{_AVAIL_NOW})\s+available\b"
         r"(?!\s+(?:machine|machines|job|jobs|kaam|work|vacanc|position))",
         r"\bavailable\s+(?:hu|hun|hoon)\b",
-        # Not currently working. `hai`, `mil raha` and `milta` were DROPPED (review
-        # MEDIUM-3): "yahan acha kaam nahi milta" is a complaint about the current job,
-        # and "kaam nahi hai" is as often about the shop's workload as the worker's.
-        r"\b(?:kaam|job|naukri|kuch)\s+(?:nahi+n?|nhi)\s+(?:kar\s+raha|kar\s+rahi)\b",
         # Left the job. Past-perfect ("chhod di THI") is handled by the tense blocker.
         r"\b(?:job|naukri|company|kaam)\s+chhod\s+(?:di|diya|dia|dii)\b",
         # First person only: "mera bhai berozgar hai" is someone else's unemployment.
         r"\bberozgar\s+(?:hu|hun|hoon)\b",
+    )
+)
+
+# NEGATION-BEARING cues: these carry a negator INSIDE the phrase, and that negator is
+# what makes them mean "available" ("kaam nahi kar raha" = "I am not working" = free).
+# They are therefore EXEMPT from the negation veto below — vetoing them would delete
+# the very positives the veto exists to protect. Split out of the tuple above so the
+# exemption is a property of the CUE, declared once, instead of a special case buried
+# in the matching loop.
+_IMMEDIATE_NEGATION_BEARING_RE: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        # Not currently working. `hai`, `mil raha` and `milta` were DROPPED (review of
+        # #436, MEDIUM-3): "yahan acha kaam nahi milta" is a complaint about the
+        # current job, and "kaam nahi hai" is as often about the shop's workload.
+        r"\b(?:kaam|job|naukri|kuch)\s+(?:nahi+n?|nhi)\s+(?:kar\s+raha|kar\s+rahi)\b",
     )
 )
 
@@ -559,17 +678,122 @@ def _self_state_blocked(text: str, start: int, end: int) -> bool:
     )
 
 
-def _has_immediate_cue(text: str) -> bool:
+def _negation_vetoed(masked: str, raw: str, start: int, end: int) -> bool:
+    """True when the cue matched at ``[start:end)`` sits inside a NEGATED span.
+
+    Issue #441 B. Availability is matched against the RAW text, not the
+    negation-masked text, and that is deliberate — :func:`_apply_negation` blanks a
+    backward window from the negator, which would delete the "kaam" out of "kaam nahi
+    kar raha" (a phrase whose negator is what makes it mean *available*). So we cannot
+    simply feed availability the masked string; #443 measured that and left the gap
+    open rather than trade one fabrication for another.
+
+    But leaving it open meant a worker explicitly DECLINING was recorded as ACCEPTING:
+
+        "abhi available nahi hu"    -> availability: immediate
+        "turant join nahi kar sakta"-> availability: immediate
+        "abhi khaali nahi hu"       -> availability: immediate
+
+    The resolution is to use the masked text as a VETO rather than as the input. The
+    cue still matches the raw text (so nothing is deleted out from under it), and the
+    match is then discarded if :func:`_apply_negation` blanked any of the characters it
+    matched on — i.e. if the phrase we read was inside the scope of a negator. Cues
+    that carry their own negator are exempt by construction: they live in
+    :data:`_IMMEDIATE_NEGATION_BEARING_RE` and never reach this check.
+
+    Masking preserves LENGTH (it substitutes spaces), so ``masked`` and ``raw`` offsets
+    are the same string positions and a plain slice comparison is exact.
+    """
+    return masked[start:end] != raw[start:end]
+
+
+# How many word-tokens before a cue are scanned for a PRE-POSED negator. Two: enough
+# for "turant nahi aa sakta" / "abhi nahi join kar sakta", tight enough that a negator
+# in an earlier, unrelated part of the same clause cannot reach the cue
+# ("kaam nahi milta isliye turant join kar sakta hu" — "nahi" is three tokens back).
+_PRE_NEGATOR_LOOKBACK = 2
+
+
+def _preceded_by_negator(text: str, start: int) -> bool:
+    """True when a negator sits immediately BEFORE the cue, inside the same clause.
+
+    Issue #441 B, second half. :func:`_apply_negation` masks BACKWARD from the negator,
+    because Hindi normally negates after what it negates ("ITI nahi kiya"). Negated
+    ABILITY inverts that word order — the negator comes FIRST:
+
+        "turant nahi aa sakta"      ("cannot come immediately")
+        "abhi nahi join kar sakta"
+
+    so the backward mask covers "turant"/"abhi" and leaves the ability verb — the cue
+    we actually match on — untouched. That is the documented cost of backward-only
+    masking, and for most cue families missing it is the safe direction. For
+    availability it is NOT: the cue still fires and records the OPPOSITE of what the
+    worker said. So availability additionally checks the tokens directly in front of
+    the cue, which is the adjacency shape TAX-WELD-1 uses for the welding cues.
+
+    Clause-clamped, so a negator in a previous clause cannot suppress a genuine answer:
+    "kaam nahi kar raha, turant join kar sakta hu" keeps its cue.
+    """
+    clause_start = 0
+    for c_start, c_end in _clause_bounds(text):
+        if c_start <= start < c_end:
+            clause_start = c_start
+            break
+    before = [
+        m.group(0).strip(_TOKEN_TRIM).lower()
+        for m in _WORD_RE.finditer(text[clause_start:start])
+    ]
+    return any(
+        token in _NEGATORS for token in before[-_PRE_NEGATOR_LOOKBACK:]
+    )
+
+
+def _availability_negated(masked: str, raw: str, start: int, end: int) -> bool:
+    """Both halves of the #441 B veto: the cue is inside a negated span, or a negator
+    sits directly in front of it."""
+    return _negation_vetoed(masked, raw, start, end) or _preceded_by_negator(raw, start)
+
+
+def _has_immediate_cue(text: str, masked: str | None = None) -> bool:
     """True when ``text`` carries a genuine "can start now" cue.
 
     Strong cues fire on their own; self-state cues must also survive
-    :func:`_self_state_blocked`.
+    :func:`_self_state_blocked`. Both are additionally vetoed when the phrase is
+    NEGATED (#441 B) — passing ``masked`` (the negation-masked text of the same
+    length) turns that veto on. Negation-bearing cues are matched separately and are
+    never vetoed, because their negator is the signal.
     """
-    if any(p.search(text) for p in _IMMEDIATE_STRONG_RE):
-        return True
+    def vetoed(start: int, end: int) -> bool:
+        return masked is not None and _availability_negated(masked, text, start, end)
+
+    for pattern in _IMMEDIATE_STRONG_RE:
+        for match in pattern.finditer(text):
+            if not vetoed(match.start(), match.end()):
+                return True
     for pattern in _IMMEDIATE_SELF_STATE_RE:
         for match in pattern.finditer(text):
+            if not _self_state_blocked(text, match.start(), match.end()) and not vetoed(
+                match.start(), match.end()
+            ):
+                return True
+    for pattern in _IMMEDIATE_NEGATION_BEARING_RE:
+        for match in pattern.finditer(text):
             if not _self_state_blocked(text, match.start(), match.end()):
+                return True
+    return False
+
+
+def _has_notice_cue(text: str, masked: str | None = None) -> bool:
+    """True when ``text`` states a notice period, and is not DENYING one (#441 B).
+
+    Same veto as :func:`_has_immediate_cue`; no notice cue carries its own negator, so
+    all of them are subject to it ("notice period nahi hai" is not a notice period).
+    """
+    for pattern in _NOTICE_CUE_RE:
+        for match in pattern.finditer(text):
+            if masked is None or not _availability_negated(
+                masked, text, match.start(), match.end()
+            ):
                 return True
     return False
 
@@ -636,10 +860,17 @@ def _asked_notice_blocked(text: str, start: int, end: int) -> bool:
     return any(p.search(window) for p in _ASKED_NOTICE_BLOCKERS_RE)
 
 
-def _asked_notice_duration(text: str) -> bool:
-    """A bare duration that really does read as "this long until I can join"."""
+def _asked_notice_duration(text: str, masked: str | None = None) -> bool:
+    """A bare duration that really does read as "this long until I can join".
+
+    ``masked`` adds the #441 B negation veto: "15 din nahi lagenge" is not a notice.
+    """
     return any(
         not _asked_notice_blocked(text, m.start(), m.end())
+        and (
+            masked is None
+            or not _availability_negated(masked, text, m.start(), m.end())
+        )
         for m in _ASKED_NOTICE_RE.finditer(text)
     )
 _ASKED_IMMEDIATE_RE: tuple[re.Pattern[str], ...] = tuple(
@@ -978,11 +1209,19 @@ def detect(text: str) -> Signals:
     # measured shipping its own opposite. Location, availability, salary and
     # experience keep reading the ORIGINAL text: masking them cost real answers in
     # measurement ("abhi kuch nahi kar raha" loses the availability cue, "Pune se
-    # bahar nahi jaunga" loses Pune) and their negation was not part of this fix.
-    # Negation there is a KNOWN, deliberately UNCHANGED gap.
+    # bahar nahi jaunga" loses Pune).
+    #
+    # Availability and relocation are no longer part of that gap: they still MATCH on
+    # the raw text, but a match is vetoed when it lands inside a negated span (#441 B,
+    # #437). Salary and experience remain a known, deliberately unchanged gap.
     masked, _negated_topics = _apply_negation(text)
     lower = masked.lower()
     raw_lower = text.lower()
+    # The veto compares slices of these two by OFFSET, so they must be the same length.
+    # Masking preserves length, but `.lower()` does not for every Unicode char (ß -> ss),
+    # so the veto mask is built from `raw_lower` ITSELF rather than from `masked.lower()`.
+    # Alignment is then structural instead of an assumption that quietly holds today.
+    raw_masked, _ = _apply_negation(raw_lower)
 
     # Machines
     for kw, label, mid in _MACHINES:
@@ -1070,7 +1309,17 @@ def detect(text: str) -> Signals:
         sig.preferred_locations = ordered[1:]
     # State-level location (captured instead of dropped; does not replace a city).
     sig.current_state = _detect_state(text)
-    if any(c in raw_lower for c in _RELOCATE_CUES) or sig.preferred_locations:
+    # Issue #437: a genuine PLACE-CHANGE intent, adjacency-matched, negation-vetoed —
+    # no longer any bare substring of shop vocabulary ("night shift", "outside
+    # diameter", "vmc chalega", "ready hu machine ke liye").
+    #
+    # The second arm is UNCHANGED and deliberately so: a SECOND named city that
+    # detect() put in preferred_locations ("faridabad me hu, pune bhi chalega") is its
+    # own, older signal, out of this issue's scope. It is not free of the same defect
+    # class — two cities in a work-history sentence still infer willingness — but that
+    # is a distinct inference from the cue table #437 reports, and changing it here
+    # would move a behaviour nobody measured.
+    if _has_relocate_cue(raw_lower, raw_masked) or sig.preferred_locations:
         sig.relocation_willingness = True
 
     # Salary (current vs expected by nearby cue) — raw text, as above.
@@ -1082,9 +1331,13 @@ def detect(text: str) -> Signals:
     # A bare time adverb is NOT a cue, so answering our own "Abhi kis sheher mein
     # hain?" no longer fabricates "immediate". Immediate is still checked first, as
     # before, so an explicit "turant" beats an incidental duration in the same text.
-    if _has_immediate_cue(raw_lower):
+    # Issue #441 B: still matched on the RAW text (masking would delete the "kaam" out
+    # of "kaam nahi kar raha", which MEANS available), but a match whose characters
+    # were inside a negated span is now discarded — so a worker saying they CANNOT
+    # start now is no longer recorded as able to start now.
+    if _has_immediate_cue(raw_lower, raw_masked):
         sig.availability = "immediate"
-    elif any(p.search(raw_lower) for p in _NOTICE_CUE_RE):
+    elif _has_notice_cue(raw_lower, raw_masked):
         sig.availability = "notice_period"
 
     # Education / certifications
@@ -1236,9 +1489,39 @@ def skill_ids_for_labels(labels: list[str]) -> list[str]:
 
 # Cues that the worker is stating where they ARE (not where they'd go). Used to
 # attribute cities in an answer to the preferred-locations question (B-4).
-_CURRENT_LOC_CUES = (
-    "mein hoon", "mein hu", "me hoon", "me hu", "mai hoon", "mai hu",
-    "rehta", "rahta", "rehti", "rahti", "abhi",
+#
+# WORD BOUNDARIES, NOT SUBSTRINGS (issue #441 A). This tuple used to be plain
+# substrings, and one of them was the bare adverb "abhi" — which is a SUBSTRING OF
+# THE NAME "Abhishek". So a worker naming a colleague had that name read as "right
+# now", which flipped the B-4 attribution and recorded where they LIVE instead of
+# where they want to WORK:
+#
+#     asked=preferred_locations "Abhishek ne bola Chennai chahiye"
+#         -> current_location: Chennai                    WRONG
+#     asked=preferred_locations "Rakesh ne bola Chennai chahiye"
+#         -> preferred_locations: [Chennai]               correct  (the control)
+#
+# That is the exact current-vs-preferred conflation #423 described and #431 closed,
+# reintroduced by a substring. "Abhishek" is common in the target population.
+#
+# The boundary also stops "abhi" being found inside "kabhi" ("kabhi bhi" = "whenever"
+# — a FLEXIBILITY answer, the opposite of a current-location statement), the same
+# false match #436 had to fix in the availability cues.
+#
+# Fail direction is toward NOT claiming a current location: a city that lands in
+# preferred is still asked about ("Abhi kis sheher mein hain?"), while a fabricated
+# current_location is never corrected.
+_CURRENT_LOC_CUE_RE: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        # "main/mein/me/mai <copula>" — "I am in ...". One pattern covers every
+        # spelling pair the old substring list enumerated.
+        r"\b(?:me|mein|mai|main)\s+(?:hu|hun|hoon|hoo)\b",
+        # "rehta/rahti hu" — "I live in ...".
+        r"\b(?:rehta|rahta|rehti|rahti)\b",
+        # The bare time adverb, now boundary-anchored so no NAME can supply it.
+        r"\babhi\b",
+    )
 )
 
 
@@ -1277,9 +1560,12 @@ def detect_answered_topics(
     """
     sig = detect(text)
     _masked, negated_topics = _apply_negation(text)
-    # RAW text here: the only consumer below is the current-location cue check, and
-    # location deliberately keeps its pre-fix reading (see detect()).
+    # RAW text here: the current-location cue check deliberately keeps its pre-fix
+    # reading (see detect()).
     lower = text.lower()
+    # ...and its negation mask, for the context-gated availability read below (#441 B).
+    # Built from `lower` itself so the offsets line up by construction.
+    masked_lower, _ = _apply_negation(lower)
     answered: dict[str, object] = {}
     if sig.role_id:
         answered["role"] = sig.primary_role
@@ -1294,7 +1580,7 @@ def detect_answered_topics(
 
     # Location (B-4): current and preferred are separate topics.
     preferred_ctx = last_asked_topic_id == "preferred_locations"
-    states_current = any(cue in lower for cue in _CURRENT_LOC_CUES)
+    states_current = any(cue.search(lower) for cue in _CURRENT_LOC_CUE_RE)
     if preferred_ctx and sig.current_city and not states_current:
         # Cities named in reply to the preferred question, with no "I am in ..."
         # cue, are preferences — including the first one detect() put in
@@ -1339,9 +1625,18 @@ def detect_answered_topics(
         # anywhere else, which is exactly how "6 month ka experience hai" used to be
         # recorded as a notice period. Duration is tested FIRST: "abhi 15 din" is a
         # notice, not an immediate start.
-        if _asked_notice_duration(lower):
+        #
+        # Both arms are negation-vetoed (#441 B) exactly as the context-free cues in
+        # detect() are. Without it this path was the remaining way to record the
+        # opposite of what was said: "turant nahi aa sakta" answering the availability
+        # question matched the bare join-ability cue and read as immediate.
+        if _asked_notice_duration(lower, masked_lower):
             availability = "notice_period"
-        elif any(p.search(lower) for p in _ASKED_IMMEDIATE_RE):
+        elif any(
+            not _availability_negated(masked_lower, lower, m.start(), m.end())
+            for p in _ASKED_IMMEDIATE_RE
+            for m in p.finditer(lower)
+        ):
             availability = "immediate"
     if availability != "unknown":
         answered["availability"] = availability

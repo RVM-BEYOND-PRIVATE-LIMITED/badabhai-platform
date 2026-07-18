@@ -393,20 +393,17 @@ def test_negated_past_and_third_party_statements_do_not_assert_availability(
     assert _availability(text, asked) is None
 
 
-# --- MEDIUM-4: PRE-EXISTING negation blindness, deliberately NOT fixed here --
+# --- MEDIUM-4 / #442 / #441 B: negation blindness, now CLOSED -----------------
+#
+# These six were pinned here by #443 as strict xfails, with the note: "When the
+# negation seam is extended to availability, these flip to XPASS and strict=True fails
+# the suite — which is the signal to remove the xfail marker, not the tests."
+#
+# That is exactly what happened. #441 B closed the gap, all six flipped to XPASS, and
+# the marker is removed here while every case is kept. They are now live regression
+# tests: a worker who says they CANNOT start now must never be recorded as able to.
 
 
-@pytest.mark.xfail(
-    reason=(
-        "KNOWN OPEN GAP, tracked as issue #442. Availability reads `raw_lower` and "
-        "NOT the negation-masked text (signals.py, deliberate and pre-existing: masking "
-        "cost real answers elsewhere). So a worker explicitly saying they CANNOT start "
-        "now is recorded as able to start now. Fixing it is a change to the negation "
-        "seam, not to this cue family, so it is pinned here rather than silently "
-        "carried. Do NOT delete these to make the suite green."
-    ),
-    strict=True,
-)
 @pytest.mark.parametrize(
     "text",
     [
@@ -418,8 +415,7 @@ def test_negated_past_and_third_party_statements_do_not_assert_availability(
         "abhi khaali nahi hu",
     ],
 )
-def test_xfail_negated_availability_is_still_recorded_as_immediate(text: str):
-    """Pinned OPEN so the gap stops being invisible. When the negation seam is
-    extended to availability, these flip to XPASS and `strict=True` fails the suite —
-    which is the signal to remove the xfail marker, not the tests."""
+def test_negated_availability_records_nothing(text: str):
+    """#441 B. Was: every one of these recorded ``immediate`` — the OPPOSITE of what
+    the worker said, on a field that feeds reach scoring and prints on the resume."""
     assert _availability(text, "availability") is None

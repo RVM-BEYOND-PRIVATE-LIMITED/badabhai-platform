@@ -241,10 +241,14 @@ def test_negation_is_still_open_on_location_availability_salary_experience() -> 
     assert d("Pune nahi jaunga", "preferred_locations") == {
         "preferred_locations": ["Pune"]
     }
-    # Records the OPPOSITE of the stated availability.
+    # AVAILABILITY IS NO LONGER IN THIS LIST (#441 B). It used to record the OPPOSITE
+    # of what was said — "abhi turant nahi, 1 mahina lagega" -> immediate. Availability
+    # cues are now negation-vetoed, so this reads as the notice period it actually is,
+    # and "turant nahi aa sakta" records nothing rather than "immediate".
     assert d("abhi turant nahi, 1 mahina lagega", "availability") == {
-        "availability": "immediate"
+        "availability": "notice_period"
     }
+    assert d("turant nahi aa sakta", "availability") == {}
     # Records the salary the worker said they do NOT get.
     assert d("22000 nahi milta", "salary_current") == {"salary_current": 22000}
     # Worst of the set: records the figure the worker REFUSED and ignores the one
@@ -260,7 +264,19 @@ def test_negation_is_still_open_on_location_availability_salary_experience() -> 
     for row in NEGATION_PROBE:
         families[row[3]].add(_negation_is_open(row))
     assert families["CAPABILITY"] == {False}, "a capability-cue negation regressed"
-    assert families["VALUE"] == {True}, (
+    # The VALUE family used to be uniformly open ({True}). #441 B closed the
+    # AVAILABILITY half of it, so the assertion is NARROWED per this test's own
+    # instruction ("narrow this assertion instead of deleting it") rather than
+    # relaxed: availability probes must now all be CLOSED, and the remaining value
+    # topics — location, salary, experience — are still pinned OPEN.
+    by_topic = {
+        row[0]: _negation_is_open(row) for row in NEGATION_PROBE if row[3] == "VALUE"
+    }
+    assert by_topic["availability"] is False, "availability negation regressed (#441 B)"
+    still_open = {
+        topic: is_open for topic, is_open in by_topic.items() if topic != "availability"
+    }
+    assert set(still_open.values()) == {True}, (
         "a value-cue negation now works — good news: re-run the harness, update the "
         "report's OPEN gap list, and narrow this assertion instead of deleting it"
     )
@@ -369,11 +385,18 @@ def test_overall_acceptance_is_pinned() -> None:
       ``test_denials_are_absorbed_not_fabricated`` and the report's Fabrications
       section) — those never counted toward acceptance, because acceptance only
       scores the topic that was ASKED.
+    - **160/252 after #437 + #441**, the relocation / location-cue / negated-
+      availability fabrication fixes. The +2 are both `preferred_locations` fixtures
+      the old bare-substring cue list could not read: "kahi bhi" (it only carried the
+      "kahin bhi" spelling) and "koi bhi jagah" (it carried neither). Measured by
+      diffing the accepted set before and after, NOT inferred from the total: no
+      fixture that was accepted before is rejected now, so the two flips are pure
+      gains and nothing was traded away to close the fabrications.
     """
     rows = measure_all()
     should_accept = [m for m in rows if m.fixture.expected == "accept"]
     accepted = [m for m in should_accept if m.accepted]
-    assert (len(accepted), len(should_accept)) == (158, 252)
+    assert (len(accepted), len(should_accept)) == (160, 252)
 
     availability = [
         m for m in should_accept if m.fixture.topic == "availability" and m.accepted
