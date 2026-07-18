@@ -111,7 +111,15 @@ export function dangerousCommandReason(cmd) {
     /\b(cat|less|more|head|tail|type|Get-Content|gc)\b[^|;&]*?(^|[\s"'`=\\/])\.env(\b|$)/i.test(
       c,
     ) &&
-    !/\.env\.(example|sample|template|dist)\b/i.test(c)
+    // Template exemption. Mirrors guard.mjs's ENV_TEMPLATE_SUFFIX/ENV_TOKEN pair —
+    // keep the two in step. `[^...]*` spans intermediate segments so MULTI-segment
+    // templates (`.env.staging.example`) are exempt, not just `.env.example`; before
+    // this, layer 1 allowed them while layer 2 still denied, so the read failed anyway.
+    // The trailing lookahead (NOT `\b`) anchors the suffix to the END of the filename:
+    // with `\b`, `.env.example-prod` and `.env.staging.example~` (an editor backup
+    // holding real values) matched the exemption, because `-` and `~` are themselves
+    // word boundaries.
+    !/\.env[^\s'"`|;&<>()]*\.(example|sample|template|dist)(?=[\s'"`|;&<>()]|$)/i.test(c)
   ) {
     return "Refusing to print a .env file via the shell (secrets must never reach logs or context). Read .env.example instead.";
   }

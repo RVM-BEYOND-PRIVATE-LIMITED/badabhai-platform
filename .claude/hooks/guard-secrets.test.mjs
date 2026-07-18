@@ -70,6 +70,17 @@ expect(
   "allow",
 );
 expect("cat .env.example", bash("cat .env.example"), "allow");
+// MULTI-segment templates are exempt too. This layer used to require the template
+// word in the SECOND segment, so it denied `cat .env.staging.example` even after
+// guard.mjs allowed it — the two layers disagreed and the read failed anyway.
+expect("cat .env.staging.example", bash("cat .env.staging.example"), "allow");
+expect("grep .env.staging.example", bash('grep -n "REDIS" apps/api/.env.staging.example'), "allow");
+expect("cat .env.production.sample", bash("cat .env.production.sample"), "allow");
+// ...but the suffix must END the filename. With `\b` these matched the exemption:
+// `~` is itself a word boundary, so an editor backup read as a template.
+expect("cat .env.staging.example~", bash("cat .env.staging.example~"), "deny");
+expect("cat .env.example-prod", bash("cat .env.example-prod"), "deny");
+expect("cat .env.staging.example.bak", bash("cat .env.staging.example.bak"), "deny");
 expect("pnpm test", bash("pnpm test"), "allow");
 expect("normal migrate", bash("pnpm --filter @badabhai/db db:migrate"), "allow");
 
