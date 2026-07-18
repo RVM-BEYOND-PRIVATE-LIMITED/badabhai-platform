@@ -21,9 +21,42 @@ WHAT THIS CHANGE IS — AND IS NOT:
   role whitelist (ADR-0028 §(d): a wider ENUMERATED set, never free text). Without it
   the acceptance criterion "non-null role + trade" is unreachable. Flagged for review.
 
-The CNC/VMC no-regression guarantee is STRUCTURAL, not merely tested: the welding
-entries sit LAST in ``signals._ROLES`` and first-keyword-wins, so welding can only
-ever ADD a role where there was ``None`` — it can never displace a machining role.
+THE CNC/VMC NO-REGRESSION CLAIM — CORRECTED (review of PR #412).
+An earlier version of this docstring said the guarantee was structural: the welding
+entries sat LAST in ``signals._ROLES``, first-keyword-wins, so "welding can only ever
+ADD a role where there was ``None`` — it can never displace a machining role."
+
+That was TRUE but NOT SUFFICIENT, and stating it that way was overstated. ``_ROLES``
+has no entry for ``cnc``, ``lathe``, ``milling`` or bare ``operator``, so a large
+population of real machining workers ALREADY resolved to ``None`` — and "only fills a
+``None``" therefore silently meant "captures those workers as welders":
+
+    "cnc operator hun, welding bhi kar leta hun"       -> role_welder   (WRONG)
+    "pehle welding karta tha, ab CNC lathe chalata hu" -> role_welder   (WRONG; past)
+
+Filling a ``None`` WRONGLY is strictly WORSE than leaving it ``None``:
+``packages/reach-engine/src/scoring.ts`` ``scoreRole`` returns 0.4 for a null
+``roleId`` ("trade not stated yet") but 0.0 for a NON-MATCHING one ("different
+trade"), at ``WEIGHTS.role = 0.35``. MEASURED by scoring one worker against a
+VMC/turner job with ``roleId`` null vs ``role_welder``: an absolute drop of 0.1647
+(= 0.4 x 0.35 / (1 - 0.15), the skills-factor renormalisation), so the penalty is
+identical for any skill-less job; the relative cost depends on the baseline (24.5%
+on a strong-match fixture, ~33% on a weaker one).
+
+The precise claim, which the tests below enforce, is now:
+    welding NEVER displaces an ASSIGNED role, AND it may only fill a ``None`` when the
+    text carries NO machining signal and no blocker (negation / welding-adjacent
+    non-welder). Both halves live in ONE place — ``signals._assign_welding_role`` —
+    rather than being an emergent property of table ordering.
+
+KNOWN, DELIBERATE LIMITATIONS (not fixed here):
+- Blockers suppress the welder ROLE only; welding SKILL ids are still recorded. A
+  worker who says "welding nahi karta" keeps ``skill_welder_occupation``. Skills are
+  not the 35% role factor, and general negation parsing is a gazetteer-FAMILY property
+  (every keyword table here is negation-blind), not a welding-specific defect.
+- ``miss_attribution.py`` anchors are substring-matched, so ``mig``/``tig``/``arc``
+  fire on "emigration"/"fatigue"/"March". That module is EVAL-ONLY and off the live
+  path; logged by the reviewer, deliberately not touched here.
 """
 
 from __future__ import annotations
@@ -120,6 +153,21 @@ def test_short_welding_tokens_are_word_boundary_matched(text):
     assert sig.role_id != "role_welder", text
 
 
+@pytest.mark.parametrize("text", ["spotwelding", "weldingwala", "subwelder"])
+def test_role_and_skills_agree_on_glued_welding_tokens(text):
+    """The ROLE path used to disagree with the SKILL path.
+
+    `_WELDING_RE` is word-boundary matched, but the welding entries used to also live
+    in `_ROLES`, whose loop is plain substring (`kw in lower`). So "spotwelding" set
+    role_welder while producing NO skill id — an internally inconsistent profile, and
+    a direct contradiction of the guard whose own comment says a bare `in` test "would
+    corrupt profiles". All welding role logic now runs off `_WELDING_RE`, so the two
+    paths cannot diverge: no skill id => no role."""
+    sig = signals.detect(text)
+    assert not set(sig.skill_ids) & ALLOWED_WELDING_SKILL_IDS, text
+    assert sig.role_id != "role_welder", text
+
+
 # --- CNC/VMC precedence: welding can only ADD a role, never displace one -----------
 @pytest.mark.parametrize(
     ("text", "expected_role"),
@@ -134,6 +182,72 @@ def test_short_welding_tokens_are_word_boundary_matched(text):
 def test_machining_role_always_wins_over_welding(text, expected_role):
     _rich, legacy = profile_extractor.extract(text)
     assert legacy.canonical_role_id == expected_role
+
+
+# --- THE REGRESSION THE REVIEW CAUGHT ----------------------------------------------
+# Every case in the test ABOVE contains a `_ROLES` keyword, so all of them passed even
+# while welding was capturing machining workers. The blind spot was exactly the region
+# with NO `_ROLES` keyword — `cnc`, `lathe`, `milling`, bare `operator` — where the
+# role is `None` and welding was free to fill it. These are the five texts the reviewer
+# reproduced through the live path; every one returned `role_welder` before the fix.
+#
+# The assertion is `!= role_welder` (not `is None`) on purpose: it pins the PROPERTY
+# (a machining worker is never classified a welder) rather than today's exact output,
+# so a future `_ROLES` entry for `cnc`/`lathe` that makes these resolve CORRECTLY
+# strengthens the result instead of failing the test.
+@pytest.mark.parametrize(
+    "text",
+    [
+        "cnc operator hun, welding bhi kar leta hun",
+        "lathe pe kaam karta hu, welding bhi karta hu",
+        "pehle welding karta tha, ab CNC lathe chalata hu",   # welding is PAST tense
+        "welding shop mein CNC chalata hun",
+        "milling machine chalata hu, welding bhi aati hai",
+    ],
+)
+def test_machining_worker_with_no_roles_keyword_is_never_captured_as_a_welder(text):
+    """Mutation proof: drop the `has_machining_signal(...)` guard from
+    `signals._assign_welding_role` and all five of these fail with role_welder.
+
+    Why a wrong role is worse than no role: reach-engine scoring gives a null roleId
+    0.4 and a NON-MATCHING roleId 0.0, at a 35% weight."""
+    sig = signals.detect(text)
+    assert signals.has_machining_signal(text.lower(), sig), f"no machining signal: {text}"
+
+    _rich, legacy = profile_extractor.extract(text)
+    assert legacy.canonical_role_id != "role_welder", text
+    assert legacy.canonical_trade_id != "dom_welding", text
+    # A self-contradictory profile (welder role + a machining machine id) is impossible.
+    assert not (legacy.canonical_role_id == "role_welder" and legacy.machines), text
+
+
+# --- welding words present, but the worker is NOT a welder -------------------------
+@pytest.mark.parametrize(
+    "text",
+    [
+        "welding rod supply karta hu",       # storekeeper — "welding rod" is a consumable
+        "welding machine repair karta hu",   # maintenance tech — services the machine
+        "welding nahi karta, sirf helper hu",  # EXPLICIT DENIAL
+    ],
+)
+def test_welding_adjacent_non_welders_do_not_get_the_welder_role(text):
+    """Mutation proof: drop the `welding_role_blocked(...)` guard from
+    `_assign_welding_role` and all three become role_welder.
+
+    Scope is deliberate and narrow (see the module docstring): the ROLE is suppressed,
+    the welding SKILL ids are still recorded. This is a phrase-level guard, not a
+    general negation parser — negation-blindness is a gazetteer-FAMILY property."""
+    assert signals.welding_role_blocked(text.lower()), f"not blocked: {text}"
+    sig = signals.detect(text)
+    assert sig.role_id != "role_welder", text
+    assert sig.trade_id != "dom_welding", text
+
+
+def test_explicit_denial_does_not_disturb_the_standing_negative_gold_case():
+    # "sirf helper hu" is a negative-tier gold case; the denial guard must leave it None.
+    _rich, legacy = profile_extractor.extract("welding nahi karta, sirf helper hu")
+    assert legacy.canonical_role_id is None
+    assert legacy.canonical_trade_id is None
 
 
 def test_out_of_scope_trades_are_still_out_of_scope():

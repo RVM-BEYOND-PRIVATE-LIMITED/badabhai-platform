@@ -13,12 +13,20 @@ from __future__ import annotations
 
 import json
 
-from .signals import _ROLES
+from .signals import _EXTRA_ROLE_TRADES, _ROLES
 
 # role_id -> trade_id, straight from the gazetteer (the taxonomy source of truth).
-ROLE_TRADE: dict[str, str] = {rid: tid for _, _, rid, tid in _ROLES}
+#
+# `_ROLES` (keyword-matched) PLUS `_EXTRA_ROLE_TRADES` (in the closed set, but assigned
+# by dedicated gated logic rather than a keyword — `role_welder`, whose assignment runs
+# through `signals._assign_welding_role`). The closed SET and the keyword TABLE are
+# deliberately not the same thing: see the note on `_EXTRA_ROLE_TRADES`.
+ROLE_TRADE: dict[str, str] = {
+    **{rid: tid for _, _, rid, tid in _ROLES},
+    **dict(_EXTRA_ROLE_TRADES),
+}
 # Ordered, de-duplicated role ids (the closed allow-set offered to the model).
-ROLE_IDS: tuple[str, ...] = tuple(dict.fromkeys(rid for _, _, rid, _ in _ROLES))
+ROLE_IDS: tuple[str, ...] = tuple(ROLE_TRADE)
 
 # One-line descriptions shown to the model. Keys MUST stay a subset of ROLE_IDS.
 ROLE_DESCRIPTIONS: dict[str, str] = {
