@@ -1,10 +1,14 @@
 # ADR-0034 — Server-initiated push notifications for the worker app (FCM)
 
-- **Status:** **ACCEPTED (rev-2) + BUILT** 2026-07-17 — approved by Divyanshu (owner-delegated),
+- **Status:** **ACCEPTED (rev-3) + BUILT** 2026-07-17 — approved by Divyanshu (owner-delegated),
   including the `revokeAll` device-revocation change. Ships **INERT**: `PUSH_ENABLE_REAL=false`
   binds the mock provider, so nothing leaves the process until it is armed staging-first. §8
   records what the adversarial review changed and why.
-- **Date:** 2026-07-17
+- **Date:** 2026-07-17 (rev-3: 2026-07-18)
+- **Rev-3 (2026-07-18), one change:** `PATCH /auth/devices/me/push-token` returns
+  `200 { push_token_target }` instead of `204`. The D7 `target` drop-filter referenced a nonce the
+  server surfaced **nowhere**, so the client could never compare it — caught while writing the
+  client brief, before any client was built against it. See D2.
 - **Deviation from D3, deliberate:** the OAuth2 access token is minted with `node:crypto`
   (RS256 sign + token exchange, ~20 lines) rather than adding `google-auth-library`. Same HTTP v1
   REST call, **no new dependency** — matching StorageService's Mode A posture. A mis-signed
@@ -113,20 +117,53 @@ A rotated token silently dead-ends and the worker stops receiving pushes.
 ```
 PATCH /auth/devices/me/push-token     @UseGuards(WorkerAuthGuard)
 body: { push_token: string (1..512) }   // .strict()
-→ 204 No Content
+→ 200 { push_token_target: string | null }
 ```
+
+> **⚠ Rev-3 correction — the `target` drop-filter was unbuildable.** Rev-2 made this route
+> `204 No Content` and the sender echoed a `push_target` nonce in every payload (D7), but **nothing
+> ever handed that nonce to the client**: `DeviceListItem` deliberately omits it, and a 204 has no
+> body. The client therefore had no value to compare against, so the residual shared-handset defence
+> was dead code on the wire — discovered while writing the client brief, before any client had been
+> built against it. The route now returns the rotated target. This write is what rotates the nonce,
+> so it is the only moment client and server can agree on its value.
+>
+> **No compatibility cost:** the route shipped inert hours earlier and has zero consumers; adding a
+> body to a 2xx is additive for any that appear later.
 
 - **Identity from the session, never the body.** The worker comes from `WorkerAuthGuard`; the
   **device** comes from the session's `did` claim (ADR-0026 Phase 2). No `worker_id`/`device_id`
   in the body — a body id here would be a direct IDOR onto another worker's device row.
-- **No `did` on the session** (login without `device_info`) → **204 no-op**. Deliberate: a device
-  row is created only at login with `device_info`; minting one from a bare token would create an
-  unbound, un-revocable push target.
+- **No `did` on the session** (login without `device_info`) → **no-op, `push_token_target: null`**.
+  Deliberate: a device row is created only at login with `device_info`; minting one from a bare
+  token would create an unbound, un-revocable push target.
 - **Idempotent**: same token ⇒ no write, no event. Client dedupes too (only send on change).
 - **Consent:** `WorkerAuthGuard` only. Registering a delivery address is not AI processing, and a
   worker who revoked consent must still receive **security** notifications (`worker.logged_out_all`).
   *Consent is enforced at the FAN-OUT instead* — see D5.
-- **Revoked device** ⇒ 204 no-op (never re-arm a revoked device).
+- **Revoked device** ⇒ no-op, `null` target (never re-arm a revoked device).
+- **The no-op causes stay indistinguishable from one another** — unknown, not-owned and revoked all
+  collapse to the same `null`, which is the property the 204 was protecting. What the response now
+  reveals is only whether the caller's **own** device is still active, which `GET /auth/devices`
+  already tells that same session.
+
+> **⚠ Rev-3, second half — this route is the ONLY client path that may write a push token.**
+> `registerOrTouch` **also** rotates `push_target` whenever a login carries
+> `device_info.push_token` — on both the insert and the touch branch — and the OTP-verify response
+> does **not** return it. So a client that sends its token at login rotates the nonce to a value it
+> never learns, keeps comparing against its previous one, and **silently drops every subsequent
+> push**: a total, invisible outage of the security channel on that device. The stale-target failure
+> is strictly worse than no filter at all, because it fails *closed* on exactly the copy that must
+> get through.
+>
+> **The rule:** the client sends `push_token` **only** via this route, never inside `device_info`.
+> The PATCH then becomes the single writer and the single source of the target — one path, no race,
+> nothing to keep in sync. Since the client re-sends on every app start regardless (D1), this costs
+> nothing.
+>
+> `DeviceInfoSchema.push_token` is **left in place** (§8 backward-compat — it is optional, and
+> removing a shipped field to enforce client discipline is the wrong trade). Tightening the server
+> so the login path cannot rotate a nonce it does not return is logged as **TD95**.
 - **Invalidation:** on FCM `UNREGISTERED`, the token is nulled on that device row (D6).
 
 ### D3 / D4 — The sender, and how it is gated
@@ -370,6 +407,9 @@ The FCM payload transits Google infrastructure. **That raises the bar, not lower
   **not** a worker id and is not correlatable to a person — it is a per-install nonce, so it
   satisfies the rule above while making the leak client-side suppressible. Belt **and** braces,
   deliberately, because the payload here is security copy.
+  **Rev-3:** the client learns its own value from the `PATCH me/push-token` response (D2) — rev-2
+  surfaced it nowhere, which left this braces-half unbuildable. A client with **no** stored target
+  must **not** filter (it cannot), only one that has been handed a target may drop mismatches.
 - **`push_token`** stays raw at rest (it must remain usable) but **never** enters an event, log,
   `ai_jobs`, or `audit_log`. The existing lines hold this today
   ([`devices.dto.ts:11`](../../apps/api/src/auth/devices.dto.ts#L11), the ADR-0026 payloads,
