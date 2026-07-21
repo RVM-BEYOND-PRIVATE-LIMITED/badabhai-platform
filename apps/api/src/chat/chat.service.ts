@@ -252,6 +252,23 @@ export class ChatService {
     //    to its string members here, BEFORE the outbound check — a chat turn must
     //    never 500 on a progress field.
     const rawUnanswered: unknown = aiResult.updated_state?.unanswered_essentials ?? [];
+    const unansweredEssentials = Array.isArray(rawUnanswered)
+      ? rawUnanswered.filter((t): t is string => typeof t === "string")
+      : [];
+    // This coercion is EXPECTED dead code behind the AiService typed seam (post()
+    // schema-parses both legs, so step 7 only ever sees string[] or null) - but if a
+    // future refactor makes it reachable, the degrade must be OBSERVABLE, not silent:
+    // field name + drop count only, never the values (SG-2 / no-PII-in-logs).
+    if (!Array.isArray(rawUnanswered)) {
+      this.logger.warn(
+        `postMessage coerced unanswered_essentials session=${dto.session_id} non-array -> []`,
+      );
+    } else if (unansweredEssentials.length !== rawUnanswered.length) {
+      this.logger.warn(
+        `postMessage coerced unanswered_essentials session=${dto.session_id} ` +
+          `dropped=${rawUnanswered.length - unansweredEssentials.length} non-string member(s)`,
+      );
+    }
     const response: PostMessageResponse = {
       session_id: dto.session_id,
       reply: await this.renderWorkerName(aiResult.reply_text, workerId),
@@ -263,9 +280,7 @@ export class ChatService {
       extraction_ready: aiResult.extraction_ready,
       // CHAT-UE-1 (additive): ESSENTIAL topics not yet answered, in ESSENTIAL_TOPICS
       // order; empty = complete; topic ids only, never PII.
-      unanswered_essentials: Array.isArray(rawUnanswered)
-        ? rawUnanswered.filter((t): t is string => typeof t === "string")
-        : [],
+      unanswered_essentials: unansweredEssentials,
     };
     // Outbound boundary check (belt-and-braces): the object above is constructed
     // field-by-field, so unknown engine fields cannot leak in; safeParse guards the
