@@ -8,3 +8,13 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    ignore:
+      # TD96 (owner ruling 2026-07-21, PR #473 closed): stay on ssh-action v1.0.3.
+      # v1.1.0+ is a composite that curl-downloads the drone-ssh binary at deploy
+      # time with no checksum — a SHA pin no longer covers the executed code, and
+      # this step carries the 12 production deploy secrets (ci.yml "Deploy via SSH").
+      # Remove this ignore only with an owner decision recorded in the tech-debt
+      # register (e.g. vendoring the action or upstream adding checksum verification).
+      - dependency-name: "appleboy/ssh-action"
+        update-types:
+          ["version-update:semver-major", "version-update:semver-minor"]
