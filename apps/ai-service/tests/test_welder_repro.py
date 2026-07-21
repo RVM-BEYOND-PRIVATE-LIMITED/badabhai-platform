@@ -131,14 +131,19 @@ def test_repro_storm_reconciles_attempts_and_surfaces_reason(monkeypatch, caplog
 
     # The closed-set reason codes are surfaced in the logs — never a bare
     # "RuntimeError" (which is what hid WHICH failure fired 28x).
-    reasons = [
-        getattr(r, "extra", {}).get("reason")
-        for r in caplog.records
-        if r.getMessage() == "llm attempt failed"
+    attempt_records = [
+        r for r in caplog.records if r.getMessage().startswith("llm attempt failed")
     ]
+    reasons = [getattr(r, "extra", {}).get("reason") for r in attempt_records]
     assert "http_429" in reasons  # Gemini rate-limit attempts
     assert "no_text_content" in reasons  # Haiku empty-response attempts
     assert "RuntimeError" not in reasons
+    # ...and the MESSAGE itself names them, since the structured `extra` is only
+    # rendered by the JSON formatter, which plain-logging consumers never install.
+    messages = "\n".join(r.getMessage() for r in attempt_records)
+    assert "reason=http_429" in messages
+    assert "reason=no_text_content" in messages
+    assert "provider=google" in messages and "provider=anthropic" in messages
 
 
 def test_repro_storm_chat_turn_also_reconciles(monkeypatch):

@@ -82,6 +82,31 @@ def _experience_level(years: float | None) -> str:
     return "senior"
 
 
+def _refresh_completeness(draft: WorkerProfileDraft) -> None:
+    """(Re)compute the DERIVED completeness report on ``draft``, in place.
+
+    ``missing_fields`` / ``clarification_questions`` / ``confidence_score`` are
+    functions of the other fields, so any step that writes a field must refresh
+    them or the draft starts asserting things about itself that are no longer
+    true (e.g. still listing ``expected_salary`` as missing after it was filled).
+    """
+    def _is_missing(field_name: str) -> bool:
+        value = getattr(draft, field_name)
+        if field_name == "availability":
+            return value == "unknown"
+        if field_name == "controllers":
+            return not value
+        return value is None
+
+    draft.missing_fields = [f for f in _TRACKED if _is_missing(f)]
+    draft.clarification_questions = [
+        _CLARIFY[f] for f in draft.missing_fields if f in _CLARIFY
+    ][:3]
+    core_values = (draft.primary_role, draft.machines, draft.experience_years, draft.current_city)
+    core_filled = sum(1 for v in core_values if v)
+    draft.confidence_score = round(min(0.3 + 0.15 * core_filled, 0.95), 2)
+
+
 def _build_rich(sig: Signals, role_family: str) -> WorkerProfileDraft:
     draft = WorkerProfileDraft(
         role_family=role_family,
@@ -108,23 +133,7 @@ def _build_rich(sig: Signals, role_family: str) -> WorkerProfileDraft:
         education=sig.education,
         certifications=sig.certifications,
     )
-
-    def _is_missing(field_name: str) -> bool:
-        value = getattr(draft, field_name)
-        if field_name == "availability":
-            return value == "unknown"
-        if field_name == "controllers":
-            return not value
-        return value is None
-
-    draft.missing_fields = [f for f in _TRACKED if _is_missing(f)]
-    draft.clarification_questions = [
-        _CLARIFY[f] for f in draft.missing_fields if f in _CLARIFY
-    ][:3]
-
-    core_values = (draft.primary_role, draft.machines, draft.experience_years, draft.current_city)
-    core_filled = sum(1 for v in core_values if v)
-    draft.confidence_score = round(min(0.3 + 0.15 * core_filled, 0.95), 2)
+    _refresh_completeness(draft)
     return draft
 
 
@@ -230,6 +239,139 @@ def merge_model_draft(base: WorkerProfileDraft, content: str) -> WorkerProfileDr
     if isinstance(data.get("drawing_reading"), bool):
         out.drawing_reading = data["drawing_reading"]
 
+    return out
+
+
+# --- Engine-collected answers -> the draft (D1) -----------------------------
+#
+# ``ConversationState.collected`` maps an interview TOPIC id to the value the
+# worker gave AS THE ANSWER TO THAT QUESTION. Both it and ``extract()`` run the
+# SAME deterministic detector (``signals``) — the difference is CONTEXT:
+#
+#   * ``collected`` is written by ``interview_engine.next_turn``, which passes
+#     ``last_asked`` into ``signals.detect_answered_topics`` and then applies the
+#     P1-1 overwrite rule (the asked topic commits, an explicit correction
+#     commits, otherwise first write wins);
+#   * ``extract()`` re-derives everything CONTEXT-FREE over the concatenated
+#     transcript, where it cannot know which question any line answered.
+#
+# MEASURED consequence (the defect this closes): a worker answering the
+# expected-salary question with a bare amount has it recorded as
+# ``collected["salary_expected"]``, while ``_detect_salary`` over the transcript
+# assigns the first cue-less amount to ``current_salary`` and then DROPS the
+# second one (``elif sig.current_salary is None``). The resume shipped
+# ``expected_salary: null`` for a value the parser had already captured.
+#
+# Topic id -> the SCALAR draft field it owns. On disagreement the collected value
+# wins (see :func:`merge_collected`).
+_COLLECTED_SCALAR_FIELDS: dict[str, str] = {
+    "role": "primary_role",
+    "experience": "experience_years",
+    "current_location": "current_city",
+    "salary_current": "current_salary",
+    "salary_expected": "expected_salary",
+    "availability": "availability",
+}
+# Topic id -> the LIST draft field it contributes to. Unioned, never replaced.
+_COLLECTED_LIST_FIELDS: dict[str, str] = {
+    "machines": "machines",
+    "controllers": "controllers",
+    "skills": "skills",
+    "education": "education",
+    "preferred_locations": "preferred_locations",
+}
+
+
+def _as_int(value: object) -> int | None:
+    """A positive whole amount, or None. ``bool`` is excluded explicitly (it is an
+    ``int`` subclass, and ``True`` must never become a salary of 1)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    amount = int(value)
+    return amount if amount > 0 else None
+
+
+def _union_labels(base: list[str], extra: list[str]) -> list[str]:
+    """``base`` order preserved, members of ``extra`` not already present appended.
+    Case-insensitive dedupe (first casing wins) — mirrors ``clamp_skill_labels``."""
+    out = list(base)
+    seen = {label.lower() for label in out}
+    for label in extra:
+        if label.lower() not in seen:
+            seen.add(label.lower())
+            out.append(label)
+    return out
+
+
+def merge_collected(base: WorkerProfileDraft, collected: dict | None) -> WorkerProfileDraft:
+    """Merge the interview engine's question-attributed answers onto ``base``.
+
+    THE PRECEDENCE RULE (see the table above for why):
+
+    * **Scalars** — ``collected`` WINS. It is the answer the worker gave to that
+      exact question, already guarded against incidental overwrite by the P1-1
+      rule; ``base`` is a context-free re-derivation that demonstrably
+      mis-attributes and drops. When ``collected`` is silent, ``base`` stands;
+      when ``base`` is silent, ``collected`` fills it. **Neither side ever writes
+      a null over a value** — this merge is strictly additive/corrective.
+    * **Lists** — UNIONED, never replaced. A list is not a *correction* of
+      another list: ``collected`` holds what ONE message contained, ``base`` what
+      the whole transcript did (e.g. collected ``["VMC"]`` vs extracted
+      ``["VMC", "CNC Lathe"]``). Replacing would delete a machine the worker
+      really did mention. Base order first, collected-only members appended.
+    * **Malformed values are SKIPPED, never coerced** — the same posture as
+      :func:`merge_model_draft`. ``collected`` is typed ``dict`` on the contract,
+      so it is treated as untrusted in shape. This also handles the engine's
+      ``preferred_locations = "flexible"`` SENTINEL, which marks "kahin bhi
+      chalega" as an ANSWER: it is a marker, not a place, and must never be
+      written into the resume's city list. (Nothing is lost — the same phrase is
+      what sets ``relocation_willingness`` on the transcript pass.)
+
+    Ordering: callers must run this LAST, after any model overlay
+    (:func:`merge_model_draft`). The model sees only the masked transcript and
+    likewise has no question context, so a deterministic, worker-attributed value
+    must outrank it. This strictly REDUCES the LLM's influence on the profile
+    (CLAUDE.md §2 #4 — the LLM assists, it never decides).
+
+    PRIVACY: pure local dict/label arithmetic over values the engine already
+    holds in process (closed-set gazetteer labels, canonical cities, ints,
+    enums). It performs no I/O and MUST NOT be called with anything on its way to
+    a model. ``base`` is copied, never mutated.
+    """
+    out = base.model_copy(deep=True)
+    if not collected:
+        return out
+
+    for topic_id, field in _COLLECTED_SCALAR_FIELDS.items():
+        if topic_id not in collected:
+            continue
+        raw = collected[topic_id]
+        if field in ("current_salary", "expected_salary"):
+            amount = _as_int(raw)
+            if amount is not None:
+                setattr(out, field, amount)
+        elif field == "experience_years":
+            years = _as_float(raw)
+            if years is not None:
+                out.experience_years = years
+                out.experience_level = _experience_level(years)  # keep level consistent
+        elif field == "availability":
+            if isinstance(raw, str) and raw in _AVAILABILITY:
+                out.availability = raw
+        else:  # primary_role / current_city — non-empty text only
+            text = _as_text(raw)
+            if text is not None:
+                setattr(out, field, text)
+
+    for topic_id, field in _COLLECTED_LIST_FIELDS.items():
+        values = _as_str_list(collected.get(topic_id))
+        if values:
+            setattr(out, field, _union_labels(getattr(out, field), values))
+
+    # The merge is the LAST write before the profile is used, so the derived
+    # completeness report must be recomputed or it will claim we still need to ask
+    # for something we now have.
+    _refresh_completeness(out)
     return out
 
 

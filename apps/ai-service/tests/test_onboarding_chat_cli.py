@@ -261,11 +261,22 @@ def _adaptive_drive(router, answer_for, *, name="Suresh", max_turns=40):
     ``answer_for(topic_id)`` supplies the reply. Returns
     ``(resume, calls, asked_order, printed)`` where ``asked_order`` is the sequence
     of topic ids the engine actually chose (read off the printed per-turn header,
-    i.e. the same thing an operator sees)."""
+    i.e. the same thing an operator sees).
+
+    The topic in play is SEEDED with the engine's own opening topic: the CLI now
+    opens with ``interview_engine.first_question`` instead of a "type anything"
+    nudge, so the first worker message answers a real question.
+
+    ``asked_order`` still counts ENGINE-served turns only. The opener carries no
+    per-turn header (it is not a router call), so it is deliberately not counted —
+    the ask BUDGET it feeds (``ask_counts``) is the engine's, and the opener does
+    not touch it."""
     asked_order: list[str] = []
     printed: list[str] = []
-    last: dict[str, str | None] = {"topic": None}
-    pending = {"name": True, "kickoff": True}
+    last: dict[str, str | None] = {
+        "topic": interview_engine.first_question("cnc_vmc")[0]
+    }
+    pending = {"name": True}
 
     def _print(*a, **_k):
         text = " ".join(str(x) for x in a)
@@ -285,9 +296,6 @@ def _adaptive_drive(router, answer_for, *, name="Suresh", max_turns=40):
         if pending["name"]:
             pending["name"] = False
             return name
-        if pending["kickoff"]:
-            pending["kickoff"] = False
-            return "shuru"
         return answer_for(last["topic"])
 
     resume, calls = _run(
@@ -317,7 +325,7 @@ def test_cli_drives_the_real_interview_engine(monkeypatch):
     monkeypatch.setattr(onboarding_chat.interview_engine, "next_turn", _spy)
 
     router = _ScriptedRouter()
-    answers = ["Suresh", "shuru", "vmc operator hoon", "5 saal", "Pune mein hu", "done"]
+    answers = ["Suresh", "vmc operator hoon", "5 saal", "Pune mein hu", "done"]
     _drive(router, answers)
 
     assert seen, "interview_engine.next_turn was never called — the engine is bypassed"
@@ -335,7 +343,7 @@ def test_engine_state_is_threaded_forward_not_restarted():
     """The ConversationState must carry across turns (production persists it on the
     session). If it were dropped, every turn would re-ask topic #1."""
     router = _ScriptedRouter()
-    answers = ["Suresh", "shuru", "hmm", "hmm", "hmm", "done"]
+    answers = ["Suresh", "hmm", "hmm", "hmm", "done"]
     _drive(router, answers)
     asked = [c["mock_response"] for c in router.chat_calls()]
     assert len(asked) == len(set(asked)), f"a question repeated — state was lost: {asked}"
@@ -350,7 +358,7 @@ def test_chat_turn_never_resends_history():
     ``for item in history: messages.append(...)`` re-send fails this test."""
     router = _ScriptedRouter()
     # Distinctive, signal-free tokens so a leak is unambiguous.
-    answers = ["Suresh", "shuru", "zzqqa", "zzqqb", "zzqqc", "zzqqd", "done"]
+    answers = ["Suresh", "zzqqa", "zzqqb", "zzqqc", "zzqqd", "done"]
     _drive(router, answers)
 
     chat_calls = router.chat_calls()
@@ -375,7 +383,7 @@ def test_chat_messages_match_build_chat_messages_with_empty_history():
     """Structural parity with the production endpoint (main.profiling_respond):
     ``build_chat_messages([], engine_question, pseudonymized_message)``."""
     router = _ScriptedRouter()
-    _drive(router, ["Suresh", "shuru", "vmc operator hoon", "done"])
+    _drive(router, ["Suresh", "vmc operator hoon", "done"])
     for call in router.chat_calls():
         user_msg = call["messages"][1]["content"]
         expected = build_chat_messages([], call["mock_response"], user_msg)
@@ -396,7 +404,7 @@ def test_input_size_is_flat_across_turns():
     """
     router = _ScriptedRouter()
     long_answer = "hmm " * 22 + "theek"  # ~93 chars, carries no extractable signal
-    answers = ["Suresh", "shuru"] + [long_answer] * 8 + ["done"]
+    answers = ["Suresh"] + [long_answer] * 8 + ["done"]
     _drive(router, answers)
 
     calls = router.chat_calls()
@@ -507,8 +515,12 @@ def test_engine_wraps_up_once_essentials_are_answered():
     _resume, _calls, asked_order, printed = _adaptive_drive(
         router, lambda topic: answer_by_topic.get(topic, "haan")
     )
+    # Every essential is COVERED — by an engine-served turn, by the OPENER (which
+    # the CLI now serves from ``first_question`` and which therefore carries no
+    # per-turn header to be counted), or incidentally by another answer.
+    opening_topic = interview_engine.first_question("cnc_vmc")[0]
     assert set(interview_engine.ESSENTIAL_TOPICS).issubset(
-        set(asked_order) | {"machines", "skills"}
+        set(asked_order) | {opening_topic, "machines", "skills"}
     )
     assert "preferred_locations" in asked_order
     assert "resume ban raha hai" in printed
@@ -543,7 +555,7 @@ def test_clarify_reserves_the_same_question_at_most_twice():
     worker did not understand — bounded by ``_MAX_CONSECUTIVE_CLARIFIES`` (2), after
     which the interview must move on rather than loop."""
     router = _ScriptedRouter()
-    answers = ["Suresh", "shuru"] + ["matlab kya?"] * 5 + ["done"]
+    answers = ["Suresh"] + ["matlab kya?"] * 5 + ["done"]
     _drive(router, answers)
 
     asked = [c["mock_response"] for c in router.chat_calls()]
@@ -559,7 +571,7 @@ def test_straight_line_turn_never_allows_a_real_chat_call():
     ``real_call_allowed`` is False, so the engine's question is returned verbatim.
     The LLM can only ever PHRASE a question, never choose one."""
     router = _ScriptedRouter()
-    _drive(router, ["Suresh", "shuru", "vmc operator hoon", "5 saal", "done"])
+    _drive(router, ["Suresh", "vmc operator hoon", "5 saal", "done"])
     assert router.chat_calls()
     assert all(c["real_call_allowed"] is False for c in router.chat_calls())
 
@@ -572,7 +584,9 @@ def test_clarify_turn_allows_a_real_call_only_when_the_rephrase_flag_is_on():
     _run(
         onboarding_chat._run_chat(
             router,
-            input_fn=_scripted_input(["Suresh", "shuru", "matlab kya?", "done"]),
+            # A real answer FIRST, so the clarify has a served question to re-serve
+            # (the opener leaves no state; clarify_turn refuses on an empty one).
+            input_fn=_scripted_input(["Suresh", "vmc operator hoon", "matlab kya?", "done"]),
             print_fn=_silent,
             settings=Settings(
                 ai_enable_real_calls=False, ai_profiling_rephrase_enabled=True
@@ -591,7 +605,7 @@ def test_name_never_passed_into_any_router_call_but_renders_locally():
     ChatService.renderWorkerName)."""
     printed: list[str] = []
     router = _ScriptedRouter()
-    answers = ["Suresh", "shuru", "CNC turning operator", "Fanuc machine, 5 saal", "done"]
+    answers = ["Suresh", "CNC turning operator", "Fanuc machine, 5 saal", "done"]
     resume, _calls = _drive(
         router, answers, print_fn=lambda *a, **_k: printed.append(" ".join(map(str, a)))
     )
@@ -627,7 +641,7 @@ def test_router_receives_the_MASKED_text_never_the_raw_answer():
     raw_city, raw_employer = "Pune", "Tata Motors"
     answer = f"abhi {raw_city} mein hu, {raw_employer} mein kaam kiya, vmc operator"
 
-    resume, _calls = _drive(router, ["Suresh", "shuru", answer, "done"])
+    resume, _calls = _drive(router, ["Suresh", answer, "done"])
 
     sent = router.all_message_text()
     # The masked placeholders DID cross the boundary (proving the answer was carried
@@ -670,9 +684,9 @@ def test_pseudonymization_block_turn_is_handled_gracefully(monkeypatch):
 
     answers = [
         "Mahesh",                          # NAME
-        "shuru",                           # kickoff -> turn 1
         "call me on 9999900000",           # BLOCKED -> re-prompt, no model call
-        "VMC operator, Pune, 4 saal",      # clean
+        "VMC operator, Pune, 4 saal",      # clean -> turn 1
+        "5 saal",                          # clean -> turn 2
         "done",
     ]
     resume, calls = _drive(router, answers)
@@ -695,7 +709,7 @@ def test_full_block_returns_resume_without_extraction(monkeypatch):
 
     monkeypatch.setattr(onboarding_chat, "pseudonymize", lambda *_a, **_k: _Blocked())
 
-    resume, calls = _drive(router, ["Mahesh", "shuru", "operator", "done"])
+    resume, calls = _drive(router, ["Mahesh", "operator", "done"])
 
     assert resume["name"] == "Mahesh"
     assert all(c["task_type"] != "profile_extraction" for c in router.calls)
@@ -719,7 +733,7 @@ def test_cli_extraction_canonicalizes_role_to_closed_set():
         real_call=True, provider="anthropic", extraction_content=extraction
     )
     resume, _calls = _drive(
-        router, ["Suresh", "shuru", "cnc machine chalayi dedh saal", "done"]
+        router, ["Suresh", "cnc machine chalayi dedh saal", "done"]
     )
     assert resume["role"] == "role_vmc_operator"
     assert resume["trade"] == "dom_vmc_machining"  # derived from ROLE_TRADE
@@ -734,14 +748,14 @@ def test_invalid_canonical_role_id_is_rejected_keeps_heuristic():
     router = _ScriptedRouter(
         real_call=True, provider="anthropic", extraction_content=extraction
     )
-    resume, _calls = _drive(router, ["Suresh", "shuru", "kuch khaas nahi", "done"])
+    resume, _calls = _drive(router, ["Suresh", "kuch khaas nahi", "done"])
     assert resume["role"] != "role_made_up"  # rejected; heuristic (likely null) stands
 
 
 def test_loop_ends_on_done():
     """Typing 'done' ends the loop even mid-interview."""
     router = _ScriptedRouter()
-    resume, calls = _drive(router, ["Suresh", "shuru", "CNC turning operator", "done"])
+    resume, calls = _drive(router, ["Suresh", "CNC turning operator", "Fanuc", "done"])
     assert router.chat_turn_count() == 2
     assert resume["name"] == "Suresh"
     assert any(c.task_type == "profile_extraction" for c in calls)
@@ -750,7 +764,7 @@ def test_loop_ends_on_done():
 def test_main_uses_real_router_in_mock_mode_without_network(monkeypatch, capsys):
     """Smoke test of main(): scripted stdin, default mock settings -> prints a
     resume JSON banner + the cost panel. Uses the REAL AIRouter but stays mock."""
-    answers = ["Geeta", "shuru", "vmc operator", "haas, 3 saal, pune", "done"]
+    answers = ["Geeta", "vmc operator", "haas, 3 saal, pune", "done"]
     monkeypatch.setattr("builtins.input", _scripted_input(answers))
     monkeypatch.setattr(
         onboarding_chat, "get_settings", lambda: Settings(ai_enable_real_calls=False)
@@ -779,7 +793,7 @@ def test_offline_fallback_note_printed_when_not_real():
     router = _ScriptedRouter(real_call=False)
     _drive(
         router,
-        ["Geeta", "shuru", "vmc operator, pune, 3 saal", "done"],
+        ["Geeta", "vmc operator, pune, 3 saal", "done"],
         print_fn=lambda *a, **_k: printed.append(" ".join(str(x) for x in a)),
     )
     joined = "\n".join(printed)
@@ -844,7 +858,7 @@ def test_provider_note_names_claude_haiku_when_anthropic_serves():
     router = _ScriptedRouter(real_call=True, provider="anthropic")
     _drive(
         router,
-        ["Geeta", "shuru", "vmc operator, pune, 3 saal", "done"],
+        ["Geeta", "vmc operator, pune, 3 saal", "done"],
         print_fn=lambda *a, **_k: printed.append(" ".join(str(x) for x in a)),
     )
     joined = "\n".join(printed)
@@ -862,7 +876,6 @@ def test_cost_panel_renders_summary_and_per_call_rows_without_pii():
     transcript_token = "Mazak"  # a distinctive word from an answer below
     answers = [
         name,                                  # NAME (must never reach the panel)
-        "shuru",
         "VMC operator hoon",                   # role
         f"Haas aur {transcript_token}, 6 saal, Pune",  # machines (transcript token)
         "done",
