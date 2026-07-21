@@ -28,6 +28,9 @@ function make(
     replyText?: string;
     workerName?: string | null;
     decryptThrows?: boolean;
+    // CHAT-UE-1: exact updated_state the (mock) ai-service returns — including
+    // explicitly `null` (the mock/AI-down fallback) or a MALFORMED value.
+    updatedState?: unknown;
   } = {},
 ) {
   const session = {
@@ -66,9 +69,12 @@ function make(
       suggested_followups: [],
       asked_question_id: "q_machines",
       extraction_ready: opts.extractionReady ?? false,
-      updated_state: opts.extractionReady
-        ? READY_STATE
-        : { ...READY_STATE, answered_topics: ["role"] },
+      updated_state:
+        opts.updatedState !== undefined
+          ? opts.updatedState
+          : opts.extractionReady
+            ? READY_STATE
+            : { ...READY_STATE, answered_topics: ["role"] },
     }),
   };
   const profiles = {
@@ -225,6 +231,74 @@ describe("ChatService — AI-PERSONA-2 worker-name seam (SG-1 PII boundary)", ()
     const { workers } = await run({ replyText: "Theek hai. Kaunsi machine?" });
     // Fast path: renderWorkerName short-circuits, so no worker/name fetch happens.
     expect(workers.findById).not.toHaveBeenCalled();
+  });
+});
+
+// CHAT-UE-1 — the completeness signal crosses the last hop to the client.
+// The response carries topic IDS only (never PII), degrades to [] on the
+// mock/AI-down null state, and a malformed engine value can never 500 a turn.
+describe("ChatService — CHAT-UE-1 unanswered_essentials on the reply", () => {
+  it("surfaces the engine's unanswered essentials, in engine (ESSENTIAL_TOPICS) order", async () => {
+    const { res } = await run({
+      updatedState: { ...READY_STATE, unanswered_essentials: ["machines", "experience", "salary"] },
+    });
+    expect(res.unanswered_essentials).toEqual(["machines", "experience", "salary"]);
+  });
+
+  it("updated_state null (mock/AI-down fallback) → [] and no throw", async () => {
+    const { res, chat } = await run({ updatedState: null });
+    expect(res.unanswered_essentials).toEqual([]);
+    // The null-state leg was genuinely taken (plain touch, no state persist).
+    expect(chat.touchSession).toHaveBeenCalledTimes(1);
+    expect(chat.saveConversationState).not.toHaveBeenCalled();
+  });
+
+  it("all essentials answered → []", async () => {
+    const { res } = await run({
+      extractionReady: true,
+      updatedState: { ...READY_STATE, unanswered_essentials: [] },
+    });
+    expect(res.unanswered_essentials).toEqual([]);
+    expect(res.extraction_ready).toBe(true);
+  });
+
+  it("malformed value (non-string members) → drops them, keeps the string ids, never throws", async () => {
+    const { res } = await run({
+      updatedState: { ...READY_STATE, unanswered_essentials: ["machines", 42, null, "salary"] },
+    });
+    expect(res.unanswered_essentials).toEqual(["machines", "salary"]);
+  });
+
+  it("malformed value (not an array at all) → [], never throws", async () => {
+    const { res } = await run({
+      updatedState: { ...READY_STATE, unanswered_essentials: "machines" },
+    });
+    expect(res.unanswered_essentials).toEqual([]);
+  });
+
+  it("carries topic ids only — never the worker's name (PII)", async () => {
+    const { res } = await run({
+      replyText: PLACEHOLDER_REPLY,
+      workerName: "Nitin Kumar",
+      updatedState: { ...READY_STATE, unanswered_essentials: ["salary"] },
+    });
+    expect(res.unanswered_essentials).toEqual(["salary"]);
+    expect(JSON.stringify(res.unanswered_essentials)).not.toContain("Nitin");
+  });
+
+  it("keeps every pre-existing reply field unchanged (additive, backward compatible)", async () => {
+    const { res } = await run({});
+    expect(res).toEqual({
+      session_id: SESSION,
+      reply: "Thanks!",
+      blocked: false,
+      is_mock: true,
+      suggested_followups: [],
+      asked_question_id: "q_machines",
+      extraction_ready: false,
+      // Only the NEW field is added; a state without the key degrades to [].
+      unanswered_essentials: [],
+    });
   });
 });
 

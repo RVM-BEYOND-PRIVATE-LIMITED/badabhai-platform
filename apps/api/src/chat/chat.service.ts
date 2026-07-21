@@ -11,7 +11,11 @@ import { PiiCryptoService } from "../common/pii-crypto.service";
 import { AiService } from "../ai/ai.service";
 import { ProfilesService } from "../profiles/profiles.service";
 import { ChatRepository } from "./chat.repository";
-import type { PostMessageDto } from "./chat.dto";
+import {
+  PostMessageResponseSchema,
+  type PostMessageDto,
+  type PostMessageResponse,
+} from "./chat.dto";
 
 const DEFAULT_ROLE_FAMILY = "cnc_vmc";
 
@@ -52,7 +56,11 @@ export class ChatService {
     return { session_id: session.id, status: session.status, started_at: session.startedAt };
   }
 
-  async postMessage(workerId: string, dto: PostMessageDto, ctx: RequestContext) {
+  async postMessage(
+    workerId: string,
+    dto: PostMessageDto,
+    ctx: RequestContext,
+  ): Promise<PostMessageResponse> {
     const session = await this.chat.findSession(dto.session_id);
     // Ownership: a worker may only post to their OWN session. 404 (not 403) so a
     // session id is never an existence oracle for another worker's session.
@@ -233,7 +241,14 @@ export class ChatService {
     // 7. Personalize ONLY the client-returned reply — post-store, post-emit — by
     //    interpolating the worker's real first name over the {{worker_name}} token.
     //    The stored message (step 4) + every event above still hold the placeholder.
-    return {
+    //
+    //    CHAT-UE-1: surface the engine's completeness signal on the reply.
+    //    `updated_state` is GENUINELY null on the mock/AI-down fallback → `?? []`
+    //    (never throw); and a malformed VALUE from a future engine bug (non-string
+    //    member / non-array) is coerced to its string members here, BEFORE the
+    //    outbound check — a chat turn must never 500 on a progress field.
+    const rawUnanswered: unknown = aiResult.updated_state?.unanswered_essentials ?? [];
+    const response: PostMessageResponse = {
       session_id: dto.session_id,
       reply: await this.renderWorkerName(aiResult.reply_text, workerId),
       blocked: aiResult.blocked,
@@ -242,7 +257,26 @@ export class ChatService {
       // Additive (backward compatible): lets the client/test see interview progress.
       asked_question_id: aiResult.asked_question_id,
       extraction_ready: aiResult.extraction_ready,
+      // CHAT-UE-1 (additive): ESSENTIAL topics not yet answered, in ESSENTIAL_TOPICS
+      // order; empty = complete; topic ids only, never PII.
+      unanswered_essentials: Array.isArray(rawUnanswered)
+        ? rawUnanswered.filter((t): t is string => typeof t === "string")
+        : [],
     };
+    // Outbound boundary check (belt-and-braces): the object above is constructed
+    // field-by-field, so unknown engine fields cannot leak in; safeParse guards the
+    // VALUES. On failure, log field PATHS only — never values (the reply carries the
+    // worker's real name post-render; §2 no-PII-in-logs) — and fall back to the
+    // explicitly constructed object. Outbound validation must NEVER 500 a chat turn.
+    const checked = PostMessageResponseSchema.safeParse(response);
+    if (!checked.success) {
+      this.logger.warn(
+        `postMessage outbound validation failed session=${dto.session_id} ` +
+          `paths=[${checked.error.issues.map((i) => i.path.join(".")).join(",")}]`,
+      );
+      return response;
+    }
+    return checked.data;
   }
 
   /**
