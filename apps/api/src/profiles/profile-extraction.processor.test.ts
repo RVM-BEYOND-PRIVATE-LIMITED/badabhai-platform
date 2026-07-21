@@ -241,6 +241,34 @@ describe("ProfileExtractionProcessor", () => {
     expect(names).not.toContain("ai.spend_cap_exceeded");
   });
 
+  it("PERF-2 guard: extraction still receives the FULL transcript from its OWN source", async () => {
+    // The chat turn no longer ships history to the ai-service (PERF-2 — the turn
+    // engine discards it), but extraction genuinely needs the whole conversation.
+    // Its transcript source is the processor's own buildTranscript → chat.listMessages
+    // — NOT the chat turn's payload — so it must keep reading every stored message.
+    const { proc, chat, ai } = make();
+    chat.listMessages.mockResolvedValue([
+      { id: "m1", direction: "outbound", bodyText: "Kaunsa kaam karte ho?" },
+      { id: "m2", direction: "inbound", bodyText: "VMC operator, 5 saal" },
+      { id: "m3", direction: "outbound", bodyText: "Kaunsi city me ho?" },
+      { id: "m4", direction: "inbound", bodyText: "Pune me hoon" },
+    ]);
+    await proc.process(makeJob());
+
+    // The transcript was read from the chat repository (the processor's own path)…
+    expect(chat.listMessages).toHaveBeenCalledWith(JOB.sessionId);
+    // …and every turn of the conversation reached the extraction call.
+    expect(ai.extractProfile).toHaveBeenCalledWith({
+      worker_ref: JOB.workerId,
+      transcript: [
+        "Bada Bhai: Kaunsa kaam karte ho?",
+        "Worker: VMC operator, 5 saal",
+        "Bada Bhai: Kaunsi city me ho?",
+        "Worker: Pune me hoon",
+      ].join("\n"),
+    });
+  });
+
   it("idempotent: an already-completed job is not reprocessed", async () => {
     const { proc, profiles, aiJobs } = make({
       findById: { status: "completed", outputRef: { profile_id: PROFILE } },
