@@ -163,7 +163,9 @@ describe("ChatService.postMessage — PERF-2 dead-history drop", () => {
   it("produces the IDENTICAL full reply object as before the change (deep-equal)", async () => {
     // The reply derives ONLY from the stubbed ai client's result (+ name rendering);
     // history never influenced it. This is byte-for-byte what the pre-change code
-    // returned with the same stub.
+    // returned with the same stub. (`unanswered_essentials` joined the shape via
+    // CHAT-UE-1 (#478) — orthogonal to this PR; [] here because the stub's state
+    // carries none.)
     const { svc } = make({ extractionReady: false });
     const res = await svc.postMessage(WORKER, DTO as never, CTX);
     expect(res).toEqual({
@@ -174,6 +176,7 @@ describe("ChatService.postMessage — PERF-2 dead-history drop", () => {
       suggested_followups: [],
       asked_question_id: "q_machines",
       extraction_ready: false,
+      unanswered_essentials: [],
     });
   });
 
