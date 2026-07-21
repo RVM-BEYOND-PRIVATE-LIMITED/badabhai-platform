@@ -263,18 +263,70 @@ describe("ChatService — CHAT-UE-1 unanswered_essentials on the reply", () => {
     expect(res.extraction_ready).toBe(true);
   });
 
-  it("malformed value (non-string members) → drops them, keeps the string ids, never throws", async () => {
-    const { res } = await run({
-      updatedState: { ...READY_STATE, unanswered_essentials: ["machines", 42, null, "salary"] },
-    });
-    expect(res.unanswered_essentials).toEqual(["machines", "salary"]);
+  it("malformed value (non-string members) → drops them, keeps the string ids, never throws — and the drop is OBSERVABLE (count only, no values)", async () => {
+    const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { res } = await run({
+        updatedState: { ...READY_STATE, unanswered_essentials: ["machines", 42, null, "salary"] },
+      });
+      expect(res.unanswered_essentials).toEqual(["machines", "salary"]);
+      // The silent-coercion review finding: a drop must WARN — field name + count,
+      // never the members themselves (§2 no-PII-in-logs discipline, even for ids).
+      const logged = warnSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(logged).toContain("coerced unanswered_essentials");
+      expect(logged).toContain("dropped=2");
+      expect(logged).not.toContain("machines");
+      expect(logged).not.toContain("salary");
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
-  it("malformed value (not an array at all) → [], never throws", async () => {
-    const { res } = await run({
-      updatedState: { ...READY_STATE, unanswered_essentials: "machines" },
-    });
-    expect(res.unanswered_essentials).toEqual([]);
+  it("malformed value (not an array at all) → [], never throws — and WARNS non-array, no values", async () => {
+    const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { res } = await run({
+        updatedState: { ...READY_STATE, unanswered_essentials: "machines" },
+      });
+      expect(res.unanswered_essentials).toEqual([]);
+      const logged = warnSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(logged).toContain("coerced unanswered_essentials");
+      expect(logged).toContain("non-array");
+      expect(logged).not.toContain("machines");
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("poisoned outbound VALUE (suggested_followups: 42 via the DI seam) → NO throw, constructed object returned, warn logs field PATHS only — never values", async () => {
+    // Kills the review's surviving mutation (iii): swapping safeParse for a throwing
+    // parse() must fail THIS test. The DI mock bypasses ProfilingTurnOutputSchema, so
+    // the invalid value reaches the outbound gate — the one leg the harness could
+    // not previously reach.
+    const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const h = make();
+      h.ai.profilingRespond.mockResolvedValueOnce({
+        reply_text: "SECRET_REPLY_TEXT",
+        blocked: false,
+        is_mock: true,
+        suggested_followups: 42, // invalid: schema wants string[]
+        asked_question_id: "q_machines",
+        extraction_ready: false,
+        updated_state: null,
+      });
+      const res = await h.svc.postMessage(WORKER, DTO as never, CTX);
+      // No throw — the explicitly constructed fallback object is returned intact.
+      expect(res.session_id).toBe(SESSION);
+      expect(res.reply).toBe("SECRET_REPLY_TEXT");
+      expect(res.unanswered_essentials).toEqual([]);
+      const logged = warnSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(logged).toContain("outbound validation failed");
+      expect(logged).toContain("suggested_followups"); // the field PATH
+      expect(logged).not.toContain("SECRET_REPLY_TEXT"); // never the VALUES (§2)
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it("carries topic ids only — never the worker's name (PII)", async () => {
