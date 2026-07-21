@@ -290,11 +290,20 @@ export class AiJobsRepository {
    * call (oldest terminal first, so a pathological backlog drains deterministically
    * across ticks — the SWEEP_BATCH_LIMIT posture of the deletion sweep).
    *
-   * The DELETE re-applies the FULL prune predicate on top of the id batch — the
-   * same atomic re-check posture as the deletion sweep's `claimDueDeletion`: a row
-   * that gained a `worker_profiles` reference between the SELECT and the DELETE
-   * (BullMQ redelivery of an old extraction is the only writer of that column) is
-   * re-checked at delete time and survives. Returns the count actually deleted.
+   * The DELETE re-applies the FULL prune predicate on top of the id batch. Review
+   * note (PR #481, both verify lenses): the safety mechanism here is NOT a
+   * select-then-delete re-check — the batch SELECT is an un-executed builder
+   * embedded as a subquery, so SELECT and DELETE run as ONE statement under one
+   * snapshot, and under READ COMMITTED the NOT EXISTS leg would NOT see a
+   * concurrently-committed `worker_profiles` insert on its own. What actually
+   * protects a concurrently-referenced job is WRITE ORDERING: every writer of
+   * `worker_profiles.ai_job_id` (profile-extraction.processor.ts) first flips the
+   * SAME ai_jobs row via markRunning, and Postgres's EvalPlanQual re-evaluates the
+   * re-applied predicate on that modified row version — which then fails the
+   * terminal+aged legs before any reference can appear. If a future writer ever
+   * references a job WITHOUT first updating that ai_jobs row, this protection does
+   * not hold mid-statement — keep the markRunning-first ordering. Returns the
+   * count actually deleted.
    */
   async pruneRetentionBatch(cutoff: Date, limit: number): Promise<number> {
     const batch = this.db

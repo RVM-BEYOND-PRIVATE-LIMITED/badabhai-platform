@@ -244,6 +244,33 @@ signal, not per-worker: a leaver whose grace elapses during the gap is simply er
    SELECT count(*) FROM workers WHERE deletion_scheduled_at <= now();
    ```
 
+### ai_jobs retention sweep (PERF-3 — 90-day prune, dry-run by default)
+
+A daily repeatable BullMQ job
+([`ai-jobs-retention-sweep.processor.ts`](../apps/api/src/profiles/ai-jobs-retention-sweep.processor.ts))
+prunes **terminal** (`completed`/`failed`) `ai_jobs` rows older than
+`AI_JOBS_RETENTION_DAYS` (default 90). It ships **DRY-RUN** — it logs a per-tick summary
+and deletes nothing until `AI_JOBS_RETENTION_DELETE_ENABLED=true` arms it. **Arm
+procedure:** watch at least one dry-run tick's summary first (candidates / by_type / age
+buckets), then flip the flag.
+
+Two things ops must know, or the sweep will look broken when it is working:
+
+- **The table never shrinks to zero, by design.** Rows referenced by
+  `worker_profiles.ai_job_id` are excluded (`NOT EXISTS`) — they are the #420 dedupe's
+  memory; pruning one re-opens real AI spend on every profile-preview mount. They are
+  counted per tick as `skipped_referenced`. A steadily growing `skipped_referenced` is
+  the protection working, **not** the sweep failing. Do NOT "fix" it by widening the
+  predicate or lowering the window.
+- **Drain rate is bounded:** one batch of ≤1000 rows per daily tick — a large backlog
+  drains over days after arming, deliberately.
+
+Unlike the deletion sweep above, a failed scheduler **registration** here is one
+`logger.warn` with no retry ladder and no `/health` surfacing (deliberate divergence:
+missing a retention tick loses nothing — the next successful boot re-registers and the
+backlog is still there). On a first-ever deploy against fresh Redis, check the boot log
+for the registration line.
+
 ### AI spend-cap exceeded
 
 [`apps/ai-service/app/ai/cost_tracker.py`](../apps/ai-service/app/ai/cost_tracker.py)
