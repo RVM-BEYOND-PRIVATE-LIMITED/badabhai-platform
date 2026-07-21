@@ -45,6 +45,50 @@ _SPEND_BLOCK_LOG_MESSAGES = {
 }
 
 
+def _attempt_failure_message(
+    *,
+    task_type: str,
+    model: str,
+    attempt: int,
+    max_attempts: int,
+    reason: str,
+    status: int | None,
+    typed: bool,
+) -> str:
+    """The per-attempt failure headline — self-describing, PII-free.
+
+    THE DEFECT it fixes: this line used to be the bare string "llm attempt failed".
+    A real owner-run session printed it twice and then succeeded, and the operator
+    had no way to tell WHICH provider failed or WHY. The structured ``extra`` did
+    carry the reason, but only the JSON formatter renders it (``logging_config``),
+    and the CLI/plain-`logging` paths never install it — so in the place this line
+    is actually READ, the reason was invisible. The diagnosis therefore belongs in
+    the MESSAGE.
+
+    HONESTY about what we know (the point of the ``typed`` split): a
+    :class:`LlmTransportError` carries a CLOSED-SET ``reason_code`` (and sometimes
+    an HTTP status) — an actual diagnosis. Any other exception carries no such
+    thing; all we have is its CLASS NAME, which is not a reason. The two are
+    rendered under DIFFERENT keys (``reason=`` vs ``error_class=``) and the second
+    says so out loud, rather than dressing a class name up as a cause. This is the
+    same failure mode as the "model unavailable" / "spend cap reached" messages
+    that cost this project two debugging rounds.
+
+    PII: every part is a config id, a closed-set code, an exception CLASS name or an
+    int. The exception BODY, the prompt and the API key are never touched — see the
+    contract in ``ai/errors.py``.
+    """
+    where = f"provider={provider_for_model(model)} model={model}"
+    if typed:
+        cause = f"reason={reason}" + (f" status={status}" if status is not None else "")
+    else:
+        cause = f"error_class={reason} (no transport reason code)"
+    return (
+        f"llm attempt failed: task={task_type} {where} {cause} "
+        f"attempt={attempt + 1}/{max_attempts}"
+    )
+
+
 class AIRouter:
     def __init__(self, settings: Settings, tracer: LangfuseTracer | None = None) -> None:
         self._settings = settings
@@ -198,17 +242,25 @@ class AIRouter:
                         # its type NAME. Track the last failing model + reason so
                         # the terminal metadata attributes the failure truthfully.
                         last_attempted_model = model
+                        transport = exc if isinstance(exc, LlmTransportError) else None
                         reason = (
-                            exc.reason_code
-                            if isinstance(exc, LlmTransportError)
+                            transport.reason_code
+                            if transport is not None
                             else type(exc).__name__
                         )
                         last_failure_reason = reason
+                        status = transport.status_code if transport is not None else None
                         logger.warning(
-                            "llm attempt failed",
+                            _attempt_failure_message(
+                                task_type=task_type, model=model, attempt=attempt,
+                                max_attempts=route.max_retries + 1,
+                                reason=reason, status=status,
+                                typed=transport is not None,
+                            ),
                             extra={"extra": {
                                 "attempt": attempt, "task": task_type, "model": model,
-                                "reason": reason,
+                                "provider": provider_for_model(model),
+                                "reason": reason, "status": status,
                             }},
                         )
             finally:

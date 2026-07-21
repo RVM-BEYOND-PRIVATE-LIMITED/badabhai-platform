@@ -21,13 +21,22 @@ What it is / is NOT:
   (``app.pseudonymize.pseudonymize``), the interview engine
   (``app.profiling.interview_engine``), the profile extractor
   (``app.profiling.profile_extractor``), and the router (``app.ai.router.AIRouter``).
+- The interview OPENS with ``interview_engine.first_question`` — the same shape the
+  worker app opens with (``chat_bloc.dart`` kChatOpeningText, the `role` question
+  verbatim, no vocative). There is no "type anything to begin" turn: the worker's
+  first message is an ANSWER.
+- The resume is built from the extraction AND the engine's
+  ``ConversationState.collected`` (``profile_extractor.merge_collected``, run LAST).
+  ``collected`` is the only signal that knows WHICH QUESTION each answer belonged
+  to, so it wins scalar disagreements; lists are unioned. Nothing is ever deleted.
 - It uses NO database, NO event emission, and starts NO HTTP server.
 - Real LLM calls happen ONLY if the same env gate is on (AI_ENABLE_REAL_CALLS +
   GEMINI_FLASH_API_KEY, with the task allowlist) AND, for a chat turn, only on the
   clarify/rephrase branch. By default everything is mock.
 
 PRIVACY INVARIANT (mirrors production):
-- The worker's NAME is captured ONCE into a LOCAL variable and is NEVER placed in
+- The worker's NAME is captured ONCE into a LOCAL variable (cleaned of lead-ins by
+  ``_clean_name``, still pure local string work) and is NEVER placed in
   any text sent to the model — not to ``router.run`` and not into anything the
   engine returns. The engine emits only the literal ``{{worker_name}}`` token
   (AI-PERSONA-2); this CLI interpolates the real name over that token LOCALLY at
@@ -63,6 +72,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import sys
 
 from ..ai.model_config import provider_for_model
@@ -95,14 +105,65 @@ _INTRO = (
     "ya company ka naam likhne ki zaroorat nahi hai.)\n"
 )
 
-# The worker has to say SOMETHING before the engine can run its first turn — that
-# is exactly how production works (``POST /profiling/respond`` needs a
-# ``message_text``). This is a harness affordance, NOT an interview question: the
-# first real question comes from the engine's turn 1.
-_KICKOFF = (
-    "(Shuru karne ke liye kuch bhi likhein — jaise 'shuru' — ya seedha apna kaam "
-    "bata dein.)"
+# --- Name capture (LOCAL ONLY — never sent anywhere) ------------------------
+#
+# THE DEFECT: the name was stored as ``input().strip()`` verbatim, so a worker who
+# typed "myself ravi" was then addressed as "myself ji" for the whole session.
+#
+# THE RULE, deliberately CONSERVATIVE: strip only a KNOWN lead-in/trailer phrase,
+# matched at a WORD BOUNDARY and only while something is left over. When stripping
+# would empty the input, keep the RAW text — over-stripping mangles a real name
+# ("Mainak" -> "ak"), which is strictly worse than a slightly wordy one.
+#
+# Word boundaries are what make this safe. Every entry below is a prefix of a real
+# Indian name we must not touch: main/Mainak, im/Imran, ji/Jitendra, naam/Naamdev,
+# hai/Hairaj, mera/Meraj, my/Mystery, this/Thisara. tests/test_cli_session_defects.py
+# pins each one.
+#
+# PRIVACY: this runs on the name, which is PII. It is pure local string work — the
+# name is captured into a LOCAL variable, NEVER placed in model input, and only
+# interpolated over the engine's {{worker_name}} token at PRINT time
+# (_render_worker_name). Do not move any of this near a router call or the
+# transcript.
+_NAME_LEAD_INS: tuple[str, ...] = (
+    # English
+    r"my\s+name\s+is", r"my\s+name['’]?s", r"the\s+name\s+is", r"name\s+is",
+    r"myself", r"this\s+is", r"i\s+am", r"i['’]m", r"im", r"name",
+    # Hinglish
+    r"mera\s+naam\s+hai", r"mera\s+naam", r"mera\s+nam", r"meraa?\s+naam",
+    r"naam\s+hai", r"naam", r"nam", r"main", r"mai", r"mein", r"hum",
 )
+_NAME_TRAILERS: tuple[str, ...] = (
+    r"hai", r"hain", r"h[uū]n?", r"hoon", r"ji", r"bol\s+raha\s+h[uū]n?",
+    r"bol\s+rahi\s+h[uū]n?", r"naam\s+hai",
+)
+_NAME_LEAD_IN_RE = re.compile(
+    r"^(?:" + "|".join(_NAME_LEAD_INS) + r")\b[\s,.:\-]*", re.IGNORECASE
+)
+_NAME_TRAILER_RE = re.compile(
+    r"[\s,.:\-]*\b(?:" + "|".join(_NAME_TRAILERS) + r")[\s,.!?]*$", re.IGNORECASE
+)
+# Bound the peel so a pathological input cannot loop; two rounds cover the real
+# shapes ("mera naam ... hai", "main ... hoon ji").
+_NAME_PEEL_ROUNDS = 3
+
+
+def _clean_name(raw: str) -> str:
+    """Strip common English/Hinglish lead-ins and trailers from a typed name.
+
+    Returns the stripped name, or the RAW (whitespace-trimmed) input when
+    stripping would leave nothing — the conservative direction, per the rule above.
+    """
+    text = (raw or "").strip()
+    candidate = text
+    for _ in range(_NAME_PEEL_ROUNDS):
+        peeled = _NAME_TRAILER_RE.sub("", _NAME_LEAD_IN_RE.sub("", candidate)).strip()
+        if peeled == candidate:
+            break
+        if not peeled:
+            return text  # stripping consumed everything -> keep what was typed
+        candidate = peeled
+    return candidate or text
 
 
 def _schema_hint() -> str:
@@ -338,7 +399,9 @@ async def _run_chat(
     # 1. Capture the NAME once into a LOCAL variable. It NEVER enters model input;
     #    it is interpolated over the engine's {{worker_name}} token at PRINT time
     #    only (_render_worker_name), mirroring ChatService.renderWorkerName.
-    name = input_fn("Sabse pehle, aapka naam kya hai? ").strip() or "Worker"
+    #    _clean_name strips "myself"/"mera naam"/... conservatively (LOCAL string
+    #    work only — the name goes nowhere near the router or the transcript).
+    name = _clean_name(input_fn("Sabse pehle, aapka naam kya hai? ")) or "Worker"
 
     # 2. ENGINE-DRIVEN interview loop. The ConversationState is the ONLY memory —
     #    exactly like production, where chat.service.ts persists it on the session
@@ -348,7 +411,25 @@ async def _run_chat(
     state: ConversationState | None = None
     transcript_lines: list[str] = []  # RAW answers, local-only (never sent anywhere)
 
-    print_fn(f"\nBada Bhai: {_KICKOFF}")
+    # OPENING QUESTION. This used to be a "(write anything — e.g. 'shuru' — to
+    # begin)" nudge that then BLOCKED on input, so the worker's first message
+    # answered nothing: a wasted round trip, a wasted turn and wasted tokens.
+    #
+    # The engine already owns an opener — ``first_question`` — and this is exactly
+    # how production behaves: apps/worker-app opens with kChatOpeningText, which is
+    # the `role` topic's question verbatim, and the worker's first typed message is
+    # therefore a real ANSWER that ``next_turn`` records (chat_bloc.dart documents
+    # the reasoning). We mirror that, including ``worker_name=None`` (no vocative):
+    # the greeting is _INTRO, and turn 1's own vocative then greets by name.
+    #
+    # Known, ACCEPTED consequence (identical in production today): the first
+    # message is answered with ``state=None``, so if it carries no extractable
+    # signal the engine serves the `role` question again as its FIRST ask, i.e.
+    # verbatim. Fixing that needs an engine/state change, not a CLI change.
+    _opening_topic_id, opening_question = interview_engine.first_question(
+        role_family, worker_name=None
+    )
+    print_fn(f"\nBada Bhai: {opening_question}")
 
     for _turn in range(_MAX_TURNS):
         answer = input_fn("You: ").strip()
@@ -434,9 +515,15 @@ async def _run_chat(
             "ka naam) aa gayi — usse hata ke dobara likhein. "
             f"(reason: {safe.blocked_reason})"
         )
-        # Return a minimal resume with just the name; nothing was sent to the
-        # model for extraction. ``calls`` holds only the prior chat-turn metas.
+        # Return a resume built from what the ENGINE already collected; nothing was
+        # sent to the model for extraction. ``calls`` holds only the prior chat-turn
+        # metas. Merging here is safe and correct: every one of those answers ALREADY
+        # passed the per-turn pseudonymization gate above (a blocked answer never
+        # enters ``transcript_lines`` and never reaches the engine), and ``collected``
+        # holds closed-set labels/cities/ints/enums, not free text. Before this the
+        # blocked path threw away the entire interview.
         rich, legacy = profile_extractor.extract("", role_family)
+        rich = profile_extractor.merge_collected(rich, state.collected if state else None)
         return _build_resume_json(name, rich, legacy), calls
 
     # Heuristic extraction over RAW text (trusted, local, no network).
@@ -475,6 +562,14 @@ async def _run_chat(
         # staging --real NEGATIVE tier is verified unaffected, enable
         #   legacy = profile_extractor.map_rich_to_legacy(rich, legacy)
         # to fill in-scope machine/skill/role ids the raw-text detector missed.
+
+    # D1 — MERGE THE ENGINE'S QUESTION-ATTRIBUTED ANSWERS. This runs LAST, after
+    # both the heuristic pass and the model overlay, because ``collected`` is the
+    # only signal that knows WHICH QUESTION each answer belonged to; the transcript
+    # re-derivation and the model (which sees only the masked text) do not. See
+    # ``profile_extractor.merge_collected`` for the precedence rule. Purely local —
+    # every router call has already happened, so nothing collected can reach a model.
+    rich = profile_extractor.merge_collected(rich, state.collected if state else None)
 
     # Honest-adjacency flag (advisory ONLY): mark the draft adjacent when it
     # canonicalized to nothing matchable in the CNC/VMC taxonomy, so it is not

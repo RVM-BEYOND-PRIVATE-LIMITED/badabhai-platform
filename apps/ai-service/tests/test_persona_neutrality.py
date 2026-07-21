@@ -61,11 +61,11 @@ def _worker_facing_strings() -> dict[str, str]:
     for field, q in _CLARIFY.items():
         out[f"clarify:{field}"] = q
     # The CLI's own worker-facing copy. CLI-1: the CLI no longer has a model-driven
-    # path of its own — it drives THIS engine, so its only remaining own-words are
-    # the intro banner and the kickoff nudge. Every question it shows comes from the
-    # question bank above.
+    # path of its own — it drives THIS engine. Its only remaining own-words are the
+    # intro banner: the "type anything to begin" kickoff nudge is GONE (the opener is
+    # now interview_engine.first_question), so every question it shows — the opening
+    # one included — comes from the question bank above.
     out["cli_intro"] = onboarding_chat._INTRO
-    out["cli_kickoff"] = onboarding_chat._KICKOFF
     return out
 
 
