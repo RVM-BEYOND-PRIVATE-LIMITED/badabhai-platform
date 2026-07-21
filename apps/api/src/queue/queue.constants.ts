@@ -19,6 +19,18 @@ export const ACCOUNT_DELETION_QUEUE = "account-deletion";
  */
 export const ACCOUNT_DELETION_SWEEP_SCHEDULER_ID = "account-deletion-sweep";
 
+/** PERF-3 ai_jobs retention sweep queue. The repeatable tick carries NO payload —
+ * the prune predicate over ai_jobs (terminal + aged-out + unreferenced) is the
+ * authoritative work list, so a lost/duplicated Redis job is harmless: the next
+ * tick re-evaluates the same predicate and catches anything missed. */
+export const AI_JOBS_RETENTION_QUEUE = "ai-jobs-retention";
+
+/** Stable BullMQ job-scheduler id for the PERF-3 retention sweep — the idempotent
+ * upsert key the processor re-asserts at every boot (same-id upserts update the
+ * cadence instead of stacking duplicate schedulers). Lives here beside its
+ * ACCOUNT_DELETION twin so queue names and scheduler ids stay in one place. */
+export const AI_JOBS_RETENTION_SWEEP_SCHEDULER_ID = "ai-jobs-retention-sweep";
+
 /** ADR-0034 worker push-notification queue. */
 export const PUSH_QUEUE = "worker-push";
 

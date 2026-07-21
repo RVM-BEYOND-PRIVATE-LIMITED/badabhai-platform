@@ -269,6 +269,30 @@ export const serverEnvSchema = z.object({
   // hours allowed for tests/staging (cadence precedent: PACE_WAVE_INTERVAL_HOURS).
   ACCOUNT_DELETION_SWEEP_INTERVAL_HOURS: z.coerce.number().positive().default(1),
 
+  // PERF-3 — ai_jobs retention window (days). OWNER DECISION (2026-07-21): TERMINAL
+  // (completed/failed) rows older than 90 days are pruned. DPDP rationale is DATA
+  // MINIMISATION of operational metadata: ai_jobs rows are PII-free by construction
+  // (§2 invariant 2 — refs, hashes and typed cost scalars only), so this is
+  // retention/cost hygiene, NOT erasure. Age counts from `updated_at` (the terminal
+  // transition — never earlier than created_at, so the conservative reading of
+  // "older than 90 days"). The sweep NEVER touches queued/running rows and NEVER
+  // prunes a row referenced by `worker_profiles.ai_job_id` (the TD14 tie): deleting
+  // one would blind the #420 extraction dedupe and re-open real AI spend on every
+  // profile-preview mount. positive(): 0 would mean "prune everything terminal
+  // immediately" — that must be an explicit code change, not an env value.
+  AI_JOBS_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
+  // Cadence (hours) of the retention sweep tick. The prune predicate over ai_jobs is
+  // authoritative — a missed/duplicated tick only delays pruning until the next one
+  // (cadence precedent: ACCOUNT_DELETION_SWEEP_INTERVAL_HOURS). Fractional hours
+  // allowed for tests/staging catch-up.
+  AI_JOBS_RETENTION_SWEEP_INTERVAL_HOURS: z.coerce.number().positive().default(24),
+  // DRY-RUN gate (launch-gate pattern — INERT by default). While false the sweep only
+  // LOGS the candidate count + age distribution and deletes NOTHING; flipping this to
+  // true is the explicit act that arms real deletion. booleanFromString so a falsey
+  // string stays OFF — fail-safe to dry-run, consistent with AI_ENABLE_REAL_CALLS /
+  // CAPACITY_ENFORCEMENT_ENABLED.
+  AI_JOBS_RETENTION_DELETE_ENABLED: booleanFromString,
+
   // OTP shape + lifecycle. The code is generated with crypto.randomInt per digit,
   // stored ONLY as a keyed HMAC, single-use, and rate-limited per phone + per IP.
   OTP_LENGTH: z.coerce.number().int().min(4).max(8).default(6),

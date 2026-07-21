@@ -8,7 +8,12 @@ import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository } from "./ai-jobs.repository";
 import { AiJobsController } from "./ai-jobs.controller";
 import { ProfileExtractionProcessor } from "./profile-extraction.processor";
-import { PROFILE_EXTRACTION_QUEUE, RESUME_GENERATE_QUEUE } from "../queue/queue.constants";
+import { AiJobsRetentionSweepProcessor } from "./ai-jobs-retention-sweep.processor";
+import {
+  AI_JOBS_RETENTION_QUEUE,
+  PROFILE_EXTRACTION_QUEUE,
+  RESUME_GENERATE_QUEUE,
+} from "../queue/queue.constants";
 
 @Module({
   imports: [
@@ -19,9 +24,19 @@ import { PROFILE_EXTRACTION_QUEUE, RESUME_GENERATE_QUEUE } from "../queue/queue.
     BullModule.registerQueue({ name: PROFILE_EXTRACTION_QUEUE }),
     // Auto-enqueue a resume render once a profile is confirmed (TD5).
     BullModule.registerQueue({ name: RESUME_GENERATE_QUEUE }),
+    // PERF-3 — the ai_jobs retention sweep queue (repeatable tick; the prune
+    // predicate is authoritative; dry-run by default). Lives here because this
+    // module owns ai_jobs data access (AiJobsRepository).
+    BullModule.registerQueue({ name: AI_JOBS_RETENTION_QUEUE }),
   ],
   controllers: [ProfilesController, AiJobsController],
-  providers: [ProfilesService, ProfilesRepository, AiJobsRepository, ProfileExtractionProcessor],
+  providers: [
+    ProfilesService,
+    ProfilesRepository,
+    AiJobsRepository,
+    ProfileExtractionProcessor,
+    AiJobsRetentionSweepProcessor,
+  ],
   exports: [ProfilesRepository, ProfilesService],
 })
 export class ProfilesModule {}
