@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, or, sql, type SQL } from "drizzle-orm";
 import { type Database, aiJobs, workerProfiles, type AiJob, type NewAiJob } from "@badabhai/db";
 import type { AiJobStatus } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
@@ -20,6 +20,65 @@ export interface ExtractionDedupeCandidate {
 
 /** Non-terminal statuses: work that is supposedly still in flight. */
 const IN_FLIGHT_STATUSES = ["queued", "running"] as const;
+
+/** Terminal statuses: work that is finished for good (PERF-3 retention scope).
+ * Deliberately the complement of IN_FLIGHT_STATUSES over the closed
+ * @badabhai/types AI_JOB_STATUSES enum — retention may only ever see these two. */
+const TERMINAL_STATUSES = ["completed", "failed"] as const;
+
+/**
+ * PERF-3 — "this terminal row is still load-bearing" (the landmine). A
+ * `worker_profiles.ai_job_id` pointing at the row is a LOGICAL ref (no FK — the
+ * TD14 unique-index tie), and the #420 dedupe (`findExtractionDedupeCandidate`
+ * above) LEFT JOINs through it to find the prior COMPLETED extraction. Pruning a
+ * referenced row would make that dedupe blind: the worker's next profile-preview
+ * mount would fire a fresh extraction (real AI spend) on EVERY mount until a new
+ * job completes — a slow re-opening of the exact bug #427/#430/#438/#467 closed.
+ *
+ * Written as a raw correlated subquery (not the `notExists(db.select…)` builder)
+ * so the predicate stays a PURE function of the schema — no db handle needed —
+ * and its AST stays interpretable by the behavioural test suite (the
+ * ai-jobs.repository.test.ts pattern: evaluated, not just string-matched).
+ */
+const referencedByWorkerProfile = (): SQL =>
+  sql`exists (select 1 from ${workerProfiles} where ${workerProfiles.aiJobId} = ${aiJobs.id})`;
+
+/**
+ * PERF-3 — the retention-prune predicate (OWNER DECISION 2026-07-21: terminal
+ * rows older than 90 days). A row is prunable iff ALL of:
+ *   1. status is TERMINAL (completed/failed) — queued/running rows are NEVER
+ *      touched regardless of age (a zombie row is the #420 in-flight guard's
+ *      problem, not retention's);
+ *   2. `updated_at` (the terminal transition — never earlier than created_at, so
+ *      the conservative reading of "older than N days") is STRICTLY before the
+ *      cutoff;
+ *   3. NO `worker_profiles.ai_job_id` references it (see
+ *      `referencedByWorkerProfile` — the #420 dedupe landmine). Applied to EVERY
+ *      job type, not just profile_extraction: today only extraction rows are ever
+ *      referenced, but the guard must hold for any future writer of that column.
+ *
+ * Exported for the structural/behavioural repository tests; used by BOTH the
+ * dry-run summary and the armed delete, so what the sweep reports and what it
+ * would delete can never drift.
+ */
+export const retentionPruneWhere = (cutoff: Date): SQL =>
+  and(
+    inArray(aiJobs.status, [...TERMINAL_STATUSES]),
+    lt(aiJobs.updatedAt, cutoff),
+    sql`not ${referencedByWorkerProfile()}`,
+  )!;
+
+/** PII-free counts describing one retention-sweep evaluation (PERF-3). */
+export interface RetentionPruneSummary {
+  /** Prunable rows: terminal + aged-out + NOT referenced by worker_profiles. */
+  candidates: number;
+  /** Aged-out terminal rows KEPT because worker_profiles.ai_job_id references them. */
+  skippedReferenced: number;
+  /** Candidates by job type (counts only). */
+  byType: Record<string, number>;
+  /** Candidate age distribution in multiples of the retention window. */
+  ageDistribution: { upTo2x: number; upTo4x: number; over4x: number };
+}
 
 /**
  * Operational AI usage/cost metadata persisted on an `ai_jobs` row when a job
@@ -167,5 +226,96 @@ export class AiJobsRepository {
       .update(aiJobs)
       .set({ status: "failed", errorMessage, updatedAt: new Date() })
       .where(eq(aiJobs.id, id));
+  }
+
+  /**
+   * PERF-3 — one PII-free summary of what the retention sweep WOULD prune (and
+   * what it deliberately keeps). Runs on every tick: it IS the dry-run output,
+   * and in armed mode it is logged alongside the delete so the two modes report
+   * identically. Counts only — job ids never leave this method, and no PII exists
+   * on the table to begin with (§2 invariant 2).
+   *
+   * `cutoff2x`/`cutoff4x` bucket the CANDIDATES by age in multiples of the
+   * retention window (1–2x, 2–4x, >4x) — the age distribution the dry-run
+   * requirement asks for, computed in one grouped pass with FILTER clauses.
+   */
+  async summarizeRetentionPrune(args: {
+    cutoff: Date;
+    cutoff2x: Date;
+    cutoff4x: Date;
+  }): Promise<RetentionPruneSummary> {
+    const rows = await this.db
+      .select({
+        jobType: aiJobs.jobType,
+        total: sql<number>`count(*)::int`,
+        upTo2x: sql<number>`count(*) filter (where ${aiJobs.updatedAt} >= ${args.cutoff2x})::int`,
+        upTo4x: sql<number>`count(*) filter (where ${aiJobs.updatedAt} < ${args.cutoff2x} and ${aiJobs.updatedAt} >= ${args.cutoff4x})::int`,
+      })
+      .from(aiJobs)
+      .where(retentionPruneWhere(args.cutoff))
+      .groupBy(aiJobs.jobType);
+
+    // The landmine's other half: aged-out terminal rows KEPT because a
+    // worker_profiles row still points at them. Counted (not silently absorbed)
+    // so ops can see the #420-protection working — and notice if it ever balloons.
+    const skipped = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(aiJobs)
+      .where(
+        and(
+          inArray(aiJobs.status, [...TERMINAL_STATUSES]),
+          lt(aiJobs.updatedAt, args.cutoff),
+          referencedByWorkerProfile(),
+        ),
+      );
+
+    const summary: RetentionPruneSummary = {
+      candidates: 0,
+      skippedReferenced: skipped[0]?.n ?? 0,
+      byType: {},
+      ageDistribution: { upTo2x: 0, upTo4x: 0, over4x: 0 },
+    };
+    for (const row of rows) {
+      summary.candidates += row.total;
+      summary.byType[row.jobType] = row.total;
+      summary.ageDistribution.upTo2x += row.upTo2x;
+      summary.ageDistribution.upTo4x += row.upTo4x;
+      summary.ageDistribution.over4x += row.total - row.upTo2x - row.upTo4x;
+    }
+    return summary;
+  }
+
+  /**
+   * PERF-3 — one bounded, ARMED prune batch. Deletes at most `limit` rows per
+   * call (oldest terminal first, so a pathological backlog drains deterministically
+   * across ticks — the SWEEP_BATCH_LIMIT posture of the deletion sweep).
+   *
+   * The DELETE re-applies the FULL prune predicate on top of the id batch. Review
+   * note (PR #481, both verify lenses): the safety mechanism here is NOT a
+   * select-then-delete re-check — the batch SELECT is an un-executed builder
+   * embedded as a subquery, so SELECT and DELETE run as ONE statement under one
+   * snapshot, and under READ COMMITTED the NOT EXISTS leg would NOT see a
+   * concurrently-committed `worker_profiles` insert on its own. What actually
+   * protects a concurrently-referenced job is WRITE ORDERING: every writer of
+   * `worker_profiles.ai_job_id` (profile-extraction.processor.ts) first flips the
+   * SAME ai_jobs row via markRunning, and Postgres's EvalPlanQual re-evaluates the
+   * re-applied predicate on that modified row version — which then fails the
+   * terminal+aged legs before any reference can appear. If a future writer ever
+   * references a job WITHOUT first updating that ai_jobs row, this protection does
+   * not hold mid-statement — keep the markRunning-first ordering. Returns the
+   * count actually deleted.
+   */
+  async pruneRetentionBatch(cutoff: Date, limit: number): Promise<number> {
+    const batch = this.db
+      .select({ id: aiJobs.id })
+      .from(aiJobs)
+      .where(retentionPruneWhere(cutoff))
+      .orderBy(asc(aiJobs.updatedAt))
+      .limit(limit);
+    const deleted = await this.db
+      .delete(aiJobs)
+      .where(and(inArray(aiJobs.id, batch), retentionPruneWhere(cutoff)))
+      .returning({ id: aiJobs.id });
+    return deleted.length;
   }
 }

@@ -64,6 +64,44 @@ describe("CORS origin resolution (no `*`; fail-closed outside dev)", () => {
   });
 });
 
+describe("ai_jobs retention knobs (PERF-3 — 90-day owner decision, dry-run by default)", () => {
+  it("AI_JOBS_RETENTION_DAYS defaults to 90 (the recorded owner decision) and must be positive", () => {
+    expect(loadServerConfig({}).AI_JOBS_RETENTION_DAYS).toBe(90);
+    expect(loadServerConfig({ AI_JOBS_RETENTION_DAYS: "30" }).AI_JOBS_RETENTION_DAYS).toBe(30);
+    // 0 would mean "prune everything terminal immediately" — must be a code change, not env.
+    expect(() => loadServerConfig({ AI_JOBS_RETENTION_DAYS: "0" })).toThrow();
+    expect(() => loadServerConfig({ AI_JOBS_RETENTION_DAYS: "-1" })).toThrow();
+  });
+
+  it("AI_JOBS_RETENTION_SWEEP_INTERVAL_HOURS defaults to 24, allows fractional, rejects 0", () => {
+    expect(loadServerConfig({}).AI_JOBS_RETENTION_SWEEP_INTERVAL_HOURS).toBe(24);
+    expect(
+      loadServerConfig({ AI_JOBS_RETENTION_SWEEP_INTERVAL_HOURS: "0.5" })
+        .AI_JOBS_RETENTION_SWEEP_INTERVAL_HOURS,
+    ).toBe(0.5);
+    expect(() => loadServerConfig({ AI_JOBS_RETENTION_SWEEP_INTERVAL_HOURS: "0" })).toThrow();
+  });
+
+  it("AI_JOBS_RETENTION_DELETE_ENABLED defaults OFF (dry-run) and falsey strings stay OFF", () => {
+    expect(loadServerConfig({}).AI_JOBS_RETENTION_DELETE_ENABLED).toBe(false);
+    expect(
+      loadServerConfig({ AI_JOBS_RETENTION_DELETE_ENABLED: "false" }).AI_JOBS_RETENTION_DELETE_ENABLED,
+    ).toBe(false);
+    expect(
+      loadServerConfig({ AI_JOBS_RETENTION_DELETE_ENABLED: "0" }).AI_JOBS_RETENTION_DELETE_ENABLED,
+    ).toBe(false);
+  });
+
+  it("arming real deletion requires the explicit 'true'/'1' flag", () => {
+    expect(
+      loadServerConfig({ AI_JOBS_RETENTION_DELETE_ENABLED: "true" }).AI_JOBS_RETENTION_DELETE_ENABLED,
+    ).toBe(true);
+    expect(
+      loadServerConfig({ AI_JOBS_RETENTION_DELETE_ENABLED: "1" }).AI_JOBS_RETENTION_DELETE_ENABLED,
+    ).toBe(true);
+  });
+});
+
 describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () => {
   it("defaults to mock: PAYMENTS_ENABLE_REAL false and real payments blocked", () => {
     const config = loadServerConfig({});
