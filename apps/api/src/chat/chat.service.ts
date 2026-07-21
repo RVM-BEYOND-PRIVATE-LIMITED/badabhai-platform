@@ -1,9 +1,5 @@
 import { Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
-import {
-  ConversationStateSchema,
-  type ConversationMessage,
-  type ConversationState,
-} from "@badabhai/ai-contracts";
+import { ConversationStateSchema, type ConversationState } from "@badabhai/ai-contracts";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
@@ -122,7 +118,15 @@ export class ChatService {
 
     // 3. Ask the AI service, PASSING the loaded state (pseudonymizes internally;
     //    stateful mock fallback if the service is down).
-    const history = await this.buildHistory(dto.session_id);
+    //    PERF-2: `history` ships EMPTY on purpose — the turn is stateless on the
+    //    ai-service side (COST-3): /profiling/respond keys off message_text +
+    //    conversation_state only, build_chat_messages already ignores history, and
+    //    a null-state turn mints a FRESH ConversationState (it never reconstructs
+    //    state from history). The field itself STAYS in the payload — it is part
+    //    of the shipped ProfilingTurnInput contract (invariant #8) — only its
+    //    contents were dead weight. Extraction is unaffected: it assembles the
+    //    FULL transcript itself (profile-extraction.processor.ts buildTranscript),
+    //    not via this path.
     this.logger.log(
       `state sent session=${dto.session_id} conversation_state=${priorState ? "present" : "null"} role_family=${roleFamily}`,
     );
@@ -130,7 +134,7 @@ export class ChatService {
       session_id: dto.session_id,
       worker_ref: workerId,
       message_text: dto.text,
-      history,
+      history: [],
       conversation_state: priorState,
       role_family: roleFamily,
     });
@@ -384,16 +388,5 @@ export class ChatService {
         `auto-extract trigger failed session=${sessionId} (non-fatal, chat continues): ${String(err)}`,
       );
     }
-  }
-
-  /** Build conversation history (excluding the just-stored inbound message). */
-  private async buildHistory(sessionId: string): Promise<ConversationMessage[]> {
-    const messages = await this.chat.listMessages(sessionId);
-    return messages
-      .filter((m) => m.bodyText)
-      .map((m) => ({
-        role: m.direction === "inbound" ? ("worker" as const) : ("assistant" as const),
-        text: m.bodyText ?? "",
-      }));
   }
 }

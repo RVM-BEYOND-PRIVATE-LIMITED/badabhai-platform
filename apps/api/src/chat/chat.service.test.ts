@@ -144,22 +144,66 @@ describe("ChatService.postMessage — query-count / N+1 guard (per turn)", () =>
   it("issues a BOUNDED, constant set of repo reads/writes per message (no N+1)", async () => {
     const { svc, chat } = make({ extractionReady: false });
     await svc.postMessage(WORKER, DTO as never, CTX);
-    // Exactly one history read per turn — not one-per-prior-message.
-    expect(chat.listMessages).toHaveBeenCalledTimes(1);
+    // PERF-2: ZERO history reads per turn — the ai-service turn is stateless
+    // (COST-3 discards history), so the transcript is never loaded here at all.
+    expect(chat.listMessages).not.toHaveBeenCalled();
     // One session lookup, two message inserts (inbound + outbound), one state persist.
     expect(chat.findSession).toHaveBeenCalledTimes(1);
     expect(chat.insertMessage).toHaveBeenCalledTimes(2);
     expect(chat.saveConversationState).toHaveBeenCalledTimes(1);
   });
+});
 
-  it("history read stays O(1) regardless of prior transcript length", async () => {
+// PERF-2 — stop shipping the chat history the ai-service discards. The turn engine
+// keys off message_text + conversation_state; build_chat_messages(history=[]) already
+// ignored the field (COST-3), and a null-state turn mints a fresh ConversationState
+// (never reconstructed from history). So the API now sends history: [] and no longer
+// reads the transcript on the chat turn. The FIELD stays — shipped contract shape.
+describe("ChatService.postMessage — PERF-2 dead-history drop", () => {
+  it("produces the IDENTICAL full reply object as before the change (deep-equal)", async () => {
+    // The reply derives ONLY from the stubbed ai client's result (+ name rendering);
+    // history never influenced it. This is byte-for-byte what the pre-change code
+    // returned with the same stub.
+    const { svc } = make({ extractionReady: false });
+    const res = await svc.postMessage(WORKER, DTO as never, CTX);
+    expect(res).toEqual({
+      session_id: SESSION,
+      reply: "Thanks!",
+      blocked: false,
+      is_mock: true,
+      suggested_followups: [],
+      asked_question_id: "q_machines",
+      extraction_ready: false,
+    });
+  });
+
+  it("never reads the transcript on the chat-turn path (listMessages spy)", async () => {
     const { svc, chat } = make({ extractionReady: false });
-    // Simulate a long prior transcript; the service must still read it ONCE.
-    chat.listMessages.mockResolvedValueOnce(
+    // Even with a long prior transcript available, the turn must not load it.
+    chat.listMessages.mockResolvedValue(
       Array.from({ length: 200 }, (_, i) => ({ id: `m${i}`, direction: "inbound", bodyText: "x" })),
     );
     await svc.postMessage(WORKER, DTO as never, CTX);
-    expect(chat.listMessages).toHaveBeenCalledTimes(1);
+    expect(chat.listMessages).not.toHaveBeenCalled();
+  });
+
+  it("fresh session (null state, no prior messages) completes a turn with history: []", async () => {
+    const { svc, ai } = make(); // conversationState defaults to null → fresh interview
+    const res = await svc.postMessage(WORKER, DTO as never, CTX);
+    expect(res.reply).toBe("Thanks!");
+    const sent = ai.profilingRespond.mock.calls[0]![0] as Record<string, unknown>;
+    expect(sent.conversation_state).toBeNull();
+    expect(sent.history).toEqual([]);
+  });
+
+  it("outbound ai-service payload STILL CARRIES the history field — empty, not absent", async () => {
+    // Invariant #8: the shipped ProfilingTurnInput contract keeps its shape; only
+    // the contents were dead weight. The key must be present with value [].
+    const { svc, ai } = make({ conversationState: READY_STATE });
+    await svc.postMessage(WORKER, DTO as never, CTX);
+    const sent = ai.profilingRespond.mock.calls[0]![0] as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(sent, "history")).toBe(true);
+    expect(sent.history).toEqual([]);
   });
 });
 
