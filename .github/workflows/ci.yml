@@ -337,7 +337,7 @@ jobs:
       - name: Deploy via SSH
         # SHA-pinned (was the mutable v1.0.3 tag): 12 production secrets now flow
         # through this action's container — a hijacked tag would see them all.
-        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         # CD-1b: the docker-compose.staging.yml `${VAR:?}` gate reads the BOX's
         # shell environment — GitHub environment/repo secrets do NOT reach it on
         # their own (the first health-gated run proved it: INTERNAL_SERVICE_TOKEN
