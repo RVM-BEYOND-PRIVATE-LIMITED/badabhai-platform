@@ -275,7 +275,7 @@ jobs:
           
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         env:
           # CD-4: pin the short-sha length so the `type=sha` tag provably matches the
           # deploy job's `cut -c1-7` below (7 IS metadata-action's default — pinned
