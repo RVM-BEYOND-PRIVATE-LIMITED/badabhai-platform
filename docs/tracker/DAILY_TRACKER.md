@@ -5,6 +5,56 @@ Newest day on top. Copy the template block each working day. Every % move needs 
 
 ---
 
+# Daily Tracker — 2026-07-21
+
+## BadaBhai Progress Snapshot
+- **No % moves** (cap rule: no staging/handset evidence added today).
+- **Deploy pipeline confirmed GREEN end-to-end**: STAGING-SECRETS-1 (the owner-only
+  blocker tracked since 07-16) is resolved — `Build & Push Docker Image` +
+  `Deploy to AWS Lightsail` both succeeded live on today's main pushes. First
+  independently-observed real deploy since CD hardening landed.
+- **TD96 (new)**: `appleboy/ssh-action` deliberately held at **v1.0.3**, dependabot
+  `ignore` added. v1.1.0+ re-architected the action from a Docker container action
+  into a composite that curl-downloads the `drone-ssh` binary at deploy time with
+  **no checksum verification** — a SHA pin then stops covering the executed code,
+  on the one job carrying 12 production deploy secrets. Owner ruling: PR #473
+  closed rather than merged. See [tech-debt-register.md](../registers/tech-debt-register.md).
+- Two PR-solver review passes each caught a real MEDIUM before merge (see below) —
+  both on the *default* AI-down/mock degradation path, not an edge case.
+
+## Merged today (11 PRs on main + 1 closed-not-merged)
+| PR | What |
+| -- | ---- |
+| #477 | (pre-session) `ai_jobs` index for the #420 extraction-dedupe predicate |
+| #472/#474/#475/#476 | Dependabot: `actions/setup-python` v6→v7, `docker/setup-buildx-action` v3→v4, `docker/login-action` v3→v4, `docker/metadata-action` v5→v6 — each independently research-verified against our exact `ci.yml` usage (5-agent workflow: per-action changelog read + a completeness critic) before merge; all safe, zero code changes needed |
+| #473 (**closed, not merged**) | `appleboy/ssh-action` v1.0.3→v1.2.5 — **rejected on owner ruling**: see TD96 above |
+| #480 | TD96 register entry + dependabot `ignore` rule for `appleboy/ssh-action`, executing the #473 ruling |
+| #478 | **CHAT-UE-1** — `unanswered_essentials` (the interview-completeness signal) now rides the `POST /chat/message` reply. Adversarial review (3-lens/7-agent) caught a **MEDIUM, confirmed 3×**: the mock/AI-down fallback (`mock-interview.ts`) never computed the field — `freshState` pinned `[]` (= the contract's documented "complete"), so turn 1 of every AI-outage session falsely reported the interview done with 0/4 essentials answered, and a stale non-empty list could survive alongside a flipped `extraction_ready: true`. Fixed pre-merge: `mockProfilingTurn` now recomputes the list every turn from `ESSENTIAL_TOPICS`, whose id set was also corrected (`location`→`current_location`) to match the Python engine. A LOW (blocked/clarify legs legitimately degrade to `[]`, conflating "unknown" with "complete") documented, not coded — no client consumes the field yet |
+| #484 | (concurrent) CHAT-UE-1 outbound-gate mutation follow-up — killed a surviving mutant, made coercion drops observable |
+| #479 | (concurrent, owner-merged) **PERF-2** — chat turns stop shipping conversation history to the ai-service; it was already discarded there (`build_chat_messages` ignores it, COST-3-stateless). `buildHistory` deleted; extraction's own transcript read is untouched. My independent rebase reached the same fix (harness's deep-equal test needed the CHAT-UE-1 field added) but the owner merged first — no conflict, work superseded cleanly |
+| #481 | (concurrent) **PERF-3** — 90-day retention sweep for terminal `ai_jobs` rows, dry-run by default |
+| #485 | (concurrent) Four profiling-flow defects found in a real owner chat session, fixed in `ai-service` |
+| #482 | Dependabot: `docker/build-push-action` v5→v7, on the production image-push job. Verified (devops-engineer agent): still a committed-JS action (never container, never runtime-download) at every version in range — explicitly NOT the ssh-action supply-chain class; all 7 of our inputs unchanged; safe |
+
+## Owner queue (as of EOD)
+Register-file rulings from 120c6ef (TD75 closed-by-#385, TD76 scanner deferral, TD97
+supabase-checks deferral, TD73/TD66 skip-semantics, TD94 mint+mapping, TD69 activated,
+TD72 re-scoped) were resolved earlier today by the owner directly — nothing new queued
+from that pass. Net open owner items from today's session: none blocking; TD96's
+payback trigger (upstream checksum support / vendor-with-checksum / real CVE) is a
+watch-item, not an action.
+
+## Lesson worth keeping
+Two independent things converged on the same root cause today: a client-facing
+completeness signal (`unanswered_essentials`) was promoted to the wire contract in
+#478 without first checking that **every producer** of that field — not just the real
+engine — actually maintains it. The mock/AI-down fallback is not a rare branch; it is
+the *default* local-dev/e2e path and the live behavior during any real outage. When a
+field's contract says "empty means X", grep for every writer of that field before
+trusting the default value on paths that were built before the field existed.
+
+---
+
 # Daily Tracker — 2026-07-17
 
 ## BadaBhai Progress Snapshot
