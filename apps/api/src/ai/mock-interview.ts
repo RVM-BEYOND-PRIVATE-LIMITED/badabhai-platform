@@ -24,15 +24,20 @@ const MOCK_TOPICS: readonly MockTopic[] = [
   { id: "machines", question: "Kaunsi machine pe sabse zyada kaam kiya hai — VMC, CNC lathe, HMC ya grinding?", core: true },
   { id: "experience", question: "Total kitne saal ka experience hai is line me?", core: true },
   { id: "skills", question: "Setting khud karte ho ya sirf operation? Tool offset, program edit ya drawing reading me se kya aata hai?", core: true },
-  { id: "location", question: "Abhi aap kis city me ho, aur kahan kaam karne ke liye ready ho?", core: true },
+  // Id matches the ENGINE's essential topic id (interview_engine.py ESSENTIAL_TOPICS
+  // uses "current_location", not the retired combined "location") so cross-mode
+  // sessions agree on which essential was answered and the CHAT-UE-1
+  // unanswered_essentials list never mints an id the engine retired.
+  { id: "current_location", question: "Abhi aap kis city me ho, aur kahan kaam karne ke liye ready ho?", core: true },
   { id: "controllers", question: "Controller kaunsa chalaya hai — Fanuc, Siemens, Mitsubishi, Haas ya Heidenhain?", core: false },
   { id: "salary", question: "Abhi salary kitni hai aur kitni expect kar rahe ho?", core: false },
   { id: "availability", question: "Join karne me kitne din lagenge — abhi free ho ya notice chal raha hai?", core: false },
   { id: "education", question: "ITI ya diploma kiya hai? RVM CAD ya koi aur training li hai?", core: false },
 ];
 
-// Must be answered before the profile is extraction-ready (mirrors the engine).
-const ESSENTIAL_TOPICS = ["role", "machines", "experience", "location"] as const;
+// Must be answered before the profile is extraction-ready (mirrors the engine's
+// ESSENTIAL_TOPICS tuple in interview_engine.py, ids included).
+const ESSENTIAL_TOPICS = ["role", "machines", "experience", "current_location"] as const;
 
 const ACK = "Badhiya bhai. ";
 const WRAP_UP =
@@ -62,9 +67,9 @@ function freshState(roleFamily: string): ConversationState {
     // never re-asks and the map stays empty here; the Python engine owns the
     // bounded re-ask.
     ask_counts: {},
-    // INTERVIEW-1 completeness signal (additive contract field). This mock marks
-    // the last-asked topic answered every turn, so it reports no gaps; the Python
-    // engine computes the real list. Acting on it is a follow-up task.
+    // INTERVIEW-1 completeness signal (additive contract field). Placeholder only:
+    // mockProfilingTurn recomputes it every turn (CHAT-UE-1 surfaces it to the
+    // client, so even in mock mode empty must MEAN "all essentials answered").
     unanswered_essentials: [],
   };
 }
@@ -95,7 +100,14 @@ export function mockProfilingTurn(
     st.answered_topics.push(lastAsked);
   }
 
-  const extractionReady = ESSENTIAL_TOPICS.every((t) => st.answered_topics.includes(t));
+  // CHAT-UE-1: recompute the completeness signal every turn (mirrors the engine's
+  // `_unanswered_essentials`, interview_engine.py). Two things depend on this:
+  // a stale list persisted by a prior REAL-engine turn must not survive a fallback
+  // turn (it could otherwise contradict extraction_ready forever), and on a fresh
+  // AI-down session empty must mean "all essentials answered" — never "not computed".
+  st.unanswered_essentials = ESSENTIAL_TOPICS.filter((t) => !st.answered_topics.includes(t));
+
+  const extractionReady = st.unanswered_essentials.length === 0;
   const next = MOCK_TOPICS.find(
     (t) => !st.asked_question_ids.includes(t.id) && !st.answered_topics.includes(t.id),
   );
