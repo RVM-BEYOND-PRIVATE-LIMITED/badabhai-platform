@@ -687,7 +687,35 @@ export const aiJobs = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("ai_jobs_status_idx").on(t.status)],
+  (t) => [
+    index("ai_jobs_status_idx").on(t.status),
+    // Serves the #420 extraction dedupe lookup
+    // (profiles/ai-jobs.repository.ts `findActiveExtractionForSession`), which filters
+    // `job_type = 'profile_extraction'` AND `input_ref->>'session_id'` AND
+    // `input_ref->>'worker_id'`, then takes `ORDER BY created_at DESC LIMIT 1`.
+    //
+    // Before this, NOTHING served that predicate: `ai_jobs_status_idx` above is the
+    // table's only other index, and the lookup's status disjunction matches 3 of the 4
+    // enum values (~75% selectivity), so the planner would reject it anyway. `ai_jobs`
+    // accumulates every extraction/transcription/resume job with no retention policy,
+    // so the scan cost grows monotonically while the result stays LIMIT 1.
+    //
+    // PARTIAL on job_type: extraction jobs are a fraction of the table, and the
+    // predicate is a constant, so the index stays small and never has to store the
+    // column. Trailing `created_at DESC` also serves the sort, making the LIMIT 1 an
+    // index scan rather than a sort over all matches.
+    //
+    // §2: both indexed expressions are opaque UUIDs (worker_id / session_id), never PII.
+    // An index stores the indexed VALUES, so this is deliberate — no name, phone,
+    // employer or free text is placed in an index here or anywhere else.
+    index("ai_jobs_extraction_session_idx")
+      .on(
+        sql`(${t.inputRef}->>'session_id')`,
+        sql`(${t.inputRef}->>'worker_id')`,
+        t.createdAt.desc(),
+      )
+      .where(sql`${t.jobType} = 'profile_extraction'`),
+  ],
 );
 
 // ---------------------------------------------------------------------------

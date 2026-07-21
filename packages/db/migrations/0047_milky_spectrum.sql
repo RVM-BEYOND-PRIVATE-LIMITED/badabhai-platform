@@ -1,0 +1,1 @@
+CREATE INDEX "ai_jobs_extraction_session_idx" ON "ai_jobs" USING btree (("input_ref"->>'session_id'),("input_ref"->>'worker_id'),"created_at" DESC NULLS LAST) WHERE "ai_jobs"."job_type" = 'profile_extraction';
