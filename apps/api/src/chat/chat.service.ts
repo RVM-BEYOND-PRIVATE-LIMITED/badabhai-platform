@@ -152,7 +152,8 @@ export class ChatService {
       // ⚠️ SG-1 / PII-TRAP (AI-PERSONA-2): store the RAW reply_text — it carries the
       // literal {{worker_name}} placeholder, NEVER the worker's real name. Do NOT
       // interpolate the name before this insert or before the event emit below:
-      // this row is the audit spine (its history also feeds the next AI turn) and
+      // this row is the audit spine (its history feeds the EXTRACTION transcript —
+      // since PERF-2, stored messages no longer reach the next AI turn at all) and
       // must stay PII-free. The real name is stitched in ONLY at the client return
       // (step 7, renderWorkerName). Keep interpolation OUT of this path.
       bodyText: aiResult.reply_text,
