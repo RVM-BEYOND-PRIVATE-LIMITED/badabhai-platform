@@ -31,7 +31,10 @@ export const PostMessageResponseSchema = z.object({
   asked_question_id: z.string().nullable().default(null),
   extraction_ready: z.boolean().default(false),
   // CHAT-UE-1: ESSENTIAL topics not yet answered, in ESSENTIAL_TOPICS order;
-  // empty = complete; topic ids only, never PII; additive.
+  // topic ids only, never PII; additive. empty = complete ONLY when
+  // `blocked` is false — a blocked turn carries no state (the real service
+  // fails closed with updated_state null) and degrades to [], which means
+  // "unknown", not "complete". Clients must gate on `blocked` before reading it.
   unanswered_essentials: z.array(z.string()).default([]),
 });
 export type PostMessageResponse = z.infer<typeof PostMessageResponseSchema>;

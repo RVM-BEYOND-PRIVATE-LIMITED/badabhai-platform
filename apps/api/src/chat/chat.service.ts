@@ -243,10 +243,14 @@ export class ChatService {
     //    The stored message (step 4) + every event above still hold the placeholder.
     //
     //    CHAT-UE-1: surface the engine's completeness signal on the reply.
-    //    `updated_state` is GENUINELY null on the mock/AI-down fallback → `?? []`
-    //    (never throw); and a malformed VALUE from a future engine bug (non-string
-    //    member / non-array) is coerced to its string members here, BEFORE the
-    //    outbound check — a chat turn must never 500 on a progress field.
+    //    `updated_state` is GENUINELY null on the REAL service's blocked leg
+    //    (pseudonymize fails closed → ProfilingTurnOutput.updated_state None; the
+    //    contract is `.nullable()`) → `?? []` (never throw). The mock/AI-down
+    //    fallback is NOT that leg: it always returns a full state, whose
+    //    unanswered_essentials mockProfilingTurn recomputes every turn. A malformed
+    //    VALUE from a future engine bug (non-string member / non-array) is coerced
+    //    to its string members here, BEFORE the outbound check — a chat turn must
+    //    never 500 on a progress field.
     const rawUnanswered: unknown = aiResult.updated_state?.unanswered_essentials ?? [];
     const response: PostMessageResponse = {
       session_id: dto.session_id,

@@ -28,8 +28,9 @@ function make(
     replyText?: string;
     workerName?: string | null;
     decryptThrows?: boolean;
-    // CHAT-UE-1: exact updated_state the (mock) ai-service returns — including
-    // explicitly `null` (the mock/AI-down fallback) or a MALFORMED value.
+    // CHAT-UE-1: exact updated_state the ai seam returns — including explicitly
+    // `null` (the REAL service's blocked/fail-closed leg; the mock fallback never
+    // returns null) or a MALFORMED value.
     updatedState?: unknown;
   } = {},
 ) {
@@ -245,7 +246,7 @@ describe("ChatService — CHAT-UE-1 unanswered_essentials on the reply", () => {
     expect(res.unanswered_essentials).toEqual(["machines", "experience", "salary"]);
   });
 
-  it("updated_state null (mock/AI-down fallback) → [] and no throw", async () => {
+  it("updated_state null (real service's blocked/fail-closed leg) → [] and no throw", async () => {
     const { res, chat } = await run({ updatedState: null });
     expect(res.unanswered_essentials).toEqual([]);
     // The null-state leg was genuinely taken (plain touch, no state persist).
