@@ -330,6 +330,13 @@
       "when": 1784362498596,
       "tag": "0046_rich_profile_draft",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1784610342226,
+      "tag": "0047_milky_spectrum",
+      "breakpoints": true
     }
   ]
 }
