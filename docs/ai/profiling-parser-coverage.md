@@ -29,8 +29,8 @@ is a key in the returned dict; that is exactly the condition under which
 
 - Fixtures: **265** across **11** topics.
 - Human-labelled `accept` (a valid answer): **252**.
-- Of those, parser accepted: **158** (**63%** overall).
-- Parser gaps (valid answer, not accepted): **94**.
+- Of those, parser accepted: **160** (**63%** overall).
+- Parser gaps (valid answer, not accepted): **92**.
 - **Fabrications** (nothing to record, parser stored a VALUE): **0**.
 - Denials absorbed (nothing to record, topic marked answered, nothing stored): **2**.
 
@@ -201,7 +201,7 @@ which is the value the worker IS asserting. For `education` and `skills` a denia
 also ANSWERS the ask with value `None` (`signals._NEGATION_ANSWERS_TOPICS`): the topic
 is marked answered, nothing is collected, and it is not mistaken for silence.
 
-**Measured verdict on the 16 probes below: 0 of the 8 CAPABILITY probes are still open, and 8 of the 8 VALUE probes are.**
+**Measured verdict on the 16 probes below: 0 of the 8 CAPABILITY probes are still open, and 6 of the 8 VALUE probes are.**
 
 The masking is applied ONLY to the capability cue families (role / machines /
 controllers / skills / knowledge / education). `signals.detect` states the exclusion
@@ -357,8 +357,8 @@ stored?) so the verdict cannot be talked into being green.
 | VALUE | `current_location` | `Pune nahi, Delhi mein hu` | `Pune` | `Pune` | **OPEN** |
 | VALUE | `current_location` | `Pune mein nahi rehta` | `Pune` | `Pune` | **OPEN** |
 | VALUE | `preferred_locations` | `Pune nahi jaunga` | `Pune` | `['Pune']` | **OPEN** |
-| VALUE | `availability` | `abhi turant nahi, 1 mahina lagega` | `immediate` | `immediate` | **OPEN** |
-| VALUE | `availability` | `turant nahi aa sakta` | `immediate` | `immediate` | **OPEN** |
+| VALUE | `availability` | `abhi turant nahi, 1 mahina lagega` | `immediate` | `notice_period` | honoured |
+| VALUE | `availability` | `turant nahi aa sakta` | `immediate` | `_topic not marked_` | honoured |
 | VALUE | `salary_current` | `22000 nahi milta` | `22000` | `22000` | **OPEN** |
 | VALUE | `salary_expected` | `25000 nahi chahiye, 30000 chahiye` | `25000` | `25000` | **OPEN** |
 | VALUE | `experience` | `2 saal nahi hua abhi` | `2.0` | `2.0` | **OPEN** |
@@ -389,7 +389,7 @@ stored?) so the verdict cannot be talked into being green.
 | `experience` | 25 | 24 | 12 | 50% | 12 |
 | `skills` | 24 | 23 | 14 | 61% | 9 |
 | `current_location` | 24 | 23 | 16 | 70% | 7 |
-| `preferred_locations` | 24 | 23 | 15 | 65% | 8 |
+| `preferred_locations` | 24 | 23 | 17 | 74% | 6 |
 | `controllers` | 24 | 22 | 13 | 59% | 9 |
 | `salary_current` | 24 | 23 | 19 | 83% | 4 |
 | `salary_expected` | 24 | 23 | 14 | 61% | 9 |
@@ -407,8 +407,8 @@ stored?) so the verdict cannot be talked into being green.
 | 5 | `machines` | 9 | 61% | **ESSENTIAL** |
 | 6 | `salary_expected` | 9 | 61% | optional |
 | 7 | `skills` | 9 | 61% | optional |
-| 8 | `preferred_locations` | 8 | 65% | MUST_ASK |
-| 9 | `current_location` | 7 | 70% | **ESSENTIAL** |
+| 8 | `current_location` | 7 | 70% | **ESSENTIAL** |
+| 9 | `preferred_locations` | 6 | 74% | MUST_ASK |
 | 10 | `salary_current` | 4 | 83% | optional |
 | 11 | `availability` | 2 | 92% | optional |
 
@@ -491,7 +491,7 @@ stored?) so the verdict cannot be talked into being green.
 | `Bihar` | hinglish | _nothing_ | state-only answer |
 | `पुणे` | devanagari | _nothing_ |  |
 
-### `preferred_locations` — 8 gap(s)
+### `preferred_locations` — 6 gap(s)
 
 | worker answer | register | detected instead | note |
 | --- | --- | --- | --- |
@@ -500,8 +500,6 @@ stored?) so the verdict cannot be talked into being green.
 | `Gujarat mein` | hinglish | _nothing_ | state-level preference |
 | `South India` | english | _nothing_ |  |
 | `NCR` | english | _nothing_ |  |
-| `kahi bhi` | misspelling | _nothing_ |  |
-| `koi bhi jagah` | hinglish | _nothing_ |  |
 | `जहाँ भी काम मिले` | devanagari | _nothing_ |  |
 
 ### `controllers` — 9 gap(s)
@@ -940,8 +938,8 @@ the shape of a fix, in the order the data ranks them. None of them is done here.
 | `preferred_locations` | `Gujarat mein` | NO | — | accept |
 | `preferred_locations` | `South India` | NO | — | accept |
 | `preferred_locations` | `NCR` | NO | — | accept |
-| `preferred_locations` | `kahi bhi` | NO | — | accept |
-| `preferred_locations` | `koi bhi jagah` | NO | — | accept |
+| `preferred_locations` | `kahi bhi` | yes | `preferred_locations` | accept |
+| `preferred_locations` | `koi bhi jagah` | yes | `preferred_locations` | accept |
 | `preferred_locations` | `जहाँ भी काम मिले` | NO | — | accept |
 | `preferred_locations` | `Pune se bahar nahi jaunga` | yes | `preferred_locations` | accept |
 | `preferred_locations` | `abhi soch nahi paya` | NO | — | reject |
