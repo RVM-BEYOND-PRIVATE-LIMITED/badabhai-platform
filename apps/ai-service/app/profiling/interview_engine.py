@@ -14,7 +14,13 @@ from __future__ import annotations
 
 from ..contracts import ConversationState
 from . import signals
-from .question_bank import Topic, one_shot_opener_for, topic_by_id, topics_for
+from .question_bank import (
+    Topic,
+    one_shot_opener_for,
+    options_for,
+    topic_by_id,
+    topics_for,
+)
 
 # A senior's acknowledgement: two words, no praise (persona rule G4).
 _ACK = "Theek hai. "
@@ -219,12 +225,6 @@ def _unanswered_essentials(st: ConversationState) -> list[str]:
     """
     return [t for t in ESSENTIAL_TOPICS if t not in st.answered_topics]
 
-# Topic-specific follow-up nudges used as suggested_followups.
-_FOLLOWUPS = [
-    "Controller kaunsa — Fanuc ya Siemens?",
-    "Setting karte hain ya sirf operation?",
-    "Kis sheher mein kaam kar sakte hain?",
-]
 
 # AI-PERSONA-2: the ai-service NEVER emits a real worker name — only this literal
 # placeholder token at the open/close vocative slots. It is NOT PII (safe to reach
@@ -527,8 +527,31 @@ def needs_rephrase(message: str) -> bool:
     return any(marker in m for marker in _REPHRASE_MARKERS)
 
 
-def suggested_followups(role_family: str = "cnc_vmc") -> list[str]:
-    return list(_FOLLOWUPS)
+def suggested_followups(
+    role_family: str = "cnc_vmc", asked_question_id: str | None = None
+) -> list[str]:
+    """Tap-to-answer chips for the question being served THIS turn.
+
+    ANSWERS to ``asked_question_id``, never questions — because the worker app sends
+    a tapped chip's label verbatim as the worker's message. That makes the label the
+    worker's answer of record, so anything served here is put in their mouth.
+
+    WHAT THIS REPLACES, measured on the constant it removes. Three hard-coded
+    QUESTIONS were served on every turn of every role family:
+
+        'Controller kaunsa — Fanuc ya Siemens?' -> {'controllers': ['Fanuc','Siemens']}
+        'Setting karte hain ya sirf operation?' -> {'skills': ['basic setting']}
+        'Kis sheher mein kaam kar sakte hain?'  -> {}
+
+    One tap on the first chip recorded TWO controllers the worker never named; the
+    third answered nothing at all, so tapping it burned a turn and a bounded re-ask.
+    The list was identical for `cnc_vmc`, `welding` and every unknown family, so a
+    welder was offered CNC controllers to fabricate.
+
+    ``asked_question_id=None`` yields ``[]`` — the wrap-up turn asks nothing, so
+    there is nothing to offer options for.
+    """
+    return options_for(role_family, asked_question_id)
 
 
 def _ask_count(st: ConversationState, topic_id: str) -> int:

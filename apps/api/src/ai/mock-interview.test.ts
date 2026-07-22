@@ -1,6 +1,49 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { describe, it, expect } from "vitest";
 import type { ConversationState } from "@badabhai/ai-contracts";
-import { mockProfilingTurn, MOCK_TOPIC_IDS, MUST_ASK_TOPICS } from "./mock-interview";
+import {
+  mockProfilingTurn,
+  MOCK_TOPIC_IDS,
+  MOCK_TOPIC_OPTIONS,
+  MUST_ASK_TOPICS,
+} from "./mock-interview";
+
+const FIXTURE_REL = "packages/ai-contracts/src/__fixtures__/answer-chips.json";
+
+/**
+ * The golden chip fixture, read from disk rather than imported.
+ *
+ * `readFileSync` and not a JSON import on purpose: this file lives in apps/api and
+ * the fixture in packages/ai-contracts, so an import would reach across a package
+ * boundary and land in the build graph. Reading it keeps the dependency to exactly
+ * what it is — a test-time parity assertion.
+ *
+ * Found by walking UP from the cwd rather than off `import.meta.url` (this package
+ * typechecks as CommonJS, where that is a TS1343) or a fixed `../../../..` (which
+ * silently depends on vitest's `--root`). Missing file = loud failure, never a
+ * skipped assertion: the whole point is that it cannot be quietly lost.
+ */
+function findFixture(): string {
+  let dir = process.cwd();
+  for (let i = 0; i < 8; i++) {
+    const candidate = resolve(dir, FIXTURE_REL);
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  throw new Error(
+    `golden chip fixture not found: ${FIXTURE_REL} (searched up from ${process.cwd()}). ` +
+      "The Python suite asserts against this same file — losing it removes the only " +
+      "guard that this mock's chips have been run through the detector.",
+  );
+}
+
+const GOLDEN_CHIPS = JSON.parse(readFileSync(findFixture(), "utf-8")) as {
+  options: Record<string, string[]>;
+  free_text_only: string[];
+};
 
 describe("mockProfilingTurn", () => {
   it("asks Q1 (role) on a fresh interview", () => {
@@ -135,6 +178,47 @@ describe("mockProfilingTurn", () => {
         "education",
         "certifications",
       ]);
+    });
+
+    // The chips are the worker's ANSWER OF RECORD: the app sends a tapped label
+    // verbatim as their message. This file is a SECOND copy of those strings, and
+    // TD81 means staging runs this mock — so what is written here is what a real
+    // staging worker taps. Only the Python suite can execute a chip against
+    // `signals.detect_answered_topics`, so both sides pin the same golden file.
+    it("serves the golden chips, byte-identical to question_bank.py", () => {
+      expect(MOCK_TOPIC_OPTIONS).toEqual(GOLDEN_CHIPS.options);
+    });
+
+    it("leaves the free-text topics free-text", () => {
+      // Any four cities we offered would be four cities we put in their mouth.
+      for (const id of GOLDEN_CHIPS.free_text_only) {
+        expect(MOCK_TOPIC_OPTIONS[id]).toBeUndefined();
+      }
+    });
+
+    it("never serves a QUESTION as a chip", () => {
+      // The whole defect had one visible signature. 'Controller kaunsa — Fanuc ya
+      // Siemens?' was served on every turn and measured to
+      // {controllers: ['Fanuc','Siemens']} — two controllers from one tap.
+      for (const chips of Object.values(MOCK_TOPIC_OPTIONS)) {
+        for (const chip of chips) expect(chip).not.toContain("?");
+      }
+    });
+
+    it("serves the chips belonging to the topic it just asked", () => {
+      let state = null as Parameters<typeof mockProfilingTurn>[0];
+      for (let i = 0; i < 12; i++) {
+        const t = mockProfilingTurn(state);
+        state = t.updated_state;
+        if (t.asked_question_id === null) {
+          // Wrap-up asks nothing, so it must offer nothing to answer.
+          expect(t.suggested_followups).toEqual([]);
+          continue;
+        }
+        expect(t.suggested_followups).toEqual(
+          GOLDEN_CHIPS.options[t.asked_question_id] ?? [],
+        );
+      }
     });
 
     it("has no combined 'salary' or retired 'location' id", () => {

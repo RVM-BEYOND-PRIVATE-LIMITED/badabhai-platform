@@ -16,6 +16,25 @@ interface MockTopic {
   id: string;
   question: string; // warm bada-bhai phrasing, used directly in mock mode
   core: boolean;
+  /**
+   * Tap-to-answer options for THIS topic — short ANSWERS, never questions.
+   *
+   * Mirrors `Topic.options` in `question_bank.py`, and mirroring it here is not
+   * cosmetic: TD81 means staging runs the MOCK AI path, so whatever this file
+   * serves is what a real staging worker taps. The strings are therefore kept
+   * byte-identical to the Python bank — the Python side executes every one of
+   * them against the detector (`tests/test_answer_chips.py`), which is the only
+   * place that verification can happen, so a divergence here is a silent loss of
+   * that guarantee.
+   *
+   * The phrasing of `question` above is deliberately warmer than the engine's;
+   * these are NOT, for exactly that reason.
+   *
+   * Omitted = free text only (the two location topics: an open answer space,
+   * where any four cities we offered would be four cities we put in the worker's
+   * mouth).
+   */
+  options?: readonly string[];
 }
 
 // Ordered CNC/VMC interview flow — core topics first. Mirrors question_bank.py
@@ -24,10 +43,10 @@ interface MockTopic {
 // vary — they cross the wire in `asked_question_ids` / `answered_topics` and a
 // session can switch between the real engine and this mock mid-interview.
 const MOCK_TOPICS: readonly MockTopic[] = [
-  { id: "role", question: "Bhai, aap mainly kya kaam karte ho — CNC, VMC, HMC operator, setter ya programmer?", core: true },
-  { id: "machines", question: "Kaunsi machine pe sabse zyada kaam kiya hai — VMC, CNC lathe, HMC ya grinding?", core: true },
-  { id: "experience", question: "Total kitne saal ka experience hai is line me?", core: true },
-  { id: "skills", question: "Setting khud karte ho ya sirf operation? Tool offset, program edit ya drawing reading me se kya aata hai?", core: true },
+  { id: "role", question: "Bhai, aap mainly kya kaam karte ho — CNC, VMC, HMC operator, setter ya programmer?", core: true , options: ["VMC operator", "CNC turner", "Setter", "Programmer"]},
+  { id: "machines", question: "Kaunsi machine pe sabse zyada kaam kiya hai — VMC, CNC lathe, HMC ya grinding?", core: true , options: ["VMC", "CNC lathe", "HMC", "Grinding"]},
+  { id: "experience", question: "Total kitne saal ka experience hai is line me?", core: true , options: ["1 saal", "3 saal", "5 saal", "10 saal"]},
+  { id: "skills", question: "Setting khud karte ho ya sirf operation? Tool offset, program edit ya drawing reading me se kya aata hai?", core: true , options: ["Setting", "Tool offset", "Program edit", "Drawing reading"]},
   // Id matches the ENGINE's essential topic id (interview_engine.py ESSENTIAL_TOPICS
   // uses "current_location", not the retired combined "location") so cross-mode
   // sessions agree on which essential was answered and the CHAT-UE-1
@@ -39,14 +58,14 @@ const MOCK_TOPICS: readonly MockTopic[] = [
   // interview_engine.py:33 ("current AND preferred — do not conflate").
   { id: "current_location", question: "Abhi aap kis city me ho?", core: true },
   { id: "preferred_locations", question: "Kaam ke liye kaunse sheher tak ja sakte ho?", core: true },
-  { id: "controllers", question: "Controller kaunsa chalaya hai — Fanuc, Siemens, Mitsubishi, Haas ya Heidenhain?", core: false },
+  { id: "controllers", question: "Controller kaunsa chalaya hai — Fanuc, Siemens, Mitsubishi, Haas ya Heidenhain?", core: false , options: ["Fanuc", "Siemens", "Mitsubishi", "Haas"]},
   // Split to mirror the engine's two salary topics. A single combined "salary" id
   // could never satisfy the MUST_ASK gate below — it is not in the question bank.
-  { id: "salary_current", question: "Abhi salary kitni mil rahi hai?", core: false },
-  { id: "salary_expected", question: "Aur kitni salary expect kar rahe ho?", core: false },
-  { id: "availability", question: "Join karne me kitne din lagenge — abhi free ho ya notice chal raha hai?", core: false },
-  { id: "education", question: "ITI ya diploma kiya hai? RVM CAD ya koi aur training li hai?", core: false },
-  { id: "certifications", question: "Koi certificate hai — NCVT, NSQF ya apprenticeship?", core: false },
+  { id: "salary_current", question: "Abhi salary kitni mil rahi hai?", core: false , options: ["15 hazar", "20 hazar", "25 hazar", "30 hazar"]},
+  { id: "salary_expected", question: "Aur kitni salary expect kar rahe ho?", core: false , options: ["25 hazar", "30 hazar", "35 hazar", "40 hazar"]},
+  { id: "availability", question: "Join karne me kitne din lagenge — abhi free ho ya notice chal raha hai?", core: false , options: ["Turant", "15 din", "1 mahina", "2 mahina"]},
+  { id: "education", question: "ITI ya diploma kiya hai? RVM CAD ya koi aur training li hai?", core: false , options: ["ITI", "Diploma", "ITI nahi kiya"]},
+  { id: "certifications", question: "Koi certificate hai — NCVT, NSQF ya apprenticeship?", core: false , options: ["NCVT", "SCVT", "NSQF", "Apprenticeship"]},
 ];
 
 // Must be ANSWERED before the profile is extraction-ready (mirrors the engine's
@@ -80,6 +99,18 @@ export const MUST_ASK_TOPICS = [
 /** Topic ids in bank order. Exported so the parity tests can pin them against
  *  question_bank.py without exposing the mock's (deliberately different) phrasing. */
 export const MOCK_TOPIC_IDS: readonly string[] = MOCK_TOPICS.map((t) => t.id);
+
+/**
+ * Tap-to-answer chips per topic, for topics that have them.
+ *
+ * Exported for the parity test only. Unlike `question`, these strings are NOT ours
+ * to vary — they are the worker's answer of record the moment a chip is tapped, and
+ * only the Python suite can execute them against the detector.
+ */
+export const MOCK_TOPIC_OPTIONS: Readonly<Record<string, readonly string[]>> =
+  Object.fromEntries(
+    MOCK_TOPICS.filter((t) => t.options?.length).map((t) => [t.id, t.options!]),
+  );
 
 const ACK = "Badhiya bhai. ";
 const WRAP_UP =
@@ -178,9 +209,13 @@ export function mockProfilingTurn(
     asked_question_id: next.id,
     updated_state: st,
     extraction_ready: false,
-    suggested_followups: [
-      "Controller kaunsa — Fanuc ya Siemens?",
-      "Setting karte ho ya sirf operation?",
-    ],
+    // The chips belong to the question being asked THIS turn.
+    //
+    // This used to be two hard-coded QUESTIONS served on every turn regardless of
+    // topic. The worker app sends a tapped chip's label verbatim as the worker's
+    // message, and the first of those two measured to
+    // `{controllers: ['Fanuc','Siemens']}` — one tap recorded two controllers the
+    // worker never named, on a turn that may have been asking about salary.
+    suggested_followups: [...(next.options ?? [])],
   };
 }
