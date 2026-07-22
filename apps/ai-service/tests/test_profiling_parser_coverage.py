@@ -585,7 +585,12 @@ def test_scripted_interview_shows_the_engine_level_consequence() -> None:
         "skills": ["machine operation"],
         "availability": "notice_period",
     }
-    assert "skills" in plausible.never_asked
+    # `skills` IS now asked (2026-07-22): the inferred "machine operation" fills the
+    # slot but no longer closes the question. This worker's reply to it ("sab aata
+    # hai") is still unparseable, so the inferred value survives as the collected
+    # one — the point of the change is that they were ASKED, not that a vague answer
+    # suddenly parses.
+    assert "skills" not in plausible.never_asked
 
     # The bounded re-ask still holds: each essential is asked at most twice.
     asked_counts: dict[str, int] = {}
@@ -622,8 +627,12 @@ def test_scripted_interview_shows_the_engine_level_consequence() -> None:
     # new `certifications` topic, and both are reached.
     assert "education" not in friendly.never_asked
     assert "certifications" not in friendly.never_asked
-    # `skills` too — auto-closed by the role answer (report finding 3).
-    assert "skills" in friendly.never_asked
+    # Report finding 3 is CLOSED (2026-07-22): `skills` used to be auto-closed by the
+    # role answer — "VMC operator" infers the generic skill "machine operation", which
+    # marked the topic answered — so the question was never asked and a real skills
+    # answer arriving later was discarded by the P1-1 first-write-wins rule. An
+    # inferred value now fills the slot without closing the question.
+    assert "skills" not in friendly.never_asked
     # And the sharp one the #429 promotion left behind: `machines` is ESSENTIAL and is
     # ALSO never asked, while the profile reports itself complete. Report finding 7,
     # measured in full by test_an_essential_topic_can_be_marked_answered_without_being_asked.
@@ -632,7 +641,7 @@ def test_scripted_interview_shows_the_engine_level_consequence() -> None:
     # never-asked list surfaces here instead of passing unnoticed. Kept from #436; its
     # per-topic MUST_ASK loop is dropped as redundant with `must_asks_never_asked == []`
     # above, which already states that claim over the whole constant.
-    assert friendly.never_asked == ["machines", "skills"]
+    assert friendly.never_asked == ["machines"]
     assert friendly.extraction_ready is True
 
 

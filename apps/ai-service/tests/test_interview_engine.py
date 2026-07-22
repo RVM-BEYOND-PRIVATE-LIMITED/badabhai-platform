@@ -594,8 +594,11 @@ def test_actually_asking_availability_did_not_move_the_ask_budget():
     So the fix moves REAL runs closer to that bound, never past it. Measured: the
     fluent 'answers every topic' persona went 8 -> 9 asks (availability now asked),
     then 9 -> 11 when the 2026-07-22 owner ruling made `education` and the new
-    `certifications` topic must-ask; the worst persona went 15 -> 16 with the one
-    added ask-once topic. Headroom over the ceiling is 4.
+    `certifications` topic must-ask, and 11 -> 12 when an INFERRED skill stopped
+    closing the `skills` question (so this persona is now actually asked it); the
+    worst persona went 15 -> 16 with the one added ask-once topic. The blind worst
+    case is unmoved by the inference change — its worst case is already "nothing is
+    ever marked answered". Headroom over the ceiling is 4.
     """
     log_fluent, state_fluent, ready, _turns = _run_interview(lambda tid: _ANSWERS[tid])
     assert ready is True
@@ -603,7 +606,8 @@ def test_actually_asking_availability_did_not_move_the_ask_budget():
     # The owner ruling's whole point: these two are now REACHED, not skipped.
     assert "education" in state_fluent.asked_question_ids
     assert "certifications" in state_fluent.asked_question_ids
-    assert len(log_fluent) == 11
+    assert "skills" in state_fluent.asked_question_ids
+    assert len(log_fluent) == 12
 
     worst = 0
     for reply_for in (

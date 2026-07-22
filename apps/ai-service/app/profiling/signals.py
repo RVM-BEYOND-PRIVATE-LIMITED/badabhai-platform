@@ -1124,6 +1124,11 @@ _NOTICE_CUE_RE: tuple[re.Pattern[str], ...] = tuple(
 # din lagenge?" but say nothing on their own in the middle of a transcript, so they
 # must never run context-free — that is how "6 month" became a notice period.
 _ASKED_NOTICE_RE = re.compile(rf"\b{_AVAIL_NUM}\s*{_AVAIL_UNIT}\b", re.IGNORECASE)
+# The same pattern with the number and unit CAPTURED, so the duration can be read as
+# a value and not just detected. Kept as a separate compile rather than adding groups
+# to the one above, because that one is used with `finditer` in boolean contexts where
+# a group change would be an invisible behaviour change.
+_ASKED_NOTICE_SPAN_RE = re.compile(rf"\b({_AVAIL_NUM})\s*({_AVAIL_UNIT})\b", re.IGNORECASE)
 
 # ...and even in that context, a duration is only a NOTICE if it is time-until, not
 # time-since or a work pattern (adversarial review of #436, MEDIUM-5). `last_asked` is
@@ -1155,6 +1160,67 @@ def _asked_notice_blocked(text: str, start: int, end: int) -> bool:
         end: end + _ASKED_NOTICE_BLOCK_WINDOW
     ]
     return any(p.search(window) for p in _ASKED_NOTICE_BLOCKERS_RE)
+
+
+_AVAIL_WORD_NUMBERS: dict[str, int] = {
+    "ek": 1, "one": 1,
+    "do": 2, "two": 2,
+    "teen": 3, "tin": 3, "three": 3,
+    "char": 4, "chaar": 4, "four": 4,
+    "paanch": 5, "panch": 5, "five": 5,
+    "chhah": 6, "chhe": 6, "six": 6,
+    "saat": 7, "seven": 7,
+    "aath": 8,
+    "das": 10, "ten": 10,
+    "pandrah": 15, "fifteen": 15,
+    "bees": 20, "twenty": 20,
+    "tees": 30, "thirty": 30,
+}
+# Calendar-ish, deliberately coarse. A worker saying "do mahine" means "about two
+# months", not 61 days, and the field feeds a payer-facing band.
+_AVAIL_UNIT_DAYS: tuple[tuple[str, int], ...] = (
+    ("din", 1), ("day", 1),
+    ("hafte", 7), ("haftey", 7), ("hafta", 7), ("week", 7),
+    ("mahin", 30), ("maheen", 30), ("month", 30),
+)
+
+
+def _notice_days(num: str, unit: str) -> int | None:
+    """"15 din" -> 15, "do mahine" -> 60, "ek hafta" -> 7."""
+    low_num, low_unit = num.lower(), unit.lower()
+    value = _AVAIL_WORD_NUMBERS.get(low_num)
+    if value is None:
+        try:
+            value = int(low_num)
+        except ValueError:
+            return None
+    for stem, days in _AVAIL_UNIT_DAYS:
+        if low_unit.startswith(stem):
+            return value * days
+    return None
+
+
+def _notice_period_days(text: str, masked: str | None = None) -> int | None:
+    """The notice duration IN DAYS, or None when the message does not state one.
+
+    Reads the same spans `_asked_notice_duration` reads, through the same blocker
+    and negation vetoes, so the number can never disagree with the `notice_period`
+    status it accompanies: "10 din pehle join kiya tha" (time AGO), "hafte me 6 din
+    kaam karta hu" (a work WEEK) and "15 din nahi lagenge" (a denial) yield None
+    here for exactly the reasons they yield no notice there.
+
+    Prefers NULL on any ambiguity. A fabricated "15 days" on a worker's resume is
+    worse than a blank, and this field is payer-visible.
+    """
+    for m in _ASKED_NOTICE_SPAN_RE.finditer(text):
+        if _asked_notice_blocked(text, m.start(), m.end()):
+            continue
+        if masked is not None and _availability_negated(masked, text, m.start(), m.end()):
+            continue
+        days = _notice_days(m.group(1), m.group(2))
+        if days is not None:
+            return days
+    return None
 
 
 def _asked_notice_duration(text: str, masked: str | None = None) -> bool:
@@ -1382,6 +1448,10 @@ class Signals:
     current_salary: int | None = None
     expected_salary: int | None = None
     availability: str = "unknown"
+    # Days until the worker can join, when they stated one. None whenever the message
+    # says `notice_period` without a duration, or states one ambiguously — the field
+    # is payer-visible and a guessed number is worse than a blank.
+    notice_period_days: int | None = None
     education: list[str] = field(default_factory=list)
     certifications: list[str] = field(default_factory=list)
 
@@ -1656,6 +1726,7 @@ def detect(text: str) -> Signals:
         sig.availability = "immediate"
     elif _has_notice_cue(raw_lower, raw_masked):
         sig.availability = "notice_period"
+        sig.notice_period_days = _notice_period_days(raw_lower, raw_masked)
 
     # Education / certifications
     if re.search(r"\biti\b", lower):
@@ -1868,6 +1939,43 @@ _CURRENT_LOC_CUE_RE: tuple[re.Pattern[str], ...] = tuple(
         r"\babhi\b",
     )
 )
+
+
+def detect_inferred_topics(text: str, last_asked_topic_id: str | None = None) -> set[str]:
+    """Topics whose value in :func:`detect_answered_topics` was INFERRED from another
+    topic's answer rather than stated, and which therefore must not close their own
+    question.
+
+    Owner-reported defect, 2026-07-22. "vmc operator hu" answers `role`, but the
+    word "operator" also infers the generic skill "machine operation" — which
+    marked `skills` ANSWERED. The skills question was then never asked, and when the
+    worker volunteered "setting aur tool offset aata hai, program edit nahi aata"
+    two turns later it hit the P1-1 first-write-wins rule as a non-asked topic and
+    was DISCARDED. Their real, specific, correctly-negated answer lost to a
+    placeholder derived from the word "operator", and the profile shipped
+    `skills: ["machine operation"]`.
+
+    Deliberately ONE producer, and the narrowest reading of it: `skills` holding
+    nothing but the inferred generic, with no gazetteer skill, no drawing-reading
+    and no setting knowledge. If any of those is present the worker really did
+    state a skill and the topic is genuinely answered.
+
+    `last_asked == "skills"` is NOT inferred: "chalata hu" in reply to "kya kya aata
+    hai?" is a deliberate answer to the question on screen, however generic.
+
+    The value is still COLLECTED — free information fills an empty slot. Only the
+    "stop asking" half is withheld.
+    """
+    if last_asked_topic_id == "skills":
+        return set()
+    sig = detect(text)
+    if (
+        sig.skills == ["machine operation"]
+        and not sig.drawing_reading
+        and sig.setting_knowledge == "unknown"
+    ):
+        return {"skills"}
+    return set()
 
 
 def detect_answered_topics(
