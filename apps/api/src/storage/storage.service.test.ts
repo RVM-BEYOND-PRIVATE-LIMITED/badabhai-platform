@@ -1,14 +1,16 @@
 import "reflect-metadata";
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { ServiceUnavailableException } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { StorageService } from "./storage.service";
 
 const SUPABASE_URL = "https://project.supabase.co";
+const SERVICE_KEY = "service-role-key";
 const KEY = "voice-notes/11111111-1111-4111-8111-111111111111/aaaa.m4a";
 
 const config = {
   SUPABASE_URL,
-  SUPABASE_SERVICE_ROLE_KEY: "service-role-key",
+  SUPABASE_SERVICE_ROLE_KEY: SERVICE_KEY,
   RESUMES_BUCKET: "worker-resumes",
 } as unknown as ServerConfig;
 
@@ -53,15 +55,74 @@ describe("StorageService.createSignedUploadUrl", () => {
     expect(res.url).toBe(`${SUPABASE_URL}/storage/v1/object/upload/sign/voice-notes/k?token=tok`);
   });
 
-  it("throws a PII-free error on a non-2xx response (no key/URL in the message)", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 403, json: async () => ({}) });
+  it("a 403 names the CAUSE (rejected credentials) and stays PII-free — 503, not a blanket 500", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: false, status: 403, json: async () => ({}), text: async () => "" });
     vi.stubGlobal("fetch", fetchMock);
 
     const svc = new StorageService(config);
     await svc.createSignedUploadUrl(KEY, "voice-notes").catch((e: Error) => {
-      expect(e.message).toBe("storage sign-upload-url failed with status 403");
+      // The CAUSE, not just a status. A 401/403 from Storage means the
+      // service-role key is missing/wrong/from another project — a server
+      // CONFIG fault, so it must not masquerade as a 500 ("we crashed").
+      expect(e.message).toBe("storage credentials rejected by Supabase");
+      expect(e).toBeInstanceOf(ServiceUnavailableException);
+      // Still PII-free / secret-free: never the key, the signed URL, or the host.
+      expect(e.message).not.toContain(SERVICE_KEY);
+      expect(e.message).not.toContain(SUPABASE_URL);
+      expect(e.message).not.toContain(KEY);
     });
-    expect.assertions(1);
+    expect.assertions(5);
+  });
+
+  it("REGRESSION: a BARE 400 (no body) from sign-upload-url is a bucket problem, not a 500", async () => {
+    // MEASURED IN PRODUCTION. WORKER_PHOTOS_BUCKET was set to "worker_profile_photos"
+    // (underscores) with no such bucket in the project. Supabase answered
+    // object/upload/sign/<bucket>/<key> with a BARE 400 — no "bucket" word, no
+    // not_found body, nothing to pattern-match — so it fell through to a plain Error
+    // and every photo upload became an opaque HTTP 500 for the worker.
+    //
+    // The object key cannot be at fault here: the server mints it itself (opaque UUID
+    // under the worker's own prefix, ADR-0032), so a 400 leaves only the bucket.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({}),
+      text: async () => "",
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const svc = new StorageService(config);
+    await svc.createSignedUploadUrl(KEY, "worker_profile_photos").catch((e: Error) => {
+      expect(e).toBeInstanceOf(ServiceUnavailableException);
+      // Names the bucket — that is what makes it a one-line env fix.
+      expect(e.message).toContain("worker_profile_photos");
+      expect(e.message).toContain("does not exist");
+      // Never the key or the credential.
+      expect(e.message).not.toContain(SERVICE_KEY);
+      expect(e.message).not.toContain(SUPABASE_URL);
+    });
+    expect.assertions(5);
+  });
+
+  it("a missing BUCKET is a 503 that names the bucket, so devops knows what to create", async () => {
+    // Supabase answers an unknown bucket with a not-found body mentioning it.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({}),
+      text: async () => '{"statusCode":"404","error":"not_found","message":"Bucket not found"}',
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const svc = new StorageService(config);
+    await svc.createSignedUploadUrl(KEY, "worker-profile-photos").catch((e: Error) => {
+      expect(e).toBeInstanceOf(ServiceUnavailableException);
+      expect(e.message).toContain("worker-profile-photos");
+      expect(e.message).toContain("does not exist");
+    });
+    expect.assertions(3);
   });
 
   it("throws when the response carries neither url nor signedURL", async () => {

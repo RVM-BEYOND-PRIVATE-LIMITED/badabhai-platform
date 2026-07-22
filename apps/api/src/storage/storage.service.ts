@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 
@@ -19,6 +19,8 @@ import { SERVER_CONFIG } from "../config/config.module";
  */
 @Injectable()
 export class StorageService {
+  private readonly logger = new Logger(StorageService.name);
+
   constructor(@Inject(SERVER_CONFIG) private readonly config: ServerConfig) {}
 
   /**
@@ -104,8 +106,9 @@ export class StorageService {
       });
       if (!res.ok) {
         // Absent object → null (see isNotFound: 404, or the current-build 400+not_found).
-        if (StorageService.isNotFound(res.status, await StorageService.safeText(res))) return null;
-        throw new Error(`storage object-info failed with status ${res.status}`);
+        const bodyText = await StorageService.safeText(res);
+        if (StorageService.isNotFound(res.status, bodyText)) return null;
+        throw this.storageFailure("storage object-info", res.status, b, bodyText);
       }
       // The info endpoint's field names have varied across Supabase versions: the
       // CURRENT build returns snake_case `content_type` + a top-level `size`; older
@@ -334,7 +337,12 @@ export class StorageService {
         signal: controller.signal,
       });
       if (!res.ok) {
-        throw new Error(`storage sign-upload-url failed with status ${res.status}`);
+        throw this.storageFailure(
+          "storage sign-upload-url",
+          res.status,
+          b,
+          await StorageService.safeText(res),
+        );
       }
       // Supabase has returned this as `url` (REST) and `signedURL` (older SDKs);
       // accept either defensively.
@@ -395,8 +403,100 @@ export class StorageService {
     const url = this.config.SUPABASE_URL;
     const serviceKey = this.config.SUPABASE_SERVICE_ROLE_KEY;
     if (!url || !serviceKey) {
-      throw new Error("Supabase Storage is not configured (SUPABASE_URL / SERVICE_ROLE_KEY)");
+      // 503, NOT a bare Error. Both keys are `.optional()` in the server config and
+      // NOTHING fails boot without them — the only Supabase boot guard covers
+      // PAYER_LOGIN_METHOD="supabase", not Storage. So an API can run perfectly
+      // happily and then throw here on the FIRST upload. As a bare Error that
+      // surfaced to the worker as an opaque HTTP 500 ("something broke"), which is
+      // both wrong (nothing broke — the server was never configured) and
+      // undiagnosable. Naming the missing keys is safe: these are VARIABLE NAMES,
+      // never values (§2 — no secrets in logs or responses).
+      const missing = [!url && "SUPABASE_URL", !serviceKey && "SUPABASE_SERVICE_ROLE_KEY"]
+        .filter(Boolean)
+        .join(", ");
+      this.logger.error(
+        `Supabase Storage is not configured; missing: ${missing}. ` +
+          `Every upload/download will fail until these are set.`,
+      );
+      throw new ServiceUnavailableException(
+        `Supabase Storage is not configured (missing: ${missing})`,
+      );
     }
-    return { url, serviceKey, bucket: bucket ?? this.config.RESUMES_BUCKET };
+    // `??` deliberately, NOT `||`: an explicitly-passed bucket is honoured even if
+    // some future caller passes one that is falsy-but-present. An EMPTY string,
+    // however, must never reach the URL builder — it would produce
+    // `/object/upload/sign//photos/...` and come back as an opaque upstream 400.
+    // Callers whose bucket is optional (photos, voice notes) already 503 on empty
+    // before they get here; this is the backstop for the ones that do not.
+    const resolved = bucket ?? this.config.RESUMES_BUCKET;
+    if (!resolved) {
+      this.logger.error(
+        "Supabase Storage called with an empty bucket name — the feature's *_BUCKET env var is unset.",
+      );
+      throw new ServiceUnavailableException("storage bucket is not configured");
+    }
+    return { url, serviceKey, bucket: resolved };
+  }
+
+  /**
+   * Turn a non-2xx Storage response into an error whose CAUSE is readable.
+   *
+   * WHY THIS EXISTS. Every failure path here used to throw a bare
+   * `Error(\`storage X failed with status \${res.status}\`)`, which Nest maps to a
+   * blanket **HTTP 500**. The two failures that actually happen in practice are
+   * both CONFIGURATION, not crashes:
+   *   1. the bucket named by the env var does not exist in this Supabase project
+   *      (buckets are created OUT-OF-BAND — see the class doc), and
+   *   2. the service-role key is wrong / from another project (401/403).
+   * Both surfaced to the worker as an identical, causeless 500 — the exact
+   * "generic error" this project forbids. A missing bucket is now a 503 that SAYS
+   * the bucket is missing and NAMES it, so the same message that reaches the log
+   * also tells devops what to create.
+   *
+   * PII/secret-safety: bucket names and HTTP statuses only — never the key, never
+   * the object key (which is opaque anyway), never a response body that could echo
+   * a signed URL.
+   */
+  private storageFailure(operation: string, status: number, bucket: string, bodyText: string): Error {
+    // A missing bucket is reported by Supabase in THREE different shapes depending on
+    // endpoint and build, and only one of them says the word "bucket":
+    //   * a plain 404,
+    //   * a 400 with {"statusCode":"404","error":"not_found", ...} (the object/info shape),
+    //   * a BARE 400 with an empty/unhelpful body — which is what
+    //     `object/upload/sign/<bucket>/<key>` returns for a bucket that does not exist.
+    // The third shape was measured in production: WORKER_PHOTOS_BUCKET was set to a name
+    // with no matching bucket, sign-upload-url answered 400 with nothing to match on, and
+    // the worker got an opaque HTTP 500 on every photo upload.
+    //
+    // So: any 400/404 on a SIGN or INFO operation is treated as "bucket problem". The
+    // object key cannot cause it — the server mints that key itself (an opaque UUID under
+    // the worker's own prefix, ADR-0032), so there is no client-controlled input left to
+    // blame. Naming the bucket in the message is what turns a 20-minute log hunt into a
+    // one-line env fix; bucket names are config, never PII.
+    const bucketShaped =
+      StorageService.isNotFound(status, bodyText) ||
+      /bucket/i.test(bodyText) ||
+      status === 400 ||
+      status === 404;
+    if (bucketShaped) {
+      this.logger.error(
+        `${operation}: bucket "${bucket}" does not exist in this Supabase project (status ${status}). ` +
+          `Storage buckets are created out-of-band and MUST be PRIVATE. Check the *_BUCKET env ` +
+          `var matches the bucket name EXACTLY (this repo's buckets use hyphens, not underscores).`,
+      );
+      return new ServiceUnavailableException(
+        `storage bucket "${bucket}" does not exist — create it (private) in Supabase, ` +
+          `or fix the bucket name in the environment`,
+      );
+    }
+    if (status === 401 || status === 403) {
+      this.logger.error(
+        `${operation}: Supabase rejected the service-role key (status ${status}) for bucket "${bucket}". ` +
+          `The key is missing, wrong, or belongs to a different project.`,
+      );
+      return new ServiceUnavailableException("storage credentials rejected by Supabase");
+    }
+    this.logger.error(`${operation} failed with status ${status} for bucket "${bucket}"`);
+    return new Error(`${operation} failed with status ${status}`);
   }
 }
