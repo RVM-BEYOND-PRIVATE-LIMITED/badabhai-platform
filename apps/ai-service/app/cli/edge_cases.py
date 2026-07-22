@@ -826,18 +826,13 @@ EXTRACTION_CASES: tuple[Case, ...] = (
         group="extraction",
         messages=("vmc operator hu", "5 saal ho gaye", "abhi Pune me hu", "kahin bhi", "fanuc"),
         extract=True,
-        note="CLI-F7: the worker said ONLY 'fanuc'. Siemens/Mitsubishi/Heidenhain/Haas "
-             "come from OUR question text and reach the payer-facing profile",
+        note="CLI-F7 CLOSED: the worker said ONLY 'fanuc'. Our question also names "
+             "Siemens/Mitsubishi/Heidenhain/Haas; the role-typed split keeps the "
+             "deterministic detector on the worker's own lines, so only Fanuc lands",
         checks=(
             records("controllers", ["Fanuc"]),
-            draft_field(
-                "controllers",
-                ["Fanuc", "Siemens", "Mitsubishi", "Heidenhain", "Haas"],
-                defect="CLI-F7",
-            ),
-            profile_field(
-                "skills", ["skill_fanuc", "skill_siemens", "skill_mitsubishi"], defect="CLI-F7"
-            ),
+            draft_field("controllers", ["Fanuc"]),
+            profile_field("skills", ["skill_fanuc"]),
         ),
     ),
     Case(
@@ -845,13 +840,14 @@ EXTRACTION_CASES: tuple[Case, ...] = (
         group="extraction",
         messages=("vmc operator hu", "hmm", "5 saal ho gaye", "abhi Pune me hu", "kahin bhi"),
         extract=True,
-        note="CLI-F7, the worst instance: the worker said '5 saal', the engine recorded "
-             "5.0 — but the retry question ('jaise 2 saal ya 5 saal?') is in the "
-             "transcript, so the extracted profile says 2 years / 'junior'",
+        note="CLI-F7 CLOSED, the worst instance: the worker said '5 saal' and the "
+             "retry question wording ('jaise 2 saal ya 5 saal?') is still in the "
+             "transcript the MODEL reads — but the detector no longer reads it, so "
+             "the extracted profile now agrees with the engine at 5 years",
         checks=(
             records("experience", 5.0),
-            draft_field("experience_years", 2.0, defect="CLI-F7"),
-            draft_field("experience_level", "junior", defect="CLI-F7"),
+            draft_field("experience_years", 5.0),
+            draft_field("experience_level", "experienced"),
         ),
     ),
 )

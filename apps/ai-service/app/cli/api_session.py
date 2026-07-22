@@ -536,9 +536,27 @@ class InterviewSession:
         text = "\n".join(f"{who}: {body}" for who, body in rows if body)
         return text or EMPTY_TRANSCRIPT
 
+    def messages(self) -> list[dict[str, str]]:
+        """The same stored messages as :meth:`transcript`, but role-tagged, the way
+        ``profile-extraction.processor.ts buildMessages`` assembles them. The AI
+        service reads the worker's own lines from THIS field; the flat transcript
+        is what the model sees."""
+        rows = self.rows[-CHAT_HISTORY_MAX:]
+        return [
+            {"role": "worker" if who == WORKER_PREFIX else "assistant", "text": body}
+            for who, body in rows
+            if body
+        ]
+
     def extract(self) -> ExtractResult:
-        """``POST /profile/extract`` with the production request body."""
-        request = {"worker_ref": self.worker_ref, "transcript": self.transcript()}
+        """``POST /profile/extract`` with the production request body — BOTH the
+        flat transcript and the role-tagged messages, exactly as apps/api sends
+        them."""
+        request = {
+            "worker_ref": self.worker_ref,
+            "transcript": self.transcript(),
+            "messages": self.messages(),
+        }
         return ExtractResult(request, self.transport.post(PROFILE_EXTRACT_PATH, request))
 
     # --- helpers -----------------------------------------------------------

@@ -1,7 +1,7 @@
 import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Logger } from "@nestjs/common";
 import type { Job } from "bullmq";
-import type { DraftProfile, AICallMetadata } from "@badabhai/ai-contracts";
+import type { DraftProfile, AICallMetadata, ConversationMessage } from "@badabhai/ai-contracts";
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { EventsService } from "../events/events.service";
 import { AiService } from "../ai/ai.service";
@@ -63,8 +63,15 @@ export class ProfileExtractionProcessor extends WorkerHost {
     try {
       await this.aiJobs.markRunning(aiJobId);
 
-      const transcript = await this.buildTranscript(sessionId);
-      const result = await this.ai.extractProfile({ worker_ref: workerId, transcript });
+      // Both shapes of the same conversation, deliberately. `transcript` is the
+      // flat both-directions blob the model reads (and the rollback lever — drop
+      // `messages` and the AI service behaves exactly as it did before the split).
+      // `messages` carries the per-line role so the AI service's deterministic
+      // detector can read the WORKER's lines only; on the flat blob it read our
+      // own question text as the worker's answers.
+      const messages = await this.buildMessages(sessionId);
+      const transcript = this.renderTranscript(messages);
+      const result = await this.ai.extractProfile({ worker_ref: workerId, transcript, messages });
       const profile: DraftProfile = result.profile;
       const profileStatus = result.blocked ? "draft" : "extracted";
       const aiMeta = result.ai_metadata; // operational usage/cost (null on the mock/AI-down path)
@@ -240,12 +247,31 @@ export class ProfileExtractionProcessor extends WorkerHost {
     }
   }
 
-  private async buildTranscript(sessionId: string | null): Promise<string> {
-    if (!sessionId) return "(no conversation captured)";
+  /**
+   * The conversation as role-tagged lines. `inbound` is the worker; everything
+   * else is us. Same `bodyText` filter the flat transcript has always used, so
+   * the two shapes always describe the same set of lines.
+   */
+  private async buildMessages(sessionId: string | null): Promise<ConversationMessage[]> {
+    if (!sessionId) return [];
     const messages = await this.chat.listMessages(sessionId);
-    const text = messages
+    return messages
       .filter((m) => m.bodyText)
-      .map((m) => `${m.direction === "inbound" ? "Worker" : "Bada Bhai"}: ${m.bodyText}`)
+      .map((m) => ({
+        role: m.direction === "inbound" ? ("worker" as const) : ("assistant" as const),
+        text: m.bodyText as string,
+      }));
+  }
+
+  /**
+   * Renders the role-tagged lines back into the exact flat string this processor
+   * has always sent. Byte-identical to the old `buildTranscript`, including the
+   * "(no conversation captured)" placeholder — the AI service still gates and
+   * prompts on this, so it must not drift.
+   */
+  private renderTranscript(messages: ConversationMessage[]): string {
+    const text = messages
+      .map((m) => `${m.role === "worker" ? "Worker" : "Bada Bhai"}: ${m.text}`)
       .join("\n");
     return text || "(no conversation captured)";
   }

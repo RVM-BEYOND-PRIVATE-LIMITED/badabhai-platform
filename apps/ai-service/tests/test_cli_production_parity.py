@@ -133,7 +133,10 @@ def test_gate_probe_hits_the_real_pseudonymize_endpoint():
 
 
 def test_extraction_posts_the_processor_request_body():
-    """profile-extraction.processor.ts: ``{worker_ref, transcript}`` — nothing else."""
+    """profile-extraction.processor.ts: ``{worker_ref, transcript, messages}`` —
+    nothing else. Both conversation fields, never one alone: ``transcript`` is what
+    the model reads and is the rollback lever, ``messages`` is what the
+    deterministic detector reads."""
     recorder = RecordingTransport({PROFILING_RESPOND_PATH: [_turn_body()]})
     session = InterviewSession(recorder, probe_gate=False)
     session.send("vmc operator hu")
@@ -141,7 +144,25 @@ def test_extraction_posts_the_processor_request_body():
 
     path, payload = recorder.calls[-1]
     assert path == PROFILE_EXTRACT_PATH
-    assert set(payload) == {"worker_ref", "transcript"}
+    assert set(payload) == {"worker_ref", "transcript", "messages"}
+
+
+def test_extraction_messages_are_role_tagged_and_match_the_transcript():
+    """The two conversation shapes must describe the SAME lines. If they drift, the
+    model and the detector are reading different conversations."""
+    recorder = RecordingTransport({PROFILING_RESPOND_PATH: [_turn_body()]})
+    session = InterviewSession(recorder, probe_gate=False)
+    session.send("vmc operator hu")
+    session.extract()
+
+    payload = recorder.calls[-1][1]
+    assert [m["role"] for m in payload["messages"]] == ["worker", "assistant"]
+    assert payload["messages"][0]["text"] == "vmc operator hu"
+    rendered = "\n".join(
+        f"{'Worker' if m['role'] == 'worker' else 'Bada Bhai'}: {m['text']}"
+        for m in payload["messages"]
+    )
+    assert rendered == payload["transcript"]
 
 
 def test_state_carried_forward_is_the_endpoints_own_state():

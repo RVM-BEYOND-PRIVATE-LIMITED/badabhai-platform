@@ -588,10 +588,43 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
 
 @app.post("/profile/extract", response_model=ProfileExtractionOutput)
 async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutput:
-    raw = body.transcript or "\n".join(m.text for m in (body.messages or []))
+    # Two texts, deliberately different, because two consumers need different things.
+    #
+    # `llm_text` is the WHOLE conversation, both directions. The model needs our
+    # questions to read an answer in context ("5 saal" means nothing alone), and
+    # apps/api already labels each line `Worker:` / `Bada Bhai:` so it can tell
+    # them apart. Unchanged from before this split — the model was never the
+    # problem.
+    #
+    # `worker_text` is the worker's OWN lines only, and it feeds the deterministic
+    # detector. That detector is a keyword/regex reader with no notion of who is
+    # speaking, so on the combined blob it read OUR question text as the worker's
+    # answers: a controller question listing "Fanuc, Siemens, Mitsubishi, Haas,
+    # Heidenhain" produced all five controllers from a worker who said only
+    # "fanuc"; a retry worded "jaise 2 saal ya 5 saal" produced 2.0 years from a
+    # worker who said "5 saal"; the education question's own examples produced
+    # `["ITI", "Diploma"]` from a worker who had not yet been asked. Measured: this
+    # split alone corrects experience, preferred cities, skills, controllers and
+    # that fabricated education.
+    #
+    # `messages` absent → both fall back to `transcript` and behaviour is
+    # byte-identical to before. That is the rollback lever: apps/api sends both
+    # fields, so dropping `messages` restores the previous behaviour exactly.
+    msgs = body.messages or []
+    if msgs:
+        worker_text = "\n".join(m.text for m in msgs if m.role == "worker")
+        llm_text = body.transcript or "\n".join(
+            f"{'Worker' if m.role == 'worker' else 'Bada Bhai'}: {m.text}" for m in msgs
+        )
+    else:
+        worker_text = llm_text = body.transcript or ""
 
     # 1. Pseudonymize FIRST — gate. If blocked, fail closed.
-    result = pseudonymize(raw)
+    #    The gate is on `llm_text` because `llm_text` is what leaves this process.
+    #    `worker_text` never reaches a model — it goes only to the local, trusted,
+    #    no-network detector, which has always read raw text. So the gate's egress
+    #    coverage is the SUPERSET it always was; this split does not narrow it.
+    result = pseudonymize(llm_text)
     if result.blocked:
         return ProfileExtractionOutput(
             profile=DraftProfile(),
@@ -601,8 +634,8 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
             extraction_status="blocked",
         )
 
-    # 2. Heuristic extraction over RAW text (trusted local; no network).
-    rich, legacy = profile_extractor.extract(raw, body.role_family)
+    # 2. Heuristic extraction over the worker's OWN raw text (trusted local; no network).
+    rich, legacy = profile_extractor.extract(worker_text, body.role_family)
 
     # 3. Route for cost/tracing + optional real-model extraction. The LLM only
     #    ever sees the pseudonymized transcript. The canonicalization rubric makes

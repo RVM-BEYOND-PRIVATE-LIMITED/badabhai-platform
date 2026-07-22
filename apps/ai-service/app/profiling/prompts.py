@@ -53,6 +53,12 @@ EXTRACTION_SYSTEM_PROMPT = (
     "to machines (use 'VMC'/'CNC Lathe'/etc. only when the worker names it).\n"
     "- 'chalata tha'/'operate karta tha'/'button dabata tha' -> operation_knowledge "
     "at least 'basic'.\n"
+    "Lines starting 'Bada Bhai:' are OUR OWN questions to the worker, not their "
+    "answers. Read them for context only. Never take a value from them: if our "
+    "question lists options ('Fanuc, Siemens, Mitsubishi?') and the worker names "
+    "one, record ONLY the one they named. If our question gives an example "
+    "('jaise 2 saal ya 5 saal') the example is not their answer. If a topic was "
+    "asked but not answered, it stays null/empty.\n"
 )
 
 RESUME_SYSTEM_PROMPT = (
