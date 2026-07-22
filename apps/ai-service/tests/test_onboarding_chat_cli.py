@@ -284,7 +284,7 @@ def test_full_run_asks_every_topic_in_bank_order_with_the_bounded_re_ask(monkeyp
     expected = _expected_blind_ask_order()
     assert order == expected, f"{order} != {expected}"
     assert set(order) == set(BANK_ORDER)
-    assert len(BANK_ORDER) == 11  # the bank really has 11 topics
+    assert len(BANK_ORDER) == 12  # the bank really has 12 topics
     assert "resume ban raha hai" in run.printed  # the wrap-up turn ran
 
 

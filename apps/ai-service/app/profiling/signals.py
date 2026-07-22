@@ -580,8 +580,13 @@ def _preferred_areas(text: str) -> list[str]:
 
 
 # Money like "22k", "22000", "22 thousand", "1.5 lakh".
+# The unit must END on a word boundary. Without it the bare `k` alternative matched
+# the FIRST LETTER of the next Hindi word, so "NSQF level 4 kiya hai" read the "k"
+# of "kiya" as thousands and recorded a 4,000 salary — and so did every "<digit>
+# kaam/karta/kiya" phrase. Same trap for the bare `l` in front of any l-word.
 _SALARY_RE = re.compile(
-    r"(?:₹|rs\.?|inr)?\s*(\d{1,3}(?:[,\d]*)(?:\.\d+)?)\s*(k|thousand|hazar|hzr|lakh|lac|l)?",
+    r"(?:₹|rs\.?|inr)?\s*(\d{1,3}(?:[,\d]*)(?:\.\d+)?)\s*"
+    r"((?:k|thousand|hazar|hzr|lakh|lac|l)\b)?",
     re.IGNORECASE,
 )
 _EXPECTED_CUES = ("expect", "chahiye", "chahie", "want", "expected", "demand", " chah")
@@ -1255,6 +1260,10 @@ _NEGATABLE_TOPIC_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(r"\biti\b|diploma|\b(?:b\.?tech|be|degree|engineering)\b|nsdc|rvm", re.I),
     ),
     (
+        "certifications",
+        re.compile(r"\bncvt\b|\bscvt\b|\bnsqf\b|apprentice|certificate|certification", re.I),
+    ),
+    (
         "skills",
         re.compile(
             r"setting|set\s?up|"
@@ -1269,7 +1278,9 @@ _NEGATABLE_TOPIC_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
 # Deliberately excludes the essentials (role/machines/current_location) and salary:
 # "VMC nahi chalaya" is a denial, not an answer, and closing those asks on it would
 # ship an incomplete profile silently — the engine must still ask them.
-_NEGATION_ANSWERS_TOPICS: frozenset[str] = frozenset({"education", "skills"})
+_NEGATION_ANSWERS_TOPICS: frozenset[str] = frozenset(
+    {"education", "skills", "certifications"}
+)
 
 # P1-1: an EXPLICIT self-correction. Only these let a value for a topic that is NOT
 # the one being asked overwrite an already-collected value (see interview_engine).
@@ -1657,6 +1668,19 @@ def detect(text: str) -> Signals:
         _append_unique(sig.certifications, "RVM CAD")
     if "nsdc" in lower:
         _append_unique(sig.certifications, "NSDC")
+    # `certifications` became its own asked topic on 2026-07-22 (owner ruling), so
+    # the named bodies a CNC/VMC worker actually holds are read here. Positive
+    # allow-list only — an unrecognised certificate stays unrecorded rather than
+    # guessed, because a fabricated credential on a worker's resume is worse than a
+    # blank one. Everything beyond this list reaches the rich draft via the model.
+    if re.search(r"\bncvt\b", lower):
+        _append_unique(sig.certifications, "NCVT")
+    if re.search(r"\bscvt\b", lower):
+        _append_unique(sig.certifications, "SCVT")
+    if re.search(r"\bnsqf\b", lower):
+        _append_unique(sig.certifications, "NSQF")
+    if re.search(r"apprentice", lower):
+        _append_unique(sig.certifications, "Apprenticeship")
 
     return sig
 
@@ -1976,8 +2000,20 @@ def detect_answered_topics(
             availability = "immediate"
     if availability != "unknown":
         answered["availability"] = availability
-    if sig.education or sig.certifications:
-        answered["education"] = sig.education + sig.certifications
+    # Education and certifications are TWO asked topics with two questions, so each
+    # closes only itself. Before 2026-07-22 certifications had no question of their
+    # own and were folded into `education`; naming a certificate no longer answers
+    # "kahan tak padhai ki hai?".
+    if sig.education:
+        answered["education"] = sig.education
+    # ...and `certifications` closes ONLY when it is the topic actually being asked.
+    # A worker answering "kahan tak padhai ki hai?" with "ITI + 3 saal
+    # apprenticeship" has mentioned a certification incidentally, not disclosed one
+    # — and inferring an answer from it would silently skip the certifications
+    # question, which is the exact complaint that put this topic in the bank. The
+    # value is not lost: the model reads it from the transcript into the rich draft.
+    if sig.certifications and last_asked_topic_id == "certifications":
+        answered["certifications"] = sig.certifications
 
     # P1-2: a denial ANSWERS the question it was asked (value None -> nothing is
     # collected, but the topic is not re-asked and is not mistaken for silence).

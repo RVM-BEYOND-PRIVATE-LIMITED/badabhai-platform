@@ -46,6 +46,7 @@ const MOCK_TOPICS: readonly MockTopic[] = [
   { id: "salary_expected", question: "Aur kitni salary expect kar rahe ho?", core: false },
   { id: "availability", question: "Join karne me kitne din lagenge — abhi free ho ya notice chal raha hai?", core: false },
   { id: "education", question: "ITI ya diploma kiya hai? RVM CAD ya koi aur training li hai?", core: false },
+  { id: "certifications", question: "Koi certificate hai — NCVT, NSQF ya apprenticeship?", core: false },
 ];
 
 // Must be ANSWERED before the profile is extraction-ready (mirrors the engine's
@@ -61,11 +62,19 @@ const ESSENTIAL_TOPICS = ["role", "machines", "experience", "current_location"] 
 // everywhere, so without this gate the #424 ruling is never exercised outside
 // production. Every id below is a MOCK_TOPICS id — one that is not would be
 // unaskable and would wedge the interview until the bank ran dry.
+// Owner ruling 2026-07-22: education and certifications were never asked at all.
+// Not "sometimes skipped" — with a cooperative worker they were UNREACHABLE,
+// because `education` was the LAST bank topic and readiness was already satisfied
+// by the earlier must-asks, so the wrap-up fired before the bank drained. A
+// worker's ITI could not reach their resume by any path. Making the last topic
+// must-ask makes readiness unreachable until the bank is exhausted.
 export const MUST_ASK_TOPICS = [
   "preferred_locations",
   "salary_current",
   "salary_expected",
   "availability",
+  "education",
+  "certifications",
 ] as const;
 
 /** Topic ids in bank order. Exported so the parity tests can pin them against
