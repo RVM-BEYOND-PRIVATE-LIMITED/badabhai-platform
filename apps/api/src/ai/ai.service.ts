@@ -24,6 +24,29 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { mockProfilingTurn } from "./mock-interview";
 
 /**
+ * TD81 — what the api can learn about the ai-service from ITS `GET /health`.
+ *
+ * Deliberately ONE field. The ai-service's health payload is rich (spend, caps,
+ * langfuse, ledger backend) but that is recon data on a shared network — TD67 is
+ * exactly why the ai-service stopped disclosing it tokenlessly — and the api's own
+ * `/health` is UNAUTHENTICATED, so anything surfaced here becomes public. The one
+ * thing an operator genuinely cannot get elsewhere is "am I looking at real AI or
+ * mocked AI", so that is the only thing this carries.
+ */
+export interface AiServiceHealthSnapshot {
+  /**
+   * The ai-service's own `real_calls_enabled`, or `null` when it did not disclose it.
+   *
+   * `null` is NOT "false" and must never be collapsed into it: under the TD67 LOCKED
+   * posture (`AI_INTERNAL_TOKEN` set on the ai-service) the tokenless `/health` returns
+   * liveness + `service_auth_enabled` ONLY (apps/ai-service/app/main.py:174-175), so the
+   * flag is genuinely unknowable from here. Reporting that as `false` would tell an
+   * operator "your AI is mocked" about a correctly-hardened service.
+   */
+  realCallsEnabled: boolean | null;
+}
+
+/**
  * Client for the FastAPI AI service.
  *
  * IMPORTANT: pseudonymization happens INSIDE the AI service before any LLM call.
@@ -190,6 +213,55 @@ export class AiService {
     input: SkillCanonicalizationInput,
   ): Promise<SkillCanonicalization | null> {
     return this.post("/skills/canonicalize", input, SkillCanonicalizationSchema);
+  }
+
+  /**
+   * TD81 — REACHABILITY + POSTURE probe, for `HealthService` only. NOT an AI call:
+   * it is a `GET` of the ai-service's own `/health`, carries no worker data, and can
+   * never reach an LLM, so nothing here touches the pseudonymization boundary.
+   *
+   * THROWS (unlike every other method on this class) on unreachable / non-OK / bad
+   * shape. That inversion is deliberate: every other method degrades to a mock because
+   * a worker mid-interview must keep moving, but the whole POINT of this one is to make
+   * the degraded state VISIBLE — swallowing the failure into a `null` here would rebuild
+   * the exact silence TD81 records ("`/health` still returns 200, so staging reports
+   * healthy while running AI entirely mocked"). The caller is `HealthService.runProbe`,
+   * which never rethrows and logs only a secret-free `safeReason` tag, so the throw
+   * cannot escape into an HTTP body or a log line. The message deliberately carries the
+   * status code only — never the URL.
+   *
+   * NO Zod schema, on purpose, where every sibling method parses one: the ai-service's
+   * `/health` payload is VARIABLE BY POSTURE (the TD67 locked shape drops
+   * `real_calls_enabled` and most of the body — main.py:168-192). A strict schema would
+   * turn a correctly-hardened ai-service into a parse failure, i.e. report `down` for a
+   * service that is up — a false alarm in the one place we are adding to kill false
+   * comfort. So the read is duck-typed and tolerant: anything that is not a boolean is
+   * "not disclosed" (`null`), never `false`.
+   *
+   * The TD67 bearer is NOT sent: `/health` is auth-exempt on the other side
+   * (`_AUTH_EXEMPT_PATHS`, main.py:132) so it would buy nothing, and a secret should not
+   * ride a request that does not need it — least privilege on the wire.
+   */
+  async probeHealth(timeoutMs = 2000): Promise<AiServiceHealthSnapshot> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${this.config.AI_SERVICE_URL}/health`, {
+        method: "GET",
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        // Named so `HealthService.safeReason` logs a useful, secret-free tag.
+        const e = new Error(`ai-service /health returned ${res.status}`);
+        e.name = "AiServiceUnhealthyError";
+        throw e;
+      }
+      const body: unknown = await res.json();
+      const flag = (body as { real_calls_enabled?: unknown } | null)?.real_calls_enabled;
+      return { realCallsEnabled: typeof flag === "boolean" ? flag : null };
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   /**
