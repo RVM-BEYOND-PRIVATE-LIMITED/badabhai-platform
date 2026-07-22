@@ -186,6 +186,21 @@ describe("AiJobsRepository.findExtractionDedupeCandidate — the predicate (#420
     expect(captured.limit).toBe(1);
   });
 
+  // `nulls last` is load-bearing, not cosmetic: it is what makes the ordering match
+  // `ai_jobs_extraction_session_idx` (migration 0047, built DESC NULLS LAST). Postgres
+  // defaults DESC to NULLS FIRST and pathkeys compare `nulls_first` strictly, so a
+  // plain `desc(aiJobs.createdAt)` stops matching the index and the planner inserts a
+  // Sort that discards the LIMIT-1 early exit (measured at 1M rows: Sort present in
+  // 150/150 trials without this clause, absent with it).
+  //
+  // The assertion above passes either way — `"created_at" desc` is a prefix of
+  // `"created_at" desc nulls last` — so a refactor back to `desc()` would be silent.
+  // This test is the one that would catch it.
+  it("orders `desc nulls last` so the ordering MATCHES index 0047 (no Sort node)", async () => {
+    const { captured } = await run();
+    expect(compile(captured.orderBy![0]).sql).toMatch(/"created_at" desc nulls last/i);
+  });
+
   it("selects the profile-content columns the usability check needs, and no others", async () => {
     const { captured } = await run();
     expect(Object.keys(captured.selection!).sort()).toEqual([

@@ -700,10 +700,30 @@ export const aiJobs = pgTable(
     // accumulates every extraction/transcription/resume job with no retention policy,
     // so the scan cost grows monotonically while the result stays LIMIT 1.
     //
-    // PARTIAL on job_type: extraction jobs are a fraction of the table, and the
-    // predicate is a constant, so the index stays small and never has to store the
-    // column. Trailing `created_at DESC` also serves the sort, making the LIMIT 1 an
-    // index scan rather than a sort over all matches.
+    // PARTIAL on job_type: extraction jobs are a fraction of the table, so the index
+    // stays smaller and never has to store the column.
+    //   MEASURED CAVEAT (throwaway PG 18.4, 1,000,000 rows): the saving is purely a
+    //   function of the job_type MIX, not a property of the predicate. Same 1M rows,
+    //   only the mix varied:
+    //       33% extraction   partial  36 MB   twin  85 MB
+    //       66% extraction   partial  72 MB   twin  96 MB
+    //      100% extraction   partial 108 MB   twin 108 MB   <- EXACTLY ZERO saving
+    //   Per-entry cost is NOT equal between them: the partial is ~113 B/entry, the
+    //   twin ~89 B/entry, because the twin also indexes the non-extraction rows,
+    //   whose session_id/worker_id are NULL and therefore index far more cheaply
+    //   (677,460 of its entries had a NULL leading key at the 33% mix). So the twin
+    //   is not "3x bigger per row" — it is bigger only because it holds more rows.
+    //   Today's real mix is likely near 100% extraction (voice is dormant), so do NOT
+    //   assume this predicate is buying space until a read-only
+    //   `SELECT job_type, count(*) FROM ai_jobs GROUP BY 1` says so.
+    //
+    // Trailing `created_at DESC NULLS LAST` serves the sort ONLY IF the query orders
+    // the same way. It must say `desc nulls last` explicitly — Postgres defaults DESC
+    // to NULLS FIRST, and pathkeys compare `nulls_first` strictly, so a bare
+    // `ORDER BY created_at DESC` does NOT match this index and the planner adds a Sort
+    // that discards the LIMIT-1 early exit. `findExtractionDedupeCandidate`
+    // (apps/api/src/profiles/ai-jobs.repository.ts) is written to match; keep them
+    // in step, and change both together or neither.
     //
     // §2: both indexed expressions are opaque UUIDs (worker_id / session_id), never PII.
     // An index stores the indexed VALUES, so this is deliberate — no name, phone,
