@@ -171,7 +171,23 @@ export class AiJobsRepository {
           ),
         ),
       )
-      .orderBy(desc(aiJobs.createdAt))
+      // `desc nulls last`, NOT `desc(aiJobs.createdAt)`. Postgres defaults DESC to
+      // NULLS FIRST, but `ai_jobs_extraction_session_idx` (migration 0047) is built
+      // `created_at DESC NULLS LAST` (drizzle's `.desc()`). Pathkeys compare
+      // `nulls_first` STRICTLY — there is no NOT-NULL-based relaxation in
+      // `build_index_pathkeys` — so the mismatched ordering does not match the index
+      // and the planner inserts a Sort between the join and the Limit, discarding the
+      // LIMIT-1 early exit and joining every row in the session group first.
+      //
+      // MEASURED (throwaway PG 18.4, 1,000,000 ai_jobs rows): a Sort node appeared in
+      // 150/150 trials with `desc`, and disappeared with `desc nulls last`; the only
+      // difference between the two plans was this clause. On a 60-row session group
+      // the Sort cost 152 of the query's 160 buffers — all of them worker_profiles
+      // lookups the LIMIT 1 should never have performed.
+      //
+      // `created_at` is NOT NULL (schema.ts), so NULLS FIRST and NULLS LAST are
+      // semantically identical here; only the planner's pathkey match changes.
+      .orderBy(sql`${aiJobs.createdAt} desc nulls last`)
       .limit(1);
 
     const row = rows[0];

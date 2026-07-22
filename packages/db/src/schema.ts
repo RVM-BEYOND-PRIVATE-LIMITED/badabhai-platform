@@ -700,10 +700,23 @@ export const aiJobs = pgTable(
     // accumulates every extraction/transcription/resume job with no retention policy,
     // so the scan cost grows monotonically while the result stays LIMIT 1.
     //
-    // PARTIAL on job_type: extraction jobs are a fraction of the table, and the
-    // predicate is a constant, so the index stays small and never has to store the
-    // column. Trailing `created_at DESC` also serves the sort, making the LIMIT 1 an
-    // index scan rather than a sort over all matches.
+    // PARTIAL on job_type: extraction jobs are a fraction of the table, so the index
+    // stays smaller and never has to store the column.
+    //   MEASURED CAVEAT (throwaway PG 18.4, 1,000,000 rows): the saving is purely a
+    //   function of the job_type MIX, not a property of the predicate. Same 1M rows:
+    //   at 33% extraction the partial is 36 MB vs an 85 MB non-partial twin; at 100%
+    //   extraction it is 108 MB vs 108 MB — EXACTLY ZERO saving. Bytes per entry are
+    //   ~113 either way. Today's real mix is likely near 100% extraction (voice is
+    //   dormant), so do not assume this predicate is buying space until the real
+    //   `SELECT job_type, count(*) FROM ai_jobs GROUP BY 1` says so.
+    //
+    // Trailing `created_at DESC NULLS LAST` serves the sort ONLY IF the query orders
+    // the same way. It must say `desc nulls last` explicitly — Postgres defaults DESC
+    // to NULLS FIRST, and pathkeys compare `nulls_first` strictly, so a bare
+    // `ORDER BY created_at DESC` does NOT match this index and the planner adds a Sort
+    // that discards the LIMIT-1 early exit. `findExtractionDedupeCandidate`
+    // (apps/api/src/profiles/ai-jobs.repository.ts) is written to match; keep them
+    // in step, and change both together or neither.
     //
     // §2: both indexed expressions are opaque UUIDs (worker_id / session_id), never PII.
     // An index stores the indexed VALUES, so this is deliberate — no name, phone,
