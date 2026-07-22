@@ -111,6 +111,41 @@ jobs:
       - name: Pytest
         run: pytest
 
+  # ---- ai-service image builds AT ALL (TD81) ----
+  # `build-and-push-image` below is gated `push && refs/heads/main`, so it NEVER runs on
+  # a PR. Without this job a broken apps/ai-service/Dockerfile would first be discovered
+  # ON MAIN — where it also fails `deploy-lightsail`, i.e. exactly the TD81 failure class
+  # this PR exists to remove (a green signal hiding an untested artifact).
+  #
+  # BUILD ONLY, never push: no registry credentials, no `packages: write`, no tags. It
+  # answers "does this Dockerfile still produce an image?" and nothing else. Cheap
+  # (the ai-service image is a pip install over a slim base — no WeasyPrint/native
+  # stack like apps/api) and it reuses the SAME gha cache scope as the push job, so a
+  # PR build warms the layers main then reuses.
+  #
+  # Deliberately NOT a `needs:` of anything: it is an independent signal, and it must be
+  # able to fail without masking the pytest/ruff result above.
+  ai-service-image:
+    name: AI service (image builds)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build the ai-service image (no push)
+        uses: docker/build-push-action@v7
+        with:
+          context: apps/ai-service
+          file: apps/ai-service/Dockerfile
+          push: false
+          load: false
+          cache-from: type=gha,scope=ai-service
+          cache-to: type=gha,mode=max,scope=ai-service
+
   # ---- Flutter worker app ----
   # Moved to its own path-filtered, BLOCKING workflow: .github/workflows/worker-app.yml
   # (runs only on changes under apps/worker-app; pinned Flutter; no continue-on-error).
