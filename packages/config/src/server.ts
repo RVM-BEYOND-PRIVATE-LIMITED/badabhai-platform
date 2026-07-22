@@ -566,6 +566,22 @@ export const serverEnvSchema = z.object({
   // boolean flags above (AI_ENABLE_REAL_CALLS / PAYMENTS_ENABLE_REAL).
   CAPACITY_ENFORCEMENT_ENABLED: booleanFromString,
 
+  // One-shot composite opener (owner-approved 2026-07-22). OFF = today's behaviour,
+  // byte-identical: `POST /chat/session` makes no outbound call, its response body
+  // keeps exactly {session_id, status, started_at}, and the client renders its own
+  // `kChatOpeningText`. ON, the session response carries `opening_text` — an
+  // invitation to answer every topic in one message. Measured: a fluent worker then
+  // answers 11 of 12 topics up front and wraps on turn 2 instead of 13.
+  //
+  // The flag lives HERE, not in the ai-service, because this is the seam that decides
+  // what the worker sees. The ai-service `/profiling/opening` route is unconditional
+  // and pure, so it has no dead branch; and only a flag on this side can make OFF
+  // mean "no network hop on the chat-mount path" at all.
+  //
+  // booleanFromString (NOT z.coerce.boolean, whose "false"/"0" coerce to TRUE) so a
+  // falsey string stays OFF — fail-safe to today's behaviour.
+  CHAT_ONE_SHOT_OPENER_ENABLED: booleanFromString,
+
   // PACE supply-widening (ADR-0021 — CONFIG-DRIVEN, deterministic, no LLM). The widen
   // DECISION is a pure function of these rules; nothing is hard-coded in the service.
   // Master switch — default OFF (inert/additive): PACE only runs when explicitly

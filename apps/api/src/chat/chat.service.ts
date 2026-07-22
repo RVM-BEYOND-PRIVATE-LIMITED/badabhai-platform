@@ -1,6 +1,8 @@
 import { Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
 import { ConversationStateSchema, type ConversationState } from "@badabhai/ai-contracts";
+import type { ServerConfig } from "@badabhai/config";
 import type { RequestContext } from "../common/request-context";
+import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
@@ -9,8 +11,10 @@ import { ProfilesService } from "../profiles/profiles.service";
 import { ChatRepository } from "./chat.repository";
 import {
   PostMessageResponseSchema,
+  StartSessionResponseSchema,
   type PostMessageDto,
   type PostMessageResponse,
+  type StartSessionResponse,
 } from "./chat.dto";
 
 const DEFAULT_ROLE_FAMILY = "cnc_vmc";
@@ -25,6 +29,7 @@ export class ChatService {
   private readonly logger = new Logger(ChatService.name);
 
   constructor(
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     private readonly chat: ChatRepository,
     private readonly workers: WorkersRepository,
     private readonly pii: PiiCryptoService,
@@ -49,7 +54,57 @@ export class ChatService {
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
-    return { session_id: session.id, status: session.status, started_at: session.startedAt };
+    const base = {
+      session_id: session.id,
+      status: session.status,
+      started_at: session.startedAt,
+    };
+
+    // One-shot composite opener (CHAT_ONE_SHOT_OPENER_ENABLED, default OFF).
+    //
+    // OFF is byte-identical to before this existed: no outbound call at all — the
+    // `post()` helper's 8s timeout must never appear on the chat-mount path — and the
+    // response keys stay exactly the three above. The key is OMITTED, not null, so a
+    // client that does not know about it sees no change whatsoever.
+    //
+    // ON, `opening_text` invites the worker to answer every topic in one message. The
+    // engine still asks for whatever they leave out, so a partial answer degrades to
+    // today's flow rather than losing anything.
+    //
+    // NO EVENT: this is read-shaped output on an existing endpoint, and
+    // `chat.session_started` above already records the state change. Adding a field
+    // to that payload would mutate a shipped event schema (invariant #8).
+    //
+    // NOT POSTED, and this is the load-bearing part: the opener is rendered by the
+    // client and never stored as a chat message, so it never enters the extraction
+    // transcript. Measured — an opener naming example values, on the `messages`-absent
+    // fallback that PR #493 documents as its rollback lever, hands the worker four
+    // machines, five controllers and two qualifications they never said.
+    if (!this.config.CHAT_ONE_SHOT_OPENER_ENABLED) return base;
+
+    const openingText = await this.ai.profilingOpening();
+    // `null` = AI service unreachable. Omit the key and let the client render its own
+    // constant, rather than inventing a second copy of the copy here.
+    if (openingText === null) return base;
+
+    // Outbound boundary check, following `postMessage` below: the object is built
+    // field-by-field so nothing unknown can leak in, and safeParse guards the VALUES.
+    // Log field PATHS only, never values, and return the constructed object either
+    // way — opening a chat session must NEVER 500 over its greeting.
+    //
+    // Returns `response`, not `checked.data`, unlike `postMessage`: `started_at` is a
+    // Date and the schema's `z.union([z.string(), z.date()])` would hand back the
+    // parsed branch. The controller serializes the Date itself, so passing the
+    // original through keeps this endpoint's body byte-identical to before.
+    const response: StartSessionResponse = { ...base, opening_text: openingText };
+    const checked = StartSessionResponseSchema.safeParse(response);
+    if (!checked.success) {
+      this.logger.warn(
+        `startSession outbound validation failed session=${session.id} ` +
+          `paths=[${checked.error.issues.map((i) => i.path.join(".")).join(",")}]`,
+      );
+    }
+    return response;
   }
 
   async postMessage(

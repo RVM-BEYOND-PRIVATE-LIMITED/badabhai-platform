@@ -121,6 +121,22 @@ export const ProfilingTurnInputSchema = z.object({
 });
 export type ProfilingTurnInput = z.infer<typeof ProfilingTurnInputSchema>;
 
+/** One-shot opener (POST /profiling/opening). Mirrors app/contracts.py. */
+export const ProfilingOpeningInputSchema = z.object({
+  role_family: z.string().optional(),
+});
+export type ProfilingOpeningInput = z.infer<typeof ProfilingOpeningInputSchema>;
+
+/**
+ * Deliberately just the string: no `is_mock`, no `ai_metadata` (deterministic
+ * template — no model call, nothing pseudonymized) and no `worker_name` (the
+ * opener carries no vocative, which keeps the endpoint PII-free by construction).
+ */
+export const ProfilingOpeningOutputSchema = z.object({
+  opening_text: z.string(),
+});
+export type ProfilingOpeningOutput = z.infer<typeof ProfilingOpeningOutputSchema>;
+
 export const ProfilingTurnOutputSchema = z.object({
   reply_text: z.string(),
   blocked: z.boolean().default(false),

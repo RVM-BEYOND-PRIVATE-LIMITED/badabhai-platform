@@ -32,6 +32,9 @@ function make(
     // `null` (the REAL service's blocked/fail-closed leg; the mock fallback never
     // returns null) or a MALFORMED value.
     updatedState?: unknown;
+    /** One-shot opener: the flag, and what the ai seam returns for it. */
+    oneShotOpener?: boolean;
+    openingText?: string | null;
   } = {},
 ) {
   const session = {
@@ -42,6 +45,11 @@ function make(
   };
   const chat = {
     findSession: vi.fn().mockResolvedValue(session),
+    createSession: vi.fn().mockResolvedValue({
+      id: SESSION,
+      status: "active",
+      startedAt: "2026-07-22T00:00:00.000Z",
+    }),
     insertMessage: vi.fn().mockResolvedValue({ id: "msg-1" }),
     listMessages: vi.fn().mockResolvedValue([]),
     saveConversationState: vi.fn().mockResolvedValue(undefined),
@@ -63,6 +71,9 @@ function make(
   };
   const events = { emit: vi.fn().mockResolvedValue(undefined) };
   const ai = {
+    profilingOpening: vi.fn().mockResolvedValue(
+      opts.openingText === undefined ? "OPENER TEXT" : opts.openingText,
+    ),
     profilingRespond: vi.fn().mockResolvedValue({
       reply_text: opts.replyText ?? "Thanks!",
       blocked: false,
@@ -83,7 +94,9 @@ function make(
       ? vi.fn().mockRejectedValue(new Error("redis down"))
       : vi.fn().mockResolvedValue({ ai_job_id: "job-1", status: "queued" }),
   };
+  const config = { CHAT_ONE_SHOT_OPENER_ENABLED: opts.oneShotOpener ?? false };
   const svc = new ChatService(
+    config as never,
     chat as never,
     workers as never,
     pii as never,
@@ -91,7 +104,7 @@ function make(
     ai as never,
     profiles as never,
   );
-  return { svc, chat, workers, pii, events, ai, profiles };
+  return { svc, chat, workers, pii, events, ai, profiles, config };
 }
 
 const emittedNames = (events: { emit: ReturnType<typeof vi.fn> }): string[] =>
@@ -411,3 +424,52 @@ async function run(opts: Parameters<typeof make>[0]) {
   const res = await h.svc.postMessage(WORKER, DTO as never, CTX);
   return { ...h, res };
 }
+
+// --- startSession + the one-shot opener -------------------------------------
+// These are the FIRST tests for startSession (it had none before the opener), so
+// they also pin the pre-existing response shape, not just the new field.
+
+describe("ChatService.startSession — one-shot opener", () => {
+  const ctx = { correlationId: "c-1", requestId: "r-1" } as never;
+
+  it("flag OFF: the body is byte-identical and NO call is made to the ai service", async () => {
+    const { svc, ai } = make();
+    const res = await svc.startSession(WORKER, ctx);
+
+    // Exactly the three historical keys — `opening_text` ABSENT, not null, so a
+    // client that predates the flag sees no change at all.
+    expect(Object.keys(res).sort()).toEqual(["session_id", "started_at", "status"]);
+    expect("opening_text" in res).toBe(false);
+    // No outbound hop: the ai client's 8s timeout must never land on chat mount.
+    expect(ai.profilingOpening).not.toHaveBeenCalled();
+  });
+
+  it("flag ON: the opener rides the existing session response", async () => {
+    const { svc, ai } = make({ oneShotOpener: true });
+    const res = await svc.startSession(WORKER, ctx);
+
+    expect(ai.profilingOpening).toHaveBeenCalledTimes(1);
+    expect(res).toMatchObject({ session_id: SESSION, opening_text: "OPENER TEXT" });
+  });
+
+  it("flag ON but the ai service is down: degrades to the 3-key body, never 500s", async () => {
+    // `null` is the ai client's documented "cannot supply it" signal. The client
+    // then renders its own constant — we do NOT invent a second copy here.
+    const { svc } = make({ oneShotOpener: true, openingText: null });
+    const res = await svc.startSession(WORKER, ctx);
+
+    expect(Object.keys(res).sort()).toEqual(["session_id", "started_at", "status"]);
+  });
+
+  it("emits chat.session_started with its payload UNCHANGED by the opener", async () => {
+    // Invariant #8: the opener must not leak into a shipped event payload.
+    const { svc, events } = make({ oneShotOpener: true });
+    await svc.startSession(WORKER, ctx);
+
+    const started = events.emit.mock.calls.map((c) => c[0]).find(
+      (e) => e.event_name === "chat.session_started",
+    );
+    expect(started).toBeDefined();
+    expect(Object.keys(started!.payload).sort()).toEqual(["session_id", "worker_id"]);
+  });
+});

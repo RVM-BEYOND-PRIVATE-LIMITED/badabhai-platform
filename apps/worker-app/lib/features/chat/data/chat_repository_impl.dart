@@ -12,13 +12,14 @@ class ChatRepositoryImpl implements ChatRepository {
   final SessionRepository _session;
 
   @override
-  Future<void> ensureSession() async {
+  Future<String?> ensureSession() async {
     final String? token = _session.sessionToken;
     if (token == null) throw const UnauthorizedFailure();
-    if (_session.sessionId != null) return; // already open
+    if (_session.sessionId != null) return null; // already open
     try {
-      final String sessionId = await _api.startSession(authToken: token);
-      _session.setSession(sessionId);
+      final ChatSessionStart start = await _api.startSession(authToken: token);
+      _session.setSession(start.sessionId);
+      return start.openingText;
     } catch (error) {
       throw mapError(error);
     }

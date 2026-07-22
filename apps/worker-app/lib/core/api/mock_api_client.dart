@@ -36,10 +36,15 @@ class MockApiClient extends ApiClient {
     await _delay();
   }
 
+  /// No `openingText`, deliberately. Returning one here would be a THIRD copy of
+  /// the opener copy (after `question_bank.py` and the client const) with nothing
+  /// keeping the three in step. Null makes the bloc render `kChatOpeningText`,
+  /// which is the single client-side copy — so demo mode and a
+  /// flag-off/AI-service-down live session show exactly the same first bubble.
   @override
-  Future<String> startSession({required String authToken}) async {
+  Future<ChatSessionStart> startSession({required String authToken}) async {
     await _delay();
-    return 'mock-session-0001';
+    return const ChatSessionStart(sessionId: 'mock-session-0001');
   }
 
   @override

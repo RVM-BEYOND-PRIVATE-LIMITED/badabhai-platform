@@ -39,9 +39,9 @@ void main() {
         }),
       );
 
-      final String id = await api.startSession(authToken: liveToken);
+      final ChatSessionStart start = await api.startSession(authToken: liveToken);
 
-      expect(id, 's1');
+      expect(start.sessionId, 's1');
       expect(renewCalls, 1, reason: 'renew exactly once');
       expect(bearers, <String>['Bearer stale-token', 'Bearer fresh-token'],
           reason: 'the retry must NOT resend the token that just 401ed');

@@ -33,7 +33,7 @@ void main() {
     repo = MockChatRepository();
     await locator.reset();
     locator.registerFactory<ChatBloc>(() => ChatBloc(repo));
-    when(() => repo.ensureSession()).thenAnswer((_) async {});
+    when(() => repo.ensureSession()).thenAnswer((_) async => null);
   });
 
   tearDown(() async => locator.reset());

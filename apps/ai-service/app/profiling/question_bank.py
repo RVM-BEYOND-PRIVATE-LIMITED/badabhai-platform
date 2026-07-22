@@ -160,6 +160,77 @@ _CNC_VMC_TOPICS: list[Topic] = [
 
 _TOPICS_BY_FAMILY: dict[str, list[Topic]] = {"cnc_vmc": _CNC_VMC_TOPICS}
 
+# --- One-shot opener (owner-approved 2026-07-22) -----------------------------
+# An INVITATION to answer everything in one message, for the worker who would
+# rather type once than be asked twelve times. It is NOT a Topic and is never
+# served as an ask: adding it to the bank would make `_next_topic` serve it as a
+# real question, and it is not one.
+#
+# THE B-5 EXCEPTION, stated so it is not mistaken for a violation: B-5 (owner
+# ruling 2026-07-17) says one question mark per served message. This string holds
+# exactly one `?` and obeys the letter, but it is a twelve-item menu and plainly
+# not what B-5 had in mind. It is the ONE sanctioned exception, because it is an
+# invitation the worker may ignore rather than a question they must answer. The
+# ≤20-word cap deliberately does not apply — that test iterates `topics_for()`,
+# which this constant is correctly not in.
+#
+# THE COPY RULE: each line is the BANK'S OWN question stem with its example values
+# and its `?` stripped. Two reasons, both measured:
+#
+#   1. Naming example values makes the opener answer its own questions. A draft
+#      that listed "VMC, CNC lathe, HMC ya grinding ... Fanuc, Siemens ... ITI,
+#      diploma" self-keyed EIGHT profile fields from `profile_extractor.extract`,
+#      including `certifications=['NCVT','NSQF','Apprenticeship']` — the exact
+#      fabrication shape PR #493 exists to prevent.
+#   2. Mirroring the bank's stems is what makes the worker's reply parse. Measured:
+#      an opener asking "abhi kitni salary" lost `salary_current` from the reply
+#      (10/12 topics, wrap turn 3); the bank's own "abhi salary kitni hai"
+#      recovers it (11/12, wrap turn 2).
+#
+# "No example values" is NOT a sufficient rule on its own — an earlier
+# category-only draft still self-keyed `skills` (from "machine chalate hain") and
+# `availability` (from "kitne din ka notice"). Inertness is a property of the
+# EXACT string, so it is pinned by a test, never argued from the rule.
+#
+# `certifications` is deliberately NOT named. It is the one topic the local
+# detector cannot read context-free (measured: 0 of 5 phrasings), so naming it
+# would guarantee the worker answers it here and is then asked it again — the
+# most trust-destroying thing a chat product can do. The engine asks it as the
+# single follow-up instead.
+#
+# NEVER POSTED. This string must not enter the extraction transcript. Measured: a
+# posted value-naming opener, on the `messages`-absent fallback that PR #493
+# documents as its ROLLBACK LEVER, hands the worker four machines, five
+# controllers, ITI+Diploma and NCVT+NSQF that they never said. Kept out of the
+# transcript entirely, both consumers are safe by construction rather than by the
+# role-split holding.
+ONE_SHOT_OPENER: str = (
+    "Namaste. Main Bada Bhai. Koi test nahi, bas baat.\n"
+    "Ek hi message mein itna bata sakte hain?\n"
+    "aap kaunsa kaam karte hain\n"
+    "kaunsi machine\n"
+    "kitne saal ka experience hai\n"
+    "kya-kya aata hai\n"
+    "controller kaunsa\n"
+    "abhi kis sheher mein hain\n"
+    "kahan kaam kar sakte hain\n"
+    "abhi salary kitni hai\n"
+    "kitni salary expect karte hain\n"
+    "join karne mein kitne din lagenge\n"
+    "padhai ya training kaunsi hai\n"
+    "Jitna yaad hai utna hi likhiye. Baaki hum ek-ek karke pooch lenge."
+)
+
+
+def one_shot_opener_for(role_family: str) -> str:
+    """The one-shot opener for a role family (falls back to CNC/VMC).
+
+    Takes `role_family` so a second family can diverge without a caller change;
+    today every family shares the CNC/VMC copy.
+    """
+    _ = topics_for(role_family)  # validates the family resolves; copy is shared today
+    return ONE_SHOT_OPENER
+
 
 def topics_for(role_family: str) -> list[Topic]:
     """Topics for a role family (falls back to CNC/VMC)."""

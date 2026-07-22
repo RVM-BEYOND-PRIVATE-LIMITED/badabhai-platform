@@ -38,3 +38,19 @@ export const PostMessageResponseSchema = z.object({
   unanswered_essentials: z.array(z.string()).default([]),
 });
 export type PostMessageResponse = z.infer<typeof PostMessageResponseSchema>;
+
+/**
+ * `POST /chat/session` response.
+ *
+ * `opening_text` is the one-shot composite opener and is OPTIONAL in the strict
+ * sense: when CHAT_ONE_SHOT_OPENER_ENABLED is off, or the AI service cannot supply
+ * it, the key is ABSENT rather than null. A client that predates the flag sees a
+ * byte-identical body.
+ */
+export const StartSessionResponseSchema = z.object({
+  session_id: uuidSchema,
+  status: z.string(),
+  started_at: z.union([z.string(), z.date()]),
+  opening_text: z.string().optional(),
+});
+export type StartSessionResponse = z.infer<typeof StartSessionResponseSchema>;

@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
+import openingKeys from "./__fixtures__/profiling-opening.keys.json";
 import {
   AICallMetadataSchema,
   ConversationStateSchema,
   DraftProfileSchema,
   ProfileExtractionInputSchema,
+  ProfilingOpeningInputSchema,
+  ProfilingOpeningOutputSchema,
   ProfileExtractionOutputSchema,
   PseudonymizationOutputSchema,
   GrowthAnchorSchema,
@@ -436,5 +439,29 @@ describe("PseudonymizationOutputSchema", () => {
       placeholder_tokens: ["[PERSON_1]"],
     });
     expect(out.placeholder_tokens).toContain("[PERSON_1]");
+  });
+});
+
+describe("ProfilingOpening contract parity", () => {
+  // Asserted against a JSON fixture that the PYTHON suite asserts against too
+  // (tests/test_contract_parity.py). Neither side can add or rename a field
+  // without the other going red. Without this, both suites stay green when only
+  // one side changes: Pydantic silently drops unknown request keys, and CI runs
+  // the node and ai-service jobs independently.
+  it("input keys match the golden fixture shared with Pydantic", () => {
+    expect(Object.keys(ProfilingOpeningInputSchema.shape).sort()).toEqual(
+      [...openingKeys.ProfilingOpeningInput].sort(),
+    );
+  });
+
+  it("output keys match the golden fixture shared with Pydantic", () => {
+    expect(Object.keys(ProfilingOpeningOutputSchema.shape).sort()).toEqual(
+      [...openingKeys.ProfilingOpeningOutput].sort(),
+    );
+  });
+
+  it("output requires opening_text — an empty body must not parse", () => {
+    expect(ProfilingOpeningOutputSchema.safeParse({}).success).toBe(false);
+    expect(ProfilingOpeningOutputSchema.safeParse({ opening_text: "hi" }).success).toBe(true);
   });
 });

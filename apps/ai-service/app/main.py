@@ -34,6 +34,8 @@ from .contracts import (
     GrowthClusterOutput,
     ProfileExtractionInput,
     ProfileExtractionOutput,
+    ProfilingOpeningInput,
+    ProfilingOpeningOutput,
     ProfilingTurnInput,
     ProfilingTurnOutput,
     PseudonymizationInput,
@@ -510,6 +512,22 @@ def skills_retag_plan(body: RetagPlanInput) -> RetagPlanOutput:
         },
     )
     return out
+
+
+@app.post("/profiling/opening", response_model=ProfilingOpeningOutput)
+async def profiling_opening(body: ProfilingOpeningInput) -> ProfilingOpeningOutput:
+    """The ONE-SHOT opener text — an invitation to answer everything in one message.
+
+    Unconditional and pure on purpose: this route always serves the opener, and the
+    decision of whether a worker SEES it lives in apps/api behind
+    CHAT_ONE_SHOT_OPENER_ENABLED. Putting the flag here instead would leave a dead
+    branch that no test exercises, and could not make "off" mean what it has to mean
+    — that /chat/session takes no network hop at all.
+
+    No model call, no pseudonymization: the response is a module constant. The
+    opener carries no vocative, so nothing worker-identifying passes through here.
+    """
+    return ProfilingOpeningOutput(opening_text=interview_engine.opening_message(body.role_family))
 
 
 @app.post("/profiling/respond", response_model=ProfilingTurnOutput)
