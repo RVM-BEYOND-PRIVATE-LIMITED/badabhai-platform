@@ -206,6 +206,38 @@ _LEADING_NAME_RE = re.compile(r"^\s*([A-Z][a-z]+)\s*,")
 _CITY_RE = re.compile(r"\b(?:" + "|".join(re.escape(c) for c in _CITIES) + r")\b", re.IGNORECASE)
 _RESIDUAL_DIGITS_RE = re.compile(r"\d{7,}")
 
+# Credential / registration IDs, masked on their CUE rather than their shape.
+#
+# The certifications question ("Koi certificate hai — jaise NCVT, NSQF ya
+# apprenticeship?") became MUST_ASK on 2026-07-22, so every worker is now invited
+# to type a roll or registration number. Measured, those answers slipped the whole
+# gate: `_PHONE_RE` accepts many separators but NOT "/", and `_RESIDUAL_DIGITS_RE`
+# needs 7+ CONSECUTIVE digits, so "R/2019/123456", "MH2019CN4471" and
+# "NAPS/2020/44521" all reached the LLM verbatim (blocked=False, replaced=0).
+#
+# Shape alone cannot catch these — "R/2019/123456" is not distinguishable from a
+# machine model or a drawing number by shape. So the rule is CUE-anchored: an
+# alphanumeric run of 6+ characters that follows a roll/registration/certificate
+# cue. That keeps it narrow (a bare "MH2019CN4471" with no cue is untouched, and
+# the residual net still governs long digit runs) and, being an over-mask on an
+# ID-doc token, errs in the locked safe direction (§2 #2 names ID-doc tokens
+# explicitly).
+#
+# Two details are load-bearing, both found by measurement:
+#   - `\b` AFTER the cue. Without it the `cert` alternative matched the first four
+#     letters of "certificate" and group 1 ate the rest, so "NCVT certificate hai"
+#     came out as "NCVT cert[ID_1] hai" — mangling ordinary text while leaving the
+#     actual ID in the same sentence unmasked.
+#   - group 1 must contain a DIGIT. A credential ID always does; without the
+#     requirement "certificate number chahiye" masked the Hindi word "chahiye".
+_CREDENTIAL_ID_RE = re.compile(
+    r"(?i:\b(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license)\b"
+    r"(?:\s+(?:ka|ki|ke|mera|meri))?"
+    r"\s*(?:no\.?|number|num|#)?\s*[:\-]?\s*)"
+    r"(?=[A-Za-z0-9/\-]*\d)"
+    r"([A-Za-z0-9][A-Za-z0-9/\-]{5,})"
+)
+
 # --- D-1 money-amount carve-out (context-drift register 2026-07-16 row D-1;
 # --- owner ruling 2026-07-17) -----------------------------------------------
 # A worker typing an annual salary ("1000000", "salary 1200000") used to have the
@@ -333,9 +365,15 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
 
         result = text
 
-        # 1. ID-like tokens first (PAN, Aadhaar) so phone matching doesn't eat them.
+        # 1. ID-like tokens first (PAN, Aadhaar, cued credential IDs) so phone
+        #    matching doesn't eat them.
         result = _PAN_RE.sub(lambda m: token_for(m.group(0), "ID"), result)
         result = _AADHAAR_RE.sub(lambda m: token_for(m.group(0), "ID"), result)
+        #    Its own replacer, not `replace_group1`: that one consults the NAME
+        #    stoplist, which has no business vetoing an ID mask.
+        result = _CREDENTIAL_ID_RE.sub(
+            lambda m: m.group(0).replace(m.group(1), token_for(m.group(1), "ID")), result
+        )
         # 2. Phone numbers.
         result = _PHONE_RE.sub(lambda m: token_for(m.group(0), "PHONE"), result)
         # 3. Employers / companies.

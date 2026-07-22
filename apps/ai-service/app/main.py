@@ -620,11 +620,27 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
         worker_text = llm_text = body.transcript or ""
 
     # 1. Pseudonymize FIRST — gate. If blocked, fail closed.
-    #    The gate is on `llm_text` because `llm_text` is what leaves this process.
-    #    `worker_text` never reaches a model — it goes only to the local, trusted,
-    #    no-network detector, which has always read raw text. So the gate's egress
-    #    coverage is the SUPERSET it always was; this split does not narrow it.
+    #
+    #    `llm_text` is gated because it is what reaches the model. `worker_text` is
+    #    gated TOO, and separately, because the two are independent inputs whenever
+    #    a caller sends both fields: nothing forces them to describe the same
+    #    conversation, so gating only `llm_text` would let a caller hand the
+    #    detector text the gate would have refused. apps/api always derives both
+    #    from the same messages, so in practice this second call is redundant —
+    #    but "in practice" is not a gate, and the property should be structural.
+    #
+    #    NOT claimed here (an earlier version of this comment did claim it):
+    #    `worker_text` is not confined to this process. `rich` is derived from it
+    #    and is passed to the router as `mock_response`, which the Langfuse tracer
+    #    records as the trace output on the mock path and on every real-call
+    #    failure. That payload is closed-set labels and numbers, not free text, and
+    #    it predates this split — but it is egress, so the comment must not say
+    #    otherwise.
     result = pseudonymize(llm_text)
+    if not result.blocked and worker_text is not llm_text:
+        worker_gate = pseudonymize(worker_text)
+        if worker_gate.blocked:
+            result = worker_gate
     if result.blocked:
         return ProfileExtractionOutput(
             profile=DraftProfile(),

@@ -1793,6 +1793,19 @@ def _period_months(near_before: str, near_after: str) -> int | None:
     return 12 if annual else 1
 
 
+# A number sitting on a line that is about a CREDENTIAL is not money. Added with
+# the certifications question (2026-07-22): measured, "NCVT hai, roll number
+# R/2019/123456" recorded a 123,456 salary, and "certificate number 4471 hai"
+# recorded 4,471 — both of which flow to `salary_expectation.amount_min`, onto the
+# resume, and into the deterministic ranking factor `reach.mappers.ts` reads. The
+# detector is topic-blind and only rejects amounts under 1,000, so a roll number is
+# indistinguishable from a wage to it.
+_CREDENTIAL_LINE_CUES: tuple[str, ...] = (
+    "roll", "registration", "reg no", "regd", "certificate", "cert no",
+    "enrolment", "enrollment", "licence", "license", "ncvt", "scvt", "nsqf", "nsdc",
+)
+
+
 def _detect_salary(text: str, lower: str, sig: Signals) -> None:
     for m in _SALARY_RE.finditer(text):
         num, unit = m.group(1), m.group(2)
@@ -1813,6 +1826,9 @@ def _detect_salary(text: str, lower: str, sig: Signals) -> None:
         line_start = lower.rfind("\n", 0, digits_at) + 1
         line_end = lower.find("\n", digits_at)
         line_end = len(lower) if line_end == -1 else line_end
+        line = lower[line_start:line_end]
+        if any(cue in line for cue in _CREDENTIAL_LINE_CUES):
+            continue  # a roll/registration number, not a wage
         near_before = lower[max(line_start, m.start() - _PERIOD_WINDOW_BEFORE): m.start()]
         near_after = lower[m.end(): min(line_end, m.end() + _PERIOD_WINDOW_AFTER)]
         if _looks_like_a_year(num, unit, near_before + " " + near_after):
