@@ -234,3 +234,51 @@ invariant and adds a second raw-DB authority for no capability gain.
 - The TD65 activation chain is now: backfilled vectors
   ([SR-1 runbook](../ai/skill-embedding-staging-runbook.md)) + these routes deployed +
   `BACKEND_API_URL`/`SKILLS_INTERNAL_TOKEN` on the ai-service + `SKILL_CANONICALIZE_ENABLED=true`.
+
+---
+
+## Addendum (2026-07-23) — the confidence floor is **0.75**, and SG-3 is now ENFORCED, not merely stated
+
+Two corrections of record, both found by the 2026-07-23 implementation audit of this ADR.
+
+**1. The floor in §(b) is STALE. The shipped value is `0.75`, not `~0.80–0.85`.**
+§(b) above specifies "a **confidence floor (~0.80–0.85, tuned per TAX-9 eval)**" and was
+never amended after the calibration actually ran. The shipped default is
+`skill_canonicalize_floor: float = 0.75` (`apps/ai-service/app/config.py`), recalibrated on
+**real** `gemini-embedding-001` vectors over the TAX-5 labelled set on 2026-07-14 —
+precision 1.000 in both modes, recall 0.800 ORACLE / **0.350 on the SHIPPED anchor-domain
+path** (TD65; snapshot `apps/ai-service/tests/wedge_eval/scores_2026_07_14.json`;
+`docs/ai/skills-taxonomy-roadmap.md:121` records the 0.82 → 0.75 move).
+**The CODE is the authority; this ADR was the stale side.** Note the third number in play:
+`docs/ai/skills-taxonomy-roadmap.md:47` and `:74` still narrate 0.82 — they describe the
+pre-calibration design and are left as written history, not as the operative value.
+Anyone quoting a floor must quote `config.py`.
+
+**2. SG-3's skills arm was ASPIRATIONAL until now — the model could put an id in a
+matchable/renderable field and nothing stopped it.**
+§SG-3 states "the LLM emits phrases; the **vector layer** assigns the `skill_id`; the model
+**never invents a `skill_id`**", and §(d) that "there is no path from a model string to a
+matchable `skill_id` except through the embed→match→floor→validate pipeline". The
+**occupation** arm has enforced its half since ADR-0028 (`normalize_role_id`, a closed-set
+trust boundary). The **skills** arm enforced nothing: `profile_extractor.merge_model_draft`
+took the model's `skills`/`machines`/`controllers` through `_as_str_list` (a `str` + `strip`
+and no more) and REPLACED the heuristic lists, so a model answering
+`"skills": ["skill_mig_welding"]` had that id-shaped string persisted as
+`profiles.raw_profile` / `generated_resumes.sourceProfileSnapshot` and **rendered to the
+worker and the payer as if it were a phrase the worker had spoken** — silently, uncounted.
+
+Closed 2026-07-23 in both halves:
+- **Prompt** (`profiling/prompts.py`) now asks for phrases and spells out the carve-out.
+- **Enforcement** (`profiling/profile_extractor.py` `drop_model_taxonomy_ids` /
+  `_is_taxonomy_id_shaped`) drops id-shaped members from every model-proposed LABEL list.
+  A **drop, never a raise** — the TAX-8 "canonicalization never blocks extraction"
+  guarantee governs here too — and **observable**, logging field name + counts only,
+  never the text (SG-1 treats worker-derived skill text as hostile).
+- Measured on the shipped gazetteer: **0 false positives** across 100 real
+  labels/keywords/chips, **0 false negatives** across all 30 real taxonomy ids.
+
+**The boundary is deliberate and must not be "simplified" away:** the ROLE arm still asks
+the model for exactly one `canonical_role_id` from a closed set and re-validates it
+(ADR-0028, ratified); the SKILLS/MACHINES/CONTROLLERS arms accept **no** model id, ever.
+Ids for those arms come only from the gazetteer reverse lookup or the TAX-4 vector layer,
+both of which look the id up themselves against a closed set.
