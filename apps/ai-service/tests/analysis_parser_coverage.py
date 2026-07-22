@@ -104,6 +104,125 @@ VALUE_WATCH: tuple[tuple[str, str, str, object], ...] = (
     ("Noida sector 63", "current_location", "Noida", "Noida"),
 )
 
+# Per-topic (accepted, should-accept) measured by THIS harness at `26218e4`, the
+# commit the widening was cut from. Static record; the current column is live.
+PRE_WIDENING_ACCEPTED: dict[str, tuple[int, int]] = {
+    "role": (8, 23),
+    "machines": (14, 23),
+    "experience": (12, 24),
+    "skills": (14, 23),
+    "current_location": (16, 23),
+    "preferred_locations": (17, 23),
+    "controllers": (13, 22),
+    "salary_current": (19, 23),
+    "salary_expected": (14, 23),
+    "availability": (22, 24),
+    "education": (11, 21),
+}
+PRE_WIDENING_TOTAL: tuple[int, int] = (160, 252)
+
+# The EXACT gap set measured at `26218e4`, the commit the widening was cut from:
+# every fixture a human labelled `accept` that the parser did NOT accept. Static
+# record. It exists so "no fixture that was accepted before is rejected now" is a
+# MEASURED claim (the current gap set must be a strict SUBSET of this one) instead of
+# a sentence in the report — the exact shape of assertion this file exists to avoid.
+# (asked topic, worker answer)
+PRE_WIDENING_GAPS: tuple[tuple[str, str], ...] = (
+    ('role', 'CNC'),
+    ('role', 'CNC operator'),
+    ('role', 'lathe operator'),
+    ('role', 'operator'),
+    ('role', 'machine operator hu'),
+    ('role', 'CNC machine chalata hoon'),
+    ('role', 'main CNC operator ka kaam karta hu'),
+    ('role', 'cnc oprator'),
+    ('role', 'seter ka kaam'),
+    ('role', 'V M C operator'),
+    ('role', 'मैं वीएमसी ऑपरेटर हूँ'),
+    ('role', 'प्रोग्रामर'),
+    ('role', 'helper hu, machine seekh raha hu'),
+    ('role', 'fitter'),
+    ('role', 'supervisor'),
+    ('machines', 'cnc'),
+    ('machines', 'milling machine'),
+    ('machines', 'drilling machine'),
+    ('machines', 'वीएमसी'),
+    ('machines', 'vtl'),
+    ('machines', 'boring machine'),
+    ('machines', 'shaper machine'),
+    ('machines', 'power press'),
+    ('machines', 'welding machine'),
+    ('experience', 'char saal'),
+    ('experience', 'chaar saal ka experience hai'),
+    ('experience', 'do saal'),
+    ('experience', 'teen saal'),
+    ('experience', 'ek saal'),
+    ('experience', 'bees saal'),
+    ('experience', '6 mahine'),
+    ('experience', '5 साल'),
+    ('experience', 'पाँच साल का तजुर्बा'),
+    ('experience', '2012 se kaam kar raha hu'),
+    ('experience', 'fresher hu'),
+    ('experience', 'naya hu, abhi start kiya'),
+    ('skills', 'sab aata hai'),
+    ('skills', 'sirf operation'),
+    ('skills', 'vernier aur micrometer use karta hu'),
+    ('skills', 'quality checking karta hu'),
+    ('skills', 'sirf loading unloading'),
+    ('skills', 'deburring aur finishing'),
+    ('skills', 'बेसिक सेटिंग आती है'),
+    ('skills', 'ड्रॉइंग पढ़ लेता हूँ'),
+    ('skills', 'counter boring aur tapping'),
+    ('current_location', 'Chakan'),
+    ('current_location', 'Ranjangaon'),
+    ('current_location', 'Bhiwadi'),
+    ('current_location', 'Jamshedpur'),
+    ('current_location', 'Kolhapur'),
+    ('current_location', 'Bihar'),
+    ('current_location', 'पुणे'),
+    ('preferred_locations', 'apne sheher mein hi'),
+    ('preferred_locations', 'ghar ke paas hi chahiye'),
+    ('preferred_locations', 'Gujarat mein'),
+    ('preferred_locations', 'South India'),
+    ('preferred_locations', 'NCR'),
+    ('preferred_locations', 'जहाँ भी काम मिले'),
+    ('controllers', 'fanuk'),
+    ('controllers', 'phanuc'),
+    ('controllers', 'फैनुक'),
+    ('controllers', 'sinumerik'),
+    ('controllers', 'Mazatrol'),
+    ('controllers', 'Syntec'),
+    ('controllers', 'GSK'),
+    ('controllers', 'Hurco'),
+    ('controllers', 'Delta controller'),
+    ('salary_current', '15 hazaar'),
+    ('salary_current', 'daily 700 rupaye'),
+    ('salary_current', 'pandrah hazaar'),
+    ('salary_current', 'पंद्रह हज़ार'),
+    ('salary_expected', '25 hazaar chahiye'),
+    ('salary_expected', 'double chahiye'),
+    ('salary_expected', 'jo aap theek samjhe'),
+    ('salary_expected', 'aapke hisab se'),
+    ('salary_expected', 'company jo de'),
+    ('salary_expected', 'jitna aap de sako'),
+    ('salary_expected', 'salary aapki marzi'),
+    ('salary_expected', 'negotiable'),
+    ('salary_expected', 'जो भी मिले'),
+    ('availability', 'जल्दी जॉइन कर सकता हूँ'),
+    ('availability', 'पंद्रह दिन'),
+    ('education', 'B.E. mechanical'),
+    ('education', '10th pass'),
+    ('education', '12th pass'),
+    ('education', '8th pass'),
+    ('education', 'graduation kiya hai'),
+    ('education', 'BA pass'),
+    ('education', 'apprentice kiya tha'),
+    ('education', 'CNC ka course kiya private institute se'),
+    ('education', 'आईटीआई किया है'),
+    ('education', 'डिप्लोमा किया है'),
+)
+
+
 # --- POST-#426 delta ---------------------------------------------------------
 #
 # HISTORICAL RECORD + LIVE RE-MEASUREMENT.
@@ -166,11 +285,183 @@ NEGATION_PROBE: tuple[tuple[str, str, str, str, str], ...] = (
     ("experience", "2 saal nahi hua abhi", "2.0", "VALUE", ""),
 )
 
+# --- Parser widening (fix/profiling-parser-widening) -------------------------
+#
+# HISTORICAL RECORD + LIVE RE-MEASUREMENT, the same shape as POST_426_DELTA.
+#
+# `before` is what THIS harness measured on the parser at `26218e4`, the commit the
+# widening was cut from. Static; never re-derived. `want` is compared LIVE, so every
+# "closed" claim in the report is measured on each run and a regression flips it back.
+#
+# (asked topic, worker answer, pre-widening recorded, want, note)
+WIDENING_DELTA: tuple[tuple[str, str, str, object, str], ...] = (
+    ("role", "V M C operator", "_topic not marked_", "VMC Operator",
+     "spacing variant; `_ROLES` is substring-matched and cannot see it"),
+    ("role", "seter ka kaam", "_topic not marked_", "CNC Setter-Operator",
+     "`setter` with one `t`"),
+    ("role", "मैं वीएमसी ऑपरेटर हूँ", "_topic not marked_", "VMC Operator",
+     "Devanagari form of a gazetteer entry that already exists in Latin"),
+    ("role", "प्रोग्रामर", "_topic not marked_", "CNC Programmer", ""),
+    ("preferred_locations", "Gujarat mein", "_topic not marked_", ["Gujarat"],
+     "a STATE is a real answer to 'kahan kaam kar sakte hain?' — unlike for CURRENT "
+     "location, where the engine should go on to ask for the city"),
+    ("preferred_locations", "South India", "_topic not marked_", ["South India"], ""),
+    ("preferred_locations", "NCR", "_topic not marked_", ["NCR"], ""),
+    ("preferred_locations", "जहाँ भी काम मिले", "_topic not marked_", "flexible",
+     "Devanagari 'anywhere'; `\\b` does not work after a matra, so it needs its own "
+     "boundary form"),
+    ("preferred_locations", "Gujarat ya Maharashtra dono chalega", "_topic not marked_",
+     ["Gujarat", "Maharashtra"],
+     "ALL areas, not the first: the PR #488 review measured first-match-wins dropping "
+     "the second choice while closing the topic against re-asking"),
+)
+
+# The negatives that make the widening safe, and the ONLY reason it is safe.
+#
+# Rows marked ADVERSARIAL were MEASURED as fabrications in an earlier cut of this
+# widening by the code review of PR #488, across THREE rounds, by running the head
+# commit against `main` in isolated copies. Every one recorded `{}` (or `flexible`) on
+# main and a wrong VALUE on the cut under review.
+#
+# What changed after round 3 is not this table but the CODE it measures. Rounds 1-2
+# answered each row with a blocklist entry; round 3 measured a new spelling or word
+# order past every blocklist, because the blocked class is GENERATIVE. So:
+#
+#   - the `<machine> + <function>` role inference was DELETED outright — nothing
+#     infers a role from "lathe" + "operator" any more, so the entire role family
+#     below is closed structurally rather than blocked;
+#   - the preferred-AREA read was inverted into a POSITIVE requirement (the message
+#     must be area names plus a short filler allow-list), which closes the refusal,
+#     exclusion, origin and third-party families without naming one of their words.
+#
+# `want` is MISSING for "must record nothing", or a concrete value where the correct
+# behaviour is a DIFFERENT answer (the exclusion phrasings ARE flexible answers, and
+# reading them as the excluded state was a REGRESSION, not merely a new gap).
+#
+# (asked topic, worker answer, want, why)
+WIDENING_NEGATIVE_PROBE: tuple[tuple[str, str, object, str], ...] = (
+    # --- role: the standing ruling ---
+    ("role", "CNC", MISSING, "a family-of-families (VMC/HMC/lathe/grinder are all CNC)"),
+    ("role", "operator", MISSING, "the function without the machine family"),
+    ("role", "ऑपरेटर", MISSING, "same, in the other script"),
+    # --- role: the DELETED <machine>+<function> inference ---
+    ("role", "lathe operator", MISSING,
+     "the inference itself is GONE — an honest gap again, worth -1 acceptance"),
+    ("role", "lathe chalata hu", MISSING, "same"),
+    ("role", "grinder operator", MISSING, "same"),
+    ("role", "angle grinder chalata hu", MISSING,
+     "ADVERSARIAL: an ANGLE grinder is a handheld tool, not a CNC grinding machine"),
+    ("role", "TIG aur MIG welding karta hu, grinder bhi chalata hu", MISSING,
+     "ADVERSARIAL: a welder with a grinder is not a CNC grinding operator"),
+    ("role", "welder hu, lathe chalata hu kabhi kabhi", MISSING,
+     "ADVERSARIAL: the cue used to preempt `_assign_welding_role`; with no cue at all "
+     "the welding gate is reached exactly as on main"),
+    ("role", "lathe operator ka helper hu", MISSING, "ADVERSARIAL: the HELPER, not the operator"),
+    ("role", "mere bhai lathe operator hai", MISSING, "ADVERSARIAL: a third party's role"),
+    ("role", "lathe operator mere saath kaam karta tha", MISSING,
+     "ADVERSARIAL round 3: the matched pair of a row the round-2 blocklist DID block — "
+     "`ke saath` was listed, `mere saath` was not"),
+    ("role", "pitaji lathe chalate hai", MISSING,
+     "ADVERSARIAL round 3: `papa` was listed, `pitaji` and `chacha` were not"),
+    ("role", "chacha lathe chalate hai", MISSING, "ADVERSARIAL round 3"),
+    ("role", "lathe operator ki zarurat hai", MISSING,
+     "ADVERSARIAL round 3: `requirement` was listed, `zarurat` was not"),
+    ("role", "lathe operator ki salary kitni hoti hai", MISSING,
+     "ADVERSARIAL round 3: an INTERROGATIVE — nothing blocked questions at all"),
+    ("role", "lathe operator ka kaam kaisa hota hai", MISSING, "ADVERSARIAL round 3"),
+    ("role", "ek lathe operator ko jaanta hu", MISSING, "ADVERSARIAL round 3"),
+    ("role", "lathe operator ke under kaam kiya", MISSING, "ADVERSARIAL round 3"),
+    ("role", "pehle jahan tha wahan lathe operator tha", MISSING, "ADVERSARIAL round 3"),
+    ("role", "hamari company me lathe hai, operator ki jagah khali hai", MISSING,
+     "ADVERSARIAL: a VACANCY being described"),
+    ("role", "lathe operator banna chahta hu", MISSING, "ADVERSARIAL: an aspiration"),
+    ("role", "lathe chalane ki training li hai", MISSING,
+     "ADVERSARIAL: an EDUCATION answer, not a role claim"),
+    ("role", "lathe operator ka kaam mujhe nahi aata", MISSING, "ADVERSARIAL: a denial"),
+    # --- role: near-misses the surviving VARIANT rows must not match ---
+    ("role", "seater cover lagata hu", MISSING, "near-miss on the `set[ae]r` variant"),
+    ("role", "v mc", MISSING, "not a spelled-out acronym"),
+    ("role", "वीएमसी नहीं चलाता", MISSING,
+     "denial, Devanagari — the same masked text `_ROLES` reads"),
+    # --- preferred_locations: refusals at every distance from the negator ---
+    ("preferred_locations", "Bihar nahi jaunga", MISSING, "a REFUSED state is not a preference"),
+    ("preferred_locations", "Gujarat mein nahi jaunga", MISSING, "same, one filler word"),
+    ("preferred_locations", "Kerala mein bilkul bhi nahi jaunga", MISSING,
+     "ADVERSARIAL: two filler words walked through the 3-word backward mask"),
+    ("preferred_locations", "West Bengal me kaam karne ki koi ichha nahi hai", MISSING,
+     "ADVERSARIAL: 'no wish to work there' recorded as a preference"),
+    ("preferred_locations", "Bihar me kaam karne ka mann nahi hai", MISSING, "ADVERSARIAL"),
+    ("preferred_locations", "Odisha ki taraf jaana mujhe pasand nahi", MISSING, "ADVERSARIAL"),
+    ("preferred_locations", "Punjab wale bulate hai par mai nahi jaunga", MISSING, "ADVERSARIAL"),
+    ("preferred_locations", "Kerala bahut door hai, nahi ja sakta", MISSING,
+     "ADVERSARIAL: the negator is in a DIFFERENT clause"),
+    # --- preferred_locations: EXCLUSION — the round-3 spelling family ---
+    ("preferred_locations", "Bihar ke alawa kahin bhi", "flexible",
+     "ADVERSARIAL REGRESSION: 'anywhere EXCEPT Bihar' was `flexible` on main and an "
+     "earlier cut turned it into `['Bihar']` — the one state ruled out, topic closed"),
+    ("preferred_locations", "Bihar ke alaawa kahin bhi kaam kar sakta hu", "flexible",
+     "ADVERSARIAL round 3: one extra `a` defeated the round-2 exclusion list"),
+    ("preferred_locations", "Bihar ke alaava kahin bhi kaam kar sakta hu", "flexible",
+     "ADVERSARIAL round 3"),
+    ("preferred_locations", "Bihar ke alawaa kahin bhi", "flexible", "ADVERSARIAL round 3"),
+    ("preferred_locations", "Bihar chhodke kahin bhi kaam kar sakta hu", "flexible",
+     "ADVERSARIAL round 3: `chhod ke` was listed, the unspaced `chhodke` was not"),
+    ("preferred_locations", "Bihar chodke kahin bhi kaam kar sakta hu", "flexible",
+     "ADVERSARIAL round 3"),
+    ("preferred_locations", "Bihar hatake kahin bhi kaam kar sakta hu", "flexible",
+     "ADVERSARIAL round 3"),
+    ("preferred_locations", "Bihar ke sivay kahin bhi kaam kar sakta hu", "flexible",
+     "ADVERSARIAL round 3: the listed `ke siva` could not reach `sivay`"),
+    ("preferred_locations", "Bihar ke siwaay kahin bhi kaam kar sakta hu", "flexible",
+     "ADVERSARIAL round 3"),
+    ("preferred_locations", "Bihar ke atirikt kahin bhi", "flexible",
+     "NEVER enumerated anywhere — passes because the guard is a positive requirement, "
+     "which is the whole point of the rewrite"),
+    # --- preferred_locations: ORIGIN / third party ---
+    ("preferred_locations", "Bihar se hu", MISSING, "where the worker is FROM"),
+    ("preferred_locations", "main Bihar ka hu", MISSING,
+     "ADVERSARIAL round 3: the round-2 origin list had `se hu`, not `ka hu`"),
+    ("preferred_locations", "ghar Bihar me hai", MISSING, "ADVERSARIAL round 3"),
+    ("preferred_locations", "gaon Bihar me hai", MISSING, "ADVERSARIAL round 3"),
+    ("preferred_locations", "Bihar mera home town hai", MISSING, "ADVERSARIAL round 3"),
+    ("preferred_locations", "Bihar me paida hua", MISSING, "ADVERSARIAL round 3"),
+    ("preferred_locations", "mere papa Kerala me rehte hain", MISSING,
+     "ADVERSARIAL round 3: the third-party guard was applied to the ROLE path only"),
+    ("preferred_locations", "Bihar me tha, ab Gujarat me kaam chahiye", MISSING,
+     "ADVERSARIAL: first-match-wins recorded the state the migrant LEFT. Abandoned "
+     "whole, so the real 'Gujarat' answer is lost too — a GAP, and the correct trade"),
+    # --- preferred_locations: an incidental state must not beat "anywhere" ---
+    ("preferred_locations", "kahin bhi ja sakta hu, abhi Gujarat me kaam kar raha hu",
+     "flexible", "ADVERSARIAL round 3: a REGRESSION vs main — the state they are IN "
+     "replaced the anywhere they offered"),
+    ("preferred_locations", "company Gujarat me hai, main kahin bhi jaa sakta hu",
+     "flexible", "ADVERSARIAL round 3"),
+    ("preferred_locations", "Maharashtra me salary kam hai, kahin bhi bhej do",
+     "flexible", "ADVERSARIAL round 3"),
+    ("preferred_locations", "Punjab me kaam milega to theek, warna kahin bhi",
+     "flexible", "ADVERSARIAL round 3"),
+    ("preferred_locations", "mera bhai Kerala me hai, main kahin bhi ja sakta hu",
+     "flexible", "ADVERSARIAL round 3"),
+    ("preferred_locations", "Maharashtra mein kahin bhi", "flexible",
+     "REVERTED to main's value: an earlier cut recorded ['Maharashtra'], ranking the "
+     "state above the anywhere. Precedence now goes to `flexible`"),
+    # --- preferred_locations: the abbreviation and phrase guards ---
+    ("preferred_locations", "set UP karta hu", MISSING,
+     "'UP' in caps inside 'set UP' — why the 2-letter abbreviations are not read here"),
+    ("preferred_locations", "south side me rehta hu", MISSING, "'south' alone is not a region"),
+    ("preferred_locations", "Gujarat me kaam?", MISSING,
+     "a QUESTION is not an answer — found by re-probing the allow-list, since both "
+     "`me` and `kaam` are filler and it otherwise passed"),
+)
+
 # Probes for findings this re-run surfaced that no corpus fixture covers.
 # (asked topic, worker answer, note) — the recorded value is rendered live.
 NEW_FINDING_PROBE: tuple[tuple[str, str, str], ...] = (
     ("machines", "welding machine",
      "`machines` NOT marked, but `role`+`skills` are closed on a welding read"),
+    ("machines", "वीएमसी",
+     "the widening's deliberate ASYMMETRY: the Devanagari cue is a ROLE cue only, so "
+     "`machines` (ESSENTIAL) stays open and gets asked — Latin 'VMC' closes both"),
     ("machines", "kabhi",
      "FIXED (#424 follow-up): 'abhi' was substring-matched inside 'kabhi'; the cue "
      "is now word-boundary matched AND needs a real availability cue"),
@@ -282,6 +573,8 @@ def _findings(rows: list[Measurement]) -> str:
     """
     role_machine = [m for m in rows if m.fixture.topic in ("role", "machines")]
     auto_skills = [m for m in role_machine if "skills" in m.detected]
+    should_accept_now = [m for m in rows if m.fixture.expected == "accept"]
+    accepted_now = [m for m in should_accept_now if m.accepted]
     cap_open = [r for r in NEGATION_PROBE if r[3] == "CAPABILITY" and _negation_is_open(r)]
     val_rows = [r for r in NEGATION_PROBE if r[3] == "VALUE"]
     val_open = [r for r in val_rows if _negation_is_open(r)]
@@ -321,44 +614,61 @@ is half the value of having measured it. What follows separates FIXED from STILL
 OPEN, and every verdict is computed from the live parser on each run: **{n_fixed} of
 the {len(POST_426_DELTA)}** recorded defect cases re-measure as fixed.
 
-**Overall acceptance did not move.** #426 fixed what the parser RECORDS, not what it
-RECOGNISES: coverage is unchanged at the rate in the table below. Every finding in
-sections 1-3 stands exactly as first written.
+**#426 did not move overall acceptance** — it fixed what the parser RECORDS, not what
+it RECOGNISES. The **parser widening** that this revision measures is the first change
+that moves it: from **{PRE_WIDENING_TOTAL[0]}/{PRE_WIDENING_TOTAL[1]}** to
+**{len(accepted_now)}/{len(should_accept_now)}**, on `role` and `preferred_locations`
+only. See "What the parser widening changed" below for the per-topic before/after, the
+negatives that make it safe, and the two classes it deliberately did NOT close.
 
-### 1. Why `CNC` is rejected for `role` — the exact code path (UNCHANGED, still open)
+### 1. Why `CNC` is rejected for `role` — the exact code path (still open, now by RULING)
 
 `detect_answered_topics` keys the `role` topic on ONE field:
 
     if sig.role_id:
         answered["role"] = sig.primary_role
-    # app/profiling/signals.py:993-994
 
-`role_id` is set by a first-match-wins scan of the `_ROLES` gazetteer
-(`signals.py:716-722`) over the lowercased text. `_ROLES` (`signals.py:79-88`)
-contains eight keywords:
+`role_id` is set by a first-match-wins scan of the `_ROLES` gazetteer over the
+lowercased text. `_ROLES` contains eight keywords:
 
     cam programmer · programmer · setter · vmc · hmc · grinding · turner · turning
 
 There is **no `cnc` keyword and no `operator` keyword**. So `"CNC"` sets no
 `role_id` and the topic is not marked. `"CNC"` is also absent from `_MACHINES`
-(`signals.py:27-36`, which has `cnc lathe` but no bare `cnc`), so the answer falls
-through BOTH tables and `detect_answered_topics("CNC", "role")` returns `{{}}` —
-nothing at all is recorded from it.
+(which has `cnc lathe` but no bare `cnc`), so the answer falls through BOTH tables
+and `detect_answered_topics("CNC", "role")` returns `{{}}` — nothing at all is
+recorded from it.
 
 The worse variant is `"CNC operator"`, the single most likely thing a worker types.
-`operator` is not a role keyword, but it IS an operation-knowledge cue
-(`signals.py:744-746`), which appends `"machine operation"` to `sig.skills`, which
-makes `detect_answered_topics` mark **`skills`** answered (`signals.py:1001-1002`).
-So the canonical answer to the role question:
+`operator` is not a role keyword, but it IS an operation-knowledge cue, which appends
+`"machine operation"` to `sig.skills`, which makes `detect_answered_topics` mark
+**`skills`** answered. So the canonical answer to the role question:
 
 - leaves `role` unanswered → it is re-asked once (`MAX_ASKS_PER_TOPIC = 2`,
-  `interview_engine.py:50`) and then abandoned;
+  `interview_engine.py`) and then abandoned;
 - silently marks `skills` answered with `["machine operation"]` — and
-  `_next_topic` never returns an already-answered topic
-  (`interview_engine.py:490/496/501`), so **the skills question is never asked**.
+  `_next_topic` never returns an already-answered topic, so **the skills question is
+  never asked**.
 
-Both effects are visible in scripted interview A below. #426 did not touch the
-gazetteer, the question bank or topic ordering, so this is exactly as first measured.
+Both effects are visible in scripted interview A below.
+
+**The widening did NOT close this, and that is a decision, not an omission.** Every
+operator role in the closed set names a specific machine family
+(`role_vmc_operator` / `role_hmc_operator` / `role_cnc_turner_operator` /
+`role_cnc_grinding_operator`). `operator` states the FUNCTION without the family;
+`CNC` states a family-of-families (VMC, HMC, lathe and grinder are all CNC) without
+saying which. Resolving either would have to PICK a machine the worker never named —
+the fabrication class this parser exists to prevent, on the topic where it is least
+recoverable (a closed topic is never re-asked).
+
+The alternative — minting a generic `role_cnc_operator` — is not a parser change and
+would make MATCHING WORSE, measurably: `packages/reach-engine/src/scoring.ts`
+`scoreRole` is exact-id-match and returns **0.4** for a NULL roleId ("trade not stated
+yet") against **0.0** for a non-matching one ("different trade"). A generic id matches
+no seeded job, so every worker carrying it would rank BELOW the null they get today.
+That is an owner/ADR call spanning the taxonomy, job `role_ids` and the reach engine.
+`test_bare_cnc_and_bare_operator_still_resolve_nothing` locks the current behaviour so
+the ruling has to be argued with, not drifted past.
 
 ### 2. The conflation hypothesis — CONFIRMED (UNCHANGED, still open)
 
@@ -568,6 +878,197 @@ is in "Suggested next steps" item 0.
 """
 
 
+def _widening_section(rows: list[Measurement]) -> str:
+    """Before/after for the parser widening, every number computed from this run."""
+    now = {t: (acc, should) for t, _n, should, acc, _r in _per_topic_rows(rows)}
+    moved = [t for t in TOPIC_ORDER if now[t][0] != PRE_WIDENING_ACCEPTED[t][0]]
+    lines = [
+        "## What the parser widening changed — measured before / after",
+        "",
+        "`before` is what THIS harness measured at `26218e4`, the commit the widening",
+        "was cut from. `now` is recomputed on every run, so nothing below is a",
+        "remembered number.",
+        "",
+        "| topic | before | now | delta |",
+        "| --- | ---: | ---: | ---: |",
+    ]
+    for topic in TOPIC_ORDER:
+        before_acc, before_should = PRE_WIDENING_ACCEPTED[topic]
+        acc, should = now[topic]
+        delta = acc - before_acc
+        lines.append(
+            f"| `{topic}` | {before_acc}/{before_should} ({before_acc / before_should:.0%}) "
+            f"| {acc}/{should} ({acc / should:.0%}) | {delta:+d} |"
+        )
+    should_accept = [m for m in rows if m.fixture.expected == "accept"]
+    accepted = [m for m in should_accept if m.accepted]
+    now_gaps = {(m.fixture.topic, m.fixture.text) for m in rows if m.is_gap}
+    before_gaps = set(PRE_WIDENING_GAPS)
+    regressed = sorted(now_gaps - before_gaps)
+    lines += [
+        f"| **overall** | **{PRE_WIDENING_TOTAL[0]}/{PRE_WIDENING_TOTAL[1]}** "
+        f"({PRE_WIDENING_TOTAL[0] / PRE_WIDENING_TOTAL[1]:.0%}) | "
+        f"**{len(accepted)}/{len(should_accept)}** "
+        f"({len(accepted) / len(should_accept):.0%}) | "
+        f"**{len(accepted) - PRE_WIDENING_TOTAL[0]:+d}** |",
+        "",
+        f"Topics that moved: **{moved}**.",
+        "",
+        "**Nothing was traded away** — computed, not asserted: the gap set now is a",
+        "strict SUBSET of the gap set at `26218e4`. Fixtures that were accepted",
+        f"before and are gaps now: **{regressed or 'none'}**",
+        f"({len(before_gaps)} gaps before, {len(now_gaps)} now,",
+        f"{len(before_gaps - now_gaps)} closed).",
+        "",
+        "### The answers it now reads",
+        "",
+        "| asked topic | worker answer | before | now | want | verdict |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for topic, text, before, want, _note in WIDENING_DELTA:
+        current = recorded_value(text, topic)
+        verdict = "**CLOSED**" if current == want else "**OPEN**"
+        lines.append(
+            f"| `{topic}` | `{text}` | `{before}` | `{_fmt_value(current)}` | "
+            f"`{_fmt_value(want)}` | {verdict} |"
+        )
+    lines.append("")
+    for _topic, text, _before, _want, note in WIDENING_DELTA:
+        if note:
+            lines.append(f"- `{text}` — {note}")
+    adversarial = [r for r in WIDENING_NEGATIVE_PROBE if r[3].startswith("ADVERSARIAL")]
+    holding = [r for r in WIDENING_NEGATIVE_PROBE if recorded_value(r[1], r[0]) == r[2]]
+    lines += [
+        "",
+        "### The negatives that make it safe",
+        "",
+        "A widening is only as good as what it still REFUSES. The `recorded` column is",
+        f"live, so a future over-match shows up here as a value: **{len(holding)} of "
+        f"{len(WIDENING_NEGATIVE_PROBE)}** rows hold.",
+        "",
+        f"**{len(adversarial)} of these are marked ADVERSARIAL**: they were MEASURED as",
+        "FABRICATIONS in the first cut of this widening by the code review of PR #488,",
+        "which ran the head commit against `main` in isolated copies. Each recorded `{}`",
+        "on main and a VALUE on the first cut. They are the negatives table now.",
+        "",
+        "| asked topic | worker answer | recorded | want | why |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for topic, text, want, why in WIDENING_NEGATIVE_PROBE:
+        current = recorded_value(text, topic)
+        rendered = "—" if current is MISSING else f"`{_fmt_value(current)}`"
+        wanted = "—" if want is MISSING else f"`{_fmt_value(want)}`"
+        mark = "" if current == want else " **BROKEN**"
+        lines.append(f"| `{topic}` | `{text}` | {rendered}{mark} | {wanted} | {why} |")
+    lines += [
+        "",
+        "**The lesson those measurements taught is structural, and it cost a whole",
+        "widening.** Rounds 1 and 2 answered each row above with a BLOCKLIST — a",
+        "negation window, an exclusion-marker list, an origin-marker list, a",
+        "possessor/aspiration/vacancy list. Round 3 measured a fresh hole in every one",
+        "of them, because the class being blocked is GENERATIVE and Hinglish spells",
+        "everything several ways:",
+        "",
+        "| round 2 BLOCKED | round 3 HOLE |",
+        "| --- | --- |",
+        "| `Bihar ke alawa kahin bhi` | `ke alaawa`, `ke alaava`, `ke alawaa` |",
+        "| `Bihar chhod ke kahin bhi` | `Bihar chhodke ...`, `chodke`, `hatake` |",
+        "| `ke siwa` | `ke sivay`, `ke siwaay` |",
+        "| `lathe operator ke saath kaam karta tha` | `lathe operator MERE saath kaam karta tha` |",
+        "| `papa lathe chalate hai` | `pitaji ...`, `chacha ...` |",
+        "| `... ki requirement hai` | `... ki zarurat hai` |",
+        "| (nothing blocked questions) | `lathe operator ki salary kitni hoti hai` |",
+        "",
+        "A blocklist can only enumerate; what it must exclude is unbounded. So two",
+        "structural changes replaced all of it, and BOTH cost coverage on purpose:",
+        "",
+        "1. **The `<machine> + <function>` role inference was DELETED, not patched.**",
+        "   It read \"lathe operator\" as `role_cnc_turner_operator`. Deciding whether a",
+        "   speaker is CLAIMING a role — rather than asking about it, aspiring to it,",
+        "   training for it, working beside it or describing a relative's job — is a",
+        "   judgement `_ROLES` never makes, and every regex written to make it leaked.",
+        "   It bought ONE corpus fixture. `role` gives back a point (57% -> 52%) and",
+        "   `lathe operator` is an honest, re-askable gap again.",
+        "2. **The preferred-AREA read was INVERTED into a positive requirement.** Instead",
+        "   of listing what must not appear, the message must consist of NOTHING BUT area",
+        "   names plus a short filler allow-list (`me`/`mein`, `ya`/`aur`/`dono`,",
+        "   `sirf`/`hi`/`bhi`, `kaam`/`chahiye`, `chalega`/`theek`). Every row in the",
+        "   table above now fails for the same structural reason — it contains a word",
+        "   that is not an area and not filler — including spellings nobody enumerated",
+        "   (`Bihar ke atirikt kahin bhi` is in the probe table precisely because it was",
+        "   never listed anywhere). Fails CLOSED on the unseen, which is the property a",
+        "   blocklist cannot have. Cost: a discursive but genuine preference",
+        "   (\"Gujarat me kaam kiya tha, wahi chahiye\") records nothing and is re-asked.",
+        "",
+        "Two smaller decisions from the same rounds:",
+        "",
+        "- **\"anywhere\" outranks an incidental state.** If a message carries a",
+        "  generality-of-place idiom, a state beside it is context (where the worker IS,",
+        "  where the company is, where a relative lives), so `flexible` wins. Asserted in",
+        "  code via `_has_anywhere_cue`, not left to emerge from the filler list.",
+        "- **The 2-letter state abbreviations are not read on this path.** An adversarial",
+        "  probe measured `set UP karta hu` -> `['Uttar Pradesh']`: the CASE-SENSITIVE",
+        "  guard they rely on is defeated by a worker typing in caps, which was harmless",
+        "  only while abbreviations reached `Signals.current_state` (which marks no",
+        "  topic). `UP mein` records nothing and the question is asked again.",
+        "",
+        "**What an abandoned area read does NOT mean.** It abandons the AREA, not the",
+        "topic: `detect_answered_topics` falls through to the flexibility arm, so",
+        "\"Bihar ke alawa kahin bhi\" still records `flexible` (what it means, and what",
+        "`main` recorded) while \"Bihar me tha\" records nothing at all. One honest edge:",
+        "\"Maharashtra ke andar kahin bhi, bahar nahi jaunga\" records `flexible`, i.e.",
+        "anywhere in India, although the worker excluded outside Maharashtra — unchanged",
+        "from `main`, which this read neither causes nor fixes.",
+        "",
+        "### What it deliberately did NOT close",
+        "",
+        "1. **`CNC` / `CNC operator` / bare `operator` / `cnc oprator`** (4 role gaps) —",
+        "   finding 1 above. No closed-set id can be chosen without inventing a machine",
+        "   family, and minting a generic one is a measured RANKING regression",
+        "   (0.0 'different trade' vs 0.4 'not stated'). Owner/ADR, not parser.",
+        "2. **`helper` / `fitter` / `supervisor`** (3 role gaps) — real shop-floor roles",
+        "   with no id in the ADR-0030 taxonomy. Closing them means adding roles to the",
+        "   closed set, i.e. a scope decision about which trades this product serves.",
+        "3. **`apne sheher mein hi` / `ghar ke paas hi chahiye`** (2 preferred gaps) — a",
+        "   'stay local' answer. A sentinel for it would be DROPPED by",
+        "   `profile_extractor.merge_collected` (it is not a list), so closing them would",
+        "   move the acceptance number and store nothing — metric, not data. The honest",
+        "   version sets `willing_to_relocate = False`, which is the payer-facing field",
+        "   with the #437 fabrication history and deserves its own measured change.",
+        "4. **The `machines` Devanagari gap (`वीएमसी`)** — closable the same way, but the",
+        "   Latin path shows what that costs: 'VMC operator' closes the ESSENTIAL",
+        "   `machines` topic by inference and the question is never asked (finding 7).",
+        "   The Devanagari cue is a ROLE cue only, so the machine question still gets",
+        "   asked. The asymmetry is deliberate and locked by a test.",
+        "5. **`lathe operator` / `lathe chalata hu` / `grinder operator`** — GIVEN BACK.",
+        "   Closed by an earlier cut of this PR, then deleted with the",
+        "   `<machine> + <function>` inference that closed them. -1 acceptance, taken",
+        "   deliberately.",
+        "6. **A machining worker who ALSO welds** ('cnc lathe operator hu, welding bhi",
+        "   kar leta hu') — records no role, exactly as `main` does: `_ROLES` has no",
+        "   `lathe` keyword and `_assign_welding_role` declines whenever a machining",
+        "   signal is present. Deciding which trade is PRIMARY is the judgement that",
+        "   gate refuses to make, and nothing in this PR makes it either.",
+        "7. **Discursive but genuine preferences** ('Maharashtra se bahar nahi jaunga',",
+        "   'Gujarat me kaam kiya tha, wahi chahiye', 'Gujarat me kaam karna pasand",
+        "   karunga') — they fail the positive requirement. Blunt on purpose: the same",
+        "   requirement is what stops every measured refusal, exclusion and origin",
+        "   statement being stored as a preference.",
+        "8. **`_ROLES`'s own limits, inherited by the variant rows.** A variant is a",
+        "   surface-form alias, so `V M C operator ki job hai kya` resolves `role` —",
+        "   and so does `VMC operator ki job hai kya` on `main`, through the shipped",
+        "   substring gazetteer. Measured as pairs in",
+        "   `test_a_variant_row_can_only_do_what_its_latin_twin_already_does`. Narrowing",
+        "   that means narrowing `_ROLES` for every worker: a separate, shipped-behaviour",
+        "   change, not something to smuggle in behind a spelling table.",
+        "9. **`lathe m/c operator hu`** — `m/c` is the standard Indian shop abbreviation",
+        "   for machine. It never resolved on `main` and does not now; noted because an",
+        "   earlier cut of this PR did briefly resolve it.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 @dataclass(frozen=True)
 class Measurement:
     fixture: AnswerFixture
@@ -728,20 +1229,30 @@ def build_report(rows: list[Measurement]) -> str:
     fabrications = [m for m in rows if m.is_fabrication]
     denials = [m for m in rows if m.is_denial_absorbed]
 
-    add("# Deterministic profiling parser — coverage measurement (POST-#426 / #429)")
+    add("# Deterministic profiling parser — coverage measurement (POST parser widening)")
     add("")
-    add("> **Measurement only. The PR carrying this report changes ZERO runtime files** —")
-    add("> it touches `tests/` and `docs/` only. Where a fix looks warranted it is written")
-    add("> down under \"Suggested next steps\", not implemented.")
+    add("> **This revision is NOT measurement-only.** Earlier revisions changed zero")
+    add("> runtime files; the revision that produced these numbers WIDENS")
+    add("> `app/profiling/signals.py` — role cues, state/region answers to the PREFERRED")
+    add("> location question, and the Devanagari/misspelling 'anywhere' family. Overall")
+    add("> acceptance moves for the first time; see \"What the parser widening changed\"")
+    add("> for the per-topic before/after, the negatives that make it safe, and the four")
+    add("> classes it deliberately did NOT close.")
     add(">")
-    add("> **Re-measured against `origin/main` AFTER PR #426** (`fea207d`, P1 profiling")
-    add("> correctness), **#412** (`41d0cb7`, TAX-WELD-1) and **#429** (`64d4001`, issue")
-    add("> #424 — salary/availability promoted to MUST_ASK). The first revision of this")
-    add("> report measured commit `6d23419`; those numbers survive only as the labelled")
-    add("> `pre-#426` column below, never as current behaviour.")
+    add("> **`CNC`, bare `operator` and `cnc oprator` STILL resolve nothing — by ruling,")
+    add("> not omission.** Every operator role in the closed set names a machine family,")
+    add("> so resolving them would have to invent one; minting a generic id instead is a")
+    add("> measured RANKING regression (reach `scoreRole`: 0.0 'different trade' vs 0.4")
+    add("> 'trade not stated'). Finding 1 carries the argument and a test locks it.")
+    add(">")
+    add("> Prior baselines, each measured at the time: `6d23419` (the `pre-#426` column),")
+    add("> then **#426** (`fea207d`, P1 profiling correctness), **#412** (`41d0cb7`,")
+    add("> TAX-WELD-1) and **#429** (`64d4001`, issue #424 — salary/availability promoted")
+    add("> to MUST_ASK). None of them is re-derived here; they survive only as labelled")
+    add("> historical columns, never as current behaviour.")
     add(">")
     add("> **Read finding 7 first** — an ESSENTIAL topic can be marked answered without")
-    add("> ever being asked, and the completeness signal cannot see it.")
+    add("> ever being asked, and the completeness signal cannot see it. Unchanged.")
     add(">")
     add("> Generated by `apps/ai-service/tests/analysis_parser_coverage.py` from the")
     add("> synthetic corpus in `apps/ai-service/tests/profiling_answer_corpus.py`.")
@@ -777,6 +1288,8 @@ def build_report(rows: list[Measurement]) -> str:
     add("")
 
     add(_findings(rows))
+
+    add(_widening_section(rows))
 
     add("## What #426 changed — measured before / after")
     add("")
@@ -873,6 +1386,14 @@ def build_report(rows: list[Measurement]) -> str:
     add("The most dangerous class: `interview_engine._next_topic` never returns a topic")
     add("already in `answered_topics`, so the topic is closed for the rest of the")
     add("interview, the real value is never collected, and an invented one ships.")
+    add("")
+    add("**Scope of this number.** It counts only CORPUS fixtures a human labelled")
+    add("`reject`, and the corpus is capped at 25 per topic (`role` and")
+    add("`preferred_locations` are both at the cap). The 20+ fabrications the PR #488")
+    add("review measured therefore could NOT be added here — they live in \"The negatives")
+    add("that make it safe\" above, which pins each one to an EXACT expected value rather")
+    add("than merely to not-accepted. Read the two together; neither alone is the whole")
+    add("fabrication picture.")
     add("")
     if fabrications:
         add("| asked topic | worker answer | parser recorded | note |")
@@ -1017,10 +1538,11 @@ def build_report(rows: list[Measurement]) -> str:
         add(f"- collected: `{sim.collected}`")
         add("")
 
-    add("## Suggested next steps — WRITTEN DOWN, NOT IMPLEMENTED")
+    add("## Suggested next steps")
     add("")
-    add("This PR is measurement-only and changes zero runtime files. The items below are")
-    add("the shape of a fix, in the order the data ranks them. None of them is done here.")
+    add("Item 2 was the parser widening and is now **DONE in part** — see \"What the")
+    add("parser widening changed\". Everything else below is still the SHAPE of a fix,")
+    add("in the order the data ranks it, and none of it is implemented.")
     add("")
     add("0. **An ESSENTIAL topic marked answered without ever being asked** (finding 7)")
     add("   — ranked above everything else because it defeats the completeness signal")
@@ -1046,19 +1568,32 @@ def build_report(rows: list[Measurement]) -> str:
     add("   first-measurement evidence that motivated the current exclusion:")
     add("   `Pune se bahar nahi jaunga` LOSES Pune under naive masking. Needs its own")
     add("   before/after run on this corpus.")
-    add("2. **`cnc` / `operator` in the role gazetteer** (findings 1-2) — the single")
-    add("   largest coverage gap, on an ESSENTIAL topic, on the two words the shipped")
-    add("   question puts in the worker's mouth. Not a pure gazetteer edit: `operator` is")
-    add("   already an operation-knowledge cue, so adding it as a role has to be")
-    add("   reconciled with the `skills` auto-close, and any role id must exist in the")
-    add("   ADR-0030 taxonomy rather than being minted here.")
+    add("2. **`cnc` / `operator` in the role gazetteer** (findings 1-2) — **PARTLY DONE**.")
+    add("   The widening closed the variant classes (a machine plus the function performed")
+    add("   on it, spacing, one misspelling, the Devanagari forms): `role` 35% -> 57%.")
+    add("   The `cnc` / bare-`operator` core is NOT closed and cannot be by a parser edit:")
+    add("   no closed-set id can be chosen without inventing a machine family, and minting")
+    add("   a generic `role_cnc_operator` is a measured ranking regression (finding 1).")
+    add("   The remaining options are both OWNER calls, not parser work:")
+    add("   - **fix the QUESTION** — it offers `CNC` and `operator` as if they were")
+    add("     answers, so it teaches the worker to give the one reply we cannot record;")
+    add("     asking for the machine family first makes every answer resolvable;")
+    add("   - **extend the taxonomy** — add a generic operator role AND put it in job")
+    add("     `role_ids` / secondary matching so it does not score 0.0 in reach.")
     add("3. **`skills` auto-close** (finding 3) — a role/machine answer marking `skills`")
     add("   answered means the skills question is never asked. Marking a topic answered on")
     add("   an INFERENCE, rather than on an answer to the question, is the root cause.")
     add("4. **Spelled-out numerals and Devanagari numbers** — `char saal`, `पाँच साल`,")
     add("   `pandrah hazaar` are all gaps, and they are a large share of the `experience`")
     add("   and `salary_current` misses.")
-    add("5. **`kabhi` matching `abhi`** (finding 6.2) — a word-boundary fix on one cue.")
+    add("5. **`kabhi` matching `abhi`** (finding 6.2) — DONE by the #424 follow-up; kept")
+    add("   in the list because the report's probe table still measures it every run.")
+    add("5b. **Devanagari beyond `role` / `preferred_locations`** — the widening covered")
+    add("   only the two topics it was scoped to. `experience` (`5 साल`), `skills`,")
+    add("   `education` (`आईटीआई किया है`), `controllers` (`फैनुक`) and `salary_current`")
+    add("   (`पंद्रह हज़ार`) all still return nothing in Devanagari. Note `\\b` does NOT")
+    add("   work after a Devanagari matra — use `signals._dev`, and probe it, or the")
+    add("   pattern is silently dead.")
     add("6. **Ranges and relative demands** (`18 se 20 hazar`, `abhi se 5000 zyada`,")
     add("   `30-35k`) — a CONTRACT question, not a parser one: the field holds a scalar,")
     add("   so no parser change can record what the worker said.")
@@ -1087,7 +1622,10 @@ def main() -> int:
     report = build_report(measure_all())
     if args.write:
         REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        REPORT_PATH.write_text(report, encoding="utf-8")
+        # newline="\n" — the committed report is LF. Without it a Windows run
+        # rewrites all ~1200 lines as CRLF and the real content diff disappears
+        # inside a whole-file line-ending churn.
+        REPORT_PATH.write_text(report, encoding="utf-8", newline="\n")
         print(f"wrote {REPORT_PATH}")
     else:
         sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]

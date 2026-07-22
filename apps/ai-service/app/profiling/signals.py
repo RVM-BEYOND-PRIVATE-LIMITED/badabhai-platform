@@ -21,6 +21,25 @@ from ..pseudonymize import CITY_ALIASES, KNOWN_CITIES, MAX_PLAUSIBLE_SALARY_INR
 
 KnowledgeLevel = str  # "none" | "basic" | "strong" | "unknown"
 
+# --- Devanagari word boundaries ---------------------------------------------
+# `\b` is defined on `\w`, and Python's `\w` is `str.isalnum()`-backed, so Devanagari
+# COMBINING MARKS (matras: ी U+0940 Mc, ँ U+0901 Mn, ् U+094D Mn) are NOT word
+# characters. Any Devanagari token that ENDS in a matra therefore has no `\b` after
+# it, and `\bवीएमसी\b` / `\bकहीं\s+भी\b` silently never match — MEASURED, not assumed
+# (tests/test_parser_widening.py::
+# test_devanagari_boundaries_are_used_because_ascii_word_boundary_is_broken).
+#
+# The correct boundary for a Devanagari token is "not adjacent to another Devanagari
+# character", which is what this expresses. Using it instead of `\b` keeps the
+# no-substring-matching rule intact: `वीएमसी` cannot fire inside `वीएमसीएक्स`.
+_DEVANAGARI = r"ऀ-ॿ"
+
+
+def _dev(pattern: str) -> str:
+    """Wrap ``pattern`` in Devanagari-safe boundaries (see :data:`_DEVANAGARI`)."""
+    return rf"(?<![{_DEVANAGARI}]){pattern}(?![{_DEVANAGARI}])"
+
+
 # --- Keyword tables (keyword, human-label, taxonomy-id) --------------------
 # Order matters where a generic term could shadow a specific one.
 
@@ -86,6 +105,93 @@ _ROLES: list[tuple[str, str, str, str]] = [
     ("turner", "CNC Turner/Operator", "role_cnc_turner_operator", "dom_cnc_machining"),
     ("turning", "CNC Turner/Operator", "role_cnc_turner_operator", "dom_cnc_machining"),
 ]
+
+# --- Role keyword VARIANTS (parser widening) --------------------------------
+#
+# WHAT THIS TABLE IS, AND THE ONE THING IT IS NOT.
+#
+# `_ROLES` above is matched with a bare `kw in lower` SUBSTRING test, so it cannot see
+# the same keyword written with spaces ("V M C"), with a misspelling ("seter"), or in
+# Devanagari ("वीएमसी"). This table is ONLY that: alternate SURFACE FORMS of keywords
+# `_ROLES` already carries. Each row inherits, exactly, whatever `_ROLES` already does
+# with its Latin twin — including that table's pre-existing limits. It adds NO new
+# inference of any kind.
+#
+# IT IS NOT AN INFERENCE TABLE, and the earlier cut of this widening that tried to make
+# it one has been DELETED. That cut added "<machine> + <function>" rows
+# ("lathe operator" -> role_cnc_turner_operator) and then needed a growing blocklist to
+# stop them firing on someone else's job, an aspiration, a vacancy, a training course,
+# an interrogative, a denial. Three rounds of adversarial review measured a new hole in
+# that blocklist every round, because Hinglish generates variants faster than a
+# blocklist can enumerate them:
+#
+#     BLOCKED "lathe operator ke saath kaam karta tha"
+#     HOLE    "lathe operator mere saath kaam karta tha"   -> CNC Turner/Operator
+#     BLOCKED "papa lathe chalate hai"
+#     HOLE    "pitaji lathe chalate hai" / "chacha lathe chalate hai"
+#     HOLE    "lathe operator ki salary kitni hoti hai"    (a QUESTION)
+#     HOLE    "ek lathe operator ko jaanta hu"
+#
+# Deciding "is the speaker CLAIMING this role?" is a judgement `_ROLES` never makes,
+# and every attempt to make it with regex leaked. It bought ONE corpus fixture. It is
+# gone; "lathe operator" is an honest, re-askable GAP again.
+#
+# Every id below ALREADY EXISTS in the closed set (`canonical_roles.ROLE_TRADE`,
+# derived from `_ROLES` + `_EXTRA_ROLE_TRADES`). NOTHING here mints a role id, and
+# nothing here widens `_ROLES` itself — so `canonical_roles.ROLE_IDS`, the allow-set
+# offered to the model, is byte-for-byte unchanged.
+#
+# WHAT IS DELIBERATELY ABSENT: `cnc` and bare `operator`.
+#
+#   `question_bank.py` records the decision ("Bare 'operator' does NOT [resolve], so
+#   it never stands alone") and it is RIGHT, for a reason that also rules out `cnc`:
+#   EVERY operator role in the closed set names a specific machine family
+#   (role_vmc_operator / role_hmc_operator / role_cnc_turner_operator /
+#   role_cnc_grinding_operator). "operator" states the function without the family;
+#   "CNC" states a family-of-families (VMC, HMC, lathe and grinder are all CNC)
+#   without saying which. Resolving either one would have to PICK a machine the
+#   worker never named — the fabrication class this parser exists to avoid.
+#
+#   Minting a generic `role_cnc_operator` instead is not a parser change and would
+#   make matching WORSE, measurably: packages/reach-engine/src/scoring.ts `scoreRole`
+#   is exact-id-match, returning 0.4 for a NULL roleId ("trade not stated yet") but
+#   0.0 for a non-matching one ("different trade"). A generic id matches no seeded
+#   job, so it would score every one of these workers BELOW the null they get today.
+#   That is an owner/ADR decision (taxonomy + job role_ids + reach), not a widening.
+#
+# MATCHED WITH BOUNDARIES, never as substrings: `\b` for the Latin cues and
+# :func:`_dev` for the Devanagari ones (`\b` does not work there — see _DEVANAGARI).
+# Applied ONLY when `_ROLES` matched nothing, and it reads the same negation-masked
+# text `_ROLES` reads, so a denial suppresses a variant exactly as it suppresses the
+# keyword ("वीएमसी नहीं चलाता" -> no role, like "vmc nahi chalata").
+#
+# NO BLOCKLIST GUARDS THIS TABLE, and none is needed: a variant row can only produce
+# the reading its Latin twin already produces. "V M C operator ki job hai kya" resolves
+# `role` — and so does "VMC operator ki job hai kya" on `main`, through `_ROLES`. That
+# limit is real and is `_ROLES`'s, not this table's; narrowing it means narrowing
+# `_ROLES`, which is a separate change against a shipped behaviour.
+_ROLE_CUES: tuple[tuple[str, str, str, str], ...] = (
+    # Spaced acronyms — "V M C operator". The substring test in `_ROLES` sees no
+    # "vmc" here. Spaces are REQUIRED between the letters, so this can only ever
+    # match a spelled-out acronym.
+    (r"\bv\s+m\s+c\b", "VMC Operator", "role_vmc_operator", "dom_vmc_machining"),
+    (r"\bh\s+m\s+c\b", "HMC Operator", "role_hmc_operator", "dom_hmc_machining"),
+    # `setter` misspelt with one `t`. Cannot match inside "setter" itself.
+    (r"\bset[ae]r\b", "CNC Setter-Operator", "role_cnc_setter_operator",
+     "dom_cnc_machining"),
+    # Devanagari forms of role words the Latin table already carries. TRANSLITERATION
+    # of an EXISTING gazetteer entry to the other script — no new concept, no new id,
+    # no vernacular alias (`ऑपरेटर` alone resolves nothing, exactly like `operator`).
+    (_dev("वीएमसी"), "VMC Operator", "role_vmc_operator", "dom_vmc_machining"),
+    (_dev("एचएमसी"), "HMC Operator", "role_hmc_operator", "dom_hmc_machining"),
+    (_dev("प्रोग्रामर"), "CNC Programmer", "role_cnc_programmer", "dom_programming"),
+    (_dev("सेटर"), "CNC Setter-Operator", "role_cnc_setter_operator", "dom_cnc_machining"),
+    (_dev("टर्नर"), "CNC Turner/Operator", "role_cnc_turner_operator", "dom_cnc_machining"),
+)
+_ROLE_CUES_RE: tuple[tuple[re.Pattern[str], str, str, str], ...] = tuple(
+    (re.compile(pat, re.IGNORECASE), label, rid, tid) for pat, label, rid, tid in _ROLE_CUES
+)
+
 
 # --- Welding (TAX-WELD-1) ---------------------------------------------------
 # WIRING, NOT MINTING. Every id below ALREADY EXISTS, `status: "active"`, in
@@ -318,6 +424,161 @@ def _detect_state(text: str) -> str | None:
     if match:
         return _STATE_ABBREVS[match.group(0)]
     return None
+
+
+# --- Multi-state REGIONS ----------------------------------------------------
+# Names that are neither a city nor a state but ARE how a worker states where they
+# can work: "NCR", "South India". Whole phrases only — "south" and "india" on their
+# own say nothing ("south side me rehta hu", "made in India"), so neither is a cue.
+_REGION_NAMES: dict[str, str] = {
+    "ncr": "NCR",
+    "delhi ncr": "NCR",
+    "north india": "North India",
+    "south india": "South India",
+    "east india": "East India",
+    "west india": "West India",
+    "central india": "Central India",
+}
+_REGION_RE = re.compile(
+    r"\b(?:"
+    + "|".join(re.escape(r) for r in sorted(_REGION_NAMES, key=len, reverse=True))
+    + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _detect_region(text: str) -> str | None:
+    """A named multi-state region, or None. Longest phrase wins."""
+    match = _REGION_RE.search(text)
+    return _REGION_NAMES[match.group(0).lower()] if match else None
+
+
+# --- The preferred-AREA read: a POSITIVE requirement, not a blocklist -------
+#
+# THE STRUCTURAL LESSON, paid for over three review rounds. The first two cuts of this
+# function vetoed a state/region read with blocklists — a negation window, then an
+# EXCLUSION marker list, then an ORIGIN marker list. Every round measured new holes,
+# because the blocked class is GENERATIVE and Hinglish spells everything several ways:
+#
+#     "Bihar ke alawa kahin bhi"   BLOCKED   |  "Bihar ke alaawa ..."   HOLE
+#     "Bihar chhod ke kahin bhi"   BLOCKED   |  "Bihar chhodke ..."     HOLE
+#                                            |  "Bihar ke sivay ..."    HOLE
+#     "Bihar se hu"                BLOCKED   |  "main Bihar ka hu"      HOLE
+#                                            |  "ghar Bihar me hai"     HOLE
+#     ...each hole storing the ONE state the worker ruled out, on a topic that then
+#     closes and is never re-asked.
+#
+# A blocklist can only ever enumerate; the thing it must exclude is unbounded. So the
+# test is INVERTED into a positive requirement, which fails CLOSED on everything it has
+# never seen:
+#
+#     the message must consist of NOTHING BUT area names plus a short ALLOW-LIST of
+#     connective words.
+#
+# "Gujarat mein" and "Gujarat ya Maharashtra dono chalega" pass. Every sentence above
+# fails — not because its particular idiom was anticipated, but because it contains a
+# word (`alaawa`, `chhodke`, `sivay`, `ghar`, `paida`, `bhai`, `hai`, `tha`, `nahi`)
+# that is not on the allow-list. A NEW idiom nobody has thought of also fails, which is
+# the property a blocklist can never have.
+#
+# The cost is real and is accepted: a long, discursive but genuine answer
+# ("Gujarat me kaam kiya tha, wahi chahiye") records nothing and is re-asked. A gap
+# re-asks the worker; a wrong preference feeds the reach feed a place they ruled out.
+
+# Words allowed to appear ALONGSIDE the area names. Deliberately tiny, and every entry
+# is a connective or a bare acceptance — nothing that can carry a proposition of its
+# own (no verbs of being/having, no negators, no place nouns).
+_AREA_FILLER_WORDS: frozenset[str] = frozenset(
+    {
+        # postpositions: "Gujarat mein", "Gujarat me". Latin only — `_STATE_NAMES`
+        # and `_REGION_NAMES` carry no Devanagari entries, so a Devanagari filler
+        # word here could never be reached and would only imply support that does
+        # not exist.
+        "me", "mein", "mai", "mei",
+        # conjunctions / enumeration: "Gujarat ya Maharashtra", "dono"
+        "ya", "aur", "or", "and", "dono", "teeno", "tino", "both",
+        # restriction / emphasis: "sirf Gujarat", "Gujarat hi"
+        "sirf", "only", "bas", "keval", "hi", "bhi",
+        # scope: "pura Gujarat"
+        "pura", "poora", "puri", "whole", "all",
+        # the ask itself: "Gujarat me kaam chahiye"
+        "kaam", "job", "naukri", "work", "chahiye", "chaahiye", "chahie",
+        # bare acceptance: "Gujarat chalega"
+        "chalega", "chalegi", "theek", "thik", "ok", "okay", "sahi", "fine",
+    }
+)
+
+
+def _preferred_areas(text: str) -> list[str]:
+    """STATES / REGIONS offered as places the worker CAN WORK. Empty unless certain.
+
+    Read ONLY when the preferred-locations question was the one asked (see
+    :func:`detect_answered_topics`).
+
+    THE RULE (see the note above for why it is shaped this way): every word in the
+    message must be either part of an area name or in :data:`_AREA_FILLER_WORDS`.
+    Anything else — a verb, a negator, a relative, a house, a past tense, an idiom
+    nobody has enumerated — abandons the read. Positive requirement, fails closed.
+
+    **CURRENT location is untouched.** A state-only answer still does not mark
+    ``current_location`` — that decision (and its reason: the engine should go on to
+    ask for the CITY, which is strictly better matching data) is unchanged. It does
+    not carry over to PREFERENCE, where "Gujarat mein" / "South India" is a complete,
+    usable answer to "kahan kaam kar sakte hain?" and otherwise records NOTHING.
+
+    **"Anywhere" WINS over an incidental area.** If the message carries a
+    generality-of-place idiom, the worker has said *anywhere* and any state in the same
+    message is context ("kahin bhi ja sakta hu, abhi Gujarat me kaam kar raha hu" —
+    Gujarat is where they ARE). The allow-list already rejects those messages, but the
+    precedence is asserted explicitly rather than left to emerge from a word list, so
+    it cannot be broken by someone adding a word.
+
+    FULL STATE NAMES ONLY — the 2-letter abbreviations in :data:`_STATE_ABBREVS` are
+    deliberately NOT read here. Their own note calls the "set up" collision out, and
+    the CASE-SENSITIVE guard it relies on does not hold: an adversarial probe measured
+    ``"set UP karta hu"`` -> ``preferred_locations: ['Uttar Pradesh']``. "UP mein"
+    therefore records nothing and the question is asked again.
+
+    ALL areas are returned, not the first: ``preferred_locations`` is a LIST, and
+    first-match-wins measured as dropping the second choice in "Gujarat ya Maharashtra
+    dono chalega" while closing the topic against re-asking.
+
+    WHAT AN EMPTY RETURN MEANS, precisely: the AREA read is abandoned, NOT the topic.
+    :func:`detect_answered_topics` falls through to the flexibility arm, so a message
+    that also says "kahin bhi" is still recorded as ``flexible`` — which is what it
+    means and what ``main`` recorded. A message with neither records nothing at all.
+    One consequence is worth stating rather than hiding: "Maharashtra ke andar kahin
+    bhi, bahar nahi jaunga" records ``flexible``, i.e. anywhere in India, although the
+    worker excluded outside Maharashtra. That is unchanged from ``main`` — this
+    function cannot make it worse and does not make it better.
+    """
+    if _has_anywhere_cue(text) or "?" in text:
+        # A QUESTION is not an answer. "Gujarat me kaam?" passes the filler test
+        # otherwise (`me`/`kaam` are both filler), and a worker asking whether there is
+        # work somewhere has not said they will go there. One character, whole class.
+        return []
+    spans: list[tuple[int, int, str]] = []
+    for match in _STATE_NAME_RE.finditer(text):
+        spans.append((match.start(), match.end(), _STATE_NAMES[match.group(0).lower()]))
+    for match in _REGION_RE.finditer(text):
+        spans.append((match.start(), match.end(), _REGION_NAMES[match.group(0).lower()]))
+    if not spans:
+        return []
+    # Blank the area names out, then require everything LEFT OVER to be filler.
+    remainder = list(text)
+    for start, end, _label in spans:
+        for i in range(start, end):
+            remainder[i] = " "
+    for token in _WORD_RE.finditer("".join(remainder)):
+        word = token.group(0).strip(_TOKEN_TRIM).lower()
+        if word and word not in _AREA_FILLER_WORDS:
+            return []
+    areas: list[str] = []
+    for _start, _end, label in sorted(spans):
+        _append_unique(areas, label)
+    return areas
+
+
 # Money like "22k", "22000", "22 thousand", "1.5 lakh".
 _SALARY_RE = re.compile(
     r"(?:₹|rs\.?|inr)?\s*(\d{1,3}(?:[,\d]*)(?:\.\d+)?)\s*(k|thousand|hazar|hzr|lakh|lac|l)?",
@@ -411,11 +672,41 @@ _MONEY_CUES: tuple[re.Pattern[str], ...] = tuple(
 # Note which tokens are NOT here: every one #437 reported fabricating ("shift",
 # "ready", "chalega", "outside", "bahar") is below, adjacency-gated. This group is
 # untouched by that issue because none of it collides with shop vocabulary.
+#
+# SPELLING FAMILY (parser widening). "kahin bhi" is typed at least four ways by the
+# same worker population, and the nasal is dropped as often as it is written. The
+# alternation is generated from ONE stem rather than enumerated per spelling, so a
+# spelling cannot go missing the way "kahi bhi" once did:
+#   kahin | kahi | kahee | kaheen  x  bhi | bi
 _RELOCATE_ANYWHERE = (
-    r"(?:kahin\s+bhi|kahi\s+bhi|kahee\s+bhi|anywhere|any\s+where|"
-    r"any\s+(?:city|place|location)|koi\s+bhi\s+(?:sheher|shehar|shahar|city|jagah|"
+    r"(?:kah(?:in|i|ee|een)\s+bh?i|anywhere|any\s+where|"
+    r"any\s+(?:city|place|location)|koi\s+bh?i\s+(?:sheher|shehar|shahar|city|jagah|"
     r"state|rajya)|india\s+me[in]?\s+kahin|out\s+of\s+station)"
 )
+# The same GENERALITY-OF-PLACE idiom in Devanagari ("कहीं भी" = anywhere, "जहाँ भी
+# काम मिले" = wherever there is work). Kept OUT of `_RELOCATE_ANYWHERE` because that
+# string is embedded in `\b...\b` wrappers, and `\b` does not work after a Devanagari
+# matra (see :data:`_DEVANAGARI`) — wrapping these would make them silently dead.
+_RELOCATE_ANYWHERE_DEV = _dev(r"(?:कहीं|कही|जहाँ|जहां|जहा)\s*भी")
+_ANYWHERE_RE: tuple[re.Pattern[str], ...] = (
+    re.compile(rf"\b{_RELOCATE_ANYWHERE}\b", re.IGNORECASE),
+    re.compile(_RELOCATE_ANYWHERE_DEV, re.IGNORECASE),
+)
+
+
+def _has_anywhere_cue(text: str) -> bool:
+    """True when the message carries a generality-of-place idiom ("kahin bhi").
+
+    Used by :func:`_preferred_areas` to give "anywhere" PRECEDENCE over any state named
+    in the same message: the worker said anywhere, so a state beside it is context, not
+    the preference. Measured cases this exists for — every one recorded ``flexible`` on
+    `main` and an incidental state in an earlier cut of the widening::
+
+        "kahin bhi ja sakta hu, abhi Gujarat me kaam kar raha hu"  -> ['Gujarat']
+        "Maharashtra me salary kam hai, kahin bhi bhej do"         -> ['Maharashtra']
+        "mera bhai Kerala me hai, main kahin bhi ja sakta hu"      -> ['Kerala']
+    """
+    return any(p.search(text) for p in _ANYWHERE_RE)
 # Places a move could be TO, INCLUDING the ambiguous ones. "bahar"/"outside" are here
 # and not above because "bahar JAANA" is leaving town while "bahar KA diameter" is the
 # outer diameter — only the verb beside it decides. "dusre sheher" likewise: on its own
@@ -446,6 +737,7 @@ _RELOCATE_CUE_RE: tuple[re.Pattern[str], ...] = tuple(
         r"\btransfer\s+(?:le\s+)?(?:sakta|sakti|sakte|lunga|loonga)\b",
         # Generality of place — a complete flexibility answer on its own.
         rf"\b{_RELOCATE_ANYWHERE}\b",
+        _RELOCATE_ANYWHERE_DEV,
         # A PLACE next to a GO verb, in either order: "bahar ja sakta hu",
         # "kahin bhi jaane ko taiyaar", "dusre sheher shift ho sakta hu".
         rf"\b{_RELOCATE_PLACE}\b[^.;!?]{{0,24}}?\b{_RELOCATE_GO}\b",
@@ -1247,6 +1539,20 @@ def detect(text: str) -> Signals:
             sig.trade_id = tid
             break
 
+    # ...then the VARIANT table, for surface forms a substring test cannot see:
+    # "V M C operator", "seter", the Devanagari spellings. Only ever fills a None, and
+    # reads the same negation-masked text, so it can neither change an existing
+    # resolution nor read a denial as an assertion. No guard is needed because no row
+    # infers anything `_ROLES` would not infer from the Latin spelling (see
+    # `_ROLE_CUES`).
+    if sig.role_id is None:
+        for pattern, label, rid, tid in _ROLE_CUES_RE:
+            if pattern.search(lower):
+                sig.primary_role = label
+                sig.role_id = rid
+                sig.trade_id = tid
+                break
+
     # TAX-WELD-1: the ONE place welding may assign a role (word-boundary matched, and
     # gated on machining evidence + blockers). Runs after the _ROLES loop so it can
     # never displace an assigned role, and after machines/controllers so the machining
@@ -1596,6 +1902,21 @@ def detect_answered_topics(
             answered["current_location"] = sig.current_city
         if sig.preferred_locations:
             answered["preferred_locations"] = sig.preferred_locations
+        elif preferred_ctx and (areas := _preferred_areas(text)):
+            # A STATE or REGION ("Gujarat mein", "South India", "NCR") IS an answer to
+            # "kahan kaam kar sakte hain?" — it says where the worker can work, just
+            # less precisely than a city. Recorded as the list the topic already
+            # carries, so nothing downstream sees a new shape.
+            #
+            # Ranked ABOVE the flexibility sentinel on purpose: "Maharashtra mein
+            # kahin bhi" means anywhere in MAHARASHTRA, and recording "flexible"
+            # (anywhere in India) for it overstates what the worker offered. Cities
+            # still win over both — they are the most specific thing on offer.
+            #
+            # An EMPTY list falls through to the flexibility branch, which is what
+            # restores "Bihar ke alawa kahin bhi" to `flexible` instead of the state
+            # it excludes (see `_preferred_areas`).
+            answered["preferred_locations"] = areas
         elif preferred_ctx and sig.relocation_willingness:
             # "kahin bhi chalega" — flexibility IS an answer to the preferred
             # ask. Context-gated so an incidental cue ("night shift") elsewhere

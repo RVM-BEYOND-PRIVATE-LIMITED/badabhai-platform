@@ -90,6 +90,9 @@ _ROLE: list[AnswerFixture] = [
     F("role", "supervisor", register="english", note="adjacent role"),
     F("role", "abhi kuch nahi kar raha, kaam dhundh raha hu",
       expected="reject", register="hinglish", note="states no role"),
+    F("role", "lathe nahi chalaya, helper hu", expected="reject", register="hinglish",
+      note="negated machine + out-of-gazetteer trade; the <machine>+<function> role "
+           "cue must NOT fire on a denial"),
 ]
 
 # --- machines -------------------------------------------------------------
@@ -242,6 +245,9 @@ _PREFERRED_LOCATIONS: list[AnswerFixture] = [
     F("preferred_locations", "Pune se bahar nahi jaunga", register="hinglish",
       note="negated relocation"),
     F("preferred_locations", "abhi soch nahi paya", expected="reject", register="hinglish"),
+    F("preferred_locations", "Bihar nahi jaunga", expected="reject", register="hinglish",
+      note="a REFUSED state must never become a preference (the state/region read is "
+           "negation-vetoed)"),
 ]
 
 # --- controllers ----------------------------------------------------------
