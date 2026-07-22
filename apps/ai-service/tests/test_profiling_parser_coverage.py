@@ -27,6 +27,7 @@ import pytest
 from analysis_parser_coverage import (
     NEGATION_PROBE,
     POST_426_DELTA,
+    PRE_WIDENING_ACCEPTED,
     PRE_WIDENING_GAPS,
     SCRIPT_GAZETTEER_FRIENDLY,
     SCRIPT_LATE_CORRECTION,
@@ -356,15 +357,19 @@ def test_denials_are_absorbed_not_fabricated() -> None:
     """The corpus's `reject` fixtures, post-#426: ZERO fabrications.
 
     Pre-#426 two of them recorded a VALUE the worker had denied. Now the only
-    `reject` fixtures the parser marks answered are the two education denials, and
-    both record nothing — which is #426's designed behaviour for the topics where a
-    "no" is itself a complete answer.
+    `reject` fixtures the parser marks answered are the education and certification
+    denials, and every one records nothing — which is #426's designed behaviour for
+    the topics where a "no" is itself a complete answer. "Koi certificate nahi hai"
+    joined that set on 2026-07-22 with the certifications topic: a worker who holds
+    none has fully answered the question, and must not be asked again.
     """
     rows = measure_all()
     assert [m.fixture.text for m in rows if m.is_fabrication] == []
     assert sorted(m.fixture.text for m in rows if m.is_denial_absorbed) == [
+        "certificate nahi liya, kaam se seekha",
         "diploma nahi hai",
         "iti nahi kiya, kaam se hi seekha",
+        "koi certificate nahi hai",
     ]
     for m in rows:
         if m.is_denial_absorbed:
@@ -412,13 +417,31 @@ def test_overall_acceptance_is_pinned() -> None:
     """
     rows = measure_all()
     should_accept = [m for m in rows if m.fixture.expected == "accept"]
-    accepted = [m for m in should_accept if m.accepted]
-    assert (len(accepted), len(should_accept)) == (168, 252)
+    # Scoped to the topics that EXISTED when this baseline was measured. The
+    # `certifications` topic was added on 2026-07-22, long after; folding its
+    # fixtures into this number would silently redefine what the baseline means and
+    # destroy its value as a before/after record. Its coverage is pinned separately
+    # below, which is the honest way to add a topic to a frozen measurement.
+    baseline = [m for m in should_accept if m.fixture.topic in PRE_WIDENING_ACCEPTED]
+    accepted = [m for m in baseline if m.accepted]
+    # 166/250, down from 168/252, and the whole delta is two fixtures CHANGING TOPIC,
+    # not coverage lost: "NSDC certificate" and "RVM CAD course kiya" were filed under
+    # `education` because until 2026-07-22 there was nowhere else to put them. Both
+    # are still accepted — counted under `certifications` below. Numerator and
+    # denominator each move by exactly 2, which is what makes this a re-filing rather
+    # than a regression.
+    assert (len(accepted), len(baseline)) == (166, 250)
 
-    availability = [
-        m for m in should_accept if m.fixture.topic == "availability" and m.accepted
-    ]
+    availability = [m for m in baseline if m.fixture.topic == "availability" and m.accepted]
     assert len(availability) == 22, "availability coverage moved — re-measure"
+
+    # The new topic, measured on its own terms. The detector reads only the NAMED
+    # bodies (NCVT/SCVT/NSQF/apprenticeship/NSDC/RVM CAD) — an unnamed "haan
+    # certificate hai" is deliberately NOT accepted, because inventing a credential
+    # name for a worker's resume is worse than leaving it to the model to read from
+    # the transcript. If this number moves, that trade-off moved with it.
+    certs = [m for m in should_accept if m.fixture.topic == "certifications"]
+    assert (len([m for m in certs if m.accepted]), len(certs)) == (10, 16)
 
 
 def test_the_widening_closed_gaps_and_opened_none() -> None:
@@ -432,7 +455,15 @@ def test_the_widening_closed_gaps_and_opened_none() -> None:
     2. the gaps that closed are exactly the eight the report claims.
     """
     rows = measure_all()
-    now_gaps = {(m.fixture.topic, m.fixture.text) for m in rows if m.is_gap}
+    # Scoped to the topics that existed at `26418e4`, for the same reason as the
+    # acceptance pin: `certifications` did not exist then, so its fixtures cannot be
+    # "a gap the widening opened". Property 1 still holds over everything the
+    # baseline actually covered.
+    now_gaps = {
+        (m.fixture.topic, m.fixture.text)
+        for m in rows
+        if m.is_gap and m.fixture.topic in PRE_WIDENING_ACCEPTED
+    }
     before_gaps = set(PRE_WIDENING_GAPS)
 
     assert not (now_gaps - before_gaps), (
@@ -584,9 +615,13 @@ def test_scripted_interview_shows_the_engine_level_consequence() -> None:
     # without anyone having to remember to add a line here.
     assert friendly.must_asks_never_asked == []
 
-    # ...and the gap that REMAINS: education was not promoted, so a fluent worker can
-    # still finish without ever being asked about it. That is the honest residual.
-    assert "education" in friendly.never_asked
+    # The 2026-07-22 owner ruling closed the education gap: it was not merely
+    # "sometimes skipped" — for this fluent persona it was UNREACHABLE, because
+    # `education` was the LAST bank topic and readiness was already satisfied, so
+    # the wrap-up fired before it could be served. It is now must-ask, alongside the
+    # new `certifications` topic, and both are reached.
+    assert "education" not in friendly.never_asked
+    assert "certifications" not in friendly.never_asked
     # `skills` too — auto-closed by the role answer (report finding 3).
     assert "skills" in friendly.never_asked
     # And the sharp one the #429 promotion left behind: `machines` is ESSENTIAL and is
@@ -597,7 +632,7 @@ def test_scripted_interview_shows_the_engine_level_consequence() -> None:
     # never-asked list surfaces here instead of passing unnoticed. Kept from #436; its
     # per-topic MUST_ASK loop is dropped as redundant with `must_asks_never_asked == []`
     # above, which already states that claim over the whole constant.
-    assert friendly.never_asked == ["machines", "skills", "education"]
+    assert friendly.never_asked == ["machines", "skills"]
     assert friendly.extraction_ready is True
 
 
@@ -655,6 +690,8 @@ def test_the_429_must_ask_gate_holds_across_every_scripted_interview() -> None:
         "salary_current",
         "salary_expected",
         "availability",
+        "education",
+        "certifications",
     ), "MUST_ASK_TOPICS changed — re-run the harness and update report findings 3 and 7"
 
     for script in (

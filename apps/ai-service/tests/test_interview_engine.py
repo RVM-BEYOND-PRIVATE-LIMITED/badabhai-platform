@@ -347,6 +347,7 @@ _ANSWERS = {
     "salary_expected": "30000 chahiye",
     "availability": "15 din lagenge",
     "education": "ITI kiya hai",
+    "certifications": "NCVT certificate hai",
 }
 _GARBAGE = "haan ji theek hai"
 
@@ -561,7 +562,7 @@ def test_the_ask_budget_has_real_headroom_over_a_blind_run(monkeypatch):
     zero-margin ceiling can never silently come back — if someone adds topics or
     raises MAX_ASKS_PER_TOPIC without raising MAX_ENGINE_ASKS, this fails."""
     budget = _blind_ask_budget()
-    assert budget == 15  # 4 essentials x 2 + 7 ask-once topics, for today's bank
+    assert budget == 16  # 4 essentials x 2 + 8 ask-once topics, for today's bank
     assert interview_engine.MAX_ENGINE_ASKS > budget, (
         "MAX_ENGINE_ASKS must exceed the blind-run budget, or the backstop itself "
         "truncates the interview and starves the tail topics"
@@ -581,22 +582,28 @@ def test_actually_asking_availability_did_not_move_the_ask_budget():
     ASKED on paths where a fabricated "immediate" used to close it. That spends one
     more ask on those paths — this pins that it cannot approach the ceiling.
 
-    The arithmetic is unchanged, because `availability` is a NON-essential, ask-ONCE
-    topic and was therefore ALREADY counted once in the blind-run worst case:
+    The arithmetic follows the BANK, because `availability` is a NON-essential,
+    ask-ONCE topic and was therefore ALREADY counted once in the blind-run worst
+    case:
 
         4 essentials x MAX_ASKS_PER_TOPIC(2) = 8
-      + 7 ask-once topics x 1                = 7
+      + 8 ask-once topics x 1                = 8
       -------------------------------------------
-        blind-run worst case                 = 15   <  MAX_ENGINE_ASKS = 20
+        blind-run worst case                 = 16   <  MAX_ENGINE_ASKS = 20
 
     So the fix moves REAL runs closer to that bound, never past it. Measured: the
     fluent 'answers every topic' persona went 8 -> 9 asks (availability now asked),
-    and the worst persona is unchanged at 15.
+    then 9 -> 11 when the 2026-07-22 owner ruling made `education` and the new
+    `certifications` topic must-ask; the worst persona went 15 -> 16 with the one
+    added ask-once topic. Headroom over the ceiling is 4.
     """
     log_fluent, state_fluent, ready, _turns = _run_interview(lambda tid: _ANSWERS[tid])
     assert ready is True
     assert "availability" in state_fluent.asked_question_ids
-    assert len(log_fluent) == 9
+    # The owner ruling's whole point: these two are now REACHED, not skipped.
+    assert "education" in state_fluent.asked_question_ids
+    assert "certifications" in state_fluent.asked_question_ids
+    assert len(log_fluent) == 11
 
     worst = 0
     for reply_for in (
@@ -607,7 +614,7 @@ def test_actually_asking_availability_did_not_move_the_ask_budget():
     ):
         _log, state, _ready, _turns = _run_interview(reply_for)
         worst = max(worst, sum(state.ask_counts.values()))
-    assert worst == _blind_ask_budget() == 15
+    assert worst == _blind_ask_budget() == 16
     assert worst < interview_engine.MAX_ENGINE_ASKS
 
 

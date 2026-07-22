@@ -49,11 +49,29 @@ ESSENTIAL_TOPICS: tuple[str, ...] = ("role", "machines", "experience", "current_
 # in the bank could never be served by _next_topic and would deadlock readiness
 # until the ask ceiling tripped — test_every_must_ask_topic_exists_in_the_bank
 # pins that.
+# Owner ruling 2026-07-22, from a real owner-run session: education and
+# certifications were NEVER asked. Not "sometimes skipped" — with a cooperative
+# worker they were UNREACHABLE. `education` was the last topic in the bank, and
+# readiness was satisfied by the earlier must-asks, so the wrap-up fired before
+# _next_topic ever served it. The worker's "ITI kiya hai" was typed and never
+# consumed. A worker's ITI could not reach their resume through any path.
+#
+# Making the LAST bank topic must-ask makes readiness unreachable until the bank
+# drains, which is what the owner asked for, and keeps the flip==wrap coupling
+# apps/api's autoTriggerExtraction relies on (the snapshot stays complete).
+#
+# Both stay OUT of ESSENTIAL_TOPICS on purpose, and not for the usual reason: the
+# local detector genuinely cannot parse "12th pass" or "NCVT certificate hai", so
+# as essentials they would burn the re-ask budget and then ship a FALSE
+# unanswered_essentials for a worker who answered perfectly well. The value
+# reaches the rich draft via the transcript, which is where it is consumed.
 MUST_ASK_TOPICS: tuple[str, ...] = (
     "preferred_locations",
     "salary_current",
     "salary_expected",
     "availability",
+    "education",
+    "certifications",
 )
 
 # INTERVIEW-1 re-ask bound. THIS CONSTANT IS THE SAFETY PROPERTY of the re-ask

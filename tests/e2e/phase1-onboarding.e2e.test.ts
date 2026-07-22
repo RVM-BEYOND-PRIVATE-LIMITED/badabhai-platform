@@ -215,7 +215,11 @@ describe.skipIf(!RUN)("Phase 1 worker onboarding — complete happy path (e2e)",
     const sentTexts: string[] = [];
     const askedIds: (string | null)[] = [];
     let ready = false;
-    for (let i = 0; i < 12 && !ready; i++) {
+    // 17, not 12: the engine's blind-run worst case is 16 asks (4 essentials x 2
+    // re-asks + 8 ask-once topics) since `certifications` joined the bank, and the
+    // wrap-up turn is the 17th. A bound below that would time the loop out before
+    // readiness and read as a product failure rather than a too-small budget.
+    for (let i = 0; i < 17 && !ready; i++) {
       const text = scriptedMessages[i] ?? "haan bhai, theek hai";
       const msg = await call(
         "POST",

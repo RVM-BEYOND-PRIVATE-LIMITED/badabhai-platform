@@ -860,15 +860,16 @@ FLOW_CASES: tuple[Case, ...] = (
         messages=(
             "VMC operator hu, 5 saal ka experience, Pune me hu, VMC aur CNC lathe "
             "chalata hu, setting aur tool offset aata hai",
-            "haan", "haan", "haan", "haan", "haan", "haan",
+            "haan", "haan", "haan", "haan", "haan", "haan", "haan", "haan",
         ),
         extract=True,
-        note="issue #424: answering every essential in message 1 must NOT skip the "
-             "money/availability asks",
+        note="issue #424 + the 2026-07-22 education/certifications ruling: answering "
+             "every essential in message 1 must NOT skip the money, availability, "
+             "education or certifications asks",
         checks=(
             unanswered_essentials_are([]),
             all_must_ask_raised(),
-            wrapped_up_within(7),
+            wrapped_up_within(9),
             extraction_blocked(False),
         ),
     ),
@@ -878,7 +879,7 @@ FLOW_CASES: tuple[Case, ...] = (
         messages=("hmm",) * 20,
         note="the ask ceiling must end the interview instead of looping forever",
         checks=(
-            wrapped_up_within(16),
+            wrapped_up_within(17),
             unanswered_essentials_are(list(ESSENTIAL_TOPICS)),
             all_must_ask_raised(),
         ),

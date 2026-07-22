@@ -117,7 +117,7 @@ PRE_WIDENING_ACCEPTED: dict[str, tuple[int, int]] = {
     "salary_current": (19, 23),
     "salary_expected": (14, 23),
     "availability": (22, 24),
-    "education": (11, 21),
+    "education": (11, 21),  # 2 fixtures re-filed to certifications on 2026-07-22
 }
 PRE_WIDENING_TOTAL: tuple[int, int] = (160, 252)
 
@@ -487,6 +487,7 @@ SCRIPT_PLAUSIBLE: dict[str, str] = {
     "salary_expected": "jo aap theek samjhe",
     "availability": "do mahine baad",
     "education": "10th pass",
+    "certifications": "koi certificate nahi hai",
 }
 SCRIPT_GAZETTEER_FRIENDLY: dict[str, str] = {
     "role": "VMC operator",
@@ -500,6 +501,7 @@ SCRIPT_GAZETTEER_FRIENDLY: dict[str, str] = {
     "salary_expected": "30k chahiye",
     "availability": "15 din",
     "education": "ITI kiya hai",
+    "certifications": "NCVT certificate hai",
 }
 # Same gazetteer-friendly worker, except the current_location answer misses, so the
 # interview does NOT wrap up early and runs on to `education`. This script USED to
@@ -881,7 +883,11 @@ is in "Suggested next steps" item 0.
 def _widening_section(rows: list[Measurement]) -> str:
     """Before/after for the parser widening, every number computed from this run."""
     now = {t: (acc, should) for t, _n, should, acc, _r in _per_topic_rows(rows)}
-    moved = [t for t in TOPIC_ORDER if now[t][0] != PRE_WIDENING_ACCEPTED[t][0]]
+    # Topics added after the baseline was taken have no "before" to move from.
+    moved = [
+        t for t in TOPIC_ORDER
+        if t in PRE_WIDENING_ACCEPTED and now[t][0] != PRE_WIDENING_ACCEPTED[t][0]
+    ]
     lines = [
         "## What the parser widening changed — measured before / after",
         "",
@@ -893,18 +899,32 @@ def _widening_section(rows: list[Measurement]) -> str:
         "| --- | ---: | ---: | ---: |",
     ]
     for topic in TOPIC_ORDER:
-        before_acc, before_should = PRE_WIDENING_ACCEPTED[topic]
+        before_acc, before_should = PRE_WIDENING_ACCEPTED.get(topic, (0, 0))
         acc, should = now[topic]
         delta = acc - before_acc
-        lines.append(
-            f"| `{topic}` | {before_acc}/{before_should} ({before_acc / before_should:.0%}) "
-            f"| {acc}/{should} ({acc / should:.0%}) | {delta:+d} |"
+        # A topic added after the baseline has no "before" — say so rather than
+        # printing a fabricated 0/0 (0%) that reads like a measured regression.
+        before_cell = (
+            f"{before_acc}/{before_should} ({before_acc / before_should:.0%})"
+            if before_should
+            else "— (added later)"
         )
+        now_cell = f"{acc}/{should} ({acc / should:.0%})" if should else "—"
+        delta_cell = f"{delta:+d}" if before_should else "n/a"
+        lines.append(f"| `{topic}` | {before_cell} | {now_cell} | {delta_cell} |")
     should_accept = [m for m in rows if m.fixture.expected == "accept"]
     accepted = [m for m in should_accept if m.accepted]
-    now_gaps = {(m.fixture.topic, m.fixture.text) for m in rows if m.is_gap}
+    # Scoped to the topics the baseline actually covered — a topic added later
+    # cannot be "a gap the widening opened".
+    now_gaps = {
+        (m.fixture.topic, m.fixture.text)
+        for m in rows
+        if m.is_gap and m.fixture.topic in PRE_WIDENING_ACCEPTED
+    }
     before_gaps = set(PRE_WIDENING_GAPS)
     regressed = sorted(now_gaps - before_gaps)
+    should_accept = [m for m in should_accept if m.fixture.topic in PRE_WIDENING_ACCEPTED]
+    accepted = [m for m in accepted if m.fixture.topic in PRE_WIDENING_ACCEPTED]
     lines += [
         f"| **overall** | **{PRE_WIDENING_TOTAL[0]}/{PRE_WIDENING_TOTAL[1]}** "
         f"({PRE_WIDENING_TOTAL[0] / PRE_WIDENING_TOTAL[1]:.0%}) | "
