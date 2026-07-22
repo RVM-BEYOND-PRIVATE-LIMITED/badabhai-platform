@@ -159,6 +159,26 @@ describe("ChatService.postMessage — query-count / N+1 guard (per turn)", () =>
 // ignored the field (COST-3), and a null-state turn mints a fresh ConversationState
 // (never reconstructed from history). So the API now sends history: [] and no longer
 // reads the transcript on the chat turn. The FIELD stays — shipped contract shape.
+/**
+ * The full reply shape for a plain mid-interview turn against the default stub.
+ *
+ * Two separate regressions deep-equal against this, from opposite directions:
+ * PERF-2 (dropping history must not change the reply) and CHAT-UE-1 (the new
+ * field must be purely additive). They are deliberately NOT merged — each anchors
+ * a different intent — but they share ONE literal so the pair can never drift
+ * apart and quietly assert two different "unchanged" shapes.
+ */
+const EXPECTED_TURN_REPLY = {
+  session_id: SESSION,
+  reply: "Thanks!",
+  blocked: false,
+  is_mock: true,
+  suggested_followups: [],
+  asked_question_id: "q_machines",
+  extraction_ready: false,
+  unanswered_essentials: [],
+} as const;
+
 describe("ChatService.postMessage — PERF-2 dead-history drop", () => {
   it("produces the IDENTICAL full reply object as before the change (deep-equal)", async () => {
     // The reply derives ONLY from the stubbed ai client's result (+ name rendering);
@@ -168,16 +188,7 @@ describe("ChatService.postMessage — PERF-2 dead-history drop", () => {
     // carries none.)
     const { svc } = make({ extractionReady: false });
     const res = await svc.postMessage(WORKER, DTO as never, CTX);
-    expect(res).toEqual({
-      session_id: SESSION,
-      reply: "Thanks!",
-      blocked: false,
-      is_mock: true,
-      suggested_followups: [],
-      asked_question_id: "q_machines",
-      extraction_ready: false,
-      unanswered_essentials: [],
-    });
+    expect(res).toEqual(EXPECTED_TURN_REPLY);
   });
 
   it("never reads the transcript on the chat-turn path (listMessages spy)", async () => {
@@ -387,18 +398,10 @@ describe("ChatService — CHAT-UE-1 unanswered_essentials on the reply", () => {
   });
 
   it("keeps every pre-existing reply field unchanged (additive, backward compatible)", async () => {
+    // Same literal the PERF-2 deep-equal uses (EXPECTED_TURN_REPLY) — only the NEW
+    // field is added, and a state without the key degrades to [].
     const { res } = await run({});
-    expect(res).toEqual({
-      session_id: SESSION,
-      reply: "Thanks!",
-      blocked: false,
-      is_mock: true,
-      suggested_followups: [],
-      asked_question_id: "q_machines",
-      extraction_ready: false,
-      // Only the NEW field is added; a state without the key degrades to [].
-      unanswered_essentials: [],
-    });
+    expect(res).toEqual(EXPECTED_TURN_REPLY);
   });
 });
 
