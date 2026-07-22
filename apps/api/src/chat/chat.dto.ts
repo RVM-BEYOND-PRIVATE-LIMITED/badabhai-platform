@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MESSAGE_DIRECTIONS } from "@badabhai/types";
 import { uuidSchema, nonEmptyMessageSchema, safeTextSchema } from "@badabhai/validators";
 
 /**
@@ -54,3 +55,41 @@ export const StartSessionResponseSchema = z.object({
   opening_text: z.string().optional(),
 });
 export type StartSessionResponse = z.infer<typeof StartSessionResponseSchema>;
+
+/**
+ * Route param for `GET /chat/sessions/:sessionId/messages` (#349). The id arrives
+ * in the URL, so it is ATTACKER-CONTROLLED: this schema only proves it is a UUID.
+ * Ownership is proved separately in `ChatService.listMessages` — parsing is not
+ * permission (same split as the body-supplied session id in #435).
+ */
+export const SessionMessagesParamSchema = z.object({ sessionId: uuidSchema });
+export type SessionMessagesParamDto = z.infer<typeof SessionMessagesParamSchema>;
+
+/**
+ * Outbound shape of `GET /chat/sessions/:sessionId/messages` (#349 — transcript
+ * hydration). THE VICTIM: with persistent auth, >5 minutes backgrounded re-locks
+ * the app; the worker unlocks, lands back on chat, and sees an EMPTY thread
+ * because ChatBloc is a locator factory whose transcript lives only in memory —
+ * their ten answers are still in `chat_messages`, just not on screen.
+ *
+ * DELIBERATELY NARROW: three fields, nothing else. `chat_messages` also carries
+ * ids, worker_id, message_type, voice_note_id and a metadata JSONB — none of which
+ * the client needs to redraw bubbles, so none of which this contract names. The
+ * service maps row → this shape field-by-field rather than spreading the row, so a
+ * future column cannot silently join the response.
+ */
+export const SessionMessageSchema = z.object({
+  direction: z.enum(MESSAGE_DIRECTIONS),
+  // Nullable by construction, not by accident: a voice message exists as a row
+  // before its transcript lands (`body_text` still NULL). The client renders the
+  // bubble as pending rather than dropping the turn.
+  body_text: z.string().nullable(),
+  created_at: z.string(),
+});
+export const SessionMessagesResponseSchema = z.object({
+  // OLDEST FIRST — chronological, the order a chat thread is drawn in. The
+  // repository read already guarantees it (`listMessages` takes the newest
+  // CHAT_HISTORY_MAX then reverses); the service must not re-sort.
+  messages: z.array(SessionMessageSchema),
+});
+export type SessionMessagesResponse = z.infer<typeof SessionMessagesResponseSchema>;
