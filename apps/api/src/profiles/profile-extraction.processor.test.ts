@@ -257,7 +257,9 @@ describe("ProfileExtractionProcessor", () => {
 
     // The transcript was read from the chat repository (the processor's own path)…
     expect(chat.listMessages).toHaveBeenCalledWith(JOB.sessionId);
-    // …and every turn of the conversation reached the extraction call.
+    // …and every turn of the conversation reached the extraction call, in BOTH
+    // shapes: the flat transcript the model reads, and the role-tagged messages
+    // the AI service's deterministic detector reads.
     expect(ai.extractProfile).toHaveBeenCalledWith({
       worker_ref: JOB.workerId,
       transcript: [
@@ -266,7 +268,60 @@ describe("ProfileExtractionProcessor", () => {
         "Bada Bhai: Kaunsi city me ho?",
         "Worker: Pune me hoon",
       ].join("\n"),
+      messages: [
+        { role: "assistant", text: "Kaunsa kaam karte ho?" },
+        { role: "worker", text: "VMC operator, 5 saal" },
+        { role: "assistant", text: "Kaunsi city me ho?" },
+        { role: "worker", text: "Pune me hoon" },
+      ],
     });
+  });
+
+  it("always sends BOTH conversation fields — never messages without transcript", async () => {
+    // `transcript` is the rollback lever: the AI service falls back to it whenever
+    // `messages` is absent, and reverting to the pre-split behaviour is exactly
+    // "stop sending messages". Sending `messages` alone would silently change what
+    // the MODEL reads too, which is not what the split is for.
+    const { proc, ai } = make();
+    await proc.process(makeJob());
+
+    const arg = ai.extractProfile.mock.calls[0]![0];
+    expect(Object.keys(arg).sort()).toEqual(["messages", "transcript", "worker_ref"]);
+    expect(typeof arg.transcript).toBe("string");
+    expect(arg.transcript.length).toBeGreaterThan(0);
+  });
+
+  it("empty session: both fields still describe the same (empty) conversation", async () => {
+    const { proc, chat, ai } = make();
+    chat.listMessages.mockResolvedValue([]);
+    await proc.process(makeJob());
+
+    expect(ai.extractProfile).toHaveBeenCalledWith({
+      worker_ref: JOB.workerId,
+      // The placeholder the AI service has always received for an empty session.
+      transcript: "(no conversation captured)",
+      messages: [],
+    });
+  });
+
+  it("drops empty-bodied messages from BOTH shapes identically", async () => {
+    // The two shapes must always describe the same set of lines. If the filter
+    // drifts, the model and the detector are reading different conversations.
+    const { proc, chat, ai } = make();
+    chat.listMessages.mockResolvedValue([
+      { id: "m1", direction: "outbound", bodyText: "Kaunsa kaam karte ho?" },
+      { id: "m2", direction: "inbound", bodyText: "" },
+      { id: "m3", direction: "inbound", bodyText: null },
+      { id: "m4", direction: "inbound", bodyText: "VMC operator" },
+    ]);
+    await proc.process(makeJob());
+
+    const arg = ai.extractProfile.mock.calls[0]![0];
+    expect(arg.messages).toEqual([
+      { role: "assistant", text: "Kaunsa kaam karte ho?" },
+      { role: "worker", text: "VMC operator" },
+    ]);
+    expect(arg.transcript).toBe("Bada Bhai: Kaunsa kaam karte ho?\nWorker: VMC operator");
   });
 
   it("idempotent: an already-completed job is not reprocessed", async () => {

@@ -1703,8 +1703,23 @@ def _detect_salary(text: str, lower: str, sig: Signals) -> None:
         num, unit = m.group(1), m.group(2)
         if not unit and len(num.replace(",", "")) <= 2:
             continue  # bare 1-2 digit number with no unit -> likely years, skip
-        near_before = lower[max(0, m.start() - _PERIOD_WINDOW_BEFORE): m.start()]
-        near_after = lower[m.end(): m.end() + _PERIOD_WINDOW_AFTER]
+        # Every cue window is clamped to the LINE the number sits on. A cue on a
+        # neighbouring line is a different utterance and says nothing about this
+        # number. Without the clamp, two salary answers on adjacent lines poison
+        # each other: "25000\n35000 chahiye" put ' chah' inside 25000's 10-char
+        # lookahead, so the CURRENT salary was recorded as EXPECTED and the real
+        # expected salary was then dropped as a duplicate. The same hazard applies
+        # to the period cues, where a stray "mahine" on the next line scales an
+        # amount by 12.
+        # Anchor both bounds on the DIGITS (group 1), not on the match: the match
+        # spans surrounding whitespace at both ends, so m.start()/m.end() can sit on
+        # the neighbouring line and would pick the wrong line entirely.
+        digits_at = m.start(1)
+        line_start = lower.rfind("\n", 0, digits_at) + 1
+        line_end = lower.find("\n", digits_at)
+        line_end = len(lower) if line_end == -1 else line_end
+        near_before = lower[max(line_start, m.start() - _PERIOD_WINDOW_BEFORE): m.start()]
+        near_after = lower[m.end(): min(line_end, m.end() + _PERIOD_WINDOW_AFTER)]
         if _looks_like_a_year(num, unit, near_before + " " + near_after):
             continue
         months = _period_months(near_before, near_after)
@@ -1713,7 +1728,7 @@ def _detect_salary(text: str, lower: str, sig: Signals) -> None:
         amount = _parse_amount(num, unit, months)
         if amount is None or amount < 1_000:
             continue
-        window = lower[max(0, m.start() - 25): m.end() + 10]
+        window = lower[max(line_start, m.start() - 25): min(line_end, m.end() + 10)]
         if any(cue in window for cue in _EXPECTED_CUES):
             if sig.expected_salary is None:
                 sig.expected_salary = amount
