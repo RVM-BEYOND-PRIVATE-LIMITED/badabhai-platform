@@ -498,6 +498,58 @@ jobs:
             # explicitly ALSO means the tracked docker-compose.override.yml (a
             # local-dev-only postgres remap) is NOT auto-loaded here.
             COMPOSE="docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api"
+
+            # CD-6: RECLAIM DISK BEFORE PULLING. Every deploy pulls a NEW immutable
+            # `sha-<short7>` image and nothing ever removed the old one, so the box's
+            # disk was monotonically increasing. It hit the wall on 2026-07-22: runs
+            # for #500, #501 and #503 ALL died with
+            #   failed to copy: ... no space left on device
+            # during `pull api` — the FIRST command here, so no container was ever
+            # recreated and the box kept serving the previous api (the failure mode was
+            # safe, but the deploy was dead and main stayed red for hours).
+            #
+            # SAFETY — why this cannot delete something we still need:
+            #   * `docker image prune` NEVER removes an image that a container
+            #     references, so the RUNNING api/redis/proxy images are untouchable
+            #     here regardless of the filter.
+            #   * `until=72h` keeps three days of recent `sha-` tags, i.e. the rollback
+            #     targets docs/rollback-guide.md tells an operator to `up` by tag.
+            #     Anything older is still in ghcr and re-pullable, so rollback is
+            #     preserved either way — a cold rollback just re-downloads.
+            #   * volumes are NEVER pruned (that is badabhai_pgdata / badabhai_redisdata).
+            #     No `docker system prune`, no `--volumes`, not now, not later.
+            #   * every step is `|| true`: reclaiming is best-effort and must never turn
+            #     an otherwise-healthy deploy red.
+            #
+            # ESCALATION: if the 72h prune does not get free space over the threshold,
+            # fall back to pruning ALL unused images. That is still container-safe (see
+            # above) and is strictly better than a dead deploy.
+            echo "Disk before reclaim:"; df -h / || true
+            docker image prune -af --filter "until=72h" || true
+            docker builder prune -af || true
+            # $(NF-2) not $4: POSIX `df -P` guarantees the LAST three fields are
+            # Available / Capacity / Mounted-on, but a device name containing a space
+            # shifts every positional field (verified: it silently returns USED
+            # instead of AVAILABLE). Counting from the end cannot be fooled that way.
+            FREE_MB=$(df -Pm / | awk 'NR==2 {print $(NF-2)}')
+            echo "Free after conservative prune: ${FREE_MB} MB"
+            if [ "${FREE_MB:-0}" -lt 4096 ]; then
+              echo "::warning::under 4 GB free — pruning ALL unused images (still container-safe)"
+              docker image prune -af || true
+              # $(NF-2) not $4: POSIX `df -P` guarantees the LAST three fields are
+            # Available / Capacity / Mounted-on, but a device name containing a space
+            # shifts every positional field (verified: it silently returns USED
+            # instead of AVAILABLE). Counting from the end cannot be fooled that way.
+            FREE_MB=$(df -Pm / | awk 'NR==2 {print $(NF-2)}')
+              echo "Free after full prune: ${FREE_MB} MB"
+            fi
+            if [ "${FREE_MB:-0}" -lt 2048 ]; then
+              echo "::error::only ${FREE_MB} MB free after reclaim — the box needs a bigger disk, not a bigger prune"
+              docker system df || true
+              exit 1
+            fi
+            echo "Disk after reclaim:"; df -h / || true
+
             $COMPOSE pull api
             # TD81(a). `--profile api` is what makes this resolve: the ai-service
             # declares that profile alongside its own (docker-compose.yml), so it
