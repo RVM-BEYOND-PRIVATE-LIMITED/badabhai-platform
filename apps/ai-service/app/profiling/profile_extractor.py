@@ -23,10 +23,13 @@ from ..contracts import (
     SalaryExpectation,
     WorkerProfileDraft,
 )
+from ..logging_config import get_logger
 from ..pseudonymize import certified_clean_skill_labels
 from . import signals
 from .canonical_roles import ROLE_TRADE, coerce_json_text, normalize_role_id
 from .signals import Signals
+
+logger = get_logger("profiling.extractor")
 
 # Adjacency flag value: the profile canonicalized to NOTHING in the launch
 # taxonomy. Set on WorkerProfileDraft.unmatchable_reason so the profile is explicitly
@@ -186,6 +189,105 @@ def _as_text(value: object) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
+# --- ADR-0030 SG-3: the LLM emits PHRASES, the vector layer assigns ids -----
+#
+# ADR-0030 §SG-3 (docs/decisions/0030-embedding-skill-canonicalization.md:140) is
+# unambiguous: "The LLM emits phrases; the vector layer assigns the `skill_id`; the
+# model NEVER invents a `skill_id`", reinforced by §(d):65 — "There is no path from a
+# model string to a matchable `skill_id` except through the embed→match→floor→validate
+# pipeline." The occupation arm has enforced its half of that since ADR-0028
+# (`normalize_role_id` is a closed-set trust boundary). The SKILLS arm enforced
+# NOTHING: ``merge_model_draft`` took the model's ``skills``/``machines``/
+# ``controllers`` through ``_as_str_list`` — which is ``str`` + ``strip`` and no more —
+# and REPLACED the heuristic lists with them. A model that answered
+# ``"skills": ["skill_mig_welding"]`` therefore had that id-shaped string set on
+# ``WorkerProfileDraft.skills``, carried onto ``DraftProfile.skill_labels`` by the
+# extraction endpoint, persisted by apps/api as ``profiles.raw_profile`` /
+# ``generated_resumes.sourceProfileSnapshot``, and RENDERED to the worker and the payer
+# as if it were a phrase the worker had spoken. That is a model string reaching a
+# human-visible field wearing the taxonomy's clothes — precisely what SG-3 forbids —
+# and it is silent: nothing anywhere counted it.
+#
+# THE BOUNDARY (the two rules are NOT in conflict — do not "simplify" them together):
+#
+#   * ROLE arm — ``canonical_role_id`` DELIBERATELY asks the model for exactly one id
+#     from a closed set (``canonical_roles.canonicalization_instruction``) and
+#     re-validates it through ``normalize_role_id`` before it may touch the profile.
+#     That is ADR-0028's separate, ratified design and is untouched here. The free-text
+#     ``primary_role`` label is likewise NOT filtered — a real observed session emitted
+#     ``primary_role="mig_tig_welder"`` (see tests/test_rich_to_legacy_mapper.py) and
+#     the gazetteer reverse-lookup is entitled to read it; it is a label the mapper
+#     interprets, never an id it trusts.
+#   * SKILLS / MACHINES / CONTROLLERS arms (and their sibling label lists) — NO id may
+#     come from the model, ever. Ids for these arms are assigned ONLY by
+#     ``signals.machine_ids_for_labels`` / ``signals.skill_ids_for_labels`` (gazetteer
+#     reverse lookup) or the TAX-4 vector layer (``canonicalize_labels``), both of which
+#     look the id up themselves against a closed set.
+#
+# The prompt (``prompts.EXTRACTION_SYSTEM_PROMPT``) now asks for phrases and spells out
+# the same carve-out, but a prompt is a request, not a guarantee — this filter is the
+# enforcement half, and it is what the ADR is actually entitled to rely on.
+
+# The closed-set id prefixes this repo mints (packages/taxonomy/src/index.ts +
+# signals.py): skills/controllers ``skill_*``, machines ``mach_*``, trades/domains
+# ``dom_*``, roles ``role_*``. Matched case-insensitively so ``SKILL_MIG_WELDING`` is
+# caught too. Keep in step with the taxonomy package if a new id space is minted — the
+# general shape below is the safety net for exactly that lag.
+_TAXONOMY_ID_PREFIXES: tuple[str, ...] = ("skill_", "mach_", "dom_", "role_")
+
+# The general snake_case-token shape: all lowercase, no whitespace, at least one
+# underscore. This catches an id from a prefix nobody has enumerated here yet (a future
+# ``proc_*`` / ``insp_*`` space) without this module having to track the taxonomy.
+_TAXONOMY_ID_TOKEN_RE = re.compile(r"^[a-z]+_[a-z0-9_]+$")
+
+
+def _is_taxonomy_id_shaped(label: str) -> bool:
+    """True when ``label`` looks like a TAXONOMY ID rather than something a worker said.
+
+    Two independent shapes, either of which condemns the string: a known closed-set
+    prefix (case-insensitive), or the general lowercase snake_case token shape.
+
+    Deliberately NARROW so it cannot eat real language. Every legitimate label this
+    service produces or renders either contains whitespace ("tool offset setting",
+    "drawing reading", "MIG welding", "5-axis setup"), or is a single word with no
+    underscore ("welding", "turning", "kharad", "chhilai", "Fanuc", "VMC"), or carries
+    capitals ("CNC Lathe"). None of those match either shape — verified against the
+    whole ``signals`` gazetteer, whose only id-shaped literals are its actual id
+    columns, never a label column.
+    """
+    stripped = label.strip()
+    if stripped.lower().startswith(_TAXONOMY_ID_PREFIXES):
+        return True
+    return _TAXONOMY_ID_TOKEN_RE.fullmatch(stripped) is not None
+
+
+def drop_model_taxonomy_ids(labels: list[str], *, field: str) -> list[str]:
+    """Drop taxonomy-id-shaped members from a model-proposed LABEL list (ADR-0030 SG-3).
+
+    A **DROP, never a raise.** Canonicalization must never block extraction — that is
+    the TAX-8 guarantee the FORK-B-1 addendum states outright ("the store FAILS OPEN TO
+    UNRESOLVED … canonicalization never blocks extraction"), and the same posture governs
+    here: a model that answers entirely in ids costs the worker some enrichment, never
+    their profile. The rest of the list is kept verbatim.
+
+    The drop is **OBSERVABLE, not silent** — a structured warning carries the field name
+    and the COUNTS only. It never logs the dropped text: ADR-0030 SG-1 says worker-derived
+    skill text is treated as HOSTILE (a worker can type an employer name into a skills
+    answer, and ``pseudonymize``'s employer masking is known-incomplete, TD56), so this
+    module logs counts the same way ``sanitize_skill_labels`` promises to ("Never logs
+    label text") and main.py's spend-ledger skip does ("Counts/reason only").
+    """
+    kept = [label for label in labels if not _is_taxonomy_id_shaped(label)]
+    dropped = len(labels) - len(kept)
+    if dropped:
+        # Counts + field name only — never the label text (SG-1).
+        logger.warning(
+            "model emitted taxonomy-id-shaped labels; dropped (ADR-0030 SG-3)",
+            extra={"extra": {"field": field, "dropped": dropped, "kept": len(kept)}},
+        )
+    return kept
+
+
 def merge_model_draft(base: WorkerProfileDraft, content: str) -> WorkerProfileDraft:
     """Overlay a model's extracted fields onto the heuristic ``base``, keeping each
     field ONLY when it is individually well-formed.
@@ -199,6 +301,11 @@ def merge_model_draft(base: WorkerProfileDraft, content: str) -> WorkerProfileDr
     Location/salary fields are deliberately NOT overlaid: the model only ever sees
     the PSEUDONYMIZED transcript, so those are trusted only from the local heuristic
     ``base``. A bad/empty ``content`` returns ``base`` unchanged.
+
+    ADR-0030 SG-3: every LABEL LIST the model proposes is additionally passed through
+    ``drop_model_taxonomy_ids`` — the model emits phrases here, never taxonomy ids. See
+    the block above ``_is_taxonomy_id_shaped`` for why, and for why the ROLE arm
+    (``canonical_role_id``, ADR-0028) is deliberately exempt.
     """
     try:
         data = json.loads(coerce_json_text(content))
@@ -226,8 +333,28 @@ def merge_model_draft(base: WorkerProfileDraft, content: str) -> WorkerProfileDr
         "materials_handled", "secondary_roles", "certifications",
     ):
         values = _as_str_list(data.get(field))
-        if values is not None:
-            setattr(out, field, values)
+        if values is None:
+            continue
+        # ADR-0030 SG-3 (see the block above ``_is_taxonomy_id_shaped``): every field in
+        # this loop is a HUMAN-READABLE label list, so no member of it may be a taxonomy
+        # id. The filter runs on all eight, not just the skills/machines/controllers trio
+        # the ADR names, because the reason is identical for each — none of them is an id
+        # field, and the id-bearing arm (``canonical_role_id``) does not pass through here
+        # at all (main.py reads it separately via ``normalize_role_id``). Dropping happens
+        # BEFORE the setattr, so an id can never reach the draft, ``skill_labels``, the
+        # persisted profile, or the résumé.
+        kept = drop_model_taxonomy_ids(values, field=field)
+        if values and not kept:
+            # EVERY member was id-shaped. That is not the model saying "the worker
+            # mentioned none" — it is a MALFORMED emission for this field, so it takes
+            # this function's documented posture for a malformed field: skip it and let
+            # the local heuristic ``base`` stand. Writing the empty result instead would
+            # let a model answering purely in ids DELETE labels the deterministic detector
+            # genuinely read off the worker's own text. A real empty ``[]`` from the model
+            # still replaces, exactly as before — only an all-id list is treated as
+            # malformed.
+            continue
+        setattr(out, field, kept)
 
     for field in ("programming_knowledge", "setting_knowledge", "operation_knowledge"):
         level = data.get(field)
@@ -396,8 +523,18 @@ def sanitize_skill_labels(labels: list[str]) -> list[str]:
     that snapshot with NO TypeScript pseudonymize equivalent — so certification
     must happen here, at population. The résumé boundary re-certifies (defense
     in depth). Certification after the 20-cap can leave fewer than 20 labels —
-    over-drop is the safe direction. Never logs label text."""
-    return certified_clean_skill_labels(clamp_skill_labels(labels))
+    over-drop is the safe direction. Never logs label text.
+
+    ADR-0030 SG-3 runs FIRST in the pipeline: this function is the OTHER place a model
+    string can become a persisted ``skill_labels`` entry (main.py's live extraction path
+    calls it on ``legacy.skill_labels + rich.skills``, and ``map_rich_to_legacy`` calls it
+    on the same rich labels), so the id drop is applied here too — defense in depth behind
+    ``merge_model_draft``, and the only guard on any caller that hands us labels the merge
+    never saw. It runs before the clamp so a poisoned list cannot spend the 20-label cap on
+    ids that were going to be dropped anyway."""
+    return certified_clean_skill_labels(
+        clamp_skill_labels(drop_model_taxonomy_ids(labels, field="skill_labels"))
+    )
 
 
 def clamp_skill_labels(labels: list[str]) -> list[str]:
