@@ -1844,9 +1844,29 @@ def _period_months(near_before: str, near_after: str) -> int | None:
 # resume, and into the deterministic ranking factor `reach.mappers.ts` reads. The
 # detector is topic-blind and only rejects amounts under 1,000, so a roll number is
 # indistinguishable from a wage to it.
-_CREDENTIAL_LINE_CUES: tuple[str, ...] = (
-    "roll", "registration", "reg no", "regd", "certificate", "cert no",
-    "enrolment", "enrollment", "licence", "license", "ncvt", "scvt", "nsqf", "nsdc",
+# A number is a CREDENTIAL, not money, when a credential cue sits IMMEDIATELY
+# before it — "roll number R/2019/123456", "certificate no 45-2021-8891". Anchored
+# with `$` so the cue must be adjacent, allowing only a no/number connector and a
+# short alphanumeric ID prefix ("R/") in between.
+#
+# Proximity, not a line scan, and not a fixed character window. Both looser rules
+# shipped false suppressions: scanning the LINE dropped both salaries from "abhi
+# 25000 milta hai, 35000 chahiye, NCVT certificate hai" (one worker answering
+# several questions in one message — a chat message is a single line), and a
+# 30-character window still dropped the salary from "NCVT certificate hai, abhi
+# 25000 milta hai".
+_CREDENTIAL_BEFORE_RE = re.compile(
+    r"(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license"
+    r"|ncvt|scvt|nsqf|nsdc)\b"
+    # "certificate KA number NAPS/2020/44521" — same possessive slot the gate's
+    # _CREDENTIAL_ID_RE carries, kept in step with it.
+    r"(?:\s+(?:ka|ki|ke|mera|meri))?"
+    # The gap between the cue and the digits may be the REST OF THE IDENTIFIER —
+    # "roll number R/2019/123456" reaches its last digit run through "R/2019/", and
+    # "reg no MH2019CN4471" through "MH2019CN". Identifier characters only, so a
+    # space or comma ends the run and an unrelated later number is not suppressed.
+    r"\s*(?:no\.?|number|num|#)?\s*[:\-]?\s*[A-Za-z0-9/\-]{0,20}$",
+    re.IGNORECASE,
 )
 
 
@@ -1870,8 +1890,15 @@ def _detect_salary(text: str, lower: str, sig: Signals) -> None:
         line_start = lower.rfind("\n", 0, digits_at) + 1
         line_end = lower.find("\n", digits_at)
         line_end = len(lower) if line_end == -1 else line_end
-        line = lower[line_start:line_end]
-        if any(cue in line for cue in _CREDENTIAL_LINE_CUES):
+        # Scoped to the text immediately BEFORE the number, never the whole line.
+        # Scanning the line was wrong and shipped a regression: a chat message is a
+        # single line, so "abhi 25000 milta hai, 35000 chahiye, NCVT certificate hai"
+        # — one worker answering several questions at once — had BOTH salaries
+        # silently dropped because a certificate was mentioned later in the sentence.
+        # A credential number sits next to its cue ("roll number R/2019/123456"), so
+        # a short backward window is both sufficient and safe. Backward only: a
+        # forward window re-creates the same bug at shorter range.
+        if _CREDENTIAL_BEFORE_RE.search(lower[line_start:digits_at]):
             continue  # a roll/registration number, not a wage
         near_before = lower[max(line_start, m.start() - _PERIOD_WINDOW_BEFORE): m.start()]
         near_after = lower[m.end(): min(line_end, m.end() + _PERIOD_WINDOW_AFTER)]

@@ -79,9 +79,27 @@ def test_a_credential_number_is_never_read_as_a_salary(text):
     assert sig.expected_salary is None, text
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        # A worker answering several questions in ONE message — which the engine
+        # supports, and which is a single line. An earlier cut of the credential
+        # suppression scanned the whole line and silently dropped BOTH salaries
+        # here because a certificate was mentioned later in the same sentence. A
+        # 30-character backward window still dropped the salary from the third one.
+        "abhi 25000 milta hai, 35000 chahiye, NCVT certificate hai",
+        "VMC operator hu, abhi 25000 milta hai, 35000 chahiye, ITI kiya hai",
+        "NCVT certificate hai, abhi 25000 milta hai",
+    ],
+)
+def test_a_certificate_elsewhere_in_the_message_does_not_eat_the_salary(text):
+    """The suppression is ADJACENCY-based: the cue must sit immediately before the
+    digits, separated by at most a no/number connector and the rest of the
+    identifier. A certificate mentioned anywhere else in the sentence is irrelevant."""
+    assert detect(text).current_salary == 25000, text
+
+
 def test_real_salaries_still_parse():
-    """The credential suppression is per LINE, so it must not silence a genuine
-    salary answer that merely shares a conversation with a certificate one."""
     sig = detect("abhi 25000 milta hai, 35000 chahiye")
     assert sig.current_salary == 25000
     assert sig.expected_salary == 35000
