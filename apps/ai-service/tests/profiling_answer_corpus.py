@@ -45,6 +45,7 @@ TOPIC_ORDER: tuple[str, ...] = (
     "salary_expected",
     "availability",
     "education",
+    "certifications",
 )
 
 
@@ -378,8 +379,8 @@ _EDUCATION: list[AnswerFixture] = [
     F("education", "polytechnic diploma", register="english"),
     F("education", "B.Tech mechanical", register="english"),
     F("education", "B.E. mechanical", register="english"),
-    F("education", "NSDC certificate", register="english"),
-    F("education", "RVM CAD course kiya", register="hinglish"),
+    # (NSDC / RVM CAD moved to _CERTIFICATIONS on 2026-07-22 — they are certificates,
+    # and until that topic existed the corpus had nowhere else to file them.)
     F("education", "ITI + 3 saal apprenticeship", register="hinglish"),
     F("education", "10th pass", register="english"),
     F("education", "12th pass", register="english"),
@@ -397,6 +398,43 @@ _EDUCATION: list[AnswerFixture] = [
     F("education", "school chhod diya tha", expected="reject", register="hinglish"),
 ]
 
+# --- certifications --------------------------------------------------------
+# Asked: "Koi certificate hai — jaise NCVT, NSQF ya apprenticeship?"
+# Added 2026-07-22 with the topic itself (owner ruling: education AND
+# certifications must be asked). The local detector cannot parse most of these —
+# that is EXPECTED and is why `certifications` is MUST_ASK but not ESSENTIAL: the
+# value reaches the rich draft through the transcript, via the model. These
+# fixtures measure that honestly rather than pretending the gazetteer covers them.
+_CERTIFICATIONS: list[AnswerFixture] = [
+    F("certifications", "NSDC certificate", register="english",
+      note="was filed under education until this topic existed"),
+    F("certifications", "RVM CAD course kiya", register="hinglish",
+      note="was filed under education until this topic existed"),
+    F("certifications", "NCVT certificate hai", register="hinglish"),
+    F("certifications", "NCVT", register="english", note="verbatim option in the question"),
+    F("certifications", "NSQF level 4 kiya hai", register="hinglish"),
+    F("certifications", "apprenticeship kiya hai", register="hinglish"),
+    F("certifications", "apprentice tha 1 saal", register="hinglish"),
+    F("certifications", "ITI ka certificate hai", register="hinglish"),
+    F("certifications", "NCVT aur NSQF dono hai", register="hinglish",
+      note="two certificates in one answer"),
+    F("certifications", "SCVT certificate", register="hinglish"),
+    F("certifications", "safety training ka certificate hai", register="hinglish"),
+    F("certifications", "fire safety certificate liya tha", register="hinglish"),
+    F("certifications", "haan certificate hai", register="hinglish",
+      note="affirms without naming one — the model must not invent a name"),
+    F("certifications", "certificate hai par naam yaad nahi", register="hinglish",
+      note="explicitly unnamed; a fabricated name here would be a resume lie"),
+    F("certifications", "एनसीवीटी सर्टिफिकेट है", register="devanagari"),
+    F("certifications", "apprenticeship certificate mila tha company se", register="hinglish"),
+    F("certifications", "koi certificate nahi hai", expected="reject", register="hinglish",
+      note="a denial IS a complete answer; nothing may be stored"),
+    F("certifications", "nahi", expected="reject", register="hinglish",
+      note="bare denial"),
+    F("certifications", "certificate nahi liya, kaam se seekha", expected="reject",
+      register="hinglish", note="negation must not assert its opposite"),
+]
+
 CORPUS: tuple[AnswerFixture, ...] = tuple(
     _ROLE
     + _MACHINES
@@ -409,6 +447,7 @@ CORPUS: tuple[AnswerFixture, ...] = tuple(
     + _SALARY_EXPECTED
     + _AVAILABILITY
     + _EDUCATION
+    + _CERTIFICATIONS
 )
 
 

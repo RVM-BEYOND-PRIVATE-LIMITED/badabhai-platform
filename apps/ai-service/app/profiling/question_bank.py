@@ -152,6 +152,10 @@ _CNC_VMC_TOPICS: list[Topic] = [
         "education", "Education / training",
         "ITI, diploma ya koi aur training li hai?",
     ),
+    Topic(
+        "certifications", "Certifications",
+        "Koi certificate hai — jaise NCVT, NSQF ya apprenticeship?",
+    ),
 ]
 
 _TOPICS_BY_FAMILY: dict[str, list[Topic]] = {"cnc_vmc": _CNC_VMC_TOPICS}
