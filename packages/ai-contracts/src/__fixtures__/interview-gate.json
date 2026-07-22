@@ -1,0 +1,29 @@
+{
+  "_why": "Golden interview-gate contract, asserted from BOTH the Python engine (apps/ai-service/app/profiling/{interview_engine,question_bank}.py via tests/test_interview_gate_parity.py) and the TypeScript mock (apps/api/src/ai/mock-interview.ts via mock-interview.test.ts). The gate has always existed in TWO hand-maintained copies with NOTHING comparing them: Python pinned its own literal (tests/test_profiling_parser_coverage.py::test_the_429_must_ask_gate_holds_across_every_scripted_interview), TypeScript pinned its own (mock-interview.test.ts 'mirrors question_bank.py _CNC_VMC_TOPICS ids, in order'), and the only TS MUST_ASK assertion was a SUBSET check against the mock's OWN bank — which stays true no matter what Python does. Measured before this file existed: deleting 'availability' from the Python MUST_ASK_TOPICS tuple left BOTH suites green. Under TD81 staging runs the TypeScript mock, so the copy that silently drifts is the copy a real staging worker actually meets.",
+  "_rule": "ORDER IS PART OF THE CONTRACT, never incidental JSON formatting, so both sides compare with an ORDERED equality (`==` / `toEqual`) and never a set. `unanswered_essentials` is emitted in essential_topics order and crosses the wire to the client (CHAT-UE-1, contracts.py); topic_ids is the ask order, and a session can switch between the real engine and the mock mid-interview, so a reordering desynchronises `asked_question_ids` in flight.",
+  "_disjoint": "essential_topics and must_ask_topics are disjoint ON PURPOSE, and the reason is a product ruling rather than tidiness (issue #424 owner ruling 2026-07-18 + the 2026-07-22 education/certifications ruling, recorded at interview_engine.py:44-73). An ESSENTIAL must be ANSWERED: promoting salary/availability there would force a worker to disclose their pay before they could have a profile, and promoting education/certifications there would ship a FALSE `unanswered_essentials` for a worker who answered perfectly well, because the local detector cannot parse '12th pass' or 'NCVT certificate hai'. A MUST_ASK is asked-or-answered — the ask is our obligation, the answer stays theirs. Moving an id between these two lists is a real decision; this file makes it a two-language edit.",
+  "_no_copy": "IDS ONLY — never the question strings. The two sides phrase the SAME topic deliberately differently (the mock replies with its `question` verbatim and is warmer on purpose; the engine's is neutral-mentor per persona rule G4). The chips are the opposite case and are pinned byte-identical in answer-chips.json, because a tapped chip becomes the worker's answer of record. Pinning phrasing here would collapse a distinction both files argue for at length.",
+  "essential_topics": ["role", "machines", "experience", "current_location"],
+  "must_ask_topics": [
+    "preferred_locations",
+    "salary_current",
+    "salary_expected",
+    "availability",
+    "education",
+    "certifications"
+  ],
+  "topic_ids": [
+    "role",
+    "machines",
+    "experience",
+    "skills",
+    "current_location",
+    "preferred_locations",
+    "controllers",
+    "salary_current",
+    "salary_expected",
+    "availability",
+    "education",
+    "certifications"
+  ]
+}
