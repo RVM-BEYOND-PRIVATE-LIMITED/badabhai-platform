@@ -283,6 +283,37 @@ class SkipResult extends Equatable {
   List<Object?> get props => <Object?>[ok, applicationId, action];
 }
 
+/// Result of POST /chat/session.
+///
+/// [openingText] is the SERVER-SERVED one-shot opener — the engine's own copy,
+/// inviting the worker to answer every topic in one message. It is null whenever
+/// the API omits the key, which is the normal case in three situations:
+/// CHAT_ONE_SHOT_OPENER_ENABLED is off, the AI service was unreachable, or the
+/// API build predates the field. Null means "render the client's own
+/// `kChatOpeningText`", so an older API and a newer app still agree.
+///
+/// BLANK IS NULL. An empty or whitespace-only string is normalised away rather
+/// than carried through: it would otherwise replace the client's opener with an
+/// empty first bubble — a chat that greets the worker with nothing at all.
+class ChatSessionStart extends Equatable {
+  const ChatSessionStart({required this.sessionId, this.openingText});
+
+  final String sessionId;
+  final String? openingText;
+
+  factory ChatSessionStart.fromJson(Map<String, dynamic> json) {
+    final Object? raw = json['opening_text'];
+    final String? text = raw is String && raw.trim().isNotEmpty ? raw : null;
+    return ChatSessionStart(
+      sessionId: json['session_id'] as String,
+      openingText: text,
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[sessionId, openingText];
+}
+
 /// Result of POST /chat/message.
 class ChatReply extends Equatable {
   const ChatReply({

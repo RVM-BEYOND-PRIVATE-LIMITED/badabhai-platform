@@ -148,13 +148,18 @@ class ApiClient {
 
   /// Starts a chat session. Worker-scoped — requires [authToken]; the worker is
   /// taken from the token (WorkerAuthGuard + ConsentGuard), never from the body.
-  Future<String> startSession({required String authToken}) async {
+  ///
+  /// Returns the session id plus [ChatSessionStart.openingText] when the API
+  /// serves the one-shot opener. The opener is RENDERED ONLY — it is never posted
+  /// back as a chat message, so it never enters the stored transcript that
+  /// extraction reads.
+  Future<ChatSessionStart> startSession({required String authToken}) async {
     final Map<String, dynamic> json = await _post(
       '/chat/session',
       <String, dynamic>{},
       authToken: authToken,
     );
-    return json['session_id'] as String;
+    return ChatSessionStart.fromJson(json);
   }
 
   /// Posts a worker message. Worker-scoped — requires [authToken]; the worker is

@@ -21,7 +21,7 @@ void main() {
   blocTest<ChatBloc, ChatState>(
     'ChatStarted opens the session and drops the spinner',
     build: () {
-      when(() => repo.ensureSession()).thenAnswer((_) async {});
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
       return ChatBloc(repo);
     },
     act: (ChatBloc b) => b.add(const ChatStarted()),
@@ -54,7 +54,7 @@ void main() {
   blocTest<ChatBloc, ChatState>(
     'ChatMessageSent appends the worker message, shows typing, then the reply + chips',
     build: () {
-      when(() => repo.ensureSession()).thenAnswer((_) async {});
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
       when(() => repo.sendMessage(any())).thenAnswer((_) async =>
           const ChatTurn(reply: 'Got it.', followups: <String>['Haan', 'Nahi']));
       return ChatBloc(repo);
@@ -119,7 +119,7 @@ void main() {
   blocTest<ChatBloc, ChatState>(
     'a send failure MARKS the worker message failed (never a silent drop)',
     build: () {
-      when(() => repo.ensureSession()).thenAnswer((_) async {});
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
       when(() => repo.sendMessage(any())).thenThrow(const NetworkFailure());
       return ChatBloc(repo);
     },
@@ -153,7 +153,7 @@ void main() {
 
   group('send failure + retry (#343)', () {
     test('tapping retry re-sends in place and heals the bubble', () async {
-      when(() => repo.ensureSession()).thenAnswer((_) async {});
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
       // Fail once, then succeed.
       int calls = 0;
       when(() => repo.sendMessage('cnc')).thenAnswer((_) async {
@@ -184,7 +184,7 @@ void main() {
     });
 
     test('a still-failing retry re-marks the bubble failed', () async {
-      when(() => repo.ensureSession()).thenAnswer((_) async {});
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
       when(() => repo.sendMessage(any())).thenThrow(const NetworkFailure());
 
       final ChatBloc bloc = ChatBloc(repo);
@@ -220,7 +220,7 @@ void main() {
     });
 
     test('retry ignores a non-failed or out-of-range index', () async {
-      when(() => repo.ensureSession()).thenAnswer((_) async {});
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
 
       final ChatBloc bloc = ChatBloc(repo);
       addTearDown(bloc.close);
@@ -239,7 +239,7 @@ void main() {
   // re-emitted a stale transcript and erased anything appended meanwhile.
   group('concurrent sends (#344)', () {
     test('a slow reply does not erase bubbles from a later send', () async {
-      when(() => repo.ensureSession()).thenAnswer((_) async {});
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
       // A is slow, B is fast → B's bubble+reply land while A is still in flight,
       // so A's reply emit is the one that used to clobber them.
       when(() => repo.sendMessage('A')).thenAnswer((_) async {
@@ -270,7 +270,7 @@ void main() {
     });
 
     test('the typing indicator stays up until the LAST reply lands', () async {
-      when(() => repo.ensureSession()).thenAnswer((_) async {});
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
       when(() => repo.sendMessage('A')).thenAnswer((_) async {
         await Future<void>.delayed(const Duration(milliseconds: 150));
         return const ChatTurn(reply: 'replyA');
@@ -298,7 +298,7 @@ void main() {
 
     test('a voice merge mid-send keeps both the send and the voice bubbles',
         () async {
-      when(() => repo.ensureSession()).thenAnswer((_) async {});
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
       when(() => repo.sendMessage('typed')).thenAnswer((_) async {
         await Future<void>.delayed(const Duration(milliseconds: 100));
         return const ChatTurn(reply: 'typedReply');

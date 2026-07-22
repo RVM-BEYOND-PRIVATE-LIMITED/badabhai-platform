@@ -29,7 +29,7 @@ void main() {
     await locator.reset();
     locator.registerFactory<ChatBloc>(() => ChatBloc(repo));
     // Session opens instantly so the spinner drops and the list mounts.
-    when(() => repo.ensureSession()).thenAnswer((_) async {});
+    when(() => repo.ensureSession()).thenAnswer((_) async => null);
   });
 
   tearDown(() async => locator.reset());
@@ -202,6 +202,55 @@ void main() {
 
     expect(find.text('Naye message'), findsNothing);
     expect(controller.position.pixels, controller.position.maxScrollExtent);
+  });
+
+  // The SERVED opener is far taller than the canned one — twelve lines against
+  // two. `_kBottomSettleSteps` was measured against the canned bubble, and the
+  // overshoot it corrects grows with the height of the off-screen content the
+  // `ListView.builder` has to estimate. So the budget is re-measured HERE with
+  // the real served copy rather than assumed to still hold.
+  testWidgets('the tall served opener still settles exactly at the bottom',
+      (WidgetTester tester) async {
+    // Byte-for-byte `ONE_SHOT_OPENER` from `question_bank.py` — a paraphrase
+    // would measure a bubble the worker never sees.
+    const String served = 'Namaste. Main Bada Bhai. Koi test nahi, bas baat.\n'
+        'Ek hi message mein itna bata sakte hain?\n'
+        'aap kaunsa kaam karte hain\n'
+        'kaunsi machine\n'
+        'kitne saal ka experience hai\n'
+        'kya-kya aata hai\n'
+        'controller kaunsa\n'
+        'abhi kis sheher mein hain\n'
+        'kahan kaam kar sakte hain\n'
+        'abhi salary kitni hai\n'
+        'kitni salary expect karte hain\n'
+        'join karne mein kitne din lagenge\n'
+        'padhai ya training kaunsi hai\n'
+        'Jitna yaad hai utna hi likhiye. Baaki hum ek-ek karke pooch lenge.';
+    when(() => repo.ensureSession()).thenAnswer((_) async => served);
+
+    await pumpScreen(tester);
+    expect(find.textContaining('Jitna yaad hai'), findsOneWidget,
+        reason: 'the served opener is what is on screen');
+
+    // 20 turns is the worst row in the original measurement table (+808.8px of
+    // overshoot with the SHORT opener), so it is the right stress point.
+    await fillTranscript(tester, 20);
+
+    final ScrollController controller = listController(tester);
+    controller.jumpTo(0); // worker scrolled up: the estimate is at its worst
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'meri baat');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await tester.pumpAndSettle();
+
+    expect(
+      controller.position.pixels,
+      controller.position.maxScrollExtent,
+      reason: 'the settle budget must still converge with a 14-line bubble 0 — '
+          'if this fails, raise _kBottomSettleSteps, do not delete the test',
+    );
   });
 
   // #343 — an undelivered message used to render exactly like a delivered one.

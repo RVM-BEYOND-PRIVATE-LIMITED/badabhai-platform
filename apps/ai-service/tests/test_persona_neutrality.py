@@ -25,7 +25,7 @@ from app.ai.model_config import get_route
 from app.cli import onboarding_chat
 from app.profiling import interview_engine, prompts
 from app.profiling.profile_extractor import _CLARIFY
-from app.profiling.question_bank import topics_for
+from app.profiling.question_bank import ONE_SHOT_OPENER, topics_for
 
 # Banned in any worker-facing line (checked AFTER stripping the "Bada Bhai" brand).
 _BANNED_VOCATIVE = ("bhai", "bhaiya", "beta", "behen", "yaar")
@@ -66,6 +66,9 @@ def _worker_facing_strings() -> dict[str, str]:
     # now interview_engine.first_question), so every question it shows — the opening
     # one included — comes from the question bank above.
     out["cli_intro"] = onboarding_chat._INTRO
+    # The one-shot opener is worker-facing copy too, so it faces the same
+    # banned-vocative / gush / tum-form net as every question in the bank.
+    out["one_shot_opener"] = ONE_SHOT_OPENER
     return out
 
 

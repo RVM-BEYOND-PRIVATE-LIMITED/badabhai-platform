@@ -140,8 +140,16 @@ class ChatState extends Equatable {
 /// The opening bada-bhai prompt — a CLIENT-side line shown before the engine's
 /// first turn exists (#422).
 ///
-/// WHY IT IS STILL CANNED. There is no seam to fetch the engine's real first
-/// turn without new backend work, and this change is client-only:
+/// NOW THE FALLBACK, NOT THE ONLY PATH. `POST /chat/session` can serve the
+/// engine's own one-shot opener (`opening_text`, behind
+/// CHAT_ONE_SHOT_OPENER_ENABLED), and [ChatBloc] swaps it into bubble 0 when it
+/// arrives. This constant is what the worker sees when it does not: flag off, AI
+/// service unreachable, mock client, or an API build that predates the field.
+/// Keeping it is the point — the chat must never open on a blank bubble.
+///
+/// WHY THE FALLBACK IS STILL CANNED. Fetching the engine's first turn any other
+/// way needs a worker message to exist, and this constant predates the opener
+/// seam:
 ///   * `POST /chat/session` returns `{session_id, status, started_at}` only —
 ///     no reply (`apps/api/src/chat/chat.service.ts` `startSession`).
 ///   * `POST /chat/message` is the only path into the engine and its body is
@@ -166,9 +174,10 @@ class ChatState extends Equatable {
 ///     and must not render one, so we take the engine's documented
 ///     `worker_name=None` shape (no vocative) rather than inventing one.
 ///
-/// Residual gap: this string still duplicates engine copy client-side and can
-/// drift from `question_bank.py`. Closing that needs a server-served opener
-/// (backend work — out of scope for a client-only fix).
+/// Residual gap, NARROWED: this string still duplicates engine copy client-side
+/// and can drift from `question_bank.py`. It is now only what a DEGRADED session
+/// shows, and the server-served opener above is the live path — but the drift is
+/// not gone, so keep this aligned with the `role` topic if that copy changes.
 const String kChatOpeningText =
     'Namaste! Main Bada Bhai. Koi test nahi, bas baat karni hai. '
     'Aap kaunsa kaam karte hain — CNC, VMC, HMC operator, setter ya programmer?';
@@ -200,8 +209,9 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
 
   Future<void> _onStarted(ChatStarted event, Emitter<ChatState> emit) async {
     bool failed = false;
+    String? opener;
     try {
-      await _repo.ensureSession();
+      opener = await _repo.ensureSession();
     } on Failure catch (_) {
       // Do NOT swallow this (#343). The spinner still drops so the worker can
       // type, but the failure is now SURFACED: the repository re-opens the
@@ -209,7 +219,40 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // tells the worker the connection is not established.
       failed = true;
     }
-    emit(state.copyWith(initializing: false, sessionFailed: failed));
+    emit(state.copyWith(
+      initializing: false,
+      sessionFailed: failed,
+      messages: _withOpener(opener),
+    ));
+  }
+
+  /// The transcript with bubble 0 swapped for the server-served [opener].
+  ///
+  /// Returns null (= "leave messages alone", the [ChatState.copyWith] contract)
+  /// whenever there is no opener to apply, which is every flag-off, AI-service-
+  /// down, mock-client and older-API session. Those keep rendering
+  /// [kChatOpeningText], so this is additive in the strict sense.
+  ///
+  /// REPLACES rather than APPENDS. Appending would greet the worker twice with
+  /// two different openers, and the canned one asks the `role` question outright
+  /// — the worker would answer it, then be invited to answer everything at once,
+  /// which reads as the app not having listened.
+  ///
+  /// Rebuilt from `state.messages` AT EMIT TIME, not from a list captured before
+  /// the await. bloc 8.x runs events CONCURRENTLY (no transformer is registered
+  /// here), so a fast worker can have typed before the session call returned; a
+  /// captured list would silently drop their message. Index 0 is stable under
+  /// that race because the transcript is append-only and the constructor seeds
+  /// bubble 0 as the opener — nothing can ever insert ahead of it.
+  List<ChatMessage>? _withOpener(String? opener) {
+    if (opener == null || opener.trim().isEmpty) return null;
+    final List<ChatMessage> messages = state.messages;
+    if (messages.isEmpty || messages.first.fromWorker) return null;
+    if (messages.first.text == opener) return null; // already applied
+    return <ChatMessage>[
+      ChatMessage(text: opener, fromWorker: false),
+      ...messages.skip(1),
+    ];
   }
 
   Future<void> _onMessageSent(

@@ -75,7 +75,7 @@ void main() {
   setUp(() {
     api = MockApiClient();
     chat = MockChatRepository();
-    when(() => chat.ensureSession()).thenAnswer((_) async {});
+    when(() => chat.ensureSession()).thenAnswer((_) async => null);
     when(() => chat.sendMessage(any()))
         .thenAnswer((_) async => const ChatTurn(reply: 'bhai reply'));
     when(() => api.uploadVoiceNote(

@@ -1,0 +1,5 @@
+{
+  "_why": "Golden key list for the /profiling/opening contract, asserted from BOTH the TypeScript and the Python suites so Zod and Pydantic cannot drift apart. Measured gap this closes: Pydantic silently DROPS unknown request keys (a probe sending `want_opening` had it dropped with no error), and CI runs the node and ai-service jobs independently with nothing comparing the two. Without this file, adding a field on one side only is green on both sides.",
+  "ProfilingOpeningInput": ["role_family"],
+  "ProfilingOpeningOutput": ["opening_text"]
+}

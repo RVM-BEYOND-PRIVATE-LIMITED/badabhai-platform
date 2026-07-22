@@ -4,6 +4,7 @@ import type { ServerConfig } from "@badabhai/config";
 import {
   ProfilingTurnOutputSchema,
   ProfileExtractionOutputSchema,
+  ProfilingOpeningOutputSchema,
   ResumeGenerationOutputSchema,
   DraftProfileSchema,
   TranscriptionOutputSchema,
@@ -34,6 +35,13 @@ import { mockProfilingTurn } from "./mock-interview";
 export class AiService {
   private readonly logger = new Logger(AiService.name);
 
+  /**
+   * Memoized one-shot openers, keyed by role family. SUCCESSES ONLY — see
+   * `profilingOpening`. In-process and unbounded is fine: the key space is the
+   * role-family set (one today), not anything worker-derived.
+   */
+  private readonly openingCache = new Map<string, string>();
+
   constructor(@Inject(SERVER_CONFIG) private readonly config: ServerConfig) {}
 
   async profilingRespond(input: ProfilingTurnInput): Promise<ProfilingTurnOutput> {
@@ -54,6 +62,34 @@ export class AiService {
       extraction_ready: turn.extraction_ready,
       updated_state: turn.updated_state,
     });
+  }
+
+  /**
+   * The one-shot composite opener, or `null` when the AI service cannot supply it.
+   *
+   * NO MOCK FALLBACK, deliberately. Every other method here falls back to a local
+   * mock so the caller always gets something; this one must not, because a local
+   * fallback would be a THIRD copy of the opener copy (after `question_bank.py` and
+   * the Flutter const) and they would drift. `null` means "render your own const",
+   * which is exactly what the client already does today.
+   *
+   * Successes are memoized per role family: the opener is a module constant on the
+   * other side, so re-fetching it on every chat mount is a pointless hop on a 2G
+   * connection. Failures are NEVER cached — a single blip must not pin every later
+   * session to the fallback for the lifetime of the process.
+   */
+  async profilingOpening(roleFamily = "cnc_vmc"): Promise<string | null> {
+    const cached = this.openingCache.get(roleFamily);
+    if (cached !== undefined) return cached;
+
+    const remote = await this.post(
+      "/profiling/opening",
+      { role_family: roleFamily },
+      ProfilingOpeningOutputSchema,
+    );
+    const text = remote?.opening_text?.trim() ? remote.opening_text : null;
+    if (text !== null) this.openingCache.set(roleFamily, text);
+    return text;
   }
 
   async extractProfile(input: ProfileExtractionInput): Promise<ProfileExtractionOutput> {

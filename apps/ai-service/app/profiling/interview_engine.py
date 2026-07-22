@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from ..contracts import ConversationState
 from . import signals
-from .question_bank import Topic, topic_by_id, topics_for
+from .question_bank import Topic, one_shot_opener_for, topic_by_id, topics_for
 
 # A senior's acknowledgement: two words, no praise (persona rule G4).
 _ACK = "Theek hai. "
@@ -255,6 +255,31 @@ def first_question(
     (placeholder by default) prefixes the opening only."""
     first = topics_for(role_family)[0]
     return first.id, _vocative(worker_name) + first.question
+
+
+def opening_message(role_family: str = "cnc_vmc") -> str:
+    """The ONE-SHOT opener: an invitation to answer everything in one message.
+
+    Pure. Takes no ``ConversationState`` and returns none, and that is the whole
+    safety property of this function — read the next paragraph before "improving" it.
+
+    IT RECORDS NOTHING. The intuition "we just asked them all twelve things, so mark
+    them asked" is WRONG and was measured: seeding ``asked_question_ids`` with the
+    twelve topic ids, then letting a worker answer the four ESSENTIALs, wraps the
+    interview on turn 1 having served ZERO questions — every MUST_ASK topic
+    (preferred_locations, salary_current, salary_expected, availability, education,
+    certifications) silently never raised. That is exactly the issue-#424 defect the
+    MUST_ASK gate exists to prevent, re-created from the other direction. Unseeded,
+    the same worker gets 8 asks and wraps on turn 9.
+
+    So the opener is an INVITATION, not an ask. Whatever the worker volunteers is
+    detected normally by ``next_turn``; whatever they leave out is still asked for.
+
+    No vocative, deliberately: ``next_turn`` already prefixes ``{{worker_name}} ji,``
+    on turn 1 and again at the wrap-up, so a name here would be the third in a
+    two-bubble exchange. Serving it name-less also keeps the endpoint PII-free.
+    """
+    return one_shot_opener_for(role_family)
 
 
 def next_turn(

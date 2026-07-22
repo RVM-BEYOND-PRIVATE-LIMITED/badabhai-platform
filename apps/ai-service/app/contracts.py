@@ -112,6 +112,23 @@ class ProfilingTurnInput(BaseModel):
     real_call_allowed: bool = True
 
 
+class ProfilingOpeningInput(BaseModel):
+    role_family: str = "cnc_vmc"
+
+
+class ProfilingOpeningOutput(BaseModel):
+    """The one-shot opener text. Deliberately just the string.
+
+    No ``is_mock`` and no ``ai_metadata``: this is a deterministic template, no
+    model is called and nothing is pseudonymized, so there is no call to describe.
+    No ``worker_name`` either — the opener carries no vocative, which keeps this
+    endpoint PII-free by construction. Said explicitly so a later reviewer does not
+    "fix" the omission.
+    """
+
+    opening_text: str
+
+
 class ProfilingTurnOutput(BaseModel):
     reply_text: str
     blocked: bool = False
