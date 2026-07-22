@@ -703,11 +703,18 @@ export const aiJobs = pgTable(
     // PARTIAL on job_type: extraction jobs are a fraction of the table, so the index
     // stays smaller and never has to store the column.
     //   MEASURED CAVEAT (throwaway PG 18.4, 1,000,000 rows): the saving is purely a
-    //   function of the job_type MIX, not a property of the predicate. Same 1M rows:
-    //   at 33% extraction the partial is 36 MB vs an 85 MB non-partial twin; at 100%
-    //   extraction it is 108 MB vs 108 MB — EXACTLY ZERO saving. Bytes per entry are
-    //   ~113 either way. Today's real mix is likely near 100% extraction (voice is
-    //   dormant), so do not assume this predicate is buying space until the real
+    //   function of the job_type MIX, not a property of the predicate. Same 1M rows,
+    //   only the mix varied:
+    //       33% extraction   partial  36 MB   twin  85 MB
+    //       66% extraction   partial  72 MB   twin  96 MB
+    //      100% extraction   partial 108 MB   twin 108 MB   <- EXACTLY ZERO saving
+    //   Per-entry cost is NOT equal between them: the partial is ~113 B/entry, the
+    //   twin ~89 B/entry, because the twin also indexes the non-extraction rows,
+    //   whose session_id/worker_id are NULL and therefore index far more cheaply
+    //   (677,460 of its entries had a NULL leading key at the 33% mix). So the twin
+    //   is not "3x bigger per row" — it is bigger only because it holds more rows.
+    //   Today's real mix is likely near 100% extraction (voice is dormant), so do NOT
+    //   assume this predicate is buying space until a read-only
     //   `SELECT job_type, count(*) FROM ai_jobs GROUP BY 1` says so.
     //
     // Trailing `created_at DESC NULLS LAST` serves the sort ONLY IF the query orders
