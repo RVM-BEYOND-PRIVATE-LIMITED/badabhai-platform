@@ -5,6 +5,60 @@ Newest day on top. Copy the template block each working day. Every % move needs 
 
 ---
 
+# Daily Tracker — 2026-07-22
+
+## BadaBhai Progress Snapshot
+- **No % moves** (cap rule: no staging/handset evidence added today).
+- **PERF-1 1M confirmatory benchmark run.** The confirmation itself was the least
+  valuable output; what it bought was one real defect, one corrected rationale, and
+  one **retraction**. Throwaway PG 18.4 cluster (scratchpad only, never the shared
+  DB), 200k + 1M scales, A / stats-only / indexed / A′ arms, 15 trials per probe.
+  Headline held: arm A scales **5.00× linear** (5,661 → 28,306 buffers), arm B stays
+  flat (**−1..+2**) because btree depth does not change. A′ reproduced A at 0.0%.
+- **P2 CONFIRMED and FIXED (PR #489).** `ai_jobs_extraction_session_idx` is built
+  `created_at DESC NULLS LAST`; the query ordered by a bare `DESC` (= NULLS FIRST).
+  Pathkeys compare `nulls_first` strictly, so the orderings never matched and the
+  planner inserted a **Sort in 150/150 trials**, discarding the LIMIT-1 early exit.
+  On a 60-row session group the Sort cost **152 of 160 buffers**. The comment added
+  with migration 0047 claimed the opposite — it was false as built, now corrected.
+- **P1 RETRACTED — I called it live and I was wrong.** The mechanism is real (a
+  partial predicate cannot be proven from `job_type = $1`; generic plan = 28,310
+  buffers vs 8), but it is **not reachable**: Drizzle routes through postgres.js
+  `client.unsafe()`, which hardcodes `prepare: false`, so statements are unnamed and
+  no generic plan is ever cached (600/600 index scans measured). Logged as **TD100**
+  (latent) rather than quietly dropped.
+- **PR #477's "3× smaller partial index" does not survive scrutiny** — the ratio is
+  arithmetic on the seeded 33% mix. At 100% extraction it is **108 MB vs 108 MB,
+  zero saving**, and production's mix is plausibly ~100%. Logged as **TD99**.
+- **TD98 (new, pre-existing)**: `signals.py` populates the worker's own `machines` +
+  `skills` from third-party mentions, explicit denials, aspirations, training answers
+  and job adverts. `"lathe operator ka kaam mujhe nahi aata"` records
+  `machines:['CNC Lathe']`. Byte-identical on main, so not caused by today's work.
+- **Adversarial review overturned my judgement three times today** — twice on the
+  parser PR (#488, still open), once on P1. Every round measured, none reasoned.
+
+## Merged today (3 PRs on main)
+| PR | Title | Note |
+| -- | ----- | ---- |
+| [#486](https://github.com/RVM-BEYOND-PRIVATE-LIMITED/badabhai-platform/pull/486) | mirror the engine's MUST_ASK gate + topic ids in the mock interview | TD81 means staging runs the mock everywhere, so the #424 owner ruling was never exercised outside prod. Splits `salary`, adds `preferred_locations`, de-conflates `current_location`. |
+| [#487](https://github.com/RVM-BEYOND-PRIVATE-LIMITED/badabhai-platform/pull/487) | share the duplicated reply expectation; regenerate the stale parser-coverage doc | Doc was stale: 158→160 accepted, 94→92 gaps; the availability negation probes are finally shown as honoured. |
+| [#489](https://github.com/RVM-BEYOND-PRIVATE-LIMITED/badabhai-platform/pull/489) | order the extraction dedupe `desc nulls last` so it matches index 0047 | The P2 fix. Comment-only schema change, no migration. |
+
+## Open / carried
+- **[#488](https://github.com/RVM-BEYOND-PRIVATE-LIMITED/badabhai-platform/pull/488) parser widening — NOT merged.** CI green, but three review rounds each
+  found real fabrications (`"angle grinder chalata hu"` → `CNC Grinding Operator`;
+  `"Bihar ke alawa kahin bhi"` → `['Bihar']`, i.e. the one state excluded). Root
+  cause is structural: **the guards are enumerative, the bug class is generative**.
+  Final round directed to make each guard generative (a first-person self-claim
+  requirement, stem-generated regexes) or **delete that widening entirely**.
+- Owner queue unchanged: arm the PERF-3 retention sweep · signals.py cue-table sweep
+  ruling · concurrent-session merge discipline · `relocation_willingness` confirm ·
+  e2e test-session-mint sign-off. **New**: whether to mint a generic
+  `role_cnc_operator` id (a taxonomy + reach decision — `scoreRole` gives 0.0 to a
+  wrong id and 0.4 to a null, so a generic id would rank those workers *lower*).
+
+---
+
 # Daily Tracker — 2026-07-21
 
 ## BadaBhai Progress Snapshot
