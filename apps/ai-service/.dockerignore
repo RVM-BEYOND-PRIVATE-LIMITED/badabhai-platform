@@ -1,0 +1,46 @@
+# Context filter for the AI service image (TD81(a); see apps/ai-service/Dockerfile).
+#
+# NOTE THE SCOPE: docker reads the .dockerignore at the ROOT OF THE BUILD CONTEXT,
+# and this image's context is apps/ai-service (NOT the repo root, unlike
+# apps/api/Dockerfile). So the repo-root .dockerignore does NOT apply to this
+# build — every exclusion this image needs has to be stated here.
+#
+# The Dockerfile COPYs `app/` and `scripts/` explicitly rather than `COPY . .`, so
+# these entries are defence in depth rather than the only guard — but they also
+# keep the context itself small (nothing is uploaded to the daemon/BuildKit that
+# is not needed), which is the point of scoping the context this tightly.
+
+# Never ship an env file into an image. config.py anchors its env_file to
+# apps/ai-service/.env (AI-ENV-1), so a copied .env would be LOADED at boot —
+# baking whatever a developer's laptop happens to hold into a pushed layer, where
+# `docker history` makes it readable to anyone who can pull. .env.staging.example
+# is a placeholder-only template and still has no business in a runtime image.
+.env
+.env.*
+
+# Local virtualenv — a host-built venv is the wrong platform/interpreter anyway,
+# and it is by far the largest thing in this directory.
+.venv
+venv
+
+# Python + tooling caches (stale bytecode compiled against another interpreter).
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+htmlcov
+
+# The test suite and its dev-only dependencies are a CI gate
+# (.github/workflows/ci.yml → ruff + pytest), not a runtime artifact.
+tests
+requirements-dev.txt
+
+# Docs / build metadata: pyproject.toml here configures pytest + ruff only (the
+# service is run with uvicorn, never installed as a package), so nothing at
+# runtime reads any of these.
+README.md
+pyproject.toml
+Dockerfile
+.dockerignore

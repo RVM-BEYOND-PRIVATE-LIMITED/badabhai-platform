@@ -134,6 +134,114 @@ services:
       #   TRUST_PROXY_HOP_COUNT=1 docker compose --profile proxy-harness up --build
       # A hop COUNT, never a blanket `true` — see infra/docker/proxy-harness/README.md.
       TRUST_PROXY_HOP_COUNT: ${TRUST_PROXY_HOP_COUNT:-0}
+      # TD81(a) — point the API at the compose ai-service instead of its own
+      # localhost. The schema default is http://localhost:8000
+      # (packages/config/src/server.ts), which INSIDE this container is the api
+      # itself: nothing listens there, the AI call fails, and the API degrades to
+      # its safe TypeScript mock (real_call=false) — silently, because that
+      # fallback is a deliberate fail-safe and never turns anything red. The
+      # compose-network name is the only value that can be right for a container.
+      # No regression when the ai-service is NOT up (e.g. `--profile api up api`,
+      # which names one service): the connection fails the same way it does today
+      # and the same mock fallback applies. Overridable so the api container can be
+      # pointed at a host-run `uvicorn app.main:app` during AI development.
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai-service:8000}
+      # TD67 — the ONE service-level bearer for the ai-service's routes. VALUELESS
+      # ON PURPOSE (the compose "pass-through" form): the value is taken from the
+      # host environment and, when absent there, the variable is NOT SET in the
+      # container at all. It must NOT be written as `${AI_INTERNAL_TOKEN:-}`, which
+      # would hand the container an EMPTY STRING — and empty is not "unset" for
+      # either side of this seam: the api's Zod is `z.string().min(16).optional()`
+      # (an empty string is a PRESENT string, so it fails min(16) and
+      # loadServerConfig throws at boot) and the ai-service's is
+      # `Field(default=None, min_length=16)` (same rejection at Settings()). A
+      # `:-` default would therefore crash-loop BOTH services the moment either
+      # gained this line. Set it on BOTH sides or NEITHER: a half-flip makes every
+      # api→ai call 401 and the API "degrades to mock, logged at ERROR" — TD81's
+      # own failure class. Never a committed value.
+      AI_INTERNAL_TOKEN:
+
+  # ---- Optional: the FastAPI AI service (pseudonymization gateway) ----
+  # TD81(a). NOT started by `docker compose up` / `pnpm db:up` — profile-gated,
+  # exactly like the api. It joins the SAME profiles as the api (so
+  # `docker compose --profile api up` brings the pair up together and the
+  # AI_SERVICE_URL above actually resolves) plus its own `ai-service` profile for
+  # working on the Python side alone:
+  #
+  #   docker compose --profile ai-service up --build ai-service   # just this service
+  #   docker compose --profile api up --build                     # api + ai-service + deps
+  #   curl localhost:8000/health                                  # loopback-published below
+  #
+  # Naming it in the SAME profiles as the api is load-bearing for the deploy, not
+  # just convenience: `docker compose --profile api pull ai-service` must resolve
+  # on the box, and relying on compose's "explicitly-targeted services enable
+  # their own profile" behaviour would be a version bet — docker-compose.staging.yml
+  # records that the box's compose version is NOT verified.
+  ai-service:
+    profiles: ["ai-service", "api", "proxy-harness"]
+    image: ${AI_SERVICE_IMAGE:-badabhai-ai-service:latest}
+    build:
+      # Context is apps/ai-service, NOT the repo root — the service has no
+      # workspace dependencies, so it needs none of the monorepo. See the header
+      # of apps/ai-service/Dockerfile; apps/ai-service/.dockerignore applies.
+      context: apps/ai-service
+      dockerfile: Dockerfile
+    container_name: badabhai-ai-service
+    restart: unless-stopped
+    # NO depends_on, and that is deliberate: this service is DB-FREE by design
+    # (the api runs every authorized query — see the skill_store seam in
+    # app/config.py) and its only optional store, the TD27 spend ledger, is
+    # constructed lazily and FAILS CLOSED, so postgres/redis are not preconditions
+    # for it to boot. It also keeps `up -d --no-deps ai-service` on the box
+    # trivially honest. The api likewise does NOT depends_on this service: an
+    # unreachable ai-service must degrade to the mock, never block the API's boot.
+    ports:
+      # CD-1a precedent, applied before it can bite: bind the published port to
+      # LOOPBACK, never 0.0.0.0. This container answers /pseudonymize and the
+      # profiling/extraction routes, and TD67's service token is UNSET by default
+      # (open posture) — a 0.0.0.0 publish would put an unauthenticated AI surface
+      # on the public internet on the staging box, and a `ufw deny 8000` would NOT
+      # save it (docker's DNAT rules land ahead of ufw).
+      #
+      # Like redis, this MUST live in the BASE file: compose keys `ports` by
+      # {ip, target, published, protocol} and APPENDS entries whose key differs, so
+      # an overlay could not remove a base "8000:8000" — both binds would survive.
+      # Nothing is lost: the api reaches it over the compose network at
+      # ai-service:8000 (published ports play no part in container→container), and
+      # the box-local deploy health-gate curls it on 127.0.0.1.
+      - "127.0.0.1:8000:8000"
+    environment:
+      # ---- CLAUDE.md §2 INVARIANT 5: real LLM calls are GATED AND OFF BY DEFAULT.
+      # This literal "false" is committed and must STAY "false" in every committed
+      # file. Flipping it is an owner/§7 action taken in the STAGING ENVIRONMENT's
+      # secrets, never in git, and it requires GEMINI_FLASH_API_KEY as well (the
+      # config fails closed on either being absent). The keys below are declared so
+      # that arming real mode later is an ENV action with NO code change — declared
+      # is not armed.
+      AI_ENABLE_REAL_CALLS: "false"
+      # Optional provider credentials — pass-through, EMPTY BY DEFAULT, never a
+      # committed value. `:-` is safe for these two (unlike AI_INTERNAL_TOKEN
+      # below): both are `str | None` with no length check, and "" is falsy, so an
+      # empty value reads exactly as "not configured" and real calls stay blocked
+      # with the reason "GEMINI_FLASH_API_KEY is not set".
+      GEMINI_FLASH_API_KEY: ${GEMINI_FLASH_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # TD27 shared spend ledger. UNSET (the default) = the in-process backend,
+      # which is CORRECT here because the image runs exactly ONE uvicorn worker
+      # (see apps/ai-service/Dockerfile) — per-process caps and global caps are the
+      # same thing at one worker. Set it (e.g. redis://redis:6379/0, this project's
+      # redis) BEFORE either adding workers or flipping real calls. NOTE THE NAME:
+      # AI_SPEND_REDIS_URL, never REDIS_URL — AI-ENV-1 renamed it precisely because
+      # a compose `environment:` block sharing the api's REDIS_URL silently armed
+      # this service against a store it does not own.
+      AI_SPEND_REDIS_URL: ${AI_SPEND_REDIS_URL:-}
+      # TD67 service token — VALUELESS pass-through form, for the same reason as
+      # the api's entry above: `${AI_INTERNAL_TOKEN:-}` would supply "" and
+      # `Field(default=None, min_length=16)` rejects an empty string at Settings(),
+      # i.e. at STARTUP (deliberately — an empty token would otherwise arm the gate
+      # VACUOUSLY, since compare_digest("", "") is True). Set on BOTH sides or
+      # NEITHER.
+      AI_INTERNAL_TOKEN:
 
   # ---- Optional: TD25a reverse-proxy harness (ONE honest edge hop in front of api) ----
   # NOT started by `docker compose up` / `pnpm db:up` — profile-gated. An nginx that

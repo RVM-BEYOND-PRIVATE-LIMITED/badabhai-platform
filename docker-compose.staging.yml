@@ -3,11 +3,21 @@
 #
 # The base docker-compose.yml is a DEV-LAPTOP file on purpose (its api service
 # pins NODE_ENV=development, public dev-default secrets, and the compose-internal
-# postgres/redis) — NEVER deploy it alone. This overlay retargets ONLY the api
-# service for a real box; apply it ON TOP of the base file:
+# postgres/redis) — NEVER deploy it alone. This overlay retargets the api AND the
+# ai-service for a real box; apply it ON TOP of the base file:
 #
-#   docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api pull api
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api pull api ai-service
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api up -d --no-deps ai-service
 #   docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api up -d --no-deps api
+#
+# TD81(a): the ai-service is part of this overlay as of PR #431. Before that,
+# NOTHING served the FastAPI app on the box — AI_SERVICE_URL resolved to nothing,
+# the api degraded to its TypeScript mock, and /health still returned 200, so
+# staging reported healthy while running AI entirely mocked. Both services are
+# now pinned to their own IMMUTABLE per-commit image, and BOTH `${..IMAGE:?}`
+# pins must be exported for ANY compose command against this overlay (compose
+# interpolates the WHOLE file before it filters by service or profile) — so a
+# manual/rollback run exports API_IMAGE **and** AI_SERVICE_IMAGE.
 #
 # Fail-loud contract: every `${VAR:?}` below errors at COMPOSE time (before any
 # container starts) when the box lacks real values — a box still on the public
@@ -24,7 +34,9 @@
 # is NOT verified to run — so the deploy script passes `--no-deps api` on `up`
 # instead (portable across all compose v2), which skips dependency startup
 # entirely. NEVER run this overlay with a bare `up -d`: profile-less services
-# (postgres/redis/adminer) would still start alongside the api.
+# (postgres/redis/adminer) would still start alongside the api. (The ai-service
+# declares NO depends_on at all — it is DB-free and its spend ledger is lazy —
+# so `--no-deps` costs it nothing; it is kept for one uniform discipline.)
 # ===========================================================================
 services:
   api:
@@ -81,6 +93,21 @@ services:
       # TD33/TD50) and has NO boot assert — this compose-level requirement is the only
       # fail-loud gate for it.
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?required in staging — the dev default is a public repo literal}
+      # ---- TD81(a): point the api at the ai-service container, over the compose
+      # network. THIS LINE IS THE POINT OF THE WHOLE TICKET: without it the schema
+      # default http://localhost:8000 (packages/config/src/server.ts) resolves
+      # INSIDE the api container to the api itself, every AI call fails, and the
+      # API falls back to its safe TypeScript mock (real_call=false) — a SOFT
+      # failure that keeps /health at 200, so the box reported healthy while
+      # profiling/extraction ran entirely mocked and nobody was told.
+      #
+      # A LITERAL, not `${VAR:?}`: this is not a secret and there is exactly one
+      # correct value on this box — the compose service name. Making it a required
+      # secret would add a way to get it wrong (and a way to fail a deploy) with
+      # nothing to gain. `ai-service` resolves only over the compose network;
+      # neither localhost nor the loopback-published host port would work from
+      # inside the api container.
+      AI_SERVICE_URL: http://ai-service:8000
       # TD72(a): outside dev an EMPTY CORS list resolves to deny-all (origin:false)
       # with no boot assert — the first otherwise-green deploy would silently block
       # every payer-web/ops browser call while /health (no CORS) reports healthy.
@@ -112,3 +139,78 @@ services:
       # silently overridden here: the owner decides whether to pin a real method +
       # its creds (e.g. email_otp -> ZeptoMail set as `${VAR:?}`) or accept a dead
       # payer login on this box for now.
+
+  # ---- TD81(a): the FastAPI AI service, ON THE BOX ----
+  # The base file's ai-service is the dev-laptop form (a `:latest` local build).
+  # This retargets it exactly the way the api above is retargeted: an IMMUTABLE
+  # per-commit image, real-call gate still OFF, credentials pass-through only.
+  #
+  # Everything else it needs it already has from the base file and is NOT
+  # overridden here: the loopback-only `127.0.0.1:8000:8000` publish (CD-1a — this
+  # is an UNAUTHENTICATED AI surface while TD67's token is unset, so it must never
+  # be reachable off-box; a base `ports` entry cannot be removed by an overlay
+  # anyway, which is why the safe bind lives there), `restart: unless-stopped`, and
+  # the absence of any depends_on.
+  #
+  # It carries NO `${VAR:?}` secret requirements ON PURPOSE — the required-secret
+  # set for this box stays exactly the owner's STAGING-SECRETS-1 list (the same
+  # discipline that keeps SUPABASE_* out of the api block above). This service has
+  # no fail-closed boot assert to satisfy: with no keys it boots, serves the
+  # pseudonymization gateway, and answers every AI route from the MOCK path — which
+  # is the correct, committed posture (CLAUDE.md §2 invariant 5). What changes with
+  # this file is that the mock now runs where the api can SEE it, so `real_call`
+  # and the ai-service's own /health become observable instead of imaginary.
+  ai-service:
+    # CD-4, mirroring the api: pin the IMMUTABLE per-commit ghcr `sha-<short7>`
+    # tag exported by deploy-lightsail; rollback = export the previous sha tag and
+    # re-run `up` (docs/rollback-guide.md — which must now export BOTH image vars).
+    # `${VAR:?}` fails at COMPOSE time, before any container starts.
+    image: ${AI_SERVICE_IMAGE:?set the immutable ghcr sha tag, e.g. ghcr.io/<owner>/badabhai-platform/badabhai-ai-service:sha-<short7> — exported by deploy-lightsail in .github/workflows/ci.yml}
+    environment:
+      # ---- CLAUDE.md §2 INVARIANT 5, RESTATED ON THE DEPLOYED SURFACE: real LLM
+      # calls are GATED AND OFF BY DEFAULT. "false" is stated EXPLICITLY here — not
+      # merely inherited from the base file and not merely left to config.py's
+      # default — for the same reason NODE_ENV is restated on the api above: the
+      # deployed value must not depend on merge or default order, and the one flag
+      # that spends real money and sends real (pseudonymized) text to a provider is
+      # the last place to rely on an implicit default.
+      #
+      # Flipping this is an OWNER / §7 decision, made in the box's environment (or
+      # the staging environment secrets), NEVER in a committed file — and it takes
+      # BOTH this flag and GEMINI_FLASH_API_KEY, plus the runbook's staged rollout
+      # (docs/ai/enable-real-llm-extraction.md: AI_REAL_CALL_TASKS=profile_extraction
+      # first). Until then every route answers from the mock path.
+      AI_ENABLE_REAL_CALLS: "false"
+
+      # ---- Provider credentials: PASS-THROUGH, never committed, never required.
+      # Declared so the owner can supply them from the box env / environment
+      # secrets with NO code change; empty until then. `:-` is safe for these two
+      # (both are `str | None` with no length constraint, and "" is falsy — it
+      # reads as "not configured", so real_calls_blocked_reason still returns
+      # "GEMINI_FLASH_API_KEY is not set" and the mock path holds).
+      # NOTE: supplying a key ALONE arms nothing — the flag above still gates it.
+      GEMINI_FLASH_API_KEY: ${GEMINI_FLASH_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+
+      # ---- TD27 shared spend ledger. Unset = the in-process backend, which is
+      # exact (not approximate) here because the image runs ONE uvicorn worker.
+      # It MUST be set — to the box-local redis, i.e. redis://redis:6379/0, which
+      # is already running for the api (CD-1a) — BEFORE either the worker count
+      # rises or AI_ENABLE_REAL_CALLS is flipped, or the daily/per-user INR caps
+      # stop being global. Fail-closed by design: set-but-unreachable BLOCKS real
+      # calls (falls back to mock); it never permits an unverifiable spend.
+      # The name is AI_SPEND_REDIS_URL, NOT REDIS_URL (AI-ENV-1) — the api's
+      # REDIS_URL is a different, mandatory store and cannot reach these Settings.
+      AI_SPEND_REDIS_URL: ${AI_SPEND_REDIS_URL:-}
+
+      # ---- TD67 service token. Inherited VALUELESS (compose pass-through form)
+      # from the base file for BOTH this service and the api, which is what makes
+      # the flip a pure env action on the box: export AI_INTERNAL_TOKEN (>= 16
+      # chars) there, re-run the deploy, and both containers pick it up together.
+      # It is deliberately NOT threaded through the CI deploy's env/envs
+      # passthrough: an UNSET GitHub secret expands to an EMPTY STRING, and empty
+      # is FATAL on both sides (Zod .min(16) / pydantic min_length=16 both reject
+      # ""), so a not-yet-created secret would crash-loop the api too. Add it to
+      # ci.yml in the SAME change that creates the secret, or arm it from the box.
+      # Half-flipping it (one side only) 401s every api→ai call and silently
+      # degrades the API to mock — TD81's own failure class, re-created.

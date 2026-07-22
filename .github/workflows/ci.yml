@@ -248,7 +248,14 @@ jobs:
           kill "$API_PID" 2>/dev/null || true
           exit $E2E_EXIT
 
-  # ---- Build and Push Docker Image ----
+  # ---- Build and Push Docker Images (api + ai-service) ----
+  # TD81(a): this job now builds TWO images. The ai-service steps live in the SAME
+  # job rather than a parallel one on purpose: the checkout, the buildx driver and
+  # the GHCR login are already paid for here, and — the load-bearing reason — the
+  # deploy job below pulls BOTH images, so one job means "images ready" stays a
+  # single, atomic `needs:` edge instead of two that can half-succeed.
+  # The job KEY and `name:` are deliberately unchanged (a rename would silently
+  # break any branch-protection required check that references them by name).
   build-and-push-image:
     name: Build & Push Docker Image
     needs: [node, ai-service, e2e]
@@ -314,6 +321,47 @@ jobs:
           # apt+pip layer (it lives in the final runtime stage).
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # ---- TD81(a): the FastAPI ai-service image ----
+      # Same registry, same tag scheme, same immutability contract as the api
+      # above — `type=sha` gives the `sha-<short7>` tag the deploy pins, and
+      # DOCKER_METADATA_SHORT_SHA_LENGTH is pinned again here so BOTH images'
+      # short-sha tags provably match the deploy's `cut -c1-7` (they must, since
+      # one commit sha drives both exports).
+      - name: Extract metadata (tags, labels) for the ai-service image
+        id: meta-ai
+        uses: docker/metadata-action@v6
+        env:
+          DOCKER_METADATA_SHORT_SHA_LENGTH: "7"
+        with:
+          images: ghcr.io/${{ github.repository }}/badabhai-ai-service
+          tags: |
+            type=ref,event=branch
+            type=sha
+
+      - name: Build and push the ai-service Docker image
+        uses: docker/build-push-action@v7
+        with:
+          # CONTEXT IS apps/ai-service, NOT the repo root — this is the one place
+          # the two images differ structurally. The service is pure Python with no
+          # workspace dependencies, so it needs none of the monorepo, and
+          # apps/ai-service/.dockerignore (not the root one) filters the context.
+          # See the header of apps/ai-service/Dockerfile.
+          context: apps/ai-service
+          file: apps/ai-service/Dockerfile
+          push: true
+          tags: ${{ steps.meta-ai.outputs.tags }}
+          labels: ${{ steps.meta-ai.outputs.labels }}
+          # CD-5: a DISTINCT gha cache scope. Two builds in one job sharing the
+          # default scope would evict each other's layers every run, so the api's
+          # expensive WeasyPrint layer would stop being cached the moment this
+          # build landed. This image's cacheable layer is the pip install of
+          # requirements-ai.txt; it is small, so mode=min would also be defensible
+          # — mode=max is kept for symmetry with the api build. If the 10 GB
+          # Actions Cache quota starts evicting the turbo/pip caches (CI-5), this
+          # is the cheaper of the two to drop to mode=min first.
+          cache-from: type=gha,scope=ai-service
+          cache-to: type=gha,mode=max,scope=ai-service
 
   # ---- AWS Lightsail Deployment ----
   deploy-lightsail:
@@ -394,7 +442,15 @@ jobs:
             # pinned via DOCKER_METADATA_SHORT_SHA_LENGTH above). Rollback = export
             # the previous sha tag and re-run compose up (docs/rollback-guide.md).
             export API_IMAGE="$(echo "ghcr.io/${{ github.repository }}/badabhai-api:sha-$(echo '${{ github.sha }}' | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
+            # TD81(a): the ai-service image, same commit, same immutability rule.
+            # This export is NOT optional even for an api-only concern: compose
+            # interpolates the WHOLE overlay before it filters by service or
+            # profile, so docker-compose.staging.yml's `${AI_SERVICE_IMAGE:?}`
+            # would fail EVERY command below — including `pull api` — if it were
+            # missing. Same reason a rollback must export both (docs/rollback-guide.md).
+            export AI_SERVICE_IMAGE="$(echo "ghcr.io/${{ github.repository }}/badabhai-ai-service:sha-$(echo '${{ github.sha }}' | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
             echo "Deploying image: $API_IMAGE"
+            echo "Deploying image: $AI_SERVICE_IMAGE"
 
             # CD-0: base + staging overlay. The overlay pins NODE_ENV=production and
             # makes every production-required secret a fail-loud ${VAR:?} — a box
@@ -408,6 +464,12 @@ jobs:
             # local-dev-only postgres remap) is NOT auto-loaded here.
             COMPOSE="docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api"
             $COMPOSE pull api
+            # TD81(a). `--profile api` is what makes this resolve: the ai-service
+            # declares that profile alongside its own (docker-compose.yml), so it
+            # is selected here without depending on compose's newer
+            # "explicitly-named service enables its profile" behaviour — the box's
+            # compose version is not verified.
+            $COMPOSE pull ai-service
 
             # CD-1a: Redis IS box-local (owner decision) — it runs as this compose
             # project's `redis` service, so unlike postgres it MUST start here. The
@@ -436,6 +498,48 @@ jobs:
             # and 200s while every real endpoint 500s. Until CD-2 lands, applying
             # migrations MANUALLY (owner, after 0031 sign-off) is a required pre-step
             # to the first real deploy against a fresh DB.
+
+            # TD81(a): start the ai-service BEFORE the api, and gate on it.
+            #
+            # Ordering: the api tolerates an absent ai-service by design (it
+            # degrades to its TypeScript mock), so this is not a hard dependency —
+            # but starting the dependency first means the new api never serves a
+            # single request into a gap. `--no-deps` keeps the one uniform
+            # discipline; this service declares no depends_on at all (it is
+            # DB-free), so nothing else can be dragged up by it.
+            $COMPOSE up -d --no-deps ai-service
+
+            # CD-3 pattern, extended to the new service — and the actual fix for
+            # TD81's headline complaint ("staging silently runs mocked AI while
+            # reporting healthy"). The api's own /health is 200 whether or not the
+            # AI service exists, so ONLY a direct probe can tell the deploy that
+            # the AI path is real. localhost works because docker-compose.yml
+            # publishes 8000 on 127.0.0.1 (loopback-only, CD-1a). /health is the
+            # one route exempt from the TD67 token middleware, so this probe keeps
+            # working after AI_INTERNAL_TOKEN is armed. ~30s budget (15 x 2s) — a
+            # Python/uvicorn boot is far quicker than the Nest api's.
+            #
+            # TRADE-OFF, stated deliberately: this gate is BEFORE the api `up`, so
+            # a broken ai-service image blocks the api deploy. That is the intended
+            # posture — the box keeps serving the PREVIOUS, working api (no partial
+            # state) and the job goes RED — and it is strictly better than shipping
+            # an api that silently answers from the mock, which is the exact
+            # failure this ticket exists to end.
+            echo "Waiting for the AI service to become healthy..."
+            ai_healthy=0
+            for i in $(seq 1 15); do
+              if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+                ai_healthy=1
+                echo "AI service healthy after attempt ${i}"
+                break
+              fi
+              sleep 2
+            done
+            if [ "$ai_healthy" -ne 1 ]; then
+              echo "::error::AI service never became healthy — dumping container logs"
+              $COMPOSE logs --tail=100 ai-service
+              exit 1
+            fi
 
             $COMPOSE up -d --no-deps api
             $COMPOSE ps
