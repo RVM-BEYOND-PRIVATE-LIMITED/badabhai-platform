@@ -1,0 +1,15 @@
+# Sample canned transcript for:  python -m app.cli.onboarding_chat --script scripts/sample-interview.txt
+# One WORKER message per line. '#' lines and blank lines are ignored.
+# A realistic CNC/VMC session with the messy bits real workers actually type.
+vmc operator hu
+vmc aur cnc lathe chalata hu
+5 saal ho gaye
+setting aur tool offset aata hai, program edit nahi aata
+abhi Pune me hu
+matlab kya?
+Nashik ya Aurangabad chalega
+fanuc
+abhi 25000 milte hai
+35000 chahiye
+15 din lagenge
+ITI kiya hai

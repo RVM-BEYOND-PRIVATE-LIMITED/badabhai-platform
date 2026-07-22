@@ -49,6 +49,52 @@ pytest tests/test_pseudonymize.py   # gateway only (stdlib — no fastapi needed
 > dependencies**, so its tests run even if FastAPI/pydantic wheels are
 > unavailable for your Python version.
 
+## Drive the interview from a terminal (production path)
+
+`app/cli/onboarding_chat.py` lets you sit at a terminal and run the worker-profiling
+interview **exactly as production runs it**. It does not call the interview engine or
+the extractor directly: every turn is a real `POST /profiling/respond` and the profile
+is a real `POST /profile/extract` against `app.main:app`, driven in-process with
+`fastapi.testclient.TestClient` (ASGI — **no server, no socket, no DB, no Node**).
+Parity is therefore structural, not a claim: the pseudonymization gate, the Pydantic
+contracts, the clarify-vs-advance branch and the router call are the deployed code.
+
+```bash
+cd apps/ai-service
+python -m app.cli.onboarding_chat                      # interactive, full per-turn trace
+python -m app.cli.onboarding_chat --trace              # + raw request/state/ai_metadata
+python -m app.cli.onboarding_chat --quiet              # conversation only
+python -m app.cli.onboarding_chat --edge-cases         # scripted suite; non-zero exit on failure
+python -m app.cli.onboarding_chat --script scripts/sample-interview.txt
+python -m app.cli.onboarding_chat --http http://localhost:8000   # a RUNNING ai-service
+```
+
+Per turn it prints the raw message, the pseudonymized text that would reach a model
+(or the BLOCK), the engine's decision (advance vs clarify + ask counts), what the
+detector found vs what was collected vs what was **discarded and why**, the
+answered / essential / MUST_ASK state, and whether the reply came from a **real model
+call or the mock** — with `AI_ENABLE_REAL_CALLS` unset, everything is mock and the
+trace says so on every line.
+
+Two things it deliberately shows that are easy to miss:
+
+- the extraction transcript is assembled the way `profile-extraction.processor.ts`
+  `buildTranscript` assembles it — **both** directions, so Bada Bhai's own questions
+  are part of the extractor's input;
+- a message the gate BLOCKS is still stored (`chat.service.ts` inserts the inbound row
+  before the AI call), so it is in that transcript.
+
+The `merge_collected` view (question-attributed answers merged onto the draft) is
+printed **separately and labelled**: `merge_collected` has no caller in the production
+path, so that view is CLI-only and the endpoint's own profile is the headline result.
+
+`--edge-cases` runs ~49 scripted cases (fabrication probes, exclusions/refusals,
+origin-vs-preference, vague answers, Devanagari, privacy/fail-closed, robustness,
+extraction, flow) with expected-vs-actual and a PASS/FAIL summary. Known open defects
+are asserted as **current** behaviour and labelled (e.g. `TD98`, `R30`); if one stops
+reproducing the suite reports `STALE` and exits non-zero so the expectation gets
+updated instead of silently lying.
+
 ## Real STT (Sarvam)
 
 `POST /` transcription uses the **mock** transcript by default. The **real**
