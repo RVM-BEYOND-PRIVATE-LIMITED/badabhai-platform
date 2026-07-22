@@ -28,30 +28,44 @@ d = signals.detect_answered_topics
 def test_bare_cnc_and_bare_operator_still_resolve_nothing() -> None:
     """The `question_bank.py` decision is UPHELD, and extended to `cnc`.
 
-    Every operator role in the closed set names a machine family
+    Every SPECIALISED operator role in the closed set names a machine family
     (VMC / HMC / turner / grinding). "operator" gives the function without the
     family; "CNC" gives a family-of-families without saying which. Resolving either
-    one has to PICK a machine the worker never named.
+    one TO A SPECIALISATION has to PICK a machine the worker never named.
 
     Locked as an EXACT dict, not `"role" not in ...`, so a future widening that
     resolves them has to come here and argue with this test.
+
+    TD94 (owner ruling 2026-07-21, #460) came here and argued with exactly one line of
+    it. The PAIR "cnc" + an operating claim now resolves — to a GENERIC
+    `role_cnc_operator` that names no family, so it picks nothing — and those cases
+    moved to tests/test_generic_cnc_operator_role.py. EVERY LINE BELOW IS UNCHANGED:
+    neither half resolves on its own, in either script, which is what this test is
+    for and what the mint was carefully shaped not to break.
     """
     assert d("CNC", "role") == {}
     assert d("cnc", "role") == {}
     assert d("operator", "role") == {"skills": ["machine operation"]}
-    assert d("CNC operator", "role") == {"skills": ["machine operation"]}
     assert d("machine operator hu", "role") == {"skills": ["machine operation"]}
-    assert d("main CNC operator ka kaam karta hu", "role") == {
-        "skills": ["machine operation"]
-    }
     # ...and the Devanagari widening does not smuggle it in through the other script.
     assert d("ऑपरेटर", "role") == {}
+    # Nor does the Devanagari PAIR: TD94's cue table is Latin-only on purpose (there
+    # is no Latin `cnc` KEYWORD for it to be a transliteration of), so this stays a
+    # re-askable gap rather than an unratified vernacular alias (ADR-0030 §7 (d)).
+    assert d("सीएनसी ऑपरेटर", "role") == {}
 
 
 def test_the_role_id_allow_set_is_unchanged_by_the_widening() -> None:
-    """No id is MINTED. The closed set offered to the model is exactly the pre-existing
-    one, because it is derived from ``_ROLES`` + ``_EXTRA_ROLE_TRADES`` and the widening
-    adds to neither."""
+    """No id is MINTED **by the widening**. The widening's own cue rows all point at
+    ids that already existed, because it is derived from ``_ROLES`` +
+    ``_EXTRA_ROLE_TRADES`` and it adds to neither.
+
+    TD94 later minted `role_cnc_operator` — deliberately NOT through this table, but
+    through ``_EXTRA_ROLE_TRADES`` plus a gated assigner, on the `role_welder`
+    precedent. The per-row loop below is the assertion that actually carries this
+    test's claim, and it is untouched by that: no `_ROLE_CUES` row may reference an id
+    the closed set does not already hold.
+    """
     assert set(canonical_roles.ROLE_IDS) == {
         "role_cam_programmer",
         "role_cnc_programmer",
@@ -61,6 +75,16 @@ def test_the_role_id_allow_set_is_unchanged_by_the_widening() -> None:
         "role_cnc_grinding_operator",
         "role_cnc_turner_operator",
         "role_welder",
+        "role_cnc_operator",  # TD94 — minted outside this table (see docstring)
+    }
+    # The widening's OWN rows still mint nothing: every id a cue points at must
+    # already be in the closed set, and none of them is the TD94 generic.
+    assert {rid for _p, _l, rid, _t in signals._ROLE_CUES} == {
+        "role_vmc_operator",
+        "role_hmc_operator",
+        "role_cnc_setter_operator",
+        "role_cnc_programmer",
+        "role_cnc_turner_operator",
     }
     for _pat, _label, role_id, trade_id in signals._ROLE_CUES:
         assert role_id in canonical_roles.ROLE_TRADE, f"{role_id} is not in the closed set"
@@ -156,7 +180,12 @@ def test_role_variants_that_now_resolve(text: str, role: str) -> None:
         "lathe operator ka kaam mujhe nahi aata",
         "TIG aur MIG welding karta hu, grinder bhi chalata hu",
         "welder hu, lathe chalata hu kabhi kabhi",
-        "cnc lathe operator hu, welding bhi kar leta hu",
+        # NOTE: "cnc lathe operator hu, welding bhi kar leta hu" LEFT this list on
+        # TD94 and is asserted in test_the_deleted_inference_is_still_deleted_under_
+        # td94 below. It is no longer a probe for THIS property — its role now comes
+        # from the generic CNC gate, not from a lathe+function inference — and the
+        # property it did probe (never `role_cnc_turner_operator`) is asserted there
+        # directly, which is stronger than asserting "no role at all".
     ],
 )
 def test_the_machine_plus_function_inference_is_deleted(text: str) -> None:
@@ -175,6 +204,30 @@ def test_the_machine_plus_function_inference_is_deleted(text: str) -> None:
     replaced scores 0.4, on a topic that is never re-asked once closed.
     """
     assert "role" not in d(text, "role"), f"{text!r} still infers a role"
+
+
+def test_the_deleted_inference_is_still_deleted_under_td94() -> None:
+    """TD94 must not resurrect `<machine> + <function>` by the back door.
+
+    "cnc lathe operator hu, welding bhi kar leta hu" used to be a row in the
+    parametrized list above, asserting no role at all. It now resolves, and the
+    distinction is the whole safety argument for the mint: the worker said CNC and
+    said operator, so they get the GENERIC id — they did NOT get
+    `role_cnc_turner_operator`, which is what the deleted inference read "lathe
+    operator" as and which would score 0.0 against every non-turning job.
+
+    The lathe-only phrasings stay gaps: with no `cnc` in the sentence there is no pair
+    to match, so nothing fires at all.
+    """
+    got = d("cnc lathe operator hu, welding bhi kar leta hu", "role")
+    assert got["role"] == "CNC Operator"
+    assert signals.detect(
+        "cnc lathe operator hu, welding bhi kar leta hu"
+    ).role_id == "role_cnc_operator"
+    # The two ids TD94 must never produce from this sentence: the specialisation the
+    # deleted inference produced, and the welder the machining gate must keep out.
+    for text in ("lathe operator", "lathe operator hu", "lathe chalata hu"):
+        assert "role" not in d(text, "role"), f"{text!r} resurrected the inference"
 
 
 def test_the_deletion_also_restores_the_welding_gate() -> None:

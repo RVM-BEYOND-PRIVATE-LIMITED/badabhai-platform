@@ -8,6 +8,9 @@ import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { AiService } from "../ai/ai.service";
 import { ProfilesService } from "../profiles/profiles.service";
+// T3: the SAME "did this extraction extract anything?" predicate ProfilesService
+// dedupes on (issue #420). A pure leaf function — no new module edge, no new cycle.
+import { hasExtractedContent } from "../profiles/profile-content";
 import { ChatRepository } from "./chat.repository";
 import {
   PostMessageResponseSchema,
@@ -410,11 +413,39 @@ export class ChatService {
    * Duplicate-extraction protection (three layers):
    *  1. Called only from the readiness FLIP, which is itself gated by the
    *     `extraction_ready_emitted` marker → at most once per session across turns.
-   *  2. Skips if the worker already has a profile row (`latestProfile`) → repeated
-   *     signals / re-onboarding never create a second profile.
+   *  2. Skips if the worker already has a profile row **that actually extracted
+   *     something** (`latestProfile` + `hasExtractedContent`) → repeated signals /
+   *     re-onboarding never create a second profile. See T3 below for why the
+   *     content check is load-bearing and not merely defensive.
    *  3. `ProfilesService.extract` enqueues a BullMQ job whose processor is
    *     idempotent per `ai_job` (it returns the prior profile_id on redelivery),
    *     so `profile.extraction_completed` is emitted exactly once.
+   *
+   * T3 — WHY LAYER 2 READS CONTENT AND NOT MERE EXISTENCE (the audit's #2 gap).
+   * This used to skip on ANY profile row. Combined with the AI-down path — where
+   * `AiService.extractProfile` fabricates `DraftProfileSchema.parse({})` with
+   * `blocked: false` and the processor persisted it — one unreachable ai-service
+   * during one interview left the worker with an EMPTY profile row that this guard
+   * then treated as "already profiled" FOREVER: no later turn, no re-completed
+   * interview, and no new session ever produced another extraction. A worker whose
+   * only interview happened to land during an outage was permanently unprofiled and
+   * permanently unable to become profiled, silently.
+   *
+   * Reusing `hasExtractedContent` (rather than, say, testing `profileStatus`) is
+   * deliberate: it is the identical predicate `ProfilesService.extract` already uses
+   * to decide whether a completed ai_job may dedupe, so the two guards can never
+   * disagree about the same row — and it correctly keeps a content-poor but REAL
+   * extraction (TD94: a plain "CNC operator" the gazetteer cannot canonicalize, whose
+   * content lives only in the rich draft) on the SKIP side, which is what stops this
+   * from becoming the unbounded re-extraction loop issue #420 was filed about.
+   *
+   * The retry is BOUNDED, which is why relaxing the guard is safe: this is reachable
+   * at most once per chat session (layer 1), and `ProfilesService.extract` applies its
+   * own session-scoped dedupe on top — so a placeholder costs one fresh attempt per
+   * genuinely new interview, never a loop. Erring this way is also the direction
+   * `ProfilesService.extract` already documents as correct: "being wrong in that
+   * direction leaves a worker with no profile at all — strictly worse than the double
+   * spend this guards".
    *
    * Never throws: a failed trigger must not break the chat reply. Enqueue failures
    * are already recorded by `extract` (ai_job → failed + `profile.extraction_failed`).
@@ -428,11 +459,21 @@ export class ChatService {
   ): Promise<void> {
     try {
       const existing = await this.workers.latestProfile(workerId);
-      if (existing) {
+      if (existing && hasExtractedContent(existing)) {
         this.logger.log(
           `auto-extract skipped session=${sessionId}: worker already has profile ${existing.id}`,
         );
         return;
+      }
+      if (existing) {
+        // The T3 self-heal actually firing. Logged at the same level and with the same
+        // opaque-ids-only discipline as the skip above, so an operator can tell the two
+        // apart in a staging outage instead of seeing silence. Mirrors the equivalent
+        // line in `ProfilesService.extract` ("extract re-running ... empty profile").
+        this.logger.log(
+          `auto-extract re-running session=${sessionId}: existing profile ${existing.id} ` +
+            `extracted no content (placeholder), not treating it as a profile`,
+        );
       }
       const { ai_job_id } = await this.profiles.extract(
         { worker_id: workerId, session_id: sessionId },

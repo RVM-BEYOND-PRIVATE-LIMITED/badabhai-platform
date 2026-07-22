@@ -8,6 +8,7 @@ import { AiService } from "../ai/ai.service";
 import { ChatRepository } from "../chat/chat.repository";
 import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository, type AiJobUsageMetadata } from "./ai-jobs.repository";
+import { hasExtractedContent, type ProfileContentFields } from "./profile-content";
 import { AI_SPEND_CAP_REASONS, type AiSpendCapReason } from "@badabhai/event-schema";
 import {
   PROFILE_EXTRACTION_QUEUE,
@@ -73,7 +74,24 @@ export class ProfileExtractionProcessor extends WorkerHost {
       const transcript = this.renderTranscript(messages);
       const result = await this.ai.extractProfile({ worker_ref: workerId, transcript, messages });
       const profile: DraftProfile = result.profile;
-      const profileStatus = result.blocked ? "draft" : "extracted";
+      // Issue #419 — the RICH draft the response has always carried (persisted below).
+      // HOISTED out of the `create()` call because the profile_status decision reads it
+      // too: the legacy columns are a strict SUBSET of what an extraction produces, so
+      // judging content on them alone would demote a real TD94 extraction to "draft".
+      const richProfileDraft = result.worker_profile_draft ?? null;
+      const profileStatus = this.decideProfileStatus(result.blocked, profile, richProfileDraft);
+      // T3: make the degraded case VISIBLE rather than silently successful. The
+      // `blocked` leg is already an expected, documented outcome (pseudonymization
+      // failing closed) and has always been recorded as "draft" without comment; a
+      // NOT-blocked extraction that nonetheless produced nothing is the interesting
+      // one — it is what an unreachable ai-service looks like from in here. Opaque job
+      // id only, never transcript/PII (§2 no-PII-in-logs).
+      if (profileStatus === "draft" && !result.blocked) {
+        this.logger.warn(
+          `extraction job ${aiJobId} produced NO extracted content; recorded as "draft" ` +
+            `(re-extractable) instead of "extracted" — check ai-service reachability`,
+        );
+      }
       const aiMeta = result.ai_metadata; // operational usage/cost (null on the mock/AI-down path)
 
       const saved = await this.profiles.create({
@@ -102,7 +120,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
         // interview collected beyond the legacy shape. `?? null` because the field is
         // nullable in the contract (the mock/AI-down path returns none), and NULL is the
         // honest value for "this extraction produced no rich draft".
-        richProfileDraft: result.worker_profile_draft ?? null,
+        richProfileDraft,
       });
 
       await this.aiJobs.markCompleted(aiJobId, { profile_id: saved.id }, toAiJobUsage(aiMeta));
@@ -159,6 +177,87 @@ export class ProfileExtractionProcessor extends WorkerHost {
       this.logger.warn(`extraction job ${aiJobId} failed (attempt ${job.attemptsMade + 1}): ${reason}`);
       throw err; // rethrow so BullMQ records/retries the failure
     }
+  }
+
+  /**
+   * The `profile_status` decision — and the ONE place a FABRICATED extraction is
+   * stopped from being recorded as truth (TD81 / T3, the audit's "skill_ids:[]
+   * passes silently" gap).
+   *
+   * THE DEFECT. When the ai-service is unreachable, `AiService.extractProfile`
+   * FABRICATES a result — `DraftProfileSchema.parse({})` (null canonical ids, empty
+   * skills/machines, null total_years, availability "unknown") carrying
+   * `blocked: false` — so the worker's flow keeps moving. This used to read
+   * `result.blocked ? "draft" : "extracted"`, consulting ONLY that flag and never the
+   * CONTENT, so the fabrication was stamped "extracted": the status that means "this
+   * worker is profiled". Paired with `ChatService.autoTriggerExtraction` skipping on
+   * any existing profile ROW, that empty row became the worker's PERMANENT profile —
+   * no later turn and no re-completed interview ever replaced it.
+   *
+   * THIS FIX IS ABOUT RECORDING, NOT FAILING. The AI-down path still does not throw
+   * and still does not block anyone — the same deliberate posture job-postings holds
+   * ("an AI-service outage NEVER blocks the posting"). The profile row is still
+   * created, the ai_job is still marked `completed`, `profile.extraction_completed` is
+   * still emitted, and the chat turn that triggered this is untouched. Only the STATUS
+   * changes: an extraction that produced nothing is recorded as "draft" — the column's
+   * schema default, and the very status the fail-closed `blocked` leg has always
+   * used — which is the honest value for "we have no profile for this worker yet"
+   * and, being not-"extracted", is what lets the session self-heal later.
+   *
+   * NO EVENT PAYLOAD CHANGES (invariant #8). `ProfileExtractionCompletedPayload`
+   * (packages/event-schema/src/payloads.ts) already types `profile_status` as
+   * `z.enum(["draft","extracting","extracted","confirmed"])` and "draft" is already
+   * emitted on the blocked leg, so this is a different VALUE of a shipped field, not a
+   * new or altered field. `field_count` keeps using `countFields` unchanged.
+   *
+   * WHY CONTENT AND NOT `is_mock` — the candidate mechanism deliberately REJECTED.
+   * `is_mock` is a REACHABILITY probe, not a content signal: the ai-service sets it as
+   * `is_mock = not meta.real_call` (apps/ai-service/app/main.py:810), so it is true
+   * for the AI-down fabrication AND for every perfectly good deterministic extraction
+   * while `AI_ENABLE_REAL_CALLS=false` — which is the COMMITTED DEFAULT (CLAUDE.md §2
+   * invariant 5) and precisely the posture TD81 records staging as running in. Keying
+   * profile_status off it would mean NO worker ever reaches "extracted" outside a
+   * real-provider environment, breaking the Phase-1 exit criteria. That is the same
+   * trap `profile-content.ts` already documents for `ai_jobs.real_call`, rejected here
+   * for identical reasons.
+   *
+   * WHY `hasExtractedContent` AND NOT `countFields > 0`. `countFields` counts only the
+   * canonical/legacy columns, a strict SUBSET of what an extraction produces — the
+   * skill labels and the rest live in the rich draft and are counted by nothing. A
+   * REAL extraction the gazetteer could not canonicalize (TD94: a plain "CNC
+   * operator") scores 0 there while genuinely carrying content, and demoting THAT to
+   * "draft" would make a good profile look unprofiled. `hasExtractedContent` is the
+   * codebase's existing answer to "did this extraction extract anything?" (issue #420,
+   * PRs #430/#438) and is ALREADY the predicate `ProfilesService.extract` dedupes on.
+   * Reusing it — over the row projection this processor is about to WRITE — gives that
+   * question exactly ONE definition, so the status stamped here and the dedupe/retry
+   * decision taken later can never drift apart and disagree about the same row.
+   */
+  private decideProfileStatus(
+    blocked: boolean,
+    profile: DraftProfile,
+    richProfileDraft: unknown,
+  ): "draft" | "extracted" {
+    // Unchanged first leg: pseudonymization failed closed upstream, so there is no
+    // extraction to judge. Kept ahead of the content check so a blocked result is
+    // never re-litigated on content it was never allowed to produce.
+    if (blocked) return "draft";
+
+    // The row as `ProfilesRepository`/`WorkersRepository.latestProfile` will hand it
+    // back, assembled from the exact values `create()` writes below — so this reads
+    // the profile the way every later reader does, not a parallel notion of it.
+    const asPersisted: ProfileContentFields = {
+      canonicalTradeId: profile.canonical_trade_id,
+      canonicalRoleId: profile.canonical_role_id,
+      skills: profile.skills,
+      machines: profile.machines,
+      experience: profile.experience,
+      salaryExpectation: profile.salary_expectation,
+      locationPreference: profile.location_preference,
+      availability: profile.availability,
+      richProfileDraft,
+    };
+    return hasExtractedContent(asPersisted) ? "extracted" : "draft";
   }
 
   /**

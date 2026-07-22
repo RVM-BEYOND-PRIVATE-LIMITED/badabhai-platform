@@ -33,6 +33,25 @@ interface HealthResponse {
  * DETECTION instead: the field here, the processor's terminal error log, and the alert
  * threshold in docs/observability-runbook.md §7 (SEV2 if it stays down — DPDP erasure
  * has stopped).
+ *
+ * `checks.ai_service` + `checks.ai_posture` (TD81) follow the SAME informational rule,
+ * and the choice was made deliberately rather than inherited:
+ *   - A 503 was REJECTED. Mocked AI is not an outage — the whole AI path is designed to
+ *     fail SOFT (`ai.service.ts` degrades every call to a local mock), so every worker
+ *     and payer route keeps serving normally. 503-ing would fail the CD /health gate and
+ *     the staging smoke, and in a rotation would pull a healthy API out of service, i.e.
+ *     convert a degraded-but-serving condition into a real outage. Worse, mock-by-default
+ *     is the CORRECT posture (CLAUDE.md §2.5 — `AI_ENABLE_REAL_CALLS=false` is the
+ *     committed default), so a status-code gate would make every correctly-configured
+ *     environment — including local dev, CI and this repo's own test suite — report
+ *     "error" forever, and a permanently-red signal is read by nobody.
+ *   - A silent 200 was ALSO rejected: that IS the TD81 bug ("/health still returns 200,
+ *     so staging reports healthy while running AI entirely mocked"). Option (b) of the
+ *     register's two remediations is to make it LOUD, not to make it fatal.
+ * So: informational in the body (`ai_posture` names real-vs-mock outright, at a glance)
+ * and loud in the logs (HealthService logs the posture on every change, at WARN whenever
+ * AI is mocked or undeterminable). Same shape as deletion_sweep — surfaced for DETECTION,
+ * not for rotation control.
  */
 @Controller("health")
 export class HealthController {
@@ -44,7 +63,8 @@ export class HealthController {
   @Get()
   async check(@Res({ passthrough: true }) res: Response): Promise<HealthResponse> {
     const checks = await this.health.check();
-    // Gate: hard dependencies only — see the deletion_sweep note above.
+    // Gate: hard dependencies only — see the deletion_sweep + ai_service notes above.
+    // Both of those are reported in `checks` and deliberately absent from this line.
     const healthy = checks.database === "up" && checks.redis === "up";
 
     res.status(healthy ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE);

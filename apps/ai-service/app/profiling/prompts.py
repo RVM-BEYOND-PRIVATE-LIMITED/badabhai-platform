@@ -59,6 +59,35 @@ EXTRACTION_SYSTEM_PROMPT = (
     "one, record ONLY the one they named. If our question gives an example "
     "('jaise 2 saal ya 5 saal') the example is not their answer. If a topic was "
     "asked but not answered, it stays null/empty.\n"
+    # ADR-0030 SG-3 (docs/decisions/0030-embedding-skill-canonicalization.md:140):
+    # "The LLM emits phrases; the vector layer assigns the skill_id; the model NEVER
+    # invents a skill_id" — and §(d):65: "There is no path from a model string to a
+    # matchable skill_id except through the embed→match→floor→validate pipeline."
+    # Nothing in this prompt used to say so, and `skills`/`machines`/`controllers`
+    # were copied verbatim onto the draft (profile_extractor.merge_model_draft), so a
+    # model that answered `"skills": ["skill_mig_welding"]` had that id-shaped string
+    # persisted as DraftProfile.skill_labels and RENDERED ON THE RÉSUMÉ as if the
+    # worker had said it. This block is the prompt half of the fix; the enforcement
+    # half (a drop filter, because a prompt is a request and not a guarantee) lives in
+    # profile_extractor._is_taxonomy_id_shaped / drop_model_taxonomy_ids.
+    #
+    # THE BOUNDARY, stated inside the prompt on purpose: the ROLE arm DELIBERATELY
+    # asks for one id from a closed set (canonical_roles.canonicalization_instruction,
+    # ADR-0028's separate ratified design, validated by normalize_role_id) and
+    # main.py appends that rubric IMMEDIATELY AFTER this text — so the two rules would
+    # read as contradictory unless the carve-out is spelled out here. It is.
+    "PHRASES, NOT IDS. In `skills`, `machines` and `controllers` write the words a "
+    "shop-floor worker would actually say — 'MIG welding', 'tool offset setting', "
+    "'drawing reading', 'VMC', 'CNC Lathe', 'Fanuc'. NEVER write a taxonomy or "
+    "database id in those three arrays: nothing shaped like skill_mig_welding, "
+    "mach_vmc, dom_welding or role_welder, and no lower_snake_case code word of any "
+    "kind. If you do not know the English term, KEEP THE WORKER'S OWN HINGLISH WORD "
+    "('kharad', 'chhilai', 'ghisai', 'setting', 'ghisai ka kaam') — a rough phrase is "
+    "useful to us, an invented id is not, and any id you write there is DISCARDED.\n"
+    "The ONE exception is the `canonical_role_id` field described below: that field, "
+    "and only that field, takes exactly one id from the closed list given there. The "
+    "rule above governs the skills/machines/controllers arrays only — it does not "
+    "apply to canonical_role_id.\n"
 )
 
 RESUME_SYSTEM_PROMPT = (

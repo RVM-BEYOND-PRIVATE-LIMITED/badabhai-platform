@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { DraftProfileSchema } from "@badabhai/ai-contracts";
+import { DraftProfileSchema, WorkerProfileDraftSchema } from "@badabhai/ai-contracts";
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { ProfileExtractionProcessor } from "./profile-extraction.processor";
 import type { ProfileExtractionJobData } from "../queue/queue.constants";
@@ -30,9 +30,18 @@ function make(
     aiMetadata?: unknown;
     /** Issue #419 — the rich WorkerProfileDraft the response carries; omit to simulate none. */
     richDraft?: unknown;
+    /**
+     * T3 — the LEGACY DraftProfile the extraction returned. Defaults to
+     * `DraftProfileSchema.parse({})`, which is byte-for-byte the fabrication
+     * `AiService.extractProfile` returns when the ai-service is unreachable. Pass a
+     * populated draft to simulate an extraction that genuinely found something.
+     */
+    profile?: unknown;
+    /** T3 — the fail-closed leg (pseudonymization blocked the LLM call). */
+    blocked?: boolean;
   } = {},
 ) {
-  const draft = DraftProfileSchema.parse({});
+  const draft = opts.profile ?? DraftProfileSchema.parse({});
   const profiles = { create: vi.fn().mockResolvedValue({ id: PROFILE }) };
   const aiJobs = {
     findById: vi.fn().mockResolvedValue(opts.findById ?? undefined),
@@ -49,7 +58,11 @@ function make(
           .fn()
           .mockResolvedValue({
             profile: draft,
-            blocked: false,
+            blocked: opts.blocked ?? false,
+            // The ai-service sets `is_mock = not meta.real_call`, so this is TRUE for a
+            // perfectly healthy extraction whenever AI_ENABLE_REAL_CALLS=false (the
+            // committed default). Left true across the T3 cases on purpose — it is the
+            // signal profile_status must NOT be derived from.
             is_mock: true,
             ai_metadata: opts.aiMetadata ?? null,
             // Issue #419 — the response has always carried the rich draft; `undefined`
@@ -347,5 +360,149 @@ describe("ProfileExtractionProcessor", () => {
     expect(aiJobs.markFailed).toHaveBeenCalledOnce();
     expect(events.emit).toHaveBeenCalledOnce();
     expect(events.emit.mock.calls[0]![0].event_name).toBe("profile.extraction_failed");
+  });
+});
+
+/**
+ * T3 — a FABRICATED or contentless extraction must never be recorded as "extracted".
+ *
+ * THE PRODUCTION BUG this pins: when the ai-service is unreachable,
+ * `AiService.extractProfile` returns `DraftProfileSchema.parse({})` (null canonical
+ * ids, empty skills/machines, availability "unknown") with `blocked: false`. The
+ * processor read ONLY that flag — `result.blocked ? "draft" : "extracted"` — so the
+ * fabrication was stamped "extracted", the status that means "this worker is
+ * profiled", and `ChatService.autoTriggerExtraction` (which skipped on any existing
+ * profile ROW) then made it the worker's PERMANENT profile.
+ *
+ * The status now follows CONTENT, via the SAME `hasExtractedContent` predicate
+ * `ProfilesService.extract` dedupes on — never `is_mock`, which is
+ * `not meta.real_call` on the ai-service side and therefore true for every healthy
+ * extraction under the committed `AI_ENABLE_REAL_CALLS=false` default.
+ */
+describe("ProfileExtractionProcessor — T3 profile_status follows CONTENT, not reachability", () => {
+  /** The profileStatus the run handed to `ProfilesRepository.create`. */
+  const createdStatus = (profiles: { create: ReturnType<typeof vi.fn> }): unknown =>
+    (profiles.create.mock.calls[0]![0] as Record<string, unknown>).profileStatus;
+
+  /** The `profile.extraction_completed` payload the run emitted. */
+  const completedPayload = (events: { emit: ReturnType<typeof vi.fn> }) =>
+    events.emit.mock.calls
+      .map((c) => c[0] as { event_name: string; payload: Record<string, unknown> })
+      .find((e) => e.event_name === "profile.extraction_completed")!.payload;
+
+  /** A legacy draft carrying real extracted content (the ordinary happy path). */
+  const REAL_DRAFT = DraftProfileSchema.parse({
+    canonical_role_id: "vmc_operator",
+    skills: ["skill_milling"],
+    machines: ["haas_vf2"],
+    experience: { total_years: 5 },
+  });
+
+  it("the AI-DOWN fabrication is recorded as 'draft', never 'extracted'", async () => {
+    // The default harness IS the fabrication: empty legacy draft, no rich draft,
+    // blocked:false, is_mock:true — exactly what AiService.extractProfile returns.
+    const { proc, profiles, events } = make();
+    await proc.process(makeJob());
+
+    expect(createdStatus(profiles)).toBe("draft");
+    expect(completedPayload(events).profile_status).toBe("draft");
+    // The number that always made this detectable, spent on the payload and nothing
+    // else before T3. Still emitted, still unchanged — it is a count, not a verdict.
+    expect(completedPayload(events).field_count).toBe(0);
+  });
+
+  it("a REAL extraction with content is 'extracted' exactly as before — even though is_mock is true", async () => {
+    // The load-bearing case for rejecting `is_mock` as the discriminator: under the
+    // committed AI_ENABLE_REAL_CALLS=false default the ai-service returns is_mock=true
+    // for every healthy deterministic extraction. Keying status off it would mean NO
+    // worker ever reaches "extracted" outside a real-provider environment.
+    const { proc, profiles, events, ai } = make({ profile: REAL_DRAFT });
+    await proc.process(makeJob());
+
+    expect(await ai.extractProfile.mock.results[0]!.value).toMatchObject({ is_mock: true });
+    expect(createdStatus(profiles)).toBe("extracted");
+    expect(completedPayload(events).profile_status).toBe("extracted");
+    expect(completedPayload(events).field_count).toBeGreaterThan(0);
+  });
+
+  it("TD94: empty legacy columns but a content-bearing RICH draft is still 'extracted'", async () => {
+    // A real extraction of "main CNC operator hoon" that the gazetteer could not
+    // canonicalize: every legacy column is at its default (countFields would score 0)
+    // yet the AI genuinely extracted a skill label into the rich draft. Judging on
+    // countFields alone would demote a good profile — which is why the status uses
+    // hasExtractedContent, whose rich-draft leg covers exactly this.
+    const { proc, profiles, events } = make({
+      richDraft: WorkerProfileDraftSchema.parse({ skills: ["machine operation"] }),
+    });
+    await proc.process(makeJob());
+
+    expect(completedPayload(events).field_count).toBe(0); // legacy columns genuinely empty
+    expect(createdStatus(profiles)).toBe("extracted");
+  });
+
+  it("a reachable AI that genuinely found NOTHING is 'draft' (re-extractable), not a completed profile", async () => {
+    // The intended outcome for the honest empty case ("hmm" as the whole interview):
+    // the ai-service was UP and answered, so the draft is non-null — but it carries
+    // only the always-populated fields. Recording that as "extracted" would pin the
+    // worker to an empty profile just as surely as the outage fabrication does, so it
+    // takes the same branch: recorded, evented, and left re-extractable.
+    const { proc, profiles, events } = make({
+      richDraft: WorkerProfileDraftSchema.parse({
+        role_family: "cnc_vmc",
+        experience_level: "unknown",
+        availability: "unknown",
+        confidence_score: 0.3,
+        missing_fields: ["primary_role", "experience_years"],
+        clarification_questions: ["Aap kaun si machine chalate hain?"],
+      }),
+    });
+    await proc.process(makeJob());
+
+    expect(createdStatus(profiles)).toBe("draft");
+    expect(completedPayload(events).profile_status).toBe("draft");
+  });
+
+  it("the blocked (fail-closed) leg is 'draft', unchanged", async () => {
+    // Pre-existing behaviour, pinned so the content check cannot accidentally
+    // re-litigate a result that was never allowed to produce content.
+    const { proc, profiles } = make({ blocked: true, profile: REAL_DRAFT });
+    await proc.process(makeJob());
+    expect(createdStatus(profiles)).toBe("draft");
+  });
+
+  it("an AI-service outage NEVER blocks the worker: the job still completes and events still flow", async () => {
+    // The repo's deliberate posture, preserved verbatim. T3 changes what is RECORDED,
+    // not whether the pipeline survives — nothing throws, the profile row is created,
+    // the ai_job reaches `completed` with a real profile_id, and the completion event
+    // is emitted. Only `profile_status` tells the truth now.
+    const { proc, profiles, aiJobs, events } = make();
+    const res = await proc.process(makeJob());
+
+    expect(res).toEqual({ profile_id: PROFILE });
+    expect(profiles.create).toHaveBeenCalledOnce();
+    expect(aiJobs.markCompleted).toHaveBeenCalledWith(JOB.aiJobId, { profile_id: PROFILE }, undefined);
+    expect(aiJobs.markFailed).not.toHaveBeenCalled();
+    const names = events.emit.mock.calls.map((c) => c[0].event_name);
+    expect(names).toContain("profile.extraction_completed");
+    expect(names).not.toContain("profile.extraction_failed");
+  });
+
+  it("still persists every column it always did — only the status verdict changed", async () => {
+    // Guard against 'fixing' this by writing less: the empty draft is still stored in
+    // full (raw_profile, skills, machines, taxonomy version, ai_job tie), so an
+    // operator can still see exactly what the extraction returned.
+    const { proc, profiles } = make();
+    await proc.process(makeJob());
+
+    const arg = profiles.create.mock.calls[0]![0] as Record<string, unknown>;
+    expect(arg).toMatchObject({
+      workerId: JOB.workerId,
+      aiJobId: JOB.aiJobId,
+      profileStatus: "draft",
+      skills: [],
+      machines: [],
+      taxonomyVersion: String(SKILL_TAXONOMY_VERSION),
+    });
+    expect(arg.rawProfile).toEqual(DraftProfileSchema.parse({}));
   });
 });

@@ -641,36 +641,49 @@ There is **no `cnc` keyword and no `operator` keyword**. So `"CNC"` sets no
 and `detect_answered_topics("CNC", "role")` returns `{{}}` — nothing at all is
 recorded from it.
 
-The worse variant is `"CNC operator"`, the single most likely thing a worker types.
+The worse variant WAS `"CNC operator"`, the single most likely thing a worker types.
 `operator` is not a role keyword, but it IS an operation-knowledge cue, which appends
 `"machine operation"` to `sig.skills`, which makes `detect_answered_topics` mark
-**`skills`** answered. So the canonical answer to the role question:
+**`skills`** answered. So until 2026-07-22 the canonical answer to the role question:
 
-- leaves `role` unanswered → it is re-asked once (`MAX_ASKS_PER_TOPIC = 2`,
+- left `role` unanswered → it was re-asked once (`MAX_ASKS_PER_TOPIC = 2`,
   `interview_engine.py`) and then abandoned;
-- silently marks `skills` answered with `["machine operation"]` — and
-  `_next_topic` never returns an already-answered topic, so **the skills question is
+- silently marked `skills` answered with `["machine operation"]` — and
+  `_next_topic` never returns an already-answered topic, so **the skills question was
   never asked**.
 
-Both effects are visible in scripted interview A below.
+**CLOSED by TD94** (owner ruling 2026-07-21, [#460]), which minted a GENERIC
+`role_cnc_operator` and assigns it from ONE gated function
+(`signals._assign_generic_cnc_role`), the same mechanism `role_welder` uses. The
+second bullet is unchanged — "operator" still keys `skills` — but `role` now resolves,
+and scripted interview A below shows the difference end to end.
 
-**The widening did NOT close this, and that is a decision, not an omission.** Every
-operator role in the closed set names a specific machine family
-(`role_vmc_operator` / `role_hmc_operator` / `role_cnc_turner_operator` /
-`role_cnc_grinding_operator`). `operator` states the FUNCTION without the family;
-`CNC` states a family-of-families (VMC, HMC, lathe and grinder are all CNC) without
-saying which. Resolving either would have to PICK a machine the worker never named —
-the fabrication class this parser exists to prevent, on the topic where it is least
-recoverable (a closed topic is never re-asked).
+**What was NOT closed, and why that is a decision rather than an omission.** Neither
+half of the phrase resolves alone: `"CNC"` → `{{}}` and `"operator"` →
+`{{'skills': [...]}}`, both unchanged. Every *specialised* operator role in the closed
+set names a machine family (`role_vmc_operator` / `role_hmc_operator` /
+`role_cnc_turner_operator` / `role_cnc_grinding_operator`); `operator` states the
+FUNCTION without the family and `CNC` a family-of-families (VMC, HMC, lathe and
+grinder are all CNC) without saying which, so resolving either ONE to a specialisation
+would have to PICK a machine the worker never named — the fabrication class this
+parser exists to prevent, on the topic where it is least recoverable (a closed topic
+is never re-asked). `lathe operator` and `milling` are still gaps for the same reason.
 
-The alternative — minting a generic `role_cnc_operator` — is not a parser change and
-would make MATCHING WORSE, measurably: `packages/reach-engine/src/scoring.ts`
-`scoreRole` is exact-id-match and returns **0.4** for a NULL roleId ("trade not stated
-yet") against **0.0** for a non-matching one ("different trade"). A generic id matches
-no seeded job, so every worker carrying it would rank BELOW the null they get today.
-That is an owner/ADR call spanning the taxonomy, job `role_ids` and the reach engine.
-`test_bare_cnc_and_bare_operator_still_resolve_nothing` locks the current behaviour so
-the ruling has to be argued with, not drifted past.
+The generic id sidesteps that because it names no family at all. It carries a
+different cost, which the ruling accepted explicitly:
+`packages/reach-engine/src/scoring.ts` `scoreRole` is exact-id-match and returns
+**0.4** for a NULL roleId ("trade not stated yet") against **0.0** for a non-matching
+one, so the id ALONE ranks these workers BELOW the null they used to get. The ruling
+pairs it with `secondaryRoleIds` carrying the CNC specialisations, which the same
+function already scores at **0.6** (`scoring.ts:157-158`) — 0.4 → 0.6, no change to
+the scoring math. The taxonomy half of that pairing shipped with the mint
+(`RELATED_ROLE_IDS`, `packages/taxonomy/src/index.ts`); the read-path half has NOT
+(`apps/api/src/reach/reach.mappers.ts` still returns a hard-coded
+`secondaryRoleIds: []`, and `worker_profiles` has no column to persist a per-worker
+set), so until it is wired this closure is a reach regression for exactly this
+population. `test_bare_cnc_and_bare_operator_still_resolve_nothing` locks the two
+halves that stayed open so the remaining ruling has to be argued with, not drifted
+past.
 
 ### 2. The conflation hypothesis — CONFIRMED (UNCHANGED, still open)
 
@@ -1042,10 +1055,11 @@ def _widening_section(rows: list[Measurement]) -> str:
         "",
         "### What it deliberately did NOT close",
         "",
-        "1. **`CNC` / `CNC operator` / bare `operator` / `cnc oprator`** (4 role gaps) —",
-        "   finding 1 above. No closed-set id can be chosen without inventing a machine",
-        "   family, and minting a generic one is a measured RANKING regression",
-        "   (0.0 'different trade' vs 0.4 'not stated'). Owner/ADR, not parser.",
+        "1. **`CNC` / bare `operator`** (2 role gaps) — finding 1 above. No closed-set",
+        "   id can be chosen from EITHER half alone without inventing a machine family.",
+        "   `CNC operator` and `cnc oprator` were the other two gaps in this group and",
+        "   were CLOSED later, by TD94's generic-id mint (owner/ADR, as this line said",
+        "   it would have to be) — the PAIR names no family, so it invents nothing.",
         "2. **`helper` / `fitter` / `supervisor`** (3 role gaps) — real shop-floor roles",
         "   with no id in the ADR-0030 taxonomy. Closing them means adding roles to the",
         "   closed set, i.e. a scope decision about which trades this product serves.",
@@ -1588,18 +1602,22 @@ def build_report(rows: list[Measurement]) -> str:
     add("   first-measurement evidence that motivated the current exclusion:")
     add("   `Pune se bahar nahi jaunga` LOSES Pune under naive masking. Needs its own")
     add("   before/after run on this corpus.")
-    add("2. **`cnc` / `operator` in the role gazetteer** (findings 1-2) — **PARTLY DONE**.")
+    add("2. **`cnc` / `operator` in the role gazetteer** (findings 1-2) — **MOSTLY DONE**.")
     add("   The widening closed the variant classes (a machine plus the function performed")
     add("   on it, spacing, one misspelling, the Devanagari forms): `role` 35% -> 57%.")
-    add("   The `cnc` / bare-`operator` core is NOT closed and cannot be by a parser edit:")
-    add("   no closed-set id can be chosen without inventing a machine family, and minting")
-    add("   a generic `role_cnc_operator` is a measured ranking regression (finding 1).")
-    add("   The remaining options are both OWNER calls, not parser work:")
-    add("   - **fix the QUESTION** — it offers `CNC` and `operator` as if they were")
-    add("     answers, so it teaches the worker to give the one reply we cannot record;")
-    add("     asking for the machine family first makes every answer resolvable;")
-    add("   - **extend the taxonomy** — add a generic operator role AND put it in job")
-    add("     `role_ids` / secondary matching so it does not score 0.0 in reach.")
+    add("   TD94 then closed the `cnc` + operating-claim PAIR by taking the second owner")
+    add("   option below — a generic `role_cnc_operator`, minted into the closed set and")
+    add("   assigned by one gated function, never by a `cnc`/`operator` keyword.")
+    add("   What remains:")
+    add("   - **fix the QUESTION** (STILL OPEN) — it offers `CNC` and `operator` as if")
+    add("     they were answers, and neither resolves on its own; asking for the machine")
+    add("     family first makes every answer resolvable. `question_bank.py` also still")
+    add("     excludes a `CNC operator` answer chip on a now-stale measurement.")
+    add("   - **finish the taxonomy half** (STILL OPEN, and it is a REGRESSION until it")
+    add("     lands) — the generic id scores 0.0 against a specialised job where the null")
+    add("     it replaced scored 0.4. `RELATED_ROLE_IDS` (packages/taxonomy) carries the")
+    add("     adjacency, but `reach.mappers.ts` still returns `secondaryRoleIds: []`, so")
+    add("     the 0.6 secondary-match path these workers need is not reached yet.")
     add("3. **`skills` auto-close** (finding 3) — a role/machine answer marking `skills`")
     add("   answered means the skills question is never asked. Marking a topic answered on")
     add("   an INFERENCE, rather than on an answer to the question, is the root cause.")

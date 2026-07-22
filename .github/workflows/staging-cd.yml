@@ -29,6 +29,19 @@
 # MESSAGING_ENABLE_REAL are forced false here. Flipping any provider is a separate
 # CLAUDE.md §7 gate and is OUT of scope.
 #
+# TD81(a) SCOPE NOTE — this workflow deploys NO ai-service, by construction. The
+# FastAPI service was containerised and wired into the LIGHTSAIL path only
+# (apps/ai-service/Dockerfile + the ai-service service in docker-compose.yml /
+# docker-compose.staging.yml, pulled and health-gated by ci.yml's deploy-lightsail).
+# This job builds nothing with docker and hands the deploy to a managed host via an
+# opaque webhook, so it has no image to push and no place to put a second process:
+# whatever that host runs, its AI_SERVICE_URL is the host's own config, and if it
+# points at nothing the API still degrades to its safe TypeScript mock with /health
+# at 200 — the exact silent-mock state TD81 describes. The env block below is the
+# RUNNER's (it governs the build/migrate steps), NOT the deployed host's. Anyone
+# activating this path owns pointing that host at a real ai-service, or accepting —
+# knowingly — that its AI is mocked.
+#
 # A GitHub Actions runner is EPHEMERAL — it CANNOT host the persistent API. This job's
 # role is: build -> migrate the disposable staging DB -> TRIGGER the host's deploy
 # (optional webhook) -> smoke the public URL. The host (Render/Railway/Fly/Coolify/VM)

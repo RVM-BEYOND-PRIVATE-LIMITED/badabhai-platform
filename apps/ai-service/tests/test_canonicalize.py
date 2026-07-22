@@ -180,7 +180,13 @@ def test_blocked_phrase_is_unresolved_and_not_recorded(monkeypatch):
 
 # --- the floor is an INCLUSIVE boundary (>=), never forced --------------------
 def test_floor_is_inclusive_and_below_is_never_forced():
-    s = _settings()  # floor 0.82
+    # The assertions below read `s.skill_canonicalize_floor` rather than a literal, so
+    # this test tracks the shipped default automatically. That default is **0.75**
+    # (app/config.py `skill_canonicalize_floor`) — recalibrated on REAL vectors over the
+    # TAX-5 labelled set on 2026-07-14 (TD65; docs/ai/skills-taxonomy-roadmap.md:121
+    # records the 0.82 → 0.75 move). ADR-0030 §(b) still says "~0.80–0.85"; see the
+    # 2026-07-23 amendment note in that ADR — the CODE is the authority, not the ADR.
+    s = _settings()
     at = canonicalize_skill("x", "d", ScriptedStore(s.skill_canonicalize_floor), s)
     assert at.status == "matched" and at.skill_id == "skill_x"
 

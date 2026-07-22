@@ -110,6 +110,34 @@ function make(
 const emittedNames = (events: { emit: ReturnType<typeof vi.fn> }): string[] =>
   events.emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name);
 
+/**
+ * A persisted `worker_profiles` row as `WorkersRepository.latestProfile` returns it
+ * (a `select()` of the whole row).
+ *
+ * DEFAULTS TO THE PLACEHOLDER (T3): every content column at its schema default —
+ * byte-for-byte what the processor persists when `AiService.extractProfile`
+ * fabricates `DraftProfileSchema.parse({})` because the ai-service was unreachable.
+ * That is deliberately the default, because the auto-trigger guard's whole job is now
+ * to tell that row apart from a real extraction. Pass an override for a real one.
+ */
+function profileRow(over: Record<string, unknown> = {}) {
+  return {
+    id: "profile-1",
+    workerId: WORKER,
+    profileStatus: "draft",
+    canonicalTradeId: null,
+    canonicalRoleId: null,
+    skills: [],
+    machines: [],
+    experience: {},
+    salaryExpectation: {},
+    locationPreference: { preferred_cities: [] },
+    availability: { status: "unknown" },
+    richProfileDraft: null,
+    ...over,
+  };
+}
+
 describe("ChatService — auto-trigger extraction on the readiness flip", () => {
   it("triggers extraction exactly once on the flip (no manual /profile/extract)", async () => {
     const { svc, profiles, events } = make({ extractionReady: true });
@@ -137,11 +165,61 @@ describe("ChatService — auto-trigger extraction on the readiness flip", () => 
     expect(profiles.extract).not.toHaveBeenCalled();
   });
 
-  it("skips extraction if the worker already has a profile (no duplicate)", async () => {
-    const { svc, profiles, events } = make({ extractionReady: true, latestProfile: { id: "profile-1" } });
+  it("skips extraction if the worker already has a REAL profile (no duplicate)", async () => {
+    // The no-duplicate guarantee, unchanged — but the fixture now has to be a profile
+    // that actually extracted something. It previously read `{ id: "profile-1" }`,
+    // i.e. it asserted that the mere EXISTENCE of a row suppresses extraction, which
+    // is the T3 bug itself: an empty row fabricated during an ai-service outage
+    // satisfied that guard and became the worker's permanent profile. Same intent
+    // (never extract twice for a worker who is already profiled), honest fixture.
+    const { svc, profiles, events } = make({
+      extractionReady: true,
+      latestProfile: profileRow({
+        profileStatus: "extracted",
+        canonicalRoleId: "vmc_operator",
+        skills: ["skill_milling"],
+      }),
+    });
     await svc.postMessage(WORKER, DTO as never, CTX);
     expect(emittedNames(events)).toContain("profile.extraction_ready"); // signal still emitted
     expect(profiles.extract).not.toHaveBeenCalled(); // but no second extraction
+  });
+
+  it("T3: RE-TRIGGERS when the stored profile is an empty placeholder (the poison heals)", async () => {
+    // The production bug, from the chat side: an interview that completed while the
+    // ai-service was down left a contentless profile row, and this guard then treated
+    // it as "already profiled" forever — no later turn and no re-completed interview
+    // ever produced another extraction. The worker was permanently unprofiled AND
+    // permanently unable to become profiled.
+    const { svc, profiles, events } = make({ extractionReady: true, latestProfile: profileRow() });
+    await svc.postMessage(WORKER, DTO as never, CTX);
+
+    expect(emittedNames(events)).toContain("profile.extraction_ready");
+    expect(profiles.extract).toHaveBeenCalledOnce();
+    expect(profiles.extract).toHaveBeenCalledWith({ worker_id: WORKER, session_id: SESSION }, CTX);
+  });
+
+  it("T3: a content-poor but REAL extraction (TD94) still counts — no re-trigger, no spend loop", async () => {
+    // The other half of the predicate, and the reason it is `hasExtractedContent` and
+    // not a legacy-column count: "main CNC operator hoon" canonicalizes to nothing, so
+    // every legacy column is at its default and only the rich draft carries the skill
+    // label. Re-triggering on THAT would be a fresh ai_job on every interview forever
+    // — the unbounded-spend loop issue #420 was filed about.
+    const { svc, profiles } = make({
+      extractionReady: true,
+      latestProfile: profileRow({ richProfileDraft: { skills: ["machine operation"] } }),
+    });
+    await svc.postMessage(WORKER, DTO as never, CTX);
+    expect(profiles.extract).not.toHaveBeenCalled();
+  });
+
+  it("T3: the placeholder re-trigger never changes the chat reply (outage never blocks the worker)", async () => {
+    // The self-heal is fire-and-forget: it runs on the same non-fatal path as before,
+    // so the turn the worker sees is byte-identical whether it fired or not.
+    const { svc } = make({ extractionReady: true, latestProfile: profileRow(), extractThrows: true });
+    const res = await svc.postMessage(WORKER, DTO as never, CTX);
+    expect(res.reply).toBe("Thanks!");
+    expect(res.extraction_ready).toBe(true);
   });
 
   it("never breaks the chat reply if the extraction trigger throws", async () => {

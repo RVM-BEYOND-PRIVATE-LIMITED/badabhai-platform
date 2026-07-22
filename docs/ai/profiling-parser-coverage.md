@@ -37,12 +37,12 @@ with `last_asked_topic_id` set to the topic that was ASKED — the same call
 is a key in the returned dict; that is exactly the condition under which
 `next_turn` appends it to `ConversationState.answered_topics`.
 
-- Fixtures: **267** across **11** topics.
-- Human-labelled `accept` (a valid answer): **252**.
-- Of those, parser accepted: **168** (**67%** overall).
-- Parser gaps (valid answer, not accepted): **84**.
+- Fixtures: **284** across **12** topics.
+- Human-labelled `accept` (a valid answer): **266**.
+- Of those, parser accepted: **186** (**70%** overall).
+- Parser gaps (valid answer, not accepted): **80**.
 - **Fabrications** (nothing to record, parser stored a VALUE): **0**.
-- Denials absorbed (nothing to record, topic marked answered, nothing stored): **2**.
+- Denials absorbed (nothing to record, topic marked answered, nothing stored): **4**.
 
 The last two lines were ONE number ("false positives") in the pre-#426 report.
 They are split here because #426 changed the meaning: a denial on `education` /
@@ -78,7 +78,7 @@ the 7** recorded defect cases re-measure as fixed.
 **#426 did not move overall acceptance** — it fixed what the parser RECORDS, not what
 it RECOGNISES. The **parser widening** that this revision measures is the first change
 that moves it: from **160/252** to
-**168/252**, on `role` and `preferred_locations`
+**186/266**, on `role` and `preferred_locations`
 only. See "What the parser widening changed" below for the per-topic before/after, the
 negatives that make it safe, and the two classes it deliberately did NOT close.
 
@@ -100,36 +100,49 @@ There is **no `cnc` keyword and no `operator` keyword**. So `"CNC"` sets no
 and `detect_answered_topics("CNC", "role")` returns `{}` — nothing at all is
 recorded from it.
 
-The worse variant is `"CNC operator"`, the single most likely thing a worker types.
+The worse variant WAS `"CNC operator"`, the single most likely thing a worker types.
 `operator` is not a role keyword, but it IS an operation-knowledge cue, which appends
 `"machine operation"` to `sig.skills`, which makes `detect_answered_topics` mark
-**`skills`** answered. So the canonical answer to the role question:
+**`skills`** answered. So until 2026-07-22 the canonical answer to the role question:
 
-- leaves `role` unanswered → it is re-asked once (`MAX_ASKS_PER_TOPIC = 2`,
+- left `role` unanswered → it was re-asked once (`MAX_ASKS_PER_TOPIC = 2`,
   `interview_engine.py`) and then abandoned;
-- silently marks `skills` answered with `["machine operation"]` — and
-  `_next_topic` never returns an already-answered topic, so **the skills question is
+- silently marked `skills` answered with `["machine operation"]` — and
+  `_next_topic` never returns an already-answered topic, so **the skills question was
   never asked**.
 
-Both effects are visible in scripted interview A below.
+**CLOSED by TD94** (owner ruling 2026-07-21, [#460]), which minted a GENERIC
+`role_cnc_operator` and assigns it from ONE gated function
+(`signals._assign_generic_cnc_role`), the same mechanism `role_welder` uses. The
+second bullet is unchanged — "operator" still keys `skills` — but `role` now resolves,
+and scripted interview A below shows the difference end to end.
 
-**The widening did NOT close this, and that is a decision, not an omission.** Every
-operator role in the closed set names a specific machine family
-(`role_vmc_operator` / `role_hmc_operator` / `role_cnc_turner_operator` /
-`role_cnc_grinding_operator`). `operator` states the FUNCTION without the family;
-`CNC` states a family-of-families (VMC, HMC, lathe and grinder are all CNC) without
-saying which. Resolving either would have to PICK a machine the worker never named —
-the fabrication class this parser exists to prevent, on the topic where it is least
-recoverable (a closed topic is never re-asked).
+**What was NOT closed, and why that is a decision rather than an omission.** Neither
+half of the phrase resolves alone: `"CNC"` → `{}` and `"operator"` →
+`{'skills': [...]}`, both unchanged. Every *specialised* operator role in the closed
+set names a machine family (`role_vmc_operator` / `role_hmc_operator` /
+`role_cnc_turner_operator` / `role_cnc_grinding_operator`); `operator` states the
+FUNCTION without the family and `CNC` a family-of-families (VMC, HMC, lathe and
+grinder are all CNC) without saying which, so resolving either ONE to a specialisation
+would have to PICK a machine the worker never named — the fabrication class this
+parser exists to prevent, on the topic where it is least recoverable (a closed topic
+is never re-asked). `lathe operator` and `milling` are still gaps for the same reason.
 
-The alternative — minting a generic `role_cnc_operator` — is not a parser change and
-would make MATCHING WORSE, measurably: `packages/reach-engine/src/scoring.ts`
-`scoreRole` is exact-id-match and returns **0.4** for a NULL roleId ("trade not stated
-yet") against **0.0** for a non-matching one ("different trade"). A generic id matches
-no seeded job, so every worker carrying it would rank BELOW the null they get today.
-That is an owner/ADR call spanning the taxonomy, job `role_ids` and the reach engine.
-`test_bare_cnc_and_bare_operator_still_resolve_nothing` locks the current behaviour so
-the ruling has to be argued with, not drifted past.
+The generic id sidesteps that because it names no family at all. It carries a
+different cost, which the ruling accepted explicitly:
+`packages/reach-engine/src/scoring.ts` `scoreRole` is exact-id-match and returns
+**0.4** for a NULL roleId ("trade not stated yet") against **0.0** for a non-matching
+one, so the id ALONE ranks these workers BELOW the null they used to get. The ruling
+pairs it with `secondaryRoleIds` carrying the CNC specialisations, which the same
+function already scores at **0.6** (`scoring.ts:157-158`) — 0.4 → 0.6, no change to
+the scoring math. The taxonomy half of that pairing shipped with the mint
+(`RELATED_ROLE_IDS`, `packages/taxonomy/src/index.ts`); the read-path half has NOT
+(`apps/api/src/reach/reach.mappers.ts` still returns a hard-coded
+`secondaryRoleIds: []`, and `worker_profiles` has no column to persist a per-worker
+set), so until it is wired this closure is a reach regression for exactly this
+population. `test_bare_cnc_and_bare_operator_still_resolve_nothing` locks the two
+halves that stayed open so the remaining ruling has to be argued with, not drifted
+past.
 
 ### 2. The conflation hypothesis — CONFIRMED (UNCHANGED, still open)
 
@@ -187,7 +200,7 @@ coverage, not structural deadness. Two adjacent hazards are real, though:
 `availability` to `MUST_ASK_TOPICS` means `_extraction_ready` now also requires those
 to have been ASKED, so the wrap-up can no longer skip money and notice period.
 Measured on scripted interview B: `never_asked` was seven topics before #429 and is
-`['machines', 'skills', 'education']` now.
+`['machines']` now.
 
 It did NOT close the hazard, it moved it — see finding 7, which is the more serious
 form and is the reason this revision exists.
@@ -320,7 +333,7 @@ some OTHER topic's answer in:
 | --- | ---: | --- |
 | `role` | 13 fixtures | `machines` answer `VMC` |
 | `machines` | 5 fixtures | `role` answer `VMC operator` |
-| `experience` | 1 fixture | `education` answer `ITI + 3 saal apprenticeship` |
+| `experience` | 2 fixtures | `education` answer `ITI + 3 saal apprenticeship` |
 | `current_location` | 1 fixture | `preferred_locations` answer `abhi Pune mein hu, Delhi bhi chalega` |
 
 `role` is the largest: 13 fixtures for other topics close it — mostly
@@ -348,9 +361,9 @@ remembered number.
 
 | topic | before | now | delta |
 | --- | ---: | ---: | ---: |
-| `role` | 8/23 (35%) | 12/23 (52%) | +4 |
+| `role` | 8/23 (35%) | 16/23 (70%) | +8 |
 | `machines` | 14/23 (61%) | 14/23 (61%) | +0 |
-| `experience` | 12/24 (50%) | 12/24 (50%) | +0 |
+| `experience` | 12/24 (50%) | 18/24 (75%) | +6 |
 | `skills` | 14/23 (61%) | 14/23 (61%) | +0 |
 | `current_location` | 16/23 (70%) | 16/23 (70%) | +0 |
 | `preferred_locations` | 17/23 (74%) | 21/23 (91%) | +4 |
@@ -358,16 +371,17 @@ remembered number.
 | `salary_current` | 19/23 (83%) | 19/23 (83%) | +0 |
 | `salary_expected` | 14/23 (61%) | 14/23 (61%) | +0 |
 | `availability` | 22/24 (92%) | 22/24 (92%) | +0 |
-| `education` | 11/21 (52%) | 11/21 (52%) | +0 |
-| **overall** | **160/252** (63%) | **168/252** (67%) | **+8** |
+| `education` | 11/21 (52%) | 9/19 (47%) | -2 |
+| `certifications` | — (added later) | 10/16 (62%) | n/a |
+| **overall** | **160/252** (63%) | **176/250** (70%) | **+16** |
 
-Topics that moved: **['role', 'preferred_locations']**.
+Topics that moved: **['role', 'experience', 'preferred_locations', 'education']**.
 
 **Nothing was traded away** — computed, not asserted: the gap set now is a
 strict SUBSET of the gap set at `26218e4`. Fixtures that were accepted
 before and are gaps now: **none**
-(92 gaps before, 84 now,
-8 closed).
+(92 gaps before, 74 now,
+18 closed).
 
 ### The answers it now reads
 
@@ -525,10 +539,11 @@ from `main`, which this read neither causes nor fixes.
 
 ### What it deliberately did NOT close
 
-1. **`CNC` / `CNC operator` / bare `operator` / `cnc oprator`** (4 role gaps) —
-   finding 1 above. No closed-set id can be chosen without inventing a machine
-   family, and minting a generic one is a measured RANKING regression
-   (0.0 'different trade' vs 0.4 'not stated'). Owner/ADR, not parser.
+1. **`CNC` / bare `operator`** (2 role gaps) — finding 1 above. No closed-set
+   id can be chosen from EITHER half alone without inventing a machine family.
+   `CNC operator` and `cnc oprator` were the other two gaps in this group and
+   were CLOSED later, by TD94's generic-id mint (owner/ADR, as this line said
+   it would have to be) — the PAIR names no family, so it invents nothing.
 2. **`helper` / `fitter` / `supervisor`** (3 role gaps) — real shop-floor roles
    with no id in the ADR-0030 taxonomy. Closing them means adding roles to the
    closed set, i.e. a scope decision about which trades this product serves.
@@ -640,9 +655,9 @@ stored?) so the verdict cannot be talked into being green.
 
 | topic | fixtures | should accept | accepted | acceptance rate | gap count |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `role` | 25 | 23 | 12 | 52% | 11 |
+| `role` | 25 | 23 | 16 | 70% | 7 |
 | `machines` | 24 | 23 | 14 | 61% | 9 |
-| `experience` | 25 | 24 | 12 | 50% | 12 |
+| `experience` | 25 | 24 | 18 | 75% | 6 |
 | `skills` | 24 | 23 | 14 | 61% | 9 |
 | `current_location` | 24 | 23 | 16 | 70% | 7 |
 | `preferred_locations` | 25 | 23 | 21 | 91% | 2 |
@@ -650,38 +665,36 @@ stored?) so the verdict cannot be talked into being green.
 | `salary_current` | 24 | 23 | 19 | 83% | 4 |
 | `salary_expected` | 24 | 23 | 14 | 61% | 9 |
 | `availability` | 24 | 24 | 22 | 92% | 2 |
-| `education` | 24 | 21 | 11 | 52% | 10 |
+| `education` | 22 | 19 | 9 | 47% | 10 |
+| `certifications` | 19 | 16 | 10 | 62% | 6 |
 
 ## Topics ranked by gap size
 
 | rank | topic | gaps | acceptance rate | essential? |
 | ---: | --- | ---: | ---: | --- |
-| 1 | `experience` | 12 | 50% | **ESSENTIAL** |
-| 2 | `role` | 11 | 52% | **ESSENTIAL** |
-| 3 | `education` | 10 | 52% | optional |
-| 4 | `controllers` | 9 | 59% | optional |
-| 5 | `machines` | 9 | 61% | **ESSENTIAL** |
-| 6 | `salary_expected` | 9 | 61% | optional |
-| 7 | `skills` | 9 | 61% | optional |
-| 8 | `current_location` | 7 | 70% | **ESSENTIAL** |
-| 9 | `salary_current` | 4 | 83% | optional |
-| 10 | `availability` | 2 | 92% | optional |
-| 11 | `preferred_locations` | 2 | 91% | MUST_ASK |
+| 1 | `education` | 10 | 47% | optional |
+| 2 | `controllers` | 9 | 59% | optional |
+| 3 | `machines` | 9 | 61% | **ESSENTIAL** |
+| 4 | `salary_expected` | 9 | 61% | optional |
+| 5 | `skills` | 9 | 61% | optional |
+| 6 | `current_location` | 7 | 70% | **ESSENTIAL** |
+| 7 | `role` | 7 | 70% | **ESSENTIAL** |
+| 8 | `certifications` | 6 | 62% | optional |
+| 9 | `experience` | 6 | 75% | **ESSENTIAL** |
+| 10 | `salary_current` | 4 | 83% | optional |
+| 11 | `availability` | 2 | 92% | optional |
+| 12 | `preferred_locations` | 2 | 91% | MUST_ASK |
 
 ## Rejected answers a human would call valid (the parser gaps)
 
-### `role` — 11 gap(s)
+### `role` — 7 gap(s)
 
 | worker answer | register | detected instead | note |
 | --- | --- | --- | --- |
 | `CNC` | english | _nothing_ | verbatim first option in the question |
-| `CNC operator` | hinglish | `skills` | the canonical shop-floor answer |
 | `lathe operator` | hinglish | `machines`, `skills` |  |
 | `operator` | english | `skills` | verbatim option in the question |
 | `machine operator hu` | hinglish | `skills` |  |
-| `CNC machine chalata hoon` | hinglish | `skills` |  |
-| `main CNC operator ka kaam karta hu` | hinglish | `skills` |  |
-| `cnc oprator` | misspelling | _nothing_ |  |
 | `helper hu, machine seekh raha hu` | hinglish | _nothing_ | real shop-floor role, out of the CNC/VMC gazetteer |
 | `fitter` | english | _nothing_ | adjacent trade |
 | `supervisor` | english | _nothing_ | adjacent role |
@@ -700,16 +713,10 @@ stored?) so the verdict cannot be talked into being green.
 | `power press` | english | _nothing_ | out-of-family machine |
 | `welding machine` | english | `role`, `skills` | out-of-family machine |
 
-### `experience` — 12 gap(s)
+### `experience` — 6 gap(s)
 
 | worker answer | register | detected instead | note |
 | --- | --- | --- | --- |
-| `char saal` | hinglish | _nothing_ | numeral as a word |
-| `chaar saal ka experience hai` | hinglish | _nothing_ |  |
-| `do saal` | hinglish | _nothing_ | numeral as a word |
-| `teen saal` | hinglish | _nothing_ | numeral as a word |
-| `ek saal` | hinglish | _nothing_ | numeral as a word |
-| `bees saal` | hinglish | _nothing_ | numeral as a word |
 | `6 mahine` | hinglish | _nothing_ | months, not years |
 | `5 साल` | devanagari | _nothing_ |  |
 | `पाँच साल का तजुर्बा` | devanagari | _nothing_ |  |
@@ -809,6 +816,17 @@ stored?) so the verdict cannot be talked into being green.
 | `आईटीआई किया है` | devanagari | _nothing_ |  |
 | `डिप्लोमा किया है` | devanagari | _nothing_ |  |
 
+### `certifications` — 6 gap(s)
+
+| worker answer | register | detected instead | note |
+| --- | --- | --- | --- |
+| `ITI ka certificate hai` | hinglish | `education` |  |
+| `safety training ka certificate hai` | hinglish | _nothing_ |  |
+| `fire safety certificate liya tha` | hinglish | _nothing_ |  |
+| `haan certificate hai` | hinglish | _nothing_ | affirms without naming one — the model must not invent a name |
+| `certificate hai par naam yaad nahi` | hinglish | _nothing_ | explicitly unnamed; a fabricated name here would be a resume lie |
+| `एनसीवीटी सर्टिफिकेट है` | devanagari | _nothing_ |  |
+
 ## Fabrications — nothing to record, but the parser stored a VALUE
 
 The most dangerous class: `interview_engine._next_topic` never returns a topic
@@ -840,6 +858,8 @@ closing of the ask stays visible and reviewable.
 | --- | --- | --- | --- |
 | `education` | `iti nahi kiya, kaam se hi seekha` | `None` | negated ITI |
 | `education` | `diploma nahi hai` | `None` | negated diploma |
+| `certifications` | `koi certificate nahi hai` | `None` | a denial IS a complete answer; nothing may be stored |
+| `certifications` | `certificate nahi liya, kaam se seekha` | `None` | negation must not assert its opposite |
 
 ## Cross-topic marks — answer accepted for a topic that was NOT asked
 
@@ -852,6 +872,8 @@ mark is only safe when the worker really did volunteer that other topic.
 | `machines` | `role` | 12 |
 | `role` | `machines` | 5 |
 | `machines` | `skills` | 2 |
+| `certifications` | `education` | 1 |
+| `certifications` | `experience` | 1 |
 | `current_location` | `preferred_locations` | 1 |
 | `education` | `experience` | 1 |
 | `education` | `role` | 1 |
@@ -865,14 +887,12 @@ unrelated topic is silently closed on evidence the worker never gave.
 
 | asked topic | worker answer | marked instead |
 | --- | --- | --- |
-| `role` | `CNC operator` | `skills`=['machine operation'] |
 | `role` | `lathe operator` | `machines`=['CNC Lathe'], `skills`=['machine operation'] |
 | `role` | `operator` | `skills`=['machine operation'] |
 | `role` | `machine operator hu` | `skills`=['machine operation'] |
-| `role` | `CNC machine chalata hoon` | `skills`=['machine operation'] |
-| `role` | `main CNC operator ka kaam karta hu` | `skills`=['machine operation'] |
 | `machines` | `वीएमसी` | `role`=VMC Operator |
 | `machines` | `welding machine` | `role`=Welder, `skills`=['welding'] |
+| `certifications` | `ITI ka certificate hai` | `education`=['ITI'] |
 
 ## Accepted, but is the recorded VALUE right?
 
@@ -916,26 +936,26 @@ script answers whichever topic the engine asks.
 | engine asked | worker replied |
 | --- | --- |
 | `role` | `CNC operator` |
-| `role` | `CNC operator` |
 | `machines` | `cnc` |
 | `machines` | `cnc` |
 | `experience` | `char saal` |
-| `experience` | `char saal` |
 | `current_location` | `Chakan` |
 | `current_location` | `Chakan` |
+| `skills` | `sab aata hai` |
 | `preferred_locations` | `ghar ke paas hi chahiye` |
 | `controllers` | `fanuk` |
 | `salary_current` | `15 hazaar` |
 | `salary_expected` | `jo aap theek samjhe` |
 | `availability` | `do mahine baad` |
 | `education` | `10th pass` |
+| `certifications` | `koi certificate nahi hai` |
 
 - turns: **15**
 - extraction_ready: **True**
-- answered topics: `['skills', 'availability']`
-- **unanswered essentials: `['role', 'machines', 'experience', 'current_location']`**
-- never asked at all: `['skills']`
-- collected: `{'skills': ['machine operation'], 'availability': 'notice_period'}`
+- answered topics: `['role', 'experience', 'availability', 'certifications']`
+- **unanswered essentials: `['machines', 'current_location']`**
+- never asked at all: `[]`
+- collected: `{'role': 'CNC Operator', 'skills': ['machine operation'], 'experience': 4.0, 'availability': 'notice_period'}`
 
 ### B — worker whose phrasing happens to match the gazetteer
 
@@ -944,19 +964,22 @@ script answers whichever topic the engine asks.
 | `role` | `VMC operator` |
 | `experience` | `4 saal` |
 | `current_location` | `Pune` |
+| `skills` | `setting aata hai` |
 | `preferred_locations` | `kahin bhi chalega` |
 | `controllers` | `Fanuc` |
 | `salary_current` | `22000` |
 | `salary_expected` | `30k chahiye` |
 | `availability` | `15 din` |
+| `education` | `ITI kiya hai` |
+| `certifications` | `NCVT certificate hai` |
 
-- turns: **9**
+- turns: **12**
 - extraction_ready: **True**
-- answered topics: `['role', 'machines', 'skills', 'experience', 'current_location', 'preferred_locations', 'controllers', 'salary_current', 'salary_expected', 'availability']`
+- answered topics: `['role', 'machines', 'experience', 'current_location', 'skills', 'preferred_locations', 'controllers', 'salary_current', 'salary_expected', 'availability', 'education', 'certifications']`
 - **unanswered essentials: `[]`**
-- never asked at all: `['machines', 'skills', 'education']`
+- never asked at all: `['machines']`
 - **ESSENTIAL topics NEVER ASKED (finding 7): `['machines']`** — closed by inference from another answer, and invisible to `unanswered_essentials` above
-- collected: `{'role': 'VMC Operator', 'machines': ['VMC'], 'skills': ['machine operation'], 'experience': 4.0, 'current_location': 'Pune', 'preferred_locations': 'flexible', 'controllers': ['Fanuc'], 'salary_current': 22000, 'salary_expected': 30000, 'availability': 'notice_period'}`
+- collected: `{'role': 'VMC Operator', 'machines': ['VMC'], 'skills': ['basic setting'], 'experience': 4.0, 'current_location': 'Pune', 'preferred_locations': 'flexible', 'controllers': ['Fanuc'], 'salary_current': 22000, 'salary_expected': 30000, 'availability': 'notice_period', 'education': ['ITI'], 'certifications': ['NCVT']}`
 
 ### C — the overwrite rule holds: `experience` survives the education answer (pre-#426 this ended at `3.0`)
 
@@ -966,20 +989,22 @@ script answers whichever topic the engine asks.
 | `experience` | `10 saal` |
 | `current_location` | `gaon mein` |
 | `current_location` | `gaon mein` |
+| `skills` | `setting aata hai` |
 | `preferred_locations` | `kahin bhi chalega` |
 | `controllers` | `Fanuc` |
 | `salary_current` | `22000` |
 | `salary_expected` | `30k chahiye` |
 | `availability` | `15 din` |
 | `education` | `ITI + 3 saal apprenticeship` |
+| `certifications` | `NCVT certificate hai` |
 
-- turns: **11**
+- turns: **13**
 - extraction_ready: **True**
-- answered topics: `['role', 'machines', 'skills', 'experience', 'preferred_locations', 'controllers', 'salary_current', 'salary_expected', 'availability', 'education']`
+- answered topics: `['role', 'machines', 'experience', 'skills', 'preferred_locations', 'controllers', 'salary_current', 'salary_expected', 'availability', 'education', 'certifications']`
 - **unanswered essentials: `['current_location']`**
-- never asked at all: `['machines', 'skills']`
+- never asked at all: `['machines']`
 - **ESSENTIAL topics NEVER ASKED (finding 7): `['machines']`** — closed by inference from another answer, and invisible to `unanswered_essentials` above
-- collected: `{'role': 'VMC Operator', 'machines': ['VMC'], 'skills': ['machine operation'], 'experience': 10.0, 'preferred_locations': 'flexible', 'controllers': ['Fanuc'], 'salary_current': 22000, 'salary_expected': 30000, 'availability': 'notice_period', 'education': ['ITI']}`
+- collected: `{'role': 'VMC Operator', 'machines': ['VMC'], 'skills': ['basic setting'], 'experience': 10.0, 'preferred_locations': 'flexible', 'controllers': ['Fanuc'], 'salary_current': 22000, 'salary_expected': 30000, 'availability': 'notice_period', 'education': ['ITI'], 'certifications': ['NCVT']}`
 
 ### D — the other half of the rule: an EXPLICIT correction still commits — and, because the marker is message-scoped, it drags `experience` down with it
 
@@ -989,20 +1014,22 @@ script answers whichever topic the engine asks.
 | `experience` | `10 saal` |
 | `current_location` | `gaon mein` |
 | `current_location` | `gaon mein` |
+| `skills` | `setting aata hai` |
 | `preferred_locations` | `kahin bhi chalega` |
 | `controllers` | `Fanuc` |
 | `salary_current` | `22000` |
 | `salary_expected` | `30k chahiye` |
 | `availability` | `15 din` |
 | `education` | `nahi nahi, ITI + 3 saal apprenticeship` |
+| `certifications` | `NCVT certificate hai` |
 
-- turns: **11**
+- turns: **13**
 - extraction_ready: **True**
-- answered topics: `['role', 'machines', 'skills', 'experience', 'preferred_locations', 'controllers', 'salary_current', 'salary_expected', 'availability', 'education']`
+- answered topics: `['role', 'machines', 'experience', 'skills', 'preferred_locations', 'controllers', 'salary_current', 'salary_expected', 'availability', 'education', 'certifications']`
 - **unanswered essentials: `['current_location']`**
-- never asked at all: `['machines', 'skills']`
+- never asked at all: `['machines']`
 - **ESSENTIAL topics NEVER ASKED (finding 7): `['machines']`** — closed by inference from another answer, and invisible to `unanswered_essentials` above
-- collected: `{'role': 'VMC Operator', 'machines': ['VMC'], 'skills': ['machine operation'], 'experience': 3.0, 'preferred_locations': 'flexible', 'controllers': ['Fanuc'], 'salary_current': 22000, 'salary_expected': 30000, 'availability': 'notice_period', 'education': ['ITI']}`
+- collected: `{'role': 'VMC Operator', 'machines': ['VMC'], 'skills': ['basic setting'], 'experience': 3.0, 'preferred_locations': 'flexible', 'controllers': ['Fanuc'], 'salary_current': 22000, 'salary_expected': 30000, 'availability': 'notice_period', 'education': ['ITI'], 'certifications': ['NCVT']}`
 
 ## Suggested next steps
 
@@ -1034,18 +1061,22 @@ in the order the data ranks it, and none of it is implemented.
    first-measurement evidence that motivated the current exclusion:
    `Pune se bahar nahi jaunga` LOSES Pune under naive masking. Needs its own
    before/after run on this corpus.
-2. **`cnc` / `operator` in the role gazetteer** (findings 1-2) — **PARTLY DONE**.
+2. **`cnc` / `operator` in the role gazetteer** (findings 1-2) — **MOSTLY DONE**.
    The widening closed the variant classes (a machine plus the function performed
    on it, spacing, one misspelling, the Devanagari forms): `role` 35% -> 57%.
-   The `cnc` / bare-`operator` core is NOT closed and cannot be by a parser edit:
-   no closed-set id can be chosen without inventing a machine family, and minting
-   a generic `role_cnc_operator` is a measured ranking regression (finding 1).
-   The remaining options are both OWNER calls, not parser work:
-   - **fix the QUESTION** — it offers `CNC` and `operator` as if they were
-     answers, so it teaches the worker to give the one reply we cannot record;
-     asking for the machine family first makes every answer resolvable;
-   - **extend the taxonomy** — add a generic operator role AND put it in job
-     `role_ids` / secondary matching so it does not score 0.0 in reach.
+   TD94 then closed the `cnc` + operating-claim PAIR by taking the second owner
+   option below — a generic `role_cnc_operator`, minted into the closed set and
+   assigned by one gated function, never by a `cnc`/`operator` keyword.
+   What remains:
+   - **fix the QUESTION** (STILL OPEN) — it offers `CNC` and `operator` as if
+     they were answers, and neither resolves on its own; asking for the machine
+     family first makes every answer resolvable. `question_bank.py` also still
+     excludes a `CNC operator` answer chip on a now-stale measurement.
+   - **finish the taxonomy half** (STILL OPEN, and it is a REGRESSION until it
+     lands) — the generic id scores 0.0 against a specialised job where the null
+     it replaced scored 0.4. `RELATED_ROLE_IDS` (packages/taxonomy) carries the
+     adjacency, but `reach.mappers.ts` still returns `secondaryRoleIds: []`, so
+     the 0.6 secondary-match path these workers need is not reached yet.
 3. **`skills` auto-close** (finding 3) — a role/machine answer marking `skills`
    answered means the skills question is never asked. Marking a topic answered on
    an INFERENCE, rather than on an answer to the question, is the root cause.
@@ -1069,7 +1100,7 @@ in the order the data ranks it, and none of it is implemented.
 | asked topic | worker answer | accepted | detected keys | human |
 | --- | --- | :---: | --- | --- |
 | `role` | `CNC` | NO | — | accept |
-| `role` | `CNC operator` | NO | `skills` | accept |
+| `role` | `CNC operator` | yes | `role`, `skills` | accept |
 | `role` | `VMC operator` | yes | `machines`, `role`, `skills` | accept |
 | `role` | `vmc chalata hu` | yes | `machines`, `role`, `skills` | accept |
 | `role` | `setter hu` | yes | `role` | accept |
@@ -1077,13 +1108,13 @@ in the order the data ranks it, and none of it is implemented.
 | `role` | `lathe operator` | NO | `machines`, `skills` | accept |
 | `role` | `operator` | NO | `skills` | accept |
 | `role` | `machine operator hu` | NO | `skills` | accept |
-| `role` | `CNC machine chalata hoon` | NO | `skills` | accept |
+| `role` | `CNC machine chalata hoon` | yes | `role`, `skills` | accept |
 | `role` | `turner` | yes | `role` | accept |
 | `role` | `programmer hu, mastercam pe kaam karta hu` | yes | `role`, `skills` | accept |
-| `role` | `main CNC operator ka kaam karta hu` | NO | `skills` | accept |
+| `role` | `main CNC operator ka kaam karta hu` | yes | `role`, `skills` | accept |
 | `role` | `hmc operator` | yes | `machines`, `role`, `skills` | accept |
 | `role` | `grinding operator` | yes | `machines`, `role`, `skills` | accept |
-| `role` | `cnc oprator` | NO | — | accept |
+| `role` | `cnc oprator` | yes | `role` | accept |
 | `role` | `seter ka kaam` | yes | `role` | accept |
 | `role` | `V M C operator` | yes | `role`, `skills` | accept |
 | `role` | `मैं वीएमसी ऑपरेटर हूँ` | yes | `role` | accept |
@@ -1120,12 +1151,12 @@ in the order the data ranks it, and none of it is implemented.
 | `experience` | `4 saal` | yes | `experience` | accept |
 | `experience` | `4 years` | yes | `experience` | accept |
 | `experience` | `4 sal` | yes | `experience` | accept |
-| `experience` | `char saal` | NO | — | accept |
-| `experience` | `chaar saal ka experience hai` | NO | — | accept |
-| `experience` | `do saal` | NO | — | accept |
-| `experience` | `teen saal` | NO | — | accept |
-| `experience` | `ek saal` | NO | — | accept |
-| `experience` | `bees saal` | NO | — | accept |
+| `experience` | `char saal` | yes | `experience` | accept |
+| `experience` | `chaar saal ka experience hai` | yes | `experience` | accept |
+| `experience` | `do saal` | yes | `experience` | accept |
+| `experience` | `teen saal` | yes | `experience` | accept |
+| `experience` | `ek saal` | yes | `experience` | accept |
+| `experience` | `bees saal` | yes | `experience` | accept |
 | `experience` | `2.5 saal` | yes | `experience` | accept |
 | `experience` | `2 saal 6 mahine` | yes | `experience` | accept |
 | `experience` | `6 mahine` | NO | — | accept |
@@ -1320,8 +1351,6 @@ in the order the data ranks it, and none of it is implemented.
 | `education` | `polytechnic diploma` | yes | `education` | accept |
 | `education` | `B.Tech mechanical` | yes | `education` | accept |
 | `education` | `B.E. mechanical` | NO | — | accept |
-| `education` | `NSDC certificate` | yes | `education` | accept |
-| `education` | `RVM CAD course kiya` | yes | `education` | accept |
 | `education` | `ITI + 3 saal apprenticeship` | yes | `education`, `experience` | accept |
 | `education` | `10th pass` | NO | — | accept |
 | `education` | `12th pass` | NO | — | accept |
@@ -1335,4 +1364,23 @@ in the order the data ranks it, and none of it is implemented.
 | `education` | `iti nahi kiya, kaam se hi seekha` | yes | `education` | reject |
 | `education` | `diploma nahi hai` | yes | `education` | reject |
 | `education` | `school chhod diya tha` | NO | — | reject |
+| `certifications` | `NSDC certificate` | yes | `certifications` | accept |
+| `certifications` | `RVM CAD course kiya` | yes | `certifications` | accept |
+| `certifications` | `NCVT certificate hai` | yes | `certifications` | accept |
+| `certifications` | `NCVT` | yes | `certifications` | accept |
+| `certifications` | `NSQF level 4 kiya hai` | yes | `certifications` | accept |
+| `certifications` | `apprenticeship kiya hai` | yes | `certifications` | accept |
+| `certifications` | `apprentice tha 1 saal` | yes | `certifications`, `experience` | accept |
+| `certifications` | `ITI ka certificate hai` | NO | `education` | accept |
+| `certifications` | `NCVT aur NSQF dono hai` | yes | `certifications` | accept |
+| `certifications` | `SCVT certificate` | yes | `certifications` | accept |
+| `certifications` | `safety training ka certificate hai` | NO | — | accept |
+| `certifications` | `fire safety certificate liya tha` | NO | — | accept |
+| `certifications` | `haan certificate hai` | NO | — | accept |
+| `certifications` | `certificate hai par naam yaad nahi` | NO | — | accept |
+| `certifications` | `एनसीवीटी सर्टिफिकेट है` | NO | — | accept |
+| `certifications` | `apprenticeship certificate mila tha company se` | yes | `certifications` | accept |
+| `certifications` | `koi certificate nahi hai` | yes | `certifications` | reject |
+| `certifications` | `nahi` | NO | — | reject |
+| `certifications` | `certificate nahi liya, kaam se seekha` | yes | `certifications` | reject |
 

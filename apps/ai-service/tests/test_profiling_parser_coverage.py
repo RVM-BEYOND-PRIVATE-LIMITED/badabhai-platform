@@ -153,11 +153,21 @@ def test_documented_findings_still_hold() -> None:
     d = signals.detect_answered_topics
 
     # 1. "CNC" — the FIRST option the role question offers — answers nothing at all.
+    #    STILL OPEN, and deliberately: a family-of-families names no role on its own.
     assert d("CNC", "role") == {}
-    # 2. "CNC operator" — the canonical shop-floor answer — does not answer `role`;
-    #    it silently closes `skills` instead.
-    assert d("CNC operator", "role") == {"skills": ["machine operation"]}
-    # 3. "operator", also offered verbatim by the question, behaves the same way.
+    # 2. CLOSED 2026-07-22 by TD94 (owner ruling 2026-07-21, #460). "CNC operator" —
+    #    the canonical shop-floor answer, and the product's own core persona — used to
+    #    answer `role` with NOTHING and silently close `skills` instead. It now
+    #    resolves to the newly minted GENERIC id (`role_cnc_operator` /
+    #    `dom_cnc_machining`), which names no machine family and so asserts nothing the
+    #    worker did not say. `skills` is still keyed by the word "operator", unchanged.
+    assert d("CNC operator", "role") == {
+        "role": "CNC Operator",
+        "skills": ["machine operation"],
+    }
+    # 3. "operator" alone is UNCHANGED and still does not answer `role`. What TD94
+    #    closed is the PAIR ("cnc" + an operating claim), never either half — so the
+    #    finding this line records is still live for the bare function word.
     assert d("operator", "role") == {"skills": ["machine operation"]}
     # 4. VMC/HMC (machine TYPES) DO resolve `role`, so the gazetteer treats two of
     #    the three machine types in the question as roles and the third (CNC) not.
@@ -420,6 +430,19 @@ def test_overall_acceptance_is_pinned() -> None:
 
       Same diff method as the line above, locked structurally by
       ``test_the_widening_closed_gaps_and_opened_none``.
+
+    - **176/250 after TD94** (the generic `role_cnc_operator` mint, owner ruling
+      2026-07-21 / #460). +4, every one a `role` fixture and every one a phrase that
+      names CNC and an operating claim and NOTHING more specific: `CNC operator`,
+      `main CNC operator ka kaam karta hu`, `CNC machine chalata hoon`, `cnc oprator`.
+      Measured by the same before/after diff, and
+      ``test_the_widening_closed_gaps_and_opened_none`` proves the other half — the
+      OPENED set is empty, so nothing was traded for these four.
+
+      What did NOT move is the part worth reading: `CNC`, `operator`, `machine
+      operator hu` and `lathe operator` are all still gaps. The mint closed the PAIR,
+      not either half of it, and it did not resurrect the deleted
+      `<machine> + <function>` inference.
     """
     rows = measure_all()
     should_accept = [m for m in rows if m.fixture.expected == "accept"]
@@ -430,13 +453,14 @@ def test_overall_acceptance_is_pinned() -> None:
     # below, which is the honest way to add a topic to a frozen measurement.
     baseline = [m for m in should_accept if m.fixture.topic in PRE_WIDENING_ACCEPTED]
     accepted = [m for m in baseline if m.accepted]
-    # 166/250, down from 168/252, and the whole delta is two fixtures CHANGING TOPIC,
-    # not coverage lost: "NSDC certificate" and "RVM CAD course kiya" were filed under
-    # `education` because until 2026-07-22 there was nowhere else to put them. Both
-    # are still accepted — counted under `certifications` below. Numerator and
-    # denominator each move by exactly 2, which is what makes this a re-filing rather
-    # than a regression.
-    assert (len(accepted), len(baseline)) == (172, 250)
+    # 176/250. The denominator has not moved since the `certifications` re-filing
+    # (166/250, down from 168/252, and that whole delta was two fixtures CHANGING
+    # TOPIC, not coverage lost: "NSDC certificate" and "RVM CAD course kiya" were
+    # filed under `education` because until 2026-07-22 there was nowhere else to put
+    # them — both are still accepted, counted under `certifications` below).
+    # The numerator moved 172 -> 176 on TD94; see the four fixtures named in the
+    # docstring.
+    assert (len(accepted), len(baseline)) == (176, 250)
 
     availability = [m for m in baseline if m.fixture.topic == "availability" and m.accepted]
     assert len(availability) == 22, "availability coverage moved — re-measure"
@@ -494,6 +518,16 @@ def test_the_widening_closed_gaps_and_opened_none() -> None:
         ("experience", "char saal"),
         ("experience", "chaar saal ka experience hai"),
         ("experience", "bees saal"),
+        # Closed by TD94 (owner ruling 2026-07-21, #460): the GENERIC
+        # `role_cnc_operator` mint. Each of these names CNC and an operating claim and
+        # nothing more specific, so each now resolves to the generic id — never to a
+        # specialisation. NOT ("role", "CNC"), NOT ("role", "operator"), NOT ("role",
+        # "machine operator hu") and NOT ("role", "lathe operator"): the mint closed
+        # the PAIR, and all four of those remain the honest gaps they were.
+        ("role", "CNC operator"),
+        ("role", "main CNC operator ka kaam karta hu"),
+        ("role", "CNC machine chalata hoon"),
+        ("role", "cnc oprator"),
     }
     # Every row the report's widening table calls CLOSED really is.
     for topic, text, _before, want, _note in WIDENING_DELTA:
@@ -524,9 +558,18 @@ def test_the_widening_negatives_all_hold() -> None:
 def test_role_gazetteer_has_no_cnc_or_operator_keyword() -> None:
     """Code-path evidence for the `CNC`/`operator` finding (report section 1).
 
-    ``signals._ROLES`` is the ONLY thing that can set ``role_id``, and
-    ``detect_answered_topics`` keys the `role` topic on ``role_id`` alone
-    (signals.py: ``if sig.role_id: answered["role"] = sig.primary_role``).
+    STILL TRUE AFTER TD94, and that is the point of keeping it. The generic
+    `role_cnc_operator` was minted the `role_welder` way — ``_EXTRA_ROLE_TRADES`` plus
+    ONE gated function (``signals._assign_generic_cnc_role``) — expressly so that
+    neither `cnc` nor `operator` ever became a KEYWORD. If either appeared in
+    ``_ROLES`` it would be substring-matched over the whole message, and bare "CNC"
+    and bare "operator" would start resolving a role, which the ruling did not ask for
+    and this file locks against elsewhere.
+
+    ``_ROLES`` is therefore no longer the only thing that can set ``role_id`` — the
+    two gated assigners can too — but ``detect_answered_topics`` still keys the `role`
+    topic on ``role_id`` alone (signals.py: ``if sig.role_id: answered["role"] =
+    sig.primary_role``), so the report's causal chain is unchanged.
     """
     role_keywords = [kw for kw, _label, _rid, _tid in signals._ROLES]
     assert "cnc" not in role_keywords
@@ -536,6 +579,12 @@ def test_role_gazetteer_has_no_cnc_or_operator_keyword() -> None:
     machine_keywords = [kw for kw, _label, _mid in signals._MACHINES]
     assert "cnc" not in machine_keywords
     assert "cnc lathe" in machine_keywords
+    # The closed SET grew; the keyword TABLE did not. Both gated ids live in
+    # `_EXTRA_ROLE_TRADES`, which is the structural statement of exactly that.
+    assert dict(signals._EXTRA_ROLE_TRADES) == {
+        "role_welder": "dom_welding",
+        "role_cnc_operator": "dom_cnc_machining",
+    }
 
 
 def test_role_question_offers_options_the_parser_cannot_resolve() -> None:
@@ -557,6 +606,17 @@ def test_role_question_offers_options_the_parser_cannot_resolve() -> None:
         "setter": True,
         "programmer": True,
     }
+
+    # TD94 narrowed the conflation without removing it. The question offers "CNC" and
+    # "operator" as separate options and NEITHER resolves on its own — that is what
+    # the dict above still records, unchanged. What changed is that the phrase the
+    # question's own wording most invites, the two words TOGETHER, is no longer
+    # unresolvable. The question string itself is unfixed and is reported as such:
+    # rewording it (or adding a "CNC operator" answer chip, which `question_bank.py`
+    # excludes with a now-stale "measured, it keys only `skills`" note) is a
+    # question_bank change and is deliberately out of this lane.
+    assert "role" in signals.detect_answered_topics("CNC operator", "role")
+    assert "role" in signals.detect_answered_topics("CNC operator hun", "role")
 
     # The RETRY wording is where the parseable options live — it drops "CNC" and bare
     # "operator" entirely, so a worker only gets a prompt the parser can handle on
@@ -582,23 +642,29 @@ def test_scripted_interview_shows_the_engine_level_consequence() -> None:
     """End-to-end, mock mode, no network.
 
     A worker who answers every question plausibly — but in registers the gazetteer
-    does not cover — reaches the wrap-up with all four ESSENTIAL_TOPICS unanswered,
-    ``extraction_ready`` True (its frozen v1 meaning: "the interview is over"), and
-    two collected fields: `skills`, a topic that was NEVER ASKED, and `availability`.
+    does not cover — reaches the wrap-up with ESSENTIAL_TOPICS still unanswered and
+    ``extraction_ready`` True (its frozen v1 meaning: "the interview is over").
 
-    ``availability`` is new here and is a real IMPROVEMENT from the #424 follow-up,
-    not a regression: this worker answers the availability question with "do mahine
-    baad", which the old bare-substring cue table could not read at all ("mahine"
-    is not "mahina"). It is now read as ``notice_period`` — and read from the ANSWER
-    to that question, rather than from the "abhi" in some other reply.
+    ``availability`` is a real IMPROVEMENT from the #424 follow-up, not a regression:
+    this worker answers the availability question with "do mahine baad", which the old
+    bare-substring cue table could not read at all ("mahine" is not "mahina"). It is
+    now read as ``notice_period`` — and read from the ANSWER to that question, rather
+    than from the "abhi" in some other reply.
     """
     plausible = simulate(SCRIPT_PLAUSIBLE)
-    # `experience` left this list on 2026-07-22: this worker answers "char saal",
-    # which the detector can now read. The other three essentials are still missed,
-    # which is the point the test makes.
-    assert plausible.unanswered_essentials == ["role", "machines", "current_location"]
+    # `experience` left this list on 2026-07-22 ("char saal" is now readable), and
+    # `role` left it on TD94: this worker's role answer is the literal string "CNC
+    # operator", which is the whole reason TD94 exists. THIS is the end-to-end
+    # consequence the register measured — before the mint, a worker who truthfully
+    # answered the role question with the product's own core persona reached the
+    # wrap-up with `role` unanswered, `extraction_ready=true`, and nothing downstream
+    # ever re-asking. Two essentials are still missed, which is the point the test
+    # still makes: "cnc" as a MACHINE answer and "Chakan" as a city are separate,
+    # untouched gaps.
+    assert plausible.unanswered_essentials == ["machines", "current_location"]
     assert plausible.extraction_ready is True
     assert plausible.collected == {
+        "role": "CNC Operator",
         "skills": ["machine operation"],
         "experience": 4.0,
         "availability": "notice_period",

@@ -55,6 +55,16 @@ export const ROLES = [
   // same id space). The welding SKILL ids this role co-occurs with already exist,
   // active, in `skill-corpus.ts` — none was minted for this change.
   { id: "role_welder", name: "Welder", domainId: "dom_welding" },
+  // TD94 (owner ruling 2026-07-21, #460). The GENERIC CNC operator: a worker who says
+  // "CNC operator" and names no machine family. Mirrored in `signals._EXTRA_ROLE_TRADES`
+  // on the Python side — the same mechanism `role_welder` uses (in the closed SET, but
+  // assigned by one gated function rather than a keyword, `_assign_generic_cnc_role`).
+  //
+  // APPENDED, never inserted: every id above keeps its position and its spelling, so
+  // `RoleId` only ever grows (the stability promise in this file's header). It names no
+  // machine family ON PURPOSE — that is what makes it safe to fall back to, and it is
+  // why it must never displace a specialisation the worker actually stated.
+  { id: "role_cnc_operator", name: "CNC Operator", domainId: "dom_cnc_machining" },
 ] as const satisfies readonly Role[];
 
 // ---- Skills (placeholder) ----
@@ -84,6 +94,39 @@ export type DomainId = (typeof DOMAINS)[number]["id"];
 export type RoleId = (typeof ROLES)[number]["id"];
 export type SkillId = (typeof SKILLS)[number]["id"];
 export type MachineId = (typeof MACHINES)[number]["id"];
+
+/**
+ * ADJACENT roles — the taxonomy half of TD94's `secondaryRoleIds` ruling.
+ *
+ * `packages/reach-engine/src/scoring.ts` `scoreRole` is exact-id-match: **0.4** for a
+ * null `roleId` ("trade not stated yet"), **0.0** for a non-matching one, and **0.6**
+ * when any of the worker's `secondaryRoleIds` matches the job (`scoring.ts:157-158`).
+ * So `role_cnc_operator` ALONE would score a plain "CNC operator" 0.0 against a
+ * VMC/turner/setter/grinding vacancy — WORSE than the null they get without the mint.
+ * The ruling's answer is this map: a generic CNC operator is genuinely adjacent to
+ * every CNC specialisation, so carrying those ids as secondaries moves them 0.4 -> 0.6
+ * with NO change to the scoring math, and without ever claiming the worker HOLDS a
+ * specialisation (a secondary match scores 0.6, an exact one 1.0 — the distinction the
+ * engine already draws).
+ *
+ * DATA ONLY — deterministic, faceless, no PII, and nothing an LLM produces or reads
+ * (CLAUDE.md §2 #4: LLMs never rank; this is consumed by the deterministic engine).
+ *
+ * NOT YET WIRED, deliberately and reportably: `apps/api/src/reach/reach.mappers.ts`
+ * `workerProfileRowToSignals` still returns a hard-coded `secondaryRoleIds: []`, and
+ * `worker_profiles` has no column to persist a per-worker set. This constant exists so
+ * that wiring is a lookup against the taxonomy rather than a list re-typed at the call
+ * site. Roles with no adjacency are simply absent — read it with `?? []`.
+ */
+export const RELATED_ROLE_IDS: Partial<Record<RoleId, readonly RoleId[]>> = {
+  role_cnc_operator: [
+    "role_vmc_operator",
+    "role_hmc_operator",
+    "role_cnc_turner_operator",
+    "role_cnc_setter_operator",
+    "role_cnc_grinding_operator",
+  ],
+};
 
 function byId<T extends TaxonomyNode>(list: readonly T[]) {
   const map = new Map(list.map((n) => [n.id, n]));

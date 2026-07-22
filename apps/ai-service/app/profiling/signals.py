@@ -141,23 +141,28 @@ _ROLES: list[tuple[str, str, str, str]] = [
 # nothing here widens `_ROLES` itself — so `canonical_roles.ROLE_IDS`, the allow-set
 # offered to the model, is byte-for-byte unchanged.
 #
-# WHAT IS DELIBERATELY ABSENT: `cnc` and bare `operator`.
+# WHAT IS DELIBERATELY ABSENT FROM THIS TABLE (and from `_ROLES`): `cnc` and bare
+# `operator`, as KEYWORDS. Both are still absent and both still resolve NOTHING on
+# their own — "CNC" -> {} and "operator" -> {} are unchanged, and pinned.
 #
 #   `question_bank.py` records the decision ("Bare 'operator' does NOT [resolve], so
 #   it never stands alone") and it is RIGHT, for a reason that also rules out `cnc`:
-#   EVERY operator role in the closed set names a specific machine family
+#   EVERY *specialised* operator role in the closed set names a specific machine family
 #   (role_vmc_operator / role_hmc_operator / role_cnc_turner_operator /
 #   role_cnc_grinding_operator). "operator" states the function without the family;
 #   "CNC" states a family-of-families (VMC, HMC, lathe and grinder are all CNC)
-#   without saying which. Resolving either one would have to PICK a machine the
-#   worker never named — the fabrication class this parser exists to avoid.
+#   without saying which. Resolving either ONE ALONE to a specialisation would have to
+#   PICK a machine the worker never named — the fabrication class this parser exists
+#   to avoid, and the reason `lathe operator` / `milling` are still honest gaps.
 #
-#   Minting a generic `role_cnc_operator` instead is not a parser change and would
-#   make matching WORSE, measurably: packages/reach-engine/src/scoring.ts `scoreRole`
-#   is exact-id-match, returning 0.4 for a NULL roleId ("trade not stated yet") but
-#   0.0 for a non-matching one ("different trade"). A generic id matches no seeded
-#   job, so it would score every one of these workers BELOW the null they get today.
-#   That is an owner/ADR decision (taxonomy + job role_ids + reach), not a widening.
+#   TD94 (owner ruling 2026-07-21, #460) took the third option neither of those
+#   paragraphs considered: the PAIR "cnc" + an operating claim now resolves to a
+#   GENERIC `role_cnc_operator`, which names no machine family at all and so picks
+#   nothing. It is minted the `role_welder` way — `_EXTRA_ROLE_TRADES` plus ONE gated
+#   function (`_assign_generic_cnc_role`), never a keyword in `_ROLES` — so everything
+#   this table says about `cnc`/`operator` as keywords remains literally true. The
+#   ranking argument the earlier cut of this note made against minting, and what
+#   answers it, are recorded in full on `_assign_generic_cnc_role`.
 #
 # MATCHED WITH BOUNDARIES, never as substrings: `\b` for the Latin cues and
 # :func:`_dev` for the Devanagari ones (`\b` does not work there — see _DEVANAGARI).
@@ -190,6 +195,59 @@ _ROLE_CUES: tuple[tuple[str, str, str, str], ...] = (
 )
 _ROLE_CUES_RE: tuple[tuple[re.Pattern[str], str, str, str], ...] = tuple(
     (re.compile(pat, re.IGNORECASE), label, rid, tid) for pat, label, rid, tid in _ROLE_CUES
+)
+
+
+# --- TD94: the GENERIC CNC operator -----------------------------------------
+#
+# THE RULE, and why it is a PAIR and not a keyword.
+#
+#   Neither half resolves alone. `cnc` on its own is a family-of-families and bare
+#   `operator` is a function with no family — the note on `_ROLE_CUES` above is
+#   unchanged on both, and both still return `{}`. What resolves is the PAIR: a CNC
+#   family word and an OPERATING claim, ADJACENT inside one clause. That pair is not
+#   an inference; it is the two words the worker actually said, mapped to the one id
+#   that means exactly those two words and no more.
+#
+#   THIS IS NOT THE DELETED `<machine> + <function>` INFERENCE. That cut mapped
+#   "lathe operator" onto `role_cnc_turner_operator` — a SPECIALISATION the worker
+#   never claimed, worth 0.0 against every job that is not turning — and it needed a
+#   blocklist precisely because the cost of a false positive was a WRONG trade. This
+#   pair maps onto the GENERIC id, so its worst case is a generic where there should
+#   have been nothing, never a fabricated specialisation. `lathe operator`, `milling`
+#   and bare `operator` are still gaps, on purpose.
+#
+# THE LIMIT, STATED RATHER THAN HIDDEN. Like `_ROLES` itself, this makes NO judgement
+# about who is being described: "cnc operator ki salary kitni hai" and "mere bhai cnc
+# operator hai" resolve the role. So do the identical sentences with "vmc" in place of
+# "cnc", today, on `main`, through `_ROLES` — the limit is `_ROLES`'s, it is shipped
+# behaviour, and this pair is deliberately NO WIDER than it (pinned both ways in
+# tests/test_generic_cnc_operator_role.py). Narrowing it means narrowing `_ROLES`,
+# which is a separate change against a shipped behaviour, and the `_ROLE_CUES` note
+# above is the record of what happens when a blocklist is asked to do that job.
+#
+# MATCHED ON THE NEGATION-MASKED TEXT, exactly like `_ROLES` and `_ROLE_CUES`, so a
+# denial suppresses the pair ("cnc nahi chalata" -> no role).
+_CNC_FAMILY = r"(?:cnc|c\s+n\s+c)"
+# The OPERATING claim. `oprator`/`oparator` are the misspellings the answer corpus
+# actually carries (`cnc oprator`, register="misspelling") — same widening shape as
+# the `set[ae]r` row above, an alternate SURFACE FORM and nothing more.
+#
+# WHAT IS DELIBERATELY NOT HERE, each for a measured reason:
+#   `run`/`running`     — "cnc running me hai" is the MACHINE running, not the worker.
+#   `chalane`/`chalana` — the infinitive is how a TRAINING answer is phrased ("lathe
+#                         chalane ki training li hai" is an ADVERSARIAL row in
+#                         WIDENING_NEGATIVE_PROBE); only finite present-tense forms
+#                         are a present claim.
+#   `chalaunga`         — future tense is an ASPIRATION ("cnc chalaunga"), not a role.
+_CNC_OPERATE = r"(?:op[ae]?rator|operate|operating|operation|chala(?:t[aei]|ata|ate))"
+# Both word orders, clause-bounded: "CNC operator hun", "CNC machine operator hun",
+# "CNC chalata hun", "operator hu, cnc pe". The `[^.;!?]` window is the same adjacency
+# device the relocation/availability cue families use, and it is STRICTLY TIGHTER than
+# the whole-text substring test `_ROLES` applies to its own keywords.
+_GENERIC_CNC_ROLE_RE: tuple[re.Pattern[str], ...] = (
+    re.compile(rf"\b{_CNC_FAMILY}\b[^.;!?]{{0,24}}?\b{_CNC_OPERATE}\b", re.IGNORECASE),
+    re.compile(rf"\b{_CNC_OPERATE}\b[^.;!?]{{0,24}}?\b{_CNC_FAMILY}\b", re.IGNORECASE),
 )
 
 
@@ -257,8 +315,18 @@ _WELDING_DOMAIN_SKILL_IDS = frozenset(
 # a first-class role in the closed set (so the model may propose it, `normalize_role_id`
 # accepts it, and the rich->legacy mapper validates it) while its ASSIGNMENT from raw
 # text stays behind the single gate in `_assign_welding_role`.
+#
+# TD94 adds the SECOND member for the same reason. `role_cnc_operator` is a
+# first-class member of the closed SET — the model may propose it,
+# `normalize_role_id` accepts it, the rich->legacy mapper validates it — while its
+# ASSIGNMENT from raw text stays behind the single gate in
+# `_assign_generic_cnc_role`. APPENDED, never inserted: `canonical_roles.ROLE_IDS` is
+# ordered from this dict, so every pre-existing id keeps its exact position and its
+# exact spelling (ADR-0028 — the id space is CLOSED and IMMUTABLE; this is purely
+# additive, nothing renamed, nothing reused).
 _EXTRA_ROLE_TRADES: tuple[tuple[str, str], ...] = (
     ("role_welder", "dom_welding"),
+    ("role_cnc_operator", "dom_cnc_machining"),
 )
 
 _MACHINING_CONTEXT: tuple[str, ...] = (
@@ -1611,6 +1679,66 @@ def _assign_welding_role(lower: str, sig: Signals) -> None:
     sig.trade_id = "dom_welding"
 
 
+def _assign_generic_cnc_role(lower: str, sig: Signals) -> None:
+    """Assign the GENERIC ``role_cnc_operator``/``dom_cnc_machining`` (TD94).
+
+    The ONLY place this id is set from raw text, and deliberately the same shape as
+    :func:`_assign_welding_role`: the closed SET carries the id
+    (:data:`_EXTRA_ROLE_TRADES`), a single gated function decides when text may claim
+    it, and `_ROLES` keeps no `cnc`/`operator` keyword — so "CNC" and "operator" on
+    their own still resolve nothing, exactly as before.
+
+    Two conditions, both load-bearing:
+
+    - ``sig.role_id is None`` — **the SPECIFIC role always wins.** `_ROLES` and
+      `_ROLE_CUES` have both already run by the time this is called, so "cnc turner",
+      "cnc setter hu", "cnc grinding operator hu", "cnc programmer" and "vmc operator"
+      keep their specialisation and can never be DOWNGRADED to the generic. That
+      direction is the whole reason the generic is safe to have, and it is pinned in
+      both directions in tests/test_generic_cnc_operator_role.py.
+    - a CNC family word ADJACENT to an operating claim (:data:`_GENERIC_CNC_ROLE_RE`),
+      read off the same negation-masked text `_ROLES` reads, so "cnc nahi chalata"
+      asserts nothing.
+
+    WHY THIS WAS MINTED, and the cost that comes with it — both stated because the
+    note on `_ROLE_CUES` used to argue the other way and a reader deserves the whole
+    ledger. TD94 measured the gap on `main` (2026-07-18, live
+    ``profile_extractor.extract``): ``'CNC operator hun'`` -> None, ``'cnc operator'``
+    -> None, ``'CNC machine operator hun'`` -> None, ``'CNC chalata hun'`` -> None,
+    against the control ``'VMC operator hun'`` -> role_vmc_operator. The cheapest
+    alternative — let the bounded re-ask elicit a specialisation — was then MEASURED
+    failing (2026-07-21, #460): a worker who truthfully REPEATS "CNC operator"
+    exhausts ``interview_engine.MAX_ASKS_PER_TOPIC`` = 2 and ships ``role=null`` with
+    ``extraction_ready=true``, while `question_bank`'s own opening question ("...CNC,
+    VMC, HMC operator, setter ya programmer?") solicits that unresolvable answer in
+    the first place.
+
+    THE RANKING LEDGER. ``packages/reach-engine/src/scoring.ts`` ``scoreRole`` is
+    exact-id-match: **0.4** for a null roleId ("trade not stated yet"), **0.0** for a
+    non-matching one, at ``WEIGHTS.role`` = 0.35. So this id ON ITS OWN moves these
+    workers 0.4 -> 0.0 against a specialised job — a REGRESSION, exactly as the
+    earlier note predicted. The owner ruling pairs the mint with the other half:
+    the CNC specialisations ride the worker's ``secondaryRoleIds``, which
+    ``scoring.ts:157-158`` already scores at **0.6**, taking them 0.4 -> 0.6 with no
+    change to the scoring math. That half is DATA the taxonomy now carries
+    (``RELATED_ROLE_IDS`` in packages/taxonomy/src/index.ts) but which nothing on the
+    reach read path reads yet — ``apps/api/src/reach/reach.mappers.ts`` still returns
+    a hard-coded ``secondaryRoleIds: []``, and ``worker_profiles`` has no column to
+    persist a per-worker set. Wiring it is the co-requisite the ruling calls "one PR",
+    and until it lands this mint is net-negative for reach on this population. It is
+    net-POSITIVE everywhere else immediately: the interview stops burning re-asks on a
+    question the worker already answered, and the resume/profile stops printing a
+    blank trade for the product's own core persona.
+    """
+    if sig.role_id is not None:
+        return
+    if not any(p.search(lower) for p in _GENERIC_CNC_ROLE_RE):
+        return
+    sig.primary_role = "CNC Operator"
+    sig.role_id = "role_cnc_operator"
+    sig.trade_id = "dom_cnc_machining"
+
+
 def detect(text: str) -> Signals:
     """Detect all profile signals in ``text`` (raw worker text, trusted local).
 
@@ -1675,6 +1803,16 @@ def detect(text: str) -> Signals:
                 sig.role_id = rid
                 sig.trade_id = tid
                 break
+
+    # TD94: ...then the GENERIC CNC operator, the ONE place `role_cnc_operator` is
+    # assigned. Runs THIRD on purpose — after both specific tables — so a stated
+    # specialisation is never downgraded to the generic, and BEFORE welding so the
+    # precedence between the two gated roles is explicit here rather than emergent.
+    # (It would be the same either way: `cnc` is in `_MACHINING_CONTEXT`, so
+    # `_assign_welding_role`'s machining guard already blocks welding on every text
+    # this can fire on. Stating it in the call order means a future edit to that
+    # guard cannot silently change which role a "cnc operator who also welds" gets.)
+    _assign_generic_cnc_role(lower, sig)
 
     # TAX-WELD-1: the ONE place welding may assign a role (word-boundary matched, and
     # gated on machining evidence + blockers). Runs after the _ROLES loop so it can
@@ -1942,12 +2080,24 @@ def role_id_for_label(label: str) -> tuple[str, str] | None:
 
     The machining gate from :func:`_assign_welding_role` applies here too, so the
     "welding never captures a machining worker" invariant holds on the model-label
-    path as well as the raw-text path — one rule, both live routes."""
+    path as well as the raw-text path — one rule, both live routes.
+
+    TD94 gives the GENERIC CNC operator the same treatment. Before it, a model that
+    correctly read a worker as "CNC Operator" / "CNC Machine Operator" had that label
+    DROPPED here: no `_ROLES` keyword matches it, and the machining gate below then
+    returned None for anything CNC-shaped. So the id could be minted and the raw-text
+    gate could fire, and the model-label route would still ship a blank trade — the
+    same split the welding fix existed to close."""
     low = (label or "").lower()
     for kw, _label, rid, tid in _ROLES:
         if kw in low:
             return rid, tid
     normalized = re.sub(r"[_\-/]+", " ", low)
+    # AFTER `_ROLES` (so "VMC Operator" / "CNC Turner" keep their specialisation) and
+    # BEFORE the machining gate (which exists to stop WELDING capturing a machining
+    # label, and would otherwise swallow every CNC label on its way past).
+    if any(p.search(normalized) for p in _GENERIC_CNC_ROLE_RE):
+        return "role_cnc_operator", "dom_cnc_machining"
     if any(p.search(normalized) for p in _MACHINING_CONTEXT_RE):
         return None
     for pattern, _label, sid in _WELDING_RE:
