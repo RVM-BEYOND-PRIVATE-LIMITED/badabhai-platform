@@ -163,8 +163,14 @@ def test_documented_findings_still_hold() -> None:
     #    the three machine types in the question as roles and the third (CNC) not.
     assert d("VMC operator", "role").get("role") == "VMC Operator"
     assert d("HMC operator", "role").get("role") == "HMC Operator"
-    # 5. Spelled-out numerals are not experience.
-    assert d("char saal", "experience") == {}
+    # 5. CLOSED 2026-07-22: spelled-out numerals ARE experience now. The extraction
+    #    PROMPT had taught the model 'dedh'=1.5 / 'dhai'=2.5 since it was written,
+    #    but the deterministic detector never learned them — so with real calls off
+    #    (the default) "dedh saal" produced nothing while "1.5 saal" produced 1.5.
+    #    The detector now carries the prompt's own table plus the plain numerals.
+    assert d("char saal", "experience") == {"experience": 4.0}
+    assert d("dedh saal", "experience") == {"experience": 1.5}
+    assert d("paune do saal", "experience") == {"experience": 1.75}
     # 6. FIXED by #426 (P1-3). Was {"experience": 5.0} — the years regex had no left
     #    boundary, so it matched the decimal's SECOND digit. Now the fraction is kept.
     assert d("2.5 saal", "experience") == {"experience": 2.5}
@@ -430,7 +436,7 @@ def test_overall_acceptance_is_pinned() -> None:
     # are still accepted — counted under `certifications` below. Numerator and
     # denominator each move by exactly 2, which is what makes this a re-filing rather
     # than a regression.
-    assert (len(accepted), len(baseline)) == (166, 250)
+    assert (len(accepted), len(baseline)) == (172, 250)
 
     availability = [m for m in baseline if m.fixture.topic == "availability" and m.accepted]
     assert len(availability) == 22, "availability coverage moved — re-measure"
@@ -480,6 +486,14 @@ def test_the_widening_closed_gaps_and_opened_none() -> None:
         ("preferred_locations", "South India"),
         ("preferred_locations", "NCR"),
         ("preferred_locations", "जहाँ भी काम मिले"),
+        # Closed 2026-07-22 by giving the detector the extraction prompt's own
+        # Hinglish number table (finding 5 above).
+        ("experience", "ek saal"),
+        ("experience", "do saal"),
+        ("experience", "teen saal"),
+        ("experience", "char saal"),
+        ("experience", "chaar saal ka experience hai"),
+        ("experience", "bees saal"),
     }
     # Every row the report's widening table calls CLOSED really is.
     for topic, text, _before, want, _note in WIDENING_DELTA:
@@ -579,10 +593,14 @@ def test_scripted_interview_shows_the_engine_level_consequence() -> None:
     to that question, rather than from the "abhi" in some other reply.
     """
     plausible = simulate(SCRIPT_PLAUSIBLE)
-    assert plausible.unanswered_essentials == list(interview_engine.ESSENTIAL_TOPICS)
+    # `experience` left this list on 2026-07-22: this worker answers "char saal",
+    # which the detector can now read. The other three essentials are still missed,
+    # which is the point the test makes.
+    assert plausible.unanswered_essentials == ["role", "machines", "current_location"]
     assert plausible.extraction_ready is True
     assert plausible.collected == {
         "skills": ["machine operation"],
+        "experience": 4.0,
         "availability": "notice_period",
     }
     # `skills` IS now asked (2026-07-22): the inferred "machine operation" fills the

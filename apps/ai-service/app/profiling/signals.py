@@ -348,8 +348,40 @@ _ROLE_LABELS: dict[str, str] = {rid: label for _, label, rid, _ in _ROLES}
 # ``sal`` alternative used to match INSIDE a longer word, so "2 salary" scored as
 # two years of experience. (The old pattern's final ``saal\b`` alternative was
 # unreachable — ``saal`` already matched — and is dropped.)
+# Hinglish number-words for a DURATION IN YEARS.
+#
+# EXTRACTION_SYSTEM_PROMPT has taught the model 'aadha'=0.5, 'dedh'=1.5, 'dhai'=2.5
+# since it was written. The deterministic detector never learned them, so with real
+# calls off — the default — "dedh saal" produced NOTHING while "1.5 saal" produced
+# 1.5. A worker who answers the experience question the way most workers actually
+# say it lost their answer entirely, and `experience` is an ESSENTIAL topic that
+# drives the payer-visible band. Measured on an owner session: "dedh saal ka",
+# then "dedh saal" again on the re-ask, both -> None.
+#
+# This is a PARITY fix, not a new inference: the table below is the prompt's own
+# table, plus the plain numerals. Ordered LONGEST-FIRST so "paune do" wins over
+# "paune" and "sava do" over "sava" — the compounds mean different numbers.
+_EXP_WORD_NUMBERS: tuple[tuple[str, float], ...] = (
+    ("paune do", 1.75),
+    ("sava do", 2.25),
+    ("dhaai", 2.5), ("dhai", 2.5), ("adhai", 2.5),
+    ("dedh", 1.5), ("dhedh", 1.5), ("derh", 1.5),
+    ("sava", 1.25),
+    ("paune", 0.75), ("pauna", 0.75),
+    ("aadha", 0.5), ("adha", 0.5), ("aadhe", 0.5),
+    ("pandrah", 15.0), ("bees", 20.0),
+    ("gyarah", 11.0), ("barah", 12.0),
+    ("ek", 1.0), ("do", 2.0), ("teen", 3.0), ("tin", 3.0),
+    ("chaar", 4.0), ("char", 4.0),
+    ("paanch", 5.0), ("panch", 5.0),
+    ("chhah", 6.0), ("chhe", 6.0),
+    ("saat", 7.0), ("aath", 8.0), ("nau", 9.0), ("das", 10.0),
+)
+_EXP_WORD_LOOKUP: dict[str, float] = {word: value for word, value in _EXP_WORD_NUMBERS}
+_EXP_WORD_ALT = "|".join(re.escape(word) for word, _ in _EXP_WORD_NUMBERS)
 _EXPERIENCE_RE = re.compile(
-    r"(?<![\d.])(\d{1,2}(?:\.\d+)?)\s*\+?\s*(?:years|year|yrs|yr|saal|sal)\b",
+    r"(?<![\d.])(\d{1,2}(?:\.\d+)?|" + _EXP_WORD_ALT + r")\s*\+?\s*"
+    r"(?:years|year|yrs|yr|saal|sal)\b",
     re.IGNORECASE,
 )
 # Detect the canonical cities AND their Hinglish aliases (dilli, bombay, ...) so a
@@ -1253,6 +1285,16 @@ _ASKED_IMMEDIATE_RE: tuple[re.Pattern[str], ...] = tuple(
         rf"^\W*{_AVAIL_NOW}(?:\s+(?:hi|se|tak|ko|hi\s+se|se\s+hi))?\W*$",
         # Ability to join, with no immediacy adverb attached.
         rf"\b{_AVAIL_JOIN}\b",
+        # A time adverb next to a bare CAN-DO verb. Only reachable here, in the
+        # context-gated table, because it is only unambiguous when the availability
+        # question is the one on screen: "abhi kar sakta hun" answering "join karne
+        # mein kitne din lagenge?" means "I can start now", while the same words
+        # answering anything else could be about the WORK. Measured on an owner
+        # session: "abhi kar sakta hun package de doge toh" -> availability unknown,
+        # because `_AVAIL_JOIN` requires an explicit join/start verb and this has
+        # none. Bare "abhi" remains barred from the context-free table for the
+        # documented reason — our own questions open with it.
+        rf"\b{_AVAIL_NOW}\b[^.;!?]{{0,20}}?\b(?:kar|karna)\s+(?:sakta|sakti|sakte)\b",
     )
 )
 
@@ -1676,7 +1718,9 @@ def detect(text: str) -> Signals:
     # Experience
     match = _EXPERIENCE_RE.search(text)
     if match:
-        sig.experience_years = float(match.group(1))
+        raw_amount = match.group(1).lower()
+        word_value = _EXP_WORD_LOOKUP.get(raw_amount)
+        sig.experience_years = word_value if word_value is not None else float(raw_amount)
 
     # Secondary role inference: an operator who also sets up is a setter-operator.
     if sig.role_id in ("role_vmc_operator", "role_hmc_operator", "role_cnc_turner_operator") and (
@@ -1800,9 +1844,29 @@ def _period_months(near_before: str, near_after: str) -> int | None:
 # resume, and into the deterministic ranking factor `reach.mappers.ts` reads. The
 # detector is topic-blind and only rejects amounts under 1,000, so a roll number is
 # indistinguishable from a wage to it.
-_CREDENTIAL_LINE_CUES: tuple[str, ...] = (
-    "roll", "registration", "reg no", "regd", "certificate", "cert no",
-    "enrolment", "enrollment", "licence", "license", "ncvt", "scvt", "nsqf", "nsdc",
+# A number is a CREDENTIAL, not money, when a credential cue sits IMMEDIATELY
+# before it — "roll number R/2019/123456", "certificate no 45-2021-8891". Anchored
+# with `$` so the cue must be adjacent, allowing only a no/number connector and a
+# short alphanumeric ID prefix ("R/") in between.
+#
+# Proximity, not a line scan, and not a fixed character window. Both looser rules
+# shipped false suppressions: scanning the LINE dropped both salaries from "abhi
+# 25000 milta hai, 35000 chahiye, NCVT certificate hai" (one worker answering
+# several questions in one message — a chat message is a single line), and a
+# 30-character window still dropped the salary from "NCVT certificate hai, abhi
+# 25000 milta hai".
+_CREDENTIAL_BEFORE_RE = re.compile(
+    r"(?:roll|reg|regd|registration|certificate|cert|enrol(?:l)?ment|licence|license"
+    r"|ncvt|scvt|nsqf|nsdc)\b"
+    # "certificate KA number NAPS/2020/44521" — same possessive slot the gate's
+    # _CREDENTIAL_ID_RE carries, kept in step with it.
+    r"(?:\s+(?:ka|ki|ke|mera|meri))?"
+    # The gap between the cue and the digits may be the REST OF THE IDENTIFIER —
+    # "roll number R/2019/123456" reaches its last digit run through "R/2019/", and
+    # "reg no MH2019CN4471" through "MH2019CN". Identifier characters only, so a
+    # space or comma ends the run and an unrelated later number is not suppressed.
+    r"\s*(?:no\.?|number|num|#)?\s*[:\-]?\s*[A-Za-z0-9/\-]{0,20}$",
+    re.IGNORECASE,
 )
 
 
@@ -1826,8 +1890,15 @@ def _detect_salary(text: str, lower: str, sig: Signals) -> None:
         line_start = lower.rfind("\n", 0, digits_at) + 1
         line_end = lower.find("\n", digits_at)
         line_end = len(lower) if line_end == -1 else line_end
-        line = lower[line_start:line_end]
-        if any(cue in line for cue in _CREDENTIAL_LINE_CUES):
+        # Scoped to the text immediately BEFORE the number, never the whole line.
+        # Scanning the line was wrong and shipped a regression: a chat message is a
+        # single line, so "abhi 25000 milta hai, 35000 chahiye, NCVT certificate hai"
+        # — one worker answering several questions at once — had BOTH salaries
+        # silently dropped because a certificate was mentioned later in the sentence.
+        # A credential number sits next to its cue ("roll number R/2019/123456"), so
+        # a short backward window is both sufficient and safe. Backward only: a
+        # forward window re-creates the same bug at shorter range.
+        if _CREDENTIAL_BEFORE_RE.search(lower[line_start:digits_at]):
             continue  # a roll/registration number, not a wage
         near_before = lower[max(line_start, m.start() - _PERIOD_WINDOW_BEFORE): m.start()]
         near_after = lower[m.end(): min(line_end, m.end() + _PERIOD_WINDOW_AFTER)]
