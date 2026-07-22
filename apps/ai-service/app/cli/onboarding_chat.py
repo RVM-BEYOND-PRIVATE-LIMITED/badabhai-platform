@@ -1,102 +1,95 @@
-"""In-process terminal onboarding CLI: a Hinglish chat -> a resume JSON.
+"""Terminal driver for the worker-profiling interview — the PRODUCTION path.
 
-LOCAL DEV TOOL ONLY. Run with:  python -m app.cli.onboarding_chat
+LOCAL DEV TOOL ONLY.  ``python -m app.cli.onboarding_chat``
 
-What it is / is NOT:
-- CLI-1: the interview is DETERMINISTIC and ENGINE-DRIVEN, mirroring the
-  production path ``chat.service.ts -> POST /profiling/respond`` turn for turn:
-  pseudonymize -> ``interview_engine.clarify_turn`` (when ``needs_rephrase``) else
-  ``interview_engine.next_turn`` -> ``build_chat_messages`` ->
-  ``router.run("profiling_chat_turn", ...)`` -> thread the returned
-  ``ConversationState`` into the next turn -> stop on ``extraction_ready``.
-  This CLI previously ran its OWN model-driven loop that shipped nowhere; it
-  validated nothing real. It now exercises the same engine the API does.
-- The MODEL NEVER CHOOSES A QUESTION. The engine picks the topic; in real mode the
-  LLM may only PHRASE that one question (COST-4 rephrase branch, off by default).
-  The engine's ``topic_id`` is printed beside every turn so drift is visible.
-- COST-3: the chat turn is STATELESS. ``build_chat_messages([], ...)`` is called
-  with an EMPTY history on purpose (its docstring: history is intentionally
-  unused), so per-turn input tokens stay FLAT instead of growing O(n^2).
-- It reuses the PRODUCTION building blocks unchanged: the pseudonymization gate
-  (``app.pseudonymize.pseudonymize``), the interview engine
-  (``app.profiling.interview_engine``), the profile extractor
-  (``app.profiling.profile_extractor``), and the router (``app.ai.router.AIRouter``).
-- The interview OPENS with ``interview_engine.first_question`` — the same shape the
-  worker app opens with (``chat_bloc.dart`` kChatOpeningText, the `role` question
-  verbatim, no vocative). There is no "type anything to begin" turn: the worker's
-  first message is an ANSWER.
-- The resume is built from the extraction AND the engine's
-  ``ConversationState.collected`` (``profile_extractor.merge_collected``, run LAST).
-  ``collected`` is the only signal that knows WHICH QUESTION each answer belonged
-  to, so it wins scalar disagreements; lists are unioned. Nothing is ever deleted.
-- It uses NO database, NO event emission, and starts NO HTTP server.
-- Real LLM calls happen ONLY if the same env gate is on (AI_ENABLE_REAL_CALLS +
-  GEMINI_FLASH_API_KEY, with the task allowlist) AND, for a chat turn, only on the
-  clarify/rephrase branch. By default everything is mock.
+PARITY BY CONSTRUCTION (the point of this tool)
+-----------------------------------------------
+Every turn is an actual ``POST /profiling/respond`` against the real FastAPI app,
+and the profile at the end is an actual ``POST /profile/extract``. By default the
+app is driven IN-PROCESS with ``fastapi.testclient.TestClient`` (ASGI, no socket,
+no server, no DB, no Node); ``--http BASE_URL`` sends the identical request bodies
+to a really-running ai-service.
 
-PRIVACY INVARIANT (mirrors production):
-- The worker's NAME is captured ONCE into a LOCAL variable (cleaned of lead-ins by
-  ``_clean_name``, still pure local string work) and is NEVER placed in
-  any text sent to the model — not to ``router.run`` and not into anything the
-  engine returns. The engine emits only the literal ``{{worker_name}}`` token
-  (AI-PERSONA-2); this CLI interpolates the real name over that token LOCALLY at
-  PRINT time only — the same post-emit seam ``ChatService.renderWorkerName``
-  implements in NestJS. The name is injected into the resume LOCALLY, after the AI
-  step. Every worker message that COULD reach the model is pseudonymized FIRST and
-  fails closed: if pseudonymization blocks, we do not call the model and ask the
-  worker to rephrase WITHOUT personal details.
-- Nothing is persisted; the transcript, resume and ConversationState live only in
-  process memory and on stdout.
+That means the pseudonymization gate, the Pydantic request/response contracts, the
+clarify-vs-advance branch, the router call and the response assembly are the SAME
+code the deployed service runs — there is no second implementation in this file to
+drift. The previous version of this CLI called ``interview_engine`` /
+``profile_extractor`` / ``router`` directly and only claimed parity in its header;
+it assembled the final profile with ``profile_extractor.merge_collected``, which
+the production endpoint has never called.
 
-The resume JSON schema (simple, documented):
-    {
-      "name": str,                     # captured locally, never sent to the LLM
-      "role": str | None,              # canonical_role_id from extraction
-      "trade": str | None,             # canonical_trade_id
-      "primary_role": str | None,      # human-readable role label
-      "experience_years": float | None,
-      "experience_level": str,
-      "machines": [str],               # human-readable machine labels
-      "controllers": [str],
-      "skills": [str],
-      "education": [str],
-      "current_city": str | None,
-      "preferred_locations": [str],
-      "current_salary": int | None,
-      "expected_salary": int | None,
-      "availability": str,
-    }
+Request-shape parity is documented per field in ``app/cli/api_session.py``. Two
+consequences are worth stating up front because they surprise people, and both are
+production behaviour this tool now shows honestly:
+
+* the extraction transcript contains BOTH sides of the conversation — Bada Bhai's
+  own questions included (``buildTranscript``), so the question text is fed back
+  into the extractor;
+* a message the gate BLOCKS is still stored (apps/api inserts the inbound row
+  before the AI call), so it is in that transcript, and one blocked message fails
+  the whole extraction closed.
+
+WHAT YOU SEE PER TURN
+---------------------
+The raw message, the pseudonymized text that would reach a model (or the BLOCK),
+the engine's decision (advance vs clarify) with ask counts, what the detector
+found vs what was collected vs what was discarded and WHY, the answered /
+essential / MUST_ASK state, and whether the reply came from a REAL model call or
+the mock. ``--trace`` adds the raw request/state/metadata; ``--quiet`` reduces it
+to the conversation.
+
+MODES
+-----
+``--edge-cases``  run the scripted edge-case suite (fabrication, exclusions,
+                  Devanagari, privacy, robustness, flow) and exit non-zero on
+                  failure.
+``--script FILE`` replay a canned transcript (one worker message per line).
+``--resume``      also call ``POST /resume/generate`` on the extracted profile.
+
+PRIVACY (CLAUDE.md §2)
+----------------------
+* The worker's NAME is captured into a LOCAL variable, is never part of any
+  request body, and is interpolated over the engine's ``{{worker_name}}`` token at
+  PRINT time only — the CLI mirror of ``ChatService.renderWorkerName``
+  (AI-PERSONA-2). The trace prints the RAW reply (token intact) beside it.
+* Every worker message is pseudonymized inside the service before any model path,
+  and fails closed. ``worker_ref`` is a per-run opaque UUID.
+* Nothing is persisted: no DB, no events, no files. The transcript, state and
+  profile live in process memory and on stdout.
+* Real model calls stay OFF unless the operator's own env enables them. This tool
+  never sets ``AI_ENABLE_REAL_CALLS`` and prints the resolved posture at startup.
 """
 
 from __future__ import annotations
 
-import asyncio
+import argparse
 import json
 import re
 import sys
+from typing import Any
 
 from ..ai.model_config import provider_for_model
-from ..ai.router import AIRouter
 from ..config import get_settings
-from ..contracts import AICallMetadata, ConversationState, WorkerProfileDraft
-from ..profiling import interview_engine, profile_extractor
-from ..profiling.canonical_roles import (
-    ROLE_TRADE,
-    canonicalization_instruction,
-    extract_canonical_role_id,
-    normalize_role_id,
-)
+from ..contracts import AICallMetadata
 from ..profiling.interview_engine import WORKER_NAME_PLACEHOLDER
-from ..profiling.prompts import EXTRACTION_SYSTEM_PROMPT, build_chat_messages
-from ..profiling.question_bank import topics_for
-from ..pseudonymize import pseudonymize
+from . import trace
+from .api_session import (
+    ExtractResult,
+    HttpTransport,
+    InProcessTransport,
+    InterviewSession,
+    Transport,
+    TurnResult,
+)
+from .edge_cases import load_script, run_suite
 
-# Backstop so a stalled session can't loop forever. The ENGINE is the real stop
-# condition (it returns extraction_ready once ESSENTIAL_TOPICS are answered and
-# MUST_ASK_TOPICS asked); this only bounds a pathological run. Must be > the
-# number of topics in the bank so a worker who answers nothing can still be asked
-# every question before the backstop trips.
-_MAX_TURNS = 30
+# Backstop so a stalled session cannot loop forever. The ENGINE is the real stop
+# condition (extraction_ready); this only bounds a pathological run. Must exceed
+# the engine's own ask ceiling so a worker who answers nothing is still asked
+# every question before this trips.
+_MAX_TURNS = 40
+
+_QUIT_WORDS = {"done", "exit", "quit", "bye"}
 
 _INTRO = (
     "\nNamaste. Main Bada Bhai hoon. Chaliye 2 minute mein "
@@ -107,8 +100,8 @@ _INTRO = (
 
 # --- Name capture (LOCAL ONLY — never sent anywhere) ------------------------
 #
-# THE DEFECT: the name was stored as ``input().strip()`` verbatim, so a worker who
-# typed "myself ravi" was then addressed as "myself ji" for the whole session.
+# THE DEFECT this fixes: the name was stored as ``input().strip()`` verbatim, so a
+# worker who typed "myself ravi" was addressed as "myself ji" for the whole session.
 #
 # THE RULE, deliberately CONSERVATIVE: strip only a KNOWN lead-in/trailer phrase,
 # matched at a WORD BOUNDARY and only while something is left over. When stripping
@@ -121,10 +114,9 @@ _INTRO = (
 # pins each one.
 #
 # PRIVACY: this runs on the name, which is PII. It is pure local string work — the
-# name is captured into a LOCAL variable, NEVER placed in model input, and only
+# name is captured into a LOCAL variable, NEVER placed in a request body, and only
 # interpolated over the engine's {{worker_name}} token at PRINT time
-# (_render_worker_name). Do not move any of this near a router call or the
-# transcript.
+# (_render_worker_name). Do not move any of this near a request builder.
 _NAME_LEAD_INS: tuple[str, ...] = (
     # English
     r"my\s+name\s+is", r"my\s+name['’]?s", r"the\s+name\s+is", r"name\s+is",
@@ -166,49 +158,14 @@ def _clean_name(raw: str) -> str:
     return candidate or text
 
 
-def _schema_hint() -> str:
-    keys = ", ".join(WorkerProfileDraft.model_fields.keys())
-    return f"Schema keys: {keys}."
-
-
-def _build_resume_json(name: str, rich: WorkerProfileDraft, legacy) -> dict:
-    """Assemble the resume dict = LOCAL name + extracted profile fields.
-
-    ``name`` is added here, AFTER the AI step, and is never part of any model
-    input. ``legacy`` is the taxonomy-id ``DraftProfile``; ``rich`` is the
-    human-readable ``WorkerProfileDraft``.
-    """
-    return {
-        "name": name,
-        # Taxonomy ids (stay on the DB schema of 7 roles + skill ids); null when
-        # the worker was too vague to pin one of the 7 roles.
-        "role": legacy.canonical_role_id,
-        "trade": legacy.canonical_trade_id,
-        "skill_ids": legacy.skills,
-        # Human-readable enrichment (for display).
-        "primary_role": rich.primary_role,
-        "experience_years": rich.experience_years,
-        "experience_level": rich.experience_level,
-        "machines": rich.machines,
-        "controllers": rich.controllers,
-        "skills": rich.skills,
-        "education": rich.education,
-        "current_city": rich.current_city,
-        "preferred_locations": rich.preferred_locations,
-        "current_salary": rich.current_salary,
-        "expected_salary": rich.expected_salary,
-        "availability": rich.availability,
-    }
-
-
 def _render_worker_name(reply: str, name: str | None) -> str:
     """Post-emit personalization — the CLI mirror of ``ChatService.renderWorkerName``.
 
     AI-PERSONA-2 / §2: the interview engine only ever emits the literal
     ``{{worker_name}}`` TOKEN (not PII). The real name is interpolated over that
-    token HERE — locally, at PRINT time, AFTER every model call — so the name never
-    crosses the LLM boundary. With no usable name, the token AND its trailing
-    ``" ji, "`` are dropped so the line degrades cleanly (no stray braces).
+    token HERE — locally, at PRINT time, AFTER the response has come back — so the
+    name never crosses the LLM boundary. With no usable name, the token AND its
+    trailing ``" ji, "`` are dropped so the line degrades cleanly.
     """
     if WORKER_NAME_PLACEHOLDER not in reply:
         return reply
@@ -222,41 +179,16 @@ def _render_worker_name(reply: str, name: str | None) -> str:
     )
 
 
-def _progress_line(state: ConversationState | None, role_family: str) -> str:
-    """One-line coverage view: what the engine has ANSWERED, what it has ASKED, and
-    what is still REMAINING in the question bank. PII-free (topic ids only)."""
-    answered = list(state.answered_topics) if state else []
-    asked = list(state.asked_question_ids) if state else []
-    seen = set(answered) | set(asked)
-    remaining = [t.id for t in topics_for(role_family) if t.id not in seen]
-    return f"  answered={answered} asked={asked} remaining={remaining}"
-
-
-def _turn_line(turn_no: int, topic_id: str | None, meta: AICallMetadata) -> str:
-    """Per-turn engine/cost header. ``topic_id`` is the topic the ENGINE chose for
-    this turn (``-`` on the wrap-up turn, which asks nothing) — printed so any drift
-    between the engine's choice and the phrasing shown is immediately visible."""
-    return (
-        f"  [turn {turn_no}] topic_id={topic_id or '-'} "
-        f"in_tokens={meta.input_tokens} out_tokens={meta.output_tokens} "
-        f"real_call={meta.real_call}"
-    )
-
+# --- startup banner ---------------------------------------------------------
 
 _PROVIDER_LABELS = {"google": "Gemini", "anthropic": "Claude Haiku"}
 
-# MSG-1: WHY this turn fell back to the offline mock, per ``AICallMetadata.error_code``.
-# This note used to say "model unavailable" for EVERY mock turn — which is a lie for
-# every reason below except an actual model failure: a spend cap is a BUDGET stop and an
-# unreachable ledger is a CONFIG error, and telling an operator "model unavailable" sends
-# them to debug the wrong system. The router sets error_code from the same closed set, so
-# each cause gets its own honest phrasing. Unmapped/None => the generic mock-mode note
+# MSG-1: WHY a turn fell back to the offline mock, per ``AICallMetadata.error_code``.
+# This note used to say "model unavailable" for EVERY mock turn — a lie for every
+# reason below except an actual model failure: a spend cap is a BUDGET stop and an
+# unreachable ledger is a CONFIG error, and telling an operator "model unavailable"
+# sends them to debug the wrong system. Unmapped/None => the generic mock-mode note
 # (the ordinary AI_ENABLE_REAL_CALLS=false path, which is not a failure at all).
-#
-# Scoped to the codes the router can emit ALONGSIDE real_call=False (the only branch
-# that reads this map). ``llm_call_failed`` / ``retry_budget_exhausted`` are deliberately
-# ABSENT: the router reports those with real_call=TRUE (a candidate did reach the
-# network), so they never reach here — see the note in _provider_note.
 _MOCK_REASON_NOTES = {
     "spend_store_unavailable": (
         "spend ledger unreachable — real call blocked (fail-closed, NOT a spend cap); "
@@ -284,10 +216,8 @@ _MOCK_REASON_NOTES = {
 def _provider_note(meta: AICallMetadata) -> str | None:
     """Per-turn visibility note: which provider actually served this turn (or WHY it
     fell back to the offline mock). Named neutrally — NOT "primary"/"fallback" —
-    because the primary/fallback order is configurable (e.g. Haiku can be primary),
-    so the chain position is not assumed. The COST & METADATA panel remains the
-    authoritative breakdown; this is a friendly inline heads-up. PII-free (reads
-    only ``AICallMetadata`` fields — closed-set codes, never a config VALUE)."""
+    because the order is configurable (Haiku can be primary). PII-free (reads only
+    ``AICallMetadata``: closed-set codes, model ids, ints — never a config VALUE)."""
     if not meta.real_call:
         reason = _MOCK_REASON_NOTES.get(meta.error_code or "")
         if reason:
@@ -295,8 +225,7 @@ def _provider_note(meta: AICallMetadata) -> str | None:
         return "[note: real calls off — used offline fallback (mock) for this turn]"
     label = _PROVIDER_LABELS.get(meta.provider, meta.provider)
     # Reconcile per-attempt vs per-call: a turn may have taken several failed
-    # attempts (across providers) before this one served. attempt_count counts
-    # every dispatch; the last was the success, so N-1 failed.
+    # attempts before this one served. attempt_count counts every dispatch.
     failed = max(meta.attempt_count - 1, 0)
     if failed > 0:
         return f"[note: this turn served by {label} after {failed} failed attempt(s)]"
@@ -309,9 +238,7 @@ def _startup_status(settings) -> str:
     A silent all-mock run is the single most confusing failure mode — it happens
     when ``AI_ENABLE_REAL_CALLS``/``GEMINI_FLASH_API_KEY`` resolve empty, OR (the
     sneaky one) when a SHELL env var of the same name overrides ``.env`` (pydantic
-    reads ``os.environ`` ahead of the file). Printing the resolved state — and the
-    blocking reason when off — turns that mystery into a one-line diagnosis.
-    PII-free (reads only config flags/model ids)."""
+    reads ``os.environ`` ahead of the file). PII-free (config flags/model ids)."""
     reason = settings.real_calls_blocked_reason()
     if reason is not None:
         return (
@@ -354,230 +281,32 @@ def _startup_status(settings) -> str:
     return "\n".join(lines)
 
 
-async def _run_chat(
-    router: AIRouter,
-    *,
-    input_fn=None,
-    print_fn=None,
-    role_family: str = "cnc_vmc",
-    settings=None,
-) -> tuple[dict, list[AICallMetadata]]:
-    """Drive the ENGINE-driven interview loop and return ``(resume_json, calls)``.
-
-    CLI-1 — this mirrors ``chat.service.ts -> POST /profiling/respond`` turn for
-    turn (see ``main.profiling_respond``), which is the ONLY sequence that ships:
-
-      1. ``pseudonymize`` the raw answer FIRST (fail-closed gate).
-      2. ``interview_engine.needs_rephrase`` -> ``clarify_turn`` (re-serve the last
-         question) when it is a clarification, else ``interview_engine.next_turn``.
-      3. ``build_chat_messages([], engine_question, pseudonymized_text)`` — EMPTY
-         history (COST-3 stateless turn: flat input tokens, never O(n^2)).
-      4. ``router.run("profiling_chat_turn", ...)`` with ``real_call_allowed`` only
-         on the clarify+rephrase-flag branch, so the LLM may PHRASE the engine's
-         question but NEVER choose one.
-      5. Thread the returned ``ConversationState`` into the next turn; stop on
-         ``extraction_ready``.
-
-    ``calls`` is the ordered list of every ``AICallMetadata`` the router returned
-    this run: each chat turn's meta, then the final extraction meta. Each entry is
-    PII-free by contract (see ``AICallMetadata``), so the caller can render an ops
-    cost/metadata panel WITHOUT touching the name or transcript.
-
-    ``input_fn``/``print_fn`` are injectable so tests can script stdin/stdout
-    without a real terminal. They default to the builtins, resolved at call time
-    (so a test's monkeypatch of ``builtins.input`` is honored).
-    """
-    input_fn = input_fn or input
-    print_fn = print_fn or print
-    settings = settings if settings is not None else get_settings()
-    print_fn(_INTRO)
-
-    # Ordered ledger of every router.run meta this run (chat turns + final
-    # extraction). PII-free by contract; powers the cost/metadata panel.
-    calls: list[AICallMetadata] = []
-
-    # 1. Capture the NAME once into a LOCAL variable. It NEVER enters model input;
-    #    it is interpolated over the engine's {{worker_name}} token at PRINT time
-    #    only (_render_worker_name), mirroring ChatService.renderWorkerName.
-    #    _clean_name strips "myself"/"mera naam"/... conservatively (LOCAL string
-    #    work only — the name goes nowhere near the router or the transcript).
-    name = _clean_name(input_fn("Sabse pehle, aapka naam kya hai? ")) or "Worker"
-
-    # 2. ENGINE-DRIVEN interview loop. The ConversationState is the ONLY memory —
-    #    exactly like production, where chat.service.ts persists it on the session
-    #    and passes it back each turn. The RAW answers are kept locally for the
-    #    trusted heuristic extraction; nothing but pseudonymized text is ever
-    #    handed to the router.
-    state: ConversationState | None = None
-    transcript_lines: list[str] = []  # RAW answers, local-only (never sent anywhere)
-
-    # OPENING QUESTION. This used to be a "(write anything — e.g. 'shuru' — to
-    # begin)" nudge that then BLOCKED on input, so the worker's first message
-    # answered nothing: a wasted round trip, a wasted turn and wasted tokens.
-    #
-    # The engine already owns an opener — ``first_question`` — and this is exactly
-    # how production behaves: apps/worker-app opens with kChatOpeningText, which is
-    # the `role` topic's question verbatim, and the worker's first typed message is
-    # therefore a real ANSWER that ``next_turn`` records (chat_bloc.dart documents
-    # the reasoning). We mirror that, including ``worker_name=None`` (no vocative):
-    # the greeting is _INTRO, and turn 1's own vocative then greets by name.
-    #
-    # Known, ACCEPTED consequence (identical in production today): the first
-    # message is answered with ``state=None``, so if it carries no extractable
-    # signal the engine serves the `role` question again as its FIRST ask, i.e.
-    # verbatim. Fixing that needs an engine/state change, not a CLI change.
-    _opening_topic_id, opening_question = interview_engine.first_question(
-        role_family, worker_name=None
-    )
-    print_fn(f"\nBada Bhai: {opening_question}")
-
-    for _turn in range(_MAX_TURNS):
-        answer = input_fn("You: ").strip()
-        if answer.lower() == "done":
-            break
-
-        # Pseudonymize FIRST (fail-closed). A blocked answer is NEVER sent to the
-        # model, never reaches the engine, and never enters the transcript; we
-        # re-prompt without consuming a turn against the model. Mirrors the
-        # endpoint's step 1, which returns _BLOCKED_REPLY before touching anything.
-        safe = pseudonymize(answer)
-        if safe.blocked:
-            print_fn(
-                "\nBada Bhai: Ismein kuch personal detail (jaise phone ya "
-                "company ka naam) lag rahi hai — usse hata ke, sirf kaam ke baare "
-                "mein dobara likhein. "
-                f"(reason: {safe.blocked_reason})"
-            )
-            continue
-
-        # Safe to use this answer: keep the RAW copy locally (the engine + the
-        # heuristic extractor read raw text in-process, no network) and the MASKED
-        # copy for anything that could leave the service.
-        transcript_lines.append(answer)
-
-        # COST-4 clarify branch BEFORE advancing (endpoint step 2): a clarifying
-        # message is not an answer, so clarify_turn RE-SERVES the last question
-        # instead of letting next_turn mis-advance past it. clarify_turn returns
-        # None (-> next_turn) when there is nothing re-servable, when the message
-        # actually carries an answer, or when the consecutive clarify budget
-        # (_MAX_CONSECUTIVE_CLARIFIES = 2) is spent.
-        is_clarify = interview_engine.needs_rephrase(answer)
-        turn = (
-            interview_engine.clarify_turn(state, answer, role_family)
-            if is_clarify
-            else None
-        )
-        if turn is None:
-            turn = interview_engine.next_turn(state, answer, role_family)
-        engine_question, asked_id, state, extraction_ready = turn
-
-        # Endpoint step 3: the straight-line path is TEMPLATED-ONLY — the engine
-        # already chose an on-persona <20-word question, so real_call_allowed is
-        # False and the router returns it verbatim with zero output tokens. Only
-        # the clarify branch (with the rephrase flag on) may spend a real call, and
-        # then the LLM is handed THAT question to phrase — never a choice of which.
-        wants_rephrase = settings.ai_profiling_rephrase_enabled and is_clarify
-        # COST-3: EMPTY history on purpose. build_chat_messages ignores `history` by
-        # design; passing the transcript here is the O(n^2) regression CLI-1 removed.
-        messages = build_chat_messages([], engine_question, safe.text)
-
-        reply_text, meta = await router.run(
-            "profiling_chat_turn",
-            messages=messages,
-            mock_response=engine_question,
-            real_call_allowed=wants_rephrase,
-        )
-        calls.append(meta)
-
-        # Personalize LOCALLY, after the model call — the {{worker_name}} token is
-        # what crossed the boundary, the real name only lands here.
-        print_fn(f"\nBada Bhai: {_render_worker_name(reply_text, name)}")
-        print_fn(_turn_line(state.turn_count, asked_id, meta))
-        print_fn(_progress_line(state, role_family))
-
-        # VISIBILITY ("no mock"): the worker must always know the provider.
-        note = _provider_note(meta)
-        if note is not None:
-            print_fn(note)
-
-        # The ENGINE owns the stop condition (ESSENTIAL_TOPICS answered +
-        # MUST_ASK_TOPICS asked) — exactly the flag chat.service.ts acts on.
-        if extraction_ready:
-            break
-
-    # 3. Extraction (REUSE existing). Pseudonymize the accumulated worker answers
-    #    FIRST (fail-closed). The name is injected post-AI in _build_resume_json.
-    transcript = "\n".join(transcript_lines)
-    safe = pseudonymize(transcript)
-    if safe.blocked:
-        print_fn(
-            "\nBada Bhai: Kuch personal detail (jaise phone ya company "
-            "ka naam) aa gayi — usse hata ke dobara likhein. "
-            f"(reason: {safe.blocked_reason})"
-        )
-        # Return a resume built from what the ENGINE already collected; nothing was
-        # sent to the model for extraction. ``calls`` holds only the prior chat-turn
-        # metas. Merging here is safe and correct: every one of those answers ALREADY
-        # passed the per-turn pseudonymization gate above (a blocked answer never
-        # enters ``transcript_lines`` and never reaches the engine), and ``collected``
-        # holds closed-set labels/cities/ints/enums, not free text. Before this the
-        # blocked path threw away the entire interview.
-        rich, legacy = profile_extractor.extract("", role_family)
-        rich = profile_extractor.merge_collected(rich, state.collected if state else None)
-        return _build_resume_json(name, rich, legacy), calls
-
-    # Heuristic extraction over RAW text (trusted, local, no network).
-    rich, legacy = profile_extractor.extract(transcript, role_family)
-
-    # Route for cost/tracing + optional real-model extraction. The model only ever
-    # sees the PSEUDONYMIZED transcript (``safe.text``) — never the raw text, and
-    # never the name. The canonicalization rubric makes the model emit a
-    # `canonical_role_id` from the CLOSED 7-role set (parity with /profile/extract).
-    messages = [
-        {
-            "role": "system",
-            "content": EXTRACTION_SYSTEM_PROMPT + canonicalization_instruction() + _schema_hint(),
-        },
-        {"role": "user", "content": safe.text},
+def _transport_banner(transport: Transport, remote_health: dict[str, Any] | None) -> str:
+    lines = [
+        f"[setup] Transport: {transport.label}",
+        "        Every turn is a real POST /profiling/respond; the profile is a real",
+        "        POST /profile/extract. No engine function is called directly.",
     ]
-    content, meta = await router.run(
-        "profile_extraction", messages=messages, mock_response=rich.model_dump_json(),
-        real_call_allowed=True,
-    )
-    calls.append(meta)
-    if meta.real_call and meta.success:
-        # Canonicalization FIRST, leniently: trust the model's role id only if it is
-        # one of the 7 (reject hallucinations); a valid id overrides the heuristic on
-        # `legacy` (role + derived trade). Independent of the full-draft validation
-        # below, so a good role id survives even when enrichment fields are loose.
-        role_id = normalize_role_id(extract_canonical_role_id(content))
-        if role_id is not None:
-            legacy.canonical_role_id = role_id
-            legacy.canonical_trade_id = ROLE_TRADE.get(role_id, legacy.canonical_trade_id)
-        # Overlay the model's well-formed enrichment fields onto the heuristic draft
-        # (keeps experience_years/machines/etc. even when other fields are malformed;
-        # location/salary stay local — the model only saw masked text).
-        rich = profile_extractor.merge_model_draft(rich, content)
-        # TODO(WS4 recall backfill, owner review): mirror the endpoint — once the
-        # staging --real NEGATIVE tier is verified unaffected, enable
-        #   legacy = profile_extractor.map_rich_to_legacy(rich, legacy)
-        # to fill in-scope machine/skill/role ids the raw-text detector missed.
+    if remote_health is not None:
+        lines.append(
+            "        remote /health: "
+            + json.dumps(
+                {
+                    k: remote_health.get(k)
+                    for k in ("status", "real_calls_enabled", "service_auth_enabled")
+                }
+            )
+            + "  <- the REMOTE posture; the local .env below may differ"
+        )
+        lines.append(
+            "        CAVEAT: the trace's 'detected' line is a LOCAL read-only diagnostic\n"
+            "        (this checkout's signals.py). It drives nothing, but it can differ\n"
+            "        from the remote build. Everything else comes from the response."
+        )
+    return "\n".join(lines)
 
-    # D1 — MERGE THE ENGINE'S QUESTION-ATTRIBUTED ANSWERS. This runs LAST, after
-    # both the heuristic pass and the model overlay, because ``collected`` is the
-    # only signal that knows WHICH QUESTION each answer belonged to; the transcript
-    # re-derivation and the model (which sees only the masked text) do not. See
-    # ``profile_extractor.merge_collected`` for the precedence rule. Purely local —
-    # every router call has already happened, so nothing collected can reach a model.
-    rich = profile_extractor.merge_collected(rich, state.collected if state else None)
 
-    # Honest-adjacency flag (advisory ONLY): mark the draft adjacent when it
-    # canonicalized to nothing matchable in the CNC/VMC taxonomy, so it is not
-    # silently half-empty. Additive; no matchable field is written here.
-    if profile_extractor.is_outside_cnc_vmc_scope(legacy):
-        rich.unmatchable_reason = profile_extractor.UNMATCHABLE_OUTSIDE_SCOPE
-
-    return _build_resume_json(name, rich, legacy), calls
+# --- cost panel -------------------------------------------------------------
 
 
 def _rupees(amount: float) -> str:
@@ -587,12 +316,7 @@ def _rupees(amount: float) -> str:
 
 
 def _per_call_status(c: AICallMetadata) -> str:
-    """Truthful one-line outcome for a call, reconciling per-attempt vs per-call.
-
-    Success after retries reads ``ok via <model> after N failed attempt(s)``;
-    a terminal failure keeps the coarse ``error_code`` AND adds the specific
-    closed-set ``failure_reason`` plus the attempt count. PII-free (reads only
-    AICallMetadata: model ids, ints, closed-set reason codes)."""
+    """Truthful one-line outcome for a call, reconciling per-attempt vs per-call."""
     if c.success:
         failed = max(c.attempt_count - 1, 0)
         if failed > 0:
@@ -627,7 +351,6 @@ def render_cost_metadata(calls: list[AICallMetadata]) -> str:
     total_in = sum(c.input_tokens for c in calls)
     total_out = sum(c.output_tokens for c in calls)
     total_latency = sum(c.latency_ms for c in calls)
-    # Stable, de-duplicated "model (provider)" descriptors, preserving order.
     seen: list[str] = []
     for c in calls:
         desc = f"{c.model_name} ({c.provider})"
@@ -666,7 +389,180 @@ def render_cost_metadata(calls: list[AICallMetadata]) -> str:
     return "\n".join(lines)
 
 
-def main() -> None:
+def _metadata(payload: dict[str, Any] | None) -> AICallMetadata | None:
+    """Parse the response's ``ai_metadata`` through the SAME Pydantic contract the
+    service returns it under (so a shape change fails here, loudly)."""
+    if not payload:
+        return None
+    try:
+        return AICallMetadata.model_validate(payload)
+    except Exception:  # pragma: no cover - defensive; the panel must not break a run
+        return None
+
+
+# --- the interview ----------------------------------------------------------
+
+
+def run_interview(
+    session: InterviewSession,
+    *,
+    input_fn=None,
+    print_fn=None,
+    name: str | None = None,
+    verbose: bool = False,
+    quiet: bool = False,
+    real_calls_blocked: str | None = None,
+    scripted: list[str] | None = None,
+    max_turns: int = _MAX_TURNS,
+) -> list[TurnResult]:
+    """Drive the interview to its end (engine wrap-up, 'done', or the backstop).
+
+    ``scripted`` replaces stdin with a canned transcript (``--script``). Returns
+    every :class:`TurnResult` so the caller can render cost/metadata.
+    """
+    input_fn = input_fn or input
+    print_fn = print_fn or print
+    queue = list(scripted or [])
+
+    _topic_id, opening = session.opening_question()
+    print_fn(f"\nBada Bhai: {opening}")
+    if not quiet:
+        print_fn(
+            "  (the opener is CLIENT-SIDE in production — apps/worker-app renders it and\n"
+            "   never posts it, so it is not a stored message and not in the transcript)"
+        )
+
+    for _ in range(max_turns):
+        if queue:
+            message = queue.pop(0)
+            print_fn(f"\nYou: {message}")
+        else:
+            if scripted is not None:
+                break
+            message = input_fn("\nYou: ").strip()
+        if message.lower() in _QUIT_WORDS:
+            break
+
+        turn = session.send(message)
+        if not quiet:
+            print_fn(
+                trace.render_turn(
+                    turn,
+                    verbose=verbose,
+                    local_diagnostics=True,
+                    real_calls_blocked=real_calls_blocked,
+                )
+            )
+        # The conversation line: the name is interpolated HERE, locally, after the
+        # response — never before it.
+        print_fn(f"\nBada Bhai: {_render_worker_name(turn.reply_text, name)}")
+        meta = _metadata(turn.ai_metadata)
+        if meta is not None and not quiet:
+            note = _provider_note(meta)
+            if note:
+                print_fn(note)
+        if turn.extraction_ready:
+            break
+    return session.turns
+
+
+def finish(
+    session: InterviewSession,
+    *,
+    print_fn=None,
+    verbose: bool = False,
+    want_resume: bool = False,
+    name: str | None = None,
+) -> ExtractResult:
+    """Run the production extraction and print the result panels."""
+    print_fn = print_fn or print
+    print_fn("")
+    print_fn(trace.render_transcript(session.transcript()))
+    print_fn(
+        "  (both directions, exactly as profile-extraction.processor.ts buildTranscript\n"
+        "   assembles it — Bada Bhai's own questions are part of the extractor's input)"
+    )
+    print_fn("")
+    result = session.extract()
+    print_fn(trace.render_extraction(result, verbose=verbose))
+    print_fn("")
+    print_fn(trace.render_cli_only_merge(result, (session.state or {}).get("collected")))
+    if want_resume:
+        print_fn("")
+        print_fn(_render_resume(session, result, name=name))
+    return result
+
+
+def _render_resume(session: InterviewSession, result: ExtractResult, *, name: str | None) -> str:
+    """``POST /resume/generate`` with the extracted profile — the same body
+    ``ResumeService`` posts (``{profile}``). The worker's real name is injected by
+    apps/api AFTER this call (TD21); the CLI mirrors that by printing it here."""
+    response = session.transport.post("/resume/generate", {"profile": result.profile})
+    if not response.ok:
+        return f"=== RESUME (POST /resume/generate) ===\n  HTTP {response.status_code}"
+    body = response.body
+    lines = [
+        "=== RESUME (POST /resume/generate) ===",
+        f"  is_mock={body.get('is_mock')}  format={body.get('format')}",
+        f"  name (injected locally, AFTER the AI call — never sent): {name or '(none)'}",
+        "",
+    ]
+    lines += [f"    {line}" for line in str(body.get("resume_text") or "").splitlines()]
+    return "\n".join(lines)
+
+
+# --- entrypoint -------------------------------------------------------------
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m app.cli.onboarding_chat",
+        description=(
+            "Drive the worker-profiling interview through the REAL ai-service "
+            "endpoints (in-process by default). Local dev tool: no DB, no events, "
+            "no secrets; mock unless your own env enables real calls."
+        ),
+    )
+    parser.add_argument(
+        "--http",
+        metavar="BASE_URL",
+        help="drive a RUNNING ai-service over HTTP instead of in-process "
+             "(e.g. http://localhost:8000)",
+    )
+    parser.add_argument(
+        "--trace", "--verbose", "-v", dest="verbose", action="store_true",
+        help="add the raw request/state/ai_metadata to every turn",
+    )
+    parser.add_argument(
+        "--quiet", "-q", action="store_true",
+        help="conversation only — suppress the per-turn trace",
+    )
+    parser.add_argument(
+        "--edge-cases", action="store_true",
+        help="run the scripted edge-case suite and exit (non-zero on failure)",
+    )
+    parser.add_argument(
+        "--script", metavar="FILE",
+        help="replay a canned transcript: one worker message per line ('#' comments)",
+    )
+    parser.add_argument(
+        "--name", metavar="NAME",
+        help="skip the name prompt (the name is LOCAL — it is never sent anywhere)",
+    )
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="also call POST /resume/generate on the extracted profile",
+    )
+    return parser
+
+
+def _make_transport(args: argparse.Namespace, token: str | None) -> Transport:
+    if args.http:
+        return HttpTransport(args.http, token=token)
+    return InProcessTransport(token=token)
+
+
+def main(argv: list[str] | None = None) -> int:
     # Hinglish replies are UTF-8 (em-dashes, Devanagari); make stdout tolerant on
     # legacy Windows code pages (cp1252) so the tool never crashes on an
     # un-encodable char.
@@ -678,16 +574,60 @@ def main() -> None:
             except (ValueError, OSError):  # pragma: no cover - best effort only
                 pass
 
+    args = _build_parser().parse_args(argv)
     settings = get_settings()
-    router = AIRouter(settings)
-    # Print readiness FIRST so a silent all-mock run can never be a mystery.
-    print(_startup_status(settings))
-    resume, calls = asyncio.run(_run_chat(router, settings=settings))
-    print("\n=== RESUME (JSON) ===")
-    print(json.dumps(resume, indent=2, ensure_ascii=False))
-    # Ops panel — PII-free metadata only (never the name/transcript).
-    print("\n" + render_cost_metadata(calls))
+    transport = _make_transport(args, settings.ai_internal_token)
+    try:
+        remote_health = None
+        if args.http:
+            health = transport.get("/health")
+            remote_health = health.body if health.ok else {"status": f"HTTP {health.status_code}"}
+        print(_transport_banner(transport, remote_health))
+        print(_startup_status(settings))
+        if args.http:
+            print(
+                "        NOTE: over --http the readiness banner above reads YOUR LOCAL env; "
+                "the\n        remote service decides for itself. Trust remote /health."
+            )
+
+        if args.edge_cases:
+            result = run_suite(transport, print_fn=print, verbose=args.verbose)
+            return 0 if result.ok else 1
+
+        scripted = load_script(args.script) if args.script else None
+        session = InterviewSession(transport)
+        print(_INTRO)
+        if args.name is not None:
+            name = _clean_name(args.name) or "Worker"
+        elif scripted is not None:
+            name = "Worker"
+        else:
+            # LOCAL ONLY. Captured here, interpolated over {{worker_name}} at print
+            # time, never placed in a request body.
+            name = _clean_name(input("Sabse pehle, aapka naam kya hai? ")) or "Worker"
+
+        turns = run_interview(
+            session,
+            name=name,
+            verbose=args.verbose,
+            quiet=args.quiet,
+            real_calls_blocked=settings.real_calls_blocked_reason(),
+            scripted=scripted,
+        )
+        result = finish(
+            session, verbose=args.verbose, want_resume=args.resume, name=name
+        )
+
+        calls = [m for m in (_metadata(t.ai_metadata) for t in turns) if m is not None]
+        extraction_meta = _metadata(result.ai_metadata)
+        if extraction_meta is not None:
+            calls.append(extraction_meta)
+        print("")
+        print(render_cost_metadata(calls))
+        return 0
+    finally:
+        transport.close()
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

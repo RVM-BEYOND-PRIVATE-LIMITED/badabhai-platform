@@ -3,15 +3,21 @@
 All fixtures here are SYNTHETIC (no transcript, name or number from the real run
 is reproduced). Each test FAILED before the fix that ships alongside it.
 
-D1 — DETERMINISTICALLY-COLLECTED VALUES WERE DISCARDED.
-    ``_run_chat`` built the resume from ``profile_extractor.extract(transcript)``
-    ALONE. The interview engine's ``ConversationState.collected`` — the values the
-    worker gave as the answer to a SPECIFIC question, attributed by
-    ``last_asked`` — was never merged in. Observed: the worker answered the
-    expected-salary question with a bare amount, the engine recorded
-    ``collected["salary_expected"]``, and the resume still shipped
-    ``expected_salary: null`` because the context-free re-derivation over the
-    joined transcript had already spent its ``current_salary`` slot.
+D1 — DETERMINISTICALLY-COLLECTED VALUES ARE DISCARDED BY THE EXTRACTION.
+    Observed: the worker answers the expected-salary question with a bare amount,
+    the engine records ``collected["salary_expected"]``, and the extracted profile
+    still ships ``expected_salary: null`` — because the context-free re-derivation
+    over the joined transcript has already spent its ``current_salary`` slot.
+
+    UPDATED 2026-07-22 (CLI production-parity rewrite). D1 originally shipped as a
+    CLI-side merge (``profile_extractor.merge_collected``) applied to the terminal
+    tool's own resume dict. That function has NO caller in the production path —
+    ``POST /profile/extract`` never sees ``ConversationState.collected`` — so the
+    merge only ever fixed the CLI's private view. The CLI now prints the ENDPOINT's
+    profile as the headline and the merged view separately, labelled. The tests
+    below therefore pin the MEASUREMENT (the engine has the value, production's
+    extraction does not) plus the merge function's own unit semantics, which is
+    what a future endpoint-side fix would build on.
 
 D2 — A WASTED TURN AT THE START. The CLI printed a "type anything to begin"
     nudge and then BLOCKED on input before the engine's first real question, so
@@ -30,14 +36,17 @@ import asyncio
 import logging
 
 import pytest
+from cli_harness import ScriptedRouter, adaptive_drive, transport
 
 from app.ai import cost_tracker
 from app.ai import router as router_module
 from app.ai.errors import REASON_HTTP_429, REASON_NO_TEXT_CONTENT, LlmTransportError
 from app.ai.router import AIRouter
 from app.cli import onboarding_chat
+from app.cli.api_session import InterviewSession
+from app.cli.onboarding_chat import run_interview
 from app.config import Settings
-from app.contracts import AICallMetadata, WorkerProfileDraft
+from app.contracts import WorkerProfileDraft
 from app.profiling import interview_engine, profile_extractor
 from app.profiling.question_bank import topic_by_id
 
@@ -48,38 +57,29 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def _meta(task_type: str) -> AICallMetadata:
-    return AICallMetadata(
-        ai_call_id="test",
-        task_type=task_type,
-        model_name="gemini-2.5-flash",
-        provider="google",
-        real_call=False,
-        input_tokens=1,
-        output_tokens=1,
-        estimated_cost_inr=0.0,
-        latency_ms=1,
-        success=True,
-        created_at="2026-07-21T00:00:00Z",
-    )
+# The CLI now drives the REAL endpoints, so the mock router is installed over
+# ``app.main.router`` (what the endpoint calls) instead of being handed to the CLI.
+# ``cli_harness.ScriptedRouter`` is that stand-in; the assertions below are
+# unchanged in meaning and strictly stronger in reach.
+_MockRouter = ScriptedRouter
 
 
-class _MockRouter:
-    """Mirrors AIRouter's MOCK path: returns ``mock_response`` verbatim and keeps
-    every message it was handed (so PII/leak assertions have something to read)."""
+@pytest.fixture(autouse=True)
+def _restore_router():
+    """Every test here installs a scripted router over the endpoint's; put the real
+    one back afterwards so no other suite inherits it."""
+    import app.main as main_module
 
-    def __init__(self) -> None:
-        self.calls: list[dict] = []
+    original = main_module.router
+    yield
+    main_module.router = original
 
-    async def run(self, task_type, *, messages, mock_response, real_call_allowed=True):
-        self.calls.append({"task_type": task_type, "messages": messages,
-                           "mock_response": mock_response})
-        return mock_response, _meta(task_type)
 
-    def all_message_text(self) -> str:
-        return "\n".join(
-            m.get("content", "") for c in self.calls for m in c["messages"]
-        )
+def _install(router: ScriptedRouter) -> ScriptedRouter:
+    import app.main as main_module
+
+    main_module.router = router
+    return router
 
 
 class _Session:
@@ -121,49 +121,46 @@ def _settings() -> Settings:
     return Settings(ai_enable_real_calls=False, ai_profiling_rephrase_enabled=False)
 
 
-def _drive(session: _Session, router: _MockRouter):
-    return _run(
-        onboarding_chat._run_chat(
-            router,
-            input_fn=session.input_fn,
-            print_fn=session.print_fn,
-            settings=_settings(),
-        )
+def _drive(session: _Session, router: ScriptedRouter, *, name: str = "Ravi"):
+    """Run the interview through the REAL endpoints with a scripted router.
+
+    The NAME is no longer read inside the interview loop (``main()`` prompts for
+    it and passes it in), so read #1 is the worker's first ANSWER — which is what
+    the D2 assertions below now key on.
+    """
+    _install(router)
+    interview = InterviewSession(transport())
+    turns = run_interview(
+        interview,
+        input_fn=session.input_fn,
+        print_fn=session.print_fn,
+        name=name,
     )
+    return interview, turns
 
 
-def _adaptive(router: _MockRouter, answer_by_topic: dict[str, str], *, name="Suresh",
-              default="haan", max_reads=40):
-    """Drive the CLI answering whatever the ENGINE just asked.
-
-    The topic in play is read off the printed per-turn header (what an operator
-    sees), SEEDED with the engine's own opening topic so the very first worker
-    message is attributed to the question it actually answers."""
-    topic = {"id": interview_engine.first_question("cnc_vmc")[0]}
-    reads = {"n": 0}
-    printed: list[str] = []
-
-    def _print(*args, **_kwargs):
-        text = " ".join(str(a) for a in args)
-        printed.append(text)
-        if "topic_id=" in text:
-            served = text.split("topic_id=")[1].split()[0]
-            topic["id"] = None if served == "-" else served
-
-    def _input(_prompt=""):
-        reads["n"] += 1
-        if reads["n"] > max_reads:
-            return "done"
-        if reads["n"] == 1:
-            return name
-        return answer_by_topic.get(topic["id"], default)
-
-    resume, calls = _run(
-        onboarding_chat._run_chat(
-            router, input_fn=_input, print_fn=_print, settings=_settings()
-        )
+def _adaptive(router: ScriptedRouter, answer_by_topic: dict[str, str], *, name="Suresh",
+              default="haan", max_turns=40):
+    """Drive the interview answering whatever the ENGINE just asked, reading the
+    topic off the ENDPOINT's ``asked_question_id``."""
+    run = adaptive_drive(
+        _NoMonkeypatch(),
+        lambda topic: answer_by_topic.get(topic, default),
+        name=name,
+        default=default,
+        max_turns=max_turns,
+        router=router,
+        extract=True,
     )
-    return resume, calls, "\n".join(printed)
+    return run
+
+
+class _NoMonkeypatch:
+    """``adaptive_drive`` takes a monkeypatch to install the router; this file
+    restores it with its own autouse fixture instead."""
+
+    def setattr(self, target, name, value):  # noqa: A003 - mirrors monkeypatch
+        setattr(target, name, value)
 
 
 # SYNTHETIC answers, one per interview topic. The salary pair is the shape that
@@ -185,7 +182,7 @@ _ANSWERS_BY_TOPIC = {
 }
 
 
-# --- D1: the engine's collected answers must reach the resume ----------------
+# --- D1: the engine collects what the production extraction loses -------------
 
 def test_the_transcript_alone_really_does_lose_the_expected_salary():
     """PINS THE PREMISE, so the fix below can never be called a no-op.
@@ -206,23 +203,36 @@ def test_the_transcript_alone_really_does_lose_the_expected_salary():
     assert state.collected["salary_expected"] == 50000  # the engine had it all along
 
 
-def test_engine_collected_values_reach_the_resume():
-    """D1 headline: a value the deterministic parser captured for free must not be
-    thrown away because the LLM/heuristic could not re-derive it."""
-    router = _MockRouter()
-    resume, _calls, _printed = _adaptive(router, _ANSWERS_BY_TOPIC)
-    assert resume["expected_salary"] == 50000
-    assert resume["current_salary"] == 35000
+def test_the_engine_collects_what_production_extraction_loses():
+    """D1, RESTATED HONESTLY after the parity rewrite.
+
+    D1 originally shipped as "the CLI merges ``collected`` into the resume". That
+    merge (``profile_extractor.merge_collected``) has NO caller in the production
+    path — ``/profile/extract`` never sees the interview state — so the CLI was
+    printing a profile the deployed service does not produce. The CLI now prints
+    the ENDPOINT's profile as the headline and the merged view separately, clearly
+    labelled.
+
+    What survives, and is asserted here, is the DEFECT D1 measured: the engine
+    (which knew which question was on screen) has the expected salary; the
+    production extraction over the transcript does not. That gap is the finding —
+    the fix belongs in the endpoint, not in a terminal tool."""
+    run = _adaptive(_MockRouter(), _ANSWERS_BY_TOPIC)
+
+    assert run.collected["salary_expected"] == 50000  # the engine had it
+    assert run.collected["salary_current"] == 35000
+    # ...and the production extraction, which never sees `collected`, does not.
+    draft = run.extraction.draft
+    assert draft["expected_salary"] is None or draft["expected_salary"] != 50000
 
 
 def test_collected_never_crosses_the_model_boundary():
-    """§2/#3: the merge is a LOCAL, post-AI step. No collected value may appear in
-    anything handed to the router — the raw city is the sharpest probe, because it
-    is masked to ``[CITY_1]`` on every path that CAN leave the service."""
-    router = _MockRouter()
-    resume, _calls, _printed = _adaptive(router, _ANSWERS_BY_TOPIC)
-    sent = router.all_message_text()
-    assert resume["current_city"] == "Pune"
+    """§2/#3: no collected value may appear in anything handed to the router — the
+    raw city is the sharpest probe, because it is masked to ``[CITY_1]`` on every
+    path that CAN leave the service."""
+    run = _adaptive(_MockRouter(), _ANSWERS_BY_TOPIC)
+    sent = run.router.all_message_text()
+    assert run.collected["current_location"] == "Pune"
     assert "Pune" not in sent
     assert "[CITY_1]" in sent  # ...and the masked form DID cross (not merely dropped)
 
@@ -334,21 +344,22 @@ def test_merge_refreshes_the_completeness_report():
 # --- D2: no dead turn before the first real question -------------------------
 
 def test_the_first_thing_the_worker_is_asked_is_the_engines_first_question():
-    """D2: after the name, the worker must face a REAL question — not a nudge to
-    type something so the loop can start. Asserted on the interleaving, because
-    the defect is about WHEN the CLI blocked on input, not about wording."""
-    session = _Session(["Ravi", "vmc operator hoon", "done"])
+    """D2: the worker must face a REAL question before they are asked to type — not
+    a nudge to type something so the loop can start. Asserted on the interleaving,
+    because the defect is about WHEN the CLI blocked on input, not about wording.
+    (The name prompt now lives in ``main()``, so read #1 is the first answer.)"""
+    session = _Session(["vmc operator hoon", "done"])
     _drive(session, _MockRouter())
 
     topic_id, question = interview_engine.first_question("cnc_vmc", worker_name=None)
     assert topic_id == "role"
-    opener = session.printed_between_reads(1, 2)
+    opener = session.printed_between_reads(0, 1)
     assert question in opener, opener
 
 
 def test_no_kickoff_nudge_is_ever_shown():
     """The specific dead turn: 'write anything — e.g. shuru — to begin'."""
-    session = _Session(["Ravi", "vmc operator hoon", "done"])
+    session = _Session(["vmc operator hoon", "done"])
     _drive(session, _MockRouter())
     printed = session.printed().lower()
     assert "shuru" not in printed
@@ -361,7 +372,7 @@ def test_the_first_worker_message_advances_the_interview():
     router = _MockRouter()
     # Answers `role` only (a setter names no machine), so the engine's next served
     # topic is unambiguously `machines`.
-    session = _Session(["Ravi", "setter hoon", "done"])
+    session = _Session(["setter hoon", "done"])
     _drive(session, router)
     chat = [c for c in router.calls if c["task_type"] == "profiling_chat_turn"]
     assert chat, "no chat turn ran"
@@ -382,7 +393,7 @@ def test_a_signal_free_first_answer_re_serves_the_opening_question():
     It is pinned rather than hidden so the cost is inspectable, and bounded: the
     repeat is capped at ONE — the engine's own re-ask bound then takes over."""
     router = _MockRouter()
-    session = _Session(["Ravi", "hmm", "hmm", "done"])
+    session = _Session(["hmm", "hmm", "done"])
     _drive(session, router)
     role_q = topic_by_id("cnc_vmc", "role").question
     served = [c["mock_response"] for c in router.calls
@@ -461,25 +472,29 @@ def test_a_lead_in_with_nothing_left_falls_back_to_the_raw_input(typed):
 
 
 def test_the_bot_addresses_the_worker_by_the_cleaned_name():
-    """End to end: the observed symptom was the bot saying "myself ji"."""
-    session = _Session(["myself ravi", "vmc operator hoon", "done"])
-    resume, _calls = _drive(session, _MockRouter())
+    """End to end: the observed symptom was the bot saying "myself ji". The name is
+    cleaned in ``main()`` and rendered locally over the {{worker_name}} token."""
+    session = _Session(["vmc operator hoon", "done"])
+    _drive(session, _MockRouter(), name=onboarding_chat._clean_name("myself ravi"))
     printed = session.printed()
-    assert resume["name"] == "ravi"
     assert "ravi ji," in printed
     assert "myself ji," not in printed
 
 
 def test_the_cleaned_name_still_never_reaches_the_model():
-    """§2/AI-PERSONA-2 is UNCHANGED by D3: name handling stays local, post-emit."""
+    """§2/AI-PERSONA-2 is UNCHANGED by D3: name handling stays local, post-emit —
+    and now also never enters a REQUEST BODY."""
     router = _MockRouter()
-    session = _Session(["mera naam Ravi hai", "vmc operator hoon", "done"])
-    resume, _calls = _drive(session, router)
-    assert resume["name"] == "Ravi"
+    session = _Session(["vmc operator hoon", "done"])
+    name = onboarding_chat._clean_name("mera naam Ravi hai")
+    assert name == "Ravi"
+    interview, turns = _drive(session, router, name=name)
     sent = router.all_message_text()
     assert "Ravi" not in sent
     assert "mera naam" not in sent
     assert onboarding_chat.WORKER_NAME_PLACEHOLDER in sent
+    assert all("Ravi" not in str(t.request) for t in turns)
+    assert "Ravi" not in interview.transcript()
 
 
 # --- D4: the failed-attempt log line must name provider + model + reason ------
