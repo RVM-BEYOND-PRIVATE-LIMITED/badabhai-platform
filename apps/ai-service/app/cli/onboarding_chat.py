@@ -456,6 +456,12 @@ def run_interview(
         # The conversation line: the name is interpolated HERE, locally, after the
         # response — never before it.
         print_fn(f"\nBada Bhai: {_render_worker_name(turn.reply_text, name)}")
+        # The chips the worker actually sees under that question. Shown even in
+        # --quiet: a tapped chip becomes the worker's answer of record verbatim, so
+        # this line is conversation, not diagnostics. An empty list prints nothing
+        # (the wrap-up turn, and the two free-text location topics).
+        if turn.suggested_followups:
+            print_fn("  [ " + " ] [ ".join(turn.suggested_followups) + " ]")
         meta = _metadata(turn.ai_metadata)
         if meta is not None and not quiet:
             note = _provider_note(meta)
