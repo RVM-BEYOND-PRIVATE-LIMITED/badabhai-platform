@@ -554,6 +554,13 @@ class _ChatViewState extends State<_ChatView> {
   /// Tap-to-answer chips from the backend's `suggested_followups`. Tapping one
   /// sends it exactly like a typed answer — so a worker who cannot type quickly
   /// can still answer. Horizontally scrollable so long suggestions never clip.
+  ///
+  /// THE LABEL BECOMES THE WORKER'S ANSWER OF RECORD, verbatim. That is why the
+  /// backend now serves ANSWERS to the question on screen and never questions:
+  /// the shipped constant offered 'Controller kaunsa — Fanuc ya Siemens?' on
+  /// every turn, and one tap recorded two controllers the worker never named.
+  /// Nothing here rewrites or filters a chip — if a question ever appears in this
+  /// row again, the fix belongs in `question_bank.py`, not in this widget.
   Widget _followups(List<String> followups) {
     return Container(
       alignment: Alignment.centerLeft,

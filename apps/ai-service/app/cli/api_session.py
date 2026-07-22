@@ -263,6 +263,18 @@ class TurnResult:
         return self.body.get("asked_question_id")
 
     @property
+    def suggested_followups(self) -> list[str]:
+        """Tap-to-answer chips for the question this turn asked.
+
+        Rendered by the CLI because they are not decoration: the worker app sends a
+        tapped chip's label VERBATIM as the worker's message, so whatever is here is
+        an answer the product is willing to put in the worker's mouth. A reviewer
+        sitting at the terminal must be able to see them.
+        """
+        raw = self.body.get("suggested_followups") or []
+        return [str(x) for x in raw if isinstance(x, str)]
+
+    @property
     def extraction_ready(self) -> bool:
         return bool(self.body.get("extraction_ready"))
 

@@ -57,6 +57,34 @@ class Topic:
     # re-asked, so they leave this None.
     retry_question: str | None = None
 
+    # TAP-TO-ANSWER options for THIS topic — short ANSWERS, never questions.
+    #
+    # THE DEFECT THIS REPLACES, measured on the shipped constant. `suggested_followups`
+    # served three hard-coded QUESTIONS, and the worker app sends a tapped chip's label
+    # verbatim as the worker's message (`chat_profiling_screen.dart` `_sendText(f)`).
+    # Run through the detector:
+    #
+    #   'Controller kaunsa — Fanuc ya Siemens?' -> {'controllers': ['Fanuc','Siemens']}
+    #   'Setting karte hain ya sirf operation?' -> {'skills': ['basic setting']}
+    #
+    # ONE TAP recorded TWO controllers the worker never named. The list was also
+    # identical for every role family (`cnc_vmc` == `welding` == anything), so a
+    # welder was offered CNC controllers to fabricate.
+    #
+    # THE RULE, and it is not a style preference: every option here is executed
+    # against ``signals.detect_answered_topics(option, topic.id)`` by
+    # ``test_answer_chips.py`` and must resolve THIS topic. An option that does not
+    # is worse than no chip at all — the worker taps, sees their words in the
+    # transcript, and the field stays empty while the engine burns a bounded re-ask.
+    # That is why measured-failing candidates are ABSENT rather than reworded:
+    # 'CNC operator' (keys only `skills`), '10th pass'/'12th pass' and 'Koi nahi'
+    # all return {} or the wrong key today.
+    #
+    # EMPTY IS A VALID ANSWER. `current_location` / `preferred_locations` carry none:
+    # the city space is open, and any four cities we picked would be four cities we
+    # put in the worker's mouth. Free text only, there.
+    options: tuple[str, ...] = ()
+
 
 ROLE_FAMILIES: dict[str, dict] = {
     "cnc_vmc": {
@@ -91,6 +119,9 @@ _CNC_VMC_TOPICS: list[Topic] = [
             "Machine ya kaam ke naam se bataiye — "
             "VMC operator, CNC turner, setter, programmer ya welder?"
         ),
+        # 'CNC operator' is absent on purpose: measured, it keys only
+        # `skills: ['machine operation']` and leaves `role` unanswered.
+        options=("VMC operator", "CNC turner", "Setter", "Programmer"),
     ),
     Topic(
         "machines", "Machine exposure",
@@ -104,6 +135,7 @@ _CNC_VMC_TOPICS: list[Topic] = [
         # leaves `machines` unanswered and burns the bounded re-ask. A welder is
         # invited by the `role` retry instead, where the answer is recordable.
         retry_question="Jis machine par kaam karte hain uska naam kya hai — VMC, lathe ya HMC?",
+        options=("VMC", "CNC lathe", "HMC", "Grinding"),
     ),
     Topic(
         "experience", "Experience",
@@ -112,12 +144,16 @@ _CNC_VMC_TOPICS: list[Topic] = [
         # '2 saal' / '5 saal' resolve. ('6 mahine' does NOT — so months are not
         # offered as an example, even though the worker may still answer that way.)
         retry_question="Kitne saal se yeh kaam kar rahe hain — jaise 2 saal ya 5 saal?",
+        # Years only. '6 mahine' does not resolve (see the retry note above), so no
+        # months option is offered even though a worker may still type one.
+        options=("1 saal", "3 saal", "5 saal", "10 saal"),
     ),
     Topic(
         "skills", "Skills",
         "Setting, tool offset, program edit, drawing reading — inmein se kya aata hai?",
         why="Taaki aapke liye sahi role match kar sakein.",
         core=True,
+        options=("Setting", "Tool offset", "Program edit", "Drawing reading"),
     ),
     Topic(
         "current_location", "Current location",
@@ -135,26 +171,37 @@ _CNC_VMC_TOPICS: list[Topic] = [
     Topic(
         "controllers", "Controller knowledge",
         "Controller kaunsa — Fanuc, Siemens, Mitsubishi, Haas ya Heidenhain?",
+        options=("Fanuc", "Siemens", "Mitsubishi", "Haas"),
     ),
     Topic(
         "salary_current", "Current salary",
         "Abhi salary kitni hai?",
+        # Bands, not a bare number: '25 hazar' resolves to 25000 while '25' alone is
+        # ambiguous. These are STARTING points a worker overtypes, not a closed list.
+        options=("15 hazar", "20 hazar", "25 hazar", "30 hazar"),
     ),
     Topic(
         "salary_expected", "Expected salary",
         "Kitni salary expect karte hain?",
+        options=("25 hazar", "30 hazar", "35 hazar", "40 hazar"),
     ),
     Topic(
         "availability", "Availability",
         "Join karne mein kitne din lagenge?",
+        options=("Turant", "15 din", "1 mahina", "2 mahina"),
     ),
     Topic(
         "education", "Education / training",
         "ITI, diploma ya koi aur training li hai?",
+        # 'ITI nahi kiya' is the NEGATIVE answer, and it is a real one: measured, it
+        # resolves `education` to None — the topic is answered and never re-asked.
+        # '10th pass' / '12th pass' are absent because they measure to {} today.
+        options=("ITI", "Diploma", "ITI nahi kiya"),
     ),
     Topic(
         "certifications", "Certifications",
         "Koi certificate hai — jaise NCVT, NSQF ya apprenticeship?",
+        options=("NCVT", "SCVT", "NSQF", "Apprenticeship"),
     ),
 ]
 
@@ -230,6 +277,20 @@ def one_shot_opener_for(role_family: str) -> str:
     """
     _ = topics_for(role_family)  # validates the family resolves; copy is shared today
     return ONE_SHOT_OPENER
+
+
+def options_for(role_family: str, topic_id: str | None) -> list[str]:
+    """Tap-to-answer options for the topic just asked — ``[]`` when there are none.
+
+    ``[]`` is the correct, common answer and must stay cheap: no topic asked yet,
+    a topic with an open answer space (the two location topics), or an id from a
+    role family that does not define it. Returning a generic list instead is what
+    the old ``_FOLLOWUPS`` constant did, and it fabricated answers.
+    """
+    if not topic_id:
+        return []
+    topic = topic_by_id(role_family, topic_id)
+    return list(topic.options) if topic else []
 
 
 def topics_for(role_family: str) -> list[Topic]:

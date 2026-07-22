@@ -1,0 +1,17 @@
+{
+  "_why": "Golden tap-to-answer chips per interview topic, asserted from BOTH the Python bank (apps/ai-service, tests/test_answer_chips.py) and the TypeScript mock (apps/api/src/ai/mock-interview.test.ts). Two independent copies exist because TD81 means staging runs the MOCK path, so the mock's strings are what a real staging worker taps. Only the Python side can execute a chip against signals.detect_answered_topics; without this file the mock could drift to a string that fabricates and both suites would stay green.",
+  "_rule": "Every string here is an ANSWER to its topic's question, never a question. The Python suite runs each one through the detector and requires it to resolve its own topic. Topics absent from this map (current_location, preferred_locations) are free-text ONLY: the city space is open, and any list we offered would be cities we put in the worker's mouth.",
+  "options": {
+    "role": ["VMC operator", "CNC turner", "Setter", "Programmer"],
+    "machines": ["VMC", "CNC lathe", "HMC", "Grinding"],
+    "experience": ["1 saal", "3 saal", "5 saal", "10 saal"],
+    "skills": ["Setting", "Tool offset", "Program edit", "Drawing reading"],
+    "controllers": ["Fanuc", "Siemens", "Mitsubishi", "Haas"],
+    "salary_current": ["15 hazar", "20 hazar", "25 hazar", "30 hazar"],
+    "salary_expected": ["25 hazar", "30 hazar", "35 hazar", "40 hazar"],
+    "availability": ["Turant", "15 din", "1 mahina", "2 mahina"],
+    "education": ["ITI", "Diploma", "ITI nahi kiya"],
+    "certifications": ["NCVT", "SCVT", "NSQF", "Apprenticeship"]
+  },
+  "free_text_only": ["current_location", "preferred_locations"]
+}

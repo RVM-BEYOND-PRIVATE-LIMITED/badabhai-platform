@@ -594,7 +594,12 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
     return ProfilingTurnOutput(
         reply_text=reply_text,
         blocked=False,
-        suggested_followups=interview_engine.suggested_followups(body.role_family),
+        # Chips are ANSWERS to the question in `reply_text`, so they are keyed on the
+        # topic actually being asked this turn — not a constant. `asked_id` is None on
+        # the wrap-up turn, which correctly yields no chips.
+        suggested_followups=interview_engine.suggested_followups(
+            body.role_family, asked_id
+        ),
         is_mock=not meta.real_call,
         asked_question_id=asked_id,
         extraction_ready=extraction_ready,
