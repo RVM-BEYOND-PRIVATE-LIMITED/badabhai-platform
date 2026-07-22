@@ -153,6 +153,7 @@ def _may_commit(
     topic_id: str,
     last_asked: str | None,
     correcting: bool,
+    inferred_fills: frozenset[str] | set[str] = frozenset(),
 ) -> bool:
     """P1-1 — THE OVERWRITE RULE. May this detected value be written to
     ``st.collected[topic_id]``?
@@ -184,6 +185,23 @@ def _may_commit(
     where a worker fixes it.
     """
     if topic_id == last_asked or correcting:
+        return True
+    # 3.5 An INFERRED value is not "established" and may be replaced by a real one.
+    #     A topic that is in `collected` but NOT in `answered_topics` can only have
+    #     got there by inference — every deliberate answer marks its topic answered
+    #     in the same loop that fills the slot, and only inferred topics are held
+    #     back (signals.detect_inferred_topics). So this is exactly the "a placeholder
+    #     is sitting in the slot" case, and first-write-wins must not protect it.
+    #
+    #     Without this, the owner-reported defect only half-fixed: withholding the
+    #     ANSWERED mark got the skills question asked again, but the inferred
+    #     "machine operation" still occupied `collected["skills"]` and the worker's
+    #     real "setting aur tool offset aata hai" was discarded by rule 3 anyway.
+    #
+    #     Back-compatible by construction: on any state persisted before inference
+    #     was held back, every collected topic is also an answered topic, so this
+    #     branch cannot fire and behaviour is unchanged.
+    if topic_id in inferred_fills:
         return True
     return topic_id not in st.collected
 
@@ -274,16 +292,26 @@ def next_turn(
     #    preference, not a current location).
     last_asked = st.asked_question_ids[-1] if st.asked_question_ids else None
     correcting = signals.is_correction(worker_message_raw)
+    # Topics whose value was INFERRED from a different topic's answer. They FILL
+    # their slot but do not close their question, so the worker still gets asked and
+    # their own words can replace the inference (see signals.detect_inferred_topics
+    # for the defect this fixes — a real skills answer being discarded in favour of
+    # "machine operation" derived from the word "operator").
+    inferred = signals.detect_inferred_topics(worker_message_raw, last_asked)
+    # Snapshot BEFORE the loop: a slot filled by inference on an earlier turn. Taken
+    # up front because the loop marks a topic answered before deciding whether to
+    # commit it, which would otherwise erase the very distinction being tested.
+    inferred_fills = {t for t in st.collected if t not in st.answered_topics}
     for topic_id, value in signals.detect_answered_topics(
         worker_message_raw, last_asked
     ).items():
-        if topic_id not in st.answered_topics:
+        if topic_id not in st.answered_topics and topic_id not in inferred:
             st.answered_topics.append(topic_id)
         if value is None:
             # P1-2: a DENIAL ("ITI nahi kiya") answers the ask without producing a
             # value — mark the topic answered, collect nothing.
             continue
-        if _may_commit(st, topic_id, last_asked, correcting):
+        if _may_commit(st, topic_id, last_asked, correcting, inferred_fills):
             st.collected[topic_id] = value
 
     extraction_ready = _extraction_ready(st)

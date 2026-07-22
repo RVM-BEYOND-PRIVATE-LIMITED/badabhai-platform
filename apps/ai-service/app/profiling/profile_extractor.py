@@ -159,7 +159,9 @@ def _build_legacy(sig: Signals) -> DraftProfile:
             preferred_cities=sig.preferred_locations,
             willing_to_relocate=sig.relocation_willingness,
         ),
-        availability=Availability(status=sig.availability),
+        availability=Availability(
+            status=sig.availability, notice_period_days=sig.notice_period_days
+        ),
         confidence=0.4 if (sig.role_id or sig.machine_ids or sig.skill_ids) else 0.1,
     )
 
