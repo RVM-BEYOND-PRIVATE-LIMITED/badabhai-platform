@@ -561,26 +561,41 @@ VAGUE_CASES: tuple[Case, ...] = (
         group="vague",
         messages=("Gujarat mein",),
         seed=_PREFERRED_SEED,
-        note="CLI-F2: a state-level preference answers nothing - only cities close it",
-        checks=(collects_exactly(_PREFERRED_SEED.collected, defect="CLI-F2"),),
+        note="CLI-F2 CLOSED by PR #488: a state IS a valid answer to 'kahan kaam kar "
+             "sakte hain?' (it is still NOT a valid answer to 'which city are you in' - "
+             "current_location is deliberately untouched).",
+        checks=(
+            collects_exactly(
+                {**_PREFERRED_SEED.collected, "preferred_locations": ["Gujarat"]}
+            ),
+        ),
     ),
     Case(
         id="vague-two-states",
         group="vague",
         messages=("Gujarat ya Maharashtra dono chalega",),
         seed=_PREFERRED_SEED,
-        note="CLI-F2: two states named, nothing recorded",
-        checks=(collects_exactly(_PREFERRED_SEED.collected, defect="CLI-F2"),),
+        note="CLI-F2 CLOSED by PR #488: preferred_locations is a LIST, so BOTH areas are "
+             "kept - an earlier cut recorded only the first and closed the topic.",
+        checks=(
+            collects_exactly(
+                {
+                    **_PREFERRED_SEED.collected,
+                    "preferred_locations": ["Gujarat", "Maharashtra"],
+                }
+            ),
+        ),
     ),
     Case(
         id="vague-spaced-acronym",
         group="vague",
         messages=("V M C operator",),
         seed=_ROLE_SEED,
-        note="CLI-F2b: a spaced-out acronym does not resolve the role or the machine",
+        note="CLI-F2b CLOSED by PR #488: a spaced acronym is a surface-form variant of a "
+             "keyword _ROLES already carries, so it resolves exactly as its Latin twin does.",
         checks=(
-            collects_exactly({"skills": ["machine operation"]}, defect="CLI-F2"),
-            records_nothing_for("role"),
+            collects_exactly({"role": "VMC Operator", "skills": ["machine operation"]}),
+            records("role", "VMC Operator"),
         ),
     ),
     Case(
@@ -588,8 +603,8 @@ VAGUE_CASES: tuple[Case, ...] = (
         group="vague",
         messages=("seter hu",),
         seed=_ROLE_SEED,
-        note="CLI-F2c: a common misspelling of 'setter' resolves nothing",
-        checks=(collects_exactly({}, defect="CLI-F2"),),
+        note="CLI-F2c CLOSED by PR #488: the 'setter' misspelling family now resolves.",
+        checks=(collects_exactly({"role": "CNC Setter-Operator"}),),
     ),
     Case(
         id="vague-bare-years",
@@ -608,9 +623,14 @@ DEVANAGARI_CASES: tuple[Case, ...] = (
         group="devanagari",
         messages=("मैं वीएमसी ऑपरेटर हूँ",),
         seed=_ROLE_SEED,
-        note="CLI-F3: pure Devanagari extracts NOTHING (the gazetteer is Latin-only). "
+        note="CLI-F3 PARTIALLY CLOSED by PR #488: the Devanagari ROLE forms now resolve. "
+             "Note the asymmetry is deliberate - the cue is a role cue only, so `machines` "
+             "is NOT closed by inference and the machine question still gets asked. "
              "Sarvam STT returns Devanagari, so voice answers land here.",
-        checks=(collects_exactly({}, defect="CLI-F3"), records_nothing_for("role")),
+        checks=(
+            collects_exactly({"role": "VMC Operator"}),
+            records("role", "VMC Operator"),
+        ),
     ),
     Case(
         id="deva-denial",
