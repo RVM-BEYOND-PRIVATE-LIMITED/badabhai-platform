@@ -416,6 +416,75 @@ void main() {
       );
       expect(manager.status, AuthStatus.loggedOut);
     });
+
+    test(
+        'REGRESSION: a DEAD session cannot trap the worker on the keypad forever',
+        () async {
+      // The worker holds a refresh token that the SERVER no longer accepts
+      // (rotated, device revoked, or the server DB was re-created). Every
+      // /auth/pin/verify answers with the SAME neutral 401 the endpoint uses
+      // for a wrong PIN, so the client cannot tell the two apart — and used to
+      // render all of them as "PIN sahi nahi".
+      //
+      // That made the reset path unescapable: pinResetConfirm returns NO
+      // session, so after resetting, the app falls back to this same dead token
+      // and returns to `locked`. The worker typed the PIN they had JUST set and
+      // was told it was wrong, forever.
+      await store.writeRefreshToken('refresh-but-dead');
+      await manager.bootstrap(); // locked
+      api.throwOnPinVerify = const AuthFailure(AuthErrorCode.pinVerifyFailed);
+
+      // The first few attempts still report the neutral PIN failure and keep
+      // the session — a genuine typo must not nuke a working login.
+      for (int i = 0; i < 4; i++) {
+        await expectLater(
+          manager.unlockWithPin('0000'),
+          throwsA(isA<AuthFailure>().having(
+              (AuthFailure f) => f.code, 'code', AuthErrorCode.pinVerifyFailed)),
+        );
+        expect(manager.status, AuthStatus.locked,
+            reason: 'attempt ${i + 1} must not log the worker out yet');
+      }
+
+      // On the 5th, the client stops blaming the PIN, drops the unusable
+      // session and asks for a real login — the truthful cause.
+      await expectLater(
+        manager.unlockWithPin('0000'),
+        throwsA(isA<AuthFailure>().having(
+            (AuthFailure f) => f.code, 'code', AuthErrorCode.reauthRequired)),
+      );
+      expect(manager.status, AuthStatus.loggedOut);
+      // The dead token is gone, so the next start goes to OTP login, not the
+      // keypad. No OTP is auto-sent — the worker chooses to request one.
+      expect(await store.readRefreshToken(), isNull);
+    });
+
+    test('a successful unlock CLEARS the failure budget (no slow logout)',
+        () async {
+      await store.writeRefreshToken('refresh-1');
+      await manager.bootstrap();
+
+      // Four misses...
+      api.throwOnPinVerify = const AuthFailure(AuthErrorCode.pinVerifyFailed);
+      for (int i = 0; i < 4; i++) {
+        await expectLater(
+            manager.unlockWithPin('0000'), throwsA(isA<AuthFailure>()));
+      }
+      // ...then the right PIN. The session was alive all along.
+      api.throwOnPinVerify = null;
+      await manager.unlockWithPin('7416');
+      expect(manager.status, AuthStatus.authenticated);
+
+      // The budget must have reset: four more misses stay `locked`, i.e. the
+      // worker is not one stray tap from being logged out days later.
+      await manager.relock();
+      api.throwOnPinVerify = const AuthFailure(AuthErrorCode.pinVerifyFailed);
+      for (int i = 0; i < 4; i++) {
+        await expectLater(
+            manager.unlockWithPin('0000'), throwsA(isA<AuthFailure>()));
+      }
+      expect(manager.status, AuthStatus.locked);
+    });
   });
 
   group('relock (lifecycle)', () {

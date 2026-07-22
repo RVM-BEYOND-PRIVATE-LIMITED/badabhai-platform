@@ -129,6 +129,20 @@ class AuthSessionManager extends ChangeNotifier {
   bool _pinSet = false;
   bool get pinSet => _pinSet;
 
+  /// Consecutive `pin/verify` 401s. The endpoint is deliberately a neutral
+  /// no-oracle 401, so a dead session is INDISTINGUISHABLE from a wrong PIN;
+  /// this counter is what stops the worker being trapped on the keypad by a
+  /// cause the PIN cannot fix. See [unlockWithPin] for the full reasoning.
+  /// Reset to 0 by a successful unlock and by a fresh OTP login.
+  int _consecutivePinFailures = 0;
+
+  /// After this many consecutive neutral PIN failures, stop blaming the PIN:
+  /// drop the unusable session and send the worker to OTP login. Chosen to sit
+  /// ABOVE the 3-try client nudge toward "PIN bhool gaye?" (so a worker who
+  /// simply mistypes still gets the gentler forgot-PIN hint first) and to be
+  /// consistent with the server's own force-OTP ladder.
+  static const int _maxPinFailuresBeforeReauth = 5;
+
   /// Where the worker was when the app re-locked, so unlocking returns them
   /// there instead of dumping them on the Resume tab (#349).
   ///
@@ -329,8 +343,50 @@ class AuthSessionManager extends ChangeNotifier {
       await _wipeAndLogOut();
       throw const AuthFailure(AuthErrorCode.reauthRequired);
     }
-    final PinVerifyResult result =
-        await _authApi.pinVerify(pin, refreshToken: refresh);
+    final PinVerifyResult result;
+    try {
+      result = await _authApi.pinVerify(pin, refreshToken: refresh);
+    } on AuthFailure catch (failure) {
+      // THE UNLOCK TRAP (#PIN-LOOP). `POST /auth/pin/verify` answers EVERY
+      // negative path with ONE neutral 401 — deliberately, so it is not a
+      // PIN oracle (ADR-0026 Phase 3). But only ONE of those paths is "wrong
+      // PIN". The others are: an unresolvable/rotated refresh token, a revoked
+      // or unknown device, no PIN set, force-OTP after the lockout ladder, and
+      // revoked consent. In every one of those the PIN is IRRELEVANT — no PIN
+      // can ever succeed — yet the client rendered all of them as
+      // "PIN sahi nahi" and sent the worker back to the keypad forever.
+      //
+      // The reset path made it unescapable: `pinResetConfirm` returns VOID (no
+      // session), so after a successful reset we fall back to the OLD stored
+      // refresh token and go straight back to `locked`. If that token is the
+      // thing that is dead, the worker resets their PIN, types the PIN they
+      // JUST set, and is told it is wrong — forever. A dead token is the norm
+      // after the server's DB is re-created or a session is revoked.
+      //
+      // We cannot tell the causes apart (that is the point of the neutral 401)
+      // and must NOT probe with /auth/token/refresh — that rotates the token
+      // and can trip reuse-detection, killing a session that was still good.
+      // So we bound the trap instead: after [_maxPinFailuresBeforeReauth]
+      // consecutive failures the PIN is almost certainly not the problem, so we
+      // stop asserting it is, drop the unusable session, and route to OTP login
+      // with the truthful "log in again" copy.
+      //
+      // This does NOT auto-send an OTP (no silent SMS spend) — it puts the
+      // worker on the login screen where they choose to request one. It also
+      // mirrors what the server already does on its own ladder (force_otp).
+      if (failure.code == AuthErrorCode.pinVerifyFailed) {
+        _consecutivePinFailures++;
+        if (_consecutivePinFailures >= _maxPinFailuresBeforeReauth) {
+          _consecutivePinFailures = 0;
+          await _wipeAndLogOut();
+          throw const AuthFailure(AuthErrorCode.reauthRequired);
+        }
+      }
+      rethrow;
+    }
+    // A verified PIN proves the session was alive — clear the trap counter so a
+    // later genuine typo starts from zero.
+    _consecutivePinFailures = 0;
     _captureSessionView(result.tokens); // F5
     // GAP A: persist the rotated tokens so the next cold start stays on the fast
     // path with the freshest refresh token.
@@ -551,6 +607,7 @@ class AuthSessionManager extends ChangeNotifier {
     _session.clear();
     _consentAccepted = null; // TD62: unknown again until the next login
     _pinSet = false; // #352: keep the in-memory flag in step with the store
+    _consecutivePinFailures = 0; // the trapped session is gone; start clean
     _resumeLocation = null; // #349: a new login must not land on the old screen
     _clearSessionView(); // F5: a new worker must not inherit the old session view
     _setStatus(AuthStatus.loggedOut);
