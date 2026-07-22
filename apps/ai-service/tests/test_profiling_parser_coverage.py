@@ -27,12 +27,15 @@ import pytest
 from analysis_parser_coverage import (
     NEGATION_PROBE,
     POST_426_DELTA,
+    PRE_WIDENING_GAPS,
     SCRIPT_GAZETTEER_FRIENDLY,
     SCRIPT_LATE_CORRECTION,
     SCRIPT_LATE_OVERWRITE,
     SCRIPT_PLAUSIBLE,
     UNEXPRESSIBLE,
     VALUE_WATCH,
+    WIDENING_DELTA,
+    WIDENING_NEGATIVE_PROBE,
     _negation_is_open,
     build_report,
     measure_all,
@@ -392,16 +395,85 @@ def test_overall_acceptance_is_pinned() -> None:
       diffing the accepted set before and after, NOT inferred from the total: no
       fixture that was accepted before is rejected now, so the two flips are pure
       gains and nothing was traded away to close the fabrications.
+    - **168/252 after the parser widening**. +8: `role` +4 (`seter ka kaam`,
+      `V M C operator` and the two Devanagari role answers) and `preferred_locations`
+      +4. The other nine topics are unchanged, and the corpus grew by two `reject`
+      negatives, so the denominator is deliberately unmoved.
+
+      This is DOWN from the 169 an earlier cut of the same PR measured, and that is
+      the point worth keeping in view: `lathe operator` was closed by a
+      `<machine> + <function>` role inference which review then measured fabricating a
+      role for interrogatives, relatives, vacancies, trainings and helpers — a family
+      no blocklist could enumerate. The inference was DELETED and the acceptance point
+      given back. A coverage number went DOWN inside a coverage PR, on purpose.
+
+      Same diff method as the line above, locked structurally by
+      ``test_the_widening_closed_gaps_and_opened_none``.
     """
     rows = measure_all()
     should_accept = [m for m in rows if m.fixture.expected == "accept"]
     accepted = [m for m in should_accept if m.accepted]
-    assert (len(accepted), len(should_accept)) == (160, 252)
+    assert (len(accepted), len(should_accept)) == (168, 252)
 
     availability = [
         m for m in should_accept if m.fixture.topic == "availability" and m.accepted
     ]
     assert len(availability) == 22, "availability coverage moved — re-measure"
+
+
+def test_the_widening_closed_gaps_and_opened_none() -> None:
+    """The widening is strictly additive on coverage — measured, not claimed.
+
+    ``PRE_WIDENING_GAPS`` is the EXACT gap set this harness recorded at ``26218e4``,
+    the commit the widening was cut from. Two independent properties, because a
+    headline count can hide a swap:
+
+    1. the gap set NOW is a strict subset of it — nothing accepted before is a gap now;
+    2. the gaps that closed are exactly the eight the report claims.
+    """
+    rows = measure_all()
+    now_gaps = {(m.fixture.topic, m.fixture.text) for m in rows if m.is_gap}
+    before_gaps = set(PRE_WIDENING_GAPS)
+
+    assert not (now_gaps - before_gaps), (
+        f"the widening OPENED a gap that did not exist before: {now_gaps - before_gaps}"
+    )
+    assert before_gaps - now_gaps == {
+        # NOT ("role", "lathe operator") — the inference that closed it was deleted
+        # after review, and it is a gap again on purpose.
+        ("role", "seter ka kaam"),
+        ("role", "V M C operator"),
+        ("role", "मैं वीएमसी ऑपरेटर हूँ"),
+        ("role", "प्रोग्रामर"),
+        ("preferred_locations", "Gujarat mein"),
+        ("preferred_locations", "South India"),
+        ("preferred_locations", "NCR"),
+        ("preferred_locations", "जहाँ भी काम मिले"),
+    }
+    # Every row the report's widening table calls CLOSED really is.
+    for topic, text, _before, want, _note in WIDENING_DELTA:
+        assert recorded_value(text, topic) == want, (topic, text)
+
+
+def test_the_widening_negatives_all_hold() -> None:
+    """The negatives table, locked row by row.
+
+    Most of these were MEASURED as fabrications in the first cut of this widening by
+    the code review of PR #488 (head vs `main`, isolated copies): a refusal five words
+    from the negator, an exclusion phrasing, a handheld angle grinder, a helper, a
+    vacancy, a training. Each recorded `{}` on main and a VALUE on the first cut.
+
+    `want` is ``MISSING`` for "record nothing", or a concrete value where the correct
+    answer is a DIFFERENT one — "Bihar ke alawa kahin bhi" is `flexible`, and the
+    first cut turning it into `['Bihar']` was a REGRESSION, not just a new gap.
+    """
+    for topic, text, want, why in WIDENING_NEGATIVE_PROBE:
+        assert recorded_value(text, topic) == want, (
+            f"{text!r} records {recorded_value(text, topic)!r}, want {want!r} ({why})"
+        )
+    # The single most important property, stated over the whole table: no row may
+    # record a role/preference the worker did not offer.
+    assert len([r for r in WIDENING_NEGATIVE_PROBE if r[3].startswith("ADVERSARIAL")]) >= 20
 
 
 def test_role_gazetteer_has_no_cnc_or_operator_keyword() -> None:
