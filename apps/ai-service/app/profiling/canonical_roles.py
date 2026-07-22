@@ -18,9 +18,14 @@ from .signals import _EXTRA_ROLE_TRADES, _ROLES
 # role_id -> trade_id, straight from the gazetteer (the taxonomy source of truth).
 #
 # `_ROLES` (keyword-matched) PLUS `_EXTRA_ROLE_TRADES` (in the closed set, but assigned
-# by dedicated gated logic rather than a keyword — `role_welder`, whose assignment runs
-# through `signals._assign_welding_role`). The closed SET and the keyword TABLE are
+# by dedicated gated logic rather than a keyword — `role_welder` via
+# `signals._assign_welding_role`, and `role_cnc_operator` via
+# `signals._assign_generic_cnc_role`). The closed SET and the keyword TABLE are
 # deliberately not the same thing: see the note on `_EXTRA_ROLE_TRADES`.
+#
+# ORDER IS PART OF THE CONTRACT: `ROLE_IDS` below is `tuple(ROLE_TRADE)`, i.e. insertion
+# order, so new ids are APPENDED and no existing id ever moves or changes spelling
+# (ADR-0028: the id space is closed and immutable, and only ever grows additively).
 ROLE_TRADE: dict[str, str] = {
     **{rid: tid for _, _, rid, tid in _ROLES},
     **dict(_EXTRA_ROLE_TRADES),
@@ -40,6 +45,17 @@ ROLE_DESCRIPTIONS: dict[str, str] = {
     # TAX-WELD-1: welding is in scope. The id is added to the CLOSED set (a wider
     # enumerated whitelist, never free text — ADR-0028 §(d)), not to a free-form field.
     "role_welder": "welder — MIG / TIG / arc / gas welding as the main job",
+    # TD94 (owner ruling 2026-07-21, #460). The description is written as a FALLBACK,
+    # not as a peer of the six specialisations, because the id's whole safety argument
+    # is that it never displaces one: it names no machine family, so choosing it
+    # asserts nothing the worker did not say. The rule below says the same thing again
+    # in the imperative — a model shown a bare "generic CNC operator" line will
+    # cheerfully prefer it to `role_vmc_operator` for "vmc chalata hu".
+    "role_cnc_operator": (
+        "GENERIC CNC machine operator — the FALLBACK when the worker operates CNC but "
+        "names NO machine family (VMC/HMC/lathe/grinder) and NO specialisation "
+        "(setter/programmer)"
+    ),
 }
 
 
@@ -70,6 +86,14 @@ def canonicalization_instruction() -> str:
         "'tool offset setting') KEEPS the operator role.\n"
         "- Choose role_welder only when welding is the MAIN job. A machining worker who "
         "welds incidentally KEEPS their machining role.\n"
+        "- role_cnc_operator is a FALLBACK, never a replacement for a stated "
+        "specialisation. Use it ONLY when the worker operates CNC but names no machine "
+        "family and no specialisation: 'cnc operator hu' / 'cnc machine chalata hu' / "
+        "'cnc pe kaam karta hu' -> role_cnc_operator. If they name one — 'vmc operator', "
+        "'cnc turner', 'cnc setter', 'cnc grinding', 'cnc programmer' — that SPECIFIC id "
+        "wins. Never use it for a non-CNC trade (fitter/helper/electrician stay null), "
+        "and never to avoid choosing between two specialisations the worker DID name — "
+        "pick their main/current one.\n"
         "- Use null when the worker is only a helper/labourer, the trade is unrelated "
         "to CNC/VMC or welding, OR they state no concrete role/machine/task (e.g. 'naya hu', "
         "'kuch nahi aata', 'abhi seekh raha hu' with nothing specific). Do NOT guess a "
