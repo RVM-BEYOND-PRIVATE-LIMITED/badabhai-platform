@@ -18,6 +18,7 @@ import {
   type PostMessageDto,
   type PostMessageResponse,
   type StartSessionResponse,
+  type SessionMessagesResponse,
 } from "./chat.dto";
 
 const DEFAULT_ROLE_FAMILY = "cnc_vmc";
@@ -359,6 +360,55 @@ export class ChatService {
       return response;
     }
     return checked.data;
+  }
+
+  /**
+   * #349 — transcript hydration. Returns this session's stored messages so the
+   * app can redraw a thread it could not keep in memory (ChatBloc is a locator
+   * FACTORY, so a >5-minute background re-lock drops the visible transcript
+   * while every message is still safely in `chat_messages`).
+   *
+   * OWNERSHIP: the session id arrives in the URL and is therefore
+   * ATTACKER-CONTROLLED. `SessionMessagesParamSchema` only proves it is a UUID —
+   * parsing is not permission. A worker may read ONLY their own session, and a
+   * miss returns **404, never 403**, for both "no such session" and "not yours":
+   * a 403 would confirm the id exists and turn this route into an existence
+   * oracle for another worker's session (the same IDOR class as #435). Identical
+   * to the gate in `postMessage`.
+   *
+   * READ-ONLY → NO EVENT, deliberately. CLAUDE.md §1 binds important STATE
+   * CHANGES; nothing changes here, and minting an event per screen re-entry
+   * would spam the audit spine without recording a decision. The omission is a
+   * choice, not an oversight.
+   *
+   * PII: `body_text` is the stored row verbatim, which for an outbound message
+   * still holds the literal `{{worker_name}}` placeholder — the real name is
+   * interpolated ONLY in `postMessage`'s live return (renderWorkerName, SG-1).
+   * Hydration therefore returns the placeholder rather than the name. That is
+   * the safe direction: the alternative is decrypting the worker's name into a
+   * bulk read. Tracked as a known cosmetic gap, not a leak.
+   */
+  async listMessages(workerId: string, sessionId: string): Promise<SessionMessagesResponse> {
+    const session = await this.chat.findSession(sessionId);
+    if (!session || session.workerId !== workerId) {
+      throw new NotFoundException(`Session ${sessionId} not found`);
+    }
+
+    // Already oldest-first: the repository takes the newest CHAT_HISTORY_MAX and
+    // reverses. Do NOT re-sort here.
+    const rows = await this.chat.listMessages(sessionId);
+
+    // Mapped FIELD-BY-FIELD, never spread: `chat_messages` also carries id,
+    // worker_id, message_type, voice_note_id and a metadata JSONB, none of which
+    // the client needs to redraw bubbles. Spreading the row would silently
+    // publish any future column to the client.
+    return {
+      messages: rows.map((row) => ({
+        direction: row.direction,
+        body_text: row.bodyText,
+        created_at: row.createdAt.toISOString(),
+      })),
+    };
   }
 
   /**
