@@ -7,6 +7,7 @@ import '../auth/auth_factory.dart';
 import '../auth/device_id.dart';
 import '../auth/locale_store.dart';
 import '../otp/sms_otp_autofill.dart';
+import '../referral/pending_referral_store.dart';
 import '../auth/reauth_signal.dart';
 import '../nav/tab_focus.dart';
 import '../auth/secure_token_store.dart';
@@ -181,7 +182,17 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
 
   // --- Repositories (stateless singletons) ----------------------------------
   locator.registerLazySingleton<ConsentRepository>(
-    () => ConsentRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
+    () => ConsentRepositoryImpl(
+      locator<ApiClient>(),
+      locator<SessionRepository>(),
+      // Referral attribution (fire-and-forget after consent). Guarded like the
+      // notifications read store: the PendingReferralStore registers in the
+      // async initAuthLocator, so under the plugin-free widget-test graph it is
+      // absent and attribution is simply inert.
+      locator.isRegistered<PendingReferralStore>()
+          ? locator<PendingReferralStore>()
+          : null,
+    ),
   );
   locator.registerLazySingleton<NameRepository>(
     () => NameRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
@@ -395,6 +406,7 @@ Future<void> initAuthLocator({
   LocaleStore? localeStore,
   AuthApi? authApi,
   NotificationReadStore? readStore,
+  PendingReferralStore? pendingReferral,
   bool persistentAuthEnabled = kPersistentAuth,
 }) async {
   if (locator.isRegistered<AuthApi>()) return;
@@ -418,6 +430,18 @@ Future<void> initAuthLocator({
   if (!locator.isRegistered<NotificationReadStore>()) {
     locator.registerSingleton<NotificationReadStore>(
       readStore ?? const SharedPrefsNotificationReadStore(),
+    );
+  }
+
+  // Referral-attribution deep-link store. Registered HERE (not in the plugin-free
+  // setupLocator) for the same reason as the read store above: the default
+  // resolves `shared_preferences` LAZILY per call, so registration never touches
+  // the platform channel — and both its methods swallow a plugin error, so the
+  // consent flow stays safe even in a widget test that never wires persistence.
+  // A test-supplied [pendingReferral] wins (e.g. an InMemoryPendingReferralStore).
+  if (!locator.isRegistered<PendingReferralStore>()) {
+    locator.registerSingleton<PendingReferralStore>(
+      pendingReferral ?? const SharedPrefsPendingReferralStore(),
     );
   }
 

@@ -31,6 +31,7 @@ import { ResumeDisclosureModule } from "./disclosures/resume-disclosure.module";
 import { PayersModule } from "./payers/payers.module";
 import { PayerPortalModule } from "./payer-portal/payer-portal.module";
 import { AgencyModule } from "./agency/agency.module";
+import { ReferralAttributionModule } from "./referrals/referral-attribution.module";
 import { AdminModule } from "./admin/admin.module";
 import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
 import { PdfModule } from "./common/pdf/pdf.module";
@@ -82,6 +83,7 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     // Agency Supply Portal demand slice (ADR-0022): agent-only `/payer/agency/*` routes
     // (jobs CRUD + invites + referrals summary) + the consent-gated attribution seam.
     AgencyModule,
+    ReferralAttributionModule,
     // Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1): the 4th principal
     // (`/admin/*` route group behind AdminAuthGuard). Auth + RBAC + MFA only; the feature
     // routes (events query / entity actions / PII reveal) are ADMIN-2/ADMIN-3.

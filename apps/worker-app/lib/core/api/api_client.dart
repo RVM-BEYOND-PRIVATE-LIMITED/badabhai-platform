@@ -653,6 +653,30 @@ class ApiClient {
     return InviteResult.fromJson(json);
   }
 
+  /// Attributes a referral to the CURRENT worker (POST /referrals/attribute).
+  /// Worker-scoped — requires [authToken] (WorkerAuthGuard); the invited worker
+  /// is taken from the SESSION token, NEVER the body. [code] is the opaque
+  /// 12-lowercase-hex referral code from a shared `/i/<code>` deep link
+  /// (worker→worker ADR-0020 + agency ADR-0022 invites share this same shape).
+  ///
+  /// Call this ONLY AFTER consent has been accepted — the endpoint is
+  /// consent-gated + idempotent server-side, and it is a best-effort side-signal
+  /// that must never block onboarding. The response is NEUTRAL by contract
+  /// (`{ ok: true }` regardless of outcome — NO-ORACLE: it never reveals whether
+  /// the code matched or attribution happened), so the body is ignored here.
+  /// PII-FREE: the code is opaque and carries no worker identity, and is never
+  /// logged.
+  Future<void> attributeReferral({
+    required String authToken,
+    required String code,
+  }) async {
+    await _post(
+      '/referrals/attribute',
+      <String, dynamic>{'code': code},
+      authToken: authToken,
+    );
+  }
+
   /// Starts the DPDP account-delete flow (POST /auth/account/delete/request —
   /// A4, WorkerAuthGuard). Worker-scoped: requires [authToken]; no body. Returns
   /// `{success, resend_in_seconds}` (the OTP cooldown).
