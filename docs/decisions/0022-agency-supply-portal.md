@@ -298,3 +298,34 @@ ESCALATION POSTURE: this ADR proposes ONLY the additive, faceless, mock, event-f
 6. **Client capture (Flutter, Android-first).** The `/i/<code>` deep-link is captured via a **custom scheme** (`badabhai://i/<code>`) into a pending-referral store, carried through login+consent, and consumed once by a fire-and-forget call to the hook after consent. Verified **App Links** (https + `assetlinks.json` on the real share domain) and **Play Install Referrer** (deferred-deep-link for fresh installs) are a deploy/infra follow-up (new TDs).
 
 **Explicitly still deferred (unchanged by this amendment):** the payout accrual model + ledger, agency KYC, earnings/commission analytics (all Appendix D #1–#3), AND — within the funnel itself — the richer `installed → profile_completed → active` stages (the funnel stays `created / clicked / accepted`; deeper stages need new lifecycle signals) and a worker-reachable **agency click** path (the agency click route is agent-gated today, so the agency funnel's `clicked` stage has no worker producer). Logged as follow-up tech-debt.
+
+---
+
+## Amendment 2 (2026-07-23) — KYC gate + payout ledger + earnings, built MOCK + launch-gated
+
+**Status:** ACCEPTED (owner ratification 2026-07-23). This is the **product ratification** Appendix D#1 required: the owner, acting as product owner, explicitly instructed building modules **1 (KYC), 3 (attribution→payout) and 7 (payout/commission ledger)** and **ratified the previously-UNRATIFIED params in writing**: **25% × ₹40 per contact unlock, a 90-day first-touch attribution window, a ₹500 minimum requestable payout.** The supply money loop is built as a **MOCK, launch-gated** system — matching the ADR-0016 (mock payments, enforcement-inert-by-default) and ADR-0010 (mock credits) precedent — NOT as a live money-out or live-KYC system.
+
+**What was built (this amendment):**
+
+1. **Config-driven economics (owner-ratified, overridable):** `AGENCY_PAYOUT_UNLOCK_BASIS_INR=40`, `AGENCY_PAYOUT_RATE_BPS=2500` (25%), `AGENCY_PAYOUT_WINDOW_DAYS=90`, `AGENCY_PAYOUT_MIN_THRESHOLD_INR=500`. Each accrual **stamps** basis+rate so a later config edit never rewrites history (mirrors `credit_ledger.price_inr`).
+
+2. **Launch gate — `AGENCY_PAYOUTS_ENABLED` (default OFF, fail-safe inert).** While OFF, **every** agency KYC/earnings/payout route is a **neutral 404** (`AgencyPayoutsEnabledGuard`, the `TEST_LOGIN_ENABLED` inert-404 pattern) — so **no financial PII is even collected** until the surface is deliberately turned on. Flipping it ON is a launch decision that **presupposes the legal/DPDP sign-off** below.
+
+3. **KYC (module 1) under ADR-0004 financial-PII discipline.** New `agency_kyc` table: PAN/bank/IFSC/holder-name are **AES-256-GCM ciphertext + a keyed HMAC** (PAN dedup), **FORCE-RLS + REVOKE** (migration 0048), backend-service-role only. These values **never** reach events / `ai_jobs` / `audit_logs` / logs / LLM input — only the opaque `payer_id` + `status` enum leave the row, and reads are **masked (last-4) for everyone** (owner AND ops); there is **no endpoint that returns the full PAN/bank to any principal**. Verification is **ops-manual** (`InternalServiceGuard`, the apps/web ops console) — a **mock human ack, not a real-registry check**.
+
+4. **Payout ledger (modules 3+7), computed off REAL event data.** `agency_payout_accruals` (append-only, PII-free, idempotent per `source_unlock_id`) accrues `rate × basis` for every **granted `unlocks` row** on a worker the agency referred (`agency_invites.invited_worker_id`), whose `granted_at` falls within the window of the invite's new `attributed_at` anchor. `agency_payout_requests` is the **MOCK** request: `status='paid'` is **inert** (no disbursement). The request GATE is **provably unreachable without a `verified` KYC row AND ≥ ₹500 requestable** — a refusal emits `agency_payout.blocked{reason}` and changes no state (a KYC-bypass test pins this).
+
+5. **Earnings/commission analytics off real accrual data** (module 3) — aggregate ₹ only, no per-worker rows.
+
+6. **Events — 7 new PII-free v1 events, 2 new domains** (`agency_kyc.*`, `agency_payout.*`): ids/₹/enum/reason-CODE only, `.strict()`; every KYC, attribution, and payout action emits one.
+
+7. **Migration 0048 GENERATED, NOT RUN** (`packages/db/migrations/0048_empty_archangel.sql`) — apply is owner-gated (§7); rollback = drop the 3 tables child-first + the `attributed_at` column.
+
+**Single-owner-per-app:** the payout/KYC logic lives in the existing **agency module** (alongside agency-invites), reusing the event spine, `PiiCryptoService`, the pricing ₹ anchor, and the credit-ledger patterns — NOT a forked billing stack.
+
+**STILL DEFERRED behind their launch gates (NOT crossed by this amendment):**
+- **Legal/DPDP sign-off on LIVE real-KYC collection** (Appendix D#2: lawful basis / purpose / retention / erasure copy for financial PII) — required before `AGENCY_PAYOUTS_ENABLED` is flipped ON in front of real agencies. The machinery is built to the at-rest discipline; the **legal authorization to collect live is a human gate**.
+- **§7 real outbound money** (Appendix D#3): a real payout provider + real disbursement + `PAYMENTS_ENABLE_REAL`-style discipline + human authorization. `status='paid'` stays inert until then.
+- **Real-registry KYC verification** (vs the current ops mock ack) — needs a provider (D#2/D#3 track).
+
+These three remain the explicit go-live gates; this amendment builds and gates the machinery, it does not turn it on.

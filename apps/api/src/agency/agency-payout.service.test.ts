@@ -80,7 +80,12 @@ describe("AgencyPayoutService — accrual math (25% × ₹40 per granted unlock)
     const n = await svc.recomputeAccruals(AGENCY);
 
     expect(n).toBe(2);
-    const rows = (repo.insertAccruals as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    const rows = ((repo.insertAccruals as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] ?? []) as Array<{
+      agencyPayerId: string;
+      basisInr: number;
+      rateBps: number;
+      amountInr: number;
+    }>;
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({ agencyPayerId: AGENCY, basisInr: 40, rateBps: 2500, amountInr: 10 });
     expect(emittedNames(emit)).toEqual(["agency_payout.accrued", "agency_payout.accrued"]);

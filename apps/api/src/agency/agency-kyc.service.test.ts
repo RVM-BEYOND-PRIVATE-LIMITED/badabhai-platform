@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
+import { ConflictException } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import type { AgencyKyc } from "@badabhai/db";
 import { AgencyKycService } from "./agency-kyc.service";
@@ -96,6 +97,23 @@ describe("AgencyKycService — financial PII at rest + PII-free spine", () => {
     expect(view).toMatchObject({ status: "pending", panLast4: "234F", bankLast4: "9012" });
     expect(JSON.stringify(view)).not.toContain(PAN);
     expect(JSON.stringify(view)).not.toContain(BANK);
+  });
+
+  it("a cross-agency duplicate PAN (23505) surfaces a NEUTRAL conflict — no oracle, no PAN echoed", async () => {
+    const { svc, repo, emit } = make();
+    (repo.upsertPending as ReturnType<typeof vi.fn>).mockRejectedValue(
+      Object.assign(new Error("duplicate key value violates unique constraint"), { code: "23505" }),
+    );
+    const err = await svc
+      .submit(AGENCY, { pan: PAN, bank_account: BANK, ifsc: IFSC, account_holder_name: HOLDER })
+      .then(() => null)
+      .catch((e: Error) => e);
+
+    expect(err).toBeInstanceOf(ConflictException);
+    // The rejection never echoes the PAN or says "PAN taken" (no oracle), and no event fires.
+    expect(err!.message).not.toContain(PAN);
+    expect(err!.message.toLowerCase()).not.toContain("pan");
+    expect(emit).not.toHaveBeenCalled();
   });
 
   it("getOwnView returns not_submitted when there is no KYC row", async () => {

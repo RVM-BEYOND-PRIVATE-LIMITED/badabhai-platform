@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { ConflictException, Injectable } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { AgencyKyc, AgencyKycStatus } from "@badabhai/db";
 import { EventsService } from "../events/events.service";
@@ -25,6 +25,11 @@ export interface AgencyKycView {
 export interface AgencyKycOpsRow extends AgencyKycView {
   payerId: string;
   submittedAt: Date;
+}
+
+/** Postgres unique-violation (23505) — here, a cross-agency duplicate PAN hash. */
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: string }).code === "23505";
 }
 
 /**
@@ -66,14 +71,25 @@ export class AgencyKycService {
 
   /** Submit/replace KYC (encrypt at rest → pending). Emits `agency_kyc.submitted`. Masked view. */
   async submit(payerId: string, dto: SubmitAgencyKycDto): Promise<AgencyKycView> {
-    const row = await this.repo.upsertPending(payerId, {
-      panEnc: this.pii.encrypt(dto.pan),
-      // Keyed HMAC → dedup: one PAN cannot back multiple agencies (unique index fails closed).
-      panHash: this.pii.hmac(dto.pan),
-      bankAccountEnc: this.pii.encrypt(dto.bank_account),
-      ifscEnc: this.pii.encrypt(dto.ifsc),
-      accountHolderNameEnc: this.pii.encrypt(dto.account_holder_name),
-    });
+    let row: AgencyKyc;
+    try {
+      row = await this.repo.upsertPending(payerId, {
+        panEnc: this.pii.encrypt(dto.pan),
+        // Keyed HMAC → dedup: one PAN cannot back multiple agencies (unique index fails closed).
+        panHash: this.pii.hmac(dto.pan),
+        bankAccountEnc: this.pii.encrypt(dto.bank_account),
+        ifscEnc: this.pii.encrypt(dto.ifsc),
+        accountHolderNameEnc: this.pii.encrypt(dto.account_holder_name),
+      });
+    } catch (err) {
+      // The payer_id conflict is absorbed by upsert; the only unique that can escape is the
+      // cross-agency PAN hash. Surface a NEUTRAL conflict (never "PAN X is taken" — no oracle,
+      // no PAN echoed) rather than a raw 500.
+      if (isUniqueViolation(err)) {
+        throw new ConflictException("These KYC details could not be saved");
+      }
+      throw err;
+    }
 
     const payload: PayloadInputOf<"agency_kyc.submitted"> = { payer_id: payerId, status: "pending" };
     await this.events.emit({
