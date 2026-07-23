@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'core/di/locator.dart';
 import 'core/nav/tab_focus.dart';
+import 'core/referral/pending_referral_store.dart';
 import 'core/widgets/bb_bottom_nav.dart';
 import 'features/auth/domain/auth_session_manager.dart';
 import 'features/notifications/domain/notifications_repository.dart';
@@ -130,6 +133,56 @@ const Set<String> _authRoutes = <String>{
 AuthSessionManager? _maybeAuth() =>
     locator.isRegistered<AuthSessionManager>() ? locator<AuthSessionManager>() : null;
 
+/// The referral store if deep-link persistence is wired (real app + e2e; it
+/// registers in `initAuthLocator`). Null under the plugin-free widget tests, so
+/// the deep-link capture is simply INERT there — routing is otherwise unchanged.
+PendingReferralStore? _maybeReferralStore() =>
+    locator.isRegistered<PendingReferralStore>()
+        ? locator<PendingReferralStore>()
+        : null;
+
+/// Extracts the referral code from an incoming `/i/<code>` deep link, tolerating
+/// BOTH URI shapes the platform can deliver:
+///  - custom scheme  `badabhai://i/<code>`          → host `i`, one path segment
+///  - App Link       `https://<domain>/i/<code>`    → segments `['i', <code>]`
+///
+/// Returns null when the URI is not a referral link. The 12-hex SHAPE is not
+/// checked here — [PendingReferralStore.capture] is the single validator, and it
+/// ignores anything that does not match, so a junk `/i/<x>` is captured-then-
+/// dropped rather than mistaken for a real screen.
+String? referralCodeFromUri(Uri uri) {
+  final List<String> segs =
+      uri.pathSegments.where((String s) => s.isNotEmpty).toList();
+  // Custom scheme: the host carries the `i`, leaving the code as the sole segment.
+  if (uri.host == 'i' && segs.length == 1) return segs.first;
+  // Path form (App Link / an in-app go('/i/<code>')): `i` is the first segment.
+  if (segs.length >= 2 && segs.first == 'i') return segs[1];
+  return null;
+}
+
+/// The router's single top-level redirect. Runs the deep-link referral capture
+/// FIRST — before [_authRedirect] can bounce an unauthenticated worker to /login
+/// and strand the code — then delegates everything else to the auth gate.
+///
+/// A `/i/<code>` deep link (the shared worker→worker ADR-0020 + agency ADR-0022
+/// invite link) is captured best-effort and fire-and-forget: the opaque, PII-free
+/// code is stored (persisted, shape-validated in the store), and the worker is
+/// bounced to splash so they proceed through the usual login → consent flow, where
+/// the code is consumed exactly once (post-consent attribution). Custom-scheme
+/// links arrive with host `i` and the code as the only path segment, so the
+/// declarative `/i/:code` route (which matches on PATH) never sees them — this is
+/// why the capture lives here rather than only on that route.
+String? _rootRedirect(BuildContext context, GoRouterState state) {
+  final String? code = referralCodeFromUri(state.uri);
+  if (code != null) {
+    // Fire-and-forget; the store validates the shape and never throws.
+    final PendingReferralStore? store = _maybeReferralStore();
+    if (store != null) unawaited(store.capture(code));
+    return Routes.splash;
+  }
+  return _authRedirect(context, state);
+}
+
 /// The auth gate (PASS 2 §5). Driven by [AuthSessionManager]:
 ///  - `loggedOut`  → force to `/login` (unless already on an auth route),
 ///  - `locked`     → force to `/pin` (the enter-PIN fast path),
@@ -226,12 +279,28 @@ GoRouter _buildRouter() {
     // Re-run the redirect whenever the auth status changes (login, unlock,
     // re-lock, reauth). Null when auth isn't wired (legacy widget tests).
     refreshListenable: _maybeAuth(),
-    redirect: _authRedirect,
+    redirect: _rootRedirect,
     routes: <RouteBase>[
       // ---------------- Onboarding (no bottom nav) ----------------
       GoRoute(
         path: Routes.splash,
         builder: (_, __) => const SplashScreen(),
+      ),
+      // Referral deep-link target (`/i/<code>`, ADR-0020/0022). Declarative
+      // anchor for the App-Link / path form; the custom-scheme host form
+      // (badabhai://i/<code>) is caught by [_rootRedirect], which runs first and
+      // usually handles this form too. Either way: capture the opaque code, then
+      // bounce to splash so the worker proceeds through login → consent, where
+      // the code is consumed once. Redirect-only (no screen of its own).
+      GoRoute(
+        path: '/i/:code',
+        redirect: (BuildContext context, GoRouterState state) {
+          final PendingReferralStore? store = _maybeReferralStore();
+          if (store != null) {
+            unawaited(store.capture(state.pathParameters['code']));
+          }
+          return Routes.splash;
+        },
       ),
       GoRoute(
         path: Routes.phoneLogin,

@@ -274,3 +274,27 @@ For the parked half (escalate to product + human/legal; surface trade-offs, do n
 7. Surface confirmation — the agency portal is a role-aware view inside apps/payer-web (ADR-0019 Decision A), NOT a new app and NOT in apps/web ops console. Confirm web-app lock intent that agency demand = alpha, supply dashboard = fast-follow.
 
 ESCALATION POSTURE: this ADR proposes ONLY the additive, faceless, mock, event-first demand slice. Anything in items 1–4 (KYC, attribution params, real money, real comms) expands scope / weakens a gate / commits real spend and is NOT decided here — it is surfaced for human/product/legal sign-off per CLAUDE.md §7.
+
+---
+
+## Amendment 1 (2026-07-23) — worker-side attribution LINKAGE wired (ungated slice only)
+
+**Status:** ACCEPTED (owner sign-off 2026-07-23). Scope authorized: the **ungated attribution → funnel slice ONLY**. The payout model (Appendix D #1: `90d/25%/₹500`), KYC (Appendix D #2), real outbound money (Appendix D #3), and earnings analytics remain **PARKED / LEGAL_MONEY_GATE** unchanged — nothing here builds, ratifies, or presupposes them.
+
+**What the owner ratified:** the worker-side invite-attribution **LINKAGE MECHANIC** (the TD48 un-defer precondition), NOT the payout model. The `agency_invites` INTENT record stays a faceless, ids-only, payout-free signal exactly as §d specifies; this amendment only gives it a live producer.
+
+**Decision — how the previously-INERT attribution seams get a caller (closes TD48):**
+
+1. **Unified worker-onboarding hook — `POST /referrals/attribute`** (new [`apps/api/src/referrals/`](../../apps/api/src/referrals/) module). Auth: `WorkerAuthGuard` — the `invited_worker_id` is ALWAYS the verified SESSION worker (never a body id; the XB-A rule), so a caller can only ever attribute THEMSELVES. Body: `{ code }` (12-hex). Response: a neutral `{ ok: true }` **regardless of outcome** (no-oracle — never reveals whether the code matched or who invited). This is the "fold agency codes into the invite/consent flow" option from the TD48 trigger — chosen over a second public per-namespace click/accept surface.
+
+2. **Namespace disambiguation** (Appendix D #5 sibling-table consequence): `invites` (ADR-0020 worker→worker) and `agency_invites` (ADR-0022 agency→worker) share the opaque `/i/<code>` shape across two tables. Codes are random 12-hex → disjoint by construction. The service tries the **worker** seam (`InviteService.recordAccept`) first and falls through to the **agency** seam (`AgencyService.attributeWorkerToInvite`) ONLY on `unknown_code`; a KNOWN worker invite that can't attribute (self / already) is terminal.
+
+3. **Consent gate (invariant #6) enforced in one place, fail-CLOSED.** `ReferralAttributionService` re-reads the worker's latest consent (`ConsentRepository.findLatestByWorker`, `revokedAt IS NULL`) BEFORE touching either seam — so the worker→worker path (whose `recordAccept` does not itself check consent) is now consent-gated too, satisfying Appendix-C C.1 #1 for BOTH namespaces. The hook is called by the client AFTER `consent.accepted`.
+
+4. **Fail-safe.** Attribution is a best-effort side-signal; the service never throws to the caller and the controller ignores the outcome — a failure can never break worker onboarding.
+
+5. **Events unchanged.** `invite.accepted` / `agency_invite.accepted` (both registered v1) are emitted by the existing seams — no new event, no payload change (Appendix D #6 answer stands).
+
+6. **Client capture (Flutter, Android-first).** The `/i/<code>` deep-link is captured via a **custom scheme** (`badabhai://i/<code>`) into a pending-referral store, carried through login+consent, and consumed once by a fire-and-forget call to the hook after consent. Verified **App Links** (https + `assetlinks.json` on the real share domain) and **Play Install Referrer** (deferred-deep-link for fresh installs) are a deploy/infra follow-up (new TDs).
+
+**Explicitly still deferred (unchanged by this amendment):** the payout accrual model + ledger, agency KYC, earnings/commission analytics (all Appendix D #1–#3), AND — within the funnel itself — the richer `installed → profile_completed → active` stages (the funnel stays `created / clicked / accepted`; deeper stages need new lifecycle signals) and a worker-reachable **agency click** path (the agency click route is agent-gated today, so the agency funnel's `clicked` stage has no worker producer). Logged as follow-up tech-debt.

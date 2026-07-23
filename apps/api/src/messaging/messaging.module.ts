@@ -44,5 +44,8 @@ import { MessagingController } from "./messaging.controller";
     InviteService,
     InviteRepository,
   ],
+  // Exported so ReferralAttributionModule can call the consent-gated worker→worker
+  // attribution seam (recordAccept) from the onboarding hook (ADR-0020).
+  exports: [InviteService],
 })
 export class MessagingModule {}

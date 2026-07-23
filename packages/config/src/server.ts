@@ -112,6 +112,11 @@ export const serverEnvSchema = z.object({
   // would let a hostile worker fabricate unlimited ≤2MiB orphan objects (upload-but-
   // never-confirm) — a storage-cost + erasure-surface abuse. Same fail-closed idiom.
   PHOTO_RATE_LIMIT_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // Referral-attribution hook (ADR-0022 Amendment 1) per-IP cap / rolling UTC hour. The
+  // worker-authed POST /referrals/attribute is a low-frequency onboarding side-signal; an
+  // uncapped one lets an authed worker spam attribution reads (DB-load + a timing probe) —
+  // bb-security-review LOW-MED. Same fail-closed idiom (Redis outage → 429, never uncapped).
+  REFERRAL_ATTRIBUTE_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
   // Interview-kit content version. Part of the render-once identity (tradeKey +
   // contentVersion). BUMP this whenever any kit copy changes so a fresh PDF is
   // rendered instead of serving the stale cached file. Never reuse an old value.

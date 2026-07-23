@@ -603,6 +603,17 @@ class MockApiClient extends ApiClient {
     );
   }
 
+  @override
+  Future<void> attributeReferral({
+    required String authToken,
+    required String code,
+  }) async {
+    // No-op: the real route returns a NEUTRAL {ok:true} regardless of outcome
+    // (no-oracle) and its body is ignored, so mock mode simply absorbs the
+    // best-effort side-signal — no network, nothing stored, PII-free.
+    await _delay();
+  }
+
   // --- A4 DPDP account delete ----------------------------------------------
 
   /// Pending mock deletion due time (ADR-0031 grace) — set by
