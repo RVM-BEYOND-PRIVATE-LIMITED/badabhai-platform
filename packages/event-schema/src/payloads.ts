@@ -1513,6 +1513,105 @@ export const AgencyInviteAcceptedPayload = z.object({
 export type AgencyInviteAcceptedPayload = z.infer<typeof AgencyInviteAcceptedPayload>;
 
 // ---------------------------------------------------------------------------
+// agency_kyc.* — AGENCY financial-KYC lifecycle (ADR-0022 module 1, Amendment 2).
+//
+// FINANCIAL-PII-FREE ON THE SPINE (CLAUDE.md invariant #2): the PAN / bank account / IFSC /
+// account-holder-name live encrypted ONLY in `agency_kyc` (ADR-0004 discipline) and MUST
+// NEVER appear here. The ONLY tokens are the opaque agency `payer_id`, the `status` enum,
+// and (for ops actions) the opaque `verified_by` admin id + a reject-reason CODE. `.strict()`
+// STRUCTURALLY rejects any extra (potentially PII-shaped) key at validation time.
+// ---------------------------------------------------------------------------
+/** Bounded reject-reason CODES (never a free-form note that could carry PII). */
+export const AgencyKycRejectReason = z.enum([
+  "invalid_pan",
+  "invalid_bank",
+  "name_mismatch",
+  "duplicate",
+  "other",
+]);
+export type AgencyKycRejectReason = z.infer<typeof AgencyKycRejectReason>;
+
+export const AgencyKycSubmittedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    status: z.literal("pending"),
+  })
+  .strict();
+export type AgencyKycSubmittedPayload = z.infer<typeof AgencyKycSubmittedPayload>;
+
+// verify/reject are ops actions (the shared-secret `ops` principal — apps/web ops console via
+// InternalServiceGuard); WHO acted is the envelope `actor` (actor_type: "ops"), so the payload
+// carries no per-person id (there is none on the ops path today). payer_id + reason CODE only.
+export const AgencyKycVerifiedPayload = z
+  .object({
+    payer_id: uuidSchema,
+  })
+  .strict();
+export type AgencyKycVerifiedPayload = z.infer<typeof AgencyKycVerifiedPayload>;
+
+export const AgencyKycRejectedPayload = z
+  .object({
+    payer_id: uuidSchema,
+    reason: AgencyKycRejectReason,
+  })
+  .strict();
+export type AgencyKycRejectedPayload = z.infer<typeof AgencyKycRejectedPayload>;
+
+// ---------------------------------------------------------------------------
+// agency_payout.* — AGENCY commission payout lifecycle (ADR-0022 modules 3+7, Amendment 2).
+//
+// PII-FREE: ₹ amounts (whole rupees, integer — never paise) + opaque ids + a reason CODE
+// only. MOCK — `agency_payout.paid` is INERT (no real disbursement; real outbound money is
+// the §7 launch gate). `.strict()` rejects any extra key.
+// ---------------------------------------------------------------------------
+export const AgencyPayoutAccruedPayload = z
+  .object({
+    agency_payer_id: uuidSchema,
+    unlock_id: uuidSchema, // the granted unlock (the revenue event) this accrues on
+    amount_inr: z.number().int().nonnegative(),
+    basis_inr: z.number().int().nonnegative(),
+    rate_bps: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AgencyPayoutAccruedPayload = z.infer<typeof AgencyPayoutAccruedPayload>;
+
+export const AgencyPayoutRequestedPayload = z
+  .object({
+    agency_payer_id: uuidSchema,
+    payout_request_id: uuidSchema,
+    amount_inr: z.number().int().nonnegative(),
+    accrual_count: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AgencyPayoutRequestedPayload = z.infer<typeof AgencyPayoutRequestedPayload>;
+
+/** Why a payout request was refused at the gate (a CODE — no PII, no free text). */
+export const AgencyPayoutBlockedReason = z.enum([
+  "kyc_not_verified",
+  "below_threshold",
+  "disabled",
+]);
+export type AgencyPayoutBlockedReason = z.infer<typeof AgencyPayoutBlockedReason>;
+
+export const AgencyPayoutBlockedPayload = z
+  .object({
+    agency_payer_id: uuidSchema,
+    reason: AgencyPayoutBlockedReason,
+    amount_inr: z.number().int().nonnegative(), // pending ₹ at block time (audit)
+  })
+  .strict();
+export type AgencyPayoutBlockedPayload = z.infer<typeof AgencyPayoutBlockedPayload>;
+
+export const AgencyPayoutPaidPayload = z
+  .object({
+    agency_payer_id: uuidSchema,
+    payout_request_id: uuidSchema,
+    amount_inr: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AgencyPayoutPaidPayload = z.infer<typeof AgencyPayoutPaidPayload>;
+
+// ---------------------------------------------------------------------------
 // admin.* — the Admin Ops Portal, the 4th privileged principal (ADR-0025).
 //
 // FACELESS / PII-FREE by construction (CLAUDE.md invariant #2). The admin's OWN login

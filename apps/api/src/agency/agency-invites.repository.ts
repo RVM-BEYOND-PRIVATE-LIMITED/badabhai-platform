@@ -67,9 +67,13 @@ export class AgencyInvitesRepository {
    * no-op (returns false). Caller has already verified ACTIVE consent (invariant #6).
    */
   async markAccepted(id: string, invitedWorkerId: string): Promise<boolean> {
+    const now = new Date();
     const rows = await this.db
       .update(agencyInvites)
-      .set({ status: "accepted", invitedWorkerId, updatedAt: new Date() })
+      // `attributed_at` is stamped ONCE here (alongside the worker handle) — it is the
+      // 90-day payout-attribution window anchor (ADR-0022 Amendment 2). Set together with
+      // status/invited_worker_id so the anchor exists for every newly-attributed invite.
+      .set({ status: "accepted", invitedWorkerId, attributedAt: now, updatedAt: now })
       .where(and(eq(agencyInvites.id, id), isNull(agencyInvites.invitedWorkerId)))
       .returning({ id: agencyInvites.id });
     return rows.length > 0;

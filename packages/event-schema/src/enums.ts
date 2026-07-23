@@ -78,6 +78,15 @@ export const EVENT_DOMAINS = [
   // ids + the channel enum + an optional non-PII campaign tag ONLY; never a phone, name,
   // email, or message body. `agency_invite.accepted` is emitted ONLY after consent (#6).
   "agency_invite",
+  // AGENCY financial KYC lifecycle (ADR-0022 module 1, Amendment 2). FINANCIAL-PII-FREE on
+  // the spine: the PAN/bank/IFSC/holder-name live encrypted ONLY in `agency_kyc` (ADR-0004);
+  // the ONLY tokens here are the opaque agency `payer_id`, the `status` enum, an opaque
+  // `verified_by` admin id, and a reject-reason CODE. Never a PAN/bank/name value.
+  "agency_kyc",
+  // AGENCY commission payout lifecycle (ADR-0022 modules 3+7, Amendment 2). PII-FREE: ₹
+  // amounts (whole rupees) + opaque ids + a reason CODE only. MOCK — `paid` is inert (no real
+  // disbursement; real outbound money is the §7 launch gate).
+  "agency_payout",
   // Admin Ops Portal — the 4th privileged principal (ADR-0025). The admin auth/session
   // lifecycle + governed actions + reason-gated PII-reveal audit. PII-FREE & FACELESS by
   // construction: the admin's OWN email lives encrypted ONLY in `admin_users` (never in an
@@ -159,6 +168,12 @@ export const SUBJECT_TYPES = [
   // opaque). The subject of the `agency_invite.*` funnel events. (The `job` subject above
   // already serves the `job.*` lifecycle events — no new subject is needed for those.)
   "agency_invite",
+  // An agency MOCK payout request (ADR-0022 Amendment 2). The subject_id is the opaque
+  // `agency_payout_requests` row id; carries NO PII (₹ amount + agency payer id live in the
+  // payload, both opaque/faceless). The subject of `agency_payout.requested`/`.paid`.
+  // (`agency_kyc.*` uses the `payer` subject above — the agency's own account; `agency_payout
+  // .accrued` uses the `unlock` subject — the revenue event; `.blocked` uses `payer`.)
+  "agency_payout_request",
   // An admin session (ADR-0025). The subject_id is the opaque `admin_users.id` whose
   // session was started/revoked; carries NO PII (the admin's email lives encrypted in
   // `admin_users`, never in an event). The subject of `admin.session_started` /

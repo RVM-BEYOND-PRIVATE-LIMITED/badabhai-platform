@@ -9,6 +9,13 @@ import { AgencyJobsRepository } from "./agency-jobs.repository";
 import { AgencyInvitesRepository } from "./agency-invites.repository";
 import { AgencyJobsController } from "./agency-jobs.controller";
 import { AgencyInvitesController } from "./agency-invites.controller";
+import { AgencyKycRepository } from "./agency-kyc.repository";
+import { AgencyKycService } from "./agency-kyc.service";
+import { AgencyPayoutRepository } from "./agency-payout.repository";
+import { AgencyPayoutService } from "./agency-payout.service";
+import { AgencyPayoutsController } from "./agency-payouts.controller";
+import { AgencyPayoutsEnabledGuard } from "./agency-payouts-enabled.guard";
+import { AgencyKycOpsController } from "./agency-kyc-ops.controller";
 
 /**
  * Agency Supply Portal — demand slice (ADR-0022, ACCEPTED; mock + staging-only).
@@ -37,15 +44,30 @@ import { AgencyInvitesController } from "./agency-invites.controller";
     // Reuse BullMQ's Redis connection (client only) for the per-payer invite-mint cap.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
   ],
-  controllers: [AgencyJobsController, AgencyInvitesController],
+  controllers: [
+    AgencyJobsController,
+    AgencyInvitesController,
+    AgencyPayoutsController,
+    AgencyKycOpsController,
+  ],
   providers: [
     AgencyService,
     AgencyJobsRepository,
     AgencyInvitesRepository,
     PayerDisclosureRateLimit,
+    // Agency supply-money loop (ADR-0022 Amendment 2) — KYC + payout ledger. EventsService +
+    // PiiCryptoService are @Global; SERVER_CONFIG is @Global.
+    AgencyKycRepository,
+    AgencyKycService,
+    AgencyPayoutRepository,
+    AgencyPayoutService,
+    AgencyPayoutsEnabledGuard,
   ],
   // Export the service so the worker consent/onboarding path can invoke the consent-gated
-  // attribution seam (attributeWorkerToInvite) when an invite code is present.
+  // attribution seam (attributeWorkerToInvite) when an invite code is present. The agency
+  // supply-money surface (KYC/payout) is self-contained here — the OPS verify queue rides
+  // InternalServiceGuard in this module (AgencyKycOpsController), matching the apps/web ops
+  // console pattern; no cross-module export is needed for it.
   exports: [AgencyService],
 })
 export class AgencyModule {}
