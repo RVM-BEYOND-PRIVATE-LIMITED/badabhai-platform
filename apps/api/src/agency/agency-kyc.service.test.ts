@@ -52,8 +52,8 @@ function make(opts?: { row?: AgencyKyc; verified?: boolean; rejected?: boolean }
     }),
     findByPayer: vi.fn().mockResolvedValue(opts?.row),
     listByStatus: vi.fn().mockResolvedValue(opts?.row ? [opts.row] : []),
-    markVerified: vi.fn().mockResolvedValue(opts?.verified ?? true),
-    markRejected: vi.fn().mockResolvedValue(opts?.rejected ?? true),
+    markVerified: vi.fn().mockResolvedValue(opts?.verified === false ? null : new Date("2026-07-23T09:00:00Z")),
+    markRejected: vi.fn().mockResolvedValue(opts?.rejected === false ? null : new Date("2026-07-23T09:00:00Z")),
   } as unknown as AgencyKycRepository;
   const svc = new AgencyKycService(repo, pii, events);
   return { svc, repo, emit, captured: () => captured };
@@ -147,6 +147,22 @@ describe("AgencyKycService — ops verify / reject (actor = ops, event-first)", 
     const out = await svc.verify(AGENCY);
     expect(out).toEqual({ ok: false });
     expect(emit.mock.calls.some((c) => (c[0] as { event_name: string }).event_name === "agency_kyc.verified")).toBe(false);
+  });
+
+  it("stamps a PER-DECISION idempotency key so a re-verify after a KYC resubmit lands on the spine", async () => {
+    const { svc, repo, emit } = make({ verified: true });
+    // Two separate verify DECISIONS (resubmit → re-verify) with distinct transition timestamps.
+    (repo.markVerified as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(new Date("2026-07-23T09:00:00Z"))
+      .mockResolvedValueOnce(new Date("2026-07-24T10:00:00Z"));
+    await svc.verify(AGENCY);
+    await svc.verify(AGENCY);
+    const keys = emit.mock.calls
+      .filter((c) => (c[0] as { event_name: string }).event_name === "agency_kyc.verified")
+      .map((c) => (c[0] as { idempotencyKey: string }).idempotencyKey);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]); // distinct → the 2nd genuine decision is NOT deduped away
+    expect(keys[0]).toContain(AGENCY);
   });
 
   it("reject emits agency_kyc.rejected carrying the bounded reason CODE", async () => {

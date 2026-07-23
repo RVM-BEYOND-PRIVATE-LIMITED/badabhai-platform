@@ -84,30 +84,33 @@ export class AgencyKycRepository {
 
   /**
    * Ops verify: pending → verified (idempotency-guarded on still-pending so a double verify is a
-   * no-op). Returns true iff this call performed the transition. `verified_by` stays null on the
-   * ops shared-secret path (no per-person id today; the column awaits a future ADR-0025 wiring).
+   * no-op). Returns the transition TIMESTAMP iff this call performed the transition (else null) —
+   * the caller stamps it into the event idempotency key so a RE-verify after a KYC resubmit (a new
+   * genuine decision) is not deduped off the audit spine. `verified_by` stays null on the ops
+   * shared-secret path (no per-person id today; the column awaits a future ADR-0025 wiring).
    */
-  async markVerified(payerId: string): Promise<boolean> {
+  async markVerified(payerId: string): Promise<Date | null> {
+    const now = new Date();
     const rows = await this.db
       .update(agencyKyc)
-      .set({ status: "verified", verifiedAt: new Date(), updatedAt: new Date() })
+      .set({ status: "verified", verifiedAt: now, updatedAt: now })
       .where(and(eq(agencyKyc.payerId, payerId), eq(agencyKyc.status, "pending")))
       .returning({ id: agencyKyc.id });
-    return rows.length > 0;
+    return rows.length > 0 ? now : null;
   }
 
-  /** Ops reject: pending → rejected with a bounded reason CODE. No-op if not pending. */
-  async markRejected(payerId: string, reason: string): Promise<boolean> {
+  /**
+   * Ops reject: pending → rejected with a bounded reason CODE. No-op if not pending. Returns the
+   * transition timestamp (for a per-decision event key), else null. Does NOT set `verified_at` —
+   * a rejection was never verified; `updated_at` already records when it was dispositioned.
+   */
+  async markRejected(payerId: string, reason: string): Promise<Date | null> {
+    const now = new Date();
     const rows = await this.db
       .update(agencyKyc)
-      .set({
-        status: "rejected",
-        rejectReason: reason,
-        verifiedAt: new Date(),
-        updatedAt: new Date(),
-      })
+      .set({ status: "rejected", rejectReason: reason, updatedAt: now })
       .where(and(eq(agencyKyc.payerId, payerId), eq(agencyKyc.status, "pending")))
       .returning({ id: agencyKyc.id });
-    return rows.length > 0;
+    return rows.length > 0 ? now : null;
   }
 }

@@ -125,18 +125,20 @@ export class AgencyKycService {
    * shared-secret principal (apps/web ops console via InternalServiceGuard); no per-person id.
    */
   async verify(payerId: string): Promise<{ ok: boolean }> {
-    const did = await this.repo.markVerified(payerId);
-    if (did) {
+    const at = await this.repo.markVerified(payerId);
+    if (at) {
       const payload: PayloadInputOf<"agency_kyc.verified"> = { payer_id: payerId };
       await this.events.emit({
         event_name: "agency_kyc.verified",
         actor: { actor_type: "ops", actor_id: null },
         subject: { subject_type: "payer", subject_id: payerId },
         payload,
-        idempotencyKey: `agency_kyc.verified:${payerId}`,
+        // Per-DECISION key (payer + transition ts): a re-verify after a KYC resubmit is a NEW
+        // genuine decision and must NOT be deduped off the spine (mirrors the submit key).
+        idempotencyKey: `agency_kyc.verified:${payerId}:${at.getTime()}`,
       });
     }
-    return { ok: did };
+    return { ok: at !== null };
   }
 
   /** Ops reject with a bounded reason CODE. Emits `agency_kyc.rejected` iff it transitioned. */
@@ -144,17 +146,18 @@ export class AgencyKycService {
     payerId: string,
     reason: PayloadInputOf<"agency_kyc.rejected">["reason"],
   ): Promise<{ ok: boolean }> {
-    const did = await this.repo.markRejected(payerId, reason);
-    if (did) {
+    const at = await this.repo.markRejected(payerId, reason);
+    if (at) {
       const payload: PayloadInputOf<"agency_kyc.rejected"> = { payer_id: payerId, reason };
       await this.events.emit({
         event_name: "agency_kyc.rejected",
         actor: { actor_type: "ops", actor_id: null },
         subject: { subject_type: "payer", subject_id: payerId },
         payload,
-        idempotencyKey: `agency_kyc.rejected:${payerId}`,
+        // Per-DECISION key (payer + transition ts) — a re-reject after resubmit is a new decision.
+        idempotencyKey: `agency_kyc.rejected:${payerId}:${at.getTime()}`,
       });
     }
-    return { ok: did };
+    return { ok: at !== null };
   }
 }

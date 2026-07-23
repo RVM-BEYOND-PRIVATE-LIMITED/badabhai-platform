@@ -329,3 +329,15 @@ ESCALATION POSTURE: this ADR proposes ONLY the additive, faceless, mock, event-f
 - **Real-registry KYC verification** (vs the current ops mock ack) — needs a provider (D#2/D#3 track).
 
 These three remain the explicit go-live gates; this amendment builds and gates the machinery, it does not turn it on.
+
+### Security review (2026-07-23) — 6 findings, 0 Critical/High; 2 fixed, 4 are FIX-BEFORE-FLIP
+
+An adversarial multi-reviewer pass (PII-boundary / authz-IDOR / money-correctness / event-spine) found **no Critical/High** and confirmed the PII boundary + authz + gate logic hold. Every finding is neutralized today by the surface being MOCK + `AGENCY_PAYOUTS_ENABLED`-OFF (accrual is unreachable, no money moves).
+
+**Fixed in this PR:**
+- **KYC re-decision audit gap** — `agency_kyc.verified/.rejected` idempotency keys were payer-scoped only, so a re-verify/re-reject after a KYC resubmit was deduped off the events spine (invariant #1). Now keyed per-decision (`…:${payerId}:${transitionTs}`), mirroring the submit key.
+- **`verified_at` on a rejection** — `markRejected` stamped `verified_at`, mislabeling a rejected KYC as verified. Removed (`updated_at` records the disposition time); no money bypass (the gate reads `status`).
+
+**FIX-BEFORE-FLIP (added to the go-live gates above — must close before `AGENCY_PAYOUTS_ENABLED` is turned ON; gated OFF today so no live impact):**
+- **Single-agency-per-worker ownership** (MEDIUM→HIGH-once-live). Accrual dedup is `UNIQUE(source_unlock_id)` **global** (no double-pay ✓), but nothing stops a worker being attributed to two agencies (`agency_invites.invited_worker_id` non-unique; `attributeWorkerToInvite` guards only its own invite; `POST /referrals/attribute` accepts repeated codes). A contested worker's ₹ then goes to whichever agency **recomputes first** (race), not first-touch. **Fix needs a product call** (first-touch vs last-touch — ADR §262 unratified) + a migration (partial-unique on `invited_worker_id` or a single-agency attribution guard, or exclude multiply-attributed workers from accrual).
+- **Event-after-commit dual-write on the ledger** (LOW). `recomputeAccruals` (accruals) and `createRequestClaiming` (payout request) commit the money-ledger rows, then emit `agency_payout.accrued/.requested` **outside** the transaction; a mid-emit failure leaves a committed ledger row with no spine event, un-retried (idempotent insert returns nothing next time). Follows the codebase's emit-after-commit convention but a money ledger should co-commit — thread `EventsService.emit`'s `tx` param into the accrual/claim transactions (mirroring `AdminActionsService.grantCredits`).
