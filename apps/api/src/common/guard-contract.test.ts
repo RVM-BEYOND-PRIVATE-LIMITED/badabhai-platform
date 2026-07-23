@@ -31,6 +31,8 @@ import { PayerPricingController } from "../payer-portal/payer-pricing.controller
 import { PayerReachController } from "../payer-portal/payer-reach.controller";
 import { AgencyJobsController } from "../agency/agency-jobs.controller";
 import { AgencyInvitesController } from "../agency/agency-invites.controller";
+import { AgencyPayoutsController } from "../agency/agency-payouts.controller";
+import { AgencyKycOpsController } from "../agency/agency-kyc-ops.controller";
 import { AdminAuthController } from "../admin/admin-auth.controller";
 import { AdminEventsController } from "../admin/admin-events.controller";
 import { AdminActionsController } from "../admin/admin-actions.controller";
@@ -82,6 +84,7 @@ const AR = "AdminRolesGuard";
 const CNR = "ConsentNotRevokedGuard";
 const SI = "SkillsInternalGuard";
 const TL = "TestLoginGuard";
+const PE = "AgencyPayoutsEnabledGuard";
 
 const CONTRACT: ControllerContract[] = [
   { name: "Actions", ctor: ActionsController, routes: { record: [], recordBatch: [] } },
@@ -202,6 +205,28 @@ const CONTRACT: ControllerContract[] = [
     name: "AgencyInvites",
     ctor: AgencyInvitesController,
     routes: { createInvite: [P, R], recordClick: [P, R], referralsSummary: [P, R] },
+  },
+  // Agency supply-money surface (ADR-0022 Amendment 2): agent-only [PayerAuthGuard,
+  // PayerRoleGuard] PLUS the AgencyPayoutsEnabledGuard launch gate (neutral 404 while
+  // AGENCY_PAYOUTS_ENABLED is OFF, the default). Tenant isolation is the session payer_id.
+  {
+    name: "AgencyPayouts",
+    ctor: AgencyPayoutsController,
+    routes: {
+      submitKyc: [P, R, PE],
+      getKyc: [P, R, PE],
+      getEarnings: [P, R, PE],
+      requestPayout: [P, R, PE],
+      listPayouts: [P, R, PE],
+    },
+  },
+  // OPS agency-KYC verify queue (ADR-0022 Amendment 2) — the apps/web ops console surface,
+  // gated by the shared-secret InternalServiceGuard exactly like /pricing, /unlocks. NOT a
+  // payer-facing guard; one principal per route. The list is masked (last-4 only).
+  {
+    name: "AgencyKycOps",
+    ctor: AgencyKycOpsController,
+    routes: { listPending: [I], verify: [I], reject: [I] },
   },
   // TD70 item 5 (2026-07-16): `generate` moved from OPEN to WorkerAuthGuard — the
   // acting worker_id is session-derived (XB-A); a legacy body worker_id must match

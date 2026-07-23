@@ -77,6 +77,9 @@ const LOCKED_TABLES = [
   "skill_alias", // ADR-0030/TAX-1: embedded aliases + vector(768) (reference data); RLS+FORCE+REVOKE in migration 0037
   "unresolved_phrase", // ADR-0030/TAX-1: below-floor growth queue — PSEUDONYMIZED phrase + count, NO worker_id; RLS+FORCE+REVOKE in migration 0037
   "push_deliveries", // ADR-0034: one row per (source event, device) push attempt — faceless (opaque event/device ids + status, NO worker_id and no copy); RLS+FORCE+REVOKE in migration 0045
+  "agency_kyc", // ADR-0022 Amdt 2: agency financial KYC (PAN/bank ciphertext + keyed HMAC — high-sensitivity financial PII, ADR-0004 discipline); RLS+FORCE+REVOKE in migration 0048
+  "agency_payout_accruals", // ADR-0022 Amdt 2: commission accrual ledger (PII-free ₹ + opaque ids; source_unlock_id is one hop from a worker); RLS+FORCE+REVOKE in migration 0048
+  "agency_payout_requests", // ADR-0022 Amdt 2: mock payout requests (PII-free ₹ + ids + enum); RLS+FORCE+REVOKE in migration 0048
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

@@ -405,6 +405,32 @@ export const EVENT_REGISTRY = {
     payload: p.AgencyInviteAcceptedPayload,
   },
 
+  // AGENCY financial KYC (ADR-0022 module 1, Amendment 2). FINANCIAL-PII-FREE: opaque agency
+  // payer_id + status enum + (ops) verified_by admin id + reject CODE. The PAN/bank/IFSC/name
+  // live encrypted ONLY in `agency_kyc`, NEVER here. All v1.
+  "agency_kyc.submitted": { version: 1, domain: "agency_kyc", payload: p.AgencyKycSubmittedPayload },
+  "agency_kyc.verified": { version: 1, domain: "agency_kyc", payload: p.AgencyKycVerifiedPayload },
+  "agency_kyc.rejected": { version: 1, domain: "agency_kyc", payload: p.AgencyKycRejectedPayload },
+
+  // AGENCY commission payout (ADR-0022 modules 3+7, Amendment 2). PII-FREE: ₹ + opaque ids +
+  // reason CODE. MOCK — `agency_payout.paid` is inert (real money is the §7 gate). All v1.
+  "agency_payout.accrued": {
+    version: 1,
+    domain: "agency_payout",
+    payload: p.AgencyPayoutAccruedPayload,
+  },
+  "agency_payout.requested": {
+    version: 1,
+    domain: "agency_payout",
+    payload: p.AgencyPayoutRequestedPayload,
+  },
+  "agency_payout.blocked": {
+    version: 1,
+    domain: "agency_payout",
+    payload: p.AgencyPayoutBlockedPayload,
+  },
+  "agency_payout.paid": { version: 1, domain: "agency_payout", payload: p.AgencyPayoutPaidPayload },
+
   // Admin Ops Portal (ADR-0025) — the 4th privileged principal. PII-FREE & FACELESS:
   // opaque admin_id + role/action/reason CODES + opaque target ids ONLY (the admin email
   // lives encrypted in `admin_users`, never in an event). `session_started`/`session_revoked`

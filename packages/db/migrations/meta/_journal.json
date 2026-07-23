@@ -337,6 +337,13 @@
       "when": 1784610342226,
       "tag": "0047_milky_spectrum",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1784803712075,
+      "tag": "0048_empty_archangel",
+      "breakpoints": true
     }
   ]
 }

@@ -10,6 +10,7 @@ const LINKS = [
   { href: "/ops/ai-jobs", label: "AI Jobs" },
   { href: "/ops/job-postings", label: "Job Postings" },
   { href: "/ops/pricing", label: "Pricing" },
+  { href: "/ops/agency-kyc", label: "Agency KYC" },
 ];
 
 export function Nav() {

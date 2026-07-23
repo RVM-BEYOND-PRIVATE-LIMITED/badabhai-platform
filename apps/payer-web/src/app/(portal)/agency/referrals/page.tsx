@@ -1,91 +1,114 @@
 import Link from "next/link";
 import { requireAgent } from "../../../../lib/auth/roles";
-import { payerServerConfig } from "../../../../lib/server-config";
-import { getAgencyReferralsSummary } from "../../../../lib/payer-api";
+import {
+  getAgencyEarnings,
+  getAgencyKyc,
+  getAgencyReferralsSummary,
+  listAgencyPayouts,
+} from "../../../../lib/payer-api";
 import { assertNoAgencyPII } from "../../../../lib/assert-no-agency-pii";
 import { kAnonCount } from "../../../../lib/agency-view";
-import type { AgencyReferralsSummary } from "../../../../lib/contracts";
+import type {
+  AgencyEarnings,
+  AgencyKyc,
+  AgencyPayout,
+  AgencyReferralsSummary,
+} from "../../../../lib/contracts";
 import { Badge, Card, ProgressBar, StatTile } from "../../../../components/ds";
 import { RetryButton } from "../../../../components/retry-button";
+import { AgencyInvitePanel } from "../dashboard/invite-panel";
+import { EarningsPanel } from "./earnings-panel";
+import { KycPanel } from "./kyc-panel";
+import { PayoutPanel } from "./payout-panel";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Agency-only "Referrals & payouts" — DS3.2 re-skin onto the BadaBhai Design System
- * (VISUAL layer only). The FUNNEL is LIVE + AGGREGATE-ONLY; payouts/rev-share are PARKED.
+ * Agency-only "Referrals & earnings" (ADR-0022 Amendment 2) — the agency SUPPLY-money
+ * surface: a shareable referral link, the aggregate referral funnel, referral EARNINGS,
+ * payout KYC, and payout requests. MOCK money (no real disbursement).
  *
- * SECURITY (role authz / XB-A): `requireAgent()` is the FIRST statement — it reads the
- * SERVER-HELD signed session and returns a NEUTRAL 404 for any non-`agent` (e.g. an
- * `employer`). An employer cannot reach, read, or even confirm the existence of this
- * section. The gate is server-side off the signed session — never a client hide.
+ * SECURITY (role authz / XB-A): `requireAgent()` is the FIRST statement — an employer
+ * session gets a NEUTRAL 404 (no oracle, no client hide) before any read runs. Every
+ * server action re-asserts the gate itself. Tenancy is the SESSION (no body payer_id).
  *
- * FACELESS / AGGREGATE-ONLY (CLAUDE.md §2 #2 + #6 / B-R2 / ADR-0022 C.1 #2): the funnel
- * (`GET /payer/agency/referrals/summary`) returns COUNTS ONLY, with the k-anon floor
- * ALREADY applied server-side — any stage count strictly below `minBucket` comes back as
- * 0. {@link kAnonCount} surfaces such a 0 as "<minBucket", NEVER a literal zero, so a
- * single named invitee's consent can never be inferred (no oracle). There are NO
- * per-invitee / per-worker rows here by construction. The payload still crosses
- * {@link assertNoAgencyPII} at the render boundary (defence-in-depth; the seam wraps it
- * too). NO `payer_id` is ever sent in a request body (XB-A).
+ * FACELESS (CLAUDE.md §2 #2 / B-R2): the funnel is AGGREGATE-ONLY with the k-anon floor
+ * applied server-side; the earnings/KYC/payout reads are amounts/counts/status + the
+ * MASKED KYC last-4 only. Every payload crosses {@link assertNoAgencyPII} at the seam.
  *
- * SUPPLY PAYOUTS (referral payouts / rev-share / KYC / attribution) remain PARKED to
- * Phase 2 (CLAUDE.md §8 deferred; CEO-gated). This page builds NONE of that — no referral
- * links, no bulk invite, no referred-worker tracking, no payout dashboard, no KYC, no
- * 25%/₹500/90d attribution engine. The parked slice is a single MUTED informational DS
- * `Card`, never a broken or fake-interactive flow.
- *
- * VISUAL: the funnel renders as DS `StatTile`s (k-anon counts in mono tabular) plus a DS
- * `ProgressBar` for the created→clicked conversion (only when both stages clear the floor,
- * so the bar can never become a single-invitee oracle). The error/degrade state is a DS
- * `Card` with a neutral message + `RetryButton`. The parked slice is a muted DS `Card`.
- * Tokens only (no raw hex/px). The page holds NO form/input controls.
+ * GATE (fail-closed): while `AGENCY_PAYOUTS_ENABLED` is OFF (the default) the
+ * earnings/KYC/payout routes return 404 → the seam maps that to `null` and this page
+ * renders a graceful "coming soon" inert panel, NOT an error. The referral link + funnel
+ * stay LIVE either way.
  */
 export default async function AgencyReferralsPage() {
-  // 1) SERVER-enforced role gate — an `employer` session 404s here (no oracle, no client
-  //    hide), before any read runs or anything renders.
+  // 1) SERVER-enforced role gate — an `employer` session 404s here before any read runs.
   await requireAgent();
 
-  // Supply is fail-closed OFF by default (D2). This flag ONLY drives the parked label;
-  // there is NO referral/payout/KYC code gated behind it.
-  const { agencySupplyEnabled } = payerServerConfig();
-
-  // 2) LIVE aggregate funnel read, k-anon floored server-side. Isolated so a failure
-  //    degrades to a neutral retry Card rather than blanking the page.
+  // 2) LIVE aggregate funnel read (ungated), k-anon floored server-side. Isolated so a
+  //    failure degrades to a neutral retry Card rather than blanking the page.
   let summary: AgencyReferralsSummary | null = null;
-  let readError = false;
+  let funnelError = false;
   try {
     summary = assertNoAgencyPII(
       await getAgencyReferralsSummary(),
       "payer/agency/referrals/summary",
     );
   } catch {
-    readError = true;
+    funnelError = true;
+  }
+  const pct = summary ? conversionPct(summary) : null;
+
+  // 3) GATED earnings read. `null` = supply payouts not enabled (404 → coming soon); a
+  //    thrown error is a transient degrade (retry), distinct from "not enabled".
+  let earnings: AgencyEarnings | null = null;
+  let payoutsEnabled = true;
+  let earningsError = false;
+  try {
+    const res = await getAgencyEarnings();
+    if (res === null) payoutsEnabled = false; // gated route (404) — not enabled yet.
+    else earnings = res;
+  } catch {
+    earningsError = true;
   }
 
-  // Conversion is computed ONLY from k-anon-cleared stages — null when either base is
-  // below the floor (a percentage over a sub-floor base could leak a single invitee).
-  const pct = summary ? conversionPct(summary) : null;
+  // 4) Only when earnings loaded do we read KYC + payout history (same gate). Each isolated.
+  let kyc: AgencyKyc | null = null;
+  let payouts: AgencyPayout[] = [];
+  if (earnings && payoutsEnabled) {
+    const [kycRes, payoutsRes] = await Promise.allSettled([getAgencyKyc(), listAgencyPayouts()]);
+    if (kycRes.status === "fulfilled" && kycRes.value) kyc = kycRes.value;
+    if (payoutsRes.status === "fulfilled" && payoutsRes.value) payouts = payoutsRes.value;
+  }
+  // If earnings loaded but KYC didn't come back, default to not_submitted so the form shows.
+  const kycForPanel: AgencyKyc = kyc ?? {
+    status: "not_submitted",
+    panLast4: null,
+    bankLast4: null,
+    rejectReason: null,
+    updatedAt: null,
+  };
 
   return (
     <>
       <p className="agency-back">
         <Link href="/dashboard">← Dashboard</Link>
       </p>
-      <h1 className="agency-title">Referrals &amp; payouts</h1>
+      <h1 className="agency-title">Referrals &amp; earnings</h1>
       <p className="agency-sub">
-        Your OWN invite funnel, aggregate only. BadaBhai protects worker privacy — agencies
-        see consent-safe counts, never a per-worker breakdown. Payouts are a separate Phase-2
-        build.
+        Share your referral link, track your consent-safe funnel, and — where enabled — earn
+        a mock rev-share when workers you referred get contacted. BadaBhai protects worker
+        privacy: agencies see aggregate counts, never a per-worker breakdown.
       </p>
 
-      {/* a) REFERRAL FUNNEL — LIVE aggregate, k-anon floored (no per-invitee oracle). The DS
-          primitives render INLINE here so every count/label is a direct child of the page. */}
+      {/* a) REFERRAL LINK — LIVE faceless mint (opaque code/link + copy; consent-first). */}
+      <AgencyInvitePanel />
+
+      {/* b) REFERRAL FUNNEL — LIVE aggregate, k-anon floored (no per-invitee oracle). */}
       <section className="agency-section">
         <h2 className="agency-section__title">Referral funnel</h2>
-        {summary && !readError ? (
+        {summary && !funnelError ? (
           <>
-            {/* StatTile renders its `value` in mono tabular by design (.bb-stat__value uses
-                --font-mono + tabular-nums), so the k-anon count is on-brand without extra class. */}
             <div className="agency-stats">
               <StatTile
                 label="Invites created"
@@ -135,26 +158,41 @@ export default async function AgencyReferralsPage() {
         )}
       </section>
 
-      {/* b) PAYOUTS / REV-SHARE — PARKED Phase-2 (CEO-gated). A muted, non-interactive card. */}
-      <section className="agency-section">
-        <h2 className="agency-section__title">Referral payouts</h2>
-        <Card variant="flat" className="agency-parked__card" aria-disabled="true">
-          <div className="agency-parked__head">
-            <h3 className="agency-parked__title">Payouts &amp; rev-share</h3>
+      {/* c) SUPPLY MONEY — earnings + KYC + payout, gated behind AGENCY_PAYOUTS_ENABLED. */}
+      {earningsError ? (
+        <section className="agency-section">
+          <h2 className="agency-section__title">Your earnings</h2>
+          <Card variant="flat" className="agency-jobs__empty">
             <Badge tone="warning" upper>
-              {agencySupplyEnabled ? "Flagged on — still unbuilt" : "Parked — Phase 2 (CEO-gated)"}
-            </Badge>
-          </div>
-          <p className="agency-parked__note">
-            Coming after alpha. Referral payouts, rev-share, attribution, and KYC are
-            specified but deliberately NOT built — they involve real money out, a new
-            high-sensitivity PII surface (KYC), and a conversion-attribution engine (a
-            CEO-gated scope decision, not an alpha feature). The agency portal today covers
-            the DEMAND loop — post a vacancy, browse faceless applicants, unlock a routed
-            contact, top up credits.
-          </p>
-        </Card>
-      </section>
+              Service unavailable
+            </Badge>{" "}
+            Earnings could not load right now. Please retry shortly. <RetryButton />
+          </Card>
+        </section>
+      ) : !payoutsEnabled ? (
+        <section className="agency-section">
+          <h2 className="agency-section__title">Earnings &amp; payouts</h2>
+          <Card variant="flat" className="agency-parked__card" aria-disabled="true">
+            <div className="agency-parked__head">
+              <h3 className="agency-parked__title">Payouts coming soon</h3>
+              <Badge tone="warning" upper>
+                Coming soon
+              </Badge>
+            </div>
+            <p className="agency-parked__note">
+              Referral earnings and payouts aren&rsquo;t switched on yet. Keep sharing your
+              referral link above — when a worker you referred joins and gets contacted, your
+              mock rev-share will start accruing here.
+            </p>
+          </Card>
+        </section>
+      ) : earnings ? (
+        <>
+          <EarningsPanel earnings={earnings} />
+          <KycPanel kyc={kycForPanel} />
+          <PayoutPanel earnings={earnings} payouts={payouts} />
+        </>
+      ) : null}
     </>
   );
 }

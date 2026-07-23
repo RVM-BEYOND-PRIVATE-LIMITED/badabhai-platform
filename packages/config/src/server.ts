@@ -587,6 +587,24 @@ export const serverEnvSchema = z.object({
   // falsey string stays OFF — fail-safe to today's behaviour.
   CHAT_ONE_SHOT_OPENER_ENABLED: booleanFromString,
 
+  // ── Agency payout ledger (ADR-0022 module 3+7, Amendment 2, owner-ratified 2026-07-23) ──
+  // Master switch for the agency SUPPLY payout surface. Default OFF = inert: the payout
+  // request/earnings routes return a neutral 404 and NO accrual is ever claimed into a
+  // request. MOCK throughout (no real disbursement; PAYMENTS_ENABLE_REAL stays the separate
+  // §7 gate for real outbound money). booleanFromString (NOT z.coerce.boolean) so a falsey
+  // string stays OFF — fail-safe to inert, exactly like CAPACITY_ENFORCEMENT_ENABLED /
+  // AI_ENABLE_REAL_CALLS. Flipping this ON is a launch decision that ALSO presupposes the
+  // legal/DPDP sign-off on live KYC collection (ADR-0022 Appendix D#2).
+  AGENCY_PAYOUTS_ENABLED: booleanFromString,
+  // The owner-ratified commission economics (ADR-0022 Amendment 2). Kept as config (not
+  // hard-coded) so the numbers live in ONE place and are stamped onto each accrual row.
+  // ₹40 = the unlock revenue anchor; 2500 bps = 25%; 90-day first-touch attribution window;
+  // ₹500 = the minimum requestable payout threshold.
+  AGENCY_PAYOUT_UNLOCK_BASIS_INR: z.coerce.number().int().positive().default(40),
+  AGENCY_PAYOUT_RATE_BPS: z.coerce.number().int().positive().max(10000).default(2500),
+  AGENCY_PAYOUT_WINDOW_DAYS: z.coerce.number().int().positive().default(90),
+  AGENCY_PAYOUT_MIN_THRESHOLD_INR: z.coerce.number().int().positive().default(500),
+
   // PACE supply-widening (ADR-0021 — CONFIG-DRIVEN, deterministic, no LLM). The widen
   // DECISION is a pure function of these rules; nothing is hard-coded in the service.
   // Master switch — default OFF (inert/additive): PACE only runs when explicitly
