@@ -522,12 +522,23 @@ describe("ProfilesService.extract — session-scoped idempotency (#420)", () => 
 
     await svc.extract({ worker_id: WORKER, session_id: SESSION }, CTX);
 
+    // FLAKY AS WRITTEN, fixed by bracketing instead of a one-sided floor. The
+    // service computes `inFlightSince = Date.now() - WINDOW` at some instant
+    // `serviceNow` strictly between `before` (captured above, before the await)
+    // and `after` (captured below, once it resolves) — so `inFlightSince` is
+    // ALWAYS `<= before - WINDOW` is false; it is bounded the other way:
+    // `before - WINDOW <= inFlightSince <= after - WINDOW`. The original
+    // one-sided `age = before - inFlightSince >= WINDOW` assertion only holds
+    // when `serviceNow === before` exactly — any real elapsed time (a single ms
+    // is enough, and it fired: "599999 to be >= 600000") fails it. Bracketing
+    // both ends is the actual invariant and cannot race the clock.
+    const after = Date.now();
     const args = aiJobs.findExtractionDedupeCandidate.mock.calls[0]![0];
     expect(args.sessionId).toBe(SESSION);
     expect(args.workerId).toBe(WORKER);
-    const age = before - args.inFlightSince.getTime();
-    expect(age).toBeGreaterThanOrEqual(EXTRACTION_IN_FLIGHT_WINDOW_MS);
-    expect(age).toBeLessThan(EXTRACTION_IN_FLIGHT_WINDOW_MS + 5_000);
+    const inFlightSince = args.inFlightSince.getTime();
+    expect(inFlightSince).toBeGreaterThanOrEqual(before - EXTRACTION_IN_FLIGHT_WINDOW_MS);
+    expect(inFlightSince).toBeLessThanOrEqual(after - EXTRACTION_IN_FLIGHT_WINDOW_MS);
   });
 
   it("null session_id falls through to create-always and is never looked up (no null-against-null dedupe)", async () => {
