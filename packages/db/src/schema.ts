@@ -30,6 +30,10 @@ import type {
   VacancyBand,
   JobPostingStatus,
 } from "@badabhai/types";
+import type { TradeKey, SkipReason, SourceSurface } from "@badabhai/taxonomy";
+
+// Re-export TradeKey for downstream consumers (seed files, etc.)
+export type { TradeKey, SkipReason, SourceSurface } from "@badabhai/taxonomy";
 
 /**
  * BadaBhai Drizzle schema (Supabase Postgres).
@@ -951,50 +955,25 @@ export const jobPostings = pgTable(
 // ---------------------------------------------------------------------------
 
 /**
- * The 15 alpha trade keys (ADR-0009 §2 / OQ-2). These are the SAME stable keys
- * as `REQUIRED_TRADE_KEYS` in apps/api (`src/resume/trade-content.ts`) and
- * `REQUIRED_KIT_TRADE_KEYS` (`src/interview-kit/interview-kit-content.ts`) — the
- * authoritative list. They are mirrored here (not imported) because `@badabhai/db`
- * must not depend upward on `apps/api`, and the placeholder `@badabhai/taxonomy`
- * only carries the 7 CNC/VMC role ids, not these 15 trade keys. Keep in sync if
- * the alpha trade list ever changes.
+ * The 15+9 canonical trade keys (15 manufacturing alpha + 9 hospitality DRAFT).
  *
- * HOSPITALITY (second vertical) — the 9 `hosp_*` keys below are the MIRROR half of
- * the PRD §6 "mirror-and-sync" wiring (sources of truth: `REQUIRED_HOSP_TRADE_KEYS`
- * in apps/api `src/resume/hospitality-trade-content.ts` + `REQUIRED_HOSP_KIT_TRADE_KEYS`
- * in `src/interview-kit/hospitality-interview-kit-content.ts`). Additive + backward-
- * compatible: manufacturing keys are unchanged. The content is **DRAFTED, pending RVM
- * — NOT live** (docs/registers/hospitality-trade-content-ratification.md); these keys
- * are typed so jobs CAN reference them once a trade is RVM-ratified, but no live
- * surface serves hospitality content yet. TD31 (shared taxonomy package) stays deferred.
+ * Now imported from @badabhai/taxonomy (TD31) — single source of truth.
+ * The comment below documents the historical mirroring for audit purposes.
+ *
+ * MANUFACTURING (15, alpha; ADR-0009 §2 / OQ-2):
+ *   cnc_operator, vmc_operator, cnc_vmc_setter, cnc_programmer, vmc_programmer,
+ *   cad_designer, solidworks_designer, autocad_draftsman, quality_inspector,
+ *   production_engineer, maintenance_technician, tool_room_technician,
+ *   machine_operator, assembly_technician, fitter
+ *
+ * HOSPITALITY (9, second vertical; DRAFTED, pending RVM — NOT live):
+ *   hosp_steward_waiter, hosp_commis_cook, hosp_room_attendant, hosp_front_office,
+ *   hosp_fnb_captain, hosp_bartender, hosp_kitchen_steward, hosp_banquet_server,
+ *   hosp_barista
+ *
+ * TD31 (shared taxonomy package) now provides the authoritative TradeKey type.
+ * Keep this comment for historical context; the actual type is imported.
  */
-export type TradeKey =
-  // --- Manufacturing (15, alpha; ADR-0009 §2 / OQ-2) ---
-  | "cnc_operator"
-  | "vmc_operator"
-  | "cnc_vmc_setter"
-  | "cnc_programmer"
-  | "vmc_programmer"
-  | "cad_designer"
-  | "solidworks_designer"
-  | "autocad_draftsman"
-  | "quality_inspector"
-  | "production_engineer"
-  | "maintenance_technician"
-  | "tool_room_technician"
-  | "machine_operator"
-  | "assembly_technician"
-  | "fitter"
-  // --- Hospitality (9, second vertical; DRAFTED, pending RVM — not live) ---
-  | "hosp_steward_waiter"
-  | "hosp_commis_cook"
-  | "hosp_room_attendant"
-  | "hosp_front_office"
-  | "hosp_fnb_captain"
-  | "hosp_bartender"
-  | "hosp_kitchen_steward"
-  | "hosp_banquet_server"
-  | "hosp_barista";
 
 /** Job lifecycle — a seed job can be retired without deleting the row. */
 export type JobStatus = "open" | "closed";
@@ -1017,14 +996,16 @@ export type ApplicationAction = "applied" | "skipped";
 /**
  * Coarse, non-PII skip reason (no free text). Mirrors the `application.skipped`
  * event payload enum in @badabhai/event-schema (payloads.ts). NULL for applies.
+ *
+ * Now imported from @badabhai/taxonomy (TD31) — single source of truth.
  */
-export type SkipReason = "not_interested" | "too_far" | "low_pay" | "wrong_trade" | "other";
 
 /**
  * Where the apply/skip originated. Mirrors the `application.submitted` event
  * payload `source_surface` enum in @badabhai/event-schema (payloads.ts).
+ *
+ * Now imported from @badabhai/taxonomy (TD31) — single source of truth.
  */
-export type SourceSurface = "feed" | "search" | "share" | "other";
 
 // jobs — seeded, coarse, NO employer PII. `id` is the opaque job_id in events.
 export const jobs = pgTable(

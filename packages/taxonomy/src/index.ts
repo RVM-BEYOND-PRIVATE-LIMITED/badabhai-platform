@@ -144,3 +144,7 @@ export * from "./skill-corpus";
 
 // ADR-0030 / TAX-5 — PROPOSED vernacular wedge aliases (RVM ratification-gated).
 export * from "./wedge-aliases";
+
+// Shared enums (TradeKey, SkipReason, SourceSurface) — single source of truth
+// consumed by @badabhai/db and apps/api to avoid drift (TD31).
+export * from "./enums";
