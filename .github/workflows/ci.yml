@@ -11,6 +11,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ---- Detect changed paths (CI-2: dorny/paths-filter) ----
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      ai-service: ${{ steps.filter.outputs.ai-service }}
+      e2e: ${{ steps.filter.outputs.e2e }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        id: filter
+        with:
+          filters: |
+            ai-service:
+              - 'apps/ai-service/**'
+            e2e:
+              - 'apps/api/**'
+              - 'packages/**'
+              - 'tests/**'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - 'turbo.json'
+              - 'apps/ai-service/**'
+
   # ---- TypeScript monorepo: lint, typecheck, test, build ----
   node:
     name: Node (lint / typecheck / test / build)
@@ -82,6 +105,8 @@ jobs:
   # ---- Python AI service: pytest + ruff ----
   ai-service:
     name: AI service (pytest / ruff)
+    if: needs.changes.outputs.ai-service == 'true'
+    needs: [changes]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -125,8 +150,11 @@ jobs:
   #
   # Deliberately NOT a `needs:` of anything: it is an independent signal, and it must be
   # able to fail without masking the pytest/ruff result above.
+  # CI-2: path-gated to only run when ai-service code changes.
   ai-service-image:
     name: AI service (image builds)
+    if: needs.changes.outputs.ai-service == 'true'
+    needs: [changes]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -156,8 +184,11 @@ jobs:
   # → AI-metadata persistence → no-raw-phone → confirm → resume) regresses.
   # The FastAPI AI service is intentionally NOT started — the API falls back to its
   # safe mock (real_call=false), so the flow + its events/metadata complete offline.
+  # CI-2: path-gated to only run when API, packages, or ai-service code changes.
   e2e:
     name: E2E (Phase 1 onboarding flow)
+    if: needs.changes.outputs.e2e == 'true'
+    needs: [changes]
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -282,6 +313,21 @@ jobs:
           echo "----- API log (tail) -----"; tail -n 80 api.log || true
           kill "$API_PID" 2>/dev/null || true
           exit $E2E_EXIT
+
+  # ---- CI-2 aggregator: branch protection requires THIS job, not individual ones ----
+  # Always runs (if: always()), needs every PR-stage job. Passes only when every needed
+  # job either succeeded or was skipped (path-filtered). This lets branch protection
+  # require a single `ci-required` check instead of separately listing every job — the
+  # owner must flip branch protection to require only `ci-required` for this to work.
+  ci-required:
+    if: always()
+    needs: [changes, node, ai-service, ai-service-image, e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for CI failures
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1
+      - run: echo "All CI jobs passed or were skipped"
 
   # ---- Build and Push Docker Images (api + ai-service) ----
   # TD81(a): this job now builds TWO images. The ai-service steps live in the SAME

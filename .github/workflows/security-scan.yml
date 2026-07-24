@@ -65,10 +65,36 @@ permissions:
   contents: read
 
 jobs:
+  # ---- CI-3: Detect changed paths ----
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      deps: ${{ steps.filter.outputs.deps }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Need fetch-depth for dorny/paths-filter to compare against base.
+          fetch-depth: 0
+      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'apps/**'
+              - 'packages/**'
+              - 'tests/**'
+            deps:
+              - 'pnpm-lock.yaml'
+
   # ---- (a) Secret scan: gitleaks, full git history ----
-  # NON-BLOCKING (continue-on-error) — flips to blocking FIRST (see header).
+  # CI-3: moved to schedule-only (full-history scan is expensive; PR coverage
+  # kept by the pre-merge secret scan in ci.yml's node job + .gitleaks.toml
+  # allowlist). NON-BLOCKING (continue-on-error).
   secret-scan:
     name: Secret scan (gitleaks)
+    # CI-3: schedule-only — full-history scan is redundant on every PR
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -82,9 +108,8 @@ jobs:
       # run `gitleaks detect` over the full history. `--redact` keeps any matched
       # value out of the CI log; `--exit-code 1` makes a finding fail the STEP,
       # but `continue-on-error` on the job keeps it advisory for now.
-      # No config file yet → gitleaks uses its built-in default ruleset. When we
-      # flip to blocking, add a committed `.gitleaks.toml` allowlist for the
-      # known-safe placeholders in `.env.example` (and any *.example templates).
+      # The committed `.gitleaks.toml` (TD76) allowlists known-safe placeholders
+      # (.env.example, google-services.json test Firebase keys).
       - name: Run gitleaks (full history)
         run: |
           docker run --rm \
@@ -98,8 +123,11 @@ jobs:
 
   # ---- (b) SAST: semgrep OSS ----
   # NON-BLOCKING (continue-on-error) — OSS rulesets only, NO SEMGREP_APP_TOKEN.
+  # CI-3: path-gated — runs on schedule (full scan) OR when app/packages code changes.
   sast:
     name: SAST (semgrep OSS)
+    if: github.event_name == 'schedule' || needs.changes.outputs.code == 'true'
+    needs: [changes]
     runs-on: ubuntu-latest
     continue-on-error: true
     # Official semgrep OSS image — pulls the `semgrep` CLI without any Cloud
@@ -126,8 +154,11 @@ jobs:
 
   # ---- (c) Dependency audit: pnpm audit ----
   # NON-BLOCKING (continue-on-error) — surfaces high/critical advisories.
+  # CI-3: path-gated — runs on schedule (full scan) OR when pnpm-lock.yaml changes.
   dependency-audit:
     name: Dependency audit (pnpm)
+    if: github.event_name == 'schedule' || needs.changes.outputs.deps == 'true'
+    needs: [changes]
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
