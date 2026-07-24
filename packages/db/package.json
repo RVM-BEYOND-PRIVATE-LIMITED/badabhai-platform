@@ -37,7 +37,7 @@
     "db:seed:reach:large": "tsx src/seed-reach-pool.ts",
     "db:unseed:reach": "tsx src/seed-reach-pool.ts --unseed-only",
     "db:verify:reach": "tsx src/verify-reach.ts",
-    "clean": "rimraf dist .turbo *.tsbuildinfo"
+    "clean": "rimraf --glob dist .turbo *.tsbuildinfo"
   },
   "dependencies": {
     "@badabhai/reach-engine": "workspace:*",

@@ -35,7 +35,7 @@
     "db:down": "docker compose down",
     "staging:smoke": "node scripts/staging-smoke.mjs",
     "staging:smoke:test": "node --test scripts/staging-smoke.test.mjs",
-    "clean": "turbo run clean && rimraf node_modules"
+    "clean": "turbo run clean"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

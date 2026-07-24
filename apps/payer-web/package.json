@@ -10,7 +10,7 @@
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
-    "clean": "rimraf .next .turbo *.tsbuildinfo"
+    "clean": "rimraf --glob .next .turbo *.tsbuildinfo"
   },
   "dependencies": {
     "@badabhai/config": "workspace:*",

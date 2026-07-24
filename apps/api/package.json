@@ -11,7 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "rimraf dist .turbo *.tsbuildinfo"
+    "clean": "rimraf --glob dist .turbo *.tsbuildinfo"
   },
   "dependencies": {
     "@badabhai/ai-contracts": "workspace:*",
