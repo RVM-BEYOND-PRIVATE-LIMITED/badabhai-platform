@@ -7,6 +7,7 @@ sync. PRIVACY: these never carry raw identity (no phone, name, address, employer
 from __future__ import annotations
 
 import math
+import re
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -69,6 +70,22 @@ class ConversationState(BaseModel):
     answered_topics: list[str] = Field(default_factory=list)
     asked_question_ids: list[str] = Field(default_factory=list)
     collected: dict = Field(default_factory=dict)
+
+    @field_validator("answered_topics", mode="before")
+    @classmethod
+    def validate_answered_topics(cls, v: list[str]) -> list[str]:
+        """Enforce lowercase slug topic ids (a-z, underscore) — mirrors Zod regex."""
+        if not isinstance(v, list):
+            raise TypeError("answered_topics must be a list of strings")
+        for topic in v:
+            if not isinstance(topic, str):
+                raise TypeError("each topic_id must be a string")
+            if not topic:
+                raise ValueError("topic_id cannot be empty")
+            if not re.fullmatch(r"^[a-z_]+$", topic):
+                raise ValueError(f"topic_id '{topic}' must be lowercase slug ([a-z_]+)")
+        return v
+
     # COST-4 clarify bound (additive, defaulted => backward compatible; mirrored in
     # @badabhai/ai-contracts ConversationStateSchema): CONSECUTIVE clarify re-serves
     # of the same question. clarify_turn increments it and refuses past 2 (falls

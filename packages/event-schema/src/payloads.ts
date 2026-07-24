@@ -457,8 +457,12 @@ export const ProfileExtractionReadyPayload = z.object({
   session_id: uuidSchema.nullable().default(null),
   role_family: z.string().min(1).max(64).default("cnc_vmc"),
   turn_count: z.number().int().nonnegative().default(0),
-  /** Interview topic ids answered so far (e.g. "role", "machines") — never PII. */
-  answered_topics: z.array(z.string().min(1).max(40)).max(50).default([]),
+  /** Interview topic ids answered so far (e.g. "role", "machines") — never PII.
+   * Must be lowercase slugs (a-z, underscore) only — enforced by regex. */
+  answered_topics: z
+    .array(z.string().min(1).max(40).regex(/^[a-z_]+$/, "topic_id must be lowercase slug ([a-z_]+)"))
+    .max(50)
+    .default([]),
 });
 
 // ---------------------------------------------------------------------------
