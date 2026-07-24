@@ -10,7 +10,7 @@ import { DATABASE } from "../database/database.module";
  * Free-text fields (org_label, role_title, location_label, description)
  * are included as-is; they are sanitized at write time (ADR-0024 guard).
  */
-export interface JobPostingApi {
+interface JobPostingApi {
   id: string;
   created_by: string;
   payer_id: string | null;
@@ -22,7 +22,6 @@ export interface JobPostingApi {
   status: JobPostingStatus;
   skill_phrases: string[];
   skill_ids: string[];
-  applicants_received: number;
   created_at: Date;
   updated_at: Date;
   closed_at: Date | null;
@@ -42,7 +41,6 @@ function toJobPostingApi(row: JobPosting): JobPostingApi {
     status: row.status,
     skill_phrases: row.skillPhrases,
     skill_ids: row.skillIds,
-    applicants_received: row.applicantsReceived,
     created_at: row.createdAt,
     updated_at: row.updatedAt,
     closed_at: row.closedAt,
