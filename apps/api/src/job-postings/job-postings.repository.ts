@@ -4,6 +4,51 @@ import { type Database, jobPostings, type JobPosting, type NewJobPosting } from 
 import type { JobPostingStatus } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
 
+/**
+ * API response shape for a job posting — snake_case keys, matching the
+ * workers API convention (workers.repository.ts WorkerListItem).
+ * Free-text fields (org_label, role_title, location_label, description)
+ * are included as-is; they are sanitized at write time (ADR-0024 guard).
+ */
+export interface JobPostingApi {
+  id: string;
+  created_by: string;
+  payer_id: string | null;
+  org_label: string;
+  role_title: string;
+  location_label: string | null;
+  description: string | null;
+  vacancy_band: JobPosting["vacancyBand"];
+  status: JobPostingStatus;
+  skill_phrases: string[];
+  skill_ids: string[];
+  applicants_received: number;
+  created_at: Date;
+  updated_at: Date;
+  closed_at: Date | null;
+}
+
+/** Map a Drizzle camelCase row to the snake_case API shape. */
+function toJobPostingApi(row: JobPosting): JobPostingApi {
+  return {
+    id: row.id,
+    created_by: row.createdBy,
+    payer_id: row.payerId,
+    org_label: row.orgLabel,
+    role_title: row.roleTitle,
+    location_label: row.locationLabel,
+    description: row.description,
+    vacancy_band: row.vacancyBand,
+    status: row.status,
+    skill_phrases: row.skillPhrases,
+    skill_ids: row.skillIds,
+    applicants_received: row.applicantsReceived,
+    created_at: row.createdAt,
+    updated_at: row.updatedAt,
+    closed_at: row.closedAt,
+  };
+}
+
 /** Fields a PATCH may set on a job_postings row (column-shaped, snake-internal). */
 export type JobPostingUpdate = Partial<
   Pick<
@@ -20,31 +65,34 @@ export type JobPostingUpdate = Partial<
   >
 > & { updatedAt: Date };
 
+export { toJobPostingApi, type JobPostingApi };
+
 @Injectable()
 export class JobPostingsRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-  async create(input: NewJobPosting): Promise<JobPosting> {
+  async create(input: NewJobPosting): Promise<JobPostingApi> {
     const inserted = await this.db.insert(jobPostings).values(input).returning();
     const row = inserted[0];
     if (!row) throw new Error("Failed to create job posting");
-    return row;
+    return toJobPostingApi(row);
   }
 
-  async findById(id: string): Promise<JobPosting | undefined> {
+  async findById(id: string): Promise<JobPostingApi | undefined> {
     const rows = await this.db.select().from(jobPostings).where(eq(jobPostings.id, id)).limit(1);
-    return rows[0];
+    return rows[0] ? toJobPostingApi(rows[0]) : undefined;
   }
 
   /** List postings newest first, optionally filtered by status. */
-  async list(status?: JobPostingStatus, limit = 100): Promise<JobPosting[]> {
+  async list(status?: JobPostingStatus, limit = 100): Promise<JobPostingApi[]> {
     const where = status ? eq(jobPostings.status, status) : undefined;
-    return this.db
+    const rows = await this.db
       .select()
       .from(jobPostings)
       .where(where)
       .orderBy(desc(jobPostings.createdAt))
       .limit(limit);
+    return rows.map(toJobPostingApi);
   }
 
   /**
@@ -56,13 +104,13 @@ export class JobPostingsRepository {
    * invariant we must not lose to a race. The service's pre-read `closed` check
    * is best-effort, not a lock.
    */
-  async update(id: string, patch: JobPostingUpdate): Promise<JobPosting | undefined> {
+  async update(id: string, patch: JobPostingUpdate): Promise<JobPostingApi | undefined> {
     const rows = await this.db
       .update(jobPostings)
       .set(patch)
       .where(eq(jobPostings.id, id))
       .returning();
-    return rows[0];
+    return rows[0] ? toJobPostingApi(rows[0]) : undefined;
   }
 
   /**
@@ -74,13 +122,13 @@ export class JobPostingsRepository {
     id: string,
     previousStatus: "draft" | "open",
     closedAt: Date,
-  ): Promise<JobPosting | undefined> {
+  ): Promise<JobPostingApi | undefined> {
     const rows = await this.db
       .update(jobPostings)
       .set({ status: "closed", closedAt, updatedAt: closedAt })
       .where(and(eq(jobPostings.id, id), eq(jobPostings.status, previousStatus)))
       .returning();
-    return rows[0];
+    return rows[0] ? toJobPostingApi(rows[0]) : undefined;
   }
 
   // ---------------------------------------------------------------------------
@@ -95,13 +143,13 @@ export class JobPostingsRepository {
    * `payerId`. A not-found id and another payer's id BOTH resolve to `undefined`, so
    * the service maps both to the SAME neutral 404 (a payer cannot probe foreign ids).
    */
-  async findByIdAndPayer(id: string, payerId: string): Promise<JobPosting | undefined> {
+  async findByIdAndPayer(id: string, payerId: string): Promise<JobPostingApi | undefined> {
     const rows = await this.db
       .select()
       .from(jobPostings)
       .where(and(eq(jobPostings.id, id), eq(jobPostings.payerId, payerId)))
       .limit(1);
-    return rows[0];
+    return rows[0] ? toJobPostingApi(rows[0]) : undefined;
   }
 
   /** A payer's OWN postings newest first, optionally filtered by status. */
@@ -109,16 +157,17 @@ export class JobPostingsRepository {
     payerId: string,
     status?: JobPostingStatus,
     limit = 100,
-  ): Promise<JobPosting[]> {
+  ): Promise<JobPostingApi[]> {
     const where = status
       ? and(eq(jobPostings.payerId, payerId), eq(jobPostings.status, status))
       : eq(jobPostings.payerId, payerId);
-    return this.db
+    const rows = await this.db
       .select()
       .from(jobPostings)
       .where(where)
       .orderBy(desc(jobPostings.createdAt))
       .limit(limit);
+    return rows.map(toJobPostingApi);
   }
 
   /**
@@ -130,13 +179,13 @@ export class JobPostingsRepository {
     id: string,
     payerId: string,
     patch: JobPostingUpdate,
-  ): Promise<JobPosting | undefined> {
+  ): Promise<JobPostingApi | undefined> {
     const rows = await this.db
       .update(jobPostings)
       .set(patch)
       .where(and(eq(jobPostings.id, id), eq(jobPostings.payerId, payerId)))
       .returning();
-    return rows[0];
+    return rows[0] ? toJobPostingApi(rows[0]) : undefined;
   }
 
   /**
@@ -149,7 +198,7 @@ export class JobPostingsRepository {
     payerId: string,
     previousStatus: "draft" | "open",
     closedAt: Date,
-  ): Promise<JobPosting | undefined> {
+  ): Promise<JobPostingApi | undefined> {
     const rows = await this.db
       .update(jobPostings)
       .set({ status: "closed", closedAt, updatedAt: closedAt })
@@ -161,7 +210,7 @@ export class JobPostingsRepository {
         ),
       )
       .returning();
-    return rows[0];
+    return rows[0] ? toJobPostingApi(rows[0]) : undefined;
   }
 
   /**
@@ -175,7 +224,7 @@ export class JobPostingsRepository {
     payerId: string,
     fromStatus: JobPostingStatus,
     toStatus: JobPostingStatus,
-  ): Promise<JobPosting | undefined> {
+  ): Promise<JobPostingApi | undefined> {
     const rows = await this.db
       .update(jobPostings)
       .set({ status: toStatus, updatedAt: new Date() })
@@ -187,6 +236,6 @@ export class JobPostingsRepository {
         ),
       )
       .returning();
-    return rows[0];
+    return rows[0] ? toJobPostingApi(rows[0]) : undefined;
   }
 }
