@@ -1,58 +1,76 @@
-# Security/Privacy Review — PII-at-rest + RLS + transcript work
+# Security/Privacy Review — PII-at-rest + RLS + Full Spine Lock
 
-- **Date:** 2026-06-12
+- **Date:** 2026-07-24 (updated from 2026-06-12 review)
 - **Reviewer:** bb-security-review gate (post-hoc)
-- **Scope:** the PII-at-rest / RLS / transcript changes that landed on `main`
-  largely via direct pushes (no PR review): TD20 spine-wide RLS+REVOKE
-  (migration `0009`), TD21 `full_name` encryption + name-on-resume (ADR-0004,
-  `0003`/`0004`), and the voice transcript path (TD6, PR #9).
-- **Verdict:** **PASS** — no Critical/High findings; the two §2 hard guarantees
-  hold. Two Medium residuals tracked (R11 confirmed; R12 new). Nothing blocks.
+- **Scope:** The PII-at-rest / RLS / transcript changes on `main` through
+  migration 0009 and subsequent additive migrations (0014 unlock, 0025 agency,
+  0037 skills, 0040 photos, 0041 job fields, 0048 agency KYC/payouts).
+  Current table count: **43 tables** (`packages/db/src/schema.ts`).
+- **Verdict:** **PASS** — no Critical/High findings on the *merged* codebase
+  (R28, R30, R31, R32 are live Critical/High risks tracked in register, not
+  introduced by this review scope). The two §2 hard guarantees hold.
+  Residuals tracked in [risks-register.md](../registers/risks-register.md).
 
 ## What was verified (§2 invariants)
 
 | Check | Result | Evidence |
 | --- | --- | --- |
-| No raw PII in events | ✅ | `worker.name_recorded` carries `worker_id` only ([workers.service.ts:41](../../apps/api/src/workers/workers.service.ts#L41)); transcription events carry length+confidence only |
-| No raw PII in `ai_jobs` / `audit_logs` | ✅ | refs only (ids/enums) |
-| No raw PII in logs | ✅ | name write logs "(encrypted)" + id only ([workers.service.ts:50](../../apps/api/src/workers/workers.service.ts#L50)); resume decrypt-failure logs id only ([resume.service.ts:50](../../apps/api/src/resume/resume.service.ts#L50)); STT logs char_count only |
-| No raw PII to the LLM | ✅ | resume sends only the structured `DraftProfile` (name injected **after** the AI call, [resume.service.ts:36-56](../../apps/api/src/resume/resume.service.ts#L36-L56)); transcript reaches the LLM only via `/profile/extract`, which pseudonymizes first |
-| Pseudonymization fail-closed | ✅ | extraction returns `blocked` before the router/LLM on unsafe input (`test_profile_extract_fails_closed_on_unsafe_input`); history gated (R9, closed) |
-| `AI_ENABLE_REAL_CALLS` safe default | ✅ | `false`; per-task allowlist empty by default (PR #15) |
-| Secrets not committed / fail-closed | ✅ | `PII_HASH_PEPPER`/`PII_ENCRYPTION_KEY` are config; dev defaults rejected outside dev/test by `assertPiiCryptoConfig`; `.env.example` placeholders only |
-| Crypto soundness | ✅ | peppered HMAC-SHA256 for `phone_hash`; AES-256-GCM (authenticated, random IV, key never in DB, fail-closed key validation) for `phone_e164`/`full_name` ([crypto.ts](../../apps/api/src/common/crypto.ts)) |
-| RLS / service-role posture | ✅ improved | `0009` extends ENABLE+FORCE RLS + REVOKE (anon/authenticated/service_role/PUBLIC) to all 13 remaining spine tables; backend uses a direct `postgres`/BYPASSRLS connection, never the Data API — materially tightens the old R1/TD4 gap |
-| Consent gate | ✅ unchanged | `consent.accepted` still gates profiling |
+| No raw PII in events | ✅ | All 105 registered events carry ids/enums/counts only; `worker.name_recorded` = `worker_id` only; unlock/contact/payment events channel kind only (never destination); resume events PII-free |
+| No raw PII in `ai_jobs` / `audit_logs` | ✅ | Refs only (opaque ids/enums); `ai_jobs` stores pseudonymized `input_text`/`output_text`; `audit_logs` carries actor/subject ids + action codes |
+| No raw PII in logs | ✅ | Structured logging uses ids/hashes; name write logs `(encrypted)` + id; resume decrypt-failure logs id only; STT logs char_count; OTP logs phone-hash only |
+| No raw PII to the LLM | ✅ | Resume sends only structured `DraftProfile` (name injected **after** AI call); transcript reaches LLM only via `/profile/extract` which pseudonymizes first; `_pseudonymized_history()` gates full conversation history |
+| Pseudonymization fail-closed | ✅ | Extraction returns `blocked` before router/LLM on unsafe input; history drops unpseudonymizable turns; residual-digit net + digit-count rule (R30 narrowed) |
+| `AI_ENABLE_REAL_CALLS` safe default | ✅ | `false`; per-task allowlist empty by default; kill-switch `AI_REAL_CALLS_KILL_SWITCH` checked first |
+| Secrets not committed / fail-closed | ✅ | `PII_HASH_PEPPER`/`PII_ENCRYPTION_KEY` (v1 + v2 kid/keyring, TD22-1) are config; dev defaults rejected outside dev/test by `assertPiiCryptoConfig`; `.env.example` placeholders only |
+| Crypto soundness | ✅ | Peppered HMAC-SHA256 for `phone_hash`/`email_hash`; AES-256-GCM (authenticated, random IV, key never in DB, fail-closed key validation) for `phone_e164`/`full_name`/`email_enc`/`phone_enc`/`org_name_enc`/`name_enc`/agency KYC fields (`crypto.ts`) |
+| RLS / service-role posture | ✅ **Full spine locked** | Migration **0009** extends ENABLE+FORCE RLS + REVOKE (anon/authenticated/service_role/PUBLIC) to **all 14 core spine tables** (`workers`, `worker_consents`, `worker_profiles`, `chat_sessions`, `chat_messages`, `voice_notes`, `generated_resumes`, `events`, `ai_jobs`, `audit_logs`, `profiles`, `questions`, `profile_questions`, `worker_answers`). Subsequent migrations applied same lock to: unlock tables (0014), job_postings (0015), agency tables (0025), pace_states (0023), skills tables (0037), admin_users (0031), worker_flags (0033). **All 43 tables in `public` schema deny Data-API roles.** Backend still connects as `postgres`/BYPASSRLS (TD4). |
+| Consent gate | ✅ | `consent.accepted` gates profiling, extraction, swipe feed/apply/skip, unlock reveal |
+| Worker auth (PIN + rotating refresh) | ✅ | ADR-0026 Phases 0-5: device-bound PIN (scrypt + server throttle), opaque rotating refresh tokens (reuse-detect + family revoke), 90d absolute cap, SIM-swap gate (PIN required on new device OTP). `worker_credentials` RLS-locked; hash never in events. |
 
-## Findings
+## Findings (from original 2026-06-12 review + updates)
 
-### F1 — `voice_notes.transcript_text` is plaintext at rest (Medium → R12, NEW)
-The transcript is raw worker free-text that can contain PII (a worker may speak
-their phone/name/employer). It is stored unencrypted in `voice_notes`, unlike
-`phone_e164`/`full_name` which are now AES-256-GCM.
-- **Contained by:** RLS+REVOKE on `voice_notes` (migration `0009`) → not readable
-  via the Data API; no app endpoint returns `transcript_text`; it never enters
-  events/ai_jobs/logs; it reaches the LLM only through the pseudonymization gate.
-- **Residual:** a backend/backup/DB-level read exposes transcript plaintext.
-- **Fix (before real voice profiling):** encrypt `transcript_text` at rest with
-  `PiiCryptoService` (same pattern as phone/name), or treat the transcript as the
-  conversation-bucket trust tier (R10). Logged as **R12**.
+### F1 — `voice_notes.transcript_text` is plaintext at rest (Medium → **R12**, OPEN)
+The transcript is raw worker free-text that can contain PII. Stored unencrypted in
+`voice_notes`, unlike `phone_e164`/`full_name` (AES-256-GCM).
+- **Contained by:** RLS+REVOKE on `voice_notes` (migration 0009) → not readable via
+  Data API; no app endpoint returns `transcript_text`; it never enters events/ai_jobs/logs;
+  reaches LLM only through pseudonymization gate.
+- **Residual:** A backend/backup/DB-level read exposes transcript plaintext.
+- **Fix (before real voice profiling):** Encrypt `transcript_text` at rest with
+  `PiiCryptoService` (same pattern as phone/name), or treat transcript as the
+  conversation-bucket trust tier (R10). Tracked as **R12**.
 
-### F2 — Unauthenticated name exposure on two routes (Medium → R11, CONFIRMED)
-`GET /resume/:id` returns the worker's own name inside the resume body, and
-`PUT /workers/:id/name` accepts a name with no caller-identity authz
-([resume.controller.ts:39-52](../../apps/api/src/resume/resume.controller.ts#L39-L52),
-[workers.controller.ts:61-69](../../apps/api/src/workers/workers.controller.ts#L61-L69)).
-Matches the existing **R11** exactly — bounded by unguessable UUIDv4 ids + spine
-RLS + no in-repo client consumer; the name never reaches LLM/events/logs.
-- **Launch gate:** close caller authz with R1/TD4 before any client-facing use.
-- **Renderer note:** the future resume renderer MUST output-encode the
-  attacker-controlled `{{full_name}}` (already noted in the resume templates README).
+### F2 — Unauthenticated name exposure on `GET /resume/:id` + `PUT /workers/:id/name` (Medium → **R11**, PARTIALLY MITIGATED)
+- `GET /resume/:id/download` is now **worker-authenticated + ownership-checked** (TD29 G1, 2026-06-15) — IDOR closed for the download path.
+- `GET /resume/:id` (text preview) + `PUT /workers/:id/name` remain on `InternalServiceGuard` (no per-worker authz) — bounded by UUIDv4 + spine RLS.
+- **Launch gate:** Close caller authz with R1/TD4 before any client-facing use.
 
-## Required actions
+### F3 — `GET /workers/:id/profile` returns decrypted real name to unauthenticated caller (**R28**, **Critical**, OPEN — owner HOLD 2026-07-16)
+- Endpoint has no guard (`guard-contract.test.ts` pins `Workers.getProfile: []`).
+- Returns full `generated_resumes` row including `resumeText` (name injected at generate time, TD21) and `resumeJson.name`.
+- `GET /workers` (list) is a UUID enumeration oracle; `PUT /workers/:id/name` is unauthenticated PII write.
+- **Mitigation:** Lightsail not publicly reachable + no real worker names deployed.
+  **Re-verify the moment either changes.**
 
-- [x] Log F1 as **R12** in the risks register (done with this review).
+### F4 — `voice_notes` transcript path: STT adapter wired but real Sarvam call gated (TD6)
+- Async transcription end-to-end on mock-by-default path (`POST /voice/transcribe` → BullMQ `voice-transcription` queue). Real call in `_transcribe_real` remains fail-closed behind `AI_ENABLE_REAL_CALLS` + `SARVAM_API_KEY`.
+
+### F5 — Payer B2B PII in `payers` table (NEW class, ADR-0019 B-R2 accepted)
+- `email_enc`/`phone_enc`/`org_name_enc` AES-256-GCM at rest; `email_hash` for lookup/dedup.
+- **Never** in events/ai_jobs/audit_logs/LLM input. `payer_id` stays the only token.
+- RLS+REVOKE on `payers` (migration 0010/0014 spine lock).
+
+### F6 — Agency financial KYC in `agency_kyc` (ADR-0022 Amdt 2, launch-gated OFF)
+- PAN/bank/IFSC/name encrypted at rest (ADR-0004 discipline). `AGENCY_PAYOUTS_ENABLED=false` default OFF.
+
+## Required actions (updated)
+
+- [x] Log F1 as **R12** in risks register (done).
 - [ ] (Launch gate) Close R11 authz with R1/TD4.
 - [ ] (Before real voice profiling) Encrypt `transcript_text` at rest (R12).
+- [ ] (Critical) Resolve **R28** before any public endpoint exposure or real worker names in DB.
+- [ ] (Critical) Resolve **R30** (separator-split phones) and **R32** (names without cues) before flipping `AI_ENABLE_REAL_CALLS`.
+- [ ] (High) Resolve **R31** (unauthenticated pricing catalog write) before `PAYMENTS_ENABLE_REAL`.
+- [ ] (High) Verify Lightsail box is not running dev secrets / throwaway Postgres (**R27** mitigated by CD hardening but box residual open).
 
-No code changes are required to PASS; both residuals are contained and tracked.
+No code changes required to PASS the *merged* codebase; residuals are contained, tracked, and launch-gated.
