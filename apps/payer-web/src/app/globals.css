@@ -2248,6 +2248,64 @@ textarea.input {
   }
 }
 
+/* Agency SUPPLY money — earnings / KYC / payout (ADR-0022 Amendment 2). Tokens only. The
+   KYC form reuses .agency-invite__form / __actions / __status / __error; only the masked
+   status list + payout controls/history need their own rules. */
+.agency-kyc__status {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-3) 0 0;
+}
+.agency-kyc__status dt {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.agency-kyc__status dd {
+  margin: 0;
+  word-break: break-all;
+}
+.agency-payout__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-4);
+}
+.agency-payout__reason {
+  margin: var(--space-2) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.agency-payout__list {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+  padding: 0;
+  list-style: none;
+}
+.agency-payout__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.agency-payout__amount {
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+}
+.agency-payout__meta {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.agency-payout__empty {
+  margin-top: var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
 /* Transient unlock-RESULT toast region (DS1.5) — fixed bottom-right; faceless, no-oracle copy. */
 .unlock-toast-region {
   position: fixed;

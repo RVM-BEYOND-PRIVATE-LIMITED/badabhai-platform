@@ -3,8 +3,9 @@ import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { DevicesRepository } from "../auth/devices.repository";
-import { NOTIFICATION_TEMPLATES } from "../notifications/notifications.dto";
+import { NOTIFICATION_TEMPLATES, templateCopy } from "../notifications/notifications.dto";
 import type { PushJobData } from "../queue/queue.constants";
+import { WorkersRepository } from "../workers/workers.repository";
 import { PushRepository } from "./push.repository";
 import { PUSH_PROVIDER, type PushFailureReason, type PushProvider } from "./push.provider";
 
@@ -23,6 +24,7 @@ export class PushService {
     private readonly repo: PushRepository,
     private readonly devices: DevicesRepository,
     private readonly events: EventsService,
+    private readonly workersRepo: WorkersRepository,
   ) {}
 
   /**
@@ -60,6 +62,11 @@ export class PushService {
     const devices = await this.repo.devicesForDelivery(job.deviceIds);
     if (devices.length === 0) return { sent: 0 };
 
+    // Fetch worker's language for localized copy. Fail-soft to default on error.
+    const worker = await this.workersRepo.findById(job.workerId).catch(() => null);
+    const lang = worker?.preferredLanguage ?? null;
+    const copy = templateCopy(template, lang);
+
     const route = ROUTE_BY_TYPE[template.type] ?? "home";
     let sent = 0;
     let lastFailure: PushFailureReason | null = null;
@@ -77,8 +84,8 @@ export class PushService {
 
       const result = await this.provider.send({
         token,
-        title: template.title,
-        body: template.body,
+        title: copy.title,
+        body: copy.body,
         type: template.type,
         route,
         target,

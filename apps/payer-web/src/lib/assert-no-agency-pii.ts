@@ -61,6 +61,12 @@ const ALLOWED_KEY_EXACT = new Set<string>([
   "relayhandle",
   "displayinitials", // masked initials ("R***** K.") — already masked, not raw PII
   "display_initials",
+  // Agency KYC MASKED last-4 (ADR-0022 Amendment 2) — the API returns ONLY the last 4
+  // chars for display (`••••234F`), never the raw PAN/bank. Allowed like masked initials;
+  // the raw `pan` / `bank` / `ifsc` tokens stay FORBIDDEN above (they are write-only, in
+  // the KYC submit body, and must never appear in any response we render).
+  "panlast4",
+  "banklast4",
 ]);
 
 function keyLooksLikePii(key: string): boolean {

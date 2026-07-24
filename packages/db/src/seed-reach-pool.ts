@@ -86,6 +86,7 @@ import {
   type JobNeededBy,
   type PayerRole,
 } from "./schema";
+import { looksLikePii, looksLikeOrgName, looksLikeUrl } from "@badabhai/validators";
 import { encryptPii, hashPhone } from "./crypto";
 import {
   makeRng,
@@ -494,6 +495,37 @@ async function unseed(db: ReturnType<typeof createDbClient>["db"]): Promise<void
 const WIDE_TEARDOWN = 2000;
 
 // ---------------------------------------------------------------------------
+// PII guard — fail-closed check that free-text seed content never looks
+// like PII / org names / URLs. Same heuristic as `seed-jobs.ts` and the API
+// DTO refinement layer.
+// ---------------------------------------------------------------------------
+function assertSeedContentPiiFree(
+  payers: SeededPayer[],
+  postings: SeededPosting[],
+  jobs: SeededJob[],
+): void {
+  const flagged = (s: string): boolean => looksLikePii(s) || looksLikeOrgName(s) || looksLikeUrl(s);
+  const fail = (id: string, field: string): never => {
+    throw new Error(
+      `[seed:reach] PII guard tripped — ${id} field "${field}" looks like PII / an employer name / a link; aborting (content not echoed)`,
+    );
+  };
+  for (const p of payers) {
+    if (flagged(p.orgName)) fail(p.payerId, "orgName");
+    if (flagged(p.email)) fail(p.payerId, "email");
+  }
+  for (const p of postings) {
+    const idx = p.index + 1;
+    if (flagged(`SYNTHETIC — Reach Seed Posting ${idx}`)) fail(p.postingId, "orgLabel");
+    if (flagged(`${p.trade.title} — Reach Seed`)) fail(p.postingId, "roleTitle");
+  }
+  for (const j of jobs) {
+    const idx = j.index + 1;
+    if (flagged(`${j.tradeKey} — Reach Seed ${idx}`)) fail(j.jobId, "title");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Writer — idempotent inserts (ON CONFLICT). Mirrors seed-demand.ts discipline.
 // ---------------------------------------------------------------------------
 async function main(): Promise<void> {
@@ -538,6 +570,9 @@ async function main(): Promise<void> {
     }
 
     const plan = buildReachSeedPlan(counts);
+
+    // PII guard — fail-closed BEFORE any row touches the DB (ADR-0024).
+    assertSeedContentPiiFree(plan.payers, plan.postings, plan.jobs);
 
     // 1) Payers + credits + capacity (PII encrypted; org/email synthetic). ---------
     for (const p of plan.payers) {

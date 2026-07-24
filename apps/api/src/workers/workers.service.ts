@@ -153,8 +153,14 @@ export class WorkersService {
    * emits nothing.
    */
   async getProfileSummary(workerId: string): Promise<WorkerProfileSummary> {
-    const profile = await this.workers.latestProfile(workerId);
-    return toProfileSummary(profile ?? null);
+    const [profile, worker] = await Promise.all([
+      this.workers.latestProfile(workerId),
+      this.workers.findById(workerId),
+    ]);
+    if (!profile) return toProfileSummary(null);
+    const hasPhoto =
+      typeof worker?.photoStorageKey === "string" && worker.photoStorageKey.length > 0;
+    return toProfileSummary({ ...profile, hasPhoto });
   }
 
   /**

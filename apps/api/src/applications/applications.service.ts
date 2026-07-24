@@ -62,7 +62,7 @@ export class ApplicationsService {
    * into a single DB round-trip via `emitMany`.
    */
   async getFeed(workerId: string, limit: number, ctx: RequestContext): Promise<{ jobs: FeedItem[] }> {
-    const openJobs = await this.repo.findOpenJobs(limit);
+    const openJobs = await this.repo.findOpenJobs(workerId, limit);
     const items: FeedItem[] = openJobs.map((job: FeedJob, index) => ({
       job_id: job.id,
       trade_key: job.tradeKey,
@@ -119,6 +119,9 @@ export class ApplicationsService {
   async apply(workerId: string, jobId: string, dto: ApplyJobDto, ctx: RequestContext) {
     await this.assertJobExists(jobId);
 
+    // TD38: read the existing decision BEFORE upsert to detect skip→apply flips.
+    const existing = await this.repo.findDecision(workerId, jobId);
+
     const saved = await this.repo.upsertDecision({
       workerId,
       jobId,
@@ -128,18 +131,11 @@ export class ApplicationsService {
       rank: dto.rank,
     });
 
-    // Bump the job's denormalized applies counter ONLY on a genuine first apply
-    // (a brand-new row, action='applied'). This is idempotent: a double-tap hits
-    // ON CONFLICT DO UPDATE (`inserted === false`) and never double-counts. NO new
-    // event — `application.submitted` (emitted below) remains the audit record; the
-    // counter is just a denormalized rollup.
-    //
-    // ACCEPTED alpha limitation: a skip→apply FLIP on an existing row is an UPDATE
-    // (`inserted === false`), so it will NOT increment the counter — the row already
-    // existed from the skip. Likewise an apply→skip flip never DECREMENTS (the
-    // counter is a monotonic count of received applies). This is a deliberate alpha
-    // simplification, not a bug.
-    if (saved.inserted) {
+    // Bump the job's denormalized applies counter on a genuine first apply (new
+    // row) OR a skip→apply flip (existing row was not already applied). Double-tap
+    // (re-applying an already-applied row) never double-counts.
+    const flippedToApplied = existing != null && existing.action !== "applied";
+    if (saved.inserted || flippedToApplied) {
       await this.repo.incrementApplicantsReceived(jobId);
     }
 
@@ -236,9 +232,9 @@ export class ApplicationsService {
     };
   }
 
-  /** 404 (no oracle) if the job id does not resolve to a row. */
+  /** 404 (no oracle) if the job id does not resolve to an OPEN row. */
   private async assertJobExists(jobId: string): Promise<void> {
     const job = await this.repo.findJobById(jobId);
-    if (!job) throw new NotFoundException(`Job ${jobId} not found`);
+    if (!job) throw new NotFoundException("Job not found");
   }
 }

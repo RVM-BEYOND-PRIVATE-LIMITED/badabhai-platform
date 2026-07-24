@@ -1,8 +1,12 @@
 import "server-only";
 import {
+  agencyEarningsWireSchema,
   agencyInviteWireSchema,
   agencyJobListWireSchema,
   agencyJobWireSchema,
+  agencyKycWireSchema,
+  agencyPayoutListWireSchema,
+  agencyPayoutRequestWireSchema,
   agencyReferralsSummaryWireSchema,
   applicantFeedSchema,
   buyCapacityWireSchema,
@@ -25,8 +29,13 @@ import {
   unlockResultWireSchema,
   unlocksListWireSchema,
   type AgencyAccount,
+  type AgencyEarnings,
   type AgencyJob,
   type AgencyJobInput,
+  type AgencyKyc,
+  type AgencyKycInput,
+  type AgencyPayout,
+  type AgencyPayoutRequestWire,
   type AgencyReferralsSummary,
   type ApplicantFeed,
   type Capacity,
@@ -545,6 +554,119 @@ export async function createAgencyInvite(input: {
   } catch (e) {
     // 429 = mint cap reached OR Redis fail-closed (identical 429, no leaked reason).
     if (e instanceof Error && /returned 429/.test(e.message)) return { ok: false };
+    throw e;
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * LIVE — Agency SUPPLY money (ADR-0022 Amendment 2): earnings / KYC / payout.
+ * All are payer-authed + agent-role-gated server-side; the SESSION is the identity
+ * (XB-A — NO body payer_id) and money is MOCK (no real disbursement).
+ *
+ * GATE (fail-closed): while `AGENCY_PAYOUTS_ENABLED` is OFF (the default) every one of
+ * these routes returns 404. That 404 is NOT an error — it means "supply payouts not yet
+ * enabled". Each read maps it to `null` (the "not enabled" signal) so the page can render
+ * a graceful "coming soon" inert state; any OTHER failure throws (honest error/degrade).
+ * The referral link + funnel (invites/summary above) are NOT gated and stay live.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * True when a payer-http error is the gated-route 404 ("supply payouts not enabled").
+ * These routes have no per-resource 404 (they return the caller's OWN aggregate/status),
+ * so a 404 unambiguously means the feature flag is off — a graceful inert state, not an
+ * error. Reused by every gated agency-money seam fn.
+ */
+function isPayoutsDisabled(e: unknown): boolean {
+  return e instanceof Error && /returned 404/.test(e.message);
+}
+
+/**
+ * GET /payer/agency/earnings — the caller's OWN referral-earnings summary (LIVE, gated).
+ * `null` = supply payouts not enabled (404). PII-free (amounts/counts/config + a status
+ * enum). Crosses {@link assertNoAgencyPII} (defence-in-depth).
+ */
+export async function getAgencyEarnings(): Promise<AgencyEarnings | null> {
+  try {
+    const wire = await payerFetch("/payer/agency/earnings", { schema: agencyEarningsWireSchema });
+    return assertNoAgencyPII(wire, "payer/agency/earnings");
+  } catch (e) {
+    if (isPayoutsDisabled(e)) return null;
+    throw e;
+  }
+}
+
+/**
+ * GET /payer/agency/kyc — the caller's OWN KYC status (LIVE, gated). MASKED-only: the
+ * response carries `panLast4` / `bankLast4` (display last-4), NEVER the raw PAN/bank.
+ * `null` = supply payouts not enabled (404). Crosses {@link assertNoAgencyPII} — the
+ * masked last-4 keys are explicitly allow-listed there; a raw `pan`/`bank`/`ifsc` key
+ * would still throw (faceless boundary).
+ */
+export async function getAgencyKyc(): Promise<AgencyKyc | null> {
+  try {
+    const wire = await payerFetch("/payer/agency/kyc", { schema: agencyKycWireSchema });
+    return assertNoAgencyPII(wire, "payer/agency/kyc");
+  } catch (e) {
+    if (isPayoutsDisabled(e)) return null;
+    throw e;
+  }
+}
+
+/**
+ * POST /payer/agency/kyc — submit the caller's OWN KYC (LIVE, gated). The raw PAN / bank /
+ * IFSC / holder name ride the BODY only (write-only, snake_case) — the server re-validates
+ * + uppercases and stores them encrypted; the RESPONSE is the masked status. XB-A: the
+ * session is the identity (no body payer_id). `null` = supply payouts not enabled (404).
+ */
+export async function submitAgencyKyc(input: AgencyKycInput): Promise<AgencyKyc | null> {
+  try {
+    const wire = await payerFetch("/payer/agency/kyc", {
+      method: "POST",
+      body: {
+        pan: input.pan,
+        bank_account: input.bankAccount,
+        ifsc: input.ifsc,
+        account_holder_name: input.accountHolderName,
+      },
+      schema: agencyKycWireSchema,
+    });
+    return assertNoAgencyPII(wire, "payer/agency/kyc (submit)");
+  } catch (e) {
+    if (isPayoutsDisabled(e)) return null;
+    throw e;
+  }
+}
+
+/**
+ * GET /payer/agency/payouts — the caller's OWN payout-request history (LIVE, gated),
+ * PII-free (ids / ₹ amounts / status / timestamps). `null` = supply payouts not enabled
+ * (404).
+ */
+export async function listAgencyPayouts(): Promise<AgencyPayout[] | null> {
+  try {
+    return await payerFetch("/payer/agency/payouts", { schema: agencyPayoutListWireSchema });
+  } catch (e) {
+    if (isPayoutsDisabled(e)) return null;
+    throw e;
+  }
+}
+
+/**
+ * POST /payer/agency/payouts — request a payout of the requestable balance (LIVE, gated).
+ * The session is the identity (XB-A); the body is empty (the server computes the amount +
+ * re-checks the gate). The 2xx body is the discriminated union `{ ok:true, … }` (created)
+ * OR `{ ok:false, blocked:true, reason }` (server refused) — both returned as-is. `null` =
+ * supply payouts not enabled (404). MOCK money (no real disbursement).
+ */
+export async function requestAgencyPayout(): Promise<AgencyPayoutRequestWire | null> {
+  try {
+    return await payerFetch("/payer/agency/payouts", {
+      method: "POST",
+      body: {},
+      schema: agencyPayoutRequestWireSchema,
+    });
+  } catch (e) {
+    if (isPayoutsDisabled(e)) return null;
     throw e;
   }
 }

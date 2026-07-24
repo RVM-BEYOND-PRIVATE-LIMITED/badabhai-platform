@@ -8,6 +8,7 @@ import {
   NOTIFICATION_EVENT_NAMES,
   NOTIFICATION_TEMPLATES,
   SECURITY_EVENT_NAMES,
+  templateCopy,
 } from "./notifications.dto";
 
 /** Minimal EventRow the service actually reads (id, eventName, occurredAt). */
@@ -74,8 +75,14 @@ function setup(rows: EventRow[], securityRows?: EventRow[]) {
         .slice(0, limit),
     ),
   };
-  const svc = new NotificationsService(repo as unknown as NotificationsRepository);
-  return { svc, repo };
+  const workersRepo = {
+    findById: vi.fn(async () => ({ preferredLanguage: "hi" })),
+  };
+  const svc = new NotificationsService(
+    repo as unknown as NotificationsRepository,
+    workersRepo as never,
+  );
+  return { svc, repo, workersRepo };
 }
 
 describe("NotificationsService.getForWorker — projection", () => {
@@ -86,19 +93,20 @@ describe("NotificationsService.getForWorker — projection", () => {
     ]);
     const out = await svc.getForWorker("w-1");
 
+    const hi = "hi" as const;
     expect(out).toEqual([
       {
         id: "e1",
         type: "resume_ready",
-        title: NOTIFICATION_TEMPLATES["resume.generated"]!.title,
-        body: NOTIFICATION_TEMPLATES["resume.generated"]!.body,
+        title: NOTIFICATION_TEMPLATES["resume.generated"]!.copy[hi]!.title,
+        body: NOTIFICATION_TEMPLATES["resume.generated"]!.copy[hi]!.body,
         created_at: "2026-07-14T10:00:00.000Z",
       },
       {
         id: "e2",
         type: "profile_ready",
-        title: NOTIFICATION_TEMPLATES["profile.confirmed"]!.title,
-        body: NOTIFICATION_TEMPLATES["profile.confirmed"]!.body,
+        title: NOTIFICATION_TEMPLATES["profile.confirmed"]!.copy[hi]!.title,
+        body: NOTIFICATION_TEMPLATES["profile.confirmed"]!.copy[hi]!.body,
         created_at: "2026-07-14T09:00:00.000Z",
       },
     ]);
@@ -158,9 +166,10 @@ describe("application.submitted → the worker's OWN apply receipt (2026-07-17 w
     const { svc } = setup([applicationRow("e-app-1", "2026-07-17T10:00:00.000Z", WORKER_A)]);
     const [note] = await svc.getForWorker(WORKER_A);
     const template = NOTIFICATION_TEMPLATES["application.submitted"]!;
+    const c = templateCopy(template, "hi");
     expect(note!.type).toBe(template.type);
-    expect(note!.title).toBe(template.title);
-    expect(note!.body).toBe(template.body);
+    expect(note!.title).toBe(c.title);
+    expect(note!.body).toBe(c.body);
   });
 
   it("the wire row carries EXACTLY {id,type,title,body,created_at} — no job_id/worker_id/rank/source_surface", async () => {
@@ -294,13 +303,16 @@ describe("notifications allowlist — validity + faceless copy", () => {
 
   it("all copy is faceless + PII-free — no employer/company, no ₹/pay, no phone-like digits, no email", () => {
     for (const [name, t] of Object.entries(NOTIFICATION_TEMPLATES)) {
-      const text = `${t.title} ${t.body}`;
-      expect(text, `${name} copy must not name an employer/company`).not.toMatch(
-        /\bemployer\b|\bcompany\b|\bpayer\b/i,
-      );
-      expect(text, `${name} copy must not carry ₹/pay`).not.toMatch(/₹|\brs\.?\b|\bsalary\b|\bpay\b/i);
-      expect(text, `${name} copy must not carry a phone-like digit run`).not.toMatch(/\d{4,}/);
-      expect(text, `${name} copy must not carry an email`).not.toContain("@");
+      for (const c of Object.values(t.copy)) {
+        if (!c) continue;
+        const text = `${c.title} ${c.body}`;
+        expect(text, `${name} copy must not name an employer/company`).not.toMatch(
+          /\bemployer\b|\bcompany\b|\bpayer\b/i,
+        );
+        expect(text, `${name} copy must not carry ₹/pay`).not.toMatch(/₹|\brs\.?\b|\bsalary\b|\bpay\b/i);
+        expect(text, `${name} copy must not carry a phone-like digit run`).not.toMatch(/\d{4,}/);
+        expect(text, `${name} copy must not carry an email`).not.toContain("@");
+      }
     }
   });
 

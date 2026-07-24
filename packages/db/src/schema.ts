@@ -30,6 +30,10 @@ import type {
   VacancyBand,
   JobPostingStatus,
 } from "@badabhai/types";
+import type { TradeKey, SkipReason, SourceSurface } from "@badabhai/taxonomy";
+
+// Re-export TradeKey for downstream consumers (seed files, etc.)
+export type { TradeKey, SkipReason, SourceSurface } from "@badabhai/taxonomy";
 
 /**
  * BadaBhai Drizzle schema (Supabase Postgres).
@@ -951,50 +955,25 @@ export const jobPostings = pgTable(
 // ---------------------------------------------------------------------------
 
 /**
- * The 15 alpha trade keys (ADR-0009 §2 / OQ-2). These are the SAME stable keys
- * as `REQUIRED_TRADE_KEYS` in apps/api (`src/resume/trade-content.ts`) and
- * `REQUIRED_KIT_TRADE_KEYS` (`src/interview-kit/interview-kit-content.ts`) — the
- * authoritative list. They are mirrored here (not imported) because `@badabhai/db`
- * must not depend upward on `apps/api`, and the placeholder `@badabhai/taxonomy`
- * only carries the 7 CNC/VMC role ids, not these 15 trade keys. Keep in sync if
- * the alpha trade list ever changes.
+ * The 15+9 canonical trade keys (15 manufacturing alpha + 9 hospitality DRAFT).
  *
- * HOSPITALITY (second vertical) — the 9 `hosp_*` keys below are the MIRROR half of
- * the PRD §6 "mirror-and-sync" wiring (sources of truth: `REQUIRED_HOSP_TRADE_KEYS`
- * in apps/api `src/resume/hospitality-trade-content.ts` + `REQUIRED_HOSP_KIT_TRADE_KEYS`
- * in `src/interview-kit/hospitality-interview-kit-content.ts`). Additive + backward-
- * compatible: manufacturing keys are unchanged. The content is **DRAFTED, pending RVM
- * — NOT live** (docs/registers/hospitality-trade-content-ratification.md); these keys
- * are typed so jobs CAN reference them once a trade is RVM-ratified, but no live
- * surface serves hospitality content yet. TD31 (shared taxonomy package) stays deferred.
+ * Now imported from @badabhai/taxonomy (TD31) — single source of truth.
+ * The comment below documents the historical mirroring for audit purposes.
+ *
+ * MANUFACTURING (15, alpha; ADR-0009 §2 / OQ-2):
+ *   cnc_operator, vmc_operator, cnc_vmc_setter, cnc_programmer, vmc_programmer,
+ *   cad_designer, solidworks_designer, autocad_draftsman, quality_inspector,
+ *   production_engineer, maintenance_technician, tool_room_technician,
+ *   machine_operator, assembly_technician, fitter
+ *
+ * HOSPITALITY (9, second vertical; DRAFTED, pending RVM — NOT live):
+ *   hosp_steward_waiter, hosp_commis_cook, hosp_room_attendant, hosp_front_office,
+ *   hosp_fnb_captain, hosp_bartender, hosp_kitchen_steward, hosp_banquet_server,
+ *   hosp_barista
+ *
+ * TD31 (shared taxonomy package) now provides the authoritative TradeKey type.
+ * Keep this comment for historical context; the actual type is imported.
  */
-export type TradeKey =
-  // --- Manufacturing (15, alpha; ADR-0009 §2 / OQ-2) ---
-  | "cnc_operator"
-  | "vmc_operator"
-  | "cnc_vmc_setter"
-  | "cnc_programmer"
-  | "vmc_programmer"
-  | "cad_designer"
-  | "solidworks_designer"
-  | "autocad_draftsman"
-  | "quality_inspector"
-  | "production_engineer"
-  | "maintenance_technician"
-  | "tool_room_technician"
-  | "machine_operator"
-  | "assembly_technician"
-  | "fitter"
-  // --- Hospitality (9, second vertical; DRAFTED, pending RVM — not live) ---
-  | "hosp_steward_waiter"
-  | "hosp_commis_cook"
-  | "hosp_room_attendant"
-  | "hosp_front_office"
-  | "hosp_fnb_captain"
-  | "hosp_bartender"
-  | "hosp_kitchen_steward"
-  | "hosp_banquet_server"
-  | "hosp_barista";
 
 /** Job lifecycle — a seed job can be retired without deleting the row. */
 export type JobStatus = "open" | "closed";
@@ -1017,14 +996,16 @@ export type ApplicationAction = "applied" | "skipped";
 /**
  * Coarse, non-PII skip reason (no free text). Mirrors the `application.skipped`
  * event payload enum in @badabhai/event-schema (payloads.ts). NULL for applies.
+ *
+ * Now imported from @badabhai/taxonomy (TD31) — single source of truth.
  */
-export type SkipReason = "not_interested" | "too_far" | "low_pay" | "wrong_trade" | "other";
 
 /**
  * Where the apply/skip originated. Mirrors the `application.submitted` event
  * payload `source_surface` enum in @badabhai/event-schema (payloads.ts).
+ *
+ * Now imported from @badabhai/taxonomy (TD31) — single source of truth.
  */
-export type SourceSurface = "feed" | "search" | "share" | "other";
 
 // jobs — seeded, coarse, NO employer PII. `id` is the opaque job_id in events.
 export const jobs = pgTable(
@@ -1663,6 +1644,11 @@ export const agencyInvites = pgTable(
     // Optional non-PII campaign tag (a stable code, never free-form PII) — mirrors
     // the `invites.campaign` rule.
     campaign: text("campaign"),
+    // The 90-day attribution-window anchor for the payout ledger (ADR-0022 Amendment 2).
+    // Set ONCE at markAccepted, alongside invited_worker_id. Additive + nullable
+    // (invariant #8): rows accepted before this column existed stay null and are excluded
+    // from accrual until re-set. PII-FREE (a timestamp). Never leaves this row raw.
+    attributedAt: timestamp("attributed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1674,6 +1660,129 @@ export const agencyInvites = pgTable(
     index("agency_invites_invited_worker_id_idx").on(t.invitedWorkerId),
   ],
 ).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by the migration (spine posture)
+
+// ---------------------------------------------------------------------------
+// agency_kyc — AGENCY financial KYC (PAN + bank), ADR-0022 module 1 (LEGAL_MONEY_GATE),
+// built MOCK + launch-gated (AGENCY_PAYOUTS_ENABLED default OFF), owner-ratified 2026-07-23
+// (ADR-0022 Amendment 2). HIGH-SENSITIVITY FINANCIAL PII AT REST — same ADR-0004 discipline
+// as `workers`/`payers`: AES-256-GCM ciphertext + keyed HMAC lookup, FORCE-RLS + REVOKE
+// (migration), backend-service-role only. These fields NEVER reach events / ai_jobs /
+// audit_logs / logs / LLM input — only the opaque `payer_id` + `status` enum ever leave this
+// row (masked last-4 to the owning agency, never full PAN/bank). One KYC row per agency.
+// Real-registry verification + live collection remain the legal/DPDP + §7 launch gates
+// (nothing is checked against a real registry here — ops "verify" is a mock human ack).
+// ---------------------------------------------------------------------------
+export type AgencyKycStatus = "pending" | "verified" | "rejected";
+export const agencyKyc = pgTable(
+  "agency_kyc",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The owning agency (payers.role='agent'). One KYC row per agency.
+    payerId: uuid("payer_id")
+      .notNull()
+      .references(() => payers.id, { onDelete: "cascade" }),
+    // PAN: AES ciphertext at rest + keyed HMAC (dedup — one PAN cannot back many agencies).
+    panEnc: text("pan_enc").notNull(),
+    panHash: text("pan_hash").notNull(),
+    // Bank payout details — ciphertext at rest (no lookup hash needed).
+    bankAccountEnc: text("bank_account_enc").notNull(),
+    ifscEnc: text("ifsc_enc").notNull(),
+    accountHolderNameEnc: text("account_holder_name_enc").notNull(),
+    status: text("status").$type<AgencyKycStatus>().notNull().default("pending"),
+    // Ops verification audit (mock human ack; NO real registry check in alpha).
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    verifiedBy: uuid("verified_by"),
+    rejectReason: text("reject_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("agency_kyc_payer_id_uq").on(t.payerId),
+    uniqueIndex("agency_kyc_pan_hash_uq").on(t.panHash),
+    // reject_reason is only valid on a reject (NULL otherwise).
+    check("agency_kyc_reject_reason_chk", sql`${t.rejectReason} IS NULL OR ${t.status} = 'rejected'`),
+  ],
+).enableRLS(); // FORCE + REVOKE carried by the migration (financial-PII spine posture, ADR-0004)
+export type AgencyKyc = typeof agencyKyc.$inferSelect;
+export type NewAgencyKyc = typeof agencyKyc.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// agency_payout_requests — MOCK payout requests (ADR-0022 module 7, Amendment 2). PII-FREE:
+// ₹ + ids + enum only. A request claims the agency's currently-unpaid accruals (₹ sum) once
+// the KYC gate (status='verified') AND the ₹500 minimum threshold both pass. `status='paid'`
+// is INERT — no real disbursement in alpha (PAYMENTS_ENABLE_REAL=false; real outbound money
+// is the §7 launch gate). Exactly-once via UNIQUE(idempotency_key). RLS-locked (spine posture).
+// ---------------------------------------------------------------------------
+export type AgencyPayoutRequestStatus = "requested" | "paid" | "rejected";
+export const agencyPayoutRequests = pgTable(
+  "agency_payout_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agencyPayerId: uuid("agency_payer_id")
+      .notNull()
+      .references(() => payers.id, { onDelete: "cascade" }),
+    amountInr: integer("amount_inr").notNull(),
+    accrualCount: integer("accrual_count").notNull(),
+    status: text("status").$type<AgencyPayoutRequestStatus>().notNull().default("requested"),
+    // The KYC status snapshot at request time (audit — must have been 'verified' to pass).
+    kycSnapshotStatus: text("kyc_snapshot_status").$type<AgencyKycStatus>().notNull(),
+    // Exactly-once guard (mirrors credit_ledger.idempotency_key). Opaque; NO PII/value.
+    idempotencyKey: text("idempotency_key"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("agency_payout_requests_agency_payer_id_idx").on(t.agencyPayerId),
+    uniqueIndex("agency_payout_requests_idempotency_key_uq").on(t.idempotencyKey),
+    check("agency_payout_requests_amount_nonneg_chk", sql`${t.amountInr} >= 0`),
+  ],
+).enableRLS();
+export type AgencyPayoutRequest = typeof agencyPayoutRequests.$inferSelect;
+export type NewAgencyPayoutRequest = typeof agencyPayoutRequests.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// agency_payout_accruals — APPEND-ONLY commission accrual ledger (ADR-0022 modules 3+7,
+// Amendment 2). PII-FREE: ₹ amounts + opaque ids only. One accrual per granted unlock on a
+// worker the agency referred, within the 90-day attribution window; amount = a STAMPED basis
+// × rate (owner-ratified 25% × ₹40 = ₹10). Basis/rate are stamped per row so a later config
+// change never rewrites history (mirrors credit_ledger.price_inr). Idempotent by
+// UNIQUE(source_unlock_id). MOCK — a computed accrual, no real money. RLS-locked (spine
+// posture): source_unlock_id is one hop from a worker, so it is never returned raw — only
+// aggregate earnings leave the API.
+// ---------------------------------------------------------------------------
+export const agencyPayoutAccruals = pgTable(
+  "agency_payout_accruals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agencyPayerId: uuid("agency_payer_id")
+      .notNull()
+      .references(() => payers.id, { onDelete: "cascade" }),
+    // The granted unlock that generated this accrual. UNIQUE → exactly-once per unlock.
+    sourceUnlockId: uuid("source_unlock_id")
+      .notNull()
+      .references(() => unlocks.id, { onDelete: "cascade" }),
+    // Stamped economics (whole ₹ / basis points) so later config edits can't rewrite history.
+    basisInr: integer("basis_inr").notNull(),
+    rateBps: integer("rate_bps").notNull(),
+    amountInr: integer("amount_inr").notNull(),
+    // Real revenue-event time + the attribution window anchor (audit).
+    unlockGrantedAt: timestamp("unlock_granted_at", { withTimezone: true }).notNull(),
+    attributedAt: timestamp("attributed_at", { withTimezone: true }).notNull(),
+    // Set when this accrual is claimed into a payout request (else unpaid/available).
+    payoutRequestId: uuid("payout_request_id").references(() => agencyPayoutRequests.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("agency_payout_accruals_source_unlock_id_uq").on(t.sourceUnlockId),
+    index("agency_payout_accruals_agency_payer_id_idx").on(t.agencyPayerId),
+    index("agency_payout_accruals_payout_request_id_idx").on(t.payoutRequestId),
+    check("agency_payout_accruals_amount_nonneg_chk", sql`${t.amountInr} >= 0`),
+  ],
+).enableRLS();
+export type AgencyPayoutAccrual = typeof agencyPayoutAccruals.$inferSelect;
+export type NewAgencyPayoutAccrual = typeof agencyPayoutAccruals.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // pace_states — per-job PACE supply-widening run state (ADR-0021). PII-FREE.
@@ -2085,6 +2194,9 @@ export const schema = {
   invites,
   paceStates,
   agencyInvites,
+  agencyKyc,
+  agencyPayoutRequests,
+  agencyPayoutAccruals,
   adminUsers,
   workerFlags,
   workerDevices,

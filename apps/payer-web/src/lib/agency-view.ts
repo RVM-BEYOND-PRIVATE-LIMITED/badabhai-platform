@@ -1,4 +1,4 @@
-import type { AgencyJob, NeededBy } from "./contracts";
+import type { AgencyJob, AgencyPayoutBlockedReason, NeededBy } from "./contracts";
 import { formatInr } from "./format";
 
 /**
@@ -89,4 +89,39 @@ export function kAnonCount(count: number, minBucket: number): string {
  */
 export function isActiveJob(job: AgencyJob): boolean {
   return job.status === "open";
+}
+
+/**
+ * The accrual BASIS sentence for the earnings surface — built from the CONFIG values the
+ * API returns (rate / basis ₹ / window), never hard-coded commercial terms. `rateBps` is
+ * basis points (2500 → "25%"); `basisInr` is the per-unlock ₹; `windowDays` the attribution
+ * window. e.g. (2500, 40, 90) → "25% × ₹40 per contact unlock on your referred workers
+ * within 90 days".
+ */
+export function accrualBasisLabel(rateBps: number, basisInr: number, windowDays: number): string {
+  const whole = rateBps / 100;
+  const pct = Number.isInteger(whole) ? String(whole) : whole.toFixed(2);
+  return `${pct}% × ${formatInr(basisInr)} per contact unlock on your referred workers within ${windowDays} days`;
+}
+
+/**
+ * Friendly, no-oracle copy for a DISABLED payout button, mapped from the earnings gate's
+ * `blockedReason`. A `null` reason with the button still disabled (or an unknown reason)
+ * falls back to a neutral message. `thresholdInr` is woven into the below-threshold copy
+ * (config-sourced, never hard-coded).
+ */
+export function payoutBlockedLabel(
+  reason: AgencyPayoutBlockedReason | null,
+  thresholdInr: number,
+): string {
+  switch (reason) {
+    case "kyc_not_verified":
+      return "Complete KYC verification first.";
+    case "below_threshold":
+      return `You need at least ${formatInr(thresholdInr)} to request a payout.`;
+    case "disabled":
+      return "Payouts aren't enabled yet.";
+    default:
+      return "A payout can't be requested right now.";
+  }
 }

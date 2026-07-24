@@ -46,6 +46,21 @@ export function opaqueId(id: string, length = 8): string {
 }
 
 /**
+ * Render a MASKED last-4 for an agency KYC field (PAN / bank account) — four bullet
+ * glyphs then the last-4 the API returns, e.g. "234F" → "••••234F". NEVER a full PAN /
+ * account number (the API only ever returns the last-4). Empty / nullish → "—" so a
+ * not-yet-submitted field renders a neutral dash, never "••••".
+ *
+ *   maskLast4("234F")     === "••••234F"
+ *   maskLast4(null)       === "—"
+ *   maskLast4("  ")       === "—"
+ */
+export function maskLast4(last4: string | null | undefined): string {
+  const s = (last4 ?? "").trim();
+  return s.length === 0 ? "—" : `••••${s}`;
+}
+
+/**
  * Join coarse, non-PII band/signal fragments with the DS middot separator, dropping any
  * empty / nullish parts. Mirrors the applicant feed's `[band, city].filter(Boolean).join(" · ")`
  * and the credits-page join so the separator + drop rule live in ONE place. Returns ""

@@ -38,6 +38,7 @@ export interface ProfileSummarySource {
    */
   rawProfile: unknown;
   confirmedAt: Date | string | null;
+  hasPhoto: boolean;
 }
 
 type Json = Record<string, unknown>;
@@ -143,9 +144,12 @@ function readDisplayName(roleId: string | null, tradeId: string | null): string 
  * defensive narrowing instead of the processor's typed DraftProfile):
  * +1 canonical_role_id, +1 canonical_trade_id, +skills.length, +machines.length,
  * +1 experience.total_years != null, +1 salary amount_min/amount_max present,
- * +1 preferred_cities non-empty, +1 availability.status !== "unknown".
+ * +1 preferred_cities non-empty, +1 availability.status !== "unknown",
+ * +1 has_photo (TD77b — photo-in-strength).
  * Deliberately NOT stored (no new column, no drift with the processor's value).
  */
+const STRENGTH_MAX = 9;
+
 function computeStrength(p: ProfileSummarySource): number {
   let n = 0;
   if (p.canonicalRoleId) n += 1;
@@ -159,6 +163,7 @@ function computeStrength(p: ProfileSummarySource): number {
   if (Array.isArray(cities) && cities.length > 0) n += 1;
   const status = readAvailabilityStatus(p.availability);
   if (status != null && status !== "unknown") n += 1;
+  if (p.hasPhoto) n += 1;
   return n;
 }
 
@@ -172,6 +177,27 @@ function readEducationField(rawProfile: unknown, key: "education_level" | "educa
   return nonBlankStringOrNull(asObject(rawProfile)?.[key]);
 }
 
+/**
+ * Which of the 9 field-group slots are empty/missing. Each maps to exactly one
+ * key in missing_fields. Must stay in sync with computeStrength's dimension set.
+ */
+function computeMissingFields(p: ProfileSummarySource): string[] {
+  const missing: string[] = [];
+  if (!p.canonicalRoleId) missing.push("role");
+  if (!p.canonicalTradeId) missing.push("trade");
+  if (!Array.isArray(p.skills) || p.skills.length === 0) missing.push("skills");
+  if (!Array.isArray(p.machines) || p.machines.length === 0) missing.push("machines");
+  if (asObject(p.experience)?.total_years == null) missing.push("experience");
+  const salary = asObject(p.salaryExpectation);
+  if (salary == null || (salary.amount_min == null && salary.amount_max == null)) missing.push("salary");
+  const cities = asObject(p.locationPreference)?.preferred_cities;
+  if (!Array.isArray(cities) || cities.length === 0) missing.push("location");
+  const status = readAvailabilityStatus(p.availability);
+  if (status == null || status === "unknown") missing.push("availability");
+  if (!p.hasPhoto) missing.push("photo");
+  return missing;
+}
+
 /** No-profile-yet summary: everything null/zero/empty, `profile_status: "none"`. */
 const NO_PROFILE: WorkerProfileSummary = {
   profile_status: "none",
@@ -179,11 +205,14 @@ const NO_PROFILE: WorkerProfileSummary = {
   trade: { canonical_trade_id: null, canonical_role_id: null, display_name: null },
   city: null,
   strength: 0,
+  strength_max: STRENGTH_MAX,
+  missing_fields: ["role", "trade", "skills", "machines", "experience", "salary", "location", "availability", "photo"],
   skills: [],
   machines: [],
   experience_years: null,
   education_level: null,
   education_field: null,
+  has_photo: false,
 };
 
 /** Map the latest profile row (or its absence) to the wire summary. */
@@ -205,6 +234,8 @@ export function toProfileSummary(
     },
     city: readCity(profile.locationPreference),
     strength: computeStrength(profile),
+    strength_max: STRENGTH_MAX,
+    missing_fields: computeMissingFields(profile),
     // Resolve `skill_*` / `mach_*` ids to display names — the resume tab must show
     // "MIG Welding"/"VMC", never a raw id. Non-id strings pass through unchanged.
     skills: readStringArray(profile.skills).map(labelForTaxonomyId),
@@ -212,5 +243,6 @@ export function toProfileSummary(
     experience_years: readExperienceYears(profile.experience),
     education_level: readEducationField(profile.rawProfile, "education_level"),
     education_field: readEducationField(profile.rawProfile, "education_field"),
+    has_photo: profile.hasPhoto,
   };
 }

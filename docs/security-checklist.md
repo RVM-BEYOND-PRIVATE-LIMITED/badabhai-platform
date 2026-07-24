@@ -28,7 +28,9 @@ This file does **not** restate the rules — it points at the file/skill that
 Phone, full name, address, employer names, and ID-doc tokens must **never** appear
 in LLM input, event payloads, `ai_jobs`, `audit_logs`, or logs. Raw PII lives only in
 `workers` (encrypted: `phone_e164` / `full_name` are AES-256-GCM `v1.` tokens;
-`phone_hash` is peppered HMAC-SHA256).
+`phone_hash` is peppered HMAC-SHA256). Payer B2B contact PII (email/phone/org name)
+lives encrypted in `payers` (TD21, ADR-0019 B-R2). Agency financial KYC (PAN/bank)
+encrypted in `agency_kyc` (ADR-0022 Amdt 2, launch-gated OFF).
 
 - [ ] No phone/name/address/employer/ID-doc value reaches **LLM input** — verified for
       this diff. Enforced by [`apps/ai-service/app/pseudonymize.py`](../apps/ai-service/app/pseudonymize.py).
@@ -67,10 +69,9 @@ body that names whose data to act on is an IDOR.
       body to choose whose data to read or mutate — identity comes from the guard.
 - [ ] Ownership is checked server-side (e.g. resume download verifies
       `resume.workerId === worker.id`; see [`apps/api/src/auth/worker-auth.guard.ts`](../apps/api/src/auth/worker-auth.guard.ts)).
-- [ ] Known interim gaps acknowledged where relevant: `PayerAuthGuard` is still
-      `InternalServiceGuard` (TD33 / [contact-unlock threat model](security/contact-unlock-threat-model.md) T7);
-      ops job-postings trust a client `created_by` (TD37). No **client-facing** payer
-      surface ships on the shared secret.
+- [ ] Known interim gaps acknowledged where relevant:
+      - `PayerAuthGuard` is now **built + wired** (ADR-0019 Phase 1) — payer-facing routes derive `payer_id` from session (XB-A). Ops `InternalServiceGuard` `/unlocks*` routes remain interim (TD33/TD50).
+      - Ops job-postings trust a client `created_by` (TD37). No **client-facing** payer surface ships on the shared secret.
 
 ## 4. Secret handling
 
@@ -100,11 +101,13 @@ fine, values never.
 - [ ] Ops / backend-internal routes are behind
       [`apps/api/src/common/guards/internal-service.guard.ts`](../apps/api/src/common/guards/internal-service.guard.ts)
       (fail-closed when `INTERNAL_SERVICE_TOKEN` is unset).
+- [ ] **Payer-authenticated routes** use [`apps/api/src/payer-portal/payer-auth.guard.ts`](../apps/api/src/payer-portal/payer-auth.guard.ts) (`PayerAuthGuard` — derives `payer_id` from session, XB-A; horizontal authz test in `payer-unlocks.controller.test.ts`).
+- [ ] **Agent-only routes** use `PayerRoleGuard` + `@PayerRoles('agent')` (ADR-0022 vertical authz).
 
 ## 6. RLS posture (TD4 — backend still BYPASSRLS)
 
 The spine has ENABLE + FORCE RLS + REVOKE from anon/authenticated/service_role/PUBLIC
-(migration 0009, [TD20]), but the **backend still connects as `postgres`/BYPASSRLS**,
+(migration 0009, [TD20](./registers/tech-debt-register.md)), but the **backend still connects as `postgres`/BYPASSRLS**,
 not a least-privilege app role — that is **TD4**, open.
 
 - [ ] No new direct **client→DB** access or multi-tenant exposure is introduced while
@@ -116,11 +119,10 @@ not a least-privilege app role — that is **TD4**, open.
 - [ ] Authz that "closes with TD4" is named as a **launch gate**, not silently relied
       on (e.g. R11 / `GET /ai-jobs/:id` TD15).
 
-## 7. CORS (TD30 — open, deferred)
+## 7. CORS (TD30 — **Paid 2026-06-23**)
 
-[`apps/api/src/main.ts`](../apps/api/src/main.ts) calls `app.enableCors()` with no
-allow-list, so every origin is permitted in every environment. Acceptable in Phase 1
-only because the ops console is internal (no cross-origin browser client).
+[`apps/api/src/main.ts`](../apps/api/src/main.ts) now resolves CORS from an env-driven,
+fail-closed allow-list with **NO `*`**: `resolveCorsOrigins(config)` routes the dev-permissive branch through [`isDevEnv()`](../packages/config/src/shared.ts) on the **raw** `NODE_ENV` (`development`/`test` → reflect request origin) so UNSET/`staging`/`production` fail closed; outside dev it allows ONLY the exact trimmed `CORS_ALLOWED_ORIGINS` entries (empty list → `false`, deny-all), and the literal `*` is never emitted as a mode.
 
 - [ ] This change does **not** serve a new browser client cross-origin (if it does:
       lock `enableCors()` to an env-driven allow-list routed through

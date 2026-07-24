@@ -9,6 +9,56 @@ written index.
 
 ---
 
+## 2026-07-23 — Payer-web login fix verification (6 PNG screenshots, TD110)
+
+**Source checked:** [`docs/qa/evidence/web app/`](../qa/evidence/web%20app/) (6 screenshots,
+`115022`–`115233`), local dev against the shared Supabase DB (`localhost:3002` payer-web →
+`localhost:3001` api).
+
+**Context:** payer login (email OTP) was crashing on verify with `PostgresError: column
+"org_id" does not exist`, masked client-side into a misleading "Invalid or expired code"
+(no-enumeration verify handler collapses any exception to one message). Root cause was
+shared-DB migration-journal drift — `payer_orgs`/`payer_members` were 14 migrations behind
+`main` (see [TD110](../registers/tech-debt-register.md)). Fixed by hash-diffing every
+migration against the DB journal and applying the 16 genuinely-missing ones.
+
+**Artifacts present:** `115022` dashboard (0 unlocks/postings, fresh employer login) →
+`115115` post-a-job form filled → `115142` manage-postings showing the created "CNC Operator
+Urgent Requiement" draft → `115200` capacity page (concurrent-allowance + mock buy-capacity
+tiers) → `115222`/`115233` dashboard in dark mode + account menu open (`RVM Beyond`,
+`goldyjupiter@gmail.com`, role `EMPLOYER`, status `PENDING`).
+
+**Verdict:** **Company/Employer login → dashboard → post-job → manage-postings → capacity
+verified working end-to-end**, session persists across pages, dark-mode toggle works. Agent
+(agency) role verified separately and independently via a direct `POST /payer/signup`
+(role=`agent`) probe against the live API + a DB check confirming the solo org + owner
+membership were created without error — the fix is role-agnostic (`verifyLogin` has no
+role branch).
+
+**Not staging** — this is local dev against the shared cloud DB, not a staging deploy; does
+not itself move any B1/alpha percentage. It closes the payer-web login regression that was
+blocking this at all.
+
+### Follow-up (same day) — 5 more screenshots (`115509`, `120218`–`120311`), NOT agency evidence
+
+A second capture round was added expecting to show the Agency portal (Agency tab selected
+at login for `tech.rvmcad@gmail.com`). It doesn't: `115509` is a stale-code retry (same
+"Invalid or expired code" as the earlier failure — expected, not a regression); `120218`
+onward is a **second successful login for the SAME account, which is Employer-role** —
+confirmed both by the DB (`payers.role = 'employer'`, `created_at` = this account's
+original signup earlier the same session) and by the payer-web top-nav, which is
+role-dynamic (`for {isAgency ? "Agencies" : "Employers"}`,
+[`layout.tsx:53`](../../apps/payer-web/src/app/(portal)/layout.tsx#L53)) and reads "For
+Employers" in every shot. Reason: `tech.rvmcad@gmail.com` already had an Employer account
+from earlier testing, and re-running signup on the Agency tab with the same email hit
+`createOrGet`'s no-enumeration conflict path, which silently keeps the EXISTING role/org
+rather than creating a new Agency account or erroring — logged as
+[TD111](../registers/tech-debt-register.md). **Net value of this round:** a second,
+independent confirmation the TD110 fix holds on repeat use. Agency-role UI screenshots are
+still open — needs a genuinely unused email signed up via the Agency tab.
+
+---
+
 ## 2026-07-10 — B1 evidence refresh audit (60 PNG screenshots, PR #189/#190)
 
 **Source checked:** [`docs/qa/evidence/b1/`](../qa/evidence/b1/) at `origin/main` `905fd1f`.

@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { NotificationsRepository, type NotificationEventRow } from "./notifications.repository";
-import { NOTIFICATION_TEMPLATES, type WorkerNotification } from "./notifications.dto";
+import { NOTIFICATION_TEMPLATES, templateCopy, type WorkerNotification } from "./notifications.dto";
+import { WorkersRepository } from "../workers/workers.repository";
 
 /** How many recent notifications to project (bounded — newest first). */
 const FEED_LIMIT = 50;
@@ -30,7 +31,10 @@ const SECURITY_SLOTS = 10;
  */
 @Injectable()
 export class NotificationsService {
-  constructor(private readonly repo: NotificationsRepository) {}
+  constructor(
+    private readonly repo: NotificationsRepository,
+    private readonly workersRepo: WorkersRepository,
+  ) {}
 
   /**
    * The worker's Alerts feed, newest first. DELIBERATELY NO EVENT: a read-only
@@ -56,17 +60,23 @@ export class NotificationsService {
       return delta !== 0 ? delta : (b.id > a.id ? 1 : b.id < a.id ? -1 : 0);
     });
 
+    // Fetch worker's language for copy selection. Fail-soft: default to hi/en if
+    // the worker row is missing (defensive — the caller is always an authed worker).
+    const worker = await this.workersRepo.findById(workerId).catch(() => null);
+    const lang = worker?.preferredLanguage ?? null;
+
     const out: WorkerNotification[] = [];
     for (const row of merged) {
       const template = NOTIFICATION_TEMPLATES[row.eventName];
       // Defensive: only allowlisted (templated) events can surface. The repository
       // already filters to these names; a miss here would be a config drift, so skip.
       if (!template) continue;
+      const c = templateCopy(template, lang);
       out.push({
         id: row.id,
         type: template.type,
-        title: template.title,
-        body: template.body,
+        title: c.title,
+        body: c.body,
         created_at: row.occurredAt.toISOString(),
       });
     }

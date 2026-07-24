@@ -45,9 +45,33 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- Route incoming deep-link intents through the Flutter Router
+                 (go_router) instead of dropping them. The referral intent-filter
+                 below hands `badabhai://i/<code>` to the engine; go_router's root
+                 redirect (lib/router.dart) captures the code and bounces to the
+                 normal splash flow. The plain MAIN/LAUNCHER intent has no data
+                 URI, so cold launches still start at '/'. -->
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="true" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- Referral deep link (A3 — worker→worker ADR-0020 + agency ADR-0022
+                 invites share the `/i/<code>` shape). CUSTOM SCHEME on purpose:
+                 verified App Links (https://<share-domain>/i/<code>) need a real
+                 share domain serving /.well-known/assetlinks.json — a deploy/infra
+                 step — so wiring the https `android:autoVerify` intent-filter +
+                 the share domain is a FOLLOW-UP (see kInviteLinkBase in
+                 core/config/app_config.dart). The opaque 12-hex code is captured
+                 by go_router and attributed post-consent, best-effort. iOS is out
+                 of scope (Android-first). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="badabhai" android:host="i"/>
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

@@ -681,3 +681,81 @@ export interface PaceAlerts {
 export function getPaceAlerts(): Promise<PaceAlerts> {
   return apiGet<PaceAlerts>("/pace/alerts");
 }
+
+/* ── Agency KYC review (ADR-0022 Amendment 2) ──────────────────────────────────
+ * OPS-INTERNAL manual review surface, all behind the API's `InternalServiceGuard`
+ * (shared `INTERNAL_SERVICE_TOKEN`, attached server-side by apiGetInternal /
+ * apiPostInternal — the secret NEVER reaches the browser). An operator reviews a
+ * pending agency's KYC submission and flips it to `verified` (the gate the agency
+ * payout flow requires) or `rejected` with a bounded reason code.
+ *
+ * MASKED BY DESIGN: the pending list carries ONLY the last-4 of PAN and bank — the
+ * full PAN/bank are NEVER returned by any endpoint and this console never requests
+ * or renders them. "Verify" is a MANUAL ops decision — there is no automated
+ * registry/bank check behind it.
+ */
+
+/** The bounded reject-reason codes the API accepts (nothing else is valid). */
+export type AgencyKycRejectReason =
+  | "invalid_pan"
+  | "invalid_bank"
+  | "name_mismatch"
+  | "duplicate"
+  | "other";
+
+/**
+ * One pending agency-KYC submission — the MASKED ops projection of
+ * `GET /ops/agency-kyc/pending`. Only last-4 of PAN/bank is ever present; there is
+ * no full-PAN/full-bank field on this (or any) shape by design.
+ */
+export interface AgencyKycPendingRow {
+  payerId: string;
+  submittedAt: string;
+  status: "pending";
+  panLast4: string | null;
+  bankLast4: string | null;
+  rejectReason: AgencyKycRejectReason | null;
+  updatedAt: string;
+}
+
+/**
+ * Result of a verify/reject action. `ok: false` is a HARMLESS no-op — the row was
+ * not pending / was already actioned by another operator — NOT an error.
+ */
+export interface AgencyKycActionResult {
+  ok: boolean;
+}
+
+/**
+ * `GET /ops/agency-kyc/pending` (InternalServiceGuard). The masked pending queue.
+ * Server-side only (the shared secret never reaches the browser).
+ */
+export function listPendingAgencyKyc(): Promise<AgencyKycPendingRow[]> {
+  return apiGetInternal<AgencyKycPendingRow[]>("/ops/agency-kyc/pending");
+}
+
+/**
+ * `POST /ops/agency-kyc/:payerId/verify` (InternalServiceGuard). Flips the agency's
+ * KYC to `verified`. `ok: false` means it was not pending / already actioned (no-op).
+ * Server-side only.
+ */
+export function verifyAgencyKyc(payerId: string): Promise<AgencyKycActionResult> {
+  return apiPostInternal<AgencyKycActionResult>(
+    `/ops/agency-kyc/${encodeURIComponent(payerId)}/verify`,
+  );
+}
+
+/**
+ * `POST /ops/agency-kyc/:payerId/reject` (InternalServiceGuard). Rejects the
+ * submission with a bounded `reason`. `ok: false` means it was not pending /
+ * already actioned (no-op). Server-side only.
+ */
+export function rejectAgencyKyc(
+  payerId: string,
+  reason: AgencyKycRejectReason,
+): Promise<AgencyKycActionResult> {
+  return apiPostInternal<AgencyKycActionResult>(
+    `/ops/agency-kyc/${encodeURIComponent(payerId)}/reject`,
+    { reason },
+  );
+}

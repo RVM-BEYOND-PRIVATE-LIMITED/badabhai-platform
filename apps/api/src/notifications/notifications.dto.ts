@@ -12,7 +12,14 @@
  * `interview_kit.render_completed` carries no `worker_id` (a shared per-trade
  * artifact, subject_id=null) so it is not worker-scopable — see TD in
  * docs/registers/tech-debt-register.md.
+ *
+ * Copy is per-language (TD89): each template holds a Record of language codes to static
+ * copy. The worker's `preferred_language` selects the variant at read time. Fallback
+ * chain: requested lang → `en` → first available. Copy is NEVER interpolated from an
+ * event payload — same §2 guarantee, now localized.
  */
+
+import type { LanguageCode } from "@badabhai/types";
 
 /** Coarse notification type the client maps to an icon/tone. NOT the event name. */
 export type NotificationType =
@@ -23,11 +30,17 @@ export type NotificationType =
   | "application_sent"
   | "security";
 
+/** Static copy for one language — title + body, never interpolated. */
+export interface TemplateCopy {
+  title: string;
+  body: string;
+}
+
 /** One faceless template: what a worker sees for an allowlisted event. */
 interface NotificationTemplate {
   type: NotificationType;
-  title: string;
-  body: string;
+  /** Static copy per language code — at minimum `hi` must exist. */
+  copy: Partial<Record<LanguageCode, TemplateCopy>>;
   /**
    * ADR-0034 — does this template ALSO go out as an FCM push?
    *
@@ -42,6 +55,15 @@ interface NotificationTemplate {
    * quiet start is the right posture for a channel that buzzes a worker's phone.
    */
   push: boolean;
+}
+
+/** Select the best available copy for a language. Falls back: requested → en → first. */
+export function templateCopy(
+  template: NotificationTemplate,
+  lang?: LanguageCode | null,
+): TemplateCopy {
+  const fallback = template.copy["en"] ?? Object.values(template.copy)[0]!;
+  return template.copy[lang ?? "hi"] ?? fallback;
 }
 
 /**
@@ -66,29 +88,37 @@ export const NOTIFICATION_TEMPLATES: Readonly<Record<string, NotificationTemplat
   // resume.generated (registry.ts) — actor=system, worker_id in payload.
   "resume.generated": {
     type: "resume_ready",
-    title: "Resume taiyaar hai",
-    body: "Aapka naya resume ban gaya — dekhein aur download karein.",
+    copy: {
+      hi: { title: "Resume taiyaar hai", body: "Aapka naya resume ban gaya — dekhein aur download karein." },
+      en: { title: "Resume ready", body: "Your new resume is ready — view and download." },
+    },
     push: false, // deferred (ADR-0034 scope: security only)
   },
   // resume.regenerated — actor=system, worker_id in payload.
   "resume.regenerated": {
     type: "resume_updated",
-    title: "Resume update hua",
-    body: "Aapke resume ka naya version taiyaar hai.",
+    copy: {
+      hi: { title: "Resume update hua", body: "Aapke resume ka naya version taiyaar hai." },
+      en: { title: "Resume updated", body: "Your resume has been updated to a new version." },
+    },
     push: false, // deferred
   },
   // profile.confirmed — actor=worker, subject=profile.
   "profile.confirmed": {
     type: "profile_ready",
-    title: "Profile taiyaar hai",
-    body: "Aapki profile confirm ho gayi.",
+    copy: {
+      hi: { title: "Profile taiyaar hai", body: "Aapki profile confirm ho gayi." },
+      en: { title: "Profile ready", body: "Your profile has been confirmed." },
+    },
     push: false, // deferred
   },
   // voice_note.transcription_completed — actor=ai_service, worker_id in payload.
   "voice_note.transcription_completed": {
     type: "voice_processed",
-    title: "Voice note taiyaar",
-    body: "Aapka voice note process ho gaya.",
+    copy: {
+      hi: { title: "Voice note taiyaar", body: "Aapka voice note process ho gaya." },
+      en: { title: "Voice note ready", body: "Your voice note has been processed." },
+    },
     push: false, // deferred
   },
   // application.submitted — actor=worker, worker_id in payload. (subject=job, so the
@@ -100,15 +130,19 @@ export const NOTIFICATION_TEMPLATES: Readonly<Record<string, NotificationTemplat
   // gayi" rather than "employer tak pahunch gayi". Same receipt, no counterparty.
   "application.submitted": {
     type: "application_sent",
-    title: "Application bhej di",
-    body: "Aapki application aage pahunch gayi.",
+    copy: {
+      hi: { title: "Application bhej di", body: "Aapki application aage pahunch gayi." },
+      en: { title: "Application sent", body: "Your application has been submitted." },
+    },
     push: false, // NEVER: the worker just tapped apply — buzzing them about their own action is noise
   },
   // worker.device_registered — actor=subject=worker.
   "worker.device_registered": {
     type: "security",
-    title: "Naye device se login",
-    body: "Aapke account mein ek naye device se login hua.",
+    copy: {
+      hi: { title: "Naye device se login", body: "Aapke account mein ek naye device se login hua." },
+      en: { title: "New device login", body: "A new device has logged into your account." },
+    },
     // PUSH: the SIM-swap alarm. Goes to the worker's OTHER devices, never the one that
     // just logged in — otherwise an attacker's handset gets the warning and the real
     // owner does not (owner ruling 2026-07-17).
@@ -117,8 +151,10 @@ export const NOTIFICATION_TEMPLATES: Readonly<Record<string, NotificationTemplat
   // worker.logged_out_all — actor=subject=worker.
   "worker.logged_out_all": {
     type: "security",
-    title: "Sabhi devices se logout",
-    body: "Aapko sabhi devices se logout kar diya gaya.",
+    copy: {
+      hi: { title: "Sabhi devices se logout", body: "Aapko sabhi devices se logout kar diya gaya." },
+      en: { title: "Logged out everywhere", body: "You have been logged out of all devices." },
+    },
     // PUSH: goes to the devices this operation JUST revoked — the one case allowed to
     // target revoked devices, because telling them is the entire point.
     push: true,

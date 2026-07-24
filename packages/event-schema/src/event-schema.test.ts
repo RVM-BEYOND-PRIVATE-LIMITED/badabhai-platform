@@ -2129,8 +2129,8 @@ describe("worker.push_sent / worker.push_send_failed (ADR-0034)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 109 event names (107 prior + worker.push_sent/push_send_failed [ADR-0034])", () => {
-    expect(EVENT_NAMES).toHaveLength(109);
+  it("exposes all 116 event names (109 prior + agency_kyc.* ×3 + agency_payout.* ×4 [ADR-0022 Amdt 2])", () => {
+    expect(EVENT_NAMES).toHaveLength(116);
     expect(isEventName("skill.phrase_unresolved")).toBe(true);
     expect(isEventName("worker.otp_send_failed")).toBe(true);
     expect(isEventName("worker.deletion_scheduled")).toBe(true);
@@ -2172,6 +2172,13 @@ describe("registry", () => {
     expect(isEventName("job.closed")).toBe(true);
     expect(isEventName("agency_invite.created")).toBe(true);
     expect(isEventName("agency_invite.accepted")).toBe(true);
+    expect(isEventName("agency_kyc.submitted")).toBe(true);
+    expect(isEventName("agency_kyc.verified")).toBe(true);
+    expect(isEventName("agency_kyc.rejected")).toBe(true);
+    expect(isEventName("agency_payout.accrued")).toBe(true);
+    expect(isEventName("agency_payout.requested")).toBe(true);
+    expect(isEventName("agency_payout.blocked")).toBe(true);
+    expect(isEventName("agency_payout.paid")).toBe(true);
     expect(isEventName("pace.wave_widened")).toBe(true);
     expect(isEventName("pace.ops_alert_raised")).toBe(true);
     expect(isEventName("payer.created")).toBe(true);

@@ -112,6 +112,11 @@ export const serverEnvSchema = z.object({
   // would let a hostile worker fabricate unlimited ≤2MiB orphan objects (upload-but-
   // never-confirm) — a storage-cost + erasure-surface abuse. Same fail-closed idiom.
   PHOTO_RATE_LIMIT_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // Referral-attribution hook (ADR-0022 Amendment 1) per-IP cap / rolling UTC hour. The
+  // worker-authed POST /referrals/attribute is a low-frequency onboarding side-signal; an
+  // uncapped one lets an authed worker spam attribution reads (DB-load + a timing probe) —
+  // bb-security-review LOW-MED. Same fail-closed idiom (Redis outage → 429, never uncapped).
+  REFERRAL_ATTRIBUTE_MAX_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
   // Interview-kit content version. Part of the render-once identity (tradeKey +
   // contentVersion). BUMP this whenever any kit copy changes so a fresh PDF is
   // rendered instead of serving the stale cached file. Never reuse an old value.
@@ -581,6 +586,24 @@ export const serverEnvSchema = z.object({
   // booleanFromString (NOT z.coerce.boolean, whose "false"/"0" coerce to TRUE) so a
   // falsey string stays OFF — fail-safe to today's behaviour.
   CHAT_ONE_SHOT_OPENER_ENABLED: booleanFromString,
+
+  // ── Agency payout ledger (ADR-0022 module 3+7, Amendment 2, owner-ratified 2026-07-23) ──
+  // Master switch for the agency SUPPLY payout surface. Default OFF = inert: the payout
+  // request/earnings routes return a neutral 404 and NO accrual is ever claimed into a
+  // request. MOCK throughout (no real disbursement; PAYMENTS_ENABLE_REAL stays the separate
+  // §7 gate for real outbound money). booleanFromString (NOT z.coerce.boolean) so a falsey
+  // string stays OFF — fail-safe to inert, exactly like CAPACITY_ENFORCEMENT_ENABLED /
+  // AI_ENABLE_REAL_CALLS. Flipping this ON is a launch decision that ALSO presupposes the
+  // legal/DPDP sign-off on live KYC collection (ADR-0022 Appendix D#2).
+  AGENCY_PAYOUTS_ENABLED: booleanFromString,
+  // The owner-ratified commission economics (ADR-0022 Amendment 2). Kept as config (not
+  // hard-coded) so the numbers live in ONE place and are stamped onto each accrual row.
+  // ₹40 = the unlock revenue anchor; 2500 bps = 25%; 90-day first-touch attribution window;
+  // ₹500 = the minimum requestable payout threshold.
+  AGENCY_PAYOUT_UNLOCK_BASIS_INR: z.coerce.number().int().positive().default(40),
+  AGENCY_PAYOUT_RATE_BPS: z.coerce.number().int().positive().max(10000).default(2500),
+  AGENCY_PAYOUT_WINDOW_DAYS: z.coerce.number().int().positive().default(90),
+  AGENCY_PAYOUT_MIN_THRESHOLD_INR: z.coerce.number().int().positive().default(500),
 
   // PACE supply-widening (ADR-0021 — CONFIG-DRIVEN, deterministic, no LLM). The widen
   // DECISION is a pure function of these rules; nothing is hard-coded in the service.

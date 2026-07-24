@@ -274,3 +274,70 @@ For the parked half (escalate to product + human/legal; surface trade-offs, do n
 7. Surface confirmation — the agency portal is a role-aware view inside apps/payer-web (ADR-0019 Decision A), NOT a new app and NOT in apps/web ops console. Confirm web-app lock intent that agency demand = alpha, supply dashboard = fast-follow.
 
 ESCALATION POSTURE: this ADR proposes ONLY the additive, faceless, mock, event-first demand slice. Anything in items 1–4 (KYC, attribution params, real money, real comms) expands scope / weakens a gate / commits real spend and is NOT decided here — it is surfaced for human/product/legal sign-off per CLAUDE.md §7.
+
+---
+
+## Amendment 1 (2026-07-23) — worker-side attribution LINKAGE wired (ungated slice only)
+
+**Status:** ACCEPTED (owner sign-off 2026-07-23). Scope authorized: the **ungated attribution → funnel slice ONLY**. The payout model (Appendix D #1: `90d/25%/₹500`), KYC (Appendix D #2), real outbound money (Appendix D #3), and earnings analytics remain **PARKED / LEGAL_MONEY_GATE** unchanged — nothing here builds, ratifies, or presupposes them.
+
+**What the owner ratified:** the worker-side invite-attribution **LINKAGE MECHANIC** (the TD48 un-defer precondition), NOT the payout model. The `agency_invites` INTENT record stays a faceless, ids-only, payout-free signal exactly as §d specifies; this amendment only gives it a live producer.
+
+**Decision — how the previously-INERT attribution seams get a caller (closes TD48):**
+
+1. **Unified worker-onboarding hook — `POST /referrals/attribute`** (new [`apps/api/src/referrals/`](../../apps/api/src/referrals/) module). Auth: `WorkerAuthGuard` — the `invited_worker_id` is ALWAYS the verified SESSION worker (never a body id; the XB-A rule), so a caller can only ever attribute THEMSELVES. Body: `{ code }` (12-hex). Response: a neutral `{ ok: true }` **regardless of outcome** (no-oracle — never reveals whether the code matched or who invited). This is the "fold agency codes into the invite/consent flow" option from the TD48 trigger — chosen over a second public per-namespace click/accept surface.
+
+2. **Namespace disambiguation** (Appendix D #5 sibling-table consequence): `invites` (ADR-0020 worker→worker) and `agency_invites` (ADR-0022 agency→worker) share the opaque `/i/<code>` shape across two tables. Codes are random 12-hex → disjoint by construction. The service tries the **worker** seam (`InviteService.recordAccept`) first and falls through to the **agency** seam (`AgencyService.attributeWorkerToInvite`) ONLY on `unknown_code`; a KNOWN worker invite that can't attribute (self / already) is terminal.
+
+3. **Consent gate (invariant #6) enforced in one place, fail-CLOSED.** `ReferralAttributionService` re-reads the worker's latest consent (`ConsentRepository.findLatestByWorker`, `revokedAt IS NULL`) BEFORE touching either seam — so the worker→worker path (whose `recordAccept` does not itself check consent) is now consent-gated too, satisfying Appendix-C C.1 #1 for BOTH namespaces. The hook is called by the client AFTER `consent.accepted`.
+
+4. **Fail-safe.** Attribution is a best-effort side-signal; the service never throws to the caller and the controller ignores the outcome — a failure can never break worker onboarding.
+
+5. **Events unchanged.** `invite.accepted` / `agency_invite.accepted` (both registered v1) are emitted by the existing seams — no new event, no payload change (Appendix D #6 answer stands).
+
+6. **Client capture (Flutter, Android-first).** The `/i/<code>` deep-link is captured via a **custom scheme** (`badabhai://i/<code>`) into a pending-referral store, carried through login+consent, and consumed once by a fire-and-forget call to the hook after consent. Verified **App Links** (https + `assetlinks.json` on the real share domain) and **Play Install Referrer** (deferred-deep-link for fresh installs) are a deploy/infra follow-up (new TDs).
+
+**Explicitly still deferred (unchanged by this amendment):** the payout accrual model + ledger, agency KYC, earnings/commission analytics (all Appendix D #1–#3), AND — within the funnel itself — the richer `installed → profile_completed → active` stages (the funnel stays `created / clicked / accepted`; deeper stages need new lifecycle signals) and a worker-reachable **agency click** path (the agency click route is agent-gated today, so the agency funnel's `clicked` stage has no worker producer). Logged as follow-up tech-debt.
+
+---
+
+## Amendment 2 (2026-07-23) — KYC gate + payout ledger + earnings, built MOCK + launch-gated
+
+**Status:** ACCEPTED (owner ratification 2026-07-23). This is the **product ratification** Appendix D#1 required: the owner, acting as product owner, explicitly instructed building modules **1 (KYC), 3 (attribution→payout) and 7 (payout/commission ledger)** and **ratified the previously-UNRATIFIED params in writing**: **25% × ₹40 per contact unlock, a 90-day first-touch attribution window, a ₹500 minimum requestable payout.** The supply money loop is built as a **MOCK, launch-gated** system — matching the ADR-0016 (mock payments, enforcement-inert-by-default) and ADR-0010 (mock credits) precedent — NOT as a live money-out or live-KYC system.
+
+**What was built (this amendment):**
+
+1. **Config-driven economics (owner-ratified, overridable):** `AGENCY_PAYOUT_UNLOCK_BASIS_INR=40`, `AGENCY_PAYOUT_RATE_BPS=2500` (25%), `AGENCY_PAYOUT_WINDOW_DAYS=90`, `AGENCY_PAYOUT_MIN_THRESHOLD_INR=500`. Each accrual **stamps** basis+rate so a later config edit never rewrites history (mirrors `credit_ledger.price_inr`).
+
+2. **Launch gate — `AGENCY_PAYOUTS_ENABLED` (default OFF, fail-safe inert).** While OFF, **every** agency KYC/earnings/payout route is a **neutral 404** (`AgencyPayoutsEnabledGuard`, the `TEST_LOGIN_ENABLED` inert-404 pattern) — so **no financial PII is even collected** until the surface is deliberately turned on. Flipping it ON is a launch decision that **presupposes the legal/DPDP sign-off** below.
+
+3. **KYC (module 1) under ADR-0004 financial-PII discipline.** New `agency_kyc` table: PAN/bank/IFSC/holder-name are **AES-256-GCM ciphertext + a keyed HMAC** (PAN dedup), **FORCE-RLS + REVOKE** (migration 0048), backend-service-role only. These values **never** reach events / `ai_jobs` / `audit_logs` / logs / LLM input — only the opaque `payer_id` + `status` enum leave the row, and reads are **masked (last-4) for everyone** (owner AND ops); there is **no endpoint that returns the full PAN/bank to any principal**. Verification is **ops-manual** (`InternalServiceGuard`, the apps/web ops console) — a **mock human ack, not a real-registry check**.
+
+4. **Payout ledger (modules 3+7), computed off REAL event data.** `agency_payout_accruals` (append-only, PII-free, idempotent per `source_unlock_id`) accrues `rate × basis` for every **granted `unlocks` row** on a worker the agency referred (`agency_invites.invited_worker_id`), whose `granted_at` falls within the window of the invite's new `attributed_at` anchor. `agency_payout_requests` is the **MOCK** request: `status='paid'` is **inert** (no disbursement). The request GATE is **provably unreachable without a `verified` KYC row AND ≥ ₹500 requestable** — a refusal emits `agency_payout.blocked{reason}` and changes no state (a KYC-bypass test pins this).
+
+5. **Earnings/commission analytics off real accrual data** (module 3) — aggregate ₹ only, no per-worker rows.
+
+6. **Events — 7 new PII-free v1 events, 2 new domains** (`agency_kyc.*`, `agency_payout.*`): ids/₹/enum/reason-CODE only, `.strict()`; every KYC, attribution, and payout action emits one.
+
+7. **Migration 0048 GENERATED, NOT RUN** (`packages/db/migrations/0048_empty_archangel.sql`) — apply is owner-gated (§7); rollback = drop the 3 tables child-first + the `attributed_at` column.
+
+**Single-owner-per-app:** the payout/KYC logic lives in the existing **agency module** (alongside agency-invites), reusing the event spine, `PiiCryptoService`, the pricing ₹ anchor, and the credit-ledger patterns — NOT a forked billing stack.
+
+**STILL DEFERRED behind their launch gates (NOT crossed by this amendment):**
+- **Legal/DPDP sign-off on LIVE real-KYC collection** (Appendix D#2: lawful basis / purpose / retention / erasure copy for financial PII) — required before `AGENCY_PAYOUTS_ENABLED` is flipped ON in front of real agencies. The machinery is built to the at-rest discipline; the **legal authorization to collect live is a human gate**.
+- **§7 real outbound money** (Appendix D#3): a real payout provider + real disbursement + `PAYMENTS_ENABLE_REAL`-style discipline + human authorization. `status='paid'` stays inert until then.
+- **Real-registry KYC verification** (vs the current ops mock ack) — needs a provider (D#2/D#3 track).
+
+These three remain the explicit go-live gates; this amendment builds and gates the machinery, it does not turn it on.
+
+### Security review (2026-07-23) — 6 findings, 0 Critical/High; 2 fixed, 4 are FIX-BEFORE-FLIP
+
+An adversarial multi-reviewer pass (PII-boundary / authz-IDOR / money-correctness / event-spine) found **no Critical/High** and confirmed the PII boundary + authz + gate logic hold. Every finding is neutralized today by the surface being MOCK + `AGENCY_PAYOUTS_ENABLED`-OFF (accrual is unreachable, no money moves).
+
+**Fixed in this PR:**
+- **KYC re-decision audit gap** — `agency_kyc.verified/.rejected` idempotency keys were payer-scoped only, so a re-verify/re-reject after a KYC resubmit was deduped off the events spine (invariant #1). Now keyed per-decision (`…:${payerId}:${transitionTs}`), mirroring the submit key.
+- **`verified_at` on a rejection** — `markRejected` stamped `verified_at`, mislabeling a rejected KYC as verified. Removed (`updated_at` records the disposition time); no money bypass (the gate reads `status`).
+
+**FIX-BEFORE-FLIP (added to the go-live gates above — must close before `AGENCY_PAYOUTS_ENABLED` is turned ON; gated OFF today so no live impact):**
+- **Single-agency-per-worker ownership** (MEDIUM→HIGH-once-live). Accrual dedup is `UNIQUE(source_unlock_id)` **global** (no double-pay ✓), but nothing stops a worker being attributed to two agencies (`agency_invites.invited_worker_id` non-unique; `attributeWorkerToInvite` guards only its own invite; `POST /referrals/attribute` accepts repeated codes). A contested worker's ₹ then goes to whichever agency **recomputes first** (race), not first-touch. **Fix needs a product call** (first-touch vs last-touch — ADR §262 unratified) + a migration (partial-unique on `invited_worker_id` or a single-agency attribution guard, or exclude multiply-attributed workers from accrual).
+- **Event-after-commit dual-write on the ledger** (LOW). `recomputeAccruals` (accruals) and `createRequestClaiming` (payout request) commit the money-ledger rows, then emit `agency_payout.accrued/.requested` **outside** the transaction; a mid-emit failure leaves a committed ledger row with no spine event, un-retried (idempotent insert returns nothing next time). Follows the codebase's emit-after-commit convention but a money ledger should co-commit — thread `EventsService.emit`'s `tx` param into the accrual/claim transactions (mirroring `AdminActionsService.grantCredits`).

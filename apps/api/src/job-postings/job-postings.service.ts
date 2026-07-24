@@ -10,7 +10,7 @@ import type { JobPosting } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { AiService } from "../ai/ai.service";
-import { JobPostingsRepository, type JobPostingUpdate } from "./job-postings.repository";
+import { JobPostingsRepository, type JobPostingApi, type JobPostingUpdate } from "./job-postings.repository";
 import type {
   CreateJobPostingDto,
   ListJobPostingsQueryDto,
@@ -105,7 +105,7 @@ export class JobPostingsService {
 
   // ----- OPS surface (ADR-0012, unchanged) ----------------------------------
 
-  async create(dto: CreateJobPostingDto, ctx: RequestContext): Promise<JobPosting> {
+  async create(dto: CreateJobPostingDto, ctx: RequestContext): Promise<JobPostingApi> {
     return this.insertAndEmit(
       {
         createdBy: dto.created_by,
@@ -123,17 +123,17 @@ export class JobPostingsService {
     );
   }
 
-  list(query: ListJobPostingsQueryDto): Promise<JobPosting[]> {
+  list(query: ListJobPostingsQueryDto): Promise<JobPostingApi[]> {
     return this.repo.list(query.status);
   }
 
-  async getOne(id: string): Promise<JobPosting> {
+  async getOne(id: string): Promise<JobPostingApi> {
     const row = await this.repo.findById(id);
     if (!row) throw new NotFoundException(`Job posting ${id} not found`);
     return row;
   }
 
-  async update(id: string, dto: UpdateJobPostingDto, ctx: RequestContext): Promise<JobPosting> {
+  async update(id: string, dto: UpdateJobPostingDto, ctx: RequestContext): Promise<JobPostingApi> {
     const current = await this.getOne(id);
     const prepared = this.prepareUpdate(current, dto);
     if (prepared.changedFields.includes("skills")) {
@@ -145,14 +145,14 @@ export class JobPostingsService {
 
     await this.emitUpdated(
       updated,
-      { actor_type: "ops", actor_id: updated.createdBy },
+      { actor_type: "ops", actor_id: updated.created_by },
       prepared,
       ctx,
     );
     return updated;
   }
 
-  async close(id: string, ctx: RequestContext): Promise<JobPosting> {
+  async close(id: string, ctx: RequestContext): Promise<JobPostingApi> {
     const current = await this.getOne(id);
     const previousStatus = assertCloseable(current);
 
@@ -161,7 +161,7 @@ export class JobPostingsService {
 
     await this.emitClosed(
       closed,
-      { actor_type: "ops", actor_id: closed.createdBy },
+      { actor_type: "ops", actor_id: closed.created_by },
       previousStatus,
       ctx,
     );
@@ -175,7 +175,7 @@ export class JobPostingsService {
     payerId: string,
     dto: PayerCreateJobPostingDto,
     ctx: RequestContext,
-  ): Promise<JobPosting> {
+  ): Promise<JobPostingApi> {
     return this.insertAndEmit(
       {
         // The payer is BOTH the owner and the (only) creator identity we have.
@@ -194,12 +194,12 @@ export class JobPostingsService {
     );
   }
 
-  listForPayer(payerId: string, query: ListJobPostingsQueryDto): Promise<JobPosting[]> {
+  listForPayer(payerId: string, query: ListJobPostingsQueryDto): Promise<JobPostingApi[]> {
     return this.repo.listByPayer(payerId, query.status);
   }
 
   /** One of the caller's OWN postings; no-oracle 404 for an unknown OR foreign id. */
-  async getOneForPayer(id: string, payerId: string): Promise<JobPosting> {
+  async getOneForPayer(id: string, payerId: string): Promise<JobPostingApi> {
     const row = await this.repo.findByIdAndPayer(id, payerId);
     if (!row) throw new NotFoundException("Job posting not found");
     return row;
@@ -210,7 +210,7 @@ export class JobPostingsService {
     payerId: string,
     dto: UpdateJobPostingDto,
     ctx: RequestContext,
-  ): Promise<JobPosting> {
+  ): Promise<JobPostingApi> {
     const current = await this.getOneForPayer(id, payerId); // no-oracle 404
     const prepared = this.prepareUpdate(current, dto);
     if (prepared.changedFields.includes("skills")) {
@@ -224,7 +224,7 @@ export class JobPostingsService {
     return updated;
   }
 
-  async closeForPayer(id: string, payerId: string, ctx: RequestContext): Promise<JobPosting> {
+  async closeForPayer(id: string, payerId: string, ctx: RequestContext): Promise<JobPostingApi> {
     const current = await this.getOneForPayer(id, payerId); // no-oracle 404
     const previousStatus = assertCloseable(current);
 
@@ -241,7 +241,7 @@ export class JobPostingsService {
    * → 409 (without leaking which). A paused posting is excluded from any open-filtered feed
    * until resumed. Emits the PII-free `job_posting.paused`.
    */
-  async pauseForPayer(id: string, payerId: string, ctx: RequestContext): Promise<JobPosting> {
+  async pauseForPayer(id: string, payerId: string, ctx: RequestContext): Promise<JobPostingApi> {
     await this.getOneForPayer(id, payerId); // no-oracle 404 (unknown OR foreign id)
     const paused = await this.repo.transitionOwned(id, payerId, "open", "paused");
     if (!paused) throw new ConflictException("Only an open job posting can be paused");
@@ -261,7 +261,7 @@ export class JobPostingsService {
    * payer_id + status='paused' (non-paused / gone / not-owned → 409). Emits the PII-free
    * `job_posting.resumed`.
    */
-  async resumeForPayer(id: string, payerId: string, ctx: RequestContext): Promise<JobPosting> {
+  async resumeForPayer(id: string, payerId: string, ctx: RequestContext): Promise<JobPostingApi> {
     await this.getOneForPayer(id, payerId); // no-oracle 404
     const resumed = await this.repo.transitionOwned(id, payerId, "paused", "open");
     if (!resumed) throw new ConflictException("Only a paused job posting can be resumed");
@@ -294,16 +294,16 @@ export class JobPostingsService {
     },
     actor: JobPostingActor,
     ctx: RequestContext,
-  ): Promise<JobPosting> {
+  ): Promise<JobPostingApi> {
     // status is ALWAYS draft on create — any client-supplied status is ignored.
     const row = await this.repo.create({ ...input, status: "draft" });
 
     const payload: PayloadInputOf<"job_posting.created"> = {
       job_posting_id: row.id,
-      vacancy_band: row.vacancyBand,
+      vacancy_band: row.vacancy_band,
       status: "draft",
-      created_by: row.createdBy,
-      has_location: row.locationLabel != null,
+      created_by: row.created_by,
+      has_location: row.location_label != null,
       has_description: row.description != null,
     };
     await this.events.emit(this.emitParams("job_posting.created", row.id, actor, payload, ctx));
@@ -315,7 +315,7 @@ export class JobPostingsService {
    * changed-field KEY list in lockstep (KEYS only, never the values — no free text
    * leaves this method). Throws the lifecycle/no-op errors. Shared by both surfaces.
    */
-  private prepareUpdate(current: JobPosting, dto: UpdateJobPostingDto): PreparedUpdate {
+  private prepareUpdate(current: JobPostingApi, dto: UpdateJobPostingDto): PreparedUpdate {
     // closed is terminal: no edits, no status changes.
     if (current.status === "closed") {
       throw new ConflictException("Job posting is closed and cannot be edited");
@@ -328,15 +328,15 @@ export class JobPostingsService {
     const patch: JobPostingUpdate = { updatedAt: new Date() };
     const changedFields: PreparedUpdate["changedFields"] = [];
 
-    if (dto.org_label !== undefined && dto.org_label !== current.orgLabel) {
+    if (dto.org_label !== undefined && dto.org_label !== current.org_label) {
       patch.orgLabel = dto.org_label;
       changedFields.push("org_label");
     }
-    if (dto.role_title !== undefined && dto.role_title !== current.roleTitle) {
+    if (dto.role_title !== undefined && dto.role_title !== current.role_title) {
       patch.roleTitle = dto.role_title;
       changedFields.push("role_title");
     }
-    if (dto.location_label !== undefined && dto.location_label !== current.locationLabel) {
+    if (dto.location_label !== undefined && dto.location_label !== current.location_label) {
       patch.locationLabel = dto.location_label;
       changedFields.push("location_label");
     }
@@ -351,7 +351,7 @@ export class JobPostingsService {
       dto.vacancies !== undefined ? bandForCount(dto.vacancies) : dto.vacancy_band;
 
     let bandChanged = false;
-    if (requestedBand !== undefined && requestedBand !== current.vacancyBand) {
+    if (requestedBand !== undefined && requestedBand !== current.vacancy_band) {
       patch.vacancyBand = requestedBand;
       changedFields.push("vacancy_band");
       bandChanged = true;
@@ -368,8 +368,8 @@ export class JobPostingsService {
     // changes") forever; re-PATCHing the same skills is the operator's retry.
     if (
       dto.skills !== undefined &&
-      (JSON.stringify(dto.skills) !== JSON.stringify(current.skillPhrases) ||
-        (dto.skills.length > 0 && current.skillIds.length === 0))
+      (JSON.stringify(dto.skills) !== JSON.stringify(current.skill_phrases) ||
+        (dto.skills.length > 0 && current.skill_ids.length === 0))
     ) {
       patch.skillPhrases = dto.skills;
       changedFields.push("skills");
@@ -389,7 +389,7 @@ export class JobPostingsService {
   }
 
   private emitUpdated(
-    updated: JobPosting,
+    updated: JobPostingApi,
     actor: JobPostingActor,
     prepared: PreparedUpdate,
     ctx: RequestContext,
@@ -399,7 +399,7 @@ export class JobPostingsService {
       changed_fields: prepared.changedFields,
       status: updated.status,
       // Only carry the band when it actually changed; otherwise null.
-      vacancy_band: prepared.bandChanged ? updated.vacancyBand : null,
+      vacancy_band: prepared.bandChanged ? updated.vacancy_band : null,
     };
     return this.events.emit(
       this.emitParams("job_posting.updated", updated.id, actor, payload, ctx),
@@ -407,7 +407,7 @@ export class JobPostingsService {
   }
 
   private emitClosed(
-    closed: JobPosting,
+    closed: JobPostingApi,
     actor: JobPostingActor,
     previousStatus: "draft" | "open",
     ctx: RequestContext,
@@ -459,7 +459,7 @@ function resolveCreateBand(
  * is terminal; a `paused` posting (B1) must be RESUMED before closing (so the shipped
  * `job_posting.closed` payload's `previous_status` stays draft|open — no event-schema change).
  */
-function assertCloseable(current: JobPosting): "draft" | "open" {
+function assertCloseable(current: JobPostingApi): "draft" | "open" {
   if (current.status === "closed") {
     throw new ConflictException("Job posting is already closed");
   }

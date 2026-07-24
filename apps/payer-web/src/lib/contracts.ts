@@ -722,33 +722,143 @@ export const agencyInviteWireSchema = z.object({
 });
 export type AgencyInvite = z.infer<typeof agencyInviteWireSchema>;
 
-/* ── @parked Phase-2 SUPPLY contract shells (TYPE-ONLY) ──────────────────────────
+/* ── Agency SUPPLY money — earnings / KYC / payout (ADR-0022 Amendment 2, LIVE) ────
  *
- * @parked Phase-2 — agency SUPPLY (referrals / payouts / KYC) is CEO-gated and NOT
- * built in Phase 1 (CLAUDE.md §8 deferred; D2/D3). These are TYPE shells ONLY: there
- * is NO seam fn, NO endpoint, NO mock data, and NO function that returns them. They
- * exist so the eventual build pins shapes in one place. KYC is a HIGH-sensitivity PII
- * surface — building anything here pulls a parked, backend-heavy slice forward.
+ * The agency's OWN referral-earnings surface: mock-money rev-share accrued on contact
+ * unlocks of workers THIS agency referred, its KYC status, and payout requests. All
+ * routes are agent-role-gated + payer-authed (XB-A: the session is the identity, NEVER
+ * a body payer_id) and MOCK-money (no real disbursement).
+ *
+ * GATE (fail-closed): while `AGENCY_PAYOUTS_ENABLED` is OFF (default) every
+ * `/payer/agency/{kyc,earnings,payouts}` route returns 404 — the seam maps that 404 to
+ * a "not enabled" signal (`null`) so the UI renders a graceful "coming soon" inert
+ * state, NOT an error.
+ *
+ * PII: the wire NEVER carries a raw PAN / bank number — only the MASKED last-4
+ * (`panLast4` / `bankLast4`), the sibling of the masked-initials motif. The raw values
+ * are write-only (the KYC submit BODY, never a response). Amounts are whole ₹ integers.
  */
 
-/** @parked Phase-2 — an agency referral link. No seam fn, no endpoint. */
-export interface ReferralLink {
-  referralId: string;
-  code: string;
-  createdAt: string;
-  status: "active" | "disabled";
-}
+/** Agency KYC state — mirrors the backend `status` enum (never a raw document). */
+export const AGENCY_KYC_STATUSES = ["not_submitted", "pending", "verified", "rejected"] as const;
+export const agencyKycStatusSchema = z.enum(AGENCY_KYC_STATUSES);
+export type AgencyKycStatusValue = z.infer<typeof agencyKycStatusSchema>;
 
-/** @parked Phase-2 — one payout-ledger row (real money out). No seam fn, no endpoint. */
-export interface PayoutLedgerRow {
-  payoutId: string;
-  amountInr: number;
-  status: "pending" | "approved" | "paid" | "rejected";
-  createdAt: string;
-}
+/**
+ * GET/POST /payer/agency/kyc — the caller's OWN KYC status (LIVE, gated). MASKED-only:
+ * `panLast4` / `bankLast4` are the last-4 the API returns for display (`••••234F`);
+ * the raw PAN/bank are NEVER in a response. `rejectReason` is set only when rejected;
+ * `updatedAt` is null before a first submit. `.nullish()` keeps an older/partial
+ * response parseable (forward/backward compatible, invariant #8).
+ */
+export const agencyKycWireSchema = z.object({
+  status: agencyKycStatusSchema,
+  panLast4: z.string().nullish(),
+  bankLast4: z.string().nullish(),
+  rejectReason: z.string().nullish(),
+  updatedAt: z.string().nullish(),
+});
+export type AgencyKyc = z.infer<typeof agencyKycWireSchema>;
 
-/** @parked Phase-2 — agency KYC status (HIGH-sensitivity PII). No seam fn, no endpoint. */
-export interface KycStatus {
-  state: "not_started" | "submitted" | "verified" | "rejected";
-  updatedAt: string | null;
-}
+/**
+ * Client + server-action validation for the KYC submit form. The regexes MIRROR the
+ * backend DTO (the server re-validates and is the authority). PAN/IFSC are uppercased
+ * before the regex runs (the server uppercases too), so a lower-case entry is accepted
+ * and normalized. There is NO worker field here — this is the agency's OWN identity.
+ */
+export const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+export const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+export const BANK_ACCOUNT_RE = /^[0-9]{9,18}$/;
+
+export const agencyKycInputSchema = z.object({
+  pan: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(PAN_RE, "Enter a valid PAN — 5 letters, 4 digits, 1 letter (e.g. ABCDE1234F)."),
+  bankAccount: z
+    .string()
+    .trim()
+    .regex(BANK_ACCOUNT_RE, "Enter a valid bank account number (9–18 digits)."),
+  ifsc: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(IFSC_RE, "Enter a valid IFSC — e.g. HDFC0001234."),
+  accountHolderName: z
+    .string()
+    .trim()
+    .min(2, "Enter the account holder's name (2–120 characters).")
+    .max(120, "Account holder name is too long (max 120 characters)."),
+});
+export type AgencyKycInput = z.infer<typeof agencyKycInputSchema>;
+
+/** Why a payout request is blocked (earnings gate) — a closed set, or null when allowed. */
+export const AGENCY_PAYOUT_BLOCKED_REASONS = [
+  "kyc_not_verified",
+  "below_threshold",
+  "disabled",
+] as const;
+export const agencyPayoutBlockedReasonSchema = z.enum(AGENCY_PAYOUT_BLOCKED_REASONS);
+export type AgencyPayoutBlockedReason = z.infer<typeof agencyPayoutBlockedReasonSchema>;
+
+/**
+ * GET /payer/agency/earnings — the caller's OWN referral-earnings summary (LIVE, gated).
+ * All amounts are whole ₹ integers. `rateBps` × `basisInr` over `windowDays` is the
+ * accrual BASIS (config-sourced, never hard-coded in the UI). `canRequest` +
+ * `blockedReason` drive the payout button state.
+ */
+export const agencyEarningsWireSchema = z.object({
+  totalAccruedInr: z.number().int().nonnegative(),
+  requestableInr: z.number().int().nonnegative(),
+  inRequestInr: z.number().int().nonnegative(),
+  paidInr: z.number().int().nonnegative(),
+  accrualCount: z.number().int().nonnegative(),
+  kycStatus: agencyKycStatusSchema,
+  thresholdInr: z.number().int().nonnegative(),
+  basisInr: z.number().int().nonnegative(),
+  rateBps: z.number().int().nonnegative(),
+  windowDays: z.number().int().nonnegative(),
+  payoutsEnabled: z.boolean(),
+  canRequest: z.boolean(),
+  blockedReason: agencyPayoutBlockedReasonSchema.nullable(),
+});
+export type AgencyEarnings = z.infer<typeof agencyEarningsWireSchema>;
+
+/** Payout-request lifecycle status — mirrors the backend enum. */
+export const AGENCY_PAYOUT_STATUSES = ["requested", "paid", "rejected"] as const;
+export const agencyPayoutStatusSchema = z.enum(AGENCY_PAYOUT_STATUSES);
+export type AgencyPayoutStatus = z.infer<typeof agencyPayoutStatusSchema>;
+
+/** GET /payer/agency/payouts — one past payout request (LIVE, gated). PII-free. */
+export const agencyPayoutWireSchema = z.object({
+  id: z.string(),
+  amountInr: z.number().int().nonnegative(),
+  accrualCount: z.number().int().nonnegative(),
+  status: agencyPayoutStatusSchema,
+  createdAt: z.string(),
+});
+export type AgencyPayout = z.infer<typeof agencyPayoutWireSchema>;
+export const agencyPayoutListWireSchema = z.array(agencyPayoutWireSchema);
+
+/**
+ * POST /payer/agency/payouts — request a payout of the requestable balance (LIVE, gated).
+ * The session is the identity (XB-A); the body is empty (the server computes the amount).
+ * A success carries the created request; a blocked result carries the closed reason
+ * (`reason` typed loosely so a slightly different backend reason still parses — the UI
+ * maps known reasons to friendly copy and falls back to a generic message).
+ */
+export const agencyPayoutRequestWireSchema = z.union([
+  z.object({
+    ok: z.literal(true),
+    requestId: z.string(),
+    amountInr: z.number().int().nonnegative(),
+    accrualCount: z.number().int().nonnegative(),
+  }),
+  z.object({
+    ok: z.literal(false),
+    blocked: z.literal(true),
+    reason: z.string(),
+  }),
+]);
+export type AgencyPayoutRequestWire = z.infer<typeof agencyPayoutRequestWireSchema>;

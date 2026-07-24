@@ -7,6 +7,7 @@ import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import { PayerRoleGuard, PAYER_ROLES_KEY } from "../payers/payer-role.guard";
 import { AgencyJobsController } from "./agency-jobs.controller";
 import { AgencyInvitesController } from "./agency-invites.controller";
+import { AgencyPayoutsController } from "./agency-payouts.controller";
 
 /**
  * VERTICAL-authz end-to-end assertion (ADR-0022 security-gate follow-up): binds the REAL
@@ -35,6 +36,8 @@ function ctxFor(controller: new (...args: never[]) => object, payer: Authenticat
 const CONTROLLERS: Array<[string, new (...args: never[]) => object]> = [
   ["AgencyJobsController", AgencyJobsController],
   ["AgencyInvitesController", AgencyInvitesController],
+  // The supply-money surface (KYC + earnings + payouts) is agent-only too (ADR-0022 Amdt 2).
+  ["AgencyPayoutsController", AgencyPayoutsController],
 ];
 
 describe("Agency controllers — vertical authz is agent-only (real metadata + guard)", () => {

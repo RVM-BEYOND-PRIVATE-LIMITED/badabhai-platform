@@ -17,6 +17,6 @@
     "dev": "tsc -p tsconfig.build.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "clean": "rimraf dist .turbo *.tsbuildinfo"
+    "clean": "rimraf --glob dist .turbo *.tsbuildinfo"
   }
 }

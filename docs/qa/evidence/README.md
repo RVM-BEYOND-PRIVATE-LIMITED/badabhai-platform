@@ -6,6 +6,41 @@ captures, staging event exports, API responses, and smoke-test output.
 The tracker file `docs/tracker/QA_EVIDENCE.md` is the written index. Keep large
 artifacts here and link to them from the tracker.
 
+## 2026-07-23 Verification — `web app/` contents (payer-web login fix, TD110)
+
+### `web app/` — 6 PNG screenshots, captured 2026-07-23, local dev vs. the shared Supabase DB
+
+Company/Employer payer-web login round-trip, captured right after fixing the shared-DB
+migration-journal drift documented in [TD110](../../registers/tech-debt-register.md)
+(`payer_orgs`/`payer_members` were 14 migrations behind `main`, crashing every payer login
+on verify). Full index + verdict in
+[QA_EVIDENCE.md](../../tracker/QA_EVIDENCE.md#2026-07-23--payer-web-login-fix-verification-6-png-screenshots-td110).
+
+| Shot | Screen | Verdict |
+| ---- | ------ | ------- |
+| `115022` | Dashboard, fresh login | 0 unlocks / 0 postings — clean new-account state |
+| `115115` | Post a job form | CNC Operator role filled in |
+| `115142` | Manage postings | Created posting shows as DRAFT |
+| `115200` | Capacity page | Concurrent allowance (0/15) + mock buy-capacity tiers render |
+| `115222` | Dashboard, dark mode | Theme toggle works, session persists |
+| `115233` | Account menu open | `RVM Beyond` / `goldyjupiter@gmail.com` / role `EMPLOYER` / status `PENDING` |
+
+**Gap:** Agency-tab click-through not captured here — the agent role was verified at the
+backend/DB level only (a direct signup probe + org/membership check), not with an
+equivalent screenshot sequence. Add one in the next capture pass for parity.
+
+**5 more shots added same day** (`115509`, `120218`, `120255`, `120304`, `120311`) —
+attempted as Agency evidence but are actually a **second successful Employer login** for
+the same pre-existing `tech.rvmcad@gmail.com` account (`115509` a stale-code retry, the
+rest a clean success). Confirmed by `payers.role = 'employer'` in the DB and the
+role-dynamic top-nav reading "For Employers" throughout. Re-signing-up an already-registered
+email on a different role tab silently keeps the existing role (`createOrGet`'s
+no-enumeration conflict path) rather than creating a new account — see
+[TD111](../../registers/tech-debt-register.md). Real Agency-portal screenshots still need a
+genuinely unused email signed up via the Agency tab.
+
+---
+
 ## 2026-07-10 Verification — current `b1/` contents
 
 ### `b1/` — 60 PNG screenshots, captured 2026-07-09 (PR #190; supersedes the 9 numbered JPEGs)

@@ -4,7 +4,7 @@ Scope: **Worker Profiling + Profile Generation only.** Out of scope: employer
 posting, unlock, payments, payouts, boosts, Reach Engine ranking, advanced
 matching, production legal flows, real OTP/STT/LLM/payment providers.
 
-Status legend: ✅ done in this foundation · 🔜 next · ⏳ later
+Status legend: ✅ done in this foundation · 🔜 next · ⏳ later · 🔒 gated (Phase-2 alpha gate)
 
 ---
 
@@ -17,18 +17,18 @@ Status legend: ✅ done in this foundation · 🔜 next · ⏳ later
 
 ## Sprint 1 — Contracts, Identity, Consent
 
-- ✅ Event schema (`@badabhai/event-schema`) — envelope, registry, 22 events
-- ✅ DB schema + migration (`@badabhai/db`) — 10 tables
-- ✅ Worker identity: mock OTP request/verify → `worker.created`/`otp_verified`
-- ✅ Consent capture → `consent.accepted`
-- 🔜 Real OTP provider; worker auth → DB identity mapping for RLS
+- ✅ Event schema (`@badabhai/event-schema`) — envelope, registry, **105 event types** registered
+- ✅ DB schema + migration (`@badabhai/db`) — **43 tables** (was 10 at ADR-0001)
+- ✅ Worker identity: **real OTP via Fast2SMS DLT** → `worker.created`/`otp_verified`  
+  (`SMS_PROVIDER=fast2sms` is the **only** value; `console` fails Zod boot parse — no mock path exists)
+- ✅ Consent capture → `consent.accepted` (append-only, versioned, revocable)
 
 ## Sprint 2 — Profiling, AI Gateway, Extraction, Resume
 
 - ✅ Chat profiling backend (`/chat/session`, `/chat/message`) + events
 - ✅ AI gateway (FastAPI): pseudonymization (fail-closed) before any LLM
-- ✅ Profile extraction (`/profile/extract`) + confirm — **now async via BullMQ**
-  (`202` + poll `GET /ai-jobs/:id`); `profile.extraction_failed` event ([ADR-0002](../decisions/0002-async-extraction-and-action-recording.md))
+- ✅ Profile extraction (`/profile/extract`) + confirm — **async via BullMQ**
+  (`202` + poll `GET /ai-jobs/:id`); `profile.extraction_failed` event (ADR-0002)
 - ✅ Resume generation (`/resume/generate`, placeholder, name-less to AI)
 - ✅ Per-trade content (deterministic, no-LLM): **resume + interview-kit content now
   cover all 15 alpha trades** (resume = 15/15; interview-kit = 15/15 after drafting
@@ -43,8 +43,8 @@ Status legend: ✅ done in this foundation · 🔜 next · ⏳ later
 - ✅ Voice-note upload placeholder (duration ≤ 120s) + event
 - ✅ Action recording (`POST /actions`, `/actions/batch`) → `action.recorded`
   (generic, events-only, behavioural stream for the future Learn layer)
-- 🔜 Move **transcription** to BullMQ jobs (extraction done; STT contract pending)
-- 🔜 Real Sarvam STT; NER/LLM-assisted PII detection; enable real LLM in staging
+- 🔒 Move **transcription** to BullMQ jobs (extraction done; STT contract pending — ADR-0009, TD6)
+- 🔒 Real Sarvam STT; NER/LLM-assisted PII detection; enable real LLM in staging
 
 ## Sprint 3 — Apps
 
@@ -52,7 +52,7 @@ Status legend: ✅ done in this foundation · 🔜 next · ⏳ later
 - ✅ Next.js ops console shell (workers / events / ai-jobs)
 - 🔜 Wire worker app `ApiClient` to the API (real HTTP + models)
 - 🔜 Wire ops console pages to the API (read-only)
-- 🔜 **Alpha device capstone — NO-GO as of 2026-06-15** (deferred, fixing gaps first):
+- 🔒 **Alpha device capstone — NO-GO as of 2026-06-15** (deferred, fixing gaps first):
   app covers login→consent→chat→profile→resume-text only. Gaps before the device
   run: resume **PDF download** (signed URL), **voice** flow (placeholder today),
   **interview-kit** screen. **Swipe** is out of Phase-1 (Reach Engine). Tracked as
@@ -69,24 +69,44 @@ Status legend: ✅ done in this foundation · 🔜 next · ⏳ later
 
 ---
 
-## Phase 1 exit criteria
+## Phase 1 Exit Criteria
 
-- A worker can: log in (mock OTP) → consent → chat → get an extracted, confirmed
+- A worker can: log in (**real OTP via Fast2SMS DLT** — no console/mock path) → consent → chat → get an extracted, confirmed
   profile → get a generated resume, with **every step emitting a validated event**
   and **no PII ever reaching an LLM**.
 - Ops can view workers / events / AI jobs (read-only).
+
+---
 
 ## Definition of "later" (Phase 2+)
 
 Reach Engine (reach → rank → pace → protect → learn), employer posting + unlock,
 payments + payouts, boosts, advanced matching, production legal/DPDP flows,
-finalized RLS, real provider integrations.
+finalized RLS (least-privilege app role), real provider integrations.
 
-> **Note (2026-06-15, [ADR-0010](../decisions/0010-contact-unlock-and-reveal.md)):** Contact
-> Unlock + Reveal **Stream A** (backend core) has landed **behind mock payments**
-> (`PAYMENTS_ENABLE_REAL=false`, in-app relay only, interim `InternalServiceGuard`) — a gated
-> Phase-2 monetization start, not a Phase-1 scope change. Real Razorpay purchase, payer UI, and
-> `PayerAuthGuard` remain gated next streams; the production DPDP `employer_sharing` copy +
-> retention policy are launch gates. See [TD33–TD35](../registers/tech-debt-register.md),
-> [R16–R21](../registers/risks-register.md), and the
-> [architecture log](../registers/architecture-log.md).
+---
+
+## Additive Phase-2 Alpha Gates (Landed Behind Launch Gates, Not Phase-1 Scope Changes)
+
+> **Note:** The following streams have landed **additively** since the sprint plan was written, each by its own ADR and behind launch gates. They do **not** relax the Phase-1 invariants or scope. Real-money / real-provider / per-payer-auth / production-legal portions remain deferred (CLAUDE.md §8).
+
+| Stream | ADR | Status | Key Gates |
+|--------|-----|--------|-----------|
+| Contact Unlock + Reveal (Stream A) | [ADR-0010](../decisions/0010-contact-unlock-and-reveal.md) | ✅ Built + verified 2026-06-17 | Mock credits, in-app relay, `InternalServiceGuard`; LC-1..LC-7 open (TD33/TD34/TD35/TD41/R16–R21) |
+| Reach feed serving (View A + B) | [ADR-0011](../decisions/0011-reach-feed-serving.md) / [ADR-0015](../decisions/0015-reach-feed-on-real-jobs.md) | ✅ Built | Deterministic RANK core unchanged; TD36 deferrals |
+| Ops job postings (banded, stored-only) | [ADR-0012](../decisions/0012-ops-job-postings-banded-stored-only.md) | ✅ Built | Distinct from swipe `jobs`; TD37 deferrals |
+| Monetization + config-driven pricing | [ADR-0013](../decisions/0013-monetization-and-config-driven-pricing-engine.md) | ✅ Built | Mock payments; boost ranking deferred (TD42 guarded) |
+| Per-payer hiring capacity | [ADR-0016](../decisions/0016-payer-hiring-capacity.md) | ✅ Built (inert) | `CAPACITY_ENFORCEMENT_ENABLED=false`; mock payments; advisory `payer_id` (TD43) |
+| Self-serve payer/agency portal | [ADR-0019](../decisions/0019-self-serve-payer-portal.md) | ✅ Phase 1 built (mock, staging) | `PayerAuthGuard` built (LC-1 satisfied for payer surface); real payments + RLS + open GA deferred |
+| WhatsApp invite funnel | [ADR-0020](../decisions/0020-whatsapp-invite-funnel-and-reengagement.md) | ✅ Built (mock) | `MESSAGING_ENABLE_REAL=false` |
+| PACE supply-widening + ops alert | [ADR-0021](../decisions/0021-pace-supply-widening-and-ops-alert.md) | ✅ Built (inert) | `PACE_ENABLED=false`; adjacent-trade gated (Q13/TD45) |
+| Agency supply portal (demand slice) | [ADR-0022](../decisions/0022-agency-supply-portal.md) | ✅ Backend + frontend wired (mock) | KYC/payouts/matching deferred; `AGENCY_PAYOUTS_ENABLED=false` (Amdt 2) |
+| LEARN layer (offline LTR) | [ADR-0017](../decisions/0017-learn-layer-offline-rank-calibration.md) | ✅ Built (offline) | Live promotion = separate human gate; `@badabhai/reach-learn` offline-only |
+| Model-training corpus | [ADR-0018](../decisions/0018-model-training-corpus-and-finetune.md) | ✅ Offline core built | GPU spend + real NER + live serving = human-gated |
+| Production worker auth (PIN + tiered sessions) | [ADR-0026](../decisions/0026-production-worker-auth-pin-and-tiered-sessions.md) | ✅ Phases 0-5 merged | Deferred hardening → TD55 |
+| Worker-visible job fields (PII boundary) | [ADR-0024](../decisions/0024-worker-visible-job-fields-pii.md) | ✅ Built | Employer identity hidden; banded pay shown |
+| Account deletion (7-day grace) | [ADR-0031](../decisions/0031-account-deletion-grace-window.md) | ✅ Built | Makes "7 din / cancel anytime" copy true |
+| Skills taxonomy + canonicalization | [ADR-0030](../decisions/0030-embedding-skill-canonicalization.md) | ✅ TAX-1..4 merged | TAX-5..9 pinned; fork-B seam for unresolved phrases |
+| Push notifications (FCM) | [ADR-0034](../decisions/0034-worker-push-notifications.md) | ✅ Built (inert) | Security alerts only; `PUSH_ENABLE_REAL=false` |
+
+See [decisions-log.md](../registers/decisions-log.md) for the full chronological index.
