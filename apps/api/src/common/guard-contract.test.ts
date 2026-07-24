@@ -37,6 +37,7 @@ import { AdminAuthController } from "../admin/admin-auth.controller";
 import { AdminEventsController } from "../admin/admin-events.controller";
 import { AdminActionsController } from "../admin/admin-actions.controller";
 import { AdminPiiRevealController } from "../admin/admin-pii-reveal.controller";
+import { NotificationsController } from "../notifications/notifications.controller";
 import { SkillsController } from "../skills/skills.controller";
 
 /**
@@ -142,6 +143,11 @@ const CONTRACT: ControllerContract[] = [
     name: "Messaging",
     ctor: MessagingController,
     routes: { createInvite: [W], recordClick: [], reengage: [I] },
+  },
+  {
+    name: "Notifications",
+    ctor: NotificationsController,
+    routes: { list: [C, W] },
   },
   { name: "Capacity", ctor: CapacityController, routes: { buyCapacity: [I] } },
   { name: "PostingPlans", ctor: PostingPlansController, routes: { buyPlan: [I], buyBoost: [I] } },
