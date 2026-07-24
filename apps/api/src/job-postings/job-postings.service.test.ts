@@ -30,6 +30,8 @@ type Row = {
   description: string | null;
   vacancyBand: string;
   status: "draft" | "open" | "paused" | "closed";
+  skillPhrases: string[];
+  skillIds: string[];
   createdAt: Date;
   updatedAt: Date;
   closedAt: Date | null;
@@ -45,6 +47,8 @@ function row(overrides: Partial<Row> = {}): Row {
     description: null,
     vacancyBand: "2-5",
     status: "draft",
+    skillPhrases: [],
+    skillIds: [],
     createdAt: new Date(),
     updatedAt: new Date(),
     closedAt: null,
@@ -52,34 +56,54 @@ function row(overrides: Partial<Row> = {}): Row {
   };
 }
 
+/** Convert a camelCase Row to the JobPostingApi snake_case shape the service expects. */
+function toApi(r: Row) {
+  return {
+    id: r.id,
+    created_by: r.createdBy,
+    payer_id: null,
+    org_label: r.orgLabel,
+    role_title: r.roleTitle,
+    location_label: r.locationLabel,
+    description: r.description,
+    vacancy_band: r.vacancyBand,
+    status: r.status,
+    skill_phrases: r.skillPhrases,
+    skill_ids: r.skillIds,
+    created_at: r.createdAt,
+    updated_at: r.updatedAt,
+    closed_at: r.closedAt,
+  };
+}
+
 function make(existing?: Row) {
   const emit = vi.fn().mockResolvedValue(undefined);
-  const create = vi.fn().mockImplementation((input: Partial<Row>) => Promise.resolve(row(input)));
-  const findById = vi.fn().mockResolvedValue(existing);
+  const create = vi.fn().mockImplementation((input: Partial<Row>) => Promise.resolve(toApi(row(input))));
+  const findById = vi.fn().mockResolvedValue(existing ? toApi(existing) : undefined);
   const update = vi
     .fn()
     .mockImplementation((id: string, patch: Partial<Row>) =>
-      Promise.resolve(row({ ...existing, ...patch, id })),
+      Promise.resolve(existing ? toApi(row({ ...existing, ...patch, id })) : undefined),
     );
   const close = vi
     .fn()
     .mockImplementation((id: string, _prev: "draft" | "open", closedAt: Date) =>
-      Promise.resolve(row({ ...existing, id, status: "closed", closedAt })),
+      Promise.resolve(existing ? toApi(row({ ...existing, id, status: "closed", closedAt })) : undefined),
     );
   const list = vi.fn().mockResolvedValue([]);
   // Payer owner-scoped repo methods (default: the row IS owned; tests override
   // findByIdAndPayer with undefined to exercise the not-owned / no-oracle path).
-  const findByIdAndPayer = vi.fn().mockResolvedValue(existing);
+  const findByIdAndPayer = vi.fn().mockResolvedValue(existing ? toApi(existing) : undefined);
   const listByPayer = vi.fn().mockResolvedValue([]);
   const updateOwned = vi
     .fn()
     .mockImplementation((id: string, _payerId: string, patch: Partial<Row>) =>
-      Promise.resolve(row({ ...existing, ...patch, id })),
+      Promise.resolve(existing ? toApi(row({ ...existing, ...patch, id })) : undefined),
     );
   const closeOwned = vi
     .fn()
     .mockImplementation((id: string, _payerId: string, _prev: "draft" | "open", closedAt: Date) =>
-      Promise.resolve(row({ ...existing, id, status: "closed", closedAt })),
+      Promise.resolve(existing ? toApi(row({ ...existing, id, status: "closed", closedAt })) : undefined),
     );
   // Owner + status-guarded transition (B1): only transitions when the existing row's status
   // matches `fromStatus` (mirrors the DB WHERE guard); otherwise undefined → the service 409s.
@@ -89,7 +113,7 @@ function make(existing?: Row) {
       (id: string, _payerId: string, fromStatus: Row["status"], toStatus: Row["status"]) =>
         Promise.resolve(
           existing && existing.status === fromStatus
-            ? row({ ...existing, id, status: toStatus })
+            ? toApi(row({ ...existing, id, status: toStatus }))
             : undefined,
         ),
     );

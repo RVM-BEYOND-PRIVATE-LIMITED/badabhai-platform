@@ -153,9 +153,11 @@ const CONFIRMED_PROFILE = {
   phoneHash: "deadbeef",
 };
 
-function summarySetup(profile: unknown) {
+function summarySetup(profile: unknown, workerOverrides: Record<string, unknown> = {}) {
+  const worker = { id: "w-1", photoStorageKey: null, ...workerOverrides };
   const repo = {
     latestProfile: vi.fn(async (_workerId: string) => profile),
+    findById: vi.fn(async (_id: string) => worker),
   };
   const pii = { encrypt: vi.fn() };
   const events = { emit: vi.fn(async (_e: unknown) => true) };
@@ -173,16 +175,19 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
       trade: { canonical_trade_id: null, canonical_role_id: null, display_name: null },
       city: null,
       strength: 0,
-      strength_max: 8,
-      missing_fields: ["role", "trade", "skills", "machines", "experience", "salary", "location", "availability"],
+      strength_max: 9,
+      missing_fields: ["role", "trade", "skills", "machines", "experience", "salary", "location", "availability", "photo"],
       skills: [],
       machines: [],
       experience_years: null,
+      has_photo: false,
     });
   });
 
   it("maps a full confirmed profile: status, ISO confirmed_at, trade ids + taxonomy display_name, first city, hand-computed strength", async () => {
-    const { svc } = summarySetup(CONFIRMED_PROFILE);
+    const { svc } = summarySetup(CONFIRMED_PROFILE, {
+      photoStorageKey: "photos/w-1/face.jpg",
+    });
     const res = await svc.getProfileSummary("w-1");
     expect(res).toEqual({
       profile_status: "confirmed",
@@ -194,15 +199,16 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
       },
       city: "pune", // preferred_cities[0]
       // countFields recompute: role(1) + trade(1) + skills(2) + machines(1)
-      // + total_years(1) + salary(1) + cities(1) + availability(1) = 9
-      strength: 9,
-      strength_max: 8,
+      // + total_years(1) + salary(1) + cities(1) + availability(1) + photo(1) = 10
+      strength: 10,
+      strength_max: 9,
       missing_fields: [],
       // Additive projections (skills/machines are the canonical labels; only the
       // NUMBER of experience is surfaced — never the free-text summary).
       skills: ["skill_fanuc", "skill_measuring_instruments"],
       machines: ["mach_vmc"],
       experience_years: 4,
+      has_photo: true,
     });
   });
 
@@ -228,7 +234,7 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
       const { svc } = summarySetup({ ...CONFIRMED_PROFILE, locationPreference });
       const res = await svc.getProfileSummary("w-1");
       expect(res.city).toBeNull();
-      // the cities +1 drops out of the recompute too
+      // cities(0) + photo(0 — no photo on default worker) ⇒ 8
       expect(res.strength).toBe(8);
     }
   });

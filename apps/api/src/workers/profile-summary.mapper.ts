@@ -30,6 +30,7 @@ export interface ProfileSummarySource {
   locationPreference: unknown;
   availability: unknown;
   confirmedAt: Date | string | null;
+  hasPhoto: boolean;
 }
 
 type Json = Record<string, unknown>;
@@ -135,10 +136,11 @@ function readDisplayName(roleId: string | null, tradeId: string | null): string 
  * defensive narrowing instead of the processor's typed DraftProfile):
  * +1 canonical_role_id, +1 canonical_trade_id, +skills.length, +machines.length,
  * +1 experience.total_years != null, +1 salary amount_min/amount_max present,
- * +1 preferred_cities non-empty, +1 availability.status !== "unknown".
+ * +1 preferred_cities non-empty, +1 availability.status !== "unknown",
+ * +1 has_photo (TD77b — photo-in-strength).
  * Deliberately NOT stored (no new column, no drift with the processor's value).
  */
-const STRENGTH_MAX = 8;
+const STRENGTH_MAX = 9;
 
 function computeStrength(p: ProfileSummarySource): number {
   let n = 0;
@@ -153,11 +155,12 @@ function computeStrength(p: ProfileSummarySource): number {
   if (Array.isArray(cities) && cities.length > 0) n += 1;
   const status = readAvailabilityStatus(p.availability);
   if (status != null && status !== "unknown") n += 1;
+  if (p.hasPhoto) n += 1;
   return n;
 }
 
 /**
- * Which of the 8 field-group slots are empty/missing. Each maps to exactly one
+ * Which of the 9 field-group slots are empty/missing. Each maps to exactly one
  * key in missing_fields. Must stay in sync with computeStrength's dimension set.
  */
 function computeMissingFields(p: ProfileSummarySource): string[] {
@@ -173,6 +176,7 @@ function computeMissingFields(p: ProfileSummarySource): string[] {
   if (!Array.isArray(cities) || cities.length === 0) missing.push("location");
   const status = readAvailabilityStatus(p.availability);
   if (status == null || status === "unknown") missing.push("availability");
+  if (!p.hasPhoto) missing.push("photo");
   return missing;
 }
 
@@ -184,10 +188,11 @@ const NO_PROFILE: WorkerProfileSummary = {
   city: null,
   strength: 0,
   strength_max: STRENGTH_MAX,
-  missing_fields: ["role", "trade", "skills", "machines", "experience", "salary", "location", "availability"],
+  missing_fields: ["role", "trade", "skills", "machines", "experience", "salary", "location", "availability", "photo"],
   skills: [],
   machines: [],
   experience_years: null,
+  has_photo: false,
 };
 
 /** Map the latest profile row (or its absence) to the wire summary. */
@@ -214,5 +219,6 @@ export function toProfileSummary(
     skills: readStringArray(profile.skills),
     machines: readStringArray(profile.machines),
     experience_years: readExperienceYears(profile.experience),
+    has_photo: profile.hasPhoto,
   };
 }
