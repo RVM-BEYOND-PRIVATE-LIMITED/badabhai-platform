@@ -29,16 +29,21 @@ const JOB_ROW = {
  */
 function setup(opts: { jobExists?: boolean; openJobs?: Array<Record<string, unknown>> } = {}) {
   const jobExists = opts.jobExists ?? true;
-  const existingRows = new Set<string>();
+  // (workerId:jobId) -> decision row
+  const decisions = new Map<string, Record<string, unknown>>();
   // Per-job applies counter, bumped only by incrementApplicantsReceived.
   const applicantsReceived = new Map<string, number>();
   const repo = {
     findJobById: vi.fn(async () => (jobExists ? JOB_ROW : undefined)),
     findOpenJobs: vi.fn(async () => opts.openJobs ?? []),
+    findDecision: vi.fn(async (workerId: string, jobId: string) => {
+      const row = decisions.get(`${workerId}:${jobId}`);
+      return row ? { ...row } : undefined;
+    }),
     upsertDecision: vi.fn(async (input: Record<string, unknown>) => {
       const key = `${String(input.workerId)}:${String(input.jobId)}`;
-      const inserted = !existingRows.has(key);
-      existingRows.add(key);
+      const inserted = !decisions.has(key);
+      decisions.set(key, { ...input });
       return {
         id: "app-1",
         ...input,
@@ -158,14 +163,14 @@ describe("ApplicationsService — applicants_received counter (ADR-0009 rollup)"
     expect(countFor(JOB_A)).toBe(2);
   });
 
-  it("ACCEPTED alpha limitation: a skip→apply flip on an existing row does NOT increment", async () => {
+  it("(v) a skip→apply flip on an existing row DOES increment the counter (TD38 fix)", async () => {
     const { svc, repo, countFor } = setup();
     await svc.skip(WORKER_A, JOB_A, { reason: "low_pay" }, CTX);
     // The row already exists from the skip → the apply is an UPDATE (inserted:false),
-    // so the counter is NOT bumped. Documented alpha simplification, not a bug.
+    // but findDecision detects the flip → incrementApplicantsReceived is still called.
     await svc.apply(WORKER_A, JOB_A, { rank: null, source_surface: "feed" }, CTX);
-    expect(repo.incrementApplicantsReceived).not.toHaveBeenCalled();
-    expect(countFor(JOB_A)).toBe(0);
+    expect(repo.incrementApplicantsReceived).toHaveBeenCalledExactlyOnceWith(JOB_A);
+    expect(countFor(JOB_A)).toBe(1);
   });
 
   it("monotonic: an apply→skip flip never decrements the counter", async () => {

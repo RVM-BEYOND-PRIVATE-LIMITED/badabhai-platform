@@ -119,6 +119,9 @@ export class ApplicationsService {
   async apply(workerId: string, jobId: string, dto: ApplyJobDto, ctx: RequestContext) {
     await this.assertJobExists(jobId);
 
+    // TD38: read the existing decision BEFORE upsert to detect skip→apply flips.
+    const existing = await this.repo.findDecision(workerId, jobId);
+
     const saved = await this.repo.upsertDecision({
       workerId,
       jobId,
@@ -128,18 +131,11 @@ export class ApplicationsService {
       rank: dto.rank,
     });
 
-    // Bump the job's denormalized applies counter ONLY on a genuine first apply
-    // (a brand-new row, action='applied'). This is idempotent: a double-tap hits
-    // ON CONFLICT DO UPDATE (`inserted === false`) and never double-counts. NO new
-    // event — `application.submitted` (emitted below) remains the audit record; the
-    // counter is just a denormalized rollup.
-    //
-    // ACCEPTED alpha limitation: a skip→apply FLIP on an existing row is an UPDATE
-    // (`inserted === false`), so it will NOT increment the counter — the row already
-    // existed from the skip. Likewise an apply→skip flip never DECREMENTS (the
-    // counter is a monotonic count of received applies). This is a deliberate alpha
-    // simplification, not a bug.
-    if (saved.inserted) {
+    // Bump the job's denormalized applies counter on a genuine first apply (new
+    // row) OR a skip→apply flip (existing row was not already applied). Double-tap
+    // (re-applying an already-applied row) never double-counts.
+    const flippedToApplied = existing != null && existing.action !== "applied";
+    if (saved.inserted || flippedToApplied) {
       await this.repo.incrementApplicantsReceived(jobId);
     }
 
