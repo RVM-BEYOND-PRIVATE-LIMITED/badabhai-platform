@@ -232,9 +232,9 @@ export class ApplicationsService {
     };
   }
 
-  /** 404 (no oracle) if the job id does not resolve to a row. */
+  /** 404 (no oracle) if the job id does not resolve to an OPEN row. */
   private async assertJobExists(jobId: string): Promise<void> {
     const job = await this.repo.findJobById(jobId);
-    if (!job) throw new NotFoundException(`Job ${jobId} not found`);
+    if (!job) throw new NotFoundException("Job not found");
   }
 }

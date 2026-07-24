@@ -113,9 +113,13 @@ export class ApplicationsRepository {
       .limit(limit);
   }
 
-  /** A single job by id, or undefined (used to 404 unknown jobIds — no oracle). */
+  /** A single OPEN job by id, or undefined (used to 404 unknown/closed jobs — no oracle). */
   async findJobById(id: string): Promise<Job | undefined> {
-    const rows = await this.db.select().from(jobs).where(eq(jobs.id, id)).limit(1);
+    const rows = await this.db
+      .select()
+      .from(jobs)
+      .where(and(eq(jobs.id, id), eq(jobs.status, "open")))
+      .limit(1);
     return rows[0];
   }
 
