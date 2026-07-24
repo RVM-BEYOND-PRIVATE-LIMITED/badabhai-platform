@@ -138,6 +138,8 @@ function readDisplayName(roleId: string | null, tradeId: string | null): string 
  * +1 preferred_cities non-empty, +1 availability.status !== "unknown".
  * Deliberately NOT stored (no new column, no drift with the processor's value).
  */
+const STRENGTH_MAX = 8;
+
 function computeStrength(p: ProfileSummarySource): number {
   let n = 0;
   if (p.canonicalRoleId) n += 1;
@@ -154,6 +156,26 @@ function computeStrength(p: ProfileSummarySource): number {
   return n;
 }
 
+/**
+ * Which of the 8 field-group slots are empty/missing. Each maps to exactly one
+ * key in missing_fields. Must stay in sync with computeStrength's dimension set.
+ */
+function computeMissingFields(p: ProfileSummarySource): string[] {
+  const missing: string[] = [];
+  if (!p.canonicalRoleId) missing.push("role");
+  if (!p.canonicalTradeId) missing.push("trade");
+  if (!Array.isArray(p.skills) || p.skills.length === 0) missing.push("skills");
+  if (!Array.isArray(p.machines) || p.machines.length === 0) missing.push("machines");
+  if (asObject(p.experience)?.total_years == null) missing.push("experience");
+  const salary = asObject(p.salaryExpectation);
+  if (salary == null || (salary.amount_min == null && salary.amount_max == null)) missing.push("salary");
+  const cities = asObject(p.locationPreference)?.preferred_cities;
+  if (!Array.isArray(cities) || cities.length === 0) missing.push("location");
+  const status = readAvailabilityStatus(p.availability);
+  if (status == null || status === "unknown") missing.push("availability");
+  return missing;
+}
+
 /** No-profile-yet summary: everything null/zero/empty, `profile_status: "none"`. */
 const NO_PROFILE: WorkerProfileSummary = {
   profile_status: "none",
@@ -161,6 +183,8 @@ const NO_PROFILE: WorkerProfileSummary = {
   trade: { canonical_trade_id: null, canonical_role_id: null, display_name: null },
   city: null,
   strength: 0,
+  strength_max: STRENGTH_MAX,
+  missing_fields: ["role", "trade", "skills", "machines", "experience", "salary", "location", "availability"],
   skills: [],
   machines: [],
   experience_years: null,
@@ -185,6 +209,8 @@ export function toProfileSummary(
     },
     city: readCity(profile.locationPreference),
     strength: computeStrength(profile),
+    strength_max: STRENGTH_MAX,
+    missing_fields: computeMissingFields(profile),
     skills: readStringArray(profile.skills),
     machines: readStringArray(profile.machines),
     experience_years: readExperienceYears(profile.experience),

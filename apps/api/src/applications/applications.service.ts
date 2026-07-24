@@ -62,7 +62,7 @@ export class ApplicationsService {
    * into a single DB round-trip via `emitMany`.
    */
   async getFeed(workerId: string, limit: number, ctx: RequestContext): Promise<{ jobs: FeedItem[] }> {
-    const openJobs = await this.repo.findOpenJobs(limit);
+    const openJobs = await this.repo.findOpenJobs(workerId, limit);
     const items: FeedItem[] = openJobs.map((job: FeedJob, index) => ({
       job_id: job.id,
       trade_key: job.tradeKey,

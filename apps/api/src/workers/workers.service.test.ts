@@ -173,6 +173,8 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
       trade: { canonical_trade_id: null, canonical_role_id: null, display_name: null },
       city: null,
       strength: 0,
+      strength_max: 8,
+      missing_fields: ["role", "trade", "skills", "machines", "experience", "salary", "location", "availability"],
       skills: [],
       machines: [],
       experience_years: null,
@@ -194,6 +196,8 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
       // countFields recompute: role(1) + trade(1) + skills(2) + machines(1)
       // + total_years(1) + salary(1) + cities(1) + availability(1) = 9
       strength: 9,
+      strength_max: 8,
+      missing_fields: [],
       // Additive projections (skills/machines are the canonical labels; only the
       // NUMBER of experience is surfaced — never the free-text summary).
       skills: ["skill_fanuc", "skill_measuring_instruments"],

@@ -70,8 +70,14 @@ export class ApplicationsRepository {
   /**
    * Open jobs in a DETERMINISTIC order (created_at asc, id tiebreak) so the feed
    * page + its 1-based `rank` are stable across calls and environments.
+   *
+   * TD73: excludes jobs the worker has already applied to via a NOT EXISTS anti-join
+   * on applications (worker_id, job_id, action='applied'). The unique index
+   * `applications_worker_job_uq` on (worker_id, job_id) covers this anti-join.
+   * Skip exclusion requires an explicit product call (the client currently re-serves
+   * skipped jobs forever — see the issue).
    */
-  async findOpenJobs(limit: number): Promise<FeedJob[]> {
+  async findOpenJobs(workerId: string, limit: number): Promise<FeedJob[]> {
     return this.db
       .select({
         id: jobs.id,
@@ -86,11 +92,23 @@ export class ApplicationsRepository {
         shift: jobs.shift,
       })
       .from(jobs)
+      // TD73: exclude applied jobs server-side. The unique (worker_id, job_id)
+      // index makes this anti-join fast even at scale.
+      .where(
+        and(
+          eq(jobs.status, "open"),
+          sql`NOT EXISTS (
+            SELECT 1 FROM ${applications}
+            WHERE ${applications.workerId} = ${workerId}
+              AND ${applications.jobId} = ${jobs.id}
+              AND ${applications.action} = 'applied'
+          )`,
+        ),
+      )
       // LOCATION SEAM: when the location feature lands, an OPTIONAL city/coords
       // filter goes HERE, default-off so the feed stays liberal until a worker
       // opts into a location. Do NOT implement it now — the alpha feed returns
       // every open job with no location filter (see the worker-app Filters sheet).
-      .where(eq(jobs.status, "open"))
       .orderBy(asc(jobs.createdAt), asc(jobs.id))
       .limit(limit);
   }

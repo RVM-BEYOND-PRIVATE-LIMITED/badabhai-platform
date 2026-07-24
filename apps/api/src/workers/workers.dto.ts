@@ -120,6 +120,17 @@ export interface WorkerProfileSummary {
   /** Recomputed on read (countFields-equivalent); `0` when no profile. Never stored. */
   strength: number;
   /**
+   * Max possible strength (always 8 — the 8 field groups treated as binary, each
+   * at most +1). Additive, backward-compatible: older clients ignore it.
+   */
+  strength_max: number;
+  /**
+   * Names of the 8 field-group slots that are empty/missing, for per-field hints
+   * and the N/max meter. Each entry is a short canonical key:
+   * "role" | "trade" | "skills" | "machines" | "experience" | "salary" | "location" | "availability"
+   */
+  missing_fields: string[];
+  /**
    * Worker-confirmed canonical skill labels from the latest profile (e.g.
    * "CNC operating", "GD&T"). PII-FREE by construction — canonical taxonomy
    * labels, never a name/phone/employer. `[]` when none/no profile. Additive

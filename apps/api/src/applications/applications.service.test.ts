@@ -276,7 +276,7 @@ describe("ApplicationsService — feed", () => {
     expect(out.jobs.map((j) => j.job_id)).toEqual(acrossCities.map((j) => j.id));
     expect(out.jobs.map((j) => j.city)).toEqual(["Pune", "Chennai", "Rajkot", "Coimbatore"]);
     // The limit is passed straight through — no city/coords argument is invented.
-    expect(repo.findOpenJobs).toHaveBeenCalledWith(50);
+    expect(repo.findOpenJobs).toHaveBeenCalledWith(WORKER_ID, 50);
     // One impression per returned job (no dedupe, no filtering).
     const batch = events.emitMany.mock.calls[0]![0] as unknown[];
     expect(batch).toHaveLength(acrossCities.length);
