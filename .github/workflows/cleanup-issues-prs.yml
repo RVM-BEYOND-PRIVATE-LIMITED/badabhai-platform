@@ -1,0 +1,399 @@
+# =============================================================================
+# Auto-cleanup Issues & PRs
+# =============================================================================
+# Scans all open issues/PRs weekly and closes items that are:
+#   1. Already completed (linked merged PR)
+#   2. Superseded by newer work
+#   3. Stale (no activity for 90+ days, with a 7-day warning window)
+#
+# Exempt labels (never touched): priority-critical, blocked, security, epic,
+# do-not-autoclose
+#
+# Trigger:
+#   - Scheduled: every Sunday 00:00 UTC
+#   - Manual: workflow_dispatch with dry_run=true to preview
+#
+# Config (adjust at top of script below):
+#   STALE_DAYS  = 90   # inactivity before warning
+#   GRACE_DAYS  = 7    # days after warning before close
+# =============================================================================
+
+name: Auto-cleanup Issues & PRs
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Sunday 00:00 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Preview changes without executing (true = log only)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/github-script@v7
+        id: cleanup
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // ─── Config ──────────────────────────────────────────────────────────
+            const STALE_DAYS = 90;
+            const GRACE_DAYS = 7;
+            const EXEMPT_LABELS = new Set([
+              'priority-critical',
+              'blocked',
+              'security',
+              'epic',
+              'do-not-autoclose',
+            ]);
+            const STALE_WARN_LABEL = 'stale-warning-sent';
+            const PER_PAGE = 100;
+            const MAX_PAGES = 10; // 1000 items ceiling
+
+            const dryRun = (context.payload.inputs?.dry_run === 'true' ||
+                            context.payload.inputs?.dry_run === true);
+
+            function log(...args) {
+              core.info(`[${dryRun ? 'DRY-RUN' : 'EXEC'}]`, ...args);
+            }
+
+            function sleep(ms) {
+              return new Promise(resolve => setTimeout(resolve, ms));
+            }
+
+            // ─── Helpers ─────────────────────────────────────────────────────────
+
+            async function paginateIssues(github, owner, repo) {
+              const items = [];
+              for (let page = 1; page <= MAX_PAGES; page++) {
+                const { data } = await github.rest.issues.listForRepo({
+                  owner,
+                  repo,
+                  state: 'open',
+                  per_page: PER_PAGE,
+                  page,
+                });
+                if (data.length === 0) break;
+                items.push(...data);
+                log(`Fetched page ${page} (${data.length} items, ${items.length} total)`);
+                await sleep(300); // gentle rate-limit backoff
+              }
+              return items;
+            }
+
+            // Check if a linked PR for an issue is merged.
+            // Also checks for "Fixes #N" or "Closes #N" patterns in issue body.
+            // If the item itself is a PR, checks if it was merged.
+            async function findMergedPr(github, owner, repo, issue) {
+              // 0. If the item itself is a PR (edge case: merged but still open)
+              if (issue.pull_request) {
+                try {
+                  const { data: pr } = await github.rest.pulls.get({
+                    owner,
+                    repo,
+                    pull_number: issue.number,
+                  });
+                  if (pr.merged) return issue.number;
+                } catch { /* not found */ }
+              }
+
+              // 1. Check for PR timeline events (cross-referenced)
+              for (let page = 1; page <= 3; page++) {
+                const { data: events } = await github.rest.issues.listEvents({
+                  owner,
+                  repo,
+                  issue_number: issue.number,
+                  per_page: 100,
+                  page,
+                });
+                for (const ev of events) {
+                  if (ev.event === 'cross-referenced' && ev.source?.issue?.pull_request) {
+                    const prNum = ev.source.issue.number;
+                    try {
+                      const { data: pr } = await github.rest.pulls.get({
+                        owner,
+                        repo,
+                        pull_number: prNum,
+                      });
+                      if (pr.merged) return prNum;
+                    } catch { /* PR may not exist */ }
+                  }
+                }
+                if (events.length < 100) break;
+                await sleep(200);
+              }
+
+              // 2. Check issue body for "Fixes #N" / "Closes #N" and verify that PR is merged
+              if (issue.body) {
+                const refMatch = issue.body.match(
+                  /(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+#(\d+)/i
+                );
+                if (refMatch) {
+                  const prNum = parseInt(refMatch[1], 10);
+                  try {
+                    const { data: pr } = await github.rest.pulls.get({
+                      owner,
+                      repo,
+                      pull_number: prNum,
+                    });
+                    if (pr.merged) return prNum;
+                  } catch { /* not a PR or not found */ }
+                }
+              }
+
+              return null;
+            }
+
+            // Check if issue/PR is superseded by a newer referenced item
+            async function findSuperseding(github, owner, repo, issue) {
+              const labels = issue.labels.map(l => l.name?.toLowerCase() || l.toLowerCase?.() || '');
+
+              // Label-based superseded detection
+              if (labels.includes('duplicate') || labels.includes('superseded')) {
+                // Try to find the superseding reference in body
+                if (issue.body) {
+                  const refMatch = issue.body.match(
+                    /(?:superseded|replaced|duplicate)\s+by\s+#(\d+)/i
+                  );
+                  if (refMatch) {
+                    return parseInt(refMatch[1], 10);
+                  }
+                }
+                return -1; // has label but no explicit ref — still mark for close
+              }
+
+              // Body-based superseded detection
+              if (issue.body) {
+                const refMatch = issue.body.match(
+                  /(?:see|refer|superseded|replaced|duplicate)\s+#(\d+)/i
+                );
+                if (refMatch) {
+                  const num = parseInt(refMatch[1], 10);
+                  // Only close if the referenced item is still open or exists
+                  try {
+                    const { data: ref } = await github.rest.issues.get({
+                      owner,
+                      repo,
+                      issue_number: num,
+                    });
+                    // If it exists (open or closed), mark this as superseded
+                    return num;
+                  } catch { /* not found */ }
+                }
+              }
+
+              return null;
+            }
+
+            // Apply label to an item
+            async function addLabel(github, owner, repo, issueNumber, label) {
+              if (dryRun) {
+                log(`[DRY-RUN] Would add label "${label}" to #${issueNumber}`);
+                return;
+              }
+              try {
+                await github.rest.issues.addLabels({
+                  owner,
+                  repo,
+                  issue_number: issueNumber,
+                  labels: [label],
+                });
+                log(`Added label "${label}" to #${issueNumber}`);
+                await sleep(200);
+              } catch (err) {
+                core.warning(`Failed to add label "${label}" to #${issueNumber}: ${err.message}`);
+              }
+            }
+
+            // Remove label from an item
+            async function removeLabel(github, owner, repo, issueNumber, label) {
+              if (dryRun) {
+                log(`[DRY-RUN] Would remove label "${label}" from #${issueNumber}`);
+                return;
+              }
+              try {
+                await github.rest.issues.removeLabel({
+                  owner,
+                  repo,
+                  issue_number: issueNumber,
+                  name: label,
+                });
+                log(`Removed label "${label}" from #${issueNumber}`);
+                await sleep(200);
+              } catch (err) {
+                if (err.status !== 404) {
+                  core.warning(`Failed to remove label "${label}" from #${issueNumber}: ${err.message}`);
+                }
+              }
+            }
+
+            // Post a comment on an item
+            async function postComment(github, owner, repo, issueNumber, body) {
+              if (dryRun) {
+                log(`[DRY-RUN] Would comment on #${issueNumber}: ${body.slice(0, 120)}...`);
+                return;
+              }
+              try {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: issueNumber,
+                  body,
+                });
+                log(`Commented on #${issueNumber}`);
+                await sleep(300);
+              } catch (err) {
+                core.warning(`Failed to comment on #${issueNumber}: ${err.message}`);
+              }
+            }
+
+            // Close an item
+            async function closeItem(github, owner, repo, issueNumber) {
+              if (dryRun) {
+                log(`[DRY-RUN] Would close #${issueNumber}`);
+                return;
+              }
+              try {
+                await github.rest.issues.update({
+                  owner,
+                  repo,
+                  issue_number: issueNumber,
+                  state: 'closed',
+                });
+                log(`Closed #${issueNumber}`);
+                await sleep(300);
+              } catch (err) {
+                core.warning(`Failed to close #${issueNumber}: ${err.message}`);
+              }
+            }
+
+            // ─── Main ────────────────────────────────────────────────────────────
+
+            const { owner, repo } = context.repo;
+
+            log(`Starting cleanup (dryRun=${dryRun})`);
+            log(`Owner: ${owner}, Repo: ${repo}`);
+            log(`STALE_DAYS=${STALE_DAYS}, GRACE_DAYS=${GRACE_DAYS}`);
+
+            const allItems = await paginateIssues(github, owner, repo);
+            log(`Total open issues/PRs fetched: ${allItems.length}`);
+
+            const summary = {
+              completed: [],
+              superseded: [],
+              staleWarned: [],
+              staleClosed: [],
+              exempt: [],
+              skipped: [],
+            };
+
+            const now = Date.now();
+            const staleMs = STALE_DAYS * 24 * 60 * 60 * 1000;
+            const graceMs = GRACE_DAYS * 24 * 60 * 60 * 1000;
+
+            for (const item of allItems) {
+              const labels = item.labels.map(l => l.name?.toLowerCase() || l.toLowerCase?.() || '');
+
+              // ── Exemption check (Rule 4) ────────────────────────────────────────
+              const hasExemption = labels.some(l => EXEMPT_LABELS.has(l));
+              if (hasExemption) {
+                summary.exempt.push(`#${item.number} (labels: ${item.labels.map(l => l.name || l).join(', ')})`);
+                continue;
+              }
+
+              // ── Rule 1: Already completed (linked merged PR) ────────────────────
+              const mergedPr = await findMergedPr(github, owner, repo, item);
+              if (mergedPr) {
+                const comment = `This is already completed via merged PR #${mergedPr}. Closing automatically.`;
+                await postComment(github, owner, repo, item.number, comment);
+                await addLabel(github, owner, repo, item.number, 'cleanup-completed');
+                await closeItem(github, owner, repo, item.number);
+                summary.completed.push(`#${item.number} → merged PR #${mergedPr}`);
+                continue;
+              }
+
+              // ── Rule 2: Superseded ──────────────────────────────────────────────
+              const superseding = await findSuperseding(github, owner, repo, item);
+              if (superseding) {
+                const refStr = superseding > 0 ? `#${superseding}` : 'a newer item';
+                const comment = `This is superseded by ${refStr}. Closing automatically.`;
+                await postComment(github, owner, repo, item.number, comment);
+                await addLabel(github, owner, repo, item.number, 'cleanup-superseded');
+                await closeItem(github, owner, repo, item.number);
+                summary.superseded.push(`#${item.number} → ${refStr}`);
+                continue;
+              }
+
+              // ── Rule 3: Stale ──────────────────────────────────────────────────
+              const updatedAt = new Date(item.updated_at).getTime();
+              const age = now - updatedAt;
+              const hasStaleWarnLabel = labels.includes(STALE_WARN_LABEL);
+
+              if (age > staleMs + graceMs && hasStaleWarnLabel) {
+                // Second pass: grace period expired → close
+                const comment = 'Closing due to prolonged inactivity. Reopen if still relevant.';
+                await postComment(github, owner, repo, item.number, comment);
+                await removeLabel(github, owner, repo, item.number, STALE_WARN_LABEL);
+                await addLabel(github, owner, repo, item.number, 'cleanup-stale');
+                await closeItem(github, owner, repo, item.number);
+                summary.staleClosed.push(`#${item.number}`);
+              } else if (age > staleMs && !hasStaleWarnLabel) {
+                // First pass: post warning
+                const comment =
+                  `This issue/PR has been inactive for ${STALE_DAYS} days. ` +
+                  `It will be automatically closed in ${GRACE_DAYS} days unless updated.`;
+                await postComment(github, owner, repo, item.number, comment);
+                await addLabel(github, owner, repo, item.number, STALE_WARN_LABEL);
+                summary.staleWarned.push(`#${item.number}`);
+              } else if (age <= staleMs && hasStaleWarnLabel) {
+                // Item was updated since warning — remove the stale label
+                await removeLabel(github, owner, repo, item.number, STALE_WARN_LABEL);
+                summary.skipped.push(`#${item.number} (activity detected, stale label removed)`);
+              } else {
+                summary.skipped.push(`#${item.number} (not stale yet)`);
+              }
+
+              // Small delay between items to avoid secondary rate limits
+              await sleep(150);
+            }
+
+            // ─── Summary ──────────────────────────────────────────────────────────
+            core.startGroup('=== Cleanup Summary ===');
+            log(`Exempt (skipped): ${summary.exempt.length}`);
+            for (const s of summary.exempt) log(`  ${s}`);
+            log(`Completed (via merged PR): ${summary.completed.length}`);
+            for (const s of summary.completed) log(`  ${s}`);
+            log(`Superseded: ${summary.superseded.length}`);
+            for (const s of summary.superseded) log(`  ${s}`);
+            log(`Stale warned (1st pass): ${summary.staleWarned.length}`);
+            for (const s of summary.staleWarned) log(`  ${s}`);
+            log(`Stale closed (2nd pass): ${summary.staleClosed.length}`);
+            for (const s of summary.staleClosed) log(`  ${s}`);
+            log(`Skipped: ${summary.skipped.length}`);
+            for (const s of summary.skipped) log(`  ${s}`);
+            core.endGroup();
+
+            // Set outputs for downstream steps if needed
+            core.setOutput('summary', JSON.stringify(summary));
+            core.setOutput('dry_run', dryRun.toString());
+            core.setOutput('total_processed', allItems.length.toString());
+
+            log('Cleanup completed.');
+
+      # ─── Post summary as a check-run annotation ────────────────────────────
+      - name: Print summary
+        if: always()
+        run: |
+          echo "Dry-run: ${{ steps.cleanup.outputs.dry_run }}"
+          echo "Total processed: ${{ steps.cleanup.outputs.total_processed }}"
+          echo "See workflow log above for detailed summary."
