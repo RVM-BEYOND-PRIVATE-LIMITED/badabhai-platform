@@ -36,9 +36,9 @@
 
 # Shared Infrastructure (coordinate before touching)
 
-- **event-schema registry** — 100 events / 28 domains, all v1; every new domain edits it.
-- **packages/db** — **45 migrations** (0000–0044; 0041 applied 2026-07-18, 0042+0043 applied 2026-07-18); sequential numbering, **check latest (0044) before `db:generate`**; renumber-on-merge is a recurring conflict. ONE Supabase DB (the `main`, the only database) — risky migrations need backup + sign-off.
-- **Auth stack** — WorkerAuthGuard (OTP+PIN, ADR-0026; `kPersistentAuth` ON since #201; **TD62 RESOLVED #240**), ConsentGuard/ConsentNotRevokedGuard, PayerAuthGuard + role/org guards (ADR-0027), AdminAuthGuard/AdminRolesGuard (ADR-0025), InternalServiceGuard (ops `/unlocks*` only — NOT payer-facing; LC-1 residual, TD33, retire blocked on ADMIN-4..8). **POST /resume/generate** now WorkerAuthGuard (B-3, #385, R26 CLOSED).
+- **event-schema registry** — 116 events / 28 domains, all v1; every new domain edits it. New RLS-locked table? Also update `tests/e2e/rls-spine.e2e.test.ts` `LOCKED_TABLES` (a no-drift guard the unit suite doesn't catch — only e2e/CI does).
+- **packages/db** — **49 migrations** (0000–0048; 0042+0043 applied 2026-07-18; **0048 agency KYC/payout applied by owner 2026-07-23**); sequential numbering, **check latest (0048) before `db:generate`**; renumber-on-merge is a recurring conflict. ONE Supabase DB (the `main`, the only database) — risky migrations need backup + sign-off.
+- **Auth stack** — WorkerAuthGuard (OTP+PIN, ADR-0026; `kPersistentAuth` ON since #201; **TD62 RESOLVED #240**), ConsentGuard/ConsentNotRevokedGuard, PayerAuthGuard + PayerRoleGuard (`@PayerRoles('agent')`, ADR-0022/0027 — every agency route incl. the KYC/payout supply surface, ADR-0022 Amdt 2, PR #508) + org guards (ADR-0027), AdminAuthGuard/AdminRolesGuard (ADR-0025), InternalServiceGuard (ops `/unlocks*` + `/ops/agency-kyc*` (PR #508) — NOT payer-facing; LC-1 residual, TD33, retire blocked on ADMIN-4..8). Agency supply-money routes additionally gate on `AgencyPayoutsEnabledGuard` (neutral 404 while `AGENCY_PAYOUTS_ENABLED` is OFF, the default). **POST /resume/generate** now WorkerAuthGuard (B-3, #385, R26 CLOSED).
 - **Shared libs** — validators, types, config (env gates), taxonomy, ai-contracts (**keep Zod↔Pydantic parity**; last synced #191/#193), pricing, reach-engine, reach-learn.
 - `app.module.ts` (32 modules) and `docs/registers/` + `docs/tracker/` — merge hotspots.
 

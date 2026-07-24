@@ -48,6 +48,7 @@ Update both after each run.
 | 5 | RBAC | owner vs recruiter; agent vs employer; server-side fail-closed | recruiter 404s on billing/team; employer 404s on agency | PARTIAL (unit-tested; staging pending) |
 | 6 | Health/staging | `/health` → DB up → Redis up → smoke | 200 with up/up; no secrets | **BLOCKED (staging)** |
 | 7 | Payer app (Flutter) *(new row)* | payer-app REAL-mode → login → postings → applicants → unlock/reveal | mirrors gate 1 on mobile; no PII; mock credits | **BLOCKED (staging)** — app merged (#189), CI gate live (#243) |
+| 8 | Agency supply — KYC/payout *(new row, PR #508)* | agent login → submit KYC → ops verify (masked) → earnings accrue off real unlocks → request payout (≥₹500) → payout history | KYC masked everywhere; payout blocked without verified KYC/below threshold; mock — no real money | **N/A BY DESIGN (feature is OFF)** — `AGENCY_PAYOUTS_ENABLED` default false, every route neutral-404s. Unit + security-reviewed (api 1985 + payer-web 602 + web 42 tests, 0 Crit/High); no staging/handset run possible until the flag is flipped, which itself needs legal/DPDP sign-off first (ADR-0022 Amdt 2) |
 
 ## Security checks (run every release)
 
@@ -57,7 +58,7 @@ Update both after each run.
 | No secrets in frontend | grep `NEXT_PUBLIC_` | ✅ no secret misuse |
 | `DEV_QUICK_LOGIN` off/absent | grep apps/api/src | ✅ DEAD (removed) |
 | RBAC fail-closed | unit tests `org-roles`, `roles` | ✅ tests green |
-| Agency no raw PII | `assert-no-agency-pii` tests | ✅ tests green |
+| Agency no raw PII | `assert-no-agency-pii` tests | ✅ tests green — PR #508 allow-listed the MASKED `panLast4`/`bankLast4` fields (last-4 only, like `displayInitials`); raw `pan`/`bank`/`ifsc` remain structurally forbidden |
 | Events PII-free | event-schema validation tests | ✅ 125 tests green |
 | **Money-route auth** | guards on unlocks / posting-plans | ✅ **LC-1 CLOSED on the payer surface** — verified 2026-07-16: [`payer-unlocks.controller.ts:40`](../../apps/api/src/payer-portal/payer-unlocks.controller.ts) puts the **whole class** behind `PayerAuthGuard`; `POST /payer/unlocks` + `/unlocks/:id/reveal` derive `payer_id` from the **session** (XB-A, never body), and reveal enforces ownership at the chokepoint. `posting-plans` payer-authed (#179). **Residual is OPS-INTERNAL only:** ops [`unlocks.controller.ts`](../../apps/api/src/unlocks/unlocks.controller.ts) keeps `InternalServiceGuard` as a deliberate safe-interim (TD33/TD50), not called by payer-web.<br>⚠️ **The prior "LC-1 open / body payer_id" entry here — and the same claim in PROJECT_STATUS.md and the 2026-07-10 endpoint audit — was a PHANTOM**: it conflated the ops controller with the payer one. CLAUDE.md §8 has it right. |
 | **Real-call gate holds under test** *(new row)* | `pytest` must never reach a real provider | ❌ **FAILING locally** — a unit run fired a **real Gemini embedding call** (`skill_embedding provider HTTP 400`). See **T1**. |
