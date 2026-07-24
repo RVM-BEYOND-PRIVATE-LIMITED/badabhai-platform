@@ -48,9 +48,10 @@ compiles and tests pass. If a task requires breaking one, **stop and escalate** 
 2. **No raw PII leaves its boundary.** Phone, full name, address, employer names, and
    ID-doc tokens **must never** appear in: LLM input, event payloads, `ai_jobs`,
    `audit_logs`, or logs. Use `*_hash` or opaque UUIDs. Raw worker PII lives **only** in
-   the `workers` table; the only other PII at rest is **encrypted** payer contact in
-   `payers` (TD21) — and PII still **never** reaches LLM input, events, `ai_jobs`,
-   `audit_logs`, or logs.
+   the `workers` table; other PII at rest is **encrypted** payer contact in
+   `payers` (TD21) and **encrypted agency financial KYC** (PAN/bank) in `agency_kyc`
+   (ADR-0022 Amdt 2, launch-gated OFF) — and PII still **never** reaches LLM input, events,
+   `ai_jobs`, `audit_logs`, or logs.
 3. **Pseudonymization runs before every LLM call and fails closed.** It lives in
    [`apps/ai-service/app/pseudonymize.py`](apps/ai-service/app/pseudonymize.py). If it
    blocks (oversize input, parse error, residual digit run), the LLM is **never called**
@@ -103,7 +104,7 @@ apps/
   worker-app/  Flutter scaffold — Splash → … → ResumePreview, ApiClient
 packages/
   event-schema/  Artifact #1 — envelope, registry, payloads, validate
-  db/            Drizzle schema + migrations + client (39 tables — full set in schema.ts)
+  db/            Drizzle schema + migrations + client (43 tables — full set in schema.ts)
   config/        Typed env (server vs public split)
   pricing/       config-driven pricing + credit-pack catalog (ADR-0013)
   reach-engine/  BUILT — deterministic RANK core (scoring.ts / types.ts / ranking.ts, ADR-0011/0015)
@@ -121,9 +122,11 @@ HTTP only) → `<domain>.service.ts` (business logic, emits events) →
 `<domain>.module.ts` (DI wiring). Do not put data access in controllers or business
 logic in repositories.
 
-**DB tables (39):** the full set is the source of truth in
+**DB tables (43):** the full set is the source of truth in
 [`packages/db/src/schema.ts`](packages/db/src/schema.ts). Raw worker PII lives **only**
-in `workers`; the only other PII at rest is **encrypted** payer contact in `payers` (TD21).
+in `workers`; PII at rest also includes **encrypted** payer contact in `payers` (TD21) and
+**encrypted agency financial KYC** (PAN/bank) in `agency_kyc` (ADR-0022 Amdt 2, ADR-0004
+discipline, launch-gated OFF) — still **never** to LLM/events/`ai_jobs`/`audit_logs`/logs.
 
 ---
 
@@ -222,9 +225,11 @@ legal copy. **Note:** the _alpha-gate_ forms of employer postings, contact unloc
   feed serving, config-driven pricing/boosts, **per-payer hiring capacity**
   ([ADR-0016](docs/decisions/0016-payer-hiring-capacity.md): faceless cap, mock payments,
   **enforcement INERT by default** behind `CAPACITY_ENFORCEMENT_ENABLED`), the **self-serve
-  payer/agency portal** (ADR-0019/0022) and the **WhatsApp invite funnel** (ADR-0020, mock) have
+  payer/agency portal** (ADR-0019/0022) and the **WhatsApp invite funnel** (ADR-0020, mock), plus
+  the **agency supply-money loop** — KYC gate + payout ledger + earnings, mock + `AGENCY_PAYOUTS_ENABLED`-OFF
+  ([ADR-0022 Amdt 2](docs/decisions/0022-agency-supply-portal.md), PR #508; migration 0048; TD39) — have
   **landed additively behind launch gates** (§1) — it is their **real-money / real-provider /
-  production-legal** portions (tracked: TD33/TD34/TD35/TD43 + the threat-model LC items) that
+  production-legal** portions (tracked: TD33/TD34/TD35/TD39/TD43 + the threat-model LC items) that
   remain deferred here.
 
 **`PayerAuthGuard` is the payer-facing auth gate.** `POST /payer/unlocks`, `POST /payer/unlocks/:id/reveal`, `GET /payer/unlocks`, `GET /payer/credits`, `POST /payer/credits` — all at [`payer-portal/payer-unlocks.controller.ts`](apps/api/src/payer-portal/payer-unlocks.controller.ts) — ride `PayerAuthGuard` with `payer_id` from the **session**, not the body (XB-A, verified PR #110/#119). `POST /payer/job-postings/:id/plan|boost` likewise `PayerAuthGuard` (PR #179). **LC-1 is CLOSED on the payer-facing surface.** The residual is OPS-INTERNAL only: the ops [`unlocks.controller.ts`](apps/api/src/unlocks/unlocks.controller.ts) (`POST /unlocks`, `POST /unlocks/:id/reveal`) keeps `InternalServiceGuard` as a deliberate safe-interim (TD33/TD50) — it is NOT called by payer-web; retiring it is blocked on ADMIN-4..8. **Still pending:** a **cost** strategy doc + a **disaster-recovery** plan (monitoring/rollback have runbooks — [observability-runbook.md](docs/observability-runbook.md), [rollback-guide.md](docs/rollback-guide.md)).

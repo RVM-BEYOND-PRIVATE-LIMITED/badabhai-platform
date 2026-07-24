@@ -2,6 +2,13 @@
 
 Each phase: goal · in-scope · out-of-scope · blockers · acceptance · **test gate** · owner · target.
 
+> **⚠️ STALE POINTER (2026-07-23):** the "as of" line below and its PR/migration counts are pinned
+> to 2026-07-18 (#408) and have not been walked forward through the ~100 PRs since (#409–#508) —
+> that walk is NOT done here (would require re-auditing milestones/blockers this session hasn't
+> reviewed). Verified-current facts only: `main` HEAD is `ed3c872` (#508, 2026-07-23, 0 open PRs),
+> **49 migrations** (0000–0048), **34 ADRs** (0022 now has 2 amendments). Newest work is logged in
+> [DAILY_TRACKER.md](DAILY_TRACKER.md) (top entry). A full milestone re-walk is owed, not done here.
+
 ## ⏱️ DEADLINE TRACKER — as of 2026-07-18 (`main` @ `085e2f6`, #408)
 
 | Milestone | Target | Status | Slip |

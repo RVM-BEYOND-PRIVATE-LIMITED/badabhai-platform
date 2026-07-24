@@ -25,7 +25,7 @@ Release Readiness %: **25%** (High confidence it is not release-ready).
 | OTP | real-only, breaker, kill-switch, capped | ✅ code / ❌ proven | real send unproven (D2) |
 | Payer flows | money routes authz (LC-1) | ❌ | posting-plans unguarded (P1); unlock/reveal body payer_id (D3) |
 | Worker app | handset-proven | ❌ | B1 open |
-| Agency | faceless, no payouts/KYC | ✅ (alpha scope) | payouts/KYC PARKED |
+| Agency | faceless demand; payouts/KYC built mock+gated | ✅ (alpha scope) | payouts/KYC machinery shipped OFF (`AGENCY_PAYOUTS_ENABLED`, PR #508); go-live needs legal/DPDP + §7 real money + 2 fix-before-flip items ([ADR-0022 Amdt 2](../decisions/0022-agency-supply-portal.md)) |
 | Health | no secret leak | ✅ | verified in code |
 | Staging | exists + smoke | ❌ | D1 |
 | Security | RLS, CORS, trust-proxy, secrets mgr | ❌ | RLS deferred (D6); TD30/TD25 open |

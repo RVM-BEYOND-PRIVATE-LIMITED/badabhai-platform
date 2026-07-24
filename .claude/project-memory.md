@@ -13,7 +13,7 @@
 
 # Architecture
 
-- **Event-first:** every important endpoint emits a `createEvent`-built, registry-validated event into append-only `events`. **100 event names across 28 domains, all v1.**
+- **Event-first:** every important endpoint emits a `createEvent`-built, registry-validated event into append-only `events`. **116 event names across 28 domains, all v1.**
 - **Services:** NestJS API (`apps/api`, **32 module dirs**) ↔ FastAPI AI service (`apps/ai-service`) ↔ single Supabase Postgres via Drizzle. Frontends: `apps/payer-web` (external payer+agency portal), `apps/web` (internal ops console), `apps/worker-app` (Flutter, 4 tabs: Jobs/Resume/Profile/Alerts).
 - **AI privacy boundary:** `pseudonymize.py` before every LLM call, fail-closed. Direct Gemini (primary) + Claude Haiku (fallback) behind `LlmAdapter`/`AIRouter` (ADR-0008). Recent cost work: prompt-cache (COST-2), O(n) stateless chat turns (COST-3), templated questions (COST-4); mentor persona (AI-PERSONA-1/2).
 - **Async:** BullMQ on Redis (extraction, transcription, deletion sweeps); clients poll `ai_jobs`.
@@ -23,12 +23,12 @@
 # Tech Stack
 
 - pnpm 11 + Turborepo · NestJS (TS strict) · FastAPI · Next.js ×2 (payer-web external, web ops) · Flutter (go_router shell, ADR-0023; Flutter 3.35.7 vs older CI pin = TD61).
-- **DB: ONE Supabase Postgres project (`Badabhai-DB`, ap-south-1) — the `main` DB is the only database. No localhost/dev/staging DB.** Drizzle authors the schema; **45 migrations** (0000–0044; 0039 applied 2026-07-15; 0041 applied 2026-07-18; 0042+0043 applied 2026-07-18). CI/e2e use a throwaway per-run Postgres container, never the real DB.
+- **DB: ONE Supabase Postgres project (`Badabhai-DB`, ap-south-1) — the `main` DB is the only database. No localhost/dev/staging DB.** Drizzle authors the schema; **49 migrations** (0000–0048; 0042+0043 applied 2026-07-18; **0048 agency KYC/payout tables applied by owner 2026-07-23**). CI/e2e use a throwaway per-run Postgres container, never the real DB. **New RLS-locked table ⇒ add it to `tests/e2e/rls-spine.e2e.test.ts` LOCKED_TABLES + the `schema` object (an e2e-only no-drift guard the unit suite misses).**
 - Redis + BullMQ (live). Vertex `text-multilingual-embedding-002` (768-dim) for profiling embeddings + skill aliases. Sarvam STT (mock default, ADR-0029 voice-at-rest Proposed). ZeptoMail (sandbox gate) for member invites. Langfuse placeholder.
 - **Packages (10):** event-schema, db, config, types, validators, taxonomy, ai-contracts (Zod↔Pydantic mirror), **pricing (BUILT: fail-closed `resolvePrice`, ADR-0013)**, **reach-engine (BUILT)**, **reach-learn (BUILT, offline)**.
 - **CI (6 workflows):** ci.yml (lint/typecheck/test/build + ruff/pytest + full-chain e2e on ephemeral pgvector Postgres), security-scan.yml, supabase-checks.yml, worker-app.yml (Flutter, blocking), staging-cd.yml + staging-demand-verify.yml (both `workflow_dispatch`). Dependabot enabled (CI-1, #218).
 
-# Domain Models (39 tables — source of truth `packages/db/src/schema.ts`)
+# Domain Models (43 tables — source of truth `packages/db/src/schema.ts`)
 
 - **Worker identity/auth (4):** `workers` (PII root: phone AES-256-GCM + HMAC hash, full_name, deletion_scheduled_at pending ADR-0031), `worker_consents` (append-only DPDP), `worker_devices` (device_hash HMAC, push_token — ADR-0026), `worker_credentials` (scrypt PIN + lockout throttle, 1/worker).
 - **Payer tenancy (3, ADR-0019/0022/0027):** `payers` (role employer|agent; email/phone/org **encrypted**), `payer_orgs` (tenant root), `payer_members` (invite→accept→remove; token hashed).
@@ -76,7 +76,7 @@
 
 # Current Workstreams (2026-07-18)
 
-- **No open PRs as of 2026-07-18.** HEAD `085e2f6` (#408). 45 migrations, 34 ADRs, 2,465 TS tests green.
+- **No open PRs as of 2026-07-23.** HEAD `ed3c872` (#508). 49 migrations, 34 ADRs (0022 has 2 amendments). **Highlights below run only to #408 (2026-07-18) — #409–#508 are NOT backfilled here; see MEMORY.md for individual session entries in that range (TAX series, TD67, mega-sessions, drift-rulings, referral attribution #506, agency KYC/payout #508, etc.) until a dedicated pass folds them into one line each.**
 - **Recently shipped (#232–#408, highlights):** TAX-9 versioning/replaced_by (#232), TD67 ai-service auth bearer (#235), TD68+COST-4 SpendLedger join (#238), PIN residuals+F4+A5 re-mint (#239), **TD62 RESOLVED** consent-routing tri-state (#240), RATIFY-1 22 aliases (#244), Q14 DECIDED skill_labels on résumé (#245), TD22-1 PII token v2 kid+keyring (#247/#250), TD25a trust-proxy regression suite (#248), TD70 /resume/generate WorkerAuthGuard (#252), CD-0..CD-5 hardening (#253 + #383/#384/#386), in-app PDF download (#256), WA-1..4 applied-jobs fixes (#326), ADR-0032 profile photo (#340 / #402 photo→PDF), gated test-login D-3 (#391), B-4/B-5/D-1 location split + one-ask + salary carve-out (#392), ADR-0033 skills-overlap factor .15 (#394), D-2 chunked async STT with DoS hardening (#395), R31 pricing/catalog auth fix (#396), R2 Indic danda danda fix (#397), ADR-0031 deletion grace (#400), AI-ENV-1 env_file anchor + REDIS_URL→AI_SPEND_REDIS_URL (#401), alerts worker-own-apply (#403), TD83(a) demand-side events banned by payload shape (#404), storage/interview-kit 503 fix (#405), guard template suffix fixes (#407/#408), ten owner rulings codified (#387).
 - **Blockers:** ✅ P0 CLEARED (B1 CLOSED 2026-07-18, owner-attested). **New P1:** TD81 ai-service missing from compose (staging mocks AI silently behind 200 `/health`); gates 1/2/5 unrun on staging; OTP-safety half (gate 4); R28 unauthenticated name-read (bounded); R31 unauthenticated pricing/catalog (bounded); TD61 Flutter CI pin. FE wiring CLOSED (#194). TD62 RESOLVED (#240).
 - **Pending decisions:** ADR-0005/0028/0029 Proposed; Q5/Q11 RLS identity; Q13 PACE adjacency (CEO); hospitality per-trade RVM ratification (pending, content drafted). ADR-0031 ACCEPTED + MERGED (#400). R27 box triage (owner-only).

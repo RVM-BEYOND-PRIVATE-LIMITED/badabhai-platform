@@ -11,6 +11,24 @@ Do not overload: one primary task per developer per day.
 
 ---
 
+## 2026-07-23 — agency KYC gate + payout ledger + earnings shipped (mock + gated)
+
+> **State:** `main` @ `ed3c872` (#508, 0 open PRs). **49 migrations** (0000–0048; **0048 —
+> agency_kyc/agency_payout_accruals/agency_payout_requests — applied by owner 2026-07-23**),
+> **34 ADRs** (0022 now has 2 amendments). Full detail: [DAILY_TRACKER.md](DAILY_TRACKER.md) top entry.
+> _(The entries below this one run only to #408/#425 — #409–#507 are not individually logged here;
+> see MEMORY.md / DAILY_TRACKER.md for the sessions in that gap.)_
+
+**PR #506** — worker/agency referral attribution wired (closes TD48). **PR #507** — payer-web
+login-fix evidence (TD110 Paid, TD111 logged). **PR #508** — the agency supply-money loop
+(ADR-0022 Amendment 2): owner ratified `25%×₹40/unlock, 90d, ₹500` in writing; built **MOCK +
+`AGENCY_PAYOUTS_ENABLED`-OFF** (every KYC/earnings/payout route 404s until flipped — no financial
+PII collected). Security review: 6 findings, 0 Crit/High, 2 fixed in-PR, 4 logged fix-before-flip
+(single-agency-ownership needs a product ruling). Owner action needed: none to ship; a
+first-touch-vs-last-touch call is owed before `AGENCY_PAYOUTS_ENABLED` is ever flipped.
+
+---
+
 ## 2026-07-18 (EVENING) — B1 CLOSED; alpha IN PROGRESS; Phase 2 UNBLOCKED
 
 > **State:** HEAD `1811494`. **B1 CLOSED** (owner-attested). Staging live, 0042+0043 applied, R27 triaged, real OTP (Fast2SMS), resume download verified. `docs/qa/evidence/staging/` not yet captured — B1 rests on owner attestation. Alpha is now IN PROGRESS (not NO-GO). Phase 2 (internal RVM pilot) is UNBLOCKED.

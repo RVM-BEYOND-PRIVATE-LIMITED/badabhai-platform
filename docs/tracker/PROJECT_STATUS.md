@@ -176,16 +176,16 @@ Retry storm root cause fixed (#187): transport failures now surface reason code;
 
 **VERIFY** (built + unit-tested, needs runtime/staging proof): payer-web login/dashboard/post-job/applicants; backend auth/OTP/events/job-postings/applications/credits/health/agency/admin(1-3b); worker-app auth/consent/name/chat/profile/resume/kit; AI pseudonymization+extraction; design system.
 
-**PARTIAL** (some working, some missing): payer-web manage-postings, unlock/reveal, wallet, capacity, team-RBAC, account (all now live-wired — #194); worker-app swipe(job-detail), notifications, settings; **payer-app (Flutter, #189): UI complete + real bindings written, live seam unverified (screenshots are mock-mode); payouts/KYC/home-metrics design-only**. _(Backend unlock/reveal + posting-plans are payer-authed — the old "LC-1 / unguarded" note here was the phantom; see [context-drift-2026-07-16.md](../registers/context-drift-2026-07-16.md).)_
+**PARTIAL** (some working, some missing): payer-web manage-postings, unlock/reveal, wallet, capacity, team-RBAC, account (all now live-wired — #194); worker-app swipe(job-detail), notifications, settings; **payer-app (Flutter, #189): UI complete + real bindings written, live seam unverified (screenshots are mock-mode); payouts/KYC/home-metrics design-only** (this is the Flutter payer-app — distinct from the payer-web agency KYC/payout build below); **agency KYC/payout ledger/earnings (apps/payer-web + apps/api, ADR-0022 Amdt 2, PR #508, 2026-07-23): built + unit-tested (api 1985 + payer-web 602 + web 42 tests, security-reviewed 0 Crit/High) but entirely INERT BY DESIGN — `AGENCY_PAYOUTS_ENABLED` default OFF (every KYC/earnings/payout route neutral-404s), no runtime/staging proof yet, no real money/PII collected**. _(Backend unlock/reveal + posting-plans are payer-authed — the old "LC-1 / unguarded" note here was the phantom; see [context-drift-2026-07-16.md](../registers/context-drift-2026-07-16.md).)_
 
 **BLOCKED:** staging CD (unwired). _(worker-app alpha left this bucket 2026-07-18 — B1 closed by
 attestation. It is **VERIFY-with-caveats**, not DONE: no artifacts, swipe unverified, AI mocked.)_
 
-**PARKED (do not build now):** voice/STT, agency payouts/KYC/bulk-upload, learned Reach ranking, real payments/WhatsApp/STT providers, raw-phone reveal, production legal copy, finalized RLS.
+**PARKED (do not build now):** voice/STT, bulk-upload (agency payouts/KYC machinery is now BUILT mock+gated — see PARTIAL above; only its go-live remains gated, per LEGAL_GATE below), learned Reach ranking, real payments/WhatsApp/STT providers, raw-phone reveal, production legal copy, finalized RLS.
 
 **DEAD:** `DEV_QUICK_LOGIN` / dev/mock OTP — **removed** (real-only OTP, commit `d2f228e`). Do not reintroduce.
 
-**LEGAL_GATE:** DPDP production consent copy + erasure policy; real-money payments; real-send OTP activation; **admin PII-reveal operational conditions (R24/OQ-7: weekly review + 1-yr retention).**
+**LEGAL_GATE:** DPDP production consent copy + erasure policy; real-money payments (incl. agency payout disbursement, §7); real-send OTP activation; legal/DPDP sign-off on **live agency-KYC collection** (financial PII — PAN/bank, ADR-0022 Amdt 2); **admin PII-reveal operational conditions (R24/OQ-7: weekly review + 1-yr retention).**
 
 **UNKNOWN (needs runtime check):** dark-theme parity completeness; formal WCAG/a11y conformance; e2e suite behaviour against real PG+Redis (only CI-run today); **swipe device-verify (feed/apply/skip on a handset) — never evidenced, absent from the B1 attestation**; **staging migration level above `0043`** (repo carries through `0046`); **whether any staging profiling result to date came from a real LLM or the mock** (TD81 — `/health` cannot currently tell you).
 

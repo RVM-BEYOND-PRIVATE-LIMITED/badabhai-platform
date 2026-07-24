@@ -5,6 +5,37 @@ Newest day on top. Copy the template block each working day. Every % move needs 
 
 ---
 
+# Daily Tracker — 2026-07-23
+
+## BadaBhai Progress Snapshot
+- **No % move** (feature is built + gated OFF; cap rule needs staging/handset evidence, and this ships inert by design — see LEGAL_GATE).
+- **PR #506 — referral attribution wired.** The two previously-INERT worker/agency attribution
+  seams (ADR-0020/0022) get a caller: `POST /referrals/attribute` (WorkerAuthGuard, consent-gated
+  fail-closed for both namespaces, worker-seam-first + agency-fallback-on-unknown_code, no-oracle,
+  rate-limited). Flutter `/i/<code>` deep-link capture → consumed post-consent. **Closes TD48** —
+  the agency funnel's `accepted` stage is now live, not permanently zero.
+- **PR #507 — payer-web login-fix evidence.** 11 screenshots + TD110 (Paid: shared-DB migration
+  journal had silently drifted 14 migrations behind main, breaking payer login end-to-end) + TD111
+  (Open: re-signup on a different role tab silently keeps the existing role — UX gap, not security).
+- **PR #508 — agency KYC gate + payout ledger + earnings (ADR-0022 Amendment 2).** Owner ratified
+  the previously-UNRATIFIED params in writing (**25% × ₹40/unlock, 90-day window, ₹500 minimum**,
+  ops-manual KYC verify) and instructed the build. Shipped **MOCK + launch-gated**:
+  `AGENCY_PAYOUTS_ENABLED` default OFF ⇒ every KYC/earnings/payout route is a neutral 404, no
+  financial PII is ever collected until flipped. New tables `agency_kyc` (AES+HMAC, FORCE-RLS+REVOKE,
+  ADR-0004) / `agency_payout_accruals` / `agency_payout_requests` (migration **0048**, applied by
+  owner) + `agency_invites.attributed_at`; 7 new PII-free events; payer-web supply UI + apps/web ops
+  verify queue. Adversarial security review: **6 findings, 0 Crit/High** — 2 fixed in-PR (KYC
+  re-decision event-dedup gap; `verified_at` mis-stamped on reject), **4 logged as fix-before-flip**
+  (single-agency-per-worker ownership — needs a first-touch-vs-last-touch **product ruling** + a
+  migration; event-after-commit co-commit on the ledger). CI: fixed the `rls-spine` `LOCKED_TABLES`
+  no-drift guard (3 new RLS tables weren't listed — e2e-only check, unit suite doesn't catch it).
+  Full stack green: api 1985 + payer-web 602 + web 42 tests. **Still gated:** legal/DPDP sign-off on
+  live KYC collection, §7 real outbound money + a real provider — those remain human decisions, not
+  built here. See [ADR-0022 Amendment 2](../decisions/0022-agency-supply-portal.md) and
+  [TD39](../registers/tech-debt-register.md).
+
+---
+
 # Daily Tracker — 2026-07-22
 
 ## BadaBhai Progress Snapshot
