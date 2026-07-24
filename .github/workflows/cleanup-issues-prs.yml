@@ -64,7 +64,7 @@ jobs:
                             context.payload.inputs?.dry_run === true);
 
             function log(...args) {
-              core.info(`[${dryRun ? 'DRY-RUN' : 'EXEC'}]`, ...args);
+              core.info(`[${dryRun ? 'DRY-RUN' : 'EXEC'}] ${args.join(' ')}`);
             }
 
             function sleep(ms) {
