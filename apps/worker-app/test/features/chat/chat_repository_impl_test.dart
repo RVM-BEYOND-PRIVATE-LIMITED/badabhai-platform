@@ -9,6 +9,7 @@ import 'package:badabhai_worker_app/core/api/api_client.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/features/chat/data/chat_repository_impl.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_message.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 
 /// A client that fails the test if it is ever hit — the fail-closed guards must
@@ -87,6 +88,116 @@ void main() {
       // A Failure — NOT a silently-swallowed no-op: the bloc marks the bubble
       // failed and offers retry on the back of this throw.
       await expectLater(repo.sendMessage('hi'), throwsA(isA<Failure>()));
+    });
+  });
+
+  // #478 + honesty cues — the reply's new fields must reach the ChatTurn the
+  // bloc consumes, or the named-gaps helper and the blocked/mock cues go dark.
+  test('sendMessage carries unanswered_essentials, blocked and is_mock through',
+      () async {
+    final SessionRepository session = SessionRepository()
+      ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok')
+      ..setSession('s1');
+    final ChatRepositoryImpl repo = ChatRepositoryImpl(
+      ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async => http.Response(
+              jsonEncode(<String, dynamic>{
+                'reply': 'Aur bataiye.',
+                'is_mock': true,
+                'blocked': false,
+                'suggested_followups': <String>['CNC', 'VMC'],
+                'unanswered_essentials': <String>['machines', 'experience'],
+              }),
+              201,
+            )),
+      ),
+      session,
+    );
+
+    final ChatTurn turn = await repo.sendMessage('hi');
+    expect(turn.reply, 'Aur bataiye.');
+    expect(turn.isMock, isTrue);
+    expect(turn.blocked, isFalse);
+    expect(turn.followups, <String>['CNC', 'VMC']);
+    expect(turn.unansweredEssentials, <String>['machines', 'experience']);
+  });
+
+  // #502 transcript hydration — the persisted transcript is redrawn as bubbles.
+  group('loadHistory (#502)', () {
+    test('no open session -> [] (best-effort, never hits the network)', () async {
+      final SessionRepository session = SessionRepository()
+        ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok');
+      // No setSession -> sessionId null.
+      final ChatRepositoryImpl repo = _repo(session);
+      expect(await repo.loadHistory(), isEmpty);
+    });
+
+    test('maps rows to bubbles: inbound=worker, {{worker_name}} stripped, '
+        'null-body dropped, order preserved', () async {
+      final SessionRepository session = SessionRepository()
+        ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok')
+        ..setSession('s1');
+      late http.Request captured;
+      final ChatRepositoryImpl repo = ChatRepositoryImpl(
+        ApiClient(
+          baseUrl: 'http://test',
+          client: MockClient((http.Request req) async {
+            captured = req;
+            return http.Response(
+              jsonEncode(<String, dynamic>{
+                'messages': <Map<String, dynamic>>[
+                  <String, dynamic>{
+                    'direction': 'outbound',
+                    'body_text': '{{worker_name}} ji, Namaste!',
+                    'created_at': '2026-07-23T10:00:00.000Z',
+                  },
+                  <String, dynamic>{
+                    'direction': 'inbound',
+                    'body_text': 'CNC operator hoon',
+                    'created_at': '2026-07-23T10:01:00.000Z',
+                  },
+                  // A voice row before its transcript lands — dropped, not empty.
+                  <String, dynamic>{
+                    'direction': 'inbound',
+                    'body_text': null,
+                    'created_at': '2026-07-23T10:02:00.000Z',
+                  },
+                ],
+              }),
+              200,
+            );
+          }),
+        ),
+        session,
+      );
+
+      final List<ChatMessage> history = await repo.loadHistory();
+
+      expect(captured.url.path, '/chat/sessions/s1/messages');
+      expect(captured.headers['authorization'], 'Bearer tok');
+      expect(history.length, 2, reason: 'the null-body voice row is dropped');
+      expect(history[0].fromWorker, isFalse);
+      expect(history[0].text, 'Namaste!',
+          reason: 'the {{worker_name}} vocative is stripped for the name-less client');
+      expect(history[1].fromWorker, isTrue);
+      expect(history[1].text, 'CNC operator hoon');
+    });
+
+    test('a server error degrades to [] — hydration never blocks chat-open',
+        () async {
+      final SessionRepository session = SessionRepository()
+        ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok')
+        ..setSession('s1');
+      final ChatRepositoryImpl repo = ChatRepositoryImpl(
+        ApiClient(
+          baseUrl: 'http://test',
+          client: MockClient((http.Request req) async =>
+              http.Response('{"message":"boom"}', 500)),
+        ),
+        session,
+      );
+      expect(await repo.loadHistory(), isEmpty);
     });
   });
 }

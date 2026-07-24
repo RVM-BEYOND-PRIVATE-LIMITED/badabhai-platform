@@ -17,10 +17,12 @@ const REAL_NAME = "Asha Kumari";
 const NAME_TOKEN = "v1.ciphertext";
 
 // A valid (name-free) DraftProfile snapshot. The name lives nowhere in here.
+// Uses PROPER taxonomy IDs (skill_*, mach_*) so labelForTaxonomyId resolution is tested.
 const SNAPSHOT = {
-  canonical_role_id: "vmc_operator",
-  skills: ["fanuc"],
-  machines: ["VMC"],
+  canonical_role_id: "role_vmc_operator",
+  canonical_trade_id: "dom_vmc_machining",
+  skills: ["skill_fanuc", "skill_milling"],
+  machines: ["mach_vmc", "mach_cnc_lathe"],
   experience: { total_years: 5, summary: "5 years on Fanuc" },
 };
 

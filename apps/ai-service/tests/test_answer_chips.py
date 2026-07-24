@@ -45,7 +45,14 @@ _FIXTURE = (
 
 # Topics with no chips, and why. Both have an OPEN answer space: any four cities we
 # offered would be four cities we put in the worker's mouth.
-_NO_CHIP_TOPICS = {"current_location", "preferred_locations"}
+_NO_CHIP_TOPICS = {
+    "current_location",
+    "preferred_locations",
+    # TD-EDU — academic education level/field are free-text: the detector cannot
+    # resolve "12th"/"Electronics", so a chip there would record nothing.
+    "education_level",
+    "education_field",
+}
 
 
 # --- 1. every chip answers its own question ---------------------------------

@@ -26,6 +26,8 @@ const BASE_INPUT: ResumeRenderInput = {
   skills: ["fanuc", "vmc"],
   machines: ["VMC"],
   controllers: [],
+  educationLevel: null,
+  educationField: null,
   education: [],
   certifications: [],
   responsibilities: ["Operate VMC to drawing", "First-piece inspection"],

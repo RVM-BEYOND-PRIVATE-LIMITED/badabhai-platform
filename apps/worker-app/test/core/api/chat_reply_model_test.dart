@@ -46,4 +46,42 @@ void main() {
       expect(reply.suggestedFollowups, <String>['Fanuc', 'Siemens']);
     });
   });
+
+  // #478 CHAT-UE-1 + asked_question_id — additive, parsed defensively like the
+  // chips so a malformed value can never take down the whole reply.
+  group('unanswered_essentials + asked_question_id parsing', () {
+    test('parses the topic ids and keeps ESSENTIAL_TOPICS order', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Aur bataiye.',
+        'asked_question_id': 'machines',
+        'unanswered_essentials': <dynamic>['machines', 'current_location'],
+      });
+      expect(reply.askedQuestionId, 'machines');
+      expect(reply.unansweredEssentials, <String>['machines', 'current_location']);
+    });
+
+    test('absent keys -> null id + empty essentials (older API build)', () {
+      final ChatReply reply =
+          ChatReply.fromJson(<String, dynamic>{'reply': 'Theek hai'});
+      expect(reply.askedQuestionId, isNull);
+      expect(reply.unansweredEssentials, isEmpty);
+    });
+
+    test('a non-string asked_question_id degrades to null, reply survives', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Badhiya!',
+        'asked_question_id': 42,
+      });
+      expect(reply.reply, 'Badhiya!');
+      expect(reply.askedQuestionId, isNull);
+    });
+
+    test('a garbage essentials entry is dropped, the rest survive', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Aur bataiye.',
+        'unanswered_essentials': <dynamic>['role', 7, null, 'experience'],
+      });
+      expect(reply.unansweredEssentials, <String>['role', 'experience']);
+    });
+  });
 }

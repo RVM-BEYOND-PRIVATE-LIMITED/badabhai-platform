@@ -377,6 +377,55 @@ _SKILLS: list[tuple[str, str, str]] = [
     ("fusion", "CAM software", "skill_cam_software"),
 ]
 
+
+# --- Taxonomy id -> display label (for the text résumé; never show a raw *_ id) ---
+#
+# Built from THIS module's own label tables, so it cannot drift from what the
+# extractor writes. `role_welder` / `role_cnc_operator` are minted via
+# `_EXTRA_ROLE_TRADES` (no label there), so they get an explicit display name.
+def _build_id_labels() -> dict[str, str]:
+    m: dict[str, str] = {}
+    for _kw, label, rid, _trade in _ROLES:
+        m.setdefault(rid, label)
+    for _kw, label, mid in _MACHINES:
+        m.setdefault(mid, label)
+    for _kw, label, sid in _CONTROLLERS:
+        if sid:
+            m.setdefault(sid, label)
+    for _kw, label, sid in _WELDING:
+        m.setdefault(sid, label)
+    for _kw, label, sid in _SKILLS:
+        m.setdefault(sid, label)
+    m.setdefault("role_welder", "Welder")
+    m.setdefault("role_cnc_operator", "CNC Operator")
+    return m
+
+
+_ID_LABELS: dict[str, str] = _build_id_labels()
+_ID_PREFIX_RE = re.compile(r"^(role|skill|mach|dom|ind|trade|ctrl)_")
+_ID_ACRONYMS = frozenset(
+    {"cnc", "vmc", "hmc", "iti", "mig", "tig", "gdt", "cam", "ncvt", "nsqf", "scvt"}
+)
+
+
+def label_for_id(value: str) -> str:
+    """Resolve a taxonomy id to a readable display label. NEVER returns a raw
+    `*_`-prefixed id: a table hit wins; an unmapped id is prettified (prefix
+    stripped, `_`→space, title-cased, acronyms upper-cased) so `role_hmc_operator`
+    → "HMC Operator". A value that is already a display phrase passes through."""
+    if not value or not isinstance(value, str):
+        return value
+    hit = _ID_LABELS.get(value)
+    if hit:
+        return hit
+    if _ID_PREFIX_RE.match(value):
+        stripped = _ID_PREFIX_RE.sub("", value)
+        words = [w for w in re.split(r"[_\s]+", stripped) if w]
+        return " ".join(
+            w.upper() if w.lower() in _ID_ACRONYMS else w.capitalize() for w in words
+        )
+    return value
+
 _INSPECTION: list[tuple[str, str]] = [
     ("micrometer", "micrometer"),
     ("vernier", "vernier caliper"),

@@ -7,6 +7,8 @@
  * existing ids must remain stable.
  */
 
+import { SKILL_CORPUS } from "./skill-corpus";
+
 export interface TaxonomyNode {
   id: string;
   name: string;
@@ -138,6 +140,55 @@ export const getDomain = byId(DOMAINS);
 export const getRole = byId(ROLES);
 export const getSkill = byId(SKILLS);
 export const getMachine = byId(MACHINES);
+
+// Full skill-corpus id -> English label (skill_* ids beyond the 9 legacy SKILLS,
+// e.g. skill_mig_welding, skill_milling). Built once.
+const _SKILL_CORPUS_LABEL = new Map(SKILL_CORPUS.map((s) => [s.skillId, s.labelEn]));
+
+/** Acronyms that must render fully upper-cased in a prettified fallback label. */
+const _ACRONYMS = new Set([
+  "cnc", "vmc", "hmc", "iti", "mig", "tig", "gdt", "cam", "ncvt", "nsqf",
+  "scvt", "gtaw", "gmaw", "smaw", "gd&t", "hvac", "plc", "vfd",
+]);
+
+/**
+ * Turn a raw taxonomy id into a readable display name. NEVER returns a raw
+ * `*_`-prefixed id: an exact resolver hit (`role_*`/`mach_*`/`skill_*`/`dom_*`/
+ * `ind_*`, plus the full SKILL_CORPUS) wins; otherwise the id is prettified
+ * (prefix stripped, `_` → space, title-cased, acronyms upper-cased) so e.g.
+ * `role_hmc_operator` → "HMC Operator" and an unknown `skill_foo_bar` → "Foo Bar".
+ *
+ * A value that is NOT an id (already a display phrase like "VMC" or "MIG welding")
+ * passes through essentially unchanged — resolvers miss it and prettify only
+ * adjusts casing. Callers should still prefer to resolve ONLY id-bearing fields.
+ */
+export function labelForTaxonomyId(id: string): string {
+  if (!id || typeof id !== "string") return id;
+  const node =
+    getRole(id) ?? getMachine(id) ?? getSkill(id) ?? getDomain(id) ?? getIndustry(id);
+  if (node) return node.name;
+  const corpus = _SKILL_CORPUS_LABEL.get(id);
+  if (corpus) return corpus;
+  // Only ID-SHAPED values get prettified; a plain phrase ("VMC", "cnc operating")
+  // passes through unchanged (never re-cased). Mirrors label_for_id in signals.py.
+  return _ID_PREFIX_RE.test(id) ? prettifyTaxonomyId(id) : id;
+}
+
+const _ID_PREFIX_RE = /^(role|skill|mach|dom|ind|trade|ctrl)_/;
+
+/** Last-resort humanization of an unresolved id — never shows the raw code word. */
+export function prettifyTaxonomyId(id: string): string {
+  const stripped = id.replace(_ID_PREFIX_RE, "");
+  return stripped
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map((w) =>
+      _ACRONYMS.has(w.toLowerCase())
+        ? w.toUpperCase()
+        : w.charAt(0).toUpperCase() + w.slice(1),
+    )
+    .join(" ");
+}
 
 // ADR-0030 / TAX-2 — the canonical SKILL corpus + domain map + validators.
 export * from "./skill-corpus";

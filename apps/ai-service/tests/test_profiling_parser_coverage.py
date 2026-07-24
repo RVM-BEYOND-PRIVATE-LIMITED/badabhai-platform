@@ -784,6 +784,8 @@ def test_the_429_must_ask_gate_holds_across_every_scripted_interview() -> None:
         "salary_expected",
         "availability",
         "education",
+        "education_level",
+        "education_field",
         "certifications",
     ), "MUST_ASK_TOPICS changed — re-run the harness and update report findings 3 and 7"
 

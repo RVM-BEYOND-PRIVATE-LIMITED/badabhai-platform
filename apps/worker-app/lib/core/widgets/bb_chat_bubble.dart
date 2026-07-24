@@ -47,9 +47,11 @@ class BbChatBubble extends StatelessWidget {
     final Widget bubble = Container(
       constraints: const BoxConstraints(maxWidth: 300),
       margin: const EdgeInsets.symmetric(vertical: AppSpacing.s1),
+      // Snug vertical padding keeps more of the transcript on screen with the
+      // keyboard open, while the full horizontal inset keeps copy comfortable.
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.s4,
-        vertical: AppSpacing.s3,
+        vertical: AppSpacing.s2,
       ),
       decoration: BoxDecoration(
         color: background,
@@ -67,8 +69,12 @@ class BbChatBubble extends StatelessWidget {
         children: <Widget>[
           Text(
             text,
+            // sizeSm (14) — a compact chat body (owner request 2026-07-23): the
+            // profiling chat runs long and, with the keyboard open, larger text
+            // left too little of the transcript + question visible. Still an
+            // easily-legible size; the composer/CTA below keep their tap targets.
             style: AppTypography.body(
-              size: AppTypography.sizeMd,
+              size: AppTypography.sizeSm,
               color: AppColors.textPrimary,
             ),
           ),

@@ -1,3 +1,4 @@
+import 'chat_message.dart';
 import 'chat_turn.dart';
 
 /// Chat boundary for the profiling conversation. Implementations read the
@@ -16,4 +17,12 @@ abstract interface class ChatRepository {
   /// Sends [text] and returns bada bhai's reply plus any tap-to-answer
   /// [ChatTurn.followups].
   Future<ChatTurn> sendMessage(String text);
+
+  /// The persisted transcript for the CURRENT session, oldest-first, as
+  /// redrawable bubbles (#502 transcript hydration). Empty when there is no open
+  /// session or the session has no stored turns yet (a brand-new chat) — the
+  /// caller then leaves its opener untouched. BEST-EFFORT: implementations
+  /// return `[]` rather than throw, so a hydration miss can never block the chat
+  /// from opening.
+  Future<List<ChatMessage>> loadHistory();
 }

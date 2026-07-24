@@ -12,6 +12,8 @@ masked before any external LLM call.
 
 from __future__ import annotations
 
+import re
+
 from ..contracts import ConversationState
 from . import signals
 from .question_bank import (
@@ -77,6 +79,12 @@ MUST_ASK_TOPICS: tuple[str, ...] = (
     "salary_expected",
     "availability",
     "education",
+    # TD-EDU (owner 2026-07-23): two dedicated academic-education asks. Like
+    # `education`/`certifications` they are non-essential must-asks — the local
+    # detector cannot parse "12th"/"Electronics", so requiring an ANSWER would burn
+    # the re-ask budget; the ASK satisfies the gate and the LLM reads the value.
+    "education_level",
+    "education_field",
     "certifications",
 )
 
@@ -105,11 +113,14 @@ MAX_ASKS_PER_TOPIC = 2
 # incremented ONLY where a question is actually served, and therefore immune to
 # clarify turns by construction.
 #
-# Sized with real headroom over the current bank's blind-run budget (4 essentials
-# x MAX_ASKS_PER_TOPIC + 7 ask-once topics = 15). test_interview_engine.py pins
-# that budget against this constant, so the zero-margin coupling cannot silently
-# come back if the bank grows.
-MAX_ENGINE_ASKS = 20
+# Sized with real headroom over the current bank's blind-run budget: 4 essentials
+# x MAX_ASKS_PER_TOPIC (=8) + 10 ask-once topics (skills, preferred_locations,
+# controllers, salary_current, salary_expected, availability, education,
+# education_level, education_field, certifications) = 18. test_interview_engine.py
+# pins that budget against this constant, so the zero-margin coupling cannot
+# silently come back if the bank grows. (Was 20 for a 16-ask bank; TD-EDU added two
+# ask-once education topics, so this is raised to keep >=4 slots of headroom.)
+MAX_ENGINE_ASKS = 22
 
 # In-flight ConversationStates minted before the B-4/B-5 split may carry the
 # retired combined topic ids. Map them to the topic their context-free detection
@@ -130,6 +141,32 @@ def _normalize_legacy_ids(ids: list[str]) -> None:
             ids[i] = mapped
     seen: set[str] = set()
     ids[:] = [t for t in ids if not (t in seen or seen.add(t))]
+
+
+# TD-EDU (owner 2026-07-23): a SCHOOL-level education answer (10th / 12th) has no
+# "field of study", so the education_field question is skipped for it. A higher
+# qualification (ITI / Diploma / B.Tech / degree / …) still gets asked its field.
+_SCHOOL_LEVEL_RE = re.compile(
+    r"(?<!\d)(10|12)(?!\d)|10th|12th|dasv|barv|baarv|matric|\bssc\b|\bhsc\b|"
+    r"high\s*school|inter",
+    re.IGNORECASE,
+)
+_HIGHER_ED_RE = re.compile(
+    r"iti|diploma|polytechnic|\bpoly\b|b\.?\s*tech|btech|\bb\.?\s*e\b|\bbe\b|degree|"
+    r"graduat|engineer|b\.?\s*sc|\bbsc\b|\bb\.?\s*a\b|b\.?\s*com|\bbcom\b|m\.?\s*tech|"
+    r"\bmtech\b|\bmba\b|\bmca\b|\bbca\b",
+    re.IGNORECASE,
+)
+
+
+def _is_school_only_education(message: str) -> bool:
+    """True when an ``education_level`` answer is school-only (10th / 12th) and names
+    NO higher qualification — so there is no field of study to ask about. Any
+    ITI/Diploma/B.Tech/degree cue returns False, so those still get their field."""
+    m = message or ""
+    if _HIGHER_ED_RE.search(m):
+        return False
+    return bool(_SCHOOL_LEVEL_RE.search(m))
 
 
 def _extraction_ready(st: ConversationState) -> bool:
@@ -338,6 +375,18 @@ def next_turn(
             continue
         if _may_commit(st, topic_id, last_asked, correcting, inferred_fills):
             st.collected[topic_id] = value
+
+    # TD-EDU: if education_level was just answered school-only (10th/12th), there is
+    # no field of study — skip the education_field ask. Marking it ANSWERED (not
+    # asked) satisfies the must-ask gate (asked-or-answered), so _next_topic never
+    # serves it and the interview does not wait on it. A higher qualification still
+    # gets its field. Read from the RAW message (the detector cannot parse levels).
+    if (
+        last_asked == "education_level"
+        and _is_school_only_education(worker_message_raw)
+        and "education_field" not in st.answered_topics
+    ):
+        st.answered_topics.append("education_field")
 
     extraction_ready = _extraction_ready(st)
     # INTERVIEW-1 completeness signal: refresh the gap list on EVERY turn, so the

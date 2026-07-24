@@ -1,4 +1,5 @@
 import { DraftProfileSchema } from "@badabhai/ai-contracts";
+import { labelForTaxonomyId } from "@badabhai/taxonomy";
 import type { ResumeRenderInput } from "./resume-renderer.service";
 import { resolveTradeContent, type TradeContent } from "./trade-content";
 
@@ -34,8 +35,10 @@ export function buildResumeRenderInput(
     templateId,
     displayName,
     photoDataUri,
-    // Prefer the recruiter-readable trade title over a raw taxonomy id.
-    canonicalRole: trade?.display_name ?? draft.canonical_role_id,
+    // Prefer the recruiter-readable trade title; else resolve the role id to its
+    // display name (never print a raw `role_*` id — e.g. role_welder / the generic
+    // role_cnc_operator have no trade content but DO resolve via the taxonomy).
+    canonicalRole: trade?.display_name ?? resolveId(draft.canonical_role_id),
     // Issue #423 — the worker's CURRENT city is what belongs on a résumé, and it now
     // has its own field. The `preferred_cities[0]` fallback is NOT dead code: before
     // the split the current city was prepended to that list, so for every profile
@@ -46,17 +49,33 @@ export function buildResumeRenderInput(
     experienceYears: draft.experience.total_years,
     availability: humanizeAvailability(draft.availability.status),
     summary: buildSummary(draft, trade),
-    // Q14: canonical ids first, then the worker-confirmed raw labels (deduped
-    // against the ids). The snapshot labels were extraction-clamped and are
-    // pseudonymize-gated by the AI service at résumé generation; this is a pure
-    // render mapping (no LLM here).
-    skills: mergeSkillsWithLabels(draft.skills, draft.skill_labels),
-    machines: draft.machines,
-    // Controllers/education/certifications aren't in the DraftProfile snapshot; they
-    // stay empty (no fabrication). Responsibilities are TRADE-level copy.
+    // Q14: canonical skill NAMES first (ids resolved to display labels — the résumé
+    // must never show skill_* ids), then the worker-confirmed raw labels (deduped).
+    // The snapshot labels were extraction-clamped and are pseudonymize-gated by the
+    // AI service at résumé generation; this is a pure render mapping (no LLM here).
+    skills: mergeSkillsWithLabels(
+      draft.skills.map(labelForTaxonomyId),
+      draft.skill_labels.map(labelForTaxonomyId),
+    ),
+    // Machines are `mach_*` ids on the snapshot — resolve each to its name (VMC, HMC).
+    machines: draft.machines.map(labelForTaxonomyId),
+    // #499 — education + certifications now ride on the DraftProfile snapshot
+    // (closed-set canonical tokens: ITI/Diploma/Degree, NCVT/NSQF/…), so the
+    // templates' "Education & Certifications" section renders instead of collapsing.
+    // Old snapshots lack the keys → DraftProfileSchema defaults them to [] (invariant
+    // #8). Controllers still aren't on the snapshot; they stay empty (no fabrication).
+    // Responsibilities are TRADE-level copy.
     controllers: [],
-    education: [],
-    certifications: [],
+    // Highest academic level + stream, carried on the DraftProfile snapshot beside
+    // the education list. Rendered as a single leading line in the Education section.
+    // Old snapshots lack the keys → DraftProfileSchema defaults them to null
+    // (invariant #8). PII-free qualification labels.
+    educationLevel: draft.education_level,
+    educationField: draft.education_field,
+    // Resolve any taxonomy IDs that may have leaked into education/certifications
+    // from the LLM extraction path — mirrors the worker app's replaceTaxonomyIds().
+    education: draft.education.map(labelForTaxonomyId),
+    certifications: draft.certifications.map(labelForTaxonomyId),
     responsibilities: trade ? [...trade.responsibilities] : [],
   };
 }
@@ -76,7 +95,9 @@ function buildSummary(
   if (!trade) return null;
   const years = draft.experience.total_years;
   if (years && years > 0) {
-    const primaryMachine = draft.machines[0] ?? "CNC/VMC machines";
+    const primaryMachine = draft.machines[0]
+      ? labelForTaxonomyId(draft.machines[0])
+      : "CNC/VMC machines";
     return trade.summary_template
       .replace(/\{\{\s*role\s*\}\}/g, trade.display_name)
       .replace(/\{\{\s*years\s*\}\}/g, `${years} year${years === 1 ? "" : "s"}`)
@@ -85,20 +106,25 @@ function buildSummary(
   return trade.fresher_phrases[0] ?? null;
 }
 
+/** Null-safe id → display name (keeps `null` as `null` for optional fields). */
+function resolveId(id: string | null): string | null {
+  return id ? labelForTaxonomyId(id) : null;
+}
+
 /**
- * Q14: skills for render = canonical ids + worker-confirmed raw labels, dropping a
- * label whose normalization matches an id's (with the `skill_` prefix stripped) —
- * e.g. label "Milling" dupes id `skill_milling`. Mirrors `_skills_entries` in
- * apps/ai-service/app/extraction.py.
+ * Q14: skills for render = canonical skill NAMES (already resolved from `skill_*`
+ * ids by the caller) + worker-confirmed raw labels, dropping a label whose
+ * normalization already matches a resolved name — e.g. label "Milling" dupes the
+ * resolved "Milling". Mirrors `_skills_entries` in apps/ai-service/app/extraction.py.
  */
-function mergeSkillsWithLabels(ids: string[], labels: string[]): string[] {
+function mergeSkillsWithLabels(names: string[], labels: string[]): string[] {
   const norm = (s: string) =>
     s
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, " ")
       .trim();
-  const seen = new Set(ids.map((id) => norm(id.replace(/^skill_/, ""))));
-  const out = [...ids];
+  const seen = new Set(names.map(norm));
+  const out = [...names];
   for (const label of labels) {
     const key = norm(label);
     if (!key || seen.has(key)) continue;

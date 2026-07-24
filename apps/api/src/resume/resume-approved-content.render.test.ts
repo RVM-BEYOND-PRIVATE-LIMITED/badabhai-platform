@@ -46,6 +46,8 @@ function inputFor(content: TradeContent): ResumeRenderInput {
     skills: [...content.core_skills],
     machines: [...content.machine_tools],
     controllers: [],
+    educationLevel: null,
+    educationField: null,
     education: [],
     certifications: [],
     responsibilities: [...content.responsibilities], // approved trade-level copy

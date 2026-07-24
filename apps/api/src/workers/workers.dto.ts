@@ -134,4 +134,13 @@ export interface WorkerProfileSummary {
    * when unknown/no profile.
    */
   experience_years: number | null;
+  /**
+   * Highest academic level (e.g. "12th", "ITI", "B.Tech") and stream (e.g.
+   * "Electronics", "Mechanical") — read defensively out of the `raw_profile`
+   * JSONB (they are not projected columns). PII-FREE qualification labels, same
+   * class as `skills`. `null` when unknown/no profile/malformed. Additive
+   * (backward-compatible): older clients ignore them.
+   */
+  education_level: string | null;
+  education_field: string | null;
 }

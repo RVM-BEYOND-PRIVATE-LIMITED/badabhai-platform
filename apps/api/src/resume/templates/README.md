@@ -31,6 +31,8 @@ Single-value slots — `{{token}}`:
 Repeat regions — `{{#list}}…{{.}}…{{/list}}`:
 
 - `{{#machines}}`, `{{#skills}}`, `{{#controllers}}`, `{{#education}}`, `{{#certifications}}`
+- `{{#education_headline}}` — 0-or-1-item leading Education line (level + field, e.g.
+  "12th — Electronics"); collapses when both are null
 
 The token syntax is mustache-style and documents the slots; the actual renderer
 (and its escaping rules) is a later layer. **The renderer MUST output-encode every

@@ -49,9 +49,74 @@ void main() {
     verify: (_) => verify(() => summaryRepo.summary()).called(1),
   );
 
+  // TD81/#503 — a content-poor / mock extraction COMPLETES (real profile_id)
+  // but the row is stamped 'draft'. The cubit must divert to the draft state
+  // (no Confirm CTA — see the preview) instead of ready, so a near-empty draft
+  // is never confirmed into an empty resume.
+  blocTest<ProfileCubit, ProfileState>(
+    'extract success but the profile is a DRAFT -> draft (never ready)',
+    build: () {
+      when(() => repo.extractProfile()).thenAnswer((_) async => 'p1');
+      when(() => summaryRepo.summary()).thenAnswer(
+        (_) async => const ProfileSummary(
+          tradeLabel: null,
+          verified: false,
+          strengthSignals: 0,
+          profileStatus: 'draft',
+        ),
+      );
+      return ProfileCubit(repo, summaryRepo);
+    },
+    act: (ProfileCubit c) => c.extract(),
+    expect: () => const <ProfileState>[
+      ProfileState(status: ProfileStatus.extracting),
+      ProfileState(
+        status: ProfileStatus.draft,
+        summary: ProfileSummary(
+          tradeLabel: null,
+          verified: false,
+          strengthSignals: 0,
+          profileStatus: 'draft',
+        ),
+      ),
+    ],
+  );
+
+  // An EXTRACTED (real-content) profile still goes ready + confirmable — the
+  // gate diverts ONLY a draft, never a genuine extraction.
+  blocTest<ProfileCubit, ProfileState>(
+    'extract success with an EXTRACTED profile -> ready (not draft)',
+    build: () {
+      when(() => repo.extractProfile()).thenAnswer((_) async => 'p1');
+      when(() => summaryRepo.summary()).thenAnswer(
+        (_) async => const ProfileSummary(
+          tradeLabel: 'CNC Operator',
+          verified: false,
+          strengthSignals: 6,
+          profileStatus: 'extracted',
+        ),
+      );
+      return ProfileCubit(repo, summaryRepo);
+    },
+    act: (ProfileCubit c) => c.extract(),
+    expect: () => const <ProfileState>[
+      ProfileState(status: ProfileStatus.extracting),
+      ProfileState(
+        status: ProfileStatus.ready,
+        summary: ProfileSummary(
+          tradeLabel: 'CNC Operator',
+          verified: false,
+          strengthSignals: 6,
+          profileStatus: 'extracted',
+        ),
+      ),
+    ],
+  );
+
   // A summary-read miss is NON-fatal: extraction succeeded, so the screen still
   // goes ready (with a null summary) rather than failing — the view then
-  // degrades honestly instead of showing fabricated rows.
+  // degrades honestly instead of showing fabricated rows. A null summary can't
+  // be draft (we can't see the status), so it must NOT block.
   blocTest<ProfileCubit, ProfileState>(
     'extract success but summary read fails -> ready with null summary',
     build: () {

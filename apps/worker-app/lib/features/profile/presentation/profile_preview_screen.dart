@@ -77,6 +77,7 @@ class _ProfileView extends StatelessWidget {
           body: switch (state.status) {
             ProfileStatus.extracting => _buildWaiting(),
             ProfileStatus.failed => _buildFailed(context, state),
+            ProfileStatus.draft => _buildDraft(context),
             ProfileStatus.ready ||
             ProfileStatus.confirmed =>
               _buildProfile(state.summary),
@@ -114,12 +115,63 @@ class _ProfileView extends StatelessWidget {
       icon: failureReason(state.failure).icon,
       title: 'Profile taiyaar nahi ho payi.',
       subtitle: failureReason(state.failure).reason,
-      action: BbButton(
-        label: 'Try again',
-        iconLeft: Icons.refresh_rounded,
-        onPressed: context.read<ProfileCubit>().extract,
+      // TWO ways out, never a dead-end loop. "Try again" re-runs extraction —
+      // right for a transient network/server blip. But some failures are
+      // DETERMINISTIC on the same transcript (a content-poor interview, an
+      // AI-down job that never yields a profile), and re-running would loop
+      // forever with no progress. So the worker always has the honest escape:
+      // back to chat to add more detail (which #502 redraws intact).
+      action: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          BbButton(
+            label: 'Try again',
+            block: true,
+            iconLeft: Icons.refresh_rounded,
+            onPressed: context.read<ProfileCubit>().extract,
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          BbButton(
+            label: 'Chat pe wapas jaayein',
+            block: true,
+            variant: BbButtonVariant.ghost,
+            iconLeft: Icons.chat_bubble_outline,
+            onPressed: () => _backToChat(context),
+          ),
+        ],
       ),
     );
+  }
+
+  /// The extraction produced too little to be a usable profile (backend
+  /// `profile_status == 'draft'`, TD81/#503). Do NOT show the Confirm CTA — a
+  /// draft confirmed becomes a near-empty resume. Be honest about why, and route
+  /// the worker back to chat to say more (their transcript is redrawn by #502).
+  Widget _buildDraft(BuildContext context) {
+    return BbStatusView(
+      icon: Icons.edit_note_outlined,
+      title: 'Thodi aur detail chahiye.',
+      subtitle: 'Bada Bhai aapki poori profile banane ke liye thoda aur jaanna '
+          'chahta hai. Chaliye do-teen baatein aur bata dijiye.',
+      action: BbButton(
+        label: 'Chat pe wapas jaayein',
+        block: true,
+        iconLeft: Icons.chat_bubble_outline,
+        onPressed: () => _backToChat(context),
+      ),
+    );
+  }
+
+  /// Returns the worker to the profiling chat. Prefer a pop (keeps the live chat
+  /// bloc + its in-memory transcript, no flicker); fall back to a route change
+  /// when this screen was not reached by a push (chat then re-mounts and #502
+  /// redraws the transcript from the server).
+  void _backToChat(BuildContext context) {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(Routes.chatProfiling);
+    }
   }
 
   /// Renders the REAL extracted profile read back from the summary route. Every
@@ -157,6 +209,8 @@ class _ProfileView extends StatelessWidget {
         : '${summary.strengthSignals} cheezein complete';
     final String? city =
         (summary.city?.isNotEmpty ?? false) ? summary.city : null;
+    // PII-free education labels — shown only when present, never fabricated.
+    final String? education = _educationLabel(summary);
 
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
@@ -171,6 +225,13 @@ class _ProfileView extends StatelessWidget {
           _ProfileRow(
               icon: Icons.place_outlined, label: 'City', value: city),
         ],
+        if (education != null) ...<Widget>[
+          const SizedBox(height: AppSpacing.s3),
+          _ProfileRow(
+              icon: Icons.school_outlined,
+              label: 'Education',
+              value: education),
+        ],
         const SizedBox(height: AppSpacing.s3),
         _ProfileRow(
             icon: Icons.insights_outlined,
@@ -179,6 +240,16 @@ class _ProfileView extends StatelessWidget {
       ],
     );
   }
+}
+
+/// "12th • Electronics" / "12th" / "Electronics"; `null` when both are absent so
+/// the preview row is omitted entirely. PII-free labels, never fabricated.
+String? _educationLabel(ProfileSummary s) {
+  final List<String> parts = <String>[
+    if (s.educationLevel?.isNotEmpty ?? false) s.educationLevel!,
+    if (s.educationField?.isNotEmpty ?? false) s.educationField!,
+  ];
+  return parts.isEmpty ? null : parts.join(' • ');
 }
 
 /// One labelled profile attribute card with a warm saffron icon chip.

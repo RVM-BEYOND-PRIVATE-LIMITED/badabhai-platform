@@ -45,6 +45,14 @@ class ProfileSummaryRepositoryImpl implements ProfileSummaryRepository {
         skills: dto.skills,
         machines: dto.machines,
         experienceYears: dto.experienceYears,
+        // Highest education level + stream (PII-free labels, same class as the
+        // trade/skill strings). Null when the backend omits them — never faked.
+        educationLevel: dto.educationLevel,
+        educationField: dto.educationField,
+        // TD81/#503: carry the raw status so the profiling preview can tell a
+        // real extraction ('extracted') from a content-poor one ('draft') and
+        // refuse to confirm the latter into an empty resume.
+        profileStatus: dto.profileStatus,
       );
     } catch (error) {
       throw mapError(error);

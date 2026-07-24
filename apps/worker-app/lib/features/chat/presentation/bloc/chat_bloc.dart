@@ -74,6 +74,9 @@ class ChatState extends Equatable {
     this.followups = const <String>[],
     this.sessionFailed = false,
     this.extractionReady = false,
+    this.unansweredEssentials = const <String>[],
+    this.lastReplyBlocked = false,
+    this.lastReplyMock = false,
   });
 
   /// Ordered, append-only transcript.
@@ -105,6 +108,22 @@ class ChatState extends Equatable {
   /// under a worker who was already told they could finish.
   final bool extractionReady;
 
+  /// ESSENTIAL topics the worker has not answered yet (`unanswered_essentials`,
+  /// #478), from the LATEST non-blocked turn — topic ids only, never PII. Drives
+  /// the named "what's still missing" helper. NOT latched: it must reflect the
+  /// current gaps, which shrink as the worker answers. A blocked turn leaves it
+  /// unchanged (blocked → "unknown", never "complete").
+  final List<String> unansweredEssentials;
+
+  /// True when the MOST RECENT reply was blocked (pseudonymize fail-closed): the
+  /// worker's last answer was not processed, so the screen cues them to repeat
+  /// it. Turn-scoped (not latched) — the next good turn clears it.
+  final bool lastReplyBlocked;
+
+  /// True when the most recent reply came from the mock/AI-down fallback
+  /// (`is_mock`). Surfaced only as a non-release demo cue (see [ChatTurn.isMock]).
+  final bool lastReplyMock;
+
   ChatState copyWith({
     List<ChatMessage>? messages,
     bool? initializing,
@@ -112,6 +131,9 @@ class ChatState extends Equatable {
     List<String>? followups,
     bool? sessionFailed,
     bool? extractionReady,
+    List<String>? unansweredEssentials,
+    bool? lastReplyBlocked,
+    bool? lastReplyMock,
   }) {
     return ChatState(
       messages: messages ?? this.messages,
@@ -121,6 +143,9 @@ class ChatState extends Equatable {
       sessionFailed: sessionFailed ?? this.sessionFailed,
       // Latch: once ready, always ready (see the field doc).
       extractionReady: this.extractionReady || (extractionReady ?? false),
+      unansweredEssentials: unansweredEssentials ?? this.unansweredEssentials,
+      lastReplyBlocked: lastReplyBlocked ?? this.lastReplyBlocked,
+      lastReplyMock: lastReplyMock ?? this.lastReplyMock,
     );
   }
 
@@ -132,6 +157,9 @@ class ChatState extends Equatable {
         followups,
         sessionFailed,
         extractionReady,
+        unansweredEssentials,
+        lastReplyBlocked,
+        lastReplyMock,
       ];
 }
 
@@ -147,40 +175,22 @@ class ChatState extends Equatable {
 /// service unreachable, mock client, or an API build that predates the field.
 /// Keeping it is the point — the chat must never open on a blank bubble.
 ///
-/// WHY THE FALLBACK IS STILL CANNED. Fetching the engine's first turn any other
-/// way needs a worker message to exist, and this constant predates the opener
-/// seam:
-///   * `POST /chat/session` returns `{session_id, status, started_at}` only —
-///     no reply (`apps/api/src/chat/chat.service.ts` `startSession`).
-///   * `POST /chat/message` is the only path into the engine and its body is
-///     validated by `PostMessageSchema` with `nonEmptyMessageSchema`
-///     (`apps/api/src/chat/chat.dto.ts`), so an empty-history / empty-text call
-///     is rejected — and faking a worker message to trigger turn 1 would put a
-///     message the worker never said into the stored transcript that extraction
-///     later reads.
-///   * The engine DOES expose `first_question()`
-///     (`apps/ai-service/app/profiling/interview_engine.py`), but it has zero
-///     callers and no route on the FastAPI app — nothing serves it.
-///
-/// So the copy is instead ALIGNED with the contract the rest of the flow obeys:
-///   * Hinglish, aap-form, warm — matching the mentor voice in `question_bank`.
-///   * The engine's ACTUAL first topic is `role`, not machines, and this asks
-///     that question verbatim from the `role` topic — so the engine's turn 1
-///     (which serves the first UNANSWERED topic) advances to `machines` rather
-///     than repeating itself, and the worker is never asked the wrong thing
-///     first.
-///   * NO vocative. The persona's `"{{worker_name}} ji, "` slot is filled
-///     server-side after the event is emitted; the client holds no name here
-///     and must not render one, so we take the engine's documented
-///     `worker_name=None` shape (no vocative) rather than inventing one.
+/// THE COPY. Warm "bada bhai" Hinglish, aap-form, framing the chat as building
+/// the worker's resume — no "test" language, no machine list, no worker-name
+/// vocative (the persona's `"{{worker_name}} ji, "` slot is filled server-side
+/// after the event is emitted; the client holds no name and must not render
+/// one). It asks the engine's ACTUAL first topic — `role`
+/// (`aap kaunsa kaam karte hain?`) — verbatim, so the engine's turn 1 (which
+/// serves the first UNANSWERED topic) advances to the next question rather than
+/// repeating itself. Exactly one question per turn (B-5).
 ///
 /// Residual gap, NARROWED: this string still duplicates engine copy client-side
 /// and can drift from `question_bank.py`. It is now only what a DEGRADED session
 /// shows, and the server-served opener above is the live path — but the drift is
 /// not gone, so keep this aligned with the `role` topic if that copy changes.
 const String kChatOpeningText =
-    'Namaste! Main Bada Bhai. Koi test nahi, bas baat karni hai. '
-    'Aap kaunsa kaam karte hain — CNC, VMC, HMC operator, setter ya programmer?';
+    'Namaste! Main aapka Bada Bhai. Chalo, ab aapka accha sa resume banate hain. '
+    'Chaliye shuru karte hain — aap kaunsa kaam karte hain?';
 
 /// The opening bada-bhai prompt as a transcript bubble.
 const ChatMessage kChatOpeningMessage = ChatMessage(
@@ -219,11 +229,35 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // tells the worker the connection is not established.
       failed = true;
     }
+
+    // Drop the spinner + apply the served opener NOW — before any hydration
+    // await. A concurrent first send (the fast-typist race, #344) must not be
+    // reordered behind a slow transcript read: this emit is what the existing
+    // ordering contract depends on, so it stays a single await deep, exactly as
+    // before #502.
     emit(state.copyWith(
       initializing: false,
       sessionFailed: failed,
       messages: _withOpener(opener),
     ));
+
+    if (failed) return;
+
+    // #502 transcript hydration, as a FOLLOW-UP emit: redraw a prior session's
+    // turns that live only server-side. After a >5min background re-lock the app
+    // rebuilds [ChatBloc] with just its opener bubble while `chat_messages` still
+    // holds every answer — the worker would otherwise land on a BLANK thread
+    // mid-interview. BEST-EFFORT and decorative: a hydration hiccup degrades to
+    // "no history" (the repo returns [] on error; the catch guards a
+    // mock/regression too) and never blocks the already-open chat.
+    List<ChatMessage> history;
+    try {
+      history = await _repo.loadHistory();
+    } catch (_) {
+      history = const <ChatMessage>[];
+    }
+    final List<ChatMessage>? redrawn = _historyRedraw(history);
+    if (redrawn != null) emit(state.copyWith(messages: redrawn));
   }
 
   /// The transcript with bubble 0 swapped for the server-served [opener].
@@ -253,6 +287,27 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       ChatMessage(text: opener, fromWorker: false),
       ...messages.skip(1),
     ];
+  }
+
+  /// The greeting bubble (0) followed by the server-side transcript (#502), or
+  /// null — "leave messages alone", the [ChatState.copyWith] contract — when
+  /// there is nothing to redraw. Rebuilt from `state.messages` AT EMIT TIME for
+  /// the same bloc-8.x concurrency reason as [_withOpener].
+  ///
+  /// REDRAWS ONLY WHEN THE WORKER HAS NOT TYPED YET — the transcript is still
+  /// just the opener. A worker who has already sent a message (the same-instance
+  /// live path, or a fast-typist race during the hydration await) must never
+  /// have their bubbles replaced; and on a fresh mount a non-empty [history] is
+  /// exactly the re-lock case this fixes. The canned/served opener is never
+  /// itself stored server-side (rendered-only), so this cannot duplicate it.
+  List<ChatMessage>? _historyRedraw(List<ChatMessage> history) {
+    if (history.isEmpty) return null;
+    final List<ChatMessage> base = state.messages;
+    if (base.any((ChatMessage m) => m.fromWorker)) return null;
+    final List<ChatMessage> opening = base.isNotEmpty && !base.first.fromWorker
+        ? <ChatMessage>[base.first]
+        : const <ChatMessage>[];
+    return <ChatMessage>[...opening, ...history];
   }
 
   Future<void> _onMessageSent(
@@ -309,6 +364,15 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // The engine's interview-completeness decision for this turn (#421).
         // copyWith LATCHES this, so a later turn cannot un-ready the CTA.
         extractionReady: turn.extractionReady,
+        // #478 — the named "what's still missing" gaps. TRUST ONLY a non-blocked
+        // turn: a blocked turn degrades `unanswered_essentials` to [] = "unknown"
+        // (not "complete"), so keep the previous known gaps rather than wrongly
+        // declaring the profile finished.
+        unansweredEssentials:
+            turn.blocked ? state.unansweredEssentials : turn.unansweredEssentials,
+        // Turn-scoped honesty cues (see [ChatTurn]).
+        lastReplyBlocked: turn.blocked,
+        lastReplyMock: turn.isMock,
       ));
     } on Failure catch (_) {
       _inFlightSends--;

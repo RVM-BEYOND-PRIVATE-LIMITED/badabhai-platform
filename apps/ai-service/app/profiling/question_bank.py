@@ -105,7 +105,10 @@ ROLE_FAMILIES: dict[str, dict] = {
 _CNC_VMC_TOPICS: list[Topic] = [
     Topic(
         "role", "Role / trade",
-        "Aap kaunsa kaam karte hain — CNC, VMC, HMC operator, setter ya programmer?",
+        # Kept short (owner 2026-07-23): the machine-type list was dropped from the
+        # FIRST question the worker sees. The retry_question below still names options
+        # for a worker who did not answer, and the tap-to-answer chips still guide.
+        "Aap kaunsa kaam karte hain?",
         core=True,
         # Every option resolves `role`: 'VMC operator', 'CNC turner', 'setter',
         # 'programmer', 'welder'. Bare 'operator' does NOT, so it never stands alone.
@@ -198,6 +201,25 @@ _CNC_VMC_TOPICS: list[Topic] = [
         # '10th pass' / '12th pass' are absent because they measure to {} today.
         options=("ITI", "Diploma", "ITI nahi kiya"),
     ),
+    # TD-EDU (owner 2026-07-23) — two dedicated academic-education topics, distinct
+    # from the vocational `education` (ITI/diploma) topic above. Ask-once (non-
+    # essential): the local detector cannot read "12th"/"Electronics" context-free,
+    # so like `certifications` they are captured by the LLM extraction over the
+    # transcript, NOT by signals. They feed education_level / education_field on the
+    # draft and render on the résumé + resume tab.
+    # FREE-TEXT, no tap-chips: the local detector cannot resolve "10th"/"Electronics"
+    # (that is exactly why these are LLM-extracted, not signal-read), and every chip
+    # in `options` MUST resolve its own topic (test_answer_chips.py). Naming examples
+    # in the QUESTION is fine; offering them as chips-that-record is not. Same posture
+    # as current_location / preferred_locations.
+    Topic(
+        "education_level", "Education level",
+        "Aapne kahan tak padhai ki hai — 10th, 12th ya B.Tech?",
+    ),
+    Topic(
+        "education_field", "Field of study",
+        "Kis field mein padhai ki — jaise Electronics ya Computer Science?",
+    ),
     Topic(
         "certifications", "Certifications",
         "Koi certificate hai — jaise NCVT, NSQF ya apprenticeship?",
@@ -251,21 +273,16 @@ _TOPICS_BY_FAMILY: dict[str, list[Topic]] = {"cnc_vmc": _CNC_VMC_TOPICS}
 # controllers, ITI+Diploma and NCVT+NSQF that they never said. Kept out of the
 # transcript entirely, both consumers are safe by construction rather than by the
 # role-split holding.
+# OWNER CHANGE 2026-07-23: the opener is now a SHORT greeting that asks only the
+# first (role) question, replacing the twelve-item invitation menu — the first
+# message the worker sees must be short. The inertness rules above STILL apply and
+# still matter: this string is never posted to the transcript, holds exactly one
+# "?", names no example values, and self-keys NO profile field (it is a greeting +
+# the role question, both of which the detector reads as nothing). The engine still
+# asks every remaining topic one at a time via next_turn.
 ONE_SHOT_OPENER: str = (
-    "Namaste. Main Bada Bhai. Koi test nahi, bas baat.\n"
-    "Ek hi message mein itna bata sakte hain?\n"
-    "aap kaunsa kaam karte hain\n"
-    "kaunsi machine\n"
-    "kitne saal ka experience hai\n"
-    "kya-kya aata hai\n"
-    "controller kaunsa\n"
-    "abhi kis sheher mein hain\n"
-    "kahan kaam kar sakte hain\n"
-    "abhi salary kitni hai\n"
-    "kitni salary expect karte hain\n"
-    "join karne mein kitne din lagenge\n"
-    "padhai ya training kaunsi hai\n"
-    "Jitna yaad hai utna hi likhiye. Baaki hum ek-ek karke pooch lenge."
+    "Namaste! Main aapka Bada Bhai. Chalo, ab aapka accha sa resume banate hain. "
+    "Chaliye shuru karte hain — aap kaunsa kaam karte hain?"
 )
 
 

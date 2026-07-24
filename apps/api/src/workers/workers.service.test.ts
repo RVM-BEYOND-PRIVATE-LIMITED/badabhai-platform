@@ -176,6 +176,8 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
       skills: [],
       machines: [],
       experience_years: null,
+      education_level: null,
+      education_field: null,
     });
   });
 
@@ -194,11 +196,15 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
       // countFields recompute: role(1) + trade(1) + skills(2) + machines(1)
       // + total_years(1) + salary(1) + cities(1) + availability(1) = 9
       strength: 9,
-      // Additive projections (skills/machines are the canonical labels; only the
-      // NUMBER of experience is surfaced — never the free-text summary).
-      skills: ["skill_fanuc", "skill_measuring_instruments"],
-      machines: ["mach_vmc"],
+      // Additive projections (skill_*/mach_* ids resolved to display NAMES — the
+      // resume tab must never show a raw id; only the NUMBER of experience is
+      // surfaced, never the free-text summary).
+      skills: ["Fanuc control operation", "Micrometer / Vernier / gauge usage"],
+      machines: ["Vertical Machining Center (VMC)"],
       experience_years: 4,
+      // CONFIRMED_PROFILE.rawProfile carries no education keys → both null.
+      education_level: null,
+      education_field: null,
     });
   });
 
@@ -241,6 +247,25 @@ describe("WorkersService.getProfileSummary (TD54)", () => {
       canonical_role_id: "role_definitely_not_in_taxonomy",
       display_name: null,
     });
+  });
+
+  it("surfaces education_level/education_field out of raw_profile JSONB (non-column, defensively narrowed)", async () => {
+    const { svc } = summarySetup({
+      ...CONFIRMED_PROFILE,
+      rawProfile: { education_level: "  12th  ", education_field: "Electronics", note: "ignored" },
+    });
+    const res = await svc.getProfileSummary("w-1");
+    expect(res.education_level).toBe("12th"); // trimmed
+    expect(res.education_field).toBe("Electronics");
+  });
+
+  it("malformed/missing education fields in raw_profile ⇒ null, never a throw", async () => {
+    for (const rawProfile of [{}, { education_level: 42, education_field: "" }, null, "not-an-object"]) {
+      const { svc } = summarySetup({ ...CONFIRMED_PROFILE, rawProfile });
+      const res = await svc.getProfileSummary("w-1");
+      expect(res.education_level).toBeNull();
+      expect(res.education_field).toBeNull();
+    }
   });
 
   it("reads the CALLER-provided worker id, leaks no PII sentinel, and emits NO event (read-only self-view)", async () => {

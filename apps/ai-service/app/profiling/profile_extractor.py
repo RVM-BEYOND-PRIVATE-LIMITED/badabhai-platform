@@ -165,6 +165,12 @@ def _build_legacy(sig: Signals) -> DraftProfile:
         availability=Availability(
             status=sig.availability, notice_period_days=sig.notice_period_days
         ),
+        # #499 — carry education + certifications into the legacy snapshot too, so
+        # the résumé (resume_text + PDF) can render them. They were captured on the
+        # rich draft (_build_rich above) but dropped here, so the templates'
+        # "Education & Certifications" section always came out empty.
+        education=sig.education,
+        certifications=sig.certifications,
         confidence=0.4 if (sig.role_id or sig.machine_ids or sig.skill_ids) else 0.1,
     )
 
@@ -319,6 +325,13 @@ def merge_model_draft(base: WorkerProfileDraft, content: str) -> WorkerProfileDr
     if (role := _as_text(data.get("primary_role"))) is not None:
         out.primary_role = role
 
+    # TD-EDU — academic education level/field are free-text scalars, same posture as
+    # primary_role: overlay only a well-formed non-null string, else keep base.
+    if (edu_level := _as_text(data.get("education_level"))) is not None:
+        out.education_level = edu_level
+    if (edu_field := _as_text(data.get("education_field"))) is not None:
+        out.education_field = edu_field
+
     years = _as_float(data.get("experience_years"))
     if years is not None:
         out.experience_years = years
@@ -400,6 +413,11 @@ _COLLECTED_SCALAR_FIELDS: dict[str, str] = {
     "salary_current": "current_salary",
     "salary_expected": "expected_salary",
     "availability": "availability",
+    # TD-EDU — if the engine ever collects a value for these topics it flows onto the
+    # rich draft here. (Today the local detector does not read them, so the LLM path
+    # is the live producer — this keeps the two consistent if detection is added.)
+    "education_level": "education_level",
+    "education_field": "education_field",
 }
 # Topic id -> the LIST draft field it contributes to. Unioned, never replaced.
 _COLLECTED_LIST_FIELDS: dict[str, str] = {

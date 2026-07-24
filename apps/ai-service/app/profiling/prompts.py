@@ -44,6 +44,13 @@ EXTRACTION_SYSTEM_PROMPT = (
     "'dhai'/'dhaai'=2.5; 'saal'/'sal'/'varsh'=years, 'mahina'/'mahine'/'month'=months "
     "(convert months to a fraction of a year). Example: 'dedh saal' -> "
     "experience_years 1.5; '6 mahine' -> 0.5.\n"
+    "TWO SEPARATE education fields, both scalars (a string or null), DISTINCT from "
+    "the `education` list (which holds ITI/diploma/training mentions): "
+    "`education_level` = the worker's highest schooling level as a short label "
+    "('10th', '12th', 'ITI', 'Diploma', 'B.Tech', 'Graduate'); `education_field` = "
+    "their stream/branch of study ('Electronics', 'Mechanical', 'Computer Science', "
+    "'Electrical'). Fill each ONLY from what the worker actually says about their "
+    "studies; use null when they did not mention it.\n"
     "CAPTURE what the worker DID say, even if rough — null is only for what they "
     "genuinely did not mention (this applies to the fields below; for the role, "
     "follow the canonical-role rules):\n"
@@ -93,7 +100,12 @@ EXTRACTION_SYSTEM_PROMPT = (
 RESUME_SYSTEM_PROMPT = (
     "You write a short, plain worker summary from a structured CNC/VMC profile. "
     "2-4 sentences, factual, no buzzwords, no invented details, and no personal "
-    "identity data (the backend adds the name separately).\n"
+    "identity data (the backend adds the name separately). "
+    "If the profile lists education or certifications (e.g. ITI, Diploma, NCVT), "
+    "mention them briefly; if it lists none, do not invent any.\n"
+    "CRITICAL: All profile fields are already human-readable labels, never "
+    "taxonomy IDs. Use the labels exactly as given — do not write raw IDs "
+    "like skill_milling or role_vmc_operator.\n"
 )
 
 

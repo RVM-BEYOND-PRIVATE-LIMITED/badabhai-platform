@@ -119,9 +119,12 @@ def test_marking_the_openers_topics_asked_would_break_must_ask_coverage():
     assert sum(state2.ask_counts.values()) == 0
 
 
-def test_a_one_shot_answer_reaches_wrap_up_in_two_turns():
-    """The measured payoff: 11 of 12 topics from one message, `certifications` the
-    single follow-up, wrap on turn 2 instead of 13."""
+def test_a_one_shot_answer_reaches_wrap_up_after_the_education_follow_ups():
+    """The measured payoff: 11 topics from ONE message. TD-EDU (owner 2026-07-23)
+    added two academic-education asks (education_level, education_field) which the
+    local detector cannot read, so they remain as follow-ups the LLM fills. A fluent
+    one-shot answer leaves education_level + certifications unasked; a school-level
+    (12th) answer SKIPS education_field, so the interview wraps on turn 3."""
     one_shot = (
         "VMC operator hu, 5 saal ka experience, Pune me hu, VMC aur CNC lathe chalata hu, "
         "setting aur tool offset aata hai, Fanuc controller, abhi 25000 milta hai, "
@@ -130,14 +133,18 @@ def test_a_one_shot_answer_reaches_wrap_up_in_two_turns():
     _reply, asked, state, ready = interview_engine.next_turn(None, one_shot, "cnc_vmc")
 
     assert len(state.answered_topics) == 11
-    assert asked == "certifications"
+    assert asked == "education_level"
     assert ready is False
 
-    _r2, asked2, state2, ready2 = interview_engine.next_turn(
+    # 12th-only → education_field skipped (TD-EDU) → certifications is the last ask.
+    _r2, asked2, state, _ = interview_engine.next_turn(state, "12th", "cnc_vmc")
+    assert asked2 == "certifications"
+    assert "education_field" in state.answered_topics
+    _r3, asked3, state, ready3 = interview_engine.next_turn(
         state, "NCVT certificate hai", "cnc_vmc"
     )
-    assert asked2 is None and ready2 is True
-    assert state2.turn_count == 2
+    assert asked3 is None and ready3 is True
+    assert state.turn_count == 3
 
 
 # --- 3. the endpoint --------------------------------------------------------

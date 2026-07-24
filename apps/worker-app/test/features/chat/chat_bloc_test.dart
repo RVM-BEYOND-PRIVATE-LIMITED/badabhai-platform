@@ -16,7 +16,13 @@ const ChatMessage _opening = kChatOpeningMessage;
 
 void main() {
   late MockChatRepository repo;
-  setUp(() => repo = MockChatRepository());
+  setUp(() {
+    repo = MockChatRepository();
+    // Default: no persisted transcript to redraw (#502). Individual tests
+    // override this to exercise hydration.
+    when(() => repo.loadHistory())
+        .thenAnswer((_) async => const <ChatMessage>[]);
+  });
 
   blocTest<ChatBloc, ChatState>(
     'ChatStarted opens the session and drops the spinner',
@@ -29,6 +35,65 @@ void main() {
       ChatState(messages: <ChatMessage>[_opening], initializing: false),
     ],
     verify: (_) => verify(() => repo.ensureSession()).called(1),
+  );
+
+  // #502 transcript hydration — a >5min re-lock rebuilds the bloc with only its
+  // opener while the answers still live server-side. On open, the persisted
+  // transcript is redrawn AFTER the opener bubble.
+  blocTest<ChatBloc, ChatState>(
+    'ChatStarted redraws the persisted transcript after the opener (#502)',
+    build: () {
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
+      when(() => repo.loadHistory()).thenAnswer((_) async => const <ChatMessage>[
+            ChatMessage(text: 'CNC operator hoon', fromWorker: true),
+            ChatMessage(text: 'Badhiya! Kaunsa control?', fromWorker: false),
+          ]);
+      return ChatBloc(repo);
+    },
+    act: (ChatBloc b) => b.add(const ChatStarted()),
+    // Two emits: the spinner drops FIRST (before any hydration await, so a
+    // concurrent send is never reordered behind it), then the transcript is
+    // redrawn as a follow-up.
+    expect: () => const <ChatState>[
+      ChatState(messages: <ChatMessage>[_opening], initializing: false),
+      ChatState(
+        messages: <ChatMessage>[
+          _opening,
+          ChatMessage(text: 'CNC operator hoon', fromWorker: true),
+          ChatMessage(text: 'Badhiya! Kaunsa control?', fromWorker: false),
+        ],
+        initializing: false,
+      ),
+    ],
+  );
+
+  // De-dup guard: a worker who has ALREADY typed (the fast-typist race) must not
+  // have their live bubbles clobbered by a redraw.
+  blocTest<ChatBloc, ChatState>(
+    'ChatStarted does NOT redraw when the worker has already typed',
+    build: () {
+      when(() => repo.ensureSession()).thenAnswer((_) async => null);
+      when(() => repo.loadHistory()).thenAnswer((_) async => const <ChatMessage>[
+            ChatMessage(text: 'stale server line', fromWorker: false),
+          ]);
+      return ChatBloc(repo);
+    },
+    seed: () => const ChatState(
+      messages: <ChatMessage>[
+        _opening,
+        ChatMessage(text: 'cnc', fromWorker: true),
+      ],
+    ),
+    act: (ChatBloc b) => b.add(const ChatStarted()),
+    expect: () => const <ChatState>[
+      ChatState(
+        messages: <ChatMessage>[
+          _opening,
+          ChatMessage(text: 'cnc', fromWorker: true),
+        ],
+        initializing: false,
+      ),
+    ],
   );
 
   // #343 — the spinner still drops (the worker can type), but the failure is no
@@ -323,5 +388,30 @@ void main() {
         reason: 'the typed reply must not erase the merged voice transcript',
       );
     });
+  });
+
+  // #478 — the named-gaps signal. A non-blocked turn threads the current gaps
+  // into state; a blocked turn (server degrades essentials to [] = "unknown")
+  // must KEEP the last known gaps, never clear them to a false "complete".
+  test('unanswered_essentials thread through, and a blocked turn keeps them',
+      () async {
+    when(() => repo.ensureSession()).thenAnswer((_) async => null);
+    final ChatBloc bloc = ChatBloc(repo);
+    addTearDown(bloc.close);
+
+    when(() => repo.sendMessage('a')).thenAnswer((_) async => const ChatTurn(
+        reply: 'r1', unansweredEssentials: <String>['machines', 'experience']));
+    bloc.add(const ChatMessageSent('a'));
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    expect(bloc.state.unansweredEssentials, <String>['machines', 'experience']);
+    expect(bloc.state.lastReplyBlocked, isFalse);
+
+    when(() => repo.sendMessage('b')).thenAnswer((_) async => const ChatTurn(
+        reply: 'r2', blocked: true, unansweredEssentials: <String>[]));
+    bloc.add(const ChatMessageSent('b'));
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+    expect(bloc.state.unansweredEssentials, <String>['machines', 'experience'],
+        reason: 'a blocked turn must not clear the last known gaps');
+    expect(bloc.state.lastReplyBlocked, isTrue);
   });
 }

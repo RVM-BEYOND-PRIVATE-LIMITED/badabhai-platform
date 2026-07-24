@@ -30,6 +30,15 @@ export interface ResumeRenderInput {
   skills: string[];
   machines: string[];
   controllers: string[];
+  /**
+   * Highest academic level (`{{education_level}}`, e.g. "12th") and stream
+   * (`{{education_field}}`, e.g. "Electronics"). Rendered as a single leading
+   * line in the Education section when present. DISTINCT from the `education`
+   * list (ITI/diploma mentions) + `certifications`. Null → the slot collapses
+   * to empty and its wrapper region is dropped. PII-free qualification labels.
+   */
+  educationLevel: string | null;
+  educationField: string | null;
   education: string[];
   certifications: string[];
   /**
@@ -109,10 +118,18 @@ export class ResumeRenderer {
       availability: input.availability ?? "",
       summary: input.summary ?? "",
     };
+    // Level + field as ONE leading line ("12th — Electronics"), rendered as a
+    // 0-or-1-item region so it collapses cleanly when both are null and never
+    // prints an empty/"null" line. Distinct from the `education` list below.
+    const educationHeadline = [input.educationLevel, input.educationField]
+      .map((v) => v?.trim())
+      .filter((v): v is string => Boolean(v))
+      .join(" — ");
     const lists: Record<string, string[]> = {
       machines: input.machines,
       skills: input.skills,
       controllers: input.controllers,
+      education_headline: educationHeadline ? [educationHeadline] : [],
       education: input.education,
       certifications: input.certifications,
       responsibilities: input.responsibilities,
