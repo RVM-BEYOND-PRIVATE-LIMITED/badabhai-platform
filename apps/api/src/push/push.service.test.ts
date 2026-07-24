@@ -6,6 +6,7 @@ import type { PushMessage, PushSendResult } from "./push.provider";
 import {
   NOTIFICATION_TEMPLATES,
   PUSH_EVENT_NAMES,
+  templateCopy,
 } from "../notifications/notifications.dto";
 import type { PushJobData } from "../queue/queue.constants";
 
@@ -50,14 +51,19 @@ function setup(
     ...opts.config,
   } as ServerConfig;
 
+  const workersRepo = {
+    findById: vi.fn(async () => ({ preferredLanguage: "hi" })),
+  };
+
   const svc = new PushService(
     config,
     provider as never,
     repo as never,
     devicesRepo as never,
     events as never,
+    workersRepo as never,
   );
-  return { svc, provider, repo, devicesRepo, events, sent };
+  return { svc, provider, repo, devicesRepo, events, workersRepo, sent };
 }
 
 const job = (over: Partial<PushJobData> = {}): PushJobData => ({
@@ -106,8 +112,9 @@ describe("PushService — §2: what crosses Google's wire", () => {
     const { svc, sent } = setup();
     await svc.deliver(job());
     const template = NOTIFICATION_TEMPLATES["worker.device_registered"]!;
-    expect(sent[0]!.title).toBe(template.title);
-    expect(sent[0]!.body).toBe(template.body);
+    const c = templateCopy(template, "hi");
+    expect(sent[0]!.title).toBe(c.title);
+    expect(sent[0]!.body).toBe(c.body);
   });
 
   it("the DATA block carries NO identity — no worker id, no event id, no device id", async () => {
