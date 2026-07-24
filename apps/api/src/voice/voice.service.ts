@@ -82,7 +82,7 @@ export class VoiceService {
     // voice_note.uploaded event payload). workerId is a UUID (hex+dashes only),
     // so interpolating it into the pattern is safe.
     const mintedKeyShape = new RegExp(
-      `^voice-notes/${workerId}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.m4a$`,
+      `^voice-notes/${workerId}/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.m4a$`, // nosem — workerId is UUID (hex+dashes only), interpolated into RegExp is safe
     );
     if (!mintedKeyShape.test(dto.storage_path)) {
       throw new BadRequestException("storage_path not owned by caller");

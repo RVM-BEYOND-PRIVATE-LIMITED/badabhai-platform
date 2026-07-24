@@ -1,0 +1,34 @@
+# Gitleaks configuration for BadaBhai.
+# Allowlisted findings are documented with per-entry justification.
+# Extends the built-in ruleset — empty means "use default rules only".
+# Docs: https://github.com/gitleaks/gitleaks/blob/master/config/README.md
+
+title = "BadaBhai gitleaks config"
+
+# ---- Allowlist ----
+# Findings below are justified false-positives or inherently-public values.
+[[allowlist]]
+description = "Allowed paths and regexes across all rules"
+
+# Invite-token test fixtures in payer-web test files. These are deterministic
+# test-only tokens (e.g. "test-invite-token-xyz") used in unit tests for the
+# org-membership and team-management flows — never a real secret.
+paths = [
+  '''apps/payer-web/src/app/login/actions\.test\.ts''',
+  '''apps/payer-web/src/app/\(portal\)/team/actions\.test\.ts''',
+  '''apps/payer-web/src/app/\(portal\)/postings/\[id\]/edit/actions\.test\.ts''',
+  '''apps/payer-web/src/app/\(portal\)/postings/actions\.test\.ts''',
+  '''apps/payer-web/src/app/\(portal\)/credits/actions\.test\.ts''',
+  '''apps/payer-web/src/app/\(portal\)/capacity/actions\.test\.ts''',
+  '''apps/payer-web/src/lib/org-members\.test\.ts''',
+  '''apps/payer-web/src/app/login/actions\.server\.test\.ts''',
+]
+
+# google-services.json — Firebase project config files shipped with the Android
+# APK. The `api_key` entries (detected as gcp-api-key) are inherently public
+# (bundled in every APK download), not secrets. These keys MUST be API-restricted
+# in the Google Cloud Console (Android app restriction + API scoping); the key
+# value alone is insufficient for unauthorized API access. Verified by owner.
+regexes = [
+  '''google-services\.json''',
+]

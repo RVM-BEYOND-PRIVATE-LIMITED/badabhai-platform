@@ -16,16 +16,16 @@ jobs:
     name: Node (lint / typecheck / test / build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install pnpm
         # No `version:` here on purpose — it would conflict with the
         # `packageManager` field in package.json (ERR_PNPM_BAD_PM_VERSION).
         # package.json's `packageManager: pnpm@11.5.2` is the single source.
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@b0f76dfb45f55f8421693e4803ac7bb65143bd34 # v6
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -47,7 +47,7 @@ jobs:
         # latest-major convention for actions/* (checkout@v7, setup-node@v7). v4 ran on
         # the deprecated node20 runtime — that annotation is what this bump clears.
         # (v5 = node24 runtime, v6 = ESM migration; both fine on GitHub-hosted runners.)
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: .turbo
           key: ${{ runner.os }}-turbo-${{ github.sha }}
@@ -87,10 +87,10 @@ jobs:
       run:
         working-directory: apps/ai-service
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
           # CI-5a: cache pip's package cache. The job installs requirements-dev.txt,
@@ -131,13 +131,13 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build the ai-service image (no push)
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: apps/ai-service
           file: apps/ai-service/Dockerfile
@@ -219,13 +219,13 @@ jobs:
       ZEPTOMAIL_MAIL_AGENT: ci-dummy-mail-agent
       EMAIL_FROM_ADDRESS: ci-dummy@example.test
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@b0f76dfb45f55f8421693e4803ac7bb65143bd34 # v6
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: pnpm
@@ -300,16 +300,16 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       
       - name: Set up Docker Buildx
         # REQUIRED for CD-5: the runner's stock `docker` driver CANNOT export a
         # `type=gha` cache — buildx hard-errors before the build starts. This
         # action configures the docker-container driver, which can.
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
       - name: Log in to the Container registry
-        uses: docker/login-action@v4
+        uses: docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -317,7 +317,7 @@ jobs:
           
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         env:
           # CD-4: pin the short-sha length so the `type=sha` tag provably matches the
           # deploy job's `cut -c1-7` below (7 IS metadata-action's default — pinned
@@ -337,7 +337,7 @@ jobs:
             type=sha
           
       - name: Build and push Docker image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
           file: apps/api/Dockerfile
@@ -365,7 +365,7 @@ jobs:
       # one commit sha drives both exports).
       - name: Extract metadata (tags, labels) for the ai-service image
         id: meta-ai
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         env:
           DOCKER_METADATA_SHORT_SHA_LENGTH: "7"
         with:
@@ -375,7 +375,7 @@ jobs:
             type=sha
 
       - name: Build and push the ai-service Docker image
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           # CONTEXT IS apps/ai-service, NOT the repo root — this is the one place
           # the two images differ structurally. The service is pure Python with no

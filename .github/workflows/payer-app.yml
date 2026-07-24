@@ -28,7 +28,7 @@ jobs:
       run:
         working-directory: apps/payer-app
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # Pin the Flutter version so CI is reproducible and the analyzer ruleset is
       # stable. Bump deliberately, not implicitly via `channel: stable`.
@@ -37,7 +37,7 @@ jobs:
       # developed against (3.35.7 / Dart 3.9.2) — `pubspec.lock` floors Dart at
       # >=3.8.0, so an older pin cannot even `pub get`.
       - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           flutter-version: "3.35.7"
           channel: stable
