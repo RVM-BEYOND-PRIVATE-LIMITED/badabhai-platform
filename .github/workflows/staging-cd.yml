@@ -113,11 +113,21 @@ jobs:
         run: |
           missing=""
           [ -z "$DATABASE_URL" ] && missing="$missing DATABASE_URL"
+          # TD72(c): reject a DATABASE_URL that still points at the compose-internal
+          # throwaway postgres — that would write real worker PII to a disposable volume
+          # while /health (SELECT 1 + PING) reports 200.
+          case "$DATABASE_URL" in
+            *@postgres:*) echo "::error::DATABASE_URL=$DATABASE_URL resolves to compose-internal postgres — staging would write real worker PII to a disposable volume"; missing="$missing DATABASE_URL(compose-default)" ;;
+          esac
           [ -z "$PII_ENCRYPTION_KEY" ] && missing="$missing PII_ENCRYPTION_KEY"
           [ -z "$PII_HASH_PEPPER" ] && missing="$missing PII_HASH_PEPPER"
           [ -z "$INTERNAL_SERVICE_TOKEN" ] && missing="$missing INTERNAL_SERVICE_TOKEN"
           [ -z "$JWT_SECRET" ] && missing="$missing JWT_SECRET"
           [ -z "$REDIS_URL" ] && missing="$missing REDIS_URL"
+          # TD72(c): reject a REDIS_URL that still points at the compose-internal redis.
+          case "$REDIS_URL" in
+            *@redis:*) echo "::error::REDIS_URL=$REDIS_URL resolves to compose-internal redis — staging would use throwaway cache"; missing="$missing REDIS_URL(compose-default)" ;;
+          esac
           [ -z "$STAGING_API_BASE_URL" ] && missing="$missing STAGING_API_BASE_URL"
           # Real-only OTP credentials (the app fails closed at boot without them).
           [ -z "$FAST2SMS_API_KEY" ] && missing="$missing FAST2SMS_API_KEY"

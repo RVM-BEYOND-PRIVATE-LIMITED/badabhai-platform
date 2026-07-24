@@ -67,6 +67,9 @@ Thumbs.db
 *.log
 logs/
 
+# ---- Docker Compose local overrides (TD72b — docker-compose auto-loads, silence drift) ----
+docker-compose.override.yml
+
 # ---- Redis (local dev dumps — may contain OTP/session/PII; NEVER commit) ----
 dump.rdb
 *.rdb
