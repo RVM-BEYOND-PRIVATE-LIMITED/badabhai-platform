@@ -82,6 +82,17 @@ describe("ActionsService.record", () => {
     expect(emit).not.toHaveBeenCalled();
   });
 
+  it("rejects human-style free text in context and does not emit", async () => {
+    const { svc, emit } = make();
+    await expect(
+      svc.record(
+        { worker_id: WORKER, action_type: "profile_edited", context: { note: "Ravi Kumar" } },
+        CTX as never,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(emit).not.toHaveBeenCalled();
+  });
+
   it("allows benign small numbers in context (e.g. counts/years apart)", async () => {
     const { svc, emit } = make();
     await svc.record(
