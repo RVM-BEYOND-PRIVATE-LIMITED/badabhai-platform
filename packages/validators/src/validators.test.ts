@@ -138,6 +138,13 @@ describe("looksLikePii", () => {
     },
   );
 
+  it.each(["Ravi Kumar", "A. Sharma", "House No. 12, Sector 15", "Main Street"])(
+    "flags %s as PII-shaped",
+    (s) => {
+      expect(looksLikePii(s)).toBe(true);
+    },
+  );
+
   it.each(["CNC operator", "2-5", "draft", "v1", "123456", "role_title"])(
     "does not flag %s",
     (s) => {

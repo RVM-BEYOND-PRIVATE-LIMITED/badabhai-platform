@@ -121,20 +121,29 @@ const EMAIL_LIKE = /[^\s@]+@[^\s@]+\.[^\s@]+/;
 // so spaced/punctuated forms ("98765 43210", "+91-98765-43210") are still caught.
 const PHONE_SEPARATORS = /[\s().+-]/g;
 const PHONE_DIGIT_RUN = /\d{7,}/;
+// Human-name-like free text: 2-4 title-cased words without digits or punctuation.
+const HUMAN_NAME_LIKE = /^(?:[A-Z][a-z]+|[A-Z]\.)+(?:\s+(?:[A-Z][a-z]+|[A-Z]\.)+){1,3}$/;
+// Address-like phrases: street/sector/house keywords with a number or another
+// address keyword, which is enough to reject obvious home-address free text.
+const ADDRESS_LIKE = /\b(?:house|flat|apartment|street|road|lane|colony|sector|area|nagar|ward|block)\b/i;
 
 /**
- * Best-effort heuristic: true if a string looks like an OBVIOUS phone number or
- * email address. Used at capture boundaries (e.g. the actions context bag) to
- * fail closed on raw PII before it reaches the events table.
+ * Best-effort heuristic: true if a string looks like an obvious phone number,
+ * email address, human name, or address-style free text. Used at capture
+ * boundaries (e.g. the actions context bag) to fail closed on raw PII before it
+ * reaches the events table.
  *
- * NOT a PII classifier: it only catches email-shaped strings and long digit runs
- * (after stripping common phone separators). It will NOT catch names, addresses,
- * employer names, or other PII — callers must still keep free text out of fields
- * that flow into events/logs.
+ * NOT a PII classifier: it catches the most common high-risk free-text forms
+ * we can safely reject at this boundary (names, addresses, phone/email shapes)
+ * without over-matching legitimate status tokens like "CNC operator" or "draft".
  */
 export function looksLikePii(s: string): boolean {
-  if (EMAIL_LIKE.test(s)) return true;
-  return PHONE_DIGIT_RUN.test(s.replace(PHONE_SEPARATORS, ""));
+  const value = s.trim();
+  if (!value) return false;
+  if (EMAIL_LIKE.test(value)) return true;
+  if (PHONE_DIGIT_RUN.test(value.replace(PHONE_SEPARATORS, ""))) return true;
+  if (HUMAN_NAME_LIKE.test(value)) return true;
+  return Boolean(ADDRESS_LIKE.test(value) && (/\d/.test(value) || /\b(?:street|road|lane|sector|colony|area|nagar|ward|block)\b/i.test(value)));
 }
 
 // ---------------------------------------------------------------------------
