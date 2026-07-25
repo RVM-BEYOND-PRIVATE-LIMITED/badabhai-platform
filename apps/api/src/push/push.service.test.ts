@@ -55,14 +55,27 @@ function setup(
     findById: vi.fn(async () => ({ preferredLanguage: "hi" })),
   };
 
+  const redisStore = new Map<string, string>();
+  const redisClient = {
+    incr: vi.fn(async (key: string) => {
+      const next = Number(redisStore.get(key) ?? "0") + 1;
+      redisStore.set(key, String(next));
+      return next;
+    }),
+    expire: vi.fn(async () => 1),
+  };
+  const queue = { client: Promise.resolve(redisClient) } as never;
+
   const svc = new PushService(
     config,
     provider as never,
+    queue,
     repo as never,
     devicesRepo as never,
     events as never,
     workersRepo as never,
   );
+  return { svc, provider, repo, devicesRepo, events, workersRepo, sent, redisStore, redisClient };
   return { svc, provider, repo, devicesRepo, events, workersRepo, sent };
 }
 
@@ -224,5 +237,11 @@ describe("PushService — the kill-switch", () => {
     const res = await svc.deliver(job());
     expect(res.sent).toBe(1);
     expect(provider.send).toHaveBeenCalledTimes(1);
+  });
+
+  it("security push bypasses the counter entirely (no Redis call, no cap check)", async () => {
+    const s = setup({ config: { PUSH_GLOBAL_MAX_SENDS_PER_DAY: 1 } as Partial<ServerConfig> });
+    await s.svc.deliver(job());
+    expect(s.redisClient!.incr).not.toHaveBeenCalled();
   });
 });

@@ -1,13 +1,22 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import { InjectQueue } from "@nestjs/bullmq";
+import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { DevicesRepository } from "../auth/devices.repository";
 import { NOTIFICATION_TEMPLATES, templateCopy } from "../notifications/notifications.dto";
-import type { PushJobData } from "../queue/queue.constants";
+import { PUSH_QUEUE, type PushJobData } from "../queue/queue.constants";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PushRepository } from "./push.repository";
 import { PUSH_PROVIDER, type PushFailureReason, type PushProvider } from "./push.provider";
+import { utcDayStamp, secondsUntilEndOfUtcDay } from "../common/otp-send-cap";
+
+/** Minimal typed view of the raw Redis commands the push daily counter needs. */
+interface RedisPushCounter {
+  incr(key: string): Promise<number>;
+  expire(key: string, seconds: number): Promise<number>;
+}
 
 /** In-app destination per notification type. Closed enum — never a free string. */
 const ROUTE_BY_TYPE: Record<string, "devices" | "home"> = {
@@ -21,11 +30,20 @@ export class PushService {
   constructor(
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
     @Inject(PUSH_PROVIDER) private readonly provider: PushProvider,
+    @InjectQueue(PUSH_QUEUE) private readonly queue: Queue<PushJobData>,
     private readonly repo: PushRepository,
     private readonly devices: DevicesRepository,
     private readonly events: EventsService,
     private readonly workersRepo: WorkersRepository,
   ) {}
+
+  private async redis(): Promise<RedisPushCounter> {
+    return (await this.queue.client) as unknown as RedisPushCounter;
+  }
+
+  private static globalSendCountKey(day: string): string {
+    return `push:global_sendcount:${day}`;
+  }
 
   /**
    * Deliver one fan-out (ADR-0034). Called ONLY from the queue processor — never on a
@@ -57,6 +75,35 @@ export class PushService {
       await this.emitFailed(job, "quota");
       this.logger.warn("push halted — PUSH_GLOBAL_MAX_SENDS_PER_DAY=0 (kill-switch)");
       return { sent: 0 };
+    }
+
+    // ADR-0034 / TD91: global daily ceiling on NON-SECURITY pushes. Security alerts
+    // (SIM-swap, logout-all) are exempt — FCM is free, and this one class MUST always
+    // arrive. The counter uses a Redis INCR keyed per UTC day, same pattern as OTP caps.
+    if (!isSecurity) {
+      try {
+        const redis = await this.redis();
+        const day = utcDayStamp();
+        const cap = this.config.PUSH_GLOBAL_MAX_SENDS_PER_DAY;
+        const key = PushService.globalSendCountKey(day);
+        const count = await redis.incr(key);
+        await redis.expire(key, secondsUntilEndOfUtcDay());
+        if (count > cap) {
+          await this.emitFailed(job, "quota");
+          this.logger.warn(
+            `push daily cap reached limit=${cap} day=${day}; refusing non-security push`,
+          );
+          return { sent: 0 };
+        }
+      } catch (err) {
+        // Redis error → fail-open for non-security pushes (best-effort volume throttle;
+        // a Redis outage must not block delivery). Security pushes skip this path entirely.
+        this.logger.warn(
+          `push daily counter Redis error; fail-open (reason: ${
+            err instanceof Error ? err.message : String(err)
+          })`,
+        );
+      }
     }
 
     const devices = await this.repo.devicesForDelivery(job.deviceIds);
