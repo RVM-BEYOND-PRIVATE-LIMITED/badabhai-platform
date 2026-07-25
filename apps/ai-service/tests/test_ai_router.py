@@ -35,6 +35,7 @@ def _no_network(monkeypatch):
     actual HTTP/SDK request. Tests that want a specific provider to succeed
     re-stub ``router_module.providers.complete`` themselves.
     """
+
     async def _boom(**_kwargs):
         raise RuntimeError("forced failure (no network in tests)")
 
@@ -107,8 +108,13 @@ def test_cost_alert_thresholds():
     settings = Settings(ai_cost_alert_profile_inr=6.0, ai_target_profile_cost_inr=4.0)
     # Force a large token count to exceed thresholds (uses estimate table).
     meta = cost_tracker.build_call_metadata(
-        task_type="profile_extraction", model="claude-haiku", real_call=False,
-        input_tokens=200_000, output_tokens=200_000, latency_ms=1, success=True,
+        task_type="profile_extraction",
+        model="claude-haiku",
+        real_call=False,
+        input_tokens=200_000,
+        output_tokens=200_000,
+        latency_ms=1,
+        success=True,
         settings=settings,
     )
     assert meta.estimated_cost_inr > 6.0
@@ -145,9 +151,7 @@ def test_high_ceiling_allows_real_attempt():
         ai_enable_real_calls=True, gemini_flash_api_key="k", ai_max_call_cost_inr=10.0
     )
     router = AIRouter(settings)
-    _content, meta = _run(
-        router.run("profiling_chat_turn", messages=_MESSAGES, mock_response="m")
-    )
+    _content, meta = _run(router.run("profiling_chat_turn", messages=_MESSAGES, mock_response="m"))
     assert meta.real_call is True
     assert meta.error_code == "llm_call_failed"  # attempted, not ceiling-blocked
 
@@ -172,9 +176,7 @@ def test_per_task_allowlist_enables_only_the_listed_task():
 
 def test_empty_allowlist_enables_all_tasks_backcompat():
     # No allowlist => master flag governs all tasks (existing behavior preserved).
-    settings = Settings(
-        ai_enable_real_calls=True, gemini_flash_api_key="k", ai_real_call_tasks=""
-    )
+    settings = Settings(ai_enable_real_calls=True, gemini_flash_api_key="k", ai_real_call_tasks="")
     assert settings.real_call_enabled_for("profiling_chat_turn") is True
     assert settings.real_call_enabled_for("profile_extraction") is True
 
@@ -196,6 +198,7 @@ def test_real_calls_blocked_without_gemini_key():
 
 
 # --- Provider-fallback chain (Gemini primary -> Claude Haiku fallback) ------
+
 
 def _stub_dispatcher(monkeypatch, behavior):
     """Replace router_module.providers.complete with a fn driven by ``behavior``:
@@ -246,9 +249,7 @@ def test_gemini_failure_falls_over_to_haiku(monkeypatch):
         },
     )
     router = AIRouter(_fallback_settings())
-    content, meta = _run(
-        router.run("profile_extraction", messages=_MESSAGES, mock_response="m")
-    )
+    content, meta = _run(router.run("profile_extraction", messages=_MESSAGES, mock_response="m"))
     assert content == "HAIKU_OK"
     assert meta.real_call is True
     assert meta.success is True
@@ -293,9 +294,7 @@ def test_no_fallback_when_anthropic_key_absent(monkeypatch):
 
     seen = _stub_dispatcher(monkeypatch, {"gemini": _boom})
     router = AIRouter(_fallback_settings(anthropic_api_key=None))
-    content, meta = _run(
-        router.run("profile_extraction", messages=_MESSAGES, mock_response="MOCK")
-    )
+    content, meta = _run(router.run("profile_extraction", messages=_MESSAGES, mock_response="MOCK"))
     assert content == "MOCK"
     assert meta.real_call is True
     assert meta.success is False
@@ -339,9 +338,7 @@ def test_fallback_skipped_when_same_provider(monkeypatch):
 
     seen = _stub_dispatcher(monkeypatch, {"gemini": _boom})
     router = AIRouter(_fallback_settings(default_fallback_model="gemini-flash-lite"))
-    _c, meta = _run(
-        router.run("profile_extraction", messages=_MESSAGES, mock_response="m")
-    )
+    _c, meta = _run(router.run("profile_extraction", messages=_MESSAGES, mock_response="m"))
     assert meta.real_call is True
     assert all(m.startswith("gemini") for m in seen)  # only one provider in chain
 
@@ -380,9 +377,7 @@ def test_haiku_primary_falls_over_to_gemini(monkeypatch):
             default_fallback_model="gemini-2.5-flash-lite",
         )
     )
-    content, meta = _run(
-        router.run("profile_extraction", messages=_MESSAGES, mock_response="m")
-    )
+    content, meta = _run(router.run("profile_extraction", messages=_MESSAGES, mock_response="m"))
     assert content == "GEMINI_OK"
     assert meta.real_call is True
     assert meta.success is True
@@ -413,6 +408,7 @@ def test_gemini_fallback_dropped_when_gemini_key_absent():
 # fallback arms ONLY when the credential AND the importable SDK are both present.
 # We mock the SDK-availability probe so the assertion never depends on whether the
 # ``anthropic`` package happens to be installed in the test env.
+
 
 def _patch_anthropic_sdk(monkeypatch, *, installed: bool):
     """Force ``importlib.util.find_spec('anthropic')`` to report installed/absent,
@@ -467,9 +463,7 @@ def test_sdk_absent_fallback_does_not_consume_retry_budget(monkeypatch):
 
     seen = _stub_dispatcher(monkeypatch, {"gemini": _gem_fail})
     router = AIRouter(_fallback_settings(anthropic_api_key="anth-key"))
-    content, meta = _run(
-        router.run("profile_extraction", messages=_MESSAGES, mock_response="MOCK")
-    )
+    content, meta = _run(router.run("profile_extraction", messages=_MESSAGES, mock_response="MOCK"))
     assert content == "MOCK"
     assert meta.real_call is True  # Gemini WAS attempted
     assert meta.success is False

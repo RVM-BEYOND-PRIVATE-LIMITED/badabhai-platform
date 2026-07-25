@@ -91,6 +91,7 @@ def _arm_translate(payload: dict, status_code: int = 200) -> None:
 
 # --- banner ----------------------------------------------------------------
 
+
 def test_status_off_when_gate_blocked():
     banner = stt_smoke._stt_status(
         Settings(ai_enable_real_calls=False), SttAdapter(Settings(ai_enable_real_calls=False))
@@ -107,6 +108,7 @@ def test_status_on_and_reports_storage_when_configured():
 
 
 # --- mock + gate-guard (conftest forces a mock-only env) --------------------
+
 
 def test_mock_run_prints_mock_transcript_and_exits_zero(capsys):
     rc = stt_smoke.main(["--mock"])
@@ -137,6 +139,7 @@ def test_real_attempt_with_gate_off_refuses(tmp_path, capsys):
 
 
 # --- real --file path (gate forced ON via Settings override, Sarvam stubbed) -
+
 
 def test_file_mode_real_success(tmp_path, monkeypatch, capsys):
     # Default flow: transcribe (real, stubbed) THEN translate (real, stubbed).

@@ -101,7 +101,8 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
       emit(state.copyWith(status: SwipeStatus.loading));
     }
     try {
-      final List<FeedItem> jobs = await _repo.getFeed();
+      final String? city = state.filters.cities.length == 1 ? state.filters.cities.first : null;
+      final List<FeedItem> jobs = await _repo.getFeed(city: city);
       emit(state.copyWith(
         queue: jobs,
         status: jobs.isEmpty ? SwipeStatus.empty : SwipeStatus.ready,
@@ -180,6 +181,7 @@ class SwipeBloc extends Bloc<SwipeEvent, SwipeState> {
     Emitter<SwipeState> emit,
   ) async {
     emit(state.copyWith(filters: event.filters));
+    add(const SwipeFeedRequested());
   }
 
   /// Drop the DECIDED card by id, not by position — with a filter active the

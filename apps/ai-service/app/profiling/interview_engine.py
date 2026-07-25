@@ -27,8 +27,7 @@ from .question_bank import (
 # A senior's acknowledgement: two words, no praise (persona rule G4).
 _ACK = "Theek hai. "
 _WRAP_UP = (
-    "Itni jaankari kaafi hai. Aapka resume ban raha hai — kuch detail baad mein "
-    "confirm karenge."
+    "Itni jaankari kaafi hai. Aapka resume ban raha hai — kuch detail baad mein confirm karenge."
 )
 
 # The topics that MUST be ANSWERED before we offer extraction. Current location
@@ -173,9 +172,7 @@ def _extraction_ready(st: ConversationState) -> bool:
     """All ESSENTIAL_TOPICS answered AND every MUST_ASK topic asked-or-answered."""
     if not all(t in st.answered_topics for t in ESSENTIAL_TOPICS):
         return False
-    return all(
-        t in st.answered_topics or t in st.asked_question_ids for t in MUST_ASK_TOPICS
-    )
+    return all(t in st.answered_topics or t in st.asked_question_ids for t in MUST_ASK_TOPICS)
 
 
 def _served_question(topic: Topic, ask_number: int) -> str:
@@ -364,17 +361,31 @@ def next_turn(
     # up front because the loop marks a topic answered before deciding whether to
     # commit it, which would otherwise erase the very distinction being tested.
     inferred_fills = {t for t in st.collected if t not in st.answered_topics}
-    for topic_id, value in signals.detect_answered_topics(
-        worker_message_raw, last_asked
-    ).items():
+    for topic_id, value in signals.detect_answered_topics(worker_message_raw, last_asked).items():
         if topic_id not in st.answered_topics and topic_id not in inferred:
             st.answered_topics.append(topic_id)
         if value is None:
             # P1-2: a DENIAL ("ITI nahi kiya") answers the ask without producing a
             # value — mark the topic answered, collect nothing.
             continue
-        if _may_commit(st, topic_id, last_asked, correcting, inferred_fills):
-            st.collected[topic_id] = value
+        may_commit = _may_commit(st, topic_id, last_asked, correcting, inferred_fills)
+        existing = st.collected.get(topic_id)
+
+        if isinstance(value, list) and isinstance(existing, list):
+            # TD103: Union lists instead of overwriting them. If correcting or replacing
+            # an inferred placeholder, REPLACE instead of accumulating.
+            if may_commit and (correcting or topic_id in inferred_fills):
+                st.collected[topic_id] = value
+            else:
+                # Accumulate cross-topic signals or successive partial answers
+                union = list(existing)
+                for item in value:
+                    if item not in union:
+                        union.append(item)
+                st.collected[topic_id] = union
+        else:
+            if may_commit:
+                st.collected[topic_id] = value
 
     # TD-EDU: if education_level was just answered school-only (10th/12th), there is
     # no field of study — skip the education_field ask. Marking it ANSWERED (not

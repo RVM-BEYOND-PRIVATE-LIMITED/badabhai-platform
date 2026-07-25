@@ -143,9 +143,7 @@ def test_relocation_is_not_asserted_by_a_shop_answer_at_the_topic_level():
     preferred question was asked. A shop answer must therefore not silently CLOSE that
     ask — closing it is how a fabricated value escapes ever being corrected.
     """
-    answered = signals.detect_answered_topics(
-        "night shift karta hu", "preferred_locations"
-    )
+    answered = signals.detect_answered_topics("night shift karta hu", "preferred_locations")
     assert "preferred_locations" not in answered
     # ...while a real flexibility answer still closes it.
     assert (
@@ -175,9 +173,7 @@ def test_the_name_control_from_the_issue_behaves_identically():
     abhishek = signals.detect_answered_topics(
         "Abhishek ne bola Chennai chahiye", "preferred_locations"
     )
-    rakesh = signals.detect_answered_topics(
-        "Rakesh ne bola Chennai chahiye", "preferred_locations"
-    )
+    rakesh = signals.detect_answered_topics("Rakesh ne bola Chennai chahiye", "preferred_locations")
     assert abhishek == rakesh == {"preferred_locations": ["Chennai"]}
 
 
@@ -221,9 +217,9 @@ def test_the_real_adverb_still_marks_a_current_location():
 def test_kabhi_bhi_is_not_read_as_the_current_location_adverb():
     """The same boundary also stops "abhi" being found inside "kabhi" — "kabhi bhi"
     means "whenever", a flexibility answer, the OPPOSITE of a current-location claim."""
-    assert signals.detect_answered_topics(
-        "kabhi bhi, Chennai chahiye", "preferred_locations"
-    ) == {"preferred_locations": ["Chennai"]}
+    assert signals.detect_answered_topics("kabhi bhi, Chennai chahiye", "preferred_locations") == {
+        "preferred_locations": ["Chennai"]
+    }
 
 
 # --- #441 B: a refusal must not be recorded as an acceptance ----------------

@@ -366,8 +366,10 @@ class TurnResult:
         if not self.detected:
             return []
         if self.state is None:
-            return [(t, v, "turn blocked/failed — the engine never saw it") for t, v in
-                    self.detected.items()]
+            return [
+                (t, v, "turn blocked/failed — the engine never saw it")
+                for t, v in self.detected.items()
+            ]
         before = (self.prev_state or {}).get("collected") or {}
         out: list[tuple[str, Any, str]] = []
         for topic, value in self.detected.items():

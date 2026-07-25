@@ -156,6 +156,7 @@ def _arm_chunks(monkeypatch, script: list) -> None:
 
 # --- language mapping (pure unit) ------------------------------------------
 
+
 def test_to_sarvam_language_mapping():
     assert _to_sarvam_language(None) == "unknown"
     assert _to_sarvam_language("") == "unknown"
@@ -166,6 +167,7 @@ def test_to_sarvam_language_mapping():
 
 
 # --- success paths ---------------------------------------------------------
+
 
 def test_success_auto_detect_maps_transcript_and_probability(monkeypatch):
     monkeypatch.setattr(stt_module.httpx, "AsyncClient", _StubAsyncClient)
@@ -230,11 +232,10 @@ def test_under_30s_note_still_uploads_the_whole_object_in_one_call(monkeypatch):
 
 # --- failure paths (must fail closed to empty) -----------------------------
 
+
 def test_provider_error_fails_closed_to_empty(monkeypatch):
     monkeypatch.setattr(stt_module.httpx, "AsyncClient", _StubAsyncClient)
-    _reset_client(
-        {"error": {"code": "invalid_api_key_error", "message": "..."}}, status_code=403
-    )
+    _reset_client({"error": {"code": "invalid_api_key_error", "message": "..."}}, status_code=403)
     _patch_storage(monkeypatch, returns=b"audio")
 
     adapter = SttAdapter(_real_settings())
@@ -261,9 +262,7 @@ def test_malformed_response_missing_transcript_fails_closed(monkeypatch):
 def test_storage_failure_fails_closed_and_skips_sarvam(monkeypatch):
     monkeypatch.setattr(stt_module.httpx, "AsyncClient", _StubAsyncClient)
     _reset_client({"transcript": "should-not-be-used"})
-    _patch_storage(
-        monkeypatch, raises=RuntimeError("voice audio fetch failed with status 404")
-    )
+    _patch_storage(monkeypatch, raises=RuntimeError("voice audio fetch failed with status 404"))
 
     adapter = SttAdapter(_real_settings())
     result = _run(adapter.transcribe(storage_path="worker/sess/v1.ogg"))
@@ -283,9 +282,7 @@ def test_real_path_unconfigured_storage_fails_to_empty_not_mock(monkeypatch):
     monkeypatch.setattr(stt_module.httpx, "AsyncClient", _StubAsyncClient)
     _reset_client({"transcript": "should-not-be-used"})
 
-    adapter = SttAdapter(
-        _real_settings(supabase_url=None, supabase_service_role_key=None)
-    )
+    adapter = SttAdapter(_real_settings(supabase_url=None, supabase_service_role_key=None))
     result = _run(adapter.transcribe(storage_path="worker/sess/v1.ogg"))
 
     assert result.transcript_text == ""
@@ -297,6 +294,7 @@ def test_real_path_unconfigured_storage_fails_to_empty_not_mock(monkeypatch):
 
 # --- D-2: the platform cap (not the 30s sync limit) is the rejection line ---
 
+
 def test_duration_over_platform_cap_fails_closed_before_storage_and_sarvam(monkeypatch):
     # >120s (MAX_VOICE_NOTE_SECONDS) is rejected before any storage/provider
     # spend. Upload validation makes this unreachable in practice.
@@ -305,9 +303,7 @@ def test_duration_over_platform_cap_fails_closed_before_storage_and_sarvam(monke
     storage_calls = _patch_storage(monkeypatch, returns=b"audio")
 
     adapter = SttAdapter(_real_settings())
-    result = _run(
-        adapter.transcribe(storage_path="worker/sess/v1.m4a", duration_seconds=121)
-    )
+    result = _run(adapter.transcribe(storage_path="worker/sess/v1.m4a", duration_seconds=121))
 
     assert result.transcript_text == ""
     assert result.is_mock is True
@@ -332,6 +328,7 @@ def test_the_batch_stt_not_implemented_raise_is_gone(monkeypatch):
 
 
 # --- D-2: chunked real path -------------------------------------------------
+
 
 def test_45s_note_chunks_into_two_sync_calls_and_concatenates_in_order(monkeypatch):
     audio, _frames = build_m4a(704)  # 45.056s
@@ -453,6 +450,7 @@ def test_unsplittable_container_fails_closed_without_calling_sarvam(monkeypatch)
 
 # --- D-2 privacy: chunk boundaries vs the downstream gate -------------------
 
+
 def test_chunking_returns_ONE_full_transcript_so_the_gate_never_sees_a_chunk(monkeypatch):
     # The adapter concatenates INSIDE _transcribe_chunked; a chunk never escapes.
     # So /profile/extract's pseudonymize (which runs FIRST on the whole string,
@@ -505,9 +503,7 @@ _SEAM_MASKED_CASES = [
 
 
 @pytest.mark.parametrize(("name", "chunk_a", "chunk_b"), _SEAM_MASKED_CASES)
-def test_a_phone_split_by_a_seam_artifact_is_masked_downstream(
-    monkeypatch, name, chunk_a, chunk_b
-):
+def test_a_phone_split_by_a_seam_artifact_is_masked_downstream(monkeypatch, name, chunk_a, chunk_b):
     """The seam shapes #392 closes. These were the H-2 leaks; they now mask."""
     from app.pseudonymize import pseudonymize
 
@@ -603,6 +599,7 @@ def test_an_aadhaar_split_by_a_bare_space_seam_is_masked_downstream(monkeypatch)
 
 # --- D-2 spend: per-chunk ledger attribution (TD68 pattern) -----------------
 
+
 def _snapshot(user_ref: str | None = None) -> dict:
     return _run(cost_tracker.get_ledger().snapshot(Settings(_env_file=None), user_ref=user_ref))
 
@@ -615,9 +612,7 @@ def test_chunked_note_records_spend_per_chunk_against_the_worker_ref(monkeypatch
     settings = _real_settings(sarvam_stt_cost_inr_per_chunk=0.25)
     adapter = SttAdapter(settings)
     result = _run(
-        adapter.transcribe(
-            storage_path="w/x.m4a", duration_seconds=120, worker_ref="worker-abc"
-        )
+        adapter.transcribe(storage_path="w/x.m4a", duration_seconds=120, worker_ref="worker-abc")
     )
 
     assert result.chunk_count == 5
@@ -694,9 +689,7 @@ def test_failed_note_refunds_the_reservation_of_uncalled_chunks(monkeypatch):
     _arm_chunks(monkeypatch, ["billed half", RuntimeError("boom")])
 
     adapter = SttAdapter(_real_settings(sarvam_stt_cost_inr_per_chunk=0.25))
-    result = _run(
-        adapter.transcribe(storage_path="w/x.m4a", duration_seconds=45, worker_ref="w-4")
-    )
+    result = _run(adapter.transcribe(storage_path="w/x.m4a", duration_seconds=45, worker_ref="w-4"))
 
     assert result.error_code == "stt_call_failed"
     # Exactly ONE chunk reached the provider -> Rs 0.25 kept, Rs 0.25 refunded.
@@ -722,6 +715,7 @@ def test_storage_failure_leaks_no_reservation(monkeypatch):
 # ADR-0029 signed-upload seam lets one worker choose both), so they must be
 # reconciled BEFORE the first provider call — the per-call ceiling cannot help
 # (it bounds the RATE, not the COUNT).
+
 
 def test_crafted_file_declaring_a_huge_stream_makes_zero_provider_calls(monkeypatch):
     # THE H-1 attack: ~4.5KB file whose tables claim 200,000s, declared 31s.
@@ -773,9 +767,7 @@ def test_declared_duration_understating_the_real_file_does_not_false_close(monke
     _arm_chunks(monkeypatch, ["ek", "do", "teen"])
 
     adapter = SttAdapter(_real_settings(sarvam_stt_cost_inr_per_chunk=0.25))
-    result = _run(
-        adapter.transcribe(storage_path="w/x.m4a", duration_seconds=59, worker_ref="w-d")
-    )
+    result = _run(adapter.transcribe(storage_path="w/x.m4a", duration_seconds=59, worker_ref="w-d"))
 
     assert result.error_code is None
     assert result.transcript_text == "ek do teen"
@@ -805,9 +797,7 @@ def test_per_chunk_rate_above_the_per_call_ceiling_blocks(monkeypatch):
     _arm_chunks(monkeypatch, ["should-not-be-used"] * 2)
 
     settings = _real_settings(sarvam_stt_cost_inr_per_chunk=11.0, ai_max_call_cost_inr=10.0)
-    result = _run(
-        SttAdapter(settings).transcribe(storage_path="w/x.m4a", duration_seconds=45)
-    )
+    result = _run(SttAdapter(settings).transcribe(storage_path="w/x.m4a", duration_seconds=45))
 
     assert result.error_code == "stt_budget_blocked"
     assert result.transcript_text == ""

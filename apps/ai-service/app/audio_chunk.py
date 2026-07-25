@@ -116,9 +116,7 @@ def split_audio(
         return _split_m4a(audio, max_chunk_seconds, max_total_seconds)
     if ext == ".wav":
         return _split_wav(audio, max_chunk_seconds, max_total_seconds)
-    raise AudioChunkError(
-        f"unsupported container for chunking ({ext or 'no extension'})"
-    )
+    raise AudioChunkError(f"unsupported container for chunking ({ext or 'no extension'})")
 
 
 def _chunk_boundaries(frame_end_times: list[float], max_chunk_seconds: float) -> list[int]:
@@ -137,9 +135,7 @@ def _chunk_boundaries(frame_end_times: list[float], max_chunk_seconds: float) ->
     # which the duration bound already rejects — but never rely on a caller's
     # guard for an invariant this function owns.
     if frame_count < n_chunks:
-        raise AudioChunkError(
-            "implausible frame durations (fewer frames than required windows)"
-        )
+        raise AudioChunkError("implausible frame durations (fewer frames than required windows)")
     boundaries: list[int] = []
     prev = 0
     for i in range(1, n_chunks):
@@ -382,9 +378,7 @@ def _parse_mp4_audio_track(buf: bytes) -> _Mp4AudioTrack:
         durations = [delta / timescale for delta in deltas]
         if not frame_ranges:
             raise AudioChunkError("malformed mp4 (audio track has no samples)")
-        return _Mp4AudioTrack(
-            config=config, frame_ranges=frame_ranges, frame_durations=durations
-        )
+        return _Mp4AudioTrack(config=config, frame_ranges=frame_ranges, frame_durations=durations)
 
     raise AudioChunkError("no audio (soun) track in mp4")
 
@@ -579,9 +573,7 @@ def _sample_file_ranges(
     chunk_count = len(chunk_offsets)
     sample = 0
     for i, (first_chunk, samples_per_chunk) in enumerate(stsc_entries):
-        last_chunk = (
-            stsc_entries[i + 1][0] - 1 if i + 1 < len(stsc_entries) else chunk_count
-        )
+        last_chunk = stsc_entries[i + 1][0] - 1 if i + 1 < len(stsc_entries) else chunk_count
         if first_chunk > chunk_count:
             raise AudioChunkError("malformed mp4 (stsc chunk out of range)")
         for chunk in range(first_chunk, last_chunk + 1):

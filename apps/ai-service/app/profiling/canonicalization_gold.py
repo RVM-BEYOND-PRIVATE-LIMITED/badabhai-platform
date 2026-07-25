@@ -111,82 +111,214 @@ _CORE: list[GoldCase] = [
     # role_cam_programmer (CAM Programmer) — keyword "cam programmer".
     GoldCase("cam programmer hu, fusion 360 use karta hu", "role_cam_programmer", (), "core"),
     GoldCase("cam programmer hu, surface modelling karta hu", "role_cam_programmer", (), "core"),
-    GoldCase("experienced cam programmer, 7 saal fusion 360 pe", "role_cam_programmer", (),
-             "core", expected_skills=("skill_cam_software",), expected_experience=7.0),
-    GoldCase("cam programmer hu mastercam aur fusion dono", "role_cam_programmer", (), "core",
-             expected_skills=("skill_cam_software",)),
+    GoldCase(
+        "experienced cam programmer, 7 saal fusion 360 pe",
+        "role_cam_programmer",
+        (),
+        "core",
+        expected_skills=("skill_cam_software",),
+        expected_experience=7.0,
+    ),
+    GoldCase(
+        "cam programmer hu mastercam aur fusion dono",
+        "role_cam_programmer",
+        (),
+        "core",
+        expected_skills=("skill_cam_software",),
+    ),
     # role_cnc_programmer (CNC Programmer) — keyword "programmer".
-    GoldCase("cnc programmer hu, mastercam pe program banata hu", "role_cnc_programmer", (),
-             "core", expected_skills=("skill_program_editing",)),
-    GoldCase("programmer hu, g code editing karta hu fanuc pe", "role_cnc_programmer", (), "core",
-             expected_skills=("skill_program_editing", "skill_fanuc")),
-    GoldCase("cnc programmer hu, fanuc pe program editing", "role_cnc_programmer", (), "core",
-             expected_skills=("skill_program_editing", "skill_fanuc")),
-    GoldCase("senior cnc programmer, 8 saal ka experience", "role_cnc_programmer", (), "core",
-             expected_experience=8.0),
+    GoldCase(
+        "cnc programmer hu, mastercam pe program banata hu",
+        "role_cnc_programmer",
+        (),
+        "core",
+        expected_skills=("skill_program_editing",),
+    ),
+    GoldCase(
+        "programmer hu, g code editing karta hu fanuc pe",
+        "role_cnc_programmer",
+        (),
+        "core",
+        expected_skills=("skill_program_editing", "skill_fanuc"),
+    ),
+    GoldCase(
+        "cnc programmer hu, fanuc pe program editing",
+        "role_cnc_programmer",
+        (),
+        "core",
+        expected_skills=("skill_program_editing", "skill_fanuc"),
+    ),
+    GoldCase(
+        "senior cnc programmer, 8 saal ka experience",
+        "role_cnc_programmer",
+        (),
+        "core",
+        expected_experience=8.0,
+    ),
     # role_cnc_setter_operator (CNC Setter-Operator) — keyword "setter".
-    GoldCase("setter operator hu, vmc setting karta hu", "role_cnc_setter_operator",
-             ("mach_vmc",), "core"),
+    GoldCase(
+        "setter operator hu, vmc setting karta hu",
+        "role_cnc_setter_operator",
+        ("mach_vmc",),
+        "core",
+    ),
     GoldCase("cnc setter hu, machine setting karta hu", "role_cnc_setter_operator", (), "core"),
-    GoldCase("setter hu, tool offset aur fixture setup karta hu", "role_cnc_setter_operator", (),
-             "core", expected_skills=("skill_tool_offset_setting", "skill_fixture_setup")),
-    GoldCase("cnc setter operator, 5 saal setting ka kaam", "role_cnc_setter_operator", (),
-             "core", expected_experience=5.0),
+    GoldCase(
+        "setter hu, tool offset aur fixture setup karta hu",
+        "role_cnc_setter_operator",
+        (),
+        "core",
+        expected_skills=("skill_tool_offset_setting", "skill_fixture_setup"),
+    ),
+    GoldCase(
+        "cnc setter operator, 5 saal setting ka kaam",
+        "role_cnc_setter_operator",
+        (),
+        "core",
+        expected_experience=5.0,
+    ),
     # role_vmc_operator (VMC Operator) — keyword "vmc" (after programmer/setter).
-    GoldCase("vmc chalata hu 4 saal se fanuc pe", "role_vmc_operator", ("mach_vmc",), "core",
-             expected_skills=("skill_fanuc",), expected_experience=4.0),
-    GoldCase("vmc operator, siemens control, 6 saal experience", "role_vmc_operator",
-             ("mach_vmc",), "core", expected_skills=("skill_siemens",), expected_experience=6.0),
-    GoldCase("vmc pe kaam karta hu, fanuc, gd&t aata hai", "role_vmc_operator", ("mach_vmc",),
-             "core", expected_skills=("skill_fanuc", "skill_gdt_reading")),
-    GoldCase("vmc machine operator, tool offset setting karta hu", "role_vmc_operator",
-             ("mach_vmc",), "core"),
+    GoldCase(
+        "vmc chalata hu 4 saal se fanuc pe",
+        "role_vmc_operator",
+        ("mach_vmc",),
+        "core",
+        expected_skills=("skill_fanuc",),
+        expected_experience=4.0,
+    ),
+    GoldCase(
+        "vmc operator, siemens control, 6 saal experience",
+        "role_vmc_operator",
+        ("mach_vmc",),
+        "core",
+        expected_skills=("skill_siemens",),
+        expected_experience=6.0,
+    ),
+    GoldCase(
+        "vmc pe kaam karta hu, fanuc, gd&t aata hai",
+        "role_vmc_operator",
+        ("mach_vmc",),
+        "core",
+        expected_skills=("skill_fanuc", "skill_gdt_reading"),
+    ),
+    GoldCase(
+        "vmc machine operator, tool offset setting karta hu",
+        "role_vmc_operator",
+        ("mach_vmc",),
+        "core",
+    ),
     GoldCase("vmc operator hu, drawing padh leta hu", "role_vmc_operator", ("mach_vmc",), "core"),
     # role_hmc_operator (HMC Operator) — keyword "hmc".
-    GoldCase("hmc operator, horizontal machining 5 saal", "role_hmc_operator", ("mach_hmc",),
-             "core", expected_experience=5.0),
-    GoldCase("hmc chalata hu, horizontal machine pe kaam", "role_hmc_operator", ("mach_hmc",),
-             "core"),
+    GoldCase(
+        "hmc operator, horizontal machining 5 saal",
+        "role_hmc_operator",
+        ("mach_hmc",),
+        "core",
+        expected_experience=5.0,
+    ),
+    GoldCase(
+        "hmc chalata hu, horizontal machine pe kaam", "role_hmc_operator", ("mach_hmc",), "core"
+    ),
     GoldCase("main hmc operator hu fanuc pe", "role_hmc_operator", ("mach_hmc",), "core"),
-    GoldCase("hmc operator, fanuc control, drawing reading aata hai", "role_hmc_operator",
-             ("mach_hmc",), "core"),
+    GoldCase(
+        "hmc operator, fanuc control, drawing reading aata hai",
+        "role_hmc_operator",
+        ("mach_hmc",),
+        "core",
+    ),
     # role_cnc_grinding_operator (CNC Grinding Operator) — keyword "grinding".
-    GoldCase("grinding operator, cylindrical grinding", "role_cnc_grinding_operator",
-             ("mach_cylindrical_grinder",), "core"),
-    GoldCase("cnc grinding operator hu, surface grinding karta hu", "role_cnc_grinding_operator",
-             ("mach_cnc_grinder",), "core"),
-    GoldCase("grinding machine chalata hu, cylindrical grind", "role_cnc_grinding_operator",
-             ("mach_cylindrical_grinder",), "core"),
-    GoldCase("cnc grinding operator, surface grinding 6 saal", "role_cnc_grinding_operator",
-             ("mach_cnc_grinder",), "core"),
+    GoldCase(
+        "grinding operator, cylindrical grinding",
+        "role_cnc_grinding_operator",
+        ("mach_cylindrical_grinder",),
+        "core",
+    ),
+    GoldCase(
+        "cnc grinding operator hu, surface grinding karta hu",
+        "role_cnc_grinding_operator",
+        ("mach_cnc_grinder",),
+        "core",
+    ),
+    GoldCase(
+        "grinding machine chalata hu, cylindrical grind",
+        "role_cnc_grinding_operator",
+        ("mach_cylindrical_grinder",),
+        "core",
+    ),
+    GoldCase(
+        "cnc grinding operator, surface grinding 6 saal",
+        "role_cnc_grinding_operator",
+        ("mach_cnc_grinder",),
+        "core",
+    ),
     # role_cnc_turner_operator (CNC Turner/Operator) — keyword "turner"/"turning"/"lathe".
-    GoldCase("cnc lathe operator hu, turning ka kaam", "role_cnc_turner_operator",
-             ("mach_cnc_lathe",), "core"),
-    GoldCase("turner hu, cnc lathe pe 3 saal", "role_cnc_turner_operator", ("mach_cnc_lathe",),
-             "core", expected_experience=3.0),
-    GoldCase("lathe operator, turning karta hu", "role_cnc_turner_operator", ("mach_cnc_lathe",),
-             "core"),
-    GoldCase("turning ka kaam karta hu cnc lathe pe", "role_cnc_turner_operator",
-             ("mach_cnc_lathe",), "core"),
-    GoldCase("cnc turner hu, lathe pe turning karta hu", "role_cnc_turner_operator",
-             ("mach_cnc_lathe",), "core"),
+    GoldCase(
+        "cnc lathe operator hu, turning ka kaam",
+        "role_cnc_turner_operator",
+        ("mach_cnc_lathe",),
+        "core",
+    ),
+    GoldCase(
+        "turner hu, cnc lathe pe 3 saal",
+        "role_cnc_turner_operator",
+        ("mach_cnc_lathe",),
+        "core",
+        expected_experience=3.0,
+    ),
+    GoldCase(
+        "lathe operator, turning karta hu", "role_cnc_turner_operator", ("mach_cnc_lathe",), "core"
+    ),
+    GoldCase(
+        "turning ka kaam karta hu cnc lathe pe",
+        "role_cnc_turner_operator",
+        ("mach_cnc_lathe",),
+        "core",
+    ),
+    GoldCase(
+        "cnc turner hu, lathe pe turning karta hu",
+        "role_cnc_turner_operator",
+        ("mach_cnc_lathe",),
+        "core",
+    ),
     # role_welder (Welder) — TAX-WELD-1. Welding was previously a NEGATIVE tier
     # (expected role None, "outside CNC/VMC scope" by design), which made a real
     # welder unmatchable. It is now an in-scope role; the expected skill ids are the
     # PRE-EXISTING active corpus ids (skill-corpus.ts), none minted for this change.
     # No welding machine id is asserted: the taxonomy has no `mach_*` welding id and
     # the corpus models TIG/MIG/arc as SKILLS.
-    GoldCase("welder hun main", "role_welder", (), "core",
-             expected_skills=("skill_welder_occupation",)),
-    GoldCase("tig aur mig machine chala leta hun", "role_welder", (), "core",
-             expected_skills=("skill_tig_welding", "skill_mig_welding")),
-    GoldCase("welding ka kaam karta hu, 6 saal se", "role_welder", (), "core",
-             expected_skills=("skill_welder_occupation",), expected_experience=6.0),
-    GoldCase("arc welding aur gas cutting dono karta hu", "role_welder", (), "core",
-             expected_skills=("skill_arc_welding", "skill_gas_cutting")),
-    GoldCase("mig welding welder hu, 4 saal ka experience", "role_welder", (), "core",
-             expected_skills=("skill_mig_welding", "skill_welder_occupation"),
-             expected_experience=4.0),
+    GoldCase(
+        "welder hun main", "role_welder", (), "core", expected_skills=("skill_welder_occupation",)
+    ),
+    GoldCase(
+        "tig aur mig machine chala leta hun",
+        "role_welder",
+        (),
+        "core",
+        expected_skills=("skill_tig_welding", "skill_mig_welding"),
+    ),
+    GoldCase(
+        "welding ka kaam karta hu, 6 saal se",
+        "role_welder",
+        (),
+        "core",
+        expected_skills=("skill_welder_occupation",),
+        expected_experience=6.0,
+    ),
+    GoldCase(
+        "arc welding aur gas cutting dono karta hu",
+        "role_welder",
+        (),
+        "core",
+        expected_skills=("skill_arc_welding", "skill_gas_cutting"),
+    ),
+    GoldCase(
+        "mig welding welder hu, 4 saal ka experience",
+        "role_welder",
+        (),
+        "core",
+        expected_skills=("skill_mig_welding", "skill_welder_occupation"),
+        expected_experience=4.0,
+    ),
 ]
 
 # --- NEGATIVE: heuristic is expected to return None (scored WITH the gate) ------
@@ -216,30 +348,59 @@ _HARD: list[GoldCase] = [
     GoldCase("cam programing karta hu mastercam pe", "role_cam_programmer", (), "hard"),
     GoldCase("grindr operator, round part ghisai", "role_cnc_grinding_operator", (), "hard"),
     # Implicit role — described by tasks, role keyword absent.
-    GoldCase("vertical machining center chalata hu fanuc pe", "role_vmc_operator", ("mach_vmc",),
-             "hard"),
-    GoldCase("horizontal machining center operator hu", "role_hmc_operator", ("mach_hmc",),
-             "hard"),
-    GoldCase("round part ko ghisai karke size pe laata hu cylindrical pe",
-             "role_cnc_grinding_operator", ("mach_cylindrical_grinder",), "hard"),
+    GoldCase(
+        "vertical machining center chalata hu fanuc pe", "role_vmc_operator", ("mach_vmc",), "hard"
+    ),
+    GoldCase("horizontal machining center operator hu", "role_hmc_operator", ("mach_hmc",), "hard"),
+    GoldCase(
+        "round part ko ghisai karke size pe laata hu cylindrical pe",
+        "role_cnc_grinding_operator",
+        ("mach_cylindrical_grinder",),
+        "hard",
+    ),
     GoldCase("cnc program banata hu, g-code likhta hu", "role_cnc_programmer", (), "hard"),
     GoldCase("cam software pe tool path banata hu cnc ke liye", "role_cam_programmer", (), "hard"),
-    GoldCase("job ko round shape me ghumake katai karta hu", "role_cnc_turner_operator",
-             ("mach_cnc_lathe",), "hard"),
+    GoldCase(
+        "job ko round shape me ghumake katai karta hu",
+        "role_cnc_turner_operator",
+        ("mach_cnc_lathe",),
+        "hard",
+    ),
     # Heavy code-switching / mixed English-Hindi-Hinglish.
-    GoldCase("bhai i do milling on vertical centre, fanuc control samajhta hu",
-             "role_vmc_operator", ("mach_vmc",), "hard"),
-    GoldCase("mera kaam hai turning operation on lathe machine daily",
-             "role_cnc_turner_operator", ("mach_cnc_lathe",), "hard"),
+    GoldCase(
+        "bhai i do milling on vertical centre, fanuc control samajhta hu",
+        "role_vmc_operator",
+        ("mach_vmc",),
+        "hard",
+    ),
+    GoldCase(
+        "mera kaam hai turning operation on lathe machine daily",
+        "role_cnc_turner_operator",
+        ("mach_cnc_lathe",),
+        "hard",
+    ),
     # Multi-role disambiguation — what is the PRIMARY role?
-    GoldCase("vmc chalata bhi hu aur set bhi karta hu, mainly setting ka kaam",
-             "role_cnc_setter_operator", ("mach_vmc",), "hard"),
-    GoldCase("program banata hu aur khud machine bhi set karta hu",
-             "role_cnc_programmer", (), "hard"),
-    GoldCase("pehle operator tha vmc pe, ab grinding zyada karta hu",
-             "role_cnc_grinding_operator", ("mach_vmc",), "hard"),
-    GoldCase("lathe aur grinding dono, par grinding me expert hu",
-             "role_cnc_grinding_operator", ("mach_cnc_lathe", "mach_cnc_grinder"), "hard"),
+    GoldCase(
+        "vmc chalata bhi hu aur set bhi karta hu, mainly setting ka kaam",
+        "role_cnc_setter_operator",
+        ("mach_vmc",),
+        "hard",
+    ),
+    GoldCase(
+        "program banata hu aur khud machine bhi set karta hu", "role_cnc_programmer", (), "hard"
+    ),
+    GoldCase(
+        "pehle operator tha vmc pe, ab grinding zyada karta hu",
+        "role_cnc_grinding_operator",
+        ("mach_vmc",),
+        "hard",
+    ),
+    GoldCase(
+        "lathe aur grinding dono, par grinding me expert hu",
+        "role_cnc_grinding_operator",
+        ("mach_cnc_lathe", "mach_cnc_grinder"),
+        "hard",
+    ),
 ]
 
 # The full ordered gold set (core -> negative -> hard).
@@ -386,8 +547,10 @@ class FieldMatch:
     hit: bool
 
     def as_miss_line(self) -> str:
-        return (f"[{self.tier}/{self.field}] {self.text!r}: "
-                f"expected {self.expected!r}, got {self.got!r}")
+        return (
+            f"[{self.tier}/{self.field}] {self.text!r}: "
+            f"expected {self.expected!r}, got {self.got!r}"
+        )
 
 
 @dataclass(frozen=True)
@@ -428,8 +591,9 @@ def _score_trade(case: GoldCase, profile: object) -> FieldMatch | None:
 
 def _score_role(case: GoldCase, profile: object) -> FieldMatch:
     got = getattr(profile, "canonical_role_id", None)
-    return FieldMatch(case.text, case.tier, "role", case.expected_role, got,
-                      got == case.expected_role)
+    return FieldMatch(
+        case.text, case.tier, "role", case.expected_role, got, got == case.expected_role
+    )
 
 
 def _score_skills(case: GoldCase, profile: object) -> FieldMatch | None:
@@ -439,8 +603,9 @@ def _score_skills(case: GoldCase, profile: object) -> FieldMatch | None:
     got = set(getattr(profile, "skills", []) or [])
     # Subset semantics: every expected skill must be present (extra skills OK).
     hit = expected.issubset(got)
-    return FieldMatch(case.text, case.tier, "skills", tuple(sorted(expected)),
-                      tuple(sorted(got)), hit)
+    return FieldMatch(
+        case.text, case.tier, "skills", tuple(sorted(expected)), tuple(sorted(got)), hit
+    )
 
 
 def _score_machines(case: GoldCase, profile: object) -> FieldMatch | None:
@@ -451,8 +616,9 @@ def _score_machines(case: GoldCase, profile: object) -> FieldMatch | None:
     expected = set(case.expected_machines)
     got = set(getattr(profile, "machines", []) or [])
     hit = expected.issubset(got)
-    return FieldMatch(case.text, case.tier, "machines", tuple(sorted(expected)),
-                      tuple(sorted(got)), hit)
+    return FieldMatch(
+        case.text, case.tier, "machines", tuple(sorted(expected)), tuple(sorted(got)), hit
+    )
 
 
 def _score_experience(case: GoldCase, profile: object) -> FieldMatch | None:

@@ -33,11 +33,11 @@ DeidProfile = Literal["sample", "ner"]
 # Independent corpus residual scanners — anything matching the CLEANED text means
 # masking missed PII → exclude. Deliberately broad (false-positives only exclude).
 _RESIDUAL_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b"),          # PAN
-    re.compile(r"\b\d{4}\s?\d{4}\s?\d{4}\b"),        # Aadhaar
+    re.compile(r"\b[A-Z]{5}\d{4}[A-Z]\b"),  # PAN
+    re.compile(r"\b\d{4}\s?\d{4}\s?\d{4}\b"),  # Aadhaar
     re.compile(r"(?<!\d)\+?\d[\d\s\-]{6,}\d(?!\d)"),  # phone-like run
-    re.compile(r"\d{7,}"),                           # any long digit run
-    re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+"),         # email
+    re.compile(r"\d{7,}"),  # any long digit run
+    re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+"),  # email
 )
 
 

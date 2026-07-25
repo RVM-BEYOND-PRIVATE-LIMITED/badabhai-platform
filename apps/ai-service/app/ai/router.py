@@ -84,8 +84,7 @@ def _attempt_failure_message(
     else:
         cause = f"error_class={reason} (no transport reason code)"
     return (
-        f"llm attempt failed: task={task_type} {where} {cause} "
-        f"attempt={attempt + 1}/{max_attempts}"
+        f"llm attempt failed: task={task_type} {where} {cause} attempt={attempt + 1}/{max_attempts}"
     )
 
 
@@ -148,11 +147,14 @@ class AIRouter:
             if worst_case_inr > self._settings.ai_max_call_cost_inr:
                 logger.warning(
                     "cost ceiling exceeded; skipping candidate",
-                    extra={"extra": {
-                        "task": task_type, "model": model,
-                        "worst_case_inr": worst_case_inr,
-                        "ceiling_inr": self._settings.ai_max_call_cost_inr,
-                    }},
+                    extra={
+                        "extra": {
+                            "task": task_type,
+                            "model": model,
+                            "worst_case_inr": worst_case_inr,
+                            "ceiling_inr": self._settings.ai_max_call_cost_inr,
+                        }
+                    },
                 )
                 ceiling_skipped_any = True
                 continue
@@ -175,13 +177,15 @@ class AIRouter:
                 # to an accurate headline. Distinguishing them changes only the
                 # MESSAGE — every reason still blocks the real call (fail-closed).
                 logger.warning(
-                    _SPEND_BLOCK_LOG_MESSAGES.get(
-                        reason, "real call blocked by the spend ledger"
-                    ),
-                    extra={"extra": {
-                        "task": task_type, "model": model, "reason": reason,
-                        "worst_case_inr": worst_case_inr,
-                    }},
+                    _SPEND_BLOCK_LOG_MESSAGES.get(reason, "real call blocked by the spend ledger"),
+                    extra={
+                        "extra": {
+                            "task": task_type,
+                            "model": model,
+                            "reason": reason,
+                            "worst_case_inr": worst_case_inr,
+                        }
+                    },
                 )
                 spend_block_reason = reason
                 continue
@@ -203,18 +207,25 @@ class AIRouter:
                         retry_budget_hit = True
                         logger.warning(
                             "retry budget exhausted; stopping retries",
-                            extra={"extra": {
-                                "task": task_type, "model": model, "attempt": attempt,
-                                "budget_per_window": self._settings.ai_retry_budget_per_window,
-                            }},
+                            extra={
+                                "extra": {
+                                    "task": task_type,
+                                    "model": model,
+                                    "attempt": attempt,
+                                    "budget_per_window": self._settings.ai_retry_budget_per_window,
+                                }
+                            },
                         )
                         break
                     attempt_count += 1  # counts every dispatch (across candidates)
                     try:
                         result = await providers.complete(
-                            settings=self._settings, model=model, messages=messages,
+                            settings=self._settings,
+                            model=model,
+                            messages=messages,
                             max_output_tokens=route.max_output_tokens,
-                            temperature=route.temperature, json_mode=route.json_mode,
+                            temperature=route.temperature,
+                            json_mode=route.json_mode,
                         )
                         latency = int((time.perf_counter() - start) * 1000)
                         in_tok = result.input_tokens or cost_tracker.estimate_tokens(input_text)
@@ -222,10 +233,16 @@ class AIRouter:
                             result.content
                         )
                         meta = cost_tracker.build_call_metadata(
-                            task_type=task_type, model=model, real_call=True,
-                            input_tokens=in_tok, output_tokens=out_tok,
-                            latency_ms=latency, success=True, settings=self._settings,
-                            attempt_count=attempt_count, candidates_tried=candidates_tried,
+                            task_type=task_type,
+                            model=model,
+                            real_call=True,
+                            input_tokens=in_tok,
+                            output_tokens=out_tok,
+                            latency_ms=latency,
+                            success=True,
+                            settings=self._settings,
+                            attempt_count=attempt_count,
+                            candidates_tried=candidates_tried,
                         )
                         # Reconcile the reservation: refund worst_case - actual so
                         # the net recorded spend is the ACTUAL estimated cost.
@@ -244,24 +261,30 @@ class AIRouter:
                         last_attempted_model = model
                         transport = exc if isinstance(exc, LlmTransportError) else None
                         reason = (
-                            transport.reason_code
-                            if transport is not None
-                            else type(exc).__name__
+                            transport.reason_code if transport is not None else type(exc).__name__
                         )
                         last_failure_reason = reason
                         status = transport.status_code if transport is not None else None
                         logger.warning(
                             _attempt_failure_message(
-                                task_type=task_type, model=model, attempt=attempt,
+                                task_type=task_type,
+                                model=model,
+                                attempt=attempt,
                                 max_attempts=route.max_retries + 1,
-                                reason=reason, status=status,
+                                reason=reason,
+                                status=status,
                                 typed=transport is not None,
                             ),
-                            extra={"extra": {
-                                "attempt": attempt, "task": task_type, "model": model,
-                                "provider": provider_for_model(model),
-                                "reason": reason, "status": status,
-                            }},
+                            extra={
+                                "extra": {
+                                    "attempt": attempt,
+                                    "task": task_type,
+                                    "model": model,
+                                    "provider": provider_for_model(model),
+                                    "reason": reason,
+                                    "status": status,
+                                }
+                            },
                         )
                         if reason == REASON_MAX_TOKENS_NO_PARTS:
                             break
@@ -306,12 +329,17 @@ class AIRouter:
         # attempted (spend/ceiling/kill-switch/plain-mock) fall back to the primary.
         report_model = last_attempted_model or primary_model
         meta = cost_tracker.build_call_metadata(
-            task_type=task_type, model=report_model, real_call=real_flag,
+            task_type=task_type,
+            model=report_model,
+            real_call=real_flag,
             input_tokens=cost_tracker.estimate_tokens(input_text),
             output_tokens=cost_tracker.estimate_tokens(mock_response),
-            latency_ms=latency, success=success, settings=self._settings,
+            latency_ms=latency,
+            success=success,
+            settings=self._settings,
             error_code=error_code,
-            attempt_count=attempt_count, candidates_tried=candidates_tried,
+            attempt_count=attempt_count,
+            candidates_tried=candidates_tried,
             failure_reason=last_failure_reason,
         )
         self._trace(task_type, report_model, real_flag, input_text, mock_response, meta)
@@ -342,11 +370,19 @@ class AIRouter:
         return candidates
 
     def _trace(
-        self, task_type: str, model: str, real: bool, input_text: str, output_text: str,
+        self,
+        task_type: str,
+        model: str,
+        real: bool,
+        input_text: str,
+        output_text: str,
         meta: AICallMetadata,
     ) -> None:
         self._tracer.trace_generation(
-            task_type=task_type, model=model, real_call=real,
-            input_text=input_text, output_text=output_text,
+            task_type=task_type,
+            model=model,
+            real_call=real,
+            input_text=input_text,
+            output_text=output_text,
             metadata={"estimated_cost_inr": meta.estimated_cost_inr, "success": meta.success},
         )

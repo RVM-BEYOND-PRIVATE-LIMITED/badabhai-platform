@@ -79,7 +79,10 @@ def test_skills_use_subset_semantics_not_exact():
         experience = None
 
     case = gold.GoldCase(
-        "x", "role_vmc_operator", ("mach_vmc",), "core",
+        "x",
+        "role_vmc_operator",
+        ("mach_vmc",),
+        "core",
         expected_skills=("skill_fanuc",),
     )
     match = gold._score_skills(case, _P())
@@ -135,8 +138,12 @@ def test_surviving_anchor_is_extraction_error():
     """If the answer's anchor survives pseudonymization, the gateway is not the
     cause -> extraction error (model saw the evidence, mis-canonicalized it)."""
     match = gold.FieldMatch(
-        text="vmc chalata hu", tier="hard", field="role",
-        expected="role_vmc_operator", got=None, hit=False,
+        text="vmc chalata hu",
+        tier="hard",
+        field="role",
+        expected="role_vmc_operator",
+        got=None,
+        hit=False,
     )
     # Identity pseudonymizer: nothing masked -> anchor 'vmc' survives.
     a = attrib.attribute_match(match, pseudonymize_fn=lambda t: t)
@@ -148,8 +155,12 @@ def test_masked_anchor_is_over_masking_td3():
     """If the gateway removes the anchor that was in the source, it's TD3
     over-masking — the model never saw the evidence."""
     match = gold.FieldMatch(
-        text="vmc chalata hu", tier="hard", field="role",
-        expected="role_vmc_operator", got=None, hit=False,
+        text="vmc chalata hu",
+        tier="hard",
+        field="role",
+        expected="role_vmc_operator",
+        got=None,
+        hit=False,
     )
     # Stub gateway that masks 'vmc' (simulating over-masking of a technical term).
     a = attrib.attribute_match(match, pseudonymize_fn=lambda t: t.replace("vmc", "[X_1]"))

@@ -69,7 +69,7 @@ from .profiling.prompts import (
     RESUME_SYSTEM_PROMPT,
     build_chat_messages,
 )
-from .profiling.signals import label_for_id
+from .profiling.signals import has_first_person_claim, label_for_id
 from .pseudonymize import (
     PseudonymizationResult,
     certified_clean_skill_labels,
@@ -350,9 +350,7 @@ async def embed_skill_aliases(body: SkillAliasEmbedInput) -> SkillAliasEmbedOutp
             # Counts only — the runner resumes the omitted suffix on a later run.
             logger.warning(
                 "embed skill-alias batch truncated by spend ledger",
-                extra={
-                    "extra": {"items": len(body.items), "affordable": len(items)}
-                },
+                extra={"extra": {"items": len(body.items), "affordable": len(items)}},
             )
 
     results: list[SkillAliasEmbedResult] = []
@@ -428,9 +426,7 @@ async def skills_canonicalize(body: SkillCanonicalizationInput) -> SkillCanonica
             # Counts/reason only — never the phrase.
             logger.warning(
                 "skills canonicalize blocked by spend ledger",
-                extra={
-                    "extra": {"reason": reason, "projected_inr": round(reserved_inr, 6)}
-                },
+                extra={"extra": {"reason": reason, "projected_inr": round(reserved_inr, 6)}},
             )
             return SkillCanonicalization(status="unresolved")
 
@@ -558,9 +554,7 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
     #    answer, #238 HIGH), or when the consecutive clarify budget (2) is spent.
     is_clarify = interview_engine.needs_rephrase(body.message_text)
     turn = (
-        interview_engine.clarify_turn(
-            body.conversation_state, body.message_text, body.role_family
-        )
+        interview_engine.clarify_turn(body.conversation_state, body.message_text, body.role_family)
         if is_clarify
         else None
     )
@@ -598,9 +592,7 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
         # Chips are ANSWERS to the question in `reply_text`, so they are keyed on the
         # topic actually being asked this turn — not a constant. `asked_id` is None on
         # the wrap-up turn, which correctly yields no chips.
-        suggested_followups=interview_engine.suggested_followups(
-            body.role_family, asked_id
-        ),
+        suggested_followups=interview_engine.suggested_followups(body.role_family, asked_id),
         is_mock=not meta.real_call,
         asked_question_id=asked_id,
         extraction_ready=extraction_ready,
@@ -708,6 +700,14 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
         # trade id. A null/invalid id keeps the heuristic.
         role_id = normalize_role_id(extract_canonical_role_id(content))
         if role_id is not None:
+            # TD101: A valid id overrides the heuristic ONLY IF the heuristic found it too,
+            # or the worker actually made a first-person claim in the text. This prevents
+            # the LLM from inventing a role (like "CNC Setter-Operator") when the worker
+            # just said "mera bhai operator hai".
+            if legacy.canonical_role_id is None and not has_first_person_claim(worker_text):
+                role_id = None
+
+        if role_id is not None:
             legacy.canonical_role_id = role_id
             legacy.canonical_trade_id = ROLE_TRADE.get(role_id, legacy.canonical_trade_id)
         # Field-by-field enrichment overlay: keep each well-formed model field even
@@ -733,9 +733,7 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
     # disclosure surfaces render skill_labels from that snapshot with NO
     # TypeScript pseudonymize equivalent — a suspect label must never persist.
     # The résumé boundary re-certifies (defense in depth). Never logs label text.
-    legacy.skill_labels = profile_extractor.sanitize_skill_labels(
-        legacy.skill_labels + rich.skills
-    )
+    legacy.skill_labels = profile_extractor.sanitize_skill_labels(legacy.skill_labels + rich.skills)
 
     # TAX-4/FORK-B-1: vector-canonicalize the SKILL labels (SG-3 — the vector layer
     # assigns ids from the closed skill_alias set; below-floor phrases are recorded
@@ -810,7 +808,7 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
     # skill_labels carry above; None stays None (mock mode leaves them unset).
     legacy.education_level = rich.education_level
     legacy.education_field = rich.education_field
-    
+
     # #499 / TD102: carry the list-topics for education and certifications, sanitized.
     legacy.education = profile_extractor.sanitize_skill_labels(rich.education)
     legacy.certifications = profile_extractor.sanitize_skill_labels(rich.certifications)
@@ -943,5 +941,3 @@ async def voice_transcribe(body: TranscriptionInput) -> TranscriptionOutput:
 def _schema_hint() -> str:
     keys = ", ".join(WorkerProfileDraft.model_fields.keys())
     return f"Schema keys: {keys}."
-
-

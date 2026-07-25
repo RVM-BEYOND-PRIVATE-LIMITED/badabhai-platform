@@ -99,9 +99,20 @@ def test_only_pre_existing_corpus_skill_ids_are_ever_written():
     # Sweep every welding phrasing this gazetteer knows: no id outside the five
     # pre-existing corpus ids may appear. This is the "zero minted ids" guard.
     phrases = [
-        "welder hun", "welding ka kaam", "mig welding", "tig welding", "MIG/MAG",
-        "GMAW", "GTAW", "SMAW", "arc welding", "stick welding", "gas cutting",
-        "oxy-fuel cutting", "spot welding karta hu", "tig aur mig dono",
+        "welder hun",
+        "welding ka kaam",
+        "mig welding",
+        "tig welding",
+        "MIG/MAG",
+        "GMAW",
+        "GTAW",
+        "SMAW",
+        "arc welding",
+        "stick welding",
+        "gas cutting",
+        "oxy-fuel cutting",
+        "spot welding karta hu",
+        "tig aur mig dono",
     ]
     for text in phrases:
         sig = signals.detect(text)
@@ -141,10 +152,10 @@ def test_gas_cutting_alone_does_not_imply_the_welder_role():
 @pytest.mark.parametrize(
     "text",
     [
-        "fatigue testing ka kaam",          # contains "tig"
-        "mitigation plan banata hu",        # contains "mig"/"tig"
-        "emigration ke liye documents",     # contains "mig"
-        "vintage machine chalata hu",       # contains "tag"-like noise, no welding
+        "fatigue testing ka kaam",  # contains "tig"
+        "mitigation plan banata hu",  # contains "mig"/"tig"
+        "emigration ke liye documents",  # contains "mig"
+        "vintage machine chalata hu",  # contains "tag"-like noise, no welding
     ],
 )
 def test_short_welding_tokens_are_word_boundary_matched(text):
@@ -200,7 +211,7 @@ def test_machining_role_always_wins_over_welding(text, expected_role):
     [
         "cnc operator hun, welding bhi kar leta hun",
         "lathe pe kaam karta hu, welding bhi karta hu",
-        "pehle welding karta tha, ab CNC lathe chalata hu",   # welding is PAST tense
+        "pehle welding karta tha, ab CNC lathe chalata hu",  # welding is PAST tense
         "welding shop mein CNC chalata hun",
         "milling machine chalata hu, welding bhi aati hai",
     ],
@@ -225,8 +236,8 @@ def test_machining_worker_with_no_roles_keyword_is_never_captured_as_a_welder(te
 @pytest.mark.parametrize(
     "text",
     [
-        "welding rod supply karta hu",       # storekeeper — "welding rod" is a consumable
-        "welding machine repair karta hu",   # maintenance tech — services the machine
+        "welding rod supply karta hu",  # storekeeper — "welding rod" is a consumable
+        "welding machine repair karta hu",  # maintenance tech — services the machine
         "welding nahi karta, sirf helper hu",  # EXPLICIT DENIAL
     ],
 )
@@ -252,8 +263,12 @@ def test_explicit_denial_does_not_disturb_the_standing_negative_gold_case():
 
 def test_out_of_scope_trades_are_still_out_of_scope():
     # Widening to welding did not widen to everything — the negative tier keeps teeth.
-    for text in ("sirf helper hu", "fitter hu, assembly line pe",
-                 "electrician hu, wiring karta hu", "carpenter hu, lakdi ka kaam"):
+    for text in (
+        "sirf helper hu",
+        "fitter hu, assembly line pe",
+        "electrician hu, wiring karta hu",
+        "carpenter hu, lakdi ka kaam",
+    ):
         _rich, legacy = profile_extractor.extract(text)
         assert legacy.canonical_role_id is None, text
         assert legacy.canonical_trade_id is None, text

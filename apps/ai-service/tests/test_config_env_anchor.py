@@ -44,17 +44,19 @@ AI_SERVICE_DIR = Path(__file__).resolve().parents[1]
 # these tests diff whole Settings objects, and on a developer box (whose dotenv holds
 # real keys — see conftest) a failing assertion would otherwise print them straight
 # into the test output. §2: a secret never reaches a log.
-_SECRET_FIELDS = frozenset({
-    "gemini_flash_api_key",
-    "anthropic_api_key",
-    "sarvam_api_key",
-    "supabase_service_role_key",
-    "langfuse_public_key",
-    "langfuse_secret_key",
-    "skills_internal_token",
-    "ai_internal_token",
-    "ai_spend_redis_url",
-})
+_SECRET_FIELDS = frozenset(
+    {
+        "gemini_flash_api_key",
+        "anthropic_api_key",
+        "sarvam_api_key",
+        "supabase_service_role_key",
+        "langfuse_public_key",
+        "langfuse_secret_key",
+        "skills_internal_token",
+        "ai_internal_token",
+        "ai_spend_redis_url",
+    }
+)
 
 
 def _redacted(settings: Settings) -> dict:
@@ -68,6 +70,7 @@ def _redacted(settings: Settings) -> dict:
 
 
 # --- 1. the anchor: identical config from ANY cwd -----------------------------
+
 
 def test_env_file_is_anchored_to_the_package_not_the_cwd():
     """The anchor points at apps/ai-service/.env — parents[1] of app/config.py."""
@@ -157,6 +160,7 @@ def test_a_decoy_env_file_in_the_cwd_is_never_read(monkeypatch, tmp_path):
 
 # --- 5. the hard cut: the API's REDIS_URL can no longer reach these Settings ---
 
+
 def test_legacy_redis_url_env_var_is_ignored(monkeypatch):
     """THE POINT OF THE HARD CUT. The NestJS API's REDIS_URL is MANDATORY
     infrastructure with an incompatible meaning; if it still bound to this field, a
@@ -197,13 +201,14 @@ def test_new_var_name_does_bind(monkeypatch):
 
 # --- a malformed URL is rejected at STARTUP, naming the var, leaking nothing ----
 
+
 @pytest.mark.parametrize(
     "malformed",
     [
-        "localhost:6379",           # THE common typo: no scheme at all
-        "http://localhost:6379",    # wrong scheme
-        "redis:/localhost:6379",    # single-slash slip
-        "  ",                       # whitespace-only
+        "localhost:6379",  # THE common typo: no scheme at all
+        "http://localhost:6379",  # wrong scheme
+        "redis:/localhost:6379",  # single-slash slip
+        "  ",  # whitespace-only
     ],
 )
 def test_malformed_spend_redis_url_fails_at_settings_naming_the_var(malformed):
@@ -285,9 +290,7 @@ def test_wellformed_but_unreachable_url_boots_and_still_fails_closed():
     connectivity check: a well-formed URL pointing at nothing must still CONSTRUCT
     (boot succeeds, no network at boot) and still BLOCK the real call per-call."""
     # Constructs without raising -> the service boots.
-    ledger = SpendLedger(
-        Settings(_env_file=None, ai_spend_redis_url="redis://192.0.2.1:6379/0")
-    )
+    ledger = SpendLedger(Settings(_env_file=None, ai_spend_redis_url="redis://192.0.2.1:6379/0"))
     assert ledger.backend_name == "redis"
 
     # ...and the per-call verdict is unchanged: blocked, never open.
@@ -296,13 +299,12 @@ def test_wellformed_but_unreachable_url_boots_and_still_fails_closed():
             raise ConnectionError("no route to host")
 
     ledger._store._client = _Unreachable()
-    verdict = asyncio.run(
-        ledger.would_exceed_spend(1.0, Settings(_env_file=None), user_ref="w1")
-    )
+    verdict = asyncio.run(ledger.would_exceed_spend(1.0, Settings(_env_file=None), user_ref="w1"))
     assert verdict == "spend_store_unavailable"
 
 
 # --- 2. unset -> in-process + the startup log ---------------------------------
+
 
 def test_unset_selects_in_process_backend_and_logs_once(caplog):
     """Unset is a DELIBERATE default, not a failure — but it must be VISIBLE:
@@ -322,6 +324,7 @@ def test_unset_selects_in_process_backend_and_logs_once(caplog):
 
 
 # --- the backend choice is announced AT BOOT, not on first traffic -------------
+
 
 def test_startup_lifespan_logs_the_backend_at_boot(caplog, monkeypatch):
     """AI-ENV-1 1c as WRITTEN: the choice must be visible at STARTUP.
@@ -369,6 +372,7 @@ def test_startup_log_fires_even_under_the_td67_locked_posture(caplog, monkeypatc
 
 
 # --- 3. set + reachable -> redis backend --------------------------------------
+
 
 def test_set_and_reachable_selects_redis_backend_and_logs_once(caplog):
     """Set => the Redis backend, and a reachable store actually reserves through it
@@ -420,6 +424,7 @@ def test_startup_log_never_contains_the_redis_url_value(caplog):
 
 # --- 4. set + UNREACHABLE -> blocked (fail-closed), fast, and NAMES the var ----
 
+
 def test_redis_client_is_built_with_a_bounded_timeout():
     """1d: the client MUST carry connect/socket timeouts. Without them the OS TCP
     behaviour governs — a MEASURED 21s stall per reserve against a routable-but-silent
@@ -463,9 +468,7 @@ def test_unreachable_redis_blocks_the_real_call_fast_and_names_the_var(caplog):
     backend._client = _TimeoutClient()
 
     with caplog.at_level(logging.WARNING, logger="ai.cost"):
-        verdict = asyncio.run(
-            backend.reserve(1.0, Settings(_env_file=None), user_ref="w1")
-        )
+        verdict = asyncio.run(backend.reserve(1.0, Settings(_env_file=None), user_ref="w1"))
 
     # VERDICT unchanged: still blocked, still fail-closed. Never None (never open).
     assert verdict == "spend_store_unavailable"
@@ -493,6 +496,7 @@ def test_unreachable_redis_blocks_the_real_call_fast_and_names_the_var(caplog):
 
 
 # --- MSG-1 (router half): the ROUTER must log the REAL reason ------------------
+
 
 def _block_router(monkeypatch, reason: str):
     """Drive the REAL AIRouter in real mode with the ledger stubbed to block with
@@ -600,13 +604,12 @@ def test_ledger_facade_also_fails_closed_when_the_store_is_unreachable():
 
     ledger._store._client = _BoomClient()
 
-    verdict = asyncio.run(
-        ledger.would_exceed_spend(1.0, Settings(_env_file=None), user_ref="w1")
-    )
+    verdict = asyncio.run(ledger.would_exceed_spend(1.0, Settings(_env_file=None), user_ref="w1"))
     assert verdict == "spend_store_unavailable"
 
 
 # --- the ledger singleton honours the anchored settings ------------------------
+
 
 def test_a_decoy_env_file_cannot_arm_the_redis_backend_via_the_real_singleton(
     monkeypatch, tmp_path

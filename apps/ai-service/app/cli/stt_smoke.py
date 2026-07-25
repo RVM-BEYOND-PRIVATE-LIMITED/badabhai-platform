@@ -60,9 +60,7 @@ def _stt_status(settings: Settings, adapter: SttAdapter) -> str:
         lines.append("REAL Sarvam STT: ON")
     else:
         lines.append(f"REAL Sarvam STT: OFF ({reason})")
-        lines.append(
-            "  -> set AI_ENABLE_REAL_CALLS=true and SARVAM_API_KEY for a real call,"
-        )
+        lines.append("  -> set AI_ENABLE_REAL_CALLS=true and SARVAM_API_KEY for a real call,")
         lines.append("     or pass --mock to see the deterministic mock transcript.")
     lines.append(f"model:   {settings.sarvam_stt_model}")
     lines.append(

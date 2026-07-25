@@ -500,9 +500,17 @@ class ApiClient {
   Future<List<FeedItem>> getFeed({
     required String authToken,
     int limit = 50,
+    String? tradeKey,
+    String? city,
   }) async {
+    final Map<String, String> queryParams = <String, String>{'limit': limit.toString()};
+    if (tradeKey != null) queryParams['trade_key'] = tradeKey;
+    if (city != null) queryParams['city'] = city;
+    
+    final Uri uri = Uri(path: '/feed', queryParameters: queryParams);
+    
     final Map<String, dynamic> json =
-        await _get('/feed?limit=$limit', authToken: authToken);
+        await _get(uri.toString(), authToken: authToken);
     final List<dynamic> jobs = json['jobs'] as List<dynamic>? ?? <dynamic>[];
     return jobs
         .whereType<Map<String, dynamic>>()

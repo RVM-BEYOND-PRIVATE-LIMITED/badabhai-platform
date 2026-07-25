@@ -242,8 +242,7 @@ def test_424_a_fluent_worker_is_still_asked_salary_and_availability():
     money/notice-period were never raised. Now it must keep interviewing."""
     _reply, asked_id, state, ready = interview_engine.next_turn(
         None,
-        "vmc operator, 4 saal, setting aur drawing reading karta hu, "
-        "faridabad me hu pune chalega",
+        "vmc operator, 4 saal, setting aur drawing reading karta hu, faridabad me hu pune chalega",
         "cnc_vmc",
     )
     assert all(t in state.answered_topics for t in interview_engine.ESSENTIAL_TOPICS)
@@ -364,16 +363,12 @@ def _run_interview(reply_for, max_turns: int = 40):
     message = "namaste"
     ready = False
     for turn in range(1, max_turns + 1):
-        _reply, asked_id, state, ready = interview_engine.next_turn(
-            state, message, "cnc_vmc"
-        )
+        _reply, asked_id, state, ready = interview_engine.next_turn(state, message, "cnc_vmc")
         if asked_id is None:
             return ask_log, state, ready, turn
         ask_log.append(asked_id)
         message = reply_for(asked_id)
-    raise AssertionError(
-        f"interview did not terminate in {max_turns} turns — ask log: {ask_log}"
-    )
+    raise AssertionError(f"interview did not terminate in {max_turns} turns — ask log: {ask_log}")
 
 
 def _drive_until_asked(topic_id: str, max_turns: int = 40):
@@ -406,9 +401,7 @@ def test_td_edu_higher_qualification_still_asks_the_field_of_study_question():
     """The other arm: a B.Tech/Diploma answer DOES have a field, so education_field is
     still asked (the mock detector reads no level, so it is asked, not skipped)."""
     state = _drive_until_asked("education_level")
-    _r, next_asked, state, _ready = interview_engine.next_turn(
-        state, "B.Tech kiya hai", "cnc_vmc"
-    )
+    _r, next_asked, state, _ready = interview_engine.next_turn(state, "B.Tech kiya hai", "cnc_vmc")
     assert "education_field" not in state.answered_topics
     assert next_asked == "education_field"
 
@@ -428,9 +421,7 @@ def test_unparseable_machines_answer_is_re_asked_once_then_the_engine_moves_on()
     state = None
     message = "cnc turner hoon"
     for _ in range(12):
-        reply, asked_id, state, _ready = interview_engine.next_turn(
-            state, message, "cnc_vmc"
-        )
+        reply, asked_id, state, _ready = interview_engine.next_turn(state, message, "cnc_vmc")
         if asked_id is None:
             break
         served.append(reply)
@@ -465,9 +456,7 @@ def test_no_topic_is_ever_asked_more_than_twice_under_a_totally_blind_detector(
     same unanswered essential forever and `_run_interview` raises "did not
     terminate".
     """
-    monkeypatch.setattr(
-        interview_engine.signals, "detect_answered_topics", lambda *a, **k: {}
-    )
+    monkeypatch.setattr(interview_engine.signals, "detect_answered_topics", lambda *a, **k: {})
     ask_log, state, ready, turns = _run_interview(lambda _tid: _GARBAGE)
 
     counts = Counter(ask_log)
@@ -493,9 +482,7 @@ def test_the_ask_ceiling_terminates_the_interview_as_a_final_backstop(monkeypatc
     """Ceiling backstop: even with a blind detector AND an inflated topic bank, the
     interview stops once the ENGINE ASK budget is spent. Counting asks (not turns)
     is what makes this backstop immune to clarify turns — see HIGH-1 above."""
-    monkeypatch.setattr(
-        interview_engine.signals, "detect_answered_topics", lambda *a, **k: {}
-    )
+    monkeypatch.setattr(interview_engine.signals, "detect_answered_topics", lambda *a, **k: {})
     # 40 extra always-open topics: without the ceiling this would run 40+ asks.
     from app.profiling.question_bank import Topic
 
@@ -523,22 +510,16 @@ def test_an_answered_topic_is_never_re_asked(monkeypatch):
     """Required test 4: the ABSOLUTE rule — re-ask is only ever for UNANSWERED
     topics. Asserted even with the detector blind AFTER the first answer, so the
     only thing keeping the topic closed is `answered_topics`."""
-    _r1, asked1, st1, _ready1 = interview_engine.next_turn(
-        None, "cnc turner hoon", "cnc_vmc"
-    )
+    _r1, asked1, st1, _ready1 = interview_engine.next_turn(None, "cnc turner hoon", "cnc_vmc")
     assert asked1 == "machines"  # role answered on turn 1, so it is NOT re-asked
     assert "role" in st1.answered_topics
 
     # Blind the detector from here: nothing more can be answered, so `role` staying
     # closed is due to `answered_topics` alone — not to the ask bound.
-    monkeypatch.setattr(
-        interview_engine.signals, "detect_answered_topics", lambda *a, **k: {}
-    )
+    monkeypatch.setattr(interview_engine.signals, "detect_answered_topics", lambda *a, **k: {})
     state = st1
     for _ in range(25):
-        _reply, asked_id, state, _rd = interview_engine.next_turn(
-            state, _GARBAGE, "cnc_vmc"
-        )
+        _reply, asked_id, state, _rd = interview_engine.next_turn(state, _GARBAGE, "cnc_vmc")
         if asked_id is None:
             break
         assert asked_id != "role", "an ANSWERED topic was re-asked"
@@ -566,9 +547,7 @@ def test_wrap_up_is_extraction_ready_EVEN_WITH_essentials_unanswered(monkeypatch
     Mutation proof: make the wrap-up branch return `extraction_ready` (the honest
     readiness) instead of True and this test fails.
     """
-    monkeypatch.setattr(
-        interview_engine.signals, "detect_answered_topics", lambda *a, **k: {}
-    )
+    monkeypatch.setattr(interview_engine.signals, "detect_answered_topics", lambda *a, **k: {})
     _ask_log, state, ready, _turns = _run_interview(lambda _tid: _GARBAGE)
 
     # NOTHING was answered...
@@ -591,9 +570,7 @@ def test_wrap_up_is_extraction_ready_EVEN_WITH_essentials_unanswered(monkeypatch
 def _blind_ask_budget() -> int:
     """The most asks a BLIND run of the current bank can possibly need."""
     return sum(
-        interview_engine.MAX_ASKS_PER_TOPIC
-        if t.id in interview_engine.ESSENTIAL_TOPICS
-        else 1
+        interview_engine.MAX_ASKS_PER_TOPIC if t.id in interview_engine.ESSENTIAL_TOPICS else 1
         for t in topics_for("cnc_vmc")
     )
 
@@ -610,9 +587,7 @@ def test_the_ask_budget_has_real_headroom_over_a_blind_run(monkeypatch):
     )
 
     # And the blind run really does spend exactly that many asks, no more.
-    monkeypatch.setattr(
-        interview_engine.signals, "detect_answered_topics", lambda *a, **k: {}
-    )
+    monkeypatch.setattr(interview_engine.signals, "detect_answered_topics", lambda *a, **k: {})
     ask_log, state, _ready, _turns = _run_interview(lambda _tid: _GARBAGE)
     assert len(ask_log) == budget
     assert sum(state.ask_counts.values()) == budget
@@ -689,9 +664,7 @@ def test_clarify_turns_cannot_starve_the_tail_of_the_interview(monkeypatch):
     ['role','role','machines','machines','experience'] — current_location (an
     ESSENTIAL) and preferred_locations (the sole MUST_ASK) were never asked at all.
     """
-    monkeypatch.setattr(
-        interview_engine.signals, "detect_answered_topics", lambda *a, **k: {}
-    )
+    monkeypatch.setattr(interview_engine.signals, "detect_answered_topics", lambda *a, **k: {})
     ask_log, _state = _drive_with_clarifies("matlab kya?")
 
     asked = set(ask_log)
@@ -707,9 +680,7 @@ def test_clarify_turns_cannot_starve_the_tail_of_the_interview(monkeypatch):
 def test_graded_clarify_load_never_drops_a_topic(monkeypatch):
     """The review graded this: 1 clarify dropped `education`, 6 dropped
     `preferred_locations`. Sweep the load and assert coverage is constant."""
-    monkeypatch.setattr(
-        interview_engine.signals, "detect_answered_topics", lambda *a, **k: {}
-    )
+    monkeypatch.setattr(interview_engine.signals, "detect_answered_topics", lambda *a, **k: {})
     expected = {t.id for t in topics_for("cnc_vmc")}
     for n_clarifies in (0, 1, 2, 6, 12, 30):
         state = None
@@ -760,8 +731,7 @@ def test_unanswered_essentials_lists_exactly_the_essentials_still_missing():
 def test_unanswered_essentials_is_empty_when_everything_is_answered():
     _reply, asked_id, state, ready = interview_engine.next_turn(
         None,
-        "vmc operator, 4 saal, setting aur drawing reading karta hu, "
-        "faridabad me hu pune chalega",
+        "vmc operator, 4 saal, setting aur drawing reading karta hu, faridabad me hu pune chalega",
         "cnc_vmc",
     )
     assert state.unanswered_essentials == []  # clean default = complete
@@ -815,9 +785,7 @@ def test_a_negative_ask_count_cannot_buy_extra_asks(monkeypatch):
     the bound must not depend on the caller having validated the state."""
     from app.contracts import ConversationState
 
-    monkeypatch.setattr(
-        interview_engine.signals, "detect_answered_topics", lambda *a, **k: {}
-    )
+    monkeypatch.setattr(interview_engine.signals, "detect_answered_topics", lambda *a, **k: {})
     st = ConversationState(role_family="cnc_vmc")
     st.ask_counts["role"] = -1_000_000  # post-validation mutation, as model_copy allows
     assert interview_engine._ask_count(st, "role") == 0
@@ -825,9 +793,7 @@ def test_a_negative_ask_count_cannot_buy_extra_asks(monkeypatch):
     ask_log: list[str] = []
     state = st
     for _ in range(40):
-        _reply, asked_id, state, _ready = interview_engine.next_turn(
-            state, _GARBAGE, "cnc_vmc"
-        )
+        _reply, asked_id, state, _ready = interview_engine.next_turn(state, _GARBAGE, "cnc_vmc")
         if asked_id is None:
             break
         ask_log.append(asked_id)
@@ -847,9 +813,7 @@ def test_pydantic_rejects_the_same_ask_counts_zod_rejects():
         with pytest.raises(ValidationError):
             ConversationState.model_validate({"ask_counts": bad})
     # ...and the valid shape still loads.
-    assert ConversationState.model_validate({"ask_counts": {"role": 2}}).ask_counts == {
-        "role": 2
-    }
+    assert ConversationState.model_validate({"ask_counts": {"role": 2}}).ask_counts == {"role": 2}
 
 
 # --- MEDIUM-3: only solicit answers the detector can actually resolve --------
@@ -940,9 +904,7 @@ def test_clarify_re_serve_matches_what_next_turn_actually_served():
     one — asserted for both the first ask and the bounded re-ask."""
     served, state = [], None
     for _ in range(2):
-        reply, asked_id, state, _ready = interview_engine.next_turn(
-            state, _GARBAGE, "cnc_vmc"
-        )
+        reply, asked_id, state, _ready = interview_engine.next_turn(state, _GARBAGE, "cnc_vmc")
         assert asked_id == "role"  # role is unanswered, so it gets both asks
         served.append(reply)
         out = interview_engine.clarify_turn(state, "matlab kya?", "cnc_vmc")

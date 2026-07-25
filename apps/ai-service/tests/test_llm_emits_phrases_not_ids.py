@@ -142,9 +142,7 @@ def test_drop_is_observable_with_counts_and_never_logs_the_text(caplog):
     name into a skills answer), so the warning carries COUNTS and the field name only —
     the same discipline sanitize_skill_labels and main.py's ledger skip already keep."""
     with caplog.at_level(logging.WARNING):
-        profile_extractor.drop_model_taxonomy_ids(
-            ["skill_mig_welding", "welding"], field="skills"
-        )
+        profile_extractor.drop_model_taxonomy_ids(["skill_mig_welding", "welding"], field="skills")
     records = [r for r in caplog.records if "taxonomy-id-shaped" in r.getMessage()]
     assert len(records) == 1, "the drop must not be silent"
     assert records[0].extra == {"field": "skills", "dropped": 1, "kept": 1}
@@ -252,9 +250,7 @@ def test_the_role_arm_is_deliberately_untouched_by_the_prohibition():
     reverse-lookup reads, and a real observed session emitted the id-shaped
     "mig_tig_welder" there. The skills prohibition must not start eating it."""
     base = profile_extractor.extract_worker_profile_draft("", "cnc_vmc")
-    out = profile_extractor.merge_model_draft(
-        base, json.dumps({"primary_role": "mig_tig_welder"})
-    )
+    out = profile_extractor.merge_model_draft(base, json.dumps({"primary_role": "mig_tig_welder"}))
     assert out.primary_role == "mig_tig_welder"
     legacy = profile_extractor.map_rich_to_legacy(out)
     assert legacy.canonical_role_id == "role_welder"  # still canonicalizes
@@ -361,8 +357,7 @@ def test_extract_endpoint_completes_when_the_model_answers_only_in_ids(monkeypat
     assert "tool offset setting" in body["profile"]["skill_labels"]
     # And no id leaked into any human-visible label field.
     assert not any(
-        profile_extractor._is_taxonomy_id_shaped(label)
-        for label in body["profile"]["skill_labels"]
+        profile_extractor._is_taxonomy_id_shaped(label) for label in body["profile"]["skill_labels"]
     )
 
 

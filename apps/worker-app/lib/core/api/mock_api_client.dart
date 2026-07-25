@@ -346,7 +346,9 @@ class MockApiClient extends ApiClient {
   @override
   Future<List<FeedItem>> getFeed({
     required String authToken,
-    int limit = 20,
+    int limit = 50,
+    String? tradeKey,
+    String? city,
   }) async {
     await _delay();
     return _cannedFeed.take(limit).toList();

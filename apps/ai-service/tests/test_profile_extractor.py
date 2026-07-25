@@ -76,13 +76,13 @@ def test_merge_model_draft_keeps_good_fields_despite_malformed_siblings():
         "```"
     )
     out = profile_extractor.merge_model_draft(base, content)
-    assert out.experience_years == 1.5              # captured (was lost before)
-    assert out.machines == ["CNC"]                  # captured
-    assert out.operation_knowledge == "basic"       # valid enum kept
-    assert out.experience_level == "junior"         # recomputed from 1.5 (not "basic")
-    assert out.availability == "unknown"            # null ignored -> default kept
-    assert out.education == []                       # null ignored -> default kept
-    assert out.role_family == "cnc_vmc"             # null ignored -> default kept
+    assert out.experience_years == 1.5  # captured (was lost before)
+    assert out.machines == ["CNC"]  # captured
+    assert out.operation_knowledge == "basic"  # valid enum kept
+    assert out.experience_level == "junior"  # recomputed from 1.5 (not "basic")
+    assert out.availability == "unknown"  # null ignored -> default kept
+    assert out.education == []  # null ignored -> default kept
+    assert out.role_family == "cnc_vmc"  # null ignored -> default kept
 
 
 def test_merge_model_draft_ignores_unparseable_content():
@@ -94,14 +94,12 @@ def test_merge_model_draft_ignores_unparseable_content():
 
 def test_merge_model_draft_does_not_overlay_location_or_salary():
     # The model only sees masked text; location/salary must stay from the local base.
-    base = profile_extractor.extract_worker_profile_draft(
-        "vmc 4 saal faridabad me 22k", "cnc_vmc"
-    )
+    base = profile_extractor.extract_worker_profile_draft("vmc 4 saal faridabad me 22k", "cnc_vmc")
     content = '{"current_city": "[CITY_1]", "current_salary": 99999, "machines": ["VMC"]}'
     out = profile_extractor.merge_model_draft(base, content)
-    assert out.current_city == base.current_city      # NOT overwritten by the model
+    assert out.current_city == base.current_city  # NOT overwritten by the model
     assert out.current_salary == base.current_salary  # NOT overwritten
-    assert "VMC" in out.machines                       # non-local field still overlaid
+    assert "VMC" in out.machines  # non-local field still overlaid
 
 
 def test_issue_423_current_city_is_not_emitted_as_a_preferred_location():

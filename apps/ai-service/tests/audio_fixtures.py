@@ -219,9 +219,7 @@ def build_wav(duration_seconds: float, *, sample_rate: int = 16000) -> bytes:
     n_frames = int(round(duration_seconds * sample_rate))
     block_align = 2  # 1 channel * 16 bits
     data = bytes(n_frames * block_align)
-    fmt = struct.pack(
-        "<HHIIHH", 1, 1, sample_rate, sample_rate * block_align, block_align, 16
-    )
+    fmt = struct.pack("<HHIIHH", 1, 1, sample_rate, sample_rate * block_align, block_align, 16)
     return b"".join(
         [
             b"RIFF",

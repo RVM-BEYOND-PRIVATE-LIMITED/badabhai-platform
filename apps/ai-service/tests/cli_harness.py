@@ -216,9 +216,7 @@ def adaptive_drive(
         answer = answer_for(_topic())
         return answer if answer is not None else default
 
-    turns = run_interview(
-        session, input_fn=_input, print_fn=_print, name=name, max_turns=max_turns
-    )
+    turns = run_interview(session, input_fn=_input, print_fn=_print, name=name, max_turns=max_turns)
     run = Run(session=session, turns=turns, printed_lines=printed, router=router)
     if extract:
         run.extraction = session.extract()

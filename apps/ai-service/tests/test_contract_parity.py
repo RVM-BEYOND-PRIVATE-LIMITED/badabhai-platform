@@ -37,9 +37,7 @@ def _golden() -> dict[str, list[str]]:
 
 
 def test_profiling_opening_input_matches_the_zod_shape():
-    assert sorted(ProfilingOpeningInput.model_fields) == sorted(
-        _golden()["ProfilingOpeningInput"]
-    )
+    assert sorted(ProfilingOpeningInput.model_fields) == sorted(_golden()["ProfilingOpeningInput"])
 
 
 def test_profiling_opening_output_matches_the_zod_shape():

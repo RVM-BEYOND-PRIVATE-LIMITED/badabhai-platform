@@ -45,7 +45,7 @@ def test_bare_cnc_and_bare_operator_still_resolve_nothing() -> None:
     """
     assert d("CNC", "role") == {}
     assert d("cnc", "role") == {}
-    assert d("operator", "role") == {"skills": ["machine operation"]}
+    assert d("operator", "role") == {}
     assert d("machine operator hu", "role") == {"skills": ["machine operation"]}
     # ...and the Devanagari widening does not smuggle it in through the other script.
     assert d("ऑपरेटर", "role") == {}
@@ -221,9 +221,10 @@ def test_the_deleted_inference_is_still_deleted_under_td94() -> None:
     """
     got = d("cnc lathe operator hu, welding bhi kar leta hu", "role")
     assert got["role"] == "CNC Operator"
-    assert signals.detect(
-        "cnc lathe operator hu, welding bhi kar leta hu"
-    ).role_id == "role_cnc_operator"
+    assert (
+        signals.detect("cnc lathe operator hu, welding bhi kar leta hu").role_id
+        == "role_cnc_operator"
+    )
     # The two ids TD94 must never produce from this sentence: the specialisation the
     # deleted inference produced, and the welder the machining gate must keep out.
     for text in ("lathe operator", "lathe operator hu", "lathe chalata hu"):
@@ -300,8 +301,8 @@ def test_devanagari_role_does_not_close_the_essential_machines_topic() -> None:
     """
     assert d("मैं वीएमसी ऑपरेटर हूँ", "role") == {"role": "VMC Operator"}
     assert "machines" not in d("मैं वीएमसी ऑपरेटर हूँ", "role")
-    # The Latin behaviour is unchanged — this test states the gap, it does not close it.
-    assert "machines" in d("VMC operator", "role")
+    # Both paths now behave identically since TD98 enforces first-person claims.
+    assert "machines" not in d("VMC operator", "role")
 
 
 # --- preferred_locations: state / region ------------------------------------
@@ -513,10 +514,10 @@ def test_an_empty_area_read_falls_through_to_flexible_not_to_nothing() -> None:
     "text",
     [
         "kahin bhi",
-        "kahi bhi",       # already resolved before this change; regression guard
+        "kahi bhi",  # already resolved before this change; regression guard
         "kahee bhi",
         "kaheen bhi",
-        "kahi bi",        # nasal AND aspirate dropped
+        "kahi bi",  # nasal AND aspirate dropped
         "kahin bi chalega",
         "koi bhi jagah",
         "koi bi sheher",

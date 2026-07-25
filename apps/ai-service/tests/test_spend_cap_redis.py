@@ -59,12 +59,14 @@ def _backend():
 
 # --- ATOMIC reserve: N concurrent workers cannot exceed a cap ----------------
 
+
 def test_atomic_daily_cap_across_concurrent_workers():
     async def body():
         backend = _backend()
         # cap 10, each reserve 1.0 -> at most 10 of 25 concurrent reserves succeed.
-        settings = _settings(ai_max_daily_cost_inr=10.0, ai_max_total_cost_inr=1e9,
-                             ai_max_user_daily_cost_inr=1e9)
+        settings = _settings(
+            ai_max_daily_cost_inr=10.0, ai_max_total_cost_inr=1e9, ai_max_user_daily_cost_inr=1e9
+        )
         results = await asyncio.gather(
             *[backend.reserve(1.0, settings, user_ref=None) for _ in range(25)]
         )
@@ -82,8 +84,9 @@ def test_atomic_daily_cap_across_concurrent_workers():
 def test_atomic_cumulative_cap_across_concurrent_workers():
     async def body():
         backend = _backend()
-        settings = _settings(ai_max_daily_cost_inr=1e9, ai_max_total_cost_inr=7.0,
-                             ai_max_user_daily_cost_inr=1e9)
+        settings = _settings(
+            ai_max_daily_cost_inr=1e9, ai_max_total_cost_inr=7.0, ai_max_user_daily_cost_inr=1e9
+        )
         results = await asyncio.gather(
             *[backend.reserve(1.0, settings, user_ref=None) for _ in range(20)]
         )
@@ -99,8 +102,9 @@ def test_atomic_per_user_cap_across_concurrent_workers():
     async def body():
         backend = _backend()
         # per-user cap 5; one worker firing 20 concurrent reserves -> exactly 5 win.
-        settings = _settings(ai_max_user_daily_cost_inr=5.0, ai_max_daily_cost_inr=1e9,
-                             ai_max_total_cost_inr=1e9)
+        settings = _settings(
+            ai_max_user_daily_cost_inr=5.0, ai_max_daily_cost_inr=1e9, ai_max_total_cost_inr=1e9
+        )
         results = await asyncio.gather(
             *[backend.reserve(1.0, settings, user_ref="worker-X") for _ in range(20)]
         )
@@ -113,6 +117,7 @@ def test_atomic_per_user_cap_across_concurrent_workers():
 
 
 # --- reconcile / refund ------------------------------------------------------
+
 
 def test_reconcile_refunds_overreserve_on_success():
     async def body():
@@ -149,6 +154,7 @@ def test_full_refund_on_failure_and_floor_at_zero():
 
 # --- FAIL-CLOSED when Redis is unreachable -----------------------------------
 
+
 def test_reserve_fails_closed_when_redis_unreachable():
     async def body():
         backend = RedisSpendBackend("redis://test")
@@ -179,6 +185,7 @@ def test_reserve_fails_closed_when_redis_unreachable():
 
 # --- UTC-day key naming + TTL + PII-free keys --------------------------------
 
+
 def test_keys_are_pii_free_and_have_correct_ttl():
     async def body():
         backend = _backend()
@@ -204,6 +211,7 @@ def test_keys_are_pii_free_and_have_correct_ttl():
 
 # --- backend selection + facade snapshot shape -------------------------------
 
+
 def test_backend_selection_by_ai_spend_redis_url():
     # Construction only (from_url is lazy) — no event loop / no Redis needed.
     assert SpendLedger(_settings()).backend_name == "in_process"
@@ -224,10 +232,19 @@ def test_facade_reserve_reconcile_and_snapshot_shape_on_redis():
         # The Redis path preserves the EXACT in-process snapshot shape (retry-budget
         # view merged on by the facade + the per-user fields). PII-free keys only.
         assert set(snap.keys()) == {
-            "daily_spend_inr", "daily_cap_inr", "total_spend_inr", "total_cap_inr",
-            "user_daily_cap_inr", "tracked_users", "retry_window_count",
-            "retry_budget_per_window", "kill_switch_engaged", "window_seconds", "day",
-            "user_ref", "user_daily_spend_inr",
+            "daily_spend_inr",
+            "daily_cap_inr",
+            "total_spend_inr",
+            "total_cap_inr",
+            "user_daily_cap_inr",
+            "tracked_users",
+            "retry_window_count",
+            "retry_budget_per_window",
+            "kill_switch_engaged",
+            "window_seconds",
+            "day",
+            "user_ref",
+            "user_daily_spend_inr",
         }
 
     asyncio.run(body())

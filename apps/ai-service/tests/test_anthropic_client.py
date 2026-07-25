@@ -29,6 +29,7 @@ def _run(coro):
 
 # --- Pure mapping/parsing (no SDK) -----------------------------------------
 
+
 def test_request_mapping_system_texts_list_and_alternation():
     messages = [
         {"role": "system", "content": "be brief"},
@@ -53,9 +54,7 @@ def test_request_mapping_system_texts_list_and_alternation():
 
 
 def test_json_mode_appends_instruction_as_final_system_text():
-    system_texts, _ = _to_anthropic_request(
-        [{"role": "user", "content": "x"}], json_mode=True
-    )
+    system_texts, _ = _to_anthropic_request([{"role": "user", "content": "x"}], json_mode=True)
     # With no system messages, the instruction stands alone as the only block.
     assert system_texts == ["Reply with ONLY valid JSON."]
 
@@ -115,6 +114,7 @@ def test_parse_response_raises_when_no_text():
 
 
 # --- acomplete with a stubbed AsyncAnthropic (no network) ------------------
+
 
 class _StubMessages:
     last_kwargs: dict | None = None

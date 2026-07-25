@@ -96,9 +96,4 @@ def test_validation_model_equals_flip_model_one_model_end_to_end() -> None:
     extraction_resolved = resolve_model("profile_extraction", settings)
     flip_gate_target = cli.resolve_model("profile_extraction", settings)
 
-    assert (
-        config_capable
-        == extraction_resolved
-        == flip_gate_target
-        == PINNED_EXTRACTION_MODEL
-    )
+    assert config_capable == extraction_resolved == flip_gate_target == PINNED_EXTRACTION_MODEL

@@ -11,6 +11,7 @@ from app.pseudonymize import pseudonymize
 
 # --- City aliases normalize into the canonical KNOWN_CITIES set -------------
 
+
 def test_dilli_alias_normalizes_to_delhi():
     sig = signals.detect("main dilli me kaam karta hu, 3 saal ka experience")
     assert sig.current_city == "Delhi"
@@ -30,6 +31,7 @@ def test_canonical_city_unchanged():
 
 
 # --- State-level capture (no longer silently dropped) -----------------------
+
 
 def test_named_state_is_captured():
     sig = signals.detect("abhi bihar me hu, kaam dhundh raha hu")
@@ -58,6 +60,7 @@ def test_city_and_state_coexist():
 
 
 # --- Pseudonymizer still masks the aliases before any LLM call --------------
+
 
 def test_pseudonymize_masks_city_alias():
     result = pseudonymize("main dilli me rehta hu")

@@ -45,25 +45,10 @@ class SwipeRepositoryImpl implements SwipeRepository {
   /// starves the deck, and the decisions read is itself capped — both are
   /// recorded as a mandatory backend follow-up.
   @override
-  Future<List<FeedItem>> getFeed() async {
+  Future<List<FeedItem>> getFeed({String? tradeKey, String? city}) async {
     final String token = _requireToken();
     try {
-      // Parallel — one round-trip's latency on a slow link, and Future.wait
-      // rethrows the ORIGINAL error so mapError still sees the ApiException.
-      final List<Object> results = await Future.wait(<Future<Object>>[
-        _api.getFeed(authToken: token),
-        _api.getMyApplications(authToken: token),
-      ]);
-      final List<FeedItem> feed = results[0] as List<FeedItem>;
-      final List<AppliedJob> decisions = results[1] as List<AppliedJob>;
-      // APPLIED only (see doc above) — skipped jobs stay re-decidable.
-      final Set<String> appliedJobIds = decisions
-          .where((AppliedJob a) => a.action == 'applied')
-          .map((AppliedJob a) => a.jobId)
-          .toSet();
-      return feed
-          .where((FeedItem job) => !appliedJobIds.contains(job.jobId))
-          .toList();
+      return await _api.getFeed(authToken: token, tradeKey: tradeKey, city: city);
     } catch (error) {
       throw mapError(error);
     }

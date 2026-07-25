@@ -279,9 +279,7 @@ def test_extraction_clamp_caps_at_twenty():
     from app.contracts import WorkerProfileDraft
     from app.profiling.profile_extractor import map_rich_to_legacy
 
-    legacy = map_rich_to_legacy(
-        WorkerProfileDraft(skills=[f"unique skill {i}" for i in range(21)])
-    )
+    legacy = map_rich_to_legacy(WorkerProfileDraft(skills=[f"unique skill {i}" for i in range(21)]))
     assert len(legacy.skill_labels) == 20
 
 
@@ -302,9 +300,7 @@ def test_map_rich_to_legacy_certifies_labels_at_rest():
     assert pseudonymize(masked).replaced_entities > 0  # honest preconditions
     assert pseudonymize(blocked).blocked is True
 
-    legacy = map_rich_to_legacy(
-        WorkerProfileDraft(skills=["MIG welding", masked, blocked])
-    )
+    legacy = map_rich_to_legacy(WorkerProfileDraft(skills=["MIG welding", masked, blocked]))
     assert legacy.skill_labels == ["MIG welding"]
 
 

@@ -162,9 +162,7 @@ def test_chips_are_not_shared_across_role_families():
             "Haas",
         ]
         # ...and never the old constant, whatever the family.
-        assert all(
-            "?" not in c for c in interview_engine.suggested_followups(family, "role")
-        )
+        assert all("?" not in c for c in interview_engine.suggested_followups(family, "role"))
 
 
 # --- 4. cross-language parity -----------------------------------------------

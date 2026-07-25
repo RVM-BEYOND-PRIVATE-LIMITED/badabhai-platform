@@ -139,8 +139,14 @@ def _drive(session: _Session, router: ScriptedRouter, *, name: str = "Ravi"):
     return interview, turns
 
 
-def _adaptive(router: ScriptedRouter, answer_by_topic: dict[str, str], *, name="Suresh",
-              default="haan", max_turns=40):
+def _adaptive(
+    router: ScriptedRouter,
+    answer_by_topic: dict[str, str],
+    *,
+    name="Suresh",
+    default="haan",
+    max_turns=40,
+):
     """Drive the interview answering whatever the ENGINE just asked, reading the
     topic off the ENDPOINT's ``asked_question_id``."""
     run = adaptive_drive(
@@ -183,6 +189,7 @@ _ANSWERS_BY_TOPIC = {
 
 
 # --- D1: the engine collects what the production extraction loses -------------
+
 
 def test_the_transcript_alone_really_does_lose_the_expected_salary():
     """PINS THE PREMISE, so the fix below can never be called a no-op.
@@ -239,6 +246,7 @@ def test_collected_never_crosses_the_model_boundary():
 
 # --- D1: the precedence rule, unit-level -------------------------------------
 
+
 def _draft(**kwargs) -> WorkerProfileDraft:
     return WorkerProfileDraft(**kwargs)
 
@@ -252,7 +260,7 @@ def test_collected_wins_a_scalar_disagreement():
         {"salary_expected": 50000, "salary_current": 40000},
     )
     assert out.expected_salary == 50000  # collected filled an empty field
-    assert out.current_salary == 40000   # ...and overrode a disagreeing one
+    assert out.current_salary == 40000  # ...and overrode a disagreeing one
 
 
 def test_extraction_only_values_are_never_deleted():
@@ -302,17 +310,21 @@ def test_malformed_and_sentinel_collected_values_are_skipped():
     ``"flexible"`` there to mark "kahin bhi chalega" as an ANSWER. It is a marker,
     not a place, and writing it into the resume's city list would invent a city
     called "flexible"."""
-    base = _draft(preferred_locations=["Nashik"], current_city="Pune",
-                  availability="immediate", experience_years=5.0)
+    base = _draft(
+        preferred_locations=["Nashik"],
+        current_city="Pune",
+        availability="immediate",
+        experience_years=5.0,
+    )
     out = profile_extractor.merge_collected(
         base,
         {
-            "preferred_locations": "flexible",   # sentinel, not a list of places
-            "current_location": "",              # empty string
-            "availability": "maybe_later",       # not in the enum
-            "experience": True,                  # bool is not a year count
-            "salary_expected": "50000",          # str is not an amount
-            "role": None,                        # denial => nothing collected
+            "preferred_locations": "flexible",  # sentinel, not a list of places
+            "current_location": "",  # empty string
+            "availability": "maybe_later",  # not in the enum
+            "experience": True,  # bool is not a year count
+            "salary_expected": "50000",  # str is not an amount
+            "role": None,  # denial => nothing collected
         },
     )
     assert out.preferred_locations == ["Nashik"]
@@ -342,6 +354,7 @@ def test_merge_refreshes_the_completeness_report():
 
 
 # --- D2: no dead turn before the first real question -------------------------
+
 
 def test_the_first_thing_the_worker_is_asked_is_the_engines_first_question():
     """D2: the worker must face a REAL question before they are asked to type — not
@@ -396,8 +409,7 @@ def test_a_signal_free_first_answer_re_serves_the_opening_question():
     session = _Session(["hmm", "hmm", "done"])
     _drive(session, router)
     role_q = topic_by_id("cnc_vmc", "role").question
-    served = [c["mock_response"] for c in router.calls
-              if c["task_type"] == "profiling_chat_turn"]
+    served = [c["mock_response"] for c in router.calls if c["task_type"] == "profiling_chat_turn"]
     assert role_q in served[0]
     # ...and the engine's ONE bounded re-ask then uses the retry wording, so the
     # worker is never shown the identical string a third time.
@@ -406,6 +418,7 @@ def test_a_signal_free_first_answer_re_serves_the_opening_question():
 
 
 # --- D3: name capture strips lead-ins ----------------------------------------
+
 
 @pytest.mark.parametrize(
     ("typed", "expected"),
@@ -436,27 +449,27 @@ def test_common_lead_ins_are_stripped(typed, expected):
     [
         "Ravi",
         "Ravi Kumar",
-        "Mainak",       # starts with "main"
+        "Mainak",  # starts with "main"
         "Mainuddin",
         "Mainul",
-        "Imran",        # starts with "im"
+        "Imran",  # starts with "im"
         "Iman",
         "Imtiyaz",
-        "Jitendra",     # starts with "ji"
+        "Jitendra",  # starts with "ji"
         "Jiten",
-        "Naamdev",      # starts with "naam"
-        "Naman",        # starts with "nam"
-        "Nameeta",      # starts with "name"
+        "Naamdev",  # starts with "naam"
+        "Naman",  # starts with "nam"
+        "Nameeta",  # starts with "name"
         "Namrata",
-        "Hairaj",       # starts with "hai"
+        "Hairaj",  # starts with "hai"
         "Haider",
-        "Hemlata",      # starts with "he"
-        "Meraj",        # starts with "mera"
-        "Mystery",      # starts with "my"
-        "Thisara",      # starts with "this"
+        "Hemlata",  # starts with "he"
+        "Meraj",  # starts with "mera"
+        "Mystery",  # starts with "my"
+        "Thisara",  # starts with "this"
         "Thakur",
-        "Humera",       # starts with "hum"
-        "Ravi Sahu",    # ENDS in "hu" — no word boundary, so the trailer cannot bite
+        "Humera",  # starts with "hum"
+        "Ravi Sahu",  # ENDS in "hu" — no word boundary, so the trailer cannot bite
         "Sadhu Yadav",
     ],
 )
@@ -532,8 +545,9 @@ def _fail_dispatch(monkeypatch, exc_factory) -> None:
 
 
 def _attempt_lines(caplog) -> list[str]:
-    return [r.getMessage() for r in caplog.records
-            if r.getMessage().startswith("llm attempt failed")]
+    return [
+        r.getMessage() for r in caplog.records if r.getMessage().startswith("llm attempt failed")
+    ]
 
 
 def test_failed_attempt_message_names_provider_model_and_reason(
@@ -543,13 +557,16 @@ def test_failed_attempt_message_names_provider_model_and_reason(
     in this project were lost to messages of exactly this kind, so the REASON must
     be in the message itself — the CLI never installs the JSON formatter, so a
     structured ``extra`` alone is invisible to the operator who sees this line."""
-    _fail_dispatch(
-        monkeypatch, lambda _m: LlmTransportError(REASON_HTTP_429, status_code=429)
-    )
+    _fail_dispatch(monkeypatch, lambda _m: LlmTransportError(REASON_HTTP_429, status_code=429))
     router = AIRouter(_real_settings())
     with caplog.at_level(logging.WARNING, logger="ai.router"):
-        _run(router.run("profiling_chat_turn", messages=[{"role": "user", "content": "vmc"}],
-                        mock_response="MOCK"))
+        _run(
+            router.run(
+                "profiling_chat_turn",
+                messages=[{"role": "user", "content": "vmc"}],
+                mock_response="MOCK",
+            )
+        )
 
     lines = _attempt_lines(caplog)
     assert lines, "no attempt-failure line was logged"
@@ -573,8 +590,13 @@ def test_failed_attempt_message_distinguishes_an_untyped_exception(
     _fail_dispatch(monkeypatch, lambda _m: TimeoutError("boom"))
     router = AIRouter(_real_settings())
     with caplog.at_level(logging.WARNING, logger="ai.router"):
-        _run(router.run("profiling_chat_turn", messages=[{"role": "user", "content": "vmc"}],
-                        mock_response="MOCK"))
+        _run(
+            router.run(
+                "profiling_chat_turn",
+                messages=[{"role": "user", "content": "vmc"}],
+                mock_response="MOCK",
+            )
+        )
 
     joined = "\n".join(_attempt_lines(caplog))
     assert "error_class=TimeoutError" in joined
@@ -602,9 +624,7 @@ def test_failed_attempt_message_leaks_no_prompt_text_or_credential(
     assert "401 for" not in joined  # the exception BODY never appears
 
 
-def test_the_provider_fallback_is_visible_per_attempt(
-    monkeypatch, caplog, _isolated_ledger
-):
+def test_the_provider_fallback_is_visible_per_attempt(monkeypatch, caplog, _isolated_ledger):
     """The observed run showed two identical failures then a success. Each attempt
     must now identify ITS OWN provider/model, so a Gemini failure and a Haiku
     failure can never read the same."""
@@ -618,13 +638,21 @@ def test_the_provider_fallback_is_visible_per_attempt(
     monkeypatch.setattr(importlib.util, "find_spec", _find_spec)
     _fail_dispatch(
         monkeypatch,
-        lambda model: LlmTransportError(REASON_HTTP_429, status_code=429)
-        if "gemini" in model else LlmTransportError(REASON_NO_TEXT_CONTENT),
+        lambda model: (
+            LlmTransportError(REASON_HTTP_429, status_code=429)
+            if "gemini" in model
+            else LlmTransportError(REASON_NO_TEXT_CONTENT)
+        ),
     )
     router = AIRouter(_real_settings())
     with caplog.at_level(logging.WARNING, logger="ai.router"):
-        _run(router.run("profile_extraction", messages=[{"role": "user", "content": "vmc"}],
-                        mock_response="MOCK"))
+        _run(
+            router.run(
+                "profile_extraction",
+                messages=[{"role": "user", "content": "vmc"}],
+                mock_response="MOCK",
+            )
+        )
 
     joined = "\n".join(_attempt_lines(caplog))
     assert "provider=google" in joined and "reason=http_429" in joined

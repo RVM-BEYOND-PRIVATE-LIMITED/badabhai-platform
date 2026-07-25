@@ -93,6 +93,7 @@ def _refresh_completeness(draft: WorkerProfileDraft) -> None:
     them or the draft starts asserting things about itself that are no longer
     true (e.g. still listing ``expected_salary`` as missing after it was filled).
     """
+
     def _is_missing(field_name: str) -> bool:
         value = getattr(draft, field_name)
         if field_name == "availability":
@@ -102,9 +103,7 @@ def _refresh_completeness(draft: WorkerProfileDraft) -> None:
         return value is None
 
     draft.missing_fields = [f for f in _TRACKED if _is_missing(f)]
-    draft.clarification_questions = [
-        _CLARIFY[f] for f in draft.missing_fields if f in _CLARIFY
-    ][:3]
+    draft.clarification_questions = [_CLARIFY[f] for f in draft.missing_fields if f in _CLARIFY][:3]
     core_values = (draft.primary_role, draft.machines, draft.experience_years, draft.current_city)
     core_filled = sum(1 for v in core_values if v)
     draft.confidence_score = round(min(0.3 + 0.15 * core_filled, 0.95), 2)
@@ -342,8 +341,14 @@ def merge_model_draft(base: WorkerProfileDraft, content: str) -> WorkerProfileDr
             out.experience_level = lvl
 
     for field in (
-        "machines", "controllers", "skills", "education", "inspection_tools",
-        "materials_handled", "secondary_roles", "certifications",
+        "machines",
+        "controllers",
+        "skills",
+        "education",
+        "inspection_tools",
+        "materials_handled",
+        "secondary_roles",
+        "certifications",
     ):
         values = _as_str_list(data.get(field))
         if values is None:

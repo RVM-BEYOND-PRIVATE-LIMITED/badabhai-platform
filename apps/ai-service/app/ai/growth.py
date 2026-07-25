@@ -169,9 +169,7 @@ def growth_cluster(inp: GrowthClusterInput, settings: Settings) -> GrowthCluster
                 member_phrases=[m.phrase for m in members],
                 total_count=total_count,
                 nearest_skill_id=nearest_skill_id,
-                nearest_score=(
-                    None if nearest_score is None else round(float(nearest_score), 6)
-                ),
+                nearest_score=(None if nearest_score is None else round(float(nearest_score), 6)),
                 note=note,
             )
         )

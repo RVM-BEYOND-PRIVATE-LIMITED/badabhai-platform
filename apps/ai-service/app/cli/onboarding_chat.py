@@ -119,19 +119,40 @@ _INTRO = (
 # (_render_worker_name). Do not move any of this near a request builder.
 _NAME_LEAD_INS: tuple[str, ...] = (
     # English
-    r"my\s+name\s+is", r"my\s+name['’]?s", r"the\s+name\s+is", r"name\s+is",
-    r"myself", r"this\s+is", r"i\s+am", r"i['’]m", r"im", r"name",
+    r"my\s+name\s+is",
+    r"my\s+name['’]?s",
+    r"the\s+name\s+is",
+    r"name\s+is",
+    r"myself",
+    r"this\s+is",
+    r"i\s+am",
+    r"i['’]m",
+    r"im",
+    r"name",
     # Hinglish
-    r"mera\s+naam\s+hai", r"mera\s+naam", r"mera\s+nam", r"meraa?\s+naam",
-    r"naam\s+hai", r"naam", r"nam", r"main", r"mai", r"mein", r"hum",
+    r"mera\s+naam\s+hai",
+    r"mera\s+naam",
+    r"mera\s+nam",
+    r"meraa?\s+naam",
+    r"naam\s+hai",
+    r"naam",
+    r"nam",
+    r"main",
+    r"mai",
+    r"mein",
+    r"hum",
 )
 _NAME_TRAILERS: tuple[str, ...] = (
-    r"hai", r"hain", r"h[uū]n?", r"hoon", r"ji", r"bol\s+raha\s+h[uū]n?",
-    r"bol\s+rahi\s+h[uū]n?", r"naam\s+hai",
+    r"hai",
+    r"hain",
+    r"h[uū]n?",
+    r"hoon",
+    r"ji",
+    r"bol\s+raha\s+h[uū]n?",
+    r"bol\s+rahi\s+h[uū]n?",
+    r"naam\s+hai",
 )
-_NAME_LEAD_IN_RE = re.compile(
-    r"^(?:" + "|".join(_NAME_LEAD_INS) + r")\b[\s,.:\-]*", re.IGNORECASE
-)
+_NAME_LEAD_IN_RE = re.compile(r"^(?:" + "|".join(_NAME_LEAD_INS) + r")\b[\s,.:\-]*", re.IGNORECASE)
 _NAME_TRAILER_RE = re.compile(
     r"[\s,.:\-]*\b(?:" + "|".join(_NAME_TRAILERS) + r")[\s,.!?]*$", re.IGNORECASE
 )
@@ -174,9 +195,7 @@ def _render_worker_name(reply: str, name: str | None) -> str:
         return reply.replace(f"{WORKER_NAME_PLACEHOLDER} ji, ", f"{first} ji, ").replace(
             WORKER_NAME_PLACEHOLDER, first
         )
-    return reply.replace(f"{WORKER_NAME_PLACEHOLDER} ji, ", "").replace(
-        WORKER_NAME_PLACEHOLDER, ""
-    )
+    return reply.replace(f"{WORKER_NAME_PLACEHOLDER} ji, ", "").replace(WORKER_NAME_PLACEHOLDER, "")
 
 
 # --- startup banner ---------------------------------------------------------
@@ -194,9 +213,7 @@ _MOCK_REASON_NOTES = {
         "spend ledger unreachable — real call blocked (fail-closed, NOT a spend cap); "
         "check AI_SPEND_REDIS_URL. Used offline fallback (mock) for this turn"
     ),
-    "daily_cap_exceeded": (
-        "daily spend cap reached — used offline fallback (mock) for this turn"
-    ),
+    "daily_cap_exceeded": ("daily spend cap reached — used offline fallback (mock) for this turn"),
     "cumulative_cap_exceeded": (
         "cumulative spend cap reached — used offline fallback (mock) for this turn"
     ),
@@ -207,8 +224,7 @@ _MOCK_REASON_NOTES = {
         "per-call cost ceiling exceeded — used offline fallback (mock) for this turn"
     ),
     "kill_switch_engaged": (
-        "real calls hard-disabled by the kill switch — used offline fallback (mock) "
-        "for this turn"
+        "real calls hard-disabled by the kill switch — used offline fallback (mock) for this turn"
     ),
 }
 
@@ -324,10 +340,7 @@ def _per_call_status(c: AICallMetadata) -> str:
         return "ok"
     detail = c.failure_reason or c.error_code or "unknown"
     if c.attempt_count > 0:
-        return (
-            f"FAIL ({c.error_code or 'unknown'}) "
-            f"after {c.attempt_count} attempt(s) [{detail}]"
-        )
+        return f"FAIL ({c.error_code or 'unknown'}) after {c.attempt_count} attempt(s) [{detail}]"
     return f"FAIL ({c.error_code or 'unknown'})"
 
 
@@ -364,9 +377,7 @@ def render_cost_metadata(calls: list[AICallMetadata]) -> str:
     lines.append(f"  calls     : {len(calls)} total ({real_count} real / {mock_count} mock)")
     # Reconciles the confusing "28 failed attempts vs 11 calls" gap: attempts are
     # per-dispatch (incl. retries + provider fallbacks); calls are per-turn.
-    lines.append(
-        f"  attempts  : {total_attempts} model attempt(s) across {len(calls)} call(s)"
-    )
+    lines.append(f"  attempts  : {total_attempts} model attempt(s) across {len(calls)} call(s)")
     lines.append(f"  cost      : {_rupees(total_cost)} (total estimated)")
     lines.append(f"  tokens    : {total_in} in / {total_out} out")
     lines.append(f"  latency   : {total_latency} ms (total)")
@@ -533,30 +544,40 @@ def _build_parser() -> argparse.ArgumentParser:
         "--http",
         metavar="BASE_URL",
         help="drive a RUNNING ai-service over HTTP instead of in-process "
-             "(e.g. http://localhost:8000)",
+        "(e.g. http://localhost:8000)",
     )
     parser.add_argument(
-        "--trace", "--verbose", "-v", dest="verbose", action="store_true",
+        "--trace",
+        "--verbose",
+        "-v",
+        dest="verbose",
+        action="store_true",
         help="add the raw request/state/ai_metadata to every turn",
     )
     parser.add_argument(
-        "--quiet", "-q", action="store_true",
+        "--quiet",
+        "-q",
+        action="store_true",
         help="conversation only — suppress the per-turn trace",
     )
     parser.add_argument(
-        "--edge-cases", action="store_true",
+        "--edge-cases",
+        action="store_true",
         help="run the scripted edge-case suite and exit (non-zero on failure)",
     )
     parser.add_argument(
-        "--script", metavar="FILE",
+        "--script",
+        metavar="FILE",
         help="replay a canned transcript: one worker message per line ('#' comments)",
     )
     parser.add_argument(
-        "--name", metavar="NAME",
+        "--name",
+        metavar="NAME",
         help="skip the name prompt (the name is LOCAL — it is never sent anywhere)",
     )
     parser.add_argument(
-        "--resume", action="store_true",
+        "--resume",
+        action="store_true",
         help="also call POST /resume/generate on the extracted profile",
     )
     return parser
@@ -620,9 +641,7 @@ def main(argv: list[str] | None = None) -> int:
             real_calls_blocked=settings.real_calls_blocked_reason(),
             scripted=scripted,
         )
-        result = finish(
-            session, verbose=args.verbose, want_resume=args.resume, name=name
-        )
+        result = finish(session, verbose=args.verbose, want_resume=args.resume, name=name)
 
         calls = [m for m in (_metadata(t.ai_metadata) for t in turns) if m is not None]
         extraction_meta = _metadata(result.ai_metadata)

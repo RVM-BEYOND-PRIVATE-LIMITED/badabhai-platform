@@ -65,6 +65,7 @@ def _real_settings(**overrides):
 
 # --- daily cap --------------------------------------------------------------
 
+
 def test_daily_cap_blocks_before_network(monkeypatch):
     seen = _stub(monkeypatch, lambda: LlmResult("SHOULD_NOT_RUN", 1, 1))
     settings = _real_settings(ai_max_daily_cost_inr=1.0, ai_max_total_cost_inr=1_000_000.0)
@@ -85,6 +86,7 @@ def test_daily_cap_blocks_before_network(monkeypatch):
 
 # --- cumulative cap ---------------------------------------------------------
 
+
 def test_cumulative_cap_blocks_before_network(monkeypatch):
     seen = _stub(monkeypatch, lambda: LlmResult("SHOULD_NOT_RUN", 1, 1))
     # Daily cap generous; cumulative cap is the binding one.
@@ -103,6 +105,7 @@ def test_cumulative_cap_blocks_before_network(monkeypatch):
 
 
 # --- retry budget -----------------------------------------------------------
+
 
 def test_retry_budget_bounds_attempts_across_runs(monkeypatch):
     def _always_fail():
@@ -150,14 +153,13 @@ def test_retry_budget_terminal_error_code(monkeypatch):
         ai_max_total_cost_inr=1_000_000.0,
     )
     router = AIRouter(settings)
-    _c, meta = _run(
-        router.run("profile_extraction", messages=_MESSAGES, mock_response="m")
-    )
+    _c, meta = _run(router.run("profile_extraction", messages=_MESSAGES, mock_response="m"))
     assert meta.real_call is True  # initial attempt happened
     assert meta.error_code == "retry_budget_exhausted"
 
 
 # --- kill switch ------------------------------------------------------------
+
 
 def test_kill_switch_blocks_real_calls_independently(monkeypatch):
     seen = _stub(monkeypatch, lambda: LlmResult("SHOULD_NOT_RUN", 1, 1))
@@ -179,18 +181,15 @@ def test_kill_switch_blocks_real_calls_independently(monkeypatch):
 
 # --- spend recorded on success ----------------------------------------------
 
+
 def test_spend_recorded_on_successful_real_call(monkeypatch):
     _stub(monkeypatch, lambda: LlmResult(content="OK", input_tokens=10, output_tokens=5))
-    settings = _real_settings(
-        ai_max_daily_cost_inr=1_000_000.0, ai_max_total_cost_inr=1_000_000.0
-    )
+    settings = _real_settings(ai_max_daily_cost_inr=1_000_000.0, ai_max_total_cost_inr=1_000_000.0)
     ledger = cost_tracker.get_ledger()
     assert _run(ledger.snapshot(settings))["daily_spend_inr"] == 0.0
 
     router = AIRouter(settings)
-    _content, meta = _run(
-        router.run("profile_extraction", messages=_MESSAGES, mock_response="m")
-    )
+    _content, meta = _run(router.run("profile_extraction", messages=_MESSAGES, mock_response="m"))
     assert meta.real_call is True
     assert meta.success is True
     snap = _run(ledger.snapshot(settings))
@@ -200,15 +199,12 @@ def test_spend_recorded_on_successful_real_call(monkeypatch):
 
 # --- happy path under caps --------------------------------------------------
 
+
 def test_real_call_proceeds_well_under_caps(monkeypatch):
     seen = _stub(monkeypatch, lambda: LlmResult(content="REAL_OK", input_tokens=8, output_tokens=2))
-    settings = _real_settings(
-        ai_max_daily_cost_inr=1_000_000.0, ai_max_total_cost_inr=1_000_000.0
-    )
+    settings = _real_settings(ai_max_daily_cost_inr=1_000_000.0, ai_max_total_cost_inr=1_000_000.0)
     router = AIRouter(settings)
-    content, meta = _run(
-        router.run("profile_extraction", messages=_MESSAGES, mock_response="m")
-    )
+    content, meta = _run(router.run("profile_extraction", messages=_MESSAGES, mock_response="m"))
     assert content == "REAL_OK"
     assert meta.real_call is True
     assert meta.success is True
@@ -218,14 +214,22 @@ def test_real_call_proceeds_well_under_caps(monkeypatch):
 
 # --- no-PII -----------------------------------------------------------------
 
+
 def test_snapshot_is_pii_free():
     settings = Settings()
     snap = _run(cost_tracker.get_ledger().snapshot(settings))
     assert set(snap.keys()) == {
-        "daily_spend_inr", "daily_cap_inr", "total_spend_inr", "total_cap_inr",
-        "user_daily_cap_inr", "tracked_users",
-        "retry_window_count", "retry_budget_per_window", "kill_switch_engaged",
-        "window_seconds", "day",
+        "daily_spend_inr",
+        "daily_cap_inr",
+        "total_spend_inr",
+        "total_cap_inr",
+        "user_daily_cap_inr",
+        "tracked_users",
+        "retry_window_count",
+        "retry_budget_per_window",
+        "kill_switch_engaged",
+        "window_seconds",
+        "day",
     }
     # Only numbers / bool / an ISO date string — never message text.
     for key, value in snap.items():
@@ -248,13 +252,17 @@ def test_per_user_snapshot_is_pii_free():
 def test_error_codes_are_structural_tokens():
     # Every TD27 terminal error_code is a fixed structural token (no PII).
     for code in (
-        "daily_cap_exceeded", "cumulative_cap_exceeded", "user_daily_cap_exceeded",
-        "retry_budget_exhausted", "kill_switch_engaged",
+        "daily_cap_exceeded",
+        "cumulative_cap_exceeded",
+        "user_daily_cap_exceeded",
+        "retry_budget_exhausted",
+        "kill_switch_engaged",
     ):
         assert code.replace("_", "").isalpha()
 
 
 # --- per-user daily cap (Rs 6/user/day, all tasks share the budget) ---------
+
 
 def test_per_user_cap_blocks_before_network(monkeypatch):
     seen = _stub(monkeypatch, lambda: LlmResult("SHOULD_NOT_RUN", 1, 1))
@@ -265,14 +273,17 @@ def test_per_user_cap_blocks_before_network(monkeypatch):
         ai_max_daily_cost_inr=1_000_000.0,
         ai_max_total_cost_inr=1_000_000.0,
     )
-    assert _run(
-        cost_tracker.get_ledger().would_exceed_spend(6.0, settings, user_ref="worker-1")
-    ) is None
+    assert (
+        _run(cost_tracker.get_ledger().would_exceed_spend(6.0, settings, user_ref="worker-1"))
+        is None
+    )
 
     router = AIRouter(settings)
     content, meta = _run(
         router.run(
-            "profile_extraction", messages=_MESSAGES, mock_response="USER_MOCK",
+            "profile_extraction",
+            messages=_MESSAGES,
+            mock_response="USER_MOCK",
             user_ref="worker-1",
         )
     )
@@ -291,19 +302,30 @@ def test_per_user_cap_is_isolated_between_users(monkeypatch):
         ai_max_daily_cost_inr=1_000_000.0,
         ai_max_total_cost_inr=1_000_000.0,
     )
-    assert _run(
-        cost_tracker.get_ledger().would_exceed_spend(6.0, settings, user_ref="worker-1")
-    ) is None
+    assert (
+        _run(cost_tracker.get_ledger().would_exceed_spend(6.0, settings, user_ref="worker-1"))
+        is None
+    )
 
     router = AIRouter(settings)
     # worker-1 blocked
-    _c1, m1 = _run(router.run(
-        "profile_extraction", messages=_MESSAGES, mock_response="BLOCKED", user_ref="worker-1",
-    ))
+    _c1, m1 = _run(
+        router.run(
+            "profile_extraction",
+            messages=_MESSAGES,
+            mock_response="BLOCKED",
+            user_ref="worker-1",
+        )
+    )
     # worker-2 proceeds
-    c2, m2 = _run(router.run(
-        "profile_extraction", messages=_MESSAGES, mock_response="m", user_ref="worker-2",
-    ))
+    c2, m2 = _run(
+        router.run(
+            "profile_extraction",
+            messages=_MESSAGES,
+            mock_response="m",
+            user_ref="worker-2",
+        )
+    )
     assert m1.real_call is False and m1.error_code == "user_daily_cap_exceeded"
     assert c2 == "REAL_OK" and m2.real_call is True and m2.success is True
     assert len(seen) == 1  # only worker-2 reached the network; worker-1 was blocked
@@ -319,13 +341,19 @@ def test_per_user_cap_covers_all_tasks(monkeypatch):
         ai_max_total_cost_inr=1_000_000.0,
     )
     # Pre-load the user just under the cap so the next call's worst-case exceeds it.
-    assert _run(
-        cost_tracker.get_ledger().would_exceed_spend(5.99, settings, user_ref="worker-9")
-    ) is None
+    assert (
+        _run(cost_tracker.get_ledger().would_exceed_spend(5.99, settings, user_ref="worker-9"))
+        is None
+    )
     router = AIRouter(settings)
-    _c, meta = _run(router.run(
-        "resume_generation", messages=_MESSAGES, mock_response="m", user_ref="worker-9",
-    ))
+    _c, meta = _run(
+        router.run(
+            "resume_generation",
+            messages=_MESSAGES,
+            mock_response="m",
+            user_ref="worker-9",
+        )
+    )
     assert meta.real_call is False
     assert meta.error_code == "user_daily_cap_exceeded"
 
@@ -350,17 +378,18 @@ def test_no_user_ref_skips_per_user_cap(monkeypatch):
 
 def test_per_user_spend_recorded_against_user_budget(monkeypatch):
     _stub(monkeypatch, lambda: LlmResult(content="OK", input_tokens=10, output_tokens=5))
-    settings = _real_settings(
-        ai_max_daily_cost_inr=1_000_000.0, ai_max_total_cost_inr=1_000_000.0
-    )
+    settings = _real_settings(ai_max_daily_cost_inr=1_000_000.0, ai_max_total_cost_inr=1_000_000.0)
     ledger = cost_tracker.get_ledger()
     router = AIRouter(settings)
-    _c, meta = _run(router.run(
-        "profile_extraction", messages=_MESSAGES, mock_response="m", user_ref="worker-7",
-    ))
+    _c, meta = _run(
+        router.run(
+            "profile_extraction",
+            messages=_MESSAGES,
+            mock_response="m",
+            user_ref="worker-7",
+        )
+    )
     snap = _run(ledger.snapshot(settings, user_ref="worker-7"))
     assert snap["user_daily_spend_inr"] == pytest.approx(meta.estimated_cost_inr)
     # A different user has no spend.
-    assert _run(
-        ledger.snapshot(settings, user_ref="worker-other")
-    )["user_daily_spend_inr"] == 0.0
+    assert _run(ledger.snapshot(settings, user_ref="worker-other"))["user_daily_spend_inr"] == 0.0

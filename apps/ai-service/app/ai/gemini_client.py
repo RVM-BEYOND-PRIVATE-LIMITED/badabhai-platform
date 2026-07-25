@@ -79,7 +79,7 @@ class LlmResult:
 
 def _bare_model_id(model: str) -> str:
     """Strip a leading ``gemini/`` provider prefix; we use the bare id now."""
-    return model[len("gemini/"):] if model.startswith("gemini/") else model
+    return model[len("gemini/") :] if model.startswith("gemini/") else model
 
 
 def _to_gemini_request(

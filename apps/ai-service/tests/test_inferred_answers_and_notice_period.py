@@ -120,13 +120,13 @@ def test_notice_period_days_prefers_null_over_a_guess():
     """Every one of these must yield None — a fabricated notice period on a worker's
     resume is worse than a blank, and this field is payer-visible."""
     for message in (
-        "15 din pehle join kiya tha",       # time AGO
-        "hafte me 6 din kaam karta hu",     # a work WEEK
-        "do mahine se salary nahi mili",    # time SINCE
-        "15 din nahi lagenge",              # a denial
-        "6 month ka experience hai",        # experience, not notice
-        "resign kar diya hai",              # notice_period, but no duration stated
-        "abhi free hu",                     # immediate
+        "15 din pehle join kiya tha",  # time AGO
+        "hafte me 6 din kaam karta hu",  # a work WEEK
+        "do mahine se salary nahi mili",  # time SINCE
+        "15 din nahi lagenge",  # a denial
+        "6 month ka experience hai",  # experience, not notice
+        "resign kar diya hai",  # notice_period, but no duration stated
+        "abhi free hu",  # immediate
     ):
         assert signals.detect(message).notice_period_days is None, message
 

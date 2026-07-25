@@ -41,8 +41,7 @@ def test_core_tier_is_fully_canonicalized():
     result = gold.evaluate(tiers=("core",))
     core = result.by_tier["core"]
     assert core.accuracy >= gold.THRESHOLD, (
-        f"core {core.accuracy:.0%} < {gold.THRESHOLD:.0%}; misses:\n"
-        + "\n".join(core.misses)
+        f"core {core.accuracy:.0%} < {gold.THRESHOLD:.0%}; misses:\n" + "\n".join(core.misses)
     )
 
 

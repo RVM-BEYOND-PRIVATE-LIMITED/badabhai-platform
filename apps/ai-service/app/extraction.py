@@ -15,9 +15,7 @@ from .profiling.signals import label_for_id
 
 _NORM_RE = re.compile(r"[^a-z0-9]+")
 
-_TAXONOMY_ID_RE = re.compile(
-    r"\b(skill|mach|role|dom|ind|trade|ctrl)_[a-z0-9_]+\b"
-)
+_TAXONOMY_ID_RE = re.compile(r"\b(skill|mach|role|dom|ind|trade|ctrl)_[a-z0-9_]+\b")
 
 
 def resolve_taxonomy_ids(text: str) -> str:
@@ -77,9 +75,7 @@ def build_resume(profile: DraftProfile) -> tuple[str, dict]:
     if profile.experience.total_years is not None:
         lines.append(f"Experience: {profile.experience.total_years:g} years")
     machines = [label_for_id(m) for m in profile.machines]
-    lines.append(
-        "Machines: " + (", ".join(machines) if machines else "(to be confirmed)")
-    )
+    lines.append("Machines: " + (", ".join(machines) if machines else "(to be confirmed)"))
     skills = _skills_entries(profile)
     lines.append("Skills: " + (", ".join(skills) if skills else "(to be confirmed)"))
     # #499 — education + certifications (closed-set canonical tokens from the

@@ -100,6 +100,7 @@ def _storm_settings(**overrides) -> Settings:
 
 # --- Repro A: the retry storm now reconciles + surfaces the reason ----------
 
+
 def test_repro_storm_reconciles_attempts_and_surfaces_reason(monkeypatch, caplog):
     _patch_anthropic_sdk(monkeypatch, installed=True)
     seen = _storm_dispatcher(monkeypatch)
@@ -131,9 +132,7 @@ def test_repro_storm_reconciles_attempts_and_surfaces_reason(monkeypatch, caplog
 
     # The closed-set reason codes are surfaced in the logs — never a bare
     # "RuntimeError" (which is what hid WHICH failure fired 28x).
-    attempt_records = [
-        r for r in caplog.records if r.getMessage().startswith("llm attempt failed")
-    ]
+    attempt_records = [r for r in caplog.records if r.getMessage().startswith("llm attempt failed")]
     reasons = [getattr(r, "extra", {}).get("reason") for r in attempt_records]
     assert "http_429" in reasons  # Gemini rate-limit attempts
     assert "no_text_content" in reasons  # Haiku empty-response attempts

@@ -136,9 +136,9 @@ class Attribution:
     tier: str
     field: str
     cause: str  # OVER_MASKING | EXTRACTION_ERROR
-    anchors: tuple[str, ...]          # canonical anchors for the expected answer
+    anchors: tuple[str, ...]  # canonical anchors for the expected answer
     present_in_original: tuple[str, ...]  # anchors literally in the source text
-    surviving: tuple[str, ...]            # of those, still present after masking
+    surviving: tuple[str, ...]  # of those, still present after masking
 
 
 def attribute_match(
@@ -201,7 +201,5 @@ def attribute_misses(
     pseudonymize_fn: PseudonymizeFn = _default_pseudonymize,
 ) -> AttributionSummary:
     """Attribute every miss in a per-field eval result. Returns the split."""
-    attributions = tuple(
-        attribute_match(m, pseudonymize_fn=pseudonymize_fn) for m in result.misses
-    )
+    attributions = tuple(attribute_match(m, pseudonymize_fn=pseudonymize_fn) for m in result.misses)
     return AttributionSummary(attributions)

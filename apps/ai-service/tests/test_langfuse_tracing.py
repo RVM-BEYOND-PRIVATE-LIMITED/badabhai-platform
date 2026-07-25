@@ -25,7 +25,5 @@ def test_trace_is_noop_and_never_raises_when_disabled():
 def test_keys_present_never_crashes_init():
     # Keys set. Whether or not the langfuse package is installed, init must never
     # raise — it degrades to disabled when the package/host is unavailable.
-    tracer = LangfuseTracer(
-        Settings(langfuse_public_key="pk-test", langfuse_secret_key="sk-test")
-    )
+    tracer = LangfuseTracer(Settings(langfuse_public_key="pk-test", langfuse_secret_key="sk-test"))
     assert isinstance(tracer.enabled, bool)

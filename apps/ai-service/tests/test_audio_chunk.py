@@ -57,6 +57,7 @@ def _adts_first_header(data: bytes) -> dict:
 
 # --- m4a: boundaries --------------------------------------------------------
 
+
 def test_m4a_45s_splits_into_two_segments_each_under_the_sync_limit():
     # 45s @ 64ms/frame = 704 frames. ceil(45/29.5) = 2 balanced ~22.5s windows.
     audio, _frames = build_m4a(704)
@@ -99,6 +100,7 @@ def test_m4a_never_emits_an_empty_segment():
 
 # --- m4a: ordering + completeness -------------------------------------------
 
+
 def test_m4a_segments_are_ordered_and_lose_no_frames():
     audio, frames = build_m4a(704)
     segments = _split(audio, "w/x.m4a")
@@ -133,6 +135,7 @@ def test_m4a_co64_offsets_parse_identically_to_stco():
 
 # --- m4a: output format -----------------------------------------------------
 
+
 def test_m4a_segments_are_adts_aac_with_the_source_codec_config():
     audio, _frames = build_m4a(704)
     segments = _split(audio, "w/x.m4a")
@@ -155,6 +158,7 @@ def test_m4a_mp4_extension_is_accepted_like_m4a():
 
 
 # --- wav --------------------------------------------------------------------
+
 
 def test_wav_45s_splits_into_two_segments_under_the_limit():
     audio = build_wav(45.0)
@@ -186,6 +190,7 @@ def test_wav_segment_header_declares_its_own_body_length():
 
 
 # --- fail closed ------------------------------------------------------------
+
 
 @pytest.mark.parametrize("path", ["w/x.mp3", "w/x.ogg", "w/x.opus", "w/x.webm", "w/x", "w/x.amr"])
 def test_unsupported_containers_raise(path):
@@ -237,6 +242,7 @@ def test_non_positive_max_total_seconds_raises():
 # comes from the FILE's tables. They are INDEPENDENT worker-controlled inputs, so
 # the splitter must bound the file itself or a tiny crafted file becomes a spend
 # primitive. Every case here must FAIL CLOSED before producing a single segment.
+
 
 def test_crafted_tables_claiming_200000s_are_refused_not_split_into_6780_calls():
     # THE H-1 reproducer: a tiny file whose tables declare 200,000s. Pre-fix this
@@ -300,6 +306,7 @@ def test_wav_over_the_duration_cap_is_refused():
 
 # --- M-2: run-length tables must not amplify memory -------------------------
 
+
 def test_stsz_declaring_millions_of_samples_from_a_tiny_file_is_refused():
     # stsz with a FIXED sample_size synthesizes the size list from the COUNT
     # alone — no per-frame bytes in the file. A ~500B input could ask for 20M
@@ -341,6 +348,7 @@ def test_hostile_stsz_allocates_no_memory_before_failing():
 
 
 # --- M-1: every escape must be an AudioChunkError, not a bare exception ------
+
 
 def test_stsc_first_chunk_overflow_raises_audiochunkerror_not_indexerror():
     # M-1(i): `last_chunk` comes from the NEXT stsc entry's first_chunk, which the

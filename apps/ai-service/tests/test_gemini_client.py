@@ -35,9 +35,17 @@ class _QuotaResponse:
 def test_is_daily_quota_429_detects_per_day_violation():
     # The free-tier 20/day shape: a QuotaFailure violation with a *PerDay* quotaId.
     resp = _QuotaResponse(
-        {"error": {"details": [
-            {"violations": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}
-        ]}}
+        {
+            "error": {
+                "details": [
+                    {
+                        "violations": [
+                            {"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}
+                        ]
+                    }
+                ]
+            }
+        }
     )
     assert _is_daily_quota_429(resp) is True
 
@@ -45,9 +53,13 @@ def test_is_daily_quota_429_detects_per_day_violation():
 def test_is_daily_quota_429_false_for_per_minute_and_empty():
     # A transient per-minute (RPM) cap is NOT a daily quota — it should be retried.
     rpm = _QuotaResponse(
-        {"error": {"details": [
-            {"violations": [{"quotaId": "GenerateRequestsPerMinutePerProjectPerModel"}]}
-        ]}}
+        {
+            "error": {
+                "details": [
+                    {"violations": [{"quotaId": "GenerateRequestsPerMinutePerProjectPerModel"}]}
+                ]
+            }
+        }
     )
     assert _is_daily_quota_429(rpm) is False
     assert _is_daily_quota_429(_QuotaResponse({})) is False
@@ -70,9 +82,7 @@ def test_message_mapping_system_user_assistant_and_json_mode():
         {"role": "assistant", "content": "badhiya"},
         {"role": "user", "content": "fanuc bhi"},
     ]
-    body = _to_gemini_request(
-        messages, max_output_tokens=256, temperature=0.0, json_mode=True
-    )
+    body = _to_gemini_request(messages, max_output_tokens=256, temperature=0.0, json_mode=True)
 
     # System messages concatenated into systemInstruction.parts[].text.
     sys_parts = body["systemInstruction"]["parts"]
@@ -93,7 +103,9 @@ def test_message_mapping_system_user_assistant_and_json_mode():
 def test_message_mapping_no_system_and_no_json_mode():
     body = _to_gemini_request(
         [{"role": "user", "content": "hi"}],
-        max_output_tokens=128, temperature=0.5, json_mode=False,
+        max_output_tokens=128,
+        temperature=0.5,
+        json_mode=False,
     )
     assert "systemInstruction" not in body
     assert "responseMimeType" not in body["generationConfig"]

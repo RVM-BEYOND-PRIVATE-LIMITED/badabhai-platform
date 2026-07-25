@@ -46,18 +46,30 @@ _ROUTES: dict[str, TaskRoute] = {
     # splits ~2 tok/word) can approach the cap → MAX_TOKENS → graceful mock
     # fallback (never a leak). Raise the cap then if it bites.
     "profiling_chat_turn": TaskRoute(
-        "profiling_chat_turn", "cheap", max_output_tokens=48, temperature=0.3,
-        json_mode=True, max_retries=1,
+        "profiling_chat_turn",
+        "cheap",
+        max_output_tokens=48,
+        temperature=0.3,
+        json_mode=True,
+        max_retries=1,
     ),
     # Extraction: capable model, strict JSON, retries allowed.
     "profile_extraction": TaskRoute(
-        "profile_extraction", "capable", max_output_tokens=1024, temperature=0.0,
-        json_mode=True, max_retries=2,
+        "profile_extraction",
+        "capable",
+        max_output_tokens=1024,
+        temperature=0.0,
+        json_mode=True,
+        max_retries=2,
     ),
     # Resume: cheap by default, can run in mock mode.
     "resume_generation": TaskRoute(
-        "resume_generation", "cheap", max_output_tokens=512, temperature=0.4,
-        json_mode=False, max_retries=1,
+        "resume_generation",
+        "cheap",
+        max_output_tokens=512,
+        temperature=0.4,
+        json_mode=False,
+        max_retries=1,
     ),
 }
 

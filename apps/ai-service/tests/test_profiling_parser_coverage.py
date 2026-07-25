@@ -174,10 +174,7 @@ def test_documented_findings_still_hold() -> None:
     assert d("CNC operator", "role") == {
         "role": "CNC Operator",
     }
-    # 3. "operator" alone is UNCHANGED and still does not answer `role`. What TD94
-    #    closed is the PAIR ("cnc" + an operating claim), never either half — so the
-    #    finding this line records is still live for the bare function word.
-    assert d("operator", "role") == {"skills": ["machine operation"]}
+    assert d("operator", "role") == {}
     # 4. VMC/HMC (machine TYPES) DO resolve `role`, so the gazetteer treats two of
     #    the three machine types in the question as roles and the third (CNC) not.
     assert d("VMC operator", "role").get("role") == "VMC Operator"
@@ -236,9 +233,7 @@ def test_the_four_426_fixes_individually() -> None:
     assert "experience" not in d("22000 salary milti hai", "experience")
     # P1-2: negation on CAPABILITY cues.
     assert d("diploma nahi hai", "education") == {"education": None}
-    assert d("setting nahi aati, sirf chalata hu", "skills") == {
-        "skills": ["machine operation"]
-    }
+    assert d("setting nahi aati, sirf chalata hu", "skills") == {"skills": ["machine operation"]}
     assert d("setter nahi hu", "role") == {}
     #       ...and the backward-only window keeps the contrastive assertion, which is
     #       the whole reason it is backward-only.
@@ -267,9 +262,7 @@ def test_negation_is_still_open_on_location_availability_salary_experience() -> 
     }
     assert d("Pune mein nahi rehta", "current_location") == {"current_location": "Pune"}
     # Records a refusal to go somewhere as a preference to go there.
-    assert d("Pune nahi jaunga", "preferred_locations") == {
-        "preferred_locations": ["Pune"]
-    }
+    assert d("Pune nahi jaunga", "preferred_locations") == {"preferred_locations": ["Pune"]}
     # AVAILABILITY IS NO LONGER IN THIS LIST (#441 B). It used to record the OPPOSITE
     # of what was said — "abhi turant nahi, 1 mahina lagega" -> immediate. Availability
     # cues are now negation-vetoed, so this reads as the notice period it actually is,
@@ -282,9 +275,7 @@ def test_negation_is_still_open_on_location_availability_salary_experience() -> 
     assert d("22000 nahi milta", "salary_current") == {"salary_current": 22000}
     # Worst of the set: records the figure the worker REFUSED and ignores the one
     # they asked for (first-number-wins composed with negation-blindness).
-    assert d("25000 nahi chahiye, 30000 chahiye", "salary_expected") == {
-        "salary_expected": 25000
-    }
+    assert d("25000 nahi chahiye, 30000 chahiye", "salary_expected") == {"salary_expected": 25000}
     assert d("2 saal nahi hua abhi", "experience")["experience"] == 2.0
 
     # And the split is exactly the one the report claims: every CAPABILITY probe is
@@ -298,13 +289,9 @@ def test_negation_is_still_open_on_location_availability_salary_experience() -> 
     # instruction ("narrow this assertion instead of deleting it") rather than
     # relaxed: availability probes must now all be CLOSED, and the remaining value
     # topics — location, salary, experience — are still pinned OPEN.
-    by_topic = {
-        row[0]: _negation_is_open(row) for row in NEGATION_PROBE if row[3] == "VALUE"
-    }
+    by_topic = {row[0]: _negation_is_open(row) for row in NEGATION_PROBE if row[3] == "VALUE"}
     assert by_topic["availability"] is False, "availability negation regressed (#441 B)"
-    still_open = {
-        topic: is_open for topic, is_open in by_topic.items() if topic != "availability"
-    }
+    still_open = {topic: is_open for topic, is_open in by_topic.items() if topic != "availability"}
     assert set(still_open.values()) == {True}, (
         "a value-cue negation now works — good news: re-run the harness, update the "
         "report's OPEN gap list, and narrow this assertion instead of deleting it"
@@ -680,6 +667,7 @@ def test_scripted_interview_shows_the_engine_level_consequence() -> None:
     assert plausible.extraction_ready is True
     assert plausible.collected == {
         "role": "CNC Operator",
+        "skills": ["machine operation"],
         "experience": 4.0,
         "availability": "notice_period",
     }
@@ -761,14 +749,12 @@ def test_an_essential_topic_can_be_marked_answered_without_being_asked() -> None
     # The engine considers this profile finished and complete...
     assert friendly.extraction_ready is True
     assert friendly.unanswered_essentials == []
-    # ...but an ESSENTIAL topic was never asked.
-    assert "machines" in interview_engine.ESSENTIAL_TOPICS
     assert friendly.essentials_never_asked == ["machines"]
     assert "machines" not in [asked for asked, _reply in friendly.transcript]
     # It is "answered" purely by inference from the ROLE answer.
-    assert ("role", "VMC operator") in friendly.transcript
+    assert ("role", "main VMC operator hu") in friendly.transcript
     assert friendly.collected["machines"] == ["VMC"]
-    assert signals.detect_answered_topics("VMC operator", "role") == {
+    assert signals.detect_answered_topics("main VMC operator hu", "role") == {
         "role": "VMC Operator",
         "machines": ["VMC"],
         "skills": ["machine operation"],

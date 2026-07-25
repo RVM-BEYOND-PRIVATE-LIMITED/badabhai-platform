@@ -124,9 +124,7 @@ class SpendStore(ABC):
         or None (and has reserved ``projected_inr`` on every counter)."""
 
     @abstractmethod
-    async def refund(
-        self, reserved_inr: float, actual_inr: float, *, user_ref: str | None
-    ) -> None:
+    async def refund(self, reserved_inr: float, actual_inr: float, *, user_ref: str | None) -> None:
         """Reconcile: refund ``reserved_inr - actual_inr`` on every counter,
         floored at 0. ``actual_inr=0.0`` => full refund (failure/abort path)."""
 
@@ -189,9 +187,7 @@ class InProcessSpendBackend(SpendStore):
                 )
             return None
 
-    async def refund(
-        self, reserved_inr: float, actual_inr: float, *, user_ref: str | None
-    ) -> None:
+    async def refund(self, reserved_inr: float, actual_inr: float, *, user_ref: str | None) -> None:
         delta = reserved_inr - actual_inr
         if delta == 0.0:
             return
@@ -200,9 +196,7 @@ class InProcessSpendBackend(SpendStore):
             self._daily_spend_inr = max(0.0, self._daily_spend_inr - delta)
             self._total_spend_inr = max(0.0, self._total_spend_inr - delta)
             if user_ref is not None and user_ref in self._user_daily_inr:
-                self._user_daily_inr[user_ref] = max(
-                    0.0, self._user_daily_inr[user_ref] - delta
-                )
+                self._user_daily_inr[user_ref] = max(0.0, self._user_daily_inr[user_ref] - delta)
 
     async def snapshot(self, settings: Settings, *, user_ref: str | None) -> dict:
         with self._lock:
@@ -218,9 +212,7 @@ class InProcessSpendBackend(SpendStore):
             }
             if user_ref is not None:
                 snap["user_ref"] = user_ref
-                snap["user_daily_spend_inr"] = round(
-                    self._user_daily_inr.get(user_ref, 0.0), 4
-                )
+                snap["user_daily_spend_inr"] = round(self._user_daily_inr.get(user_ref, 0.0), 4)
             return snap
 
     async def reset(self) -> None:
@@ -417,13 +409,15 @@ class RedisSpendBackend(SpendStore):
             logger.warning(
                 "spend ledger Redis unreachable; blocking real call (fail-closed). "
                 "Check AI_SPEND_REDIS_URL",
-                extra={"extra": {
-                    "reason": "spend_store_unavailable",
-                    "config_var": "AI_SPEND_REDIS_URL",
-                    "timeout_seconds": _REDIS_TIMEOUT_SECONDS,
-                    "projected_inr": projected_inr,
-                    "error_type": type(exc).__name__,
-                }},
+                extra={
+                    "extra": {
+                        "reason": "spend_store_unavailable",
+                        "config_var": "AI_SPEND_REDIS_URL",
+                        "timeout_seconds": _REDIS_TIMEOUT_SECONDS,
+                        "projected_inr": projected_inr,
+                        "error_type": type(exc).__name__,
+                    }
+                },
             )
             return "spend_store_unavailable"
         if result == "OK":
@@ -431,9 +425,7 @@ class RedisSpendBackend(SpendStore):
         # A block reason string from the Lua script.
         return result if isinstance(result, str) else "spend_store_unavailable"
 
-    async def refund(
-        self, reserved_inr: float, actual_inr: float, *, user_ref: str | None
-    ) -> None:
+    async def refund(self, reserved_inr: float, actual_inr: float, *, user_ref: str | None) -> None:
         delta = reserved_inr - actual_inr
         if delta == 0.0:
             return
@@ -445,20 +437,20 @@ class RedisSpendBackend(SpendStore):
             self._user_key(day, user_ref) if has_user else f"{self._PREFIX}:user:_none",
         ]
         try:
-            await self._client.eval(
-                _REFUND_LUA, len(keys), *keys, delta, "1" if has_user else "0"
-            )
+            await self._client.eval(_REFUND_LUA, len(keys), *keys, delta, "1" if has_user else "0")
         except Exception as exc:
             # CANNOT safely refund -> leave the worst-case RESERVED (stricter).
             # Never raise: the router must never crash on a ledger error.
             logger.warning(
                 "spend store unavailable on refund; leaving reservation in place",
-                extra={"extra": {
-                    "reason": "spend_store_unavailable",
-                    "reserved_inr": reserved_inr,
-                    "actual_inr": actual_inr,
-                    "error_type": type(exc).__name__,
-                }},
+                extra={
+                    "extra": {
+                        "reason": "spend_store_unavailable",
+                        "reserved_inr": reserved_inr,
+                        "actual_inr": actual_inr,
+                        "error_type": type(exc).__name__,
+                    }
+                },
             )
 
     async def snapshot(self, settings: Settings, *, user_ref: str | None) -> dict:
@@ -487,10 +479,12 @@ class RedisSpendBackend(SpendStore):
             # Degraded PII-free snapshot (sentinels for the values we can't read).
             logger.warning(
                 "spend store unavailable on snapshot; returning degraded view",
-                extra={"extra": {
-                    "reason": "spend_store_unavailable",
-                    "error_type": type(exc).__name__,
-                }},
+                extra={
+                    "extra": {
+                        "reason": "spend_store_unavailable",
+                        "error_type": type(exc).__name__,
+                    }
+                },
             )
             if user_ref is not None:
                 snap["user_ref"] = user_ref
@@ -506,10 +500,12 @@ class RedisSpendBackend(SpendStore):
         except Exception as exc:
             logger.warning(
                 "spend store unavailable on reset",
-                extra={"extra": {
-                    "reason": "spend_store_unavailable",
-                    "error_type": type(exc).__name__,
-                }},
+                extra={
+                    "extra": {
+                        "reason": "spend_store_unavailable",
+                        "error_type": type(exc).__name__,
+                    }
+                },
             )
 
 
@@ -562,10 +558,12 @@ class SpendLedger:
             )
         logger.info(
             message,
-            extra={"extra": {
-                "spend_store": self.backend_name,
-                "config_var": "AI_SPEND_REDIS_URL",
-            }},
+            extra={
+                "extra": {
+                    "spend_store": self.backend_name,
+                    "config_var": "AI_SPEND_REDIS_URL",
+                }
+            },
         )
 
     @property

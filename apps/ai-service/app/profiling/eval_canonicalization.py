@@ -151,8 +151,7 @@ def format_flip_gate_verdict(decision: FlipGateDecision) -> str:
     STOP form:  ``FLIP-GATE STOP: <reason>; <reason> | role=.. per-field=.. p95=..ms``"""
     p95 = "n/a" if decision.p95_latency_ms is None else f"{decision.p95_latency_ms:.0f}ms"
     stats = (
-        f"role={decision.role_accuracy:.0%} per-field={decision.per_field_accuracy:.0%} "
-        f"p95={p95}"
+        f"role={decision.role_accuracy:.0%} per-field={decision.per_field_accuracy:.0%} p95={p95}"
     )
     if decision.passed:
         return (
@@ -290,8 +289,9 @@ def _make_real_extract_fn(
             resp = client.post(url, json={"transcript": text})
             resp.raise_for_status()
         except httpx.HTTPError as exc:  # timeout / non-2xx — count as a miss, keep going
-            print(f"  [warn] request failed ({type(exc).__name__}); scoring as miss",
-                  file=sys.stderr)
+            print(
+                f"  [warn] request failed ({type(exc).__name__}); scoring as miss", file=sys.stderr
+            )
             return _RoleOnly(None)
         data = resp.json()
         profile = data.get("profile") or {}
@@ -380,10 +380,13 @@ def _smoke_profiling_respond(base_url: str, timeout: float = 30.0) -> bool:
 
     url = base_url.rstrip("/") + "/profiling/respond"
     with httpx.Client(timeout=timeout, headers=_service_auth_headers()) as client:
-        resp = client.post(url, json={
-            "session_id": "eval-smoke",
-            "message_text": "vmc operator hu, fanuc pe kaam karta hu",
-        })
+        resp = client.post(
+            url,
+            json={
+                "session_id": "eval-smoke",
+                "message_text": "vmc operator hu, fanuc pe kaam karta hu",
+            },
+        )
         resp.raise_for_status()
         return not (resp.json() or {}).get("blocked", False)
 
@@ -391,9 +394,9 @@ def _smoke_profiling_respond(base_url: str, timeout: float = 30.0) -> bool:
 def _print_report(result: gold.EvalResult, *, gated_only: bool) -> None:
     counts = gold.tier_counts()
     print("Canonicalization eval - fabricated Hinglish gold set (no PII)")
-    print(f"Gold cases: {len(gold.GOLD_CASES)}  " + "  ".join(
-        f"{t}={n}" for t, n in counts.items()
-    ))
+    print(
+        f"Gold cases: {len(gold.GOLD_CASES)}  " + "  ".join(f"{t}={n}" for t, n in counts.items())
+    )
     print("-" * 64)
     for tier in ("core", "negative", "hard"):
         tr = result.by_tier.get(tier)
@@ -404,8 +407,9 @@ def _print_report(result: gold.EvalResult, *, gated_only: bool) -> None:
             tag = "  (informational - stresses heuristic; the LLM's bar)"
         print(f"{tier:9} {tr.accuracy:6.0%}  ({tr.hits}/{tr.total}){tag}")
     print("-" * 64)
-    print(f"overall   {result.overall_accuracy:6.0%}  "
-          f"({result.overall_hits}/{result.overall_total})")
+    print(
+        f"overall   {result.overall_accuracy:6.0%}  ({result.overall_hits}/{result.overall_total})"
+    )
     if gated_only:
         print(f"gated     {result.gated_accuracy:6.0%}  (core+negative - the CI floor)")
 
@@ -424,8 +428,10 @@ def _print_per_field_report(
     result: gold.PerFieldEvalResult, summary: attrib.AttributionSummary
 ) -> None:
     print("Per-field extraction eval - fabricated Hinglish gold set (no PII)")
-    print("Match semantics: trade/role=exact, skills/machines=subset, "
-          f"experience=+/-{gold.EXPERIENCE_TOLERANCE_YEARS}yr")
+    print(
+        "Match semantics: trade/role=exact, skills/machines=subset, "
+        f"experience=+/-{gold.EXPERIENCE_TOLERANCE_YEARS}yr"
+    )
     print("-" * 64)
     print(f"{'field':12} {'acc':>6}  count")
     for field in gold.FIELD_NAMES:
@@ -434,9 +440,11 @@ def _print_per_field_report(
             continue
         print(f"{field:12} {fr.accuracy:6.0%}  ({fr.hits}/{fr.total})")
     print("-" * 64)
-    print(f"{'AGGREGATE':12} {result.aggregate_accuracy:6.0%}  "
-          f"({result.aggregate_hits}/{result.aggregate_total})  "
-          f"[threshold {gold.PER_FIELD_THRESHOLD:.0%}]")
+    print(
+        f"{'AGGREGATE':12} {result.aggregate_accuracy:6.0%}  "
+        f"({result.aggregate_hits}/{result.aggregate_total})  "
+        f"[threshold {gold.PER_FIELD_THRESHOLD:.0%}]"
+    )
 
     if result.misses:
         print("\nMisses (per field):")
@@ -451,9 +459,11 @@ def _print_per_field_report(
     print(f"    dominant cause    : {dom if dom else 'none (no misses)'}")
     if summary.attributions:
         for a in summary.attributions:
-            print(f"      [{a.cause}] [{a.tier}/{a.field}] {a.text!r} "
-                  f"(in_original={list(a.present_in_original)}, "
-                  f"surviving={list(a.surviving)})")
+            print(
+                f"      [{a.cause}] [{a.tier}/{a.field}] {a.text!r} "
+                f"(in_original={list(a.present_in_original)}, "
+                f"surviving={list(a.surviving)})"
+            )
 
 
 def _print_invalid_real_run(collector: RealCallCollector) -> None:
@@ -468,15 +478,21 @@ def _print_invalid_real_run(collector: RealCallCollector) -> None:
     n_fell_back = len(collector.fell_back)
     n_not_real = len(collector.not_real)
     print("\n" + "=" * 64)
-    print(f"INVALID REAL RUN: {n_fell_back}/{n} cases fell back to mock "
-          f"(provider error), {n_not_real}/{n} made no real call "
-          "(spend cap / kill-switch / not allowlisted) — score NOT reported.")
-    print("Detected via ai_metadata: a valid --real case needs real_call=true AND "
-          "success=true. real_call=true+success=false is a provider-error fallback; "
-          "real_call=false means no real call was made.")
-    print("Hint: check GET /ai/spend (TD27 spend cap / kill-switch) and "
-          "AI_REAL_CALL_TASKS; for provider errors enable paid billing or pace the "
-          "run (--min-interval SECONDS), then retry.")
+    print(
+        f"INVALID REAL RUN: {n_fell_back}/{n} cases fell back to mock "
+        f"(provider error), {n_not_real}/{n} made no real call "
+        "(spend cap / kill-switch / not allowlisted) — score NOT reported."
+    )
+    print(
+        "Detected via ai_metadata: a valid --real case needs real_call=true AND "
+        "success=true. real_call=true+success=false is a provider-error fallback; "
+        "real_call=false means no real call was made."
+    )
+    print(
+        "Hint: check GET /ai/spend (TD27 spend cap / kill-switch) and "
+        "AI_REAL_CALL_TASKS; for provider errors enable paid billing or pace the "
+        "run (--min-interval SECONDS), then retry."
+    )
     print("=" * 64)
 
 
@@ -495,19 +511,24 @@ def _run_per_field(args) -> int:
         collector = RealCallCollector()
         try:
             extract_fn = _make_real_field_extract_fn(
-                args.base_url, collector=collector, min_interval=args.min_interval,
+                args.base_url,
+                collector=collector,
+                min_interval=args.min_interval,
             )
             pseudo_fn = _make_real_pseudonymize_fn(args.base_url)
         except ImportError:
-            print("error: --per-field --real needs httpx "
-                  "(pip install -r requirements-dev.txt)", file=sys.stderr)
+            print(
+                "error: --per-field --real needs httpx (pip install -r requirements-dev.txt)",
+                file=sys.stderr,
+            )
             return 2
         base = args.base_url.rstrip("/")
-        pacing = (f" (pacing {args.min_interval:g}s between cases)"
-                  if args.min_interval > 0 else "")
-        print(f"Mode: --per-field --real -> POST {base}/profile/extract "
-              f"+ {base}/profiling/respond + {base}/pseudonymize{pacing}\n"
-              "(both endpoints pseudonymize first; fabricated data only)\n")
+        pacing = f" (pacing {args.min_interval:g}s between cases)" if args.min_interval > 0 else ""
+        print(
+            f"Mode: --per-field --real -> POST {base}/profile/extract "
+            f"+ {base}/profiling/respond + {base}/pseudonymize{pacing}\n"
+            "(both endpoints pseudonymize first; fabricated data only)\n"
+        )
         # Touch BOTH real endpoints per the brief; respond is a smoke pass.
         try:
             ok = _smoke_profiling_respond(args.base_url)
@@ -532,9 +553,11 @@ def _run_per_field(args) -> int:
 
     _print_per_field_report(result, summary)
     passed = result.aggregate_accuracy >= gold.PER_FIELD_THRESHOLD
-    print(f"\n{'PASS' if passed else 'FAIL'}: aggregate "
-          f"{result.aggregate_accuracy:.0%} {'>=' if passed else '<'} "
-          f"{gold.PER_FIELD_THRESHOLD:.0%}")
+    print(
+        f"\n{'PASS' if passed else 'FAIL'}: aggregate "
+        f"{result.aggregate_accuracy:.0%} {'>=' if passed else '<'} "
+        f"{gold.PER_FIELD_THRESHOLD:.0%}"
+    )
     return 0 if passed else 1
 
 
@@ -557,20 +580,24 @@ def _run_flip_gate(args) -> int:
     settings = get_settings()
     capable_model = resolve_model("profile_extraction", settings)
     base = args.base_url.rstrip("/")
-    pacing = (f" (pacing {args.min_interval:g}s between cases)"
-              if args.min_interval > 0 else "")
-    print(f"Mode: --flip-gate -> POST {base}/profile/extract on capable model "
-          f"'{capable_model}'{pacing}\n"
-          "(endpoint pseudonymizes first; fabricated data only; ALWAYS real)\n")
+    pacing = f" (pacing {args.min_interval:g}s between cases)" if args.min_interval > 0 else ""
+    print(
+        f"Mode: --flip-gate -> POST {base}/profile/extract on capable model "
+        f"'{capable_model}'{pacing}\n"
+        "(endpoint pseudonymizes first; fabricated data only; ALWAYS real)\n"
+    )
 
     collector = RealCallCollector()
     try:
         extract_fn = _make_real_field_extract_fn(
-            args.base_url, collector=collector, min_interval=args.min_interval,
+            args.base_url,
+            collector=collector,
+            min_interval=args.min_interval,
         )
     except ImportError:
-        print("error: --flip-gate needs httpx (pip install -r requirements-dev.txt)",
-              file=sys.stderr)
+        print(
+            "error: --flip-gate needs httpx (pip install -r requirements-dev.txt)", file=sys.stderr
+        )
         return 2
 
     result = gold.evaluate_per_field(extract_fn)
@@ -595,10 +622,14 @@ def _run_flip_gate(args) -> int:
 
     n_ok = len(collector.real_success)
     print(f"real calls: {n_ok}/{collector.total} succeeded")
-    print(f"role accuracy     : {role_accuracy:.0%}  "
-          f"({role_fr.hits if role_fr else 0}/{role_fr.total if role_fr else 0})")
-    print(f"per-field aggregate: {per_field_accuracy:.0%}  "
-          f"({result.aggregate_hits}/{result.aggregate_total})")
+    print(
+        f"role accuracy     : {role_accuracy:.0%}  "
+        f"({role_fr.hits if role_fr else 0}/{role_fr.total if role_fr else 0})"
+    )
+    print(
+        f"per-field aggregate: {per_field_accuracy:.0%}  "
+        f"({result.aggregate_hits}/{result.aggregate_total})"
+    )
     print(f"p95 latency        : {'n/a' if p95 is None else f'{p95:.0f}ms'}\n")
     print(format_flip_gate_verdict(decision))
     return 0 if decision.passed else 1
@@ -675,18 +706,24 @@ def main(argv: list[str] | None = None) -> int:
         try:
             extract_fn = _make_real_extract_fn(args.base_url, delay_seconds=args.delay)
         except ImportError:
-            print("error: --real needs httpx (pip install -r requirements-dev.txt)",
-                  file=sys.stderr)
+            print(
+                "error: --real needs httpx (pip install -r requirements-dev.txt)", file=sys.stderr
+            )
             return 2
-        print(f"Mode: --real -> POST {args.base_url.rstrip('/')}/profile/extract "
-              "(pseudonymizes first; fabricated data only)"
-              + (f"  [per-tier subset: {args.per_tier}]" if args.per_tier else "") + "\n")
+        print(
+            f"Mode: --real -> POST {args.base_url.rstrip('/')}/profile/extract "
+            "(pseudonymizes first; fabricated data only)"
+            + (f"  [per-tier subset: {args.per_tier}]" if args.per_tier else "")
+            + "\n"
+        )
         result = gold.evaluate(extract_fn, per_tier_limit=args.per_tier)
         _print_report(result, gated_only=False)
         passed = result.overall_accuracy >= gold.THRESHOLD
-        print(f"\n{'PASS' if passed else 'FAIL'}: overall "
-              f"{result.overall_accuracy:.0%} {'>=' if passed else '<'} "
-              f"{gold.THRESHOLD:.0%}")
+        print(
+            f"\n{'PASS' if passed else 'FAIL'}: overall "
+            f"{result.overall_accuracy:.0%} {'>=' if passed else '<'} "
+            f"{gold.THRESHOLD:.0%}"
+        )
         return 0 if passed else 1
 
     # Default mode: offline heuristic. Gate on core+negative only.
@@ -694,9 +731,11 @@ def main(argv: list[str] | None = None) -> int:
     result = gold.evaluate()
     _print_report(result, gated_only=True)
     passed = result.gated_accuracy >= gold.THRESHOLD
-    print(f"\n{'PASS' if passed else 'FAIL'}: core+negative "
-          f"{result.gated_accuracy:.0%} {'>=' if passed else '<'} "
-          f"{gold.THRESHOLD:.0%}  (hard tier informational)")
+    print(
+        f"\n{'PASS' if passed else 'FAIL'}: core+negative "
+        f"{result.gated_accuracy:.0%} {'>=' if passed else '<'} "
+        f"{gold.THRESHOLD:.0%}  (hard tier informational)"
+    )
     return 0 if passed else 1
 
 

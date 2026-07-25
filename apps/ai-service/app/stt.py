@@ -261,10 +261,12 @@ class SttAdapter:
         if rate_inr > settings.ai_max_call_cost_inr:
             logger.warning(
                 "stt real call blocked by per-call cost ceiling",
-                extra={"extra": {
-                    "rate_inr": rate_inr,
-                    "ceiling_inr": settings.ai_max_call_cost_inr,
-                }},
+                extra={
+                    "extra": {
+                        "rate_inr": rate_inr,
+                        "ceiling_inr": settings.ai_max_call_cost_inr,
+                    }
+                },
             )
             return SttResult(
                 transcript_text="",
@@ -283,11 +285,13 @@ class SttAdapter:
         if block is not None:
             logger.warning(
                 "stt real call blocked by spend ledger",
-                extra={"extra": {
-                    "reason": block,
-                    "projected_inr": projected_inr,
-                    "projected_chunks": projected_chunks,
-                }},
+                extra={
+                    "extra": {
+                        "reason": block,
+                        "projected_inr": projected_inr,
+                        "projected_chunks": projected_chunks,
+                    }
+                },
             )
             return SttResult(
                 transcript_text="",
@@ -367,9 +371,7 @@ class SttAdapter:
         # Upload validation (voiceDurationSecondsSchema <= 120) makes this
         # unreachable in practice; keep it fail-closed anyway.
         if duration_seconds is not None and duration_seconds > MAX_VOICE_NOTE_SECONDS:
-            raise RuntimeError(
-                f"audio exceeds the {MAX_VOICE_NOTE_SECONDS:.0f}s platform cap"
-            )
+            raise RuntimeError(f"audio exceeds the {MAX_VOICE_NOTE_SECONDS:.0f}s platform cap")
 
         # Fetch the private audio object (service-role; raises PII-free on failure).
         audio = await download_object(
@@ -466,9 +468,7 @@ class SttAdapter:
         if first_error is not None:
             # Fail the whole note closed: a transcript with silent holes is a
             # fabrication risk. Carry the spend that already happened.
-            raise _ChunkedSttFailure(
-                f"chunked stt failed ({first_error})", chunks_spent=succeeded
-            )
+            raise _ChunkedSttFailure(f"chunked stt failed ({first_error})", chunks_spent=succeeded)
 
         # Deterministic concatenation in SEGMENT ORDER (asyncio.gather preserves
         # input order regardless of completion order). The FULL transcript is
@@ -478,9 +478,7 @@ class SttAdapter:
         transcript = " ".join(p for p in parts if p)
         # Conservative confidence: the weakest chunk bounds the whole note.
         confidence = min(conf for _text, conf, _lang in outcomes)
-        lang_out = next(
-            (lang for _text, _conf, lang in outcomes if lang), None
-        ) or language_code
+        lang_out = next((lang for _text, _conf, lang in outcomes if lang), None) or language_code
 
         return SttResult(
             transcript_text=transcript,

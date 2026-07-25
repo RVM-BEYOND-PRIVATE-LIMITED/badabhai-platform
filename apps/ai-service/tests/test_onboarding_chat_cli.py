@@ -49,15 +49,14 @@ def _expected_blind_ask_order() -> list[str]:
     essentials = [t for t in BANK_ORDER if t in interview_engine.ESSENTIAL_TOPICS]
     others = [t for t in BANK_ORDER if t not in interview_engine.ESSENTIAL_TOPICS]
     return [
-        topic_id
-        for topic_id in essentials
-        for _ in range(interview_engine.MAX_ASKS_PER_TOPIC)
+        topic_id for topic_id in essentials for _ in range(interview_engine.MAX_ASKS_PER_TOPIC)
     ] + others
 
 
 # --- _startup_status banner: the up-front readiness diagnosis ----------------
 # Explicit Settings(...) kwargs override conftest's os.environ blanks (pydantic
 # precedence: init kwargs > env > .env), so these pin the exact gate state.
+
 
 def test_startup_status_off_when_master_flag_false():
     banner = onboarding_chat._startup_status(Settings(ai_enable_real_calls=False))
@@ -152,6 +151,7 @@ def test_startup_status_explains_templated_chat_when_rephrase_off():
 
 
 # --- parity: the CLI drives the REAL endpoint --------------------------------
+
 
 def test_cli_issues_real_endpoint_requests(monkeypatch):
     """The turn must be an HTTP request to /profiling/respond on the real app.
@@ -393,6 +393,7 @@ def test_clarify_turn_allows_a_real_call_only_when_the_rephrase_flag_is_on(monke
 
 # --- privacy -----------------------------------------------------------------
 
+
 def test_name_never_leaves_the_process_but_renders_locally(monkeypatch):
     """§2/AI-PERSONA-2: only the ``{{worker_name}}`` TOKEN may cross the LLM
     boundary; the real name is interpolated locally at print time (the CLI mirror of
@@ -476,21 +477,26 @@ def test_full_block_still_returns_a_production_result(monkeypatch):
 
 # --- extraction (unchanged production seam) ----------------------------------
 
+
 def test_cli_extraction_canonicalizes_role_to_closed_set(monkeypatch):
     # Parity with the production endpoint: a valid canonical_role_id from the model
     # maps the profile role/trade onto the closed 7-role taxonomy. Wrapped in a
     # ```json fence on purpose — Claude often does this, and it must still parse.
-    extraction = "```json\n" + json.dumps({
-        "canonical_role_id": "role_vmc_operator",
-        "primary_role": "VMC Operator",
-        "experience_years": 1.5,
-        "machines": ["VMC"],
-    }) + "\n```"
-    router = ScriptedRouter(
-        real_call=True, provider="anthropic", extraction_content=extraction
+    extraction = (
+        "```json\n"
+        + json.dumps(
+            {
+                "canonical_role_id": "role_vmc_operator",
+                "primary_role": "VMC Operator",
+                "experience_years": 1.5,
+                "machines": ["VMC"],
+            }
+        )
+        + "\n```"
     )
+    router = ScriptedRouter(real_call=True, provider="anthropic", extraction_content=extraction)
     run = drive(
-        monkeypatch, ["cnc machine chalayi dedh saal", "done"], router=router, extract=True
+        monkeypatch, ["maine cnc machine chalayi dedh saal", "done"], router=router, extract=True
     )
     profile, draft = run.extraction.profile, run.extraction.draft
     assert profile["canonical_role_id"] == "role_vmc_operator"
@@ -502,9 +508,7 @@ def test_cli_extraction_canonicalizes_role_to_closed_set(monkeypatch):
 def test_invalid_canonical_role_id_is_rejected_keeps_heuristic(monkeypatch):
     # A hallucinated role id must NOT reach the profile (trust boundary).
     extraction = json.dumps({"canonical_role_id": "role_made_up", "primary_role": "X"})
-    router = ScriptedRouter(
-        real_call=True, provider="anthropic", extraction_content=extraction
-    )
+    router = ScriptedRouter(real_call=True, provider="anthropic", extraction_content=extraction)
     run = drive(monkeypatch, ["kuch khaas nahi", "done"], router=router, extract=True)
     assert run.extraction.profile["canonical_role_id"] != "role_made_up"
 
@@ -559,6 +563,7 @@ class _NoCloseTransport:
 
 
 # --- provider visibility notes (MSG-1) ---------------------------------------
+
 
 def test_offline_fallback_note_printed_when_not_real(monkeypatch):
     """VISIBILITY: when a chat turn is served by the offline mock (real_call False),
@@ -632,6 +637,7 @@ def test_provider_note_names_claude_haiku_when_anthropic_serves(monkeypatch):
 
 # --- cost panel ---------------------------------------------------------------
 
+
 def test_cost_panel_renders_summary_and_per_call_rows_without_pii(monkeypatch):
     """The panel shows a cost line and at least one per-call row, and contains
     NONE of the worker name or transcript text (it sees only AICallMetadata)."""
@@ -643,9 +649,7 @@ def test_cost_panel_renders_summary_and_per_call_rows_without_pii(monkeypatch):
         name=name,
     )
     calls = [
-        onboarding_chat._metadata(t.ai_metadata)
-        for t in run.turns
-        if t.ai_metadata is not None
+        onboarding_chat._metadata(t.ai_metadata) for t in run.turns if t.ai_metadata is not None
     ]
     assert calls, "expected at least one collected router call"
 

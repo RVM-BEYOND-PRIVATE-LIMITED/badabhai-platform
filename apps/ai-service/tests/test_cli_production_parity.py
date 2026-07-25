@@ -277,8 +277,7 @@ def test_trace_shows_the_gate_and_the_engine_decision(monkeypatch):
     whole point of the tool."""
     run = drive(monkeypatch, ["abhi Pune mein hu", "matlab kya?", "done"])
     rendered = "\n".join(
-        trace.render_turn(t, real_calls_blocked="AI_ENABLE_REAL_CALLS is false")
-        for t in run.turns
+        trace.render_turn(t, real_calls_blocked="AI_ENABLE_REAL_CALLS is false") for t in run.turns
     )
     assert "[CITY_1]" in rendered  # what would reach the model
     assert "ADVANCE" in rendered and "CLARIFY" in rendered

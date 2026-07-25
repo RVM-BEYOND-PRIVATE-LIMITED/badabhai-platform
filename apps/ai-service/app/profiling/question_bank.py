@@ -104,7 +104,8 @@ ROLE_FAMILIES: dict[str, dict] = {
 # Ordered interview flow for CNC/VMC. Core topics first.
 _CNC_VMC_TOPICS: list[Topic] = [
     Topic(
-        "role", "Role / trade",
+        "role",
+        "Role / trade",
         # Kept short (owner 2026-07-23): the machine-type list was dropped from the
         # FIRST question the worker sees. The retry_question below still names options
         # for a worker who did not answer, and the tap-to-answer chips still guide.
@@ -127,7 +128,8 @@ _CNC_VMC_TOPICS: list[Topic] = [
         options=("VMC operator", "CNC turner", "Setter", "Programmer"),
     ),
     Topic(
-        "machines", "Machine exposure",
+        "machines",
+        "Machine exposure",
         "Kaunsi machine — VMC, CNC lathe, HMC ya grinding?",
         core=True,
         # 'VMC', 'CNC lathe', 'lathe', 'HMC', 'grinding' all resolve `machines`.
@@ -141,7 +143,8 @@ _CNC_VMC_TOPICS: list[Topic] = [
         options=("VMC", "CNC lathe", "HMC", "Grinding"),
     ),
     Topic(
-        "experience", "Experience",
+        "experience",
+        "Experience",
         "Kitne saal ka experience hai?",
         core=True,
         # '2 saal' / '5 saal' resolve. ('6 mahine' does NOT — so months are not
@@ -152,49 +155,57 @@ _CNC_VMC_TOPICS: list[Topic] = [
         options=("1 saal", "3 saal", "5 saal", "10 saal"),
     ),
     Topic(
-        "skills", "Skills",
+        "skills",
+        "Skills",
         "Setting, tool offset, program edit, drawing reading — inmein se kya aata hai?",
         why="Taaki aapke liye sahi role match kar sakein.",
         core=True,
         options=("Setting", "Tool offset", "Program edit", "Drawing reading"),
     ),
     Topic(
-        "current_location", "Current location",
+        "current_location",
+        "Current location",
         "Abhi kis sheher mein hain?",
         core=True,
         # City names resolve `current_location` (Pune/Delhi/Rajkot all verified).
         retry_question="Abhi aap kis sheher mein rehte hain — jaise Pune, Delhi ya Rajkot?",
     ),
     Topic(
-        "preferred_locations", "Preferred locations",
+        "preferred_locations",
+        "Preferred locations",
         "Kahan kaam kar sakte hain?",
         why="Taaki aapke pasand ke sheher ki naukri dhoondh sakein.",
         core=True,
     ),
     Topic(
-        "controllers", "Controller knowledge",
+        "controllers",
+        "Controller knowledge",
         "Controller kaunsa — Fanuc, Siemens, Mitsubishi, Haas ya Heidenhain?",
         options=("Fanuc", "Siemens", "Mitsubishi", "Haas"),
     ),
     Topic(
-        "salary_current", "Current salary",
+        "salary_current",
+        "Current salary",
         "Abhi salary kitni hai?",
         # Bands, not a bare number: '25 hazar' resolves to 25000 while '25' alone is
         # ambiguous. These are STARTING points a worker overtypes, not a closed list.
         options=("15 hazar", "20 hazar", "25 hazar", "30 hazar"),
     ),
     Topic(
-        "salary_expected", "Expected salary",
+        "salary_expected",
+        "Expected salary",
         "Kitni salary expect karte hain?",
         options=("25 hazar", "30 hazar", "35 hazar", "40 hazar"),
     ),
     Topic(
-        "availability", "Availability",
+        "availability",
+        "Availability",
         "Join karne mein kitne din lagenge?",
         options=("Turant", "15 din", "1 mahina", "2 mahina"),
     ),
     Topic(
-        "education", "Education / training",
+        "education",
+        "Education / training",
         "ITI, diploma ya koi aur training li hai?",
         # 'ITI nahi kiya' is the NEGATIVE answer, and it is a real one: measured, it
         # resolves `education` to None — the topic is answered and never re-asked.
@@ -213,15 +224,18 @@ _CNC_VMC_TOPICS: list[Topic] = [
     # in the QUESTION is fine; offering them as chips-that-record is not. Same posture
     # as current_location / preferred_locations.
     Topic(
-        "education_level", "Education level",
+        "education_level",
+        "Education level",
         "Aapne kahan tak padhai ki hai — 10th, 12th ya B.Tech?",
     ),
     Topic(
-        "education_field", "Field of study",
+        "education_field",
+        "Field of study",
         "Kis field mein padhai ki — jaise Electronics ya Computer Science?",
     ),
     Topic(
-        "certifications", "Certifications",
+        "certifications",
+        "Certifications",
         "Koi certificate hai — jaise NCVT, NSQF ya apprenticeship?",
         options=("NCVT", "SCVT", "NSQF", "Apprenticeship"),
     ),

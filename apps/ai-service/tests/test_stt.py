@@ -70,12 +70,11 @@ def test_real_path_fails_closed_to_empty_transcript():
 # mock path was the fail-closed-on-a-path-that-never-calls-the-provider absurdity
 # D-2 named: a 45s or 120s note "failed" with no provider anywhere in sight.
 
+
 @pytest.mark.parametrize("duration", [30.0, 31.0, 45.0, 90.0, 120.0])
 def test_mock_mode_returns_the_full_transcript_at_any_duration(duration):
     adapter = SttAdapter(Settings(ai_enable_real_calls=False))
-    result = _run(
-        adapter.transcribe(storage_path="voice-notes/w/x.m4a", duration_seconds=duration)
-    )
+    result = _run(adapter.transcribe(storage_path="voice-notes/w/x.m4a", duration_seconds=duration))
     assert result.transcript_text == MOCK_TRANSCRIPT  # FULL transcript, not empty
     assert result.is_mock is True
     assert result.error_code is None  # no 30s failure on a path with no provider
@@ -107,8 +106,6 @@ def test_mock_mode_spends_nothing_on_the_ledger_at_any_duration():
     # must not consume a paisa of the per-user daily budget.
     adapter = SttAdapter(Settings(ai_enable_real_calls=False))
     _run(adapter.transcribe(storage_path="w/x.m4a", duration_seconds=120, worker_ref="w-1"))
-    snap = _run(
-        cost_tracker.get_ledger().snapshot(Settings(_env_file=None), user_ref="w-1")
-    )
+    snap = _run(cost_tracker.get_ledger().snapshot(Settings(_env_file=None), user_ref="w-1"))
     assert snap["daily_spend_inr"] == 0.0
     assert snap["user_daily_spend_inr"] == 0.0

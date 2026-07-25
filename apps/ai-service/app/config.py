@@ -36,6 +36,7 @@ class ConfigError(Exception):
     (``test_malformed_spend_redis_url_error_never_leaks_the_credential``).
     """
 
+
 # AI-ENV-1: the env_file is ANCHORED to this package, never resolved against the
 # CWD. `env_file=".env"` is CWD-relative, so `uvicorn app.main:app` from the repo
 # root silently loaded the ROOT .env (the NestJS API's) instead of the ai-service's

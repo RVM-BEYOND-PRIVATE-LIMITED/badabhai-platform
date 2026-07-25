@@ -63,9 +63,7 @@ def settings() -> Settings:
 
 
 def run(phrases, anchors, **params):
-    inp = GrowthClusterInput(
-        domain_id="cnc-machining", phrases=phrases, anchors=anchors, **params
-    )
+    inp = GrowthClusterInput(domain_id="cnc-machining", phrases=phrases, anchors=anchors, **params)
     return growth_cluster(inp, settings())
 
 
@@ -205,9 +203,7 @@ class TestGrowthEndpoint:
             "/growth/cluster",
             json={
                 "domain_id": "cnc-machining",
-                "phrases": [
-                    {"id": "p1", "phrase": "naya kaam", "count": 4, "vector": axis(0)}
-                ],
+                "phrases": [{"id": "p1", "phrase": "naya kaam", "count": 4, "vector": axis(0)}],
                 "anchors": [{"skill_id": "skill_turning", "vector": blend(0, 1, 0.65)}],
             },
         )
@@ -235,9 +231,7 @@ class TestGrowthEndpoint:
             GrowthClusterInput(
                 domain_id="d",
                 phrases=[],
-                anchors=[
-                    GrowthAnchor(skill_id="s", vector=[math.inf] + [0.0] * (DIM - 1))
-                ],
+                anchors=[GrowthAnchor(skill_id="s", vector=[math.inf] + [0.0] * (DIM - 1))],
             )
         # And over HTTP it can never 200: Python's json.loads accepts the non-standard
         # Infinity literal, so a hostile client CAN land inf on the server; the contract
@@ -256,8 +250,7 @@ class TestGrowthEndpoint:
 
     def test_phrase_cap_is_enforced(self):
         too_many = [
-            GrowthPhrase(id=f"p{i}", phrase="x", count=1, vector=axis(0))
-            for i in range(501)
+            GrowthPhrase(id=f"p{i}", phrase="x", count=1, vector=axis(0)) for i in range(501)
         ]
         try:
             GrowthClusterInput(domain_id="d", phrases=too_many, anchors=[])

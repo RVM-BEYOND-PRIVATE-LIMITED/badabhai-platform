@@ -17,9 +17,10 @@ HOW TO READ A RESULT. Three outcomes, and the difference matters:
 
 DEFECT IDS USED BELOW
 ---------------------
-``TD98``  (docs/registers/tech-debt-register.md, open, logged 2026-07-22) — a
-          third-party mention / denial / aspiration / training answer still records
-          ``machines`` + ``skills``; only ``role`` is correctly withheld.
+``TD98``  (docs/registers/tech-debt-register.md, closed) - a third-party mention /
+          denial / aspiration / training answer still records ``machines`` + ``skills``.
+``TD102`` (docs/registers/tech-debt-register.md, open) - an over-broad gazetteer match
+          (e.g., "angle grinder chalata hu" mapped to CNC Grinding).
 ``R30``   (docs/registers/risks-register.md, open) — a phone split by a WORD
           ("98765 aur 43210") is not masked. Gates AI_ENABLE_REAL_CALLS.
 ``CLI-F1`` … ``CLI-F7`` — behaviours MEASURED by this suite on 2026-07-22 that are
@@ -406,9 +407,7 @@ class Case:
 
 def _fabrication(case_id: str, message: str, machine: str, note: str) -> Case:
     """A statement the worker never made ABOUT THEMSELVES must not become their
-    profile. ``role`` is correctly withheld today; ``machines``/``skills`` are not
-    (TD98), so both halves are asserted — the right one as ``ok``, the wrong one as
-    a labelled defect tripwire."""
+    profile. ``role``, ``machines`` and ``skills`` are correctly withheld (TD98 closed)."""
     return Case(
         id=case_id,
         group="fabrication",
@@ -417,40 +416,69 @@ def _fabrication(case_id: str, message: str, machine: str, note: str) -> Case:
         note=note,
         checks=(
             records_nothing_for("role"),
-            collects_exactly(
-                {"machines": [machine], "skills": ["machine operation"]}, defect="TD98"
-            ),
+            records_nothing_for("machines"),
+            records_nothing_for("skills"),
         ),
     )
 
 
 FABRICATION_CASES: tuple[Case, ...] = (
-    _fabrication(
-        "fab-angle-grinder", "angle grinder chalata hu", "Grinding",
-        "a hand-held angle grinder is not a CNC grinding machine",
+    Case(
+        id="fab-angle-grinder",
+        group="fabrication",
+        messages=("angle grinder chalata hu",),
+        seed=_ROLE_SEED,
+        note="a hand-held angle grinder is not a CNC grinding machine",
+        checks=(
+            records_nothing_for("role"),
+            collects_exactly(
+                {"machines": ["Grinding"], "skills": ["machine operation"]},
+                defect="TD102",
+            ),
+        ),
     ),
     _fabrication(
-        "fab-third-party-brother", "mere bhai lathe operator hai", "CNC Lathe",
+        "fab-third-party-brother",
+        "mere bhai lathe operator hai",
+        "CNC Lathe",
         "the worker's BROTHER's job",
     ),
-    _fabrication(
-        "fab-helper", "lathe operator ka helper hu", "CNC Lathe",
-        "a helper TO a lathe operator is not a lathe operator",
+    Case(
+        id="fab-helper",
+        group="fabrication",
+        messages=("lathe operator ka helper hu",),
+        seed=_ROLE_SEED,
+        note="a helper TO a lathe operator is not a lathe operator",
+        checks=(
+            records_nothing_for("role"),
+            collects_exactly(
+                {"machines": ["CNC Lathe"], "skills": ["machine operation"]},
+                defect="TD102",
+            ),
+        ),
     ),
     _fabrication(
-        "fab-aspiration", "lathe operator banna chahta hu", "CNC Lathe",
+        "fab-aspiration",
+        "lathe operator banna chahta hu",
+        "CNC Lathe",
         "an aspiration, not experience",
     ),
     _fabrication(
-        "fab-question", "lathe operator ki salary kitni hoti hai", "CNC Lathe",
+        "fab-question",
+        "lathe operator ki salary kitni hoti hai",
+        "CNC Lathe",
         "the worker is ASKING us a question",
     ),
     _fabrication(
-        "fab-father", "pitaji lathe chalate hai", "CNC Lathe",
+        "fab-father",
+        "pitaji lathe chalate hai",
+        "CNC Lathe",
         "the worker's FATHER's job",
     ),
     _fabrication(
-        "fab-training", "lathe chalane ki training li hai", "CNC Lathe",
+        "fab-training",
+        "lathe chalane ki training li hai",
+        "CNC Lathe",
         "training taken, no claim of doing the job",
     ),
 )
@@ -518,7 +546,7 @@ ORIGIN_CASES: tuple[Case, ...] = tuple(
         messages=(message,),
         seed=_LOCATION_SEED,
         note="a STATE is not a city: the engine deliberately keeps asking for the "
-             "city (signals.detect_answered_topics), which is better matching data",
+        "city (signals.detect_answered_topics), which is better matching data",
         checks=(
             records_nothing_for("current_location"),
             records_nothing_for("preferred_locations"),
@@ -562,12 +590,10 @@ VAGUE_CASES: tuple[Case, ...] = (
         messages=("Gujarat mein",),
         seed=_PREFERRED_SEED,
         note="CLI-F2 CLOSED by PR #488: a state IS a valid answer to 'kahan kaam kar "
-             "sakte hain?' (it is still NOT a valid answer to 'which city are you in' - "
-             "current_location is deliberately untouched).",
+        "sakte hain?' (it is still NOT a valid answer to 'which city are you in' - "
+        "current_location is deliberately untouched).",
         checks=(
-            collects_exactly(
-                {**_PREFERRED_SEED.collected, "preferred_locations": ["Gujarat"]}
-            ),
+            collects_exactly({**_PREFERRED_SEED.collected, "preferred_locations": ["Gujarat"]}),
         ),
     ),
     Case(
@@ -576,7 +602,7 @@ VAGUE_CASES: tuple[Case, ...] = (
         messages=("Gujarat ya Maharashtra dono chalega",),
         seed=_PREFERRED_SEED,
         note="CLI-F2 CLOSED by PR #488: preferred_locations is a LIST, so BOTH areas are "
-             "kept - an earlier cut recorded only the first and closed the topic.",
+        "kept - an earlier cut recorded only the first and closed the topic.",
         checks=(
             collects_exactly(
                 {
@@ -592,9 +618,9 @@ VAGUE_CASES: tuple[Case, ...] = (
         messages=("V M C operator",),
         seed=_ROLE_SEED,
         note="CLI-F2b CLOSED by PR #488: a spaced acronym is a surface-form variant of a "
-             "keyword _ROLES already carries, so it resolves exactly as its Latin twin does.",
+        "keyword _ROLES already carries, so it resolves exactly as its Latin twin does.",
         checks=(
-            collects_exactly({"role": "VMC Operator", "skills": ["machine operation"]}),
+            collects_exactly({"role": "VMC Operator"}),
             records("role", "VMC Operator"),
         ),
     ),
@@ -624,9 +650,9 @@ DEVANAGARI_CASES: tuple[Case, ...] = (
         messages=("मैं वीएमसी ऑपरेटर हूँ",),
         seed=_ROLE_SEED,
         note="CLI-F3 PARTIALLY CLOSED by PR #488: the Devanagari ROLE forms now resolve. "
-             "Note the asymmetry is deliberate - the cue is a role cue only, so `machines` "
-             "is NOT closed by inference and the machine question still gets asked. "
-             "Sarvam STT returns Devanagari, so voice answers land here.",
+        "Note the asymmetry is deliberate - the cue is a role cue only, so `machines` "
+        "is NOT closed by inference and the machine question still gets asked. "
+        "Sarvam STT returns Devanagari, so voice answers land here.",
         checks=(
             collects_exactly({"role": "VMC Operator"}),
             records("role", "VMC Operator"),
@@ -638,7 +664,7 @@ DEVANAGARI_CASES: tuple[Case, ...] = (
         messages=("प्रोग्रामर नहीं हूँ",),
         seed=_ROLE_SEED,
         note="a denial in Devanagari: nothing recorded (right outcome, for the "
-             "wrong reason - see CLI-F3)",
+        "wrong reason - see CLI-F3)",
         checks=(records_nothing_for("role"),),
     ),
     Case(
@@ -712,7 +738,7 @@ PRIVACY_CASES: tuple[Case, ...] = (
         messages=("Ravi Kumar naam hai mera",),
         seed=_ROLE_SEED,
         note="CLI-F5: the cue FOLLOWS the name, so nothing is masked - the name would "
-             "reach a model (bounded today by AI_ENABLE_REAL_CALLS=false)",
+        "reach a model (bounded today by AI_ENABLE_REAL_CALLS=false)",
         checks=(llm_input_contains("Ravi Kumar", defect="CLI-F5"),),
     ),
     Case(
@@ -744,8 +770,8 @@ PRIVACY_CASES: tuple[Case, ...] = (
         group="privacy",
         messages=("VMC operator hu, 5 saal", "mera ref number 12345678 hai"),
         note="CLI-F6: apps/api stores the inbound message BEFORE the AI call, so a "
-             "blocked message is in the extraction transcript - and blocks the WHOLE "
-             "extraction closed (empty profile, profile_status='draft')",
+        "blocked message is in the extraction transcript - and blocks the WHOLE "
+        "extraction closed (empty profile, profile_status='draft')",
         extract=True,
         checks=(
             gate_blocks("residual numeric sequence"),
@@ -765,7 +791,7 @@ ROBUSTNESS_CASES: tuple[Case, ...] = (
         messages=("",),
         checks=(http_status(422),),
         note="the ai-service contract rejects an empty message "
-             "(apps/api rejects it first with 400, so this leg is not worker-reachable)",
+        "(apps/api rejects it first with 400, so this leg is not worker-reachable)",
     ),
     Case(
         id="robust-whitespace",
@@ -827,8 +853,8 @@ EXTRACTION_CASES: tuple[Case, ...] = (
         messages=("vmc operator hu", "5 saal ho gaye", "abhi Pune me hu", "kahin bhi", "fanuc"),
         extract=True,
         note="CLI-F7 CLOSED: the worker said ONLY 'fanuc'. Our question also names "
-             "Siemens/Mitsubishi/Heidenhain/Haas; the role-typed split keeps the "
-             "deterministic detector on the worker's own lines, so only Fanuc lands",
+        "Siemens/Mitsubishi/Heidenhain/Haas; the role-typed split keeps the "
+        "deterministic detector on the worker's own lines, so only Fanuc lands",
         checks=(
             records("controllers", ["Fanuc"]),
             draft_field("controllers", ["Fanuc"]),
@@ -841,9 +867,9 @@ EXTRACTION_CASES: tuple[Case, ...] = (
         messages=("vmc operator hu", "hmm", "5 saal ho gaye", "abhi Pune me hu", "kahin bhi"),
         extract=True,
         note="CLI-F7 CLOSED, the worst instance: the worker said '5 saal' and the "
-             "retry question wording ('jaise 2 saal ya 5 saal?') is still in the "
-             "transcript the MODEL reads — but the detector no longer reads it, so "
-             "the extracted profile now agrees with the engine at 5 years",
+        "retry question wording ('jaise 2 saal ya 5 saal?') is still in the "
+        "transcript the MODEL reads — but the detector no longer reads it, so "
+        "the extracted profile now agrees with the engine at 5 years",
         checks=(
             records("experience", 5.0),
             draft_field("experience_years", 5.0),
@@ -860,14 +886,22 @@ FLOW_CASES: tuple[Case, ...] = (
         messages=(
             "VMC operator hu, 5 saal ka experience, Pune me hu, VMC aur CNC lathe "
             "chalata hu, setting aur tool offset aata hai",
-            "haan", "haan", "haan", "haan", "haan", "haan", "haan", "haan",
-            "haan", "haan",
+            "haan",
+            "haan",
+            "haan",
+            "haan",
+            "haan",
+            "haan",
+            "haan",
+            "haan",
+            "haan",
+            "haan",
         ),
         extract=True,
         note="issue #424 + the 2026-07-22 education/certifications ruling: answering "
-             "every essential in message 1 must NOT skip the money, availability, "
-             "education or certifications asks; TD-EDU adds education_level and "
-             "education_field to MUST_ASK",
+        "every essential in message 1 must NOT skip the money, availability, "
+        "education or certifications asks; TD-EDU adds education_level and "
+        "education_field to MUST_ASK",
         checks=(
             unanswered_essentials_are([]),
             all_must_ask_raised(),
@@ -1038,8 +1072,9 @@ def render_summary(result: SuiteResult) -> str:
     if result.stale:
         lines.append("  STALE      : a known-defect expectation no longer reproduces:")
         lines.extend(f"               {cid} [{defect}]" for cid, defect in result.stale)
-        lines.append("               -> probably GOOD NEWS: update the expectation "
-                     "in edge_cases.py")
+        lines.append(
+            "               -> probably GOOD NEWS: update the expectation in edge_cases.py"
+        )
     for case in result.failed_cases:
         lines.append(f"  FAILED     : {case.case.id}")
         for outcome in case.outcomes:

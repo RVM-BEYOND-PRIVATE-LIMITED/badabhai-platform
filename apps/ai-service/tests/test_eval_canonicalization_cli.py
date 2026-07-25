@@ -106,6 +106,7 @@ def test_per_field_real_uses_both_endpoints_via_stubs(capsys, monkeypatch):
 # --- Fallback detection (Fix A): mock-fallback contamination ----------------
 def _patch_respond_and_pseudo(monkeypatch):
     """Stub the smoke + pseudonymize endpoints so only extract behavior matters."""
+
     def fake_pseudo(base_url, timeout=30.0):
         from app.pseudonymize import pseudonymize
 
@@ -128,7 +129,7 @@ def test_per_field_real_invalid_when_cases_fall_back_to_mock(capsys, monkeypatch
         def extract_fn(text):
             _rich, legacy = gold.profile_extractor.extract(text)
             if collector is not None:
-                fell_back = (calls["n"] % 3 == 0)  # real_call but success=false
+                fell_back = calls["n"] % 3 == 0  # real_call but success=false
                 collector.record(real_call=True, success=not fell_back)
             calls["n"] += 1
             return legacy
@@ -164,7 +165,7 @@ def test_per_field_real_invalid_when_case_made_no_real_call(capsys, monkeypatch)
         def extract_fn(text):
             _rich, legacy = gold.profile_extractor.extract(text)
             if collector is not None:
-                no_real = (calls["n"] % 3 == 0)  # real_call=false (mock, never attempted)
+                no_real = calls["n"] % 3 == 0  # real_call=false (mock, never attempted)
                 collector.record(real_call=not no_real, success=True)
             calls["n"] += 1
             return legacy
@@ -241,7 +242,9 @@ def test_min_interval_flag_paces_real_calls(monkeypatch):
     monkeypatch.setattr(httpx, "Client", _Client)
     collector = cli.RealCallCollector()
     extract_fn = cli._make_real_field_extract_fn(
-        "http://localhost:9999", collector=collector, min_interval=5.0,
+        "http://localhost:9999",
+        collector=collector,
+        min_interval=5.0,
     )
     extract_fn("vmc chalata hu")  # first call: no prior timestamp -> no sleep
     extract_fn("vmc chalata hu")  # second call: should pace
@@ -255,10 +258,10 @@ def test_collector_buckets_fallbacks_and_no_real_calls():
     (real_call=true, success=false) and a no-real-call (real_call=false) are
     contamination, bucketed distinctly."""
     c = cli.RealCallCollector()
-    c.record(real_call=True, success=True)    # real ok -> the only valid outcome
-    c.record(real_call=False, success=True)   # no real call (spend cap / kill-switch)
+    c.record(real_call=True, success=True)  # real ok -> the only valid outcome
+    c.record(real_call=False, success=True)  # no real call (spend cap / kill-switch)
     c.record(real_call=False, success=False)  # no real call (also counts as not_real)
-    c.record(real_call=True, success=False)   # real attempted, failed -> fallback
+    c.record(real_call=True, success=False)  # real attempted, failed -> fallback
     assert c.total == 4
     assert len(c.fell_back) == 1
     assert len(c.not_real) == 2
@@ -292,8 +295,11 @@ def test_compute_p95_nearest_rank_and_empty():
 def test_decide_flip_gate_passes_only_when_all_checks_clear():
     """PASS requires role>=thr AND per-field>=thr AND not contaminated."""
     d = cli.decide_flip_gate(
-        role_accuracy=0.95, per_field_accuracy=0.92, contaminated=False,
-        threshold=0.90, p95_latency_ms=1234.0,
+        role_accuracy=0.95,
+        per_field_accuracy=0.92,
+        contaminated=False,
+        threshold=0.90,
+        p95_latency_ms=1234.0,
     )
     assert d.passed is True
     assert d.reasons == ()
@@ -303,8 +309,11 @@ def test_decide_flip_gate_passes_only_when_all_checks_clear():
 
 def test_decide_flip_gate_stops_on_low_role_accuracy():
     d = cli.decide_flip_gate(
-        role_accuracy=0.80, per_field_accuracy=0.95, contaminated=False,
-        threshold=0.90, p95_latency_ms=900.0,
+        role_accuracy=0.80,
+        per_field_accuracy=0.95,
+        contaminated=False,
+        threshold=0.90,
+        p95_latency_ms=900.0,
     )
     assert d.passed is False
     assert any("role accuracy" in r for r in d.reasons)
@@ -313,8 +322,11 @@ def test_decide_flip_gate_stops_on_low_role_accuracy():
 
 def test_decide_flip_gate_stops_on_low_per_field_accuracy():
     d = cli.decide_flip_gate(
-        role_accuracy=0.95, per_field_accuracy=0.50, contaminated=False,
-        threshold=0.90, p95_latency_ms=None,
+        role_accuracy=0.95,
+        per_field_accuracy=0.50,
+        contaminated=False,
+        threshold=0.90,
+        p95_latency_ms=None,
     )
     assert d.passed is False
     assert any("per-field aggregate" in r for r in d.reasons)
@@ -325,8 +337,11 @@ def test_decide_flip_gate_contamination_always_stops_even_with_high_accuracy():
     """A contaminated run can NEVER pass, even if the (mock-tainted) numbers look
     high — contamination is the first/most-severe reason."""
     d = cli.decide_flip_gate(
-        role_accuracy=1.0, per_field_accuracy=1.0, contaminated=True,
-        threshold=0.90, p95_latency_ms=10.0,
+        role_accuracy=1.0,
+        per_field_accuracy=1.0,
+        contaminated=True,
+        threshold=0.90,
+        p95_latency_ms=10.0,
     )
     assert d.passed is False
     assert d.reasons[0].startswith("contaminated run")
@@ -383,15 +398,12 @@ def test_flip_gate_passes_when_every_field_clears(capsys, monkeypatch):
                 canonical_trade_id = (
                     None if case.resolved_trade() is gold.UNSET else case.resolved_trade()
                 )
-                skills = (
-                    [] if case.expected_skills is gold.UNSET else list(case.expected_skills)
-                )
+                skills = [] if case.expected_skills is gold.UNSET else list(case.expected_skills)
                 machines = list(case.expected_machines)
 
                 class experience:  # noqa: N801 - tiny stand-in
                     total_years = (
-                        None if case.expected_experience is gold.UNSET
-                        else case.expected_experience
+                        None if case.expected_experience is gold.UNSET else case.expected_experience
                     )
 
             if collector is not None:
@@ -419,9 +431,11 @@ def test_flip_gate_stops_when_run_is_contaminated(capsys, monkeypatch):
         def extract_fn(text):
             _rich, legacy = gold.profile_extractor.extract(text)
             if collector is not None:
-                fell_back = (calls["n"] == 0)  # first case is a mock fallback
+                fell_back = calls["n"] == 0  # first case is a mock fallback
                 collector.record(
-                    real_call=True, success=not fell_back, latency_ms=70.0,
+                    real_call=True,
+                    success=not fell_back,
+                    latency_ms=70.0,
                 )
             calls["n"] += 1
             return legacy

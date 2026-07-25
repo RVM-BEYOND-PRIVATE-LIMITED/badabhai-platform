@@ -216,8 +216,7 @@ def test_chat_turn_instruction_is_capped_and_forbids_praise():
 _PLACEHOLDER = interview_engine.WORKER_NAME_PLACEHOLDER  # "{{worker_name}}"
 
 _FULL_ANSWER = (
-    "vmc operator, 4 saal, setting aur drawing reading karta hu, "
-    "faridabad me hu pune chalega"
+    "vmc operator, 4 saal, setting aur drawing reading karta hu, faridabad me hu pune chalega"
 )
 
 _UNSET = object()
@@ -232,9 +231,7 @@ def _drive_to_close(worker_name=_UNSET):
     gate, and this keeps the test about the VOCATIVE, not about detection.
     """
     kwargs = {} if worker_name is _UNSET else {"worker_name": worker_name}
-    reply, asked, state, ready = interview_engine.next_turn(
-        None, _FULL_ANSWER, "cnc_vmc", **kwargs
-    )
+    reply, asked, state, ready = interview_engine.next_turn(None, _FULL_ANSWER, "cnc_vmc", **kwargs)
     for _ in range(20):
         if asked is None:
             return reply, ready

@@ -81,6 +81,7 @@ def _reset_client(payload: dict, status_code: int = 200) -> None:
 
 # --- pure unit: mapping helpers --------------------------------------------
 
+
 def test_to_translate_source_mapping():
     assert _to_translate_source(None) == "auto"
     assert _to_translate_source("") == "auto"
@@ -98,6 +99,7 @@ def test_is_english():
 
 # --- mock-by-default --------------------------------------------------------
 
+
 def test_mock_by_default_when_gate_off(monkeypatch):
     monkeypatch.setattr(translate_module.httpx, "AsyncClient", _StubAsyncClient)
     _reset_client({})
@@ -113,11 +115,10 @@ def test_mock_by_default_when_gate_off(monkeypatch):
 
 # --- real success -----------------------------------------------------------
 
+
 def test_real_success_maps_translation_and_sends_required_body(monkeypatch):
     monkeypatch.setattr(translate_module.httpx, "AsyncClient", _StubAsyncClient)
-    _reset_client(
-        {"translated_text": "I am a VMC operator", "source_language_code": "hi-IN"}
-    )
+    _reset_client({"translated_text": "I am a VMC operator", "source_language_code": "hi-IN"})
 
     adapter = TranslateAdapter(_real_settings())
     result = _run(adapter.translate(text="main vmc operator hoon", source_language_code="hi-IN"))
@@ -136,6 +137,7 @@ def test_real_success_maps_translation_and_sends_required_body(monkeypatch):
 
 # --- english-skip (no API spend) -------------------------------------------
 
+
 def test_english_source_skips_api_call(monkeypatch):
     monkeypatch.setattr(translate_module.httpx, "AsyncClient", _StubAsyncClient)
     _reset_client({"translated_text": "should-not-be-used"})
@@ -151,6 +153,7 @@ def test_english_source_skips_api_call(monkeypatch):
 
 # --- empty input ------------------------------------------------------------
 
+
 def test_empty_text_is_noop(monkeypatch):
     monkeypatch.setattr(translate_module.httpx, "AsyncClient", _StubAsyncClient)
     _reset_client({"translated_text": "should-not-be-used"})
@@ -164,11 +167,10 @@ def test_empty_text_is_noop(monkeypatch):
 
 # --- failure paths (must fail closed to empty) -----------------------------
 
+
 def test_provider_error_fails_closed_to_empty(monkeypatch):
     monkeypatch.setattr(translate_module.httpx, "AsyncClient", _StubAsyncClient)
-    _reset_client(
-        {"error": {"code": "authentication_error", "message": "..."}}, status_code=403
-    )
+    _reset_client({"error": {"code": "authentication_error", "message": "..."}}, status_code=403)
 
     adapter = TranslateAdapter(_real_settings())
     result = _run(adapter.translate(text="main vmc operator hoon", source_language_code="hi"))

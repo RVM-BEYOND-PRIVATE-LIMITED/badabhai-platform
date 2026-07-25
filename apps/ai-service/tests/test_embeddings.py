@@ -26,9 +26,7 @@ class MemStore:
         # Mirrors the SQL seam: NULL embedding AND id not in the run's blocked set. Excluding
         # `exclude_ids` is what lets the window advance past blocked NULL rows (F1 fix).
         out = [
-            (aid, v[0])
-            for aid, v in self.rows.items()
-            if v[1] is None and aid not in exclude_ids
+            (aid, v[0]) for aid, v in self.rows.items() if v[1] is None and aid not in exclude_ids
         ]
         return out[:limit]
 

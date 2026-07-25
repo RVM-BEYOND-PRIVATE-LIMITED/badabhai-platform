@@ -106,9 +106,7 @@ def test_batch_cap_enforced():
 
 def test_real_provider_never_called_by_default(monkeypatch):
     called: list[str] = []
-    monkeypatch.setattr(
-        embeddings, "_real_embedding", lambda t, s: called.append(t) or [0.0] * 768
-    )
+    monkeypatch.setattr(embeddings, "_real_embedding", lambda t, s: called.append(t) or [0.0] * 768)
     resp = client.post(
         "/embeddings/skill-alias",
         json={"items": [{"alias_id": "a1", "text": "vmc operator"}]},

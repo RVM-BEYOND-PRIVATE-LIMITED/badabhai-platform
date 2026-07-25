@@ -51,12 +51,7 @@ def test_the_suite_actually_covers_the_required_families():
 def test_every_defect_label_is_documented():
     """A defect id that is not explained in the module docstring is a label nobody
     can act on."""
-    labels = {
-        check.defect
-        for case in ALL_CASES
-        for check in case.checks
-        if check.defect
-    }
+    labels = {check.defect for case in ALL_CASES for check in case.checks if check.defect}
     assert labels, "expected labelled known-defect expectations"
     for label in labels:
         assert label in edge_cases.__doc__, f"{label} is not documented in edge_cases.py"

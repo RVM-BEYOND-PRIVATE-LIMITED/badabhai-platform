@@ -28,12 +28,42 @@ DEFAULT_MAX_LENGTH = 20_000
 # signal detectors (app/profiling/signals.py) so there is one city gazetteer.
 KNOWN_CITIES: frozenset[str] = frozenset(
     {
-        "new delhi", "navi mumbai", "greater noida",
-        "faridabad", "delhi", "mumbai", "pune", "chennai", "bengaluru", "bangalore",
-        "gurgaon", "gurugram", "noida", "hyderabad", "ahmedabad", "coimbatore",
-        "rajkot", "ludhiana", "kolkata", "jaipur", "surat", "nashik", "nagpur",
-        "indore", "vadodara", "aurangabad", "chandigarh", "kanpur", "lucknow",
-        "bhopal", "manesar", "pithampur", "hosur", "peenya", "bawal", "sanand",
+        "new delhi",
+        "navi mumbai",
+        "greater noida",
+        "faridabad",
+        "delhi",
+        "mumbai",
+        "pune",
+        "chennai",
+        "bengaluru",
+        "bangalore",
+        "gurgaon",
+        "gurugram",
+        "noida",
+        "hyderabad",
+        "ahmedabad",
+        "coimbatore",
+        "rajkot",
+        "ludhiana",
+        "kolkata",
+        "jaipur",
+        "surat",
+        "nashik",
+        "nagpur",
+        "indore",
+        "vadodara",
+        "aurangabad",
+        "chandigarh",
+        "kanpur",
+        "lucknow",
+        "bhopal",
+        "manesar",
+        "pithampur",
+        "hosur",
+        "peenya",
+        "bawal",
+        "sanand",
     }
 )
 
@@ -42,11 +72,28 @@ KNOWN_CITIES: frozenset[str] = frozenset(
 # Mirrors the detection gazetteer in signals.py (_STATE_NAMES / _STATE_ABBREVS).
 KNOWN_STATES: frozenset[str] = frozenset(
     {
-        "bihar", "uttar pradesh", "madhya pradesh", "andhra pradesh",
-        "himachal pradesh", "arunachal pradesh", "west bengal", "tamil nadu",
-        "rajasthan", "punjab", "haryana", "gujarat", "maharashtra", "karnataka",
-        "telangana", "kerala", "odisha", "jharkhand", "chhattisgarh",
-        "uttarakhand", "assam", "goa",
+        "bihar",
+        "uttar pradesh",
+        "madhya pradesh",
+        "andhra pradesh",
+        "himachal pradesh",
+        "arunachal pradesh",
+        "west bengal",
+        "tamil nadu",
+        "rajasthan",
+        "punjab",
+        "haryana",
+        "gujarat",
+        "maharashtra",
+        "karnataka",
+        "telangana",
+        "kerala",
+        "odisha",
+        "jharkhand",
+        "chhattisgarh",
+        "uttarakhand",
+        "assam",
+        "goa",
     }
 )
 STATE_ABBREVS: frozenset[str] = frozenset({"UP", "MP", "AP", "HP", "WB"})
@@ -85,8 +132,23 @@ _STATE_ABBREV_RE = re.compile(
 
 # Words that look like a leading name but are greetings/fillers — do not mask.
 _NAME_STOPLIST = {
-    "hello", "hi", "hey", "namaste", "namaskar", "sir", "madam", "yes", "no",
-    "ok", "okay", "thanks", "thank", "ji", "haan", "nahi", "bhai",
+    "hello",
+    "hi",
+    "hey",
+    "namaste",
+    "namaskar",
+    "sir",
+    "madam",
+    "yes",
+    "no",
+    "ok",
+    "okay",
+    "thanks",
+    "thank",
+    "ji",
+    "haan",
+    "nahi",
+    "bhai",
 }
 
 _COMPANY_SUFFIX = (
@@ -362,9 +424,7 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
         if not isinstance(text, str):
             return PseudonymizationResult("", True, "input is not a string", 0, [])
         if len(text) > max_length:
-            return PseudonymizationResult(
-                "", True, f"input exceeds {max_length} characters", 0, []
-            )
+            return PseudonymizationResult("", True, f"input exceeds {max_length} characters", 0, [])
 
         registry: dict[tuple[str, str], str] = {}
         counters: dict[str, int] = {}

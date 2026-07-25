@@ -29,8 +29,15 @@ def _consent(worker_id: str, granted: bool) -> ConsentRecord:
 
 def test_corpus_item_schema_is_pii_free_and_single_text_field():
     expected = {
-        "source_kind", "source_ref", "worker_id", "consent_version",
-        "deid_method", "deid_version", "content", "token_count", "lang",
+        "source_kind",
+        "source_ref",
+        "worker_id",
+        "consent_version",
+        "deid_method",
+        "deid_version",
+        "content",
+        "token_count",
+        "lang",
     }
     assert CORPUS_ITEM_FIELDS == expected
     # The only free-text field is the de-identified `content`.

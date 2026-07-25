@@ -93,19 +93,26 @@ def _gate_lines(turn: TurnResult) -> list[str]:
         # never assert something it did not observe.
         if not meta:
             return [
-                _line("-> to LLM", "UNKNOWN - neither the /pseudonymize probe nor the "
-                                   "turn response reported the gate")
+                _line(
+                    "-> to LLM",
+                    "UNKNOWN - neither the /pseudonymize probe nor the "
+                    "turn response reported the gate",
+                )
             ]
         status = "BLOCKED" if meta.get("blocked") else "PASS"
         return [
-            _line("-> to LLM", f"(text not probed) gate={status} "
-                               f"masked={meta.get('replaced_entities', 0)}")
+            _line(
+                "-> to LLM",
+                f"(text not probed) gate={status} masked={meta.get('replaced_entities', 0)}",
+            )
         ]
     if gate.blocked:
         return [
             _line("-> to LLM", "NOTHING - the gate BLOCKED this message"),
-            _line("", f"reason: {gate.blocked_reason} "
-                      "(fail-closed: no model call, safe reply returned)"),
+            _line(
+                "",
+                f"reason: {gate.blocked_reason} (fail-closed: no model call, safe reply returned)",
+            ),
         ]
     tokens = f" tokens={gate.placeholder_tokens}" if gate.placeholder_tokens else ""
     lines = [
@@ -122,17 +129,26 @@ def _engine_lines(turn: TurnResult) -> list[str]:
         if turn.response.status_code == 0:
             return [_line("engine", "NOT RUN - the ai-service was unreachable")]
         return [
-            _line("engine", "NOT RUN - the request failed the contract "
-                            f"(HTTP {turn.response.status_code})"),
+            _line(
+                "engine",
+                f"NOT RUN - the request failed the contract (HTTP {turn.response.status_code})",
+            ),
         ]
     if turn.blocked:
         return [
-            _line("engine", "NOT RUN - the endpoint returned the blocked reply first "
-                            "(pseudonymize is step 1)"),
-            _line("state", "unchanged (updated_state=null; apps/api persists nothing "
-                           "on a blocked turn)"),
-            _line("transcript", "the message IS still stored - chat.service.ts inserts the "
-                                "inbound row BEFORE the AI call"),
+            _line(
+                "engine",
+                "NOT RUN - the endpoint returned the blocked reply first (pseudonymize is step 1)",
+            ),
+            _line(
+                "state",
+                "unchanged (updated_state=null; apps/api persists nothing on a blocked turn)",
+            ),
+            _line(
+                "transcript",
+                "the message IS still stored - chat.service.ts inserts the "
+                "inbound row BEFORE the AI call",
+            ),
         ]
     branch = "CLARIFY (re-serve)" if turn.clarified else "ADVANCE"
     asked = turn.asked_question_id or "-"
@@ -206,21 +222,32 @@ def render_turn(
         if turn.response.status_code == 0:
             lines.append(_line("TRANSPORT", str(turn.response.body.get("detail"))))
             lines.append(
-                _line("in prod", "apps/api degrades to its OWN local mock interview here "
-                                 "(ai.service.ts post() -> null -> mockProfilingTurn); "
-                                 "this tool does not emulate that")
+                _line(
+                    "in prod",
+                    "apps/api degrades to its OWN local mock interview here "
+                    "(ai.service.ts post() -> null -> mockProfilingTurn); "
+                    "this tool does not emulate that",
+                )
             )
         else:
             lines.append(
                 _line("HTTP", f"{turn.response.status_code} - the ai-service contract rejected it")
             )
             for err in turn.response.validation_errors():
-                lines.append(_line("", f"{'.'.join(str(p) for p in err['loc'] or [])}: "
-                                       f"{err['msg']} [{err['type']}]"))
+                lines.append(
+                    _line(
+                        "",
+                        f"{'.'.join(str(p) for p in err['loc'] or [])}: "
+                        f"{err['msg']} [{err['type']}]",
+                    )
+                )
             lines.append(
-                _line("in prod", "apps/api rejects this at ITS boundary first "
-                                 "(nonEmptyMessageSchema / safeTextSchema(4000)) -> 400, "
-                                 "nothing stored")
+                _line(
+                    "in prod",
+                    "apps/api rejects this at ITS boundary first "
+                    "(nonEmptyMessageSchema / safeTextSchema(4000)) -> 400, "
+                    "nothing stored",
+                )
             )
         lines.extend(_engine_lines(turn))
         return "\n".join(lines)
@@ -271,8 +298,11 @@ def render_extraction(result: ExtractResult, *, verbose: bool = False) -> str:
     transcript = str(request.get("transcript") or "")
     lines = [
         "=== PRODUCTION RESULT: POST /profile/extract ===",
-        _line("request", f"{{worker_ref: <uuid>, transcript: {len(transcript)} chars / "
-                         f"{len(transcript.splitlines())} lines}}"),
+        _line(
+            "request",
+            f"{{worker_ref: <uuid>, transcript: {len(transcript)} chars / "
+            f"{len(transcript.splitlines())} lines}}",
+        ),
     ]
     if not result.ok:
         lines.append(_line("HTTP", f"{result.response.status_code}"))
@@ -288,8 +318,11 @@ def render_extraction(result: ExtractResult, *, verbose: bool = False) -> str:
     )
     if result.blocked:
         lines.append(
-            _line("meaning", "fail-closed: NO model call, EMPTY profile. apps/api stores this "
-                             "as profile_status='draft'")
+            _line(
+                "meaning",
+                "fail-closed: NO model call, EMPTY profile. apps/api stores this "
+                "as profile_status='draft'",
+            )
         )
     lines.append("")
     lines.append("  profile (DraftProfile - apps/api persists this as profiles.raw_profile):")
@@ -334,9 +367,7 @@ def render_cli_only_merge(result: ExtractResult, collected: dict[str, Any] | Non
     (or missed). That gap is a real finding about the production extractor, not a
     CLI feature.
     """
-    header = (
-        "=== CLI-ONLY DIAGNOSTIC: merge_collected view (PRODUCTION DOES NOT PRODUCE THIS) ==="
-    )
+    header = "=== CLI-ONLY DIAGNOSTIC: merge_collected view (PRODUCTION DOES NOT PRODUCE THIS) ==="
     draft = result.draft
     if not draft:
         return f"{header}\n  (no rich draft returned - nothing to compare)"

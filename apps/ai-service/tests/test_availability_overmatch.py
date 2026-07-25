@@ -171,9 +171,7 @@ def test_an_employed_worker_serving_notice_is_not_read_as_immediate():
         ("abhi", "immediate"),
     ],
 )
-def test_bare_answers_resolve_only_when_availability_was_the_question(
-    text: str, expected: str
-):
+def test_bare_answers_resolve_only_when_availability_was_the_question(text: str, expected: str):
     """A bare duration or time adverb IS an answer to "Join karne mein kitne din
     lagenge?" — and says nothing about availability anywhere else. Same shape as the
     B-4 location and B-5 salary attribution: read it only in the context that earns
@@ -185,7 +183,7 @@ def test_bare_answers_resolve_only_when_availability_was_the_question(
 
 
 def test_a_past_tense_join_is_history_not_availability():
-    """"2019 me company join ki thi" is where the worker HAS worked, not when they
+    """ "2019 me company join ki thi" is where the worker HAS worked, not when they
     can start. The join cue matches ability/future forms only."""
     assert _availability("2019 me ek company join ki thi", "role") is None
     assert _availability("kal wali company join ki thi", "role") is None
@@ -280,9 +278,7 @@ def test_ready_attributed_to_the_worker_still_resolves(text: str):
         ("chutti ke din free hu", "availability"),
     ],
 )
-def test_free_said_about_a_thing_or_a_time_slot_is_not_availability(
-    text: str, asked: str
-):
+def test_free_said_about_a_thing_or_a_time_slot_is_not_availability(text: str, asked: str):
     assert _availability(text, asked) is None
 
 
@@ -387,9 +383,7 @@ def test_a_real_notice_duration_still_resolves(text: str):
         ("pehle main free tha", "availability"),
     ],
 )
-def test_negated_past_and_third_party_statements_do_not_assert_availability(
-    text: str, asked: str
-):
+def test_negated_past_and_third_party_statements_do_not_assert_availability(text: str, asked: str):
     assert _availability(text, asked) is None
 
 

@@ -182,8 +182,7 @@ _ROLE_CUES: tuple[tuple[str, str, str, str], ...] = (
     (r"\bv\s+m\s+c\b", "VMC Operator", "role_vmc_operator", "dom_vmc_machining"),
     (r"\bh\s+m\s+c\b", "HMC Operator", "role_hmc_operator", "dom_hmc_machining"),
     # `setter` misspelt with one `t`. Cannot match inside "setter" itself.
-    (r"\bset[ae]r\b", "CNC Setter-Operator", "role_cnc_setter_operator",
-     "dom_cnc_machining"),
+    (r"\bset[ae]r\b", "CNC Setter-Operator", "role_cnc_setter_operator", "dom_cnc_machining"),
     # Devanagari forms of role words the Latin table already carries. TRANSLITERATION
     # of an EXISTING gazetteer entry to the other script — no new concept, no new id,
     # no vernacular alias (`ऑपरेटर` alone resolves nothing, exactly like `operator`).
@@ -330,10 +329,29 @@ _EXTRA_ROLE_TRADES: tuple[tuple[str, str], ...] = (
 )
 
 _MACHINING_CONTEXT: tuple[str, ...] = (
-    r"cnc", r"vmc", r"hmc", r"lathe", r"milling", r"machining", r"turning", r"turner",
-    r"grinding", r"grinder", r"boring", r"drilling", r"setter", r"programmer",
-    r"mastercam", r"fanuc", r"siemens", r"haas", r"heidenhain", r"mitsubishi",
-    r"g\s*-?\s*code", r"m\s*-?\s*code", r"tool\s+offset",
+    r"cnc",
+    r"vmc",
+    r"hmc",
+    r"lathe",
+    r"milling",
+    r"machining",
+    r"turning",
+    r"turner",
+    r"grinding",
+    r"grinder",
+    r"boring",
+    r"drilling",
+    r"setter",
+    r"programmer",
+    r"mastercam",
+    r"fanuc",
+    r"siemens",
+    r"haas",
+    r"heidenhain",
+    r"mitsubishi",
+    r"g\s*-?\s*code",
+    r"m\s*-?\s*code",
+    r"tool\s+offset",
 )
 _MACHINING_CONTEXT_RE: list[re.Pattern[str]] = [
     re.compile(rf"\b{p}\b", re.IGNORECASE) for p in _MACHINING_CONTEXT
@@ -421,10 +439,9 @@ def label_for_id(value: str) -> str:
     if _ID_PREFIX_RE.match(value):
         stripped = _ID_PREFIX_RE.sub("", value)
         words = [w for w in re.split(r"[_\s]+", stripped) if w]
-        return " ".join(
-            w.upper() if w.lower() in _ID_ACRONYMS else w.capitalize() for w in words
-        )
+        return " ".join(w.upper() if w.lower() in _ID_ACRONYMS else w.capitalize() for w in words)
     return value
+
 
 _INSPECTION: list[tuple[str, str]] = [
     ("micrometer", "micrometer"),
@@ -481,18 +498,36 @@ _ROLE_LABELS: dict[str, str] = {rid: label for _, label, rid, _ in _ROLES}
 _EXP_WORD_NUMBERS: tuple[tuple[str, float], ...] = (
     ("paune do", 1.75),
     ("sava do", 2.25),
-    ("dhaai", 2.5), ("dhai", 2.5), ("adhai", 2.5),
-    ("dedh", 1.5), ("dhedh", 1.5), ("derh", 1.5),
+    ("dhaai", 2.5),
+    ("dhai", 2.5),
+    ("adhai", 2.5),
+    ("dedh", 1.5),
+    ("dhedh", 1.5),
+    ("derh", 1.5),
     ("sava", 1.25),
-    ("paune", 0.75), ("pauna", 0.75),
-    ("aadha", 0.5), ("adha", 0.5), ("aadhe", 0.5),
-    ("pandrah", 15.0), ("bees", 20.0),
-    ("gyarah", 11.0), ("barah", 12.0),
-    ("ek", 1.0), ("do", 2.0), ("teen", 3.0), ("tin", 3.0),
-    ("chaar", 4.0), ("char", 4.0),
-    ("paanch", 5.0), ("panch", 5.0),
-    ("chhah", 6.0), ("chhe", 6.0),
-    ("saat", 7.0), ("aath", 8.0), ("nau", 9.0), ("das", 10.0),
+    ("paune", 0.75),
+    ("pauna", 0.75),
+    ("aadha", 0.5),
+    ("adha", 0.5),
+    ("aadhe", 0.5),
+    ("pandrah", 15.0),
+    ("bees", 20.0),
+    ("gyarah", 11.0),
+    ("barah", 12.0),
+    ("ek", 1.0),
+    ("do", 2.0),
+    ("teen", 3.0),
+    ("tin", 3.0),
+    ("chaar", 4.0),
+    ("char", 4.0),
+    ("paanch", 5.0),
+    ("panch", 5.0),
+    ("chhah", 6.0),
+    ("chhe", 6.0),
+    ("saat", 7.0),
+    ("aath", 8.0),
+    ("nau", 9.0),
+    ("das", 10.0),
 )
 _EXP_WORD_LOOKUP: dict[str, float] = {word: value for word, value in _EXP_WORD_NUMBERS}
 _EXP_WORD_ALT = "|".join(re.escape(word) for word, _ in _EXP_WORD_NUMBERS)
@@ -643,17 +678,49 @@ _AREA_FILLER_WORDS: frozenset[str] = frozenset(
         # and `_REGION_NAMES` carry no Devanagari entries, so a Devanagari filler
         # word here could never be reached and would only imply support that does
         # not exist.
-        "me", "mein", "mai", "mei",
+        "me",
+        "mein",
+        "mai",
+        "mei",
         # conjunctions / enumeration: "Gujarat ya Maharashtra", "dono"
-        "ya", "aur", "or", "and", "dono", "teeno", "tino", "both",
+        "ya",
+        "aur",
+        "or",
+        "and",
+        "dono",
+        "teeno",
+        "tino",
+        "both",
         # restriction / emphasis: "sirf Gujarat", "Gujarat hi"
-        "sirf", "only", "bas", "keval", "hi", "bhi",
+        "sirf",
+        "only",
+        "bas",
+        "keval",
+        "hi",
+        "bhi",
         # scope: "pura Gujarat"
-        "pura", "poora", "puri", "whole", "all",
+        "pura",
+        "poora",
+        "puri",
+        "whole",
+        "all",
         # the ask itself: "Gujarat me kaam chahiye"
-        "kaam", "job", "naukri", "work", "chahiye", "chaahiye", "chahie",
+        "kaam",
+        "job",
+        "naukri",
+        "work",
+        "chahiye",
+        "chaahiye",
+        "chahie",
         # bare acceptance: "Gujarat chalega"
-        "chalega", "chalegi", "theek", "thik", "ok", "okay", "sahi", "fine",
+        "chalega",
+        "chalegi",
+        "theek",
+        "thik",
+        "ok",
+        "okay",
+        "sahi",
+        "fine",
     }
 )
 
@@ -755,22 +822,41 @@ _PERIOD_WINDOW_AFTER = 18
 _ANNUAL_CUES_AFTER: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE)
     for p in (
-        r"\bsaal\b", r"\bsal\b", r"\bsaalana\b", r"\bsalana\b", r"\bsalaana\b",
-        r"\bvarsh\b", r"\bannum\b", r"\bannual\w*", r"\byearly\b", r"\byear\b",
-        r"\bper\s*year\b", r"\bp\.?\s?a\.?\b", r"\blpa\b",
+        r"\bsaal\b",
+        r"\bsal\b",
+        r"\bsaalana\b",
+        r"\bsalana\b",
+        r"\bsalaana\b",
+        r"\bvarsh\b",
+        r"\bannum\b",
+        r"\bannual\w*",
+        r"\byearly\b",
+        r"\byear\b",
+        r"\bper\s*year\b",
+        r"\bp\.?\s?a\.?\b",
+        r"\blpa\b",
     )
 )
 _ANNUAL_CUES_BEFORE: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE)
     for p in (
-        r"\bsaalana\b", r"\bsalana\b", r"\bsalaana\b", r"\bvarsh\b",
-        r"\bannual\w*", r"\byearly\b", r"\bper\s*year\b", r"\bhar\s*saal\b",
+        r"\bsaalana\b",
+        r"\bsalana\b",
+        r"\bsalaana\b",
+        r"\bvarsh\b",
+        r"\bannual\w*",
+        r"\byearly\b",
+        r"\bper\s*year\b",
+        r"\bhar\s*saal\b",
     )
 )
 _MONTHLY_CUES: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE)
     for p in (
-        r"\bmahin[ae]\b", r"\bmaheen[ae]\b", r"\bmonth\w*", r"\bmasik\b",
+        r"\bmahin[ae]\b",
+        r"\bmaheen[ae]\b",
+        r"\bmonth\w*",
+        r"\bmasik\b",
         r"\bp\.?\s?m\.?\b",
     )
 )
@@ -779,11 +865,27 @@ _MONTHLY_CUES: tuple[re.Pattern[str], ...] = tuple(
 _MONEY_CUES: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE)
     for p in (
-        r"₹", r"\brs\.?\b", r"\binr\b", r"\brupee\w*", r"\brupa?y[ae]?\b",
-        r"\bsal+ary\b", r"\btanakha\b", r"\btankha\b", r"\bpaga?ar?\b",
-        r"\bmil(?:ta|te|ti)\b", r"\bkama\w*", r"\bpay\w*", r"\bwage\w*",
-        r"\bstipend\b", r"\bincome\b", r"\bctc\b", r"\bmahin[ae]\b",
-        r"\bmonth\w*", r"\bmasik\b", r"\bexpect\w*", r"\bchahi\w*",
+        r"₹",
+        r"\brs\.?\b",
+        r"\binr\b",
+        r"\brupee\w*",
+        r"\brupa?y[ae]?\b",
+        r"\bsal+ary\b",
+        r"\btanakha\b",
+        r"\btankha\b",
+        r"\bpaga?ar?\b",
+        r"\bmil(?:ta|te|ti)\b",
+        r"\bkama\w*",
+        r"\bpay\w*",
+        r"\bwage\w*",
+        r"\bstipend\b",
+        r"\bincome\b",
+        r"\bctc\b",
+        r"\bmahin[ae]\b",
+        r"\bmonth\w*",
+        r"\bmasik\b",
+        r"\bexpect\w*",
+        r"\bchahi\w*",
     )
 )
 # --- Relocation willingness (issue #437: STOP FABRICATING willing_to_relocate) ---
@@ -861,6 +963,8 @@ def _has_anywhere_cue(text: str) -> bool:
         "mera bhai Kerala me hai, main kahin bhi ja sakta hu"      -> ['Kerala']
     """
     return any(p.search(text) for p in _ANYWHERE_RE)
+
+
 # Places a move could be TO, INCLUDING the ambiguous ones. "bahar"/"outside" are here
 # and not above because "bahar JAANA" is leaving town while "bahar KA diameter" is the
 # outer diameter — only the verb beside it decides. "dusre sheher" likewise: on its own
@@ -912,6 +1016,7 @@ _RELOCATE_CUE_RE: tuple[re.Pattern[str], ...] = tuple(
     )
 )
 
+
 def _has_relocate_cue(text: str, masked: str | None = None) -> bool:
     """True when ``text`` states a genuine willingness to CHANGE PLACE (#437).
 
@@ -921,11 +1026,11 @@ def _has_relocate_cue(text: str, masked: str | None = None) -> bool:
     """
     for pattern in _RELOCATE_CUE_RE:
         for match in pattern.finditer(text):
-            if masked is None or not _negation_vetoed(
-                masked, text, match.start(), match.end()
-            ):
+            if masked is None or not _negation_vetoed(masked, text, match.start(), match.end()):
                 return True
     return False
+
+
 # --- Availability (issue #424 follow-up: STOP FABRICATING "immediate") ------
 #
 # THE DEFECT (measured, post-merge review of #429). These cues were BARE SUBSTRINGS:
@@ -962,9 +1067,7 @@ def _has_relocate_cue(text: str, masked: str | None = None) -> bool:
 # nothing downstream ever re-asks a topic the detector already marked answered.
 
 # Time adverbs. NOT cues on their own — they only qualify a join/start intent.
-_AVAIL_NOW = (
-    r"(?:abhi|filhal|filhaal|turant|fauran|foran|aaj|kal|immediately|right\s+now)"
-)
+_AVAIL_NOW = r"(?:abhi|filhal|filhaal|turant|fauran|foran|aaj|kal|immediately|right\s+now)"
 # Joining/starting INTENT: ability or future forms only. Past-tense joins ("2019 me
 # company join ki thi", "kal join ki thi") are history, not availability, so they are
 # deliberately unmatched.
@@ -1095,29 +1198,28 @@ _SELF_STATE_BEFORE_RE = tuple(
     )
 )
 _SELF_STATE_AFTER_RE = tuple(
-    re.compile(p, re.IGNORECASE)
-    for p in (_SELF_STATE_PAST_AFTER, _SELF_STATE_RESOLVED)
+    re.compile(p, re.IGNORECASE) for p in (_SELF_STATE_PAST_AFTER, _SELF_STATE_RESOLVED)
 )
 _FIRST_PERSON_CLAIM_RE = re.compile(
-    r"\b(?:hu|hun|hoon|hoo|main|mai|mera|mere|mujhe|karta|karti|chalata|chalati)\b",
+    r"\b(?:hu|hun|hoon|hoo|main|mai|maine|mera|mere|meri|mujhe|apna|apne|karta|karti|chalata|chalati|chalaya|chalayi|aata|aati|kiya)\b",
     re.IGNORECASE,
 )
 _CLAIM_BLOCKERS_RE = re.compile(
-    r"\b(?:bhai|baap|papa|pitaji|chacha|dost|friend|pati|husband|patni|biwi|wife|chahiye|chahta|chahti|seekh|training|nahi|nai|nhi|nahin|naa|na)\b",
+    r"\b(?:bhai|baap|papa|pitaji|chacha|dost|friend|pati|husband|patni|biwi|wife|chahta|chahti|seekh|training|banna)\b",
     re.IGNORECASE,
 )
 
 
 def has_first_person_claim(text: str) -> bool:
-    """True when the text contains a first-person self-claim marker, and lacks 
+    """True when the text contains a first-person self-claim marker, and lacks
     third-party mentions, aspirations, or negations that invalidate it.
-    
+
     Used to prevent extracting machines/skills/roles from statements the worker
     never made about themselves (TD98, TD101).
     """
-    return bool(_FIRST_PERSON_CLAIM_RE.search(text)) and not bool(
-        _CLAIM_BLOCKERS_RE.search(text)
-    )
+    has_claim = bool(_FIRST_PERSON_CLAIM_RE.search(text))
+    has_blocker = bool(_CLAIM_BLOCKERS_RE.search(text))
+    return has_claim and not has_blocker
 
 
 def _self_state_blocked(text: str, start: int, end: int) -> bool:
@@ -1137,8 +1239,8 @@ def _self_state_blocked(text: str, start: int, end: int) -> bool:
     real answer. Fail direction stays toward "unknown": a blocked cue leaves
     availability unset, and #429's must-ask gate then asks the question properly.
     """
-    before = text[max(0, start - _SELF_STATE_WINDOW_BEFORE): start]
-    after = text[end: end + _SELF_STATE_WINDOW_AFTER]
+    before = text[max(0, start - _SELF_STATE_WINDOW_BEFORE) : start]
+    after = text[end : end + _SELF_STATE_WINDOW_AFTER]
     return any(p.search(before) for p in _SELF_STATE_BEFORE_RE) or any(
         p.search(after) for p in _SELF_STATE_AFTER_RE
     )
@@ -1206,12 +1308,9 @@ def _preceded_by_negator(text: str, start: int) -> bool:
             clause_start = c_start
             break
     before = [
-        m.group(0).strip(_TOKEN_TRIM).lower()
-        for m in _WORD_RE.finditer(text[clause_start:start])
+        m.group(0).strip(_TOKEN_TRIM).lower() for m in _WORD_RE.finditer(text[clause_start:start])
     ]
-    return any(
-        token in _NEGATORS for token in before[-_PRE_NEGATOR_LOOKBACK:]
-    )
+    return any(token in _NEGATORS for token in before[-_PRE_NEGATOR_LOOKBACK:])
 
 
 def _availability_negated(masked: str, raw: str, start: int, end: int) -> bool:
@@ -1229,6 +1328,7 @@ def _has_immediate_cue(text: str, masked: str | None = None) -> bool:
     length) turns that veto on. Negation-bearing cues are matched separately and are
     never vetoed, because their negator is the signal.
     """
+
     def vetoed(start: int, end: int) -> bool:
         return masked is not None and _availability_negated(masked, text, start, end)
 
@@ -1263,6 +1363,7 @@ def _has_notice_cue(text: str, masked: str | None = None) -> bool:
                 return True
     return False
 
+
 # Notice-period durations. Deliberately EXCLUDES "saal"/"year": years are experience,
 # never a notice period — and the experience clause is precisely what the old bare
 # "month"/"mahina"/"days" cues were misreading.
@@ -1270,9 +1371,7 @@ _AVAIL_NUM = (
     r"(?:\d{1,3}|ek|do|teen|tin|char|chaar|paanch|panch|chhah|chhe|saat|aath|das|"
     r"pandrah|bees|tees|one|two|three|four|five|six|seven|ten|fifteen|twenty|thirty)"
 )
-_AVAIL_UNIT = (
-    r"(?:din|days?|hafte|haftey|hafta|weeks?|mahin[ae]|maheen[ae]|months?)"
-)
+_AVAIL_UNIT = r"(?:din|days?|hafte|haftey|hafta|weeks?|mahin[ae]|maheen[ae]|months?)"
 # A duration only means NOTICE when it is the time something TAKES — "15 din lagenge",
 # "30 din baad". A duration on its own ("6 month ka experience hai") means nothing
 # about availability, so it is left to the context-gated read in
@@ -1314,9 +1413,9 @@ _ASKED_NOTICE_SPAN_RE = re.compile(rf"\b({_AVAIL_NUM})\s*({_AVAIL_UNIT})\b", re.
 _ASKED_NOTICE_BLOCKERS_RE: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE)
     for p in (
-        r"\bpehle\b",            # "10 din pehle" — that many days AGO
-        r"\bse\b",               # "do mahine se" — FOR the last two months
-        r"\bkaam\s+kar",         # "hafte me 6 din kaam karta hu" — a work pattern
+        r"\bpehle\b",  # "10 din pehle" — that many days AGO
+        r"\bse\b",  # "do mahine se" — FOR the last two months
+        r"\bkaam\s+kar",  # "hafte me 6 din kaam karta hu" — a work pattern
         r"\bexperience\b",
     )
 )
@@ -1325,37 +1424,60 @@ _ASKED_NOTICE_BLOCK_WINDOW = 14
 
 def _asked_notice_blocked(text: str, start: int, end: int) -> bool:
     """True when a bare duration in an availability-context message is not a notice."""
-    window = text[max(0, start - _ASKED_NOTICE_BLOCK_WINDOW): start] + " " + text[
-        end: end + _ASKED_NOTICE_BLOCK_WINDOW
-    ]
+    window = (
+        text[max(0, start - _ASKED_NOTICE_BLOCK_WINDOW) : start]
+        + " "
+        + text[end : end + _ASKED_NOTICE_BLOCK_WINDOW]
+    )
     return any(p.search(window) for p in _ASKED_NOTICE_BLOCKERS_RE)
 
 
 _AVAIL_WORD_NUMBERS: dict[str, int] = {
-    "ek": 1, "one": 1,
-    "do": 2, "two": 2,
-    "teen": 3, "tin": 3, "three": 3,
-    "char": 4, "chaar": 4, "four": 4,
-    "paanch": 5, "panch": 5, "five": 5,
-    "chhah": 6, "chhe": 6, "six": 6,
-    "saat": 7, "seven": 7,
+    "ek": 1,
+    "one": 1,
+    "do": 2,
+    "two": 2,
+    "teen": 3,
+    "tin": 3,
+    "three": 3,
+    "char": 4,
+    "chaar": 4,
+    "four": 4,
+    "paanch": 5,
+    "panch": 5,
+    "five": 5,
+    "chhah": 6,
+    "chhe": 6,
+    "six": 6,
+    "saat": 7,
+    "seven": 7,
     "aath": 8,
-    "das": 10, "ten": 10,
-    "pandrah": 15, "fifteen": 15,
-    "bees": 20, "twenty": 20,
-    "tees": 30, "thirty": 30,
+    "das": 10,
+    "ten": 10,
+    "pandrah": 15,
+    "fifteen": 15,
+    "bees": 20,
+    "twenty": 20,
+    "tees": 30,
+    "thirty": 30,
 }
 # Calendar-ish, deliberately coarse. A worker saying "do mahine" means "about two
 # months", not 61 days, and the field feeds a payer-facing band.
 _AVAIL_UNIT_DAYS: tuple[tuple[str, int], ...] = (
-    ("din", 1), ("day", 1),
-    ("hafte", 7), ("haftey", 7), ("hafta", 7), ("week", 7),
-    ("mahin", 30), ("maheen", 30), ("month", 30),
+    ("din", 1),
+    ("day", 1),
+    ("hafte", 7),
+    ("haftey", 7),
+    ("hafta", 7),
+    ("week", 7),
+    ("mahin", 30),
+    ("maheen", 30),
+    ("month", 30),
 )
 
 
 def _notice_days(num: str, unit: str) -> int | None:
-    """"15 din" -> 15, "do mahine" -> 60, "ek hafta" -> 7."""
+    """ "15 din" -> 15, "do mahine" -> 60, "ek hafta" -> 7."""
     low_num, low_unit = num.lower(), unit.lower()
     value = _AVAIL_WORD_NUMBERS.get(low_num)
     if value is None:
@@ -1399,12 +1521,11 @@ def _asked_notice_duration(text: str, masked: str | None = None) -> bool:
     """
     return any(
         not _asked_notice_blocked(text, m.start(), m.end())
-        and (
-            masked is None
-            or not _availability_negated(masked, text, m.start(), m.end())
-        )
+        and (masked is None or not _availability_negated(masked, text, m.start(), m.end()))
         for m in _ASKED_NOTICE_RE.finditer(text)
     )
+
+
 _ASKED_IMMEDIATE_RE: tuple[re.Pattern[str], ...] = tuple(
     re.compile(p, re.IGNORECASE)
     for p in (
@@ -1468,9 +1589,21 @@ _CLAUSE_SPLIT_RE = re.compile(
 # Unambiguous negators: these are never a tag/affirmation in worker speech.
 _NEGATORS: frozenset[str] = frozenset(
     {
-        "nahi", "nahin", "nahee", "nahii", "nai", "nhi", "nahiin",
-        "mat", "not", "never",
-        "नहीं", "नही", "नहि", "मत", "न",
+        "nahi",
+        "nahin",
+        "nahee",
+        "nahii",
+        "nai",
+        "nhi",
+        "nahiin",
+        "mat",
+        "not",
+        "never",
+        "नहीं",
+        "नही",
+        "नहि",
+        "मत",
+        "न",
     }
 )
 # NOT included: bare English "no". In this domain it is far more often the
@@ -1486,9 +1619,32 @@ _NEGATORS: frozenset[str] = frozenset(
 _TAG_ONLY_NEGATORS: frozenset[str] = frozenset({"na", "ना"})
 _TAG_PRECEDERS: frozenset[str] = frozenset(
     {
-        "hu", "hun", "hoon", "hai", "hain", "ho", "hota", "hoti",
-        "tha", "the", "thi", "karta", "karte", "karti", "aata", "aati", "aate",
-        "chalata", "chalate", "chalati", "theek", "thik", "haan", "han", "sahi", "ok",
+        "hu",
+        "hun",
+        "hoon",
+        "hai",
+        "hain",
+        "ho",
+        "hota",
+        "hoti",
+        "tha",
+        "the",
+        "thi",
+        "karta",
+        "karte",
+        "karti",
+        "aata",
+        "aati",
+        "aate",
+        "chalata",
+        "chalate",
+        "chalati",
+        "theek",
+        "thik",
+        "haan",
+        "han",
+        "sahi",
+        "ok",
     }
 )
 
@@ -1511,8 +1667,7 @@ _NEGATABLE_TOPIC_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "skills",
         re.compile(
-            r"setting|set\s?up|"
-            + "|".join(re.escape(kw) for kw, _label, _sid in _SKILLS),
+            r"setting|set\s?up|" + "|".join(re.escape(kw) for kw, _label, _sid in _SKILLS),
             re.IGNORECASE,
         ),
     ),
@@ -1523,17 +1678,28 @@ _NEGATABLE_TOPIC_CUES: tuple[tuple[str, re.Pattern[str]], ...] = (
 # Deliberately excludes the essentials (role/machines/current_location) and salary:
 # "VMC nahi chalaya" is a denial, not an answer, and closing those asks on it would
 # ship an incomplete profile silently — the engine must still ask them.
-_NEGATION_ANSWERS_TOPICS: frozenset[str] = frozenset(
-    {"education", "skills", "certifications"}
-)
+_NEGATION_ANSWERS_TOPICS: frozenset[str] = frozenset({"education", "skills", "certifications"})
 
 # P1-1: an EXPLICIT self-correction. Only these let a value for a topic that is NOT
 # the one being asked overwrite an already-collected value (see interview_engine).
 _CORRECTION_MARKERS: tuple[str, ...] = (
-    "nahi nahi", "nahin nahin", "nhi nhi", "nahi nhi", "nai nai",
-    "galat", "ghalat", "sorry", "correction", "correct kar",
-    "actually", "asal mein", "asal me", "sudhar", "wapas se",
-    "नहीं नहीं", "गलत",
+    "nahi nahi",
+    "nahin nahin",
+    "nhi nhi",
+    "nahi nhi",
+    "nai nai",
+    "galat",
+    "ghalat",
+    "sorry",
+    "correction",
+    "correct kar",
+    "actually",
+    "asal mein",
+    "asal me",
+    "sudhar",
+    "wapas se",
+    "नहीं नहीं",
+    "गलत",
 )
 
 
@@ -1579,7 +1745,7 @@ def _apply_negation(text: str) -> tuple[str, set[str]]:
             prev_token = words[i - 1][2] if i > 0 else None
             if not _is_negator(word, prev_token, is_clause_final=i == len(words) - 1):
                 continue
-            back = words[max(0, i - _NEGATION_BACK_WORDS): i]
+            back = words[max(0, i - _NEGATION_BACK_WORDS) : i]
             if not back:
                 continue
             negated_spans.append((back[0][0], back[-1][1]))
@@ -1645,7 +1811,7 @@ def _level_near(text: str, keyword: str) -> KnowledgeLevel:
     idx = text.find(keyword)
     if idx == -1:
         return "unknown"
-    window = text[max(0, idx - 25): idx + len(keyword) + 25]
+    window = text[max(0, idx - 25) : idx + len(keyword) + 25]
     basic_cues = ("thoda", "basic", "little", "thodi", "kam")
     strong_cues = ("full", "poora", "pura", "expert", "strong", "achha", "acha", "master")
     if any(w in window for w in basic_cues):
@@ -1705,9 +1871,7 @@ def has_machining_signal(lower: str, sig: Signals) -> bool:
     a detected machine id, a detected controller, or a machining keyword.
     """
     return bool(
-        sig.machine_ids
-        or sig.controllers
-        or any(p.search(lower) for p in _MACHINING_CONTEXT_RE)
+        sig.machine_ids or sig.controllers or any(p.search(lower) for p in _MACHINING_CONTEXT_RE)
     )
 
 
@@ -2036,9 +2200,7 @@ def _period_months(near_before: str, near_after: str) -> int | None:
     annual = any(cue.search(near_after) for cue in _ANNUAL_CUES_AFTER) or any(
         cue.search(near_before) for cue in _ANNUAL_CUES_BEFORE
     )
-    monthly = any(
-        cue.search(near_before) or cue.search(near_after) for cue in _MONTHLY_CUES
-    )
+    monthly = any(cue.search(near_before) or cue.search(near_after) for cue in _MONTHLY_CUES)
     if annual and monthly:
         return None
     return 12 if annual else 1
@@ -2107,8 +2269,8 @@ def _detect_salary(text: str, lower: str, sig: Signals) -> None:
         # forward window re-creates the same bug at shorter range.
         if _CREDENTIAL_BEFORE_RE.search(lower[line_start:digits_at]):
             continue  # a roll/registration number, not a wage
-        near_before = lower[max(line_start, m.start() - _PERIOD_WINDOW_BEFORE): m.start()]
-        near_after = lower[m.end(): min(line_end, m.end() + _PERIOD_WINDOW_AFTER)]
+        near_before = lower[max(line_start, m.start() - _PERIOD_WINDOW_BEFORE) : m.start()]
+        near_after = lower[m.end() : min(line_end, m.end() + _PERIOD_WINDOW_AFTER)]
         if _looks_like_a_year(num, unit, near_before + " " + near_after):
             continue
         months = _period_months(near_before, near_after)
@@ -2117,7 +2279,7 @@ def _detect_salary(text: str, lower: str, sig: Signals) -> None:
         amount = _parse_amount(num, unit, months)
         if amount is None or amount < 1_000:
             continue
-        window = lower[max(line_start, m.start() - 25): min(line_end, m.end() + 10)]
+        window = lower[max(line_start, m.start() - 25) : min(line_end, m.end() + 10)]
         if any(cue in window for cue in _EXPECTED_CUES):
             if sig.expected_salary is None:
                 sig.expected_salary = amount
@@ -2284,9 +2446,7 @@ def detect_inferred_topics(text: str, last_asked_topic_id: str | None = None) ->
     return set()
 
 
-def detect_answered_topics(
-    text: str, last_asked_topic_id: str | None = None
-) -> dict[str, object]:
+def detect_answered_topics(text: str, last_asked_topic_id: str | None = None) -> dict[str, object]:
     """Map detected signals to interview topic ids -> a short collected value.
 
     Used by the interview engine to mark progress. Returns profile data only
@@ -2335,10 +2495,10 @@ def detect_answered_topics(
     if sig.machines:
         if last_asked_topic_id == "machines" or has_first_person_claim(lower):
             answered["machines"] = sig.machines
-            
+
     if sig.controllers:
         answered["controllers"] = sig.controllers
-        
+
     if sig.experience_years is not None:
         answered["experience"] = sig.experience_years
 
