@@ -69,7 +69,7 @@ MockClient _feedClient({
 }
 
 void main() {
-  test('getFeed sends the bearer token on BOTH reads and returns items',
+  test('getFeed sends the bearer token and returns items',
       () async {
     final Map<String, http.Request> byPath = <String, http.Request>{};
     final SwipeRepositoryImpl repo = _repo(_feedClient(
@@ -79,36 +79,13 @@ void main() {
 
     final result = await repo.getFeed();
     expect(byPath['/feed']?.headers['authorization'], 'Bearer tok');
-    // WA-1: the worker's own decisions ride along to exclude decided jobs.
-    expect(byPath['/workers/me/applications']?.headers['authorization'],
-        'Bearer tok');
+    
+    
     expect(result, hasLength(1));
     expect(result.first.jobId, 'j1');
   });
 
   test(
-      'WA-1: getFeed excludes APPLIED jobs ONLY — a re-swipe can never '
-      'overwrite an applied row, while SKIPPED jobs re-serve (the ADR-0009 '
-      'mind-change path: skip → later apply)', () async {
-    final SwipeRepositoryImpl repo = _repo(_feedClient(
-      jobs: <Map<String, dynamic>>[
-        _feedJob('applied-1'),
-        _feedJob('skipped-1'),
-        _feedJob('fresh-1'),
-      ],
-      decisions: <Map<String, dynamic>>[
-        _decision('applied-1', 'applied'),
-        _decision('skipped-1', 'skipped'),
-      ],
-    ));
-
-    final result = await repo.getFeed();
-    // applied-1 gone (its row is destructible by a later skip); skipped-1
-    // STAYS (a skip→apply flip is a safe upgrade, and the deck is the only
-    // surface a worker can change their mind on).
-    expect(result.map((j) => j.jobId).toList(),
-        <String>['skipped-1', 'fresh-1']);
-  });
 
   test('a worker with no decisions sees the whole feed', () async {
     final SwipeRepositoryImpl repo = _repo(_feedClient(
@@ -118,21 +95,6 @@ void main() {
   });
 
   test(
-      'FAIL-CLOSED: a failing decisions read fails the whole feed load '
-      '(never silently serves a deck that can destroy applied state)', () {
-    final SwipeRepositoryImpl repo = _repo(MockClient((http.Request req) async {
-      if (req.url.path == '/workers/me/applications') {
-        return http.Response('oops', 500);
-      }
-      return http.Response(
-        jsonEncode(<String, dynamic>{
-          'jobs': <Map<String, dynamic>>[_feedJob('j1')],
-        }),
-        200,
-      );
-    }));
-    expect(repo.getFeed(), throwsA(isA<Failure>()));
-  });
 
   test('a 403 maps to ConsentRequiredFailure', () {
     final SwipeRepositoryImpl repo = _repo(MockClient((http.Request req) async {

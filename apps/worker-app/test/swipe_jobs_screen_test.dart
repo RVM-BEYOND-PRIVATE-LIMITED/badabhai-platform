@@ -113,7 +113,7 @@ void main() {
   ) async {
     http.Request? captured;
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
-      if (req.url.path == '/workers/me/applications') return _noDecisions();
+      
       captured = req;
       return http.Response(
         jsonEncode(<String, dynamic>{
@@ -155,7 +155,7 @@ void main() {
     WidgetTester tester,
   ) async {
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
-      if (req.url.path == '/workers/me/applications') return _noDecisions();
+      
       return http.Response(
         jsonEncode(<String, dynamic>{
           'jobs': <Map<String, dynamic>>[
@@ -178,7 +178,7 @@ void main() {
     WidgetTester tester,
   ) async {
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
-      if (req.url.path == '/workers/me/applications') return _noDecisions();
+      
       return http.Response(
         jsonEncode(<String, dynamic>{'jobs': <Map<String, dynamic>>[]}),
         200,
@@ -217,7 +217,7 @@ void main() {
   ) async {
     http.Request? applyReq;
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
-      if (req.url.path == '/workers/me/applications') return _noDecisions();
+      
       if (req.url.path == '/feed') {
         return http.Response(
           jsonEncode(<String, dynamic>{
@@ -260,7 +260,7 @@ void main() {
   ) async {
     final List<String> decisionPaths = <String>[];
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
-      if (req.url.path == '/workers/me/applications') return _noDecisions();
+      
       if (req.url.path == '/feed') {
         return http.Response(
           jsonEncode(<String, dynamic>{
@@ -312,7 +312,7 @@ void main() {
   ) async {
     String? skipPath;
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
-      if (req.url.path == '/workers/me/applications') return _noDecisions();
+      
       if (req.url.path == '/feed') {
         return http.Response(
           jsonEncode(<String, dynamic>{
@@ -354,7 +354,7 @@ void main() {
     WidgetTester tester,
   ) async {
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
-      if (req.url.path == '/workers/me/applications') return _noDecisions();
+      
       if (req.url.path == '/feed') {
         return http.Response(
           jsonEncode(<String, dynamic>{
