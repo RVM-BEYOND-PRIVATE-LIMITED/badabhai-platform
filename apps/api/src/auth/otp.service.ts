@@ -83,6 +83,28 @@ export class OtpService {
     const cooldownKey = OtpService.cooldownKey(phoneHash);
 
     try {
+      // 1b. Deleted-phone cool-down tombstone check (anti-abuse only, fail-open).
+      // After account deletion, `deleted_phone:<hash>` key is set in Redis with 7-day
+      // TTL. If it exists, return the SAME byte-identical 429 as the resend cooldown
+      // so a caller cannot distinguish "deleted account" from "normal cooldown" (no
+      // oracle). A Redis error here is FAIL-OPEN (logged warn, proceed).
+      const deletedPhoneKey = `deleted_phone:${phoneHash}`;
+      try {
+        if ((await redis.exists(deletedPhoneKey)) > 0) {
+          throw new HttpException(
+            "Please wait before requesting another code",
+            HttpStatus.TOO_MANY_REQUESTS,
+          );
+        }
+      } catch (tombstoneErr) {
+        if (tombstoneErr instanceof HttpException) throw tombstoneErr;
+        this.logger.warn(
+          `deleted_phone tombstone check failed phone_hash=${hashPrefix}; fail-open (reason: ${
+            tombstoneErr instanceof Error ? tombstoneErr.message : String(tombstoneErr)
+          })`,
+        );
+      }
+
       // 2. Resend cooldown.
       if ((await redis.exists(cooldownKey)) > 0) {
         throw new HttpException(

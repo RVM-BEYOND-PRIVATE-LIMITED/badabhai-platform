@@ -106,6 +106,7 @@ const phoneHash = `phash_${PHONE.length}`;
 const codeKey = `otp:code:${phoneHash}`;
 const attemptsKey = `otp:attempts:${phoneHash}`;
 const cooldownKey = `otp:cooldown:${phoneHash}`;
+const deletedPhoneKey = `deleted_phone:${phoneHash}`;
 
 describe("OtpService.issueAndSend", () => {
   it("generates a numeric code of OTP_LENGTH and sends it", async () => {
@@ -143,6 +144,27 @@ describe("OtpService.issueAndSend", () => {
     redis.store.set(cooldownKey, "1");
     await expect(svc.issueAndSend(PHONE)).rejects.toMatchObject({
       status: HttpStatus.TOO_MANY_REQUESTS,
+    });
+  });
+
+  it("429s when a deleted-phone cool-down tombstone is present (TD80)", async () => {
+    const { svc, redis } = setup();
+    redis.store.set(deletedPhoneKey, "1");
+    await expect(svc.issueAndSend(PHONE)).rejects.toMatchObject({
+      status: HttpStatus.TOO_MANY_REQUESTS,
+      message: "Please wait before requesting another code",
+    });
+    // No code was generated or stored.
+    expect(redis.store.has(codeKey)).toBe(false);
+  });
+
+  it("fail-open if deleted-phone tombstone exists but Redis errors (TD80)", async () => {
+    // The first "exists" (tombstone check) fails; caught fail-open → continues to
+    // cooldown "exists" which ALSO fails → outer catch throws 503 (fail-closed for
+    // the outer call). The tombstone check itself never cascades to a crash.
+    const { svc: errSvc } = setup({ throwOn: "exists" });
+    await expect(errSvc.issueAndSend(PHONE)).rejects.toMatchObject({
+      status: HttpStatus.SERVICE_UNAVAILABLE,
     });
   });
 
