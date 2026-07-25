@@ -237,7 +237,7 @@ describe("ApplicationsService — feed", () => {
 
   it("returns coarse PII-free items with 1-based rank and emits one feed.shown per item", async () => {
     const { svc, events } = setup({ openJobs: OPEN_JOBS });
-    const out = await svc.getFeed(WORKER_ID, 20, CTX);
+    const out = await svc.getFeed(WORKER_ID, 20, {}, CTX);
 
     expect(out.jobs).toEqual([
       { job_id: OPEN_JOBS[0]!.id, trade_key: "cnc_operator", title: "T1", city: "Pune", area: "PCMC", min_experience_years: 2, max_experience_years: 5, pay_min: 18000, pay_max: 25000, shift: "night", rank: 1 },
@@ -259,7 +259,7 @@ describe("ApplicationsService — feed", () => {
 
   it("emits nothing when there are no open jobs", async () => {
     const { svc, events } = setup({ openJobs: [] });
-    const out = await svc.getFeed(WORKER_ID, 20, CTX);
+    const out = await svc.getFeed(WORKER_ID, 20, {}, CTX);
     expect(out.jobs).toEqual([]);
     expect(events.emitMany).not.toHaveBeenCalled();
   });
@@ -274,14 +274,14 @@ describe("ApplicationsService — feed", () => {
       { id: "b0000000-0000-0000-0000-000000000004", tradeKey: "vmc_setter", title: "T4", city: "Coimbatore", area: null },
     ];
     const { svc, repo, events } = setup({ openJobs: acrossCities });
-    const out = await svc.getFeed(WORKER_ID, 50, CTX);
+    const out = await svc.getFeed(WORKER_ID, 50, {}, CTX);
 
     // Every job returned (no drop), in the repository's deterministic order.
     expect(out.jobs).toHaveLength(acrossCities.length);
     expect(out.jobs.map((j) => j.job_id)).toEqual(acrossCities.map((j) => j.id));
     expect(out.jobs.map((j) => j.city)).toEqual(["Pune", "Chennai", "Rajkot", "Coimbatore"]);
     // The limit is passed straight through — no city/coords argument is invented.
-    expect(repo.findOpenJobs).toHaveBeenCalledWith(WORKER_ID, 50);
+    expect(repo.findOpenJobs).toHaveBeenCalledWith(WORKER_ID, 50, {});
     // One impression per returned job (no dedupe, no filtering).
     const batch = events.emitMany.mock.calls[0]![0] as unknown[];
     expect(batch).toHaveLength(acrossCities.length);
@@ -292,7 +292,7 @@ describe("ApplicationsService — feed", () => {
     // infinity], so coercing a null min to 0 would be lossless here but coercing a
     // null max to 0 would collapse the window and hide the job from every band.
     const { svc } = setup({ openJobs: OPEN_JOBS });
-    const out = await svc.getFeed(WORKER_ID, 20, CTX);
+    const out = await svc.getFeed(WORKER_ID, 20, {}, CTX);
 
     expect(out.jobs[0]).toMatchObject({ min_experience_years: 2, max_experience_years: 5 });
     expect(out.jobs[1]!.min_experience_years).toBeNull();
@@ -304,7 +304,7 @@ describe("ApplicationsService — feed", () => {
       { id: "c0000000-0000-0000-0000-000000000001", tradeKey: "welder", title: "T1", city: "Rajkot", area: null, minExperienceYears: 5, maxExperienceYears: null },
     ];
     const { svc } = setup({ openJobs: openEnded });
-    const out = await svc.getFeed(WORKER_ID, 20, CTX);
+    const out = await svc.getFeed(WORKER_ID, 20, {}, CTX);
 
     // '5+ yrs' jobs are stored as [5, null]; the null max means infinity, and the
     // feed must not substitute a finite bound for it.
@@ -315,7 +315,7 @@ describe("ApplicationsService — feed", () => {
 
   it("carries pay_min/pay_max/shift additively, nulls passed through un-coerced", async () => {
     const { svc } = setup({ openJobs: OPEN_JOBS });
-    const out = await svc.getFeed(WORKER_ID, 20, CTX);
+    const out = await svc.getFeed(WORKER_ID, 20, {}, CTX);
 
     // Values pass through as stored (the band, never an exact salary)…
     expect(out.jobs[0]).toMatchObject({ pay_min: 18000, pay_max: 25000, shift: "night" });
@@ -328,7 +328,7 @@ describe("ApplicationsService — feed", () => {
 
   it("stays backward-compatible: a consumer reading only the OLD FeedItem keys still works", async () => {
     const { svc } = setup({ openJobs: OPEN_JOBS });
-    const out = await svc.getFeed(WORKER_ID, 20, CTX);
+    const out = await svc.getFeed(WORKER_ID, 20, {}, CTX);
 
     // The pre-ADR-0024 shape is an INTACT SUBSET of every item (§8 additive-only):
     // an old client destructuring these keys sees exactly what it saw before.
@@ -351,7 +351,7 @@ describe("ApplicationsService — feed", () => {
 
   it("does NOT leak pay/shift (or anything new) into the feed.shown payload — EXACTLY the old keys", async () => {
     const { svc, events } = setup({ openJobs: OPEN_JOBS });
-    await svc.getFeed(WORKER_ID, 20, CTX);
+    await svc.getFeed(WORKER_ID, 20, {}, CTX);
 
     // feed.shown is UNCHANGED by ADR-0024 (response-only fields): the payload
     // key set stays byte-exact {worker_id, job_id, rank, score, hot} — asserted
@@ -374,7 +374,7 @@ describe("ApplicationsService — feed", () => {
 
   it("does NOT add the experience window to the feed.shown payload (no event change, no version bump)", async () => {
     const { svc, events } = setup({ openJobs: OPEN_JOBS });
-    await svc.getFeed(WORKER_ID, 20, CTX);
+    await svc.getFeed(WORKER_ID, 20, {}, CTX);
 
     // The payload contract stays exactly {worker_id, job_id, rank, score, hot} —
     // this is a RESPONSE-only field, so the events spine is unchanged and
@@ -399,7 +399,7 @@ describe("ApplicationsService — PII-free guarantees + ownership", () => {
         { id: "a0000000-0000-0000-0000-000000000001", tradeKey: "cnc_operator", title: "T1", city: "Pune", area: "PCMC" },
       ],
     });
-    await svc.getFeed(WORKER_ID, 5, CTX);
+    await svc.getFeed(WORKER_ID, 5, {}, CTX);
     await svc.apply(WORKER_ID, JOB_ID, { rank: 1, source_surface: "feed" }, CTX);
     await svc.skip(WORKER_ID, JOB_ID, { reason: "wrong_trade" }, CTX);
 

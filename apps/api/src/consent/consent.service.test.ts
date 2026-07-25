@@ -20,7 +20,9 @@ const DTO = {
 function setup() {
   const consents = { create: vi.fn(async (_i: Record<string, unknown>) => ({ id: "consent-1" })), withdraw: vi.fn(async () => {}) };
   const workers = { findById: vi.fn(async () => undefined as Record<string, unknown> | undefined) };
-  const events = { emit: vi.fn(async (p: { event_name: string; payload: Record<string, unknown> }) => p) };
+  const events = {
+    emit: vi.fn(async (p: { event_name: string; payload: Record<string, unknown>; idempotencyKey?: string }) => p),
+  };
   const pii = { hashIp: vi.fn(() => "iphash") };
   const sessions = { revokeAll: vi.fn(async () => 1) };
   const svc = new ConsentService(

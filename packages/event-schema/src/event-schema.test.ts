@@ -2162,8 +2162,9 @@ describe("worker.push_token_claimed (TD92)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 117 event names (116 prior + worker.push_token_claimed [TD92])", () => {
-    expect(EVENT_NAMES).toHaveLength(117);
+  it("exposes all 118 event names (117 prior + consent.revoked [TD69])", () => {
+    expect(EVENT_NAMES).toHaveLength(118);
+    expect(isEventName("consent.revoked")).toBe(true);
     expect(isEventName("skill.phrase_unresolved")).toBe(true);
     expect(isEventName("worker.otp_send_failed")).toBe(true);
     expect(isEventName("worker.deletion_scheduled")).toBe(true);

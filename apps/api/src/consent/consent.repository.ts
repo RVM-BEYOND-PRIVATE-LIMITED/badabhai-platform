@@ -40,7 +40,7 @@ export class ConsentRepository {
     if (!latest || latest.revokedAt !== null) return;
     await this.db
       .update(workerConsents)
-      .set({ revokedAt: new Date(), updatedAt: new Date() })
+      .set({ revokedAt: new Date() })
       .where(and(eq(workerConsents.id, latest.id)));
   }
 }

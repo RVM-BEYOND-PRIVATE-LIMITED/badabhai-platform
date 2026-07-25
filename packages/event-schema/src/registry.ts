@@ -163,6 +163,7 @@ export const EVENT_REGISTRY = {
   },
 
   "consent.accepted": { version: 1, domain: "consent", payload: p.ConsentAcceptedPayload },
+  "consent.revoked": { version: 1, domain: "consent", payload: p.ConsentRevokedPayload },
 
   "chat.session_started": { version: 1, domain: "chat", payload: p.ChatSessionStartedPayload },
   "chat.message_received": { version: 1, domain: "chat", payload: p.ChatMessageReceivedPayload },

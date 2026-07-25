@@ -5,7 +5,7 @@ import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button, Input, OtpInput, Tabs, Toast, tabId, tabPanelId } from "../../components/ds";
 import { requestCodeAction, signupAction, verifyCodeAction } from "./actions";
-import { NEUTRAL_SEND_ERROR, SEND_CONFIRMATION } from "./messages";
+import { INVALID_ORG_NAME, INVALID_PHONE, SEND_CONFIRMATION } from "./messages";
 import type { PayerRole } from "../../lib/auth";
 
 /**

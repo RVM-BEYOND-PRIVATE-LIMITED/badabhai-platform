@@ -27,7 +27,7 @@ describe("ApplicationsController (thin) — worker from token", () => {
   it("feed uses the authed worker id + clamped limit", async () => {
     const { controller, applications } = make();
     await controller.feed(WORKER, { limit: 20 } as never, CTX);
-    expect(applications.getFeed).toHaveBeenCalledWith(WORKER.id, 20, CTX);
+    expect(applications.getFeed).toHaveBeenCalledWith(WORKER.id, 20, { tradeKey: undefined, city: undefined }, CTX);
   });
 
   it("apply passes the authed worker id (not the body) + jobId", async () => {

@@ -359,6 +359,13 @@ export const ConsentAcceptedPayload = z.object({
   accepted_at: isoDateTimeSchema,
 });
 
+/** TD69 — DPDP consent withdrawal (`POST /consent/withdraw`). PII-free: opaque
+ * worker id + an aggregate count of sessions revoked, no session ids. */
+export const ConsentRevokedPayload = z.object({
+  worker_id: uuidSchema,
+  sessions_revoked: z.number().int().min(0),
+});
+
 // ---------------------------------------------------------------------------
 // chat.*
 // ---------------------------------------------------------------------------
