@@ -32,6 +32,7 @@
     "db:embed:skills": "tsx src/embed-skill-aliases.ts",
     "db:growth:cluster": "tsx src/growth-cluster.ts",
     "db:retag:skills": "tsx src/retag-skills.ts",
+    "db:reencrypt:pii": "tsx src/reencrypt-pii-backfill.ts",
     "db:verify:demand": "tsx src/verify-demand.ts",
     "db:seed:reach": "tsx src/seed-reach-pool.ts",
     "db:seed:reach:large": "tsx src/seed-reach-pool.ts",
