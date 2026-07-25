@@ -44,7 +44,7 @@ export class PushRepository {
   async claim(eventId: string, deviceId: string): Promise<string | null> {
     const inserted = await this.db
       .insert(pushDeliveries)
-      .values({ eventId, deviceId, status: "sent" })
+      .values({ eventId, deviceId, status: "pending" })
       .onConflictDoNothing({
         target: [pushDeliveries.eventId, pushDeliveries.deviceId],
       })

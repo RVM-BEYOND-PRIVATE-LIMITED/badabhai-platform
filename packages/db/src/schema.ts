@@ -337,7 +337,7 @@ export const workerDevices = pgTable(
 // the audit spine is PII-free and outlives the worker by design, so it is SET NULL.
 // RLS-enabled (FORCE + REVOKE in the migration) like every sibling identity table.
 // ---------------------------------------------------------------------------
-export type PushDeliveryStatus = "sent" | "failed";
+export type PushDeliveryStatus = "pending" | "sent" | "failed";
 
 export const pushDeliveries = pgTable(
   "push_deliveries",
@@ -359,7 +359,7 @@ export const pushDeliveries = pgTable(
     // THE dedupe key: one attempt per (event, device).
     uniqueIndex("push_deliveries_event_device_uq").on(t.eventId, t.deviceId),
     index("push_deliveries_device_id_idx").on(t.deviceId),
-    check("push_deliveries_status_chk", sql`${t.status} IN ('sent', 'failed')`),
+    check("push_deliveries_status_chk", sql`${t.status} IN ('pending', 'sent', 'failed')`),
   ],
 ).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by the migration (ADR-0004 posture)
 

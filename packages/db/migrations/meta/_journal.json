@@ -344,6 +344,13 @@
       "when": 1784803712075,
       "tag": "0048_empty_archangel",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1784958922900,
+      "tag": "0049_secret_tyger_tiger",
+      "breakpoints": true
     }
   ]
 }
