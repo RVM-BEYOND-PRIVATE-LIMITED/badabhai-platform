@@ -8,10 +8,10 @@ Classification: **P0** blocks alpha/runtime proof · **P1** blocks an important 
 
 | Blocker | Type | Sev | Blocks | Task progress now | Max until resolved | Owner | Decision needed? |
 | ------- | ---- | --- | ------ | ----------------: | -----------------: | ----- | ---------------- |
-| ~~**Staging not deployed**~~ ✅ **RESOLVED 2026-07-18** — staging live, `0042`+`0043` applied, R27 box triaged, **real OTP**, **B1 CLOSED** (owner-attested, [QA_EVIDENCE](QA_EVIDENCE.md)). Open 19 days; cost 14 days of schedule | Infra | ~~P0~~ **CLEARED** | — | — | — | Prakash | No |
+| ~~**Staging not deployed**~~ ✅ **RESOLVED 2026-07-18** — staging live, `0042`+`0043` applied, R27 box triaged, **real OTP**, **B1 verified 2026-07-25 (Divyanshu)** + swipe **2026-07-25 (Prakash)** ([QA_EVIDENCE](QA_EVIDENCE.md)) | Infra | ~~P0~~ **CLEARED** | — | — | — | Prakash | No |
 | **[TD81](../registers/tech-debt-register.md) — staging runs MOCKED AI behind a 200 `/health`** (the `ai-service` is absent from [`docker-compose.yml`](../../docker-compose.yml)) | Infra/AI | **P1** | Any "real profiling verified on staging" claim; chat + profile-extraction proof | AI-service staging proof 0% | — | Owner + DevOps | **Yes** — deploy the service, or make the mock LOUD in `/health` |
-| **Remaining alpha gates never run on staging** — payer-company (1), agency (2), RBAC/admin smoke (5), OTP-safety half (4) | QA | **P1** | Full alpha GO | Alpha ~78% | 90% | QA + Prakash | No — newly unblocked, just needs running |
-| **Staging artifacts uncaptured** — `docs/qa/evidence/staging/` does not exist; B1 rests on owner attestation, not files | Process | **P2** | Reproducible proof for a later verifier | n/a | — | Rishi/QA | No — capture on next run |
+| **Alpha gates 1/2 IN_PROGRESS on staging** — payer-company (1) + agency (2): **OTP login/send verified** (2026-07-25); full click-through (post/manage/applicants/unlock/wallet/capacity/plan/boost; agency demand) **not yet verified** | QA | **P1** | Full alpha GO | Alpha ~78% | 90% | QA + Prakash + Divyanshu | No — finish gates 1/2 + evidence |
+| **Staging artifacts uncaptured** — `docs/qa/evidence/staging/` does not exist; B1 + swipe verified by team attestation 2026-07-25 (Divyanshu / Prakash), not files | Process | **P2** | Reproducible proof for a later verifier | n/a | — | Rishi/QA | No — capture on next run |
 | Ops `/unlocks*` surface retire — blocked on ADMIN-4..8 + headless payer mint (LC-1 residual, TD33/TD50). **Note:** payer-facing unlock/reveal is ALREADY `PayerAuthGuard`-protected (`payer-unlocks.controller.ts:41`, PR #110/#119). Only the ops internal surface remains. | Backend/Security | **P1** | Ops unlock retire | 72% | 82% | Divyanshu + security | Blocked on ADMIN-4..8 |
 | Admin PII-reveal (3b) — process cadence not yet operational (R24/OQ-7) — D4 DECIDED | Security/Process | **P2** | Treating reveal as production-ready | 78% | 90% | Prakash | No — establish weekly review cadence |
 | E2E local: 14 fails (stale local scoop DB — missing ADR-0026 tables; `db:migrate` blocked by 42P07) | Technical | **P2** | Local e2e proof | n/a | — | Divyanshu | No (drop/recreate local DB; local-only) |
@@ -47,14 +47,14 @@ Classification: **P0** blocks alpha/runtime proof · **P1** blocks an important 
 
 ## ✅ P0 CLEARED 2026-07-18 — alpha now IN PROGRESS
 
-**B1 CLOSED (owner-attested 2026-07-18):** staging live, 0042+0043 applied, R27 triaged, real OTP (Fast2SMS), resume download verified. Cost: 14 days slip.
+**B1 CLOSED + VERIFIED:** owner attestation 2026-07-18 (Prakash); **worker capstone re-confirmed 2026-07-25 (Divyanshu Pant)** — [QA_EVIDENCE](QA_EVIDENCE.md). **Swipe handset verified 2026-07-25 (Prakash)** — feed/apply/skip on real device.
 
-**Note:** `docs/qa/evidence/staging/` was not written — B1 rests on owner attestation rather than captured artifacts (`/health` output, events-chain export, clean logcat). Not a challenge to the result; capture on next run (cheap).
+**Note:** `docs/qa/evidence/staging/` still not written — team attestation stands; capture artifacts on next run (P2).
 
-**Remaining path to full alpha GO (all newly unblocked):**
-1. **TD81** — deploy ai-service into staging compose, or make mock LOUD in `/health` (P1; blocks "real profiling proven on staging")
-2. Run gate 1 — payer-company click-through on staging
-3. Run gate 2 — agency click-through on staging
+**Remaining path to full alpha GO:**
+1. **TD81** — deploy ai-service into staging compose, or make mock LOUD in `/health` (P1; blocks independent re-proof of profiling on staging)
+2. **Finish gate 1** — payer-company: OTP ✅; remaining steps IN_PROGRESS
+3. **Finish gate 2** — agency demand: OTP ✅; remaining steps IN_PROGRESS
 4. Run gate 4 (OTP-safety half) — wrong-code neutrality, breaker at cap=0, kill-switch, no-phone/no-code log scan
 5. Run gate 5 — RBAC + admin ops smoke
 6. Capture staging artifacts → `docs/qa/evidence/staging/`

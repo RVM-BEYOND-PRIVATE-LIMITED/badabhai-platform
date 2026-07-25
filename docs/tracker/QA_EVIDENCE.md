@@ -9,6 +9,28 @@ written index.
 
 ---
 
+## 2026-07-25 — B1 worker capstone + swipe handset (team attestation)
+
+**Verifier:** Divyanshu Pant — **B1 worker capstone VERIFIED** (staging/real stack: worker
+login through resume path accepted as complete for alpha tracking).
+
+**Verifier:** Prakash Kantumutchu — **Swipe feed / apply / skip VERIFIED on a real handset**
+(not emulator).
+
+**Payer surfaces (same date, status only — not a gate pass):** Company (employer) and Agency
+(payer-web / demand flows) remain **IN_PROGRESS**. **OTP login/send works**; post-login
+features (full click-through gates 1 and 2) are **not yet verified end-to-end**.
+
+**Artifacts:** No new files under `docs/qa/evidence/staging/` in this pass — attestation-only
+(rows valid per team sign-off; capture screenshots + events export on next run to close P2 in
+[BLOCKERS.md](BLOCKERS.md)).
+
+**Tracker impact:** Updates [PROJECT_STATUS.md](PROJECT_STATUS.md), [TEST_MATRIX.md](TEST_MATRIX.md)
+gate 3 + swipe row, [BLOCKERS.md](BLOCKERS.md), [DAILY_TRACKER.md](DAILY_TRACKER.md),
+[.claude/project-memory.md](../../.claude/project-memory.md), [.claude/team-memory.md](../../.claude/team-memory.md).
+
+---
+
 ## 2026-07-23 — Payer-web login fix verification (6 PNG screenshots, TD110)
 
 **Source checked:** [`docs/qa/evidence/web app/`](../qa/evidence/web%20app/) (6 screenshots,

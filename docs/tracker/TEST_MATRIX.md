@@ -41,9 +41,9 @@ Update both after each run.
 
 | # | Gate | Steps | Expected | Status |
 | - | ---- | ----- | -------- | ------ |
-| 1 | Payer company | signup/login → dashboard → post job → manage → applicants → unlock/reveal → wallet/ledger → capacity/top-up → plan/boost | each step works; faceless; mock credits move; routed handle only | **BLOCKED (staging)** |
-| 2 | Agency demand | agent login → agency dashboard → create vacancy → manage own → invite hook → faceless summaries → company blocked from agency | agent-only; `assertNoAgencyPII` holds; k-anon counts | **BLOCKED (staging)** |
-| 3 | Worker app (B1) | open app → real OTP login → consent → name → chat → profile extract → resume PDF | flow completes on handset; no PII to LLM/logs; PDF opens; event chain exists | **PARTIAL** — 60 audited **emulator/local** screenshots (2026-07-09, [QA_EVIDENCE 2026-07-10](QA_EVIDENCE.md)); worker wiring real on local API, **mock OTP**. Still needs: handset + staging `/health` + events chain + clean logcat + PDF-open proof |
+| 1 | Payer company | signup/login → dashboard → post job → manage → applicants → unlock/reveal → wallet/ledger → capacity/top-up → plan/boost | each step works; faceless; mock credits move; routed handle only | **IN_PROGRESS (2026-07-25)** — **OTP login/send verified**; remaining steps **not verified** ([QA_EVIDENCE](QA_EVIDENCE.md)) |
+| 2 | Agency demand | agent login → agency dashboard → create vacancy → manage own → invite hook → faceless summaries → company blocked from agency | agent-only; `assertNoAgencyPII` holds; k-anon counts | **IN_PROGRESS (2026-07-25)** — **OTP verified**; full agency click-through **not verified** |
+| 3 | Worker app (B1) | open app → real OTP login → consent → name → chat → profile extract → resume PDF | flow completes on handset; no PII to LLM/logs; PDF opens; event chain exists | **VERIFIED 2026-07-25 (Divyanshu Pant)** — team attestation; emulator baseline [QA_EVIDENCE 2026-07-10](QA_EVIDENCE.md); staging artifact folder still open (P2) |
 | 4 | OTP safety | request OTP → real send (capped) → wrong code neutral → breaker at cap=0 → kill-switch → logs show no phone/code | breaker fires; no raw phone/code in logs | **BLOCKED (staging / OTP-7)** |
 | 5 | RBAC | owner vs recruiter; agent vs employer; server-side fail-closed | recruiter 404s on billing/team; employer 404s on agency | PARTIAL (unit-tested; staging pending) |
 | 6 | Health/staging | `/health` → DB up → Redis up → smoke | 200 with up/up; no secrets | **BLOCKED (staging)** |

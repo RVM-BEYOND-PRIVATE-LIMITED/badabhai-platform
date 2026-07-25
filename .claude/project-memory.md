@@ -1,6 +1,6 @@
 # BadaBhai — Project Memory
 
-> Rebuilt 2026-07-14; updated 2026-07-18 (PRs #232–#408, ADRs 0031–0033, migrations 0039–0044).
+> Rebuilt 2026-07-14; updated 2026-07-25 (B1 + swipe verification, payer gates WIP).
 > Pairs with **CLAUDE.md** (invariants) and **team-memory.md** (ownership + active work).
 > Live detail: ADRs in `docs/decisions/` (0001–0033), registers in `docs/registers/`,
 > daily execution state in `docs/tracker/` (PROJECT_STATUS, BLOCKERS, DECISION_LOG, ROADMAP, …).
@@ -9,7 +9,7 @@
 
 - AI "placement-team" for blue/grey-collar India; launch vertical = CNC/VMC manufacturing (15 trades built). Hospitality vertical: PRD **CEO-signed 2026-06-18**, all 9 `hosp_*` trades' resume + interview-kit content drafted in code — **not live pending per-trade RVM ratification PASS**. Faceless data-exchange: workers stay anonymous until a payer **pays to unlock** (₹40 flat, CEO-locked). North star = weekly PAID unlocks. Workers are free.
 - **Phase 1 (worker profiling + resume) is the locked core; Phase-2 alpha-gate streams have landed additively behind launch gates** — swipe-to-apply, Reach feed, job postings, monetization/pricing, contact unlock, payer/agency portal, WhatsApp funnel (mock), PACE, admin portal, worker PIN auth, org tenancy, skills taxonomy. Real-money / real-provider / production-legal portions remain deferred (CLAUDE.md §8).
-- **Status 2026-07-18: alpha IN PROGRESS.** **B1 CLOSED 2026-07-18** (owner-attested) — staging live, 0042+0043 applied, R27 triaged, real OTP (Fast2SMS), resume download verified. `docs/qa/evidence/staging/` not captured — rests on owner attestation (not a challenge; capture on next run). Remaining to full alpha GO: TD81 (ai-service not in staging compose — chat/profile-extraction mocked), gates 1/2/5 (payer-company/agency/RBAC/admin smoke never run on real stack), OTP-safety half (gate 4). **Phase 2 (internal RVM pilot) UNBLOCKED.** Alpha target 2026-08-15, soft launch Sep. **Repo is PUBLIC.**
+- **Status 2026-07-25: alpha IN PROGRESS.** **B1 worker capstone VERIFIED (Divyanshu Pant, 2026-07-25).** **Swipe handset VERIFIED (Prakash, 2026-07-25).** Payer company + agency **IN_PROGRESS** — OTP working, rest of gates 1/2 WIP. Staging live since 2026-07-18. Alpha target 2026-08-15, soft launch Sep. **Repo is PUBLIC.**
 
 # Architecture
 
@@ -74,11 +74,11 @@
 - Vitest (unit + `tests/e2e` against ephemeral PG), Pytest, `flutter analyze && flutter test` (blocking). Gate: `pnpm lint && typecheck && test && build` + `ruff check . && pytest`.
 - Repos = Drizzle only, PII-excluding projections; services emit events; controllers thin. AI contracts stay Zod↔Pydantic mirrored (recent parity PRs #191/#193).
 
-# Current Workstreams (2026-07-18)
+# Current Workstreams (2026-07-25)
 
-- **No open PRs as of 2026-07-23.** HEAD `ed3c872` (#508). 49 migrations, 34 ADRs (0022 has 2 amendments). **Highlights below run only to #408 (2026-07-18) — #409–#508 are NOT backfilled here; see MEMORY.md for individual session entries in that range (TAX series, TD67, mega-sessions, drift-rulings, referral attribution #506, agency KYC/payout #508, etc.) until a dedicated pass folds them into one line each.**
+- **No open PRs as of 2026-07-25.** HEAD `ddc0acf`. **B1 VERIFIED (Divyanshu 2026-07-25)** · **swipe handset VERIFIED (Prakash 2026-07-25)** · payer company/agency **IN_PROGRESS** (OTP ✅). See [docs/tracker/QA_EVIDENCE.md](docs/tracker/QA_EVIDENCE.md).
 - **Recently shipped (#232–#408, highlights):** TAX-9 versioning/replaced_by (#232), TD67 ai-service auth bearer (#235), TD68+COST-4 SpendLedger join (#238), PIN residuals+F4+A5 re-mint (#239), **TD62 RESOLVED** consent-routing tri-state (#240), RATIFY-1 22 aliases (#244), Q14 DECIDED skill_labels on résumé (#245), TD22-1 PII token v2 kid+keyring (#247/#250), TD25a trust-proxy regression suite (#248), TD70 /resume/generate WorkerAuthGuard (#252), CD-0..CD-5 hardening (#253 + #383/#384/#386), in-app PDF download (#256), WA-1..4 applied-jobs fixes (#326), ADR-0032 profile photo (#340 / #402 photo→PDF), gated test-login D-3 (#391), B-4/B-5/D-1 location split + one-ask + salary carve-out (#392), ADR-0033 skills-overlap factor .15 (#394), D-2 chunked async STT with DoS hardening (#395), R31 pricing/catalog auth fix (#396), R2 Indic danda danda fix (#397), ADR-0031 deletion grace (#400), AI-ENV-1 env_file anchor + REDIS_URL→AI_SPEND_REDIS_URL (#401), alerts worker-own-apply (#403), TD83(a) demand-side events banned by payload shape (#404), storage/interview-kit 503 fix (#405), guard template suffix fixes (#407/#408), ten owner rulings codified (#387).
-- **Blockers:** ✅ P0 CLEARED (B1 CLOSED 2026-07-18, owner-attested). **New P1:** TD81 ai-service missing from compose (staging mocks AI silently behind 200 `/health`); gates 1/2/5 unrun on staging; OTP-safety half (gate 4); R28 unauthenticated name-read (bounded); R31 unauthenticated pricing/catalog (bounded); TD61 Flutter CI pin. FE wiring CLOSED (#194). TD62 RESOLVED (#240).
+- **Blockers:** ✅ P0 CLEARED (B1 CLOSED 2026-07-18). **B1 worker capstone VERIFIED 2026-07-25 (Divyanshu).** **Swipe VERIFIED 2026-07-25 (Prakash).** **P1:** payer gates 1/2 IN_PROGRESS (OTP ✅); TD81; gates 4/5; staging artifacts (P2).
 - **Pending decisions:** ADR-0005/0028/0029 Proposed; Q5/Q11 RLS identity; Q13 PACE adjacency (CEO); hospitality per-trade RVM ratification (pending, content drafted). ADR-0031 ACCEPTED + MERGED (#400). R27 box triage (owner-only).
 - Key dates: SECRETS-1 → B1 ~07-21/22; alpha 2026-08-15; soft launch Sep 2026.
 

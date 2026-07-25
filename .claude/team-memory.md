@@ -1,6 +1,6 @@
 # BadaBhai — Team Memory
 
-> Rebuilt 2026-07-14; updated 2026-07-18 (PRs #232–#408, ADRs 0031–0033, migrations 0039–0044).
+> Rebuilt 2026-07-14; updated 2026-07-25 (B1 + swipe verification, payer gates WIP).
 > Single source of truth for ownership + active work. **Update in place — do
 > not recreate.** Ownership = declared split in
 > [claude-working-guide §4](../docs/claude-working-guide.md) cross-checked against git;
@@ -10,7 +10,7 @@
 
 - **3 active committers:** Prakash Kantumutchu (**TL / integrator**, ~374 commits), Divyanshu Pant (backend, ~135 — the user), Rishi Ojha (Flutter/mobile, ~16, active since 2026-06-26). Akshit (CEO) signs off ADRs/gates. Utkarsh is the announced Company/Agency web owner (2026-06-19 roster) but has **no repo commits yet** — payer-web is Prakash's in practice.
 - Process: automation-first + one human reviewer; specialist agents review, human confirms. Prakash merges most PRs.
-- **Status: alpha IN PROGRESS** — **B1 CLOSED 2026-07-18** (owner-attested; staging live, real OTP, resume download). Remaining to full GO: TD81 (ai-service not in compose), gates 1/2/5/4-half. Phase 2 UNBLOCKED. Alpha 2026-08-15. Utkarsh: no repo commits — removed 2026-06-29.
+- **Status: alpha IN PROGRESS** — **B1 VERIFIED 2026-07-25 (Divyanshu)** · **swipe handset VERIFIED (Prakash)** · payer company/agency **IN_PROGRESS** (OTP working). Remaining: finish gates 1/2, 4/5, TD81, staging artifacts. Alpha 2026-08-15.
 
 # Developer Ownership
 
@@ -46,9 +46,11 @@
 
 11 boolean env gates, **all default false** (packages/config/src/server.ts): AI_ENABLE_REAL_CALLS, PAYMENTS_ENABLE_REAL, MESSAGING_ENABLE_REAL, MEMBER_INVITES_ENABLE_REAL, RESUME_RENDER_ENABLED, AUTH_ROLLING_TIERS_ENABLED, ADMIN_PII_REVEAL_ENABLED, ZEPTOMAIL_SANDBOX_MODE, CAPACITY_ENFORCEMENT_ENABLED, PACE_ENABLED, PACE_ADJACENCY_ENABLED. Payments/messaging/member-invites **fail closed at boot** if enabled without provider creds. **Any flip = human sign-off + staging first** (CLAUDE.md §7). B1 needs `RESUME_RENDER_ENABLED=true` on staging.
 
-# Active Workstreams (2026-07-18)
+# Active Workstreams (2026-07-25)
 
-- **B1 alpha capstone — CLOSED 2026-07-18** (owner-attested: staging live, 0042+0043 applied, R27 triaged, real OTP, resume download). `docs/qa/evidence/staging/` not captured — close on next run. Phase 2 UNBLOCKED.
+- **B1 worker capstone — VERIFIED 2026-07-25 (Divyanshu Pant).** Index: [QA_EVIDENCE.md](../docs/tracker/QA_EVIDENCE.md).
+- **Swipe real handset — VERIFIED 2026-07-25 (Prakash Kantumutchu).**
+- **Payer company + agency — IN_PROGRESS.** OTP login/send **working**; full gates 1/2 **not verified**.
 - **TAX-9 COMPLETE** (#232, migration 0039 applied 2026-07-15). RATIFY-1 DONE (22/22 aliases 2026-07-16). `SKILL_CANONICALIZE_ENABLED` flip awaits post-B1 staging verify.
 - **ADR-0031 deletion grace MERGED** (#400, 2026-07-16). Migration 0040 applied. Prod endpoint §7-gated.
 - **ADR-0032 profile photo MERGED** (#340 + #402 photo→PDF re-render, 2026-07-16).
@@ -60,9 +62,9 @@
 - **LC-1 payer-facing CLOSED.** Ops surface retire blocked on ADMIN-4..8 (TD33/TD50).
 - **Parked/waiting:** hospitality vertical (per-trade RVM ratification pending), PACE adjacency (Q13, CEO), TD61 Flutter CI pin bump (3.27.4→3.35.7, Rishi+DevOps), TD55 Argon2id, voice-audio DSAR erase (before real voice ships), PAYER-PIN-1.
 
-# Current PR Status (gh-verified 2026-07-18)
+# Current PR Status (gh-verified 2026-07-25)
 
-- **No open PRs.** HEAD: `085e2f6` (#408 guard template suffix fix). Latest merged: #407/#408 guard fixes, #405 storage/interview-kit fix, #404 TD83(a) alerts, #403 worker-own-apply in alerts, #402 photo→PDF re-render, #401 AI-ENV-1, #400 ADR-0031 deletion grace.
+- **No open PRs.** HEAD: `ddc0acf` (main). Latest merged: #512 PII guard, #511 profiling/resume UX, #510 doc sync, #508 agency KYC/payout.
 - Recently merged since 07-15 (#232–#408, 66+ PRs): TAX-9 (#232), TD67 (#235), TD68+COST-4 (#238), TD62 (#240), RATIFY-1 (#244), Q14 (#245), TD22-1 (#247/#250), TD25a (#248), TD70 (#252), CD-0..5 (#253+#383/#384/#386), in-app PDF (#256), WA-1..4 (#326), ADR-0032 (#340), ten rulings (#387), B-6 (#388), TD53 (#389), D-3 (#391), B-4/B-5/D-1 (#392), ADR-0033 (#394), D-2 (#395), R31-partial (#396), danda (#397), ADR-0031 (#400), AI-ENV-1 (#401), photo→PDF (#402), alerts (#403/#404), storage fix (#405), guard fixes (#407/#408).
 
 # Important Domain Knowledge

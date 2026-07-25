@@ -5,6 +5,21 @@ Newest day on top. Copy the template block each working day. Every % move needs 
 
 ---
 
+# Daily Tracker — 2026-07-25
+
+## BadaBhai Progress Snapshot
+- **No formal % re-score** (cap rule: file artifacts still absent under `docs/qa/evidence/staging/`).
+- **B1 worker capstone — VERIFIED (Divyanshu Pant).** Worker alpha gate 3 accepted complete for
+  tracking; supersedes the 2026-07-18 owner attestation-only wording for the worker path.
+- **Swipe on real handset — VERIFIED (Prakash Kantumutchu).** Feed / apply / skip no longer UNKNOWN.
+- **Payer company + agency — IN_PROGRESS.** OTP (login/send) **working**; remaining gate-1/2 steps
+  (dashboard → post/manage → applicants → unlock/wallet/capacity/plan/boost; agency demand surfaces)
+  **not yet verified** on staging as a full click-through.
+- **Next:** Run payer gates 1/2 on staging with evidence; capture staging artifact folder; gates 4/5
+  + TD81 remain on the alpha critical path per [BLOCKERS.md](BLOCKERS.md).
+
+---
+
 # Daily Tracker — 2026-07-23
 
 ## BadaBhai Progress Snapshot
