@@ -47,6 +47,18 @@ class MockApiClient extends ApiClient {
     return const ChatSessionStart(sessionId: 'mock-session-0001');
   }
 
+  /// No prior transcript in mock mode: each demo session starts fresh, so
+  /// hydration (#502) is a no-op and the bloc keeps its canned opener. Returning
+  /// `[]` keeps the mock walkable offline while exercising the same code path.
+  @override
+  Future<List<SessionMessage>> listSessionMessages({
+    required String sessionId,
+    required String authToken,
+  }) async {
+    await _delay();
+    return const <SessionMessage>[];
+  }
+
   @override
   Future<ChatReply> sendMessage({
     required String sessionId,
@@ -317,6 +329,10 @@ class MockApiClient extends ApiClient {
       canonicalRoleId: 'role_cnc_turner_operator',
       city: 'Pune',
       strength: 8,
+      // PII-free education labels so the Profile/preview education line renders
+      // in mock mode (same class as the trade/skill strings).
+      educationLevel: '12th',
+      educationField: 'Electronics',
     );
   }
 

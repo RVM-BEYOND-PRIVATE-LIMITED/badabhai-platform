@@ -45,6 +45,8 @@ TOPIC_ORDER: tuple[str, ...] = (
     "salary_expected",
     "availability",
     "education",
+    "education_level",
+    "education_field",
     "certifications",
 )
 
@@ -398,6 +400,55 @@ _EDUCATION: list[AnswerFixture] = [
     F("education", "school chhod diya tha", expected="reject", register="hinglish"),
 ]
 
+# --- education_level -------------------------------------------------------
+# Asked: "Aapne kahan tak padhai ki hai — 10th, 12th ya B.Tech?"
+# TD-EDU (owner 2026-07-23): academic education level. The local detector
+# cannot parse "10th"/"12th"/"B.Tech" context-free, so like `certifications`
+# the value reaches the draft through the transcript, via the model. These
+# fixtures measure that honestly but have `expected="reject"` since signal
+# detection cannot handle them.
+_EDUCATION_LEVEL: list[AnswerFixture] = [
+    F("education_level", "10th pass", register="english", expected="reject"),
+    F("education_level", "10th", register="english", expected="reject"),
+    F("education_level", "12th pass", register="english", expected="reject"),
+    F("education_level", "12th", register="english", expected="reject"),
+    F("education_level", "B.Tech", register="english", expected="reject"),
+    F("education_level", "B.Tech mechanical", register="english", expected="reject"),
+    F("education_level", "ITI kiya hai", register="hinglish", expected="reject"),
+    F("education_level", "Diploma hai", register="hinglish", expected="reject"),
+    F("education_level", "degree li hai", register="hinglish", expected="reject"),
+    F("education_level", "graduation", register="english", expected="reject"),
+    F("education_level", "polytechnic diploma", register="hinglish", expected="reject"),
+    F("education_level", "apprentice", register="english", expected="reject"),
+    F("education_level", "कक्षा 12", register="devanagari", expected="reject"),
+    F("education_level", "बी टेक", register="devanagari", expected="reject"),
+    F("education_level", "आईटीआई", register="devanagari", expected="reject"),
+]
+
+# --- education_field -------------------------------------------------------
+# Asked: "Kis field mein padhai ki — jaise Electronics ya Computer Science?"
+# TD-EDU (owner 2026-07-23): field of study for non-school qualifications.
+# Like `education_level`, the local detector cannot parse field names, so
+# the value reaches the draft through the transcript, via the model. All
+# fixtures have `expected="reject"` since signal detection cannot handle them.
+_EDUCATION_FIELD: list[AnswerFixture] = [
+    F("education_field", "Electronics", register="english", expected="reject"),
+    F("education_field", "electronics", register="english", expected="reject"),
+    F("education_field", "Computer Science", register="english", expected="reject"),
+    F("education_field", "CS", register="english", expected="reject"),
+    F("education_field", "Mechanical", register="english", expected="reject"),
+    F("education_field", "mechanical branch", register="english", expected="reject"),
+    F("education_field", "Electrical", register="english", expected="reject"),
+    F("education_field", "Civil", register="english", expected="reject"),
+    F("education_field", "Automation", register="english", expected="reject"),
+    F("education_field", "Instrumentation", register="english", expected="reject"),
+    F("education_field", "Manufacturing", register="english", expected="reject"),
+    F("education_field", "Production", register="english", expected="reject"),
+    F("education_field", "mechanical mein", register="hinglish", expected="reject"),
+    F("education_field", "electronics field se hu", register="hinglish", expected="reject"),
+    F("education_field", "computer science padhai ki", register="hinglish", expected="reject"),
+]
+
 # --- certifications --------------------------------------------------------
 # Asked: "Koi certificate hai — jaise NCVT, NSQF ya apprenticeship?"
 # Added 2026-07-22 with the topic itself (owner ruling: education AND
@@ -447,6 +498,8 @@ CORPUS: tuple[AnswerFixture, ...] = tuple(
     + _SALARY_EXPECTED
     + _AVAILABILITY
     + _EDUCATION
+    + _EDUCATION_LEVEL
+    + _EDUCATION_FIELD
     + _CERTIFICATIONS
 )
 

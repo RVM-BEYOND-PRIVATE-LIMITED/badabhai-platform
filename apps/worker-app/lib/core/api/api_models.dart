@@ -322,6 +322,8 @@ class ChatReply extends Equatable {
     required this.isMock,
     required this.suggestedFollowups,
     this.extractionReady = false,
+    this.askedQuestionId,
+    this.unansweredEssentials = const <String>[],
   });
 
   final String reply;
@@ -341,6 +343,25 @@ class ChatReply extends Equatable {
   /// extra confirmation tap and can never trap them in the chat.
   final bool extractionReady;
 
+  /// The topic id the engine is asking THIS turn (`asked_question_id`, e.g.
+  /// 'role', 'machines', 'education') — `null` on the wrap-up/complete turn. The
+  /// `suggested_followups` chips are the tap-to-answer options for exactly this
+  /// question. Additive/optional: absent on an older API build. The client does
+  /// NOT echo it back (the POST body stays `{session_id, text}`); it is a
+  /// question-attribution signal only.
+  final String? askedQuestionId;
+
+  /// ESSENTIAL topic ids the worker has NOT answered yet (`unanswered_essentials`,
+  /// #478 CHAT-UE-1), in ESSENTIAL_TOPICS order. Topic ids only, never PII.
+  ///
+  /// TRUST ONLY WHEN [blocked] IS FALSE. A blocked turn (pseudonymize
+  /// fail-closed) carries no interview state and the server degrades this to
+  /// `[]`, which means "unknown", NOT "complete" — reading it on a blocked turn
+  /// would falsely claim the profile is done. Empty on a non-blocked turn means
+  /// genuinely complete. Distinct from [extractionReady]: this is the
+  /// completeness detail, [extractionReady] is the CTA gate.
+  final List<String> unansweredEssentials;
+
   factory ChatReply.fromJson(Map<String, dynamic> json) => ChatReply(
         reply: json['reply'] as String? ?? '',
         blocked: json['blocked'] as bool? ?? false,
@@ -351,6 +372,9 @@ class ChatReply extends Equatable {
         // progress flag.
         extractionReady:
             json['extraction_ready'] is bool ? json['extraction_ready'] as bool : false,
+        // Absent / null / non-string -> null (older API build / truncated body).
+        askedQuestionId:
+            json['asked_question_id'] is String ? json['asked_question_id'] as String : null,
         // #371: whereType, not `map((e) => e as String)` — a single non-string
         // entry (a null, a number, an object from a future contract change) used
         // to throw a raw TypeError out of parsing and take down the whole reply,
@@ -359,11 +383,68 @@ class ChatReply extends Equatable {
         suggestedFollowups:
             (json['suggested_followups'] as List<dynamic>?)?.whereType<String>().toList() ??
                 <String>[],
+        // Same defensive parse as the chips: a malformed entry is dropped, never
+        // thrown out of the whole reply. Absent -> [] ("unknown"; only meaningful
+        // when `blocked` is false — see the field doc).
+        unansweredEssentials:
+            (json['unanswered_essentials'] as List<dynamic>?)?.whereType<String>().toList() ??
+                const <String>[],
       );
 
   @override
-  List<Object?> get props =>
-      <Object?>[reply, blocked, isMock, suggestedFollowups, extractionReady];
+  List<Object?> get props => <Object?>[
+        reply,
+        blocked,
+        isMock,
+        suggestedFollowups,
+        extractionReady,
+        askedQuestionId,
+        unansweredEssentials,
+      ];
+}
+
+/// One row of GET /chat/sessions/:sessionId/messages (#502 transcript
+/// hydration). The persisted transcript, oldest-first, so a worker whose
+/// in-memory chat was lost — a >5min background re-lock rebuilds [ChatBloc] with
+/// only its opener bubble — can have their earlier turns REDRAWN from the server.
+///
+/// Narrow by contract: three fields, nothing else (the API deliberately omits
+/// ids / worker_id / message_type / metadata). PII posture: [bodyText] is worker
+/// content (an inbound answer) or bada-bhai copy — the SAME data already on
+/// screen live — never logged.
+class SessionMessage extends Equatable {
+  const SessionMessage({
+    required this.direction,
+    required this.bodyText,
+    required this.createdAt,
+  });
+
+  /// 'inbound' (the worker) | 'outbound' (bada bhai). Kept as the RAW wire
+  /// string and decoded tolerantly ([fromWorker]) so an unexpected value never
+  /// crashes hydration.
+  final String direction;
+
+  /// The message text. NULLABLE by construction: a voice row exists before its
+  /// transcript lands (`body_text` still null). An OUTBOUND row carries the
+  /// literal `{{worker_name}}` placeholder — interpolation happens only in the
+  /// live POST /chat/message reply — so the client strips it at render time.
+  final String? bodyText;
+
+  final String createdAt;
+
+  /// True for the worker's own (inbound) messages. Anything that is not
+  /// explicitly 'inbound' is treated as a bada-bhai bubble — the tolerant
+  /// default the contract's enum note asks for.
+  bool get fromWorker => direction == 'inbound';
+
+  factory SessionMessage.fromJson(Map<String, dynamic> json) => SessionMessage(
+        direction: json['direction'] as String? ?? 'outbound',
+        bodyText: json['body_text'] as String?,
+        createdAt: json['created_at'] as String? ?? '',
+      );
+
+  @override
+  List<Object?> get props => <Object?>[direction, bodyText, createdAt];
 }
 
 /// Result of POST /profile/extract.
@@ -806,6 +887,8 @@ class ProfileSummaryDto extends Equatable {
     this.skills = const <String>[],
     this.machines = const <String>[],
     this.experienceYears,
+    this.educationLevel,
+    this.educationField,
   });
 
   /// `"none"` when the worker has no profile row yet; else a ProfileStatus.
@@ -843,6 +926,16 @@ class ProfileSummaryDto extends Equatable {
   /// only experience signal on the wire. `null` when unknown/no profile.
   final double? experienceYears;
 
+  /// Highest education level (`education_level`) — a short PII-free label
+  /// ('10th' / '12th' / 'ITI' / 'Diploma' / 'B.Tech'). Additive wire field —
+  /// absent on older backends ⇒ null. Distinct from the `education` list.
+  final String? educationLevel;
+
+  /// Stream/branch of study (`education_field`) — a short PII-free label
+  /// ('Electronics' / 'Mechanical' / 'Computer Science'). Additive ⇒ null when
+  /// absent.
+  final String? educationField;
+
   factory ProfileSummaryDto.fromJson(Map<String, dynamic> json) {
     final Map<String, dynamic> trade =
         (json['trade'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
@@ -865,6 +958,8 @@ class ProfileSummaryDto extends Equatable {
               .toList(growable: false) ??
           const <String>[],
       experienceYears: (json['experience_years'] as num?)?.toDouble(),
+      educationLevel: json['education_level'] as String?,
+      educationField: json['education_field'] as String?,
     );
   }
 
@@ -881,6 +976,8 @@ class ProfileSummaryDto extends Equatable {
         skills,
         machines,
         experienceYears,
+        educationLevel,
+        educationField,
       ];
 }
 

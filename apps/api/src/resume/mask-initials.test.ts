@@ -61,6 +61,8 @@ describe("B-G golden-render: the resume renderer masks when fed maskInitials(rea
     skills: ["fanuc", "vmc"],
     machines: ["VMC"],
     controllers: [],
+    educationLevel: null,
+    educationField: null,
     education: [],
     certifications: [],
     responsibilities: ["Operate VMC to drawing"],

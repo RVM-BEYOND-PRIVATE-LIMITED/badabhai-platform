@@ -48,25 +48,11 @@ const String kChatDoneReadyLabel = 'Ho gaya — meri profile banaiye';
 /// CTA label while the interview is still short — an invitation, not a block.
 const String kChatDoneNotReadyLabel = 'Thodi aur baat karein';
 
-/// Helper line under the transcript while the interview is still short.
-///
-/// Deliberately NAMES NO TOPICS. The chat reply carries only `asked_question_id`
-/// and `extraction_ready` — there is no missing-topics field, so the client
-/// CANNOT know what is actually blocking readiness and must not pretend to.
-///
-/// An earlier draft read "kaam, machine aur experience bata dijiye". That was a
-/// lie with a concrete victim: a worker who has already answered role, machines
-/// and experience but not, say, `current_location` is still not ready — and the
-/// app would tell them to state the exact three things they just said. A
-/// low-literacy worker reads that as "it did not hear me", repeats themselves,
-/// and still does not get ready. The list was also stale as of #429, which added
-/// salary_current / salary_expected / availability to the readiness bar.
-///
-/// Naming the real gaps needs a `missing_essentials` field on the chat reply —
-/// backend work, deliberately out of scope here.
-const String kChatNotReadyHelper =
-    'Do-teen sawaal aur baaki hain — bas jawab dete rahiye, profile utni hi '
-    'dumdaar banegi.';
+/// Shown when a turn was blocked (pseudonymize fail-closed): the worker's last
+/// answer was NOT processed, so tell them plainly rather than let a canned
+/// fallback reply read as "understood". PII-free constant copy.
+const String kChatBlockedNotice =
+    'Aapki baat theek se nahi pahunch payi — thoda saaf karke dobara likhein.';
 
 /// Nudge-sheet heading.
 const String kChatNudgeTitle = 'Ek minute, bhai';
@@ -256,59 +242,58 @@ class _ChatViewState extends State<_ChatView> {
     ));
   }
 
-  /// The "build my profile" CTA + (when the interview is still short) the
-  /// helper line above it (#421).
+  /// A thin one-line notice above the composer (blocked cue). Additive —
+  /// it never replaces a bubble, and reads as calm context, not an error screen.
+  Widget _replyNotice({
+    required IconData icon,
+    required Color color,
+    required String text,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.s4, AppSpacing.s1, AppSpacing.s4, AppSpacing.s1),
+      child: Row(
+        children: <Widget>[
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: AppSpacing.s2),
+          Flexible(
+            child: Text(
+              text,
+              style: AppTypography.body(size: AppTypography.sizeSm, color: color),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The "build my profile" CTA (#421).
   ///
   /// Not-ready is a SOFT gate: the button keeps its full-width ≥48px target and
   /// stays tappable — it just changes voice from "done" to "let's talk a bit
   /// more", and routes through [_confirmEarlyFinish] instead of straight to the
   /// preview. Nothing here can leave the worker stuck.
-  Widget _doneCta(bool ready) {
+  Widget _doneCta(ChatState state) {
+    final bool ready = state.extractionReady;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
-          AppSpacing.s4, 0, AppSpacing.s4, AppSpacing.s4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          if (!ready) ...<Widget>[
-            Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.s2),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  const Padding(
-                    padding: EdgeInsets.only(top: 2),
-                    child: Icon(Icons.chat_bubble_outline,
-                        size: 18, color: AppColors.textSecondary),
-                  ),
-                  const SizedBox(width: AppSpacing.s2),
-                  Expanded(
-                    child: Text(
-                      kChatNotReadyHelper,
-                      style: AppTypography.body(
-                        size: AppTypography.sizeBase,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          BbButton(
-            label: ready ? kChatDoneReadyLabel : kChatDoneNotReadyLabel,
-            block: true,
-            variant:
-                ready ? BbButtonVariant.primary : BbButtonVariant.secondary,
-            iconLeft: ready ? Icons.check_circle_outline : Icons.forum_outlined,
-            // #372's visible half: the same-frame half lives in
-            // `_openProfilePreview`. Only the READY path can stack previews —
-            // the not-ready path opens a sheet, which is its own guard.
-            onPressed: ready
-                ? (_openingPreview ? null : _openProfilePreview)
-                : _confirmEarlyFinish,
-          ),
-        ],
+          AppSpacing.s4, 0, AppSpacing.s4, AppSpacing.s3),
+      child: BbButton(
+        label: ready ? kChatDoneReadyLabel : kChatDoneNotReadyLabel,
+        block: true,
+        // Compact "Thodi aur baat karein" (owner request 2026-07-23): the not-ready
+        // CTA is a small, low-emphasis nudge — smaller text + shorter height — so it
+        // frees vertical space with the keyboard open. The READY "profile banaiye"
+        // CTA stays full-size (lg): it is the primary action.
+        size: ready ? BbButtonSize.lg : BbButtonSize.sm,
+        variant: ready ? BbButtonVariant.primary : BbButtonVariant.secondary,
+        iconLeft: ready ? Icons.check_circle_outline : Icons.forum_outlined,
+        // #372's visible half: the same-frame half lives in
+        // `_openProfilePreview`. Only the READY path can stack previews —
+        // the not-ready path opens a sheet, which is its own guard.
+        onPressed: ready
+            ? (_openingPreview ? null : _openProfilePreview)
+            : _confirmEarlyFinish,
       ),
     );
   }
@@ -412,7 +397,13 @@ class _ChatViewState extends State<_ChatView> {
                       children: <Widget>[
                         ListView.builder(
                           controller: _scroll,
-                          padding: const EdgeInsets.all(AppSpacing.s4),
+                          // Full horizontal gutter, lighter vertical rhythm so
+                          // more of the transcript stays visible with the
+                          // keyboard up.
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.s4,
+                            vertical: AppSpacing.s2,
+                          ),
                           itemCount: state.messages.length,
                           itemBuilder: (BuildContext context, int i) {
                             final ChatMessage m = state.messages[i];
@@ -440,8 +431,17 @@ class _ChatViewState extends State<_ChatView> {
                     _typingIndicator()
                   else if (state.followups.isNotEmpty)
                     _followups(state.followups),
+                  // A blocked turn (pseudonymize fail-closed) never processed the
+                  // worker's last answer — say so rather than let the canned
+                  // fallback reply read as understood. Shown in every build.
+                  if (state.lastReplyBlocked)
+                    _replyNotice(
+                      icon: Icons.error_outline,
+                      color: AppColors.red600,
+                      text: kChatBlockedNotice,
+                    ),
                   _inputBar(),
-                  _doneCta(state.extractionReady),
+                  _doneCta(state),
                 ],
               ),
             );
@@ -455,7 +455,7 @@ class _ChatViewState extends State<_ChatView> {
     return Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.s4,
-        vertical: AppSpacing.s2,
+        vertical: AppSpacing.s1,
       ),
       child: Row(
         children: <Widget>[
@@ -466,7 +466,18 @@ class _ChatViewState extends State<_ChatView> {
               maxLines: 4,
               textInputAction: TextInputAction.send,
               onSubmitted: (_) => _send(),
-              decoration: const InputDecoration(hintText: 'Type your answer…'),
+              // Compact composer (owner request): body-size text + dense padding so
+              // the field is shorter and leaves more transcript visible with the
+              // keyboard open. Matches the chat bubble size (sizeSm).
+              style: AppTypography.body(size: AppTypography.sizeSm),
+              decoration: const InputDecoration(
+                hintText: 'Type your answer…',
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: AppSpacing.s3,
+                  vertical: AppSpacing.s2,
+                ),
+              ),
             ),
           ),
           const SizedBox(width: AppSpacing.s2),
@@ -571,7 +582,13 @@ class _ChatViewState extends State<_ChatView> {
         child: Row(
           children: <Widget>[
             for (final String f in followups) ...<Widget>[
-              BbChip(label: f, onTap: () => _sendText(f)),
+              // Answer chips read like a chat message: same size (sizeSm) and a
+              // normal weight (owner request 2026-07-23).
+              BbChip(
+                label: f,
+                labelWeight: FontWeight.w400,
+                onTap: () => _sendText(f),
+              ),
               const SizedBox(width: AppSpacing.s2),
             ],
           ],

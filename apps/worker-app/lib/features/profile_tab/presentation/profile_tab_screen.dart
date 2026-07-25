@@ -10,12 +10,14 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_chat_action.dart';
 import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_list_row.dart';
 import '../../../core/widgets/bb_progress_bar.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_verified_badge.dart';
 import '../../../router.dart';
+import '../../../core/util/taxonomy_labels.dart';
 import 'cubit/profile_tab_cubit.dart';
 import 'widgets/profile_avatar.dart';
 import '../domain/profile_summary.dart';
@@ -50,6 +52,7 @@ class _ProfileTabView extends StatelessWidget {
         appBar: BbAppBar(
           title: 'Profile',
           actions: <Widget>[
+            const BbChatAction(),
             IconButton(
               tooltip: 'Settings',
               icon: const Icon(Icons.settings_outlined),
@@ -139,13 +142,14 @@ class _ProfileTabView extends StatelessWidget {
   }
 
   Widget _header(ProfileSummary s) {
+    final String resolvedTrade = replaceTaxonomyIds(s.tradeLabel ?? '');
     // The worker's NAME is an open §2 escalation and is NOT on the wire today —
     // lead with the trade label (then a neutral generic) rather than fabricate a
     // name. Only repeat the trade in the subline when a name IS the headline.
-    final String headline = s.displayName ?? s.tradeLabel ?? 'Aapki profile';
+    final String headline = s.displayName ?? (resolvedTrade.isNotEmpty ? resolvedTrade : 'Aapki profile');
     final List<String> subParts = <String>[
-      if (s.displayName != null && (s.tradeLabel?.isNotEmpty ?? false))
-        s.tradeLabel!,
+      if (s.displayName != null && resolvedTrade.isNotEmpty)
+        resolvedTrade,
       if (s.city?.isNotEmpty ?? false) s.city!,
     ];
     final String? subline = subParts.isEmpty ? null : subParts.join(' · ');
@@ -246,8 +250,11 @@ class _ProfileTabView extends StatelessWidget {
   /// experience summary (which the backend deliberately keeps off the wire, §2).
   /// Renders an honest empty state until the worker has shared any.
   Widget _skillsCard(ProfileSummary s) {
-    final bool hasAny =
-        s.skills.isNotEmpty || s.machines.isNotEmpty || s.experienceYears != null;
+    final String? education = _educationLabel(s);
+    final bool hasAny = s.skills.isNotEmpty ||
+        s.machines.isNotEmpty ||
+        s.experienceYears != null ||
+        education != null;
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surfaceCard,
@@ -267,30 +274,57 @@ class _ProfileTabView extends StatelessWidget {
               'Abhi kuch nahi — chat mein apne skills aur experience batayein.',
               style: AppTypography.body(color: AppColors.textMuted),
             )
-          else ...<Widget>[
-            if (s.experienceYears != null) ...<Widget>[
-              Row(
-                children: <Widget>[
-                  const Icon(Icons.work_outline_rounded,
-                      size: 18, color: AppColors.textMuted),
-                  const SizedBox(width: AppSpacing.s2),
-                  Text('Anubhav: ${_experienceLabel(s.experienceYears!)}',
-                      style: AppTypography.body(
-                          size: AppTypography.sizeSm, weight: FontWeight.w600)),
-                ],
-              ),
-              if (s.skills.isNotEmpty || s.machines.isNotEmpty)
-                const SizedBox(height: AppSpacing.s3),
-            ],
-            if (s.skills.isNotEmpty) ...<Widget>[
-              _chipGroup('Skills', s.skills),
-              if (s.machines.isNotEmpty) const SizedBox(height: AppSpacing.s3),
-            ],
-            if (s.machines.isNotEmpty) _chipGroup('Machines', s.machines),
-          ],
+          else
+            ..._structuredRows(s, education),
         ],
       ),
     );
+  }
+
+  /// The experience / education / skills / machines rows, separated by a
+  /// consistent gap. Any absent row is dropped (never a fabricated placeholder).
+  List<Widget> _structuredRows(ProfileSummary s, String? education) {
+    final List<Widget> rows = <Widget>[
+      if (s.experienceYears != null)
+        _infoLine(Icons.work_outline_rounded,
+            'Anubhav: ${_experienceLabel(s.experienceYears!)}'),
+      if (education != null)
+        _infoLine(Icons.school_outlined, 'Padhai: $education'),
+      if (s.skills.isNotEmpty) _chipGroup('Skills', s.skills),
+      if (s.machines.isNotEmpty) _chipGroup('Machines', s.machines),
+    ];
+    return <Widget>[
+      for (int i = 0; i < rows.length; i++) ...<Widget>[
+        if (i > 0) const SizedBox(height: AppSpacing.s3),
+        rows[i],
+      ],
+    ];
+  }
+
+  /// An icon + bold label line (experience / education). Text is [Expanded] so a
+  /// longer education label wraps instead of overflowing.
+  Widget _infoLine(IconData icon, String text) {
+    return Row(
+      children: <Widget>[
+        Icon(icon, size: 18, color: AppColors.textMuted),
+        const SizedBox(width: AppSpacing.s2),
+        Expanded(
+          child: Text(text,
+              style: AppTypography.body(
+                  size: AppTypography.sizeSm, weight: FontWeight.w600)),
+        ),
+      ],
+    );
+  }
+
+  /// "12th • Electronics" / "12th" / "Electronics"; `null` when both are absent
+  /// so the row is omitted entirely. PII-free labels, never fabricated.
+  String? _educationLabel(ProfileSummary s) {
+    final List<String> parts = <String>[
+      if (s.educationLevel?.isNotEmpty ?? false) s.educationLevel!,
+      if (s.educationField?.isNotEmpty ?? false) s.educationField!,
+    ];
+    return parts.isEmpty ? null : parts.join(' • ');
   }
 
   /// A labelled wrap of DS chips (skills or machines). Labels are rendered as
@@ -307,7 +341,7 @@ class _ProfileTabView extends StatelessWidget {
           spacing: AppSpacing.s2,
           runSpacing: AppSpacing.s2,
           children: <Widget>[
-            for (final String item in items) BbChip(label: item),
+            for (final String item in items) BbChip(label: replaceTaxonomyIds(item)),
           ],
         ),
       ],

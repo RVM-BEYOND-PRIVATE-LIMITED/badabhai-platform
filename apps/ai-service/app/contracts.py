@@ -222,6 +222,21 @@ class DraftProfile(BaseModel):
     # artifact or the LLM payload (SG-2, fail-closed → dropped).
     skill_labels: list[str] = Field(default_factory=list)
     machines: list[str] = Field(default_factory=list)
+    # #499 — education + certifications, carried from the rich WorkerProfileDraft so
+    # the résumé (resume_text + rendered PDF) can show them. Both are ALWAYS asked
+    # (MUST_ASK_TOPICS) and captured on the rich draft, but were dropped at the
+    # rich→legacy boundary (_build_legacy), leaving the templates' section empty.
+    # Additive (default [] → old rows unchanged, invariant #8). Mirrors the Zod
+    # DraftProfileSchema in packages/ai-contracts/src/index.ts (§7 parity).
+    education: list[str] = Field(default_factory=list)
+    certifications: list[str] = Field(default_factory=list)
+    # TD-EDU — highest education LEVEL ("12th") + FIELD of study ("Electronics"),
+    # asked as two dedicated interview topics and carried from the rich draft so the
+    # résumé (rendered PDF) + the worker's resume tab can show them. NOT PII (same
+    # class as `education`). Additive (default None → old rows unchanged, invariant
+    # #8). Mirrors DraftProfileSchema in packages/ai-contracts (§7 parity).
+    education_level: str | None = None
+    education_field: str | None = None
     experience: Experience = Field(default_factory=Experience)
     salary_expectation: SalaryExpectation = Field(default_factory=SalaryExpectation)
     location_preference: LocationPreference = Field(default_factory=LocationPreference)
@@ -267,6 +282,10 @@ class WorkerProfileDraft(BaseModel):
     availability: Literal["immediate", "notice_period", "not_looking", "unknown"] = "unknown"
     education: list[str] = Field(default_factory=list)
     certifications: list[str] = Field(default_factory=list)
+    # TD-EDU — highest education LEVEL + FIELD of study (see DraftProfile). The model
+    # fills these from the transcript; carried onto the legacy DraftProfile in main.py.
+    education_level: str | None = None
+    education_field: str | None = None
     confidence_score: float = 0.0
     missing_fields: list[str] = Field(default_factory=list)
     clarification_questions: list[str] = Field(default_factory=list)

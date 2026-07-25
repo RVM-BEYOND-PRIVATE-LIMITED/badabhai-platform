@@ -6,7 +6,7 @@ import '../../../profile_tab/domain/profile_summary.dart';
 import '../../../profile_tab/domain/profile_summary_repository.dart';
 import '../../domain/profile_repository.dart';
 
-enum ProfileStatus { extracting, ready, failed, confirmed }
+enum ProfileStatus { extracting, ready, failed, confirmed, draft }
 
 class ProfileState extends Equatable {
   const ProfileState({
@@ -72,7 +72,20 @@ class ProfileCubit extends Cubit<ProfileState> {
         summary = null;
       }
       if (isClosed) return;
-      emit(ProfileState(status: ProfileStatus.ready, summary: summary));
+      // TD81/#503: a content-poor or mock/AI-down extraction still COMPLETES the
+      // job (real profile_id), but the row is stamped 'draft' — too little to be
+      // a usable profile. Confirming it would generate a near-empty resume and
+      // defeat the Phase-1 exit contract, so gate it here: a draft goes to its
+      // own view (no Confirm CTA — back to chat to add detail) instead of ready.
+      //
+      // Only an EXPLICIT draft diverts. A summary-read MISS (null) still goes
+      // ready, exactly as before — we cannot see the status, and extraction did
+      // succeed, so we must not block on a signal we do not have.
+      if (summary != null && summary.isDraft) {
+        emit(ProfileState(status: ProfileStatus.draft, summary: summary));
+      } else {
+        emit(ProfileState(status: ProfileStatus.ready, summary: summary));
+      }
     } on Failure catch (f) {
       if (isClosed) return;
       emit(ProfileState(status: ProfileStatus.failed, failure: f));

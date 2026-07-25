@@ -1,5 +1,5 @@
 import type { ProfileStatus } from "@badabhai/types";
-import { getRole } from "@badabhai/taxonomy";
+import { getRole, labelForTaxonomyId } from "@badabhai/taxonomy";
 import { resolveTradeContent } from "../resume/trade-content";
 import type { WorkerProfileSummary } from "./workers.dto";
 
@@ -18,7 +18,8 @@ import type { WorkerProfileSummary } from "./workers.dto";
  */
 
 /** The structural subset of `WorkerProfile` the summary reads (D8-style projection —
- * never `embedding`/`rawProfile`). */
+ * never `embedding`). `rawProfile` IS read, but only for the two closed education
+ * labels below, narrowed defensively (never spread — the blob can carry other keys). */
 export interface ProfileSummarySource {
   profileStatus: ProfileStatus;
   canonicalTradeId: string | null;
@@ -29,6 +30,13 @@ export interface ProfileSummarySource {
   salaryExpectation: unknown;
   locationPreference: unknown;
   availability: unknown;
+  /**
+   * The legacy DraftProfile snapshot JSONB (`raw_profile`). Read ONLY for
+   * `education_level`/`education_field` (not projected columns), each pulled out
+   * with the same defensive narrowing as every other JSONB here — never spread,
+   * so no other key can leak onto the wire.
+   */
+  rawProfile: unknown;
   confirmedAt: Date | string | null;
   hasPhoto: boolean;
 }
@@ -160,6 +168,16 @@ function computeStrength(p: ProfileSummarySource): number {
 }
 
 /**
+ * `raw_profile` JSONB → the two closed education labels. Each read with the SAME
+ * defensive narrowing as the rest of the file (asObject + nonBlankStringOrNull): a
+ * missing key, non-object blob, or non-string value maps to `null`, never a throw.
+ * ONLY these two keys are read — the blob is never spread, so no other field leaks.
+ */
+function readEducationField(rawProfile: unknown, key: "education_level" | "education_field"): string | null {
+  return nonBlankStringOrNull(asObject(rawProfile)?.[key]);
+}
+
+/**
  * Which of the 9 field-group slots are empty/missing. Each maps to exactly one
  * key in missing_fields. Must stay in sync with computeStrength's dimension set.
  */
@@ -192,6 +210,8 @@ const NO_PROFILE: WorkerProfileSummary = {
   skills: [],
   machines: [],
   experience_years: null,
+  education_level: null,
+  education_field: null,
   has_photo: false,
 };
 
@@ -216,9 +236,13 @@ export function toProfileSummary(
     strength: computeStrength(profile),
     strength_max: STRENGTH_MAX,
     missing_fields: computeMissingFields(profile),
-    skills: readStringArray(profile.skills),
-    machines: readStringArray(profile.machines),
+    // Resolve `skill_*` / `mach_*` ids to display names — the resume tab must show
+    // "MIG Welding"/"VMC", never a raw id. Non-id strings pass through unchanged.
+    skills: readStringArray(profile.skills).map(labelForTaxonomyId),
+    machines: readStringArray(profile.machines).map(labelForTaxonomyId),
     experience_years: readExperienceYears(profile.experience),
+    education_level: readEducationField(profile.rawProfile, "education_level"),
+    education_field: readEducationField(profile.rawProfile, "education_field"),
     has_photo: profile.hasPhoto,
   };
 }

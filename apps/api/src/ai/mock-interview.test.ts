@@ -206,6 +206,8 @@ describe("mockProfilingTurn", () => {
         "salary_expected",
         "availability",
         "education",
+        "education_level",
+        "education_field",
         "certifications",
       ]);
     });

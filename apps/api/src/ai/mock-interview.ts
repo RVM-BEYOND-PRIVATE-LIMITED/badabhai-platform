@@ -65,6 +65,11 @@ const MOCK_TOPICS: readonly MockTopic[] = [
   { id: "salary_expected", question: "Aur kitni salary expect kar rahe ho?", core: false , options: ["25 hazar", "30 hazar", "35 hazar", "40 hazar"]},
   { id: "availability", question: "Join karne me kitne din lagenge — abhi free ho ya notice chal raha hai?", core: false , options: ["Turant", "15 din", "1 mahina", "2 mahina"]},
   { id: "education", question: "ITI ya diploma kiya hai? RVM CAD ya koi aur training li hai?", core: false , options: ["ITI", "Diploma", "ITI nahi kiya"]},
+  // TD-EDU — two academic-education topics (level + field). FREE-TEXT (no options):
+  // the detector cannot resolve "12th"/"Electronics", so a chip would record nothing
+  // — same posture as the location topics. Mirrors question_bank.py.
+  { id: "education_level", question: "Aapne kahan tak padhai ki hai — 10th, 12th ya B.Tech?", core: false },
+  { id: "education_field", question: "Kis field me padhai ki — Electronics ya Computer Science?", core: false },
   { id: "certifications", question: "Koi certificate hai — NCVT, NSQF ya apprenticeship?", core: false , options: ["NCVT", "SCVT", "NSQF", "Apprenticeship"]},
 ];
 
@@ -93,6 +98,9 @@ export const MUST_ASK_TOPICS = [
   "salary_expected",
   "availability",
   "education",
+  // TD-EDU (owner 2026-07-23): two academic-education asks, mirroring the engine.
+  "education_level",
+  "education_field",
   "certifications",
 ] as const;
 

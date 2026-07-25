@@ -224,6 +224,24 @@ export const DraftProfileSchema = z.object({
   // → old rows unchanged). Mirrors apps/ai-service/app/contracts.py.
   skill_labels: z.array(z.string()).default([]),
   machines: z.array(z.string()).default([]),
+  // #499 — the worker's education + certifications, carried from the rich draft
+  // so the résumé (resume_text + rendered PDF) can show them. The interview
+  // ALWAYS asks both (MUST_ASK_TOPICS), and they are captured on the rich
+  // WorkerProfileDraft; they were being DROPPED at the rich→legacy boundary,
+  // leaving the templates' "Education & Certifications" section empty. PII-free
+  // by the same rule as skills/machines (qualification/credential strings, not
+  // an employer or identity). Additive (default [] → old snapshots parse
+  // unchanged, invariant #8). Mirrors apps/ai-service/app/contracts.py.
+  education: z.array(z.string()).default([]),
+  certifications: z.array(z.string()).default([]),
+  // Highest academic level ("10th", "12th", "ITI", "Diploma", "B.Tech", …) and the
+  // stream/branch ("Electronics", "Mechanical", …). DISTINCT from the `education`
+  // list above (which holds ITI/diploma/training MENTIONS) and from `certifications`.
+  // PII-free by the same rule as `education` (qualification labels, not identity).
+  // Additive + defaulted (null → old snapshots parse unchanged, invariant #8).
+  // Mirrors apps/ai-service/app/contracts.py.
+  education_level: z.string().nullable().default(null),
+  education_field: z.string().nullable().default(null),
   experience: ExperienceSchema.default({}),
   salary_expectation: SalaryExpectationSchema.default({}),
   location_preference: LocationPreferenceSchema.default({}),
@@ -270,6 +288,13 @@ export const WorkerProfileDraftSchema = z.object({
   availability: z.enum(["immediate", "notice_period", "not_looking", "unknown"]).default("unknown"),
   education: z.array(z.string()).default([]),
   certifications: z.array(z.string()).default([]),
+  // Highest academic level ("10th", "12th", "ITI", "Diploma", "B.Tech", …) and the
+  // stream/branch ("Electronics", "Mechanical", …). DISTINCT from the `education`
+  // list above and from `certifications` — kept untouched. PII-free qualification
+  // labels. Additive + defaulted (null → backward compatible). Mirrors the Pydantic
+  // WorkerProfileDraft in contracts.py.
+  education_level: z.string().nullable().default(null),
+  education_field: z.string().nullable().default(null),
   confidence_score: z.number().min(0).max(1).default(0),
   missing_fields: z.array(z.string()).default([]),
   clarification_questions: z.array(z.string()).default([]),

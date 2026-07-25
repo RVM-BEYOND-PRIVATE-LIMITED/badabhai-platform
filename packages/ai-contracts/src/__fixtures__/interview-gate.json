@@ -10,6 +10,8 @@
     "salary_expected",
     "availability",
     "education",
+    "education_level",
+    "education_field",
     "certifications"
   ],
   "topic_ids": [
@@ -24,6 +26,8 @@
     "salary_expected",
     "availability",
     "education",
+    "education_level",
+    "education_field",
     "certifications"
   ]
 }

@@ -72,7 +72,7 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('NOT ready: softened label + helper, and no straight-through '
+    testWidgets('NOT ready: softened label, and no straight-through '
         'navigation', (WidgetTester tester) async {
       when(() => repo.sendMessage(any()))
           .thenAnswer((_) async => const ChatTurn(reply: 'Aur bataiye.'));
@@ -81,8 +81,6 @@ void main() {
 
       expect(find.text(kChatDoneNotReadyLabel), findsOneWidget);
       expect(find.text(kChatDoneReadyLabel), findsNothing);
-      // The worker is TOLD what is still missing — no silent dead button.
-      expect(find.text(kChatNotReadyHelper), findsOneWidget);
 
       await tester.tap(find.text(kChatDoneNotReadyLabel));
       await tester.pumpAndSettle();
@@ -102,8 +100,6 @@ void main() {
 
       expect(find.text(kChatDoneReadyLabel), findsOneWidget);
       expect(find.text(kChatDoneNotReadyLabel), findsNothing);
-      expect(find.text(kChatNotReadyHelper), findsNothing,
-          reason: 'nothing is missing any more');
 
       await tester.tap(find.text(kChatDoneReadyLabel));
       await tester.pumpAndSettle();

@@ -180,6 +180,30 @@ class ApiClient {
     return ChatReply.fromJson(json);
   }
 
+  /// Fetches the persisted chat transcript, oldest-first (#502 transcript
+  /// hydration — GET /chat/sessions/:sessionId/messages). Worker-scoped: requires
+  /// [authToken]; the server proves the session belongs to the token's worker
+  /// (a 404 for not-found OR not-owner — no existence oracle). Used to REDRAW a
+  /// conversation whose in-memory transcript was lost (a >5min background re-lock
+  /// rebuilds [ChatBloc] with only its opener). The response is
+  /// `{ messages: [{direction, body_text, created_at}] }` in chronological order
+  /// — do NOT re-sort; the server already guarantees it.
+  Future<List<SessionMessage>> listSessionMessages({
+    required String sessionId,
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _get(
+      '/chat/sessions/$sessionId/messages',
+      authToken: authToken,
+    );
+    final List<dynamic> rows =
+        json['messages'] as List<dynamic>? ?? <dynamic>[];
+    return rows
+        .whereType<Map<String, dynamic>>()
+        .map(SessionMessage.fromJson)
+        .toList();
+  }
+
   /// Extracts the worker's profile from their chat answers.
   ///
   /// Extraction runs as a background job on the API. This method enqueues the

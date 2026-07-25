@@ -55,7 +55,7 @@ from .contracts import (
     TranscriptionOutput,
     WorkerProfileDraft,
 )
-from .extraction import build_resume
+from .extraction import build_resume, resolve_taxonomy_ids
 from .logging_config import configure_logging, get_logger
 from .profiling import interview_engine, profile_extractor
 from .profiling.canonical_roles import (
@@ -69,6 +69,7 @@ from .profiling.prompts import (
     RESUME_SYSTEM_PROMPT,
     build_chat_messages,
 )
+from .profiling.signals import label_for_id
 from .pseudonymize import (
     PseudonymizationResult,
     certified_clean_skill_labels,
@@ -803,6 +804,13 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
     if profile_extractor.is_outside_cnc_vmc_scope(legacy):
         rich.unmatchable_reason = profile_extractor.UNMATCHABLE_OUTSIDE_SCOPE
 
+    # TD-EDU — carry the academic education level/field from the rich draft (the
+    # LLM-filled source) onto the PERSISTED legacy profile, so the résumé + resume
+    # tab (which read the DraftProfile snapshot) can show them. Mirrors the
+    # skill_labels carry above; None stays None (mock mode leaves them unset).
+    legacy.education_level = rich.education_level
+    legacy.education_field = rich.education_field
+
     logger.info("profile extracted", extra={"extra": {"is_mock": not meta.real_call}})
     return ProfileExtractionOutput(
         profile=legacy,
@@ -839,9 +847,25 @@ async def resume_generate(body: ResumeGenerationInput) -> ResumeGenerationOutput
             )
         profile = profile.model_copy(update={"skill_labels": kept})
     text, data = build_resume(profile)
+    # Resolve all taxonomy IDs to human-readable labels BEFORE the LLM sees
+    # them, so the LLM never echoes raw IDs like skill_milling or mach_vmc
+    # into the generated resume text. The machine-readable resume_json that
+    # travels alongside the text still carries the raw IDs.
+    sanitized = {
+        **data,
+        "canonical_role_id": label_for_id(data["canonical_role_id"])
+        if data.get("canonical_role_id")
+        else None,
+        "canonical_trade_id": label_for_id(data["canonical_trade_id"])
+        if data.get("canonical_trade_id")
+        else None,
+        "skills": [label_for_id(s) for s in data.get("skills", [])],
+        "machines": [label_for_id(m) for m in data.get("machines", [])],
+        "skill_labels": [label_for_id(s) for s in data.get("skill_labels", [])],
+    }
     messages = [
         {"role": "system", "content": RESUME_SYSTEM_PROMPT},
-        {"role": "user", "content": json.dumps(data)},
+        {"role": "user", "content": json.dumps(sanitized)},
     ]
     resume_text, meta = await router.run(
         "resume_generation",
@@ -850,6 +874,7 @@ async def resume_generate(body: ResumeGenerationInput) -> ResumeGenerationOutput
         real_call_allowed=True,
         user_ref=body.worker_ref,
     )
+    resume_text = resolve_taxonomy_ids(resume_text)
     return ResumeGenerationOutput(
         resume_text=resume_text,
         resume_json=data,

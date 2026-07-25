@@ -16,12 +16,18 @@ class BbChip extends StatelessWidget {
     this.selected = false,
     this.onTap,
     this.icon,
+    this.labelWeight,
   });
 
   final String label;
   final bool selected;
   final VoidCallback? onTap;
   final IconData? icon;
+
+  /// Overrides the label weight. Defaults to the chip's usual bold (`w700`); the
+  /// profiling chat's answer chips pass a normal weight so they read exactly like
+  /// a chat message (same size + weight), per the owner request.
+  final FontWeight? labelWeight;
 
   @override
   Widget build(BuildContext context) {
@@ -61,7 +67,7 @@ class BbChip extends StatelessWidget {
                   label,
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
-                    weight: FontWeight.w700,
+                    weight: labelWeight ?? FontWeight.w700,
                     color: foreground,
                   ),
                 ),

@@ -11,6 +11,9 @@ class ChatTurn extends Equatable {
     required this.reply,
     this.followups = const <String>[],
     this.extractionReady = false,
+    this.unansweredEssentials = const <String>[],
+    this.blocked = false,
+    this.isMock = false,
   });
 
   final String reply;
@@ -22,6 +25,30 @@ class ChatTurn extends Equatable {
   /// `ChatReply.extractionReady` for why that default is the safe one).
   final bool extractionReady;
 
+  /// ESSENTIAL topics the worker has not answered yet (`unanswered_essentials`,
+  /// #478) — topic ids only, never PII. Drives the named "what's still missing"
+  /// helper. MEANINGFUL ONLY WHEN [blocked] IS FALSE: a blocked turn degrades
+  /// this to `[]` = "unknown", not "complete".
+  final List<String> unansweredEssentials;
+
+  /// True when the turn was refused / pseudonymization failed closed
+  /// (`blocked`). The [reply] is then a safe fallback and carries no interview
+  /// state — the worker's answer was NOT processed, so the UI cues them to say
+  /// it again rather than pretending it landed.
+  final bool blocked;
+
+  /// True when the reply came from the local/AI-down mock fallback (`is_mock`).
+  /// Surfaced only as a demo cue in non-release builds (mock is the default in
+  /// every committed env today, so a release badge would be noise on every turn).
+  final bool isMock;
+
   @override
-  List<Object?> get props => <Object?>[reply, followups, extractionReady];
+  List<Object?> get props => <Object?>[
+        reply,
+        followups,
+        extractionReady,
+        unansweredEssentials,
+        blocked,
+        isMock,
+      ];
 }

@@ -9,6 +9,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "dev:all": "concurrently \"pnpm dev\" \"cd apps/ai-service && uvicorn app.main:app --reload --port 8000\"",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test",

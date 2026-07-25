@@ -20,6 +20,9 @@ class ProfileSummary extends Equatable {
     this.skills = const <String>[],
     this.machines = const <String>[],
     this.experienceYears,
+    this.educationLevel,
+    this.educationField,
+    this.profileStatus = 'none',
   });
 
   /// The worker's name, or `null` when the backend omits it (current reality —
@@ -61,6 +64,34 @@ class ProfileSummary extends Equatable {
   /// free-text summary is never on the wire (§2). `null` when unknown.
   final double? experienceYears;
 
+  /// Highest academic/education level as a short label (`education_level`), e.g.
+  /// '10th', '12th', 'ITI', 'Diploma', 'B.Tech'. NOT PII (same class as the
+  /// coarse trade/skill labels). `null` when unknown — never fabricated.
+  final String? educationLevel;
+
+  /// Stream/branch of study (`education_field`), e.g. 'Electronics',
+  /// 'Mechanical', 'Computer Science'. NOT PII. `null` when unknown — never
+  /// fabricated. Distinct from the resume `education` list (ITI/diploma
+  /// mentions) and from certifications.
+  final String? educationField;
+
+  /// The raw backend `profile_status` (`worker_profiles.profile_status`):
+  /// 'none' | 'draft' | 'extracting' | 'extracted' | 'confirmed'. Defaults to
+  /// `'none'` for a hand-built / no-profile summary.
+  ///
+  /// WHY IT IS CARRIED (TD81 / backend #503): a content-poor or mock/AI-down
+  /// extraction now COMPLETES the ai_job with a real `profile_id` but stamps the
+  /// row `'draft'` instead of `'extracted'`. The GET /ai-jobs/:id status cannot
+  /// tell the two apart — only this field can. The profiling preview gates the
+  /// "Confirm & generate resume" step on it ([isDraft]) so a near-empty draft is
+  /// never confirmed into an empty resume (the Phase-1 exit contract).
+  final String profileStatus;
+
+  /// True when the extraction produced too little to be a usable profile
+  /// (backend `profile_status == 'draft'`). The preview blocks confirm and sends
+  /// the worker back to chat to add more detail.
+  bool get isDraft => profileStatus == 'draft';
+
   @override
   List<Object?> get props => <Object?>[
         displayName,
@@ -73,5 +104,8 @@ class ProfileSummary extends Equatable {
         skills,
         machines,
         experienceYears,
+        educationLevel,
+        educationField,
+        profileStatus,
       ];
 }

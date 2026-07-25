@@ -164,8 +164,11 @@ void main() {
       // The engine's FIRST topic is `role` (question_bank.py `_CNC_VMC_TOPICS`),
       // not machines — the old opener asked "Which machines do you run?" and
       // pushed the worker to answer the wrong topic first.
-      expect(opener, contains('Aap kaunsa kaam karte hain'));
+      expect(opener, contains('aap kaunsa kaam karte hain'));
       expect(opener.toLowerCase(), isNot(contains('which machines')));
+      // Resume-framed opener: no "test" language, no machine list.
+      expect(opener, contains('resume'));
+      expect(opener, isNot(contains('CNC, VMC, HMC')));
       // Persona contract: no vocative is rendered client-side — the
       // "{{worker_name}} ji," slot is filled server-side, and the client holds
       // no name to render here.

@@ -43,7 +43,7 @@ def _launch_role_profile() -> DraftProfile:
         canonical_trade_id="trade_cnc_machining",
         canonical_role_id="role_vmc_operator",
         skills=["skill_milling", "skill_fanuc"],
-        machines=["machine_vmc"],
+        machines=["mach_vmc"],
         experience=Experience(total_years=5),
     )
 
@@ -59,8 +59,9 @@ def _off_wedge_profile() -> DraftProfile:
 def test_launch_role_resume_completes_with_canonical_ids():
     text, data = build_resume(_launch_role_profile())
     assert "WORKER PROFILE" in text
-    assert "skill_milling" in text and "skill_fanuc" in text
-    assert "role_vmc_operator" in text
+    # IDs are resolved to display labels in the text — never raw taxonomy IDs.
+    assert "Milling" in text and "Fanuc" in text
+    assert "VMC Operator" in text
     # The ids double as machine-readable metadata for downstream consumers.
     assert data["skills"] == ["skill_milling", "skill_fanuc"]
 
@@ -111,16 +112,20 @@ def test_resume_path_is_structurally_independent_of_canonicalization(monkeypatch
         json={"profile": _launch_role_profile().model_dump()},
     )
     assert resp.status_code == 200
-    assert "skill_milling" in resp.json()["resume_text"]
+    assert "Milling" in resp.json()["resume_text"]
 
 
 # --- RESUME_SYSTEM_PROMPT untouched (AI-PERSONA-1 scope) ---------------------------
 def test_resume_system_prompt_baseline_unchanged():
     """Deliberately brittle: TAX-8's charter says the résumé prompt is OUT of scope
     (AI-PERSONA-1 owns it). If you are editing the prompt ON PURPOSE, update this hash
-    in the same diff — the change becomes visible in review instead of drifting in."""
+    in the same diff — the change becomes visible in review instead of drifting in.
+
+    Updated: added ID-avoidance instruction so the LLM never echoes raw taxonomy
+    IDs (e.g. skill_milling) into the generated resume text — the profile is
+    already sanitized to labels before it reaches the LLM."""
     digest = hashlib.sha256(RESUME_SYSTEM_PROMPT.encode("utf-8")).hexdigest()[:16]
-    assert digest == "0f08076b41734eea"
+    assert digest == "b84ca1aeaad67668"
     assert len(RESUME_SYSTEM_PROMPT) > 50  # non-empty, real prompt
 
 
@@ -243,9 +248,10 @@ def test_label_duplicating_a_canonical_id_is_not_rendered_twice():
         skill_labels=["Milling", "5-axis setup"],
     )
     text, _ = build_resume(profile)
-    assert "skill_milling" in text
+    # The canonical id resolves to "Milling" and appears once; the label
+    # "Milling" is dropped as a duplicate of the resolved canonical id.
+    assert "Milling" in text
     assert "5-axis setup" in text
-    assert "Milling" not in text  # label normalizes to the id ("skill_" stripped)
 
 
 # --- extraction hygiene clamp (defense in depth; the hard gate is SG-2 above) ------
@@ -345,3 +351,54 @@ def test_extract_endpoint_live_heuristic_labels_flow_unmocked():
     labels = resp.json()["profile"]["skill_labels"]
     assert "tool offset setting" in labels
     assert "machine operation" in labels
+
+
+# =====================================================================================
+# #499 — education + certifications render on the résumé. They are ALWAYS asked
+# (MUST_ASK_TOPICS) and captured as closed-set canonical tokens (ITI/Diploma/Degree,
+# NCVT/NSQF/…) but were dropped at the rich→legacy boundary, so the templates'
+# "Education & Certifications" section always came out empty. Additive; PII-free.
+# =====================================================================================
+
+
+def test_education_and_certifications_render_on_resume():
+    profile = DraftProfile(
+        canonical_role_id="role_cnc_operator",
+        education=["ITI", "Diploma"],
+        certifications=["NCVT"],
+    )
+    text, data = build_resume(profile)
+    assert "Education: ITI, Diploma" in text
+    assert "Certifications: NCVT" in text
+    # Present on the machine-readable payload too (the résumé LLM input).
+    assert data["education"] == ["ITI", "Diploma"]
+    assert data["certifications"] == ["NCVT"]
+
+
+def test_no_education_emits_no_line_never_fabricated():
+    # A worker who stated no education produces NO Education line (honest omission,
+    # not an invented "(to be confirmed)").
+    text, _ = build_resume(DraftProfile(canonical_role_id="role_cnc_operator"))
+    assert "Education:" not in text
+    assert "Certifications:" not in text
+
+
+def test_old_payload_without_education_still_parses_backward_compat():
+    # Old persisted DraftProfile rows lack the keys → default [] (invariant #8).
+    profile = DraftProfile.model_validate({"experience": {"total_years": 8}})
+    assert profile.education == [] and profile.certifications == []
+    text, _ = build_resume(profile)
+    assert "Education:" not in text
+
+
+def test_education_flows_through_extract_to_resume_end_to_end():
+    # The whole path: interview answer → /profile/extract → the persisted snapshot
+    # (profiles.raw_profile) carries education/certifications for the résumé.
+    resp = client.post(
+        "/profile/extract",
+        json={"transcript": "main cnc operator hoon, ITI kiya hai aur NCVT certificate bhi hai"},
+    )
+    assert resp.status_code == 200
+    profile = resp.json()["profile"]
+    assert "ITI" in profile["education"]
+    assert "NCVT" in profile["certifications"]

@@ -347,6 +347,10 @@ _ANSWERS = {
     "salary_expected": "30000 chahiye",
     "availability": "15 din lagenge",
     "education": "ITI kiya hai",
+    # B.Tech (a higher qualification) so education_field is still ASKED in the fluent
+    # run — the TD-EDU school-level skip (10th/12th) has its own dedicated test.
+    "education_level": "B.Tech kiya hai",
+    "education_field": "Electronics",
     "certifications": "NCVT certificate hai",
 }
 _GARBAGE = "haan ji theek hai"
@@ -370,6 +374,43 @@ def _run_interview(reply_for, max_turns: int = 40):
     raise AssertionError(
         f"interview did not terminate in {max_turns} turns — ask log: {ask_log}"
     )
+
+
+def _drive_until_asked(topic_id: str, max_turns: int = 40):
+    """Drive next_turn (answering earlier topics from _ANSWERS) until ``topic_id`` is
+    the question being served, and return the state ONE STEP BEFORE answering it."""
+    state = None
+    message = "namaste"
+    asked = None
+    for _ in range(max_turns):
+        _r, asked, state, _ready = interview_engine.next_turn(state, message, "cnc_vmc")
+        if asked == topic_id or asked is None:
+            break
+        message = _ANSWERS.get(asked, "haan ji")
+    assert asked == topic_id, f"never reached {topic_id}"
+    return state
+
+
+def test_td_edu_school_level_answer_skips_the_field_of_study_question():
+    """TD-EDU (owner 2026-07-23): a 10th/12th education_level answer has no field of
+    study, so education_field is SKIPPED — marked answered (must-ask gate: asked-or-
+    answered), never served, and the next question is certifications."""
+    state = _drive_until_asked("education_level")
+    _r, next_asked, state, _ready = interview_engine.next_turn(state, "12th pass", "cnc_vmc")
+    assert "education_field" in state.answered_topics
+    assert "education_field" not in state.asked_question_ids
+    assert next_asked == "certifications"
+
+
+def test_td_edu_higher_qualification_still_asks_the_field_of_study_question():
+    """The other arm: a B.Tech/Diploma answer DOES have a field, so education_field is
+    still asked (the mock detector reads no level, so it is asked, not skipped)."""
+    state = _drive_until_asked("education_level")
+    _r, next_asked, state, _ready = interview_engine.next_turn(
+        state, "B.Tech kiya hai", "cnc_vmc"
+    )
+    assert "education_field" not in state.answered_topics
+    assert next_asked == "education_field"
 
 
 def test_worker_who_answers_everything_is_asked_each_topic_exactly_once():
@@ -562,7 +603,7 @@ def test_the_ask_budget_has_real_headroom_over_a_blind_run(monkeypatch):
     zero-margin ceiling can never silently come back — if someone adds topics or
     raises MAX_ASKS_PER_TOPIC without raising MAX_ENGINE_ASKS, this fails."""
     budget = _blind_ask_budget()
-    assert budget == 16  # 4 essentials x 2 + 8 ask-once topics, for today's bank
+    assert budget == 18  # 4 essentials x 2 + 10 ask-once topics, for today's bank
     assert interview_engine.MAX_ENGINE_ASKS > budget, (
         "MAX_ENGINE_ASKS must exceed the blind-run budget, or the backstop itself "
         "truncates the interview and starves the tail topics"
@@ -587,9 +628,9 @@ def test_actually_asking_availability_did_not_move_the_ask_budget():
     case:
 
         4 essentials x MAX_ASKS_PER_TOPIC(2) = 8
-      + 8 ask-once topics x 1                = 8
+      + 10 ask-once topics x 1               = 10
       -------------------------------------------
-        blind-run worst case                 = 16   <  MAX_ENGINE_ASKS = 20
+        blind-run worst case                 = 18   <  MAX_ENGINE_ASKS = 22
 
     So the fix moves REAL runs closer to that bound, never past it. Measured: the
     fluent 'answers every topic' persona went 8 -> 9 asks (availability now asked),
@@ -607,7 +648,7 @@ def test_actually_asking_availability_did_not_move_the_ask_budget():
     assert "education" in state_fluent.asked_question_ids
     assert "certifications" in state_fluent.asked_question_ids
     assert "skills" in state_fluent.asked_question_ids
-    assert len(log_fluent) == 12
+    assert len(log_fluent) == 14  # 12 + TD-EDU education_level/education_field
 
     worst = 0
     for reply_for in (
@@ -618,7 +659,7 @@ def test_actually_asking_availability_did_not_move_the_ask_budget():
     ):
         _log, state, _ready, _turns = _run_interview(reply_for)
         worst = max(worst, sum(state.ask_counts.values()))
-    assert worst == _blind_ask_budget() == 16
+    assert worst == _blind_ask_budget() == 18
     assert worst < interview_engine.MAX_ENGINE_ASKS
 
 

@@ -16,10 +16,12 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/pdf_downloader.dart';
+import '../../../core/util/taxonomy_labels.dart';
 import '../../../core/util/transient_retry.dart';
 import '../../../core/util/resume_file_name.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_chat_action.dart';
 import '../../../core/widgets/bb_scaffold.dart';
 import '../../../router.dart';
 import '../domain/resume_edit_repository.dart';
@@ -111,7 +113,10 @@ class _ResumeViewState extends State<_ResumeView> {
       child: BlocBuilder<ResumeCubit, ResumeState>(
         builder: (BuildContext context, ResumeState state) {
           return BbScaffold(
-            appBar: const BbAppBar(title: 'Your resume'),
+            appBar: const BbAppBar(
+              title: 'Your resume',
+              actions: <Widget>[BbChatAction()],
+            ),
             body: switch (state.status) {
               ResumeStatus.loading =>
                 const Center(child: CircularProgressIndicator()),
@@ -148,7 +153,7 @@ class _ResumeViewState extends State<_ResumeView> {
               Padding(
                 padding: const EdgeInsets.all(AppSpacing.s4),
                 child: Text(
-                  resumeText,
+                  replaceTaxonomyIds(resumeText),
                   style: AppTypography.body(size: AppTypography.sizeMd),
                 ),
               ),

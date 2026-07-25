@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
+import { labelForTaxonomyId } from "@badabhai/taxonomy";
 import {
   ProfilingTurnOutputSchema,
   ProfileExtractionOutputSchema,
@@ -153,24 +154,43 @@ export class AiService {
     const remote = await this.post("/resume/generate", input, ResumeGenerationOutputSchema);
     if (remote) return remote;
     const { profile } = input;
-    // Q14: local mock fallback (AI service unreachable — NO LLM involved) renders
-    // ids + the worker-confirmed raw labels, deduped case-insensitively against
-    // the ids with the `skill_` prefix stripped (label "Milling" dupes skill_milling).
+    // Q14: local mock fallback (AI service unreachable — NO LLM involved) renders the
+    // canonical skill NAMES (ids resolved via the taxonomy — the résumé must never show
+    // a raw skill_* id) + the worker-confirmed raw labels, deduped case-insensitively.
     // SAFE UNGATED BY CONSTRUCTION: skill_labels is CERTIFIED CLEAN AT REST by the
     // AI service at population (/profile/extract → sanitize_skill_labels: hygiene
     // clamp + pseudonymize certification — a blocked/masked/altered label never
     // persists in profiles.raw_profile), so this no-LLM path only ever echoes
     // already-certified labels. No TS-side pseudonymize equivalent is needed here.
-    const idKeys = new Set(profile.skills.map((s) => s.replace(/^skill_/, "").replace(/_/g, " ").toLowerCase()));
-    const skills = [
-      ...profile.skills,
-      ...profile.skill_labels.filter((l) => !idKeys.has(l.toLowerCase())),
-    ];
+    const resolvedSkills = profile.skills.map(labelForTaxonomyId);
+    const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const seenSkills = new Set(resolvedSkills.map(norm));
+    const skills = [...resolvedSkills];
+    for (const l of profile.skill_labels) {
+      const label = labelForTaxonomyId(l);
+      const key = norm(label);
+      if (key && !seenSkills.has(key)) {
+        seenSkills.add(key);
+        skills.push(label);
+      }
+    }
     const lines = [
       "PROFESSIONAL SUMMARY (draft)",
-      profile.canonical_role_id ? `Role: ${profile.canonical_role_id}` : "Role: (to be confirmed)",
+      profile.canonical_role_id
+        ? `Role: ${labelForTaxonomyId(profile.canonical_role_id)}`
+        : "Role: (to be confirmed)",
       skills.length ? `Skills: ${skills.join(", ")}` : "Skills: (to be confirmed)",
-      profile.machines.length ? `Machines: ${profile.machines.join(", ")}` : "Machines: (to be confirmed)",
+      profile.machines.length
+        ? `Machines: ${profile.machines.map(labelForTaxonomyId).join(", ")}`
+        : "Machines: (to be confirmed)",
+      // #499 — education + certifications (closed-set tokens), emitted only when
+      // present so the AI-service-unreachable fallback matches the real resume.
+      // Highest academic level + stream ride the same block; PII-free labels, each
+      // emitted only when present.
+      ...(profile.education_level ? [`Education Level: ${profile.education_level}`] : []),
+      ...(profile.education_field ? [`Field of Study: ${profile.education_field}`] : []),
+      ...(profile.education.length ? [`Education: ${profile.education.join(", ")}`] : []),
+      ...(profile.certifications.length ? [`Certifications: ${profile.certifications.join(", ")}`] : []),
     ];
     return ResumeGenerationOutputSchema.parse({
       resume_text: lines.join("\n"),
