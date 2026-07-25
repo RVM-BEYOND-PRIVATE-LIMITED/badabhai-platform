@@ -267,7 +267,10 @@ export class AuthService {
     // ADR-0026 Phase 2 — register the trusted device (only if the client sent device_info)
     // and bind the new session to it via the `did` claim. BEST-EFFORT: a device failure
     // returns undefined and login proceeds unbound — device binding never breaks login.
-    const deviceId = await this.devices.registerOnLogin(worker.id, deviceInfo, ctx);
+    // TD95: the push_target nonce is now returned so the client can store it.
+    const deviceResult = await this.devices.registerOnLogin(worker.id, deviceInfo, ctx);
+    const deviceId = deviceResult?.deviceId;
+    const pushTarget = deviceResult?.pushTarget ?? null;
 
     // Mint a rolling session for this worker: a short access JWT + Redis session record
     // PLUS (ADR-0026) an opaque rotating refresh token + family. The legacy access-token
@@ -306,6 +309,9 @@ export class AuthService {
       ...(worker.deletionScheduledAt
         ? { deletion_scheduled_for: worker.deletionScheduledAt.toISOString() }
         : {}),
+      // TD95 — the push_target nonce for the registered device. Present only when
+      // device_info with a push_token was sent on login; null/absent otherwise.
+      ...(pushTarget ? { push_target: pushTarget } : {}),
     };
     return { response, worker, phoneHash, isNew };
   }

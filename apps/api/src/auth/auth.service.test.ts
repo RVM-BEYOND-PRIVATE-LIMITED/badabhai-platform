@@ -49,10 +49,14 @@ function makeSessions() {
 
 /**
  * A devices service double (ADR-0026 Phase 2). registerOnLogin resolves to the given
- * device row id (undefined = no device_info / best-effort miss → session minted unbound).
+ * device result (undefined = no device_info / best-effort miss → session minted unbound).
+ * TD95: return shape includes pushTarget for the login response.
  */
 function makeDevices(deviceId?: string) {
-  return { registerOnLogin: vi.fn().mockResolvedValue(deviceId) };
+  const result = deviceId
+    ? { deviceId, pushTarget: "push-target-uuid" }
+    : undefined;
+  return { registerOnLogin: vi.fn().mockResolvedValue(result) };
 }
 
 /**

@@ -44,7 +44,7 @@ export class DevicesService {
     workerId: string,
     deviceInfo: DeviceInfoDto | undefined,
     ctx: RequestContext,
-  ): Promise<string | undefined> {
+  ): Promise<{ deviceId: string; pushTarget: string | null } | undefined> {
     if (!deviceInfo) return undefined;
     try {
       const deviceHash = this.pii.hmac(deviceInfo.device_id);
@@ -92,7 +92,7 @@ export class DevicesService {
           );
         }
       }
-      return device.id;
+      return { deviceId: device.id, pushTarget: device.pushTarget ?? null };
     } catch (err) {
       // Device binding is additive — never fail the login over it. Log a STATIC reason +
       // the error TYPE only, NOT err.message: a device-write error could in a future driver

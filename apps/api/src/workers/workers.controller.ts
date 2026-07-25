@@ -28,6 +28,7 @@ import {
   type AuthenticatedWorker,
 } from "../auth/worker-auth.guard";
 import { ConsentGuard } from "../auth/consent.guard";
+import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 import { WorkersRepository } from "./workers.repository";
 import { WorkersService } from "./workers.service";
 import {
@@ -121,7 +122,8 @@ export class WorkersController {
     return this.workersService.getPhotoUrl(worker.id);
   }
 
-  /** Worker + latest profile + latest generated resume. */
+  /** Worker + latest profile + latest generated resume. Ops/internal only — no PII leaked. */
+  @UseGuards(InternalServiceGuard)
   @Get(":id/profile")
   async getProfile(@Param("id", new ParseUUIDPipe()) id: string) {
     const worker = await this.workers.findById(id);

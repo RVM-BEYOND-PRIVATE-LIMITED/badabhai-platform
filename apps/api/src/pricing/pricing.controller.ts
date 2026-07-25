@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Put, Query } from "@nestjs/common";
+import { Body, Controller, Get, Put, Query, UseGuards } from "@nestjs/common";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 import { PricingService } from "./pricing.service";
 import {
   UpdateCatalogSchema,
@@ -14,10 +15,9 @@ import {
  * builder". Thin HTTP layer: validation via ZodValidationPipe, all logic + the
  * fail-closed catalog handling + the `pricing.changed` event in the service.
  *
- * Ops-only by intent (catalog edits). No real ops-auth seam exists in alpha — the
- * acting ops actor is supplied as `updated_by` on the body (same posture as
- * job_postings). A `PricingAdminGuard`/InternalServiceGuard is a launch gate.
+ * Ops-only by intent (catalog edits). Guards: InternalServiceGuard (R31).
  */
+@UseGuards(InternalServiceGuard)
 @Controller("pricing")
 export class PricingController {
   constructor(private readonly pricing: PricingService) {}

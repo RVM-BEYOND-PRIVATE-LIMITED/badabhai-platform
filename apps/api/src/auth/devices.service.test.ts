@@ -17,6 +17,7 @@ function makeDeviceRow(over: Record<string, unknown> = {}) {
     model: "Pixel 7",
     appVersion: "1.2.3",
     pushToken: "fcm-secret-token-value",
+    pushTarget: "push-target-uuid",
     attestationVerified: false,
     trustedAt: new Date("2026-06-20T10:00:00.000Z"),
     lastSeenAt: new Date("2026-06-28T12:00:00.000Z"),
@@ -60,8 +61,8 @@ describe("DevicesService (ADR-0026 Phase 2 — trusted-device binding)", () => {
   it("registerOnLogin with no device_info returns undefined and never touches the repo", async () => {
     const registerOrTouch = vi.fn();
     const { svc, emit } = build({ repo: { registerOrTouch } });
-    const id = await svc.registerOnLogin("worker-1", undefined, ctx);
-    expect(id).toBeUndefined();
+    const result = await svc.registerOnLogin("worker-1", undefined, ctx);
+    expect(result).toBeUndefined();
     expect(registerOrTouch).not.toHaveBeenCalled();
     expect(emit).not.toHaveBeenCalled();
   });
@@ -72,13 +73,14 @@ describe("DevicesService (ADR-0026 Phase 2 — trusted-device binding)", () => {
       .mockResolvedValue({ device: makeDeviceRow(), created: true });
     const { svc, emit, repo } = build({ repo: { registerOrTouch } });
 
-    const id = await svc.registerOnLogin(
+    const result = await svc.registerOnLogin(
       "worker-1",
       { device_id: "raw-client-device-id", platform: "android", push_token: "fcm-secret" },
       ctx,
     );
 
-    expect(id).toBe("device-1");
+    expect(result?.deviceId).toBe("device-1");
+    expect(result?.pushTarget).toBe("push-target-uuid");
     // The RAW client device id is never passed to the repo — only its HMAC.
     const arg = (repo.registerOrTouch as ReturnType<typeof vi.fn>).mock.calls[0]![0];
     expect(arg.deviceHash).toBe("hmac<20>");
@@ -100,24 +102,24 @@ describe("DevicesService (ADR-0026 Phase 2 — trusted-device binding)", () => {
       .fn()
       .mockResolvedValue({ device: makeDeviceRow(), created: false });
     const { svc, emit } = build({ repo: { registerOrTouch } });
-    const id = await svc.registerOnLogin(
+    const result = await svc.registerOnLogin(
       "worker-1",
       { device_id: "raw-client-device-id", platform: "android" },
       ctx,
     );
-    expect(id).toBe("device-1");
+    expect(result?.deviceId).toBe("device-1");
     expect(emit).not.toHaveBeenCalled();
   });
 
   it("registration is BEST-EFFORT: a repo failure is swallowed (returns undefined) so login never breaks", async () => {
     const registerOrTouch = vi.fn().mockRejectedValue(new Error("db down"));
     const { svc, emit } = build({ repo: { registerOrTouch } });
-    const id = await svc.registerOnLogin(
+    const result = await svc.registerOnLogin(
       "worker-1",
       { device_id: "raw-client-device-id", platform: "android" },
       ctx,
     );
-    expect(id).toBeUndefined();
+    expect(result).toBeUndefined();
     expect(emit).not.toHaveBeenCalled();
   });
 

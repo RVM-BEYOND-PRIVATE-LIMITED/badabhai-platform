@@ -105,6 +105,9 @@ export interface LoginResponse {
   // of the scheduled erasure, so the app shows the grace banner + explicit cancel prompt
   // (never auto-cancel). Login itself works unchanged during grace.
   deletion_scheduled_for?: string;
+  // TD95 — the push_target nonce so the client can match incoming pushes. Present only
+  // when device_info with a push_token was sent on login; absent otherwise.
+  push_target?: string;
 }
 
 /** Response of POST /auth/refresh (legacy rolling-token refresh — unchanged). */

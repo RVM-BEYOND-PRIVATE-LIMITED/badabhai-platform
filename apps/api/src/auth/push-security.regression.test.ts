@@ -151,12 +151,12 @@ describe("SIM-swap ruling — the new-device alert warns the OTHER phones", () =
       { enqueue: vi.fn() },
     );
 
-    const deviceId = await svc.registerOnLogin(
+    const result = await svc.registerOnLogin(
       WORKER_A,
       { device_id: "raw-device", platform: "android" } as never,
       { correlationId: "c", requestId: "r" } as never,
     );
 
-    expect(deviceId).toBe(DEVICE_1); // still bound
+    expect(result?.deviceId).toBe(DEVICE_1); // still bound
   });
 });
