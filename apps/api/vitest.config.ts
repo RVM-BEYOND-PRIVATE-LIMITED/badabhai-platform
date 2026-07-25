@@ -12,13 +12,13 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "json", "lcov"],
       reportsDirectory: "../../coverage/api",
-      // Thresholds to prevent regression (TD9) — set to current baseline
-      // Current: lines 74.12%, functions 74.21%, branches 73.x%, statements 74.12%
+      // Thresholds to prevent regression (TD9) — bumped 2026-07-25 as coverage rose.
+      // Run `pnpm --filter @badabhai/api test -- --coverage` to refresh.
       thresholds: {
-        lines: 74,
-        functions: 74,
+        lines: 75,
+        functions: 75,
         branches: 73,
-        statements: 74,
+        statements: 75,
       },
       // Exclude non-testable layers from coverage
       exclude: [
