@@ -48,7 +48,7 @@ export class DevicesService {
     if (!deviceInfo) return undefined;
     try {
       const deviceHash = this.pii.hmac(deviceInfo.device_id);
-      const { device, created } = await this.repo.registerOrTouch({
+      const { device, created, stolenWorkers } = await this.repo.registerOrTouch({
         workerId,
         deviceHash,
         platform: deviceInfo.platform,
@@ -56,6 +56,24 @@ export class DevicesService {
         appVersion: deviceInfo.app_version ?? null,
         pushToken: deviceInfo.push_token ?? null,
       });
+
+      // TD92 — emit push_token_claimed per unique losing worker (regardless of created).
+      if (stolenWorkers.length > 0) {
+        const byWorker = new Map<string, typeof stolenWorkers>();
+        for (const row of stolenWorkers) {
+          const group = byWorker.get(row.workerId) ?? [];
+          group.push(row);
+          byWorker.set(row.workerId, group);
+        }
+        for (const [losingWorkerId, rows] of byWorker) {
+          await this.events.emit({
+            event_name: "worker.push_token_claimed",
+            actor: { actor_type: "worker", actor_id: workerId },
+            subject: { subject_type: "worker", subject_id: losingWorkerId },
+            payload: { worker_id: losingWorkerId, device_count: rows.length },
+          });
+        }
+      }
 
       if (created) {
         const emitted = await this.events.emit({
@@ -145,9 +163,24 @@ export class DevicesService {
     // handed-down handset). Without this, the previous worker's SECURITY alerts would
     // be delivered to whoever holds the phone now.
     const stolen = await this.repo.claimPushToken(token, deviceId);
-    if (stolen > 0) {
-      // Count only — never the token or either worker's identity beyond the caller.
-      this.logger.log(`push token claimed from ${stolen} stale device row(s)`);
+    if (stolen.length > 0) {
+      // Emit a PII-free audit event per unique losing worker (TD92). The token is
+      // NEVER in the payload — only opaque uuids and a count.
+      const byWorker = new Map<string, typeof stolen>();
+      for (const row of stolen) {
+        const group = byWorker.get(row.workerId) ?? [];
+        group.push(row);
+        byWorker.set(row.workerId, group);
+      }
+      for (const [losingWorkerId, rows] of byWorker) {
+        await this.events.emit({
+          event_name: "worker.push_token_claimed",
+          actor: { actor_type: "worker", actor_id: workerId },
+          subject: { subject_type: "worker", subject_id: losingWorkerId },
+          payload: { worker_id: losingWorkerId, device_count: rows.length },
+        });
+      }
+      this.logger.log(`push token claimed from ${stolen.length} stale device row(s) (${byWorker.size} worker(s))`);
     }
     return updated.pushTarget;
   }

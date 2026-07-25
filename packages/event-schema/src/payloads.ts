@@ -155,8 +155,20 @@ export const WorkerPushSendFailedPayload = z
   })
   .strict();
 
+// TD92 — a push token was claimed FROM another worker's device rows (steal on register /
+// push-token update). PII-FREE: opaque losing worker id + count of stale rows that were
+// cleared. The ACTOR (winning worker) is the event envelope's actor_id. The token itself
+// NEVER appears (CLAUDE.md invariant #2). v1.
+export const WorkerPushTokenClaimedPayload = z
+  .object({
+    /** The worker WHO LOST the token (their devices were cleared). */
+    worker_id: uuidSchema,
+    /** How many of that worker's stale device rows were cleared. */
+    device_count: z.number().int().nonnegative(),
+  })
+  .strict();
+
 // ADR-0026 Phase 5 — DPDP worker-initiated account deletion. The worker's identity row
-// (and every PII-bearing child) has been hard-erased; the billing/intent rows survive with
 // their identity join nulled (D3). PII-FREE: the now-erased worker's opaque id + non-negative
 // COUNTS/FLAGS only — sessions/devices revoked, storage objects deleted/failed, and whether a
 // PIN existed. The phone, phone_hash, name, device hash, resume object keys, and the OTP code

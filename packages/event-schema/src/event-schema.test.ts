@@ -2128,9 +2128,42 @@ describe("worker.push_sent / worker.push_send_failed (ADR-0034)", () => {
   });
 });
 
+describe("worker.push_token_claimed (TD92)", () => {
+  function claimedEvent(payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: "worker.push_token_claimed",
+      actor: { actor_type: "worker", actor_id: UUID_A },
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload,
+    };
+  }
+
+  it("accepts the PII-free shape (winning actor, losing subject, count only)", () => {
+    const ok = validateEvent(
+      claimedEvent({ worker_id: UUID_B, device_count: 2 }),
+    );
+    expect(ok.success).toBe(true);
+  });
+
+  it("REJECTS a smuggled push_token or device id (.strict)", () => {
+    for (const extra of [{ push_token: "fcm-secret" }, { device_ids: [UUID_C] }]) {
+      const bad = validateEvent(claimedEvent({ worker_id: UUID_B, device_count: 1, ...extra }));
+      expect(bad.success).toBe(false);
+    }
+  });
+
+  it("REJECTS a non-uuid worker_id and negative count", () => {
+    const badId = validateEvent(claimedEvent({ worker_id: "not-a-uuid", device_count: 1 }));
+    expect(badId.success).toBe(false);
+    const badCount = validateEvent(claimedEvent({ worker_id: UUID_B, device_count: -1 }));
+    expect(badCount.success).toBe(false);
+  });
+});
+
 describe("registry", () => {
-  it("exposes all 116 event names (109 prior + agency_kyc.* ×3 + agency_payout.* ×4 [ADR-0022 Amdt 2])", () => {
-    expect(EVENT_NAMES).toHaveLength(116);
+  it("exposes all 117 event names (116 prior + worker.push_token_claimed [TD92])", () => {
+    expect(EVENT_NAMES).toHaveLength(117);
     expect(isEventName("skill.phrase_unresolved")).toBe(true);
     expect(isEventName("worker.otp_send_failed")).toBe(true);
     expect(isEventName("worker.deletion_scheduled")).toBe(true);

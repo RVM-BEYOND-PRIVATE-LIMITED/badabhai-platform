@@ -476,6 +476,17 @@ export const EVENT_REGISTRY = {
     domain: "skill",
     payload: p.SkillPhraseUnresolvedPayload,
   },
+
+  // TD92 — stealth token-claim audit event. A push token was claimed FROM another
+  // worker's devices (steal on register / push-token update). PII-FREE: the LOSING
+  // worker is the subject + the payload carries the opaque losing worker_id + count
+  // of stale rows cleared. The ACTOR (the worker whose device claimed the token)
+  // identifies the winning principal. The token NEVER appears in payload/logs.
+  "worker.push_token_claimed": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerPushTokenClaimedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

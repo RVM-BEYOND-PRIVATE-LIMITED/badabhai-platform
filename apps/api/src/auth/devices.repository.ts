@@ -38,7 +38,7 @@ export class DevicesRepository {
    * cleared) on re-login. `created` is true only for the row that actually inserted —
    * the caller gates the one-time `worker.device_registered` event on it.
    */
-  async registerOrTouch(input: DeviceUpsert): Promise<{ device: WorkerDevice; created: boolean }> {
+  async registerOrTouch(input: DeviceUpsert): Promise<{ device: WorkerDevice; created: boolean; stolenWorkers: { id: string; workerId: string }[] }> {
     // ADR-0034: a push token is only ever WRITTEN, never cleared, by a login. The old
     // `pushToken: input.pushToken ?? null` nulled a perfectly good token on every login
     // whose device_info omitted one — i.e. every login from a client that has not
@@ -64,8 +64,10 @@ export class DevicesRepository {
       .returning();
 
     if (inserted[0]) {
-      if (hasToken) await this.claimPushToken(input.pushToken as string, inserted[0].id);
-      return { device: inserted[0], created: true };
+      const stolenWorkers = hasToken
+        ? await this.claimPushToken(input.pushToken as string, inserted[0].id)
+        : [];
+      return { device: inserted[0], created: true, stolenWorkers };
     }
 
     // Lost the insert race OR the device already existed → touch last_seen, refresh the
@@ -99,8 +101,10 @@ export class DevicesRepository {
     // would take T while A's row still held it — and A's device_registered /
     // logged_out_all alerts would fire at a handset A no longer has. That is exactly the
     // misdelivery the SIM-swap targeting rule exists to prevent.
-    if (hasToken) await this.claimPushToken(input.pushToken as string, row.id);
-    return { device: row, created: false };
+    const stolenWorkers = hasToken
+      ? await this.claimPushToken(input.pushToken as string, row.id)
+      : [];
+    return { device: row, created: false, stolenWorkers };
   }
 
   /**
@@ -114,15 +118,17 @@ export class DevicesRepository {
    * disclosure, and worst precisely for the copy that matters most. A second holder is
    * by definition stale, so the newest registration wins.
    *
-   * Returns how many stale holders were cleared (0 in the common case).
+   * Returns the list of cleared stale device rows (empty in the common case) so the
+   * caller can emit a PII-free audit event per unique losing worker (TD92). The rows
+   * carry only opaque uuids — never the token.
    */
-  async claimPushToken(token: string, deviceId: string): Promise<number> {
+  async claimPushToken(token: string, deviceId: string): Promise<{ id: string; workerId: string }[]> {
     const cleared = await this.db
       .update(workerDevices)
       .set({ pushToken: null, pushTarget: null, updatedAt: new Date() })
       .where(and(eq(workerDevices.pushToken, token), ne(workerDevices.id, deviceId)))
-      .returning({ id: workerDevices.id });
-    return cleared.length;
+      .returning({ id: workerDevices.id, workerId: workerDevices.workerId });
+    return cleared;
   }
 
   /**

@@ -70,7 +70,7 @@ describe("DevicesService (ADR-0026 Phase 2 — trusted-device binding)", () => {
   it("registers a NEW device: HMACs the raw id, emits a PII-free worker.device_registered, returns the row id", async () => {
     const registerOrTouch = vi
       .fn()
-      .mockResolvedValue({ device: makeDeviceRow(), created: true });
+      .mockResolvedValue({ device: makeDeviceRow(), created: true, stolenWorkers: [] });
     const { svc, emit, repo } = build({ repo: { registerOrTouch } });
 
     const result = await svc.registerOnLogin(
@@ -100,7 +100,7 @@ describe("DevicesService (ADR-0026 Phase 2 — trusted-device binding)", () => {
   it("an EXISTING device (touch) emits NO event but still returns the row id", async () => {
     const registerOrTouch = vi
       .fn()
-      .mockResolvedValue({ device: makeDeviceRow(), created: false });
+      .mockResolvedValue({ device: makeDeviceRow(), created: false, stolenWorkers: [] });
     const { svc, emit } = build({ repo: { registerOrTouch } });
     const result = await svc.registerOnLogin(
       "worker-1",
@@ -193,5 +193,59 @@ describe("DevicesService (ADR-0026 Phase 2 — trusted-device binding)", () => {
     );
     expect(revokeByDevice).not.toHaveBeenCalled();
     expect(emit).not.toHaveBeenCalled();
+  });
+
+  // TD92 — push token claimed audit event: emit per unique losing worker when stolen > 0.
+
+  it("registerOnLogin emits worker.push_token_claimed when steal-on-register clears stale rows", async () => {
+    const registerOrTouch = vi.fn().mockResolvedValue({
+      device: makeDeviceRow(),
+      created: true,
+      stolenWorkers: [
+        { id: "stale-dev-1", workerId: "losing-worker-1" },
+        { id: "stale-dev-2", workerId: "losing-worker-1" },
+        { id: "stale-dev-3", workerId: "losing-worker-2" },
+      ],
+    });
+    const { svc, emit } = build({ repo: { registerOrTouch } });
+    await svc.registerOnLogin(
+      "worker-1",
+      { device_id: "raw-id", platform: "android", push_token: "fcm-token" },
+      ctx,
+    );
+    // Should emit 2 events (one per unique losing worker).
+    const tokenClaimed = emit.mock.calls.filter(
+      (c: unknown[]) => (c[0] as { event_name: string }).event_name === "worker.push_token_claimed",
+    );
+    expect(tokenClaimed).toHaveLength(2);
+    const first = tokenClaimed[0]![0] as { actor: Record<string, unknown>; subject: Record<string, unknown>; payload: Record<string, unknown> };
+    const second = tokenClaimed[1]![0] as { actor: Record<string, unknown>; subject: Record<string, unknown>; payload: Record<string, unknown> };
+    // Actor is the winning worker; subject is each losing worker.
+    const subjects = [first.subject.subject_id, second.subject.subject_id].sort();
+    expect(subjects).toEqual(["losing-worker-1", "losing-worker-2"]);
+    expect(first.actor.actor_id).toBe("worker-1");
+    expect(second.actor.actor_id).toBe("worker-1");
+    // The event + payload carry no token.
+    const json = JSON.stringify({ first, second });
+    expect(json).not.toContain("fcm-token");
+    expect(json).not.toContain("fcm-secret");
+  });
+
+  it("registerOnLogin does NOT emit worker.push_token_claimed when no stale rows exist", async () => {
+    const registerOrTouch = vi.fn().mockResolvedValue({
+      device: makeDeviceRow(),
+      created: true,
+      stolenWorkers: [],
+    });
+    const { svc, emit } = build({ repo: { registerOrTouch } });
+    await svc.registerOnLogin(
+      "worker-1",
+      { device_id: "raw-id", platform: "android", push_token: "fcm-token" },
+      ctx,
+    );
+    const tokenClaimed = emit.mock.calls.filter(
+      (c: unknown[]) => (c[0] as { event_name: string }).event_name === "worker.push_token_claimed",
+    );
+    expect(tokenClaimed).toHaveLength(0);
   });
 });
