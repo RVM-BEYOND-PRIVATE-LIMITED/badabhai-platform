@@ -33,21 +33,6 @@ Map<String, dynamic> _feedJob(String id) => <String, dynamic>{
       'rank': 1,
     };
 
-Map<String, dynamic> _decision(String jobId, String action) =>
-    <String, dynamic>{
-      'job_id': jobId,
-      'trade_key': 'cnc_operator',
-      'title': 'CNC Operator',
-      'city': 'Pune',
-      'area': null,
-      'action': action,
-      'reason': action == 'skipped' ? 'not_interested' : null,
-      'source_surface': 'feed',
-      'rank': 1,
-      'created_at': '2026-06-01T10:00:00.000Z',
-      'updated_at': '2026-06-01T10:00:00.000Z',
-    };
-
 /// Routes the two GETs [getFeed] now makes (WA-1): `/feed` and the worker's own
 /// decisions at `/workers/me/applications`.
 MockClient _feedClient({
@@ -85,16 +70,12 @@ void main() {
     expect(result.first.jobId, 'j1');
   });
 
-  test(
-
   test('a worker with no decisions sees the whole feed', () async {
     final SwipeRepositoryImpl repo = _repo(_feedClient(
       jobs: <Map<String, dynamic>>[_feedJob('j1'), _feedJob('j2')],
     ));
     expect(await repo.getFeed(), hasLength(2));
   });
-
-  test(
 
   test('a 403 maps to ConsentRequiredFailure', () {
     final SwipeRepositoryImpl repo = _repo(MockClient((http.Request req) async {
