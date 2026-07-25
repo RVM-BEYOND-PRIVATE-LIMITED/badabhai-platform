@@ -117,7 +117,7 @@ describe("SIM-swap ruling — the new-device alert warns the OTHER phones", () =
     const push = { enqueue: vi.fn().mockResolvedValue(undefined) };
     const { svc } = build(
       {
-        registerOrTouch: vi.fn().mockResolvedValue({ device: { id: DEVICE_1 }, created: true }),
+        registerOrTouch: vi.fn().mockResolvedValue({ device: { id: DEVICE_1 }, created: true, stolenWorkers: [] }),
         listPushTargets,
       },
       push,
@@ -145,7 +145,7 @@ describe("SIM-swap ruling — the new-device alert warns the OTHER phones", () =
     // strictly additive to the login, so its failure must not reach that handler.
     const { svc } = build(
       {
-        registerOrTouch: vi.fn().mockResolvedValue({ device: { id: DEVICE_1 }, created: true }),
+        registerOrTouch: vi.fn().mockResolvedValue({ device: { id: DEVICE_1 }, created: true, stolenWorkers: [] }),
         listPushTargets: vi.fn().mockRejectedValue(new Error("db down")),
       },
       { enqueue: vi.fn() },
