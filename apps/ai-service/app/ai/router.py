@@ -20,7 +20,7 @@ from ..config import Settings
 from ..contracts import AICallMetadata
 from ..logging_config import get_logger
 from . import cost_tracker, providers
-from .errors import LlmTransportError
+from .errors import REASON_MAX_TOKENS_NO_PARTS, LlmTransportError
 from .langfuse_tracing import LangfuseTracer
 from .model_config import get_route, provider_for_model, resolve_model
 
@@ -263,6 +263,8 @@ class AIRouter:
                                 "reason": reason, "status": status,
                             }},
                         )
+                        if reason == REASON_MAX_TOKENS_NO_PARTS:
+                            break
             finally:
                 # Leak fix: if this candidate's reservation was not reconciled by a
                 # real success, fully refund it (actual=0.0) before moving on. This

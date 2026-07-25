@@ -335,7 +335,7 @@ export class ChatService {
     }
     const response: PostMessageResponse = {
       session_id: dto.session_id,
-      reply: await this.renderWorkerName(aiResult.reply_text, workerId),
+      reply: (await this.renderWorkerName(aiResult.reply_text, workerId)).replace(/\{\{[^}]*\}\}/g, ""),
       blocked: aiResult.blocked,
       is_mock: aiResult.is_mock,
       suggested_followups: aiResult.suggested_followups,
