@@ -46,7 +46,7 @@ export class StorageService {
       });
       if (!res.ok) {
         // Never include the bytes or any decrypted name in the error message.
-        throw new Error(`storage upload failed with status ${res.status}`);
+        throw new ServiceUnavailableException(`storage upload failed with status ${res.status}`);
       }
     } finally {
       clearTimeout(timeout);
@@ -77,7 +77,7 @@ export class StorageService {
       // 404. Both mean "absent" (render-once: re-render + store). A real 400 without
       // that body still THROWS (a transport/config error must not read as "absent").
       if (StorageService.isNotFound(res.status, await StorageService.safeText(res))) return false;
-      throw new Error(`storage object-info failed with status ${res.status}`);
+      throw new ServiceUnavailableException(`storage object-info failed with status ${res.status}`);
     } finally {
       clearTimeout(timeout);
     }
@@ -155,7 +155,7 @@ export class StorageService {
         // Absent photo → null (worker has none yet); the caller degrades (renders
         // without a photo). Any OTHER failure THROWS so it is not read as "absent".
         if (StorageService.isNotFound(res.status, await StorageService.safeText(res))) return null;
-        throw new Error(`storage download failed with status ${res.status}`);
+        throw new ServiceUnavailableException(`storage download failed with status ${res.status}`);
       }
       return Buffer.from(await res.arrayBuffer());
     } finally {
@@ -186,7 +186,7 @@ export class StorageService {
       // status carries no PII.
       if (res.status === 404) return;
       if (!res.ok) {
-        throw new Error(`storage delete failed with status ${res.status}`);
+        throw new ServiceUnavailableException(`storage delete failed with status ${res.status}`);
       }
     } finally {
       clearTimeout(timeout);
@@ -229,7 +229,7 @@ export class StorageService {
         // A 404 here means the bucket/keys vanished between list + delete → treat as gone.
         if (res.status === 404) return total;
         if (!res.ok) {
-          throw new Error(`storage batch-delete failed with status ${res.status}`);
+          throw new ServiceUnavailableException(`storage batch-delete failed with status ${res.status}`);
         }
         total += keys.length;
       } finally {
@@ -269,7 +269,7 @@ export class StorageService {
       });
       if (res.status === 404) return [];
       if (!res.ok) {
-        throw new Error(`storage list failed with status ${res.status}`);
+        throw new ServiceUnavailableException(`storage list failed with status ${res.status}`);
       }
       const body = (await res.json()) as Array<{ name?: string; id?: string | null }>;
       // The list endpoint returns names RELATIVE to the prefix; folder placeholders have a
@@ -302,11 +302,11 @@ export class StorageService {
         signal: controller.signal,
       });
       if (!res.ok) {
-        throw new Error(`storage sign-url failed with status ${res.status}`);
+        throw new ServiceUnavailableException(`storage sign-url failed with status ${res.status}`);
       }
       const body = (await res.json()) as { signedURL?: string };
       if (!body.signedURL) {
-        throw new Error("storage sign-url response missing signedURL");
+        throw new ServiceUnavailableException("storage sign-url response missing signedURL");
       }
       // signedURL is a relative path under /storage/v1; return the absolute url.
       return `${url}/storage/v1${body.signedURL}`;
@@ -349,7 +349,7 @@ export class StorageService {
       const body = (await res.json()) as { url?: string; signedURL?: string };
       const relative = body.url ?? body.signedURL;
       if (!relative) {
-        throw new Error("storage sign-upload-url response missing url");
+        throw new ServiceUnavailableException("storage sign-upload-url response missing url");
       }
       // The upload-sign token lifetime is FIXED server-side by Supabase (~2h) and
       // not configurable per request, so we surface a conservative constant
@@ -497,6 +497,6 @@ export class StorageService {
       return new ServiceUnavailableException("storage credentials rejected by Supabase");
     }
     this.logger.error(`${operation} failed with status ${status} for bucket "${bucket}"`);
-    return new Error(`${operation} failed with status ${status}`);
+    return new ServiceUnavailableException(`${operation} failed with status ${status}`);
   }
 }
