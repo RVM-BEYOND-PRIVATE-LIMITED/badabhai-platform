@@ -154,7 +154,7 @@ const CONTRACT: ControllerContract[] = [
   {
     name: "Pricing",
     ctor: PricingController,
-    routes: { getCatalog: [], updateCatalog: [], quote: [] },
+    routes: { getCatalog: [I], updateCatalog: [I], quote: [I] },
   },
   { name: "AiJobs", ctor: AiJobsController, routes: { list: [], get: [] } },
   // P0 fix (PR #91).
@@ -276,7 +276,7 @@ const CONTRACT: ControllerContract[] = [
     ctor: WorkersController,
     routes: {
       list: [],
-      getProfile: [],
+      getProfile: [I],
       setName: [],
       setMyName: [C, W],
       getMyProfileSummary: [C, W],
