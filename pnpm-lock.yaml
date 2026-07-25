@@ -178,6 +178,9 @@ importers:
         specifier: ^19.0.0
         version: 19.2.7(react@19.2.7)
     devDependencies:
+      '@badabhai/validators':
+        specifier: workspace:*
+        version: link:../../packages/validators
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.17
