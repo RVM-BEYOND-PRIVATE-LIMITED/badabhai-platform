@@ -55,7 +55,11 @@ FilterSelection _sel({
 
 void main() {
   late MockSwipeRepository repo;
-  setUp(() => repo = MockSwipeRepository());
+  setUp(() {
+    repo = MockSwipeRepository();
+    when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city')))
+        .thenAnswer((_) async => <FeedItem>[]);
+  });
 
   group('feed load', () {
     blocTest<SwipeBloc, SwipeState>(
