@@ -84,6 +84,8 @@ class ConversationState(BaseModel):
                 raise ValueError("topic_id cannot be empty")
             if not re.fullmatch(r"^[a-z_]+$", topic):
                 raise ValueError(f"topic_id '{topic}' must be lowercase slug ([a-z_]+)")
+            if len(topic) > 40:
+                raise ValueError(f"topic_id '{topic}' exceeds 40 character limit")
         return v
 
     # COST-4 clarify bound (additive, defaulted => backward compatible; mirrored in

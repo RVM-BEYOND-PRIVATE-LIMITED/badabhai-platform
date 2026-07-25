@@ -64,7 +64,7 @@ export type PseudonymizationMeta = z.infer<typeof PseudonymizationMetaSchema>;
 export const ConversationStateSchema = z.object({
   role_family: z.string().default("cnc_vmc"),
   turn_count: z.number().int().nonnegative().default(0),
-  answered_topics: z.array(z.string()).default([]),
+  answered_topics: z.array(z.string().min(1).max(40).regex(/^[a-z_]+$/, "topic_id must be lowercase slug ([a-z_]+)")).default([]),
   asked_question_ids: z.array(z.string()).default([]),
   collected: z.record(z.string(), z.unknown()).default({}),
   /**
