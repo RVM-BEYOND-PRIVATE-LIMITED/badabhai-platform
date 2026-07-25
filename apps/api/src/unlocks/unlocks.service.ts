@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { UNLOCK_WINDOW_DAYS, type UnlockDenyReason, type RoutingChannel } from "@badabhai/db";
 import { randomUUID } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import { SERVER_CONFIG } from "../config/config.module";
@@ -107,6 +108,8 @@ export class UnlockService {
     ctx: RequestContext,
   ): Promise<UnlockOutcome> {
     const { payerId, workerId, jobId } = input;
+    const _r21_start = Date.now();
+    try {
 
     // Audit the attempt at entry (PII-free). We do NOT yet have an unlock_id, so this
     // is keyed on (payer, worker) so a retry is one logical request in the spine. The
@@ -128,17 +131,17 @@ export class UnlockService {
     }
 
     // ---- [1] employer_sharing CONSENT gate — read BEFORE the advisory lock ----
-    // These are tx-EXTERNAL reads (ConsentRepository / WorkersRepository use the global
-    // pool). Doing them INSIDE the advisory-locked transaction would need a 2nd pool
-    // connection while N concurrent requests hold theirs blocked on the lock → pool-vs-
-    // lock DEADLOCK (the F-2 failure). So resolve them here, before the lock; the tx below
-    // only ever uses its own connection. SAFE: the reveal step re-checks consent as the
-    // last gate before any disclosure, so a grant-time pre-lock consent read cannot leak a
-    // contact even if consent is revoked between here and the grant (the grant is not the
-    // disclosure). unknown_worker vs no_consent both return the IDENTICAL neutral body;
-    // workerExists only picks the internal audit reason (consented ⇒ worker exists).
-    const consented = await this.isConsentedForSharing(workerId);
-    const workerPresent = consented || (await this.workerExists(workerId));
+      // These are tx-EXTERNAL reads (ConsentRepository / WorkersRepository use the global
+      // pool). Doing them INSIDE the advisory-locked transaction would need a 2nd pool
+      // connection while N concurrent requests hold theirs blocked on the lock → pool-vs-
+      // lock DEADLOCK (the F-2 failure). So resolve them here, before the lock; the tx below
+      // only ever uses its own connection. SAFE: the reveal step re-checks consent as the
+      // last gate before any disclosure, so a grant-time pre-lock consent read cannot leak a
+      // contact even if consent is revoked between here and the grant (the grant is not the
+      // disclosure). unknown_worker vs no_consent both return the IDENTICAL neutral body;
+      // workerExists only picks the internal audit reason (consented ⇒ worker exists).
+      const consented = await this.isConsentedForSharing(workerId);
+      const workerPresent = consented || (await this.workerExists(workerId));
 
     // ---- ADR-0031 payer-surface freeze (ruling (b)) — pending-deletion gate -----
     // A worker inside the deletion grace window must stop surfacing to payers: a NEW
@@ -256,7 +259,10 @@ export class UnlockService {
     // COMMITTED — connection + advisory lock released. Now emit the audit events.
     await this.flushEvents(deferred);
     return response;
+  } finally {
+    await this.padToTarget(_r21_start);
   }
+}
 
   // ===========================================================================
   // POST /unlocks/:id/reveal  —  routed reveal (step [5]); the ONLY decrypt site
@@ -266,6 +272,8 @@ export class UnlockService {
     ctx: RequestContext,
     expectedPayerId?: string,
   ): Promise<RevealOutcome> {
+    const _r21_start = Date.now();
+    try {
     // Consent re-check BEFORE the advisory lock (same pool-vs-lock deadlock fix as
     // requestUnlock): a tx-external consent read inside the locked tx would need a 2nd
     // pool connection while concurrent reveals on this worker hold theirs → deadlock.
@@ -394,7 +402,10 @@ export class UnlockService {
     // COMMITTED — connection + advisory lock released. Now emit the audit events.
     await this.flushEvents(deferred);
     return response;
+  } finally {
+    await this.padToTarget(_r21_start);
   }
+}
 
   /**
    * Fire the deferred, PII-free event emits AFTER the transaction has committed (so
@@ -431,6 +442,17 @@ export class UnlockService {
 
   async getCredits(payerId: string): Promise<{ payer_id: string; balance: number }> {
     return { payer_id: payerId, balance: await this.repo.getBalance(payerId) };
+  }
+
+  // R21 / LC-7: latency-normalisation helper. Pads the response to
+  // UNLOCK_LATENCY_TARGET_MS so the timing of a neutral deny does not
+  // leak the reason. No-op when target is 0 (trusted-shared-secret alpha).
+  private async padToTarget(start: number): Promise<void> {
+    const target = this.config.UNLOCK_LATENCY_TARGET_MS;
+    if (target <= 0) return;
+    const elapsed = Date.now() - start;
+    const remaining = target - elapsed;
+    if (remaining > 0) await sleep(remaining);
   }
 
   /**

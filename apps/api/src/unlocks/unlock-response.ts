@@ -16,9 +16,10 @@
  * Everything else collapses to (ii). The HTTP status is a constant 200 so the
  * status code is not itself an oracle (a 404 vs 200 would classify the id).
  *
- * Timing-normalization of the neutral path is an alpha residual / launch gate
- * (RR-4 / LC-7): the alpha caller is the trusted shared-secret holder. The BODY +
- * STATUS oracle — the one a payer could read directly — is closed here.
+ * Timing-normalization of the neutral path is live behind UNLOCK_LATENCY_TARGET_MS
+ * (R21 / LC-7, fixed 2026-07-25): every neutral branch pads to the target via
+ * padToTarget() in unlock.service.ts. Set 0 to disable (trusted-shared-secret alpha).
+ * The BODY + STATUS oracle — the one a payer could read directly — is closed here.
  */
 
 /** The byte-identical neutral body. Frozen so no caller can mutate the shared value. */

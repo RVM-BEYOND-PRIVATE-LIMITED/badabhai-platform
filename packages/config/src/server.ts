@@ -555,6 +555,13 @@ export const serverEnvSchema = z.object({
   UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY: z.coerce.number().int().positive().default(5),
   UNLOCK_MAX_PAYERS_PER_WORKER_PER_WEEK: z.coerce.number().int().positive().default(10),
   UNLOCK_MAX_ATTEMPTS_PER_UNLOCK: z.coerce.number().int().positive().default(3),
+  // R21 / LC-7: latency-normalisation target for neutral deny responses. Every
+  // neutral-path return from requestUnlock / reveal pads to this many ms, so the
+  // response timing does not leak the deny reason. Default 1000ms absorbs most
+  // fast-DB-lookup variation without noticeably degrading UX. Set 0 to disable
+  // padding entirely (acceptable while the caller is the trusted shared-secret alpha
+  // holder; required before any per-payer surface ships — LC-7).
+  UNLOCK_LATENCY_TARGET_MS: z.coerce.number().int().min(0).default(1000),
 
   // Per-payer hiring capacity (ADR-0016 D4 — CONFIG-DRIVEN, fail-closed). The default
   // concurrent-active-vacancy allowance for a payer with NO payer_capacity row. The
