@@ -810,6 +810,10 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
     # skill_labels carry above; None stays None (mock mode leaves them unset).
     legacy.education_level = rich.education_level
     legacy.education_field = rich.education_field
+    
+    # #499 / TD102: carry the list-topics for education and certifications, sanitized.
+    legacy.education = profile_extractor.sanitize_skill_labels(rich.education)
+    legacy.certifications = profile_extractor.sanitize_skill_labels(rich.certifications)
 
     logger.info("profile extracted", extra={"extra": {"is_mock": not meta.real_call}})
     return ProfileExtractionOutput(
@@ -846,6 +850,12 @@ async def resume_generate(body: ResumeGenerationInput) -> ResumeGenerationOutput
                 extra={"extra": {"dropped": len(profile.skill_labels) - len(kept)}},
             )
         profile = profile.model_copy(update={"skill_labels": kept})
+    if profile.education:
+        kept = certified_clean_skill_labels(profile.education)
+        profile = profile.model_copy(update={"education": kept})
+    if profile.certifications:
+        kept = certified_clean_skill_labels(profile.certifications)
+        profile = profile.model_copy(update={"certifications": kept})
     text, data = build_resume(profile)
     # Resolve all taxonomy IDs to human-readable labels BEFORE the LLM sees
     # them, so the LLM never echoes raw IDs like skill_milling or mach_vmc

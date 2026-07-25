@@ -1070,6 +1070,8 @@ export const jobs = pgTable(
     // Backs the worker feed + reach open-jobs queries: filter `status='open'`,
     // order by `created_at` (id tiebreak via the PK). Also serves the status filter.
     index("jobs_status_created_at_idx").on(t.status, t.createdAt),
+    // Covers the feed filtering (TD66) to avoid unindexed scans on trade_key/city
+    index("jobs_status_trade_city_created_at_idx").on(t.status, t.tradeKey, t.city, t.createdAt),
     check("jobs_applicants_received_nonneg_chk", sql`${t.applicantsReceived} >= 0`),
     // Pay/experience are non-negative when present, and the max is not below the min.
     check(
@@ -1129,6 +1131,8 @@ export const applications = pgTable(
     uniqueIndex("applications_worker_job_uq").on(t.workerId, t.jobId),
     // Ops read: applicants per job.
     index("applications_job_id_idx").on(t.jobId),
+    // Partial index for feed exclusion (TD73): quickly find applied jobs per worker
+    index("applications_applied_idx").on(t.workerId, t.jobId).where(sql`${t.action} = 'applied'`),
     // `reason` is only valid on a skip (NULL otherwise).
     check("applications_reason_chk", sql`${t.reason} IS NULL OR ${t.action} = 'skipped'`),
   ],

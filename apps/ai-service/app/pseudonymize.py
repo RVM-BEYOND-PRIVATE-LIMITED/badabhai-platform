@@ -37,6 +37,20 @@ KNOWN_CITIES: frozenset[str] = frozenset(
     }
 )
 
+# Indian state names (lowercased) + 2-letter uppercase abbreviations. Masked before
+# any LLM call so a state-only location answer ("bihar mai hu") never egresses raw.
+# Mirrors the detection gazetteer in signals.py (_STATE_NAMES / _STATE_ABBREVS).
+KNOWN_STATES: frozenset[str] = frozenset(
+    {
+        "bihar", "uttar pradesh", "madhya pradesh", "andhra pradesh",
+        "himachal pradesh", "arunachal pradesh", "west bengal", "tamil nadu",
+        "rajasthan", "punjab", "haryana", "gujarat", "maharashtra", "karnataka",
+        "telangana", "kerala", "odisha", "jharkhand", "chhattisgarh",
+        "uttarakhand", "assam", "goa",
+    }
+)
+STATE_ABBREVS: frozenset[str] = frozenset({"UP", "MP", "AP", "HP", "WB"})
+
 # Hinglish / colloquial aliases + common misspellings that resolve INTO the closed
 # canonical KNOWN_CITIES set (alias -> canonical, both lowercased). This is NOT a
 # loosening of the closed set: an alias only ever normalizes to an EXISTING
@@ -57,6 +71,17 @@ CITY_ALIASES: dict[str, str] = {
 # keys. Longer names first so the regex alternation prefers multi-word matches.
 _CITY_TOKENS = sorted(set(KNOWN_CITIES) | set(CITY_ALIASES), key=len, reverse=True)
 _CITIES = _CITY_TOKENS  # kept name-stable for internal references
+
+# State tokens: full names (case-insensitive) + uppercase 2-letter abbreviations
+# (case-sensitive, like signals.py — "UP" is a state, "up" is not).
+_STATE_TOKENS = sorted(KNOWN_STATES, key=len, reverse=True)
+_STATE_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(s) for s in _STATE_TOKENS) + r")\b",
+    re.IGNORECASE,
+)
+_STATE_ABBREV_RE = re.compile(
+    r"\b(?:" + "|".join(re.escape(a) for a in sorted(STATE_ABBREVS)) + r")\b"
+)
 
 # Words that look like a leading name but are greetings/fillers — do not mask.
 _NAME_STOPLIST = {
@@ -383,6 +408,11 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
         result = _LEADING_NAME_RE.sub(lambda m: replace_group1(m, "PERSON"), result)
         # 5. Known cities.
         result = _CITY_RE.sub(lambda m: token_for(m.group(0), "CITY"), result)
+        # 5b. Indian states (full names + uppercase abbreviations) — coarse geography,
+        #     but the AI service already detects them (signals.py _detect_state), so
+        #     mask them here too so they never reach the LLM (TD56).
+        result = _STATE_RE.sub(lambda m: token_for(m.group(0), "STATE"), result)
+        result = _STATE_ABBREV_RE.sub(lambda m: token_for(m.group(0), "STATE"), result)
         # 6. D-1 money-amount carve-out (see the decision boundary above): a 7-8
         #    digit run that reads as an in-range salary is MASKED to [AMOUNT_n]
         #    so the digits never reach the LLM but the turn is not blocked.

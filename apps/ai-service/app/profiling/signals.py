@@ -1098,6 +1098,26 @@ _SELF_STATE_AFTER_RE = tuple(
     re.compile(p, re.IGNORECASE)
     for p in (_SELF_STATE_PAST_AFTER, _SELF_STATE_RESOLVED)
 )
+_FIRST_PERSON_CLAIM_RE = re.compile(
+    r"\b(?:hu|hun|hoon|hoo|main|mai|mera|mere|mujhe|karta|karti|chalata|chalati)\b",
+    re.IGNORECASE,
+)
+_CLAIM_BLOCKERS_RE = re.compile(
+    r"\b(?:bhai|baap|papa|pitaji|chacha|dost|friend|pati|husband|patni|biwi|wife|chahiye|chahta|chahti|seekh|training|nahi|nai|nhi|nahin|naa|na)\b",
+    re.IGNORECASE,
+)
+
+
+def has_first_person_claim(text: str) -> bool:
+    """True when the text contains a first-person self-claim marker, and lacks 
+    third-party mentions, aspirations, or negations that invalidate it.
+    
+    Used to prevent extracting machines/skills/roles from statements the worker
+    never made about themselves (TD98, TD101).
+    """
+    return bool(_FIRST_PERSON_CLAIM_RE.search(text)) and not bool(
+        _CLAIM_BLOCKERS_RE.search(text)
+    )
 
 
 def _self_state_blocked(text: str, start: int, end: int) -> bool:
@@ -2308,14 +2328,23 @@ def detect_answered_topics(
     answered: dict[str, object] = {}
     if sig.role_id:
         answered["role"] = sig.primary_role
+
+    # TD98: Require a first-person self-claim near the machine/skill cue to prevent
+    # extracting from aspirations, denials, or third-party mentions when the topic
+    # was not explicitly asked.
     if sig.machines:
-        answered["machines"] = sig.machines
+        if last_asked_topic_id == "machines" or has_first_person_claim(lower):
+            answered["machines"] = sig.machines
+            
     if sig.controllers:
         answered["controllers"] = sig.controllers
+        
     if sig.experience_years is not None:
         answered["experience"] = sig.experience_years
+
     if sig.skills or sig.drawing_reading or sig.setting_knowledge != "unknown":
-        answered["skills"] = sig.skills
+        if last_asked_topic_id == "skills" or has_first_person_claim(lower):
+            answered["skills"] = sig.skills
 
     # Location (B-4): current and preferred are separate topics.
     preferred_ctx = last_asked_topic_id == "preferred_locations"

@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { JwtModule } from "@nestjs/jwt";
 import type { ServerConfig } from "@badabhai/config";
@@ -29,8 +29,9 @@ import { PinHasher } from "./pin-hasher.service";
   imports: [
     SmsModule,
     // ConsentGuard reads the worker's latest consent via ConsentRepository.
-    // ConsentModule does NOT import AuthModule, so there is no cycle.
-    ConsentModule,
+    // ConsentModule imports AuthModule (forwardRef) to reach SessionService for the
+    // TD69 consent-withdrawal seam; both sides forwardRef to break the cycle.
+    forwardRef(() => ConsentModule),
     // ADR-0026 Phase 5 — AccountDeletionService erases resume PDFs + archived conversations
     // via StorageService (service-role Storage). StorageModule does NOT import AuthModule, so
     // there is no cycle. WorkersRepository + EventsService + PiiCryptoService are @Global.

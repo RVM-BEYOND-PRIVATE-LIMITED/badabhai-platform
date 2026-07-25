@@ -67,16 +67,12 @@ export class InviteService {
   async recordAccept(code: string, invitedWorkerId: string): Promise<AcceptResult> {
     const invite = await this.repo.findByCode(code);
     if (!invite) return { ok: false, reason: "unknown_code" };
-    // ADR-0026 Phase 5: invites.inviter_worker_id became NULLABLE (DSAR SET NULL of the
-    // inviter on a worker hard-delete). At ACCEPT time the inviter is non-null BY
-    // CONSTRUCTION — an invite is created with an inviter and accepted before the inviter
-    // could be deleted. Assert it (fail closed) so the PII-free `invite.accepted` event keeps
-    // a non-null uuid; we do NOT relax the event schema. A null here is an invariant breach.
     const inviterWorkerId = invite.inviterWorkerId;
     if (inviterWorkerId === null) return { ok: false, reason: "inviter_unavailable" };
     if (inviterWorkerId === invitedWorkerId) return { ok: false, reason: "self_invite" };
     if (invite.invitedWorkerId) return { ok: false, reason: "already_attributed" };
-    await this.repo.markAccepted(invite.id, invitedWorkerId);
+    const accepted = await this.repo.markAccepted(invite.id, invitedWorkerId);
+    if (!accepted) return { ok: false, reason: "already_attributed" };
     await this.events.emit({
       event_name: "invite.accepted",
       actor: { actor_type: "worker", actor_id: invitedWorkerId },

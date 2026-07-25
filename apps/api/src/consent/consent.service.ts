@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import type { RequestContext } from "../common/request-context";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { EventsService } from "../events/events.service";
+import { SessionService } from "../auth/session.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { ConsentRepository } from "./consent.repository";
 import type { AcceptConsentDto } from "./consent.dto";
@@ -13,6 +14,7 @@ export class ConsentService {
     private readonly workers: WorkersRepository,
     private readonly events: EventsService,
     private readonly pii: PiiCryptoService,
+    private readonly sessions: SessionService,
   ) {}
 
   async accept(dto: AcceptConsentDto, ip: string | undefined, userAgent: string | undefined, ctx: RequestContext) {
@@ -40,13 +42,34 @@ export class ConsentService {
         purposes: dto.purposes,
         accepted_at: acceptedAt.toISOString(),
       },
-      // Keyed on the consent RECORD id (one per acceptance), not the worker — a
-      // legitimate re-consent creates a new record → new key → not blocked.
       idempotencyKey: `consent.accepted:${consent.id}`,
       correlationId: ctx.correlationId,
       requestId: ctx.requestId,
     });
 
     return { consent_id: consent.id, accepted_at: acceptedAt.toISOString() };
+  }
+
+  async withdraw(workerId: string, ctx: RequestContext): Promise<{ ok: true }> {
+    await this.consents.withdraw(workerId);
+    let sessionsRevoked = 0;
+    try {
+      sessionsRevoked = await this.sessions.revokeAll(workerId);
+    } catch {
+      // Best-effort: a revoke failure must NOT prevent the consent-withdrawal event.
+    }
+    await this.events.emit({
+      event_name: "consent.revoked",
+      actor: { actor_type: "worker", actor_id: workerId },
+      subject: { subject_type: "consent", subject_id: workerId },
+      payload: {
+        worker_id: workerId,
+        sessions_revoked: sessionsRevoked,
+      },
+      idempotencyKey: `consent.revoked:${workerId}`,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+    return { ok: true };
   }
 }

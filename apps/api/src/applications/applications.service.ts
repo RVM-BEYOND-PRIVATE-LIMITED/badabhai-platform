@@ -61,8 +61,8 @@ export class ApplicationsService {
    * impressions, so the emits are intentionally UNKEYED (always insert), batched
    * into a single DB round-trip via `emitMany`.
    */
-  async getFeed(workerId: string, limit: number, ctx: RequestContext): Promise<{ jobs: FeedItem[] }> {
-    const openJobs = await this.repo.findOpenJobs(workerId, limit);
+  async getFeed(workerId: string, limit: number, filters: { tradeKey?: string; city?: string }, ctx: RequestContext): Promise<{ jobs: FeedItem[] }> {
+    const openJobs = await this.repo.findOpenJobs(workerId, limit, filters);
     const items: FeedItem[] = openJobs.map((job: FeedJob, index) => ({
       job_id: job.id,
       trade_key: job.tradeKey,
@@ -166,6 +166,12 @@ export class ApplicationsService {
    */
   async skip(workerId: string, jobId: string, dto: SkipJobDto, ctx: RequestContext) {
     await this.assertJobExists(jobId);
+
+    // TD73: prevent applied->skipped downgrade (e.g. from >500 decisions upsert-overwrite)
+    const existing = await this.repo.findDecision(workerId, jobId);
+    if (existing?.action === "applied") {
+      return { ok: true as const, application_id: existing.id, action: "applied" as const };
+    }
 
     const saved = await this.repo.upsertDecision({
       workerId,

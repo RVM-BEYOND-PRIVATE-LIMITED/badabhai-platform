@@ -138,8 +138,8 @@ describe("verifyCodeAction — single neutral 'invalid or expired code' for ever
   });
 
   it("a correct code succeeds (no token or code echoed back)", async () => {
-    verifyCode.mockResolvedValue({ ok: true, session: { payerId: "p", role: "employer", displayLabel: "Co" } });
+    verifyCode.mockResolvedValue({ ok: true, isNewPayer: true, session: { payerId: "p", role: "employer", displayLabel: "Co" } });
     const res = await verifyCodeAction({ email: "a@b.co", code: "123456" });
-    expect(res).toEqual({ ok: true });
+    expect(res).toEqual({ ok: true, isNewPayer: true });
   });
 });

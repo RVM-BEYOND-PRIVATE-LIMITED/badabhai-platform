@@ -45,7 +45,7 @@ export interface PayerSession {
 
 /** Result of a login attempt. NO-ORACLE on failure (XB-H): a single neutral error. */
 export type LoginResult =
-  | { ok: true; session: PayerSession }
+  | { ok: true; session: PayerSession; isNewPayer: boolean }
   | { ok: false; error: string };
 
 /**

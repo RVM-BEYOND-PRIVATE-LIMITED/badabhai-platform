@@ -1,6 +1,7 @@
-import { Body, Controller, Headers, HttpCode, Ip, Post } from "@nestjs/common";
+import { Body, Controller, Headers, HttpCode, Ip, Post, UseGuards } from "@nestjs/common";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import { WorkerAuthGuard, CurrentWorker } from "../auth/worker-auth.guard";
 import { ConsentService } from "./consent.service";
 import { AcceptConsentSchema, type AcceptConsentDto } from "./consent.dto";
 
@@ -17,5 +18,12 @@ export class ConsentController {
     @Ctx() ctx: RequestContext,
   ) {
     return this.consent.accept(dto, ip, userAgent, ctx);
+  }
+
+  @Post("withdraw")
+  @HttpCode(200)
+  @UseGuards(WorkerAuthGuard)
+  async withdraw(@CurrentWorker() worker: { workerId: string }, @Ctx() ctx: RequestContext) {
+    return this.consent.withdraw(worker.workerId, ctx);
   }
 }

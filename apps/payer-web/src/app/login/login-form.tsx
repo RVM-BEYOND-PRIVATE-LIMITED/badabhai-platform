@@ -5,7 +5,7 @@ import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button, Input, OtpInput, Tabs, Toast, tabId, tabPanelId } from "../../components/ds";
 import { requestCodeAction, signupAction, verifyCodeAction } from "./actions";
-import { INVALID_ORG_NAME, INVALID_PHONE, SEND_CONFIRMATION, VERIFIED_CONFIRMATION } from "./messages";
+import { NEUTRAL_SEND_ERROR, SEND_CONFIRMATION } from "./messages";
 import type { PayerRole } from "../../lib/auth";
 
 /**
@@ -236,10 +236,8 @@ export function LoginForm() {
       // account lands on the agency-labelled portal automatically (the server resolves the role).
       const res = await verifyCodeAction({ email: email.trim(), code: code.trim() });
       if (res.ok) {
-        // Brief success affordance before the redirect (collapses instantly under
-        // prefers-reduced-motion — the CSS animation is motion-gated).
         setSucceeded(true);
-        setInfo(VERIFIED_CONFIRMATION);
+        setInfo(res.isNewPayer ? "Account created — welcome!" : "Welcome back!");
         router.replace("/dashboard");
         router.refresh();
       } else {

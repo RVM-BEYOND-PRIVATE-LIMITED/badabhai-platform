@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { type Database, workerConsents, type WorkerConsent, type NewWorkerConsent } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
@@ -28,5 +28,19 @@ export class ConsentRepository {
       .orderBy(desc(workerConsents.acceptedAt))
       .limit(1);
     return rows[0];
+  }
+
+  /**
+   * Stamp `revokedAt` on the worker's latest consent row (append-only — the row
+   * is never deleted). A re-consent inserts a fresh row, so this is a single-
+   * touch invalidation of the CURRENT latest row only.
+   */
+  async withdraw(workerId: string): Promise<void> {
+    const latest = await this.findLatestByWorker(workerId);
+    if (!latest || latest.revokedAt !== null) return;
+    await this.db
+      .update(workerConsents)
+      .set({ revokedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(workerConsents.id, latest.id)));
   }
 }

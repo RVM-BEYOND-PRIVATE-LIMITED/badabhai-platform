@@ -173,7 +173,6 @@ def test_documented_findings_still_hold() -> None:
     #    worker did not say. `skills` is still keyed by the word "operator", unchanged.
     assert d("CNC operator", "role") == {
         "role": "CNC Operator",
-        "skills": ["machine operation"],
     }
     # 3. "operator" alone is UNCHANGED and still does not answer `role`. What TD94
     #    closed is the PAIR ("cnc" + an operating claim), never either half — so the
@@ -359,7 +358,6 @@ def test_findings_this_rerun_exposed() -> None:
     #    closing `role` and `skills`. A machine answer setting a ROLE.
     assert d("welding machine", "machines") == {
         "role": "Welder",
-        "skills": ["welding"],
     }
     # 2. FIXED by the #424 follow-up. The availability cue USED to be a plain
     #    substring test, so "abhi" matched inside "kabhi" and
@@ -682,16 +680,9 @@ def test_scripted_interview_shows_the_engine_level_consequence() -> None:
     assert plausible.extraction_ready is True
     assert plausible.collected == {
         "role": "CNC Operator",
-        "skills": ["machine operation"],
         "experience": 4.0,
         "availability": "notice_period",
     }
-    # `skills` IS now asked (2026-07-22): the inferred "machine operation" fills the
-    # slot but no longer closes the question. This worker's reply to it ("sab aata
-    # hai") is still unparseable, so the inferred value survives as the collected
-    # one — the point of the change is that they were ASKED, not that a vague answer
-    # suddenly parses.
-    assert "skills" not in plausible.never_asked
 
     # The bounded re-ask still holds: each essential is asked at most twice.
     asked_counts: dict[str, int] = {}

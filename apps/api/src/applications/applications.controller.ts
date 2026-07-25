@@ -58,7 +58,12 @@ export class ApplicationsController {
     @Query(new ZodValidationPipe(FeedQuerySchema)) query: FeedQueryDto,
     @Ctx() ctx: RequestContext,
   ) {
-    return this.applications.getFeed(worker.id, query.limit, ctx);
+    return this.applications.getFeed(
+      worker.id,
+      query.limit,
+      { tradeKey: query.trade_key, city: query.city },
+      ctx
+    );
   }
 
   /**

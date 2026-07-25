@@ -116,6 +116,7 @@ export const httpPayerAuthProvider: PayerAuthProvider = {
 
     return {
       ok: true,
+      isNewPayer: res.is_new_payer,
       session: sessionFromMe({
         id: res.payer_id,
         role: res.role,

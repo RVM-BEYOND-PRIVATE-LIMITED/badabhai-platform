@@ -20,7 +20,7 @@ function harness(repoOverrides: Partial<InviteRepository> = {}) {
     })),
     findByCode: vi.fn(),
     markClicked: vi.fn(),
-    markAccepted: vi.fn(),
+    markAccepted: vi.fn().mockResolvedValue(true),
     ...repoOverrides,
   } as unknown as InviteRepository;
   const svc = new InviteService(repo, { emit } as unknown as EventsService);
@@ -61,6 +61,14 @@ describe("InviteService — funnel + PII-free attribution (ADR-0020)", () => {
     const { svc } = harness({
       findByCode: vi.fn().mockResolvedValue({ id: "inv-1", inviterWorkerId: "A", invitedWorkerId: "X" }),
     });
+    expect(await svc.recordAccept("code1", "B")).toEqual({ ok: false, reason: "already_attributed" });
+  });
+
+  it("rejects a RACE where the read check passes but the write guard wins (TOCTOU safety)", async () => {
+    const { svc, repo } = harness({
+      findByCode: vi.fn().mockResolvedValue({ id: "inv-1", inviterWorkerId: "A", invitedWorkerId: null }),
+    });
+    vi.mocked(repo.markAccepted).mockResolvedValueOnce(false);
     expect(await svc.recordAccept("code1", "B")).toEqual({ ok: false, reason: "already_attributed" });
   });
 

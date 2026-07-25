@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { type Database, invites, type Invite } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 
@@ -33,10 +33,12 @@ export class InviteRepository {
       .where(eq(invites.id, id));
   }
 
-  async markAccepted(id: string, invitedWorkerId: string): Promise<void> {
-    await this.db
+  async markAccepted(id: string, invitedWorkerId: string): Promise<boolean> {
+    const rows = await this.db
       .update(invites)
       .set({ status: "accepted", invitedWorkerId, updatedAt: new Date() })
-      .where(eq(invites.id, id));
+      .where(and(eq(invites.id, id), isNull(invites.invitedWorkerId)))
+      .returning({ id: invites.id });
+    return rows.length > 0;
   }
 }

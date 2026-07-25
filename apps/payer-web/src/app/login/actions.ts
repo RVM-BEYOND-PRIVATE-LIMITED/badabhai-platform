@@ -85,7 +85,9 @@ export async function signupAction(input: {
   return { ok: true, resendInSeconds: res.resendInSeconds };
 }
 
-export type VerifyCodeActionResult = { ok: true } | { ok: false; error: string };
+export type VerifyCodeActionResult =
+  | { ok: true; isNewPayer: boolean }
+  | { ok: false; error: string };
 
 export async function verifyCodeAction(input: {
   email: string;
@@ -99,5 +101,5 @@ export async function verifyCodeAction(input: {
   }
   const res = await payerAuth().verifyCode({ email: email.data, code: code.data });
   if (!res.ok) return { ok: false, error: res.error };
-  return { ok: true };
+  return { ok: true, isNewPayer: res.isNewPayer };
 }

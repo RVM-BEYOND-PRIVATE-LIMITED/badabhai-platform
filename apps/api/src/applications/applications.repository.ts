@@ -77,7 +77,23 @@ export class ApplicationsRepository {
    * Skip exclusion requires an explicit product call (the client currently re-serves
    * skipped jobs forever — see the issue).
    */
-  async findOpenJobs(workerId: string, limit: number): Promise<FeedJob[]> {
+  async findOpenJobs(
+    workerId: string,
+    limit: number,
+    filters?: { tradeKey?: string; city?: string },
+  ): Promise<FeedJob[]> {
+    const conditions = [
+      eq(jobs.status, "open"),
+      sql`NOT EXISTS (
+        SELECT 1 FROM ${applications}
+        WHERE ${applications.workerId} = ${workerId}
+          AND ${applications.jobId} = ${jobs.id}
+          AND ${applications.action} = 'applied'
+      )`,
+    ];
+    if (filters?.tradeKey) conditions.push(eq(jobs.tradeKey, filters.tradeKey as any));
+    if (filters?.city) conditions.push(eq(jobs.city, filters.city));
+
     return this.db
       .select({
         id: jobs.id,
@@ -92,19 +108,8 @@ export class ApplicationsRepository {
         shift: jobs.shift,
       })
       .from(jobs)
-      // TD73: exclude applied jobs server-side. The unique (worker_id, job_id)
-      // index makes this anti-join fast even at scale.
-      .where(
-        and(
-          eq(jobs.status, "open"),
-          sql`NOT EXISTS (
-            SELECT 1 FROM ${applications}
-            WHERE ${applications.workerId} = ${workerId}
-              AND ${applications.jobId} = ${jobs.id}
-              AND ${applications.action} = 'applied'
-          )`,
-        ),
-      )
+      // TD73: exclude applied jobs server-side.
+      .where(and(...conditions))
       // LOCATION SEAM: when the location feature lands, an OPTIONAL city/coords
       // filter goes HERE, default-off so the feed stays liberal until a worker
       // opts into a location. Do NOT implement it now — the alpha feed returns

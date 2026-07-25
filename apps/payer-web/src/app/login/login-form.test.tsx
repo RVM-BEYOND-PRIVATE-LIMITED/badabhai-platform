@@ -291,7 +291,7 @@ describe("AUTH-1 · code step (OtpInput) — shared + UNCHANGED for signin and s
   });
 
   it("verify calls verifyCodeAction → router.replace('/dashboard') on success", () => {
-    verifyCodeAction.mockResolvedValue({ ok: true });
+    verifyCodeAction.mockResolvedValue({ ok: true, isNewPayer: true });
     const tree = render({ step: "code", email: "a@b.co", code: "123456" });
     const form = findByProp(tree, "className", "login-form")[0]!;
     (p(form).onSubmit as (e: { preventDefault: () => void }) => void)({ preventDefault: vi.fn() });
@@ -352,7 +352,7 @@ describe("AUTH-1 · login stays ROLE-AGNOSTIC (the one design truth)", () => {
   it("an agency account verifies from the COMPANY tab — verify does NOT branch on the tab", () => {
     // The user picked the Company tab but is signing into an Agency account. The code step
     // carries NO role; verify is identical. (Role is set at signup; the server resolves it.)
-    verifyCodeAction.mockResolvedValue({ ok: true });
+    verifyCodeAction.mockResolvedValue({ ok: true, isNewPayer: true });
     const tree = render({ role: "company", mode: "signin", step: "code", email: "agent@x.co", code: "654321" });
     const form = findByProp(tree, "className", "login-form")[0]!;
     (p(form).onSubmit as (e: { preventDefault: () => void }) => void)({ preventDefault: vi.fn() });

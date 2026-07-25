@@ -23,6 +23,17 @@ export class StorageService {
 
   constructor(@Inject(SERVER_CONFIG) private readonly config: ServerConfig) {}
 
+  /** TD74: shared wrapper mapping fetch/transport errors to 503 */
+  private async handleStorageError<T>(operation: string, bucket: string, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err instanceof ServiceUnavailableException) throw err;
+      this.logger.error(`${operation}: transport error for bucket "${bucket}" — ${err instanceof Error ? err.message : String(err)}`);
+      throw new ServiceUnavailableException(`${operation} failed`);
+    }
+  }
+
   /**
    * Upload PDF bytes to `${bucket}/${objectKey}` (upsert). Throws a PII-free error
    * on a non-2xx response or transport failure so the caller can record a render
@@ -31,26 +42,27 @@ export class StorageService {
   async uploadPdf(objectKey: string, bytes: Buffer, bucket?: string): Promise<void> {
     const { url, serviceKey, bucket: b } = this.requireStorage(bucket);
     const target = `${url}/storage/v1/object/${b}/${encodeURI(objectKey)}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-    try {
-      const res = await fetch(target, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${serviceKey}`,
-          "content-type": "application/pdf",
-          "x-upsert": "true",
-        },
-        body: new Uint8Array(bytes),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        // Never include the bytes or any decrypted name in the error message.
-        throw new ServiceUnavailableException(`storage upload failed with status ${res.status}`);
+    await this.handleStorageError("storage upload", b, async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      try {
+        const res = await fetch(target, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${serviceKey}`,
+            "content-type": "application/pdf",
+            "x-upsert": "true",
+          },
+          body: new Uint8Array(bytes),
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          throw new ServiceUnavailableException(`storage upload failed with status ${res.status}`);
+        }
+      } finally {
+        clearTimeout(timeout);
       }
-    } finally {
-      clearTimeout(timeout);
-    }
+    });
   }
 
   /**
@@ -63,24 +75,22 @@ export class StorageService {
     const { url, serviceKey, bucket: b } = this.requireStorage(bucket);
     // The `info` endpoint returns object metadata (200) or 404 — no bytes transferred.
     const target = `${url}/storage/v1/object/info/${b}/${encodeURI(objectKey)}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    try {
-      const res = await fetch(target, {
-        method: "GET",
-        headers: { authorization: `Bearer ${serviceKey}` },
-        signal: controller.signal,
-      });
-      if (res.ok) return true;
-      // Supabase's object/info returns HTTP 400 with body {error:"not_found"} — NOT a
-      // plain 404 — when the object is absent on current builds; older builds return
-      // 404. Both mean "absent" (render-once: re-render + store). A real 400 without
-      // that body still THROWS (a transport/config error must not read as "absent").
-      if (StorageService.isNotFound(res.status, await StorageService.safeText(res))) return false;
-      throw new ServiceUnavailableException(`storage object-info failed with status ${res.status}`);
-    } finally {
-      clearTimeout(timeout);
-    }
+    return this.handleStorageError("storage objectExists", b, async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      try {
+        const res = await fetch(target, {
+          method: "GET",
+          headers: { authorization: `Bearer ${serviceKey}` },
+          signal: controller.signal,
+        });
+        if (res.ok) return true;
+        if (StorageService.isNotFound(res.status, await StorageService.safeText(res))) return false;
+        throw new ServiceUnavailableException(`storage object-info failed with status ${res.status}`);
+      } finally {
+        clearTimeout(timeout);
+      }
+    });
   }
 
   /**
@@ -96,40 +106,36 @@ export class StorageService {
   ): Promise<{ contentType: string | null; sizeBytes: number | null } | null> {
     const { url, serviceKey, bucket: b } = this.requireStorage(bucket);
     const target = `${url}/storage/v1/object/info/${b}/${encodeURI(objectKey)}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    try {
-      const res = await fetch(target, {
-        method: "GET",
-        headers: { authorization: `Bearer ${serviceKey}` },
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        // Absent object → null (see isNotFound: 404, or the current-build 400+not_found).
-        const bodyText = await StorageService.safeText(res);
-        if (StorageService.isNotFound(res.status, bodyText)) return null;
-        throw this.storageFailure("storage object-info", res.status, b, bodyText);
+    return this.handleStorageError("storage getObjectInfo", b, async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      try {
+        const res = await fetch(target, {
+          method: "GET",
+          headers: { authorization: `Bearer ${serviceKey}` },
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          const bodyText = await StorageService.safeText(res);
+          if (StorageService.isNotFound(res.status, bodyText)) return null;
+          throw this.storageFailure("storage object-info", res.status, b, bodyText);
+        }
+        const body = (await res.json()) as {
+          content_type?: string;
+          contentType?: string;
+          size?: number;
+          metadata?: { mimetype?: string; size?: number };
+        };
+        const contentType = body.content_type ?? body.contentType ?? body.metadata?.mimetype ?? null;
+        const size = body.size ?? body.metadata?.size;
+        return {
+          contentType,
+          sizeBytes: typeof size === "number" && Number.isFinite(size) ? size : null,
+        };
+      } finally {
+        clearTimeout(timeout);
       }
-      // The info endpoint's field names have varied across Supabase versions: the
-      // CURRENT build returns snake_case `content_type` + a top-level `size`; older
-      // builds used `contentType` / `metadata.mimetype` / `metadata.size`. Read ALL
-      // shapes so the photo-confirm mime/size gate (ADR-0032) never false-rejects a
-      // valid upload as null → 400.
-      const body = (await res.json()) as {
-        content_type?: string;
-        contentType?: string;
-        size?: number;
-        metadata?: { mimetype?: string; size?: number };
-      };
-      const contentType = body.content_type ?? body.contentType ?? body.metadata?.mimetype ?? null;
-      const size = body.size ?? body.metadata?.size;
-      return {
-        contentType,
-        sizeBytes: typeof size === "number" && Number.isFinite(size) ? size : null,
-      };
-    } finally {
-      clearTimeout(timeout);
-    }
+    });
   }
 
   /**
@@ -143,24 +149,24 @@ export class StorageService {
   async downloadObject(objectKey: string, bucket?: string): Promise<Buffer | null> {
     const { url, serviceKey, bucket: b } = this.requireStorage(bucket);
     const target = `${url}/storage/v1/object/${b}/${encodeURI(objectKey)}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-    try {
-      const res = await fetch(target, {
-        method: "GET",
-        headers: { authorization: `Bearer ${serviceKey}` },
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        // Absent photo → null (worker has none yet); the caller degrades (renders
-        // without a photo). Any OTHER failure THROWS so it is not read as "absent".
-        if (StorageService.isNotFound(res.status, await StorageService.safeText(res))) return null;
-        throw new ServiceUnavailableException(`storage download failed with status ${res.status}`);
+    return this.handleStorageError("storage downloadObject", b, async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      try {
+        const res = await fetch(target, {
+          method: "GET",
+          headers: { authorization: `Bearer ${serviceKey}` },
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          if (StorageService.isNotFound(res.status, await StorageService.safeText(res))) return null;
+          throw new ServiceUnavailableException(`storage download failed with status ${res.status}`);
+        }
+        return Buffer.from(await res.arrayBuffer());
+      } finally {
+        clearTimeout(timeout);
       }
-      return Buffer.from(await res.arrayBuffer());
-    } finally {
-      clearTimeout(timeout);
-    }
+    });
   }
 
   /**
@@ -174,23 +180,23 @@ export class StorageService {
   async deletePdf(objectKey: string, bucket?: string): Promise<void> {
     const { url, serviceKey, bucket: b } = this.requireStorage(bucket);
     const target = `${url}/storage/v1/object/${b}/${encodeURI(objectKey)}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
-    try {
-      const res = await fetch(target, {
-        method: "DELETE",
-        headers: { authorization: `Bearer ${serviceKey}` },
-        signal: controller.signal,
-      });
-      // 404 = already gone → idempotent success. Object keys are opaque UUIDs, so the
-      // status carries no PII.
-      if (res.status === 404) return;
-      if (!res.ok) {
-        throw new ServiceUnavailableException(`storage delete failed with status ${res.status}`);
+    await this.handleStorageError("storage deletePdf", b, async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      try {
+        const res = await fetch(target, {
+          method: "DELETE",
+          headers: { authorization: `Bearer ${serviceKey}` },
+          signal: controller.signal,
+        });
+        if (res.status === 404) return;
+        if (!res.ok) {
+          throw new ServiceUnavailableException(`storage delete failed with status ${res.status}`);
+        }
+      } finally {
+        clearTimeout(timeout);
       }
-    } finally {
-      clearTimeout(timeout);
-    }
+    });
   }
 
   /**
@@ -205,40 +211,37 @@ export class StorageService {
    */
   async deleteByPrefix(prefix: string, bucket?: string): Promise<number> {
     const { url, serviceKey, bucket: b } = this.requireStorage(bucket);
+    return this.handleStorageError("storage deleteByPrefix", b, async () => {
+      let total = 0;
+      for (let page = 0; page < 100; page += 1) {
+        const keys = await this.listUnderPrefix(url, serviceKey, b, prefix);
+        if (keys.length === 0) return total;
 
-    let total = 0;
-    // Safety valve, not a coverage cap: 100 pages = 100k objects, far above any real
-    // worker's set. Prevents an infinite loop if the store keeps returning a page.
-    for (let page = 0; page < 100; page += 1) {
-      const keys = await this.listUnderPrefix(url, serviceKey, b, prefix);
-      if (keys.length === 0) return total;
-
-      const target = `${url}/storage/v1/object/${b}`;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-      try {
-        const res = await fetch(target, {
-          method: "DELETE",
-          headers: {
-            authorization: `Bearer ${serviceKey}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({ prefixes: keys }),
-          signal: controller.signal,
-        });
-        // A 404 here means the bucket/keys vanished between list + delete → treat as gone.
-        if (res.status === 404) return total;
-        if (!res.ok) {
-          throw new ServiceUnavailableException(`storage batch-delete failed with status ${res.status}`);
+        const target = `${url}/storage/v1/object/${b}`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000);
+        try {
+          const res = await fetch(target, {
+            method: "DELETE",
+            headers: {
+              authorization: `Bearer ${serviceKey}`,
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({ prefixes: keys }),
+            signal: controller.signal,
+          });
+          if (res.status === 404) return total;
+          if (!res.ok) {
+            throw new ServiceUnavailableException(`storage batch-delete failed with status ${res.status}`);
+          }
+          total += keys.length;
+        } finally {
+          clearTimeout(timeout);
         }
-        total += keys.length;
-      } finally {
-        clearTimeout(timeout);
+        if (keys.length < 1000) return total;
       }
-      // A short page means the prefix is drained — no need for a confirming empty list.
-      if (keys.length < 1000) return total;
-    }
-    return total;
+      return total;
+    });
   }
 
   /**
@@ -262,8 +265,6 @@ export class StorageService {
           authorization: `Bearer ${serviceKey}`,
           "content-type": "application/json",
         },
-        // `limit` is the Supabase max page size. A worker's archived-conversation set is
-        // small (one snapshot object per session); a single page is sufficient for Phase 5.
         body: JSON.stringify({ prefix, limit: 1000 }),
         signal: controller.signal,
       });
@@ -272,8 +273,6 @@ export class StorageService {
         throw new ServiceUnavailableException(`storage list failed with status ${res.status}`);
       }
       const body = (await res.json()) as Array<{ name?: string; id?: string | null }>;
-      // The list endpoint returns names RELATIVE to the prefix; folder placeholders have a
-      // null id. Keep only real objects and re-qualify with the prefix for deletion.
       return body
         .filter((o): o is { name: string; id?: string | null } => typeof o.name === "string" && o.name.length > 0)
         .map((o) => `${prefix}${o.name}`);
@@ -289,30 +288,31 @@ export class StorageService {
   async createSignedUrl(objectKey: string, ttlSeconds: number, bucket?: string): Promise<string> {
     const { url, serviceKey, bucket: b } = this.requireStorage(bucket);
     const target = `${url}/storage/v1/object/sign/${b}/${encodeURI(objectKey)}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    try {
-      const res = await fetch(target, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${serviceKey}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ expiresIn: ttlSeconds }),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        throw new ServiceUnavailableException(`storage sign-url failed with status ${res.status}`);
+    return this.handleStorageError("storage createSignedUrl", b, async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      try {
+        const res = await fetch(target, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${serviceKey}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ expiresIn: ttlSeconds }),
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          throw new ServiceUnavailableException(`storage sign-url failed with status ${res.status}`);
+        }
+        const body = (await res.json()) as { signedURL?: string };
+        if (!body.signedURL) {
+          throw new ServiceUnavailableException("storage sign-url response missing signedURL");
+        }
+        return `${url}/storage/v1${body.signedURL}`;
+      } finally {
+        clearTimeout(timeout);
       }
-      const body = (await res.json()) as { signedURL?: string };
-      if (!body.signedURL) {
-        throw new ServiceUnavailableException("storage sign-url response missing signedURL");
-      }
-      // signedURL is a relative path under /storage/v1; return the absolute url.
-      return `${url}/storage/v1${body.signedURL}`;
-    } finally {
-      clearTimeout(timeout);
-    }
+    });
   }
 
   /**
@@ -328,36 +328,33 @@ export class StorageService {
   ): Promise<{ url: string; expiresIn: number }> {
     const { url, serviceKey, bucket: b } = this.requireStorage(bucket);
     const target = `${url}/storage/v1/object/upload/sign/${b}/${encodeURI(objectKey)}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    try {
-      const res = await fetch(target, {
-        method: "POST",
-        headers: { authorization: `Bearer ${serviceKey}` },
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        throw this.storageFailure(
-          "storage sign-upload-url",
-          res.status,
-          b,
-          await StorageService.safeText(res),
-        );
+    return this.handleStorageError("storage createSignedUploadUrl", b, async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      try {
+        const res = await fetch(target, {
+          method: "POST",
+          headers: { authorization: `Bearer ${serviceKey}` },
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          throw this.storageFailure(
+            "storage sign-upload-url",
+            res.status,
+            b,
+            await StorageService.safeText(res),
+          );
+        }
+        const body = (await res.json()) as { url?: string; signedURL?: string };
+        const relative = body.url ?? body.signedURL;
+        if (!relative) {
+          throw new ServiceUnavailableException("storage sign-upload-url response missing url");
+        }
+        return { url: `${url}/storage/v1${relative}`, expiresIn: 7200 };
+      } finally {
+        clearTimeout(timeout);
       }
-      // Supabase has returned this as `url` (REST) and `signedURL` (older SDKs);
-      // accept either defensively.
-      const body = (await res.json()) as { url?: string; signedURL?: string };
-      const relative = body.url ?? body.signedURL;
-      if (!relative) {
-        throw new ServiceUnavailableException("storage sign-upload-url response missing url");
-      }
-      // The upload-sign token lifetime is FIXED server-side by Supabase (~2h) and
-      // not configurable per request, so we surface a conservative constant
-      // rather than a config knob that could not actually change anything.
-      return { url: `${url}/storage/v1${relative}`, expiresIn: 7200 };
-    } finally {
-      clearTimeout(timeout);
-    }
+    });
   }
 
   /**

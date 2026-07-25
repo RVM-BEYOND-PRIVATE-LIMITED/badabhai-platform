@@ -7,7 +7,10 @@ import type { RequestContext } from "../common/request-context";
 const CTX = { correlationId: "c", requestId: "r" } as RequestContext;
 
 function make() {
-  const consent = { accept: vi.fn(async () => ({ consent_id: "c1", accepted_at: "t" })) };
+  const consent = {
+    accept: vi.fn(async () => ({ consent_id: "c1", accepted_at: "t" })),
+    withdraw: vi.fn(async () => ({ ok: true as const })),
+  };
   return { controller: new ConsentController(consent as unknown as ConsentService), consent };
 }
 
@@ -17,5 +20,12 @@ describe("ConsentController (thin) — delegation", () => {
     const dto = { worker_id: "w", consent_version: "v", purposes: ["profiling"] };
     await controller.accept(dto as never, "1.2.3.4", "ua", CTX);
     expect(consent.accept).toHaveBeenCalledWith(dto, "1.2.3.4", "ua", CTX);
+  });
+
+  it("withdraw forwards workerId + ctx to the service", async () => {
+    const { controller, consent } = make();
+    const worker = { workerId: "w" } as { workerId: string };
+    await controller.withdraw(worker, CTX);
+    expect(consent.withdraw).toHaveBeenCalledWith("w", CTX);
   });
 });
