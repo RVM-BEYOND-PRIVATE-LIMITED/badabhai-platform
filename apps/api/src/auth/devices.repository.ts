@@ -46,8 +46,12 @@ export class DevicesRepository {
     // cleared only by an explicit removal path (invalidation / revoke), never by
     // omission. `push_target` is rotated whenever a NEW token is registered.
     const hasToken = typeof input.pushToken === "string" && input.pushToken.length > 0;
+    // TD95: login NEVER rotates `push_target` — only the PATCH route
+    // (setPushToken) owns the nonce, so there is one writer and nothing to
+    // synchronise. A client that sent its token at login would otherwise rotate
+    // the target to a value it never learns and drop every push.
     const tokenFields = hasToken
-      ? { pushToken: input.pushToken as string, pushTarget: randomUUID() }
+      ? { pushToken: input.pushToken as string }
       : {};
 
     const inserted = await this.db

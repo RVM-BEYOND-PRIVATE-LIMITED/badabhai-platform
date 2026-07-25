@@ -88,8 +88,8 @@ describe("DevicesRepository.registerOrTouch — push-token rules (ADR-0034 D5b)"
     await repo.registerOrTouch({ ...baseInput, pushToken: TOKEN });
 
     expect(captured.set?.pushToken).toBe(TOKEN);
-    // push_target rotates whenever a NEW token is registered.
-    expect(captured.set?.pushTarget).toEqual(expect.any(String));
+    // TD95: login NEVER rotates push_target — only the PATCH route owns the nonce.
+    expect(Object.keys(captured.set!)).not.toContain("pushTarget");
     // THE REGRESSION: the claim used to run only in the insert branch, so a returning
     // worker took the token without nulling it on the other worker's row.
     expect(claim, "the touch path must claim the token exclusively").toHaveBeenCalledWith(
