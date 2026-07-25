@@ -93,7 +93,9 @@ def test_corpus_covers_every_askable_topic_at_the_required_depth() -> None:
         # LLM-extracted topics need fewer fixtures (signal detection not required)
         min_count = 15 if topic in NO_SIGNAL_DETECTION else 15
         max_count = 25
-        assert min_count <= n <= max_count, f"{topic} has {n} fixtures (want {min_count}-{max_count})"
+        assert min_count <= n <= max_count, (
+            f"{topic} has {n} fixtures (want {min_count}-{max_count})"
+        )
 
 
 def test_corpus_labels_are_well_formed() -> None:
