@@ -12,6 +12,7 @@ import {
   conversationObjectKey,
   conversationWorkerPrefix,
   looksLikePii,
+  looksLikeActionContextPii,
   looksLikeOrgName,
   looksLikeUrl,
   bandForCount,
@@ -138,17 +139,47 @@ describe("looksLikePii", () => {
     },
   );
 
+  // Title-case free text is legitimate content on most looksLikePii call sites
+  // (job/posting titles, descriptions) — it must NOT be flagged here. The
+  // stricter name/address check lives in looksLikeActionContextPii below, scoped
+  // to the one boundary (the actions-context bag) where it's safe.
+  it.each([
+    "CNC operator",
+    "2-5",
+    "draft",
+    "v1",
+    "123456",
+    "role_title",
+    "Ravi Kumar",
+    "A. Sharma",
+    "House No. 12, Sector 15",
+    "Main Street",
+    "New Title",
+    "Updated Role Title",
+  ])("does not flag %s", (s) => {
+    expect(looksLikePii(s)).toBe(false);
+  });
+});
+
+describe("looksLikeActionContextPii", () => {
+  it.each(["98765 43210", "+91-98765-43210", "9876543210", "(98765) 43210", "a@b.co"])(
+    "flags %s as PII-shaped",
+    (s) => {
+      expect(looksLikeActionContextPii(s)).toBe(true);
+    },
+  );
+
   it.each(["Ravi Kumar", "A. Sharma", "House No. 12, Sector 15", "Main Street"])(
     "flags %s as PII-shaped",
     (s) => {
-      expect(looksLikePii(s)).toBe(true);
+      expect(looksLikeActionContextPii(s)).toBe(true);
     },
   );
 
   it.each(["CNC operator", "2-5", "draft", "v1", "123456", "role_title"])(
     "does not flag %s",
     (s) => {
-      expect(looksLikePii(s)).toBe(false);
+      expect(looksLikeActionContextPii(s)).toBe(false);
     },
   );
 });

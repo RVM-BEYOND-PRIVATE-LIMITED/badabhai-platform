@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
-import { looksLikePii } from "@badabhai/validators";
+import { looksLikeActionContextPii } from "@badabhai/validators";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
@@ -76,21 +76,23 @@ export class ActionsService {
 /**
  * Fail-closed PII guard at the capture boundary. The only free-form input is the
  * `context` bag; reject anything in a key OR a string value that looks like a
- * phone or email so raw PII can never reach the events table. We name the
- * position, never the offending content (which would log the PII we reject).
+ * phone, email, human name, or address (TD11 — `looksLikeActionContextPii`) so
+ * raw PII can never reach the events table. We name the position, never the
+ * offending content (which would log the PII we reject).
  *
  * NOTE: this is best-effort. `context` is for non-PII signals (counts, statuses,
- * enums, lengths) — names/addresses are not phone/email-shaped and are NOT
- * detected here, so callers must not put free text in context.
+ * enums, lengths) — free text otherwise shaped like PII the heuristic doesn't
+ * cover can still slip through, so callers must not put arbitrary free text in
+ * context.
  */
 function assertNoPii(dto: RecordActionDto): void {
   for (const [key, value] of Object.entries(dto.context ?? {})) {
-    if (looksLikePii(key)) {
+    if (looksLikeActionContextPii(key)) {
       throw new BadRequestException("a context key looks like PII; actions must not carry raw PII");
     }
-    if (typeof value === "string" && looksLikePii(value)) {
+    if (typeof value === "string" && looksLikeActionContextPii(value)) {
       throw new BadRequestException(
-        `context.${key} looks like PII (phone/email); actions must not carry raw PII`,
+        `context.${key} looks like PII (phone/email/name/address); actions must not carry raw PII`,
       );
     }
   }

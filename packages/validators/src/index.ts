@@ -128,20 +128,40 @@ const HUMAN_NAME_LIKE = /^(?:[A-Z][a-z]+|[A-Z]\.)+(?:\s+(?:[A-Z][a-z]+|[A-Z]\.)+
 const ADDRESS_LIKE = /\b(?:house|flat|apartment|street|road|lane|colony|sector|area|nagar|ward|block)\b/i;
 
 /**
- * Best-effort heuristic: true if a string looks like an obvious phone number,
- * email address, human name, or address-style free text. Used at capture
- * boundaries (e.g. the actions context bag) to fail closed on raw PII before it
- * reaches the events table.
+ * Best-effort heuristic: true if a string looks like an OBVIOUS phone number or
+ * email address. Used broadly at free-text capture boundaries — job/posting
+ * titles, descriptions, benefits, campaign tags — to fail closed on raw PII
+ * before it reaches the events table or a worker-visible surface.
  *
- * NOT a PII classifier: it catches the most common high-risk free-text forms
- * we can safely reject at this boundary (names, addresses, phone/email shapes)
- * without over-matching legitimate status tokens like "CNC operator" or "draft".
+ * NOT a PII classifier: it only catches email-shaped strings and long digit runs
+ * (after stripping common phone separators). It deliberately does NOT flag
+ * name/address-shaped text here — most of this function's callers validate
+ * legitimate short title-case free text ("New Title", "Night Shift Operator",
+ * "Updated Role Title"), which is INDISTINGUISHABLE from a human name by
+ * capitalization shape alone. Callers must still keep free text out of fields
+ * that flow into events/logs. See `looksLikeActionContextPii` for the narrower
+ * boundary (the actions-context bag) where a stricter name/address check is safe.
  */
 export function looksLikePii(s: string): boolean {
   const value = s.trim();
   if (!value) return false;
   if (EMAIL_LIKE.test(value)) return true;
-  if (PHONE_DIGIT_RUN.test(value.replace(PHONE_SEPARATORS, ""))) return true;
+  return PHONE_DIGIT_RUN.test(value.replace(PHONE_SEPARATORS, ""));
+}
+
+/**
+ * TD11 — the actions-context bag's stricter guard: everything `looksLikePii`
+ * catches, PLUS obvious human-name-shaped (2-4 title-cased words) and
+ * address-shaped free text. Safe ONLY at this boundary because `context` values
+ * are short non-PII SIGNALS ("started", "step_2"), not narrative content —
+ * unlike job titles/descriptions, a title-cased 2-4 word `context` value has no
+ * legitimate reason to exist, so the false-positive risk that rules this check
+ * out of the general `looksLikePii` is acceptable here.
+ */
+export function looksLikeActionContextPii(s: string): boolean {
+  const value = s.trim();
+  if (!value) return false;
+  if (looksLikePii(value)) return true;
   if (HUMAN_NAME_LIKE.test(value)) return true;
   return Boolean(ADDRESS_LIKE.test(value) && (/\d/.test(value) || /\b(?:street|road|lane|sector|colony|area|nagar|ward|block)\b/i.test(value)));
 }
