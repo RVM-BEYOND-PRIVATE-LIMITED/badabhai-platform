@@ -88,7 +88,7 @@ void main() {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(() => repo.getFeed()).thenAnswer((_) async => <FeedItem>[
+      when(() => repo.getFeed(trade: any(named: 'trade'), city: any(named: 'city'))).thenAnswer((_) async => <FeedItem>[
             _job('cnc1', 'cnc_operator', 'CNC Operator'),
             _job('vmc1', 'vmc_setter', 'VMC Setter'),
           ]);
@@ -130,7 +130,7 @@ void main() {
     _tallSurface(tester);
 
     final _MockSwipeRepository repo = _MockSwipeRepository();
-    when(() => repo.getFeed()).thenAnswer((_) async => <FeedItem>[
+    when(() => repo.getFeed(trade: any(named: 'trade'), city: any(named: 'city'))).thenAnswer((_) async => <FeedItem>[
           _job('cnc1', 'cnc_operator', 'CNC Operator'),
           _job('vmc1', 'vmc_setter', 'VMC Setter'),
         ]);
@@ -169,7 +169,7 @@ void main() {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(() => repo.getFeed()).thenAnswer((_) async => <FeedItem>[
+      when(() => repo.getFeed(trade: any(named: 'trade'), city: any(named: 'city'))).thenAnswer((_) async => <FeedItem>[
             _job('cnc1', 'cnc_operator', 'CNC Operator'),
             _job('vmc1', 'vmc_setter', 'VMC Setter'),
           ]);
@@ -211,7 +211,7 @@ void main() {
     _tallSurface(tester);
 
     final _MockSwipeRepository repo = _MockSwipeRepository();
-    when(() => repo.getFeed()).thenAnswer(
+    when(() => repo.getFeed(trade: any(named: 'trade'), city: any(named: 'city'))).thenAnswer(
         (_) async => <FeedItem>[_job('cnc1', 'cnc_operator', 'CNC Operator')]);
 
     await tester.pumpWidget(MaterialApp(
@@ -234,7 +234,7 @@ void main() {
     _tallSurface(tester);
 
     final _MockSwipeRepository repo = _MockSwipeRepository();
-    when(() => repo.getFeed()).thenAnswer((_) async => <FeedItem>[
+    when(() => repo.getFeed(trade: any(named: 'trade'), city: any(named: 'city'))).thenAnswer((_) async => <FeedItem>[
           _job('c1', 'cnc_operator', 'CNC Operator', city: 'Pune'),
           _job('c2', 'cnc_operator', 'CNC Machinist', city: 'Nashik'),
           _job('c3', 'cnc_operator', 'CNC Setter', city: 'Aurangabad'),
@@ -266,7 +266,7 @@ void main() {
     _tallSurface(tester);
 
     final _MockSwipeRepository repo = _MockSwipeRepository();
-    when(() => repo.getFeed()).thenAnswer(
+    when(() => repo.getFeed(trade: any(named: 'trade'), city: any(named: 'city'))).thenAnswer(
         (_) async => <FeedItem>[_job('weld1', 'welder', 'Welder')]);
 
     final SwipeBloc bloc = SwipeBloc(repo);
@@ -300,7 +300,7 @@ void main() {
       _tallSurface(tester);
 
       final _MockSwipeRepository repo = _MockSwipeRepository();
-      when(() => repo.getFeed()).thenAnswer((_) async => <FeedItem>[
+      when(() => repo.getFeed(trade: any(named: 'trade'), city: any(named: 'city'))).thenAnswer((_) async => <FeedItem>[
             _job('weld1', 'welder', 'Welder', city: 'Pune'),
           ]);
 
