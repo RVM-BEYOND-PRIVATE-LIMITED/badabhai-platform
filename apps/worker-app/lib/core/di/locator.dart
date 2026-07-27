@@ -13,6 +13,7 @@ import '../nav/tab_focus.dart';
 import '../auth/secure_token_store.dart';
 import '../config/app_config.dart';
 import '../session/session_repository.dart';
+import '../push/push_token_service.dart';
 
 import '../../features/applications/data/applications_repository_impl.dart';
 import '../../features/applications/domain/applications_repository.dart';
@@ -462,6 +463,12 @@ Future<void> initAuthLocator({
   // The orchestration layer (PASS 2): the single source of "am I logged
   // in / locked", listenable by the router. It bridges fresh tokens into the
   // legacy SessionRepository so worker-scoped calls keep their bearer.
+  // FCM push token bridge (ADR-0034). Registered BEFORE AuthSessionManager so
+  // the manager can fire-and-forget registration on every auth success.
+  locator.registerLazySingleton<PushTokenService>(
+    () => PushTokenService(locator<AuthApi>()),
+  );
+
   locator.registerSingleton<AuthSessionManager>(
     AuthSessionManager(
       authApi: locator<AuthApi>(),
@@ -469,6 +476,7 @@ Future<void> initAuthLocator({
       session: locator<SessionRepository>(),
       reauthSignal: locator<ReauthSignal>(),
       persistentAuthEnabled: persistentAuthEnabled,
+      pushTokenService: locator<PushTokenService>(),
     ),
   );
 }

@@ -28,6 +28,9 @@ export type NotificationType =
   | "profile_ready"
   | "voice_processed"
   | "application_sent"
+  | "interview_kit_ready"
+  | "job_available"
+  | "profile_viewed"
   | "security";
 
 /** Static copy for one language — title + body, never interpolated. */
@@ -135,6 +138,36 @@ export const NOTIFICATION_TEMPLATES: Readonly<Record<string, NotificationTemplat
       en: { title: "Application sent", body: "Your application has been submitted." },
     },
     push: false, // NEVER: the worker just tapped apply — buzzing them about their own action is noise
+  },
+  // interview_kit.ready_for_worker — actor=system, worker_id in payload.
+  "interview_kit.ready_for_worker": {
+    type: "interview_kit_ready",
+    copy: {
+      hi: { title: "Interview kit taiyaar", body: "Aapke trade ke interview questions taiyaar hain — abhi dekhein." },
+      en: { title: "Interview kit ready", body: "Your trade's interview kit is ready — check it now." },
+    },
+    push: false, // deferred (ADR-0034 scope: security only)
+  },
+  // job.available — actor=system, worker_id in payload.
+  "job.available": {
+    type: "job_available",
+    copy: {
+      hi: { title: "Naya job mila", body: "Aapke trade aur city mein naya job aaya hai — dekhein." },
+      en: { title: "New job found", body: "A new job matching your trade and city is available." },
+    },
+    push: false, // deferred
+  },
+  // profile.viewed — actor=payer, worker_id in payload. Copy is deliberately neutral:
+  // no employer/company/payer noun (banned by the copy guard) — the worker learns their
+  // profile was seen, not who saw it. That is the most this signal can say without
+  // revealing a counterparty identity.
+  "profile.viewed": {
+    type: "profile_viewed",
+    copy: {
+      hi: { title: "Profile dekha gaya", body: "Aapki profile kisi ne dekhi hai." },
+      en: { title: "Profile viewed", body: "Someone has viewed your profile." },
+    },
+    push: false, // deferred
   },
   // worker.device_registered — actor=subject=worker.
   "worker.device_registered": {

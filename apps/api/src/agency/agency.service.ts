@@ -129,6 +129,11 @@ export class AgencyService {
     };
     await this.events.emit(this.jobEmitParams("job.created", row.id, payerId, payload, ctx));
 
+    // TD64 — emit job.available per matched worker. Deferred: requires a
+    // worker-matching query (trade_key + city) that does not exist yet. The event
+    // schema and allowlist entry are ready; uncomment when the matcher lands.
+    // See docs/registers/tech-debt-register.md § TD64.
+
     return AgencyService.toJobView(row);
   }
 

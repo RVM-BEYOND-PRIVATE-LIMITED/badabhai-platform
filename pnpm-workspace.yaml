@@ -46,10 +46,5 @@ overrides:
 # is a HIGH/CRITICAL advisory that does NOT apply to this codebase, rationale logged
 # in the tech-debt register. Scoped to specific GHSA ids so the audit STILL fails on
 # any NEW high/critical advisory.
-#   - GHSA-gpj5-g38j-94v9: drizzle-orm SQL-injection via improperly escaped SQL
-#     IDENTIFIERS. We use the typed query-builder with static columns + bound params;
-#     no user input is ever an identifier → not exploitable. The 0.38→0.45 bump (with
-#     drizzle-kit lockstep) is deferred to a DB-owner PR (TD49).
-auditConfig:
-  ignoreGhsas:
-    - GHSA-gpj5-g38j-94v9
+# (empty — previously tracked GHSA-gpj5-g38j-94v9 was fixed by the drizzle-orm 0.45
+# bump in TD49.)

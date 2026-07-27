@@ -90,8 +90,11 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Test
-        run: pnpm test
+      # TD9: --coverage flags enforce the vitest coverage thresholds pinned in
+      # apps/api/vitest.config.ts (lines≥75, functions≥75, branches≥73, statements≥75).
+      # Without this flag, thresholds are configured but never checked in CI.
+      - name: Test (with coverage thresholds)
+        run: pnpm test -- --coverage
 
       # Offline self-test for the staging /health + mock-OTP smoke (scripts/staging-smoke.mjs).
       # Plain node:test, NO network — locks the load-bearing dev_otp-FAIL gate + the

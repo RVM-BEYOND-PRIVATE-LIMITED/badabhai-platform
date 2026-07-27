@@ -235,6 +235,30 @@ export class ProfilesService {
       );
     }
 
+    // TD64 — emit interview_kit.ready_for_worker when the worker's confirmed trade
+    // has a renderable kit. Guarded: if canonicalTradeId is null (edge case, not
+    // expected after extraction) the event is silently skipped — the kit is still
+    // accessible from the interview-kit screen without the notification.
+    const tradeKey = profile.canonicalTradeId;
+    if (tradeKey) {
+      const contentVersion = 1; // matches INTERVIEW_KIT_CONTENT_VERSION default
+      const kitId = `${tradeKey}:v${contentVersion}`;
+      await this.events.emit({
+        event_name: "interview_kit.ready_for_worker",
+        actor: { actor_type: "system" },
+        subject: { subject_type: "worker", subject_id: input.worker_id },
+        payload: {
+          worker_id: input.worker_id,
+          trade_key: tradeKey,
+          content_version: contentVersion,
+          kit_id: kitId,
+        },
+        idempotencyKey: `interview_kit.ready_for_worker:${input.worker_id}:${tradeKey}`,
+        correlationId: ctx.correlationId,
+        requestId: ctx.requestId,
+      });
+    }
+
     return {
       profile_id: input.profile_id,
       profile_status: "confirmed",

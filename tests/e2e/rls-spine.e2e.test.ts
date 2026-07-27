@@ -80,6 +80,9 @@ const LOCKED_TABLES = [
   "agency_kyc", // ADR-0022 Amdt 2: agency financial KYC (PAN/bank ciphertext + keyed HMAC — high-sensitivity financial PII, ADR-0004 discipline); RLS+FORCE+REVOKE in migration 0048
   "agency_payout_accruals", // ADR-0022 Amdt 2: commission accrual ledger (PII-free ₹ + opaque ids; source_unlock_id is one hop from a worker); RLS+FORCE+REVOKE in migration 0048
   "agency_payout_requests", // ADR-0022 Amdt 2: mock payout requests (PII-free ₹ + ids + enum); RLS+FORCE+REVOKE in migration 0048
+  "payer_job_posting_chat_sessions", // ADR-0035: payer-side job-posting chat container (opaque payer_id + jsonb state/draft, no PII); RLS+FORCE+REVOKE in migration 0050
+  "payer_job_posting_chat_messages", // ADR-0035: payer-side chat transcript (body_text = payer-typed free text about a JOB — never to events/ai_jobs/logs); RLS+FORCE+REVOKE in migration 0050
+  "payer_form_drafts", // ADR-0035: generic cross-device payer form-draft primitive (no consumer in that slice by design); RLS+FORCE+REVOKE in migration 0050
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

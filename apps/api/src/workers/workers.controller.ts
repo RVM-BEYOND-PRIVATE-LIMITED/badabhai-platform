@@ -151,9 +151,13 @@ export class WorkersController {
    * Record the worker's real name (TD21). The name is PII: it is encrypted at
    * rest and is NEVER returned by this (or any) endpoint — the response carries
    * only `{ worker_id }`. The name later appears only on the worker's own resume.
+   *
+   * R11: this legacy PUT is now gated behind InternalServiceGuard (ops-only).
+   * The worker-self route is PATCH /workers/me/name (WorkerAuthGuard + ConsentGuard).
    */
   @Put(":id/name")
   @HttpCode(200)
+  @UseGuards(InternalServiceGuard)
   async setName(
     @Param("id", new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(SetWorkerNameSchema)) dto: SetWorkerNameDto,

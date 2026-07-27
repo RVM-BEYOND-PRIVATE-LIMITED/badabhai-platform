@@ -75,6 +75,11 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        // FCM push token bridge (ADR-0034). Dart reads the latest token on demand
+        // and receives `tokenUpdated` on rotation. No PII crosses this channel
+        // (the FCM token is opaque to the server's logical identity).
+        PushTokenBridge.init(flutterEngine.dartExecutor.binaryMessenger)
+
         // OTP SMS auto-read (Play Services User Consent). Channel name MUST match
         // SmsOtpAutofill.channelName on the Dart side.
         val smsChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SMS_OTP_CHANNEL)

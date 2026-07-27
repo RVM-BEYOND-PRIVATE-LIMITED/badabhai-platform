@@ -277,7 +277,7 @@ const CONTRACT: ControllerContract[] = [
     routes: {
       list: [],
       getProfile: [I],
-      setName: [],
+      setName: [I],
       setMyName: [C, W],
       getMyProfileSummary: [C, W],
     },
