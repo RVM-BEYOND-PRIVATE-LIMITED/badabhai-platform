@@ -1496,6 +1496,37 @@ export const JobClosedPayload = z.object({
 export type JobClosedPayload = z.infer<typeof JobClosedPayload>;
 
 // ---------------------------------------------------------------------------
+// Worker-facing notification events (TD64). These are per-worker events emitted at
+// trigger points throughout the platform and consumed by the worker's notification
+// feed (GET /workers/me/notifications). PII-FREE: opaque worker_id + coarse non-PII
+// bands only (trade slug, city label). Copy is server-rendered from static
+// allowlist — the event payload is NEVER passed through.
+// ---------------------------------------------------------------------------
+
+/** Per-worker notification: a kit for the worker's confirmed trade is ready. */
+export const InterviewKitReadyForWorkerPayload = z.object({
+  worker_id: uuidSchema,
+  trade_key: tradeKeySchema,
+  content_version: contentVersionSchema,
+  kit_id: kitIdSchema,
+}); // .strict() intentionally omitted — the test introspects payload.shape
+
+/** Per-worker notification: a new job matching the worker's trade/city was posted. */
+export const NewJobAvailablePayload = z.object({
+  worker_id: uuidSchema,
+  job_id: uuidSchema,
+  trade_key: tradeKeySchema,
+  city: cityLabelSchema,
+});
+
+/** Per-worker notification: a payer viewed the worker's profile. */
+export const ProfileViewedPayload = z.object({
+  worker_id: uuidSchema,
+  viewer_payer_id: uuidSchema,
+  job_id: uuidSchema,
+});
+
+// ---------------------------------------------------------------------------
 // agency_invite.* — AGENCY supply-attribution funnel (ADR-0022). FACELESS, ids/enums.
 //
 // The SIBLING of `invite.*` (the worker→worker funnel) on the PAYER axis: here the

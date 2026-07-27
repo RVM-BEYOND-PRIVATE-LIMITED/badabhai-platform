@@ -8,6 +8,7 @@ import '../../../core/auth/reauth_signal.dart';
 import '../../../core/auth/secure_token_store.dart';
 import '../../../core/config/app_config.dart';
 import '../../../core/observability/crash_reporter.dart';
+import '../../../core/push/push_token_service.dart';
 import '../../../core/session/session_repository.dart';
 
 /// The three states the whole app is ever in, from the router's point of view.
@@ -65,11 +66,13 @@ class AuthSessionManager extends ChangeNotifier {
     required SessionRepository session,
     required ReauthSignal reauthSignal,
     bool persistentAuthEnabled = kPersistentAuth,
+    PushTokenService? pushTokenService,
   })  : _authApi = authApi,
         _tokenStore = tokenStore,
         _session = session,
         _reauthSignal = reauthSignal,
-        _persistentAuthEnabled = persistentAuthEnabled {
+        _persistentAuthEnabled = persistentAuthEnabled,
+        _pushTokenService = pushTokenService {
     // A dead session (refresh failure / reuse / device revoke) bounces the
     // worker back to a fresh OTP login. PASS 1's interceptor already cleared the
     // store before firing, so we only flip the status + clear the bridge.
@@ -81,6 +84,7 @@ class AuthSessionManager extends ChangeNotifier {
   final SessionRepository _session;
   final ReauthSignal _reauthSignal;
   final bool _persistentAuthEnabled;
+  final PushTokenService? _pushTokenService;
 
   /// Whether the PIN / cold-start-lock / re-lock layer is active. Exposed so the
   /// lifecycle observer / router can skip lock UX when the layer is off.
@@ -190,6 +194,13 @@ class AuthSessionManager extends ChangeNotifier {
     _status = next;
     _ready = true;
     notifyListeners();
+    _registerPushTokenIfAuthenticated();
+  }
+
+  void _registerPushTokenIfAuthenticated() {
+    if (_status == AuthStatus.authenticated) {
+      unawaited(_pushTokenService?.registerCurrentToken());
+    }
   }
 
   /// App open (cold start): read the persisted refresh token. Present → [locked]

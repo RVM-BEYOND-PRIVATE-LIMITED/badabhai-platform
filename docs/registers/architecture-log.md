@@ -8,6 +8,30 @@ boundary moved).
 
 ---
 
+## 2026-07-27 — ADR-0035: AI Job-Posting Chat + Cross-Device Drafts (design accepted, not yet built)
+- **New contract surface drawn, not yet built.** [ADR-0035](../decisions/0035-ai-job-posting-chat-and-cross-device-drafts.md)
+  formalizes an owner-approved slice: a payer/agency-facing AI interview chat (payer-web +
+  payer-app, cross-device resumable) that produces a `job_postings` draft. Backend build order
+  is fixed: database-architect (migration 0050: `payer_job_posting_chat_sessions`,
+  `payer_job_posting_chat_messages`, `payer_form_drafts`) → ai-engineer
+  (`apps/ai-service/app/job_posting_chat/`, a **sibling** to `profiling/`, not a
+  parameterization — the worker engine's topic constants are hardcoded) → backend-engineer
+  (`apps/api/src/payer-portal/job-posting-chat/`, 5 endpoints behind the existing
+  `PayerAuthGuard`, no consent gate — invariant #6 is worker-only).
+- **New event domain `job_posting_chat`** (session_started/message_sent/draft_ready, ids/enums
+  only) kept distinct from `job_posting` — same reasoning ADR-0012 used for `job_posting` vs
+  `job`: a chat session is a different entity from the posting it produces. **Publish reuses
+  the existing `job_posting.created` path** (`JobPostingsService.createForPayer`) — no new
+  writer of that event.
+- **Privacy design note worth remembering:** the payer's own org name is never asked in chat
+  and never sent to the LLM — auto-filled server-side from `payers.orgNameEnc`, interpolated
+  post-hoc (mirrors AI-PERSONA-2's worker-name pattern), because the existing
+  `pseudonymize()` employer-name masker is tuned to *redact* a worker's past employer, not to
+  correctly pass through a payer's own legitimate business name.
+- **Status: architecture accepted, zero code shipped.** Next actions belong to
+  database-architect (0050) → ai-engineer → backend-engineer, then payer-web/payer-app in
+  parallel against the frozen 5-endpoint contract.
+
 ## 2026-07-17 — Worker Alerts allowlist widened to the worker's OWN apply (`application.submitted`)
 - **No new surface, no new data.** The Alerts feed stays what it is: a read-only, PII-free
   **projection over the `events` table** ([notifications.repository.ts](../../apps/api/src/notifications/notifications.repository.ts)).

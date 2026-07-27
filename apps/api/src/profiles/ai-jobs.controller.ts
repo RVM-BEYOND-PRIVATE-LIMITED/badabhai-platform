@@ -1,6 +1,7 @@
 import { Controller, Get, NotFoundException, Param, ParseUUIDPipe, Query } from "@nestjs/common";
 import { clampLimit } from "../common/pagination";
 import { AiJobsRepository } from "./ai-jobs.repository";
+import type { AiJobResponse } from "./ai-jobs.dto";
 
 /** Read-only AI-jobs for the ops console + async-job polling (refs only, no PII). */
 @Controller("ai-jobs")
@@ -28,16 +29,15 @@ export class AiJobsController {
 
   /** Poll a single job (e.g. profile extraction): status + output_ref + AI usage/cost. */
   @Get(":id")
-  async get(@Param("id", new ParseUUIDPipe()) id: string) {
+  async get(@Param("id", new ParseUUIDPipe()) id: string): Promise<AiJobResponse> {
     const job = await this.aiJobs.findById(id);
     if (!job) throw new NotFoundException(`AI job ${id} not found`);
     return {
       id: job.id,
       job_type: job.jobType,
       status: job.status,
-      output_ref: job.outputRef ?? null,
+      output_ref: job.outputRef as AiJobResponse["output_ref"],
       error_message: job.errorMessage ?? null,
-      // Operational AI usage/cost metadata (PII-free; null until completed).
       ai_usage: {
         model_name: job.modelName ?? null,
         real_call: job.realCall ?? null,

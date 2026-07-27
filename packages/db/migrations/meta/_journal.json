@@ -351,6 +351,13 @@
       "when": 1784958922900,
       "tag": "0049_secret_tyger_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1785136225170,
+      "tag": "0050_tired_rogue",
+      "breakpoints": true
     }
   ]
 }

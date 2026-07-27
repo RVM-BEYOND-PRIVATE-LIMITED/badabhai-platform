@@ -228,6 +228,11 @@ export const EVENT_REGISTRY = {
     domain: "interview_kit",
     payload: p.InterviewKitDownloadedPayload,
   },
+  "interview_kit.ready_for_worker": {
+    version: 1,
+    domain: "interview_kit",
+    payload: p.InterviewKitReadyForWorkerPayload,
+  },
 
   "action.recorded": { version: 1, domain: "action", payload: p.ActionRecordedPayload },
 
@@ -390,7 +395,10 @@ export const EVENT_REGISTRY = {
   "job.created": { version: 1, domain: "job", payload: p.JobCreatedPayload },
   "job.updated": { version: 1, domain: "job", payload: p.JobUpdatedPayload },
   "job.closed": { version: 1, domain: "job", payload: p.JobClosedPayload },
+  // Worker-facing notification events — per-worker feed, emitted at trigger points.
+  "job.available": { version: 1, domain: "job", payload: p.NewJobAvailablePayload },
 
+  "profile.viewed": { version: 1, domain: "profile", payload: p.ProfileViewedPayload },
   // AGENCY supply-attribution funnel (ADR-0022) — the payer-axis sibling of `invite.*`.
   // PII-FREE: opaque ids + channel enum + optional non-PII campaign tag only.
   // `agency_invite.accepted` carries the invited worker id and is emitted ONLY after

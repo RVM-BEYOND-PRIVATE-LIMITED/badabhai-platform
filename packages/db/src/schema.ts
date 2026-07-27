@@ -2166,6 +2166,154 @@ export type NewSkillAlias = typeof skillAliases.$inferInsert;
 export type UnresolvedPhrase = typeof unresolvedPhrases.$inferSelect;
 export type NewUnresolvedPhrase = typeof unresolvedPhrases.$inferInsert;
 
+// ===========================================================================
+// ADR-0035 — AI job-posting chat + cross-device drafts (migration 0050)
+// ---------------------------------------------------------------------------
+// Three ADDITIVE tables. The two chat tables are the PAYER-SIDE SIBLINGS of the
+// worker `chat_sessions` / `chat_messages` pair above and deliberately mirror
+// their shape — they are NOT a retrofit of them: the shipped worker tables carry
+// a hard NOT NULL FK to `workers.id`, and retargeting that at a payer would mutate
+// a shipped, in-use FK (invariant #8). Same "coexist, don't retrofit" call
+// ADR-0012 made for `job_postings` vs `jobs` and ADR-0022 §d for `agency_invites`
+// vs `invites`.
+//
+// PRIVACY (invariant #2) — these tables hold NO raw PII:
+//  * The payer is referenced only by the opaque `payers.id`. Payer contact PII
+//    (email/phone/org name) stays encrypted on the `payers` row (ADR-0004) and is
+//    never copied here. The chat NEVER asks for the payer's org name — it is
+//    auto-filled server-side from `payers.org_name_enc` at publish time and
+//    interpolated post-hoc (the AI-PERSONA-2 pattern), never sent to the LLM and
+//    never stored in `conversation_state` / `draft`.
+//  * `body_text` is payer-typed free text ABOUT A JOB (role, skills, location,
+//    pay). Treat it as untrusted free text: it must NEVER be copied into an event
+//    payload, `ai_jobs`, `audit_logs`, or a log line — the `job_posting_chat.*`
+//    events carry ids/enums/message_type ONLY. It is pseudonymized (fail-closed,
+//    invariant #3) before any LLM call, because a payer can still type a phone
+//    number or a person's name into free text.
+//
+// RLS: `.enableRLS()` tracked in the model; FORCE + REVOKE for all Data-API roles
+// are hand-appended to migration 0050 (drizzle-kit emits ENABLE only) — the same
+// spine posture as 0048/0045/0029. New tables must also be registered in
+// `tests/e2e/rls-spine.e2e.test.ts` LOCKED_TABLES (the no-drift guard).
+// ===========================================================================
+
+/** Lifecycle of an AI job-posting chat session (ADR-0035 §Decision 1). */
+export type PayerJobPostingChatStatus = "active" | "draft_ready" | "published" | "abandoned";
+
+// The conversation container — one row per job-posting chat a payer starts.
+// CROSS-DEVICE RESUME: state is keyed to `payer_id` (the account), never to a
+// device or browser session, so any device the payer is logged into resumes it.
+export const payerJobPostingChatSessions = pgTable(
+  "payer_job_posting_chat_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    payerId: uuid("payer_id")
+      .notNull()
+      .references(() => payers.id, { onDelete: "cascade" }),
+    status: text("status").$type<PayerJobPostingChatStatus>().notNull().default("active"),
+    // Interview progress carried across turns: the AI service's JobPostingChatState
+    // (topic ordering, asked ids, collected answers). JOB signals only — never the
+    // payer's identity/org name; never copied into `events`. Loose JSONB by design
+    // (flexible state), exactly like `chat_sessions.conversation_state`; apps/api
+    // casts to the ai-contracts JobPostingChatState at the boundary.
+    conversationState: jsonb("conversation_state").$type<Record<string, unknown>>(),
+    // Latest JobPostingDraft snapshot (role_title, skill phrases, location_label,
+    // vacancy_band, pay range, shift, benefits, requirements, description...). Loose
+    // JSONB here; validated against PayerCreateJobPostingSchema at publish time.
+    // Free-text draft VALUES never enter an event payload — only field KEYS/ids do.
+    draft: jsonb("draft").$type<Record<string, unknown>>(),
+    // Set once the session publishes; SET NULL so deleting a posting keeps the
+    // conversation history intact (the chat outlives the row it produced).
+    publishedJobPostingId: uuid("published_job_posting_id").references(() => jobPostings.id, {
+      onDelete: "set null",
+    }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+  },
+  (t) => [
+    // Backs the cross-device "continue where I left off" list (own sessions).
+    index("payer_job_posting_chat_sessions_payer_id_idx").on(t.payerId),
+    // Pin the lifecycle union at the DB (the text+$type+CHECK convention — see header).
+    check(
+      "payer_job_posting_chat_sessions_status_chk",
+      sql`${t.status} IN ('active', 'draft_ready', 'published', 'abandoned')`,
+    ),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0050
+
+// The transcript. Mirrors `chat_messages` (same direction/message_type/body_text/
+// metadata shape) and REUSES the shared MessageDirection / MessageType unions —
+// no new message vocabulary is introduced.
+export const payerJobPostingChatMessages = pgTable(
+  "payer_job_posting_chat_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => payerJobPostingChatSessions.id, { onDelete: "cascade" }),
+    // DENORMALIZED owner (ADR-0035 §Decision 1), exactly like `chat_messages.worker_id`:
+    // lets `assertPayerOwns` check ownership on a message read without joining through
+    // the session table on every turn.
+    payerId: uuid("payer_id")
+      .notNull()
+      .references(() => payers.id, { onDelete: "cascade" }),
+    direction: text("direction").$type<MessageDirection>().notNull(),
+    messageType: text("message_type").$type<MessageType>().notNull().default("text"),
+    // Payer-typed free text about a JOB. NEVER into events / ai_jobs / audit_logs /
+    // logs; pseudonymized fail-closed before any LLM call (see the section header).
+    bodyText: text("body_text"),
+    metadata: jsonb("metadata").notNull().default(jsonObject),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Transcript hydration for one session (the :id/messages read).
+    index("payer_job_posting_chat_messages_session_id_idx").on(t.sessionId),
+    // Owner-scoped reads without a join (the denormalized-tenancy hot path).
+    index("payer_job_posting_chat_messages_payer_id_idx").on(t.payerId),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0050
+
+// payer_form_drafts — a GENERIC cross-device draft-persistence primitive.
+//
+// DELIBERATE FORWARD SCAFFOLDING — NOT DEAD CODE. ADR-0035 §Decision 1 ships this
+// with NO consumer in this slice on purpose: the job-posting chat persists its own
+// draft in `payer_job_posting_chat_sessions.draft` above, not here. This table is
+// the reusable "resume any half-filled payer form on another device" primitive for
+// future workstreams. Per ADR-0035 §Consequences, if no future workstream claims it
+// within a reasonable window it should be RECONSIDERED (via an ADR) rather than
+// silently deleted as unused surface.
+//
+// PII: none. `state` is a form snapshot keyed to the opaque `payer_id`; the same
+// no-free-text-into-events rule as the chat tables applies to anything stored here.
+export const payerFormDrafts = pgTable(
+  "payer_form_drafts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    payerId: uuid("payer_id")
+      .notNull()
+      .references(() => payers.id, { onDelete: "cascade" }),
+    // Which form this draft belongs to (e.g. "job_posting"). Free-form on purpose —
+    // a new consumer must not need a migration to claim a namespace.
+    formType: text("form_type").notNull(),
+    // The form snapshot. Loose JSONB by design; each consumer owns its own shape.
+    state: jsonb("state").$type<Record<string, unknown>>().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // At most one live draft per (payer, form) — upsert target (ON CONFLICT DO UPDATE).
+    // Also serves the owner-scoped read, so no separate payer_id index is needed.
+    uniqueIndex("payer_form_drafts_payer_form_uq").on(t.payerId, t.formType),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0050
+
+export type PayerJobPostingChatSession = typeof payerJobPostingChatSessions.$inferSelect;
+export type NewPayerJobPostingChatSession = typeof payerJobPostingChatSessions.$inferInsert;
+export type PayerJobPostingChatMessage = typeof payerJobPostingChatMessages.$inferSelect;
+export type NewPayerJobPostingChatMessage = typeof payerJobPostingChatMessages.$inferInsert;
+export type PayerFormDraft = typeof payerFormDrafts.$inferSelect;
+export type NewPayerFormDraft = typeof payerFormDrafts.$inferInsert;
+
 /** All tables, handy for migrations/tests. */
 export const schema = {
   workers,
@@ -2211,4 +2359,7 @@ export const schema = {
   skills,
   skillAliases,
   unresolvedPhrases,
+  payerJobPostingChatSessions,
+  payerJobPostingChatMessages,
+  payerFormDrafts,
 };

@@ -153,6 +153,12 @@ class MockAuthApi extends AuthApi {
     await _tokenStore.writePinSet(true);
   }
 
+  @override
+  Future<String?> updatePushToken(String pushToken) async {
+    await _delay();
+    return 'mock-push-target-0001';
+  }
+
   Future<AuthTokens> _mintMockTokens() async {
     final DateTime expiresAt = DateTime.now().add(const Duration(minutes: 15));
     await _tokenStore.saveTokens(

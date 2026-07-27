@@ -331,6 +331,7 @@ enum _AuthEndpoint {
   authed, // logout / devices (bearer): 401 → reauthRequired, else unknown
   pinResetRequest,
   pinResetConfirm,
+  pushTokenUpdate,
 }
 
 /// The single isolated contract layer for /auth/*.
@@ -587,6 +588,24 @@ class AuthApi {
     _check(res, _AuthEndpoint.pinResetConfirm);
   }
 
+  /// PATCH /auth/devices/me/push-token (bearer) {push_token} → {push_token_target}.
+  ///
+  /// ADR-0034: records the FCM token for the caller's own device. Identity is
+  /// entirely from the session — no body-level worker/device id. Returns the
+  /// device's push_target nonce, or null if the device is unknown/revoked (the
+  /// client should treat null as "register on next login with device_info").
+  Future<String?> updatePushToken(String pushToken) async {
+    final AuthResponse res = await _client.send(
+      HttpMethod.patch,
+      '/auth/devices/me/push-token',
+      body: <String, dynamic>{'push_token': pushToken},
+      authed: true,
+      idempotent: true,
+    );
+    _check(res, _AuthEndpoint.pushTokenUpdate);
+    return res.body['push_token_target'] as String?;
+  }
+
   /// Throws a typed [AuthFailure] for any non-2xx, derived from the
   /// `(endpoint, HTTP status)` pair. The real backend (ADR-0026) sends plain
   /// `{ statusCode, message }` with NO `code` and NO attempts/retry metadata, so
@@ -645,6 +664,9 @@ class AuthApi {
       case _AuthEndpoint.pinResetConfirm:
         if (status == 401) return AuthErrorCode.otpInvalid;
         if (status == 400) return AuthErrorCode.pinWeak;
+        if (status == 429) return AuthErrorCode.otpRateLimited;
+        return AuthErrorCode.unknown;
+      case _AuthEndpoint.pushTokenUpdate:
         if (status == 429) return AuthErrorCode.otpRateLimited;
         return AuthErrorCode.unknown;
     }

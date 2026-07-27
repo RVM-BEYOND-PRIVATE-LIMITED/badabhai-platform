@@ -18,7 +18,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) {
         // Token intentionally NOT logged (CLAUDE.md §2 — no secrets in logs).
         Log.i(TAG, "FCM token rotated")
-        // TODO: forward token to backend when device-targeting is wired.
+        PushTokenBridge.onTokenUpdated(token)
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
