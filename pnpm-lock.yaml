@@ -199,6 +199,10 @@ importers:
       zod:
         specifier: ^3.24.1
         version: 3.25.76
+    devDependencies:
+      '@vitest/coverage-v8':
+        specifier: ^3.0.0
+        version: 3.2.7(vitest@3.2.6(@types/node@22.19.20)(terser@5.48.0)(tsx@4.22.4))
 
   packages/db:
     dependencies:
