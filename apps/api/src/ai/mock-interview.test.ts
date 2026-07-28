@@ -86,7 +86,7 @@ describe("mockProfilingTurn", () => {
       asked.push(t.asked_question_id);
       state = t.updated_state;
     }
-    expect(asked).toEqual(["role", "machines", "experience"]);
+    expect(asked).toEqual(["role", "machines", "skills"]);
     // distinct, and role asked exactly once
     expect(new Set(asked).size).toBe(3);
     expect(asked.filter((a) => a === "role")).toHaveLength(1);
@@ -197,11 +197,11 @@ describe("mockProfilingTurn", () => {
       expect(MOCK_TOPIC_IDS).toEqual([
         "role",
         "machines",
-        "experience",
         "skills",
+        "controllers",
+        "experience",
         "current_location",
         "preferred_locations",
-        "controllers",
         "salary_current",
         "salary_expected",
         "availability",
