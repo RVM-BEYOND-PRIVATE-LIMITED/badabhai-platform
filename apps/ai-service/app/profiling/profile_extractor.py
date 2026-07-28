@@ -662,9 +662,10 @@ def map_rich_to_legacy(
 
 
 def is_outside_cnc_vmc_scope(legacy: DraftProfile) -> bool:
-    """True when a profile canonicalized to NOTHING matchable in the CNC/VMC
-    taxonomy — no role, no skill ids, no machine ids. Used to set the advisory
-    ``unmatchable_reason`` adjacency flag (honest-adjacency, not a hard reject)."""
+    """True when a profile canonicalized to NOTHING matchable in the taxonomy
+    — no role, no skill ids, no machine ids. Used to set the advisory
+    ``unmatchable_reason`` adjacency flag (honest-adjacency, not a hard reject).
+    Function name is historic: it applies to all role families."""
     return not (legacy.canonical_role_id or legacy.skills or legacy.machines)
 
 

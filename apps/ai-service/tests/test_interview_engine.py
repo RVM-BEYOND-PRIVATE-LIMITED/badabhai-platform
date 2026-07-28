@@ -872,7 +872,9 @@ def test_every_retry_option_offered_actually_resolves_against_the_detector():
 
     # ...and a genuinely out-of-scope trade still resolves NOTHING. This is the
     # population the ASK BOUND (not the wording) exists to protect.
-    for out_of_scope in ("fitter", "electrician", "carpenter"):
+    # ADAPTIVE-TRADE: carpenter was removed from the out-of-scope list (it now has
+    # its own role id).
+    for out_of_scope in ("fitter", "electrician"):
         assert signals.detect_answered_topics(out_of_scope, "role") == {}
 
 

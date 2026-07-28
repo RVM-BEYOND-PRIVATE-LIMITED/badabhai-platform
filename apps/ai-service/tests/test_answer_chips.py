@@ -151,17 +151,18 @@ def test_a_tapped_chip_records_only_what_that_chip_says():
 def test_chips_are_not_shared_across_role_families():
     """The old constant was byte-identical for `cnc_vmc`, `welding` and any unknown
     family, so a welder was offered CNC controllers to fabricate. Today every family
-    falls back to the CNC/VMC bank, so the guarantee that matters is the one above —
-    chips follow the TOPIC. This pins the seam that a second family will diverge on.
+    has its own bank, so `controllers` chips exist only in families that define them.
     """
-    for family in ("cnc_vmc", "welding", "anything_unknown"):
-        assert interview_engine.suggested_followups(family, "controllers") == [
-            "Fanuc",
-            "Siemens",
-            "Mitsubishi",
-            "Haas",
-        ]
-        # ...and never the old constant, whatever the family.
+    # CNC/VMC (and unknown fallback) have controllers; welding does not.
+    assert interview_engine.suggested_followups("cnc_vmc", "controllers") == [
+        "Fanuc", "Siemens", "Mitsubishi", "Haas",
+    ]
+    assert interview_engine.suggested_followups("welding", "controllers") == []
+    assert interview_engine.suggested_followups("anything_unknown", "controllers") == [
+        "Fanuc", "Siemens", "Mitsubishi", "Haas",
+    ]
+    # ...and never the old constant, whatever the family.
+    for family in ("cnc_vmc", "welding", "plumbing", "anything_unknown"):
         assert all("?" not in c for c in interview_engine.suggested_followups(family, "role"))
 
 

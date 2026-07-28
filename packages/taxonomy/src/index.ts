@@ -34,6 +34,10 @@ export const DOMAINS = [
   // TAX-WELD-1: welding brought in scope so an adjacent-trade welder carries a
   // canonical occupation instead of null. Additive; no existing id renamed/reused.
   { id: "dom_welding", name: "Welding" },
+  { id: "dom_plumbing", name: "Plumbing" },
+  { id: "dom_carpentry", name: "Carpentry" },
+  { id: "dom_design", name: "Design" },
+  { id: "dom_interior_design", name: "Interior Design" },
 ] as const satisfies readonly TaxonomyNode[];
 
 // ---- Roles (initial CNC/VMC set) ----
@@ -67,6 +71,10 @@ export const ROLES = [
   // machine family ON PURPOSE — that is what makes it safe to fall back to, and it is
   // why it must never displace a specialisation the worker actually stated.
   { id: "role_cnc_operator", name: "CNC Operator", domainId: "dom_cnc_machining" },
+  { id: "role_plumber", name: "Plumber", domainId: "dom_plumbing" },
+  { id: "role_carpenter", name: "Carpenter", domainId: "dom_carpentry" },
+  { id: "role_designer", name: "Designer", domainId: "dom_design" },
+  { id: "role_interior_designer", name: "Interior Designer", domainId: "dom_interior_design" },
 ] as const satisfies readonly Role[];
 
 // ---- Skills (placeholder) ----
@@ -89,6 +97,12 @@ export const MACHINES = [
   { id: "mach_hmc", name: "Horizontal Machining Center (HMC)" },
   { id: "mach_cnc_grinder", name: "CNC Grinder" },
   { id: "mach_cylindrical_grinder", name: "Cylindrical Grinder" },
+  { id: "mach_pipe_threading", name: "Pipe Threading Machine" },
+  { id: "mach_pipe_bending", name: "Pipe Bending Machine" },
+  { id: "mach_circular_saw", name: "Circular Saw" },
+  { id: "mach_planer", name: "Planer" },
+  { id: "mach_router", name: "Router" },
+  { id: "mach_sander", name: "Sander" },
 ] as const satisfies readonly TaxonomyNode[];
 
 export type IndustryId = (typeof INDUSTRIES)[number]["id"];
@@ -149,6 +163,7 @@ const _SKILL_CORPUS_LABEL = new Map(SKILL_CORPUS.map((s) => [s.skillId, s.labelE
 const _ACRONYMS = new Set([
   "cnc", "vmc", "hmc", "iti", "mig", "tig", "gdt", "cam", "ncvt", "nsqf",
   "scvt", "gtaw", "gmaw", "smaw", "gd&t", "hvac", "plc", "vfd",
+  "cad", "cam", "3d", "2d", "mep", "hvac",
 ]);
 
 /**

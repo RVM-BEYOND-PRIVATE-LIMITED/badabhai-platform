@@ -65,11 +65,11 @@ from .profiling.canonical_roles import (
     normalize_role_id,
 )
 from .profiling.prompts import (
-    EXTRACTION_SYSTEM_PROMPT,
     RESUME_SYSTEM_PROMPT,
     build_chat_messages,
+    extraction_system_prompt,
 )
-from .profiling.signals import has_first_person_claim, label_for_id
+from .profiling.signals import detect_role_family, has_first_person_claim, label_for_id
 from .pseudonymize import (
     PseudonymizationResult,
     certified_clean_skill_labels,
@@ -529,6 +529,10 @@ async def profiling_opening(body: ProfilingOpeningInput) -> ProfilingOpeningOutp
 
 @app.post("/profiling/respond", response_model=ProfilingTurnOutput)
 async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
+    # 0. Detect role family from the raw message (local gazetteer, no network,
+    #    before pseudonymization). Falls back to the caller-provided family.
+    role_family = detect_role_family(body.message_text) or body.role_family
+
     # 1. Pseudonymize FIRST — gate for any external LLM call.
     result = pseudonymize(body.message_text)
     if result.blocked:
@@ -554,14 +558,14 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
     #    answer, #238 HIGH), or when the consecutive clarify budget (2) is spent.
     is_clarify = interview_engine.needs_rephrase(body.message_text)
     turn = (
-        interview_engine.clarify_turn(body.conversation_state, body.message_text, body.role_family)
+        interview_engine.clarify_turn(body.conversation_state, body.message_text, role_family)
         if is_clarify
         else None
     )
     if turn is None:
         # Engine decides next question + progress (reads raw locally, no network).
         turn = interview_engine.next_turn(
-            body.conversation_state, body.message_text, body.role_family
+            body.conversation_state, body.message_text, role_family
         )
     mock_reply, asked_id, updated_state, extraction_ready = turn
 
@@ -577,7 +581,7 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
     #    (build_chat_messages ignores it); only the current (already-pseudonymized)
     #    message + the engine's question reach the LLM if a rephrase call does fire.
     wants_rephrase = settings.ai_profiling_rephrase_enabled and is_clarify
-    messages = build_chat_messages([], mock_reply, result.text)
+    messages = build_chat_messages([], mock_reply, result.text, role_family=role_family)
     reply_text, meta = await router.run(
         "profiling_chat_turn",
         messages=messages,
@@ -592,7 +596,7 @@ async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
         # Chips are ANSWERS to the question in `reply_text`, so they are keyed on the
         # topic actually being asked this turn — not a constant. `asked_id` is None on
         # the wrap-up turn, which correctly yields no chips.
-        suggested_followups=interview_engine.suggested_followups(body.role_family, asked_id),
+        suggested_followups=interview_engine.suggested_followups(role_family, asked_id),
         is_mock=not meta.real_call,
         asked_question_id=asked_id,
         extraction_ready=extraction_ready,
@@ -675,7 +679,11 @@ async def profile_extract(body: ProfileExtractionInput) -> ProfileExtractionOutp
     messages = [
         {
             "role": "system",
-            "content": EXTRACTION_SYSTEM_PROMPT + canonicalization_instruction() + _schema_hint(),
+            "content": (
+                extraction_system_prompt(body.role_family)
+                + canonicalization_instruction()
+                + _schema_hint()
+            ),
         },
         {"role": "user", "content": result.text},
     ]

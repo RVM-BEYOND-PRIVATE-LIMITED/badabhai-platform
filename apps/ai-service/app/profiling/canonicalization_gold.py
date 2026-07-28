@@ -319,17 +319,43 @@ _CORE: list[GoldCase] = [
         expected_skills=("skill_mig_welding", "skill_welder_occupation"),
         expected_experience=4.0,
     ),
+    # --- New trades (ADAPTIVE-TRADE) --------------------------------------------
+    GoldCase(
+        "carpenter hu, lakdi ka kaam karta hu",
+        "role_carpenter",
+        (),
+        "core",
+        expected_skills=("skill_carpenter_occupation",),
+    ),
+    GoldCase(
+        "plumber hu, pipe fitting karta hu",
+        "role_plumber",
+        (),
+        "core",
+        expected_skills=("skill_plumber_occupation",),
+    ),
+    GoldCase(
+        "graphic designer hu, logo design karta hu",
+        "role_designer",
+        (),
+        "core",
+        expected_skills=("skill_designer_occupation",),
+    ),
+    GoldCase(
+        "interior designer hu, residential work karta hu",
+        "role_interior_designer",
+        (),
+        "core",
+        expected_skills=("skill_interior_designer_occupation",),
+    ),
 ]
 
 # --- NEGATIVE: heuristic is expected to return None (scored WITH the gate) ------
 _NEGATIVE: list[GoldCase] = [
     GoldCase("sirf helper hu", None, (), "negative"),
     GoldCase("main helper hu factory me", None, (), "negative"),
-    # TAX-WELD-1: "welding ka kaam karta hu" USED TO LIVE HERE (expected role None).
-    # It is now a CORE case expecting role_welder — the one deliberate expectation
-    # FLIP in this change, and the whole point of the task. Replaced with another
-    # genuinely out-of-scope trade so the negative tier keeps its size + its teeth.
-    GoldCase("carpenter hu, lakdi ka kaam karta hu", None, (), "negative"),
+    # ADAPTIVE-TRADE: "carpenter hu..." was moved to CORE — carpenter is now an
+    # in-scope role_family with its own role id.
     GoldCase("fitter hu, assembly line pe", None, (), "negative"),
     GoldCase("electrician hu, wiring karta hu", None, (), "negative"),
     GoldCase("kuch nahi aata abhi, naya hu", None, (), "negative"),

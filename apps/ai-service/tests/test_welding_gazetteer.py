@@ -263,11 +263,11 @@ def test_explicit_denial_does_not_disturb_the_standing_negative_gold_case():
 
 def test_out_of_scope_trades_are_still_out_of_scope():
     # Widening to welding did not widen to everything — the negative tier keeps teeth.
+    # ADAPTIVE-TRADE: carpenter was removed (it now has its own role id).
     for text in (
         "sirf helper hu",
         "fitter hu, assembly line pe",
         "electrician hu, wiring karta hu",
-        "carpenter hu, lakdi ka kaam",
     ):
         _rich, legacy = profile_extractor.extract(text)
         assert legacy.canonical_role_id is None, text

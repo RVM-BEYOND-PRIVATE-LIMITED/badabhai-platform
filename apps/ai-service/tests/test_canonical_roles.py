@@ -17,6 +17,8 @@ def test_role_trade_covers_the_launch_roles_plus_welder():
     # for the product's own core persona — a worker who says "CNC operator" and names
     # no machine family. The 8 ids above it are unchanged, and APPENDED is the whole
     # point: ADR-0028 keeps the id space closed and immutable, so it only ever grows.
+    # ADAPTIVE-TRADE: role_plumber, role_carpenter, role_designer, role_interior_designer
+    # join the same way — the set grows additively.
     assert set(cr.ROLE_IDS) == {
         "role_vmc_operator",
         "role_hmc_operator",
@@ -27,15 +29,24 @@ def test_role_trade_covers_the_launch_roles_plus_welder():
         "role_cam_programmer",
         "role_welder",
         "role_cnc_operator",
+        "role_plumber",
+        "role_carpenter",
+        "role_designer",
+        "role_interior_designer",
     }
     # ORDER, not just membership: `ROLE_IDS` is `tuple(ROLE_TRADE)`, so a row inserted
     # rather than appended would silently renumber the list the model is shown.
-    assert cr.ROLE_IDS[-1] == "role_cnc_operator"
+    assert cr.ROLE_IDS[-1] == "role_interior_designer"
     # Every id maps to a trade id.
     assert all(cr.ROLE_TRADE[r] for r in cr.ROLE_IDS)
     assert cr.ROLE_TRADE["role_welder"] == "dom_welding"
     # The generic sits in the EXISTING CNC machining domain — no domain was minted.
     assert cr.ROLE_TRADE["role_cnc_operator"] == "dom_cnc_machining"
+    # New trade domains exist.
+    assert cr.ROLE_TRADE["role_plumber"] == "dom_plumbing"
+    assert cr.ROLE_TRADE["role_carpenter"] == "dom_carpentry"
+    assert cr.ROLE_TRADE["role_designer"] == "dom_design"
+    assert cr.ROLE_TRADE["role_interior_designer"] == "dom_interior_design"
     # Every advertised id carries a description (the model is never shown a bare id).
     assert set(cr.ROLE_DESCRIPTIONS) == set(cr.ROLE_IDS)
 

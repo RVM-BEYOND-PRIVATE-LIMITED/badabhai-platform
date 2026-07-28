@@ -17,11 +17,11 @@
   "topic_ids": [
     "role",
     "machines",
-    "experience",
     "skills",
+    "controllers",
+    "experience",
     "current_location",
     "preferred_locations",
-    "controllers",
     "salary_current",
     "salary_expected",
     "availability",

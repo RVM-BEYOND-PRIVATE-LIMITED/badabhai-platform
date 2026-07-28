@@ -56,6 +56,13 @@ ROLE_DESCRIPTIONS: dict[str, str] = {
         "names NO machine family (VMC/HMC/lathe/grinder) and NO specialisation "
         "(setter/programmer)"
     ),
+    "role_plumber": "plumber — pipe fitting, drainage, water supply installation and repair",
+    "role_carpenter": "carpenter — woodworking, furniture making, joinery, site shuttering",
+    "role_designer": "designer — graphic, product, fashion, or mechanical design",
+    "role_interior_designer": (
+        "interior designer — space planning, material selection, "
+        "3D visualization, residential/commercial interiors"
+    ),
 }
 
 
@@ -94,8 +101,16 @@ def canonicalization_instruction() -> str:
         "wins. Never use it for a non-CNC trade (fitter/helper/electrician stay null), "
         "and never to avoid choosing between two specialisations the worker DID name — "
         "pick their main/current one.\n"
+        "- role_plumber: plumber, 'plumbing work', 'pipe fitting', 'nalki ka kaam', "
+        "'fitter' (when plumbing context) -> role_plumber.\n"
+        "- role_carpenter: carpenter, 'carpentry work', 'wood work', 'furniture work', "
+        "'badtarash', 'lakdi ka kaam', 'joinery' -> role_carpenter.\n"
+        "- role_designer: designer, 'design ka kaam', 'graphic design', 'product design', "
+        "'mechanical design' -> role_designer.\n"
+        "- role_interior_designer: 'interior design', 'interior designer', 'interior work', "
+        "'space planning' -> role_interior_designer.\n"
         "- Use null when the worker is only a helper/labourer, the trade is unrelated "
-        "to CNC/VMC or welding, OR they state no concrete role/machine/task (e.g. 'naya hu', "
+        "to any of the above, OR they state no concrete role/machine/task (e.g. 'naya hu', "
         "'kuch nahi aata', 'abhi seekh raha hu' with nothing specific). Do NOT guess a "
         "role from thin air. Output ONLY an id from the set above, or null.\n"
     )

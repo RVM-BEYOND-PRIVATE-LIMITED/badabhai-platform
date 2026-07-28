@@ -326,6 +326,10 @@ _WELDING_DOMAIN_SKILL_IDS = frozenset(
 _EXTRA_ROLE_TRADES: tuple[tuple[str, str], ...] = (
     ("role_welder", "dom_welding"),
     ("role_cnc_operator", "dom_cnc_machining"),
+    ("role_plumber", "dom_plumbing"),
+    ("role_carpenter", "dom_carpentry"),
+    ("role_designer", "dom_design"),
+    ("role_interior_designer", "dom_interior_design"),
 )
 
 _MACHINING_CONTEXT: tuple[str, ...] = (
@@ -379,6 +383,77 @@ _WELDING_ROLE_BLOCKERS_RE: list[re.Pattern[str]] = [
     re.compile(p, re.IGNORECASE) for p in _WELDING_ROLE_BLOCKERS
 ]
 
+# --- Plumbing ---------------------------------------------------------------
+_PLUMBING: list[tuple[str, str, str]] = [
+    (r"plumber", "plumber", "skill_plumber_occupation"),
+    (r"plumbing", "plumber", "skill_plumber_occupation"),
+    (r"pipe\s+fitting", "pipe fitting", "skill_pipe_fitting"),
+    (r"piping", "pipe fitting", "skill_pipe_fitting"),
+    (r"drainage", "drainage systems", "skill_drainage_systems"),
+    (r"water\s+supply", "water supply systems", "skill_water_supply"),
+    (r"nalki", "plumber", "skill_plumber_occupation"),
+    (r"nalka", "plumber", "skill_plumber_occupation"),
+    (r"pipeline", "pipe fitting", "skill_pipe_fitting"),
+]
+_PLUMBING_RE: list[tuple[re.Pattern[str], str, str]] = [
+    (re.compile(rf"\b{pat}\b", re.IGNORECASE), label, sid) for pat, label, sid in _PLUMBING
+]
+
+# --- Carpentry --------------------------------------------------------------
+_CARPENTRY: list[tuple[str, str, str]] = [
+    (r"carpenter", "carpenter", "skill_carpenter_occupation"),
+    (r"carpentry", "carpenter", "skill_carpenter_occupation"),
+    (r"wood\s+work", "woodworking", "skill_woodworking"),
+    (r"wood\s+working", "woodworking", "skill_woodworking"),
+    (r"furniture", "cabinet making", "skill_cabinet_making"),
+    (r"joinery", "woodworking", "skill_woodworking"),
+    (r"badtarash", "carpenter", "skill_carpenter_occupation"),
+    (r"lakdi\s+ka\s+kaam", "carpenter", "skill_carpenter_occupation"),
+    (r"lakdi\s+ke\s+kaam", "carpenter", "skill_carpenter_occupation"),
+    (r"cabinet", "cabinet making", "skill_cabinet_making"),
+    (r"polish", "furniture finishing", "skill_furniture_finishing"),
+    (r"shuttering", "carpenter", "skill_carpenter_occupation"),
+]
+_CARPENTRY_RE: list[tuple[re.Pattern[str], str, str]] = [
+    (re.compile(rf"\b{pat}\b", re.IGNORECASE), label, sid) for pat, label, sid in _CARPENTRY
+]
+
+# --- Design (graphic / product / mechanical) --------------------------------
+_DESIGN: list[tuple[str, str, str]] = [
+    (r"designer", "designer", "skill_designer_occupation"),
+    (r"design\s+ka\s+kaam", "designer", "skill_designer_occupation"),
+    (r"graphic\s+design", "designer", "skill_designer_occupation"),
+    (r"product\s+design", "designer", "skill_designer_occupation"),
+    (r"fashion\s+design", "designer", "skill_designer_occupation"),
+    (r"mechanical\s+design", "designer", "skill_designer_occupation"),
+    (r"autocad", "2D CAD drafting", "skill_cad_2d_drafting"),
+    (r"solidworks", "3D modeling", "skill_3d_modeling"),
+    (r"catia", "3D modeling", "skill_3d_modeling"),
+    (r"creo", "3D modeling", "skill_3d_modeling"),
+    (r"fusion\s+360", "3D modeling", "skill_3d_modeling"),
+    (r"render", "rendering / visualization", "skill_rendering_visualization"),
+    (r"photoshop", "rendering / visualization", "skill_rendering_visualization"),
+    (r"illustrator", "rendering / visualization", "skill_rendering_visualization"),
+]
+_DESIGN_RE: list[tuple[re.Pattern[str], str, str]] = [
+    (re.compile(rf"\b{pat}\b", re.IGNORECASE), label, sid) for pat, label, sid in _DESIGN
+]
+
+# --- Interior design --------------------------------------------------------
+_INTERIOR_DESIGN: list[tuple[str, str, str]] = [
+    (r"interior\s+design", "interior designer", "skill_interior_designer_occupation"),
+    (r"interior\s+designer", "interior designer", "skill_interior_designer_occupation"),
+    (r"interior\s+work", "interior designer", "skill_interior_designer_occupation"),
+    (r"space\s+planning", "space planning", "skill_space_planning"),
+    (r"material\s+selection", "material selection", "skill_material_selection"),
+    (r"3ds\s+max", "rendering / visualization", "skill_rendering_visualization"),
+    (r"sketchup", "3D modeling", "skill_3d_modeling"),
+    (r"revit", "3D modeling", "skill_3d_modeling"),
+]
+_INTERIOR_DESIGN_RE: list[tuple[re.Pattern[str], str, str]] = [
+    (re.compile(rf"\b{pat}\b", re.IGNORECASE), label, sid) for pat, label, sid in _INTERIOR_DESIGN
+]
+
 # Operational skills: (keyword, label, skill_id).
 _SKILLS: list[tuple[str, str, str]] = [
     ("tool offset", "tool offset setting", "skill_tool_offset_setting"),
@@ -416,6 +491,10 @@ def _build_id_labels() -> dict[str, str]:
         m.setdefault(sid, label)
     m.setdefault("role_welder", "Welder")
     m.setdefault("role_cnc_operator", "CNC Operator")
+    m.setdefault("role_plumber", "Plumber")
+    m.setdefault("role_carpenter", "Carpenter")
+    m.setdefault("role_designer", "Designer")
+    m.setdefault("role_interior_designer", "Interior Designer")
     return m
 
 
@@ -1912,6 +1991,139 @@ def _assign_welding_role(lower: str, sig: Signals) -> None:
     sig.trade_id = "dom_welding"
 
 
+def _detect_plumbing(lower: str, sig: Signals) -> None:
+    """Append plumbing skill labels + canonical skill ids."""
+    for pattern, label, skill_id in _PLUMBING_RE:
+        if pattern.search(lower):
+            _append_unique(sig.skills, label)
+            _append_unique(sig.skill_ids, skill_id)
+
+
+def _detect_carpentry(lower: str, sig: Signals) -> None:
+    """Append carpentry skill labels + canonical skill ids."""
+    for pattern, label, skill_id in _CARPENTRY_RE:
+        if pattern.search(lower):
+            _append_unique(sig.skills, label)
+            _append_unique(sig.skill_ids, skill_id)
+
+
+def _detect_design(lower: str, sig: Signals) -> None:
+    """Append design skill labels + canonical skill ids."""
+    for pattern, label, skill_id in _DESIGN_RE:
+        if pattern.search(lower):
+            _append_unique(sig.skills, label)
+            _append_unique(sig.skill_ids, skill_id)
+
+
+def _detect_interior_design(lower: str, sig: Signals) -> None:
+    """Append interior design skill labels + canonical skill ids."""
+    for pattern, label, skill_id in _INTERIOR_DESIGN_RE:
+        if pattern.search(lower):
+            _append_unique(sig.skills, label)
+            _append_unique(sig.skill_ids, skill_id)
+
+
+def _assign_plumbing_role(lower: str, sig: Signals) -> None:
+    """Assign role_plumber when plumbing keywords are present and no role set."""
+    if sig.role_id is not None:
+        return
+    if not any(p.search(lower) for p in iter(p for p, _, _ in _PLUMBING_RE)):
+        return
+    for pattern, _, _ in _PLUMBING_RE:
+        if pattern.search(lower):
+            sig.primary_role = "Plumber"
+            sig.role_id = "role_plumber"
+            sig.trade_id = "dom_plumbing"
+            return
+
+
+def _assign_carpentry_role(lower: str, sig: Signals) -> None:
+    """Assign role_carpenter when carpentry keywords are present and no role set."""
+    if sig.role_id is not None:
+        return
+    for pattern, _, _ in _CARPENTRY_RE:
+        if pattern.search(lower):
+            sig.primary_role = "Carpenter"
+            sig.role_id = "role_carpenter"
+            sig.trade_id = "dom_carpentry"
+            return
+
+
+def _assign_design_role(lower: str, sig: Signals) -> None:
+    """Assign role_designer when design keywords are present and no role set."""
+    if sig.role_id is not None:
+        return
+    for pattern, _, _ in _DESIGN_RE:
+        if pattern.search(lower):
+            sig.primary_role = "Designer"
+            sig.role_id = "role_designer"
+            sig.trade_id = "dom_design"
+            return
+
+
+def _assign_interior_design_role(lower: str, sig: Signals) -> None:
+    """Assign role_interior_designer when keywords present and no role set."""
+    if sig.role_id is not None:
+        return
+    for pattern, _, _ in _INTERIOR_DESIGN_RE:
+        if pattern.search(lower):
+            sig.primary_role = "Interior Designer"
+            sig.role_id = "role_interior_designer"
+            sig.trade_id = "dom_interior_design"
+            return
+
+
+DETECTION_ORDER: list[tuple[str, str, list[re.Pattern]]] = [
+    (
+        "cnc_vmc",
+        _MACHINING_CONTEXT,
+        [re.compile(rf"\b{p}\b", re.IGNORECASE) for p in _MACHINING_CONTEXT],
+    ),
+    ("welding", ["welder", "welding", "mig", "tig", "arc welding", "gas cutting"], None),
+    ("plumbing", ["plumber", "plumbing", "pipe fitting", "piping"], None),
+    ("carpentry", ["carpenter", "carpentry", "wood work", "furniture"], None),
+    ("design", ["designer", "design work", "graphic design", "product design"], None),
+    ("interior_design", ["interior design", "interior designer", "space planning"], None),
+]
+
+
+def detect_role_family(text: str) -> str | None:
+    """Detect the most likely role family from raw worker text.
+
+    Returns None when nothing matches (-> ``generic`` fallback).
+    Uses simple keyword matching against the text (no full detection pipeline).
+    CNC/VMC detection uses machining context keywords; the rest use their
+    trade-specific keyword tables.
+    """
+    lower = text.lower() if text else ""
+
+    cnc_patterns = [re.compile(rf"\b{p}\b", re.IGNORECASE) for p in _MACHINING_CONTEXT]
+    if any(p.search(lower) for p in cnc_patterns):
+        return "cnc_vmc"
+
+    for pattern, _, _ in _PLUMBING_RE:
+        if pattern.search(lower):
+            return "plumbing"
+
+    for pattern, _, _ in _CARPENTRY_RE:
+        if pattern.search(lower):
+            return "carpentry"
+
+    for pattern, _, _ in _DESIGN_RE:
+        if pattern.search(lower):
+            return "design"
+
+    for pattern, _, _ in _INTERIOR_DESIGN_RE:
+        if pattern.search(lower):
+            return "interior_design"
+
+    for pattern, _, _ in _WELDING_RE:
+        if pattern.search(lower):
+            return "welding"
+
+    return None
+
+
 def _assign_generic_cnc_role(lower: str, sig: Signals) -> None:
     """Assign the GENERIC ``role_cnc_operator``/``dom_cnc_machining`` (TD94).
 
@@ -2014,6 +2226,11 @@ def detect(text: str) -> Signals:
 
     # Welding (TAX-WELD-1) — word-boundary matched; maps ONLY to existing corpus ids.
     _detect_welding(lower, sig)
+    # Trade widening — detect skill labels for plumbing, carpentry, design, interior design.
+    _detect_plumbing(lower, sig)
+    _detect_carpentry(lower, sig)
+    _detect_design(lower, sig)
+    _detect_interior_design(lower, sig)
 
     # Role (first match wins)
     for kw, label, rid, tid in _ROLES:
@@ -2053,7 +2270,13 @@ def detect(text: str) -> Signals:
     # signal it consults is already populated.
     _assign_welding_role(lower, sig)
 
-    # Operational skills + knowledge levels
+    # Trade widening — plumbing, carpentry, design, interior design.
+    # Each runs only when no role is set yet, and none has a CNC collision guard
+    # because their keywords are unambiguous (no overlap with CNC/VMC vocabulary).
+    _assign_plumbing_role(lower, sig)
+    _assign_carpentry_role(lower, sig)
+    _assign_design_role(lower, sig)
+    _assign_interior_design_role(lower, sig)
     for kw, label, skill_id in _SKILLS:
         if kw in lower:
             _append_unique(sig.skills, label)

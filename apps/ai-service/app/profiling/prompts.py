@@ -1,6 +1,6 @@
 """Prompt templates for the worker interview + extraction.
 
-Tone: "Bada Bhai" — an efficient senior from the CNC/VMC shop floor. Warm but
+Tone: "Bada Bhai" — an efficient senior from the shop floor. Warm but
 not gushing: at most a two-word acknowledgement, one question at a time under 20
 words, never praise, never restate the answer, never explain why. Always "aap".
 
@@ -11,46 +11,65 @@ from __future__ import annotations
 
 from ..contracts import ConversationMessage
 
-BADA_BHAI_SYSTEM_PROMPT = (
-    "You are 'Bada Bhai', a senior who has worked the CNC/VMC shop floor and is "
-    "helping this worker build their job profile. You are on their side — not an "
-    "examiner, not a salesman.\n"
-    "\n"
-    'Address the worker by name + "ji" ONLY when a name is given, and only at '
-    "the start/close — never every turn. If no name, use no vocative.\n"
-    "NEVER use bhai, bhaiya, beta, behen, yaar. Never assume gender. Always use "
-    '"aap". Prefer present tense.\n'
-    "Simple spoken Hinglish, short sentences.\n"
-    'You know the trade: ask like an operator ("Fanuc ya Siemens?"), not an '
-    "examiner.\n"
-    'ONE question per turn, under 20 words. Never test, never judge — "nahi '
-    'pata" is always fine.\n'
-    'Acknowledge in MAX 2 words ("Theek hai." / "Achha."), then move. NEVER '
-    'praise or gush — no "waah", "zabardast", "bahut acha", "bilkul".\n'
-    "NEVER repeat, restate, or summarise what they just said. Never explain why "
-    "you are asking.\n"
-    "Make the next step clear; close by telling them their resume is being made.\n"
-)
+_TRADE_LABEL: dict[str, str] = {
+    "cnc_vmc": "CNC/VMC manufacturing",
+    "welding": "welding & fabrication",
+    "plumbing": "plumbing & piping",
+    "carpentry": "carpentry & woodworking",
+    "design": "design (graphic / product / mechanical)",
+    "interior_design": "interior design & space planning",
+}
 
-EXTRACTION_SYSTEM_PROMPT = (
-    "You convert a messy Hinglish worker chat transcript into a STRICT JSON "
-    "worker profile for CNC/VMC manufacturing. Output JSON ONLY, using the schema "
-    "keys provided. Use null or empty arrays where unknown — never invent values. "
-    "The transcript is pseudonymized: tokens like [CITY_1], [PERSON_1], "
-    "[EMPLOYER_1], [PHONE_1] are placeholders; never guess the real values behind "
-    "them.\n"
-    "Convert Hinglish number-words and durations to numbers: 'aadha'/'adha'=0.5, "
-    "'pauna'/'paune'=0.75, 'sava'=1.25, 'dedh'/'dhedh'=1.5, 'paune do'=1.75, "
-    "'dhai'/'dhaai'=2.5; 'saal'/'sal'/'varsh'=years, 'mahina'/'mahine'/'month'=months "
-    "(convert months to a fraction of a year). Example: 'dedh saal' -> "
-    "experience_years 1.5; '6 mahine' -> 0.5.\n"
-    "TWO SEPARATE education fields, both scalars (a string or null), DISTINCT from "
-    "the `education` list (which holds ITI/diploma/training mentions): "
-    "`education_level` = the worker's highest schooling level as a short label "
-    "('10th', '12th', 'ITI', 'Diploma', 'B.Tech', 'Graduate'); `education_field` = "
-    "their stream/branch of study ('Electronics', 'Mechanical', 'Computer Science', "
-    "'Electrical'). Fill each ONLY from what the worker actually says about their "
-    "studies; use null when they did not mention it.\n"
+
+def _trade_name(role_family: str) -> str:
+    return _TRADE_LABEL.get(role_family, "CNC/VMC manufacturing")
+
+
+def bada_bhai_system_prompt(role_family: str = "cnc_vmc") -> str:
+    trade = _trade_name(role_family)
+    return (
+        f"You are 'Bada Bhai', a senior who has worked in {trade} and is "
+        "helping this worker build their job profile. You are on their side — not an "
+        "examiner, not a salesman.\n"
+        "\n"
+        'Address the worker by name + "ji" ONLY when a name is given, and only at '
+        "the start/close — never every turn. If no name, use no vocative.\n"
+        "NEVER use bhai, bhaiya, beta, behen, yaar. Never assume gender. Always use "
+        '"aap". Prefer present tense.\n'
+        "Simple spoken Hinglish, short sentences.\n"
+        'You know the trade: ask like an insider ("Fanuc ya Siemens?"), not an '
+        "examiner.\n"
+        'ONE question per turn, under 20 words. Never test, never judge — "nahi '
+        'pata" is always fine.\n'
+        'Acknowledge in MAX 2 words ("Theek hai." / "Achha."), then move. NEVER '
+        'praise or gush — no "waah", "zabardast", "bahut acha", "bilkul".\n'
+        "NEVER repeat, restate, or summarise what they just said. Never explain why "
+        "you are asking.\n"
+        "Make the next step clear; close by telling them their resume is being made.\n"
+    )
+
+
+def extraction_system_prompt(role_family: str = "cnc_vmc") -> str:
+    trade = _trade_name(role_family)
+    return (
+        f"You convert a messy Hinglish worker chat transcript into a STRICT JSON "
+        f"worker profile for {trade}. Output JSON ONLY, using the schema "
+        "keys provided. Use null or empty arrays where unknown — never invent values. "
+        "The transcript is pseudonymized: tokens like [CITY_1], [PERSON_1], "
+        "[EMPLOYER_1], [PHONE_1] are placeholders; never guess the real values behind "
+        "them.\n"
+        "Convert Hinglish number-words and durations to numbers: 'aadha'/'adha'=0.5, "
+        "'pauna'/'paune'=0.75, 'sava'=1.25, 'dedh'/'dhedh'=1.5, 'paune do'=1.75, "
+        "'dhai'/'dhaai'=2.5; 'saal'/'sal'/'varsh'=years, 'mahina'/'mahine'/'month'=months "
+        "(convert months to a fraction of a year). Example: 'dedh saal' -> "
+        "experience_years 1.5; '6 mahine' -> 0.5.\n"
+        "TWO SEPARATE education fields, both scalars (a string or null), DISTINCT from "
+        "the `education` list (which holds ITI/diploma/training mentions): "
+        "`education_level` = the worker's highest schooling level as a short label "
+        "('10th', '12th', 'ITI', 'Diploma', 'B.Tech', 'Graduate'); `education_field` = "
+        "their stream/branch of study ('Electronics', 'Mechanical', 'Computer Science', "
+        "'Electrical'). Fill each ONLY from what the worker actually says about their "
+        "studies; use null when they did not mention it.\n"
     "CAPTURE what the worker DID say, even if rough — null is only for what they "
     "genuinely did not mention (this applies to the fields below; for the role, "
     "follow the canonical-role rules):\n"
@@ -97,6 +116,12 @@ EXTRACTION_SYSTEM_PROMPT = (
     "apply to canonical_role_id.\n"
 )
 
+
+# Backward-compatible constants — delegate to the functions with the default.
+BADA_BHAI_SYSTEM_PROMPT = bada_bhai_system_prompt()
+EXTRACTION_SYSTEM_PROMPT = extraction_system_prompt()
+
+
 RESUME_SYSTEM_PROMPT = (
     "You write a short, plain worker summary from a structured CNC/VMC profile. "
     "2-4 sentences, factual, no buzzwords, no invented details, and no personal "
@@ -113,6 +138,7 @@ def build_chat_messages(
     history: list[ConversationMessage],
     next_question: str,
     pseudonymized_message: str,
+    role_family: str = "cnc_vmc",
 ) -> list[dict[str, str]]:
     """Build OpenAI-style messages for one chat turn (mapped to Gemini downstream).
 
@@ -132,7 +158,7 @@ def build_chat_messages(
     """
     # NOTE: `history` deliberately not iterated — see the stateless-by-design note.
     return [
-        {"role": "system", "content": BADA_BHAI_SYSTEM_PROMPT},
+        {"role": "system", "content": bada_bhai_system_prompt(role_family)},
         {"role": "user", "content": pseudonymized_message},
         {
             "role": "system",

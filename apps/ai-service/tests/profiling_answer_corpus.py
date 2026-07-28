@@ -36,11 +36,11 @@ from dataclasses import dataclass
 TOPIC_ORDER: tuple[str, ...] = (
     "role",
     "machines",
-    "experience",
     "skills",
+    "controllers",
+    "experience",
     "current_location",
     "preferred_locations",
-    "controllers",
     "salary_current",
     "salary_expected",
     "availability",

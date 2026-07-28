@@ -66,6 +66,7 @@ def test_the_role_id_allow_set_is_unchanged_by_the_widening() -> None:
     test's claim, and it is untouched by that: no `_ROLE_CUES` row may reference an id
     the closed set does not already hold.
     """
+    # ADAPTIVE-TRADE: four new role ids join the closed set for the new trades.
     assert set(canonical_roles.ROLE_IDS) == {
         "role_cam_programmer",
         "role_cnc_programmer",
@@ -76,6 +77,10 @@ def test_the_role_id_allow_set_is_unchanged_by_the_widening() -> None:
         "role_cnc_turner_operator",
         "role_welder",
         "role_cnc_operator",  # TD94 — minted outside this table (see docstring)
+        "role_plumber",
+        "role_carpenter",
+        "role_designer",
+        "role_interior_designer",
     }
     # The widening's OWN rows still mint nothing: every id a cue points at must
     # already be in the closed set, and none of them is the TD94 generic.

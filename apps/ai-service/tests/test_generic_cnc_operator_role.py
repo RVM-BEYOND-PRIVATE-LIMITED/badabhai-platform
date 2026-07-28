@@ -217,7 +217,13 @@ def test_the_id_is_in_the_closed_set_and_the_id_space_only_grew() -> None:
         "role_cnc_turner_operator",
         "role_welder",
     )
-    assert canonical_roles.ROLE_IDS[8:] == ("role_cnc_operator",)
+    assert canonical_roles.ROLE_IDS[8:] == (
+        "role_cnc_operator",
+        "role_plumber",
+        "role_carpenter",
+        "role_designer",
+        "role_interior_designer",
+    )
 
 
 @pytest.mark.parametrize(

@@ -44,13 +44,19 @@ def _expected_blind_ask_order() -> list[str]:
 
     - ``_next_topic`` serves unanswered ESSENTIAL topics first (in bank order),
       each up to ``MAX_ASKS_PER_TOPIC`` — INTERVIEW-1's bounded re-ask.
-    - Everything else is asked exactly ONCE, in bank order, and never re-asked.
+    - Then unanswered CORE topics (never asked), once each, in bank order.
+    - Then unanswered OPTIONAL topics (never asked), once each, in bank order.
     """
-    essentials = [t for t in BANK_ORDER if t in interview_engine.ESSENTIAL_TOPICS]
-    others = [t for t in BANK_ORDER if t not in interview_engine.ESSENTIAL_TOPICS]
+    topics = topics_for("cnc_vmc")
+    essentials = [t.id for t in topics if t.id in interview_engine.ESSENTIAL_TOPICS]
+    core = [t.id for t in topics if t.core and t.id not in interview_engine.ESSENTIAL_TOPICS]
+    optional = [
+        t.id for t in topics
+        if not t.core and t.id not in interview_engine.ESSENTIAL_TOPICS
+    ]
     return [
         topic_id for topic_id in essentials for _ in range(interview_engine.MAX_ASKS_PER_TOPIC)
-    ] + others
+    ] + core + optional
 
 
 # --- _startup_status banner: the up-front readiness diagnosis ----------------

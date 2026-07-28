@@ -576,9 +576,14 @@ def test_role_gazetteer_has_no_cnc_or_operator_keyword() -> None:
     assert "cnc lathe" in machine_keywords
     # The closed SET grew; the keyword TABLE did not. Both gated ids live in
     # `_EXTRA_ROLE_TRADES`, which is the structural statement of exactly that.
+    # ADAPTIVE-TRADE: the four new trades also get extra role trade mappings.
     assert dict(signals._EXTRA_ROLE_TRADES) == {
         "role_welder": "dom_welding",
         "role_cnc_operator": "dom_cnc_machining",
+        "role_plumber": "dom_plumbing",
+        "role_carpenter": "dom_carpentry",
+        "role_designer": "dom_design",
+        "role_interior_designer": "dom_interior_design",
     }
 
 

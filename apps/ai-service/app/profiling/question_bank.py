@@ -99,75 +99,46 @@ ROLE_FAMILIES: dict[str, dict] = {
             "CNC Grinding Operator",
         ],
     },
+    "welding": {
+        "label": "Welding & Fabrication",
+        "roles": ["MIG Welder", "TIG Welder", "Arc Welder", "Gas Cutter"],
+    },
+    "plumbing": {
+        "label": "Plumbing & Piping",
+        "roles": ["Plumber", "Pipe Fitter", "Drainage Worker"],
+    },
+    "carpentry": {
+        "label": "Carpentry & Woodworking",
+        "roles": ["Carpenter", "Furniture Maker", "Kitchen Fitter", "Shuttering Carpenter"],
+    },
+    "design": {
+        "label": "Design (Graphic / Product / Mechanical)",
+        "roles": [
+            "Graphic Designer", "Product Designer",
+            "Mechanical Designer", "Fashion Designer",
+        ],
+    },
+    "interior_design": {
+        "label": "Interior Design & Space Planning",
+        "roles": ["Residential Designer", "Commercial Designer", "Retail Designer"],
+    },
 }
 
-# Ordered interview flow for CNC/VMC. Core topics first.
-_CNC_VMC_TOPICS: list[Topic] = [
-    Topic(
-        "role",
-        "Role / trade",
-        # Kept short (owner 2026-07-23): the machine-type list was dropped from the
-        # FIRST question the worker sees. The retry_question below still names options
-        # for a worker who did not answer, and the tap-to-answer chips still guide.
-        "Aap kaunsa kaam karte hain?",
-        core=True,
-        # Every option resolves `role`: 'VMC operator', 'CNC turner', 'setter',
-        # 'programmer', 'welder'. Bare 'operator' does NOT, so it never stands alone.
-        # TAX-WELD-1: 'welder' is offered LAST — CNC/VMC stays the first-class wedge,
-        # and welding is the alternative a machining answer never displaces (the same
-        # ordering principle as `_ROLES` in signals.py). It is offered here and not
-        # under `machines` because it keys `role`, not `machines`. The cue widened
-        # from "machine ke saath" to "machine ya kaam ke naam se" so a welder — who
-        # names a trade, not a machine — is actually invited by the wording.
-        retry_question=(
-            "Machine ya kaam ke naam se bataiye — "
-            "VMC operator, CNC turner, setter, programmer ya welder?"
-        ),
-        # 'CNC operator' is absent on purpose: measured, it keys only
-        # `skills: ['machine operation']` and leaves `role` unanswered.
-        options=("VMC operator", "CNC turner", "Setter", "Programmer"),
-    ),
-    Topic(
-        "machines",
-        "Machine exposure",
-        "Kaunsi machine — VMC, CNC lathe, HMC ya grinding?",
-        core=True,
-        # 'VMC', 'CNC lathe', 'lathe', 'HMC', 'grinding' all resolve `machines`.
-        # TIG/MIG still deliberately NOT offered here, but the REASON changed with
-        # TAX-WELD-1: they are no longer unparseable (they resolve `role`+`skills`),
-        # yet they do NOT key `machines` — there is no welding `mach_*` id in the
-        # taxonomy. Offering them under THIS topic would still solicit an answer that
-        # leaves `machines` unanswered and burns the bounded re-ask. A welder is
-        # invited by the `role` retry instead, where the answer is recordable.
-        retry_question="Jis machine par kaam karte hain uska naam kya hai — VMC, lathe ya HMC?",
-        options=("VMC", "CNC lathe", "HMC", "Grinding"),
-    ),
+# --- Shared topics (identical across all role families) ---
+_SHARED_TOPICS: list[Topic] = [
     Topic(
         "experience",
         "Experience",
         "Kitne saal ka experience hai?",
         core=True,
-        # '2 saal' / '5 saal' resolve. ('6 mahine' does NOT — so months are not
-        # offered as an example, even though the worker may still answer that way.)
         retry_question="Kitne saal se yeh kaam kar rahe hain — jaise 2 saal ya 5 saal?",
-        # Years only. '6 mahine' does not resolve (see the retry note above), so no
-        # months option is offered even though a worker may still type one.
         options=("1 saal", "3 saal", "5 saal", "10 saal"),
-    ),
-    Topic(
-        "skills",
-        "Skills",
-        "Setting, tool offset, program edit, drawing reading — inmein se kya aata hai?",
-        why="Taaki aapke liye sahi role match kar sakein.",
-        core=True,
-        options=("Setting", "Tool offset", "Program edit", "Drawing reading"),
     ),
     Topic(
         "current_location",
         "Current location",
         "Abhi kis sheher mein hain?",
         core=True,
-        # City names resolve `current_location` (Pune/Delhi/Rajkot all verified).
         retry_question="Abhi aap kis sheher mein rehte hain — jaise Pune, Delhi ya Rajkot?",
     ),
     Topic(
@@ -178,17 +149,9 @@ _CNC_VMC_TOPICS: list[Topic] = [
         core=True,
     ),
     Topic(
-        "controllers",
-        "Controller knowledge",
-        "Controller kaunsa — Fanuc, Siemens, Mitsubishi, Haas ya Heidenhain?",
-        options=("Fanuc", "Siemens", "Mitsubishi", "Haas"),
-    ),
-    Topic(
         "salary_current",
         "Current salary",
         "Abhi salary kitni hai?",
-        # Bands, not a bare number: '25 hazar' resolves to 25000 while '25' alone is
-        # ambiguous. These are STARTING points a worker overtypes, not a closed list.
         options=("15 hazar", "20 hazar", "25 hazar", "30 hazar"),
     ),
     Topic(
@@ -207,22 +170,8 @@ _CNC_VMC_TOPICS: list[Topic] = [
         "education",
         "Education / training",
         "ITI, diploma ya koi aur training li hai?",
-        # 'ITI nahi kiya' is the NEGATIVE answer, and it is a real one: measured, it
-        # resolves `education` to None — the topic is answered and never re-asked.
-        # '10th pass' / '12th pass' are absent because they measure to {} today.
         options=("ITI", "Diploma", "ITI nahi kiya"),
     ),
-    # TD-EDU (owner 2026-07-23) — two dedicated academic-education topics, distinct
-    # from the vocational `education` (ITI/diploma) topic above. Ask-once (non-
-    # essential): the local detector cannot read "12th"/"Electronics" context-free,
-    # so like `certifications` they are captured by the LLM extraction over the
-    # transcript, NOT by signals. They feed education_level / education_field on the
-    # draft and render on the résumé + resume tab.
-    # FREE-TEXT, no tap-chips: the local detector cannot resolve "10th"/"Electronics"
-    # (that is exactly why these are LLM-extracted, not signal-read), and every chip
-    # in `options` MUST resolve its own topic (test_answer_chips.py). Naming examples
-    # in the QUESTION is fine; offering them as chips-that-record is not. Same posture
-    # as current_location / preferred_locations.
     Topic(
         "education_level",
         "Education level",
@@ -241,7 +190,231 @@ _CNC_VMC_TOPICS: list[Topic] = [
     ),
 ]
 
-_TOPICS_BY_FAMILY: dict[str, list[Topic]] = {"cnc_vmc": _CNC_VMC_TOPICS}
+# Ordered interview flow for CNC/VMC. Core topics + family-specific + shared.
+_CNC_VMC_TOPICS: list[Topic] = [
+    Topic(
+        "role",
+        "Role / trade",
+        "Aap kaunsa kaam karte hain?",
+        core=True,
+        retry_question=(
+            "Machine ya kaam ke naam se bataiye — "
+            "VMC operator, CNC turner, setter, programmer ya welder?"
+        ),
+        options=("VMC operator", "CNC turner", "Setter", "Programmer"),
+    ),
+    Topic(
+        "machines",
+        "Machine exposure",
+        "Kaunsi machine — VMC, CNC lathe, HMC ya grinding?",
+        core=True,
+        retry_question="Jis machine par kaam karte hain uska naam kya hai — VMC, lathe ya HMC?",
+        options=("VMC", "CNC lathe", "HMC", "Grinding"),
+    ),
+    Topic(
+        "skills",
+        "Skills",
+        "Setting, tool offset, program edit, drawing reading — inmein se kya aata hai?",
+        why="Taaki aapke liye sahi role match kar sakein.",
+        core=True,
+        options=("Setting", "Tool offset", "Program edit", "Drawing reading"),
+    ),
+    Topic(
+        "controllers",
+        "Controller knowledge",
+        "Controller kaunsa — Fanuc, Siemens, Mitsubishi, Haas ya Heidenhain?",
+        options=("Fanuc", "Siemens", "Mitsubishi", "Haas"),
+    ),
+] + _SHARED_TOPICS
+
+# --- Welding ---
+_WELDING_TOPICS: list[Topic] = [
+    Topic(
+        "role",
+        "Role / trade",
+        "Aap kaunsa kaam karte hain?",
+        core=True,
+        retry_question="Welding karte hain — MIG, TIG, arc ya gas cutting?",
+        options=("MIG welder", "TIG welder", "Arc welder", "Gas cutter"),
+    ),
+    Topic(
+        "equipment",
+        "Welding equipment",
+        "Kaunsi welding machine use karte hain — MIG, TIG, arc ya plasma?",
+        core=True,
+        retry_question="Welding machine ka naam bataiye — MIG welder, TIG welder ya gas cutter?",
+        options=("MIG welder", "TIG welder", "Arc welder", "Plasma cutter"),
+    ),
+    Topic(
+        "skills_welding",
+        "Welding skills",
+        "MIG welding, TIG welding, arc welding, grinding — inmein se kya aata hai?",
+        core=True,
+        options=("MIG welding", "TIG welding", "Arc welding", "Grinding"),
+    ),
+    Topic(
+        "materials",
+        "Welding materials",
+        "Kaunsi material pe welding karte hain — mild steel, stainless, aluminum?",
+        options=("Mild steel", "Stainless", "Aluminum"),
+    ),
+    Topic(
+        "position",
+        "Welding position",
+        "Kis position mein welding aata hai — flat, vertical, ya overhead bhi?",
+        options=("Flat", "Vertical", "Overhead", "Pipe (6G)"),
+    ),
+    Topic(
+        "certifications",
+        "Certifications",
+        "Koi welding certification hai — 6G, 6GR, ya AWS?",
+        options=("6G", "6GR", "AWS", "NCVT"),
+    ),
+] + _SHARED_TOPICS
+
+# --- Plumbing ---
+_PLUMBING_TOPICS: list[Topic] = [
+    Topic(
+        "role",
+        "Role / trade",
+        "Aap kaunsa kaam karte hain?",
+        core=True,
+        retry_question="Plumbing karte hain — pipe fitting, drainage ya water supply?",
+        options=("Plumber", "Pipe fitter", "Drainage work", "Water supply"),
+    ),
+    Topic(
+        "tools_plumbing",
+        "Plumbing tools",
+        "Kaunse tools use karte hain — pipe wrench, threading machine ya cutter?",
+        core=True,
+        retry_question="Tool ka naam bataiye — pipe wrench, threading machine ya pipe cutter?",
+        options=("Pipe wrench", "Threading machine", "Pipe cutter", "Pipe bender"),
+    ),
+    Topic(
+        "skills_plumbing",
+        "Plumbing skills",
+        "Pipe fitting, drainage, water supply — inmein se kya aata hai?",
+        core=True,
+        options=("Pipe fitting", "Drainage", "Water supply", "Drawing reading"),
+    ),
+    Topic(
+        "specialization_plumbing",
+        "Plumbing specialization",
+        "Kis type ka plumbing karte hain — residential, commercial ya industrial?",
+        options=("Residential", "Commercial", "Industrial"),
+    ),
+] + _SHARED_TOPICS
+
+# --- Carpentry ---
+_CARPENTRY_TOPICS: list[Topic] = [
+    Topic(
+        "role",
+        "Role / trade",
+        "Aap kaunsa kaam karte hain?",
+        core=True,
+        retry_question="Carpentry karte hain — furniture, kitchen ya site shuttering?",
+        options=("Furniture maker", "Carpenter", "Kitchen fitter", "Shuttering carpenter"),
+    ),
+    Topic(
+        "tools_carpentry",
+        "Carpentry tools",
+        "Kaunsi machine use karte hain — circular saw, planer ya router?",
+        core=True,
+        retry_question="Machine ka naam bataiye — circular saw, planer ya sander?",
+        options=("Circular saw", "Planer", "Router", "Sander"),
+    ),
+    Topic(
+        "skills_carpentry",
+        "Carpentry skills",
+        "Cutting, assembly, polishing, drawing reading — inmein se kya aata hai?",
+        core=True,
+        options=("Cutting", "Assembly", "Polishing", "Drawing reading"),
+    ),
+    Topic(
+        "specialization_carpentry",
+        "Carpentry specialization",
+        "Kis type ka kaam karte hain — furniture, kitchen, construction ya finishing?",
+        options=("Furniture", "Kitchen", "Construction", "Finishing"),
+    ),
+] + _SHARED_TOPICS
+
+# --- Design (graphic / product / mechanical) ---
+_DESIGN_TOPICS: list[Topic] = [
+    Topic(
+        "role",
+        "Role / trade",
+        "Aap kaunsa kaam karte hain?",
+        core=True,
+        retry_question="Design ka kaam karte hain — graphic, product ya mechanical design?",
+        options=("Graphic designer", "Product designer", "Mechanical designer", "Fashion designer"),
+    ),
+    Topic(
+        "software_design",
+        "Design software",
+        "Kaunsa software use karte hain — AutoCAD, SolidWorks ya Photoshop?",
+        core=True,
+        retry_question="Software ka naam bataiye — AutoCAD, SolidWorks ya CATIA?",
+        options=("AutoCAD", "SolidWorks", "CATIA", "Photoshop"),
+    ),
+    Topic(
+        "skills_design",
+        "Design skills",
+        "2D drafting, 3D modeling, rendering — inmein se kya aata hai?",
+        core=True,
+        options=("2D drafting", "3D modeling", "Rendering", "Drawing reading"),
+    ),
+    Topic(
+        "specialization_design",
+        "Design specialization",
+        "Kis field mein design karte hain — mechanical, architecture ya branding?",
+        options=("Mechanical", "Architecture", "Branding", "Fashion"),
+    ),
+] + _SHARED_TOPICS
+
+# --- Interior design ---
+_INTERIOR_DESIGN_TOPICS: list[Topic] = [
+    Topic(
+        "role",
+        "Role / trade",
+        "Aap kaunsa kaam karte hain?",
+        core=True,
+        retry_question="Interior design karte hain — residential, commercial ya retail?",
+        options=(
+            "Residential designer", "Commercial designer",
+            "Retail designer", "Hospitality designer",
+        ),
+    ),
+    Topic(
+        "software_interior",
+        "Design software",
+        "Kaunsa software use karte hain — AutoCAD, SketchUp ya 3ds Max?",
+        core=True,
+        retry_question="Software ka naam bataiye — AutoCAD, SketchUp ya Revit?",
+        options=("AutoCAD", "SketchUp", "3ds Max", "Revit"),
+    ),
+    Topic(
+        "skills_interior",
+        "Interior design skills",
+        "Space planning, material selection, 3D visualization — inmein se kya aata hai?",
+        core=True,
+        options=("Space planning", "Material selection", "3D visualization", "Lighting design"),
+    ),
+    Topic(
+        "specialization_interior",
+        "Interior specialization",
+        "Kis type ka interior karte hain — home, office, showroom ya hotel?",
+        options=("Home", "Office", "Showroom", "Hotel"),
+    ),
+] + _SHARED_TOPICS
+
+_TOPICS_BY_FAMILY: dict[str, list[Topic]] = {
+    "cnc_vmc": _CNC_VMC_TOPICS,
+    "welding": _WELDING_TOPICS,
+    "plumbing": _PLUMBING_TOPICS,
+    "carpentry": _CARPENTRY_TOPICS,
+    "design": _DESIGN_TOPICS,
+    "interior_design": _INTERIOR_DESIGN_TOPICS,
+}
 
 # --- One-shot opener (owner-approved 2026-07-22) -----------------------------
 # An INVITATION to answer everything in one message, for the worker who would
