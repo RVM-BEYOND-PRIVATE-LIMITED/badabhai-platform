@@ -51,6 +51,17 @@ class ResumeCubit extends Cubit<ResumeState> {
     try {
       final String text = await _repo.generateResume(force: force);
       if (isClosed) return; // screen popped before generation resolved
+      // Emit `ready` with the text IMMEDIATELY — do NOT block the first paint on
+      // the night-shift pref. The resume text is the product; the night-shift flag
+      // is garnish (like the photo). Gating `ready` on this extra fetch delayed the
+      // whole screen and pushed ResumePhotoHeader's mount past widget tests' fixed
+      // settle window, leaking its mock timer. Load the pref in the background and
+      // re-emit; an unchanged value dedupes to a no-op (Equatable).
+      emit(ResumeState(
+        status: ResumeStatus.ready,
+        resumeText: text,
+        nightShiftReady: state.nightShiftReady,
+      ));
       final bool nightShiftReady = await _loadNightShiftReady();
       if (isClosed) return;
       emit(ResumeState(
@@ -87,6 +98,13 @@ class ResumeCubit extends Cubit<ResumeState> {
     try {
       final String text = await _repo.generateResume(); // force: false → reuse
       if (isClosed) return;
+      // Same as generate(): surface the (reused) text immediately, then refresh the
+      // night-shift pref in the background so the first paint isn't gated on it.
+      emit(ResumeState(
+        status: ResumeStatus.ready,
+        resumeText: text,
+        nightShiftReady: state.nightShiftReady,
+      ));
       final bool nightShiftReady = await _loadNightShiftReady();
       if (isClosed) return;
       emit(ResumeState(

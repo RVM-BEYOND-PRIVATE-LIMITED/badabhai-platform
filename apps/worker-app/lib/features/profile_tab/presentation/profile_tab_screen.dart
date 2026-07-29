@@ -321,8 +321,10 @@ class _ProfileTabView extends StatelessWidget {
   /// A labelled wrap of plain text (skills or machines). Label is bold, values
   /// are normal weight, comma-separated — no chips, no borders.
   Widget _textGroup(String label, List<String> items) {
-    return RichText(
-      text: TextSpan(
+    // Text.rich (not a raw RichText): a `Text` widget is what `find.text*`
+    // matches on its `textSpan.toPlainText()`, keeping the section testable.
+    return Text.rich(
+      TextSpan(
         style: AppTypography.body(
             size: AppTypography.sizeSm, color: AppColors.textPrimary),
         children: <TextSpan>[
