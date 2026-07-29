@@ -30,6 +30,7 @@ type Row = {
   description: string | null;
   vacancyBand: string;
   status: "draft" | "open" | "paused" | "closed";
+  verificationStatus: "unverified" | "verified" | "rejected";
   skillPhrases: string[];
   skillIds: string[];
   createdAt: Date;
@@ -47,6 +48,7 @@ function row(overrides: Partial<Row> = {}): Row {
     description: null,
     vacancyBand: "2-5",
     status: "draft",
+    verificationStatus: "unverified",
     skillPhrases: [],
     skillIds: [],
     createdAt: new Date(),
@@ -68,6 +70,8 @@ function toApi(r: Row) {
     description: r.description,
     vacancy_band: r.vacancyBand,
     status: r.status,
+    verification_status: r.verificationStatus,
+    verified: r.verificationStatus === "verified",
     skill_phrases: r.skillPhrases,
     skill_ids: r.skillIds,
     created_at: r.createdAt,
@@ -741,5 +745,62 @@ describe("TAX-6 — job-side skill canonicalization (shared id space, ADR-0030)"
       svc.update(POSTING_ID, { skills: ["milling"] } as never, CTX as never),
     ).rejects.toThrow(/no effective changes/i);
     expect(canonicalize).not.toHaveBeenCalled(); // no wasted round-trips on a true no-op
+  });
+});
+
+describe("JobPostingsService — ops verification (job_posting.verification_updated)", () => {
+  it("verify sets verification_status='verified', flips `verified`, and emits the transition", async () => {
+    const d = make(row({ verificationStatus: "unverified" }));
+
+    const result = await d.svc.verify(POSTING_ID, CTX as never);
+
+    expect(result.verification_status).toBe("verified");
+    expect(result.verified).toBe(true);
+    expect(d.update).toHaveBeenCalledWith(
+      POSTING_ID,
+      expect.objectContaining({ verificationStatus: "verified" }),
+    );
+    const ev = d.emit.mock.calls.at(-1)![0];
+    expect(ev.event_name).toBe("job_posting.verification_updated");
+    expect(ev.subject).toMatchObject({ subject_type: "job_posting", subject_id: POSTING_ID });
+    expect(ev.payload).toMatchObject({
+      job_posting_id: POSTING_ID,
+      verification_status: "verified",
+      previous_status: "unverified",
+    });
+    // PII-free: no free-text value ever rides the payload.
+    const payloadStr = JSON.stringify(ev.payload);
+    for (const t of FREE_TEXT) expect(payloadStr).not.toContain(t);
+  });
+
+  it("reject sets verification_status='rejected' and emits the transition", async () => {
+    const d = make(row({ verificationStatus: "unverified" }));
+
+    const result = await d.svc.reject(POSTING_ID, CTX as never);
+
+    expect(result.verification_status).toBe("rejected");
+    expect(result.verified).toBe(false);
+    const ev = d.emit.mock.calls.at(-1)![0];
+    expect(ev.payload).toMatchObject({
+      verification_status: "rejected",
+      previous_status: "unverified",
+    });
+  });
+
+  it("is IDEMPOTENT: re-verifying an already-verified posting writes nothing and emits nothing", async () => {
+    const d = make(row({ verificationStatus: "verified" }));
+
+    const result = await d.svc.verify(POSTING_ID, CTX as never);
+
+    expect(result.verification_status).toBe("verified");
+    expect(d.update).not.toHaveBeenCalled();
+    expect(d.emit).not.toHaveBeenCalled();
+  });
+
+  it("404s an unknown posting", async () => {
+    const d = make(); // findById → undefined
+
+    await expect(d.svc.verify(POSTING_ID, CTX as never)).rejects.toBeInstanceOf(NotFoundException);
+    expect(d.emit).not.toHaveBeenCalled();
   });
 });

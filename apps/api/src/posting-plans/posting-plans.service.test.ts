@@ -453,3 +453,67 @@ describe("PostingPlansService.getCapacity (ADR-0016 — payer-portal read, A3 ac
     expect(view.active_plan_count).toBe(2);
   });
 });
+
+/**
+ * getPostingStats — the honest per-posting stats the My-jobs card renders. Only
+ * findActivePlanForPostingAndPayer + findActiveBoost are exercised; the rest of the
+ * repo/pricing/config deps are irrelevant to this read (a minimal mock suffices).
+ */
+describe("PostingPlansService.getPostingStats", () => {
+  function makeStats(plan: unknown, boost: unknown) {
+    const findActivePlanForPostingAndPayer = vi.fn().mockResolvedValue(plan);
+    const findActiveBoost = vi.fn().mockResolvedValue(boost);
+    const service = new PostingPlansService(
+      { findActivePlanForPostingAndPayer, findActiveBoost } as never,
+      { emit: vi.fn() } as never,
+      { getActiveCatalog: vi.fn() } as never,
+      { PAYMENTS_ENABLE_REAL: false } as never,
+    );
+    return { service, findActivePlanForPostingAndPayer, findActiveBoost };
+  }
+
+  it("reports EFFECTIVE quota (receipt + top-ups), used count, tier, and active boost", async () => {
+    const { service } = makeStats(
+      { tier: "pro", applicantVisibilityQuota: 30, quotaTopupCount: 10, applicantsViewedCount: 12 },
+      { id: "b-1" },
+    );
+    const stats = await service.getPostingStats(POSTING, PAYER);
+    expect(stats).toEqual({
+      plan_tier: "pro",
+      applicant_visibility_quota: 40, // immutable receipt 30 + 10 topped up
+      applicants_viewed_count: 12,
+      boosted: true,
+    });
+  });
+
+  it("a plan-less posting is honest: nulls + not boosted (no fabricated numbers)", async () => {
+    const { service } = makeStats(undefined, undefined);
+    const stats = await service.getPostingStats(POSTING, PAYER);
+    expect(stats).toEqual({
+      plan_tier: null,
+      applicant_visibility_quota: null,
+      applicants_viewed_count: null,
+      boosted: false,
+    });
+  });
+
+  it("a plan without a boost reports boosted:false", async () => {
+    const { service } = makeStats(
+      { tier: "standard", applicantVisibilityQuota: 10, quotaTopupCount: 0, applicantsViewedCount: 0 },
+      undefined,
+    );
+    const stats = await service.getPostingStats(POSTING, PAYER);
+    expect(stats.boosted).toBe(false);
+    expect(stats.applicant_visibility_quota).toBe(10);
+  });
+
+  it("resolves the plan payer-scoped and the boost posting-scoped", async () => {
+    const { service, findActivePlanForPostingAndPayer, findActiveBoost } = makeStats(
+      undefined,
+      undefined,
+    );
+    await service.getPostingStats(POSTING, PAYER);
+    expect(findActivePlanForPostingAndPayer).toHaveBeenCalledWith(POSTING, PAYER, expect.any(Date));
+    expect(findActiveBoost).toHaveBeenCalledWith(POSTING, expect.any(Date));
+  });
+});

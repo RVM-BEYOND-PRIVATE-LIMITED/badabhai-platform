@@ -14,7 +14,13 @@ import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers/payer-auth.guard";
 import { JobPostingsService } from "../job-postings/job-postings.service";
-import { PostingPlansService } from "../posting-plans/posting-plans.service";
+import { PostingPlansService, type PostingStats } from "../posting-plans/posting-plans.service";
+import { ResumeDisclosureService } from "../disclosures/resume-disclosure.service";
+import type { JobPostingApi } from "../job-postings/job-postings.repository";
+
+/** The enriched shape of one posting on the payer surface: the row + its honest
+ * per-posting stats (active-plan quota/used + boost) + the résumés-downloaded count. */
+type PayerJobPostingView = JobPostingApi & PostingStats & { disclosures_count: number };
 import {
   PayerBuyPlanSchema,
   PayerBuyBoostSchema,
@@ -62,7 +68,20 @@ export class PayerJobPostingsController {
   constructor(
     private readonly jobPostings: JobPostingsService,
     private readonly plans: PostingPlansService,
+    private readonly disclosures: ResumeDisclosureService,
   ) {}
+
+  /** Merge a posting with its honest per-posting stats + résumés-downloaded count. */
+  private async enrich(
+    posting: JobPostingApi,
+    payerId: string,
+  ): Promise<PayerJobPostingView> {
+    const [stats, disclosuresCount] = await Promise.all([
+      this.plans.getPostingStats(posting.id, payerId),
+      this.disclosures.countDisclosuresForPosting(posting.id, payerId),
+    ]);
+    return { ...posting, ...stats, disclosures_count: disclosuresCount };
+  }
 
   /** Create a posting OWNED by the caller (status=draft). payer_id from the session. */
   @Post()
@@ -75,19 +94,31 @@ export class PayerJobPostingsController {
     return this.jobPostings.createForPayer(payer.id, dto, ctx);
   }
 
-  /** List the caller's OWN postings, newest first; optional `?status=` filter. */
+  /**
+   * List the caller's OWN postings, newest first; optional `?status=` filter. Each
+   * row is enriched with its HONEST per-posting stats (active-plan quota + used,
+   * boosted flag) so the "My jobs" card shows real numbers instead of zeros — a
+   * draft/plan-less posting simply carries nulls/false (never a fabricated count).
+   * Stats are resolved per row against the payer's own plans (already payer-scoped),
+   * so no cross-tenant data can leak.
+   */
   @Get()
-  list(
+  async list(
     @Query(new ZodValidationPipe(ListJobPostingsQuerySchema)) query: ListJobPostingsQueryDto,
     @CurrentPayer() payer: AuthenticatedPayer,
-  ) {
-    return this.jobPostings.listForPayer(payer.id, query);
+  ): Promise<PayerJobPostingView[]> {
+    const postings = await this.jobPostings.listForPayer(payer.id, query);
+    return Promise.all(postings.map((p) => this.enrich(p, payer.id)));
   }
 
   /** Get one of the caller's OWN postings; no-oracle 404 for unknown OR foreign id. */
   @Get(":id")
-  getOne(@Param("id", new ParseUUIDPipe()) id: string, @CurrentPayer() payer: AuthenticatedPayer) {
-    return this.jobPostings.getOneForPayer(id, payer.id);
+  async getOne(
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @CurrentPayer() payer: AuthenticatedPayer,
+  ): Promise<PayerJobPostingView> {
+    const posting = await this.jobPostings.getOneForPayer(id, payer.id);
+    return this.enrich(posting, payer.id);
   }
 
   /** Edit and/or publish (draft -> open) one of the caller's OWN postings. */

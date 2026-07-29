@@ -1,0 +1,2 @@
+ALTER TABLE "job_postings" ADD COLUMN "verification_status" text DEFAULT 'unverified' NOT NULL;--> statement-breakpoint
+ALTER TABLE "job_postings" ADD CONSTRAINT "job_postings_verification_status_chk" CHECK ("job_postings"."verification_status" IN ('unverified', 'verified', 'rejected'));

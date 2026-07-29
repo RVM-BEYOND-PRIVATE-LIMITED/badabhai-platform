@@ -84,6 +84,13 @@ export type VacancyBand = (typeof VACANCY_BANDS)[number];
 export const JOB_POSTING_STATUSES = ["draft", "open", "paused", "closed"] as const;
 export type JobPostingStatus = (typeof JOB_POSTING_STATUSES)[number];
 
+// Ops-set trust review of a posting (the "Verified job" badge the worker sees).
+// `unverified` is the default until ops reviews; `rejected` is a reviewed-and-declined
+// posting (kept distinct from `unverified` so re-review is deliberate, not implicit).
+export const JOB_POSTING_VERIFICATION_STATUSES = ["unverified", "verified", "rejected"] as const;
+export type JobPostingVerificationStatus =
+  (typeof JOB_POSTING_VERIFICATION_STATUSES)[number];
+
 // ---- Languages (initial supported set for blue/grey-collar India) ----
 export const LANGUAGE_CODES = [
   "en",
