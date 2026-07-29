@@ -15,6 +15,7 @@ import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import 'agency_jobs_screen.dart';
 import 'cubit/jobs_cubit.dart';
+import 'edit_company_job_screen.dart';
 
 /// My jobs — role-branched on [AppSession.role].
 ///
@@ -229,6 +230,10 @@ class _RealJobCard extends StatelessWidget {
         job.locationLabel!,
       if (job.band.isNotEmpty) '${job.band} vacancies',
       if (job.createdAt != null) 'Posted ${_shortDate(job.createdAt!)}',
+      // Truthful per-posting engagement (backend-sourced); omitted when none.
+      if (job.disclosuresCount > 0)
+        '${job.disclosuresCount} '
+            '${job.disclosuresCount == 1 ? 'résumé' : 'résumés'} downloaded',
     ];
 
     return BbCard(
@@ -262,9 +267,69 @@ class _RealJobCard extends StatelessWidget {
               ),
             ),
           ],
+          // REAL, backend-sourced signals: a Verified badge once ops approves the
+          // posting, a Boosted badge when a boost is active, and the applicant-
+          // visibility quota meter when a plan exists (used / effective quota).
+          // Each is absent until its backing state exists — no fabricated badge.
+          if (job.verified || job.boosted) ...<Widget>[
+            const SizedBox(height: AppSpacing.s2),
+            Wrap(
+              spacing: 7,
+              runSpacing: 7,
+              children: <Widget>[
+                if (job.verified)
+                  const BbBadge(
+                    'Verified job',
+                    tone: BbBadgeTone.success,
+                    icon: Icons.verified_user,
+                  ),
+                if (job.boosted)
+                  const BbBadge(
+                    'Boosted',
+                    tone: BbBadgeTone.brand,
+                    icon: Icons.rocket_launch,
+                  ),
+              ],
+            ),
+          ],
+          if (job.quota > 0) ...<Widget>[
+            const SizedBox(height: AppSpacing.s3),
+            BbProgress(
+              value: job.progress,
+              label: 'Applicant views',
+              countText: '${job.filled}/${job.quota}',
+            ),
+          ],
           const SizedBox(height: AppSpacing.s3),
           ..._actions(context),
+          // Edit content (role title / location / vacancy band) — available on
+          // any non-terminal posting. A closed job is terminal, so no edit.
+          if (_wire != 'closed') ...<Widget>[
+            const SizedBox(height: AppSpacing.s2),
+            BbButton(
+              label: 'Edit details',
+              variant: BbButtonVariant.secondary,
+              size: BbButtonSize.sm,
+              iconLeft: Icons.edit_outlined,
+              block: true,
+              onPressed: () => _openEdit(context),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+
+  /// Push the edit form, handing it the SHARED [JobsCubit] so a saved edit
+  /// refetches the list. Named route so the crash reporter tags the screen.
+  void _openEdit(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'payer/job-edit'),
+        builder: (_) => EditCompanyJobScreen(
+          job: job,
+          cubit: context.read<JobsCubit>(),
+        ),
       ),
     );
   }

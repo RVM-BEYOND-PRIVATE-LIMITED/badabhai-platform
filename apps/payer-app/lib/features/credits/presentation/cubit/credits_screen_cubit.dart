@@ -20,10 +20,20 @@ class CreditsScreenCubit extends Cubit<CreditsScreenState> {
     try {
       final int balance = await _api.fetchCreditBalance();
       final List<LedgerEntry> ledger = await _api.fetchCreditLedger();
+      // The per-unlock history (`GET /payer/unlocks`) is a SEPARATE, best-effort
+      // section — a blip on it must not blank the balance + credit ledger, which
+      // are the primary content. Fall back to an empty list on any error.
+      List<LedgerEntry> unlockLedger;
+      try {
+        unlockLedger = await _api.fetchLedger();
+      } catch (_) {
+        unlockLedger = const <LedgerEntry>[];
+      }
       emit(
         CreditsScreenState(
           status: CreditsScreenStatus.ready,
           ledger: ledger,
+          unlockLedger: unlockLedger,
           balance: balance,
         ),
       );
@@ -39,11 +49,19 @@ class CreditsScreenState extends Equatable {
   const CreditsScreenState({
     this.status = CreditsScreenStatus.initial,
     this.ledger = const <LedgerEntry>[],
+    this.unlockLedger = const <LedgerEntry>[],
     this.balance,
   });
 
   final CreditsScreenStatus status;
+
+  /// The credit-ACCOUNT ledger (`GET /payer/credits/ledger`) — pack purchases,
+  /// unlock debits, grants, refunds.
   final List<LedgerEntry> ledger;
+
+  /// The per-UNLOCK history (`GET /payer/unlocks`) — one row per unlock. Loaded
+  /// best-effort, so it may be empty even when the credit ledger is not.
+  final List<LedgerEntry> unlockLedger;
 
   /// The REAL balance (`null` until first load).
   final int? balance;
@@ -51,15 +69,17 @@ class CreditsScreenState extends Equatable {
   CreditsScreenState copyWith({
     CreditsScreenStatus? status,
     List<LedgerEntry>? ledger,
+    List<LedgerEntry>? unlockLedger,
     int? balance,
   }) {
     return CreditsScreenState(
       status: status ?? this.status,
       ledger: ledger ?? this.ledger,
+      unlockLedger: unlockLedger ?? this.unlockLedger,
       balance: balance ?? this.balance,
     );
   }
 
   @override
-  List<Object?> get props => <Object?>[status, ledger, balance];
+  List<Object?> get props => <Object?>[status, ledger, unlockLedger, balance];
 }

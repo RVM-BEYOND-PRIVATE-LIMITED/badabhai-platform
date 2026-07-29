@@ -15,6 +15,7 @@ import '../../features/find/presentation/cubit/find_cubit.dart';
 import '../../features/find/presentation/cubit/reveal_cubit.dart';
 import '../../features/jobs/presentation/cubit/jobs_cubit.dart';
 import '../../features/jobs/presentation/cubit/agency_jobs_cubit.dart';
+import '../../features/referral/presentation/cubit/referral_cubit.dart';
 import '../../features/credits/presentation/cubit/credits_screen_cubit.dart';
 import '../../features/org/presentation/cubit/org_cubit.dart';
 import '../../features/capacity/presentation/cubit/capacity_cubit.dart';
@@ -147,11 +148,15 @@ void setupLocator({
     () => AccountCubit(locator<PayerAccountApi>()),
   );
 
-  // --- Agency-only demand (jobs) --------------------------------------------
-  // The agency Supply/Earn cubits (hub · referral · referred · payouts · KYC)
-  // are gone with their screens — none of those surfaces had a backend route.
+  // --- Agency-only demand (jobs) + supply (referral) ------------------------
+  // Referral (link + funnel summary) is the ONE agency-supply surface with a
+  // real backend (`POST /payer/agency/invites`, `GET .../referrals/summary`);
+  // the payout/KYC surfaces remain launch-gated and are not built.
   locator.registerFactory<AgencyJobsCubit>(
     () => AgencyJobsCubit(locator<PayerApiClient>()),
+  );
+  locator.registerFactory<ReferralCubit>(
+    () => ReferralCubit(locator<PayerApiClient>()),
   );
 
   // --- Org / team members (ADR-0027) + Hiring capacity (ADR-0016) -----------

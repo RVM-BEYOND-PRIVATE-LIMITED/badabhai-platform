@@ -36,6 +36,38 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
         okMessage: 'Paused — the job is now closed (no separate paused state).',
       );
 
+  /// Edit an agency posting (`PATCH /payer/agency/jobs/:id`). Every field the
+  /// [AgencyJobView] carries is typed + prefillable, so the edit form is
+  /// complete (trade / title / city / area / pay & experience bands / timing).
+  /// The screen sends ≥1 field; refetches on success so the card updates.
+  Future<JobActionResult> editJob(
+    String id, {
+    String? tradeKey,
+    String? title,
+    String? city,
+    String? area,
+    int? payMin,
+    int? payMax,
+    int? minExperienceYears,
+    int? maxExperienceYears,
+    String? neededBy,
+  }) =>
+      _lifecycle(
+        () => _api.updateAgencyJob(
+          id,
+          tradeKey: tradeKey,
+          title: title,
+          city: city,
+          area: area,
+          payMin: payMin,
+          payMax: payMax,
+          minExperienceYears: minExperienceYears,
+          maxExperienceYears: maxExperienceYears,
+          neededBy: neededBy,
+        ),
+        okMessage: 'Job updated.',
+      );
+
   Future<JobActionResult> _lifecycle(
     Future<AgencyJobView> Function() op, {
     required String okMessage,

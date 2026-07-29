@@ -53,6 +53,29 @@ class JobsCubit extends Cubit<JobsState> {
         conflictMessage: 'Already closed.',
       );
 
+  /// Edit an existing posting's content (`PATCH /payer/job-postings/:id`). Only
+  /// the fields the edit form can safely PREFILL are editable — role title,
+  /// location, vacancy band (the company row exposes no description/org to read
+  /// back, so those are never sent from an edit to avoid clobbering them). Pass
+  /// only changed fields; the screen guarantees ≥1 so the server never 400s a
+  /// no-op. Refetches the list on success so the card reflects the new content.
+  Future<JobActionResult> editJob(
+    String id, {
+    String? roleTitle,
+    String? locationLabel,
+    String? vacancyBand,
+  }) =>
+      _lifecycle(
+        () => _api.updateJob(
+          id,
+          roleTitle: roleTitle,
+          locationLabel: locationLabel,
+          vacancyBand: vacancyBand,
+        ),
+        okMessage: 'Job updated.',
+        conflictMessage: "This job can't be edited now.",
+      );
+
   Future<JobActionResult> _lifecycle(
     Future<JobPosting> Function() op, {
     required String okMessage,

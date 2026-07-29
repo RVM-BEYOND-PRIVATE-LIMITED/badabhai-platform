@@ -159,9 +159,42 @@ void main() {
       final JobPosting job = (await h.api.fetchJobs()).single;
       expect(job.id, 'job-9');
       expect(job.wireStatus, 'paused');
-      // No fabricated quota/counts.
+      // A plan-less row carries no stat fields → honest 0 (not a fabricated count).
       expect(job.quota, 0);
       expect(job.applicants, 0);
+      expect(job.boosted, isFalse);
+    });
+
+    test('fetchJobs maps the REAL per-posting stats (plan quota/used + boost)',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'GET /payer/job-postings': _json(<String, dynamic>{
+          'items': <dynamic>[
+            <String, dynamic>{
+              'id': 'job-10',
+              'role_title': 'VMC Operator',
+              'vacancy_band': '2-5',
+              'status': 'open',
+              // The enriched fields the payer controller now joins on.
+              'applicant_visibility_quota': 40, // effective (receipt + top-ups)
+              'applicants_viewed_count': 12,
+              'boosted': true,
+              'verified': true,
+              'disclosures_count': 7,
+            },
+          ],
+        }),
+      });
+
+      final JobPosting job = (await h.api.fetchJobs()).single;
+      expect(job.quota, 40);
+      expect(job.filled, 12);
+      expect(job.boosted, isTrue);
+      expect(job.verified, isTrue);
+      expect(job.disclosuresCount, 7);
+      // Still no per-posting source for these — honest defaults, never faked.
+      expect(job.applicants, 0);
+      expect(job.unlocks, 0);
     });
 
     test('closeJob 200 → row reflects closed; POST path, no body', () async {

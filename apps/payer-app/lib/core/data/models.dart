@@ -96,6 +96,7 @@ class JobPosting extends Equatable {
     this.locationLabel,
     this.createdAt,
     this.wireStatus,
+    this.disclosuresCount = 0,
   });
 
   final String title;
@@ -126,6 +127,11 @@ class JobPosting extends Equatable {
   /// 3-value [JobStatus] enum has no `draft`/`paused`/`closed` split).
   final String? wireStatus;
 
+  /// How many résumés the payer has downloaded for this posting
+  /// (`disclosures_count` from the enriched API row) — a truthful per-posting
+  /// engagement count. 0 in the mock and for a posting with no downloads.
+  final int disclosuresCount;
+
   double get progress => quota == 0 ? 0 : filled / quota;
   int get pct => (progress * 100).round();
 
@@ -144,6 +150,7 @@ class JobPosting extends Equatable {
         locationLabel,
         createdAt,
         wireStatus,
+        disclosuresCount,
       ];
 }
 
