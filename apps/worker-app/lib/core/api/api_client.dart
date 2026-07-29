@@ -389,15 +389,15 @@ class ApiClient {
     await _delete('/workers/me/photo', authToken: authToken);
   }
 
-  /// GET /workers/:id/profile — worker + latest profile + latest generated
-  /// resume. Used to restore `profileId` (and reuse an existing resume) after a
-  /// login that skipped in-session profiling.
+  /// GET /workers/me/profile — worker-self view of the current profile + latest
+  /// generated resume. Used to restore `profileId` (and reuse an existing resume)
+  /// after a login that skipped in-session profiling.
   Future<WorkerProfileBundle> getWorkerProfile({
     required String workerId,
     required String authToken,
   }) async {
     final Map<String, dynamic> json =
-        await _get('/workers/$workerId/profile', authToken: authToken);
+        await _get('/workers/me/profile', authToken: authToken);
     return WorkerProfileBundle.fromJson(json);
   }
 

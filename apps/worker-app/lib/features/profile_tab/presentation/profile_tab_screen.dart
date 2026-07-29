@@ -11,7 +11,6 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_action.dart';
-import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_list_row.dart';
 import '../../../core/widgets/bb_progress_bar.dart';
 import '../../../core/widgets/bb_status_view.dart';
@@ -255,29 +254,21 @@ class _ProfileTabView extends StatelessWidget {
         s.machines.isNotEmpty ||
         s.experienceYears != null ||
         education != null;
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: Border.all(color: AppColors.borderSubtle),
-      ),
-      padding: const EdgeInsets.all(AppSpacing.s4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text('Skills aur anubhav',
-              style: AppTypography.body(
-                  size: AppTypography.sizeSm, weight: FontWeight.w700)),
-          const SizedBox(height: AppSpacing.s3),
-          if (!hasAny)
-            Text(
-              'Abhi kuch nahi — chat mein apne skills aur experience batayein.',
-              style: AppTypography.body(color: AppColors.textMuted),
-            )
-          else
-            ..._structuredRows(s, education),
-        ],
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text('Skills aur anubhav',
+            style: AppTypography.body(
+                size: AppTypography.sizeSm, weight: FontWeight.w700)),
+        const SizedBox(height: AppSpacing.s3),
+        if (!hasAny)
+          Text(
+            'Abhi kuch nahi — chat mein apne skills aur experience batayein.',
+            style: AppTypography.body(color: AppColors.textMuted),
+          )
+        else
+          ..._structuredRows(s, education),
+      ],
     );
   }
 
@@ -290,8 +281,8 @@ class _ProfileTabView extends StatelessWidget {
             'Anubhav: ${_experienceLabel(s.experienceYears!)}'),
       if (education != null)
         _infoLine(Icons.school_outlined, 'Padhai: $education'),
-      if (s.skills.isNotEmpty) _chipGroup('Skills', s.skills),
-      if (s.machines.isNotEmpty) _chipGroup('Machines', s.machines),
+      if (s.skills.isNotEmpty) _textGroup('Skills', s.skills),
+      if (s.machines.isNotEmpty) _textGroup('Machines', s.machines),
     ];
     return <Widget>[
       for (int i = 0; i < rows.length; i++) ...<Widget>[
@@ -327,24 +318,25 @@ class _ProfileTabView extends StatelessWidget {
     return parts.isEmpty ? null : parts.join(' • ');
   }
 
-  /// A labelled wrap of DS chips (skills or machines). Labels are rendered as
-  /// received — canonical, worker-confirmed strings.
-  Widget _chipGroup(String label, List<String> items) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(label,
-            style: AppTypography.body(
-                size: AppTypography.sizeXs, color: AppColors.textMuted)),
-        const SizedBox(height: AppSpacing.s2),
-        Wrap(
-          spacing: AppSpacing.s2,
-          runSpacing: AppSpacing.s2,
-          children: <Widget>[
-            for (final String item in items) BbChip(label: replaceTaxonomyIds(item)),
-          ],
-        ),
-      ],
+  /// A labelled wrap of plain text (skills or machines). Label is bold, values
+  /// are normal weight, comma-separated — no chips, no borders.
+  Widget _textGroup(String label, List<String> items) {
+    // Text.rich (not a raw RichText): a `Text` widget is what `find.text*`
+    // matches on its `textSpan.toPlainText()`, keeping the section testable.
+    return Text.rich(
+      TextSpan(
+        style: AppTypography.body(
+            size: AppTypography.sizeSm, color: AppColors.textPrimary),
+        children: <TextSpan>[
+          TextSpan(
+            text: '$label: ',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          TextSpan(
+            text: items.map(replaceTaxonomyIds).join(', '),
+          ),
+        ],
+      ),
     );
   }
 

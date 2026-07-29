@@ -343,7 +343,7 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
         locator<ProfileRepository>(), locator<ProfileSummaryRepository>()),
   );
   locator.registerFactory<ResumeCubit>(
-    () => ResumeCubit(locator<ResumeRepository>()),
+    () => ResumeCubit(locator<ResumeRepository>(), locator<ResumeEditRepository>()),
   );
   locator.registerFactory<SwipeBloc>(
     () => SwipeBloc(locator<SwipeRepository>()),

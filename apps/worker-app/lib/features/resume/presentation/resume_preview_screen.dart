@@ -28,6 +28,7 @@ import '../domain/resume_edit_repository.dart';
 import '../domain/resume_safe_fields.dart';
 import 'cubit/resume_cubit.dart';
 import 'resume_photo_header.dart';
+import 'widgets/resume_sections.dart';
 
 class ResumePreviewScreen extends StatelessWidget {
   const ResumePreviewScreen({super.key, this.initialResume});
@@ -78,10 +79,17 @@ class _ResumeViewState extends State<_ResumeView> {
   /// worker's 5 daily generates and bin the rendered PDF.
   void _onEditReturned(bool nameChanged) {
     if (!mounted) return;
+    // Bump the nonce so the header re-fetches the (possibly new) name + photo from
+    // the live resume-fields — the displayed name is NOT baked into the resume text.
     setState(() => _photoNonce++);
-    if (nameChanged) {
-      context.read<ResumeCubit>().generate(force: true);
-    }
+    // Reflect a night-shift toggle IMMEDIATELY. Use refreshNightShift(), NOT
+    // refresh(): refresh() early-returns while any load is in flight (its `_loading`
+    // guard), which was making the toggle appear only after a tab switch.
+    // refreshNightShift() is unguarded + lightweight (no resume regenerate), so it
+    // always applies. Do NOT generate(force:true) here: that minted a new 'pending'
+    // resume version and stalled the next Download ("PDF taiyaar ho rahi"). The
+    // name/photo PDF re-render is handled server-side IN PLACE.
+    context.read<ResumeCubit>().refreshNightShift();
   }
 
   /// The Resume tab came back into view. Refetch the resume text AND the photo
@@ -122,7 +130,8 @@ class _ResumeViewState extends State<_ResumeView> {
                 const Center(child: CircularProgressIndicator()),
               ResumeStatus.noProfile => _buildNoProfile(context),
               ResumeStatus.failed => _buildFailed(context),
-              ResumeStatus.ready => _buildResume(context, state.resumeText),
+              ResumeStatus.ready =>
+                  _buildResume(context, state.resumeText, state.nightShiftReady),
             },
           );
         },
@@ -130,7 +139,17 @@ class _ResumeViewState extends State<_ResumeView> {
     );
   }
 
-  Widget _buildResume(BuildContext context, String resumeText) {
+  Widget _buildResume(BuildContext context, String resumeText, bool nightShiftReady) {
+    // Presentation-only transform: the resume body is a deterministic
+    // `Label: value` template (ADR-0013), so it is re-structured into the
+    // design's grouped sections WITHOUT re-fetching or inventing any data — the
+    // same real, per-worker text, laid out instead of dumped as one block. Ids
+    // are resolved to display names first (defensive; the server already does).
+    final ParsedResume parsed = parseResumeText(
+      replaceTaxonomyIds(resumeText),
+      nightShiftReady: nightShiftReady,
+    );
+
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: AppSpacing.s6),
       children: <Widget>[
@@ -142,20 +161,27 @@ class _ResumeViewState extends State<_ResumeView> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              // ADR-0032: the worker's OWN photo — rendered ONLY when the
-              // "Photo dikhayein" pref is on AND a photo exists (the toggle
-              // finally gates something). Self-contained + fail-silent: works
-              // on both entry paths (generate + Building handoff) and never
-              // fabricates a placeholder into the resume itself.
-              // Keyed on the edit-return nonce so a photo the worker just
-              // added/removed is re-fetched instead of showing mount-time state.
-              ResumePhotoHeader(key: ValueKey<int>(_photoNonce)),
+              // ADR-0032: the worker's OWN photo + name + WORKER PROFILE (DRAFT)
+              // header. Self-contained + fail-silent (the photo/name are garnish
+              // and never fabricated). Keyed on the edit-return nonce so a photo
+              // the worker just added/removed is re-fetched instead of showing
+              // mount-time state; `isDraft` comes from the parsed resume text.
+              ResumePhotoHeader(
+                key: ValueKey<int>(_photoNonce),
+                isDraft: parsed.isDraft,
+              ),
+              const Divider(height: 1, color: AppColors.divider),
               Padding(
-                padding: const EdgeInsets.all(AppSpacing.s4),
-                child: Text(
-                  replaceTaxonomyIds(resumeText),
-                  style: AppTypography.body(size: AppTypography.sizeMd),
-                ),
+                padding: const EdgeInsets.all(AppSpacing.s5),
+                // Sections when the body parses as the deterministic template;
+                // otherwise fall back to the raw text so an unexpected shape is
+                // shown in full rather than as a blank card (nothing is lost).
+                child: parsed.isEmpty
+                    ? Text(
+                        replaceTaxonomyIds(resumeText),
+                        style: AppTypography.body(size: AppTypography.sizeMd),
+                      )
+                    : ResumeSectionsView(parsed: parsed),
               ),
               const Divider(height: 1, color: AppColors.divider),
               // In-card actions: download the PDF (GET /resume/:id/download —
@@ -283,18 +309,22 @@ class _EditResumeButton extends StatelessWidget {
 /// How many times the download resolver re-checks a "still rendering" 409, and
 /// how long it waits between checks.
 ///
-/// 20 x 1500ms = 30s of waiting. The budget MUST outlast the server's own render
-/// timeout — PdfRenderer.RENDER_TIMEOUT_MS is 20s — plus the Storage upload that
-/// follows it. The previous ~6s budget was the first-tap download failure: a
-/// cold WeasyPrint start (with a photo to fetch and embed) routinely runs past
-/// 6s, so the poll gave up and told the worker it had failed while the render
-/// was still perfectly healthy. They tapped again, and the second tap often
-/// worked purely because the render had finished in the meantime.
+/// 50 x 1500ms = 75s of waiting. The budget MUST outlast the server's own render
+/// timeout — PdfRenderer.RENDER_TIMEOUT_MS is 20s — PLUS the BullMQ pickup latency,
+/// the Storage upload, and (crucially) ONE retry cycle, because the FIRST-EVER
+/// render is a COLD WeasyPrint start (Python + fonts load on first spawn) and can
+/// legitimately run to ~20s, occasionally timing out once and succeeding on the
+/// BullMQ retry (attempts:3, exponential backoff). The old 30s budget barely
+/// cleared a single 20s render, so a fresh-registration first download routinely
+/// hit "taiyaar ho rahi hai" while the render was still perfectly healthy — the
+/// worker just had to tap again once it finished. 75s covers the cold first render
+/// end-to-end. Most renders finish in the first ~10s, so the typical wait is short;
+/// this only extends the SLOW tail rather than the common case.
 ///
 /// Still BOUNDED, because it must be: when rendering is disabled server-side the
 /// row stays 'pending' forever, and the worker has to get the honest "taiyaar ho
 /// rahi hai" rather than an endless spinner.
-const int _kReadyMaxAttempts = 20;
+const int _kReadyMaxAttempts = 50;
 const Duration _kReadyPollInterval = Duration(milliseconds: 1500);
 
 /// Button label while the PDF is still rendering — honest progress, not an

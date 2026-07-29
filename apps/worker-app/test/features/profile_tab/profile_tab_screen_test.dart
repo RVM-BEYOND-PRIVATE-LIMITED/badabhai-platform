@@ -5,6 +5,7 @@
 // count, plus a "photo → 100%" line no backend field backs. Now: "N signals"
 // with actionable copy, and a real N/max meter ONLY when the backend ships
 // `strength_max`. No percent is ever fabricated.
+import 'package:badabhai_worker_app/core/widgets/bb_chip.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -13,7 +14,6 @@ import 'package:mocktail/mocktail.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
-import 'package:badabhai_worker_app/core/widgets/bb_chip.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_progress_bar.dart';
 import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary.dart';
 import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary_repository.dart';
@@ -38,7 +38,8 @@ Future<void> _pump(WidgetTester tester, ProfileSummary summary) async {
   addTearDown(tester.view.resetDevicePixelRatio);
 
   await tester.pumpWidget(
-      MaterialApp(theme: AppTheme.light(), home: const ProfileTabScreen()));
+    MaterialApp(theme: AppTheme.light(), home: const ProfileTabScreen()),
+  );
   await tester.pump(); // first frame: loading
   await tester.pump(); // summary future resolves → ready
 }
@@ -47,90 +48,113 @@ void main() {
   tearDown(() async => locator.reset());
 
   testWidgets(
-      '0-state is actionable, not broken-looking: "0 cheezein" + a concrete '
-      'next step, no bar, no percent', (WidgetTester tester) async {
-    await _pump(
-        tester, const ProfileSummary(tradeLabel: 'Fitter', strengthSignals: 0));
+    '0-state is actionable, not broken-looking: "0 cheezein" + a concrete '
+    'next step, no bar, no percent',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(tradeLabel: 'Fitter', strengthSignals: 0),
+      );
 
-    expect(find.text('Profile strength'), findsOneWidget);
-    expect(find.text('0 cheezein'), findsOneWidget);
-    expect(
-      find.text(
-          'Abhi profile khaali hai — chat mein apne skills aur experience batayein.'),
-      findsOneWidget,
-    );
-    // No denominator on the wire → no bar and no fabricated percent.
-    expect(find.byType(BbProgressBar), findsNothing);
-    expect(find.textContaining('%'), findsNothing);
-  });
-
-  testWidgets(
-      'N-state renders the honest COUNT in DS voice (a 7-signal profile is '
-      '"7 cheezein", never "700%" and never dev vocabulary)', (
-    WidgetTester tester,
-  ) async {
-    await _pump(tester,
-        const ProfileSummary(tradeLabel: 'CNC Operator', strengthSignals: 7));
-
-    expect(find.text('7 cheezein'), findsOneWidget);
-    expect(
-      find.text(
-          'Profile mein 7 cheezein complete — chat mein aur jankari denge to aur strong hogi.'),
-      findsOneWidget,
-    );
-    // The pre-fix rendering (count * 100 %) must never come back, and "signals"
-    // is dev vocabulary — it stays out of the UI (L-2).
-    expect(find.textContaining('%'), findsNothing);
-    expect(find.textContaining('signals'), findsNothing);
-    expect(find.byType(BbProgressBar), findsNothing);
-  });
+      expect(find.text('Profile strength'), findsOneWidget);
+      expect(find.text('0 cheezein'), findsOneWidget);
+      expect(
+        find.text(
+          'Abhi profile khaali hai — chat mein apne skills aur experience batayein.',
+        ),
+        findsOneWidget,
+      );
+      // No denominator on the wire → no bar and no fabricated percent.
+      expect(find.byType(BbProgressBar), findsNothing);
+      expect(find.textContaining('%'), findsNothing);
+    },
+  );
 
   testWidgets(
-      'a REAL backend denominator (strength_max) lights up the N/max meter',
-      (WidgetTester tester) async {
-    await _pump(
-      tester,
-      const ProfileSummary(
-          tradeLabel: 'CNC Operator', strengthSignals: 6, strengthMax: 12),
-    );
+    'N-state renders the honest COUNT in DS voice (a 7-signal profile is '
+    '"7 cheezein", never "700%" and never dev vocabulary)',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(tradeLabel: 'CNC Operator', strengthSignals: 7),
+      );
 
-    expect(find.text('6/12'), findsOneWidget);
-    expect(find.byType(BbProgressBar), findsOneWidget);
-  });
+      expect(find.text('7 cheezein'), findsOneWidget);
+      expect(
+        find.text(
+          'Profile mein 7 cheezein complete — chat mein aur jankari denge to aur strong hogi.',
+        ),
+        findsOneWidget,
+      );
+      // The pre-fix rendering (count * 100 %) must never come back, and "signals"
+      // is dev vocabulary — it stays out of the UI (L-2).
+      expect(find.textContaining('%'), findsNothing);
+      expect(find.textContaining('signals'), findsNothing);
+      expect(find.byType(BbProgressBar), findsNothing);
+    },
+  );
 
   testWidgets(
-      'Skills aur anubhav section renders experience + skill/machine chips',
-      (WidgetTester tester) async {
-    await _pump(
-      tester,
-      const ProfileSummary(
-        tradeLabel: 'VMC Operator',
-        strengthSignals: 9,
-        skills: <String>['CNC operating', 'GD&T'],
-        machines: <String>['VMC'],
-        experienceYears: 4,
-      ),
-    );
+    'a REAL backend denominator (strength_max) lights up the N/max meter',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(
+          tradeLabel: 'CNC Operator',
+          strengthSignals: 6,
+          strengthMax: 12,
+        ),
+      );
 
-    expect(find.text('Skills aur anubhav'), findsOneWidget);
-    expect(find.text('Anubhav: 4 saal'), findsOneWidget);
-    // Every skill + machine renders as a DS chip.
-    expect(find.widgetWithText(BbChip, 'CNC operating'), findsOneWidget);
-    expect(find.widgetWithText(BbChip, 'GD&T'), findsOneWidget);
-    expect(find.widgetWithText(BbChip, 'VMC'), findsOneWidget);
-    expect(find.byType(BbChip), findsNWidgets(3));
-  });
+      expect(find.text('6/12'), findsOneWidget);
+      expect(find.byType(BbProgressBar), findsOneWidget);
+    },
+  );
 
-  testWidgets('Skills section shows an honest empty state when nothing shared yet',
-      (WidgetTester tester) async {
-    await _pump(
-        tester, const ProfileSummary(tradeLabel: 'Fitter', strengthSignals: 0));
+  testWidgets(
+    'Skills aur anubhav section renders experience + skills/machines as plain text',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(
+          tradeLabel: 'VMC Operator',
+          strengthSignals: 9,
+          skills: <String>['CNC operating', 'GD&T'],
+          machines: <String>['VMC'],
+          experienceYears: 4,
+        ),
+      );
 
-    expect(find.text('Skills aur anubhav'), findsOneWidget);
-    expect(
-      find.text('Abhi kuch nahi — chat mein apne skills aur experience batayein.'),
-      findsOneWidget,
-    );
-    expect(find.byType(BbChip), findsNothing);
-  });
+      expect(find.text('Skills aur anubhav'), findsOneWidget);
+      expect(find.text('Anubhav: 4 saal'), findsOneWidget);
+      // Skills and machines render as plain text (label bold, values normal weight, comma-separated).
+      expect(
+        find.textContaining('Skills: CNC operating, GD&T'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Machines: VMC'), findsOneWidget);
+      // No BbChip widgets used anymore.
+      expect(find.byType(BbChip), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Skills section shows an honest empty state when nothing shared yet',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(tradeLabel: 'Fitter', strengthSignals: 0),
+      );
+
+      expect(find.text('Skills aur anubhav'), findsOneWidget);
+      expect(
+        find.text(
+          'Abhi kuch nahi — chat mein apne skills aur experience batayein.',
+        ),
+        findsOneWidget,
+      );
+      // No chips or structured rows when empty.
+      expect(find.byType(BbChip), findsNothing);
+    },
+  );
 }
