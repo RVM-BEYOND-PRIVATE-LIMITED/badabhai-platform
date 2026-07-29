@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PayerJobPostingsController } from "./payer-job-postings.controller";
 import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import type { RequestContext } from "../common/request-context";
+import type { PostingStats } from "../posting-plans/posting-plans.service";
 
 // job-postings is a SHARED demand surface (any payer role); cover both an agent and an
 // employer session. `role` is required on AuthenticatedPayer since the ADR-0022 role claim.
@@ -50,9 +51,24 @@ function makeCtrl() {
         plan: { id: "plan-1", quotaTopupCount: 10 },
       }),
     ),
+    getPostingStats: vi.fn(
+      async (_id: string, _payerId: string): Promise<PostingStats> => ({
+        plan_tier: null,
+        applicant_visibility_quota: null,
+        applicants_viewed_count: null,
+        boosted: false,
+      }),
+    ),
   };
-  const ctrl = new PayerJobPostingsController(jobPostings as never, plans as never);
-  return { ctrl, jobPostings, plans };
+  const disclosures = {
+    countDisclosuresForPosting: vi.fn(async (_id: string, _payerId: string) => 0),
+  };
+  const ctrl = new PayerJobPostingsController(
+    jobPostings as never,
+    plans as never,
+    disclosures as never,
+  );
+  return { ctrl, jobPostings, plans, disclosures };
 }
 
 /**
@@ -87,6 +103,11 @@ describe("PayerJobPostingsController — identity from the session, never the bo
     expect(d.jobPostings.getOneForPayer).toHaveBeenCalledWith(POSTING, PAYER_A.id);
   });
 
+  it("getOne resolves stats with the SESSION payer id (not the body/route)", async () => {
+    await d.ctrl.getOne(POSTING, PAYER_A);
+    expect(d.plans.getPostingStats).toHaveBeenCalledWith(POSTING, PAYER_A.id);
+  });
+
   it("update forwards the SESSION payer as the ownership key", async () => {
     const dto = { role_title: "CNC Operator" };
     await d.ctrl.update(POSTING, dto, PAYER_A, CTX);
@@ -106,6 +127,93 @@ describe("PayerJobPostingsController — identity from the session, never the bo
   it("resume forwards the SESSION payer as the ownership key (B1)", async () => {
     await d.ctrl.resume(POSTING, PAYER_B, CTX);
     expect(d.jobPostings.resumeForPayer).toHaveBeenCalledWith(POSTING, PAYER_B.id, CTX);
+  });
+});
+
+/**
+ * The My-jobs card shows HONEST per-posting stats: the list/getOne responses are
+ * enriched with the active-plan quota + used + boosted flag (getPostingStats),
+ * resolved per row against the SESSION payer's OWN plans. A plan-less posting
+ * carries nulls/false — never a fabricated number.
+ */
+describe("PayerJobPostingsController — postings enriched with honest per-posting stats", () => {
+  let d: ReturnType<typeof makeCtrl>;
+  beforeEach(() => {
+    d = makeCtrl();
+  });
+
+  it("list merges each posting's stats, keyed on the SESSION payer", async () => {
+    d.jobPostings.listForPayer.mockResolvedValueOnce([
+      { id: "p1", role_title: "CNC Operator" },
+      { id: "p2", role_title: "Fitter" },
+    ] as never);
+    d.plans.getPostingStats.mockImplementation(async (id: string) =>
+      id === "p1"
+        ? {
+            plan_tier: "pro",
+            applicant_visibility_quota: 40,
+            applicants_viewed_count: 12,
+            boosted: true,
+          }
+        : {
+            plan_tier: null,
+            applicant_visibility_quota: null,
+            applicants_viewed_count: null,
+            boosted: false,
+          },
+    );
+
+    d.disclosures.countDisclosuresForPosting.mockImplementation(async (id: string) =>
+      id === "p1" ? 5 : 0,
+    );
+
+    const result = await d.ctrl.list({}, PAYER_A);
+
+    expect(d.plans.getPostingStats).toHaveBeenCalledWith("p1", PAYER_A.id);
+    expect(d.plans.getPostingStats).toHaveBeenCalledWith("p2", PAYER_A.id);
+    expect(d.disclosures.countDisclosuresForPosting).toHaveBeenCalledWith("p1", PAYER_A.id);
+    expect(result[0]).toMatchObject({
+      id: "p1",
+      role_title: "CNC Operator",
+      applicant_visibility_quota: 40,
+      applicants_viewed_count: 12,
+      boosted: true,
+      disclosures_count: 5,
+    });
+    // A plan-less posting stays honest: nulls + not boosted + 0 downloads, never faked.
+    expect(result[1]).toMatchObject({
+      id: "p2",
+      applicant_visibility_quota: null,
+      applicants_viewed_count: null,
+      boosted: false,
+      disclosures_count: 0,
+    });
+  });
+
+  it("getOne merges the posting's stats into the response", async () => {
+    d.jobPostings.getOneForPayer.mockResolvedValueOnce({
+      id: POSTING,
+      role_title: "VMC Operator",
+    } as never);
+    d.plans.getPostingStats.mockResolvedValueOnce({
+      plan_tier: "standard",
+      applicant_visibility_quota: 20,
+      applicants_viewed_count: 3,
+      boosted: false,
+    });
+    d.disclosures.countDisclosuresForPosting.mockResolvedValueOnce(3);
+
+    const result = await d.ctrl.getOne(POSTING, PAYER_A);
+
+    expect(result).toMatchObject({
+      id: POSTING,
+      role_title: "VMC Operator",
+      plan_tier: "standard",
+      applicant_visibility_quota: 20,
+      applicants_viewed_count: 3,
+      boosted: false,
+      disclosures_count: 3,
+    });
   });
 });
 

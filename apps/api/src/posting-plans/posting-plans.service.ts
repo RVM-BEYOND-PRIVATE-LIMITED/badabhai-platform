@@ -9,7 +9,7 @@ import {
 import { resolvePrice, type Quote } from "@badabhai/pricing";
 import { areRealPaymentsEnabled, isCapacityEnforcementEnabled, type ServerConfig } from "@badabhai/config";
 import type { PayloadInputOf } from "@badabhai/event-schema";
-import type { PostingPlan, PostingBoost } from "@badabhai/db";
+import type { PostingPlan, PostingBoost, PostingPlanTier } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
@@ -116,6 +116,22 @@ export interface BuyCapacityResult {
  * gate, LC-1): the capacity endpoint is InternalServiceGuard-only and the `payer_id` it
  * acts on is ADVISORY (caller-supplied route param), documented on the controller + DTO.
  */
+/**
+ * Read-only per-posting stats derived from the ACTIVE plan + boost — the honest
+ * numbers the payer's "My jobs" card renders instead of hardcoded zeros. PII-free
+ * (counts / a tier enum / a boolean only). All fields are `null`/`false` when the
+ * posting has no active plan/boost (a draft, or one whose plan expired) — there is
+ * NO fabricated figure. `applicant_visibility_quota` here is the EFFECTIVE quota
+ * (the immutable receipt + every top-up); `applicants_viewed_count` is the amount
+ * used. snake_case to match the job-postings API response.
+ */
+export interface PostingStats {
+  plan_tier: PostingPlanTier | null;
+  applicant_visibility_quota: number | null;
+  applicants_viewed_count: number | null;
+  boosted: boolean;
+}
+
 @Injectable()
 export class PostingPlansService {
   private readonly logger = new Logger(PostingPlansService.name);
@@ -126,6 +142,31 @@ export class PostingPlansService {
     private readonly pricing: PricingService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
+
+  /**
+   * The honest per-posting stats for `jobPostingId` OWNED by `payerId`. Reuses the
+   * exact active-plan + active-boost predicates the top-up/boost writers use (no
+   * SQL duplication, no divergence). Both reads are payer-scoped (plan) / posting-
+   * scoped (boost); a foreign or unknown posting simply yields the empty stats, so
+   * this can never become an ownership oracle. Read-only, emits no event.
+   */
+  async getPostingStats(jobPostingId: string, payerId: string): Promise<PostingStats> {
+    const now = new Date();
+    const [plan, boost] = await Promise.all([
+      this.repo.findActivePlanForPostingAndPayer(jobPostingId, payerId, now),
+      this.repo.findActiveBoost(jobPostingId, now),
+    ]);
+    return {
+      plan_tier: plan?.tier ?? null,
+      // EFFECTIVE quota = the immutable receipt + every top-up (documented on the
+      // posting_plans schema). Used count is the applicants already viewed.
+      applicant_visibility_quota: plan
+        ? plan.applicantVisibilityQuota + plan.quotaTopupCount
+        : null,
+      applicants_viewed_count: plan?.applicantsViewedCount ?? null,
+      boosted: boost !== undefined,
+    };
+  }
 
   async buyPlan(jobPostingId: string, dto: BuyPlanDto, ctx: RequestContext): Promise<BuyPlanResult> {
     if (!(await this.repo.postingExists(jobPostingId))) {

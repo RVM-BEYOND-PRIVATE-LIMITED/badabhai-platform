@@ -1,7 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq } from "drizzle-orm";
 import { type Database, jobPostings, type JobPosting, type NewJobPosting } from "@badabhai/db";
-import type { JobPostingStatus } from "@badabhai/types";
+import type { JobPostingStatus, JobPostingVerificationStatus } from "@badabhai/types";
 import { DATABASE } from "../database/database.module";
 
 /**
@@ -20,6 +20,10 @@ interface JobPostingApi {
   description: string | null;
   vacancy_band: JobPosting["vacancyBand"];
   status: JobPostingStatus;
+  // Ops trust review + the derived worker-visible flag. `verified` is a convenience
+  // boolean (status === 'verified') so the payer/worker card never reads the raw enum.
+  verification_status: JobPostingVerificationStatus;
+  verified: boolean;
   skill_phrases: string[];
   skill_ids: string[];
   created_at: Date;
@@ -39,6 +43,8 @@ function toJobPostingApi(row: JobPosting): JobPostingApi {
     description: row.description,
     vacancy_band: row.vacancyBand,
     status: row.status,
+    verification_status: row.verificationStatus,
+    verified: row.verificationStatus === "verified",
     skill_phrases: row.skillPhrases,
     skill_ids: row.skillIds,
     created_at: row.createdAt,
@@ -57,6 +63,9 @@ export type JobPostingUpdate = Partial<
     | "description"
     | "vacancyBand"
     | "status"
+    // Ops-only trust review — set solely by the verify/reject action (never in a
+    // payer PATCH; the payer UpdateJobPostingSchema has no such field).
+    | "verificationStatus"
     // ADR-0030 / TAX-6: the posting's skill phrases + their canonicalized closed-set ids.
     | "skillPhrases"
     | "skillIds"

@@ -2162,10 +2162,11 @@ describe("worker.push_token_claimed (TD92)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 121 event names (118 prior + TD64 worker notifications)", () => {
-    expect(EVENT_NAMES).toHaveLength(121);
+  it("exposes all 122 event names (118 prior + TD64 worker notifications + job_posting.verification_updated)", () => {
+    expect(EVENT_NAMES).toHaveLength(122);
     expect(isEventName("consent.revoked")).toBe(true);
     expect(isEventName("interview_kit.ready_for_worker")).toBe(true);
+    expect(isEventName("job_posting.verification_updated")).toBe(true);
     expect(isEventName("job.available")).toBe(true);
     expect(isEventName("profile.viewed")).toBe(true);
     expect(isEventName("skill.phrase_unresolved")).toBe(true);

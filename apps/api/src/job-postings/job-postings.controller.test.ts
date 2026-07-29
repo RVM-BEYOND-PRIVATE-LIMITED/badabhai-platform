@@ -14,6 +14,8 @@ function make() {
     getOne: vi.fn(async () => ({ id: ID })),
     update: vi.fn(async () => ({ id: ID })),
     close: vi.fn(async () => ({ id: ID, status: "closed" })),
+    verify: vi.fn(async () => ({ id: ID, verification_status: "verified", verified: true })),
+    reject: vi.fn(async () => ({ id: ID, verification_status: "rejected", verified: false })),
   };
   return {
     controller: new JobPostingsController(jobPostings as unknown as JobPostingsService),
@@ -52,5 +54,17 @@ describe("JobPostingsController (thin) — delegation", () => {
     const { controller, jobPostings } = make();
     await controller.close(ID, CTX);
     expect(jobPostings.close).toHaveBeenCalledWith(ID, CTX);
+  });
+
+  it("verify delegates id + ctx", async () => {
+    const { controller, jobPostings } = make();
+    await controller.verify(ID, CTX);
+    expect(jobPostings.verify).toHaveBeenCalledWith(ID, CTX);
+  });
+
+  it("reject delegates id + ctx", async () => {
+    const { controller, jobPostings } = make();
+    await controller.reject(ID, CTX);
+    expect(jobPostings.reject).toHaveBeenCalledWith(ID, CTX);
   });
 });
