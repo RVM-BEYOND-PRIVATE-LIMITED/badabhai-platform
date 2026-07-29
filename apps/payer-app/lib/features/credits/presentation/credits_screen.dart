@@ -138,29 +138,85 @@ class _CreditsView extends StatelessWidget {
               ),
             ),
             const SizedBox(height: AppSpacing.s5),
+            // #376 follow-up — this section reads `GET /payer/credits/ledger`
+            // (pack purchases, unlock debits, grants, refunds), so it is the
+            // CREDIT ledger. The old 'Unlock ledger' heading mislabelled it; the
+            // real per-unlock history is a separate section below.
             Text(
-              'Unlock ledger',
+              'Credit ledger',
               style: AppTypography.display(
                 size: AppTypography.sizeBase,
                 weight: FontWeight.w700,
               ),
             ),
             const SizedBox(height: AppSpacing.s2),
-            BbCard(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s4),
-              child: Column(
-                children: <Widget>[
-                  for (int i = 0; i < state.ledger.length; i++)
-                    _LedgerRow(
-                      entry: state.ledger[i],
-                      showBorder: i < state.ledger.length - 1,
-                    ),
-                ],
+            if (state.ledger.isEmpty)
+              _EmptyLedger(
+                text: 'No credit activity yet.',
+              )
+            else
+              BbCard(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s4),
+                child: Column(
+                  children: <Widget>[
+                    for (int i = 0; i < state.ledger.length; i++)
+                      _LedgerRow(
+                        entry: state.ledger[i],
+                        showBorder: i < state.ledger.length - 1,
+                      ),
+                  ],
+                ),
               ),
-            ),
+            // Per-unlock history (`GET /payer/unlocks`). Best-effort — only shown
+            // when there is something to show, so a blip never leaves an empty
+            // "Unlock history" card on screen.
+            if (state.unlockLedger.isNotEmpty) ...<Widget>[
+              const SizedBox(height: AppSpacing.s5),
+              Text(
+                'Unlock history',
+                style: AppTypography.display(
+                  size: AppTypography.sizeBase,
+                  weight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.s2),
+              BbCard(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s4),
+                child: Column(
+                  children: <Widget>[
+                    for (int i = 0; i < state.unlockLedger.length; i++)
+                      _LedgerRow(
+                        entry: state.unlockLedger[i],
+                        showBorder: i < state.unlockLedger.length - 1,
+                      ),
+                  ],
+                ),
+              ),
+            ],
           ],
         );
       },
+    );
+  }
+}
+
+/// A muted card shown in place of a ledger when there is nothing to list — an
+/// honest empty state rather than a bare bordered card.
+class _EmptyLedger extends StatelessWidget {
+  const _EmptyLedger({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return BbCard(
+      child: Text(
+        text,
+        style: AppTypography.body(
+          size: AppTypography.sizeSm,
+          color: AppColors.textMuted,
+        ),
+      ),
     );
   }
 }

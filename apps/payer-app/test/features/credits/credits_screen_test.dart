@@ -57,6 +57,11 @@ void main() {
 
     // Retitling must not have cost the screen its actual job.
     expect(find.text('Current balance'), findsOneWidget);
-    expect(find.text('Unlock ledger'), findsOneWidget);
+    // The credit-account ledger (`/payer/credits/ledger`) — the old 'Unlock
+    // ledger' heading mislabelled it; the real per-unlock history is separate.
+    expect(find.text('Credit ledger'), findsOneWidget);
+    // The per-unlock history (`/payer/unlocks`) now has its own section (the
+    // mock seam returns a non-empty unlock ledger).
+    expect(find.text('Unlock history'), findsOneWidget);
   });
 }

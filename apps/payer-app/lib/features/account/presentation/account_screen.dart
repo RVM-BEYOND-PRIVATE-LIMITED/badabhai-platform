@@ -11,6 +11,7 @@ import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../capacity/presentation/capacity_screen.dart';
 import '../../org/presentation/team_screen.dart';
+import '../../referral/presentation/referral_screen.dart';
 import 'cubit/account_cubit.dart';
 
 /// Account — the real `GET /payer/me` identity (org · email · role · status ·
@@ -110,9 +111,21 @@ class _AccountView extends StatelessWidget {
                     label: 'Hiring capacity',
                     onTap: () => _openCapacity(context),
                   ),
+                  // Agency-only supply surface — the referral link + funnel are
+                  // agent-gated routes (they 403 for a company session).
+                  if (session.isAgency)
+                    _SettingsRow(
+                      icon: Icons.campaign_outlined,
+                      label: 'Refer & earn',
+                      onTap: () => _openReferral(context),
+                    ),
+                  // No screen behind this yet (production DPDP legal copy is
+                  // deferred, CLAUDE.md §8) — so it does NOT render a chevron and
+                  // is not tappable, rather than looking like a dead affordance.
                   const _SettingsRow(
                     icon: Icons.verified_user_outlined,
                     label: 'Privacy & DPDP consent',
+                    showChevron: false,
                   ),
                   _SettingsRow(
                     icon: Icons.logout,
@@ -149,6 +162,17 @@ class _AccountView extends StatelessWidget {
       MaterialPageRoute<void>(
         settings: const RouteSettings(name: 'payer/capacity'),
         builder: (_) => const CapacityScreen(),
+      ),
+    );
+  }
+
+  /// Agency Refer-&-earn (ADR-0022 supply) — pushed as a full page with its own
+  /// back. Only reachable for an agency session (the row is agency-gated).
+  void _openReferral(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'payer/referral'),
+        builder: (_) => const ReferralScreen(),
       ),
     );
   }
