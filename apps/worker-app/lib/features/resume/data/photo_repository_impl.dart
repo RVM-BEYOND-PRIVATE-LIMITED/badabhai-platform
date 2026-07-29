@@ -59,12 +59,25 @@ class MockPhotoUploader implements PhotoUploader {
 /// every error maps to a typed [Failure]; a 503 (feature dormant server-side)
 /// reads as the honest [PhotoUnavailableFailure], and a 404 on the read is
 /// "no photo" (null), never an error.
+///
+/// CACHE: holds the last-fetched signed URL in memory so the three consumers
+/// (resume tab header, edit screen thumbnail, profile tab avatar) do not each
+/// issue a redundant GET /workers/me/photo-url every time the widget remounts
+/// or the tab is re-focused. The signed URL is a bearer credential — it is held
+/// in memory only, never persisted. The cache is invalidated on every
+/// [uploadPhoto] and [removePhoto], so the next [photoUrl] call fetches a fresh
+/// URL that reflects the new state.
 class PhotoRepositoryImpl implements PhotoRepository {
   PhotoRepositoryImpl(this._api, this._session, this._uploader);
 
   final ApiClient _api;
   final SessionRepository _session;
   final PhotoUploader _uploader;
+
+  /// In-memory cache of the last-fetched signed URL. Null means either no photo
+  /// or not yet fetched. [uploadPhoto] and [removePhoto] clear this so the
+  /// subsequent [photoUrl] call fetches a fresh URL.
+  String? _cachedUrl;
 
   String _requireToken() {
     final String? token = _session.sessionToken;
@@ -74,15 +87,28 @@ class PhotoRepositoryImpl implements PhotoRepository {
 
   @override
   Future<String?> photoUrl() async {
+    // Return cached URL immediately — avoids a redundant network round-trip
+    // every time a widget remounts or a tab is re-focused. The cache lives in
+    // memory only (the URL is a bearer credential) and is invalidated on
+    // upload/remove so a fresh URL is fetched after any mutation.
+    if (_cachedUrl != null) return _cachedUrl;
+
     final String token = _requireToken();
     try {
       final String url = await _api.getMyPhotoUrl(authToken: token);
-      return url.isEmpty ? null : url;
+      _cachedUrl = url.isEmpty ? null : url;
+      return _cachedUrl;
     } on ApiException catch (e) {
-      if (e.statusCode == 404) return null; // no photo yet — not an error
+      if (e.statusCode == 404) {
+        _cachedUrl = null;
+        return null; // no photo yet — not an error
+      }
       if (e.statusCode == 503) throw const PhotoUnavailableFailure();
       throw mapError(e);
     } catch (error) {
+      // Don't cache an error result — a transient failure should not poison the
+      // cache and leave the user staring at a blank placeholder until the app is
+      // killed.
       throw mapError(error);
     }
   }
@@ -95,12 +121,14 @@ class PhotoRepositoryImpl implements PhotoRepository {
       try {
         ticket = await _api.requestPhotoUploadUrl(authToken: token);
       } on ApiException catch (e) {
-        // Feature off server-side — honest copy BEFORE any bytes leave the device.
         if (e.statusCode == 503) throw const PhotoUnavailableFailure();
         rethrow;
       }
       await _uploader.put(uploadUrl: ticket.uploadUrl, bytes: bytes);
       await _api.confirmPhoto(storagePath: ticket.storagePath, authToken: token);
+      // Invalidate cache: the next photoUrl() call will fetch a fresh signed URL
+      // for the newly uploaded photo.
+      _cachedUrl = null;
     } on Failure {
       rethrow;
     } catch (error) {
@@ -113,6 +141,8 @@ class PhotoRepositoryImpl implements PhotoRepository {
     final String token = _requireToken();
     try {
       await _api.deleteMyPhoto(authToken: token);
+      // Photo no longer exists — clear the cache so photoUrl() returns null.
+      _cachedUrl = null;
     } catch (error) {
       throw mapError(error);
     }

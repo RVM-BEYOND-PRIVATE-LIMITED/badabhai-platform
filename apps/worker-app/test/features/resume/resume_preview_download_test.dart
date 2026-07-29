@@ -41,6 +41,7 @@ void main() {
     WidgetTester tester, {
     String? name,
     bool throwOnLoad = false,
+    String resume = 'MOCK RESUME BODY',
   }) async {
     GoogleFonts.config.allowRuntimeFetching = false;
     await locator.reset();
@@ -57,7 +58,7 @@ void main() {
         ),
       );
     }
-    locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo));
+    locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo, editRepo));
     // The screen refetches on tab focus (T4) and resolves this from the locator.
     locator.registerLazySingleton<TabFocus>(() => TabFocus());
     locator.registerFactory<ResumeEditRepository>(() => editRepo);
@@ -87,7 +88,7 @@ void main() {
 
     await tester.pumpWidget(MaterialApp(
       theme: AppTheme.light(),
-      home: const ResumePreviewScreen(initialResume: 'MOCK RESUME BODY'),
+      home: ResumePreviewScreen(initialResume: resume),
     ));
     await tester.pump();
     // Let the download button's name PREFETCH (initState → editRepo.load())
@@ -97,6 +98,50 @@ void main() {
   }
 
   tearDown(() async => locator.reset());
+
+  testWidgets(
+      'deterministic resume renders as the design: name + WORKER PROFILE '
+      '(DRAFT) header and grouped, icon-led sections',
+      (WidgetTester tester) async {
+    // Exactly the shape apps/ai-service/app/extraction.py `build_resume` emits.
+    const String templated = '''WORKER PROFILE (DRAFT)
+
+Role: HMC Operator
+Trade: HMC Machining
+Experience: 10 years
+Machines: Horizontal Machining Center (HMC)
+Skills: Mitsubishi control operation, Tool offset setting
+Education level: 12th
+Field of study: Electronics
+Current location: Faridabad''';
+
+    await pumpScreen(tester, name: 'Monalisa Sharma', resume: templated);
+
+    // Header: name + WORKER PROFILE + the DRAFT pill (parsed, never fabricated).
+    expect(find.text('Monalisa Sharma'), findsOneWidget);
+    expect(find.text('WORKER PROFILE'), findsOneWidget);
+    expect(find.text('(DRAFT)'), findsOneWidget);
+
+    // Section titles from the design.
+    expect(find.text('General Info'), findsOneWidget);
+    expect(find.text('Technical Skills'), findsOneWidget);
+    expect(find.text('Education & Certifications'), findsOneWidget);
+    expect(find.text('Location'), findsOneWidget);
+
+    // A value survives the parse into its section (RichText, so match by the
+    // rendered string via a predicate on the whole widget tree).
+    expect(
+      find.textContaining('HMC Operator', findRichText: true),
+      findsWidgets,
+    );
+    expect(
+      find.textContaining('Faridabad', findRichText: true),
+      findsWidgets,
+    );
+
+    // The old plain blob is gone — the body is structured now.
+    expect(find.text(templated), findsNothing);
+  });
 
   testWidgets(
       'download stays on-screen: busy state, started + complete notices, '

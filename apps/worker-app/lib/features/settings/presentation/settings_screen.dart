@@ -18,11 +18,9 @@ import '../../../router.dart';
 import 'cubit/account_delete_cubit.dart';
 
 /// Settings (spec §5.10). Most rows are inert for the alpha (a tap shows a
-/// "coming soon" snackbar). Account-delete is the real DPDP 2-step flow (A4 +
-/// ADR-0031 grace window): confirm → request OTP → enter OTP → on 200 the
-/// deletion is SCHEDULED (7 days) — the worker stays logged in, the delete row
-/// becomes a pending banner with a "Delete cancel karein" action, and cancel
-/// returns everything to normal. Real data-export is still deferred (§7).
+/// "coming soon" snackbar). Account-delete is hidden for now; the DPDP
+/// 2-step flow (A4 + ADR-0031 grace window) will return once the delete
+/// experience is redesigned.
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
@@ -154,40 +152,56 @@ class _SettingsView extends StatelessWidget {
             subtitle: 'Consent · download · delete',
             onTap: () => _comingSoon(context),
           ),
-          // Delete row while active; pending banner + cancel during the grace.
-          BlocConsumer<AccountDeleteCubit, AccountDeleteState>(
-            // React only to the cancel round trip resolving (cancelling →
-            // idle/scheduled) — the OTP dialog owns its own error surface.
-            listenWhen: (AccountDeleteState prev, AccountDeleteState curr) =>
-                prev.status == AccountDeleteStatus.cancelling &&
-                curr.status != AccountDeleteStatus.cancelling,
-            listener: (BuildContext context, AccountDeleteState state) {
-              final ScaffoldMessengerState messenger =
-                  ScaffoldMessenger.of(context)..clearSnackBars();
-              if (state.status == AccountDeleteStatus.idle) {
-                messenger.showSnackBar(const SnackBar(
-                    content: Text('Account delete cancel ho gaya')));
-              } else {
-                // Cancel failed — the honest reason; the banner stays.
-                messenger.showSnackBar(SnackBar(
-                    content: Text(failureReason(state.failure).reason)));
-              }
-            },
-            builder: (BuildContext context, AccountDeleteState state) {
-              final bool pending =
-                  state.status == AccountDeleteStatus.scheduled ||
-                      state.status == AccountDeleteStatus.cancelling;
-              if (!pending) {
-                return BbListRow.setting(
-                  icon: Icons.delete_outline,
-                  title: 'Account delete karein',
-                  subtitle: 'OTP ke baad 7 din mein',
-                  danger: true,
-                  onTap: () => _confirmDelete(context),
-                );
-              }
-              return _PendingDeletionBanner(state: state);
-            },
+          // Account delete hidden for now; will return after the flow is redesigned.
+          Visibility(
+            visible: false,
+            maintainState: true,
+            child: BlocConsumer<AccountDeleteCubit, AccountDeleteState>(
+              // React only to the cancel round trip resolving (cancelling →
+              // idle/scheduled) — the OTP dialog owns its own error surface.
+              listenWhen: (AccountDeleteState prev, AccountDeleteState curr) =>
+                  prev.status == AccountDeleteStatus.cancelling &&
+                  curr.status != AccountDeleteStatus.cancelling,
+              listener: (BuildContext context, AccountDeleteState state) {
+                final ScaffoldMessengerState messenger =
+                    ScaffoldMessenger.of(context)..clearSnackBars();
+                if (state.status == AccountDeleteStatus.idle) {
+                  messenger.showSnackBar(const SnackBar(
+                      content: Text('Account delete cancel ho gaya')));
+                } else {
+                  // Cancel failed — the honest reason; the banner stays.
+                  messenger.showSnackBar(SnackBar(
+                      content: Text(failureReason(state.failure).reason)));
+                }
+              },
+              builder: (BuildContext context, AccountDeleteState state) {
+                final bool pending =
+                    state.status == AccountDeleteStatus.scheduled ||
+                        state.status == AccountDeleteStatus.cancelling;
+                if (!pending) {
+                  final bool requestInProgress = state.status ==
+                          AccountDeleteStatus.sendingOtp ||
+                      state.status == AccountDeleteStatus.otpSent ||
+                      state.status == AccountDeleteStatus.confirming;
+                  final Widget row = BbListRow.setting(
+                    icon: Icons.delete_outline,
+                    title: 'Account delete karein',
+                    subtitle: 'OTP ke baad 7 din mein',
+                    onTap: requestInProgress ? null : () => _confirmDelete(context),
+                  );
+                  if (requestInProgress) {
+                    return IgnorePointer(
+                      child: Opacity(
+                        opacity: 0.45,
+                        child: row,
+                      ),
+                    );
+                  }
+                  return row;
+                }
+                return _PendingDeletionBanner(state: state);
+              },
+            ),
           ),
           const SizedBox(height: AppSpacing.s5),
           Text(
@@ -204,8 +218,8 @@ class _SettingsView extends StatelessWidget {
 
 /// The grace-window banner that replaces the delete row while a deletion is
 /// pending (ADR-0031): when the account will be deleted + the explicit
-/// "Delete cancel karein" action. Danger-inverse: danger-tinted surface with
-/// crimson text/action, mirroring the `danger:` treatment of the delete row.
+/// "Delete cancel karein" action. Neutral brand surface with ink text,
+/// mirroring the non-danger treatment of the delete row.
 class _PendingDeletionBanner extends StatelessWidget {
   const _PendingDeletionBanner({required this.state});
 
@@ -215,7 +229,6 @@ class _PendingDeletionBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool cancelling = state.status == AccountDeleteStatus.cancelling;
     final DateTime? due = state.scheduledFor;
-    // Defensive: a missing date (bad parse) falls back to the generic promise.
     final String line = due == null
         ? 'Account 7 din mein delete hoga'
         : 'Account ${absoluteDateLabel(due)} ko delete hoga';
@@ -224,27 +237,39 @@ class _PendingDeletionBanner extends StatelessWidget {
           horizontal: AppSpacing.s4, vertical: AppSpacing.s2),
       padding: const EdgeInsets.all(AppSpacing.s3),
       decoration: BoxDecoration(
-        color: AppColors.dangerTint,
+        color: AppColors.brandTint,
         borderRadius: BorderRadius.circular(AppRadii.md),
-        border: Border.all(color: AppColors.danger),
+        border: Border.all(color: AppColors.brand),
       ),
       child: Row(
         children: <Widget>[
-          const Icon(Icons.hourglass_top_rounded, color: AppColors.danger),
+          const Icon(Icons.mediation, color: AppColors.brand),
           const SizedBox(width: AppSpacing.s3),
           Expanded(
-            child: Text(
-              line,
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
-                weight: FontWeight.w600,
-                color: AppColors.danger,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  line,
+                  style: AppTypography.body(
+                    size: AppTypography.sizeSm,
+                    weight: FontWeight.w600,
+                    color: AppColors.ink800,
+                  ),
+                ),
+                Text(
+                  'Aap is dauraan cancel kar sakte hain',
+                  style: AppTypography.body(
+                    size: AppTypography.sizeXs,
+                    color: AppColors.textMuted,
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(width: AppSpacing.s2),
           TextButton(
-            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            style: TextButton.styleFrom(foregroundColor: AppColors.brand),
             onPressed: cancelling
                 ? null
                 : () => context.read<AccountDeleteCubit>().cancelDelete(),

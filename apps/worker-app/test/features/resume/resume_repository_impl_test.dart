@@ -89,7 +89,7 @@ void main() {
     MockClient serverWithResume(List<String> hits, {String name = 'OLD NAME'}) {
       return MockClient((http.Request req) async {
         hits.add('${req.method} ${req.url.path}');
-        if (req.url.path == '/workers/w1/profile') {
+        if (req.url.path == '/workers/me/profile') {
           return http.Response(
             jsonEncode(<String, dynamic>{
               'profile': <String, dynamic>{'id': 'p1'},
@@ -129,7 +129,34 @@ void main() {
         isEmpty,
         reason: 'a generate here overwrites the row and bins the rendered PDF',
       );
-      expect(hits.every((String h) => h == 'GET /workers/w1/profile'), isTrue);
+      expect(hits.every((String h) => h == 'GET /workers/me/profile'), isTrue);
+    });
+
+    test('uses the worker-self profile route so a logged-in worker can view the resume tab', () async {
+      final List<String> hits = <String>[];
+      final ResumeRepositoryImpl repo = ResumeRepositoryImpl(
+        ApiClient(
+          baseUrl: 'http://test',
+          client: MockClient((http.Request req) async {
+            hits.add('${req.method} ${req.url.path}');
+            if (req.url.path == '/workers/me/profile') {
+              return http.Response(
+                jsonEncode(<String, dynamic>{
+                  'profile': <String, dynamic>{'id': 'p1'},
+                  'resume': <String, dynamic>{'id': 'r1', 'resume_text': 'MY RESUME'},
+                }),
+                200,
+              );
+            }
+            return http.Response('{}', 404);
+          }),
+        ),
+        _session(resumeId: null),
+      );
+
+      expect(await repo.generateResume(), 'MY RESUME');
+      expect(hits, contains('GET /workers/me/profile'));
+      expect(hits, isNot(contains('GET /workers/w1/profile')));
     });
 
     test('force: true DOES regenerate even when a resume already exists',
@@ -168,7 +195,7 @@ void main() {
       final List<String> hits = <String>[];
       final MockClient client = MockClient((http.Request req) async {
         hits.add('${req.method} ${req.url.path}');
-        if (req.url.path == '/workers/w1/profile') {
+        if (req.url.path == '/workers/me/profile') {
           // Profile confirmed, but no resume row.
           return http.Response(
             jsonEncode(<String, dynamic>{

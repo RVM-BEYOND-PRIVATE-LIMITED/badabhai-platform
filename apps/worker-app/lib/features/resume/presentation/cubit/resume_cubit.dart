@@ -2,26 +2,34 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/error/failure.dart';
+import '../../domain/resume_edit_repository.dart';
 import '../../domain/resume_repository.dart';
+import '../../domain/resume_safe_fields.dart';
 
 enum ResumeStatus { loading, ready, failed, noProfile }
 
 class ResumeState extends Equatable {
-  const ResumeState({this.status = ResumeStatus.loading, this.resumeText = ''});
+  const ResumeState({
+    this.status = ResumeStatus.loading,
+    this.resumeText = '',
+    this.nightShiftReady = false,
+  });
 
   final ResumeStatus status;
   final String resumeText;
+  final bool nightShiftReady;
 
   @override
-  List<Object?> get props => <Object?>[status, resumeText];
+  List<Object?> get props => <Object?>[status, resumeText, nightShiftReady];
 }
 
 /// Drives the resume screen: a single generate-on-open action. A failure shows
 /// the app's standard retry view (rather than the original's stuck spinner).
 class ResumeCubit extends Cubit<ResumeState> {
-  ResumeCubit(this._repo) : super(const ResumeState());
+  ResumeCubit(this._repo, this._editRepo) : super(const ResumeState());
 
   final ResumeRepository _repo;
+  final ResumeEditRepository _editRepo;
 
   /// True while a load is in flight. The tab-focus refetch and the screen's own
   /// create:-time load can both fire around a first visit, and a second
@@ -43,7 +51,13 @@ class ResumeCubit extends Cubit<ResumeState> {
     try {
       final String text = await _repo.generateResume(force: force);
       if (isClosed) return; // screen popped before generation resolved
-      emit(ResumeState(status: ResumeStatus.ready, resumeText: text));
+      final bool nightShiftReady = await _loadNightShiftReady();
+      if (isClosed) return;
+      emit(ResumeState(
+        status: ResumeStatus.ready,
+        resumeText: text,
+        nightShiftReady: nightShiftReady,
+      ));
     } on ProfileIncompleteFailure {
       if (isClosed) return;
       emit(const ResumeState(status: ResumeStatus.noProfile));
@@ -73,7 +87,13 @@ class ResumeCubit extends Cubit<ResumeState> {
     try {
       final String text = await _repo.generateResume(); // force: false → reuse
       if (isClosed) return;
-      emit(ResumeState(status: ResumeStatus.ready, resumeText: text));
+      final bool nightShiftReady = await _loadNightShiftReady();
+      if (isClosed) return;
+      emit(ResumeState(
+        status: ResumeStatus.ready,
+        resumeText: text,
+        nightShiftReady: nightShiftReady,
+      ));
     } on ProfileIncompleteFailure {
       if (isClosed) return;
       if (state.status != ResumeStatus.ready) {
@@ -93,8 +113,37 @@ class ResumeCubit extends Cubit<ResumeState> {
 
   /// Display an already-generated resume (generated upstream by the Building
   /// screen) without re-running generation.
-  void showGenerated(String text) {
+  Future<void> showGenerated(String text) async {
+    // Show the text immediately; load the night-shift pref in the background.
     emit(ResumeState(status: ResumeStatus.ready, resumeText: text));
+    final bool nightShiftReady = await _loadNightShiftReady();
+    if (isClosed) return;
+    emit(ResumeState(
+      status: ResumeStatus.ready,
+      resumeText: text,
+      nightShiftReady: nightShiftReady,
+    ));
+  }
+
+  /// Reload only the night-shift pref from the server — lightweight, no
+  /// resume-text refetch. Used after the edit screen saves a prefs-only change.
+  Future<void> refreshNightShift() async {
+    final bool nightShiftReady = await _loadNightShiftReady();
+    if (isClosed) return;
+    emit(ResumeState(
+      status: ResumeStatus.ready,
+      resumeText: state.resumeText,
+      nightShiftReady: nightShiftReady,
+    ));
+  }
+
+  Future<bool> _loadNightShiftReady() async {
+    try {
+      final ResumeSafeFields fields = await _editRepo.load();
+      return fields.nightShiftReady;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Resolves a short-lived signed url for the resume PDF, or null if it could

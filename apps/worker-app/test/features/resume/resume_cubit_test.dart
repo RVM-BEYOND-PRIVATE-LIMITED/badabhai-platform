@@ -3,26 +3,46 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/error/failure.dart';
+import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_repository.dart';
+import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_cubit.dart';
 
 class MockResumeRepository extends Mock implements ResumeRepository {}
 
+class MockResumeEditRepository extends Mock implements ResumeEditRepository {}
+
 void main() {
   late MockResumeRepository repo;
-  setUp(() => repo = MockResumeRepository());
+  late MockResumeEditRepository editRepo;
+
+  setUp(() {
+    repo = MockResumeRepository();
+    editRepo = MockResumeEditRepository();
+    when(() => editRepo.load()).thenAnswer(
+      (_) async => const ResumeSafeFields(
+        displayName: 'Test',
+        showPhoto: true,
+        nightShiftReady: false,
+      ),
+    );
+  });
 
   // bloc emits the first state even when it equals the initial `loading`.
   blocTest<ResumeCubit, ResumeState>(
     'generate success -> ready with the resume text',
     build: () {
       when(() => repo.generateResume()).thenAnswer((_) async => 'RESUME TEXT');
-      return ResumeCubit(repo);
+      return ResumeCubit(repo, editRepo);
     },
     act: (ResumeCubit c) => c.generate(),
     expect: () => const <ResumeState>[
       ResumeState(status: ResumeStatus.loading),
-      ResumeState(status: ResumeStatus.ready, resumeText: 'RESUME TEXT'),
+      ResumeState(
+        status: ResumeStatus.ready,
+        resumeText: 'RESUME TEXT',
+        nightShiftReady: false,
+      ),
     ],
     verify: (_) => verify(() => repo.generateResume()).called(1),
   );
@@ -31,7 +51,7 @@ void main() {
     'generate failure -> failed (not a stuck spinner)',
     build: () {
       when(() => repo.generateResume()).thenThrow(const NetworkFailure());
-      return ResumeCubit(repo);
+      return ResumeCubit(repo, editRepo);
     },
     act: (ResumeCubit c) => c.generate(),
     expect: () => const <ResumeState>[
@@ -43,7 +63,7 @@ void main() {
   test('resolveDownloadUrl returns the signed url on success', () async {
     when(() => repo.resumeDownloadUrl())
         .thenAnswer((_) async => 'https://signed/u?token=x');
-    final ResumeCubit cubit = ResumeCubit(repo);
+    final ResumeCubit cubit = ResumeCubit(repo, editRepo);
     expect(await cubit.resolveDownloadUrl(), 'https://signed/u?token=x');
     verify(() => repo.resumeDownloadUrl()).called(1);
   });
@@ -51,7 +71,7 @@ void main() {
   test('resolveDownloadUrl PROPAGATES the Failure (so the launcher shows the '
       'real reason, not a blank generic line)', () {
     when(() => repo.resumeDownloadUrl()).thenThrow(const UnauthorizedFailure());
-    final ResumeCubit cubit = ResumeCubit(repo);
+    final ResumeCubit cubit = ResumeCubit(repo, editRepo);
     expect(() => cubit.resolveDownloadUrl(), throwsA(isA<UnauthorizedFailure>()));
   });
 
@@ -63,7 +83,7 @@ void main() {
     test('refresh NEVER forces a regenerate', () async {
       when(() => repo.generateResume(force: any(named: 'force')))
           .thenAnswer((_) async => 'resume text');
-      final ResumeCubit cubit = ResumeCubit(repo);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
       addTearDown(cubit.close);
 
       await cubit.refresh();
@@ -77,12 +97,12 @@ void main() {
     test('a failed refresh keeps the resume already on screen', () async {
       when(() => repo.generateResume(force: any(named: 'force')))
           .thenThrow(const NetworkFailure());
-      final ResumeCubit cubit = ResumeCubit(repo);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
       addTearDown(cubit.close);
 
       // The worker is reading a resume; a background blip must not replace it
       // with an error screen.
-      cubit.showGenerated('good resume');
+      await cubit.showGenerated('good resume');
       await cubit.refresh();
 
       expect(cubit.state.status, ResumeStatus.ready);
@@ -93,7 +113,7 @@ void main() {
         () async {
       when(() => repo.generateResume(force: any(named: 'force')))
           .thenThrow(const NetworkFailure());
-      final ResumeCubit cubit = ResumeCubit(repo);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
       addTearDown(cubit.close);
 
       await cubit.refresh();
@@ -107,9 +127,9 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 20));
         return 'fresh';
       });
-      final ResumeCubit cubit = ResumeCubit(repo);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
       addTearDown(cubit.close);
-      cubit.showGenerated('stale');
+      await cubit.showGenerated('stale');
 
       final List<ResumeStatus> seen = <ResumeStatus>[];
       final sub = cubit.stream.listen((ResumeState s) => seen.add(s.status));
@@ -130,7 +150,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 50));
         return 'resume text';
       });
-      final ResumeCubit cubit = ResumeCubit(repo);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
       addTearDown(cubit.close);
 
       // Tab focus can fire while the create:-time generate is still in flight.
