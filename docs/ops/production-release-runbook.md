@@ -86,10 +86,19 @@ Order matters: each flip's precondition is the previous one.
 | 6 | `+skill_embedding` in the allowlist | #5 | Remove from allowlist |
 | 7 | Run the embed-skill-aliases seeder in production (two-act override) | #6 | Re-runnable; `--reset-embeddings` to redo |
 | 8 | `SKILL_CANONICALIZE_ENABLED=true` | #7, embedded-row count verified | Flag off → phrases stay free text, exactly as today |
-| 9 | `+stt_transcription` in the allowlist | **P0-1 (Sarvam DPA)**, private voice bucket confirmed | Remove from allowlist, or the kill switch |
+| 9 | `+stt_transcription` in the allowlist | **P0-1 (Sarvam DPA)**, private voice bucket confirmed, **`GEMINI_FLASH_API_KEY` set** (see note) | Remove from allowlist, or the kill switch |
 | 10 | `CHAT_ONE_SHOT_OPENER_ENABLED=true` | — | Flag off → client fallback copy |
 | 11 | `PAYMENTS_ENABLE_REAL=true` + all three secrets | P0-5 | Flag off → mock purchases resume; captured real payments still honored via webhook |
 | 12 | `MATCH_V1_ENABLED=true` | P1 + P3 complete and verified | **Flag off** → legacy feed and payer list return; the legacy code is still present until the retirement change |
+
+**On STT (#9), an accepted coupling worth knowing before you hit it:** closing the STT gating
+hole meant routing it through the single `real_calls_blocked_reason()` helper — which is what
+finally puts real audio behind the kill switch and the allowlist. That helper also requires
+`GEMINI_FLASH_API_KEY`, so **real STT now needs the LLM master credential even if you are
+enabling nothing but transcription.** The direction is fail-closed and there is now exactly one
+definition of "real calls are on", which is the point. But an environment that intended to run
+voice without any LLM will refuse to transcribe until that key is present, and the error will
+name the credential rather than the coupling.
 
 **On canonicalization (#8), one honest number:** measured precision is 1.000 and anchor-domain
 recall is 0.350. A miss leaves the raw phrase exactly as the flag-off path does, so enabling it is
