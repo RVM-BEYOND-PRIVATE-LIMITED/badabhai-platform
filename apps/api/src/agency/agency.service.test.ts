@@ -352,6 +352,36 @@ describe("AgencyService.recordInviteClick (no-oracle)", () => {
     await svc.recordInviteClick("abc123abc123");
     expect(invitesRepo.setStatus).toHaveBeenCalledWith(INVITE_ID, "clicked");
   });
+
+  // ---- TD113: the stage finally has an EVENT (it previously moved a status silently) ----
+
+  it("emits agency_invite.clicked for a known code — ids + channel ONLY, no worker handle", async () => {
+    const { svc, emit } = make({
+      invite: { id: INVITE_ID, inviterPayerId: PAYER_A, invitedWorkerId: null, status: "created" },
+    });
+    await svc.recordInviteClick("abc123abc123");
+    const evt = firstEmit(emit);
+    expect(evt.event_name).toBe("agency_invite.clicked");
+    expect(evt.subject).toMatchObject({ subject_type: "agency_invite", subject_id: INVITE_ID });
+    // A click precedes the DPDP consent gate, so NO worker identity may be recorded (#6).
+    expect(Object.keys(evt.payload).sort()).toEqual(
+      ["agency_invite_id", "channel", "inviter_payer_id"].sort(),
+    );
+    // The opaque code is a shareable bearer token — never on the spine.
+    expect(JSON.stringify(evt.payload)).not.toContain("abc123abc123");
+  });
+
+  it("still emits agency_invite.clicked for an ALREADY-clicked code (a re-open is a real click)", async () => {
+    const { svc, emit, invitesRepo } = make({
+      invite: { id: INVITE_ID, inviterPayerId: PAYER_A, invitedWorkerId: null, status: "clicked" },
+    });
+    await svc.recordInviteClick("abc123abc123");
+    expect(invitesRepo.setStatus).not.toHaveBeenCalled(); // no status regression
+    expect(firstEmit(emit).event_name).toBe("agency_invite.clicked");
+    // UNKEYED like the sibling invite.clicked: collapsing repeat opens would destroy the
+    // funnel signal the event exists to provide.
+    expect((emit.mock.calls[0]![0] as { idempotencyKey?: string }).idempotencyKey).toBeUndefined();
+  });
 });
 
 describe("AgencyService.attributeWorkerToInvite (consent-gated, internal seam)", () => {
@@ -389,6 +419,41 @@ describe("AgencyService.attributeWorkerToInvite (consent-gated, internal seam)",
     expect(evt.event_name).toBe("agency_invite.accepted");
     expect(evt.payload.invited_worker_id).toBe(WORKER_ID);
     expect(evt.payload.inviter_payer_id).toBe(PAYER_A);
+  });
+
+  // ---- B4: which leg of the post-Dynamic-Links chain carried the code ----
+
+  it("ALSO emits invite.install (kind=agency) carrying the source, on the agency subject", async () => {
+    const { svc, emit } = make({
+      invite: { id: INVITE_ID, inviterPayerId: PAYER_A, invitedWorkerId: null, status: "clicked" },
+      consent: { revokedAt: null },
+    });
+    await svc.attributeWorkerToInvite("abc123abc123", WORKER_ID, "app_link");
+    const install = emit.mock.calls[1]![0] as {
+      event_name: string;
+      subject: { subject_type: string };
+      payload: Record<string, unknown>;
+      idempotencyKey: string;
+    };
+    expect(install.event_name).toBe("invite.install");
+    expect(install.subject.subject_type).toBe("agency_invite");
+    expect(install.payload).toEqual({
+      invite_id: INVITE_ID,
+      invite_kind: "agency",
+      source: "app_link",
+    });
+    expect(install.idempotencyKey).toBe(`invite.install:${INVITE_ID}`);
+  });
+
+  it("source DEFAULTS to 'unknown' for callers that do not supply one (invariant #8)", async () => {
+    const { svc, emit } = make({
+      invite: { id: INVITE_ID, inviterPayerId: PAYER_A, invitedWorkerId: null, status: "clicked" },
+      consent: { revokedAt: null },
+    });
+    await svc.attributeWorkerToInvite("abc123abc123", WORKER_ID);
+    expect((emit.mock.calls[1]![0] as { payload: { source: string } }).payload.source).toBe(
+      "unknown",
+    );
   });
 
   it("no-ops on unknown code and on already-attributed invite (no event)", async () => {

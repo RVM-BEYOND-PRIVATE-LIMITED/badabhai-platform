@@ -49,6 +49,57 @@ describe("InviteService — funnel + PII-free attribution (ADR-0020)", () => {
     expect(emit.mock.calls[0]![0]).toMatchObject({ event_name: "invite.accepted" });
   });
 
+  // ---- B4: the install actually attributed, + WHICH leg of the chain delivered it ----
+
+  it("recordAccept ALSO emits invite.install with the source, keyed once per invite", async () => {
+    const { svc, emit } = harness({
+      findByCode: vi.fn().mockResolvedValue({ id: "inv-1", inviterWorkerId: "A", invitedWorkerId: null }),
+    });
+    await svc.recordAccept("code1", "B", "install_referrer");
+    const install = emit.mock.calls[1]![0] as {
+      event_name: string;
+      payload: Record<string, unknown>;
+      idempotencyKey: string;
+    };
+    expect(install.event_name).toBe("invite.install");
+    expect(install.payload).toEqual({
+      invite_id: "inv-1",
+      invite_kind: "worker",
+      source: "install_referrer",
+    });
+    expect(install.idempotencyKey).toBe("invite.install:inv-1");
+    // The shareable CODE is a bearer token and must never ride the spine.
+    expect(JSON.stringify(install.payload)).not.toContain("code1");
+  });
+
+  it("source DEFAULTS to 'unknown' — a pre-B4 client that sends none still attributes", async () => {
+    const { svc, emit } = harness({
+      findByCode: vi.fn().mockResolvedValue({ id: "inv-1", inviterWorkerId: "A", invitedWorkerId: null }),
+    });
+    await svc.recordAccept("code1", "B");
+    expect((emit.mock.calls[1]![0] as { payload: { source: string } }).payload.source).toBe(
+      "unknown",
+    );
+  });
+
+  it("emits NO invite.install when attribution does not happen (self / duplicate / unknown)", async () => {
+    const self = harness({
+      findByCode: vi.fn().mockResolvedValue({ id: "inv-1", inviterWorkerId: "A", invitedWorkerId: null }),
+    });
+    await self.svc.recordAccept("code1", "A", "app_link");
+    expect(self.emit).not.toHaveBeenCalled();
+
+    const dup = harness({
+      findByCode: vi.fn().mockResolvedValue({ id: "inv-1", inviterWorkerId: "A", invitedWorkerId: "X" }),
+    });
+    await dup.svc.recordAccept("code1", "B", "app_link");
+    expect(dup.emit).not.toHaveBeenCalled();
+
+    const unknown = harness({ findByCode: vi.fn().mockResolvedValue(undefined) });
+    await unknown.svc.recordAccept("code1", "B", "app_link");
+    expect(unknown.emit).not.toHaveBeenCalled();
+  });
+
   it("rejects a SELF-invite (anti-abuse) and emits nothing", async () => {
     const { svc, emit } = harness({
       findByCode: vi.fn().mockResolvedValue({ id: "inv-1", inviterWorkerId: "A", invitedWorkerId: null }),
@@ -72,9 +123,11 @@ describe("InviteService — funnel + PII-free attribution (ADR-0020)", () => {
     expect(await svc.recordAccept("code1", "B")).toEqual({ ok: false, reason: "already_attributed" });
   });
 
-  it("recordClick is neutral on an unknown code", async () => {
-    const { svc } = harness({ findByCode: vi.fn().mockResolvedValue(undefined) });
-    expect(await svc.recordClick("nope")).toEqual({ ok: false });
+  it("recordClick reports unknown_code so the public path can try the AGENCY code space", async () => {
+    const { svc, emit } = harness({ findByCode: vi.fn().mockResolvedValue(undefined) });
+    // Internal signal only — the HTTP surface stays neutral (see MessagingController).
+    expect(await svc.recordClick("nope")).toEqual({ ok: false, reason: "unknown_code" });
+    expect(emit).not.toHaveBeenCalled();
   });
 
   // ---- ADR-0026 Phase 5: invites.inviter_worker_id became NULLABLE (DSAR SET NULL) ----

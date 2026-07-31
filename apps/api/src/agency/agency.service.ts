@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import type { PayloadInputOf } from "@badabhai/event-schema";
+import type { InviteInstallSource, PayloadInputOf } from "@badabhai/event-schema";
 import type { Job, JobNeededBy, TradeKey } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
@@ -352,15 +352,38 @@ export class AgencyService {
    * (no-oracle — the response is identical whether the code exists or not). This is NOT
    * owner-scoped (a click arrives from anyone with the link), but it carries no PII and
    * leaks nothing about the agency. Does NOT advance to 'accepted' (that is the gated seam).
+   *
+   * TD113: this now EMITS `agency_invite.clicked` on a known code — the stage had a status
+   * column but no event, so the agency funnel's middle was invisible on the audit spine
+   * (invariant #1). An UNKNOWN code emits NOTHING, which is what keeps the public caller
+   * from being an existence oracle: the response is byte-identical either way.
+   *
+   * NO WORKER HANDLE: a click happens BEFORE the DPDP consent gate, so no worker identity
+   * is read, written, or emitted here (invariant #6) — `agency_invite.accepted` remains the
+   * only agency event that carries a worker id.
    */
   async recordInviteClick(code: string): Promise<{ ok: true }> {
     const invite = await this.invitesRepo.findByCode(code);
-    // Unknown code → neutral no-op (same response shape, no oracle).
+    // Unknown code → neutral no-op (same response shape, no oracle, no event).
     if (!invite) return { ok: true };
     // Only advance created -> clicked (don't regress an accepted/clicked invite).
     if (invite.status === "created") {
       await this.invitesRepo.setStatus(invite.id, "clicked");
     }
+    const payload: PayloadInputOf<"agency_invite.clicked"> = {
+      agency_invite_id: invite.id,
+      inviter_payer_id: invite.inviterPayerId,
+      channel: "whatsapp",
+    };
+    // DELIBERATELY UNKEYED, exactly like the sibling `invite.clicked`: a click is a
+    // repeatable behavioural fact (the same link can be opened many times) and collapsing
+    // them would destroy the funnel signal this event exists to provide.
+    await this.events.emit({
+      event_name: "agency_invite.clicked",
+      actor: { actor_type: "system", actor_id: null },
+      subject: { subject_type: "agency_invite", subject_id: invite.id },
+      payload,
+    });
     return { ok: true };
   }
 
@@ -381,7 +404,16 @@ export class AgencyService {
    * NO event is emitted. Also no-ops on an unknown code or an already-attributed invite
    * (idempotent).
    */
-  async attributeWorkerToInvite(code: string, workerId: string): Promise<AttributionResult> {
+  async attributeWorkerToInvite(
+    code: string,
+    workerId: string,
+    /**
+     * B4 — which leg of the post-Dynamic-Links chain carried the code across the Play
+     * Store round-trip. OPTIONAL, defaults to "unknown": every existing caller keeps
+     * compiling and every pre-B4 client keeps working unchanged (invariant #8).
+     */
+    source: InviteInstallSource = "unknown",
+  ): Promise<AttributionResult> {
     const invite = await this.invitesRepo.findByCode(code);
     if (!invite) return { ok: false, reason: "unknown_code" };
     if (invite.invitedWorkerId) return { ok: false, reason: "already_attributed" };
@@ -413,6 +445,17 @@ export class AgencyService {
       subject: { subject_type: "agency_invite", subject_id: invite.id },
       payload,
       idempotencyKey: `agency_invite.accepted:${invite.id}`,
+    });
+
+    // B4 — the install ACTUALLY attributed + which leg delivered it. Same instant as
+    // `accepted` above, different question (`source`). The `markAccepted` single-winner
+    // write guarantees at most one per invite; the key makes a retry a no-op.
+    await this.events.emit({
+      event_name: "invite.install",
+      actor: { actor_type: "system", actor_id: null },
+      subject: { subject_type: "agency_invite", subject_id: invite.id },
+      payload: { invite_id: invite.id, invite_kind: "agency", source },
+      idempotencyKey: `invite.install:${invite.id}`,
     });
 
     return { ok: true };

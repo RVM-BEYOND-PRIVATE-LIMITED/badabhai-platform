@@ -3322,3 +3322,96 @@ textarea.input {
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
 }
+
+/* ------------------------------------------------------------------
+ * PUBLIC REFERRAL LANDING (`/i/<code>`, blocker B4) — the ONLY worker-facing surface in
+ * this app. Mobile-first and deliberately tiny: a ₹7k phone on 3G renders it with zero
+ * client JS, no images and no extra round-trips, so it is pure token-driven CSS on top of
+ * the DS button. `--app-max` is the worker mobile canvas, which is exactly the right measure.
+ * ------------------------------------------------------------------ */
+.invite-landing {
+  flex: 1 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5) var(--space-4);
+  background: var(--surface-page);
+}
+.invite-landing__card {
+  width: 100%;
+  max-width: var(--app-max);
+  background: var(--surface-card);
+  border: var(--border-hairline) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-6) var(--space-5);
+}
+.invite-landing__eyebrow {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--brand-press);
+}
+.invite-landing__title {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-3);
+}
+.invite-landing__sub {
+  margin: 0 0 var(--space-5);
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+}
+/* The CTA is the ONE job of this page — full-bleed and thumb-reachable on a small screen. */
+.invite-landing__cta {
+  margin-bottom: var(--space-5);
+  text-align: center;
+}
+.invite-landing__steps {
+  list-style: none;
+  margin: 0 0 var(--space-5);
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+.invite-landing__step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+}
+.invite-landing__step-num {
+  flex: 0 0 auto;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-round);
+  background: var(--brand-tint-2);
+  color: var(--brand-press);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-sm);
+}
+.invite-landing__note {
+  margin: 0 0 var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.invite-landing__note--muted {
+  margin-bottom: 0;
+  color: var(--text-faint);
+}
+/* The root layout's footer says "BadaBhai for Employers" — true everywhere else in this app,
+   wrong on its one worker-facing page. There is a single root layout (a second one would mean
+   restructuring every existing route), so the footer is hidden from here instead. `:has()`
+   degrades to "the footer stays visible" on an old browser, which is purely cosmetic. */
+body:has(.invite-landing) .chrome-footer {
+  display: none;
+}

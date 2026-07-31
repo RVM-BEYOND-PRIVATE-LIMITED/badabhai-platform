@@ -352,6 +352,30 @@ export const WorkerOtpSendFailedPayload = z
   .strict();
 export type WorkerOtpSendFailedPayload = z.infer<typeof WorkerOtpSendFailedPayload>;
 
+/**
+ * The RETENTION signal (§X.6, previously NOT FOUND on the spine): an authenticated worker
+ * was active on a given UTC day. This is the denominator every activation/retention question
+ * needs — "did the referred worker come back?" — and without it the referral funnel ends at
+ * install and goes dark.
+ *
+ * AT MOST ONCE PER WORKER PER UTC DAY, by construction: the producer keys the events-table
+ * idempotency key on `worker.active:<worker_id>:<day>`, so a worker making a thousand requests
+ * writes exactly one row. The event is therefore a coarse DAILY-ACTIVE fact, NOT a request
+ * log — it deliberately carries no route, no session id, no ip/ip_hash, no user-agent, and no
+ * timestamp finer than the day, so it can never be turned into a per-worker movement trace.
+ *
+ * PII-FREE: the opaque worker id + a `YYYY-MM-DD` UTC day bucket ONLY. `.strict()` blocks
+ * smuggling a phone / route / device id alongside.
+ */
+export const WorkerActivePayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** COARSE UTC day bucket `YYYY-MM-DD` — never a timestamp (that would be a trace). */
+    day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "day must be a UTC day bucket YYYY-MM-DD"),
+  })
+  .strict();
+export type WorkerActivePayload = z.infer<typeof WorkerActivePayload>;
+
 // ---------------------------------------------------------------------------
 // consent.*
 // ---------------------------------------------------------------------------
@@ -1301,6 +1325,58 @@ export const InviteAcceptedPayload = z.object({
   invited_worker_id: uuidSchema,
 });
 
+/**
+ * WHICH transport carried the referral payload across the Play Store round-trip (blocker
+ * B4). Firebase Dynamic Links died 2025-08-25; the replacement chain is a self-hosted
+ * `/i/<code>` resolver + Play Install Referrer, and this enum is how we measure which leg
+ * of that chain actually delivered the attribution:
+ *   - "app_link"         the app was already installed and intercepted the verified
+ *                        Android App Link (`https://app.badabhai.in/i/<code>`).
+ *   - "install_referrer" a fresh install: the code came back via the Play Install
+ *                        Referrer (`referrer=bb_code=<code>`) on first run.
+ *   - "custom_scheme"    a `badabhai://` deep link (the legacy/fallback leg).
+ *   - "unknown"          the client did not (or could not) say — the safe DEFAULT, and
+ *                        what every pre-B4 client sends, since `source` is OPTIONAL on the
+ *                        wire (invariant #8: old clients keep working unchanged).
+ * A CLOSED enum, never free text — so no client-supplied string can ride onto the spine.
+ */
+export const INVITE_INSTALL_SOURCES = [
+  "app_link",
+  "install_referrer",
+  "custom_scheme",
+  "unknown",
+] as const;
+export const InviteInstallSource = z.enum(INVITE_INSTALL_SOURCES);
+export type InviteInstallSource = z.infer<typeof InviteInstallSource>;
+
+/**
+ * The install was ACTUALLY ATTRIBUTED — the moment the referral chain closed (blocker B4 /
+ * §X.6, previously NOT FOUND on the spine). Emitted at the same instant as the matching
+ * `invite.accepted` / `agency_invite.accepted`, and only ever on a SUCCESSFUL attribution,
+ * but it answers a different question: *how* the payload survived the Play Store round-trip
+ * (`source`). Without it, a broken App Link / Install Referrer leg is invisible — the
+ * funnel just silently loses agents.
+ *
+ * ONE event covers BOTH funnels (worker→worker `invites` and agency→worker `agency_invites`),
+ * discriminated by `invite_kind`; the subject carries the matching subject_type, so the two
+ * are never conflated on the spine.
+ *
+ * PII-FREE by construction: the opaque ROW id (`invite_id`) — NEVER the shareable `code`,
+ * which `invite.clicked`/`agency_invite.created` also deliberately omit (it is a bearer
+ * token: anyone holding it can claim the referral) — plus two closed enums. No phone, no
+ * name, no worker id (the attribution join already lives on `*.accepted`). `.strict()` is
+ * the structural backstop against smuggling a code/phone alongside.
+ */
+export const InviteInstallPayload = z
+  .object({
+    /** The opaque `invites.id` / `agency_invites.id` — never the shareable code. */
+    invite_id: uuidSchema,
+    invite_kind: z.enum(["worker", "agency"]),
+    source: InviteInstallSource,
+  })
+  .strict();
+export type InviteInstallPayload = z.infer<typeof InviteInstallPayload>;
+
 /** A re-engagement/invite message was REQUESTED (consent already checked upstream). */
 export const MessagingRequestedPayload = z.object({
   message_id: uuidSchema,
@@ -1640,6 +1716,32 @@ export const AgencyInviteCreatedPayload = z.object({
 export type AgencyInviteCreatedPayload = z.infer<typeof AgencyInviteCreatedPayload>;
 
 /**
+ * An agency referral deep-link was OPENED (TD113). The payer-axis sibling of
+ * `invite.clicked` — the agency funnel shipped `created`/`accepted` but no `clicked`, so
+ * the middle of the funnel had no event at all even though the agency's own stage COUNTS
+ * already tracked it. Adding it (rather than reusing `invite.clicked`) keeps the two
+ * funnels distinguishable on the spine: the inviter is a PAYER here, not a worker.
+ *
+ * Emitted from the PUBLIC click path — the invited worker is the only party who can
+ * actually click, so this is NOT owner-scoped and is NEUTRAL on an unknown code (an
+ * unknown code emits nothing at all, which is what keeps the endpoint from being an
+ * existence oracle).
+ *
+ * PII-FREE: the opaque row id + the opaque owning agency + the channel enum. NEVER the
+ * shareable `code` (a bearer token), never a worker handle — a click happens BEFORE the
+ * DPDP consent gate, so no worker identity may be recorded here (invariant #6);
+ * `agency_invite.accepted` is the only agency event that carries a worker id. `.strict()`.
+ */
+export const AgencyInviteClickedPayload = z
+  .object({
+    agency_invite_id: uuidSchema,
+    inviter_payer_id: uuidSchema,
+    channel: MessageChannelEnum,
+  })
+  .strict();
+export type AgencyInviteClickedPayload = z.infer<typeof AgencyInviteClickedPayload>;
+
+/**
  * An invited person became a worker AND has an ACTIVE consent (invariant #6) — the
  * attribution link. Both ids opaque. This is the ONLY agency_invite event that carries a
  * worker handle, and it is emitted EXCLUSIVELY from the consent-gated internal seam (never
@@ -1918,3 +2020,46 @@ export const SkillPhraseUnresolvedPayload = z
   })
   .strict();
 export type SkillPhraseUnresolvedPayload = z.infer<typeof SkillPhraseUnresolvedPayload>;
+
+// ---------------------------------------------------------------------------
+// referral.* — the WORKER-referral activation bonus (blocker B4 / §X.6).
+//
+// The single most valuable referral fraud control in the plan: the ₹20 is accrued ONLY
+// when a referred worker completes a profile AND is unlocked by a paying party. Both legs
+// are things a fraudster cannot manufacture for free, which kills the referral-farm
+// economics before they start — so the ACCRUAL is the event worth recording, and there is
+// deliberately no event on click / install / upload (those prove nothing).
+//
+// MOCK LEDGER, NO DISBURSEMENT: nothing pays out in this release (mirrors `agency_payout.*`
+// and the ADR-0022 posture — real outbound money is the §7 launch gate). There is
+// deliberately NO `referral.bonus_paid` event: an event name is a promise, and adding one
+// before a ratified payout rail would imply a capability that does not exist.
+//
+// PII-FREE: opaque accrual/worker ids + a whole-rupee integer ONLY. The fraud checks read
+// `workers.phone_hash`, and that hash NEVER appears here (or in any log) — a hash tied to
+// two worker ids in one payload would be a re-identification join. The disqualify REASON is
+// likewise not carried: nothing is emitted at all when a bonus is refused.
+// ---------------------------------------------------------------------------
+
+/**
+ * A referred worker QUALIFIED and the ₹20 activation bonus was accrued to their inviter.
+ * Emitted EXACTLY ONCE per referred worker, ever — enforced by the UNIQUE constraint on
+ * `referral_bonus_accruals.invited_worker_id` (the row is the idempotency key; no row
+ * written ⇒ no event), not by a best-effort check.
+ *
+ * `amount_inr` is WHOLE RUPEES (integer — never paise, matching `agency_payout.*`).
+ * `.strict()` rejects any extra key, so a phone_hash / reason string / name can never ride
+ * along.
+ */
+export const ReferralBonusAccruedPayload = z
+  .object({
+    /** The opaque `referral_bonus_accruals.id` (also the event subject). */
+    accrual_id: uuidSchema,
+    /** The worker who is OWED the bonus (opaque). */
+    inviter_worker_id: uuidSchema,
+    /** The referred worker who QUALIFIED (opaque). */
+    invited_worker_id: uuidSchema,
+    amount_inr: z.number().int().positive(),
+  })
+  .strict();
+export type ReferralBonusAccruedPayload = z.infer<typeof ReferralBonusAccruedPayload>;

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { InviteInstallSource } from "@badabhai/event-schema";
 
 /**
  * The opaque referral code carried by a shared `/i/<code>` deep-link. BOTH the
@@ -12,5 +13,16 @@ export const AttributeReferralSchema = z.object({
     .string()
     .trim()
     .regex(/^[a-f0-9]{12}$/, "invalid referral code"),
+  /**
+   * B4 — which leg of the post-Dynamic-Links chain carried the code across the Play Store
+   * round-trip (Firebase Dynamic Links died 2025-08-25; the replacement is the self-hosted
+   * `/i/<code>` resolver + Play Install Referrer). Recorded on `invite.install` so a broken
+   * leg is VISIBLE instead of silently costing attributions.
+   *
+   * OPTIONAL by design (invariant #8): every already-shipped client posts `{code}` only and
+   * keeps working unchanged — the service defaults a missing/omitted value to "unknown".
+   * A CLOSED enum, so no client-supplied free text can ever reach the event spine.
+   */
+  source: InviteInstallSource.optional(),
 });
 export type AttributeReferralDto = z.infer<typeof AttributeReferralSchema>;
