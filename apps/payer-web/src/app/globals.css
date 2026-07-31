@@ -1809,6 +1809,88 @@ textarea.input {
 }
 
 /* ------------------------------------------------------------------
+ * MATCH SKILL PICKER (ADR-0036) — the posting form's MATCHABLE half.
+ *
+ * The reach counter is the most important number on the page: it is the only place a
+ * company sees, before paying, how many workers its choice actually reaches. So it gets
+ * the visual weight (its own bordered strip), and the zero-reach panel gets the warning
+ * treatment — E13 says never take money for a posting into a void, and a line of muted
+ * body text would not carry that.
+ *
+ * Chips are the DS primitive; only layout is added here. Every value is a token.
+ * ------------------------------------------------------------------ */
+.match-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.match-picker__title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  margin: 0 0 var(--space-1);
+}
+.match-picker__hint,
+.match-picker__empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+.match-picker__vocab,
+.match-picker__related [role="group"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.match-picker__related {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.match-picker__related-label {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.match-picker__reach {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3) 0 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.match-picker__reach:empty {
+  display: none;
+}
+.match-picker__tier1,
+.match-picker__loading {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.match-picker__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+.match-picker__zero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+.match-picker__zero p {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+}
+
+/* ------------------------------------------------------------------
  * MANAGE POSTINGS (DS2.2) — the EMPLOYER postings list + manager re-skinned onto the
  * design system. Each posting is a DS Card with its REAL status Badge, mono-tabular
  * applicant counts, and a link to its faceless applicant feed (a LIVE payer-authed read).

@@ -11,6 +11,8 @@ import { Badge, Button, Card, Chip, Input, Textarea } from "../../../../componen
 // just this interactive combobox while rendering the other hookless DS primitives for real.
 import { SelectMenu } from "../../../../components/ds/select-menu";
 import { createPostingAction } from "./actions";
+import { MatchSkillPicker, type MatchSelection } from "./match-skill-picker";
+import type { MatchSkillWire, ReachPreview } from "../../../../lib/contracts";
 
 /**
  * Client form for posting a job (EMPLOYER self-serve), re-skinned onto the BadaBhai Design
@@ -152,7 +154,14 @@ function validate(fields: FormFields): FieldErrors {
   return errs;
 }
 
-export function PostingForm({ quotaStep = null }: { quotaStep?: number | null } = {}) {
+export function PostingForm({
+  quotaStep = null,
+  matchSkills = [],
+}: {
+  quotaStep?: number | null;
+  /** The closed match vocabulary, fetched by the SERVER page (ADR-0036). */
+  matchSkills?: MatchSkillWire[];
+} = {}) {
   const router = useRouter();
   // useState order (mirrored by posting-form.test.tsx): fields, fieldErrors, error, navigating.
   const [fields, setFields] = useState<FormFields>(BLANK);
@@ -164,10 +173,23 @@ export function PostingForm({ quotaStep = null }: { quotaStep?: number | null } 
   // This keeps the submit button disabled across the success→navigation window so it can
   // never look unsubmitted or be re-clicked (no double create).
   const [navigating, setNavigating] = useState(false);
+  // ADR-0036 — the MATCHABLE half. Declared AFTER `navigating` so the useState call order
+  // documented above (fields, fieldErrors, error, navigating) keeps its prefix; the test
+  // suite injects state positionally and a mid-list insert would silently reassign it.
+  // Held here rather than inside the picker so `onSubmit` sends one body and the submit
+  // button can read the live reach.
+  const [selection, setSelection] = useState<MatchSelection>({
+    matchSkillIds: [],
+    untickedRelatedIds: [],
+  });
+  const [preview, setPreview] = useState<ReachPreview | null>(null);
   const [pending, startTransition] = useTransition();
 
-  // Disable-submit-until-valid (parity with the agency form template).
-  const isValid = Object.keys(validate(fields)).length === 0;
+  // Disable-submit-until-valid (parity with the agency form template). A posting with no
+  // match skill would publish and reach NOBODY, so the skill is part of "valid" here —
+  // the same rule the server action enforces before it creates anything.
+  const isValid =
+    Object.keys(validate(fields)).length === 0 && selection.matchSkillIds.length > 0;
 
   function set<K extends keyof FormFields>(key: K, value: string) {
     setFields((prev) => ({ ...prev, [key]: value }));
@@ -194,6 +216,8 @@ export function PostingForm({ quotaStep = null }: { quotaStep?: number | null } 
         payMax: optInt(fields.payMax),
         minExperienceYears: optInt(fields.minExperienceYears),
         maxExperienceYears: optInt(fields.maxExperienceYears),
+        matchSkillIds: selection.matchSkillIds,
+        untickedRelatedIds: selection.untickedRelatedIds,
       });
       if (res.ok) {
         // Latch BEFORE navigating: keep submit disabled until this form unmounts.
@@ -326,6 +350,28 @@ export function PostingForm({ quotaStep = null }: { quotaStep?: number | null } 
         />
       </div>
 
+      {/*
+        ADR-0036 — the MATCHABLE half. Rendered only when the server page supplied the
+        vocabulary: an empty list means `GET /payer/match/skills` failed, and showing an
+        empty picker would read as "there are no skills" rather than "we could not load
+        them". The submit button stays disabled in that case (no skill can be picked),
+        which is the correct fail-closed outcome for a form whose whole job is to make
+        the posting reachable.
+      */}
+      {matchSkills.length > 0 ? (
+        <MatchSkillPicker
+          vocabulary={matchSkills}
+          selection={selection}
+          onChange={setSelection}
+          onPreviewChange={setPreview}
+        />
+      ) : (
+        <p className="posting-form__error">
+          Could not load the skill list. Reload the page — a job needs at least one skill
+          before workers can find it.
+        </p>
+      )}
+
       <Textarea
         id="description"
         label="Description"
@@ -347,7 +393,11 @@ export function PostingForm({ quotaStep = null }: { quotaStep?: number | null } 
           disabled={submitDisabled}
           loading={pending || navigating}
         >
-          {pending || navigating ? "Posting…" : "Post job"}
+          {pending || navigating
+            ? "Posting…"
+            : preview?.zero_reach
+              ? "Post anyway — reaches nobody yet"
+              : "Post job"}
         </Button>
       </div>
       <div aria-live="polite" className="posting-form__status">

@@ -23,6 +23,8 @@ import {
   jobPostingChatTurnWireSchema,
   jobPostingListWireSchema,
   jobPostingWireSchema,
+  matchSkillListWireSchema,
+  reachPreviewWireSchema,
   maskedResumeResultSchema,
   maskedResumeWireSchema,
   quotaTopUpWireSchema,
@@ -60,7 +62,10 @@ import {
   type JobPostingChatTranscript,
   type JobPostingChatTurn,
   type MaskedResumeResult,
+  type MatchSelectionInput,
+  type MatchSkillWire,
   type PostingSummary,
+  type ReachPreview,
   type RevealResult,
   type TopUpResult,
   type UnlockHistoryItem,
@@ -910,6 +915,74 @@ export async function updatePosting(
     const wire = await payerFetch(`/payer/job-postings/${postingId}`, {
       method: "PATCH",
       body: toPayerJobPostingPatchBody(input),
+      schema: jobPostingWireSchema,
+    });
+    return toPostingSummary(wire);
+  } catch (e) {
+    if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    throw e;
+  }
+}
+
+/* ── Matching V1 — the posting form's skill surface (ADR-0036) ───────────────── */
+
+/**
+ * GET /payer/match/skills — the closed match vocabulary + the curated relation map.
+ *
+ * PayerAuthGuard-protected but NOT payer-scoped: the vocabulary is the same for every
+ * company. It is behind auth because the trade taxonomy and the supply it implies are
+ * commercial information about the platform, not public data.
+ */
+export async function listMatchSkills(): Promise<MatchSkillWire[]> {
+  const wire = await payerFetch("/payer/match/skills", { schema: matchSkillListWireSchema });
+  return wire.skills;
+}
+
+/**
+ * POST /payer/match/reach-preview — the live "this posting reaches N workers" figure,
+ * shown BEFORE the payer commits (E13: never take money for a posting into a void).
+ *
+ * A POST that writes nothing: the skill list is a body because it would be an unbounded
+ * query string as a GET. It emits no event by design — the decision is evented at
+ * publish, by `job_posting.reach_materialized`, with the unticks that were honoured.
+ *
+ * Reach is a property of WORKER SUPPLY, identical for every payer, so no payer id is
+ * sent or needed and there is no tenancy surface here to get wrong.
+ */
+export async function previewReach(input: MatchSelectionInput): Promise<ReachPreview> {
+  return payerFetch("/payer/match/reach-preview", {
+    method: "POST",
+    body: {
+      match_skill_ids: input.matchSkillIds,
+      unticked_related_ids: input.untickedRelatedIds,
+    },
+    schema: reachPreviewWireSchema,
+  });
+}
+
+/**
+ * PATCH /payer/job-postings/:id — attach the match skills and PUBLISH (draft → open).
+ *
+ * This is the moment ③ trigger: the backend resolves `reach_skill_ids` from the posted
+ * skills + the honoured unticks and materializes `job_reach` in one INSERT..SELECT.
+ *
+ * It sends `match_skill_ids` and `unticked_related_ids` and NEVER a `reach_skill_ids` —
+ * the backend has no such input, so a payer cannot widen past the curated relations
+ * (Policy 10). Unknown/not-owned → the same neutral 404 → `null`, so publishing another
+ * tenant's posting is indistinguishable from publishing one that never existed.
+ */
+export async function publishPostingWithMatchSkills(
+  postingId: string,
+  selection: MatchSelectionInput,
+): Promise<PostingSummary | null> {
+  try {
+    const wire = await payerFetch(`/payer/job-postings/${postingId}`, {
+      method: "PATCH",
+      body: {
+        match_skill_ids: selection.matchSkillIds,
+        unticked_related_ids: selection.untickedRelatedIds,
+        status: "open",
+      },
       schema: jobPostingWireSchema,
     });
     return toPostingSummary(wire);

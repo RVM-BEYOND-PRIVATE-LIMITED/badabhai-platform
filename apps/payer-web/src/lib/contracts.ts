@@ -187,6 +187,79 @@ export const updatePostingInputSchema = z.object({
 });
 export type UpdatePostingInput = z.infer<typeof updatePostingInputSchema>;
 
+/* ── Matching V1 — the posting form's skill surface (ADR-0036) ───────────────── */
+
+/**
+ * A closed-set `mskill_*` id. The payer portal NEVER invents one: the vocabulary comes
+ * from `GET /payer/match/skills`, and anything the client sends is re-checked against
+ * `@badabhai/taxonomy` server-side. The regex here is a wire-shape guard, not the
+ * membership check.
+ */
+export const matchSkillIdSchema = z.string().regex(/^mskill_[a-z0-9_]+$/);
+
+/** `GET /payer/match/skills` — the closed vocabulary + the curated relation map. */
+export const matchSkillWireSchema = z.object({
+  skill_id: matchSkillIdSchema,
+  label: z.string().min(1),
+  industry_id: z.string(),
+  related_skill_ids: z.array(matchSkillIdSchema),
+});
+export const matchSkillListWireSchema = z.object({ skills: z.array(matchSkillWireSchema) });
+export type MatchSkillWire = z.infer<typeof matchSkillWireSchema>;
+
+/**
+ * `POST /payer/match/reach-preview` — the live "reaches N workers" the payer decides on.
+ *
+ * `reach_count` on a related skill is that skill's OWN worker count, NOT a marginal
+ * delta against the running set: a worker holding two related skills is counted under
+ * both, so the per-skill numbers do NOT sum to `reach_total`. The UI must therefore
+ * render them as "+N through this skill" and never as an addend of the total — the
+ * server chose an order-independent number over one that summed, and presenting it as
+ * a sum would reintroduce exactly the arithmetic it avoided.
+ */
+export const reachRelatedWireSchema = z.object({
+  skill_id: matchSkillIdSchema,
+  label: z.string().min(1),
+  ticked: z.boolean(),
+  reach_count: z.number().int().nonnegative(),
+});
+export const reachPreviewWireSchema = z.object({
+  skills: z.array(
+    z.object({
+      skill_id: matchSkillIdSchema,
+      label: z.string().min(1),
+      reach_count: z.number().int().nonnegative(),
+      related: z.array(reachRelatedWireSchema),
+    }),
+  ),
+  reach_skill_ids: z.array(matchSkillIdSchema),
+  reach_total: z.number().int().nonnegative(),
+  reach_tier1: z.number().int().nonnegative(),
+  zero_reach: z.boolean(),
+  applied_unticked_ids: z.array(matchSkillIdSchema),
+  max_skills_per_posting: z.number().int().positive(),
+});
+export type ReachPreview = z.infer<typeof reachPreviewWireSchema>;
+export type ReachPreviewRelated = z.infer<typeof reachRelatedWireSchema>;
+
+/**
+ * The MATCHABLE half of a publish, as the form collects it.
+ *
+ * There is deliberately NO `reachSkillIds` here. The final reach set is resolved
+ * SERVER-side by `resolveReachSet` from the posted skills + the honoured unticks; a
+ * client-supplied set would let a payer widen past the curated relations, which
+ * Policy 10 forbids. The preview's `reach_skill_ids` is for DISPLAY only.
+ *
+ * No `.max()` on `matchSkillIds`: the cap is `match_config.max_skills_per_posting`, a
+ * runtime value the preview reports. Hard-coding 3 here would disagree with ops the
+ * moment they raise it — the same reasoning as the backend DTO.
+ */
+export const matchSelectionInputSchema = z.object({
+  matchSkillIds: z.array(matchSkillIdSchema).min(1),
+  untickedRelatedIds: z.array(matchSkillIdSchema).default([]),
+});
+export type MatchSelectionInput = z.infer<typeof matchSelectionInputSchema>;
+
 /* ── Applicant feed (FACELESS, banded) ──────────────────────────────────────── */
 
 /**

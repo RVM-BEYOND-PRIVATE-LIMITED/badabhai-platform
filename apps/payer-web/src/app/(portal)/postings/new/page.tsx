@@ -5,10 +5,11 @@ import {
   postingIsFreeThroughLaunch,
   postingPaidTiers,
 } from "../../../../lib/pricing-config";
-import { getCapacity } from "../../../../lib/payer-api";
+import { getCapacity, listMatchSkills } from "../../../../lib/payer-api";
 import { formatInr } from "../../../../lib/format";
 import { Badge, Card } from "../../../../components/ds";
 import { CachedPricingNote } from "../../../../components/cached-pricing-note";
+import type { MatchSkillWire } from "../../../../lib/contracts";
 import { PostingForm } from "./posting-form";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +42,19 @@ export default async function NewPostingPage() {
   } catch {
     // Capacity read failed — do NOT block posting; just omit the informational warning.
     atCapacity = false;
+  }
+
+  // ADR-0036 — the closed match vocabulary, fetched SERVER-side so the Bearer never
+  // reaches the browser. Unlike the capacity read this failing is NOT swallowed into
+  // "carry on": a posting with no match skill reaches nobody, so the form renders an
+  // explicit reload prompt and keeps submit disabled rather than quietly producing an
+  // invisible job. `[]` is the signal for that, and it is distinguishable from a real
+  // empty vocabulary only because a real one is never empty (the seed is checked in).
+  let matchSkills: MatchSkillWire[] = [];
+  try {
+    matchSkills = await listMatchSkills();
+  } catch {
+    matchSkills = [];
   }
 
   return (
@@ -118,7 +132,7 @@ export default async function NewPostingPage() {
 
       {!live ? <CachedPricingNote /> : null}
 
-      <PostingForm quotaStep={quotaStep} />
+      <PostingForm quotaStep={quotaStep} matchSkills={matchSkills} />
     </>
   );
 }
