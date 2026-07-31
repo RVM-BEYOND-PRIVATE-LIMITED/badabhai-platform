@@ -1393,8 +1393,25 @@ class Measurement:
         Post-#426 designed behaviour for `education`/`skills`, where "no" is itself a
         complete answer. Benign where the denial really does answer the question —
         listed separately so it can be judged, not hidden inside a headline number.
+
+        SPLIT 2026-07-31: this now covers TWO designed behaviours, and they are worth
+        telling apart — see :attr:`is_dont_know_absorbed`. A DENIAL ("ITI nahi kiya")
+        closes only the three topics where a "no" is a complete answer; an explicit
+        DON'T-KNOW ("pata nahi") closes ANY topic, per persona v3.2 Law 8.
         """
         return self.fixture.expected == "reject" and self.accepted and not self.records_value
+
+    @property
+    def is_dont_know_absorbed(self) -> bool:
+        """The Law 8 subset of :attr:`is_denial_absorbed` — closed because the worker
+        EXPLICITLY said they do not know, which the sheet calls a complete answer.
+
+        Recorded separately because the corpus predates the ruling: these fixtures are
+        labelled ``reject`` on the older reading that a don't-know leaves nothing to
+        record. That is still true of the VALUE (nothing is stored), but it is no
+        longer true of the ASK, which is now satisfied.
+        """
+        return self.is_denial_absorbed and signals.is_dont_know(self.fixture.text)
 
 
 def measure_one(fixture: AnswerFixture) -> Measurement:

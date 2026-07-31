@@ -108,11 +108,20 @@ _SHEET_DEICTICS = ("usme", "wahan", "uske baare mein")
 
 _BRAND = re.compile(r"bada\s+bhai", re.IGNORECASE)
 
+# §3 bans the word "guarantee" — meaning never PROMISE one. §5's own sanctioned line
+# REFUSES one in its first three words ("Guarantee nahi de sakta — ..."), so the token
+# is stripped before the promise scan, exactly as the brand name is stripped before the
+# vocative scan. `test_the_word_guarantee_only_ever_appears_as_a_refusal` is the guard
+# that stops this becoming a loophole.
+_SANCTIONED_REFUSAL = re.compile(r"guarantee\s+nahi\s+de\s+sakta", re.IGNORECASE)
+
 
 def _strip_brand(text: str) -> str:
     """Remove the proper-noun 'Bada Bhai' so the brand name never trips the
-    vocative scan (only a bare 'bhai' addressed AT the worker is banned)."""
-    return _BRAND.sub("", text)
+    vocative scan (only a bare 'bhai' addressed AT the worker is banned), and the
+    sanctioned refusal so the honest "Guarantee nahi de sakta" is not read as a
+    promise."""
+    return _SANCTIONED_REFUSAL.sub("", _BRAND.sub("", text))
 
 
 def _has_word(text: str, word: str) -> bool:
@@ -132,6 +141,14 @@ def _worker_facing_strings() -> dict[str, str]:
         for i, option in enumerate(topic.options):
             out[f"{family}:option:{topic.id}:{i}"] = option
     out["ack"] = interview_engine._ACK
+    # §5's acknowledgement variants + the guarantee line. Worker-facing in exactly the
+    # same sense as the neutral ack — they occupy the same slot in the served turn —
+    # so they face the same net (banned vocative/gush/tum-form/promise, no exclamation,
+    # no emoji, no deictic).
+    out["ack_dont_know"] = interview_engine._ACK_DONT_KNOW
+    out["ack_hardship"] = interview_engine._ACK_HARDSHIP
+    out["ack_abusive"] = interview_engine._ACK_ABUSIVE
+    out["guarantee_line"] = interview_engine._GUARANTEE_LINE
     out["wrap_up"] = interview_engine._WRAP_UP
     for i, f in enumerate(interview_engine.suggested_followups("cnc_vmc")):
         out[f"followup:{i}"] = f
@@ -208,11 +225,45 @@ def test_no_worker_facing_string_carries_an_exclamation_mark_or_an_emoji():
 
 def test_the_acknowledgement_set_is_CLOSED_and_the_engine_uses_one_of_them():
     """§3: the acknowledgements are a closed list — "nothing else" — capped at 3 words.
-    The engine emits exactly one of them, always."""
-    ack = interview_engine._ACK.strip()
-    assert ack in _SHEET_ACKNOWLEDGEMENTS, f"{ack!r} is not a §3 acknowledgement"
+    Both the neutral ack and the abusive-turn line come from that set."""
+    for name in ("_ACK", "_ACK_ABUSIVE"):
+        ack = getattr(interview_engine, name).strip()
+        assert ack in _SHEET_ACKNOWLEDGEMENTS, f"{name}={ack!r} is not a §3 acknowledgement"
     for permitted in _SHEET_ACKNOWLEDGEMENTS:
         assert len(permitted.split()) <= 3, permitted
+
+
+def test_the_two_softeners_are_the_sheets_own_strings_and_nothing_else():
+    """§3 Softening lists exactly two lines, and §5 pins where each fires. They must be
+    byte-identical to the sheet — a softener is the most emotionally loaded copy in the
+    product, so it is not a place for a paraphrase."""
+    assert interview_engine._ACK_DONT_KNOW.strip() == "Koi baat nahi."
+    assert interview_engine._ACK_HARDSHIP.strip() == "Samajh sakta hoon."
+    assert set(_SHEET_SOFTENERS) == {
+        interview_engine._ACK_DONT_KNOW.strip(),
+        interview_engine._ACK_HARDSHIP.strip(),
+    }
+    # §5's shape budget for the hardship line, stated in the sheet as "<=8 words".
+    assert len(interview_engine._ACK_HARDSHIP.split()) <= 8
+
+
+def test_the_guarantee_line_is_the_sheets_own_string_and_asks_nothing():
+    """§5 / conversation 06, verbatim. It occupies the acknowledgement slot and carries
+    NO question of its own, so the turn it prefixes still has exactly one "?"."""
+    line = interview_engine._GUARANTEE_LINE
+    assert line.strip() == "Guarantee nahi de sakta — profile poora hoga toh companies dekhengi."
+    assert "?" not in line
+    assert "!" not in line
+
+
+def test_the_word_guarantee_only_ever_appears_as_a_refusal():
+    """The guard on the `_strip_brand` carve-out above, so stripping the sanctioned
+    refusal cannot become a loophole: every worker-facing occurrence of "guarantee"
+    must be inside the exact phrase "Guarantee nahi de sakta"."""
+    for name, raw in _worker_facing_strings().items():
+        occurrences = len(re.findall(r"guarantee", raw, re.IGNORECASE))
+        refusals = len(_SANCTIONED_REFUSAL.findall(raw))
+        assert occurrences == refusals, f"{name}: 'guarantee' outside a refusal in {raw!r}"
 
 
 def test_the_engine_emits_zero_appreciations_which_is_inside_the_two_per_chat_budget():
