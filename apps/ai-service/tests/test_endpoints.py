@@ -25,9 +25,13 @@ def test_pseudonymize_endpoint_masks_pii():
     assert res.status_code == 200
     body = res.json()
     assert body["blocked"] is False
-    assert body["replaced_entities"] == 4
+    # THREE, not four: the city is no longer masked (owner ruling 2026-07-31 — cities
+    # are a matching input, never PII). Name + phone + employer still are.
+    assert body["replaced_entities"] == 3
     assert "[PERSON_1]" in body["pseudonymized_text"]
     assert "9876543210" not in body["pseudonymized_text"]
+    assert "ABC Industries" not in body["pseudonymized_text"]
+    assert "Faridabad" in body["pseudonymized_text"]
 
 
 def test_profiling_respond_returns_mock_when_real_calls_disabled():
@@ -50,7 +54,13 @@ def test_profiling_respond_blocks_unsafe_input():
     assert res.status_code == 200
     body = res.json()
     assert body["blocked"] is True
-    assert "rephrase" in body["reply_text"].lower()
+    # The blocked reply is now persona Hinglish (it is STORED as a chat message, so it
+    # enters the transcript and the extraction corpus). test_persona_neutrality owns
+    # the copy rules; this asserts the ROUTE serves the worker-facing constant.
+    from app.main import _BLOCKED_REPLY
+
+    assert body["reply_text"] == _BLOCKED_REPLY
+    assert "dobara" in body["reply_text"].lower()
 
 
 def test_profiling_respond_salary_amount_does_not_block_the_turn():

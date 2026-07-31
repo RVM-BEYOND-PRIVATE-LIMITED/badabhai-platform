@@ -210,29 +210,38 @@ def test_blocked_label_is_dropped_from_artifact_and_llm_payload(monkeypatch):
 def test_masked_label_is_dropped():
     # A label pseudonymize would MASK (replaced_entities > 0) is dropped too — the
     # gate demands certified-clean (nothing masked, text unchanged), not just unblocked.
+    #
+    # The city example ("welding in Pune") was RETIRED here on 2026-07-31: the gateway
+    # no longer masks cities, so it is no longer a masked label — it is certified clean
+    # and KEPT (asserted in tests/test_egress_gates.py). The probes below are identity /
+    # money classes, which still mask.
     from app.pseudonymize import pseudonymize
 
-    city_label = "welding in Pune"  # known-city gazetteer hit -> [CITY_1]
+    amount_label = "welding rate 1200000"  # in-range 7-digit run -> [AMOUNT_1]
     phone_label = "welding 9876543210"  # 10-digit run -> masked as [PHONE_1]
-    for label in (city_label, phone_label):
+    for label in (amount_label, phone_label):
         r = pseudonymize(label)
         assert r.blocked is False and r.replaced_entities > 0  # honest precondition
 
     resp = client.post(
         "/resume/generate",
-        json={"profile": _welder_profile([city_label, phone_label, "TIG welding"]).model_dump()},
+        json={"profile": _welder_profile([amount_label, phone_label, "TIG welding"]).model_dump()},
     )
     assert resp.status_code == 200
     text = resp.json()["resume_text"]
-    assert city_label not in text and phone_label not in text
-    assert "9876543210" not in text
+    assert amount_label not in text and phone_label not in text
+    assert "9876543210" not in text and "1200000" not in text
     assert "TIG welding" in text
 
 
 def test_all_labels_dropped_falls_back_and_completes():
     resp = client.post(
         "/resume/generate",
-        json={"profile": _welder_profile(["welding grade 1234567", "shop in Pune"]).model_dump()},
+        json={
+            "profile": _welder_profile(
+                ["welding grade 1234567", "welding 9876543210"]
+            ).model_dump()
+        },
     )
     assert resp.status_code == 200  # never crash, never block the résumé
     body = resp.json()
@@ -295,7 +304,8 @@ def test_map_rich_to_legacy_certifies_labels_at_rest():
     from app.profiling.profile_extractor import map_rich_to_legacy
     from app.pseudonymize import pseudonymize
 
-    masked = "welding in Pune"  # city gazetteer hit -> would be masked
+    masked = "welding 9876543210"  # phone shape -> masked (the city probe retired
+    # 2026-07-31: a city no longer masks)
     blocked = "welding grade 12345678"  # out-of-range 8-digit run -> fail-closed block
     assert pseudonymize(masked).replaced_entities > 0  # honest preconditions
     assert pseudonymize(blocked).blocked is True
@@ -314,8 +324,10 @@ def test_extract_endpoint_populates_certified_skill_labels(monkeypatch):
     from app.profiling import profile_extractor
 
     def fake_extract(text, role_family="cnc_vmc"):
+        # The city probe retired 2026-07-31 (a city no longer masks, so it is no longer
+        # a poison label); the phone and the amount still are.
         rich = WorkerProfileDraft(
-            skills=["MIG welding", "welding in Pune", "welding grade 1234567"]
+            skills=["MIG welding", "welding 9876543210", "welding grade 1234567"]
         )
         return rich, DP()
 
@@ -333,7 +345,7 @@ def test_extract_endpoint_populates_certified_skill_labels(monkeypatch):
     import json as _json
 
     profile_json = _json.dumps(body["profile"])
-    assert "Pune" not in profile_json and "1234567" not in profile_json
+    assert "9876543210" not in profile_json and "1234567" not in profile_json
 
 
 def test_extract_endpoint_live_heuristic_labels_flow_unmocked():

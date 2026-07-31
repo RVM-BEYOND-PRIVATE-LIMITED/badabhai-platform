@@ -55,9 +55,13 @@ def extraction_system_prompt(role_family: str = "cnc_vmc") -> str:
         f"You convert a messy Hinglish worker chat transcript into a STRICT JSON "
         f"worker profile for {trade}. Output JSON ONLY, using the schema "
         "keys provided. Use null or empty arrays where unknown — never invent values. "
-        "The transcript is pseudonymized: tokens like [CITY_1], [PERSON_1], "
-        "[EMPLOYER_1], [PHONE_1] are placeholders; never guess the real values behind "
-        "them.\n"
+        # [CITY_1] was listed here until 2026-07-31. The gateway no longer mints it
+        # (owner ruling: a city is a matching input, never PII), so naming it taught
+        # the model to expect a token it can never see — and, worse, invited it to
+        # treat a REAL city name as a placeholder to be ignored.
+        "The transcript is pseudonymized: tokens like [PERSON_1], [EMPLOYER_1], "
+        "[PHONE_1], [ID_1], [AMOUNT_1] are placeholders; never guess the real values "
+        "behind them. City names are NOT placeholders — they are real and may be used.\n"
         "Convert Hinglish number-words and durations to numbers: 'aadha'/'adha'=0.5, "
         "'pauna'/'paune'=0.75, 'sava'=1.25, 'dedh'/'dhedh'=1.5, 'paune do'=1.75, "
         "'dhai'/'dhaai'=2.5; 'saal'/'sal'/'varsh'=years, 'mahina'/'mahine'/'month'=months "

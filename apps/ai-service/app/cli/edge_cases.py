@@ -60,7 +60,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..contracts import ConversationState
-from ..profiling.interview_engine import ESSENTIAL_TOPICS, MUST_ASK_TOPICS
+from ..profiling.interview_engine import ESSENTIAL_TOPICS, MUST_ASK_TOPICS, essentials_for
+from ..profiling.question_bank import GENERIC_ROLE_FAMILY
 from .api_session import DEFAULT_ROLE_FAMILY, ExtractResult, InterviewSession, Transport, TurnResult
 
 # --- seeds ------------------------------------------------------------------
@@ -913,10 +914,19 @@ FLOW_CASES: tuple[Case, ...] = (
         id="flow-never-answers",
         group="flow",
         messages=("hmm",) * 20,
-        note="the ask ceiling must end the interview instead of looping forever",
+        note=(
+            "the ask ceiling must end the interview instead of looping forever; the "
+            "gap list is the GENERIC family's, because a worker who never places their "
+            "trade is handed to the generic bank once role's re-ask budget is spent"
+        ),
         checks=(
             wrapped_up_within(19),
-            unanswered_essentials_are(list(ESSENTIAL_TOPICS)),
+            # NOT the CNC/VMC essentials. This worker answers nothing at all, so
+            # resolve_role_family hands them to `generic` after role's bounded re-ask —
+            # and the gap list must then name only topics that family could actually
+            # ask. Reporting `machines` for a worker who was never asked about machines
+            # is exactly bug S1's signature, inverted.
+            unanswered_essentials_are(list(essentials_for(GENERIC_ROLE_FAMILY))),
             all_must_ask_raised(),
         ),
     ),

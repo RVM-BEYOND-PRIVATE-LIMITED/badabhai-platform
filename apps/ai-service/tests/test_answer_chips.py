@@ -30,7 +30,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.profiling import interview_engine, signals
-from app.profiling.question_bank import options_for, topics_for
+from app.profiling.question_bank import GENERIC_ROLE_FAMILY, options_for, topics_for
 
 client = TestClient(app)
 
@@ -153,16 +153,20 @@ def test_chips_are_not_shared_across_role_families():
     family, so a welder was offered CNC controllers to fabricate. Today every family
     has its own bank, so `controllers` chips exist only in families that define them.
     """
-    # CNC/VMC (and unknown fallback) have controllers; welding does not.
+    # CNC/VMC has controllers; welding does not.
     assert interview_engine.suggested_followups("cnc_vmc", "controllers") == [
         "Fanuc", "Siemens", "Mitsubishi", "Haas",
     ]
     assert interview_engine.suggested_followups("welding", "controllers") == []
-    assert interview_engine.suggested_followups("anything_unknown", "controllers") == [
-        "Fanuc", "Siemens", "Mitsubishi", "Haas",
-    ]
+    # AN UNKNOWN FAMILY NO LONGER INHERITS CNC/VMC. It resolves to `generic`, which has
+    # no `controllers` topic at all — so the fallback can no longer hand a cook or a
+    # tailor four CNC controller names to tap (a tapped chip is recorded as the
+    # worker's own answer). This is the persona-v3.2 fix, asserted where the old
+    # fallback was asserted.
+    assert interview_engine.suggested_followups("anything_unknown", "controllers") == []
+    assert interview_engine.suggested_followups(GENERIC_ROLE_FAMILY, "controllers") == []
     # ...and never the old constant, whatever the family.
-    for family in ("cnc_vmc", "welding", "plumbing", "anything_unknown"):
+    for family in ("cnc_vmc", "welding", "plumbing", GENERIC_ROLE_FAMILY, "anything_unknown"):
         assert all("?" not in c for c in interview_engine.suggested_followups(family, "role"))
 
 

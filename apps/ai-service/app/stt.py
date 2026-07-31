@@ -141,6 +141,15 @@ _CONTENT_TYPES = {
 
 _BCP47_RE = re.compile(r"^[a-z]{2}-[A-Z]{2}$")
 
+# Task-type key for the per-task real-call allowlist (config.ai_real_call_tasks).
+# Same mechanism and same shape as ``ai.embeddings.EMBEDDING_TASK_TYPE`` — a bare
+# module constant fed to ``Settings.real_call_enabled_for``. Deliberately NOT added to
+# ``ai/model_config.TaskType``: that Literal is the MODEL-ROUTING table (tier, tokens,
+# temperature, json mode), and STT does not route through ``AIRouter`` — it calls
+# Sarvam directly. Registering it there would demand a fake TaskRoute that nothing
+# reads. There is exactly one allowlist mechanism and this joins it.
+STT_TASK_TYPE = "stt_transcription"
+
 
 def _to_sarvam_language(language_code: str | None) -> str:
     """Map a caller language hint to a Sarvam ``language_code``.
@@ -196,10 +205,43 @@ class SttAdapter:
         self._settings = settings
 
     def real_blocked_reason(self) -> str | None:
-        """Why the real STT path is disabled, or None if allowed. Fails closed:
-        requires the master flag AND a Sarvam key."""
-        if not self._settings.ai_enable_real_calls:
-            return "AI_ENABLE_REAL_CALLS is false"
+        """Why the real STT path is disabled, or None if allowed. Fails closed.
+
+        THE TWO HOLES THIS CLOSES (both flip-safety, both measured on the shipped
+        code, which read ``ai_enable_real_calls`` + ``sarvam_api_key`` and nothing else):
+
+        1. **The kill-switch did not reach STT.** ``AI_REAL_CALLS_KILL_SWITCH=true`` is
+           the independent HARD stop for real provider traffic (TD27) and is checked
+           FIRST inside ``Settings.real_calls_blocked_reason``. Reading the raw
+           ``ai_enable_real_calls`` boolean walked straight past it, so pulling the
+           kill-switch during an incident silenced every LLM call and left **real audio
+           still going to Sarvam**. Audio is the one input that cannot be pseudonymized
+           before the provider sees it (you need the transcript first), so it is the
+           worst thing to leave armed.
+        2. **The per-task allowlist did not reach STT.** ``AI_REAL_CALL_TASKS`` exists so
+           real calls can be turned on for ONE task at a time. Setting it to
+           ``profile_extraction`` — the intended first flip — silently armed real STT
+           too, because STT consulted no allowlist at all. That is the opposite of a
+           one-flag-at-a-time rollout.
+
+        ``real_call_enabled_for`` gives BOTH in one call: it requires
+        ``real_calls_blocked_reason() is None`` (kill-switch, master flag, Gemini key)
+        and then the allowlist, where EMPTY means all tasks — so the allowlist half is
+        back-compatible by construction.
+
+        ACCEPTED COUPLING, stated because it is not obvious: ``real_calls_blocked_reason``
+        also requires ``GEMINI_FLASH_API_KEY``, so real STT now needs the LLM master
+        credential as well as ``SARVAM_API_KEY``. It is the fail-CLOSED direction (an
+        env missing the master key gets mock STT, never surprise audio egress) and it
+        keeps ONE definition of "real calls are on" for the whole service. Flagged for
+        the flip runbook: staging must set the Gemini key even if only STT is being
+        enabled.
+        """
+        reason = self._settings.real_calls_blocked_reason()
+        if reason is not None:
+            return reason
+        if not self._settings.real_call_enabled_for(STT_TASK_TYPE):
+            return f"{STT_TASK_TYPE} is not in AI_REAL_CALL_TASKS"
         if not self._settings.sarvam_api_key:
             return "SARVAM_API_KEY is not set"
         return None

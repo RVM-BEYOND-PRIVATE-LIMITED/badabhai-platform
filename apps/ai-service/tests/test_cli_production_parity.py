@@ -275,16 +275,23 @@ def test_a_rejected_request_stores_nothing_and_does_not_advance(monkeypatch):
 def test_trace_shows_the_gate_and_the_engine_decision(monkeypatch):
     """The trace must show the §2 gate working and WHY a topic closed — that is the
     whole point of the tool."""
-    run = drive(monkeypatch, ["abhi Pune mein hu", "matlab kya?", "done"])
+    # The probe carries an EMPLOYER as well as a city: since the 2026-07-31 ruling the
+    # city rides through in the clear (it is a matching input, not identity), so it is
+    # no longer evidence that the gate ran. The employer still is.
+    run = drive(
+        monkeypatch, ["abhi Pune mein hu, Tata Motors mein tha", "matlab kya?", "done"]
+    )
     rendered = "\n".join(
         trace.render_turn(t, real_calls_blocked="AI_ENABLE_REAL_CALLS is false") for t in run.turns
     )
-    assert "[CITY_1]" in rendered  # what would reach the model
+    assert "[EMPLOYER_1]" in rendered  # what would reach the model
     assert "ADVANCE" in rendered and "CLARIFY" in rendered
     assert "detected" in rendered and "collected" in rendered
     assert "must-ask" in rendered and "essentials" in rendered
     assert "MOCK" in rendered  # never let mock output read as model output
-    assert "Pune" not in rendered.split("-> to LLM")[1].split("\n")[0]
+    to_llm = rendered.split("-> to LLM")[1].split("\n")[0]
+    assert "Tata Motors" not in to_llm
+    assert "Pune" in to_llm  # ...and the city is deliberately still there
 
 
 def test_trace_labels_the_cli_only_merge_view(monkeypatch):

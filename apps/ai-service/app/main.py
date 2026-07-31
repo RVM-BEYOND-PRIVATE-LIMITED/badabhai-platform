@@ -75,7 +75,7 @@ from .profiling.prompts import (
     build_chat_messages,
     extraction_system_prompt,
 )
-from .profiling.signals import detect_role_family, has_first_person_claim, label_for_id
+from .profiling.signals import has_first_person_claim, label_for_id
 from .pseudonymize import (
     PseudonymizationResult,
     certified_clean_skill_labels,
@@ -157,9 +157,41 @@ async def service_auth(request, call_next):  # type: ignore[no-untyped-def]
     return await call_next(request)
 
 
+# The WORKER-facing pseudonymization-blocked reply.
+#
+# WHY THE COPY MATTERS MORE THAN A NORMAL ERROR STRING: apps/api STORES this as an
+# outbound chat message, so it lands in the worker's transcript and therefore in the
+# EXTRACTION CORPUS — it is not a toast that disappears. It was English ("Sorry, I
+# couldn't process that safely. Please rephrase without sharing personal details like
+# your phone number, full name, or company name.") in a Hinglish, chat-first product,
+# from a bot that speaks Hinglish on every other turn.
+#
+# The persona rules it now satisfies, each pinned by test_persona_neutrality
+# (_worker_facing_strings carries this string, so the whole banned-token net applies):
+#   * "aap" form, never "tu"/"tum";
+#   * NO vocative — never bhai / bhaiya / beta / behen / yaar;
+#   * no exclamation mark, no emoji, two short sentences;
+#   * it tells the worker WHAT TO DO DIFFERENTLY and says nothing about our internals
+#     (no "safely", no "processing", no mention of a gateway or a rule).
+#
+# Aligned in tone with the Flutter sibling `kChatBlockedNotice`
+# ("Aapki baat theek se nahi pahunch payi — thoda saaf karke dobara likhein.") — the
+# two are DELIBERATELY not byte-identical: the client string is a generic
+# transport/parse notice, this one is served when the privacy gateway blocked the turn,
+# so it names the two things that most often cause it. It never says WHY in our terms.
 _BLOCKED_REPLY = (
+    "Aapki baat theek se nahi pahunch payi. "
+    "Phone number ya poora naam likhe bina dobara bhejiye."
+)
+
+# The PAYER-facing equivalent (ADR-0035 job-posting chat). Deliberately a separate
+# constant and deliberately still English: the job-posting engine speaks English to
+# payers on every turn, so handing them the worker persona's Hinglish here would be a
+# tone break on a different product surface — and nothing above applies (the payer
+# transcript is not a worker profiling corpus). Same fail-closed semantics.
+_JOB_POSTING_BLOCKED_REPLY = (
     "Sorry, I couldn't process that safely. Please rephrase without sharing "
-    "personal details like your phone number, full name, or company name."
+    "contact details like a phone number, a person's name, or a company name."
 )
 
 
@@ -535,9 +567,14 @@ async def profiling_opening(body: ProfilingOpeningInput) -> ProfilingOpeningOutp
 
 @app.post("/profiling/respond", response_model=ProfilingTurnOutput)
 async def profiling_respond(body: ProfilingTurnInput) -> ProfilingTurnOutput:
-    # 0. Detect role family from the raw message (local gazetteer, no network,
-    #    before pseudonymization). Falls back to the caller-provided family.
-    role_family = detect_role_family(body.message_text) or body.role_family
+    # 0. Resolve the role family for this turn (local gazetteer, no network, before
+    #    pseudonymization). Detection wins; a role answer we cannot place resolves to
+    #    the `generic` bank; otherwise the persisted/caller family stands. See
+    #    interview_engine.resolve_role_family — the old `detect(...) or body.role_family`
+    #    could never reach `generic`, so every uncovered trade got the CNC/VMC bank.
+    role_family = interview_engine.resolve_role_family(
+        body.conversation_state, body.message_text, body.role_family
+    )
 
     # 1. Pseudonymize FIRST — gate for any external LLM call.
     result = pseudonymize(body.message_text)
@@ -651,7 +688,7 @@ async def job_posting_chat_respond(body: JobPostingChatTurnInput) -> JobPostingC
             "job posting chat blocked", extra={"extra": {"reason": result.blocked_reason}}
         )
         return JobPostingChatTurnOutput(
-            reply_text=_BLOCKED_REPLY,
+            reply_text=_JOB_POSTING_BLOCKED_REPLY,
             blocked=True,
             blocked_reason=result.blocked_reason,
             is_mock=True,

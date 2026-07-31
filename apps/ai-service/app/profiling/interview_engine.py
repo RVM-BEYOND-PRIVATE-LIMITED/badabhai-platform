@@ -17,6 +17,7 @@ import re
 from ..contracts import ConversationState
 from . import signals
 from .question_bank import (
+    GENERIC_ROLE_FAMILY,
     Topic,
     one_shot_opener_for,
     options_for,
@@ -30,11 +31,59 @@ _WRAP_UP = (
     "Itni jaankari kaafi hai. Aapka resume ban raha hai — kuch detail baad mein confirm karenge."
 )
 
-# The topics that MUST be ANSWERED before we offer extraction. Current location
-# is essential for matching, so it is required (not just "any N core topics").
-# B-4 (context-drift register 2026-07-16 row B-4; owner ruling 2026-07-17):
+# The topics that MUST be ANSWERED before we offer extraction, PER ROLE FAMILY.
+# Current location is essential for matching, so it is required (not just "any N core
+# topics"). B-4 (context-drift register 2026-07-16 row B-4; owner ruling 2026-07-17):
 # location is split — current_location stays answer-essential.
-ESSENTIAL_TOPICS: tuple[str, ...] = ("role", "machines", "experience", "current_location")
+#
+# BUG S1, and it was a silent one. This used to be ONE module-level tuple containing
+# ``machines`` — a topic id that exists ONLY in the ``cnc_vmc`` bank. For welding,
+# plumbing, carpentry, design and interior_design there is no ``machines`` topic, so
+# ``_next_topic`` could never SERVE it and ``detect_answered_topics`` could only ever
+# mark it answered by accident (a welder who happened to say "lathe"). The readiness
+# gate therefore could not be satisfied on purpose in five of six families: those
+# interviews drained the entire bank and then ended on the ASK CEILING rather than on
+# the worker's answers, and every one of them shipped ``unanswered_essentials`` with a
+# permanently-unanswerable ``machines`` in it.
+#
+# Each family now names its OWN equipment/tools/software topic, taken VERBATIM from
+# question_bank.py. ``generic`` (the uncovered-trade family) names none: its one
+# trade-specific topic is ``daily_tasks``, which the local detector cannot key — as an
+# essential it would burn the re-ask budget and then ship a false gap for a worker who
+# answered perfectly well, the same reasoning that keeps education/certifications out.
+#
+# ``test_bank_integrity`` pins that every id here exists in that family's own bank, so
+# an S1-shaped typo can never come back silently.
+ESSENTIALS_BY_FAMILY: dict[str, tuple[str, ...]] = {
+    "cnc_vmc": ("role", "machines", "experience", "current_location"),
+    "welding": ("role", "equipment", "experience", "current_location"),
+    "plumbing": ("role", "tools_plumbing", "experience", "current_location"),
+    "carpentry": ("role", "tools_carpentry", "experience", "current_location"),
+    "design": ("role", "software_design", "experience", "current_location"),
+    "interior_design": ("role", "software_interior", "experience", "current_location"),
+    GENERIC_ROLE_FAMILY: ("role", "experience", "current_location"),
+}
+
+# The CNC/VMC essentials, kept under the ORIGINAL module-level name. Not a leftover:
+# it is the cross-language contract. ``packages/ai-contracts/src/__fixtures__/
+# interview-gate.json`` pins this exact ordered list and BOTH suites assert against
+# it (tests/test_interview_gate_parity.py here, mock-interview.test.ts there), and
+# apps/api's mock interview — which is what actually runs on staging under TD81 —
+# serves the CNC/VMC bank. Renaming or re-pointing this would silently break that
+# pairing, so per-family resolution goes through ``essentials_for`` instead.
+ESSENTIAL_TOPICS: tuple[str, ...] = ESSENTIALS_BY_FAMILY["cnc_vmc"]
+
+
+def essentials_for(role_family: str | None) -> tuple[str, ...]:
+    """The answer-essential topic ids for a role family.
+
+    Unknown/None resolves to ``generic``, matching ``question_bank.topics_for`` — the
+    two must agree or the gate would demand an id the served bank cannot produce,
+    which is bug S1 in its general form.
+    """
+    if not role_family:
+        return ESSENTIALS_BY_FAMILY[GENERIC_ROLE_FAMILY]
+    return ESSENTIALS_BY_FAMILY.get(role_family, ESSENTIALS_BY_FAMILY[GENERIC_ROLE_FAMILY])
 
 # B-4: topics that MUST at least have been ASKED (or answered) before extraction
 # is offered. preferred_locations gets its own ask per the owner ruling
@@ -72,6 +121,14 @@ ESSENTIAL_TOPICS: tuple[str, ...] = ("role", "machines", "experience", "current_
 # as essentials they would burn the re-ask budget and then ship a FALSE
 # unanswered_essentials for a worker who answered perfectly well. The value
 # reaches the rich draft via the transcript, which is where it is consumed.
+#
+# S1 NOTE — why this one did NOT need the per-family treatment ESSENTIAL_TOPICS got:
+# every id below is a SHARED topic (question_bank._SHARED_TOPICS), so it is present in
+# every family's bank by construction, including `generic` (owner ruling: keep all
+# shared topics) and `welding` (which excludes the shared `certifications` only to
+# substitute its OWN topic under the SAME id). There is deliberately no
+# `must_ask_for()` helper: a filtered gate would silently WEAKEN readiness for a family
+# missing an id, where the bank-integrity test makes the same situation fail loudly.
 MUST_ASK_TOPICS: tuple[str, ...] = (
     "preferred_locations",
     "salary_current",
@@ -112,14 +169,18 @@ MAX_ASKS_PER_TOPIC = 2
 # incremented ONLY where a question is actually served, and therefore immune to
 # clarify turns by construction.
 #
-# Sized with real headroom over the current bank's blind-run budget: 4 essentials
-# x MAX_ASKS_PER_TOPIC (=8) + 10 ask-once topics (skills, preferred_locations,
-# controllers, salary_current, salary_expected, availability, education,
-# education_level, education_field, certifications) = 18. test_interview_engine.py
-# pins that budget against this constant, so the zero-margin coupling cannot
-# silently come back if the bank grows. (Was 20 for a 16-ask bank; TD-EDU added two
-# ask-once education topics, so this is raised to keep >=4 slots of headroom.)
-MAX_ENGINE_ASKS = 22
+# Sized with real headroom over the WORST FAMILY's blind-run budget, not CNC/VMC's.
+# CNC/VMC: 4 essentials x MAX_ASKS_PER_TOPIC (=8) + 10 ask-once topics (skills,
+# preferred_locations, controllers, salary_current, salary_expected, availability,
+# education, education_level, education_field, certifications) = 18. WELDING is the
+# worst: 15 topics, 4 essentials => 8 + 11 = 19. `generic` is the cheapest (12 topics,
+# 3 essentials => 6 + 9 = 15), which is the "fewer questions" the persona sheet asks
+# for falling out of the bank rather than being special-cased.
+# test_interview_engine.py pins the budget PER FAMILY against this constant, so the
+# zero-margin coupling cannot silently come back if any bank grows. (Was 20 for a
+# 16-ask bank; TD-EDU added two ask-once education topics -> 22; the S1 per-family
+# gate made welding's 19-ask blind run the binding case -> 24, keeping >=4 headroom.)
+MAX_ENGINE_ASKS = 24
 
 # In-flight ConversationStates minted before the B-4/B-5 split may carry the
 # retired combined topic ids. Map them to the topic their context-free detection
@@ -168,9 +229,15 @@ def _is_school_only_education(message: str) -> bool:
     return bool(_SCHOOL_LEVEL_RE.search(m))
 
 
-def _extraction_ready(st: ConversationState) -> bool:
-    """All ESSENTIAL_TOPICS answered AND every MUST_ASK topic asked-or-answered."""
-    if not all(t in st.answered_topics for t in ESSENTIAL_TOPICS):
+def _extraction_ready(st: ConversationState, role_family: str | None = None) -> bool:
+    """All of the family's essentials answered AND every MUST_ASK topic asked-or-answered.
+
+    ``role_family`` defaults to the one carried on the state (``next_turn`` stamps it
+    every turn). Callers that hold the authoritative family — ``clarify_turn``, which
+    deliberately does NOT mutate the state it was handed — pass it explicitly.
+    """
+    essentials = essentials_for(role_family or st.role_family)
+    if not all(t in st.answered_topics for t in essentials):
         return False
     return all(t in st.answered_topics or t in st.asked_question_ids for t in MUST_ASK_TOPICS)
 
@@ -246,7 +313,7 @@ def _may_commit(
     return topic_id not in st.collected
 
 
-def _unanswered_essentials(st: ConversationState) -> list[str]:
+def _unanswered_essentials(st: ConversationState, role_family: str | None = None) -> list[str]:
     """INTERVIEW-1: which ESSENTIAL topics the worker never actually answered.
 
     This is the EXPLICIT completeness signal. ``extraction_ready`` deliberately
@@ -254,10 +321,15 @@ def _unanswered_essentials(st: ConversationState) -> list[str]:
     sole gate on extraction downstream), so this list — not that flag — is how an
     incomplete profile is declared. Empty list = every essential answered.
 
-    Returned in ESSENTIAL_TOPICS order, so it is stable/comparable across turns.
-    Topic ids only, never PII.
+    Returned in the family's essentials order, so it is stable/comparable across
+    turns. Topic ids only, never PII.
+
+    S1: read from ``essentials_for``, so a welder's gap list can only ever name topics
+    a welder was actually able to answer. Before the per-family split this list
+    reported ``machines`` — a topic that does not exist in the welding bank — as
+    "unanswered", permanently and for every non-CNC worker.
     """
-    return [t for t in ESSENTIAL_TOPICS if t not in st.answered_topics]
+    return [t for t in essentials_for(role_family or st.role_family) if t not in st.answered_topics]
 
 
 # AI-PERSONA-2: the ai-service NEVER emits a real worker name — only this literal
@@ -279,6 +351,87 @@ def _vocative(worker_name: str | None) -> str:
     event / Langfuse. The real name is interpolated over the token downstream in the
     NestJS layer, after the event is emitted. Do NOT pass a real worker name here."""
     return f"{worker_name} ji, " if worker_name else ""
+
+
+def _role_ask_budget_just_spent(st: ConversationState) -> bool:
+    """True on the ONE turn that answers the LAST permitted ``role`` ask while ``role``
+    is still unplaced — the engine's own "we asked what you do, twice, in this family's
+    own words, and could not place you" signal.
+
+    Three conjuncts, and each is load-bearing:
+
+    - ``asked_question_ids[-1] == "role"`` makes this a ONE-SHOT event rather than a
+      standing condition. Without it the predicate stays true for the rest of the
+      interview and a worker who is recovered onto a real family by rule 1 is dragged
+      back to ``generic`` on their very next signal-free turn — an oscillation that
+      would re-serve banks turn after turn.
+    - ``_ask_count(...) >= MAX_ASKS_PER_TOPIC`` means the family's OWN wording, retry
+      included, has already been spent. Firing earlier would reclassify "the finite
+      gazetteer failed this worker" (which the ask bound exists to absorb) as "this is
+      an uncovered trade", and cost a real CNC worker the machines/skills/controllers
+      questions for one fumbled reply.
+    - ``role not in answered_topics`` — a placed role is not a give-up.
+    """
+    return (
+        bool(st.asked_question_ids)
+        and st.asked_question_ids[-1] == "role"
+        and "role" not in st.answered_topics
+        and _ask_count(st, "role") >= MAX_ASKS_PER_TOPIC
+    )
+
+
+def resolve_role_family(
+    state: ConversationState | None,
+    worker_message_raw: str,
+    caller_family: str | None = "cnc_vmc",
+) -> str:
+    """Which question bank this turn should be served from.
+
+    Replaces the endpoint's old one-liner ``detect_role_family(msg) or body.role_family``,
+    which could NEVER reach ``generic``: apps/api sends ``priorState?.role_family ??
+    "cnc_vmc"``, so an undetected trade fell back to CNC/VMC and a hotel cook was asked
+    "Kaunsi machine — VMC, CNC lathe, HMC ya grinding?" and offered VMC/Fanuc chips to
+    tap. Three rules, in order:
+
+    1. **A positive detection always wins.** ``signals.detect_role_family`` reads the raw
+       message locally (no network, before pseudonymization). Unchanged behaviour, and
+       it is what moves a worker onto the right bank mid-interview — including moving
+       them BACK OUT of ``generic`` the moment they name something placeable.
+    2. **The role ask budget just ran out with nothing placed -> ``generic``.** A
+       one-shot, one-way handover (see :func:`_role_ask_budget_just_spent`).
+    3. **Otherwise keep what we already had** — the state's family (which apps/api
+       round-trips as ``priorState.role_family``) or the caller's. The default stays
+       whatever apps/api sends.
+
+    WHY RULE 2 WAITS FOR THE BUDGET rather than firing on the first unplaceable reply:
+    "the detector could not read this worker" and "this worker is an uncovered trade"
+    are DIFFERENT things, and this module already has a bound for the first one. Firing
+    on the first reply drops a CNC worker who typed "operator hu" (which keys ``skills``,
+    not ``role``) out of the CNC bank, losing them the ``machines``, ``skills`` and
+    ``controllers`` questions — a real data loss in the launch trade, for one fumble.
+    Waiting one bounded re-ask costs the uncovered-trade worker nothing that matters:
+    they see the family's role question and its retry, never its MACHINE question,
+    because ``machines`` is the essential served AFTER ``role`` and the handover lands
+    first.
+
+    THE RECOVERY PATH is why ``generic`` is a safe waypoint and not a dead end: its own
+    ``daily_tasks`` question ("Is kaam mein aap kya-kya karte hain?") invites exactly the
+    vocabulary that re-detects a family, and at that point ``machines`` / ``skills`` /
+    ``controllers`` are still UNASKED, so rule 1 hands the worker back a complete CNC
+    interview.
+
+    Pure: reads the state, never mutates it. ``next_turn`` stamps the result onto
+    ``ConversationState.role_family``, which is an EXISTING field — no contract change.
+    """
+    detected = signals.detect_role_family(worker_message_raw)
+    if detected is not None:
+        return detected
+    if state is not None:
+        if _role_ask_budget_just_spent(state):
+            return GENERIC_ROLE_FAMILY
+        if state.role_family:
+            return state.role_family
+    return caller_family or GENERIC_ROLE_FAMILY
 
 
 def first_question(
@@ -399,10 +552,10 @@ def next_turn(
     ):
         st.answered_topics.append("education_field")
 
-    extraction_ready = _extraction_ready(st)
+    extraction_ready = _extraction_ready(st, role_family)
     # INTERVIEW-1 completeness signal: refresh the gap list on EVERY turn, so the
     # state a caller persists always describes the interview as it actually stands.
-    st.unanswered_essentials = _unanswered_essentials(st)
+    st.unanswered_essentials = _unanswered_essentials(st, role_family)
 
     # 2. Choose the next question (essentials first — including their ONE bounded
     #    re-ask — then the ask-once topics). The backstops are the final word: past
@@ -416,7 +569,7 @@ def next_turn(
     # not be able to buy extra asks by dragging the total down.
     engine_asks = sum(max(0, n) for n in st.ask_counts.values())
     over_ceiling = engine_asks >= MAX_ENGINE_ASKS or st.turn_count > MAX_INTERVIEW_TURNS
-    next_topic = None if over_ceiling else _next_topic(topics, st)
+    next_topic = None if over_ceiling else _next_topic(topics, st, essentials_for(role_family))
     if next_topic is None or extraction_ready:
         # extraction_ready keeps its ORIGINAL v1 meaning here: "the interview is
         # OVER — run extraction". It is deliberately True even when essentials are
@@ -526,7 +679,7 @@ def clarify_turn(
         _served_question(topic, _ask_count(state, last_id)),
         last_id,
         st,
-        _extraction_ready(st),
+        _extraction_ready(st, role_family),
     )
 
 
@@ -635,8 +788,15 @@ def _ask_count(st: ConversationState, topic_id: str) -> int:
     return counted
 
 
-def _next_topic(topics: list[Topic], st: ConversationState) -> Topic | None:
+def _next_topic(
+    topics: list[Topic], st: ConversationState, essentials: tuple[str, ...] = ESSENTIAL_TOPICS
+) -> Topic | None:
     """Pick the next topic to serve, in STRICT priority order.
+
+    ``essentials`` is the RE-ASKABLE set for the family whose ``topics`` were passed;
+    the two must come from the same family or branch 1 re-asks an id this bank cannot
+    serve (bug S1). It defaults to the CNC/VMC tuple purely so the signature stays
+    back-compatible for callers that predate the split.
 
     1. An UNANSWERED **essential** under :data:`MAX_ASKS_PER_TOPIC` — first ask or
        the single bounded re-ask. This is the INTERVIEW-1 fix: before it, a topic
@@ -668,7 +828,7 @@ def _next_topic(topics: list[Topic], st: ConversationState) -> Topic | None:
     # 1. Unanswered ESSENTIAL topics — the only re-askable class.
     for topic in topics:
         if (
-            topic.id in ESSENTIAL_TOPICS
+            topic.id in essentials
             and topic.id not in st.answered_topics
             and _ask_count(st, topic.id) < MAX_ASKS_PER_TOPIC
         ):

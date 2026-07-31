@@ -1,9 +1,14 @@
 """City-alias + state-capture unit tests (WS3).
 
-Hinglish/colloquial city names now normalize INTO the closed canonical city set,
-and a state-level answer is captured as ``current_state`` instead of being
-dropped. The pseudonymizer also masks the aliases (they must never reach an LLM
-in the clear). All detection is local (trusted) over raw text — no network.
+Hinglish/colloquial city names normalize INTO the closed canonical city set, and a
+state-level answer is captured as ``current_state`` instead of being dropped. All
+detection is local (trusted) over raw text — no network.
+
+CHANGED 2026-07-31 (owner ruling, Master Context DEAD LIST: "✗ cities as PII (→ a
+20-point matching input; never redact)"): the pseudonymizer NO LONGER masks cities or
+states. This file's detection half is untouched — the gazetteer's job was always to
+READ the city, and that is the job it keeps — while its masking half is inverted: the
+assertions below now pin PASS-THROUGH.
 """
 
 from app.profiling import signals
@@ -59,11 +64,34 @@ def test_city_and_state_coexist():
     assert sig.current_state == "Bihar"
 
 
-# --- Pseudonymizer still masks the aliases before any LLM call --------------
+# --- Pseudonymizer passes cities and their aliases through VERBATIM ----------
+# The gateway used to mask both ("[CITY_1]"). It no longer does: a city identifies
+# nobody, it is the strongest matching input the product has, and redacting it cost
+# the field on every model-authored surface while protecting nothing.
 
 
-def test_pseudonymize_masks_city_alias():
+def test_pseudonymize_leaves_a_city_alias_untouched():
     result = pseudonymize("main dilli me rehta hu")
     assert result.blocked is False
-    assert "dilli" not in result.text.lower()
-    assert "[CITY_1]" in result.text
+    assert result.text == "main dilli me rehta hu"
+    assert result.replaced_entities == 0
+    assert "CITY" not in result.text
+    # ...and the alias still NORMALIZES for detection, which is the gazetteer's job.
+    assert signals.detect("main dilli me rehta hu").current_city == "Delhi"
+
+
+def test_pseudonymize_leaves_a_state_untouched_but_signals_still_reads_it():
+    result = pseudonymize("abhi bihar me hu")
+    assert result.blocked is False
+    assert result.text == "abhi bihar me hu"
+    assert "STATE" not in result.text
+    assert signals.detect("abhi bihar me hu").current_state == "Bihar"
+
+
+def test_a_name_in_the_same_sentence_as_a_city_is_still_masked():
+    """The narrowing is exactly two classes wide — identity still goes."""
+    result = pseudonymize("mera naam Ramesh hai, Pune se hoon")
+    assert result.blocked is False
+    assert "Ramesh" not in result.text
+    assert "[PERSON_1]" in result.text
+    assert "Pune" in result.text

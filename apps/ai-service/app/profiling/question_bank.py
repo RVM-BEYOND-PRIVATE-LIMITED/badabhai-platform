@@ -122,6 +122,21 @@ ROLE_FAMILIES: dict[str, dict] = {
         "label": "Interior Design & Space Planning",
         "roles": ["Residential Designer", "Commercial Designer", "Retail Designer"],
     },
+    # PERSONA v3.2 worked conversation #04 (the tailor) — the UNCOVERED-TRADE family.
+    #
+    # Before this entry `topics_for()` fell back to `_CNC_VMC_TOPICS` for any family it
+    # did not know, so a hotel cook was asked "Kaunsi machine — VMC, CNC lathe, HMC ya
+    # grinding?" and offered VMC/Fanuc chips to tap. The persona sheet is explicit:
+    # "Same warmth, plainer voice, fewer questions. Never says we don't serve that
+    # trade. No faked expertise" — and "faked fluency is worse than plainness".
+    #
+    # `roles` is deliberately EMPTY. This family exists precisely because we do not
+    # know the trade; naming candidate roles here would be the faked expertise the
+    # sheet forbids, and any list we invented would leak into copy sooner or later.
+    "generic": {
+        "label": "Other trades",
+        "roles": [],
+    },
 }
 
 # --- Shared topics (identical across all role families) ---
@@ -144,7 +159,13 @@ _SHARED_TOPICS: list[Topic] = [
     Topic(
         "preferred_locations",
         "Preferred locations",
-        "Kahan kaam kar sakte hain?",
+        # PERSONA v3.2 §4, VERBATIM ("Kaam kahan karna chahte hain?"). Adopted after
+        # measuring the string INERT against detect_answered_topics (it self-keys no
+        # field, so it cannot fabricate when it lands in the extraction transcript) and
+        # confirming the topic's answers still resolve — "Delhi bhi chalega" ->
+        # ['Delhi'], "kahin bhi chalega" -> 'flexible' (attribution is context-gated on
+        # last_asked, so it does not depend on the question's wording at all).
+        "Kaam kahan karna chahte hain?",
         why="Taaki aapke pasand ke sheher ki naukri dhoondh sakein.",
         core=True,
     ),
@@ -157,13 +178,20 @@ _SHARED_TOPICS: list[Topic] = [
     Topic(
         "salary_expected",
         "Expected salary",
-        "Kitni salary expect karte hain?",
+        # PERSONA v3.2 §4, VERBATIM. Measured inert; the chips and "30000 chahiye" /
+        # a bare "25000" still key salary_expected (the B-5 expected-context
+        # attribution reads last_asked, not the question text).
+        "Kitni salary chahiye?",
         options=("25 hazar", "30 hazar", "35 hazar", "40 hazar"),
     ),
     Topic(
         "availability",
         "Availability",
-        "Join karne mein kitne din lagenge?",
+        # PERSONA v3.2 §4, VERBATIM. Measured inert; every chip still resolves
+        # (Turant -> immediate, 15 din / 1 mahina / 2 mahina -> notice_period) and so
+        # does "15 din lagenge", because the #424 widening is context-gated on
+        # last_asked == "availability".
+        "Kab se join kar sakte hain?",
         options=("Turant", "15 din", "1 mahina", "2 mahina"),
     ),
     Topic(
@@ -189,6 +217,24 @@ _SHARED_TOPICS: list[Topic] = [
         options=("NCVT", "SCVT", "NSQF", "Apprenticeship"),
     ),
 ]
+
+
+def _shared_topics_except(*topic_ids: str) -> list[Topic]:
+    """The shared tail MINUS the named ids — for a family that defines its OWN
+    version of a shared topic.
+
+    BUG S2, and the reason this helper exists rather than a comment: ``_WELDING_TOPICS``
+    declared its own ``certifications`` (the 6G/6GR/AWS wording a welder actually needs)
+    and then appended ``_SHARED_TOPICS``, which declares ``certifications`` too. One id,
+    two entries. Nothing crashed, because every consumer takes the FIRST match —
+    ``topic_by_id`` returns it, ``_next_topic`` serves it — so the shared entry was
+    simply unreachable dead data that no test could see. Composing the family
+    explicitly makes the exclusion a decision instead of an accident, and
+    ``test_no_family_contains_a_duplicate_topic_id`` now fails if one comes back.
+    """
+    excluded = frozenset(topic_ids)
+    return [t for t in _SHARED_TOPICS if t.id not in excluded]
+
 
 # Ordered interview flow for CNC/VMC. Core topics + family-specific + shared.
 _CNC_VMC_TOPICS: list[Topic] = [
@@ -270,7 +316,9 @@ _WELDING_TOPICS: list[Topic] = [
         "Koi welding certification hai — 6G, 6GR, ya AWS?",
         options=("6G", "6GR", "AWS", "NCVT"),
     ),
-] + _SHARED_TOPICS
+    # S2: welding keeps its OWN certifications topic (6G/6GR/AWS is what a welder is
+    # actually asked for), so the shared one is excluded rather than appended dead.
+] + _shared_topics_except("certifications")
 
 # --- Plumbing ---
 _PLUMBING_TOPICS: list[Topic] = [
@@ -407,6 +455,54 @@ _INTERIOR_DESIGN_TOPICS: list[Topic] = [
     ),
 ] + _SHARED_TOPICS
 
+# --- Generic (uncovered trades) ---------------------------------------------
+# PERSONA v3.2, worked conversation #04. The bank a hotel cook, a tailor or a driver
+# gets. Two rules shape every string below and both come straight off the sheet:
+#
+#   "Same warmth, plainer voice, fewer questions. Never says we don't serve that
+#    trade. No faked expertise."
+#   "faked fluency is worse than plainness"
+#
+# So: NO machine names, NO controller names, NO software names — not in a question,
+# not in a retry, not in a chip. The role question is the SAME neutral line every
+# family opens with (it was never CNC-specific); only the RETRY had to be rewritten,
+# because the CNC one lists "VMC operator, CNC turner, setter, programmer ya welder"
+# and reading that back to a cook is exactly the faked expertise the sheet forbids.
+#
+# NO CHIPS on the two trade-specific topics, and this is a hard constraint rather
+# than a style choice: every chip in this repo is EXECUTED against
+# `signals.detect_answered_topics` by tests/test_answer_chips.py, because the worker
+# app sends a tapped chip's label verbatim as the worker's message. The generic trade
+# space is open by definition, so no chip we could write is guaranteed to resolve —
+# and a chip that does not resolve is worse than no chip at all (the worker taps, sees
+# their words in the transcript, and the field stays empty). The SHARED topics keep
+# whatever chips they already have: "3 saal", "15 hazar", "Turant", "ITI" are
+# trade-independent and still resolve.
+#
+# OWNER RULING (2026-07-31): keep ALL shared topics, education and certifications
+# included. "Fewer questions" is satisfied by dropping the family-specific block
+# (4 CNC topics -> 1 generic one), not by cutting a worker's ITI off their resume.
+_GENERIC_TOPICS: list[Topic] = [
+    Topic(
+        "role",
+        "Role / trade",
+        "Aap kaunsa kaam karte hain?",
+        core=True,
+        # No trade names offered — we do not know the space, and a wrong example
+        # would put words in the worker's mouth. Asking them to say it their own
+        # way is the plainer voice the sheet asks for.
+        retry_question="Aap kis tarah ka kaam karte hain — apne shabdon mein bataiye?",
+    ),
+    Topic(
+        "daily_tasks",
+        "Daily work",
+        # VERBATIM from the persona sheet's worked conversation #04.
+        "Is kaam mein aap kya-kya karte hain?",
+        why="Taaki aapke kaam ka sahi description ban sake.",
+        core=True,
+    ),
+] + _SHARED_TOPICS
+
 _TOPICS_BY_FAMILY: dict[str, list[Topic]] = {
     "cnc_vmc": _CNC_VMC_TOPICS,
     "welding": _WELDING_TOPICS,
@@ -414,7 +510,12 @@ _TOPICS_BY_FAMILY: dict[str, list[Topic]] = {
     "carpentry": _CARPENTRY_TOPICS,
     "design": _DESIGN_TOPICS,
     "interior_design": _INTERIOR_DESIGN_TOPICS,
+    "generic": _GENERIC_TOPICS,
 }
+
+# The family served when the caller's family is unknown/None. Was `cnc_vmc` — which
+# is what put CNC machine questions in front of every uncovered trade.
+GENERIC_ROLE_FAMILY = "generic"
 
 # --- One-shot opener (owner-approved 2026-07-22) -----------------------------
 # An INVITATION to answer everything in one message, for the worker who would
@@ -467,23 +568,35 @@ _TOPICS_BY_FAMILY: dict[str, list[Topic]] = {
 # "?", names no example values, and self-keys NO profile field (it is a greeting +
 # the role question, both of which the detector reads as nothing). The engine still
 # asks every remaining topic one at a time via next_turn.
+# PERSONA v3.2 §3 / §7 (2026-07-31): "Namaste!" -> "Namaste." The sheet bans **any
+# exclamation mark** without qualification, and it listed this constant by name as one
+# of the two shipped violations (the other is `kChatOpeningText` in
+# apps/worker-app/.../chat_bloc.dart). The two MUST stay byte-identical — the app prints
+# its copy locally and the service serves this one — so both move together rather than
+# recording an exception for a rule the sheet states absolutely. Nothing else in the
+# string changed: it still holds exactly one "?", names no example values, self-keys no
+# profile field, and mirrors the bank's own role-question stem.
 ONE_SHOT_OPENER: str = (
-    "Namaste! Main aapka Bada Bhai. Chalo, ab aapka accha sa resume banate hain. "
+    "Namaste. Main aapka Bada Bhai. Chalo, ab aapka accha sa resume banate hain. "
     "Chaliye shuru karte hain — aap kaunsa kaam karte hain?"
 )
 
 
-def one_shot_opener_for(role_family: str) -> str:
-    """The one-shot opener for a role family (falls back to CNC/VMC).
+def one_shot_opener_for(role_family: str | None) -> str:
+    """The one-shot opener for a role family (unknown/None resolves to ``generic``).
 
-    Takes `role_family` so a second family can diverge without a caller change;
-    today every family shares the CNC/VMC copy.
+    Takes `role_family` so a family can diverge without a caller change; today every
+    family — ``generic`` included — shares the same copy, and that is CORRECT rather
+    than lazy: the opener is a greeting plus the neutral role question, which names no
+    machine, no controller and no software. It was already trade-free, so the
+    uncovered-trade worker's first message is identical to everyone else's, which is
+    exactly the "same warmth, plainer voice" the persona sheet asks for.
     """
     _ = topics_for(role_family)  # validates the family resolves; copy is shared today
     return ONE_SHOT_OPENER
 
 
-def options_for(role_family: str, topic_id: str | None) -> list[str]:
+def options_for(role_family: str | None, topic_id: str | None) -> list[str]:
     """Tap-to-answer options for the topic just asked — ``[]`` when there are none.
 
     ``[]`` is the correct, common answer and must stay cheap: no topic asked yet,
@@ -497,12 +610,22 @@ def options_for(role_family: str, topic_id: str | None) -> list[str]:
     return list(topic.options) if topic else []
 
 
-def topics_for(role_family: str) -> list[Topic]:
-    """Topics for a role family (falls back to CNC/VMC)."""
-    return _TOPICS_BY_FAMILY.get(role_family, _CNC_VMC_TOPICS)
+def topics_for(role_family: str | None) -> list[Topic]:
+    """Topics for a role family. Unknown/None falls back to ``generic``, NOT CNC/VMC.
+
+    THE DEFECT THIS FIXES. The fallback used to be ``_CNC_VMC_TOPICS``, so every trade
+    the gazetteer cannot place — cook, tailor, driver, painter — was handed the CNC
+    bank and asked "Kaunsi machine — VMC, CNC lathe, HMC ya grinding?", then offered
+    VMC/Fanuc chips to tap (and a tapped chip is recorded as the worker's own answer).
+    The generic bank asks the plain question instead; the worker is NEVER told their
+    trade is unsupported, and their raw phrases still reach extraction unchanged.
+    """
+    if not role_family:
+        return _GENERIC_TOPICS
+    return _TOPICS_BY_FAMILY.get(role_family, _GENERIC_TOPICS)
 
 
-def topic_by_id(role_family: str, topic_id: str) -> Topic | None:
+def topic_by_id(role_family: str | None, topic_id: str) -> Topic | None:
     for topic in topics_for(role_family):
         if topic.id == topic_id:
             return topic
