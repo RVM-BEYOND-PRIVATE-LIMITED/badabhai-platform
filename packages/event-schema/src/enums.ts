@@ -98,6 +98,18 @@ export const EVENT_DOMAINS = [
   // growth queue. PII-FREE & hash-only: the phrase text (already pseudonymized at rest,
   // SG-1) NEVER rides the spine — only its sha256, the domain slug, lang, and a count.
   "skill",
+  // AI job-posting chat (ADR-0035) — the payer-facing conversational front door onto the
+  // EXISTING job-posting create path. A DISTINCT domain from `job_posting` (ADR-0012), for
+  // the same reason ADR-0012 split itself from `job` (ADR-0009): a chat SESSION is a
+  // different entity with its own lifecycle from the posting it may eventually produce, so
+  // conflating them would either fire `job_posting.*` for a row that does not exist yet or
+  // retrofit shipped `job_posting.*` payloads with chat fields they were never versioned for
+  // (invariant #8). PUBLISH gets NO event here — it reuses the existing `job_posting.created`
+  // emitted by `JobPostingsService.createForPayer`; this domain adds no second writer of it.
+  // PII-FREE: opaque session/payer/message ids + the message-type enum ONLY — never the
+  // payer's typed message, never a draft field VALUE, and never the payer's organisation
+  // name (which this chat does not ask for and never sees — ADR-0035 §Decision 3).
+  "job_posting_chat",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;
@@ -188,6 +200,18 @@ export const SUBJECT_TYPES = [
   // An unresolved_phrase growth-queue row (ADR-0030/FORK-B-1). subject_id = the row uuid;
   // the phrase text (pseudonymized at rest) NEVER rides the spine — hash-only payload.
   "skill_phrase",
+  // An AI job-posting chat SESSION (ADR-0035). The subject_id is the opaque
+  // `payer_job_posting_chat_sessions.id`. DISTINCT from `chat_session` (the worker
+  // profiling conversation, a different principal AND a different table) — reusing that
+  // subject would make a payer conversation indistinguishable from a worker one on the
+  // audit spine. Carries NO PII (the payer id in the payload is opaque; the transcript
+  // and the draft's field values never enter a payload).
+  "payer_job_posting_chat_session",
+  // One message row in an AI job-posting chat (ADR-0035). The subject_id is the opaque
+  // `payer_job_posting_chat_messages.id`. `body_text` NEVER appears in a payload — only
+  // the message id and its type enum. Sibling of `chat_message`, kept separate for the
+  // same reason as the session subject above.
+  "payer_job_posting_chat_message",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;

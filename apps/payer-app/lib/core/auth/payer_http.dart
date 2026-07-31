@@ -33,6 +33,10 @@ class PayerResponse {
 ///  - prefixes [baseUrl], encodes/decodes JSON,
 ///  - attaches `Authorization: Bearer <token>` from [PayerTokenStore] when
 ///    [authed] is true,
+///  - adopts the ROLLING session token the server hands back in the
+///    `x-session-token` response header (see [_adoptRollingToken]) — the
+///    proactive half of session upkeep, so a long-lived screen (the job-posting
+///    chat) never has to fall through a 401 mid-flow,
 ///  - on a 401 for an authed call: attempts ONE silent token refresh via
 ///    [refreshToken] (`POST /payer/refresh`), persists the rotated bearer, and
 ///    RETRIES the original request once. Only if the refresh itself fails (or
@@ -140,7 +144,49 @@ class PayerHttp {
       PayerMethod.delete => _client.delete(uri, headers: headers, body: encoded),
     }
         .timeout(kRequestTimeout);
+    // Persist a rolling refresh BEFORE decoding, so the very next call already
+    // signs with the fresh bearer even if this response is an error the caller
+    // rethrows.
+    await _adoptRollingToken(path, res, authed: authed);
     return _decode(res);
+  }
+
+  /// Adopts the rolling session token `PayerAuthGuard` returns in the
+  /// `x-session-token` response header once the current one is past its
+  /// half-life (`apps/api/src/payers/payer-auth.guard.ts` — it re-mints and
+  /// `res.setHeader("x-session-token", fresh.token)`).
+  ///
+  /// WHY THIS EXISTS: the client used to ignore that header entirely and only
+  /// recover REACTIVELY, after a request had already come back 401. That is a
+  /// visible failure for any screen that holds a long conversation open — the
+  /// AI job-posting chat (ADR-0035) can sit past the half-life mid-draft, and
+  /// the payer would eat a failed turn (and, if the refresh call itself failed,
+  /// a bounce to Login with the draft on screen) for a session the server had
+  /// already offered to renew. Reading the header keeps the session alive with
+  /// no extra round trip; the 401 → refresh → retry path below stays as the
+  /// last-resort recovery it always was.
+  ///
+  /// Deliberately narrow:
+  ///  - only for [authed] calls (an anonymous call never carries one),
+  ///  - never on `/payer/refresh` / `/payer/logout` ([_isNoRefreshPath]) — the
+  ///    refresh response's own body token is what `send` persists, and adopting
+  ///    a token on the way OUT of logout would re-seed a session being killed,
+  ///  - a no-op when the header is absent, empty, or identical to what is
+  ///    already stored (no pointless secure-storage write per request).
+  ///
+  /// NEVER logs the token (CLAUDE.md §2).
+  Future<void> _adoptRollingToken(
+    String path,
+    http.Response res, {
+    required bool authed,
+  }) async {
+    if (!authed) return;
+    if (_isNoRefreshPath(path)) return;
+    // `package:http` lower-cases response header names.
+    final String? fresh = res.headers['x-session-token'];
+    if (fresh == null || fresh.isEmpty) return;
+    if (fresh == _tokenStore.accessToken) return;
+    await _tokenStore.saveAccessToken(fresh);
   }
 
   /// Wipes the local session and bounces to Login. Called only when refresh is

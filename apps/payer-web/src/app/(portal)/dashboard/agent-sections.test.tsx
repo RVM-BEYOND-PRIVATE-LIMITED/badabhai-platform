@@ -257,7 +257,9 @@ describe("CARDS-1 · agent tiles are whole-card links to their REAL routes (face
       expect(h).not.toMatch(/\b\d{10}\b/);
       expect(h).not.toMatch(/\+91/);
       // every tile href is a static app route (no interpolated id at all)
-      expect(h).toMatch(/^\/(account|dashboard#agency-vacancies)$/);
+      expect(h).toMatch(
+        /^\/(account|dashboard#agency-vacancies|agency\/(revenue|qr|bulk-upload))$/,
+      );
     }
   });
 });

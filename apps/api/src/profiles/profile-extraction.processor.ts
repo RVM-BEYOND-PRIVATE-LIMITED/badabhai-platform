@@ -6,6 +6,9 @@ import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { EventsService } from "../events/events.service";
 import { AiService } from "../ai/ai.service";
 import { ChatRepository } from "../chat/chat.repository";
+import { WorkersRepository } from "../workers/workers.repository";
+import { PiiCryptoService } from "../common/pii-crypto.service";
+import { redactKnownName } from "../common/redact-known-name";
 import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository, type AiJobUsageMetadata } from "./ai-jobs.repository";
 import { hasExtractedContent, type ProfileContentFields } from "./profile-content";
@@ -44,6 +47,11 @@ export class ProfileExtractionProcessor extends WorkerHost {
     private readonly chat: ChatRepository,
     private readonly events: EventsService,
     private readonly ai: AiService,
+    // R32 — the two collaborators needed to remove the worker's OWN name from the
+    // transcript before it crosses the ai-service boundary. Both are @Global
+    // (WorkersModule / CryptoModule), so ProfilesModule needs no new import edge.
+    private readonly workers: WorkersRepository,
+    private readonly pii: PiiCryptoService,
   ) {
     super();
   }
@@ -72,7 +80,20 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // own question text as the worker's answers.
       const messages = await this.buildMessages(sessionId);
       const transcript = this.renderTranscript(messages);
-      const result = await this.ai.extractProfile({ worker_ref: workerId, transcript, messages });
+      // R32 — the transcript is the OTHER worker-free-text egress to the ai-service
+      // (chat turns are the first, redacted in ChatService.postMessage), and it is
+      // the wider one: it replays EVERY inbound line, so an introduction typed on
+      // turn 1 rides along on every later extraction. Redact the worker's own known
+      // name out of BOTH shapes, which must describe the same lines. Fail SAFE — a
+      // null/undecryptable name sends the transcript as before (the ai-service's
+      // fail-closed pseudonymize gate still fronts the LLM); a name lookup must
+      // never fail an extraction.
+      const fullName = await this.workerFullName(workerId);
+      const result = await this.ai.extractProfile({
+        worker_ref: workerId,
+        transcript: redactKnownName(transcript, fullName),
+        messages: messages.map((m) => ({ ...m, text: redactKnownName(m.text, fullName) })),
+      });
       const profile: DraftProfile = result.profile;
       // Issue #419 — the RICH draft the response has always carried (persisted below).
       // HOISTED out of the `create()` call because the profile_status decision reads it
@@ -343,6 +364,30 @@ export class ProfileExtractionProcessor extends WorkerHost {
       this.logger.warn(
         `ai.spend_cap_exceeded emit failed for job ${aiJobId} (non-fatal): ${String(err)}`,
       );
+    }
+  }
+
+  /**
+   * R32 — the worker's DECRYPTED `full_name`, or `null` when there is none or it
+   * cannot be decrypted. Mirrors `ChatService.workerFullName`: the plaintext is used
+   * ONLY to remove text on the way out (`redactKnownName`) and is never logged,
+   * evented, stored, or forwarded.
+   *
+   * Never throws — this runs on the extraction path, and a rotated key must degrade
+   * to "not redacted" (the pre-existing behaviour, still gated downstream) rather
+   * than fail the job. The warning carries the opaque worker id only.
+   */
+  private async workerFullName(workerId: string): Promise<string | null> {
+    try {
+      const worker = await this.workers.findById(workerId);
+      if (!worker?.fullName) return null;
+      return this.pii.decrypt(worker.fullName);
+    } catch {
+      this.logger.warn(
+        `could not resolve full_name for worker ${workerId}; ` +
+          `extraction transcript is not name-redacted (pseudonymize gate still applies)`,
+      );
+      return null;
     }
   }
 

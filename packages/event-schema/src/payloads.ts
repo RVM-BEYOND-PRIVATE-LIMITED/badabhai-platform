@@ -875,6 +875,73 @@ export const JobPostingResumedPayload = z.object({
   status: z.literal("open"),
 });
 export type JobPostingResumedPayload = z.infer<typeof JobPostingResumedPayload>;
+
+// ---------------------------------------------------------------------------
+// job_posting_chat.* — the AI job-posting chat (ADR-0035).
+//
+// PII-FREE BY CONSTRUCTION, and `.strict()` makes it STRUCTURAL rather than a
+// convention: every schema below rejects ANY key it does not name, so a future
+// caller cannot smuggle the payer's typed message, a draft field value, or the
+// payer's organisation name onto the audit spine. What may appear here is opaque
+// ids, the message-type enum — nothing else.
+//
+// The organisation name deserves its own sentence because it is the one value a
+// reviewer might expect to find: the chat NEVER asks for it and the AI service
+// never receives it. It is decrypted server-side from `payers.orgNameEnc` and
+// stamped onto the create call at publish time (ADR-0035 §Decision 3, the
+// AI-PERSONA-2 post-hoc pattern), so it exists on no message, no draft, no
+// conversation state, and no payload here.
+//
+// PUBLISH IS DELIBERATELY ABSENT from this family. It reuses the already-shipped
+// `job_posting.created`, emitted by `JobPostingsService.createForPayer` — this
+// slice adds no second writer of that event (ADR-0035 §Decision 6).
+// ---------------------------------------------------------------------------
+
+/** A payer opened a new AI job-posting chat. Two opaque ids, nothing else. */
+export const JobPostingChatSessionStartedPayload = z
+  .object({
+    session_id: uuidSchema,
+    payer_id: uuidSchema,
+  })
+  .strict();
+export type JobPostingChatSessionStartedPayload = z.infer<
+  typeof JobPostingChatSessionStartedPayload
+>;
+
+/**
+ * A message was stored on an AI job-posting chat.
+ *
+ * ONE event name covers BOTH directions (ADR-0035 §Decision 6 freezes three events
+ * for this domain, not four); the ACTOR is what distinguishes them — `payer` for a
+ * payer turn, `ai_service` for the engine's reply — exactly the discrimination the
+ * worker chat gets from having two names. The direction is therefore never a payload
+ * field, and `body_text` never appears in ANY form (raw, hashed, or truncated).
+ */
+export const JobPostingChatMessageSentPayload = z
+  .object({
+    session_id: uuidSchema,
+    payer_id: uuidSchema,
+    message_id: uuidSchema,
+    message_type: messageType,
+  })
+  .strict();
+export type JobPostingChatMessageSentPayload = z.infer<typeof JobPostingChatMessageSentPayload>;
+
+/**
+ * The deterministic interview engine reported the draft complete — emitted ONCE per
+ * session, on the flip. Records the FACT only: which fields were filled, and with
+ * what, is never here. Readiness is advisory — the publish step still re-validates
+ * the draft against `PayerCreateJobPostingSchema` (invariant #4: the engine assists,
+ * it does not decide that a posting may be created).
+ */
+export const JobPostingChatDraftReadyPayload = z
+  .object({
+    session_id: uuidSchema,
+    payer_id: uuidSchema,
+  })
+  .strict();
+export type JobPostingChatDraftReadyPayload = z.infer<typeof JobPostingChatDraftReadyPayload>;
+
 // unlock.* / contact.* / payment.* — Contact Unlock + Reveal (ADR-0010, Stream A).
 //
 // The single highest-risk PII path in the product — and therefore the family with

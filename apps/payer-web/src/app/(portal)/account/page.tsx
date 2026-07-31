@@ -66,6 +66,38 @@ export default async function AccountPage() {
         role={session.role}
         status={session.status}
       />
+
+      {session.role === "agent" ? (
+        <section className="account-section">
+          <h2 className="account-section__title">KYC &amp; Bank Details</h2>
+          <p className="account-section__sub">
+            Identity verification and payout banking information for your agency.
+          </p>
+          <div className="account-section__cards">
+            <Card className="account-stat" href="/agency/referrals" ariaLabel="KYC details — manage">
+              <div className="account-stat__head">
+                <span className="account-stat__label">KYC</span>
+              </div>
+              <div className="account-stat__value">PAN &amp; Identity</div>
+              <div className="account-stat__foot">
+                <Badge tone="warning" upper>Pending</Badge>
+                <span className="account-stat__hint">Submit your KYC documents</span>
+              </div>
+            </Card>
+
+            <Card className="account-stat" href="/agency/referrals" ariaLabel="Bank details — add">
+              <div className="account-stat__head">
+                <span className="account-stat__label">Bank Account</span>
+              </div>
+              <div className="account-stat__value">Not added</div>
+              <div className="account-stat__foot">
+                <Badge tone="neutral" upper>Not set</Badge>
+                <span className="account-stat__hint">Add payout bank details</span>
+              </div>
+            </Card>
+          </div>
+        </section>
+      ) : null}
     </>
   );
 }

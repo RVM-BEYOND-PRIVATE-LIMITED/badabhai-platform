@@ -1,3 +1,4 @@
+import 'job_posting_chat_models.dart';
 import 'models.dart';
 
 /// The data seam for the payer app. Two implementations bind to it:
@@ -98,6 +99,64 @@ abstract class PayerApiClient {
     required String tier,
     String? coupon,
   });
+
+  // --- AI job-posting chat (ADR-0035) ---------------------------------------
+  // The conversational INPUT SURFACE in front of the unchanged job-posting
+  // create path. Five endpoints, all behind the existing PayerAuthGuard; the
+  // `payer_id` is ALWAYS derived from the bearer server-side and is NEVER put in
+  // a body here. Publish reuses `JobPostingsService.createForPayer`, which
+  // already emits `job_posting.created` — this client adds no new writer.
+  //
+  // The payer's own company/org name is NEVER asked for in the chat and NEVER
+  // sent anywhere from this seam: it is auto-filled server-side from
+  // `payers.orgNameEnc` at publish time (ADR-0035 §Decision 3), which is why
+  // [JobPostingDraft] has no `org_label` field at all.
+
+  /// Open a chat session for the signed-in payer
+  /// (`POST /payer/job-posting-chat/session`). Body-less — the server derives
+  /// the payer from the bearer, and there is no org name to send (rule A).
+  ///
+  /// Returns the SAME engine-turn shape a message does (the frozen contract's
+  /// own choice), so the opener carries `reply_text`, the chips, and any draft.
+  Future<JobPostingChatTurn> startJobPostingChatSession();
+
+  /// Send one payer turn and get the engine's next turn back
+  /// (`POST /payer/job-posting-chat/message`, body EXACTLY `{session_id, text}`).
+  /// The returned [JobPostingChatTurn] carries the reply, the updated draft, and
+  /// the engine's own `draft_ready` decision (deterministic, server-side — the
+  /// client never decides readiness).
+  Future<JobPostingChatTurn> sendJobPostingChatMessage({
+    required String sessionId,
+    required String text,
+  });
+
+  /// This payer's chat sessions, newest-activity first
+  /// (`GET /payer/job-posting-chat/sessions`) — the CROSS-DEVICE
+  /// "continue where you left off" entry point. Ownership is by `payer_id` from
+  /// the bearer, so a conversation started on the web shows up here.
+  Future<List<JobPostingChatSessionSummary>> fetchJobPostingChatSessions();
+
+  /// Hydrate a session
+  /// (`GET /payer/job-posting-chat/sessions/:id/messages`) — the transcript
+  /// oldest-first PLUS the current draft, the engine's readiness decision and
+  /// the live chips, which is what lets a resumed chat show the draft without
+  /// sending another message.
+  ///
+  /// A neutral 404 (unknown OR not-owned — the no-oracle IDOR defence) returns
+  /// `null`, never an exception, so a stale session id can never crash the
+  /// screen or act as an existence oracle.
+  Future<JobPostingChatTranscript?> fetchJobPostingChatTranscript(
+    String sessionId,
+  );
+
+  /// Publish the session's draft as a real posting
+  /// (`POST /payer/job-posting-chat/sessions/:id/publish`, EMPTY body — the
+  /// draft already lives server-side and the org name is auto-filled there).
+  /// The server validates the stored draft against the SAME
+  /// `PayerCreateJobPostingSchema` the manual form uses and calls the SAME
+  /// `createForPayer`. Returns the created posting's ID. A 400 (draft still
+  /// incomplete) / 409 (already published) surfaces as [PayerApiException].
+  Future<String> publishJobPostingChatSession(String sessionId);
 
   /// The unlock ledger (most-recent first).
   Future<List<LedgerEntry>> fetchLedger();

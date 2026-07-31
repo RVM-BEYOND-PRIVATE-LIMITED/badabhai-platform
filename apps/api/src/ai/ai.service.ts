@@ -10,6 +10,10 @@ import {
   DraftProfileSchema,
   TranscriptionOutputSchema,
   SkillCanonicalizationSchema,
+  JobPostingChatOpeningOutputSchema,
+  JobPostingChatTurnOutputSchema,
+  type JobPostingChatTurnInput,
+  type JobPostingChatTurnOutput,
   type SkillCanonicalizationInput,
   type SkillCanonicalization,
   type ProfilingTurnInput,
@@ -66,6 +70,20 @@ export class AiService {
    */
   private readonly openingCache = new Map<string, string>();
 
+  /**
+   * ADR-0035 — the same successes-only memo for the job-posting chat opener, kept
+   * SEPARATE from {@link openingCache} so a role-family key and a trade-hint key can
+   * never collide and serve a worker opener to a payer.
+   *
+   * BOUNDED TODAY BY THE CALLER, not by this map: `trade_hint` is server-controlled in
+   * this slice (the payer portal does not send one), so the key space is a single
+   * entry. If a later slice ever accepts a client-supplied hint, this must gain a cap
+   * BEFORE that lands — an unbounded map keyed by attacker-controlled text is a memory
+   * leak. Failures are never cached (a blip must not pin later sessions to the
+   * fallback).
+   */
+  private readonly jobPostingOpeningCache = new Map<string, string>();
+
   constructor(@Inject(SERVER_CONFIG) private readonly config: ServerConfig) {}
 
   async profilingRespond(input: ProfilingTurnInput): Promise<ProfilingTurnOutput> {
@@ -114,6 +132,58 @@ export class AiService {
     const text = remote?.opening_text?.trim() ? remote.opening_text : null;
     if (text !== null) this.openingCache.set(roleFamily, text);
     return text;
+  }
+
+  /**
+   * ADR-0035 — the payer-facing job-posting chat opener, or `null` when the AI service
+   * cannot supply it.
+   *
+   * NO MOCK FALLBACK, on the same reasoning as {@link profilingOpening}: a local copy
+   * would be a second copy of the opener copy and the two would drift. `null` means
+   * "the client renders its own constant", which is what it already does.
+   *
+   * PRIVACY: the request body carries a trade hint and nothing else — no payer id, no
+   * session id, and never the payer's organisation name (ADR-0035 §Decision 3: the
+   * chat does not ask for it and the AI service never receives it).
+   */
+  async jobPostingChatOpening(tradeHint: string | null = null): Promise<string | null> {
+    const key = tradeHint ?? "";
+    const cached = this.jobPostingOpeningCache.get(key);
+    if (cached !== undefined) return cached;
+
+    const remote = await this.post(
+      "/job-posting-chat/opening",
+      { trade_hint: tradeHint },
+      JobPostingChatOpeningOutputSchema,
+    );
+    const text = remote?.opening_text?.trim() ? remote.opening_text : null;
+    if (text !== null) this.jobPostingOpeningCache.set(key, text);
+    return text;
+  }
+
+  /**
+   * ADR-0035 — one payer turn of the deterministic job-posting interview. Returns
+   * `null` when the AI service is unreachable or rejects the call.
+   *
+   * NO MOCK FALLBACK, and this is the deliberate difference from
+   * {@link profilingRespond} (which advances a local `mockProfilingTurn` so a worker
+   * mid-interview keeps moving). The job-posting engine — its topic bank, its ordering,
+   * its banding — lives ONLY in `apps/ai-service/app/job_posting_chat/`. A TS mock here
+   * would be a second interview engine for the same conversation, free to drift on
+   * topic order, banding boundaries, or which fields it fills; a payer would then get a
+   * draft the real engine would never have produced. Returning `null` lets the caller
+   * fail the turn loudly and keep the stored state and draft untouched, which is the
+   * honest outcome — the payer's session is durable and resumable by construction.
+   *
+   * PRIVACY: `input.message_text` is payer free text and is pseudonymized FAIL-CLOSED
+   * on the other side BEFORE the engine or any model sees it (invariant #3); no LLM
+   * call happens on this route today at all. `payer_ref` is the opaque payer uuid for
+   * spend attribution — never a name, email, or organisation.
+   */
+  async jobPostingChatRespond(
+    input: JobPostingChatTurnInput,
+  ): Promise<JobPostingChatTurnOutput | null> {
+    return this.post("/job-posting-chat/respond", input, JobPostingChatTurnOutputSchema);
   }
 
   async extractProfile(input: ProfileExtractionInput): Promise<ProfileExtractionOutput> {

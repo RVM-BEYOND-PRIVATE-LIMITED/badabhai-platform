@@ -5,11 +5,21 @@ import '../../../../core/data/models.dart';
 import '../../../../core/data/payer_api_client.dart';
 
 /// Loads the signed-in payer's job postings for the My-jobs screen and drives
-/// the per-row lifecycle (publish / pause / resume / close) + monetization
-/// (buy-plan / boost / quota-topup) actions. Each action returns a
-/// [JobActionResult] the screen surfaces as a toast; a 409 (illegal transition,
-/// no active plan, active boost exists) becomes an HONEST neutral message,
-/// never a crash. Lifecycle actions refetch the list so the pill/buttons update.
+/// the per-row lifecycle (publish / pause / resume / close) actions. Each action
+/// returns a [JobActionResult] the screen surfaces as a toast; a 409 (illegal
+/// transition) becomes an HONEST neutral message, never a crash. Lifecycle
+/// actions refetch the list so the pill/buttons update.
+///
+/// STORE POLICY — NO MONEY ACTIONS LIVE HERE (owner decision, ADR-0035 slice).
+/// This cubit used to expose `buyPlan` / `boost` / `topup`, one tap each behind
+/// a confirm dialog, charging real money through
+/// `POST /payer/job-postings/:id/{plan,boost,quota-topup}`. A mobile app that
+/// sells a digital entitlement through its own payment rail is exactly what the
+/// App Store / Play Store IAP rules exist to catch, so the whole path is gone
+/// from the app: no button, and no cubit method a future screen could quietly
+/// re-bind to. The API-client methods and the backend endpoints are UNCHANGED —
+/// `apps/payer-web` still drives them, and the app now points there instead
+/// (see `resolvePayerWebUrl`).
 class JobsCubit extends Cubit<JobsState> {
   JobsCubit(this._api) : super(const JobsState());
 
@@ -71,57 +81,9 @@ class JobsCubit extends Cubit<JobsState> {
     }
   }
 
-  // --- Monetization ----------------------------------------------------------
-
-  Future<JobActionResult> buyPlan(String id, String tier) async {
-    try {
-      final PlanPurchase p = await _api.buyPlan(id, tier: tier);
-      await load();
-      final int? q = p.applicantVisibilityQuota;
-      return JobActionResult.ok(
-        q == null ? 'Plan active.' : 'Plan active · $q applicant views.',
-      );
-    } on PayerApiException {
-      return JobActionResult.fail("Couldn't buy the plan right now.");
-    } catch (_) {
-      return JobActionResult.fail('Network error. Check your connection.');
-    }
-  }
-
-  Future<JobActionResult> boost(String id) async {
-    try {
-      await _api.buyBoost(id);
-      await load();
-      return JobActionResult.ok('Boosted — more reach, within relevance.');
-    } on PayerApiException catch (e) {
-      return JobActionResult.fail(
-        e.isConflict
-            ? 'This job already has an active boost.'
-            : "Couldn't boost right now.",
-      );
-    } catch (_) {
-      return JobActionResult.fail('Network error. Check your connection.');
-    }
-  }
-
-  Future<JobActionResult> topup(String id, String tier) async {
-    try {
-      final PlanPurchase p = await _api.quotaTopup(id, tier: tier);
-      await load();
-      final int? q = p.applicantVisibilityQuota;
-      return JobActionResult.ok(
-        q == null ? 'Quota topped up.' : 'Quota topped up · +$q views.',
-      );
-    } on PayerApiException catch (e) {
-      return JobActionResult.fail(
-        e.isConflict
-            ? 'Buy a plan first, then top up.'
-            : "Couldn't top up right now.",
-      );
-    } catch (_) {
-      return JobActionResult.fail('Network error. Check your connection.');
-    }
-  }
+  // NOTE: `buyPlan` / `boost` / `topup` were REMOVED here (see the class doc).
+  // Do not re-add them — a money action belongs on the web portal, not in the
+  // store-distributed app.
 }
 
 /// The outcome of a one-shot My-jobs action — a success/neutral flag + a human

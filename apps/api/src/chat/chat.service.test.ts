@@ -377,10 +377,85 @@ describe("ChatService — AI-PERSONA-2 worker-name seam (SG-1 PII boundary)", ()
     }
   });
 
-  it("no DB name read for a reply without the placeholder (mid-interview ack turn)", async () => {
-    const { workers } = await run({ replyText: "Theek hai. Kaunsi machine?" });
-    // Fast path: renderWorkerName short-circuits, so no worker/name fetch happens.
-    expect(workers.findById).not.toHaveBeenCalled();
+  it("exactly ONE name read per turn, shared by redaction and the vocative", async () => {
+    // WAS "no DB name read on an ack turn". R32 changed the premise, not the budget:
+    // the name is now needed on EVERY turn to redact the OUTBOUND message text, so
+    // `renderWorkerName`'s old short-circuit can no longer avoid the read. It is read
+    // ONCE in postMessage and handed to both consumers — so a turn that also carries
+    // the vocative costs the same single read it always did, never two.
+    const { workers, pii } = await run({ replyText: PLACEHOLDER_REPLY, workerName: "Nitin Kumar" });
+    expect(workers.findById).toHaveBeenCalledTimes(1);
+    expect(pii.decrypt).toHaveBeenCalledTimes(1);
+  });
+});
+
+// R32 — the worker's OWN name is removed from the turn BEFORE it crosses the
+// ai-service boundary. Not a heuristic: we redact the string we already hold.
+describe("ChatService — R32 known-name redaction on the outbound turn", () => {
+  const textDto = (text: string) => ({ session_id: SESSION, worker_id: WORKER, text }) as never;
+
+  it("'Suresh Kumar, CNC operator' → the name never reaches the ai-service", async () => {
+    const { svc, ai } = make({ workerName: "Suresh Kumar" });
+    await svc.postMessage(WORKER, textDto("Suresh Kumar, CNC operator"), CTX);
+    const sent = ai.profilingRespond.mock.calls[0]![0] as { message_text: string };
+    expect(sent.message_text).not.toContain("Suresh");
+    expect(sent.message_text).not.toContain("Kumar");
+    expect(sent.message_text).toBe("[NAME], CNC operator");
+  });
+
+  it("redacts a bare first name typed on a later turn", async () => {
+    const { svc, ai } = make({ workerName: "Suresh Kumar" });
+    await svc.postMessage(WORKER, textDto("mera naam Suresh hai, VMC chalata hun"), CTX);
+    const sent = ai.profilingRespond.mock.calls[0]![0] as { message_text: string };
+    expect(sent.message_text).toBe("mera naam [NAME] hai, VMC chalata hun");
+  });
+
+  it("STORES the raw text — redaction changes only what is SENT", async () => {
+    const { svc, chat } = make({ workerName: "Suresh Kumar" });
+    await svc.postMessage(WORKER, textDto("Suresh Kumar, CNC operator"), CTX);
+    const inbound = chat.insertMessage.mock.calls.find(
+      (c) => (c[0] as { direction: string }).direction === "inbound",
+    );
+    expect((inbound?.[0] as { bodyText: string }).bodyText).toBe("Suresh Kumar, CNC operator");
+  });
+
+  it("a DECRYPT FAILURE does NOT break the turn — it degrades to un-redacted", async () => {
+    // Fail SAFE, not closed: the ai-service's fail-closed pseudonymize gate is still
+    // in front of the LLM, so an undecryptable name must never make chat unusable.
+    const { svc, ai } = make({ workerName: "Suresh Kumar", decryptThrows: true });
+    const res = await svc.postMessage(WORKER, textDto("Suresh Kumar, CNC operator"), CTX);
+    expect(res.session_id).toBe(SESSION);
+    const sent = ai.profilingRespond.mock.calls[0]![0] as { message_text: string };
+    expect(sent.message_text).toBe("Suresh Kumar, CNC operator");
+  });
+
+  it("no name stored → the turn is sent unchanged", async () => {
+    const { svc, ai } = make({ workerName: null });
+    await svc.postMessage(WORKER, textDto("Suresh Kumar, CNC operator"), CTX);
+    const sent = ai.profilingRespond.mock.calls[0]![0] as { message_text: string };
+    expect(sent.message_text).toBe("Suresh Kumar, CNC operator");
+  });
+
+  it("leaves real trade vocabulary alone (the gazetteer regression class)", async () => {
+    const { svc, ai } = make({ workerName: "Suresh Kumar" });
+    const text = "Wire EDM aur Jyoti CNC pe kaam kiya, ITI fitter 2018-2020 kiya";
+    await svc.postMessage(WORKER, textDto(text), CTX);
+    const sent = ai.profilingRespond.mock.calls[0]![0] as { message_text: string };
+    expect(sent.message_text).toBe(text);
+  });
+
+  it("never logs the decrypted name", async () => {
+    const logSpy = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      const { svc } = make({ workerName: "Suresh Kumar", decryptThrows: true });
+      await svc.postMessage(WORKER, textDto("Suresh Kumar, CNC operator"), CTX);
+      const logged = JSON.stringify([...logSpy.mock.calls, ...warnSpy.mock.calls]);
+      expect(logged).not.toContain("Suresh");
+    } finally {
+      logSpy.mockRestore();
+      warnSpy.mockRestore();
+    }
   });
 });
 

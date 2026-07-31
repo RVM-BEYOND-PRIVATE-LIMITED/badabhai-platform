@@ -13,6 +13,7 @@ import '../../find/presentation/find_screen.dart';
 import '../../find/presentation/reveal_args.dart';
 import '../../find/presentation/reveal_screen.dart';
 import '../../home/presentation/home_screen.dart';
+import '../../job_posting_chat/presentation/job_posting_chat_screen.dart';
 import '../../jobs/presentation/jobs_screen.dart';
 import '../../jobs/presentation/post_job_screen.dart';
 import '../../account/presentation/account_screen.dart';
@@ -40,6 +41,16 @@ class _AppShellState extends State<AppShell> {
   String _tab = 'home';
   String? _sub;
   RevealArgs? _revealed;
+
+  /// The chat session the 'aiPost' overlay should RESUME (ADR-0035 cross-device
+  /// pickup), or null to start a fresh conversation. Cleared on [_back] so the
+  /// next open does not silently reopen a finished chat.
+  String? _resumeChatId;
+
+  /// Bumped every time a posting is created from the chat, so the Jobs tab —
+  /// which the IndexedStack keeps MOUNTED behind the overlay — is rebuilt with
+  /// a fresh JobsCubit instead of showing a list that predates the new posting.
+  int _jobsEpoch = 0;
 
   /// #382 — the tabs the payer has actually opened. The branches live in an
   /// [IndexedStack] so leaving a tab HIDES it instead of disposing it, but a
@@ -106,7 +117,17 @@ class _AppShellState extends State<AppShell> {
   void _back() => setState(() {
         _sub = null;
         _revealed = null;
+        _resumeChatId = null;
         CrashReporter.setScreen('payer/$_tab');
+      });
+
+  /// Opens the AI job-posting chat (ADR-0035). A non-null [resumeSessionId]
+  /// picks an existing conversation back up — the mobile half of cross-device
+  /// resume; null starts a new one.
+  void _openAiPost(String? resumeSessionId) => setState(() {
+        _resumeChatId = resumeSessionId;
+        _sub = 'aiPost';
+        CrashReporter.setScreen('payer/aiPost');
       });
 
   void _openReveal(RevealArgs args) => setState(() {
@@ -128,7 +149,13 @@ class _AppShellState extends State<AppShell> {
           onOpenCredits: () => _selectTab('credits'),
         ),
       'find' => FindScreen(onReveal: _openReveal),
-      'jobs' => JobsScreen(onPost: () => _openSub('post')),
+      'jobs' => JobsScreen(
+          // Keyed on the epoch so a publish from the chat rebuilds this branch
+          // (and its cubits) rather than leaving a stale list mounted.
+          key: ValueKey<int>(_jobsEpoch),
+          onPost: () => _openSub('post'),
+          onAiPost: _openAiPost,
+        ),
       'credits' => CreditsScreen(onBack: () => _selectTab('home')),
       'account' => AccountScreen(
           session: widget.session,
@@ -163,6 +190,14 @@ class _AppShellState extends State<AppShell> {
         // is bound to the [RevealArgs] of the card that opened it.
         switch (sub) {
           'post' => PostJobScreen(onBack: _back),
+          'aiPost' => JobPostingChatScreen(
+              // A fresh chat and a resumed one are different conversations —
+              // key on the session so reopening never reuses the old bloc.
+              key: ValueKey<String>('aiPost:${_resumeChatId ?? 'new'}'),
+              onBack: _back,
+              resumeSessionId: _resumeChatId,
+              onPublished: () => setState(() => _jobsEpoch++),
+            ),
           'credits' => CreditsScreen(onBack: _back),
           'reveal' => RevealScreen(args: _revealed!, onBack: _back),
           _ => const SizedBox.shrink(),

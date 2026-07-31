@@ -71,17 +71,19 @@ const POSTING_ID = "bbbb2222-0000-4000-8000-000000000001";
 function jobPostingRow(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: POSTING_ID,
-    payerId: "11111111-1111-4111-8111-111111111111",
-    createdBy: "11111111-1111-4111-8111-111111111111",
-    orgLabel: "Acme Manufacturing",
-    roleTitle: "CNC Machinist",
-    locationLabel: "Pune, MH",
+    payer_id: "11111111-1111-4111-8111-111111111111",
+    created_by: "11111111-1111-4111-8111-111111111111",
+    org_label: "Acme Manufacturing",
+    role_title: "CNC Machinist",
+    location_label: "Pune, MH",
     description: "Two-shift CNC role, PPE provided.",
-    vacancyBand: "6-10", // the BACKEND band-set (distinct from the frontend bands)
+    vacancy_band: "6-10",
     status: "draft",
-    createdAt: "2026-06-20T00:00:00.000Z",
-    updatedAt: "2026-06-20T00:00:00.000Z",
-    closedAt: null,
+    skill_phrases: [],
+    skill_ids: [],
+    created_at: "2026-06-20T00:00:00.000Z",
+    updated_at: "2026-06-20T00:00:00.000Z",
+    closed_at: null,
     ...over,
   };
 }
@@ -784,7 +786,7 @@ describe("getPostings — LIVE: GETs /payer/job-postings, maps faceless rows, dr
         jobPostingRow(),
         jobPostingRow({
           id: "bbbb2222-0000-4000-8000-000000000002",
-          roleTitle: "VMC Operator",
+          role_title: "VMC Operator",
           description: "Night shift; ESI provided.",
           status: "open",
         }),
@@ -825,7 +827,7 @@ describe("getPosting / updatePosting / closePosting — LIVE: faceless, no-oracl
 
   it("closePosting POSTs :id/close with an empty body + Bearer, maps the closed row", async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse(jobPostingRow({ status: "closed", closedAt: "2026-06-26T00:00:00.000Z" })),
+      jsonResponse(jobPostingRow({ status: "closed", closed_at: "2026-06-26T00:00:00.000Z" })),
     );
     const { closePosting } = await import("./payer-api");
     const res = await closePosting(POSTING_ID);
@@ -840,7 +842,7 @@ describe("getPosting / updatePosting / closePosting — LIVE: faceless, no-oracl
   });
 
   it("updatePosting PATCHes :id with a faceless body (no org_label/payer_id), maps the row", async () => {
-    fetchMock.mockResolvedValue(jsonResponse(jobPostingRow({ roleTitle: "CNC Machinist II" })));
+    fetchMock.mockResolvedValue(jsonResponse(jobPostingRow({ role_title: "CNC Machinist II" })));
     const { updatePosting } = await import("./payer-api");
     // updatePosting takes the PATCHable subset only (UpdatePostingInput — no tradeKey).
     const res = await updatePosting(POSTING_ID, {

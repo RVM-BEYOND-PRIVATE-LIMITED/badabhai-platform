@@ -589,14 +589,15 @@ export const reachApplicantListWireSchema = z.object({
 
 /**
  * GET/POST/PATCH /payer/job-postings(/:id) — the EMPLOYER self-serve posting row, exactly
- * the `JobPosting` Drizzle row the payer-authed {@link
+ * the `JobPostingApi` the payer-authed {@link
  * import("../../api/src/payer-portal/payer-job-postings.controller").PayerJobPostingsController}
- * returns (camelCase keys; `Date` columns serialize to ISO strings → `z.string()`). Status is
+ * returns (snake_case keys matching `apps/api/src/job-postings/job-postings.repository.ts`;
+ * `Date` columns serialize to ISO strings → `z.string()`). Status is
  * the FULL four-state backend lifecycle `draft|open|paused|closed` (`paused` landed with the
  * payer pause/resume routes, #178).
  *
  * PII NOTE (invariant #2 / B-R2): this WIRE shape carries the payer's OWN identity fields
- * (`payerId`/`createdBy` — the session payer's own id) plus the payer's OWN `orgLabel` +
+ * (`payer_id`/`created_by` — the session payer's own id) plus the payer's OWN `org_label` +
  * free-text `description`. Those are the PAYER's own data (the org they registered + the blurb
  * they typed), NEVER worker PII — but they are NOT needed by any page, so the seam's wire→domain
  * mapper DROPS them: only the faceless {@link postingSummarySchema} fields reach the UI. No raw
@@ -604,21 +605,21 @@ export const reachApplicantListWireSchema = z.object({
  */
 export const jobPostingWireSchema = z.object({
   id: z.string().uuid(),
-  payerId: z.string().uuid().nullable(),
-  createdBy: z.string().uuid(),
-  orgLabel: z.string(),
-  roleTitle: z.string(),
-  locationLabel: z.string().nullable(),
+  payer_id: z.string().uuid().nullable(),
+  created_by: z.string().uuid(),
+  org_label: z.string(),
+  role_title: z.string(),
+  location_label: z.string().nullable(),
   description: z.string().nullable(),
-  // The BACKEND vacancy band-set ('1'/'2-5'/'6-10'/'11-25'/'25+') — distinct from the FRONTEND
-  // {@link VACANCY_BANDS}; `postingSummarySchema.vacancyBand` is a plain string so it passes through.
-  vacancyBand: z.string(),
-  // `paused` landed with the payer pause/resume lifecycle (#178) — the live wire can return it.
+  vacancy_band: z.string(),
   status: z.enum(["draft", "open", "closed", "paused"]),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  closedAt: z.string().nullable(),
+  skill_phrases: z.array(z.string()),
+  skill_ids: z.array(z.string()),
+  created_at: z.string(),
+  updated_at: z.string(),
+  closed_at: z.string().nullable(),
 });
+
 export type JobPostingWire = z.infer<typeof jobPostingWireSchema>;
 export const jobPostingListWireSchema = z.array(jobPostingWireSchema);
 
@@ -862,3 +863,305 @@ export const agencyPayoutRequestWireSchema = z.union([
   }),
 ]);
 export type AgencyPayoutRequestWire = z.infer<typeof agencyPayoutRequestWireSchema>;
+
+/* ── AI JOB-POSTING CHAT (ADR-0035) — the 5 frozen payer-authed endpoints ─────────
+ *
+ * Wire shapes for `/payer/job-posting-chat/*` (all behind PayerAuthGuard). Mirrors
+ * ADR-0035 §Decision 4/5 (snake_case, the `packages/ai-contracts` convention the
+ * backend module re-exports). Every shape here is deliberately TOLERANT (optionals +
+ * defaults) so a backend that ships an extra field still parses — the strict part is
+ * what we REFUSE to model:
+ *
+ *  - **No `org_label` on the draft (ADR-0035 §Decision 3 / design rule A).** The payer's
+ *    own company name is NEVER asked in the chat and NEVER sent to the LLM; the server
+ *    auto-fills it from `payers.orgNameEnc` at publish time. Modelling it here would
+ *    invite a UI field for it, so the field does not exist in this contract.
+ *  - **No `payer_id` anywhere in a REQUEST body (XB-A).** Tenancy is the session Bearer.
+ *  - **`vacancy_band` is BANDED, never an integer (ADR-0012).** The band set below is the
+ *    BACKEND set (`bandForCount` in @badabhai/validators) — deliberately DISTINCT from
+ *    the pricing package's frontend `VACANCY_BANDS` ("1-5"/"6-20"/"21-50"/"50+"), which is
+ *    a quota-display concept only and must never be conflated with this one.
+ *
+ * SHAPE CONVENTION: each schema is a PLAIN Zod object (no `.transform`) paired with an
+ * exported PURE `to*` mapper, exactly like `jobPostingWireSchema` + `toPostingSummary`.
+ * `payerFetch`'s `schema: z.ZodType<T>` bound requires input === output, so a transforming
+ * schema cannot be handed to the transport; keeping the wire→domain mapping in a pure
+ * function also keeps it unit-pinnable on its own.
+ */
+
+/**
+ * The BACKEND vacancy bands (ADR-0012 / `bandForCount`). NOT the pricing package's
+ * frontend `VACANCY_BANDS` — see the section note above.
+ */
+export const POSTING_VACANCY_BANDS = ["1", "2-5", "6-10", "11-25", "25+"] as const;
+export const postingVacancyBandSchema = z.enum(POSTING_VACANCY_BANDS);
+export type PostingVacancyBand = z.infer<typeof postingVacancyBandSchema>;
+
+/** Chat-session lifecycle — mirrors `db.PayerJobPostingChatStatus` (migration 0050). */
+export const JOB_POSTING_CHAT_STATUSES = [
+  "active",
+  "draft_ready",
+  "published",
+  "abandoned",
+] as const;
+export const jobPostingChatStatusSchema = z.enum(JOB_POSTING_CHAT_STATUSES);
+export type JobPostingChatStatus = z.infer<typeof jobPostingChatStatusSchema>;
+
+/**
+ * One transcript row. `direction`/`message_type` REUSE the shipped shared unions
+ * (`@badabhai/types` MESSAGE_DIRECTIONS / MESSAGE_TYPES — see the `payer_job_posting_chat_messages`
+ * schema comment): inbound = the payer's turn, outbound = the assistant's.
+ */
+export const jobPostingChatMessageWireSchema = z.object({
+  id: z.string().uuid(),
+  direction: z.enum(["inbound", "outbound"]),
+  message_type: z.enum(["text", "voice", "system"]).optional(),
+  body_text: z.string().nullable().optional(),
+  created_at: z.string(),
+});
+
+export interface JobPostingChatMessage {
+  id: string;
+  /** UI-facing role: who said it. Derived from the shared direction union. */
+  role: "payer" | "assistant";
+  messageType: "text" | "voice" | "system";
+  text: string;
+  createdAt: string;
+}
+
+export function toJobPostingChatMessage(
+  wire: z.infer<typeof jobPostingChatMessageWireSchema>,
+): JobPostingChatMessage {
+  return {
+    id: wire.id,
+    role: wire.direction === "inbound" ? "payer" : "assistant",
+    messageType: wire.message_type ?? "text",
+    text: wire.body_text ?? "",
+    createdAt: wire.created_at,
+  };
+}
+
+/**
+ * `JobPostingDraft` (ADR-0035 §Decision 4) — the live draft the chat fills in, which maps
+ * 1:1 onto `PayerCreateJobPostingSchema` at publish. NOTE the absent fields: no `org_label`
+ * (rule A) and no raw vacancy INTEGER (rule B — the band is the only representation).
+ */
+export const jobPostingChatDraftWireSchema = z.object({
+  role_title: z.string().nullable().optional(),
+  trade_key: z.string().nullable().optional(),
+  skill_phrases: z.array(z.string()).optional(),
+  location_label: z.string().nullable().optional(),
+  vacancy_band: postingVacancyBandSchema.nullable().optional(),
+  pay_min: z.number().int().nullable().optional(),
+  pay_max: z.number().int().nullable().optional(),
+  shift: z.string().nullable().optional(),
+  benefits: z.array(z.string()).optional(),
+  requirements: z.array(z.string()).optional(),
+  description: z.string().nullable().optional(),
+  confidence: z.number().nullable().optional(),
+  missing_fields: z.array(z.string()).optional(),
+  clarification_questions: z.array(z.string()).optional(),
+});
+export interface JobPostingDraft {
+  roleTitle: string | null;
+  tradeKey: string | null;
+  skillPhrases: string[];
+  locationLabel: string | null;
+  /** BANDED, never a raw count (ADR-0012 / rule B). */
+  vacancyBand: PostingVacancyBand | null;
+  payMin: number | null;
+  payMax: number | null;
+  shift: string | null;
+  benefits: string[];
+  requirements: string[];
+  description: string | null;
+  confidence: number | null;
+  missingFields: string[];
+  clarificationQuestions: string[];
+  // NOTE: there is deliberately NO org/company-name field here (rule A).
+}
+
+export function toJobPostingDraft(
+  wire: z.infer<typeof jobPostingChatDraftWireSchema>,
+): JobPostingDraft {
+  return {
+    roleTitle: wire.role_title ?? null,
+    tradeKey: wire.trade_key ?? null,
+    skillPhrases: wire.skill_phrases ?? [],
+    locationLabel: wire.location_label ?? null,
+    vacancyBand: wire.vacancy_band ?? null,
+    payMin: wire.pay_min ?? null,
+    payMax: wire.pay_max ?? null,
+    shift: wire.shift ?? null,
+    benefits: wire.benefits ?? [],
+    requirements: wire.requirements ?? [],
+    description: wire.description ?? null,
+    confidence: wire.confidence ?? null,
+    missingFields: wire.missing_fields ?? [],
+    clarificationQuestions: wire.clarification_questions ?? [],
+  };
+}
+
+/**
+ * The ENGINE TURN returned by both `POST …/session` (the opener) and `POST …/message`.
+ * `suggested_replies` are the deterministic engine's suggested-answer chips (invariant #4 —
+ * the engine decides the topic order; the LLM only rephrases).
+ */
+export const jobPostingChatTurnWireSchema = z.object({
+  session_id: z.string().uuid(),
+  status: jobPostingChatStatusSchema.optional(),
+  reply_text: z.string(),
+  suggested_replies: z.array(z.string()).optional(),
+  draft: jobPostingChatDraftWireSchema.nullable().optional(),
+  draft_ready: z.boolean().optional(),
+  message_id: z.string().uuid().nullable().optional(),
+  /** True when the privacy gateway blocked the turn and a safe fallback was returned. */
+  blocked: z.boolean().optional(),
+});
+
+export interface JobPostingChatTurn {
+  sessionId: string;
+  status: JobPostingChatStatus;
+  replyText: string;
+  suggestedReplies: string[];
+  draft: JobPostingDraft | null;
+  /** The DETERMINISTIC engine's readiness signal — never inferred from the draft fields. */
+  draftReady: boolean;
+  messageId: string | null;
+  blocked: boolean;
+}
+
+export function toJobPostingChatTurn(
+  wire: z.infer<typeof jobPostingChatTurnWireSchema>,
+): JobPostingChatTurn {
+  return {
+    sessionId: wire.session_id,
+    status: wire.status ?? "active",
+    replyText: wire.reply_text,
+    suggestedReplies: wire.suggested_replies ?? [],
+    draft: wire.draft ? toJobPostingDraft(wire.draft) : null,
+    draftReady: wire.draft_ready ?? false,
+    messageId: wire.message_id ?? null,
+    blocked: wire.blocked ?? false,
+  };
+}
+
+/**
+ * One row of `GET /payer/job-posting-chat/sessions` — the CROSS-DEVICE "continue where you
+ * left off" list (a session started on the phone shows up here on the web, because ownership
+ * is the payer ACCOUNT, never a device/browser session).
+ */
+export const jobPostingChatSessionWireSchema = z.object({
+  session_id: z.string().uuid(),
+  status: jobPostingChatStatusSchema,
+  draft_ready: z.boolean().optional(),
+  /** The draft's role title, when the chat has got that far — a resume-card label only. */
+  role_title: z.string().nullable().optional(),
+  started_at: z.string(),
+  last_message_at: z.string().nullable().optional(),
+  published_job_posting_id: z.string().uuid().nullable().optional(),
+});
+
+export interface JobPostingChatSessionSummary {
+  sessionId: string;
+  status: JobPostingChatStatus;
+  draftReady: boolean;
+  roleTitle: string | null;
+  startedAt: string;
+  lastMessageAt: string | null;
+  publishedJobPostingId: string | null;
+}
+
+export function toJobPostingChatSessionSummary(
+  wire: z.infer<typeof jobPostingChatSessionWireSchema>,
+): JobPostingChatSessionSummary {
+  return {
+    sessionId: wire.session_id,
+    status: wire.status,
+    draftReady: wire.draft_ready ?? false,
+    roleTitle: wire.role_title ?? null,
+    startedAt: wire.started_at,
+    lastMessageAt: wire.last_message_at ?? null,
+    publishedJobPostingId: wire.published_job_posting_id ?? null,
+  };
+}
+
+/** Accepts either a bare array or `{ sessions: [...] }` (both list conventions ship in-repo). */
+export const jobPostingChatSessionListWireSchema = z.union([
+  z.array(jobPostingChatSessionWireSchema),
+  z.object({ sessions: z.array(jobPostingChatSessionWireSchema) }),
+]);
+
+/** Normalize either list convention to the domain rows. */
+export function toJobPostingChatSessions(
+  wire: z.infer<typeof jobPostingChatSessionListWireSchema>,
+): JobPostingChatSessionSummary[] {
+  const rows = Array.isArray(wire) ? wire : wire.sessions;
+  return rows.map(toJobPostingChatSessionSummary);
+}
+
+/** `GET /payer/job-posting-chat/sessions/:id/messages` — full transcript hydration. */
+export const jobPostingChatTranscriptWireSchema = z.object({
+  session_id: z.string().uuid(),
+  status: jobPostingChatStatusSchema.optional(),
+  draft: jobPostingChatDraftWireSchema.nullable().optional(),
+  draft_ready: z.boolean().optional(),
+  suggested_replies: z.array(z.string()).optional(),
+  messages: z.array(jobPostingChatMessageWireSchema).optional(),
+});
+
+export interface JobPostingChatTranscript {
+  sessionId: string;
+  status: JobPostingChatStatus;
+  draft: JobPostingDraft | null;
+  draftReady: boolean;
+  suggestedReplies: string[];
+  messages: JobPostingChatMessage[];
+}
+
+export function toJobPostingChatTranscript(
+  wire: z.infer<typeof jobPostingChatTranscriptWireSchema>,
+): JobPostingChatTranscript {
+  return {
+    sessionId: wire.session_id,
+    status: wire.status ?? "active",
+    draft: wire.draft ? toJobPostingDraft(wire.draft) : null,
+    draftReady: wire.draft_ready ?? false,
+    suggestedReplies: wire.suggested_replies ?? [],
+    messages: (wire.messages ?? []).map(toJobPostingChatMessage),
+  };
+}
+
+/**
+ * `POST /payer/job-posting-chat/sessions/:id/publish` — the session's draft validated against
+ * `PayerCreateJobPostingSchema` and handed to the UNCHANGED `JobPostingsService.createForPayer`
+ * (which already emits `job_posting.created`). Returns the id of the REAL posting so the UI can
+ * route to its EXISTING detail page — this slice builds no new posting-detail surface.
+ */
+export const jobPostingChatPublishWireSchema = z.object({
+  job_posting_id: z.string().uuid(),
+  session_id: z.string().uuid().optional(),
+  status: jobPostingChatStatusSchema.optional(),
+});
+
+export interface JobPostingChatPublishResult {
+  jobPostingId: string;
+}
+
+/**
+ * What the payer may type in one chat turn. The BACKEND (pseudonymize fail-closed +
+ * its own DTO) stays the authority; this is the same UX-parity screen the manual
+ * posting form's description field runs — an OBVIOUS phone/email never leaves the browser.
+ */
+export const jobPostingChatMessageInputSchema = z.object({
+  sessionId: z.string().uuid(),
+  text: z
+    .string()
+    .trim()
+    .min(1, "Type an answer first.")
+    .max(2000, "That message is too long — keep it under 2000 characters.")
+    .refine((t) => !looksLikePii(t), {
+      message: "Remove contact details (phone/email) — share those only after you unlock a candidate.",
+    }),
+});
+export type JobPostingChatMessageInput = z.infer<typeof jobPostingChatMessageInputSchema>;

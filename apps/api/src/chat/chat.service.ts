@@ -6,6 +6,7 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { redactKnownName } from "../common/redact-known-name";
 import { AiService } from "../ai/ai.service";
 import { ProfilesService } from "../profiles/profiles.service";
 // T3: the SAME "did this extraction extract anything?" predicate ProfilesService
@@ -189,10 +190,20 @@ export class ChatService {
     this.logger.log(
       `state sent session=${dto.session_id} conversation_state=${priorState ? "present" : "null"} role_family=${roleFamily}`,
     );
+    // R32 — strip the worker's OWN name out of the turn before it crosses the
+    // ai-service boundary. Read ONCE per turn and reused by `renderWorkerName` in
+    // step 7, so this costs no extra DB hop over what the vocative already needed.
+    // `null` (no name set, or an undecryptable token) means "send it as it was":
+    // fail SAFE, because the ai-service's fail-closed pseudonymize gate is still in
+    // front of the LLM and a decrypt failure must never make chat unusable.
+    // NOTE the redaction applies ONLY to what is SENT — the row inserted in step 1
+    // above already holds `dto.text` verbatim, which is the audit spine and must
+    // stay the worker's actual words.
+    const workerFullName = await this.workerFullName(workerId);
     const aiResult = await this.ai.profilingRespond({
       session_id: dto.session_id,
       worker_ref: workerId,
-      message_text: dto.text,
+      message_text: redactKnownName(dto.text, workerFullName),
       history: [],
       conversation_state: priorState,
       role_family: roleFamily,
@@ -335,7 +346,7 @@ export class ChatService {
     }
     const response: PostMessageResponse = {
       session_id: dto.session_id,
-      reply: (await this.renderWorkerName(aiResult.reply_text, workerId)).replace(/\{\{[^}]*\}\}/g, ""),
+      reply: this.renderWorkerName(aiResult.reply_text, workerFullName).replace(/\{\{[^}]*\}\}/g, ""),
       blocked: aiResult.blocked,
       is_mock: aiResult.is_mock,
       suggested_followups: aiResult.suggested_followups,
@@ -412,35 +423,49 @@ export class ChatService {
   }
 
   /**
+   * The worker's DECRYPTED `full_name`, or `null` when there is none / it cannot be
+   * decrypted. ONE read per chat turn; both consumers (R32 outbound redaction and
+   * the AI-PERSONA-2 vocative) take the same value.
+   *
+   * The plaintext never leaves this class: it is used to REMOVE text on the way out
+   * (`redactKnownName`) and to interpolate the vocative in the client-facing reply
+   * only. It is never logged, evented, stored, or sent to the ai-service/LLM.
+   *
+   * Never throws. A malformed / rotated-key / tampered token degrades to `null` —
+   * a key rotation must not break every worker's chat at once — and the warning
+   * carries the opaque worker id ONLY, never the token or the decrypted value.
+   */
+  private async workerFullName(workerId: string): Promise<string | null> {
+    const worker = await this.workers.findById(workerId);
+    if (!worker?.fullName) return null;
+    try {
+      // full_name is encrypted at rest (TD21) — decrypt here, never log the value.
+      return this.pii.decrypt(worker.fullName);
+    } catch {
+      this.logger.warn(
+        `could not decrypt full_name for worker ${workerId}; ` +
+          `reply stays name-less and the outbound turn is not name-redacted`,
+      );
+      return null;
+    }
+  }
+
+  /**
    * AI-PERSONA-2 — replace the ai-service's ``{{worker_name}}`` placeholder with
    * the worker's real FIRST name, deterministically and PII-safely. Called ONLY on
    * the value returned to the client (never on the stored message or any event —
-   * SG-1). The name is decrypted SERVER-SIDE (TD21: `workers.full_name` is
-   * encrypted at rest) and is NEVER logged, evented, put in `ai_jobs`, or sent to
-   * the ai-service/LLM.
+   * SG-1). The name is decrypted SERVER-SIDE by `workerFullName` (TD21:
+   * `workers.full_name` is encrypted at rest) and is NEVER logged, evented, put in
+   * `ai_jobs`, or sent to the ai-service/LLM.
    *
    * Null / not-yet-set / undecryptable name → strip the token AND its trailing
    * " ji, " so the reply degrades to a clean no-vocative line (no stray "{{ }}").
    */
-  private async renderWorkerName(reply: string, workerId: string): Promise<string> {
-    // Fast path: nothing to interpolate (e.g. a mid-interview ack turn) → no DB read.
+  private renderWorkerName(reply: string, fullName: string | null): string {
+    // Fast path: nothing to interpolate (e.g. a mid-interview ack turn).
     if (!reply.includes(WORKER_NAME_PLACEHOLDER)) return reply;
 
-    let firstName = "";
-    const worker = await this.workers.findById(workerId);
-    if (worker?.fullName) {
-      try {
-        // full_name is encrypted at rest (TD21) — decrypt here, never log the value.
-        firstName = this.pii.decrypt(worker.fullName).trim().split(/\s+/)[0] ?? "";
-      } catch {
-        // Malformed / rotated-key / tampered token must NOT 500 the chat reply
-        // (a key rotation would otherwise break every worker at once). Degrade to
-        // the name-less line, same as no name set. Never log the token/error.
-        this.logger.warn(
-          `could not decrypt full_name for worker ${workerId}; reply stays name-less`,
-        );
-      }
-    }
+    const firstName = fullName ? (fullName.trim().split(/\s+/)[0] ?? "") : "";
 
     // Function replacements (not string) so a worker-controlled name containing
     // `$&`, `$'`, `$$`, etc. is inserted literally — String.replaceAll interprets

@@ -179,6 +179,21 @@ export async function AgentSections() {
               <span className="agency-stat__hint">Across all your roles</span>
             </div>
           </Card>
+          <Card
+            className="agency-stat"
+            href="/agency/revenue"
+            ariaLabel="View revenue and earnings"
+          >
+            <div className="agency-stat__head">
+              <span className="agency-stat__label">Revenue</span>
+            </div>
+            <div className="agency-stat__value bb-mono">—</div>
+            <div className="agency-stat__foot">
+              <span className="agency-stat__hint">
+                View earnings <i className="ph ph-arrow-right" aria-hidden="true" />
+              </span>
+            </div>
+          </Card>
         </div>
       </section>
 
@@ -197,6 +212,36 @@ export async function AgentSections() {
 
       {/* d) INVITE — LIVE faceless mint (opaque code only; consent-first). */}
       <AgencyInvitePanel />
+
+      {/* d2) INVITE TOOLS — placeholder buttons for upcoming features (QR generation, bulk upload). */}
+      <section className="agency-section">
+        <h2 className="agency-section__title">Invite tools</h2>
+        <p className="agency-section__sub">
+          Additional ways to onboard workers — coming in a future release.
+        </p>
+        <div className="agency-stats">
+          <Card className="agency-stat" href="/agency/qr" ariaLabel="Generate QR code — coming soon">
+            <div className="agency-stat__head">
+              <span className="agency-stat__label">QR Code</span>
+            </div>
+            <div className="agency-stat__value">Generate QR</div>
+            <div className="agency-stat__foot">
+              <Badge tone="warning" upper>Coming soon</Badge>
+              <span className="agency-stat__hint">Share a scannable invite QR</span>
+            </div>
+          </Card>
+          <Card className="agency-stat" href="/agency/bulk-upload" ariaLabel="Bulk upload invites — coming soon">
+            <div className="agency-stat__head">
+              <span className="agency-stat__label">Bulk Upload</span>
+            </div>
+            <div className="agency-stat__value">Bulk invite</div>
+            <div className="agency-stat__foot">
+              <Badge tone="warning" upper>Coming soon</Badge>
+              <span className="agency-stat__hint">Upload multiple invites at once</span>
+            </div>
+          </Card>
+        </div>
+      </section>
 
       {/* e) REFERRAL FUNNEL — LIVE aggregate, k-anon floored (no per-invitee oracle). */}
       <section className="agency-section">

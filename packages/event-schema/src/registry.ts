@@ -304,6 +304,29 @@ export const EVENT_REGISTRY = {
     domain: "job_posting",
     payload: p.JobPostingResumedPayload,
   },
+
+  // AI job-posting chat (ADR-0035) — the payer-facing conversational front door onto the
+  // UNCHANGED job-posting create path. PII-FREE + `.strict()`: opaque session/payer/message
+  // ids + the message-type enum only; never the payer's typed message, a draft field value,
+  // or the payer's organisation name (never asked for — §Decision 3). `message_sent` covers
+  // BOTH directions, discriminated by the ACTOR (payer vs ai_service). There is deliberately
+  // NO publish event: publish reuses `job_posting.created` above, emitted by the existing
+  // `createForPayer` — no second writer. All v1.
+  "job_posting_chat.session_started": {
+    version: 1,
+    domain: "job_posting_chat",
+    payload: p.JobPostingChatSessionStartedPayload,
+  },
+  "job_posting_chat.message_sent": {
+    version: 1,
+    domain: "job_posting_chat",
+    payload: p.JobPostingChatMessageSentPayload,
+  },
+  "job_posting_chat.draft_ready": {
+    version: 1,
+    domain: "job_posting_chat",
+    payload: p.JobPostingChatDraftReadyPayload,
+  },
   // Contact Unlock + Reveal (ADR-0010, Stream A) — PII-FREE, ids/enums/counts only.
   // The revealed contact / proxy number / relay destination NEVER appears in any
   // payload (CLAUDE.md invariant 2; threat-model F-5). All v1.

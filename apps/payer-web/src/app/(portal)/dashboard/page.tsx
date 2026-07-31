@@ -103,6 +103,17 @@ export default async function DashboardPage() {
             deltaDir="flat"
           />
         )}
+        {isAgency ? (
+          <StatTile
+            label="Revenue"
+            value="—"
+            icon="currency-inr"
+            href="/agency/revenue"
+            ariaLabel="View revenue and earnings"
+            delta="Coming soon"
+            deltaDir="flat"
+          />
+        ) : null}
         <StatTile
           label="Contacts unlocked"
           value={data.unlocks.length}

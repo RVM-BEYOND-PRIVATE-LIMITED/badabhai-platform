@@ -570,3 +570,178 @@ class TranscriptionOutput(BaseModel):
     # the backend stores it in voice_notes.transcript_english and keeps it OUT of
     # events/ai_jobs/logs, same as transcript_text.
     english_text: str = ""
+
+
+# --- Job-posting chat (ADR-0035) -------------------------------------------
+# The payer-facing sibling of the profiling contracts above. Mirrored field-for-field
+# in packages/ai-contracts/src/index.ts and pinned by the shared golden fixture
+# packages/ai-contracts/src/__fixtures__/job-posting-chat.keys.json, which BOTH
+# suites assert against (§7 parity — Pydantic silently drops unknown request keys,
+# so a one-sided change is otherwise green on both sides).
+
+# The five shipped vacancy bands (ADR-0012), verbatim from packages/types
+# VACANCY_BANDS. A posting is BANDED, never a head count.
+VacancyBand = Literal["1", "2-5", "6-10", "11-25", "25+"]
+# The closed jobs.shift enum (packages/db schema.ts jobs_shift_chk).
+JobShift = Literal["day", "night", "rotational"]
+
+# Caps mirror apps/api/src/job-postings/job-postings.dto.ts so a draft this service
+# emits can never be one the publish DTO would reject.
+_JP_LABEL_MAX = 200
+_JP_DESCRIPTION_MAX = 2000
+JobPostingSkillPhrase = Annotated[str, Field(min_length=1, max_length=80)]
+
+
+class JobPostingChatState(BaseModel):
+    """Server-computed job-posting interview progress.
+
+    Mirrors :class:`ConversationState`'s shape. Holds POSTING signals only (role
+    title, city, band, pay figures) — never payer identity, and never the payer's
+    organisation name, which this chat does not ask for and never receives
+    (ADR-0035 §Decision 3).
+    """
+
+    # Reserved trade seam. The job-posting bank is deliberately NOT split by trade
+    # (the questions are identical across trades — see question_bank.py), so this is
+    # carried and passed to `topics_for()` but does not branch today. Present so a
+    # future trade-specific bank needs no contract change.
+    trade_hint: str | None = None
+    turn_count: int = 0
+    answered_topics: list[str] = Field(default_factory=list)
+    asked_question_ids: list[str] = Field(default_factory=list)
+    collected: dict = Field(default_factory=dict)
+    # Max CONSECUTIVE clarify re-serves of the same question (bounded at 2 by the
+    # engine; every next_turn resets it).
+    clarify_count: int = 0
+    # Per-topic ASK count. `asked_question_ids` is a dedup set and cannot count, so
+    # the bounded re-ask needs its own counter. Topic ids only — no PII.
+    ask_counts: dict[str, AskCount] = Field(default_factory=dict)
+    # ESSENTIAL topics the payer never actually answered, in ESSENTIAL_TOPICS order.
+    # Empty = complete. THIS, not `draft_ready`, is how an incomplete draft is
+    # declared. Topic ids only — no PII.
+    unanswered_essentials: list[str] = Field(default_factory=list)
+
+    @field_validator("answered_topics", mode="before")
+    @classmethod
+    def validate_answered_topics(cls, v: list[str]) -> list[str]:
+        """Enforce lowercase slug topic ids (a-z, underscore) — mirrors Zod regex."""
+        if not isinstance(v, list):
+            raise TypeError("answered_topics must be a list of strings")
+        for topic in v:
+            if not isinstance(topic, str):
+                raise TypeError("each topic_id must be a string")
+            if not topic:
+                raise ValueError("topic_id cannot be empty")
+            if not re.fullmatch(r"^[a-z_]+$", topic):
+                raise ValueError(f"topic_id '{topic}' must be lowercase slug ([a-z_]+)")
+            if len(topic) > 40:
+                raise ValueError(f"topic_id '{topic}' exceeds 40 character limit")
+        return v
+
+
+class JobPostingDraft(BaseModel):
+    """The chat's in-progress job posting — the rich-draft precedent set by
+    :class:`WorkerProfileDraft`, pointed at the demand side.
+
+    THERE IS DELIBERATELY NO ``org_label`` FIELD, and adding one is a defect
+    (ADR-0035 §Decision 3). ``PayerCreateJobPostingSchema`` requires ``org_label``,
+    but the value is already known server-side on ``payers.orgNameEnc`` and is
+    decrypted + stamped onto the create call by the NestJS publish step — the same
+    post-hoc interpolation AI-PERSONA-2 uses for a worker's name. The chat never
+    asks for it, so it never enters a payer message, this draft, conversation state,
+    an event payload, or LLM input. Asking would both duplicate data we hold and
+    invite a payer to type personal contact details next to it.
+
+    Free-text fields carry the payer's own business copy. When a turn's
+    pseudonymization masked an IDENTITY-class entity (phone/person/employer/id) the
+    MASKED text is stored instead (answers.safe_draft_text), so a personal phone
+    number typed into a description cannot reach the stored draft or a published
+    posting; ``clarification_questions`` then asks the payer to retype that field.
+    """
+
+    role_title: str | None = Field(default=None, max_length=_JP_LABEL_MAX)
+    # <= 10 phrases of <= 80 chars — the exact `skillsInput` cap in the publish DTO.
+    skills: list[JobPostingSkillPhrase] = Field(default_factory=list, max_length=10)
+    location_label: str | None = Field(default=None, max_length=_JP_LABEL_MAX)
+    # BANDED, never an integer (ADR-0012). Derived from any count the payer gives via
+    # answers.band_for_count (the Python mirror of validators' bandForCount).
+    vacancy_band: VacancyBand | None = None
+    # Monthly pay in whole rupees. Shapes match jobs.pay_min / jobs.pay_max.
+    pay_min: int | None = Field(default=None, ge=0)
+    pay_max: int | None = Field(default=None, ge=0)
+    shift: JobShift | None = None
+    benefits: list[str] = Field(default_factory=list)
+    requirements: list[str] = Field(default_factory=list)
+    description: str | None = Field(default=None, max_length=_JP_DESCRIPTION_MAX)
+    # DETERMINISTIC coverage ratio (topics with a value / topics in the bank), NOT a
+    # model score and never an input to ranking or a publish decision (invariant #4).
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    # Topic ids still without a value, in bank order. `vacancy` maps to
+    # `vacancy_band`, `pay_range` to `pay_min`/`pay_max`; every other id is the
+    # draft field name. Ids only — never the values.
+    missing_fields: list[str] = Field(default_factory=list)
+    clarification_questions: list[str] = Field(default_factory=list)
+
+
+class JobPostingChatOpeningInput(BaseModel):
+    trade_hint: str | None = None
+
+
+class JobPostingChatOpeningOutput(BaseModel):
+    """The opening line. Deliberately just the string — a deterministic template, no
+    model call, nothing pseudonymized, and no payer/org identity of any kind, which
+    is what keeps this endpoint PII-free by construction."""
+
+    opening_text: str
+
+
+class JobPostingChatTurnInput(BaseModel):
+    """One payer turn. Mirrors :class:`ProfilingTurnInput` with one deliberate
+    omission: there is NO ``history`` field. The profiling input keeps one for caller
+    compatibility and then ignores it (COST-3 — the chat turn is stateless because
+    the engine already chose the question locally). A new contract does not need to
+    inherit that dead weight, and omitting it makes re-sending a transcript
+    impossible rather than merely discouraged."""
+
+    session_id: str = Field(min_length=1)
+    # OPAQUE payer reference for per-caller spend attribution — never a raw payer
+    # identity, never the organisation name.
+    payer_ref: str | None = None
+    language: str | None = None
+    message_text: str = Field(min_length=1)
+    trade_hint: str | None = None
+    conversation_state: JobPostingChatState | None = None
+    # Reserved for the rephrase seam (see prompts.py). No LLM call is made on this
+    # route today, so this is inert; it is part of the frozen contract so turning the
+    # seam on later is not a contract change.
+    real_call_allowed: bool = True
+
+
+class JobPostingChatTurnOutput(BaseModel):
+    """One engine turn. Mirrors :class:`ProfilingTurnOutput`.
+
+    ``suggested_answers`` is the profiling ``suggested_followups`` field under an
+    honest name: that field's own docstring states it carries ANSWERS to the question
+    just asked, never follow-up questions, because a tapped chip is sent verbatim as
+    the payer's message. A new contract with two client teams building against it
+    gets the accurate name.
+
+    ``draft``/``updated_state`` are nullable and are BOTH null on a blocked turn —
+    nothing was parsed, so the caller keeps whatever it had stored.
+    """
+
+    reply_text: str
+    blocked: bool = False
+    blocked_reason: str | None = None
+    suggested_answers: list[str] = Field(default_factory=list)
+    is_mock: bool = True
+    asked_question_id: str | None = None
+    # The interview is complete: every essential answered and every must-ask topic
+    # raised. The publish step still re-validates against PayerCreateJobPostingSchema.
+    draft_ready: bool = False
+    draft: JobPostingDraft | None = None
+    updated_state: JobPostingChatState | None = None
+    # Always null today (no model is called on this route — see prompts.py); part of
+    # the frozen contract for the rephrase seam.
+    ai_metadata: AICallMetadata | None = None
+    pseudonymization_metadata: PseudonymizationMeta | None = None
