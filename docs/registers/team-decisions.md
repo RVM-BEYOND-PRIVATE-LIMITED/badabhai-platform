@@ -232,3 +232,46 @@ confirmation) is recorded in the ADR.
 - `@badabhai/reach-learn` baseline **pinned to the pre-0033 six-signal set** — offline,
   unchanged, still no live influence (ADR-0017). Recalibration = tracked follow-up.
 - No schema, no migration, no event-payload change. Rollback = revert the commit.
+
+### 2026-07-31 — Release endgame: eight owner rulings (Prakash, on the ratified 2026-07-30 doc set)
+
+Source of truth for the release is the five ratified documents (Sales & Marketing Plan v4,
+Growth-Tech Playbook v1.0, Persona System v3.2, MASTER CONTEXT 2026-07-30, Matching Algorithm
+V1). Where a document disagrees with audited code, **the code wins**; where the code disagrees
+with a ruling below, **the ruling wins and the code changes.**
+
+1. **Matching V1 REPLACES the weighted Reach Engine** — both surfaces (worker feed and the
+   company's paid candidate list). The 35/20/15/15/10/5 ledger, `hot`, and `pushFloor` retire
+   with it. Supersedes the ranking halves of ADR-0011 / ADR-0015 / ADR-0033.
+2. **E3 sharp edge → tier-with-floor, threshold 36 months.** A related-skill worker enters
+   tier-1 ordering once his related-skill months ≥ 36. This deliberately inverts the strict-tier
+   illustration printed in the V1 doc's E3 (a 6-month VMC operator no longer outranks a
+   ten-year CNC turner). The threshold is config (`match_config.tier_floor_months`), not code.
+3. **`job_postings` becomes THE served job entity.** The legacy `jobs` table and its seeded
+   fixtures retire from the worker path; open seeded rows are converted to postings at cutover
+   so the feed is never empty. Resolves the two-entity split (TD37) in the serving direction.
+4. **Production only — no staging.** Every change ships straight to production behind
+   expand-only migrations and reversible flags, verified by a canary account, not a staging env.
+5. **All real-provider flips authorized**: `AI_ENABLE_REAL_CALLS` (LLM + embeddings, which
+   `SKILL_CANONICALIZE_ENABLED` depends on), Razorpay (`PAYMENTS_ENABLE_REAL`), and Sarvam STT.
+   Flipped one at a time, each with a named abort lever. **`AGENCY_PAYOUTS_ENABLED` stays OFF**
+   (ADR-0022 gate — explicitly not in scope).
+6. **Question bank keeps all 14 topics.** The Persona sheet's Law #4 (six fields only) is
+   overridden for the ask-set: education ×3 and certifications remain MUST-ASK. Every other
+   persona law stands unchanged.
+7. **Worker history is COARSE at launch.** `worker_skill` rows are derived from the extracted
+   profile (total experience → months bucketed to 6, `wants` defaults true, `last_worked_at`
+   null = the doc's E4 duration-unknown semantics). No per-stint interview change ships now;
+   the application snapshot preserves replayability either way.
+8. **Boost is wired and repriced** — ₹499 / ₹999 / ₹1,799 for 7 / 15 / 30 days, replacing the
+   ₹1,200-for-2-days SKU in code (Q26). Boost lifts a job **within** the worker feed only:
+   never past the skill gate, never into the company's candidate list, supply-gated so it is
+   never sold into a thin trade. Retires TD42.
+
+**Migrations remain manual (Divyanshu).** Authored here, applied by him in production from an
+ordered runbook with a verify query and rollback note per step — the locked convention holds.
+
+*Open at the time of ruling, to be answered at the relevant gate:* whether `org_label` is
+visible on the worker feed card; whether R32 (un-cued name reaching LLM input) is
+owner-accepted-at-launch or hardened first; PACE retirement acknowledgement; and the
+"Namaste!" exclamation in the opener.

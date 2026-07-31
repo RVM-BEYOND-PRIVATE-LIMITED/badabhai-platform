@@ -275,7 +275,9 @@ const CONTRACT: ControllerContract[] = [
     name: "Workers",
     ctor: WorkersController,
     routes: {
-      list: [],
+      // R28 sibling closed (2026-07-31): the unguarded list was a worker-UUID
+      // enumeration oracle. Ops-only now; apps/web sends the internal token.
+      list: [I],
       getProfile: [I],
       setName: [I],
       setMyName: [C, W],

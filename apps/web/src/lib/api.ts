@@ -175,7 +175,9 @@ async function apiGetInternal<T>(path: string): Promise<T> {
     headers,
   });
   if (!res.ok) {
-    throw new Error(`API GET ${path} failed: ${res.status} ${res.statusText}`);
+    // ApiError (not a bare Error) so callers can distinguish an expected 404 from a
+    // 401 (token unset) or a genuine outage — same contract as `apiGet`.
+    throw new ApiError(res.status, `API GET ${path} failed: ${res.status} ${res.statusText}`);
   }
   return (await res.json()) as T;
 }
@@ -216,13 +218,22 @@ async function apiPostInternal<T>(path: string, body?: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+/**
+ * `GET /workers` — ops worker list. Behind `InternalServiceGuard` since 2026-07-31
+ * (R28 sibling: the unguarded route was a worker-UUID enumeration oracle), so this
+ * must send the shared secret. Server-only, like every `apiGetInternal` caller.
+ */
 export async function listWorkers(): Promise<WorkerListItem[]> {
-  const { workers } = await apiGet<{ workers: WorkerListItem[] }>("/workers");
+  const { workers } = await apiGetInternal<{ workers: WorkerListItem[] }>("/workers");
   return workers;
 }
 
+/**
+ * `GET /workers/:id/profile` — behind `InternalServiceGuard` on the API. This was
+ * calling the unauthenticated helper and therefore 401-ing; it now sends the token.
+ */
 export function getWorkerProfile(id: string): Promise<WorkerProfileDetail> {
-  return apiGet<WorkerProfileDetail>(`/workers/${id}/profile`);
+  return apiGetInternal<WorkerProfileDetail>(`/workers/${id}/profile`);
 }
 
 export async function listEvents(): Promise<EventListItem[]> {

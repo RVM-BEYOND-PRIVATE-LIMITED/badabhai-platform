@@ -53,7 +53,17 @@ export class WorkersController {
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
-  /** List workers (newest first) with latest-profile summary. No PII. */
+  /**
+   * List workers (newest first) with latest-profile summary. Ops/internal only.
+   *
+   * R28 sibling — CLOSED (2026-07-31). The response carries no name/phone, but an
+   * unauthenticated list is a WORKER-ID ENUMERATION ORACLE: it hands out every
+   * worker UUID, which is the input to every `:id`-keyed route and to any future
+   * id-guessing attempt. The ops console is the only legitimate caller, and it
+   * already holds `INTERNAL_SERVICE_TOKEN` (apps/web `apiGetInternal`), so the
+   * guard costs nothing and removes the oracle.
+   */
+  @UseGuards(InternalServiceGuard)
   @Get()
   async list(@Query("limit") limit?: string) {
     return { workers: await this.workers.list(clampLimit(limit)) };
