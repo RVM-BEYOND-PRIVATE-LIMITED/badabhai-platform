@@ -73,4 +73,21 @@ export class JobPostingsController {
   ) {
     return this.jobPostings.close(id, ctx);
   }
+
+  /**
+   * Ops trust review — mark a posting VERIFIED (the worker-visible "Verified job"
+   * badge). Idempotent. Rides the same alpha ops-auth posture as the sibling routes.
+   */
+  @Post(":id/verify")
+  @HttpCode(200)
+  verify(@Param("id", new ParseUUIDPipe()) id: string, @Ctx() ctx: RequestContext) {
+    return this.jobPostings.verify(id, ctx);
+  }
+
+  /** Ops trust review — mark a posting REJECTED (reviewed and declined). Idempotent. */
+  @Post(":id/reject")
+  @HttpCode(200)
+  reject(@Param("id", new ParseUUIDPipe()) id: string, @Ctx() ctx: RequestContext) {
+    return this.jobPostings.reject(id, ctx);
+  }
 }

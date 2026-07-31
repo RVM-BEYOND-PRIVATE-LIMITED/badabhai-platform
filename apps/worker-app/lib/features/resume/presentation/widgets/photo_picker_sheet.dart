@@ -125,7 +125,19 @@ Future<Uint8List?> pickPhotoBytes(PhotoAction action) async {
 }
 
 /// Runs the picked image through a locked 1:1 crop (see [pickPhotoBytes]).
+///
+/// PREREADS the picked bytes into memory BEFORE attempting the crop so the
+/// fallback (cropper crash / Activity-not-found / any native failure) never
+/// depends on the temp file still being accessible — the platform cropper can
+/// take time or terminate the source Activity, and by then the system may have
+/// cleaned up the picker's cache file.
 Future<Uint8List?> _cropSquareBytes(XFile picked) async {
+  final Uint8List pickedBytes;
+  try {
+    pickedBytes = await picked.readAsBytes();
+  } catch (_) {
+    return null;
+  }
   try {
     final CroppedFile? cropped = await ImageCropper().cropImage(
       sourcePath: picked.path,
@@ -160,7 +172,7 @@ Future<Uint8List?> _cropSquareBytes(XFile picked) async {
     return cropped.readAsBytes();
   } catch (_) {
     // Cropper itself failed (not a cancel) — never block setting a photo: use the
-    // already-resized picked image as-is.
-    return picked.readAsBytes();
+    // already-read picked bytes (in memory, no file dependency).
+    return pickedBytes;
   }
 }

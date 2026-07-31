@@ -304,6 +304,12 @@ export const EVENT_REGISTRY = {
     domain: "job_posting",
     payload: p.JobPostingResumedPayload,
   },
+  // Ops trust review → the worker-visible "Verified job" badge. PII-free (id + enums). v1.
+  "job_posting.verification_updated": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingVerificationUpdatedPayload,
+  },
 
   // AI job-posting chat (ADR-0035) — the payer-facing conversational front door onto the
   // UNCHANGED job-posting create path. PII-FREE + `.strict()`: opaque session/payer/message

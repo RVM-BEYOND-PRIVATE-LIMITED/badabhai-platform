@@ -29,6 +29,7 @@ import type {
   LanguageCode,
   VacancyBand,
   JobPostingStatus,
+  JobPostingVerificationStatus,
 } from "@badabhai/types";
 import type { TradeKey, SkipReason, SourceSurface } from "@badabhai/taxonomy";
 
@@ -920,6 +921,15 @@ export const jobPostings = pgTable(
     description: text("description"),
     vacancyBand: text("vacancy_band").$type<VacancyBand>().notNull(),
     status: text("status").$type<JobPostingStatus>().notNull().default("draft"),
+    // Ops trust review → the worker-visible "Verified job" badge. ADDITIVE, safe:
+    // every existing row defaults to 'unverified' (no behaviour change). Only an
+    // ops verify/reject action moves it; the payer/worker read exposes only the
+    // boolean `verified` (status === 'verified'). NOT a RANK input (invariant #4).
+    // Rollback = drop column (nothing reads it fails-closed to unverified).
+    verificationStatus: text("verification_status")
+      .$type<JobPostingVerificationStatus>()
+      .notNull()
+      .default("unverified"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     closedAt: timestamp("closed_at", { withTimezone: true }),
@@ -937,6 +947,11 @@ export const jobPostings = pgTable(
     // Pin the lifecycle to the 4 allowed values (mirrors JOB_POSTING_STATUSES). `paused`
     // (B1) is a reversible open<->paused state, additive to the original draft/open/closed.
     check("job_postings_status_chk", sql`${t.status} IN ('draft', 'open', 'paused', 'closed')`),
+    // Pin the trust review to the 3 allowed values (mirrors JOB_POSTING_VERIFICATION_STATUSES).
+    check(
+      "job_postings_verification_status_chk",
+      sql`${t.verificationStatus} IN ('unverified', 'verified', 'rejected')`,
+    ),
   ],
 );
 

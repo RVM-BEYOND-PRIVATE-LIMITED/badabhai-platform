@@ -2263,13 +2263,14 @@ describe("job_posting_chat.* (ADR-0035)", () => {
 });
 
 describe("registry", () => {
-  it("exposes all 124 event names (121 prior + the ADR-0035 job_posting_chat domain)", () => {
-    expect(EVENT_NAMES).toHaveLength(124);
+  it("exposes all 125 event names (122 prior + the ADR-0035 job_posting_chat domain)", () => {
+    expect(EVENT_NAMES).toHaveLength(125);
     expect(isEventName("job_posting_chat.session_started")).toBe(true);
     expect(isEventName("job_posting_chat.message_sent")).toBe(true);
     expect(isEventName("job_posting_chat.draft_ready")).toBe(true);
     expect(isEventName("consent.revoked")).toBe(true);
     expect(isEventName("interview_kit.ready_for_worker")).toBe(true);
+    expect(isEventName("job_posting.verification_updated")).toBe(true);
     expect(isEventName("job.available")).toBe(true);
     expect(isEventName("profile.viewed")).toBe(true);
     expect(isEventName("skill.phrase_unresolved")).toBe(true);

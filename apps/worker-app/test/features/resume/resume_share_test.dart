@@ -93,7 +93,7 @@ void main() {
         nightShiftReady: false,
       ),
     );
-    locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo));
+    locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo, editRepo));
     // The preview screen refetches on tab focus (T4) and resolves this.
     locator.registerLazySingleton<TabFocus>(() => TabFocus());
     // The share button reads the worker's name from here to name the document.

@@ -115,9 +115,13 @@ void main() {
     await tester.tap(find.text('Credits'));
     await tester.pumpAndSettle();
 
-    // Real, server-sourced figures stay.
+    // Real, server-sourced figures stay. The credit-account movements now sit
+    // under the accurately-named 'Credit ledger'; the per-unlock history has its
+    // own 'Unlock history' section (the old 'Unlock ledger' heading conflated
+    // the two).
     expect(find.text('Current balance'), findsOneWidget);
-    expect(find.text('Unlock ledger'), findsOneWidget);
+    expect(find.text('Credit ledger'), findsOneWidget);
+    expect(find.text('Unlock history'), findsOneWidget);
     // The money surface is gone: no payment-provider claim and no pack buy
     // (the pack prices were hardcoded client-side and contradicted the server).
     expect(find.textContaining('Razorpay'), findsNothing);

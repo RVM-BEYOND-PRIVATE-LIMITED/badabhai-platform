@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, gte, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, isNotNull, sql } from "drizzle-orm";
 import {
   type Database,
   type DisclosureStatus,
@@ -251,6 +251,27 @@ export class ResumeDisclosureRepository {
       templateId: row.templateId,
       version: row.version,
     };
+  }
+
+  /**
+   * How many résumés the payer has DOWNLOADED (disclosed) for one of their OWN
+   * postings — a truthful per-posting engagement count for the My-jobs card. Only
+   * COMPLETED disclosures (`disclosed_at` set) count; a pending/denied request is
+   * not a download. PAYER-SCOPED + posting-scoped in the WHERE (no cross-tenant
+   * leak). PII-free (a count only).
+   */
+  async countDisclosedForPosting(jobPostingId: string, payerId: string): Promise<number> {
+    const rows = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(resumeDisclosures)
+      .where(
+        and(
+          eq(resumeDisclosures.payerId, payerId),
+          eq(resumeDisclosures.jobPostingId, jobPostingId),
+          isNotNull(resumeDisclosures.disclosedAt),
+        ),
+      );
+    return rows[0]?.count ?? 0;
   }
 
   /** Ops: a payer's disclosures (PII-free projection — NO bytes / name / link). */

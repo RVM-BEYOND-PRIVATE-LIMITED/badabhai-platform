@@ -62,11 +62,13 @@ void main() {
   });
 
   group('resolvePayerApiBaseUrl — debug rules', () {
-    test('empty falls back to the emulator alias (local loop keeps working)',
+    test('empty falls back to the loopback (works on emulator + USB device)',
         () {
+      // Matches the worker app: localhost + `adb reverse tcp:3001` reaches the
+      // host API from a real device over USB (10.0.2.2 was emulator-only).
       expect(
         resolvePayerApiBaseUrl(configuredUrl: '', isRelease: false),
-        'http://10.0.2.2:3001',
+        'http://localhost:3001',
       );
     });
 

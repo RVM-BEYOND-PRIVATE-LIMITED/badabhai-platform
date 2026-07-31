@@ -186,6 +186,15 @@ export class ResumeDisclosureService {
     return { disclosures: await this.repo.listByPayer(payerId) };
   }
 
+  /**
+   * How many résumés the payer has downloaded for one of their OWN postings — the
+   * truthful per-posting engagement count the My-jobs card shows. Payer + posting
+   * scoped; PII-free (a count only).
+   */
+  async countDisclosuresForPosting(jobPostingId: string, payerId: string): Promise<number> {
+    return this.repo.countDisclosedForPosting(jobPostingId, payerId);
+  }
+
   // ---------------------------------------------------------------------------
   // [5] the controlled-disclosure step — the ONLY PII (real name) touch (F-5/B-G)
   // ---------------------------------------------------------------------------

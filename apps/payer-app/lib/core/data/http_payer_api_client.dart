@@ -748,14 +748,23 @@ class HttpPayerApiClient implements PayerApiClient {
       // The RAW lifecycle string drives the REAL My-jobs pill + legal actions
       // (the 3-value [JobStatus] enum can't distinguish draft/paused/closed).
       wireStatus: row['status'] as String?,
-      // Server row has NO quota/applicants/unlocks/verified/boost (MISSING per
-      // the API map). Keep the model defaults — do NOT fake them.
-      filled: 0,
-      quota: 0,
+      // REAL, backend-sourced stats (`GET /payer/job-postings` now joins the
+      // active plan + boost): the applicant-visibility quota (base + top-ups),
+      // how many applicant views are used, and whether a boost is active. A
+      // draft / plan-less posting carries null → 0 (honest "no plan yet"), never
+      // a fabricated number.
+      filled: (row['applicants_viewed_count'] as num?)?.toInt() ?? 0,
+      quota: (row['applicant_visibility_quota'] as num?)?.toInt() ?? 0,
+      boosted: row['boosted'] as bool? ?? false,
+      // Ops trust review → the worker-visible "Verified job" badge
+      // (`verified` = verification_status === 'verified').
+      verified: row['verified'] as bool? ?? false,
+      // Truthful per-posting engagement: résumés the payer downloaded for it.
+      disclosuresCount: (row['disclosures_count'] as num?)?.toInt() ?? 0,
+      // Still NO per-posting source (applications + unlocks attach to `jobs`, not
+      // `job_postings`) — kept at the model defaults rather than faked.
       applicants: 0,
       unlocks: 0,
-      verified: false,
-      boosted: false,
     );
   }
 

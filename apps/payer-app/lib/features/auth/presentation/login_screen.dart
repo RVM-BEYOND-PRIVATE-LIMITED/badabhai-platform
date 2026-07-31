@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/auth/payer_auth_api.dart';
 import '../../../core/auth/payer_token_store.dart';
+import '../../../core/data/models.dart' show PayerApiException;
 import '../../../core/di/locator.dart';
 import '../../../core/session/app_session.dart';
 import '../../../core/session/app_session_cubit.dart';
@@ -72,24 +73,45 @@ class _LoginScreenState extends State<LoginScreen> {
       // Mock mode remembers the picked role so verify echoes it back.
       final PayerAuthApi auth = _auth;
       if (auth is MockPayerAuthApi) auth.setRole(role);
-      // signup is idempotent-ish on the server for an existing payer; either way
-      // it (or login/request) sends the OTP. `org_name` is required by the
-      // backend schema (min 1) for the new-payer path — an existing payer is a
-      // no-overwrite 200, so passing the entered name is safe for both.
+      // `signup` is create-or-get: it emits `payer.created` once for a NEW payer
+      // and, for BOTH new and existing accounts, issues the OTP to the stored
+      // contact (identical response either way — XB-H no-enumeration). It is the
+      // ONE and ONLY send. Do NOT also call `loginRequest` here: a second send
+      // lands inside the 30s resend cooldown and returns 429 ("Too many
+      // attempts"), which would block every sign-in. `org_name` (min 1) is
+      // required by the new-payer path and ignored (no overwrite) for existing.
       await auth.signup(role: role, email: email, orgName: org);
-      await auth.loginRequest(email: email);
       if (!mounted) return;
       setState(() {
         _busy = false;
         _step = _Step.code;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = 'Could not send the code. Check your network and retry.';
+        _error = _sendCodeError(e, 'send');
       });
     }
+  }
+
+  /// A user-honest reason for a failed OTP send/verify. The old copy blamed the
+  /// NETWORK for every failure, which is wrong for a rate cap (429) or a server
+  /// error (5xx). A delivery failure never reaches here — the server neutralizes
+  /// it to a success (no email-enumeration) — so this fires only on a 429 cap, a
+  /// 5xx, a 400 (bad details), or no response at all (a real connectivity issue).
+  String _sendCodeError(Object e, String verb) {
+    if (e is PayerApiException) {
+      if (e.statusCode == 429) {
+        return 'Too many attempts. Please wait a minute and try again.';
+      }
+      if (e.statusCode >= 500) {
+        return "We couldn't $verb your code right now. Please try again in a moment.";
+      }
+      return "We couldn't $verb your code. Please check your details and try again.";
+    }
+    // Not an API response at all → a genuine connectivity problem.
+    return 'Could not reach the server. Check your connection and retry.';
   }
 
   /// Step 2: verify the code, store the bearer, set the session from the result.
@@ -121,11 +143,11 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       if (!mounted) return;
       await context.read<AppSessionCubit>().signInFromLogin(result);
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = 'Could not verify the code. Check your network and retry.';
+        _error = _sendCodeError(e, 'verify');
       });
     }
   }

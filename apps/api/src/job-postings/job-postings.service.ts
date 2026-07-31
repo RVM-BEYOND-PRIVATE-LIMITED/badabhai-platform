@@ -7,6 +7,7 @@ import {
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import { bandForCount } from "@badabhai/validators";
 import type { JobPosting } from "@badabhai/db";
+import type { JobPostingVerificationStatus } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { AiService } from "../ai/ai.service";
@@ -26,7 +27,8 @@ type JobPostingEventName =
   | "job_posting.updated"
   | "job_posting.closed"
   | "job_posting.paused"
-  | "job_posting.resumed";
+  | "job_posting.resumed"
+  | "job_posting.verification_updated";
 
 /** The validated PATCH the service derived from an edit DTO (column patch + changed KEYS). */
 interface PreparedUpdate {
@@ -166,6 +168,50 @@ export class JobPostingsService {
       ctx,
     );
     return closed;
+  }
+
+  /** Ops: mark a posting VERIFIED — lights the worker-visible "Verified job" badge. */
+  verify(id: string, ctx: RequestContext): Promise<JobPostingApi> {
+    return this.setVerification(id, "verified", ctx);
+  }
+
+  /** Ops: mark a posting REJECTED (reviewed and declined). */
+  reject(id: string, ctx: RequestContext): Promise<JobPostingApi> {
+    return this.setVerification(id, "rejected", ctx);
+  }
+
+  /**
+   * Ops trust review — set the posting's [verificationStatus] and emit the PII-free
+   * `job_posting.verification_updated` (id + enums only). The lifecycle `status` is
+   * untouched. IDEMPOTENT: setting the value it already has is a no-op (no write, no
+   * event) — a re-delivered verify never emits a duplicate. The ops actor id mirrors
+   * the other ops writes (`created_by`, the opaque ops-actor on the row).
+   */
+  private async setVerification(
+    id: string,
+    next: JobPostingVerificationStatus,
+    ctx: RequestContext,
+  ): Promise<JobPostingApi> {
+    const current = await this.getOne(id); // 404 if missing
+    const previous = current.verification_status;
+    if (previous === next) return current; // idempotent — nothing changed
+
+    const updated = await this.repo.update(id, {
+      verificationStatus: next,
+      updatedAt: new Date(),
+    });
+    if (!updated) throw new NotFoundException(`Job posting ${id} not found`);
+
+    const actor: JobPostingActor = { actor_type: "ops", actor_id: updated.created_by };
+    const payload: PayloadInputOf<"job_posting.verification_updated"> = {
+      job_posting_id: updated.id,
+      verification_status: next,
+      previous_status: previous,
+    };
+    await this.events.emit(
+      this.emitParams("job_posting.verification_updated", updated.id, actor, payload, ctx),
+    );
+    return updated;
   }
 
   // ----- PAYER self-serve surface (ADR-0019 / ADR-0022 module 9) -------------

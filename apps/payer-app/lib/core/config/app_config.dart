@@ -23,20 +23,23 @@ const bool kUseMocks = bool.fromEnvironment('USE_MOCKS', defaultValue: false);
 /// Empty in debug falls back to [_kDebugFallbackBaseUrl].
 const String _kApiBaseUrl = String.fromEnvironment('API_BASE_URL');
 
-/// Debug-ONLY fallback: the Android emulator host alias on the API's port. This
-/// is never reachable from a real device, so it must never leak into a release
-/// build — [resolvePayerApiBaseUrl] enforces that.
-const String _kDebugFallbackBaseUrl = 'http://10.0.2.2:3001';
+/// Debug-ONLY fallback: the loopback host on the API's port (matches the worker
+/// app). It works from BOTH an emulator and a real USB device once the device's
+/// localhost is tunnelled to the host API with `adb reverse tcp:3001 tcp:3001`
+/// (the `.vscode` "payer-app (USB Local API)" launch config runs this for you).
+/// On an emulator without adb-reverse, pass `--dart-define=API_BASE_URL=http://10.0.2.2:3001`.
+/// It must never leak into a release build — [resolvePayerApiBaseUrl] enforces that.
+const String _kDebugFallbackBaseUrl = 'http://localhost:3001';
 
 /// Resolves the payer API base URL, failing LOUDLY in release rather than
-/// silently pointing a shipped app at an emulator alias.
+/// silently pointing a shipped app at the loopback fallback.
 ///
 ///  - RELEASE: `API_BASE_URL` is REQUIRED and must be a well-formed `https://`
 ///    origin. A missing/plaintext/malformed value throws [StateError] at
 ///    startup (see `setupLocator`) — a hard, obvious boot failure beats an app
-///    on a user's phone quietly failing every request against `10.0.2.2`.
-///  - DEBUG / TEST: `API_BASE_URL` wins when supplied; otherwise the emulator
-///    alias keeps the local loop working with no extra flags.
+///    on a user's phone quietly failing every request against `localhost`.
+///  - DEBUG / TEST: `API_BASE_URL` wins when supplied; otherwise the loopback
+///    fallback keeps the local loop working (`adb reverse tcp:3001` over USB).
 ///
 /// [configuredUrl] and [isRelease] are injectable ONLY so the release rules can
 /// be unit-tested (a test always runs in debug, and `API_BASE_URL` is fixed at
@@ -55,7 +58,7 @@ String resolvePayerApiBaseUrl({String? configuredUrl, bool? isRelease}) {
     throw StateError(
       'API_BASE_URL is not set. A release build must be built with '
       '--dart-define=API_BASE_URL=https://<your-api-host> — refusing to fall '
-      'back to the debug emulator alias ($_kDebugFallbackBaseUrl).',
+      'back to the debug loopback ($_kDebugFallbackBaseUrl).',
     );
   }
   final Uri? uri = Uri.tryParse(configured);

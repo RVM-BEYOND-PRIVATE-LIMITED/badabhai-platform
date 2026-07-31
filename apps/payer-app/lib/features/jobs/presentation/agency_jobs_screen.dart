@@ -12,6 +12,7 @@ import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import 'cubit/agency_jobs_cubit.dart';
+import 'edit_agency_job_screen.dart';
 
 /// My jobs — AGENCY branch. Lists the agency session's own faceless postings
 /// (`GET /payer/agency/jobs`): trade label · title · city/area · pay & experience
@@ -192,7 +193,33 @@ class _AgencyJobCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.s3),
           ..._actions(context),
+          // Edit the posting — open jobs only (a closed job is terminal).
+          if (job.isOpen) ...<Widget>[
+            const SizedBox(height: AppSpacing.s2),
+            BbButton(
+              label: 'Edit details',
+              variant: BbButtonVariant.secondary,
+              size: BbButtonSize.sm,
+              iconLeft: Icons.edit_outlined,
+              block: true,
+              onPressed: () => _openEdit(context),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+
+  /// Push the edit form, handing it the SHARED [AgencyJobsCubit] so a saved edit
+  /// refetches the list. Named route so the crash reporter tags the screen.
+  void _openEdit(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: 'payer/agency-job-edit'),
+        builder: (_) => EditAgencyJobScreen(
+          job: job,
+          cubit: context.read<AgencyJobsCubit>(),
+        ),
       ),
     );
   }

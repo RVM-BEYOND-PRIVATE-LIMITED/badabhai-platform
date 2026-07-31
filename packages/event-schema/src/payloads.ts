@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { VACANCY_BANDS, JOB_POSTING_STATUSES } from "@badabhai/types";
+import {
+  VACANCY_BANDS,
+  JOB_POSTING_STATUSES,
+  JOB_POSTING_VERIFICATION_STATUSES,
+} from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
 /**
@@ -800,6 +804,7 @@ export const ApplicationSkippedPayload = z.object({
 // ---------------------------------------------------------------------------
 const vacancyBand = z.enum(VACANCY_BANDS);
 const jobPostingStatus = z.enum(JOB_POSTING_STATUSES);
+const jobPostingVerificationStatus = z.enum(JOB_POSTING_VERIFICATION_STATUSES);
 
 // The only field KEYS an update may report as changed. Pinned as an enum (not a
 // free `z.string()`) so the registry STRUCTURALLY guarantees changed_fields can
@@ -942,6 +947,20 @@ export const JobPostingChatDraftReadyPayload = z
   .strict();
 export type JobPostingChatDraftReadyPayload = z.infer<typeof JobPostingChatDraftReadyPayload>;
 
+/**
+ * An OPS user set a job posting's TRUST review — the worker-visible "Verified job"
+ * badge. Records the transition only: the new [verification_status] and the
+ * [previous_status] it moved from. PII-free (id + enums). The lifecycle `status`
+ * (draft/open/…) is unaffected and NOT carried here.
+ */
+export const JobPostingVerificationUpdatedPayload = z.object({
+  job_posting_id: uuidSchema,
+  verification_status: jobPostingVerificationStatus,
+  previous_status: jobPostingVerificationStatus,
+});
+export type JobPostingVerificationUpdatedPayload = z.infer<
+  typeof JobPostingVerificationUpdatedPayload
+>;
 // unlock.* / contact.* / payment.* — Contact Unlock + Reveal (ADR-0010, Stream A).
 //
 // The single highest-risk PII path in the product — and therefore the family with

@@ -16,10 +16,13 @@ class _ScriptedAgencyApi extends MockPayerApiClient {
   Object? throwOnFetch;
   Object? throwOnClose;
   Object? throwOnPause;
+  Object? throwOnUpdate;
 
   int fetches = 0;
   final List<String> closed = <String>[];
   final List<String> paused = <String>[];
+  final List<String> updated = <String>[];
+  String? lastUpdatedTitle;
 
   @override
   Future<List<AgencyJobView>> fetchAgencyJobs() async {
@@ -40,6 +43,31 @@ class _ScriptedAgencyApi extends MockPayerApiClient {
     paused.add(id);
     if (throwOnPause != null) throw throwOnPause!;
     return _transitionToClosed(id);
+  }
+
+  @override
+  Future<AgencyJobView> updateAgencyJob(
+    String id, {
+    String? tradeKey,
+    String? title,
+    String? city,
+    String? area,
+    int? payMin,
+    int? payMax,
+    int? minExperienceYears,
+    int? maxExperienceYears,
+    String? neededBy,
+  }) async {
+    updated.add(id);
+    lastUpdatedTitle = title;
+    if (throwOnUpdate != null) throw throwOnUpdate!;
+    final AgencyJobView row = jobs.firstWhere((AgencyJobView j) => j.id == id);
+    final AgencyJobView next =
+        _job(row.id, status: row.status, title: title ?? row.title);
+    jobs = jobs
+        .map((AgencyJobView j) => j.id == id ? next : j)
+        .toList(growable: false);
+    return next;
   }
 
   AgencyJobView _transitionToClosed(String id) {
@@ -160,6 +188,49 @@ void main() {
       api.throwOnClose = Exception('socket closed');
 
       final JobActionResult result = await cubit.closePosting('j1');
+
+      expect(result.success, isFalse);
+      expect(result.message, 'Network error. Check your connection.');
+    });
+  });
+
+  group('editJob', () {
+    setUp(() async {
+      api.jobs = <AgencyJobView>[_job('j1', title: 'Old title')];
+      await cubit.load();
+      api.fetches = 0;
+    });
+
+    test('success PATCHes the job and refetches so the card updates', () async {
+      final JobActionResult result = await cubit.editJob(
+        'j1',
+        title: 'New title',
+        city: 'Pune',
+      );
+
+      expect(result.success, isTrue);
+      expect(result.message, 'Job updated.');
+      expect(api.updated, <String>['j1']);
+      expect(api.lastUpdatedTitle, 'New title');
+      expect(api.fetches, 1, reason: 'the edited card comes from a refetch');
+      expect(cubit.state.jobs.single.title, 'New title');
+    });
+
+    test('404 (unknown / not-owned) is a failure and does not refetch',
+        () async {
+      api.throwOnUpdate = const PayerApiException(404);
+
+      final JobActionResult result = await cubit.editJob('j1', title: 'x');
+
+      expect(result.success, isFalse);
+      expect(result.message, "This job isn't available.");
+      expect(api.fetches, 0);
+    });
+
+    test('a transport error is reported as a network error', () async {
+      api.throwOnUpdate = Exception('socket closed');
+
+      final JobActionResult result = await cubit.editJob('j1', title: 'x');
 
       expect(result.success, isFalse);
       expect(result.message, 'Network error. Check your connection.');
