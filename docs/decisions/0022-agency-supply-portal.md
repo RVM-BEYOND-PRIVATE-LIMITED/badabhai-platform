@@ -423,6 +423,16 @@ would write a false claim onto every consent row about what the worker read. No 
 the purpose yet, so the projection is **empty in production on day one**, which is correct and
 expected. The surface is inert until the notice ships.
 
+> **LAUNCH GATE — read this BEFORE shipping the `agent_activity_visibility` notice copy.**
+> The moment a worker can grant this purpose, `GET /payer/agency/workers` and
+> `GET /payer/agency/referrals/summary` become a **differencing oracle**: `accepted` is exact
+> above the k-anon floor, `/workers` returns only the consented, and the difference is the count
+> of the agency's own referrals who **refused**. With batch minting + a printed QR making
+> one-link-per-known-person the natural workflow, polling narrows that to one named individual.
+> Each endpoint is individually correct and floored; the oracle exists only in their composition.
+> It is **inert today only because the list is always empty**. Tracked as
+> **[R33](../registers/risks-register.md)** — close it in the same change that ships the notice.
+
 ### Printable QR
 
 Client-side rendering only, encoding **exactly** the invite URL and nothing else — no payer id,
