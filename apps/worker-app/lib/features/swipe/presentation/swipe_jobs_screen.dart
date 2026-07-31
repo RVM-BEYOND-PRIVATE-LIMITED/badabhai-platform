@@ -417,5 +417,23 @@ BbJobCardData _cardData(FeedItem item) {
         : '${item.area}, ${item.city}',
     payBand: formatPayBandCompact(item.payMin, item.payMax),
     shift: shiftLabel(item.shift),
+    matchNote: matchNoteFor(item),
   );
+}
+
+/// E18 (ADR-0036) — the card's "why am I seeing this" line.
+///
+/// ONLY for a RELATED match, and only when the server named the skill. An exact
+/// match needs no explanation; a related one does, because a job for a skill a
+/// man never listed otherwise reads as a mistake. Both conditions are required:
+/// with `via_related` true but no label we would have to write a vague "aapke
+/// kaam se milta-julta" that explains nothing, so the card stays silent instead.
+///
+/// Aap-form, no exclamation, no emoji — the worker-facing persona rules. The
+/// label is a closed-set value from the server, never free text.
+String? matchNoteFor(FeedItem item) {
+  if (!item.viaRelated) return null;
+  final String? skill = item.matchedSkillLabel;
+  if (skill == null || skill.trim().isEmpty) return null;
+  return 'Aapke $skill ke kaam se milta-julta hai.';
 }

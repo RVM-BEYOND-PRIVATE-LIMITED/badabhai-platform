@@ -61,6 +61,8 @@ class FeedItem extends Equatable {
     this.payMin,
     this.payMax,
     this.shift,
+    this.viaRelated = false,
+    this.matchedSkillLabel,
   });
 
   final String jobId;
@@ -95,6 +97,21 @@ class FeedItem extends Equatable {
   /// the server can record the position the decision was taken from.
   final int rank;
 
+  /// Matching V1 / E18 (ADR-0036): this job reached the worker through a
+  /// CURATED RELATED skill, not one he actually listed.
+  ///
+  /// ADDITIVE and defaulted false — the legacy feed does not send it, and the
+  /// V1 card is a strict superset of the legacy one, so an older build ignores
+  /// it and a newer build reading a legacy response simply sees `false`.
+  final bool viaRelated;
+
+  /// Matching V1 / E18: the skill that actually earned the match, for the
+  /// card's "aapke <skill> ke kaam se milta-julta hai" line. A closed-set
+  /// label, never free text. Null on the legacy feed and whenever the server
+  /// could not name it — the card then hides the line rather than inventing a
+  /// reason for why the job is being shown.
+  final String? matchedSkillLabel;
+
   factory FeedItem.fromJson(Map<String, dynamic> json) => FeedItem(
         jobId: json['job_id'] as String,
         tradeKey: json['trade_key'] as String? ?? '',
@@ -108,6 +125,9 @@ class FeedItem extends Equatable {
         payMax: (json['pay_max'] as num?)?.toInt(),
         shift: json['shift'] as String?,
         rank: (json['rank'] as num?)?.toInt() ?? 0,
+        // Absent (legacy feed) reads as false / null — never as "related".
+        viaRelated: json['via_related'] as bool? ?? false,
+        matchedSkillLabel: json['matched_skill_label'] as String?,
       );
 
   @override
@@ -123,6 +143,8 @@ class FeedItem extends Equatable {
         payMax,
         shift,
         rank,
+        viaRelated,
+        matchedSkillLabel,
       ];
 }
 

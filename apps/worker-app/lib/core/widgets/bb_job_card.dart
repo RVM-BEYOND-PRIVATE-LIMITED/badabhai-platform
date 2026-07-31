@@ -18,6 +18,7 @@ class BbJobCardData {
     this.shift,
     this.tags = const <String>[],
     this.spotsLeft,
+    this.matchNote,
   });
 
   final String title;
@@ -44,6 +45,19 @@ class BbJobCardData {
 
   /// Remaining spots — NULL on the real feed.
   final int? spotsLeft;
+
+  /// Matching V1 / E18 (ADR-0036): WHY this job is in the worker's feed, when
+  /// the reason is not simply "you have this skill".
+  ///
+  /// Shown only for a RELATED match, because that is the case a man would
+  /// otherwise find confusing — a lathe job appearing for someone who listed
+  /// VMC work reads as a mistake unless we say why. An exact match needs no
+  /// explanation, so it gets none rather than a line of noise on every card.
+  ///
+  /// NULL is the honest default: on the legacy feed, and whenever the server
+  /// did not name the matched skill, the card says nothing instead of guessing
+  /// at a reason.
+  final String? matchNote;
 }
 
 /// TalkBack label for the title button. Hinglish, matching the app voice and the
@@ -70,6 +84,17 @@ class BbJobCard extends StatelessWidget {
           _TitleRow(data: data, onTitleTap: onTitleTap),
           const SizedBox(height: AppSpacing.s3),
           _FactsRow(data: data),
+          // E18 — the "why am I seeing this" line, only for a related match.
+          if (data.matchNote != null) ...<Widget>[
+            const SizedBox(height: AppSpacing.s2),
+            Text(
+              data.matchNote!,
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
           if (data.tags.isNotEmpty) ...<Widget>[
             const SizedBox(height: AppSpacing.s3),
             Wrap(
