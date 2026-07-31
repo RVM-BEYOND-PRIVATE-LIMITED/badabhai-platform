@@ -26,6 +26,30 @@ Nothing in P4 may proceed past the item that depends on it.
 | 7 | **Play Console**: store listing, App Links domain verification, staged-rollout track ready | P5 client release. | ☐ |
 | 8 | **Confirm `AGENCY_PAYOUTS_ENABLED` stays OFF** | ADR-0022 gate. Explicitly out of scope for this release; the agency ledger stays mock. | ☐ |
 | 9 | **Production database backup/snapshot taken and its restore verified** | P1. A rehearsed restore, not an assumed one. | ☐ |
+| 10 | **`INTERNAL_SERVICE_TOKEN` set — to the SAME value — on both the API and the ops console (`apps/web`)** | **The entire ops API.** See the note below; this one is new and it is load-bearing. | ☐ |
+| 11 | **Ops API not publicly routable** (private network / VPN / IP allowlist in front of `apps/api`'s ops routes) | Defence in depth for the same surface. Owner ruling 2026-07-31: guard in code **and** infra, so a single misconfiguration on either side is not fatal. | ☐ |
+
+### P0-10 — why this is suddenly load-bearing
+
+Until 2026-07-31 the ops-internal API had **no guard at all**, and the ops console sent **no
+credential**. Those two facts cancelled out, so nothing failed and nothing looked wrong — while on
+a public internet an anonymous caller could `POST /job-postings` → `PATCH /:id {status:"open"}` →
+`POST /:id/verify` and put a **verified** job into real workers' feeds, read the whole audit spine
+via `GET /events`, and enumerate workers and ranked candidates.
+
+Fifteen routes are now behind `InternalServiceGuard`, and the console authenticates on every call.
+That guard **fails closed**: with the secret unset it denies every request. So:
+
+- **If the token is missing on the API**, the ops console is completely dead (every page errors).
+- **If the two values differ**, same outcome.
+
+That is the intended failure mode — a missing secret breaks the console loudly instead of silently
+re-opening the API — but it means the console is now a *hard* dependency on this env var, and a
+deploy that forgets it looks like a total ops outage. Set it before P2, not during it.
+
+`POST /consent/accept` is now worker-authed too, and takes the worker from the session rather than
+the request body. Old worker-app builds still send `worker_id`; the field is **stripped**, not
+rejected, so old and new clients both work and P5 can roll out at its own pace.
 
 ---
 
