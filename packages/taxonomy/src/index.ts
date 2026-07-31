@@ -7,6 +7,7 @@
  * existing ids must remain stable.
  */
 
+import { getMatchSkill } from "./match-skills";
 import { SKILL_CORPUS } from "./skill-corpus";
 
 export interface TaxonomyNode {
@@ -22,6 +23,12 @@ export interface Role extends TaxonomyNode {
 // ---- Industries ----
 export const INDUSTRIES = [
   { id: "ind_industrial_manufacturing", name: "Industrial Manufacturing" },
+  // Matching V1 (2026-07-30). APPENDED, never inserted — `ind_industrial_manufacturing`
+  // keeps position 0 and its spelling. Quick commerce is in the vocabulary because the
+  // founder's own worked example (E1) is a man with BOTH a delivery history and a CNC
+  // lathe history: without the industry, "delivery months contribute nothing to a
+  // factory job" is a claim we cannot write a real table test for.
+  { id: "ind_quick_commerce", name: "Quick-commerce Delivery" },
 ] as const satisfies readonly TaxonomyNode[];
 
 // ---- Domains (within manufacturing) ----
@@ -169,7 +176,7 @@ const _ACRONYMS = new Set([
 /**
  * Turn a raw taxonomy id into a readable display name. NEVER returns a raw
  * `*_`-prefixed id: an exact resolver hit (`role_*`/`mach_*`/`skill_*`/`dom_*`/
- * `ind_*`, plus the full SKILL_CORPUS) wins; otherwise the id is prettified
+ * `ind_*`/`mskill_*`, plus the full SKILL_CORPUS) wins; otherwise the id is prettified
  * (prefix stripped, `_` → space, title-cased, acronyms upper-cased) so e.g.
  * `role_hmc_operator` → "HMC Operator" and an unknown `skill_foo_bar` → "Foo Bar".
  *
@@ -182,6 +189,11 @@ export function labelForTaxonomyId(id: string): string {
   const node =
     getRole(id) ?? getMachine(id) ?? getSkill(id) ?? getDomain(id) ?? getIndustry(id);
   if (node) return node.name;
+  // Matching V1 `mskill_*` ids. Resolved BEFORE the prettifier so the curated label
+  // wins: `mskill_cnc_operator_general` must render "CNC Operator", not
+  // "CNC Operator General".
+  const matchSkill = getMatchSkill(id);
+  if (matchSkill) return matchSkill.label;
   const corpus = _SKILL_CORPUS_LABEL.get(id);
   if (corpus) return corpus;
   // Only ID-SHAPED values get prettified; a plain phrase ("VMC", "cnc operating")
@@ -189,7 +201,7 @@ export function labelForTaxonomyId(id: string): string {
   return _ID_PREFIX_RE.test(id) ? prettifyTaxonomyId(id) : id;
 }
 
-const _ID_PREFIX_RE = /^(role|skill|mach|dom|ind|trade|ctrl)_/;
+const _ID_PREFIX_RE = /^(role|mskill|skill|mach|dom|ind|trade|ctrl)_/;
 
 /** Last-resort humanization of an unresolved id — never shows the raw code word. */
 export function prettifyTaxonomyId(id: string): string {
@@ -207,6 +219,10 @@ export function prettifyTaxonomyId(id: string): string {
 
 // ADR-0030 / TAX-2 — the canonical SKILL corpus + domain map + validators.
 export * from "./skill-corpus";
+
+// Matching V1 — the `mskill_*` posting-level vocabulary, the curated symmetric
+// relation, and the three deterministic bridges from today's data into it.
+export * from "./match-skills";
 
 // ADR-0030 / TAX-5 — PROPOSED vernacular wedge aliases (RVM ratification-gated).
 export * from "./wedge-aliases";
