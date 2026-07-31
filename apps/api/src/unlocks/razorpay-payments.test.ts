@@ -19,6 +19,8 @@ import {
   RazorpayWebhookSchema,
 } from "./razorpay-webhook.dto";
 import { signCheckoutForTest } from "./razorpay-signature";
+import type { Queue } from "bullmq";
+import type { ReferralBonusJobData } from "../queue/queue.constants";
 
 /**
  * REAL-MONEY IDEMPOTENCY — the properties that must hold when Razorpay retries a webhook
@@ -235,6 +237,9 @@ function makeService() {
     payments,
     events as unknown as EventsService,
     LIVE_CONFIG,
+    // §X.6 — the activation-bonus queue. Inert here: these tests exercise the payment
+    // path, and a credit purchase is not the unlock grant that completes the bonus rule.
+    { add: vi.fn(async () => undefined) } as unknown as Queue<ReferralBonusJobData>,
   );
   return { svc, payments, events, razorpay, pricing, ...fake };
 }
@@ -654,6 +659,7 @@ describe("PAYMENTS_ENABLE_REAL=false — the mock path is unchanged and remains 
       payments,
       events as unknown as EventsService,
       MOCK_CONFIG,
+      { add: vi.fn(async () => undefined) } as unknown as Queue<ReferralBonusJobData>,
     );
     return { svc, events, razorpay, repo: fake.repo };
   }

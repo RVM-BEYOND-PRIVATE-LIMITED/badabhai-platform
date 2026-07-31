@@ -1,10 +1,16 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, count, eq, isNotNull, sql, sum } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { type Database, invites, unlocks, workerProfiles, workers } from "@badabhai/db";
+import {
+  type Database,
+  invites,
+  referralBonusAccruals,
+  unlocks,
+  workerProfiles,
+  workers,
+  type ReferralBonusAccrual,
+} from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
-// TEMPORARY: swap to `@badabhai/db` once the sibling migration lands (see the file header).
-import { referralBonusAccruals, type ReferralBonusAccrual } from "./referral-bonus.table";
 
 /** The attributing worker→worker invite for a referred worker (opaque ids only). */
 export interface AttributingInvite {
@@ -107,9 +113,16 @@ export class ReferralBonusRepository {
 
   /**
    * FRAUD CHECK B — has the invited worker's PHONE already earned a bonus under some other
-   * worker row? (Delete the account, re-register the same number, get referred again.) The
-   * UNIQUE constraint only stops a repeat on the same worker id, so the phone is the
+   * worker row? (Re-register the same number, get referred again.) `UNIQUE
+   * (invited_worker_id)` only stops a repeat on the same worker ID, so the phone is the
    * durable identity here. Again a pure-SQL join: no hash crosses the boundary.
+   *
+   * LIMIT — this closes the re-register loophole ONLY while the earlier accrual row still
+   * exists. Both worker FKs are `ON DELETE CASCADE` (migration 0058, deliberate + DPDP-
+   * correct), so a DSAR erasure destroys the accrual, and with it the evidence this check
+   * reads: delete → re-register → be referred again would qualify a second time. Closing
+   * that would need a PII-free "this phone hash has earned" tombstone that SURVIVES
+   * erasure, which is a schema decision, not an app-layer one. Recorded, not worked around.
    */
   async phoneAlreadyEarned(invitedWorkerId: string): Promise<boolean> {
     const earner = alias(workers, "earner_w");
@@ -129,6 +142,11 @@ export class ReferralBonusRepository {
    * idempotency authority — two concurrent qualifications for the same referred worker
    * produce exactly one row, and the loser gets `undefined` (so it emits no event). This is
    * the "one bonus per referred worker, ever" rule; nothing depends on a read-then-write.
+   *
+   * The conflict target infers `referral_bonus_accruals_invited_uq` (migration 0058). Note
+   * the table ALSO carries `CHECK (inviter_worker_id <> invited_worker_id)` and
+   * `CHECK (amount_inr > 0)`: the service's own self-referral and amount rules are
+   * belt-and-braces above those, not the only line of defence.
    */
   async accrue(input: {
     inviterWorkerId: string;
